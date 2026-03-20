@@ -1,8 +1,12 @@
-use crate::basic_block::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbStmt};
-use crate::basic_block::block_py::{BlockPyLabel, BlockPyStmt, BlockPyTerm};
+use crate::basic_block::bb_ir::{BbBlock, BbBlockMeta, BbStmt};
+use crate::basic_block::block_py::{
+    BbBlockPyPass, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyStmt, BlockPyTerm,
+};
 use std::collections::HashSet;
 
-pub fn lower_try_jump_exception_flow(module: &BbModule) -> Result<BbModule, String> {
+pub fn lower_try_jump_exception_flow(
+    module: &BlockPyModule<BbBlockPyPass>,
+) -> Result<BlockPyModule<BbBlockPyPass>, String> {
     let mut lowered = module.clone();
     for function in &mut lowered.callable_defs {
         lower_function_try_jump_exception_flow(function)?;
@@ -10,7 +14,9 @@ pub fn lower_try_jump_exception_flow(module: &BbModule) -> Result<BbModule, Stri
     Ok(lowered)
 }
 
-fn lower_function_try_jump_exception_flow(function: &mut BbFunction) -> Result<(), String> {
+fn lower_function_try_jump_exception_flow(
+    function: &mut BlockPyFunction<BbBlockPyPass>,
+) -> Result<(), String> {
     let label_set: HashSet<&str> = function
         .blocks
         .iter()
@@ -27,7 +33,7 @@ fn lower_function_try_jump_exception_flow(function: &mut BbFunction) -> Result<(
     Ok(())
 }
 
-fn split_exception_blocks_for_expr_checks(function: &mut BbFunction) {
+fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlockPyPass>) {
     let mut used_labels: HashSet<BlockPyLabel> = function
         .blocks
         .iter()
@@ -129,7 +135,10 @@ fn apply_op_effect_to_known_names(op: &BbStmt, known_names: &mut Vec<String>) {
     }
 }
 
-fn validate_function_labels(function: &BbFunction, labels: &HashSet<&str>) -> Result<(), String> {
+fn validate_function_labels(
+    function: &BlockPyFunction<BbBlockPyPass>,
+    labels: &HashSet<&str>,
+) -> Result<(), String> {
     let entry_label = function.entry_label();
     if !labels.contains(entry_label) {
         return Err(format!(
@@ -183,7 +192,7 @@ fn validate_function_labels(function: &BbFunction, labels: &HashSet<&str>) -> Re
 fn ensure_known_label(
     labels: &HashSet<&str>,
     label: &str,
-    function: &BbFunction,
+    function: &BlockPyFunction<BbBlockPyPass>,
     block_label: &str,
     label_kind: &str,
 ) -> Result<(), String> {

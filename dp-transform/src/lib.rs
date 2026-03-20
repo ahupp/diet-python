@@ -1,5 +1,4 @@
 use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
-use crate::basic_block::ruff_to_blockpy::LoweredBlockPyModule;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
@@ -24,10 +23,8 @@ mod web_inspector;
 use crate::basic_block::ast_to_ast::context::Context;
 pub use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, Scope};
 pub use crate::basic_block::ast_to_ast::Options;
-use crate::basic_block::bb_ir;
 use crate::basic_block::block_py::{
-    CoreBlockPyModule, CoreBlockPyModuleWithoutAwait, CoreBlockPyModuleWithoutAwaitOrYield,
-    SemanticBlockPyModule,
+    BbBlockPyPass, BlockPyFunction, BlockPyModule, RuffBlockPyPass,
 };
 use crate::driver::rewrite_module_with_tracker;
 
@@ -90,7 +87,7 @@ fn should_skip(source: &str) -> bool {
 pub struct LoweringResult {
     pub timings: TransformTimings,
     pub module: ModModule,
-    pub bb_module: Option<bb_ir::BbModule>,
+    pub bb_module: Option<BlockPyModule<BbBlockPyPass>>,
     passes: PassTracker,
 }
 
@@ -133,46 +130,12 @@ impl PassTracker {
             .and_then(|pass| pass.value.downcast_ref::<T>())
     }
 
-    pub(crate) fn ast_to_ast(
-        &self,
-    ) -> Option<&(Suite, crate::basic_block::block_py::SemanticBlockPyModule)> {
-        self.get("ast-to-ast")
-    }
-
     pub(crate) fn ast_to_ast_module(&self) -> Option<&Suite> {
-        self.ast_to_ast().map(|(module, _)| module)
-    }
-
-    pub(crate) fn semantic_blockpy(
-        &self,
-    ) -> Option<&crate::basic_block::block_py::SemanticBlockPyModule> {
-        self.get("semantic_blockpy")
-    }
-
-    pub(crate) fn blockpy(&self) -> Option<&LoweredBlockPyModule> {
-        self.get("blockpy")
-    }
-
-    pub(crate) fn core_blockpy(&self) -> Option<&CoreBlockPyModule> {
-        self.get("core_blockpy")
-    }
-
-    pub(crate) fn core_blockpy_with_explicit_eval_order(&self) -> Option<&CoreBlockPyModule> {
-        self.get("core_blockpy_with_explicit_eval_order")
-    }
-
-    pub(crate) fn core_blockpy_without_await(&self) -> Option<&CoreBlockPyModuleWithoutAwait> {
-        self.get("core_blockpy_without_await")
-    }
-
-    pub(crate) fn core_blockpy_without_await_or_yield(
-        &self,
-    ) -> Option<&CoreBlockPyModuleWithoutAwaitOrYield> {
-        self.get("core_blockpy_without_await_or_yield")
-    }
-
-    pub(crate) fn bb(&self) -> Option<&bb_ir::BbModule> {
-        self.get("bb")
+        self.get::<(
+            Suite,
+            crate::basic_block::block_py::BlockPyModule<RuffBlockPyPass>,
+        )>("ast-to-ast")
+            .map(|(module, _)| module)
     }
 
     fn names(&self) -> impl Iterator<Item = &str> {
@@ -280,7 +243,7 @@ pub fn transform_str_to_ruff_with_options(
 pub fn transform_str_to_bb_ir_with_options(
     source: &str,
     options: Options,
-) -> Result<Option<bb_ir::BbModule>, ParseError> {
+) -> Result<Option<BlockPyModule<BbBlockPyPass>>, ParseError> {
     let mut options = options;
     options.lower_attributes = true;
 
@@ -290,7 +253,7 @@ pub fn transform_str_to_bb_ir_with_options(
 pub fn transform_str_to_blockpy_with_options(
     source: &str,
     options: Options,
-) -> Result<crate::basic_block::block_py::SemanticBlockPyModule, ParseError> {
+) -> Result<BlockPyModule<RuffBlockPyPass>, ParseError> {
     init_logging();
     namegen::reset_namegen_state();
 
@@ -300,16 +263,16 @@ pub fn transform_str_to_blockpy_with_options(
     let ModModule { body, .. } = module;
 
     let (pass_tracker, _bb_module) = crate::driver::rewrite_module(&ctx, body);
-    Ok(crate::basic_block::block_py::SemanticBlockPyModule {
-        callable_defs: pass_tracker
-            .blockpy()
-            .expect("blockpy pass should be tracked")
-            .callable_defs
-            .iter()
-            .cloned()
-            .map(|lowered| lowered.map_extra(|_| ()))
-            .collect(),
-    })
+    let blockpy = pass_tracker
+        .get::<BlockPyModule<crate::basic_block::block_py::LoweredRuffBlockPyPass>>("blockpy")
+        .expect("blockpy pass should be tracked");
+    let callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>> = blockpy
+        .callable_defs
+        .iter()
+        .cloned()
+        .map(|lowered| lowered.map_extra(|_| ()))
+        .collect();
+    Ok(BlockPyModule { callable_defs })
 }
 
 pub trait ToRuffAst {

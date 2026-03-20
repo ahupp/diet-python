@@ -1,18 +1,16 @@
-use crate::basic_block::block_py::is_internal_entry_livein;
+use crate::basic_block::block_py::{is_internal_entry_livein, BlockPyPass, BlockPyStmt};
 
 pub use super::block_py::BbBlockMeta;
 use super::block_py::{
-    BbBlockPyPass, BlockPyCallableDef, BlockPyRaise, CoreBlockPyExprWithoutAwaitOrYield,
-    CoreBlockPyLiteral, PassBlock, PassFunction, PassModule, PassStmt,
+    BbBlockPyPass, BlockPyFunction, BlockPyRaise, CoreBlockPyExprWithoutAwaitOrYield,
+    CoreBlockPyLiteral, PassBlock,
 };
 use ruff_python_ast as ast;
 
-pub type BbModule = PassModule<BbBlockPyPass>;
-pub type BbStmt = PassStmt<BbBlockPyPass>;
+pub type BbStmt = BlockPyStmt<<BbBlockPyPass as BlockPyPass>::Expr>;
 pub type BbBlock = PassBlock<BbBlockPyPass>;
-pub type BbFunction = PassFunction<BbBlockPyPass>;
 
-impl BlockPyCallableDef<CoreBlockPyExprWithoutAwaitOrYield, BbBlock> {
+impl BlockPyFunction<BbBlockPyPass> {
     pub fn entry_liveins(&self) -> Vec<String> {
         if self.blocks.is_empty() {
             return Vec::new();

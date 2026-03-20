@@ -1,41 +1,19 @@
-# Wishlist, DO NOT REMOVE
-
- * explicit, semantic meaning on passes (e.g, generators to yield from, pass N)
- * remove ruff StmtBody, use stock ruff
- * Use ruff scope analysis
- * simplify function-representation types through lowering; see [plans/FunctionTypes.md](plans/FunctionTypes.md)
- * Search for dead functions
- * try_lower_function_to_blockpy_bundle, wtf
 
 ## Codex TODO Intake
 
 - Reserved for user requests that start with `TODO`.
 - Add one entry per request and include any plan or relevant response summary with it.
-- Remove local `StmtBody` usage and move back to upstream Ruff structures.
-  - Planning note:
-    - The desired end state is to stop depending on the local `StmtBody` wrapper and align the lowering pipeline back with upstream Ruff AST/container shapes.
-    - This likely requires auditing every pass boundary that currently takes or returns `StmtBody`, then replacing those boundaries one by one with upstream Ruff forms instead of doing a single large delete.
-    - Keep the migration explicit in the top-level pipeline so container-shape normalization is no longer hidden inside helper layers.
+
 - Use Ruff for scope analysis and see if it can be computed once and preserved through transform layers.
   - Planning note:
     - The desired end state is to replace local repeated scope-analysis passes with Ruff’s scope analysis and carry that result through later transform phases instead of recomputing scope metadata.
     - This likely requires identifying the current pass boundaries that invalidate or rebuild scope information, then either preserving Ruff scope objects directly or translating them once into a stable internal form.
     - Keep the scope-analysis ownership explicit in the top-level pipeline so later passes consume preserved scope data rather than silently re-running analysis.
-- Remove BB-lowering paths, and other unexpected late-stage dependencies, that pull Ruff `Stmt` / `Expr` back in after the semantic BlockPy boundary.
-  - Planning note:
-    - The desired end state is for BB lowering to analyze and normalize BlockPy directly instead of round-tripping through Ruff AST `Stmt` forms or depending on earlier Ruff `Expr` helpers unexpectedly late in the pipeline.
-    - A good first pass is to audit all Ruff `Stmt` / `Expr` imports and call sites, confirm which ones are still expected at each lowering stage, and merge that inventory with the concrete BB-lowering round-trip cleanup.
-    - This likely means replacing helper code that reconstructs `Stmt`/`StmtBody` for load-name, exception, or normalization analysis with BlockPy-native analysis utilities, while also tightening any remaining late-stage Ruff-expression dependencies to only the intended boundaries.
-    - Keep the dataflow explicit so the BlockPy -> BB boundary no longer reintroduces earlier AST representations.
 - Move refcount management out of `soac-eval` and into a new explicit pass in `rewrite_module`.
   - Planning note:
     - The current JIT path in `soac-eval` still owns a large amount of `incref` / `decref` insertion and runtime helper wiring (`dp_jit_incref`, `dp_jit_decref`), which makes ownership of reference semantics backend-local instead of pipeline-visible.
     - The desired end state is for refcount ownership to become an explicit lowered-module pass in `rewrite_module`, so later backends consume already-refcount-annotated IR instead of each backend re-deriving those rules.
     - A good first pass is to identify the minimal IR annotation or explicit stmt/term forms needed for retain/release edges, then move the current JIT-only reference-management decisions behind one driver-visible transform boundary.
-- Fold `linearize_structured_ifs` into `lower_blockpy_blocks_to_bb_blocks`.
-  - Planning note:
-    - `lower_core_blockpy_function_to_bb_function` would read more clearly if it were mostly a direct lowered-function copy with one transform on the `blocks` field, instead of separately unpacking `linearize_structured_ifs(...)` first.
-    - A good refactor is to make `lower_blockpy_blocks_to_bb_blocks` own the structured-if linearization plus BB block conversion, so the outer function becomes a straightforward metadata copy from the final core lowered function into the BB lowered function.
 - Move `codegen_trace` to be a generic transform over `CfgModule`.
   - Planning note:
     - The current ownership under `blockpy_to_bb` suggests BB-specific trace injection, but the transform shape is really a CFG/module rewrite that should be expressible over generic `CfgModule` structure.
@@ -85,5 +63,6 @@
 - Collapse the repeated Ruff/Semantic/Core BlockPy alias families into one stage-oriented representation, ideally via associated types on a stage trait or wrapper type.
 - Remove the fallback await-lowering path so all awaits use one explicit pass, and make that pass appear as a top-level step in `rewrite_module`.
 - Add an evaluation-order-explicit pass that hoists composite subexpressions into temps while preserving left-to-right evaluation, e.g. `a = foo(b(), c)` -> `tmp = b(); a = foo(tmp, c)`.
+- Remove local `StmtBody` usage and move back to upstream Ruff structures.
 
 

@@ -1,6 +1,7 @@
 use crate::basic_block::bb_ir;
 use crate::basic_block::block_py::{
-    BlockPyFunctionKind, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
+    BbBlockPyPass, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyTerm,
+    CoreBlockPyExprWithoutAwaitOrYield,
 };
 use crate::{transform_str_to_ruff_with_options, LoweringResult, Options};
 use cranelift_codegen::ir::{self, condcodes::IntCC, types, AbiParam, InstBuilder, UserFuncName};
@@ -111,7 +112,7 @@ fn wasm_options_from_selected(transforms: &Array) -> Options {
     options
 }
 
-fn bb_module_to_json(module: &bb_ir::BbModule) -> Value {
+fn bb_module_to_json(module: &BlockPyModule<BbBlockPyPass>) -> Value {
     let functions = module
         .callable_defs
         .iter()
@@ -362,7 +363,9 @@ fn clif_target_args_for_block(
     args
 }
 
-fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<String, String> {
+fn render_cranelift_function_from_bb(
+    function: &BlockPyFunction<BbBlockPyPass>,
+) -> Result<String, String> {
     if function.blocks.is_empty() {
         return Err("function has no blocks".to_string());
     }
@@ -500,7 +503,7 @@ fn render_cranelift_function_from_bb(function: &bb_ir::BbFunction) -> Result<Str
     Ok(func.display().to_string())
 }
 
-fn bb_module_to_clif(module: &bb_ir::BbModule) -> String {
+fn bb_module_to_clif(module: &BlockPyModule<BbBlockPyPass>) -> String {
     if module.callable_defs.is_empty() {
         return "; no basic-block functions emitted".to_string();
     }

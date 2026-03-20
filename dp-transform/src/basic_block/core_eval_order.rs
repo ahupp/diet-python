@@ -1,8 +1,8 @@
 use super::block_py::{
-    BlockPyBlock, BlockPyBranchTable, BlockPyCallableDef, BlockPyCfgFragment, BlockPyIf,
+    BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyFunction, BlockPyIf,
     BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCall,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyFunction, CoreBlockPyKeywordArg,
-    CoreBlockPyModule, CoreBlockPyYield, CoreBlockPyYieldFrom,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyPass, CoreBlockPyYield,
+    CoreBlockPyYieldFrom,
 };
 use crate::basic_block::block_py::BlockPyAssign;
 use crate::namegen::fresh_name;
@@ -226,16 +226,10 @@ fn make_eval_order_explicit_in_core_block(
     }
 }
 
-fn make_eval_order_explicit_in_core_callable_def(
-    callable_def: CoreBlockPyFunction,
-) -> CoreBlockPyFunction {
+pub(crate) fn make_eval_order_explicit_in_core_callable_def(
+    callable_def: BlockPyFunction<CoreBlockPyPass>,
+) -> BlockPyFunction<CoreBlockPyPass> {
     callable_def.map_blocks(make_eval_order_explicit_in_core_block)
-}
-
-pub(crate) fn make_eval_order_explicit_in_lowered_core_blockpy_module_bundle(
-    module: CoreBlockPyModule,
-) -> CoreBlockPyModule {
-    module.map_callable_defs(make_eval_order_explicit_in_core_callable_def)
 }
 
 #[cfg(test)]

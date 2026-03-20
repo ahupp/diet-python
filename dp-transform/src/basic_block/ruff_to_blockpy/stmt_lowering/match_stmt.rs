@@ -491,7 +491,7 @@ pub(crate) fn rewrite_match_stmt(context: &Context, match_stmt: ast::StmtMatch) 
         let ast::MatchCase {
             pattern,
             guard,
-            body: mut body,
+            mut body,
             ..
         } = case;
         let body = body_to_vec(take_suite(&mut body));
@@ -607,7 +607,7 @@ impl StmtLowerer for ast::StmtMatch {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{simplify_stmt_ast_for_blockpy, BlockPyStmtFragmentBuilder};
+    use super::super::{simplify_stmt_ast_once_for_blockpy, BlockPyStmtFragmentBuilder};
     use super::*;
     use crate::basic_block::ast_to_ast::{context::Context, Options};
 
@@ -624,7 +624,7 @@ match x:
         };
 
         let context = Context::new(Options::for_test(), "");
-        let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::Match(match_stmt));
+        let simplified = simplify_stmt_ast_once_for_blockpy(&context, Stmt::Match(match_stmt));
 
         assert!(!matches!(simplified.as_slice(), [Stmt::Match(_)]));
     }

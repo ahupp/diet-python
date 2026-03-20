@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use dp_transform::basic_block::block_py::{
-    BlockPyBlock, BlockPyCfgFragment, BlockPyStmt, SemanticBlockPyModule,
+    BlockPyBlock, BlockPyCfgFragment, BlockPyModule, BlockPyStmt, RuffBlockPyPass,
 };
 use dp_transform::basic_block::normalize_bb_module_for_codegen;
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
@@ -137,7 +137,7 @@ fn with_suppressed_panic_hook<T>(f: impl FnOnce() -> Result<T, String>) -> Resul
     }
 }
 
-fn count_blockpy_blocks(module: &SemanticBlockPyModule) -> usize {
+fn count_blockpy_blocks(module: &BlockPyModule<RuffBlockPyPass>) -> usize {
     module
         .callable_defs
         .iter()
@@ -185,7 +185,11 @@ fn count_blockpy_blocks_in_term(term: &dp_transform::basic_block::block_py::Bloc
     }
 }
 
-fn count_clif_blocks(module: &dp_transform::basic_block::bb_ir::BbModule) -> usize {
+fn count_clif_blocks(
+    module: &dp_transform::basic_block::block_py::BlockPyModule<
+        dp_transform::basic_block::block_py::BbBlockPyPass,
+    >,
+) -> usize {
     let normalized = normalize_bb_module_for_codegen(module);
     normalized
         .callable_defs

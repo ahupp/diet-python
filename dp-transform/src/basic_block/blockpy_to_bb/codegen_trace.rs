@@ -1,17 +1,19 @@
-use crate::basic_block::bb_ir::{BbBlockMeta, BbModule, BbStmt};
+use crate::basic_block::bb_ir::{BbBlockMeta, BbStmt};
 use crate::basic_block::block_py::{
-    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral,
+    BbBlockPyPass, BlockPyModule, CoreBlockPyCall, CoreBlockPyCallArg,
+    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
 };
 use crate::basic_block::cfg_trace::{
-    instrument_cfg_module_for_trace, parse_cfg_trace_config, parse_cfg_trace_env, CfgTraceConfig,
-    TraceBlockMeta,
+    instrument_cfg_module_for_trace, CfgTraceConfig, TraceBlockMeta,
 };
 use ruff_python_ast::str::Quote;
 use ruff_python_ast::{
     self as ast, ExprName, StringLiteral, StringLiteralFlags, StringLiteralValue,
 };
 use ruff_text_size::TextRange;
+
+#[cfg(test)]
+use crate::basic_block::cfg_trace::parse_cfg_trace_config;
 
 pub(crate) type BbTraceConfig = CfgTraceConfig;
 
@@ -21,16 +23,10 @@ impl TraceBlockMeta for BbBlockMeta {
     }
 }
 
-pub(crate) fn parse_bb_trace_env() -> Option<BbTraceConfig> {
-    parse_cfg_trace_env()
-}
-
-#[cfg(test)]
-fn parse_bb_trace_config(raw: &str) -> Option<BbTraceConfig> {
-    parse_cfg_trace_config(raw)
-}
-
-pub(crate) fn instrument_bb_module_for_trace(module: &mut BbModule, config: &BbTraceConfig) {
+pub(crate) fn instrument_bb_module_for_trace(
+    module: &mut BlockPyModule<BbBlockPyPass>,
+    config: &CfgTraceConfig,
+) {
     instrument_cfg_module_for_trace(module, config, |qualname, label, params| {
         let trace_expr = if !params.is_empty() {
             helper_call_expr(
@@ -123,35 +119,36 @@ fn param_pairs_expr(params: &[String]) -> CoreBlockPyExprWithoutAwaitOrYield {
 
 #[cfg(test)]
 mod tests {
-    use super::{instrument_bb_module_for_trace, parse_bb_trace_config, BbTraceConfig};
+    use super::{instrument_bb_module_for_trace, parse_cfg_trace_config, BbTraceConfig};
     use crate::{
-        basic_block::normalize_bb_module_for_codegen, transform_str_to_bb_ir_with_options, Options,
+        basic_block::{cfg_trace::CfgTraceConfig, normalize_bb_module_for_codegen},
+        transform_str_to_bb_ir_with_options, Options,
     };
 
     #[test]
     fn parses_all_and_params_variants() {
         assert_eq!(
-            parse_bb_trace_config("all:params"),
-            Some(BbTraceConfig {
+            parse_cfg_trace_config("all:params"),
+            Some(CfgTraceConfig {
                 qualname_filter: None,
                 include_params: true,
             })
         );
         assert_eq!(
-            parse_bb_trace_config("run"),
-            Some(BbTraceConfig {
+            parse_cfg_trace_config("run"),
+            Some(CfgTraceConfig {
                 qualname_filter: Some("run".to_string()),
                 include_params: false,
             })
         );
         assert_eq!(
-            parse_bb_trace_config("run:params"),
-            Some(BbTraceConfig {
+            parse_cfg_trace_config("run:params"),
+            Some(CfgTraceConfig {
                 qualname_filter: Some("run".to_string()),
                 include_params: true,
             })
         );
-        assert_eq!(parse_bb_trace_config("0"), None);
+        assert_eq!(parse_cfg_trace_config("0"), None);
     }
 
     #[test]

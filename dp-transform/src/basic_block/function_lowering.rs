@@ -4,9 +4,9 @@ use super::annotation_export::{
 };
 use super::block_py::state::collect_cell_slots;
 use super::block_py::{
-    BlockPyBlock, BlockPyBranchTable, BlockPyCallableDef, BlockPyCallableFacts,
-    BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
-    BlockPyTerm, FunctionName,
+    BlockPyBlock, BlockPyBranchTable, BlockPyCallableFacts, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm,
+    FunctionName, RuffBlockPyPass,
 };
 use super::bound_names::{collect_bound_names, collect_explicit_global_or_nonlocal_names};
 use super::function_identity::{resolve_runtime_function_identity, FunctionIdentity};
@@ -298,7 +298,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     reserved_temp_names_stack: &mut Vec<HashSet<String>>,
     next_block_id: &mut usize,
     next_function_id: &mut usize,
-) -> Option<BlockPyCallableDef<Expr>> {
+) -> Option<BlockPyFunction<RuffBlockPyPass>> {
     if should_keep_non_lowered_for_annotationlib(func) {
         return None;
     }

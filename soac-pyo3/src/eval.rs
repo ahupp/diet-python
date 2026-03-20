@@ -133,7 +133,6 @@ pub(crate) fn jit_render_bb_with_cfg_plan_impl(
 
 #[cfg(test)]
 mod tests {
-    use dp_transform::basic_block::bb_ir;
     use dp_transform::basic_block::block_py::BlockPyFunctionKind;
     use soac_eval::jit::{self, BlockExcArgSource};
     use std::any::Any;
@@ -181,7 +180,13 @@ mod tests {
         }
     }
 
-    fn validate_bb_module_for_jit(bb_module: Option<&bb_ir::BbModule>) -> Result<(), String> {
+    fn validate_bb_module_for_jit(
+        bb_module: Option<
+            &dp_transform::basic_block::block_py::BlockPyModule<
+                dp_transform::basic_block::block_py::BbBlockPyPass,
+            >,
+        >,
+    ) -> Result<(), String> {
         let bb_module = bb_module.ok_or_else(|| {
             "JIT mode requires emitted basic-block IR, but none was produced".to_string()
         })?;
@@ -196,7 +201,13 @@ mod tests {
         Ok(())
     }
 
-    fn run_cranelift_jit_preflight(bb_module: Option<&bb_ir::BbModule>) -> Result<(), String> {
+    fn run_cranelift_jit_preflight(
+        bb_module: Option<
+            &dp_transform::basic_block::block_py::BlockPyModule<
+                dp_transform::basic_block::block_py::BbBlockPyPass,
+            >,
+        >,
+    ) -> Result<(), String> {
         let bb_module = bb_module.ok_or_else(|| {
             "JIT mode requires emitted basic-block IR, but none was produced".to_string()
         })?;

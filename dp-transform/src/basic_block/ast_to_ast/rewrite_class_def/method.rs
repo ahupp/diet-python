@@ -1,6 +1,6 @@
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
-use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref};
+use crate::basic_block::ast_to_ast::body::suite_mut;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{basic_block::ast_to_ast::util::is_noarg_call, py_expr, py_stmt};
 

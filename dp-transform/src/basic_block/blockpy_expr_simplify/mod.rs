@@ -1,11 +1,11 @@
 use super::{
     ast_to_ast::rewrite_expr::string::lower_string_templates_in_expr,
     block_py::{
-        BlockPyBlock, BlockPyBlockMeta, BlockPyBranchTable, BlockPyCallableDef, BlockPyCfgFragment,
-        BlockPyDelete, BlockPyIf, BlockPyIfTerm, BlockPyModule, BlockPyRaise, BlockPyStmt,
-        BlockPyStmtFragment, BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAwait,
-        CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
-        CoreBlockPyLiteral, CoreBlockPyYield, CoreBlockPyYieldFrom, SemanticBlockPyModule,
+        BlockPyBlock, BlockPyBlockMeta, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete,
+        BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
+        BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCall,
+        CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+        CoreBlockPyPass, CoreBlockPyYield, CoreBlockPyYieldFrom, LoweredRuffBlockPyPass,
     },
 };
 use crate::basic_block::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
@@ -15,6 +15,9 @@ use crate::basic_block::{
 };
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
+
+#[cfg(test)]
+use super::block_py::{BlockPyModule, LoweredBlockPyExtra, RuffBlockPyPass};
 
 type CoreStmtBuilder = BlockPyStmtFragmentBuilder<CoreBlockPyExpr>;
 type SemanticExpr = Expr;
@@ -413,10 +416,10 @@ fn lower_semantic_block(block: BlockPyBlock<Expr>) -> BlockPyBlock<CoreBlockPyEx
     }
 }
 
-pub(crate) fn simplify_blockpy_callable_def_exprs<X>(
-    callable_def: BlockPyCallableDef<Expr, BlockPyBlock<Expr>, X>,
-) -> BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>, X> {
-    let BlockPyCallableDef {
+pub(crate) fn simplify_blockpy_callable_def_exprs(
+    callable_def: BlockPyFunction<LoweredRuffBlockPyPass>,
+) -> BlockPyFunction<CoreBlockPyPass> {
+    let BlockPyFunction {
         function_id,
         names,
         kind,
@@ -429,7 +432,7 @@ pub(crate) fn simplify_blockpy_callable_def_exprs<X>(
         try_regions,
         extra,
     } = callable_def;
-    BlockPyCallableDef {
+    BlockPyFunction {
         function_id,
         names,
         kind,
@@ -445,15 +448,46 @@ pub(crate) fn simplify_blockpy_callable_def_exprs<X>(
 }
 
 #[cfg(test)]
-pub(crate) fn simplify_blockpy_module_exprs(
-    module: SemanticBlockPyModule,
-) -> TestCoreBlockPyModule {
-    module.map_callable_defs(simplify_blockpy_callable_def_exprs)
+fn simplify_semantic_blockpy_callable_def_exprs(
+    callable_def: BlockPyFunction<RuffBlockPyPass>,
+) -> BlockPyFunction<CoreBlockPyPass> {
+    let BlockPyFunction {
+        function_id,
+        names,
+        kind,
+        params,
+        param_defaults,
+        blocks,
+        doc,
+        closure_layout,
+        facts,
+        try_regions,
+        ..
+    } = callable_def;
+    BlockPyFunction {
+        function_id,
+        names,
+        kind,
+        params,
+        param_defaults: simplify_param_defaults(&param_defaults),
+        blocks: blocks.into_iter().map(lower_semantic_block).collect(),
+        doc,
+        closure_layout,
+        facts,
+        try_regions,
+        extra: LoweredBlockPyExtra::default(),
+    }
 }
 
 #[cfg(test)]
-type TestCoreBlockPyModule =
-    BlockPyModule<BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>>>;
+pub(crate) fn simplify_blockpy_module_exprs(
+    module: BlockPyModule<RuffBlockPyPass>,
+) -> TestCoreBlockPyModule {
+    module.map_callable_defs(simplify_semantic_blockpy_callable_def_exprs)
+}
+
+#[cfg(test)]
+type TestCoreBlockPyModule = BlockPyModule<CoreBlockPyPass>;
 
 #[cfg(test)]
 mod tests {
@@ -461,6 +495,7 @@ mod tests {
     use crate::basic_block::block_py::pretty::blockpy_module_to_string;
     use crate::basic_block::block_py::{
         CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+        RuffBlockPyPass,
     };
     use crate::py_expr;
     use crate::ruff_ast_to_string;
@@ -478,7 +513,9 @@ def f(x):
 "#;
         let blockpy = transform_str_to_ruff_with_options(source, Options::for_test())
             .unwrap()
-            .get_pass::<crate::basic_block::block_py::SemanticBlockPyModule>("semantic_blockpy")
+            .get_pass::<crate::basic_block::block_py::BlockPyModule<RuffBlockPyPass>>(
+                "semantic_blockpy",
+            )
             .cloned()
             .expect("expected lowered semantic BlockPy module");
         let core = simplify_blockpy_module_exprs(blockpy.clone());
@@ -644,7 +681,9 @@ def f(*, d={"metaclass": Meta}, **kw):
 "#;
         let blockpy = transform_str_to_ruff_with_options(source, Options::for_test())
             .unwrap()
-            .get_pass::<crate::basic_block::block_py::SemanticBlockPyModule>("semantic_blockpy")
+            .get_pass::<crate::basic_block::block_py::BlockPyModule<RuffBlockPyPass>>(
+                "semantic_blockpy",
+            )
             .cloned()
             .expect("expected lowered semantic BlockPy module");
         let core = simplify_blockpy_module_exprs(blockpy);

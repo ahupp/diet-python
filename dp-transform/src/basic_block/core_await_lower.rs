@@ -1,12 +1,14 @@
 use super::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCallableDef, BlockPyFunctionKind,
-    BlockPyIf, BlockPyIfTerm, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
-    BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg, CoreBlockPyYield, CoreBlockPyYieldFrom,
-    FunctionName,
+    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyFunction, BlockPyIf, BlockPyIfTerm,
+    BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCall,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg,
+    CoreBlockPyPass, CoreBlockPyPassWithoutAwait, CoreBlockPyYield, CoreBlockPyYieldFrom,
 };
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
+
+#[cfg(test)]
+use super::block_py::{BlockPyFunctionKind, BlockPyModule, FunctionName, LoweredBlockPyExtra};
 
 fn expr_name(id: &str) -> ast::ExprName {
     let Expr::Name(expr) = py_expr!("{id:id}", id = id) else {
@@ -154,10 +156,10 @@ fn lower_core_block_awaits(
     }
 }
 
-pub(crate) fn lower_awaits_in_core_blockpy_callable_def<X>(
-    callable_def: BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>, X>,
-) -> BlockPyCallableDef<CoreBlockPyExprWithoutAwait, BlockPyBlock<CoreBlockPyExprWithoutAwait>, X> {
-    BlockPyCallableDef {
+pub(crate) fn lower_awaits_in_core_blockpy_callable_def(
+    callable_def: BlockPyFunction<CoreBlockPyPass>,
+) -> BlockPyFunction<CoreBlockPyPassWithoutAwait> {
+    BlockPyFunction {
         function_id: callable_def.function_id,
         names: callable_def.names,
         kind: callable_def.kind,
@@ -181,13 +183,10 @@ pub(crate) fn lower_awaits_in_core_blockpy_callable_def<X>(
 }
 
 #[cfg(test)]
-type TestCoreBlockPyModule =
-    BlockPyModule<BlockPyCallableDef<CoreBlockPyExpr, BlockPyBlock<CoreBlockPyExpr>>>;
+type TestCoreBlockPyModule = BlockPyModule<CoreBlockPyPass>;
 
 #[cfg(test)]
-type TestCoreBlockPyModuleWithoutAwait = BlockPyModule<
-    BlockPyCallableDef<CoreBlockPyExprWithoutAwait, BlockPyBlock<CoreBlockPyExprWithoutAwait>>,
->;
+type TestCoreBlockPyModuleWithoutAwait = BlockPyModule<CoreBlockPyPassWithoutAwait>;
 
 #[cfg(test)]
 pub(crate) fn lower_awaits_in_core_blockpy_module(
@@ -210,7 +209,7 @@ mod tests {
     #[test]
     fn lowers_await_to_yield_from_await_iter() {
         let module = BlockPyModule {
-            callable_defs: vec![BlockPyCallableDef {
+            callable_defs: vec![BlockPyFunction {
                 function_id: super::super::block_py::FunctionId(0),
                 names: FunctionName::new("f", "f", "f", "f"),
                 kind: BlockPyFunctionKind::Coroutine,
@@ -228,7 +227,7 @@ mod tests {
                 closure_layout: None,
                 facts: super::super::block_py::BlockPyCallableFacts::default(),
                 try_regions: Vec::new(),
-                extra: (),
+                extra: LoweredBlockPyExtra::default(),
             }],
         };
 

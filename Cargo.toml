@@ -2,7 +2,7 @@
 members = ["dp-transform", "soac-pyo3", "soac-eval"]
 default-members = ["dp-transform", "soac-pyo3", "soac-eval"]
 # soac-runtime is standalone since its built to CLIF 
-exclude = ["soac-runtime", "vendor/ruff"]
+exclude = ["soac-runtime"]
 resolver = "2"
 
 [workspace.dependencies]

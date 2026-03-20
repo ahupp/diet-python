@@ -335,7 +335,6 @@ pub fn walk_stmt<V: Transformer + ?Sized>(visitor: &mut V, stmt: &mut Stmt) {
             node_index: _,
         }) => visitor.visit_expr(value),
         Stmt::Pass(_) | Stmt::Break(_) | Stmt::Continue(_) | Stmt::IpyEscapeCommand(_) => {}
-        _ => unreachable!("synthetic statement splice should not be traversed here"),
     }
 }
 

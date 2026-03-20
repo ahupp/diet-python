@@ -155,7 +155,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::super::{simplify_stmt_ast_for_blockpy, BlockPyStmtFragmentBuilder};
+    use super::super::{simplify_stmt_ast_once_for_blockpy, BlockPyStmtFragmentBuilder};
     use super::*;
     use crate::basic_block::ast_to_ast::{context::Context, Options};
 
@@ -167,7 +167,7 @@ mod tests {
         };
 
         let context = Context::new(Options::for_test(), "");
-        let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::If(if_stmt));
+        let simplified = simplify_stmt_ast_once_for_blockpy(&context, Stmt::If(if_stmt));
         let [Stmt::If(simplified_if)] = simplified.as_slice() else {
             panic!("if simplification should remain an if stmt");
         };

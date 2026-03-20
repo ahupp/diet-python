@@ -1,4 +1,3 @@
-use crate::basic_block;
 use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::rewrite_class_def;
@@ -8,20 +7,26 @@ use crate::basic_block::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::basic_block::ast_to_ast::{
     ast_rewrite::ExprRewritePass,
     ast_rewrite::LoweredExpr,
-    body::{body_from_suite, suite_mut, take_suite, Suite},
+    body::{body_from_suite, suite_mut, Suite},
     rewrite_expr::lower_scoped_helper_expr,
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
 };
-use crate::basic_block::bb_ir::BbModule;
 use crate::basic_block::block_py::{
-    CoreBlockPyModule, CoreBlockPyModuleWithoutAwait, CoreBlockPyModuleWithoutAwaitOrYield,
-    SemanticBlockPyModule,
+    BbBlockPyPass, BlockPyModule, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
+    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, RuffBlockPyPass,
 };
-use crate::basic_block::ruff_to_blockpy::LoweredBlockPyModule;
+use crate::basic_block::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
+use crate::basic_block::core_await_lower::lower_awaits_in_core_blockpy_callable_def;
+use crate::basic_block::core_eval_order::make_eval_order_explicit_in_core_callable_def;
+use crate::basic_block::ruff_to_blockpy::build_lowered_blockpy_function_bundle;
+use crate::basic_block::{self};
 use crate::PassTracker;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
-pub fn rewrite_module(context: &Context, module: Suite) -> (PassTracker, BbModule) {
+pub fn rewrite_module(
+    context: &Context,
+    module: Suite,
+) -> (PassTracker, BlockPyModule<BbBlockPyPass>) {
     let mut pass_tracker = PassTracker::new();
     let bb_module = rewrite_module_with_tracker(context, module, &mut pass_tracker);
     (pass_tracker, bb_module)
@@ -31,94 +36,90 @@ pub(crate) fn rewrite_module_with_tracker(
     context: &Context,
     module: Suite,
     pass_tracker: &mut PassTracker,
-) -> BbModule {
-    let (_module, semantic_blockpy): (Suite, SemanticBlockPyModule) =
-        pass_tracker.run_pass("ast-to-ast", || {
-            let mut module = body_from_suite(module);
+) -> BlockPyModule<BbBlockPyPass> {
+    let module = pass_tracker.run_pass("ast-to-ast", || {
+        let mut module = body_from_suite(module);
 
-            // The transform now has a single lowering strategy: basic-block form.
-            lower_surrogate_string_literals(context, suite_mut(&mut module));
+        // The transform now has a single lowering strategy: basic-block form.
+        lower_surrogate_string_literals(context, suite_mut(&mut module));
 
-            rewrite_future_annotations::rewrite(context, suite_mut(&mut module));
+        rewrite_future_annotations::rewrite(context, suite_mut(&mut module));
 
-            // Rewrite names like "__foo" in class bodies to "_<class_name>__foo"
-            rewrite_class_def::private::rewrite_private_names(context, suite_mut(&mut module));
+        // Rewrite names like "__foo" in class bodies to "_<class_name>__foo"
+        rewrite_class_def::private::rewrite_private_names(context, suite_mut(&mut module));
 
-            // Replace annotated assignments ("x: int = 1") with regular assignments,
-            // and either drop the annotations (in functions) or generate an
-            // __annotate__ function (in modules and classes)
-            rewrite_stmt::annotation::rewrite_ann_assign_to_dunder_annotate(
-                context,
-                suite_mut(&mut module),
-            );
+        // Replace annotated assignments ("x: int = 1") with regular assignments,
+        // and either drop the annotations (in functions) or generate an
+        // __annotate__ function (in modules and classes)
+        rewrite_stmt::annotation::rewrite_ann_assign_to_dunder_annotate(
+            context,
+            suite_mut(&mut module),
+        );
 
-            wrap_module_init(suite_mut(&mut module));
+        wrap_module_init(suite_mut(&mut module));
 
-            // Lower helper-scoped expressions that synthesize nested defs for Python
-            // scoping semantics before the more direct BlockPy expr lowering boundary.
-            rewrite_with_pass(
-                context,
-                None,
-                Some(&ScopedHelperExprPass),
-                suite_mut(&mut module),
-            );
+        // Lower helper-scoped expressions that synthesize nested defs for Python
+        // scoping semantics before the more direct BlockPy expr lowering boundary.
+        rewrite_with_pass(
+            context,
+            None,
+            Some(&ScopedHelperExprPass),
+            suite_mut(&mut module),
+        );
 
-            // Lower multi-target assignment / delete shapes to the single-name forms
-            // that the later BlockPy lowering expects.
-            rewrite_with_pass(
-                context,
-                Some(&basic_block::SingleNamedAssignmentPass),
-                None,
-                suite_mut(&mut module),
-            );
+        // Lower multi-target assignment / delete shapes to the single-name forms
+        // that the later BlockPy lowering expects.
+        rewrite_with_pass(
+            context,
+            Some(&basic_block::SingleNamedAssignmentPass),
+            None,
+            suite_mut(&mut module),
+        );
 
-            let scope = analyze_module_scope(suite_mut(&mut module));
+        let scope = analyze_module_scope(suite_mut(&mut module));
 
-            // Replace global / nonlocal and class-body scoping with explicit loads/stores.
-            //  - globals: __dp__.load/store_global(globals(), name)
-            //  - nonlocal: create a cell in the outermost scope, and access with __dp__.load/store_cell(cell, value)
-            //  - class-body: class_body_load_cell/global(_dp_class_ns, name, cell / globals()) captures "try class, then outer"
-            rewrite_names::rewrite_explicit_bindings(
-                context,
-                scope.clone(),
-                suite_mut(&mut module),
-            );
+        // Replace global / nonlocal and class-body scoping with explicit loads/stores.
+        //  - globals: __dp__.load/store_global(globals(), name)
+        //  - nonlocal: create a cell in the outermost scope, and access with __dp__.load/store_cell(cell, value)
+        //  - class-body: class_body_load_cell/global(_dp_class_ns, name, cell / globals()) captures "try class, then outer"
+        rewrite_names::rewrite_explicit_bindings(context, scope.clone(), suite_mut(&mut module));
 
-            rewrite_class_def::class_body::rewrite_class_body_scopes(
-                context,
-                scope,
-                suite_mut(&mut module),
-            );
-            rewrite_ast_to_lowered_blockpy_module_plan(context, take_suite(&mut module))
-        });
-    let semantic_blockpy: SemanticBlockPyModule =
-        pass_tracker.run_pass("semantic_blockpy", || semantic_blockpy.clone());
-
-    let lowered_blockpy_module: LoweredBlockPyModule = pass_tracker.run_pass("blockpy", || {
-        basic_block::lower_blockpy_module_plan_to_bundle(context, semantic_blockpy)
+        rewrite_class_def::class_body::rewrite_class_body_scopes(
+            context,
+            scope,
+            suite_mut(&mut module),
+        );
+        module
     });
-    let core_blockpy: CoreBlockPyModule = pass_tracker.run_pass("core_blockpy", || {
-        basic_block::simplify_lowered_blockpy_module_bundle_exprs(lowered_blockpy_module)
-    });
-    let core_blockpy_with_explicit_eval_order: CoreBlockPyModule =
-        pass_tracker.run_pass("core_blockpy_with_explicit_eval_order", || {
-            basic_block::make_eval_order_explicit_in_lowered_core_blockpy_module_bundle(
-                core_blockpy,
-            )
+    let (_module, semantic_blockpy): (Suite, BlockPyModule<RuffBlockPyPass>) = pass_tracker
+        .run_pass("semantic_blockpy", || {
+            rewrite_ast_to_lowered_blockpy_module_plan(context, module)
         });
-    let core_blockpy_without_await: CoreBlockPyModuleWithoutAwait =
-        pass_tracker.run_pass("core_blockpy_without_await", || {
-            basic_block::lower_awaits_in_lowered_core_blockpy_module_bundle(
-                core_blockpy_with_explicit_eval_order,
-            )
+
+    let lowered_blockpy_module: BlockPyModule<LoweredRuffBlockPyPass> = pass_tracker
+        .run_pass("blockpy", || {
+            semantic_blockpy.map_callable_defs(build_lowered_blockpy_function_bundle)
         });
-    let core_blockpy_without_await_or_yield: CoreBlockPyModuleWithoutAwaitOrYield = pass_tracker
-        .run_pass("core_blockpy_without_await_or_yield", || {
+    let core_blockpy: BlockPyModule<CoreBlockPyPass> = pass_tracker
+        .run_pass("core_blockpy", || {
+            lowered_blockpy_module.map_callable_defs(simplify_blockpy_callable_def_exprs)
+        });
+    let core_blockpy_with_explicit_eval_order: BlockPyModule<CoreBlockPyPass> = pass_tracker
+        .run_pass("core_blockpy_with_explicit_eval_order", || {
+            core_blockpy.map_callable_defs(make_eval_order_explicit_in_core_callable_def)
+        });
+    let core_blockpy_without_await: BlockPyModule<CoreBlockPyPassWithoutAwait> = pass_tracker
+        .run_pass("core_blockpy_without_await", || {
+            core_blockpy_with_explicit_eval_order
+                .map_callable_defs(lower_awaits_in_core_blockpy_callable_def)
+        });
+    let core_blockpy_without_await_or_yield: BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield> =
+        pass_tracker.run_pass("core_blockpy_without_await_or_yield", || {
             basic_block::lower_yield_in_lowered_core_blockpy_module_bundle(
                 core_blockpy_without_await,
             )
         });
-    let bb_module: BbModule = pass_tracker.run_pass("bb", || {
+    let bb_module: BlockPyModule<BbBlockPyPass> = pass_tracker.run_pass("bb", || {
         basic_block::lower_core_blockpy_module_bundle_to_bb_module(
             core_blockpy_without_await_or_yield,
         )

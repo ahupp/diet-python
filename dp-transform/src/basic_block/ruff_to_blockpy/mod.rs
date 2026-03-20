@@ -11,10 +11,10 @@ use super::block_py::state::{
     collect_state_vars, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use super::block_py::{
-    assert_blockpy_block_normalized, BlockPyBlock, BlockPyBlockMeta, BlockPyCallableDef,
-    BlockPyCallableFacts, BlockPyFunctionKind, BlockPyLabel, BlockPyTerm, BlockPyTryJump,
+    assert_blockpy_block_normalized, BlockPyBlock, BlockPyBlockMeta, BlockPyCallableFacts,
+    BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyTerm, BlockPyTryJump,
     ClosureLayout, FunctionId, FunctionName, LoweredBlockPyExtra, LoweredRuffBlockPyPass,
-    PassFunction, PassModule, ENTRY_BLOCK_LABEL,
+    RuffBlockPyPass, ENTRY_BLOCK_LABEL,
 };
 use super::function_lowering::rewrite_deleted_name_loads;
 use super::stmt_utils::flatten_stmt_boxes;
@@ -43,10 +43,12 @@ pub(crate) use compat::{
     emit_sequence_raise_block_with_expr_setup, emit_sequence_return_block_with_expr_setup,
     emit_simple_while_blocks_with_expr_setup,
 };
+#[cfg(test)]
+use stmt_lowering::lower_stmt_into;
 pub(crate) use stmt_lowering::{
-    build_for_target_assign_body, lower_star_try_stmt_sequence, lower_stmt_into,
-    lower_try_stmt_sequence, lower_with_stmt_sequence, rewrite_assign_stmt, rewrite_augassign_stmt,
-    rewrite_delete_stmt, rewrite_type_alias_stmt,
+    build_for_target_assign_body, lower_star_try_stmt_sequence, lower_try_stmt_sequence,
+    lower_with_stmt_sequence, rewrite_assign_stmt, rewrite_augassign_stmt, rewrite_delete_stmt,
+    rewrite_type_alias_stmt,
 };
 pub(crate) use stmt_sequences::{
     lower_expanded_stmt_sequence, lower_stmt_sequence_with_state, lower_stmts_to_blockpy_stmts,
@@ -56,10 +58,10 @@ pub(crate) use try_regions::{
     prepare_except_body, prepare_finally_body, TryPlan,
 };
 
-pub type LoweredBlockPyFunction = PassFunction<LoweredRuffBlockPyPass>;
-pub type LoweredBlockPyModule = PassModule<LoweredRuffBlockPyPass>;
-
-impl<E, B> BlockPyCallableDef<E, B, LoweredBlockPyExtra> {
+impl<P> BlockPyFunction<P>
+where
+    P: BlockPyPass<FunctionExtra = LoweredBlockPyExtra>,
+{
     pub fn block_params(&self) -> &HashMap<String, Vec<String>> {
         &self.extra.block_params
     }
@@ -98,7 +100,7 @@ pub(crate) enum StmtSequenceDriveResult {
     },
 }
 
-pub(crate) fn build_blockpy_function<X>(
+pub(crate) fn build_blockpy_function(
     function_id: FunctionId,
     names: FunctionName,
     params: ParamSpec,
@@ -110,13 +112,12 @@ pub(crate) fn build_blockpy_function<X>(
     facts: BlockPyCallableFacts,
     try_regions: Vec<TryRegionPlan>,
     mut blocks: Vec<BlockPyBlock<Expr>>,
-    extra: X,
-) -> BlockPyCallableDef<Expr, BlockPyBlock<Expr>, X> {
+) -> BlockPyFunction<RuffBlockPyPass> {
     move_blockpy_entry_block_to_front(&mut blocks, entry_label.as_str());
     for block in &blocks {
         assert_blockpy_block_normalized(block);
     }
-    BlockPyCallableDef {
+    BlockPyFunction {
         function_id,
         names,
         kind,
@@ -127,7 +128,7 @@ pub(crate) fn build_blockpy_function<X>(
         closure_layout,
         facts,
         try_regions,
-        extra,
+        extra: (),
     }
 }
 
@@ -151,10 +152,10 @@ pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId 
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_lowered_blockpy_function(
-    callable_def: BlockPyCallableDef<Expr>,
+    callable_def: BlockPyFunction<RuffBlockPyPass>,
     block_params: HashMap<String, Vec<String>>,
     exception_edges: HashMap<String, Option<String>>,
-) -> LoweredBlockPyFunction {
+) -> BlockPyFunction<LoweredRuffBlockPyPass> {
     callable_def.map_extra(|_| LoweredBlockPyExtra {
         block_params,
         exception_edges,
@@ -266,7 +267,7 @@ pub(crate) fn normalize_exported_entry_block(
 }
 
 fn build_semantic_blockpy_closure_layout(
-    callable_def: &BlockPyCallableDef<Expr>,
+    callable_def: &BlockPyFunction<RuffBlockPyPass>,
     injected_exception_names: &HashSet<String>,
 ) -> Option<ClosureLayout> {
     let entry_liveins = callable_def.entry_liveins();
@@ -321,8 +322,8 @@ fn build_semantic_blockpy_closure_layout(
 }
 
 pub(crate) fn build_lowered_blockpy_function_bundle(
-    callable_def: BlockPyCallableDef<Expr>,
-) -> LoweredBlockPyFunction {
+    callable_def: BlockPyFunction<RuffBlockPyPass>,
+) -> BlockPyFunction<LoweredRuffBlockPyPass> {
     let callable_facts = callable_def.facts.clone();
     let param_names = callable_def.params.names();
     let mut callable_def = callable_def;
@@ -403,7 +404,6 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         blockpy_function.facts.clone(),
         blockpy_function.try_regions.clone(),
         normalized_main_blocks,
-        (),
     );
     build_lowered_blockpy_function(
         main_function,
@@ -424,7 +424,7 @@ pub(crate) fn build_finalized_blockpy_callable_def(
     entry_label: String,
     end_label: String,
     facts: BlockPyCallableFacts,
-) -> BlockPyCallableDef<Expr> {
+) -> BlockPyFunction<RuffBlockPyPass> {
     let callable_def = build_blockpy_function(
         function_id,
         names,
@@ -437,7 +437,6 @@ pub(crate) fn build_finalized_blockpy_callable_def(
         facts,
         try_regions,
         blocks,
-        (),
     );
     finalize_blockpy_callable_def(callable_def, entry_label, end_label)
 }
@@ -456,7 +455,7 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input<FTemp>(
     facts: &BlockPyCallableFacts,
     next_block_id: &mut usize,
     next_temp: &mut FTemp,
-) -> BlockPyCallableDef<Expr>
+) -> BlockPyFunction<RuffBlockPyPass>
 where
     FTemp: FnMut(&str, &mut usize) -> String,
 {
@@ -585,10 +584,10 @@ fn relabel_try_regions(try_regions: &mut [TryRegionPlan], rename: &HashMap<Strin
 }
 
 pub(crate) fn finalize_blockpy_callable_def(
-    mut callable_def: BlockPyCallableDef<Expr>,
+    mut callable_def: BlockPyFunction<RuffBlockPyPass>,
     mut entry_label: String,
     end_label: String,
-) -> BlockPyCallableDef<Expr> {
+) -> BlockPyFunction<RuffBlockPyPass> {
     let needs_end_block = entry_label == end_label
         || callable_def
             .blocks
@@ -630,7 +629,7 @@ mod tests {
     use super::*;
     use crate::basic_block::ast_to_ast::{context::Context, Options};
     use crate::basic_block::block_py::{
-        BlockPyCallableDef, BlockPyRaise, BlockPyStmt, BlockPyTerm, SemanticBlockPyModule,
+        BlockPyFunction, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, RuffBlockPyPass,
     };
     use crate::basic_block::ruff_to_blockpy::stmt_sequences::{
         lower_for_stmt_sequence, lower_if_stmt_sequence, lower_if_stmt_sequence_from_stmt,
@@ -638,24 +637,22 @@ mod tests {
     };
     use crate::basic_block::ruff_to_blockpy::try_regions::build_try_plan;
     use crate::{transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options};
-    use ruff_python_ast::Expr;
-
-    fn wrapped_blockpy(source: &str) -> SemanticBlockPyModule {
+    fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
         transform_str_to_blockpy_with_options(source, Options::for_test()).unwrap()
     }
 
-    fn wrapped_semantic_blockpy(source: &str) -> SemanticBlockPyModule {
+    fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
         transform_str_to_ruff_with_options(source, Options::for_test())
             .unwrap()
-            .get_pass::<SemanticBlockPyModule>("semantic_blockpy")
+            .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
             .cloned()
             .expect("semantic_blockpy pass should be tracked")
     }
 
     fn function_by_name<'a>(
-        blockpy: &'a SemanticBlockPyModule,
+        blockpy: &'a BlockPyModule<RuffBlockPyPass>,
         bind_name: &str,
-    ) -> &'a BlockPyCallableDef {
+    ) -> &'a BlockPyFunction<RuffBlockPyPass> {
         blockpy
             .callable_defs
             .iter()

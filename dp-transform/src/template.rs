@@ -853,7 +853,6 @@ mod tests {
         Stmt,
     };
     use ruff_python_parser::{parse_expression, parse_module};
-    use ruff_text_size::TextRange;
 
     #[test]
     fn inserts_placeholder() {

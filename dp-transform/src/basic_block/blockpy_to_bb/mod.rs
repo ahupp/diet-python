@@ -2,125 +2,45 @@ mod codegen_normalize;
 mod codegen_trace;
 mod exception_pass;
 
-use super::bb_ir::{BbBlock, BbBlockMeta, BbFunction, BbModule, BbStmt};
+use super::bb_ir::{BbBlock, BbBlockMeta, BbStmt};
 use super::block_py::cfg::linearize_structured_ifs;
 use super::block_py::{
-    BlockPyBlock, BlockPyCallableDef, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm,
-    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
-    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyFunction, CoreBlockPyFunctionWithoutAwait,
-    CoreBlockPyFunctionWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-    CoreBlockPyModule, CoreBlockPyModuleWithoutAwait, CoreBlockPyModuleWithoutAwaitOrYield,
-    SemanticBlockPyModule,
+    BbBlockPyPass, BlockPyBlock, BlockPyFunction, BlockPyIfTerm, BlockPyModule, BlockPyStmt,
+    BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
+    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyPassWithoutAwait,
+    CoreBlockPyPassWithoutAwaitOrYield,
 };
-use super::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
-use super::core_await_lower::lower_awaits_in_core_blockpy_callable_def;
-use super::ruff_to_blockpy::{
-    build_lowered_blockpy_function_bundle, LoweredBlockPyFunction, LoweredBlockPyModule,
-};
-use crate::basic_block::ast_to_ast::context::Context;
-use ruff_python_ast::{self as ast, Expr};
+use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 use std::collections::HashMap;
 
 pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
 
-#[derive(Clone)]
-pub(crate) struct LoweredBlockPyModuleBundlePlan {
-    pub callable_defs: Vec<BlockPyCallableDef<Expr>>,
-    pub next_block_id: usize,
-    pub next_function_id: usize,
-}
-
-pub(crate) fn lower_blockpy_module_plan_to_bundle(
-    context: &Context,
-    module: SemanticBlockPyModule,
-) -> LoweredBlockPyModule {
-    let mut callable_defs = Vec::new();
-    for callable_def in module.callable_defs {
-        let lowered_function = build_lowered_blockpy_function_bundle(callable_def);
-        callable_defs.push(lowered_function);
-    }
-    BlockPyModule { callable_defs }
-}
-
-pub(crate) fn lowered_blockpy_module_bundle_plan_to_semantic_blockpy_module(
-    plan: &LoweredBlockPyModuleBundlePlan,
-) -> SemanticBlockPyModule {
-    SemanticBlockPyModule {
-        callable_defs: plan.callable_defs.clone(),
-    }
-}
-
-pub fn project_lowered_module_callable_defs<T, U: Clone>(
-    module: &BlockPyModule<T>,
-    project: impl Fn(&T) -> &U,
-) -> BlockPyModule<U> {
-    BlockPyModule {
-        callable_defs: module
-            .callable_defs
-            .iter()
-            .map(|lowered_function| project(lowered_function).clone())
-            .collect(),
-    }
-}
-
-pub(crate) fn simplify_lowered_blockpy_module_bundle_exprs(
-    module: LoweredBlockPyModule,
-) -> CoreBlockPyModule {
-    module.map_callable_defs(simplify_lowered_blockpy_function_exprs)
-}
-
-fn lower_core_blockpy_function_without_await(
-    lowered: CoreBlockPyFunction,
-) -> CoreBlockPyFunctionWithoutAwait {
-    lower_awaits_in_core_blockpy_callable_def(lowered)
-}
-
-fn lower_core_callable_def_without_await_or_yield(
-    callable_def: CoreBlockPyFunctionWithoutAwait,
-) -> CoreBlockPyFunctionWithoutAwaitOrYield {
-    let qualname = callable_def.names.qualname.clone();
-    callable_def.try_into().unwrap_or_else(|_| {
-        panic!(
-            "core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for {}",
-            qualname
-        )
+pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
+    module: BlockPyModule<CoreBlockPyPassWithoutAwait>,
+) -> BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield> {
+    module.map_callable_defs(|callable| {
+        let qualname = callable.names.qualname.clone();
+        callable.try_into().unwrap_or_else(|_| {
+            panic!(
+                "core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for {}",
+                qualname
+            )
+        })
     })
 }
 
-fn lower_core_blockpy_function_without_await_or_yield(
-    lowered: CoreBlockPyFunctionWithoutAwait,
-) -> CoreBlockPyFunctionWithoutAwaitOrYield {
-    lower_core_callable_def_without_await_or_yield(lowered)
-}
-
-pub(crate) fn lower_awaits_in_lowered_core_blockpy_module_bundle(
-    module: CoreBlockPyModule,
-) -> CoreBlockPyModuleWithoutAwait {
-    module.map_callable_defs(lower_core_blockpy_function_without_await)
-}
-
-pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
-    module: CoreBlockPyModuleWithoutAwait,
-) -> CoreBlockPyModuleWithoutAwaitOrYield {
-    module.map_callable_defs(lower_core_blockpy_function_without_await_or_yield)
-}
-
 pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
-    module: CoreBlockPyModuleWithoutAwaitOrYield,
-) -> BbModule {
+    module: BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield>,
+) -> BlockPyModule<BbBlockPyPass> {
     module.map_callable_defs(lower_core_blockpy_function_to_bb_function)
 }
 
-fn simplify_lowered_blockpy_function_exprs(lowered: LoweredBlockPyFunction) -> CoreBlockPyFunction {
-    simplify_blockpy_callable_def_exprs(lowered)
-}
-
 pub(crate) fn lower_core_blockpy_function_to_bb_function(
-    lowered: CoreBlockPyFunctionWithoutAwaitOrYield,
-) -> BbFunction {
-    let BlockPyCallableDef {
+    lowered: BlockPyFunction<CoreBlockPyPassWithoutAwaitOrYield>,
+) -> BlockPyFunction<BbBlockPyPass> {
+    let BlockPyFunction {
         function_id,
         names,
         kind,
@@ -135,7 +55,7 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
     } = lowered;
     let block_params = extra.block_params;
     let exception_edges = extra.exception_edges;
-    BlockPyCallableDef {
+    BlockPyFunction {
         function_id,
         names,
         kind,
@@ -150,7 +70,7 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
     }
 }
 
-pub(crate) fn lower_blockpy_blocks_to_bb_blocks(
+fn lower_blockpy_blocks_to_bb_blocks(
     blocks: &[BlockPyBlock<CoreBlockPyExprWithoutAwaitOrYield>],
     block_params: &HashMap<String, Vec<String>>,
     exception_edges: &HashMap<String, Option<String>>,

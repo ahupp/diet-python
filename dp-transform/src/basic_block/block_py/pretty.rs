@@ -1,7 +1,7 @@
 use super::{
-    BlockPyBlock, BlockPyCallableDef, BlockPyCfgFragment, BlockPyFunctionKind, BlockPyIfTerm,
-    BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    BlockPyTryJump, Expr, PassFunction, PassModule, SemanticBlockPyModule,
+    BlockPyBlock, BlockPyBlockMeta, BlockPyCfgFragment, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise, BlockPyStmt,
+    BlockPyTerm, BlockPyTryJump, Expr, PassBlock, PassExpr,
 };
 use crate::basic_block::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::ruff_ast_to_string;
@@ -13,11 +13,10 @@ enum IfBranchKind {
     Else,
 }
 
-pub fn blockpy_module_to_string<E, X>(
-    module: &BlockPyModule<BlockPyCallableDef<E, BlockPyBlock<E>, X>>,
-) -> String
+pub fn blockpy_module_to_string<P>(module: &BlockPyModule<P>) -> String
 where
-    E: Clone + Into<Expr>,
+    P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+    PassExpr<P>: Clone + Into<Expr>,
 {
     let mut formatter = BlockPyFormatter::default();
     formatter.write_module(module);
@@ -38,11 +37,10 @@ impl BlockPyFormatter {
         self.out
     }
 
-    fn write_module<E, X>(
-        &mut self,
-        module: &BlockPyModule<BlockPyCallableDef<E, BlockPyBlock<E>, X>>,
-    ) where
-        E: Clone + Into<Expr>,
+    fn write_module<P>(&mut self, module: &BlockPyModule<P>)
+    where
+        P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+        PassExpr<P>: Clone + Into<Expr>,
     {
         if module
             .callable_defs
@@ -60,9 +58,10 @@ impl BlockPyFormatter {
         }
     }
 
-    fn write_function<E, X>(&mut self, function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>)
+    fn write_function<P>(&mut self, function: &BlockPyFunction<P>)
     where
-        E: Clone + Into<Expr>,
+        P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+        PassExpr<P>: Clone + Into<Expr>,
     {
         let params = format_parameters(&function.params, &function.param_defaults);
         let parameter_names = function.params.names();
@@ -123,14 +122,15 @@ impl BlockPyFormatter {
         });
     }
 
-    fn write_function_block<E, X>(
+    fn write_function_block<P>(
         &mut self,
-        function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>,
+        function: &BlockPyFunction<P>,
         render_layout: &BlockRenderLayout,
         block_index: usize,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        E: Clone + Into<Expr>,
+        P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+        PassExpr<P>: Clone + Into<Expr>,
     {
         let block = &function.blocks[block_index];
         self.line(format!("block {}:", block.label.as_str()));
@@ -151,15 +151,16 @@ impl BlockPyFormatter {
         });
     }
 
-    fn write_block_contents<E, X>(
+    fn write_block_contents<P>(
         &mut self,
-        function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>,
+        function: &BlockPyFunction<P>,
         render_layout: &BlockRenderLayout,
         current_block_index: Option<usize>,
-        block: &BlockPyBlock<E>,
+        block: &PassBlock<P>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        E: Clone + Into<Expr>,
+        P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+        PassExpr<P>: Clone + Into<Expr>,
     {
         if block.body.is_empty() {
             self.write_term(
@@ -235,15 +236,16 @@ impl BlockPyFormatter {
         }
     }
 
-    fn write_term<E, X>(
+    fn write_term<P>(
         &mut self,
-        function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>,
+        function: &BlockPyFunction<P>,
         render_layout: &BlockRenderLayout,
         current_block_index: Option<usize>,
-        term: &BlockPyTerm<E>,
+        term: &BlockPyTerm<PassExpr<P>>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        E: Clone + Into<Expr>,
+        P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+        PassExpr<P>: Clone + Into<Expr>,
     {
         match term {
             BlockPyTerm::Jump(label) => self.line(format!("jump {}", label.as_str())),
@@ -480,9 +482,10 @@ struct BlockRenderLayout {
 }
 
 impl BlockRenderLayout {
-    fn new<E, X>(function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>) -> Self
+    fn new<P>(function: &BlockPyFunction<P>) -> Self
     where
-        E: Clone + Into<Expr>,
+        P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+        PassExpr<P>: Clone + Into<Expr>,
     {
         let block_count = function.blocks.len();
         if block_count == 0 {
@@ -551,11 +554,10 @@ impl BlockRenderLayout {
     }
 }
 
-fn sort_block_indices_by_label<E, X>(
-    indices: &mut [usize],
-    function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>,
-) where
-    E: Clone + Into<Expr>,
+fn sort_block_indices_by_label<P>(indices: &mut [usize], function: &BlockPyFunction<P>)
+where
+    P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+    PassExpr<P>: Clone + Into<Expr>,
 {
     indices.sort_by(|left, right| {
         function.blocks[*left]
@@ -565,14 +567,15 @@ fn sort_block_indices_by_label<E, X>(
     });
 }
 
-fn compute_inline_if_term_targets<E, X>(
-    function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>,
+fn compute_inline_if_term_targets<P>(
+    function: &BlockPyFunction<P>,
     label_to_index: &HashMap<String, usize>,
     predecessors: &[Vec<usize>],
     immediate_dominators: &[Option<usize>],
 ) -> (HashMap<(usize, IfBranchKind), usize>, HashSet<usize>)
 where
-    E: Clone + Into<Expr>,
+    P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+    PassExpr<P>: Clone + Into<Expr>,
 {
     let mut targets = HashMap::new();
     let mut inlined_blocks = HashSet::new();
@@ -634,13 +637,14 @@ fn can_inline_if_term_target(
         && predecessors[target_index][0] == parent_index
 }
 
-fn choose_entry_block_index<E, X>(
-    _function: &BlockPyCallableDef<E, BlockPyBlock<E>, X>,
+fn choose_entry_block_index<P>(
+    _function: &BlockPyFunction<P>,
     _label_to_index: &HashMap<String, usize>,
     _predecessors: &[Vec<usize>],
 ) -> usize
 where
-    E: Clone + Into<Expr>,
+    P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+    PassExpr<P>: Clone + Into<Expr>,
 {
     0
 }
@@ -916,11 +920,11 @@ fn collect_referenced_labels_from_term(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::basic_block::block_py::BlockPyBlockMeta;
+    use crate::basic_block::block_py::{BlockPyBlockMeta, RuffBlockPyPass};
     use crate::basic_block::block_py::{ClosureInit, ClosureLayout, ClosureSlot};
     use ruff_python_parser::parse_expression;
 
-    fn wrapped_blockpy(source: &str) -> SemanticBlockPyModule {
+    fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
         crate::transform_str_to_blockpy_with_options(source, crate::Options::for_test())
             .expect("expected lowered semantic BlockPy module")
     }
@@ -933,12 +937,13 @@ mod tests {
         ParamSpec::default()
     }
 
-    fn function_by_bind_name<'a, E, X>(
-        module: &'a BlockPyModule<BlockPyCallableDef<E, BlockPyBlock<E>, X>>,
+    fn function_by_bind_name<'a, P>(
+        module: &'a BlockPyModule<P>,
         bind_name: &str,
-    ) -> &'a BlockPyCallableDef<E, BlockPyBlock<E>, X>
+    ) -> &'a BlockPyFunction<P>
     where
-        E: Clone + Into<Expr>,
+        P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+        PassExpr<P>: Clone + Into<Expr>,
     {
         module
             .callable_defs
@@ -974,7 +979,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
 
     #[test]
     fn renders_empty_module_marker() {
-        let empty_module: SemanticBlockPyModule = BlockPyModule {
+        let empty_module: BlockPyModule<RuffBlockPyPass> = BlockPyModule {
             callable_defs: Vec::new(),
         };
         let rendered = blockpy_module_to_string(&empty_module);
@@ -1053,7 +1058,7 @@ async def no_lying():
     #[test]
     fn renders_public_closure_metadata_in_function_header() {
         let rendered = blockpy_module_to_string(&BlockPyModule {
-            callable_defs: vec![BlockPyCallableDef {
+            callable_defs: vec![BlockPyFunction::<RuffBlockPyPass> {
                 function_id: crate::basic_block::block_py::FunctionId(0),
                 names: crate::basic_block::block_py::FunctionName::new("gen", "gen", "gen", "gen"),
                 kind: BlockPyFunctionKind::Function,
@@ -1097,7 +1102,7 @@ async def no_lying():
 
     #[test]
     fn renders_followup_blocks_under_their_owning_entry_block() {
-        let function = BlockPyCallableDef {
+        let function: BlockPyFunction<RuffBlockPyPass> = BlockPyFunction {
             function_id: crate::basic_block::block_py::FunctionId(0),
             names: crate::basic_block::block_py::FunctionName::new("f", "f", "f", "f"),
             kind: BlockPyFunctionKind::Function,
@@ -1172,7 +1177,7 @@ def choose(a, b):
 
     #[test]
     fn sorts_rendered_root_and_child_blocks_by_label() {
-        let function: BlockPyCallableDef<Expr> = BlockPyCallableDef {
+        let function: BlockPyFunction<RuffBlockPyPass> = BlockPyFunction {
             function_id: crate::basic_block::block_py::FunctionId(0),
             names: crate::basic_block::block_py::FunctionName::new("f", "f", "f", "f"),
             kind: BlockPyFunctionKind::Function,

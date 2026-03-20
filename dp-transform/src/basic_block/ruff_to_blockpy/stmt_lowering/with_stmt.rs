@@ -454,7 +454,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::super::{simplify_stmt_ast_for_blockpy, BlockPyStmtFragmentBuilder};
+    use super::super::{simplify_stmt_ast_once_for_blockpy, BlockPyStmtFragmentBuilder};
     use super::*;
     use crate::basic_block::ast_to_ast::{context::Context, Options};
 
@@ -466,7 +466,7 @@ mod tests {
         };
 
         let context = Context::new(Options::for_test(), "");
-        let simplified = simplify_stmt_ast_for_blockpy(&context, Stmt::With(with_stmt));
+        let simplified = simplify_stmt_ast_once_for_blockpy(&context, Stmt::With(with_stmt));
 
         assert!(!matches!(simplified.as_slice(), [Stmt::With(_)]));
     }

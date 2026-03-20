@@ -1,4 +1,6 @@
-use super::block_py::{BlockPyCallableDef, BlockPyModule, CfgBlock};
+use crate::basic_block::block_py::BlockPyStmt;
+
+use super::block_py::{BlockPyModule, BlockPyPass};
 use std::env;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,12 +38,13 @@ pub(crate) fn parse_cfg_trace_config(raw: &str) -> Option<CfgTraceConfig> {
     })
 }
 
-pub(crate) fn instrument_cfg_module_for_trace<D, S, T, M>(
-    module: &mut BlockPyModule<BlockPyCallableDef<D, CfgBlock<S, T, M>>>,
+pub(crate) fn instrument_cfg_module_for_trace<P: BlockPyPass>(
+    module: &mut BlockPyModule<P>,
     config: &CfgTraceConfig,
-    make_trace_stmt: impl Fn(&str, &str, &[String]) -> S,
+    make_trace_stmt: impl Fn(&str, &str, &[String]) -> BlockPyStmt<P::Expr>,
 ) where
-    M: TraceBlockMeta,
+    P: BlockPyPass,
+    P::BlockMeta: TraceBlockMeta,
 {
     for function in &mut module.callable_defs {
         if let Some(filter) = config.qualname_filter.as_ref() {

@@ -176,14 +176,7 @@ fn simplify_stmt_ast_once_for_blockpy(context: &Context, stmt: Stmt) -> Vec<Stmt
         Stmt::Raise(stmt) => stmt.simplify_ast(context),
         Stmt::Try(stmt) => stmt.simplify_ast(context),
         Stmt::IpyEscapeCommand(stmt) => stmt.simplify_ast(context),
-        _ => {
-            unreachable!("synthetic statement splice should not reach BlockPy stmt simplification")
-        }
     }
-}
-
-pub(super) fn simplify_stmt_ast_for_blockpy(context: &Context, stmt: Stmt) -> Vec<Stmt> {
-    simplify_stmt_ast_once_for_blockpy(context, stmt)
 }
 
 pub(super) fn simplify_stmt_head_ast_for_blockpy(context: &Context, stmt: Stmt) -> Vec<Stmt> {
@@ -264,7 +257,6 @@ pub(crate) fn plan_stmt_head_for_blockpy(context: &Context, stmt: &Stmt) -> Stmt
         Stmt::Raise(stmt) => stmt.clone().plan_head(context),
         Stmt::Try(stmt) => stmt.clone().plan_head(context),
         Stmt::IpyEscapeCommand(stmt) => stmt.clone().plan_head(context),
-        _ => unreachable!("synthetic statement splice should not reach BlockPy stmt head planning"),
     }
 }
 
@@ -323,7 +315,6 @@ where
         Stmt::Raise(stmt) => stmt.to_blockpy(context, out, loop_ctx, next_label_id),
         Stmt::Try(stmt) => stmt.to_blockpy(context, out, loop_ctx, next_label_id),
         Stmt::IpyEscapeCommand(stmt) => stmt.to_blockpy(context, out, loop_ctx, next_label_id),
-        _ => unreachable!("synthetic statement splice should not reach BlockPy stmt lowering"),
     }?;
     Ok(())
 }

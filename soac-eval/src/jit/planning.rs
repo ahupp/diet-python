@@ -1,7 +1,8 @@
-use dp_transform::basic_block::bb_ir::{BbBlock, BbModule, BbStmt};
+use dp_transform::basic_block::bb_ir::{BbBlock, BbStmt};
 use dp_transform::basic_block::block_py::{
-    BlockPyFunctionKind, BlockPyLabel, BlockPyStmt, BlockPyTerm, CoreBlockPyCallArg,
-    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    BbBlockPyPass, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyModule, BlockPyStmt,
+    BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral,
 };
 use ruff_python_ast::Number;
 use std::borrow::Cow;
@@ -275,7 +276,7 @@ fn direct_simple_plan_from_block(block: &BbBlock) -> Option<DirectSimpleRetPlan>
 }
 
 fn direct_simple_brif_plan_from_block(
-    function: &dp_transform::basic_block::bb_ir::BbFunction,
+    function: &BlockPyFunction<BbBlockPyPass>,
     block: &BbBlock,
     label_to_index: &HashMap<BlockPyLabel, usize>,
 ) -> Option<DirectSimpleBrIfPlan> {
@@ -323,7 +324,7 @@ fn direct_simple_expr_ret_none_plan_from_block(
 }
 
 fn target_params_from_index(
-    function: &dp_transform::basic_block::bb_ir::BbFunction,
+    function: &BlockPyFunction<BbBlockPyPass>,
     target_index: usize,
 ) -> Option<Vec<String>> {
     Some(function.blocks.get(target_index)?.meta.params.clone())
@@ -399,7 +400,7 @@ fn bb_term_kind(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> &'sta
 }
 
 fn unsupported_fastpath_block_message(
-    function: &dp_transform::basic_block::bb_ir::BbFunction,
+    function: &BlockPyFunction<BbBlockPyPass>,
     block: &BbBlock,
 ) -> String {
     let op_kinds = block
@@ -427,7 +428,7 @@ fn unsupported_fastpath_block_message(
 }
 
 fn direct_simple_block_plan_from_block(
-    function: &dp_transform::basic_block::bb_ir::BbFunction,
+    function: &BlockPyFunction<BbBlockPyPass>,
     block: &BbBlock,
     label_to_index: &HashMap<BlockPyLabel, usize>,
 ) -> Option<DirectSimpleBlockPlan> {
@@ -511,9 +512,7 @@ fn direct_simple_block_plan_from_block(
     })
 }
 
-fn build_clif_plan(
-    function: &dp_transform::basic_block::bb_ir::BbFunction,
-) -> Result<ClifPlan, String> {
+fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan, String> {
     if !matches!(
         function.lowered_kind(),
         BlockPyFunctionKind::Function
@@ -797,7 +796,10 @@ fn build_clif_plan(
     })
 }
 
-pub fn register_clif_module_plans(module_name: &str, module: &BbModule) -> Result<(), String> {
+pub fn register_clif_module_plans(
+    module_name: &str,
+    module: &BlockPyModule<BbBlockPyPass>,
+) -> Result<(), String> {
     let lowered = dp_transform::basic_block::lower_try_jump_exception_flow(module)?;
     let debug_skips = std::env::var_os("DIET_PYTHON_DEBUG_JIT_PLAN_SKIPS").is_some();
     let mut plans = HashMap::new();

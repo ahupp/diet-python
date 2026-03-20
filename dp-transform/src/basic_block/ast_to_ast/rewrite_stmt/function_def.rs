@@ -18,10 +18,10 @@ use crate::basic_block::block_py::param_specs::{
 use crate::basic_block::block_py::state::{collect_cell_slots, collect_state_vars};
 use crate::basic_block::block_py::BindingTarget;
 use crate::basic_block::block_py::{
-    BlockPyCallableDef, BlockPyFunctionKind, BlockPyModule, SemanticBlockPyModule, TryRegionPlan,
+    BlockPyFunction, BlockPyFunctionKind, BlockPyModule, RuffBlockPyPass, TryRegionPlan,
     ENTRY_BLOCK_LABEL,
 };
-use crate::basic_block::blockpy_to_bb::LoweredBlockPyModuleBundlePlan;
+
 use crate::basic_block::function_identity::{
     collect_function_identity_private, is_module_init_temp_name, resolve_runtime_function_identity,
     FunctionIdentity,
@@ -53,7 +53,7 @@ struct BlockPyModuleRewriter<'a> {
     next_function_id: usize,
     reserved_temp_names_stack: Vec<HashSet<String>>,
     function_scope_stack: Vec<FunctionScopeFrame>,
-    lowered_blockpy_module: LoweredBlockPyModuleBundlePlan,
+    callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>>,
 }
 
 enum LoweredFunctionPlacementPlan {
@@ -150,13 +150,6 @@ fn capture_items_to_expr(captures: &[LoweredFunctionCaptureItem]) -> Expr {
     )
 }
 
-fn push_lowered_blockpy_callable_def_bundle(
-    out: &mut LoweredBlockPyModuleBundlePlan,
-    callable_def: BlockPyCallableDef<Expr>,
-) {
-    out.callable_defs.push(callable_def);
-}
-
 fn build_try_extra_successors(try_regions: &[TryRegionPlan]) -> HashMap<String, Vec<String>> {
     let mut extra = HashMap::new();
     for region in try_regions {
@@ -208,7 +201,7 @@ fn classify_capture_items(
 }
 
 fn build_lowered_function_instantiation_preview(
-    callable_def: &BlockPyCallableDef<Expr>,
+    callable_def: &BlockPyFunction<RuffBlockPyPass>,
 ) -> Option<LoweredFunctionInstantiationPreview> {
     let param_names = callable_def.params.names();
     let param_name_set: HashSet<String> = param_names.iter().cloned().collect();
@@ -358,7 +351,7 @@ mod tests {
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
     context: &Context,
     mut module: Suite,
-) -> (Suite, SemanticBlockPyModule) {
+) -> (Suite, BlockPyModule<RuffBlockPyPass>) {
     crate::basic_block::ast_to_ast::simplify::flatten(&mut module);
     let module_scope = analyze_module_scope(&mut module);
     let function_identity_by_node =
@@ -371,15 +364,11 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
         next_function_id: 0,
         reserved_temp_names_stack: Vec::new(),
         function_scope_stack: Vec::new(),
-        lowered_blockpy_module: LoweredBlockPyModuleBundlePlan {
-            callable_defs: Vec::new(),
-            next_block_id: 0,
-            next_function_id: 0,
-        },
+        callable_defs: Vec::new(),
     };
     rewriter.visit_body(&mut module);
     let blockpy_module = BlockPyModule {
-        callable_defs: rewriter.lowered_blockpy_module.callable_defs,
+        callable_defs: rewriter.callable_defs,
     };
 
     (module, blockpy_module)
@@ -804,7 +793,6 @@ fn plan_and_rewrite_non_lowered_function_instantiation(
 fn rewrite_function_def_stmt_via_blockpy(
     context: &Context,
     module_scope: &Arc<Scope>,
-    lowered_blockpy_module: &mut LoweredBlockPyModuleBundlePlan,
     parent_hoisted: Option<&mut Vec<Stmt>>,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &mut ast::StmtFunctionDef,
@@ -816,6 +804,7 @@ fn rewrite_function_def_stmt_via_blockpy(
     reserved_temp_names_stack: &mut Vec<HashSet<String>>,
     next_block_id: &mut usize,
     next_function_id: &mut usize,
+    callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
 ) -> Option<Vec<Stmt>> {
     let doc = function_docstring_text(func);
     if let Some(lowered_plan) = try_lower_function_to_blockpy_bundle(
@@ -842,7 +831,7 @@ fn rewrite_function_def_stmt_via_blockpy(
             function_hoisted,
         )
         .expect("failed to build BB function binding");
-        push_lowered_blockpy_callable_def_bundle(lowered_blockpy_module, lowered_plan);
+        callable_defs.push(lowered_plan);
         return Some(rewrite.replacement);
     }
 
@@ -927,7 +916,6 @@ impl BlockPyModuleRewriter<'_> {
         rewrite_function_def_stmt_via_blockpy(
             self.context,
             &self.module_scope,
-            &mut self.lowered_blockpy_module,
             parent_hoisted,
             &self.function_identity_by_node,
             func,
@@ -939,6 +927,7 @@ impl BlockPyModuleRewriter<'_> {
             &mut self.reserved_temp_names_stack,
             &mut self.next_block_id,
             &mut self.next_function_id,
+            &mut self.callable_defs,
         )
     }
 }

@@ -1,17 +1,20 @@
-use crate::basic_block::bb_ir;
 use crate::basic_block::block_py::{
-    BlockPyRaise, BlockPyStmt, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
-    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    BbBlockPyPass, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, CoreBlockPyCall,
+    CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral,
 };
 use ruff_python_ast::str::Quote;
 use ruff_python_ast::{self as ast, BytesLiteral, BytesLiteralFlags, ExprName};
 use ruff_text_size::TextRange;
 
-use super::codegen_trace::{instrument_bb_module_for_trace, parse_bb_trace_env};
+use super::codegen_trace::instrument_bb_module_for_trace;
+use crate::basic_block::cfg_trace::parse_cfg_trace_env;
 
-pub fn normalize_bb_module_for_codegen(module: &bb_ir::BbModule) -> bb_ir::BbModule {
+pub fn normalize_bb_module_for_codegen(
+    module: &BlockPyModule<BbBlockPyPass>,
+) -> BlockPyModule<BbBlockPyPass> {
     let mut normalized = module.clone();
-    if let Some(config) = parse_bb_trace_env() {
+    if let Some(config) = parse_cfg_trace_env() {
         instrument_bb_module_for_trace(&mut normalized, &config);
     }
     let mut rewriter = CodegenExprNormalizer;

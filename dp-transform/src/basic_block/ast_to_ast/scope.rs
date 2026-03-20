@@ -7,7 +7,7 @@ use std::{
 
 use ruff_python_ast::{self as ast, Expr, ExprContext, HasNodeIndex, NodeIndex, Stmt};
 
-use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
+use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref, Suite};
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BindingKind {

@@ -4,7 +4,7 @@ use ruff_python_ast::name::Name;
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 
 use super::{
-    body::{suite_mut, suite_ref, take_suite, Suite},
+    body::{suite_mut, take_suite, Suite},
     context::Context,
 };
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
