@@ -15,8 +15,6 @@ use ruff_text_size::TextRange;
 #[cfg(test)]
 use crate::basic_block::cfg_trace::parse_cfg_trace_config;
 
-pub(crate) type BbTraceConfig = CfgTraceConfig;
-
 impl TraceBlockMeta for BbBlockMeta {
     fn trace_params(&self) -> &[String] {
         &self.params
@@ -119,7 +117,7 @@ fn param_pairs_expr(params: &[String]) -> CoreBlockPyExprWithoutAwaitOrYield {
 
 #[cfg(test)]
 mod tests {
-    use super::{instrument_bb_module_for_trace, parse_cfg_trace_config, BbTraceConfig};
+    use super::{instrument_bb_module_for_trace, parse_cfg_trace_config};
     use crate::{
         basic_block::{cfg_trace::CfgTraceConfig, normalize_bb_module_for_codegen},
         transform_str_to_bb_ir_with_options, Options,
@@ -161,7 +159,7 @@ mod tests {
         let mut normalized = normalize_bb_module_for_codegen(&bb_module);
         instrument_bb_module_for_trace(
             &mut normalized,
-            &BbTraceConfig {
+            &CfgTraceConfig {
                 qualname_filter: Some("f".to_string()),
                 include_params: true,
             },

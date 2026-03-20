@@ -211,7 +211,9 @@ mod tests {
         let bb_module = bb_module.ok_or_else(|| {
             "JIT mode requires emitted basic-block IR, but none was produced".to_string()
         })?;
-        let normalized = dp_transform::basic_block::normalize_bb_module_for_codegen(bb_module);
+        let prepared = dp_transform::basic_block::lower_try_jump_exception_flow(bb_module)
+            .map_err(|err| format!("failed to lower BB exception flow: {err}"))?;
+        let normalized = dp_transform::basic_block::normalize_bb_module_for_codegen(&prepared);
         soac_eval::jit::run_cranelift_smoke(&normalized)
     }
 
@@ -304,15 +306,17 @@ def exercise():
             .expect("lowering should succeed")
             .bb_module
             .expect("bb module should exist");
-        let normalized = dp_transform::basic_block::normalize_bb_module_for_codegen(&bb_module);
+        let prepared = dp_transform::basic_block::lower_try_jump_exception_flow(&bb_module)
+            .expect("exception flow lowering should succeed");
+        let normalized = dp_transform::basic_block::normalize_bb_module_for_codegen(&prepared);
         let module_name = "jit_plan_generator_throw_handler_param_test";
         jit::register_clif_module_plans(module_name, &normalized)
             .expect("plan registration should succeed");
         let gen_function = normalized
             .callable_defs
             .iter()
-            .find(|function| function.names.qualname == "exercise.<locals>.gen")
-            .expect("missing lowered generator function");
+            .find(|function| function.names.bind_name == "gen_resume")
+            .expect("missing lowered generator resume function");
         let plan = jit::lookup_clif_plan(module_name, gen_function.function_id.0)
             .expect("registered plan should exist");
 

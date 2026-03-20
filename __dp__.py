@@ -346,12 +346,19 @@ def _resume_closure_value(owner, name):
         else f"_dp_cell_{name}"
     )
     for freevar, cell in zip(code.co_freevars, closure):
-        if freevar != target_name:
+        if freevar != target_name and freevar != name:
             continue
         try:
             value = cell.cell_contents
         except ValueError:
             return DELETED
+        if freevar == name and target_name != name:
+            if isinstance(value, _types.CellType):
+                try:
+                    return value.cell_contents
+                except ValueError:
+                    return DELETED
+            return value
         if target_name == name:
             return value
         if isinstance(value, _types.CellType):
@@ -443,10 +450,10 @@ def __dp_store_local(gen, name, value):
             f"cannot access local variable {name!r} where it is not associated with a value"
         )
     for freevar, cell in zip(code.co_freevars, closure):
-        if freevar != target_name:
+        if freevar != target_name and freevar != name:
             continue
         stored = cell.cell_contents
-        if isinstance(stored, _types.CellType) and target_name != name:
+        if isinstance(stored, _types.CellType):
             stored.cell_contents = value
             return value
         cell.cell_contents = value
@@ -476,7 +483,6 @@ def raise_uncaught_generator_exception(exc):
     if isinstance(exc, StopIteration):
         raise RuntimeError("generator raised StopIteration") from exc
     raise exc
-
 
 def raise_uncaught_async_generator_exception(exc):
     if isinstance(exc, StopIteration):
@@ -555,7 +561,7 @@ class _DpGenerator:
         return self.send(None)
 
     def send(self, value):
-        return self._dp_resume(self, value, None)
+        return self._dp_resume(self, value, NO_DEFAULT)
 
     def throw(self, typ=None, val=None, tb=None):
         if val is not None or tb is not None:
@@ -564,7 +570,7 @@ class _DpGenerator:
             )
         exc = raise_from(typ, None)
         _attach_throw_context_from_state(self, exc)
-        return self._dp_resume(self, None, exc)
+        return self._dp_resume(self, NO_DEFAULT, exc)
 
     def close(self):
         try:
@@ -606,7 +612,7 @@ class _DpClosureGenerator:
         return self.send(None)
 
     def send(self, value):
-        return self._dp_resume(self, value, None)
+        return self._dp_resume(self, value, NO_DEFAULT)
 
     def throw(self, typ=None, val=None, tb=None):
         if val is not None or tb is not None:
@@ -615,7 +621,7 @@ class _DpClosureGenerator:
             )
         exc = raise_from(typ, None)
         _attach_throw_context_from_state(self, exc)
-        return self._dp_resume(self, None, exc)
+        return self._dp_resume(self, NO_DEFAULT, exc)
 
     def close(self):
         try:
@@ -721,7 +727,7 @@ class _DpAsyncGenerator:
         return _current_yieldfrom(self)
 
     def asend(self, value):
-        return _DpAsyncGenSend(self, value, None)
+        return _DpAsyncGenSend(self, value, NO_DEFAULT)
 
     def athrow(self, typ=None, val=None, tb=None):
         if val is not None or tb is not None:
@@ -730,7 +736,7 @@ class _DpAsyncGenerator:
             )
         exc = raise_from(typ, None)
         _attach_throw_context_from_state(self, exc)
-        return _DpAsyncGenSend(self, None, exc)
+        return _DpAsyncGenSend(self, NO_DEFAULT, exc)
 
     async def aclose(self):
         try:
@@ -781,7 +787,7 @@ class _DpClosureAsyncGenerator:
         return _current_yieldfrom(self)
 
     def asend(self, value):
-        return _DpAsyncGenSend(self, value, None)
+        return _DpAsyncGenSend(self, value, NO_DEFAULT)
 
     def athrow(self, typ=None, val=None, tb=None):
         if val is not None or tb is not None:
@@ -790,7 +796,7 @@ class _DpClosureAsyncGenerator:
             )
         exc = raise_from(typ, None)
         _attach_throw_context_from_state(self, exc)
-        return _DpAsyncGenSend(self, None, exc)
+        return _DpAsyncGenSend(self, NO_DEFAULT, exc)
 
     async def aclose(self):
         try:
@@ -836,7 +842,7 @@ class _DpAsyncGenSend:
             self._dp_resume_exc,
             transport_sent,
         )
-        self._dp_resume_exc = None
+        self._dp_resume_exc = NO_DEFAULT
         if _current_yieldfrom(self._dp_gen) is None:
             self._dp_done = True
             raise StopIteration(result)
@@ -1657,6 +1663,8 @@ def _build_bb_signature(params, param_defaults):
 def _bb_state_order(default_order, closure):
     if not isinstance(closure, tuple):
         return (default_order, {})
+    if not closure:
+        return (default_order, {})
     state_order = []
     closure_values = {}
     for item in closure:
@@ -1668,8 +1676,10 @@ def _bb_state_order(default_order, closure):
             closure_values[item[0]] = item[1]
             continue
         return (default_order, {})
-    # An explicit closure tuple (including empty tuple) defines the exact BB
-    # state order expected by lowered blocks.
+    # A non-empty explicit closure tuple defines the exact BB state order
+    # expected by lowered blocks. Preserve the normal parameter-derived order
+    # when the lowered closure is empty so visible factory functions still bind
+    # their declared parameters.
     return (tuple(state_order), closure_values)
 
 
@@ -2074,57 +2084,17 @@ def def_hidden_resume_fn(
             f"{len(closure_names)} names vs {len(closure_values)} values"
         )
 
-    plan_name = _bb_plan_name(qualname, function_id)
-    if not (
-        jit_bb_plan_enabled()
-        and isinstance(module_name, str)
-        and isinstance(plan_name, str)
-        and _jit_has_bb_plan is not None
-        and _jit_has_bb_plan(module_name, function_id)
-    ):
-        kind = "async generator" if async_gen else "generator"
-        raise RuntimeError(
-            f"JIT basic-block {kind} resume requires a registered plan, "
-            f"but none is available for {module_name}.{plan_name}"
-        )
-
-    hidden_name = (
-        f"_dp_resume_{name}" if isinstance(name, str) and name.isidentifier() else "_dp_resume"
-    )
     closure_map = dict(zip(closure_names, closure_values))
-    entry = _bb_make_lazy_clif_entry(
-        async_entry=False,
-        function_name=hidden_name,
-        module_globals=module_globals,
-    )
-    entry = _bb_wrap_with_named_closure(entry, closure_names, closure_values)
-    entry = _bb_rebind_function_globals(entry, module_globals)
-    if module_name is not None:
-        entry.__module__ = module_name
-        _bb_set_plan_metadata(
-            entry, module_name, function_id, plan_name, module_globals, entry_ref=entry_bb
-        )
-    _bb_enable_lazy_clif_vectorcall(
-        entry,
-        module_name,
+    return _bb_make_resume_entry(
+        entry_bb,
         function_id,
-        plan_name,
-        state_order,
-        (
-            (
-                ("_dp_self", "PosOnly", False),
-                ("_dp_send_value", "PosOnly", False),
-                ("_dp_resume_exc", "PosOnly", False),
-                *((("_dp_transport_sent", "PosOnly", False),) if async_gen else ()),
-            )
-        ),
-        (),
-        closure_map,
-        None,
-        DELETED,
-        _BIND_KIND_FUNCTION,
+        name,
+        qualname,
+        module_globals,
+        module_name,
+        async_gen=async_gen,
+        closure_values=closure_map,
     )
-    return entry
 
 
 def make_function(

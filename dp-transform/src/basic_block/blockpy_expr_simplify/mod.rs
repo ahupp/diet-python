@@ -513,10 +513,11 @@ def f(x):
 "#;
         let blockpy = transform_str_to_ruff_with_options(source, Options::for_test())
             .unwrap()
-            .get_pass::<crate::basic_block::block_py::BlockPyModule<RuffBlockPyPass>>(
-                "semantic_blockpy",
-            )
-            .cloned()
+            .get_pass::<(
+                crate::basic_block::ast_to_ast::body::Suite,
+                crate::basic_block::block_py::BlockPyModule<RuffBlockPyPass>,
+            )>("semantic_blockpy")
+            .map(|(_, module)| module.clone())
             .expect("expected lowered semantic BlockPy module");
         let core = simplify_blockpy_module_exprs(blockpy.clone());
         let semantic_rendered = blockpy_module_to_string(&blockpy);
@@ -681,10 +682,11 @@ def f(*, d={"metaclass": Meta}, **kw):
 "#;
         let blockpy = transform_str_to_ruff_with_options(source, Options::for_test())
             .unwrap()
-            .get_pass::<crate::basic_block::block_py::BlockPyModule<RuffBlockPyPass>>(
-                "semantic_blockpy",
-            )
-            .cloned()
+            .get_pass::<(
+                crate::basic_block::ast_to_ast::body::Suite,
+                crate::basic_block::block_py::BlockPyModule<RuffBlockPyPass>,
+            )>("semantic_blockpy")
+            .map(|(_, module)| module.clone())
             .expect("expected lowered semantic BlockPy module");
         let core = simplify_blockpy_module_exprs(blockpy);
         let rendered = blockpy_module_to_string(&core);

@@ -1017,7 +1017,6 @@ def gen():
         );
         let rendered = blockpy_module_to_string(&blockpy);
 
-        assert!(rendered.contains("function gen():"));
         assert!(rendered.contains("generator gen():"));
         assert!(!rendered.contains("generator_state:"));
     }

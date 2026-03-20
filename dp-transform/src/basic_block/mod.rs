@@ -194,6 +194,11 @@ pub(crate) fn summarize_tracked_pass_shape(
     result: &crate::LoweringResult,
     name: &str,
 ) -> Option<crate::PassShapeSummary> {
+    if let Some((_, module)) =
+        result.get_pass::<(ruff_python_ast::Suite, BlockPyModule<RuffBlockPyPass>)>(name)
+    {
+        return Some(summarize_blockpy_module(module));
+    }
     if let Some(module) = result.get_pass::<BlockPyModule<RuffBlockPyPass>>(name) {
         return Some(summarize_blockpy_module(module));
     }
@@ -259,6 +264,10 @@ mod tests {
             self.pass_text("core_blockpy")
         }
 
+        fn core_blockpy_without_await_text(&self) -> String {
+            self.pass_text("core_blockpy_without_await")
+        }
+
         fn pass_text(&self, name: &str) -> String {
             crate::basic_block::render_tracked_pass_text(&self.result, name)
                 .unwrap_or_else(|| panic!("expected renderable pass {name}"))
@@ -280,19 +289,19 @@ mod tests {
         bb_module: &'a BlockPyModule<BbBlockPyPass>,
         bind_name: &str,
     ) -> &'a BlockPyFunction<BbBlockPyPass> {
-        let direct = bb_module
+        let resume_name = format!("{bind_name}_resume");
+        if let Some(resume) = bb_module
             .callable_defs
             .iter()
-            .find(|func| func.names.bind_name == bind_name)
-            .unwrap_or_else(|| panic!("missing lowered function {bind_name}; got {:?}", bb_module));
-        if direct.closure_layout().is_some() {
-            return direct;
+            .find(|func| func.names.bind_name == resume_name)
+        {
+            return resume;
         }
         bb_module
             .callable_defs
             .iter()
-            .find(|func| func.names.bind_name == format!("{bind_name}_resume"))
-            .unwrap_or(direct)
+            .find(|func| func.names.bind_name == bind_name)
+            .unwrap_or_else(|| panic!("missing lowered function {bind_name}; got {:?}", bb_module))
     }
 
     fn slot_by_name<'a>(slots: &'a [ClosureSlot], logical_name: &str) -> &'a ClosureSlot {
@@ -688,7 +697,7 @@ def choose(xs):
         let lowered = TrackedLowering::new(source);
         let blockpy_rendered = lowered.blockpy_text();
         assert!(
-            blockpy_rendered.contains("function choose.<locals>.<genexpr>("),
+            blockpy_rendered.contains("generator choose.<locals>.<genexpr>("),
             "{blockpy_rendered}"
         );
         assert!(
@@ -741,7 +750,7 @@ async def agen():
             "{semantic_blockpy_rendered}"
         );
 
-        let blockpy_rendered = lowered.blockpy_text();
+        let blockpy_rendered = lowered.core_blockpy_without_await_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
             "{blockpy_rendered}"
@@ -776,7 +785,7 @@ async def run():
             "{semantic_blockpy_rendered}"
         );
 
-        let blockpy_rendered = lowered.blockpy_text();
+        let blockpy_rendered = lowered.core_blockpy_without_await_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
             "{blockpy_rendered}"
@@ -811,7 +820,7 @@ async def agen(cm):
             "{semantic_blockpy_rendered}"
         );
 
-        let blockpy_rendered = lowered.blockpy_text();
+        let blockpy_rendered = lowered.core_blockpy_without_await_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
             "{blockpy_rendered}"
@@ -850,7 +859,7 @@ async def run(cm):
             "{semantic_blockpy_rendered}"
         );
 
-        let blockpy_rendered = lowered.blockpy_text();
+        let blockpy_rendered = lowered.core_blockpy_without_await_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
             "{blockpy_rendered}"
@@ -1494,10 +1503,11 @@ class Field:
             let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
                 .expect("transform should succeed");
             let blockpy = lowered
-                .get_pass::<crate::basic_block::block_py::BlockPyModule<RuffBlockPyPass>>(
-                    "semantic_blockpy",
-                )
-                .cloned()
+                .get_pass::<(
+                    crate::basic_block::ast_to_ast::body::Suite,
+                    crate::basic_block::block_py::BlockPyModule<RuffBlockPyPass>,
+                )>("semantic_blockpy")
+                .map(|(_, module)| module.clone())
                 .expect("expected lowered semantic BlockPy module");
             let blockpy_rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
             eprintln!("==== {name} BLOCKPY ====\n{blockpy_rendered}");
@@ -1557,7 +1567,11 @@ def make_counter(delta):
         let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
             .expect("transform should succeed")
             .expect("bb module should be available");
-        let gen = function_by_name(&bb_module, "gen");
+        let gen = bb_module
+            .callable_defs
+            .iter()
+            .find(|func| func.names.bind_name == "gen")
+            .expect("missing visible generator factory");
         assert_eq!(gen.lowered_kind(), &BlockPyFunctionKind::Generator);
     }
 

@@ -3217,7 +3217,6 @@ fn build_cranelift_run_bb_specialized_function(
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
-
         let mut cleanup_null_blocks = Vec::with_capacity(block_count);
         for _ in 0..block_count {
             exec_blocks.push(fb.create_block());

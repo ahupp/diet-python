@@ -111,6 +111,11 @@ pub(crate) fn render_tracked_pass_text(
     if let Some(body) = result.get_pass::<ruff_python_ast::Suite>(name) {
         return Some(crate::ruff_ast_to_string(body));
     }
+    if let Some((_, module)) =
+        result.get_pass::<(ruff_python_ast::Suite, BlockPyModule<RuffBlockPyPass>)>(name)
+    {
+        return Some(blockpy_module_to_string(module));
+    }
     if let Some(module) = result.get_pass::<BlockPyModule<RuffBlockPyPass>>(name) {
         return Some(blockpy_module_to_string(module));
     }

@@ -2,6 +2,7 @@ use crate::basic_block::bb_ir::{BbBlock, BbBlockMeta, BbStmt};
 use crate::basic_block::block_py::{
     BbBlockPyPass, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyStmt, BlockPyTerm,
 };
+use std::collections::HashMap;
 use std::collections::HashSet;
 
 pub fn lower_try_jump_exception_flow(
@@ -17,11 +18,12 @@ pub fn lower_try_jump_exception_flow(
 fn lower_function_try_jump_exception_flow(
     function: &mut BlockPyFunction<BbBlockPyPass>,
 ) -> Result<(), String> {
-    let label_set: HashSet<&str> = function
+    let label_set: HashSet<String> = function
         .blocks
         .iter()
-        .map(|block| block.label.as_str())
+        .map(|block| block.label.as_str().to_string())
         .collect();
+    rewrite_try_jump_terms(function, &label_set)?;
     validate_function_labels(function, &label_set)?;
 
     // Canonicalize exception-edge blocks so each potentially-raising expression
@@ -31,6 +33,66 @@ fn lower_function_try_jump_exception_flow(
     split_exception_blocks_for_expr_checks(function);
 
     Ok(())
+}
+
+fn rewrite_try_jump_terms(
+    function: &mut BlockPyFunction<BbBlockPyPass>,
+    labels: &HashSet<String>,
+) -> Result<(), String> {
+    let qualname = function.names.qualname.clone();
+    let exc_name_by_label: HashMap<String, Option<String>> = function
+        .blocks
+        .iter()
+        .map(|block| {
+            (
+                block.label.as_str().to_string(),
+                exception_param_from_block_params(&block.meta.params)
+                    .or_else(|| block.meta.exc_name.clone()),
+            )
+        })
+        .collect();
+    for block in &mut function.blocks {
+        let BlockPyTerm::TryJump(try_jump) = block.term.clone() else {
+            continue;
+        };
+        ensure_known_label(
+            labels,
+            &try_jump.body_label,
+            qualname.as_str(),
+            &block.label,
+            "try body target",
+        )?;
+        ensure_known_label(
+            labels,
+            &try_jump.except_label,
+            qualname.as_str(),
+            &block.label,
+            "try except target",
+        )?;
+        if block.meta.exc_target_label.is_none() {
+            block.meta.exc_target_label = Some(try_jump.except_label.clone());
+        }
+        if block.meta.exc_name.is_none() {
+            let target_label = block
+                .meta
+                .exc_target_label
+                .as_ref()
+                .unwrap_or(&try_jump.except_label);
+            block.meta.exc_name = exc_name_by_label
+                .get(target_label.as_str())
+                .cloned()
+                .flatten();
+        }
+        block.term = BlockPyTerm::Jump(try_jump.body_label);
+    }
+    Ok(())
+}
+
+fn exception_param_from_block_params(params: &[String]) -> Option<String> {
+    params.iter().find_map(|name| {
+        (name.starts_with("_dp_try_exc_") || name.starts_with("_dp_uncaught_exc_"))
+            .then(|| name.clone())
+    })
 }
 
 fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlockPyPass>) {
@@ -137,13 +199,14 @@ fn apply_op_effect_to_known_names(op: &BbStmt, known_names: &mut Vec<String>) {
 
 fn validate_function_labels(
     function: &BlockPyFunction<BbBlockPyPass>,
-    labels: &HashSet<&str>,
+    labels: &HashSet<String>,
 ) -> Result<(), String> {
+    let qualname = function.names.qualname.as_str();
     let entry_label = function.entry_label();
     if !labels.contains(entry_label) {
         return Err(format!(
             "missing entry label {} in {}",
-            entry_label, function.names.qualname
+            entry_label, qualname
         ));
     }
     for block in &function.blocks {
@@ -151,28 +214,28 @@ fn validate_function_labels(
             if !labels.contains(exc_target_label.as_str()) {
                 return Err(format!(
                     "unknown exception target {exc_target_label} in {}:{}",
-                    function.names.qualname, block.label
+                    qualname, block.label
                 ));
             }
         }
         match &block.term {
             BlockPyTerm::Jump(target) => {
-                ensure_known_label(labels, target, function, &block.label, "jump target")?
+                ensure_known_label(labels, target, qualname, &block.label, "jump target")?
             }
             BlockPyTerm::IfTerm(if_term) => {
                 let then_label = &if_term.then_label;
                 let else_label = &if_term.else_label;
-                ensure_known_label(labels, then_label, function, &block.label, "then target")?;
-                ensure_known_label(labels, else_label, function, &block.label, "else target")?;
+                ensure_known_label(labels, then_label, qualname, &block.label, "then target")?;
+                ensure_known_label(labels, else_label, qualname, &block.label, "else target")?;
             }
             BlockPyTerm::BranchTable(branch) => {
                 for target in &branch.targets {
-                    ensure_known_label(labels, target, function, &block.label, "br_table target")?;
+                    ensure_known_label(labels, target, qualname, &block.label, "br_table target")?;
                 }
                 ensure_known_label(
                     labels,
                     &branch.default_label,
-                    function,
+                    qualname,
                     &block.label,
                     "br_table default target",
                 )?;
@@ -181,7 +244,7 @@ fn validate_function_labels(
             BlockPyTerm::TryJump(_) => {
                 return Err(format!(
                     "unexpected TryJump in BB function {}:{}",
-                    function.names.qualname, block.label
+                    qualname, block.label
                 ));
             }
         }
@@ -190,9 +253,9 @@ fn validate_function_labels(
 }
 
 fn ensure_known_label(
-    labels: &HashSet<&str>,
+    labels: &HashSet<String>,
     label: &str,
-    function: &BlockPyFunction<BbBlockPyPass>,
+    qualname: &str,
     block_label: &str,
     label_kind: &str,
 ) -> Result<(), String> {
@@ -201,7 +264,7 @@ fn ensure_known_label(
     }
     Err(format!(
         "unknown {label_kind} {label} in {}:{}",
-        function.names.qualname, block_label
+        qualname, block_label
     ))
 }
 

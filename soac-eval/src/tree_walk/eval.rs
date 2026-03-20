@@ -784,8 +784,31 @@ unsafe fn fill_state_tuple_from_values(
             owned
         } else if !binding.closure_state_values[index].is_null() {
             let borrowed = binding.closure_state_values[index];
-            ffi::Py_INCREF(borrowed);
-            borrowed
+            let name = binding.state_order[index].as_str();
+            if name == "_dp_classcell" || name.starts_with("_dp_cell_") {
+                ffi::Py_INCREF(borrowed);
+                borrowed
+            } else {
+                let cell_contents = ffi::PyObject_GetAttrString(
+                    borrowed,
+                    b"cell_contents\0".as_ptr() as *const c_char,
+                );
+                if !cell_contents.is_null() {
+                    cell_contents
+                } else if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
+                    ffi::PyErr_Clear();
+                    ffi::Py_INCREF(borrowed);
+                    borrowed
+                } else if ffi::PyErr_ExceptionMatches(ffi::PyExc_ValueError) != 0 {
+                    ffi::PyErr_Clear();
+                    ffi::Py_INCREF(binding.deleted_obj);
+                    binding.deleted_obj
+                } else {
+                    ffi::Py_DECREF(result);
+                    cleanup_state_values(&mut state_values);
+                    return ptr::null_mut();
+                }
+            }
         } else {
             ffi::Py_INCREF(binding.deleted_obj);
             binding.deleted_obj
@@ -1102,10 +1125,14 @@ unsafe fn build_resume_state_tuple(
     let mut state_values = vec![ptr::null_mut(); binding.state_order.len()];
     let frame_obj = ffi::PyObject_GetAttrString(gen_obj, b"gi_frame\0".as_ptr() as *const c_char);
     let frame_dict = if frame_obj.is_null() {
-        if !ffi::PyErr_Occurred().is_null() {
+        if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
+            ffi::PyErr_Clear();
+            ptr::null_mut()
+        } else if !ffi::PyErr_Occurred().is_null() {
             return ptr::null_mut();
+        } else {
+            ptr::null_mut()
         }
-        ptr::null_mut()
     } else if ffi::PyDict_Check(frame_obj) != 0 {
         frame_obj
     } else {

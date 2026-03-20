@@ -2,7 +2,7 @@ use crate::basic_block::annotation_export::{
     build_lowered_annotation_helper_binding, is_annotation_helper_name,
     prepare_non_lowered_annotationlib_function,
 };
-use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
+use crate::basic_block::ast_to_ast::body::{suite_mut, take_suite, Suite};
 use crate::basic_block::ast_to_ast::context::Context;
 use crate::basic_block::ast_to_ast::expr_utils::{make_dp_tuple, name_expr};
 use crate::basic_block::ast_to_ast::rewrite_stmt;
@@ -15,7 +15,7 @@ use crate::basic_block::block_py::dataflow::{
 use crate::basic_block::block_py::param_specs::{
     param_defaults_to_expr, param_spec_to_expr, ParamSpec,
 };
-use crate::basic_block::block_py::state::{collect_cell_slots, collect_state_vars};
+use crate::basic_block::block_py::state::collect_state_vars;
 use crate::basic_block::block_py::BindingTarget;
 use crate::basic_block::block_py::{
     BlockPyFunction, BlockPyFunctionKind, BlockPyModule, RuffBlockPyPass, TryRegionPlan,
@@ -54,6 +54,25 @@ struct BlockPyModuleRewriter<'a> {
     reserved_temp_names_stack: Vec<HashSet<String>>,
     function_scope_stack: Vec<FunctionScopeFrame>,
     callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>>,
+}
+
+fn scope_cell_binding_names(scope: &Scope) -> HashSet<String> {
+    scope
+        .scope_bindings()
+        .iter()
+        .filter_map(|(name, kind)| {
+            if matches!(
+                kind,
+                crate::basic_block::ast_to_ast::scope::BindingKind::Nonlocal
+            ) && scope.is_local_definition(name)
+                && !scope.is_explicit_nonlocal(name)
+            {
+                Some(name.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 enum LoweredFunctionPlacementPlan {
@@ -792,7 +811,6 @@ fn plan_and_rewrite_non_lowered_function_instantiation(
 #[allow(clippy::too_many_arguments)]
 fn rewrite_function_def_stmt_via_blockpy(
     context: &Context,
-    module_scope: &Arc<Scope>,
     parent_hoisted: Option<&mut Vec<Stmt>>,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &mut ast::StmtFunctionDef,
@@ -809,7 +827,6 @@ fn rewrite_function_def_stmt_via_blockpy(
     let doc = function_docstring_text(func);
     if let Some(lowered_plan) = try_lower_function_to_blockpy_bundle(
         context,
-        module_scope,
         function_identity_by_node,
         func,
         current_parent,
@@ -882,10 +899,13 @@ impl BlockPyModuleRewriter<'_> {
             .map(|frame| frame.name.clone());
         let entering_module_init = is_module_init_temp_name(fn_name.as_str());
         let has_parent_hoisted_scope = !self.function_scope_stack.is_empty();
-        let cell_bindings = collect_cell_slots(suite_ref(&func.body))
-            .into_iter()
-            .filter_map(|slot| slot.strip_prefix("_dp_cell_").map(str::to_string))
-            .collect::<HashSet<_>>();
+        let cell_bindings = self
+            .module_scope
+            .tree
+            .scope_for_def(func)
+            .ok()
+            .map(|scope| scope_cell_binding_names(scope.as_ref()))
+            .unwrap_or_default();
         let needs_cell_sync = self
             .function_scope_stack
             .last()
@@ -915,7 +935,6 @@ impl BlockPyModuleRewriter<'_> {
             .map(|parent_frame| &mut parent_frame.hoisted_to_parent);
         rewrite_function_def_stmt_via_blockpy(
             self.context,
-            &self.module_scope,
             parent_hoisted,
             &self.function_identity_by_node,
             func,

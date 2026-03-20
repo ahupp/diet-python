@@ -4,6 +4,14 @@
 - Reserved for user requests that start with `TODO`.
 - Add one entry per request and include any plan or relevant response summary with it.
 
+- Move bb_ir.rs into blockpy_to_bb.  Also, BbModule seems to have it's own pretty-printing path; unify that with the other printing paths using the new BlockPyModuleMap trait.  Move web_inspector_support.rs to a "pretty.rs", could prob merge with that existing pretty.rs too.
+- Determine if codegen_trace.rs and cfg_trace.rs are doing similar things.
+- move all the summarize_ stuff in basic_block/mod.rs to it's own module, and use a BlockPyModuleMap to do that generically.
+- there are many places where we switch behavior based on the names of things, searching for _dp_class_ns_, __dp_decode_literal_bytes, should_strip_nonlocal_for_bb
+- Everything about annotation_export.rs needs revisiting.
+- I don't think flatten_stmt_boxes and flatten_stmt do anything anymore, remove
+- merge bound_names into ast_symbol_analysis
+
 - Use Ruff for scope analysis and see if it can be computed once and preserved through transform layers.
   - Planning note:
     - The desired end state is to replace local repeated scope-analysis passes with Ruff’s scope analysis and carry that result through later transform phases instead of recomputing scope metadata.
@@ -34,6 +42,14 @@
     - A good first pass is to audit every place that stores, normalizes, renders, or exports a start/entry label and separate internal relabeling concerns from public callable entry semantics.
     - Then make CFG/BlockPy/BB construction normalize blocks so the entry block is first, and delete the extra start-label plumbing from previews, rendering, and lowered/export metadata.
   - Allow fallback to bytecode for arbitrary functions, use this for __annotate__
+- Revisit the split between `YieldLoweringModuleMap` and `YieldLoweringMap`.
+  - Planning note:
+    - The current split in `dp-transform/src/basic_block/blockpy_to_bb/mod.rs` exists because yield-lowering wants the per-function `qualname` in its panic message, and the default `BlockPyModuleMap` recursion only gives `map_expr` the expression value, not the enclosing function context.
+    - `YieldLoweringModuleMap::map_module` currently constructs a fresh `YieldLoweringMap { qualname }` per callable and then uses the default recursive `map_fn`, so the duplication is only there to thread that function-local context.
+    - Follow-up options:
+      - drop the qualname-specific panic context and use one mapper with only `map_expr`
+      - extend the generic mapper API with a function-context hook
+      - or keep the split if per-function panic context is worth the extra type
 
 ## Completed
 
@@ -64,5 +80,4 @@
 - Remove the fallback await-lowering path so all awaits use one explicit pass, and make that pass appear as a top-level step in `rewrite_module`.
 - Add an evaluation-order-explicit pass that hoists composite subexpressions into temps while preserving left-to-right evaluation, e.g. `a = foo(b(), c)` -> `tmp = b(); a = foo(tmp, c)`.
 - Remove local `StmtBody` usage and move back to upstream Ruff structures.
-
 

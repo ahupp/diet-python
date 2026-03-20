@@ -131,11 +131,18 @@ impl PassTracker {
     }
 
     pub(crate) fn ast_to_ast_module(&self) -> Option<&Suite> {
+        self.get::<Suite>("ast-to-ast")
+    }
+
+    pub(crate) fn transformed_module(&self) -> Option<&Suite> {
         self.get::<(
             Suite,
-            crate::basic_block::block_py::BlockPyModule<RuffBlockPyPass>,
-        )>("ast-to-ast")
+            crate::basic_block::block_py::BlockPyModule<
+                crate::basic_block::block_py::RuffBlockPyPass,
+            >,
+        )>("semantic_blockpy")
             .map(|(module, _)| module)
+            .or_else(|| self.ast_to_ast_module())
     }
 
     fn names(&self) -> impl Iterator<Item = &str> {
@@ -219,8 +226,8 @@ pub fn transform_str_to_ruff_with_options(
     let rewrite_start = timing_start();
     let bb_module = rewrite_module_with_tracker(&ctx, body, &mut pass_tracker);
     *suite_mut(&mut module.body) = pass_tracker
-        .ast_to_ast_module()
-        .expect("ast-to-ast pass should be tracked")
+        .transformed_module()
+        .expect("transformed module pass should be tracked")
         .clone();
 
     let rewrite_time = timing_elapsed(rewrite_start);

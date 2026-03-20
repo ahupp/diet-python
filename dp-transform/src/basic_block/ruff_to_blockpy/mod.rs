@@ -382,6 +382,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
 
     let function_id = blockpy_function.function_id;
     let names = blockpy_function.names.clone();
+    let kind = blockpy_function.kind;
     let doc = blockpy_function.doc.clone();
     let params = blockpy_function.params.clone();
     let param_defaults = blockpy_function.param_defaults.clone();
@@ -398,7 +399,7 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         params,
         param_defaults,
         doc,
-        BlockPyFunctionKind::Function,
+        kind,
         ENTRY_BLOCK_LABEL.to_string(),
         semantic_closure_layout,
         blockpy_function.facts.clone(),
@@ -629,7 +630,8 @@ mod tests {
     use super::*;
     use crate::basic_block::ast_to_ast::{context::Context, Options};
     use crate::basic_block::block_py::{
-        BlockPyFunction, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, RuffBlockPyPass,
+        BlockPyFunction, BlockPyModule, BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+        CoreBlockPyPassWithoutAwaitOrYield, RuffBlockPyPass,
     };
     use crate::basic_block::ruff_to_blockpy::stmt_sequences::{
         lower_for_stmt_sequence, lower_if_stmt_sequence, lower_if_stmt_sequence_from_stmt,
@@ -644,15 +646,30 @@ mod tests {
     fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
         transform_str_to_ruff_with_options(source, Options::for_test())
             .unwrap()
-            .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
-            .cloned()
+            .get_pass::<(
+                crate::basic_block::ast_to_ast::body::Suite,
+                BlockPyModule<RuffBlockPyPass>,
+            )>("semantic_blockpy")
+            .map(|(_, module)| module.clone())
             .expect("semantic_blockpy pass should be tracked")
     }
 
-    fn function_by_name<'a>(
-        blockpy: &'a BlockPyModule<RuffBlockPyPass>,
+    fn wrapped_core_blockpy_without_await_or_yield(
+        source: &str,
+    ) -> BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield> {
+        transform_str_to_ruff_with_options(source, Options::for_test())
+            .unwrap()
+            .get_pass::<BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield>>(
+                "core_blockpy_without_await_or_yield",
+            )
+            .cloned()
+            .expect("core_blockpy_without_await_or_yield pass should be tracked")
+    }
+
+    fn function_by_name<'a, P: BlockPyPass>(
+        blockpy: &'a BlockPyModule<P>,
         bind_name: &str,
-    ) -> &'a BlockPyFunction<RuffBlockPyPass> {
+    ) -> &'a BlockPyFunction<P> {
         blockpy
             .callable_defs
             .iter()
@@ -718,7 +735,7 @@ async def f(xs):
 
     #[test]
     fn lowers_generator_yield_to_explicit_blockpy_dispatch() {
-        let blockpy = wrapped_blockpy(
+        let blockpy = wrapped_core_blockpy_without_await_or_yield(
             r#"
 def gen(n):
     yield n
@@ -726,9 +743,16 @@ def gen(n):
         );
         let rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(rendered.contains("generator gen(n):"), "{rendered}");
-        assert!(rendered.contains("function gen(n):"), "{rendered}");
-        assert!(rendered.contains("branch_table"));
-        assert!(!rendered.contains("yield n"));
+        assert!(
+            rendered.contains("function gen(_dp_self, _dp_send_value, _dp_resume_exc):"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("return __dp_make_closure_generator"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("branch_table"), "{rendered}");
+        assert!(!rendered.contains("yield n"), "{rendered}");
     }
 
     #[test]
@@ -1380,7 +1404,7 @@ y = 3
 
     #[test]
     fn lowers_generator_yield_from_to_explicit_blockpy_dispatch() {
-        let blockpy = wrapped_blockpy(
+        let blockpy = wrapped_core_blockpy_without_await_or_yield(
             r#"
 def gen(it):
     yield from it
@@ -1388,20 +1412,38 @@ def gen(it):
         );
         let rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
         assert!(rendered.contains("branch_table"));
-        assert!(!rendered.contains("yield from it"));
+        assert!(rendered.contains("__dp_exception_matches"), "{rendered}");
+        assert!(rendered.contains("yield_from_throw_lookup"), "{rendered}");
+        assert!(rendered.contains("yield_from_except"), "{rendered}");
+        assert!(
+            !rendered.contains("__dp_generator_yield_from_step"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("yield from it"), "{rendered}");
     }
 
     #[test]
     fn lowers_async_generator_yield_to_explicit_blockpy_dispatch() {
-        let blockpy = wrapped_blockpy(
+        let blockpy = wrapped_core_blockpy_without_await_or_yield(
             r#"
 async def agen(n):
     yield n
 "#,
         );
         let rendered = crate::basic_block::blockpy_module_to_string(&blockpy);
-        assert!(rendered.contains("branch_table"));
-        assert!(!rendered.contains("yield n"));
+        assert!(rendered.contains("async_generator agen(n):"), "{rendered}");
+        assert!(
+            rendered.contains(
+                "function agen(_dp_self, _dp_send_value, _dp_resume_exc, _dp_transport_sent):"
+            ),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("return __dp_make_closure_async_generator"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("branch_table"), "{rendered}");
+        assert!(!rendered.contains("yield n"), "{rendered}");
     }
 
     #[test]

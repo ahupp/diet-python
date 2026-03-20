@@ -29,6 +29,46 @@ use std::sync::Arc;
 
 pub struct SingleNamedAssignmentPass;
 
+#[derive(Default)]
+struct YieldFamilyDetector {
+    found: bool,
+}
+
+impl Transformer for YieldFamilyDetector {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+            other => walk_stmt(self, other),
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::Yield(_) | Expr::YieldFrom(_) => {
+                self.found = true;
+            }
+            Expr::Lambda(_)
+            | Expr::Generator(_)
+            | Expr::ListComp(_)
+            | Expr::SetComp(_)
+            | Expr::DictComp(_) => {}
+            other => walk_expr(self, other),
+        }
+    }
+}
+
+fn function_kind(func: &ast::StmtFunctionDef) -> BlockPyFunctionKind {
+    let mut detector = YieldFamilyDetector::default();
+    let mut body = suite_ref(&func.body).to_vec();
+    detector.visit_body(&mut body);
+    match (func.is_async, detector.found) {
+        (false, false) => BlockPyFunctionKind::Function,
+        (false, true) => BlockPyFunctionKind::Generator,
+        (true, false) => BlockPyFunctionKind::Coroutine,
+        (true, true) => BlockPyFunctionKind::AsyncGenerator,
+    }
+}
+
 fn collect_deleted_names(stmts: &[Stmt]) -> HashSet<String> {
     let mut names = HashSet::new();
     for stmt in stmts {
@@ -291,7 +331,6 @@ impl Drop for ReservedTempNamesGuard {
 
 pub(crate) fn try_lower_function_to_blockpy_bundle(
     context: &Context,
-    module_scope: &Arc<Scope>,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &ast::StmtFunctionDef,
     parent_name: Option<&str>,
@@ -347,11 +386,7 @@ pub(crate) fn try_lower_function_to_blockpy_bundle(
     let doc = function_docstring_text(func);
     let main_function_id = take_next_function_id(next_function_id);
     let fn_name = func.name.id.to_string();
-    let blockpy_kind = if func.is_async {
-        BlockPyFunctionKind::Coroutine
-    } else {
-        BlockPyFunctionKind::Function
-    };
+    let blockpy_kind = function_kind(func);
     let callable_def = build_blockpy_callable_def_from_runtime_input(
         context,
         main_function_id,
