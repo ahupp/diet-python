@@ -1,5 +1,5 @@
-use crate::basic_block::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
-use crate::basic_block::block_py::pretty::BlockPyPrettyPrint;
+use crate::block_py::pretty::BlockPyPrettyPrint;
+use crate::passes::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
@@ -10,10 +10,11 @@ use std::any::Any;
 use std::sync::Once;
 use std::time::{Duration, Instant};
 
-pub mod basic_block;
+pub mod block_py;
 mod driver;
 pub mod fixture;
 mod namegen;
+pub mod passes;
 mod template;
 #[cfg(test)]
 mod test_util;
@@ -21,13 +22,11 @@ pub(crate) mod transformer;
 #[cfg(target_arch = "wasm32")]
 mod web_inspector;
 
-use crate::basic_block::ast_to_ast::context::Context;
-pub use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, Scope};
-pub use crate::basic_block::ast_to_ast::Options;
-use crate::basic_block::block_py::{
-    BbBlockPyPass, BlockPyFunction, BlockPyModule, RuffBlockPyPass,
-};
+use crate::block_py::{BbBlockPyPass, BlockPyFunction, BlockPyModule, RuffBlockPyPass};
 use crate::driver::rewrite_module_with_tracker;
+use crate::passes::ast_to_ast::context::Context;
+pub use crate::passes::ast_to_ast::scope::{analyze_module_scope, Scope};
+pub use crate::passes::ast_to_ast::Options;
 
 #[derive(Debug, Clone)]
 pub struct PassTiming {
@@ -187,9 +186,7 @@ impl PassTracker {
     pub(crate) fn transformed_module(&self) -> Option<&Suite> {
         self.get::<(
             Suite,
-            crate::basic_block::block_py::BlockPyModule<
-                crate::basic_block::block_py::RuffBlockPyPass,
-            >,
+            crate::block_py::BlockPyModule<crate::block_py::RuffBlockPyPass>,
         )>("semantic_blockpy")
             .map(|(module, _)| module)
             .or_else(|| self.ast_to_ast_module())
@@ -218,7 +215,7 @@ impl LoweringResult {
     }
 
     pub fn summarize_pass_shape(&self, name: &str) -> Option<PassShapeSummary> {
-        crate::basic_block::summarize_tracked_pass_shape(self, name)
+        crate::passes::summarize_tracked_pass_shape(self, name)
     }
 
     pub fn render_pass_text(&self, name: &str) -> Option<String> {
@@ -330,7 +327,7 @@ pub fn transform_str_to_blockpy_with_options(
 
     let (pass_tracker, _bb_module) = crate::driver::rewrite_module(&ctx, body);
     let blockpy = pass_tracker
-        .get::<BlockPyModule<crate::basic_block::block_py::LoweredRuffBlockPyPass>>("blockpy")
+        .get::<BlockPyModule<crate::block_py::LoweredRuffBlockPyPass>>("blockpy")
         .expect("blockpy pass should be tracked");
     let callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>> = blockpy
         .callable_defs
@@ -393,7 +390,7 @@ impl ToRuffAst for &[Stmt] {
 #[cfg(test)]
 mod tests {
     use super::PassTracker;
-    use crate::basic_block::ast_to_ast::body::Suite;
+    use crate::passes::ast_to_ast::body::Suite;
     use crate::py_stmt;
 
     #[test]

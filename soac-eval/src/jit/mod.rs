@@ -8,7 +8,7 @@ use cranelift_control::ControlPlane;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
-use dp_transform::basic_block::block_py::{BbBlockPyPass, BlockPyModule};
+use dp_transform::block_py::{BbBlockPyPass, BlockPyModule};
 use pyo3::ffi;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -23,7 +23,7 @@ pub use planning::{
     DirectSimpleAssignPlan, DirectSimpleBlockArgPlan, DirectSimpleBlockPlan, DirectSimpleBrIfPlan,
     DirectSimpleCallPart, DirectSimpleDeletePlan, DirectSimpleDeleteTargetPlan,
     DirectSimpleExprPlan, DirectSimpleExprRetNonePlan, DirectSimpleOpPlan, DirectSimpleRetPlan,
-    DirectSimpleTermPlan, lookup_clif_plan, register_clif_module_plans,
+    DirectSimpleTermPlan, lookup_blockpy_function, lookup_clif_plan, register_clif_module_plans,
 };
 pub use specialized_helpers::ObjPtr;
 pub use specialized_helpers::SpecializedJitHooks;

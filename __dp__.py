@@ -517,8 +517,9 @@ def _attach_throw_context_from_state(state, exc):
         pass
 
 
-_jit_has_bb_plan = None
-_jit_block_param_names = None
+_jit_make_bb_function = None
+_jit_make_bb_hidden_resume = None
+_jit_make_bb_generator = None
 _register_clif_vectorcall = None
 _jit_compile_clif_wrapper = None
 
@@ -1660,27 +1661,15 @@ def _build_bb_signature(params, param_defaults):
     return (_inspect.Signature(sig_params), tuple(state_order))
 
 
-def _bb_state_order(default_order, closure):
-    if not isinstance(closure, tuple):
-        return (default_order, {})
-    if not closure:
-        return (default_order, {})
-    state_order = []
+def _bb_capture_values(captures):
+    if not isinstance(captures, tuple):
+        raise RuntimeError(f"bb captures must be a tuple, got {type(captures)!r}")
     closure_values = {}
-    for item in closure:
-        if isinstance(item, str):
-            state_order.append(item)
-            continue
-        if isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], str):
-            state_order.append(item[0])
-            closure_values[item[0]] = item[1]
-            continue
-        return (default_order, {})
-    # A non-empty explicit closure tuple defines the exact BB state order
-    # expected by lowered blocks. Preserve the normal parameter-derived order
-    # when the lowered closure is empty so visible factory functions still bind
-    # their declared parameters.
-    return (tuple(state_order), closure_values)
+    for item in captures:
+        if not (isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], str)):
+            raise RuntimeError(f"invalid bb capture payload: {item!r}")
+        closure_values[item[0]] = item[1]
+    return closure_values
 
 
 def _bb_wrap_with_closure(entry, closure_values):
@@ -1939,226 +1928,45 @@ def _bb_validate_entry_ref(entry_ref):
     )
 
 
-def jit_bb_plan_enabled():
-    return _register_clif_vectorcall is not None
-
-
-def _bb_make_resume_entry(
-    resume,
-    function_id,
-    name,
-    qualname,
-    module_globals,
-    module_name,
-    *,
-    async_gen,
-    closure_values=None,
-    use_function_binding=False,
-):
-    _bb_validate_entry_ref(resume)
-    if not isinstance(resume, str):
-        raise TypeError(
-            f"generator resume entry must be a block-label string reference, got {type(resume)!r}"
-        )
-    entry_ref = resume
-    plan_name = _bb_plan_name(qualname, function_id)
-    if not (
-        jit_bb_plan_enabled()
-        and isinstance(module_name, str)
-        and isinstance(plan_name, str)
-        and _jit_has_bb_plan is not None
-        and _jit_has_bb_plan(module_name, function_id)
-    ):
-        kind = "async generator" if async_gen else "generator"
-        raise RuntimeError(
-            f"JIT basic-block {kind} resume requires a registered plan, "
-            f"but none is available for {module_name}.{plan_name}"
-        )
-    hidden_name = (
-        f"_dp_resume_{name}" if isinstance(name, str) and name.isidentifier() else "_dp_resume"
-    )
-    if _jit_block_param_names is None:
-        raise RuntimeError(
-            "JIT basic-block resume requires block parameter metadata, "
-            f"but it is unavailable for {module_name}.{plan_name}"
-        )
-    resolved = _jit_block_param_names(module_name, function_id, entry_ref)
-    if not isinstance(resolved, (tuple, list)):
-        raise RuntimeError(
-            "JIT basic-block resume expected block parameter metadata as a "
-            f"sequence for {module_name}.{plan_name}::{entry_ref}, "
-            f"got {type(resolved)!r}"
-        )
-    resume_state_order = tuple(resolved)
-    if use_function_binding and closure_values is not None:
-        missing_cells = tuple(
-            name
-            for name in resume_state_order
-            if isinstance(name, str)
-            and (name == "_dp_classcell" or name.startswith("_dp_cell_"))
-            and name not in closure_values
-        )
-        if missing_cells:
-            raise RuntimeError(
-                "closure-backed sync generator resume is missing lifted cells "
-                f"{missing_cells!r} for state order {resume_state_order!r}"
-            )
-    entry = _bb_make_lazy_clif_entry(
-        async_entry=False,
-        function_name=hidden_name,
-        module_globals=module_globals,
-    )
-    entry = _bb_wrap_with_closure(entry, closure_values or {})
-    entry = _bb_rebind_function_globals(entry, module_globals)
-    if module_name is not None:
-        entry.__module__ = module_name
-        _bb_set_plan_metadata(
-            entry, module_name, function_id, plan_name, module_globals, entry_ref=entry_ref
-        )
-    _bb_enable_lazy_clif_vectorcall(
-        entry,
-        module_name,
-        function_id,
-        plan_name,
-        resume_state_order,
-        (
-            (
-                ("_dp_self", "PosOnly", False),
-                ("_dp_send_value", "PosOnly", False),
-                ("_dp_resume_exc", "PosOnly", False),
-                *((("_dp_transport_sent", "PosOnly", False),) if async_gen else ()),
-            )
-            if use_function_binding
-            else None
-        ),
-        (),
-        closure_values,
-        None,
-        DELETED,
-        (
-            _BIND_KIND_FUNCTION
-            if use_function_binding
-            else (
-                _BIND_KIND_ASYNC_GENERATOR_RESUME
-                if async_gen
-                else _BIND_KIND_GENERATOR_RESUME
-            )
-        ),
-    )
-    return entry
-
-
 def def_hidden_resume_fn(
-    entry_bb,
     function_id,
-    name,
-    qualname,
-    state_order,
     closure_names,
     closure_values,
     module_globals=None,
-    module_name=None,
     *,
     async_gen=False,
 ):
-    _bb_validate_entry_ref(entry_bb)
-    if not isinstance(entry_bb, str):
-        raise TypeError(
-            f"generator resume entry must be a block-label string reference, got {type(entry_bb)!r}"
-        )
-    if not isinstance(state_order, tuple):
-        raise TypeError(
-            f"generator resume state_order must be a tuple, got {type(state_order)!r}"
-        )
-    if not isinstance(closure_names, tuple):
-        raise TypeError(
-            f"generator resume closure_names must be a tuple, got {type(closure_names)!r}"
-        )
-    if not isinstance(closure_values, tuple):
-        raise TypeError(
-            f"generator resume closure_values must be a tuple, got {type(closure_values)!r}"
-        )
-    if len(closure_names) != len(closure_values):
+    if _jit_make_bb_hidden_resume is None:
         raise RuntimeError(
-            "generator resume closure metadata length mismatch: "
-            f"{len(closure_names)} names vs {len(closure_values)} values"
+            "JIT basic-block generator resume requires a registered Rust constructor"
         )
-
-    closure_map = dict(zip(closure_names, closure_values))
-    return _bb_make_resume_entry(
-        entry_bb,
+    return _jit_make_bb_hidden_resume(
         function_id,
-        name,
-        qualname,
+        closure_names,
+        closure_values,
         module_globals,
-        module_name,
         async_gen=async_gen,
-        closure_values=closure_map,
     )
 
 
 def make_function(
-    entry_bb,
     function_id,
-    name,
-    qualname,
-    closure,
-    params,
+    captures,
     param_defaults,
     module_globals=None,
-    module_name=None,
-    doc=None,
     annotate_fn=None,
 ):
-    # BB mode passes a lowered entry block, and make_function builds the
-    # callable wrapper so we don't need an extra transformed outer function
-    # call layer.
-    signature, default_state_order = _build_bb_signature(params, param_defaults)
-    state_order, closure_values = _bb_state_order(default_state_order, closure)
-    _bb_validate_entry_ref(entry_bb)
-    entry_ref = entry_bb if isinstance(entry_bb, str) else None
-    plan_name = _bb_plan_name(qualname, function_id)
-    if not (
-        jit_bb_plan_enabled()
-        and isinstance(module_name, str)
-        and isinstance(plan_name, str)
-        and _jit_has_bb_plan is not None
-        and _jit_has_bb_plan(module_name, function_id)
-    ):
+    if _jit_make_bb_function is None:
         raise RuntimeError(
-            "JIT basic-block function instantiation requires a registered plan, "
-            f"but none is available for {module_name}.{plan_name}"
+            "JIT basic-block function instantiation requires a registered Rust constructor"
         )
-
-    entry = _bb_make_lazy_clif_entry(
-        async_entry=False,
-        function_name=name,
-        module_globals=module_globals,
-    )
-    entry = _bb_wrap_with_closure(entry, closure_values)
-    entry = _bb_rebind_function_globals(entry, module_globals)
-    entry.__signature__ = signature
-    entry = update_fn(entry, qualname, name)
-    if module_name is not None:
-        entry.__module__ = module_name
-    if doc is not None:
-        entry.__doc__ = doc
-    if annotate_fn is not None:
-        entry.__annotate__ = annotate_fn
-    _bb_enable_lazy_clif_vectorcall(
-        entry,
-        module_name,
+    return _jit_make_bb_function(
         function_id,
-        plan_name,
-        state_order,
-        tuple(params),
-        tuple(param_defaults),
-        closure_values,
-        None,
-        DELETED,
-        _BIND_KIND_FUNCTION,
+        captures,
+        param_defaults,
+        module_globals,
+        annotate_fn,
     )
-    return entry
 
 
 def mark_coroutine_function(func):
@@ -2175,103 +1983,6 @@ def mark_coroutine_function(func):
         except Exception:
             pass
     return func
-
-
-def def_coro_from_gen(
-    resume,
-    function_id,
-    name,
-    qualname,
-    closure,
-    params,
-    param_defaults,
-    module_globals,
-    module_name,
-    doc=None,
-    annotate_fn=None,
-):
-    signature, default_state_order = _build_bb_signature(params, param_defaults)
-    state_order, closure_values = _bb_state_order(default_state_order, closure)
-    gen_code = _dp_make_gen_code(name, qualname)
-    entry_ref = resume if isinstance(resume, str) else None
-    plan_name = _bb_plan_name(qualname, function_id)
-    if not (
-        jit_bb_plan_enabled()
-        and isinstance(module_name, str)
-        and isinstance(plan_name, str)
-        and _jit_has_bb_plan is not None
-        and _jit_has_bb_plan(module_name, function_id)
-    ):
-        raise RuntimeError(
-            "JIT basic-block coroutine definition requires a registered plan, "
-            f"but none is available for {module_name}.{plan_name}"
-        )
-
-    resume_entry = _bb_make_resume_entry(
-        resume,
-        function_id,
-        name,
-        qualname,
-        module_globals,
-        module_name,
-        async_gen=False,
-    )
-
-    def materialize(
-        state_args,
-        __dp_state_order=state_order,
-        __dp_resume=resume_entry,
-        __dp_gen_type=_DpGenerator,
-        __dp_coro_type=_DpCoroutine,
-        __dp_name=name,
-        __dp_qualname=qualname,
-        __dp_code=gen_code,
-        __dp_make_state_frame=_bb_make_state_frame,
-    ):
-        return __dp_coro_type(
-            __dp_gen_type(
-                resume=__dp_resume,
-                pc=1,
-                gi_frame=__dp_make_state_frame(__dp_state_order, state_args),
-                name=__dp_name,
-                qualname=__dp_qualname,
-                code=__dp_code,
-            )
-        )
-
-    entry = _bb_make_lazy_clif_entry(
-        async_entry=False,
-        function_name=name,
-        module_globals=module_globals,
-    )
-    entry = _bb_wrap_with_closure(entry, closure_values)
-    entry = _bb_rebind_function_globals(entry, module_globals)
-    entry.__signature__ = signature
-    entry = update_fn(entry, qualname, name)
-    if module_name is not None:
-        entry.__module__ = module_name
-        _bb_set_plan_metadata(
-            entry, module_name, function_id, plan_name, module_globals, entry_ref=entry_ref
-        )
-    if doc is not None:
-        entry.__doc__ = doc
-    if annotate_fn is not None:
-        entry.__annotate__ = annotate_fn
-    _bb_enable_lazy_clif_vectorcall(
-        entry,
-        module_name,
-        function_id,
-        plan_name,
-        state_order,
-        tuple(params),
-        tuple(param_defaults),
-        closure_values,
-        None,
-        DELETED,
-        _BIND_KIND_FUNCTION,
-        materialize,
-    )
-    return mark_coroutine_function(entry)
 
 
 _DP_GEN_CODE_TEMPLATE = None
@@ -2313,120 +2024,24 @@ def _dp_make_async_gen_code(name, qualname):
     code = _DP_ASYNC_GEN_CODE_TEMPLATE
     return code.replace(co_name=name, co_qualname=qualname)
 
-def make_closure_generator(resume, name, qualname):
-    return _DpClosureGenerator(
-        resume=resume,
-        name=name,
-        qualname=qualname,
-        code=_dp_make_gen_code(name, qualname),
-    )
+def make_closure_generator(function_id, resume, module_globals=None):
+    if _jit_make_bb_generator is None:
+        raise RuntimeError(
+            "JIT basic-block generator construction requires a registered Rust constructor"
+        )
+    return _jit_make_bb_generator(function_id, resume, module_globals, async_gen=False)
 
 
 def make_coroutine_from_generator(gen):
     return _DpCoroutine(gen)
 
 
-def make_closure_async_generator(resume, name, qualname):
-    return _DpClosureAsyncGenerator(
-        resume=resume,
-        name=name,
-        qualname=qualname,
-        code=_dp_make_async_gen_code(name, qualname),
-    )
-
-
-def def_async_gen(
-    resume,
-    function_id,
-    name,
-    qualname,
-    closure,
-    params,
-    param_defaults,
-    module_globals,
-    module_name,
-    doc=None,
-    annotate_fn=None,
-):
-    signature, default_state_order = _build_bb_signature(params, param_defaults)
-    state_order, closure_values = _bb_state_order(default_state_order, closure)
-    ag_code = _dp_make_async_gen_code(name, qualname)
-    entry_ref = resume if isinstance(resume, str) else None
-    plan_name = _bb_plan_name(qualname, function_id)
-    if not (
-        jit_bb_plan_enabled()
-        and isinstance(module_name, str)
-        and isinstance(plan_name, str)
-        and _jit_has_bb_plan is not None
-        and _jit_has_bb_plan(module_name, function_id)
-    ):
+def make_closure_async_generator(function_id, resume, module_globals=None):
+    if _jit_make_bb_generator is None:
         raise RuntimeError(
-            "JIT basic-block async generator definition requires a registered plan, "
-            f"but none is available for {module_name}.{plan_name}"
+            "JIT basic-block async generator construction requires a registered Rust constructor"
         )
-
-    resume_entry = _bb_make_resume_entry(
-        resume,
-        function_id,
-        name,
-        qualname,
-        module_globals,
-        module_name,
-        async_gen=True,
-    )
-
-    def materialize(
-        state_args,
-        __dp_state_order=state_order,
-        __dp_resume=resume_entry,
-        __dp_async_gen_type=_DpAsyncGenerator,
-        __dp_name=name,
-        __dp_qualname=qualname,
-        __dp_code=ag_code,
-        __dp_make_state_frame=_bb_make_state_frame,
-    ):
-        return __dp_async_gen_type(
-            resume=__dp_resume,
-            pc=1,
-            gi_frame=__dp_make_state_frame(__dp_state_order, state_args),
-            name=__dp_name,
-            qualname=__dp_qualname,
-            code=__dp_code,
-        )
-
-    entry = _bb_make_lazy_clif_entry(
-        async_entry=False,
-        function_name=name,
-        module_globals=module_globals,
-    )
-    entry = _bb_wrap_with_closure(entry, closure_values)
-    entry = _bb_rebind_function_globals(entry, module_globals)
-    entry.__signature__ = signature
-    entry = update_fn(entry, qualname, name)
-    if module_name is not None:
-        entry.__module__ = module_name
-        _bb_set_plan_metadata(
-            entry, module_name, function_id, plan_name, module_globals, entry_ref=entry_ref
-        )
-    if doc is not None:
-        entry.__doc__ = doc
-    if annotate_fn is not None:
-        entry.__annotate__ = annotate_fn
-    _bb_enable_lazy_clif_vectorcall(
-        entry,
-        module_name,
-        function_id,
-        plan_name,
-        state_order,
-        tuple(params),
-        tuple(param_defaults),
-        closure_values,
-        None,
-        DELETED,
-        _BIND_KIND_FUNCTION,
-        materialize,
-    )
-    return entry
+    return _jit_make_bb_generator(function_id, resume, module_globals, async_gen=True)
 
 
 

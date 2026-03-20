@@ -1,4 +1,4 @@
-use crate::basic_block::block_py::{
+use crate::block_py::{
     pretty as blockpy_pretty, BbBlockPyPass, BlockPyFunction, BlockPyFunctionKind, BlockPyModule,
     BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
 };
@@ -58,7 +58,8 @@ fn pipeline_steps(source: &str, transformed: &LoweringResult) -> Vec<Value> {
         "text": source,
     })];
     for name in transformed.pass_names() {
-        let text = crate::basic_block::render_tracked_pass_text(transformed, name)
+        let text = transformed
+            .render_pass_text(name)
             .unwrap_or_else(|| format!("; no text renderer for pass {name}"));
         steps.push(json!({
             "key": name,
@@ -235,8 +236,8 @@ fn sanitize_clif_testcase_name(name: &str) -> String {
 
 fn clif_target_comment(
     label: &str,
-    label_to_index: &HashMap<crate::basic_block::block_py::BlockPyLabel, usize>,
-    label_to_params: &HashMap<crate::basic_block::block_py::BlockPyLabel, Vec<String>>,
+    label_to_index: &HashMap<crate::block_py::BlockPyLabel, usize>,
+    label_to_params: &HashMap<crate::block_py::BlockPyLabel, Vec<String>>,
 ) -> String {
     let target = label_to_index
         .get(label)
@@ -258,8 +259,8 @@ fn clif_target_comment(
 
 fn clif_term_comment(
     term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-    label_to_index: &HashMap<crate::basic_block::block_py::BlockPyLabel, usize>,
-    label_to_params: &HashMap<crate::basic_block::block_py::BlockPyLabel, Vec<String>>,
+    label_to_index: &HashMap<crate::block_py::BlockPyLabel, usize>,
+    label_to_params: &HashMap<crate::block_py::BlockPyLabel, Vec<String>>,
 ) -> String {
     match term {
         BlockPyTerm::Jump(label) => {
@@ -308,7 +309,7 @@ fn clif_target_args_for_block(
     builder: &mut FunctionBuilder<'_>,
     target_label: &str,
     current_values: &HashMap<String, ir::Value>,
-    label_to_params: &HashMap<crate::basic_block::block_py::BlockPyLabel, Vec<String>>,
+    label_to_params: &HashMap<crate::block_py::BlockPyLabel, Vec<String>>,
 ) -> Vec<ir::BlockArg> {
     let mut args = Vec::new();
     if let Some(target_params) = label_to_params.get(target_label) {

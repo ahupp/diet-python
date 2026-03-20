@@ -1,25 +1,26 @@
-use crate::basic_block::ast_to_ast::ast_rewrite::rewrite_with_pass;
-use crate::basic_block::ast_to_ast::context::Context;
-use crate::basic_block::ast_to_ast::rewrite_class_def;
-use crate::basic_block::ast_to_ast::rewrite_stmt::function_def::rewrite_ast_to_lowered_blockpy_module_plan;
-use crate::basic_block::ast_to_ast::scope::{analyze_module_scope, BindingKind};
-use crate::basic_block::ast_to_ast::simplify::lower_surrogate_string_literals;
-use crate::basic_block::ast_to_ast::{
+use crate::block_py::{
+    BbBlockPyPass, BlockPyModule, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
+    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, RuffBlockPyPass,
+};
+use crate::passes::ast_to_ast::ast_rewrite::rewrite_with_pass;
+use crate::passes::ast_to_ast::context::Context;
+use crate::passes::ast_to_ast::rewrite_class_def;
+use crate::passes::ast_to_ast::scope::{analyze_module_scope, BindingKind};
+use crate::passes::ast_to_ast::simplify::lower_surrogate_string_literals;
+use crate::passes::ast_to_ast::{
     ast_rewrite::ExprRewritePass,
     ast_rewrite::LoweredExpr,
     body::{body_from_suite, suite_mut, Suite},
     rewrite_expr::lower_scoped_helper_expr,
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
 };
-use crate::basic_block::block_py::{
-    BbBlockPyPass, BlockPyModule, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
-    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, RuffBlockPyPass,
+use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
+use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
+use crate::passes::core_eval_order::make_eval_order_explicit_in_core_callable_def;
+use crate::passes::ruff_to_blockpy::{
+    build_lowered_blockpy_function_bundle, rewrite_ast_to_lowered_blockpy_module_plan,
 };
-use crate::basic_block::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
-use crate::basic_block::core_await_lower::lower_awaits_in_core_blockpy_module;
-use crate::basic_block::core_eval_order::make_eval_order_explicit_in_core_callable_def;
-use crate::basic_block::ruff_to_blockpy::build_lowered_blockpy_function_bundle;
-use crate::basic_block::{self};
+use crate::passes::{self};
 use crate::PassTracker;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
@@ -71,7 +72,7 @@ pub(crate) fn rewrite_module_with_tracker(
         // that the later BlockPy lowering expects.
         rewrite_with_pass(
             context,
-            Some(&basic_block::SingleNamedAssignmentPass),
+            Some(&passes::SingleNamedAssignmentPass),
             None,
             suite_mut(&mut module),
         );
@@ -114,14 +115,10 @@ pub(crate) fn rewrite_module_with_tracker(
         });
     let core_blockpy_without_await_or_yield: BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield> =
         pass_tracker.run_renderable_pass("core_blockpy_without_await_or_yield", || {
-            basic_block::lower_yield_in_lowered_core_blockpy_module_bundle(
-                core_blockpy_without_await,
-            )
+            passes::lower_yield_in_lowered_core_blockpy_module_bundle(core_blockpy_without_await)
         });
     let bb_module: BlockPyModule<BbBlockPyPass> = pass_tracker.run_renderable_pass("bb", || {
-        basic_block::lower_core_blockpy_module_bundle_to_bb_module(
-            core_blockpy_without_await_or_yield,
-        )
+        passes::lower_core_blockpy_module_bundle_to_bb_module(core_blockpy_without_await_or_yield)
     });
     bb_module
 }

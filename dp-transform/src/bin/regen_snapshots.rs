@@ -5,11 +5,11 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use dp_transform::basic_block::block_py::{
+use dp_transform::block_py::{
     BlockPyBlock, BlockPyCfgFragment, BlockPyModule, BlockPyStmt, RuffBlockPyPass,
 };
-use dp_transform::basic_block::normalize_bb_module_for_codegen;
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
+use dp_transform::passes::normalize_bb_module_for_codegen;
 use dp_transform::{
     init_logging, transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options,
     Options,
@@ -87,7 +87,7 @@ fn render_blockpy_snapshot(
         .ok();
     let blockpy_rendered = blockpy
         .as_ref()
-        .map(dp_transform::basic_block::blockpy_module_to_string)
+        .map(dp_transform::passes::blockpy_module_to_string)
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
     let blockpy_blocks = blockpy.as_ref().map(count_blockpy_blocks).unwrap_or(0);
     let clif_blocks = result
@@ -169,7 +169,7 @@ fn count_blockpy_blocks_in_stmts(stmts: &[BlockPyStmt]) -> usize {
 }
 
 fn count_blockpy_blocks_in_stmt_fragment(
-    fragment: &BlockPyCfgFragment<BlockPyStmt, dp_transform::basic_block::block_py::BlockPyTerm>,
+    fragment: &BlockPyCfgFragment<BlockPyStmt, dp_transform::block_py::BlockPyTerm>,
 ) -> usize {
     count_blockpy_blocks_in_stmts(&fragment.body)
         + fragment
@@ -178,17 +178,15 @@ fn count_blockpy_blocks_in_stmt_fragment(
             .map_or(0, count_blockpy_blocks_in_term)
 }
 
-fn count_blockpy_blocks_in_term(term: &dp_transform::basic_block::block_py::BlockPyTerm) -> usize {
+fn count_blockpy_blocks_in_term(term: &dp_transform::block_py::BlockPyTerm) -> usize {
     match term {
-        dp_transform::basic_block::block_py::BlockPyTerm::IfTerm(_) => 0,
+        dp_transform::block_py::BlockPyTerm::IfTerm(_) => 0,
         _ => 0,
     }
 }
 
 fn count_clif_blocks(
-    module: &dp_transform::basic_block::block_py::BlockPyModule<
-        dp_transform::basic_block::block_py::BbBlockPyPass,
-    >,
+    module: &dp_transform::block_py::BlockPyModule<dp_transform::block_py::BbBlockPyPass>,
 ) -> usize {
     let normalized = normalize_bb_module_for_codegen(module);
     normalized

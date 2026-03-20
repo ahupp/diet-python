@@ -1,6 +1,5 @@
-use dp_transform::basic_block::bb_ir::{BbBlock, BbStmt};
-use dp_transform::basic_block::block_py::{
-    AbruptKind, BbBlockPyPass, BbExceptionArgSource, BlockArg, BlockPyFunction,
+use dp_transform::block_py::{
+    AbruptKind, BbBlock, BbBlockPyPass, BbExceptionArgSource, BbStmt, BlockArg, BlockPyFunction,
     BlockPyFunctionKind, BlockPyLabel, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyCallArg,
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
 };
@@ -178,6 +177,7 @@ pub struct DirectSimpleBlockPlan {
 }
 
 type PlanRegistry = HashMap<PlanKey, ClifPlan>;
+type FunctionRegistry = HashMap<PlanKey, BlockPyFunction<BbBlockPyPass>>;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct PlanKey {
@@ -186,9 +186,14 @@ pub struct PlanKey {
 }
 
 static CLIF_PLAN_REGISTRY: OnceLock<Mutex<PlanRegistry>> = OnceLock::new();
+static BB_FUNCTION_REGISTRY: OnceLock<Mutex<FunctionRegistry>> = OnceLock::new();
 
 fn clif_plan_registry() -> &'static Mutex<PlanRegistry> {
     CLIF_PLAN_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn bb_function_registry() -> &'static Mutex<FunctionRegistry> {
+    BB_FUNCTION_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn direct_simple_expr_from(
@@ -883,23 +888,23 @@ pub fn register_clif_module_plans(
     module_name: &str,
     module: &BlockPyModule<BbBlockPyPass>,
 ) -> Result<(), String> {
-    let lowered = dp_transform::basic_block::lower_try_jump_exception_flow(module)?;
+    let lowered = dp_transform::passes::lower_try_jump_exception_flow(module)?;
     let debug_skips = std::env::var_os("DIET_PYTHON_DEBUG_JIT_PLAN_SKIPS").is_some();
     let mut plans = HashMap::new();
+    let mut functions = HashMap::new();
     let mut skipped_errors: HashMap<String, String> = HashMap::new();
     for function in &lowered.callable_defs {
+        let key = PlanKey {
+            module: module_name.to_string(),
+            function_id: function.function_id.0,
+        };
         let plan_name = function
             .function_id
             .plan_qualname(function.names.qualname.as_str());
         match build_clif_plan(function) {
             Ok(plan) => {
-                plans.insert(
-                    PlanKey {
-                        module: module_name.to_string(),
-                        function_id: function.function_id.0,
-                    },
-                    plan,
-                );
+                plans.insert(key.clone(), plan);
+                functions.insert(key, function.clone());
             }
             Err(err) => {
                 if debug_skips {
@@ -939,11 +944,31 @@ pub fn register_clif_module_plans(
         .map_err(|_| "failed to lock bb plan registry".to_string())?;
     registry.retain(|key, _| key.module != module_name);
     registry.extend(plans);
+    drop(registry);
+
+    let mut function_registry = bb_function_registry()
+        .lock()
+        .map_err(|_| "failed to lock bb function registry".to_string())?;
+    function_registry.retain(|key, _| key.module != module_name);
+    function_registry.extend(functions);
     Ok(())
 }
 
 pub fn lookup_clif_plan(module_name: &str, function_id: usize) -> Option<ClifPlan> {
     let registry = clif_plan_registry().lock().ok()?;
+    registry
+        .get(&PlanKey {
+            module: module_name.to_string(),
+            function_id,
+        })
+        .cloned()
+}
+
+pub fn lookup_blockpy_function(
+    module_name: &str,
+    function_id: usize,
+) -> Option<BlockPyFunction<BbBlockPyPass>> {
+    let registry = bb_function_registry().lock().ok()?;
     registry
         .get(&PlanKey {
             module: module_name.to_string(),

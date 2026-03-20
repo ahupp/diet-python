@@ -158,10 +158,11 @@ def install():
         if hook_fn is not None:
             hook_fn()
         transform = _get_pyo3_transform()
-        _dp_module._jit_has_bb_plan = getattr(transform, "jit_has_bb_plan", None)
-        _dp_module._jit_block_param_names = getattr(
-            transform, "jit_block_param_names", None
+        _dp_module._jit_make_bb_function = getattr(transform, "make_bb_function", None)
+        _dp_module._jit_make_bb_hidden_resume = getattr(
+            transform, "make_bb_hidden_resume", None
         )
+        _dp_module._jit_make_bb_generator = getattr(transform, "make_bb_generator", None)
         _dp_module._register_clif_vectorcall = getattr(
             transform, "register_clif_vectorcall", None
         )

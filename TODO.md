@@ -5,8 +5,7 @@
 - Add one entry per request and include any plan or relevant response summary with it.
 
 
-- There is pretty-print logic in bb_ir.rs, web_inspector.rs, and block_py/pretty.rs. \ Determine if all those can be merged into a single implementation, possibly with BlockPyModuleVisitor.
-- move bb_ir into blockpy_to_bb
+- move bb_ir into blockpy_to_bb/mod.rs
 - Determine if codegen_trace.rs and cfg_trace.rs are doing similar things, and merge if so.
 
 - move "block_py" to be a top-level module.
@@ -95,4 +94,5 @@
 - Implement a BlockPyModuleVisitor, analagous to BlockPyModuleMap.  This will visit everything in order, taking by reference not value.  It should have a &mut self reciever.  Then move all the summarize_ stuff in basic_block/mod.rs to it's own module, and use a BlockPyModuleVisitor to do that generically.
 - I don't think flatten_stmt_boxes and flatten_stmt do anything anymore, remove
 - merge bound_names into ast_symbol_analysis
+- There is pretty-print logic in bb_ir.rs, web_inspector.rs, and block_py/pretty.rs. \ Determine if all those can be merged into a single implementation, possibly with BlockPyModuleVisitor.
 

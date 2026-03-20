@@ -1,0 +1,1570 @@
+use super::{
+    AbruptKind, BbBlockPyPass, BlockArg, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
+    BlockPyStmt, BlockPyTerm, BlockPyTryJump, CoreBlockPyExprWithoutAwaitOrYield,
+    CoreBlockPyLiteral, Expr, PassBlock, PassExpr, RuffBlockPyPass,
+};
+use crate::block_py::param_specs::{ParamKind, ParamSpec};
+use crate::ruff_ast_to_string;
+use ruff_python_ast as ast;
+use std::collections::{HashMap, HashSet};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum IfBranchKind {
+    Then,
+    Else,
+}
+
+pub trait BlockPyPrettyPrinter: BlockPyPass
+where
+    PassExpr<Self>: Clone + Into<Expr>,
+{
+    fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String>
+    where
+        Self: Sized;
+
+    fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String>
+    where
+        Self: Sized;
+}
+
+impl<P> BlockPyPrettyPrinter for P
+where
+    P: BlockPyPass<BlockMeta = super::BlockPyBlockMeta>,
+    PassExpr<P>: Clone + Into<Expr>,
+{
+    fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
+        function.entry_liveins()
+    }
+
+    fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
+        render_blockpy_block_metadata(block)
+    }
+}
+
+impl BlockPyPrettyPrinter for BbBlockPyPass {
+    fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
+        function.entry_liveins()
+    }
+
+    fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
+        let mut lines = Vec::new();
+        if !block.params.is_empty() {
+            lines.push(format!(
+                "params: [{}]",
+                block
+                    .param_names()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        if let Some(exc_target) = &block.meta.exc_target_label {
+            lines.push(format!("exc_target: {}", exc_target.as_str()));
+        }
+        if let Some(exc_name) = block.exception_param() {
+            lines.push(format!("exc_name: {exc_name}"));
+        }
+        lines
+    }
+}
+
+pub trait BlockPyPrettyPrint {
+    fn pretty_print(&self) -> String;
+}
+
+impl<P> BlockPyPrettyPrint for BlockPyModule<P>
+where
+    P: BlockPyPrettyPrinter,
+    PassExpr<P>: Clone + Into<Expr>,
+{
+    fn pretty_print(&self) -> String {
+        blockpy_module_to_string(self)
+    }
+}
+
+impl BlockPyPrettyPrint for (ruff_python_ast::Suite, BlockPyModule<RuffBlockPyPass>) {
+    fn pretty_print(&self) -> String {
+        self.1.pretty_print()
+    }
+}
+
+pub fn blockpy_module_to_string<P>(module: &BlockPyModule<P>) -> String
+where
+    P: BlockPyPrettyPrinter,
+    PassExpr<P>: Clone + Into<Expr>,
+{
+    let mut formatter = BlockPyFormatter::default();
+    formatter.write_module(module);
+    formatter.finish()
+}
+
+#[derive(Default)]
+struct BlockPyFormatter {
+    out: String,
+    indent: usize,
+}
+
+impl BlockPyFormatter {
+    fn finish(mut self) -> String {
+        if self.out.is_empty() {
+            self.line("; empty BlockPy module");
+        }
+        self.out
+    }
+
+    fn write_module<P>(&mut self, module: &BlockPyModule<P>)
+    where
+        P: BlockPyPrettyPrinter,
+        PassExpr<P>: Clone + Into<Expr>,
+    {
+        for function in &module.callable_defs {
+            if !self.out.is_empty() {
+                self.out.push('\n');
+            }
+            self.write_function(function);
+        }
+    }
+
+    fn write_function<P>(&mut self, function: &BlockPyFunction<P>)
+    where
+        P: BlockPyPrettyPrinter,
+        PassExpr<P>: Clone + Into<Expr>,
+    {
+        let params = format_parameters(&function.params, &function.param_defaults);
+        let parameter_names = function.params.names();
+        let referenced_labels = collect_referenced_labels_from_blocks::<P>(&function.blocks);
+        let render_layout = BlockRenderLayout::new(function);
+        self.line(format!(
+            "{} {}({params}):",
+            function_kind_name(function.kind),
+            function.names.qualname
+        ));
+        self.with_indent(|this| {
+            this.line(format!("function_id: {}", function.function_id.0));
+            if function.names.display_name != function.names.bind_name {
+                this.line(format!("display_name: {}", function.names.display_name));
+            }
+            let entry_liveins = P::entry_liveins(function);
+            if !entry_liveins.is_empty() && entry_liveins != parameter_names {
+                this.line(format!("entry_liveins: [{}]", entry_liveins.join(", ")));
+            }
+            let local_cell_slots = function.local_cell_slots();
+            if !local_cell_slots.is_empty() {
+                this.line(format!(
+                    "local_cell_slots: [{}]",
+                    local_cell_slots.join(", ")
+                ));
+            }
+            if let Some(layout) = &function.closure_layout {
+                if !layout.freevars.is_empty() {
+                    this.line(format!(
+                        "freevars: [{}]",
+                        render_closure_slots(&layout.freevars)
+                    ));
+                }
+                if !layout.cellvars.is_empty() {
+                    this.line(format!(
+                        "cellvars: [{}]",
+                        render_closure_slots(&layout.cellvars)
+                    ));
+                }
+                if !layout.runtime_cells.is_empty() {
+                    this.line(format!(
+                        "runtime_cells: [{}]",
+                        render_closure_slots(&layout.runtime_cells)
+                    ));
+                }
+            }
+            if function.blocks.is_empty() {
+                this.line("pass");
+            } else {
+                for root_block in &render_layout.root_blocks {
+                    this.write_function_block(
+                        function,
+                        &render_layout,
+                        *root_block,
+                        &referenced_labels,
+                    );
+                }
+            }
+        });
+    }
+
+    fn write_function_block<P>(
+        &mut self,
+        function: &BlockPyFunction<P>,
+        render_layout: &BlockRenderLayout,
+        block_index: usize,
+        referenced_labels: &HashSet<BlockPyLabel>,
+    ) where
+        P: BlockPyPrettyPrinter,
+        PassExpr<P>: Clone + Into<Expr>,
+    {
+        let block = &function.blocks[block_index];
+        self.line(format!("block {}:", block.label.as_str()));
+        self.with_indent(|this| {
+            for line in P::block_metadata_lines(block) {
+                this.line(line);
+            }
+            this.write_block_contents(
+                function,
+                render_layout,
+                Some(block_index),
+                block,
+                referenced_labels,
+            );
+            for child_block in &render_layout.child_blocks[block_index] {
+                if render_layout.inlined_blocks.contains(child_block) {
+                    continue;
+                }
+                this.write_function_block(function, render_layout, *child_block, referenced_labels);
+            }
+        });
+    }
+
+    fn write_block_contents<P>(
+        &mut self,
+        function: &BlockPyFunction<P>,
+        render_layout: &BlockRenderLayout,
+        current_block_index: Option<usize>,
+        block: &PassBlock<P>,
+        referenced_labels: &HashSet<BlockPyLabel>,
+    ) where
+        P: BlockPyPrettyPrinter,
+        PassExpr<P>: Clone + Into<Expr>,
+    {
+        if block.body.is_empty() {
+            self.write_term(
+                function,
+                render_layout,
+                current_block_index,
+                &block.term,
+                referenced_labels,
+            );
+            return;
+        }
+        self.write_stmt_list(&block.body, referenced_labels);
+        self.write_term(
+            function,
+            render_layout,
+            current_block_index,
+            &block.term,
+            referenced_labels,
+        );
+    }
+
+    fn write_stmt_list<E>(
+        &mut self,
+        stmts: &[BlockPyStmt<E>],
+        referenced_labels: &HashSet<BlockPyLabel>,
+    ) where
+        E: Clone + Into<Expr>,
+    {
+        for stmt in stmts {
+            self.write_stmt(stmt, referenced_labels);
+        }
+    }
+
+    fn write_stmt_fragment<E>(
+        &mut self,
+        fragment: &BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
+        referenced_labels: &HashSet<BlockPyLabel>,
+    ) where
+        E: Clone + Into<Expr>,
+    {
+        if fragment.body.is_empty() && fragment.term.is_none() {
+            self.line("pass");
+            return;
+        }
+        self.write_stmt_list(&fragment.body, referenced_labels);
+        if let Some(term) = &fragment.term {
+            self.write_term_inline(term);
+        }
+    }
+
+    fn write_stmt<E>(&mut self, stmt: &BlockPyStmt<E>, referenced_labels: &HashSet<BlockPyLabel>)
+    where
+        E: Clone + Into<Expr>,
+    {
+        match stmt {
+            BlockPyStmt::Assign(assign) => self.line(format!(
+                "{} = {}",
+                assign.target.id,
+                render_inline_expr(&assign.value)
+            )),
+            BlockPyStmt::Expr(expr) => self.line(render_inline_expr(expr)),
+            BlockPyStmt::Delete(delete) => self.line(format!("del {}", delete.target.id)),
+            BlockPyStmt::If(if_stmt) => {
+                self.line(format!("if {}:", render_inline_expr(&if_stmt.test)));
+                self.with_indent(|this| this.write_stmt_fragment(&if_stmt.body, referenced_labels));
+                if !if_stmt.orelse.body.is_empty() || if_stmt.orelse.term.is_some() {
+                    self.line("else:");
+                    self.with_indent(|this| {
+                        this.write_stmt_fragment(&if_stmt.orelse, referenced_labels)
+                    });
+                }
+            }
+        }
+    }
+
+    fn write_term<P>(
+        &mut self,
+        function: &BlockPyFunction<P>,
+        render_layout: &BlockRenderLayout,
+        current_block_index: Option<usize>,
+        term: &BlockPyTerm<PassExpr<P>>,
+        referenced_labels: &HashSet<BlockPyLabel>,
+    ) where
+        P: BlockPyPrettyPrinter,
+        PassExpr<P>: Clone + Into<Expr>,
+    {
+        match term {
+            BlockPyTerm::Jump(edge) => self.line(format!("jump {}", render_edge(edge))),
+            BlockPyTerm::IfTerm(BlockPyIfTerm {
+                test,
+                then_label,
+                else_label,
+            }) => {
+                self.line(format!("if_term {}:", render_inline_expr(test)));
+                self.with_indent(|this| {
+                    this.line("then:");
+                    this.with_indent(|this| {
+                        if let Some(target_index) = current_block_index.and_then(|block_index| {
+                            render_layout
+                                .inline_if_term_targets
+                                .get(&(block_index, IfBranchKind::Then))
+                                .copied()
+                        }) {
+                            this.write_function_block(
+                                function,
+                                render_layout,
+                                target_index,
+                                referenced_labels,
+                            );
+                        } else {
+                            this.line(format!("jump {}", then_label.as_str()));
+                        }
+                    });
+                    this.line("else:");
+                    this.with_indent(|this| {
+                        if let Some(target_index) = current_block_index.and_then(|block_index| {
+                            render_layout
+                                .inline_if_term_targets
+                                .get(&(block_index, IfBranchKind::Else))
+                                .copied()
+                        }) {
+                            this.write_function_block(
+                                function,
+                                render_layout,
+                                target_index,
+                                referenced_labels,
+                            );
+                        } else {
+                            this.line(format!("jump {}", else_label.as_str()));
+                        }
+                    });
+                });
+            }
+            BlockPyTerm::BranchTable(branch) => self.line(format!(
+                "branch_table {} -> [{}] default {}",
+                render_inline_expr(&branch.index),
+                join_labels(&branch.targets),
+                branch.default_label.as_str(),
+            )),
+            BlockPyTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
+            BlockPyTerm::TryJump(try_jump) => self.write_try_jump(try_jump),
+            BlockPyTerm::Return(value) => match value {
+                Some(value) => self.line(format!("return {}", render_inline_expr(value))),
+                None => self.line("return"),
+            },
+        }
+    }
+
+    fn write_raise<E>(&mut self, raise_stmt: &BlockPyRaise<E>)
+    where
+        E: Clone + Into<Expr>,
+    {
+        match &raise_stmt.exc {
+            Some(exc) => self.line(format!("raise {}", render_inline_expr(exc))),
+            None => self.line("raise"),
+        }
+    }
+
+    fn write_term_inline<E>(&mut self, term: &BlockPyTerm<E>)
+    where
+        E: Clone + Into<Expr>,
+    {
+        match term {
+            BlockPyTerm::Jump(edge) => self.line(format!("jump {}", render_edge(edge))),
+            BlockPyTerm::BranchTable(branch) => self.line(format!(
+                "branch_table {} -> [{}] default {}",
+                render_inline_expr(&branch.index),
+                join_labels(&branch.targets),
+                branch.default_label.as_str(),
+            )),
+            BlockPyTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
+            BlockPyTerm::TryJump(try_jump) => self.write_try_jump(try_jump),
+            BlockPyTerm::Return(value) => match value {
+                Some(value) => self.line(format!("return {}", render_inline_expr(value))),
+                None => self.line("return"),
+            },
+            BlockPyTerm::IfTerm(_) => {
+                panic!("IfTerm is only valid as a top-level block terminator");
+            }
+        }
+    }
+
+    fn write_try_jump(&mut self, try_jump: &BlockPyTryJump) {
+        self.line("try_jump:");
+        self.with_indent(|this| {
+            this.line(format!("body_label: {}", try_jump.body_label.as_str()));
+            this.line(format!("except_label: {}", try_jump.except_label.as_str()));
+        });
+    }
+
+    fn with_indent(&mut self, f: impl FnOnce(&mut Self)) {
+        self.indent += 1;
+        f(self);
+        self.indent -= 1;
+    }
+
+    fn line(&mut self, line: impl AsRef<str>) {
+        for _ in 0..self.indent {
+            self.out.push_str("    ");
+        }
+        self.out.push_str(line.as_ref());
+        self.out.push('\n');
+    }
+}
+
+fn render_closure_slots(slots: &[crate::block_py::ClosureSlot]) -> String {
+    slots
+        .iter()
+        .map(|slot| {
+            format!(
+                "{}->{}@{}",
+                slot.logical_name,
+                slot.storage_name,
+                closure_init_name(&slot.init),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn closure_init_name(init: &crate::block_py::ClosureInit) -> &'static str {
+    match init {
+        crate::block_py::ClosureInit::InheritedCapture => "inherited",
+        crate::block_py::ClosureInit::Parameter => "param",
+        crate::block_py::ClosureInit::DeletedSentinel => "deleted",
+        crate::block_py::ClosureInit::RuntimePcUnstarted => "pc_unstarted",
+        crate::block_py::ClosureInit::RuntimeNone => "none",
+        crate::block_py::ClosureInit::Deferred => "deferred",
+    }
+}
+
+fn function_kind_name(kind: BlockPyFunctionKind) -> &'static str {
+    match kind {
+        BlockPyFunctionKind::Function => "function",
+        BlockPyFunctionKind::Coroutine => "coroutine",
+        BlockPyFunctionKind::Generator => "generator",
+        BlockPyFunctionKind::AsyncGenerator => "async_generator",
+    }
+}
+
+fn render_inline_expr<E>(expr: &E) -> String
+where
+    E: Clone + Into<Expr>,
+{
+    ruff_ast_to_string(&expr.clone().into())
+        .lines()
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+pub(crate) fn bb_expr_text(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> String {
+    match expr {
+        CoreBlockPyExprWithoutAwaitOrYield::Name(name) => name.id.to_string(),
+        CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => match literal {
+            CoreBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value.to_str()),
+            CoreBlockPyLiteral::BytesLiteral(literal) => {
+                let mut out = String::from("b\"");
+                for byte in literal.value.bytes() {
+                    for escaped in std::ascii::escape_default(byte) {
+                        out.push(escaped as char);
+                    }
+                }
+                out.push('"');
+                out
+            }
+            CoreBlockPyLiteral::NumberLiteral(literal) => match &literal.value {
+                ast::Number::Int(value) => value.to_string(),
+                ast::Number::Float(value) => value.to_string(),
+                ast::Number::Complex { real, imag } => format!("{real}+{imag}j"),
+            },
+            CoreBlockPyLiteral::BooleanLiteral(literal) => literal.value.to_string(),
+            CoreBlockPyLiteral::NoneLiteral(_) => "None".to_string(),
+            CoreBlockPyLiteral::EllipsisLiteral(_) => "...".to_string(),
+        },
+        CoreBlockPyExprWithoutAwaitOrYield::Call(call) => {
+            let mut parts = Vec::new();
+            for arg in &call.args {
+                parts.push(match arg {
+                    super::CoreBlockPyCallArg::Positional(value) => bb_expr_text(value),
+                    super::CoreBlockPyCallArg::Starred(value) => {
+                        format!("*{}", bb_expr_text(value))
+                    }
+                });
+            }
+            for keyword in &call.keywords {
+                parts.push(match keyword {
+                    super::CoreBlockPyKeywordArg::Named { arg, value } => {
+                        format!("{}={}", arg.id, bb_expr_text(value))
+                    }
+                    super::CoreBlockPyKeywordArg::Starred(value) => {
+                        format!("**{}", bb_expr_text(value))
+                    }
+                });
+            }
+            format!("{}({})", bb_expr_text(&call.func), parts.join(", "))
+        }
+    }
+}
+
+#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+pub(crate) fn bb_stmt_text(stmt: &BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>) -> String {
+    match stmt {
+        BlockPyStmt::Assign(assign) => {
+            format!("{} = {}", assign.target.id, bb_expr_text(&assign.value))
+        }
+        BlockPyStmt::Expr(expr) => bb_expr_text(expr),
+        BlockPyStmt::Delete(delete) => format!("del {}", delete.target.id),
+        BlockPyStmt::If(_) => panic!("structured BlockPy If is not allowed in BbBlock.body"),
+    }
+}
+
+#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+pub(crate) fn bb_raise_text(
+    raise_stmt: &BlockPyRaise<CoreBlockPyExprWithoutAwaitOrYield>,
+) -> String {
+    let exc = raise_stmt
+        .exc
+        .as_ref()
+        .map(bb_expr_text)
+        .unwrap_or_else(|| "None".to_string());
+    format!("raise exc={exc}")
+}
+
+#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+pub(crate) fn bb_term_text(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> String {
+    match term {
+        BlockPyTerm::Jump(edge) => format!("jump {}", render_edge(edge)),
+        BlockPyTerm::IfTerm(if_term) => {
+            let test = bb_expr_text(&if_term.test);
+            format!(
+                "if {test} then {} else {}",
+                if_term.then_label, if_term.else_label
+            )
+        }
+        BlockPyTerm::BranchTable(branch) => {
+            let index = bb_expr_text(&branch.index);
+            format!(
+                "br_table index={index} targets=[{}] default={}",
+                join_labels(&branch.targets),
+                branch.default_label
+            )
+        }
+        BlockPyTerm::Raise(raise_stmt) => bb_raise_text(raise_stmt),
+        BlockPyTerm::Return(value) => {
+            let value = value
+                .as_ref()
+                .map(bb_expr_text)
+                .unwrap_or_else(|| "None".to_string());
+            format!("return {value}")
+        }
+        BlockPyTerm::TryJump(_) => "try_jump".to_string(),
+    }
+}
+
+#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+pub(crate) fn bb_stmts_text(stmts: &[BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>]) -> String {
+    let mut out = String::new();
+    for stmt in stmts {
+        out.push_str(&bb_stmt_text(stmt));
+        out.push('\n');
+    }
+    out
+}
+
+fn format_parameters<E>(parameters: &ParamSpec, defaults: &[E]) -> String
+where
+    E: Clone + Into<Expr>,
+{
+    parameters.validate_default_count(defaults.len());
+    let mut parts = Vec::new();
+    let mut defaults_iter = defaults.iter();
+    let mut saw_kw_separator = false;
+
+    for (index, param) in parameters.params.iter().enumerate() {
+        if index > 0
+            && parameters.params[index - 1].kind == ParamKind::PosOnly
+            && param.kind != ParamKind::PosOnly
+        {
+            parts.push("/".to_string());
+        }
+        if !saw_kw_separator
+            && param.kind == ParamKind::KwOnly
+            && !parameters.params[..index]
+                .iter()
+                .any(|existing| existing.kind == ParamKind::VarArg)
+        {
+            parts.push("*".to_string());
+            saw_kw_separator = true;
+        }
+
+        let default = if param.has_default {
+            Some(
+                defaults_iter
+                    .next()
+                    .expect("ParamSpec default count should match defaults payload"),
+            )
+        } else {
+            None
+        };
+        let rendered_name = match param.kind {
+            ParamKind::VarArg => format!("*{}", param.name),
+            ParamKind::KwArg => format!("**{}", param.name),
+            _ => param.name.clone(),
+        };
+        parts.push(match default {
+            Some(default) => format!("{}={}", rendered_name, render_inline_expr(default)),
+            None => rendered_name,
+        });
+    }
+    assert!(
+        defaults_iter.next().is_none(),
+        "ParamSpec default count should match defaults payload",
+    );
+
+    parts.join(", ")
+}
+
+fn join_labels(labels: &[BlockPyLabel]) -> String {
+    labels
+        .iter()
+        .map(|label| label.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn render_edge<E>(edge: &BlockPyEdge<E>) -> String
+where
+    E: Clone + Into<Expr>,
+{
+    if edge.args.is_empty() {
+        return edge.as_str().to_string();
+    }
+    format!(
+        "{}({})",
+        edge.as_str(),
+        edge.args
+            .iter()
+            .map(render_block_arg)
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn render_block_arg<E>(arg: &BlockArg<E>) -> String
+where
+    E: Clone + Into<Expr>,
+{
+    match arg {
+        BlockArg::Name(name) => name.clone(),
+        BlockArg::Expr(expr) => render_inline_expr(expr),
+        BlockArg::None => "None".to_string(),
+        BlockArg::CurrentException => "<current_exception>".to_string(),
+        BlockArg::AbruptKind(kind) => match kind {
+            AbruptKind::Fallthrough => "Fallthrough".to_string(),
+            AbruptKind::Return => "Return".to_string(),
+            AbruptKind::Exception => "Exception".to_string(),
+            AbruptKind::Break => "Break".to_string(),
+            AbruptKind::Continue => "Continue".to_string(),
+        },
+    }
+}
+
+fn render_blockpy_block_metadata<E>(block: &super::BlockPyBlock<E>) -> Vec<String> {
+    let mut lines = Vec::new();
+    if let Some(exc_param) = block.exception_param() {
+        lines.push(format!("exc_param: {exc_param}"));
+    }
+    if !block.params.is_empty() {
+        lines.push(format!(
+            "params: [{}]",
+            block
+                .params
+                .iter()
+                .map(|param| format!("{}:{:?}", param.name, param.role))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    lines
+}
+
+#[derive(Debug)]
+struct BlockRenderLayout {
+    root_blocks: Vec<usize>,
+    child_blocks: Vec<Vec<usize>>,
+    inline_if_term_targets: HashMap<(usize, IfBranchKind), usize>,
+    inlined_blocks: HashSet<usize>,
+}
+
+impl BlockRenderLayout {
+    fn new<P>(function: &BlockPyFunction<P>) -> Self
+    where
+        P: BlockPyPrettyPrinter,
+        PassExpr<P>: Clone + Into<Expr>,
+    {
+        let block_count = function.blocks.len();
+        if block_count == 0 {
+            return Self {
+                root_blocks: Vec::new(),
+                child_blocks: Vec::new(),
+                inline_if_term_targets: HashMap::new(),
+                inlined_blocks: HashSet::new(),
+            };
+        }
+
+        let label_to_index = function
+            .blocks
+            .iter()
+            .enumerate()
+            .map(|(index, block)| (block.label.as_str().to_string(), index))
+            .collect::<HashMap<_, _>>();
+
+        let successors = function
+            .blocks
+            .iter()
+            .map(|block| collect_top_level_successors_from_block::<P>(block, &label_to_index))
+            .collect::<Vec<_>>();
+        let predecessors = collect_predecessors(&successors);
+        let entry_index = choose_entry_block_index(function, &label_to_index, &predecessors);
+        let discovery_order = collect_discovery_order(entry_index, &successors);
+        let reachable = discovery_order.iter().copied().collect::<HashSet<_>>();
+        let dominators =
+            compute_dominators(entry_index, &discovery_order, &predecessors, &reachable);
+        let immediate_dominators =
+            compute_immediate_dominators(entry_index, &discovery_order, &dominators, &reachable);
+
+        let mut child_blocks = vec![Vec::new(); block_count];
+        for (block_index, immediate_dominator) in immediate_dominators.iter().enumerate() {
+            if let Some(parent_index) = immediate_dominator {
+                child_blocks[*parent_index].push(block_index);
+            }
+        }
+        for children in &mut child_blocks {
+            sort_block_indices_by_label(children, function);
+        }
+
+        let (inline_if_term_targets, inlined_blocks) = compute_inline_if_term_targets(
+            function,
+            &label_to_index,
+            &predecessors,
+            &immediate_dominators,
+        );
+
+        let mut root_blocks = vec![entry_index];
+        let reachable_roots = discovery_order
+            .iter()
+            .copied()
+            .filter(|index| *index != entry_index && immediate_dominators[*index].is_none())
+            .collect::<Vec<_>>();
+        root_blocks.extend(reachable_roots);
+        root_blocks.extend((0..block_count).filter(|index| !reachable.contains(index)));
+        sort_block_indices_by_label(&mut root_blocks[1..], function);
+
+        Self {
+            root_blocks,
+            child_blocks,
+            inline_if_term_targets,
+            inlined_blocks,
+        }
+    }
+}
+
+fn sort_block_indices_by_label<P>(indices: &mut [usize], function: &BlockPyFunction<P>)
+where
+    P: BlockPyPrettyPrinter,
+    PassExpr<P>: Clone + Into<Expr>,
+{
+    indices.sort_by(|left, right| {
+        function.blocks[*left]
+            .label
+            .as_str()
+            .cmp(function.blocks[*right].label.as_str())
+    });
+}
+
+fn compute_inline_if_term_targets<P>(
+    function: &BlockPyFunction<P>,
+    label_to_index: &HashMap<String, usize>,
+    predecessors: &[Vec<usize>],
+    immediate_dominators: &[Option<usize>],
+) -> (HashMap<(usize, IfBranchKind), usize>, HashSet<usize>)
+where
+    P: BlockPyPrettyPrinter,
+    PassExpr<P>: Clone + Into<Expr>,
+{
+    let mut targets = HashMap::new();
+    let mut inlined_blocks = HashSet::new();
+
+    for (block_index, block) in function.blocks.iter().enumerate() {
+        let BlockPyTerm::IfTerm(BlockPyIfTerm {
+            then_label,
+            else_label,
+            ..
+        }) = &block.term
+        else {
+            continue;
+        };
+
+        let then_target = label_to_index.get(then_label.as_str()).copied();
+        let else_target = label_to_index.get(else_label.as_str()).copied();
+
+        if let Some(target_index) = then_target {
+            if can_inline_if_term_target(
+                block_index,
+                target_index,
+                else_target,
+                predecessors,
+                immediate_dominators,
+            ) {
+                targets.insert((block_index, IfBranchKind::Then), target_index);
+                inlined_blocks.insert(target_index);
+            }
+        }
+
+        if let Some(target_index) = else_target {
+            if can_inline_if_term_target(
+                block_index,
+                target_index,
+                then_target,
+                predecessors,
+                immediate_dominators,
+            ) {
+                targets.insert((block_index, IfBranchKind::Else), target_index);
+                inlined_blocks.insert(target_index);
+            }
+        }
+    }
+
+    (targets, inlined_blocks)
+}
+fn can_inline_if_term_target(
+    parent_index: usize,
+    target_index: usize,
+    sibling_target: Option<usize>,
+    predecessors: &[Vec<usize>],
+    immediate_dominators: &[Option<usize>],
+) -> bool {
+    if sibling_target == Some(target_index) {
+        return false;
+    }
+    immediate_dominators[target_index] == Some(parent_index)
+        && predecessors[target_index].len() == 1
+        && predecessors[target_index][0] == parent_index
+}
+
+fn choose_entry_block_index<P>(
+    _function: &BlockPyFunction<P>,
+    _label_to_index: &HashMap<String, usize>,
+    _predecessors: &[Vec<usize>],
+) -> usize
+where
+    P: BlockPyPrettyPrinter,
+    PassExpr<P>: Clone + Into<Expr>,
+{
+    0
+}
+
+fn collect_top_level_successors_from_block<P>(
+    block: &PassBlock<P>,
+    label_to_index: &HashMap<String, usize>,
+) -> Vec<usize>
+where
+    P: BlockPyPass,
+    PassExpr<P>: Clone + Into<Expr>,
+{
+    let mut successors = Vec::new();
+    let mut seen = HashSet::new();
+    collect_top_level_successors_from_stmts(
+        &block.body,
+        label_to_index,
+        &mut seen,
+        &mut successors,
+    );
+    collect_top_level_successors_from_term(&block.term, label_to_index, &mut seen, &mut successors);
+    successors
+}
+
+fn collect_top_level_successors_from_stmts(
+    stmts: &[BlockPyStmt<impl Clone + Into<Expr>>],
+    label_to_index: &HashMap<String, usize>,
+    seen: &mut HashSet<usize>,
+    out: &mut Vec<usize>,
+) {
+    for stmt in stmts {
+        match stmt {
+            BlockPyStmt::If(if_stmt) => {
+                collect_top_level_successors_from_stmts(
+                    &if_stmt.body.body,
+                    label_to_index,
+                    seen,
+                    out,
+                );
+                if let Some(term) = &if_stmt.body.term {
+                    collect_top_level_successors_from_term(term, label_to_index, seen, out);
+                }
+                collect_top_level_successors_from_stmts(
+                    &if_stmt.orelse.body,
+                    label_to_index,
+                    seen,
+                    out,
+                );
+                if let Some(term) = &if_stmt.orelse.term {
+                    collect_top_level_successors_from_term(term, label_to_index, seen, out);
+                }
+            }
+            BlockPyStmt::Assign(_) | BlockPyStmt::Expr(_) | BlockPyStmt::Delete(_) => {}
+        }
+    }
+}
+
+fn collect_top_level_successors_from_term(
+    term: &BlockPyTerm<impl Clone + Into<Expr>>,
+    label_to_index: &HashMap<String, usize>,
+    seen: &mut HashSet<usize>,
+    out: &mut Vec<usize>,
+) {
+    match term {
+        BlockPyTerm::Jump(label) => {
+            push_top_level_successor(&label.target, label_to_index, seen, out);
+        }
+        BlockPyTerm::IfTerm(BlockPyIfTerm {
+            then_label,
+            else_label,
+            ..
+        }) => {
+            push_top_level_successor(then_label, label_to_index, seen, out);
+            push_top_level_successor(else_label, label_to_index, seen, out);
+        }
+        BlockPyTerm::BranchTable(branch) => {
+            for label in &branch.targets {
+                push_top_level_successor(label, label_to_index, seen, out);
+            }
+            push_top_level_successor(&branch.default_label, label_to_index, seen, out);
+        }
+        BlockPyTerm::TryJump(try_jump) => {
+            push_top_level_successor(&try_jump.body_label, label_to_index, seen, out);
+            push_top_level_successor(&try_jump.except_label, label_to_index, seen, out);
+        }
+        BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
+    }
+}
+
+fn push_top_level_successor(
+    label: &BlockPyLabel,
+    label_to_index: &HashMap<String, usize>,
+    seen: &mut HashSet<usize>,
+    out: &mut Vec<usize>,
+) {
+    let Some(successor_index) = label_to_index.get(label.as_str()) else {
+        return;
+    };
+    if seen.insert(*successor_index) {
+        out.push(*successor_index);
+    }
+}
+
+fn collect_predecessors(successors: &[Vec<usize>]) -> Vec<Vec<usize>> {
+    let mut predecessors = vec![Vec::new(); successors.len()];
+    for (source_index, targets) in successors.iter().enumerate() {
+        for target_index in targets {
+            predecessors[*target_index].push(source_index);
+        }
+    }
+    predecessors
+}
+
+fn collect_discovery_order(entry_index: usize, successors: &[Vec<usize>]) -> Vec<usize> {
+    fn visit(
+        block_index: usize,
+        successors: &[Vec<usize>],
+        visited: &mut HashSet<usize>,
+        order: &mut Vec<usize>,
+    ) {
+        if !visited.insert(block_index) {
+            return;
+        }
+        order.push(block_index);
+        for successor_index in &successors[block_index] {
+            visit(*successor_index, successors, visited, order);
+        }
+    }
+
+    let mut visited = HashSet::new();
+    let mut order = Vec::new();
+    visit(entry_index, successors, &mut visited, &mut order);
+    order
+}
+
+fn compute_dominators(
+    entry_index: usize,
+    discovery_order: &[usize],
+    predecessors: &[Vec<usize>],
+    reachable: &HashSet<usize>,
+) -> Vec<HashSet<usize>> {
+    let mut dominators = vec![HashSet::new(); predecessors.len()];
+    let all_reachable = reachable.iter().copied().collect::<HashSet<_>>();
+    for block_index in discovery_order {
+        if *block_index == entry_index {
+            dominators[*block_index].insert(*block_index);
+        } else {
+            dominators[*block_index] = all_reachable.clone();
+        }
+    }
+
+    loop {
+        let mut changed = false;
+        for block_index in discovery_order
+            .iter()
+            .copied()
+            .filter(|block_index| *block_index != entry_index)
+        {
+            let mut reachable_predecessors = predecessors[block_index]
+                .iter()
+                .copied()
+                .filter(|predecessor| reachable.contains(predecessor));
+            let Some(first_predecessor) = reachable_predecessors.next() else {
+                let mut singleton = HashSet::new();
+                singleton.insert(block_index);
+                if dominators[block_index] != singleton {
+                    dominators[block_index] = singleton;
+                    changed = true;
+                }
+                continue;
+            };
+
+            let mut new_dominators = dominators[first_predecessor].clone();
+            for predecessor in reachable_predecessors {
+                new_dominators = new_dominators
+                    .intersection(&dominators[predecessor])
+                    .copied()
+                    .collect();
+            }
+            new_dominators.insert(block_index);
+
+            if dominators[block_index] != new_dominators {
+                dominators[block_index] = new_dominators;
+                changed = true;
+            }
+        }
+
+        if !changed {
+            return dominators;
+        }
+    }
+}
+
+fn compute_immediate_dominators(
+    entry_index: usize,
+    discovery_order: &[usize],
+    dominators: &[HashSet<usize>],
+    reachable: &HashSet<usize>,
+) -> Vec<Option<usize>> {
+    let mut immediate_dominators = vec![None; dominators.len()];
+    for block_index in discovery_order
+        .iter()
+        .copied()
+        .filter(|block_index| *block_index != entry_index)
+    {
+        let strict_dominators = dominators[block_index]
+            .iter()
+            .copied()
+            .filter(|dominator| *dominator != block_index && reachable.contains(dominator))
+            .collect::<Vec<_>>();
+        let immediate_dominator = strict_dominators.iter().copied().find(|candidate| {
+            strict_dominators
+                .iter()
+                .all(|other| *other == *candidate || dominators[*candidate].contains(other))
+        });
+        immediate_dominators[block_index] = immediate_dominator;
+    }
+    immediate_dominators
+}
+
+fn collect_referenced_labels_from_blocks<P>(blocks: &[PassBlock<P>]) -> HashSet<BlockPyLabel>
+where
+    P: BlockPyPass,
+{
+    #[derive(Default)]
+    struct ReferencedLabelCollector {
+        referenced: HashSet<BlockPyLabel>,
+    }
+
+    impl<P> super::BlockPyModuleVisitor<P> for ReferencedLabelCollector
+    where
+        P: BlockPyPass,
+    {
+        fn visit_label(&mut self, label: &BlockPyLabel) {
+            self.referenced.insert(label.clone());
+        }
+    }
+
+    let mut visitor = ReferencedLabelCollector::default();
+    for block in blocks {
+        super::walk_block::<ReferencedLabelCollector, P>(&mut visitor, block);
+    }
+    visitor.referenced
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::block_py::{
+        BbBlockMeta, BlockParam, BlockParamRole, BlockPyBlock, BlockPyBlockMeta, RuffBlockPyPass,
+    };
+    use crate::block_py::{ClosureInit, ClosureLayout, ClosureSlot};
+    use ruff_python_parser::parse_expression;
+
+    fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
+        crate::transform_str_to_blockpy_with_options(source, crate::Options::for_test())
+            .expect("expected lowered semantic BlockPy module")
+    }
+
+    fn parse_blockpy_expr(source: &str) -> Expr {
+        (*parse_expression(source).unwrap().into_syntax().body).into()
+    }
+
+    fn empty_param_spec() -> ParamSpec {
+        ParamSpec::default()
+    }
+
+    fn function_by_bind_name<'a, P>(
+        module: &'a BlockPyModule<P>,
+        bind_name: &str,
+    ) -> &'a BlockPyFunction<P>
+    where
+        P: BlockPyPrettyPrinter,
+        PassExpr<P>: Clone + Into<Expr>,
+    {
+        module
+            .callable_defs
+            .iter()
+            .find(|function| function.names.bind_name == bind_name)
+            .unwrap_or_else(|| panic!("missing function {bind_name}"))
+    }
+
+    #[test]
+    fn renders_blockpy_module_with_module_init_and_nested_blocks() {
+        let blockpy = wrapped_blockpy(
+            r#"
+seed = 1
+
+def classify(a, /, b: int = 1, *args, c=2, **kwargs):
+    if a:
+        return "yes"
+    return "no"
+"#,
+        );
+        let rendered = blockpy_module_to_string(&blockpy);
+
+        assert!(
+            rendered.contains("function classify(a, /, b=1, *args, c=2, **kwargs):"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("function_id: "), "{rendered}");
+        assert!(rendered.contains("function _dp_module_init():"));
+        assert!(!rendered.contains("module_init: _dp_module_init"));
+        assert!(rendered.contains("block start:"));
+        assert!(rendered.contains("if_term a:"));
+        assert!(rendered.contains("return \"yes\""));
+    }
+
+    #[test]
+    fn renders_empty_module_marker() {
+        let empty_module: BlockPyModule<RuffBlockPyPass> = BlockPyModule {
+            callable_defs: Vec::new(),
+        };
+        let rendered = blockpy_module_to_string(&empty_module);
+        assert_eq!(rendered, "; empty BlockPy module\n");
+    }
+
+    #[test]
+    fn transformed_lowering_result_exposes_module_init_blockpy() {
+        let blockpy = crate::transform_str_to_blockpy_with_options(
+            r#"
+def classify(n):
+    if n < 0:
+        return "neg"
+    return "pos"
+"#,
+            crate::Options::default(),
+        )
+        .unwrap();
+        let rendered = blockpy_module_to_string(&blockpy);
+
+        assert!(blockpy
+            .callable_defs
+            .iter()
+            .any(|function| function.names.bind_name == "_dp_module_init"));
+        assert!(rendered.contains("function _dp_module_init():"));
+        assert!(rendered.contains("function_id: "), "{rendered}");
+    }
+
+    #[test]
+    fn renders_generator_kind_without_internal_metadata() {
+        let blockpy = wrapped_blockpy(
+            r#"
+def gen():
+    yield 1
+"#,
+        );
+        let rendered = blockpy_module_to_string(&blockpy);
+
+        assert!(rendered.contains("generator gen():"));
+        assert!(rendered.contains("function_id: "), "{rendered}");
+        assert!(!rendered.contains("generator_state:"));
+    }
+
+    #[test]
+    fn renders_referenced_non_inlined_blocks_for_async_generator_shape() {
+        let blockpy = wrapped_blockpy(
+            r#"
+async def a():
+    return 3
+
+async def no_lying():
+    for i in range((await a()) + 2):
+        yield i
+"#,
+        );
+        let function = function_by_bind_name(&blockpy, "no_lying");
+        let rendered = blockpy_module_to_string(&BlockPyModule {
+            callable_defs: vec![function.clone()],
+        });
+        let layout = BlockRenderLayout::new(function);
+        let inlined_labels = layout
+            .inlined_blocks
+            .iter()
+            .map(|index| function.blocks[*index].label.as_str().to_string())
+            .collect::<HashSet<_>>();
+
+        let missing_labels =
+            collect_referenced_labels_from_blocks::<RuffBlockPyPass>(&function.blocks)
+                .into_iter()
+                .map(|label| label.as_str().to_string())
+                .filter(|label| !inlined_labels.contains(label))
+                .filter(|label| !rendered.contains(format!("block {label}:").as_str()))
+                .collect::<Vec<_>>();
+
+        assert!(missing_labels.is_empty(), "{rendered}");
+    }
+
+    #[test]
+    fn renders_public_closure_metadata_in_function_header() {
+        let rendered = blockpy_module_to_string(&BlockPyModule {
+            callable_defs: vec![BlockPyFunction::<RuffBlockPyPass> {
+                function_id: crate::block_py::FunctionId(0),
+                names: crate::block_py::FunctionName::new("gen", "gen", "gen", "gen"),
+                kind: BlockPyFunctionKind::Function,
+                params: empty_param_spec(),
+                param_defaults: Vec::new(),
+                blocks: vec![BlockPyBlock {
+                    label: "gen_start".into(),
+                    body: vec![],
+                    term: BlockPyTerm::<Expr>::Return(None),
+                    params: Vec::new(),
+                    meta: BlockPyBlockMeta::default(),
+                }],
+                doc: None,
+                closure_layout: Some(ClosureLayout {
+                    freevars: vec![ClosureSlot {
+                        logical_name: "factor".to_string(),
+                        storage_name: "_dp_cell_factor".to_string(),
+                        init: ClosureInit::InheritedCapture,
+                    }],
+                    cellvars: vec![ClosureSlot {
+                        logical_name: "total".to_string(),
+                        storage_name: "_dp_cell_total".to_string(),
+                        init: ClosureInit::Deferred,
+                    }],
+                    runtime_cells: vec![ClosureSlot {
+                        logical_name: "_dp_pc".to_string(),
+                        storage_name: "_dp_cell__dp_pc".to_string(),
+                        init: ClosureInit::RuntimePcUnstarted,
+                    }],
+                }),
+                try_regions: Vec::new(),
+                facts: crate::block_py::BlockPyCallableFacts::default(),
+                extra: (),
+            }],
+        });
+
+        assert!(rendered.contains(
+            "function gen():\n    function_id: 0\n    local_cell_slots: [_dp_cell_total, _dp_cell__dp_pc]\n    freevars: [factor->_dp_cell_factor@inherited]\n    cellvars: [total->_dp_cell_total@deferred]\n    runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted]"
+        ));
+        assert!(!rendered.contains("entry:"));
+    }
+
+    #[test]
+    fn renders_followup_blocks_under_their_owning_entry_block() {
+        let function: BlockPyFunction<RuffBlockPyPass> = BlockPyFunction {
+            function_id: crate::block_py::FunctionId(0),
+            names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
+            kind: BlockPyFunctionKind::Function,
+            params: empty_param_spec(),
+            param_defaults: Vec::new(),
+            blocks: vec![
+                BlockPyBlock {
+                    label: "start".into(),
+                    body: vec![],
+                    term: BlockPyTerm::IfTerm(BlockPyIfTerm {
+                        test: parse_blockpy_expr("cond"),
+                        then_label: "then".into(),
+                        else_label: "else".into(),
+                    }),
+                    params: Vec::new(),
+                    meta: BlockPyBlockMeta::default(),
+                },
+                BlockPyBlock {
+                    label: "then".into(),
+                    body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()"))],
+                    term: BlockPyTerm::Jump("after".into()),
+                    params: Vec::new(),
+                    meta: BlockPyBlockMeta::default(),
+                },
+                BlockPyBlock {
+                    label: "else".into(),
+                    body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()"))],
+                    term: BlockPyTerm::Jump("after".into()),
+                    params: Vec::new(),
+                    meta: BlockPyBlockMeta::default(),
+                },
+                BlockPyBlock {
+                    label: "after".into(),
+                    body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()"))],
+                    term: BlockPyTerm::Return(None),
+                    params: Vec::new(),
+                    meta: BlockPyBlockMeta::default(),
+                },
+            ],
+            doc: None,
+            closure_layout: None,
+            try_regions: Vec::new(),
+            facts: crate::block_py::BlockPyCallableFacts::default(),
+            extra: (),
+        };
+        let rendered = blockpy_module_to_string(&BlockPyModule {
+            callable_defs: vec![function],
+        });
+
+        assert!(rendered.contains("    block start:\n"));
+        assert!(rendered.contains("        block after:\n"));
+        assert!(rendered.contains(
+            "        if_term cond:\n            then:\n                block then:\n                    then_side_effect()\n                    jump after\n            else:\n                block else:\n                    else_side_effect()\n                    jump after\n        block after:\n            finish()\n            return\n"
+        ));
+    }
+
+    #[test]
+    fn elides_trivial_if_term_jump_wrappers_when_rendering() {
+        let blockpy = wrapped_blockpy(
+            r#"
+def choose(a, b):
+    total = a + b
+    if total > 5:
+        return a
+    else:
+        return b
+"#,
+        );
+        let rendered = blockpy_module_to_string(&blockpy);
+
+        assert!(rendered.contains("return a"), "{rendered}");
+        assert!(rendered.contains("return b"), "{rendered}");
+        assert!(!rendered.contains("block _dp_bb_choose_1_then"));
+        assert!(!rendered.contains("block _dp_bb_choose_1_else"));
+    }
+
+    #[test]
+    fn sorts_rendered_root_and_child_blocks_by_label() {
+        let function: BlockPyFunction<RuffBlockPyPass> = BlockPyFunction {
+            function_id: crate::block_py::FunctionId(0),
+            names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
+            kind: BlockPyFunctionKind::Function,
+            params: empty_param_spec(),
+            param_defaults: Vec::new(),
+            blocks: vec![
+                BlockPyBlock {
+                    label: "start".into(),
+                    body: vec![],
+                    term: BlockPyTerm::TryJump(BlockPyTryJump {
+                        body_label: "zeta".into(),
+                        except_label: "alpha".into(),
+                    }),
+                    params: Vec::new(),
+                    meta: BlockPyBlockMeta::default(),
+                },
+                BlockPyBlock {
+                    label: "zeta".into(),
+                    body: vec![],
+                    term: BlockPyTerm::Return(None),
+                    params: Vec::new(),
+                    meta: BlockPyBlockMeta::default(),
+                },
+                BlockPyBlock {
+                    label: "alpha".into(),
+                    body: vec![],
+                    term: BlockPyTerm::Return(None),
+                    params: Vec::new(),
+                    meta: BlockPyBlockMeta::default(),
+                },
+                BlockPyBlock {
+                    label: "omega".into(),
+                    body: vec![],
+                    term: BlockPyTerm::Return(None),
+                    params: Vec::new(),
+                    meta: BlockPyBlockMeta::default(),
+                },
+                BlockPyBlock {
+                    label: "beta".into(),
+                    body: vec![],
+                    term: BlockPyTerm::Return(None),
+                    params: Vec::new(),
+                    meta: BlockPyBlockMeta::default(),
+                },
+            ],
+            doc: None,
+            closure_layout: None,
+            try_regions: Vec::new(),
+            facts: crate::block_py::BlockPyCallableFacts::default(),
+            extra: (),
+        };
+        let rendered = blockpy_module_to_string(&BlockPyModule {
+            callable_defs: vec![function],
+        });
+
+        let alpha_pos = rendered.find("block alpha:").expect("alpha block");
+        let zeta_pos = rendered.find("block zeta:").expect("zeta block");
+        let beta_pos = rendered.find("block beta:").expect("beta block");
+        let omega_pos = rendered.find("block omega:").expect("omega block");
+
+        assert!(alpha_pos < zeta_pos, "{rendered}");
+        assert!(beta_pos < omega_pos, "{rendered}");
+    }
+
+    #[test]
+    fn collects_referenced_labels_from_nested_if_fragments_via_visitor() {
+        let referenced =
+            collect_referenced_labels_from_blocks::<RuffBlockPyPass>(&[BlockPyBlock {
+                label: "start".into(),
+                body: vec![BlockPyStmt::If(crate::block_py::BlockPyIf {
+                    test: parse_blockpy_expr("cond"),
+                    body: BlockPyCfgFragment {
+                        body: Vec::new(),
+                        term: Some(BlockPyTerm::Jump("then_target".into())),
+                    },
+                    orelse: BlockPyCfgFragment {
+                        body: Vec::new(),
+                        term: Some(BlockPyTerm::BranchTable(super::super::BlockPyBranchTable {
+                            index: parse_blockpy_expr("index"),
+                            targets: vec!["else_a".into(), "else_b".into()],
+                            default_label: "else_default".into(),
+                        })),
+                    },
+                })],
+                term: BlockPyTerm::TryJump(BlockPyTryJump {
+                    body_label: "body_target".into(),
+                    except_label: "except_target".into(),
+                }),
+                params: Vec::new(),
+                meta: BlockPyBlockMeta::default(),
+            }]);
+
+        let expected = [
+            "then_target",
+            "else_a",
+            "else_b",
+            "else_default",
+            "body_target",
+            "except_target",
+        ]
+        .into_iter()
+        .map(BlockPyLabel::from)
+        .collect::<HashSet<_>>();
+
+        assert_eq!(referenced, expected);
+    }
+
+    #[test]
+    fn renders_bb_block_metadata_with_shared_layout() {
+        let rendered = blockpy_module_to_string(&BlockPyModule {
+            callable_defs: vec![BlockPyFunction::<BbBlockPyPass> {
+                function_id: crate::block_py::FunctionId(0),
+                names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
+                kind: BlockPyFunctionKind::Function,
+                params: empty_param_spec(),
+                param_defaults: Vec::new(),
+                blocks: vec![
+                    PassBlock::<BbBlockPyPass> {
+                        label: "start".into(),
+                        body: vec![],
+                        term: BlockPyTerm::Jump("except".into()),
+                        params: vec![
+                            BlockParam {
+                                name: "err".to_string(),
+                                role: BlockParamRole::Exception,
+                            },
+                            BlockParam {
+                                name: "x".to_string(),
+                                role: BlockParamRole::Local,
+                            },
+                        ],
+                        meta: BbBlockMeta {
+                            exc_target_label: Some("except".into()),
+                            exc_arg_sources: Vec::new(),
+                        },
+                    },
+                    PassBlock::<BbBlockPyPass> {
+                        label: "except".into(),
+                        body: vec![],
+                        term: BlockPyTerm::Return(None),
+                        params: vec![BlockParam {
+                            name: "err".to_string(),
+                            role: BlockParamRole::Exception,
+                        }],
+                        meta: BbBlockMeta::default(),
+                    },
+                ],
+                doc: None,
+                closure_layout: None,
+                try_regions: Vec::new(),
+                facts: crate::block_py::BlockPyCallableFacts::default(),
+                extra: (),
+            }],
+        });
+
+        assert!(rendered.contains("function f():"), "{rendered}");
+        assert!(rendered.contains("function_id: 0"), "{rendered}");
+        assert!(rendered.contains("block start:"), "{rendered}");
+        assert!(rendered.contains("params: [err, x]"), "{rendered}");
+        assert!(rendered.contains("exc_target: except"), "{rendered}");
+        assert!(rendered.contains("exc_name: err"), "{rendered}");
+        assert!(rendered.contains("jump except"), "{rendered}");
+    }
+}

@@ -133,7 +133,7 @@ pub(crate) fn jit_render_bb_with_cfg_plan_impl(
 
 #[cfg(test)]
 mod tests {
-    use dp_transform::basic_block::block_py::BlockPyFunctionKind;
+    use dp_transform::block_py::BlockPyFunctionKind;
     use soac_eval::jit::{self, BlockExcArgSource};
     use std::any::Any;
 
@@ -182,9 +182,7 @@ mod tests {
 
     fn validate_bb_module_for_jit(
         bb_module: Option<
-            &dp_transform::basic_block::block_py::BlockPyModule<
-                dp_transform::basic_block::block_py::BbBlockPyPass,
-            >,
+            &dp_transform::block_py::BlockPyModule<dp_transform::block_py::BbBlockPyPass>,
         >,
     ) -> Result<(), String> {
         let bb_module = bb_module.ok_or_else(|| {
@@ -203,17 +201,15 @@ mod tests {
 
     fn run_cranelift_jit_preflight(
         bb_module: Option<
-            &dp_transform::basic_block::block_py::BlockPyModule<
-                dp_transform::basic_block::block_py::BbBlockPyPass,
-            >,
+            &dp_transform::block_py::BlockPyModule<dp_transform::block_py::BbBlockPyPass>,
         >,
     ) -> Result<(), String> {
         let bb_module = bb_module.ok_or_else(|| {
             "JIT mode requires emitted basic-block IR, but none was produced".to_string()
         })?;
-        let prepared = dp_transform::basic_block::lower_try_jump_exception_flow(bb_module)
+        let prepared = dp_transform::passes::lower_try_jump_exception_flow(bb_module)
             .map_err(|err| format!("failed to lower BB exception flow: {err}"))?;
-        let normalized = dp_transform::basic_block::normalize_bb_module_for_codegen(&prepared);
+        let normalized = dp_transform::passes::normalize_bb_module_for_codegen(&prepared);
         soac_eval::jit::run_cranelift_smoke(&normalized)
     }
 
@@ -306,9 +302,9 @@ def exercise():
             .expect("lowering should succeed")
             .bb_module
             .expect("bb module should exist");
-        let prepared = dp_transform::basic_block::lower_try_jump_exception_flow(&bb_module)
+        let prepared = dp_transform::passes::lower_try_jump_exception_flow(&bb_module)
             .expect("exception flow lowering should succeed");
-        let normalized = dp_transform::basic_block::normalize_bb_module_for_codegen(&prepared);
+        let normalized = dp_transform::passes::normalize_bb_module_for_codegen(&prepared);
         let module_name = "jit_plan_generator_throw_handler_param_test";
         jit::register_clif_module_plans(module_name, &normalized)
             .expect("plan registration should succeed");

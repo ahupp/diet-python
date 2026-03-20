@@ -1,4 +1,4 @@
-use crate::basic_block::ast_to_ast::body::{suite_mut, Suite};
+use crate::passes::ast_to_ast::body::{suite_mut, Suite};
 use ruff_python_ast::{
     self as ast, Alias, Arguments, BoolOp, BytesLiteral, CmpOp, Comprehension, Decorator,
     ElifElseClause, ExceptHandler, Expr, ExprContext, FString, InterpolatedStringElement, Keyword,

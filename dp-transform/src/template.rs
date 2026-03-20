@@ -98,9 +98,9 @@ macro_rules! py_stmt_typed {
     }};
 }
 
-use crate::basic_block::ast_to_ast::body::{body_from_suite, take_suite, Body, Suite};
+use crate::passes::ast_to_ast::body::{body_from_suite, take_suite, Body, Suite};
 use crate::transformer::{walk_expr, walk_keyword, walk_parameter, walk_stmt, Transformer};
-use crate::{basic_block::ast_to_ast::simplify::flatten, namegen::fresh_name};
+use crate::{namegen::fresh_name, passes::ast_to_ast::simplify::flatten};
 use regex::Regex;
 use ruff_python_ast::{self as ast, DictItem, Expr, Stmt};
 use ruff_python_parser::parse_expression;
@@ -844,7 +844,7 @@ fn parse_dynamic_expr(src: &str, name: &str) -> Expr {
 #[cfg(test)]
 mod tests {
     use crate::{
-        basic_block::ast_to_ast::{body::body_from_suite, simplify::flatten},
+        passes::ast_to_ast::{body::body_from_suite, simplify::flatten},
         test_util::assert_ast_eq,
     };
     use ruff_python_ast::{
@@ -996,7 +996,7 @@ b = 2
             expr = expr,
         );
         let mut body = body_from_suite(vec![actual]);
-        flatten(crate::basic_block::ast_to_ast::body::suite_mut(&mut body));
+        flatten(crate::passes::ast_to_ast::body::suite_mut(&mut body));
         assert_ast_eq(
             body.first()
                 .expect("expected single statement after flatten")
@@ -1028,9 +1028,7 @@ def {func:id}({param:id}):
                 body: mut fn_body,
                 ..
             }) => {
-                flatten(crate::basic_block::ast_to_ast::body::suite_mut(
-                    &mut fn_body,
-                ));
+                flatten(crate::passes::ast_to_ast::body::suite_mut(&mut fn_body));
                 assert_eq!(name.id.as_str(), "foo");
                 assert_eq!(parameters.args[0].parameter.name.id.as_str(), "arg");
                 assert_eq!(

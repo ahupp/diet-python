@@ -3,8 +3,8 @@
 use ruff_python_ast::{comparable::ComparableStmt, Stmt};
 use ruff_python_parser::parse_module;
 
-use crate::basic_block::ast_to_ast::Options;
 use crate::fixture::parse_fixture;
+use crate::passes::ast_to_ast::Options;
 use crate::{
     ruff_ast_to_string, transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options,
 };
@@ -101,7 +101,7 @@ pub(crate) fn run_transform_fixture_tests(fixture: &str) {
 
 fn blockpy_output_for_snapshot(actual: &str) -> String {
     let mut output = transform_str_to_blockpy_with_options(actual, Options::for_test())
-        .map(|module| crate::basic_block::blockpy_module_to_string(&module))
+        .map(|module| crate::passes::blockpy_module_to_string(&module))
         .unwrap()
         .trim_matches('\n')
         .to_string();
@@ -178,4 +178,4 @@ macro_rules! transform_fixture_test {
         }
     };
 }
-use crate::basic_block::ast_to_ast::body::suite_ref;
+use crate::passes::ast_to_ast::body::suite_ref;

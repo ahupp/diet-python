@@ -5,6 +5,7 @@ import a
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         __dp_store_global(globals(), "a", __dp_import_("a", __spec__))
 #         return
@@ -16,6 +17,7 @@ import a.b as c
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         __dp_store_global(globals(), "c", __dp_import_attr(__dp_import_("a.b", __spec__), "b"))
 #         return
@@ -27,6 +29,7 @@ from pkg.mod import name as alias
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         _dp_import_1 = __dp_import_("pkg.mod", __spec__, ["name"])
 #         __dp_store_global(globals(), "alias", __dp_import_attr(_dp_import_1, "name"))
@@ -43,12 +46,14 @@ def f():
 # ==
 
 # function f():
+#     function_id: 0
 #     block start:
 #         return
 
 # function _dp_module_init():
+#     function_id: 1
 #     block start:
-#         __dp_store_global(globals(), "f", dec(__dp_make_function("start", 0, "f", "f", __dp_tuple(), __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None)))
+#         __dp_store_global(globals(), "f", dec(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)))
 #         return
 
 # assign_attr
@@ -58,6 +63,7 @@ obj.x = 1
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
 #         return
@@ -69,6 +75,7 @@ obj[i] = v
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         __dp_setitem(__dp_load_deleted_name("obj", obj), i, v)
 #         return
@@ -80,6 +87,7 @@ a, b = it
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, True))
 #         __dp_store_global(globals(), "a", __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 0))
@@ -94,6 +102,7 @@ a, *b = it
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, False))
 #         __dp_store_global(globals(), "a", __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 0))
@@ -108,6 +117,7 @@ a = b = f()
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         _dp_tmp_1 = f()
 #         __dp_store_global(globals(), "a", _dp_tmp_1)
@@ -121,6 +131,7 @@ x: int = 1
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         __dp_store_global(globals(), "x", 1)
 #         __annotate__ = __dp_exec_function_def_source('def __annotate__(_dp_format, _dp=__dp__, *, __dp__=__dp__, __dp_tuple=__dp_tuple):\n    if _dp.eq(_dp_format, 4):\n        return _dp.dict(__dp_tuple(("x", "int")))\n    if _dp.gt(_dp_format, 2):\n        raise _dp.builtins.NotImplementedError\n    return _dp.dict(__dp_tuple(("x", int)))', __dp_globals(), __dp_tuple(), "__annotate__")
@@ -134,6 +145,7 @@ obj.x: int = 1
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
 #         return
@@ -145,6 +157,7 @@ obj.x += 1
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", __dp_iadd(obj.x, 1))
 #         return
@@ -156,6 +169,7 @@ del obj.x, obj[i], x
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         __dp_delattr(obj, "x")
 #         __dp_delitem(obj, i)
@@ -169,6 +183,7 @@ assert cond
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         if_term __debug__:
 #             then:
@@ -191,6 +206,7 @@ assert cond, "oops"
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         if_term __debug__:
 #             then:
@@ -213,6 +229,7 @@ raise E from cause
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         raise __dp_raise_from(E, cause)
 
@@ -240,6 +257,7 @@ else:
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         _dp_iter_1 = __dp_iter(it)
 #         jump _dp_bb_3
@@ -270,6 +288,7 @@ else:
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         if_term cond:
 #             then:
@@ -302,13 +321,15 @@ def inner():
 # ==
 
 # function inner():
+#     function_id: 0
 #     block start:
 #         value = 1
 #         return value
 
 # function _dp_module_init():
+#     function_id: 1
 #     block start:
-#         __dp_store_global(globals(), "inner", __dp_make_function("start", 0, "inner", "inner", __dp_tuple(), __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None))
+#         __dp_store_global(globals(), "inner", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return
 
 # comprehension_global
@@ -320,6 +341,7 @@ zs = {k: v for k, v in items}
 # ==
 
 # function _dp_listcomp_3(_dp_iter_2):
+#     function_id: 0
 #     display_name: <listcomp>
 #     block start:
 #         _dp_tmp_1 = []
@@ -341,6 +363,7 @@ zs = {k: v for k, v in items}
 #                             jump _dp_bb_3
 
 # function _dp_setcomp_6(_dp_iter_5):
+#     function_id: 1
 #     display_name: <setcomp>
 #     block start:
 #         _dp_tmp_4 = set()
@@ -362,6 +385,7 @@ zs = {k: v for k, v in items}
 #                             jump _dp_bb_3
 
 # function _dp_dictcomp_9(_dp_iter_8):
+#     function_id: 2
 #     display_name: <dictcomp>
 #     block start:
 #         _dp_tmp_7 = {}
@@ -386,12 +410,13 @@ zs = {k: v for k, v in items}
 #                             jump _dp_bb_3
 
 # function _dp_module_init():
+#     function_id: 3
 #     block start:
-#         _dp_listcomp_3 = __dp_make_function("start", 0, "<listcomp>", "_dp_listcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", "Any", False)), __dp_tuple(), __dp_globals(), __name__, None, None)
+#         _dp_listcomp_3 = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         __dp_store_global(globals(), "xs", _dp_listcomp_3(it))
-#         _dp_setcomp_6 = __dp_make_function("start", 1, "<setcomp>", "_dp_setcomp_6", __dp_tuple("_dp_iter_5"), __dp_tuple(__dp_tuple("_dp_iter_5", "Any", False)), __dp_tuple(), __dp_globals(), __name__, None, None)
+#         _dp_setcomp_6 = __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         __dp_store_global(globals(), "ys", _dp_setcomp_6(it))
-#         _dp_dictcomp_9 = __dp_make_function("start", 2, "<dictcomp>", "_dp_dictcomp_9", __dp_tuple("_dp_iter_8"), __dp_tuple(__dp_tuple("_dp_iter_8", "Any", False)), __dp_tuple(), __dp_globals(), __name__, None, None)
+#         _dp_dictcomp_9 = __dp_make_function(2, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         __dp_store_global(globals(), "zs", _dp_dictcomp_9(items))
 #         return
 
@@ -405,6 +430,7 @@ def f():
 # ==
 
 # function f.<locals>._dp_listcomp_3(_dp_iter_2):
+#     function_id: 0
 #     display_name: <listcomp>
 #     block start:
 #         _dp_tmp_1 = []
@@ -431,13 +457,15 @@ def f():
 #                                     jump _dp_bb_4
 
 # function f():
+#     function_id: 1
 #     block start:
-#         _dp_listcomp_3 = __dp_make_function("start", 0, "<listcomp>", "f.<locals>._dp_listcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", "Any", False)), __dp_tuple(), __dp_globals(), __name__, None, None)
+#         _dp_listcomp_3 = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return _dp_listcomp_3(it)
 
 # function _dp_module_init():
+#     function_id: 2
 #     block start:
-#         __dp_store_global(globals(), "f", __dp_make_function("start", 1, "f", "f", __dp_tuple(), __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None))
+#         __dp_store_global(globals(), "f", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return
 
 # comprehension_in_class_body
@@ -450,6 +478,7 @@ class C:
 # ==
 
 # function C._dp_listcomp_3(_dp_iter_2):
+#     function_id: 0
 #     display_name: <listcomp>
 #     block start:
 #         _dp_tmp_1 = []
@@ -471,23 +500,26 @@ class C:
 #                             jump _dp_bb_3
 
 # function _dp_class_ns_C(_dp_class_ns, _dp_classcell_arg):
+#     function_id: 1
 #     block start:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
-#         _dp_listcomp_3 = __dp_make_function("start", 0, "<listcomp>", "C._dp_listcomp_3", __dp_tuple("_dp_iter_2"), __dp_tuple(__dp_tuple("_dp_iter_2", "Any", False)), __dp_tuple(), __dp_globals(), __name__, None, None)
+#         _dp_listcomp_3 = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "xs", _dp_listcomp_3(__dp_class_lookup_global(_dp_class_ns, "it", globals())))
 #         return
 
 # function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict=None):
+#     function_id: 2
 #     block start:
 #         _dp_class_ns = _dp_class_ns_outer
 #         return __dp_create_class("C", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 3, ())
 
 # function _dp_module_init():
+#     function_id: 3
 #     block start:
-#         _dp_class_ns_C = __dp_make_function("start", 1, "_dp_class_ns_C", "_dp_class_ns_C", __dp_tuple("_dp_class_ns", "_dp_classcell_arg"), __dp_tuple(__dp_tuple("_dp_class_ns", "Any", False), __dp_tuple("_dp_classcell_arg", "Any", False)), __dp_tuple(), __dp_globals(), __name__, None, None)
-#         _dp_define_class_C = __dp_make_function("start", 2, "_dp_define_class_C", "_dp_define_class_C", __dp_tuple("_dp_class_ns_fn", "_dp_class_ns_outer", "_dp_prepare_dict"), __dp_tuple(__dp_tuple("_dp_class_ns_fn", "Any", False), __dp_tuple("_dp_class_ns_outer", "Any", False), __dp_tuple("_dp_prepare_dict", "Any", True)), __dp_tuple(None), __dp_globals(), __name__, None, None)
+#         _dp_class_ns_C = __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
+#         _dp_define_class_C = __dp_make_function(2, __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
 #         __dp_store_global(globals(), "C", _dp_define_class_C(_dp_class_ns_C, globals()))
 #         return
 
@@ -512,6 +544,7 @@ async def run():
 # ==
 
 # coroutine run():
+#     function_id: 0
 #     block start:
 #         _dp_iter_1 = __dp_aiter(ait)
 #         jump _dp_bb_2
@@ -531,8 +564,9 @@ async def run():
 #                             jump _dp_bb_2
 
 # function _dp_module_init():
+#     function_id: 1
 #     block start:
-#         __dp_store_global(globals(), "run", __dp_mark_coroutine_function(__dp_make_function("start", 0, "run", "run", __dp_tuple(), __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None)))
+#         __dp_store_global(globals(), "run", __dp_mark_coroutine_function(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)))
 #         return
 
 # async_with
@@ -559,6 +593,7 @@ match value:
 # ==
 
 # function _dp_module_init():
+#     function_id: 0
 #     block start:
 #         _dp_match_1 = value
 #         if_term __dp_eq(_dp_match_1, 1):
@@ -581,13 +616,15 @@ def gen():
 # ==
 
 # generator gen():
+#     function_id: 0
 #     block start:
 #         yield 1
 #         return
 
 # function _dp_module_init():
+#     function_id: 1
 #     block start:
-#         __dp_store_global(globals(), "gen", __dp_make_function("start", 0, "gen", "gen", __dp_tuple(), __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None))
+#         __dp_store_global(globals(), "gen", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return
 
 # yield_from
@@ -600,13 +637,15 @@ def gen():
 # ==
 
 # generator gen():
+#     function_id: 0
 #     block start:
 #         yield from it
 #         return
 
 # function _dp_module_init():
+#     function_id: 1
 #     block start:
-#         __dp_store_global(globals(), "gen", __dp_make_function("start", 0, "gen", "gen", __dp_tuple(), __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None))
+#         __dp_store_global(globals(), "gen", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return
 
 # with_exit_suppresses_exception
@@ -634,23 +673,26 @@ def outer():
 # ==
 
 # function outer.<locals>.inner():
+#     function_id: 0
 #     entry_liveins: [_dp_cell_x]
 #     freevars: [x->_dp_cell_x@inherited]
 #     block start:
 #         return __dp_load_cell(_dp_cell_x)
 
 # function outer():
+#     function_id: 1
 #     local_cell_slots: [_dp_cell_x]
 #     cellvars: [x->_dp_cell_x@deferred]
 #     block start:
 #         _dp_cell_x = __dp_make_cell()
 #         __dp_store_cell(_dp_cell_x, 5)
-#         inner = __dp_make_function("start", 0, "inner", "outer.<locals>.inner", __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None)
+#         inner = __dp_make_function(0, __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_globals(), None)
 #         return inner()
 
 # function _dp_module_init():
+#     function_id: 2
 #     block start:
-#         __dp_store_global(globals(), "outer", __dp_make_function("start", 1, "outer", "outer", __dp_tuple(), __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None))
+#         __dp_store_global(globals(), "outer", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return
 
 # bb_if_else_function
@@ -667,6 +709,7 @@ def choose(a, b):
 # ==
 
 # function choose(a, b):
+#     function_id: 0
 #     block start:
 #         total = a + b
 #         if_term __dp_gt(total, 5):
@@ -678,8 +721,9 @@ def choose(a, b):
 #                     return b
 
 # function _dp_module_init():
+#     function_id: 1
 #     block start:
-#         __dp_store_global(globals(), "choose", __dp_make_function("start", 0, "choose", "choose", __dp_tuple("a", "b"), __dp_tuple(__dp_tuple("a", "Any", False), __dp_tuple("b", "Any", False)), __dp_tuple(), __dp_globals(), __name__, None, None))
+#         __dp_store_global(globals(), "choose", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return
 
 # closure_cell_nonlocal
@@ -699,6 +743,7 @@ def outer():
 # ==
 
 # function outer.<locals>.inner():
+#     function_id: 0
 #     entry_liveins: [_dp_cell_x]
 #     freevars: [x->_dp_cell_x@inherited]
 #     block start:
@@ -706,17 +751,19 @@ def outer():
 #         return __dp_load_cell(_dp_cell_x)
 
 # function outer():
+#     function_id: 1
 #     local_cell_slots: [_dp_cell_x]
 #     cellvars: [x->_dp_cell_x@deferred]
 #     block start:
 #         _dp_cell_x = __dp_make_cell()
 #         __dp_store_cell(_dp_cell_x, 5)
-#         inner = __dp_make_function("start", 0, "inner", "outer.<locals>.inner", __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None)
+#         inner = __dp_make_function(0, __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_globals(), None)
 #         return inner()
 
 # function _dp_module_init():
+#     function_id: 2
 #     block start:
-#         __dp_store_global(globals(), "outer", __dp_make_function("start", 1, "outer", "outer", __dp_tuple(), __dp_tuple(), __dp_tuple(), __dp_globals(), __name__, None, None))
+#         __dp_store_global(globals(), "outer", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return
 
 # plain try / catch
