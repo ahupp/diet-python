@@ -246,10 +246,10 @@ impl<P: BlockPyPass> BlockPyModule<P> {
 pub enum CoreBlockPyExpr {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
-    Call(CoreBlockPyCall),
-    Await(CoreBlockPyAwait),
-    Yield(CoreBlockPyYield),
-    YieldFrom(CoreBlockPyYieldFrom),
+    Call(CoreBlockPyCall<CoreBlockPyExpr>),
+    Await(CoreBlockPyAwait<CoreBlockPyExpr>),
+    Yield(CoreBlockPyYield<CoreBlockPyExpr>),
+    YieldFrom(CoreBlockPyYieldFrom<CoreBlockPyExpr>),
 }
 
 #[derive(Debug, Clone)]
@@ -303,7 +303,7 @@ pub enum CoreNumberLiteralValue {
 }
 
 #[derive(Debug, Clone)]
-pub struct CoreBlockPyCall<E = CoreBlockPyExpr> {
+pub struct CoreBlockPyCall<E> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: ruff_text_size::TextRange,
     pub func: Box<E>,
@@ -324,21 +324,21 @@ pub enum CoreBlockPyKeywordArg<E = CoreBlockPyExpr> {
 }
 
 #[derive(Debug, Clone)]
-pub struct CoreBlockPyAwait<E = CoreBlockPyExpr> {
+pub struct CoreBlockPyAwait<E> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: ruff_text_size::TextRange,
     pub value: Box<E>,
 }
 
 #[derive(Debug, Clone)]
-pub struct CoreBlockPyYield<E = CoreBlockPyExpr> {
+pub struct CoreBlockPyYield<E> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: ruff_text_size::TextRange,
     pub value: Option<Box<E>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct CoreBlockPyYieldFrom<E = CoreBlockPyExpr> {
+pub struct CoreBlockPyYieldFrom<E> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: ruff_text_size::TextRange,
     pub value: Box<E>,
