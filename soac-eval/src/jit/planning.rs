@@ -163,6 +163,185 @@ pub struct PlanKey {
 static CLIF_PLAN_REGISTRY: OnceLock<Mutex<PlanRegistry>> = OnceLock::new();
 static BB_FUNCTION_REGISTRY: OnceLock<Mutex<FunctionRegistry>> = OnceLock::new();
 
+struct ValidatedPreparedBbFunction<'a> {
+    function: &'a BlockPyFunction<PreparedBbBlockPyPass>,
+    ambient_param_names: Vec<String>,
+    ambient_param_name_set: HashSet<String>,
+    label_to_index: HashMap<BlockPyLabel, usize>,
+}
+
+impl<'a> ValidatedPreparedBbFunction<'a> {
+    fn new(function: &'a BlockPyFunction<PreparedBbBlockPyPass>) -> Self {
+        let ambient_param_names = function
+            .closure_layout()
+            .as_ref()
+            .map(|layout| layout.ambient_storage_names())
+            .unwrap_or_default();
+        let ambient_param_name_set = ambient_param_names.iter().cloned().collect();
+        let mut label_to_index = HashMap::with_capacity(function.blocks.len());
+        for (index, block) in function.blocks.iter().enumerate() {
+            if label_to_index.insert(block.label.clone(), index).is_some() {
+                panic!(
+                    "duplicate BB block label {} in {}",
+                    block.label, function.names.qualname
+                );
+            }
+        }
+        let validated = Self {
+            function,
+            ambient_param_names,
+            ambient_param_name_set,
+            label_to_index,
+        };
+        validated.validate_cfg_targets();
+        validated
+    }
+
+    fn validate_cfg_targets(&self) {
+        for block in &self.function.blocks {
+            if let Some(exc_edge) = &block.meta.exc_edge {
+                self.require_known_target(block, exc_edge.target.as_str(), "exception target");
+            }
+            match &block.term {
+                BbTerm::Jump(target_label) => {
+                    self.require_known_target(block, target_label.as_str(), "jump target");
+                }
+                BbTerm::IfTerm(if_term) => {
+                    self.require_known_target(block, if_term.then_label.as_str(), "then target");
+                    self.require_known_target(block, if_term.else_label.as_str(), "else target");
+                }
+                BbTerm::BranchTable(branch) => {
+                    for target_label in &branch.targets {
+                        self.require_known_target(block, target_label.as_str(), "br_table target");
+                    }
+                    self.require_known_target(
+                        block,
+                        branch.default_label.as_str(),
+                        "br_table default target",
+                    );
+                }
+                BbTerm::Return(_) | BbTerm::Raise(_) => {}
+            }
+        }
+    }
+
+    fn require_known_target(&self, source_block: &PreparedBbBlock, target: &str, edge_kind: &str) {
+        if !self.label_to_index.contains_key(target) {
+            panic!(
+                "unknown {edge_kind} {} in {}:{}",
+                target, self.function.names.qualname, source_block.label
+            );
+        }
+    }
+
+    fn index_of_target(&self, target: &str) -> usize {
+        self.label_to_index
+            .get(target)
+            .copied()
+            .expect("validated BB label lookup")
+    }
+
+    fn jit_param_names_for_block(&self, block: &PreparedBbBlock) -> Vec<String> {
+        block
+            .param_names()
+            .filter(|name| !self.ambient_param_name_set.contains(*name))
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    fn jit_param_names_for_index(&self, target_index: usize) -> Vec<String> {
+        self.jit_param_names_for_block(&self.function.blocks[target_index])
+    }
+
+    fn exc_target_index(&self, block: &PreparedBbBlock) -> Option<usize> {
+        block
+            .meta
+            .exc_edge
+            .as_ref()
+            .map(|edge| self.index_of_target(edge.target.as_str()))
+    }
+
+    fn exc_dispatch_plan(
+        &self,
+        block: &PreparedBbBlock,
+        exc_target: Option<usize>,
+    ) -> Option<BlockExcDispatchPlan> {
+        let target_index = exc_target?;
+        let target_block = &self.function.blocks[target_index];
+        let block_param_names = self.jit_param_names_for_block(block);
+        let full_target_param_names = target_block.param_name_vec();
+        let owner_param_name = block_param_names
+            .iter()
+            .find(|param| param.as_str() == "_dp_self" || param.as_str() == "_dp_state")
+            .cloned();
+        let exc_edge = block
+            .meta
+            .exc_edge
+            .as_ref()
+            .expect("exc_target implies exc_edge");
+        if exc_edge.args.len() != full_target_param_names.len() {
+            panic!(
+                "exception dispatch from {}:{} has {} explicit edge args for target {} with {} full params",
+                self.function.names.qualname,
+                block.label,
+                exc_edge.args.len(),
+                target_block.label,
+                full_target_param_names.len()
+            );
+        }
+        let mut arg_sources = Vec::with_capacity(full_target_param_names.len());
+        for (target_param_name, source) in full_target_param_names.iter().zip(exc_edge.args.iter())
+        {
+            if self.ambient_param_name_set.contains(target_param_name) {
+                continue;
+            }
+            match source {
+                BlockArg::Name(name) => {
+                    if !block_param_names
+                        .iter()
+                        .any(|source_name| source_name == name)
+                    {
+                        if owner_param_name.is_none() {
+                            arg_sources.push(BlockExcArgSource::NoneValue);
+                        } else {
+                            arg_sources.push(BlockExcArgSource::FrameLocal { name: name.clone() });
+                        }
+                    } else {
+                        arg_sources.push(BlockExcArgSource::SourceParam { name: name.clone() });
+                    }
+                }
+                BlockArg::CurrentException => {
+                    arg_sources.push(BlockExcArgSource::Exception);
+                }
+                BlockArg::None => {
+                    arg_sources.push(BlockExcArgSource::NoneValue);
+                }
+                BlockArg::AbruptKind(kind) => {
+                    panic!(
+                        "exception dispatch from {}:{} uses abrupt-kind edge arg {:?} for target param {}",
+                        self.function.names.qualname, block.label, kind, target_param_name
+                    );
+                }
+            }
+        }
+        if owner_param_name.is_none()
+            && arg_sources
+                .iter()
+                .any(|src| matches!(src, BlockExcArgSource::FrameLocal { .. }))
+        {
+            panic!(
+                "exception dispatch from {}:{} requires frame-local fallback but has no _dp_self/_dp_state parameter",
+                self.function.names.qualname, block.label
+            );
+        }
+        Some(BlockExcDispatchPlan {
+            target_index,
+            owner_param_name,
+            arg_sources,
+        })
+    }
+}
+
 fn clif_plan_registry() -> &'static Mutex<PlanRegistry> {
     CLIF_PLAN_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
@@ -275,30 +454,9 @@ fn direct_simple_plan_from_block(block: &PreparedBbBlock) -> Option<DirectSimple
     })
 }
 
-fn ambient_param_name_set(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> HashSet<String> {
-    function
-        .closure_layout()
-        .as_ref()
-        .map(|layout| layout.ambient_storage_names().into_iter().collect())
-        .unwrap_or_default()
-}
-
-fn jit_param_names_for_block(
-    block: &PreparedBbBlock,
-    ambient_param_names: &HashSet<String>,
-) -> Vec<String> {
-    block
-        .param_names()
-        .filter(|name| !ambient_param_names.contains(*name))
-        .map(ToString::to_string)
-        .collect()
-}
-
 fn direct_simple_brif_plan_from_block(
-    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    function: &ValidatedPreparedBbFunction<'_>,
     block: &PreparedBbBlock,
-    label_to_index: &HashMap<BlockPyLabel, usize>,
-    ambient_param_names: &HashSet<String>,
 ) -> Option<DirectSimpleBrIfPlan> {
     if !block.body.is_empty() {
         return None;
@@ -306,12 +464,11 @@ fn direct_simple_brif_plan_from_block(
     let BbTerm::IfTerm(if_term) = &block.term else {
         return None;
     };
-    let then_index = *label_to_index.get(if_term.then_label.as_str())?;
-    let else_index = *label_to_index.get(if_term.else_label.as_str())?;
-    let source_params = jit_param_names_for_block(block, ambient_param_names);
-    if jit_param_names_for_block(&function.blocks[then_index], ambient_param_names) != source_params
-        || jit_param_names_for_block(&function.blocks[else_index], ambient_param_names)
-            != source_params
+    let then_index = function.index_of_target(if_term.then_label.as_str());
+    let else_index = function.index_of_target(if_term.else_label.as_str());
+    let source_params = function.jit_param_names_for_block(block);
+    if function.jit_param_names_for_index(then_index) != source_params
+        || function.jit_param_names_for_index(else_index) != source_params
     {
         return None;
     }
@@ -322,17 +479,6 @@ fn direct_simple_brif_plan_from_block(
         then_index,
         else_index,
     })
-}
-
-fn target_params_from_index(
-    function: &BlockPyFunction<PreparedBbBlockPyPass>,
-    target_index: usize,
-    ambient_param_names: &HashSet<String>,
-) -> Option<Vec<String>> {
-    Some(jit_param_names_for_block(
-        function.blocks.get(target_index)?,
-        ambient_param_names,
-    ))
 }
 
 fn direct_simple_delete_plan_from_targets(
@@ -392,10 +538,8 @@ fn bb_stmt_kind(op: &BbStmt) -> &'static str {
 }
 
 fn direct_simple_block_plan_from_block(
-    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    function: &ValidatedPreparedBbFunction<'_>,
     block: &PreparedBbBlock,
-    label_to_index: &HashMap<BlockPyLabel, usize>,
-    ambient_param_names: &HashSet<String>,
 ) -> DirectSimpleBlockPlan {
     let mut known_names = block.param_name_vec();
     let mut ops = Vec::new();
@@ -403,7 +547,7 @@ fn direct_simple_block_plan_from_block(
         let stmt_op = direct_simple_op_from_bb_stmt(op, &mut known_names).unwrap_or_else(|| {
             panic!(
                 "unexpected non-direct-simple BB stmt in {}:{}: kind={} stmt={op:?}",
-                function.names.qualname,
+                function.function.names.qualname,
                 block.label,
                 bb_stmt_kind(op),
             )
@@ -412,26 +556,8 @@ fn direct_simple_block_plan_from_block(
     }
     let term = match &block.term {
         BbTerm::Jump(target_label) => {
-            let target_index = *label_to_index
-                .get(target_label.as_str())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "unknown jump target {} in {}:{}",
-                        target_label.as_str(),
-                        function.names.qualname,
-                        block.label
-                    )
-                });
-            let target_params =
-                target_params_from_index(function, target_index, ambient_param_names)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "missing target params for jump target {} in {}:{}",
-                            target_label.as_str(),
-                            function.names.qualname,
-                            block.label
-                        )
-                    });
+            let target_index = function.index_of_target(target_label.as_str());
+            let target_params = function.jit_param_names_for_index(target_index);
             let target_args = target_label
                 .args
                 .iter()
@@ -440,7 +566,7 @@ fn direct_simple_block_plan_from_block(
                 .unwrap_or_else(|| {
                     panic!(
                         "unexpected non-direct-simple jump arg in {}:{}: {:?}",
-                        function.names.qualname, block.label, target_label.args
+                        function.function.names.qualname, block.label, target_label.args
                     )
                 });
             DirectSimpleTermPlan::Jump {
@@ -453,39 +579,13 @@ fn direct_simple_block_plan_from_block(
             let test_expr = direct_simple_expr_from(&if_term.test).unwrap_or_else(|| {
                 panic!(
                     "unexpected non-direct-simple if test in {}:{}: {:?}",
-                    function.names.qualname, block.label, if_term.test
+                    function.function.names.qualname, block.label, if_term.test
                 )
             });
-            let then_index = *label_to_index
-                .get(if_term.then_label.as_str())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "unknown then target {} in {}:{}",
-                        if_term.then_label, function.names.qualname, block.label
-                    )
-                });
-            let then_params = target_params_from_index(function, then_index, ambient_param_names)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "missing then params for target {} in {}:{}",
-                        if_term.then_label, function.names.qualname, block.label
-                    )
-                });
-            let else_index = *label_to_index
-                .get(if_term.else_label.as_str())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "unknown else target {} in {}:{}",
-                        if_term.else_label, function.names.qualname, block.label
-                    )
-                });
-            let else_params = target_params_from_index(function, else_index, ambient_param_names)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "missing else params for target {} in {}:{}",
-                        if_term.else_label, function.names.qualname, block.label
-                    )
-                });
+            let then_index = function.index_of_target(if_term.then_label.as_str());
+            let then_params = function.jit_param_names_for_index(then_index);
+            let else_index = function.index_of_target(if_term.else_label.as_str());
+            let else_params = function.jit_param_names_for_index(else_index);
             DirectSimpleTermPlan::BrIf {
                 test: test_expr,
                 then_index,
@@ -498,46 +598,17 @@ fn direct_simple_block_plan_from_block(
             let index_expr = direct_simple_expr_from(&branch.index).unwrap_or_else(|| {
                 panic!(
                     "unexpected non-direct-simple br_table index in {}:{}: {:?}",
-                    function.names.qualname, block.label, branch.index
+                    function.function.names.qualname, block.label, branch.index
                 )
             });
             let mut target_plans = Vec::with_capacity(branch.targets.len());
             for target_label in &branch.targets {
-                let target_index =
-                    *label_to_index
-                        .get(target_label.as_str())
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "unknown br_table target {} in {}:{}",
-                                target_label, function.names.qualname, block.label
-                            )
-                        });
-                let target_params =
-                    target_params_from_index(function, target_index, ambient_param_names)
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "missing br_table params for target {} in {}:{}",
-                                target_label, function.names.qualname, block.label
-                            )
-                        });
+                let target_index = function.index_of_target(target_label.as_str());
+                let target_params = function.jit_param_names_for_index(target_index);
                 target_plans.push((target_index, target_params));
             }
-            let default_index = *label_to_index
-                .get(branch.default_label.as_str())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "unknown br_table default target {} in {}:{}",
-                        branch.default_label, function.names.qualname, block.label
-                    )
-                });
-            let default_params =
-                target_params_from_index(function, default_index, ambient_param_names)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "missing br_table params for default target {} in {}:{}",
-                            branch.default_label, function.names.qualname, block.label
-                        )
-                    });
+            let default_index = function.index_of_target(branch.default_label.as_str());
+            let default_params = function.jit_param_names_for_index(default_index);
             DirectSimpleTermPlan::BrTable {
                 index: index_expr,
                 targets: target_plans,
@@ -549,7 +620,7 @@ fn direct_simple_block_plan_from_block(
             let value = direct_simple_expr_from(ret_value).unwrap_or_else(|| {
                 panic!(
                     "unexpected non-direct-simple return value in {}:{}: {:?}",
-                    function.names.qualname, block.label, ret_value
+                    function.function.names.qualname, block.label, ret_value
                 )
             });
             DirectSimpleTermPlan::Ret { value }
@@ -559,7 +630,7 @@ fn direct_simple_block_plan_from_block(
                 direct_simple_expr_from(expr).unwrap_or_else(|| {
                     panic!(
                         "unexpected non-direct-simple raise value in {}:{}: {:?}",
-                        function.names.qualname, block.label, expr
+                        function.function.names.qualname, block.label, expr
                     )
                 })
             });
@@ -574,158 +645,33 @@ fn direct_simple_block_plan_from_block(
 }
 
 fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPlan {
-    let ambient_param_names = function
-        .closure_layout()
-        .as_ref()
-        .map(|layout| layout.ambient_storage_names())
-        .unwrap_or_default();
-    let ambient_param_name_set = ambient_param_name_set(function);
-    let mut label_to_index = HashMap::new();
-    for (index, block) in function.blocks.iter().enumerate() {
-        label_to_index.insert(block.label.clone(), index);
-    }
-    let mut blocks = Vec::with_capacity(function.blocks.len());
-    for block in &function.blocks {
-        let exc_target =
-            match block.meta.exc_edge.as_ref().map(|edge| &edge.target) {
-                Some(label) => Some(label_to_index.get(label.as_str()).copied().unwrap_or_else(
-                    || {
-                        panic!(
-                            "unknown exception target {label} in {}:{}",
-                            function.names.qualname, block.label
-                        )
-                    },
-                )),
-                None => None,
-            };
-        let exc_dispatch = if let Some(target_index) = exc_target {
-            let target_block = &function.blocks[target_index];
-            let block_param_names = jit_param_names_for_block(block, &ambient_param_name_set);
-            let full_target_param_names = target_block.param_name_vec();
-            let owner_param_name = block_param_names
-                .iter()
-                .find(|param| param.as_str() == "_dp_self" || param.as_str() == "_dp_state")
-                .cloned();
-            let mut arg_sources = Vec::with_capacity(full_target_param_names.len());
-            let exc_args = &block
-                .meta
-                .exc_edge
-                .as_ref()
-                .expect("exc_target implies exc_edge")
-                .args;
-            if exc_args.len() != full_target_param_names.len() {
-                panic!(
-                    "exception dispatch from {}:{} has {} explicit edge args for target {} with {} full params",
-                    function.names.qualname,
-                    block.label,
-                    exc_args.len(),
-                    target_block.label,
-                    full_target_param_names.len()
-                );
-            }
-            for (target_param_name, source) in full_target_param_names.iter().zip(exc_args.iter()) {
-                if ambient_param_name_set.contains(target_param_name) {
-                    continue;
-                }
-                match source {
-                    BlockArg::Name(name) => {
-                        if !block_param_names
-                            .iter()
-                            .any(|source_name| source_name == name)
-                        {
-                            if owner_param_name.is_none() {
-                                arg_sources.push(BlockExcArgSource::NoneValue);
-                            } else {
-                                arg_sources
-                                    .push(BlockExcArgSource::FrameLocal { name: name.clone() });
-                            }
-                        } else {
-                            arg_sources.push(BlockExcArgSource::SourceParam { name: name.clone() });
-                        }
-                    }
-                    BlockArg::CurrentException => {
-                        arg_sources.push(BlockExcArgSource::Exception);
-                    }
-                    BlockArg::None => {
-                        arg_sources.push(BlockExcArgSource::NoneValue);
-                    }
-                    BlockArg::AbruptKind(kind) => {
-                        panic!(
-                            "exception dispatch from {}:{} uses abrupt-kind edge arg {:?} for target param {}",
-                            function.names.qualname, block.label, kind, target_param_name
-                        );
-                    }
-                }
-            }
-            if owner_param_name.is_none()
-                && arg_sources
-                    .iter()
-                    .any(|src| matches!(src, BlockExcArgSource::FrameLocal { .. }))
-            {
-                panic!(
-                    "exception dispatch from {}:{} requires frame-local fallback but has no _dp_self/_dp_state parameter",
-                    function.names.qualname, block.label
-                );
-            }
-            Some(BlockExcDispatchPlan {
-                target_index,
-                owner_param_name,
-                arg_sources,
-            })
-        } else {
-            None
-        };
+    let function = ValidatedPreparedBbFunction::new(function);
+    let mut blocks = Vec::with_capacity(function.function.blocks.len());
+    for block in &function.function.blocks {
+        let exc_target = function.exc_target_index(block);
+        let exc_dispatch = function.exc_dispatch_plan(block, exc_target);
         let term = block.term.clone();
         let fast_path = {
             if block.body.is_empty() {
                 match &block.term {
                     BbTerm::Jump(target_label) => {
-                        let target_index = label_to_index
-                            .get(target_label.as_str())
-                            .copied()
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "unknown jump target {} in {}:{}",
-                                    target_label.as_str(),
-                                    function.names.qualname,
-                                    block.label
-                                )
-                            });
-                        let source_params =
-                            jit_param_names_for_block(block, &ambient_param_name_set);
-                        let target_params = jit_param_names_for_block(
-                            &function.blocks[target_index],
-                            &ambient_param_name_set,
-                        );
+                        let target_index = function.index_of_target(target_label.as_str());
+                        let source_params = function.jit_param_names_for_block(block);
+                        let target_params = function.jit_param_names_for_index(target_index);
                         if target_label.args.is_empty() && source_params == target_params {
                             BlockFastPath::JumpPassThrough { target_index }
                         } else {
                             BlockFastPath::DirectSimpleBlock {
-                                plan: direct_simple_block_plan_from_block(
-                                    function,
-                                    block,
-                                    &label_to_index,
-                                    &ambient_param_name_set,
-                                ),
+                                plan: direct_simple_block_plan_from_block(&function, block),
                             }
                         }
                     }
                     BbTerm::IfTerm(_) => {
-                        if let Some(plan) = direct_simple_brif_plan_from_block(
-                            function,
-                            block,
-                            &label_to_index,
-                            &ambient_param_name_set,
-                        ) {
+                        if let Some(plan) = direct_simple_brif_plan_from_block(&function, block) {
                             BlockFastPath::DirectSimpleBrIf { plan }
                         } else {
                             BlockFastPath::DirectSimpleBlock {
-                                plan: direct_simple_block_plan_from_block(
-                                    function,
-                                    block,
-                                    &label_to_index,
-                                    &ambient_param_name_set,
-                                ),
+                                plan: direct_simple_block_plan_from_block(&function, block),
                             }
                         }
                     }
@@ -734,12 +680,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPla
                             BlockFastPath::DirectSimpleRet { plan }
                         } else {
                             BlockFastPath::DirectSimpleBlock {
-                                plan: direct_simple_block_plan_from_block(
-                                    function,
-                                    block,
-                                    &label_to_index,
-                                    &ambient_param_name_set,
-                                ),
+                                plan: direct_simple_block_plan_from_block(&function, block),
                             }
                         }
                     }
@@ -748,12 +689,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPla
                 BlockFastPath::DirectSimpleRet { plan }
             } else {
                 BlockFastPath::DirectSimpleBlock {
-                    plan: direct_simple_block_plan_from_block(
-                        function,
-                        block,
-                        &label_to_index,
-                        &ambient_param_name_set,
-                    ),
+                    plan: direct_simple_block_plan_from_block(&function, block),
                 }
             }
         };
@@ -767,7 +703,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPla
         });
     }
     ClifPlan {
-        ambient_param_names,
+        ambient_param_names: function.ambient_param_names.clone(),
         blocks,
     }
 }

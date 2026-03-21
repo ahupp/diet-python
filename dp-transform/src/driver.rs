@@ -129,16 +129,12 @@ pub(crate) fn rewrite_module_with_tracker(
 
     /*
     Simplify expressions:
-      - replace operators with intrinsic calls like __dp_add
-      - make expression evaluation order explicit by hoisting any complex sub-expressions into temporary, e.g
-        this:
-            `f(g(x), h(y))`
+      - replace operators with intrinsic calls, so that something like:
+            `a[1] + b[2]`
 
         becomes:
             ```
-            tmp1 = g(x)
-            tmp2 = h(y)
-            f(tmp1, tmp2)
+            __dp_add(__dp_getitem(a, 1), __dp_getitem(b, 2))
             ```
     */
     let core_blockpy: BlockPyModule<CoreBlockPyPass> = pass_tracker
