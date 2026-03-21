@@ -1,14 +1,14 @@
 use crate::block_py::{
     BlockPyModule, BlockPyModuleMap, CoreBlockPyAwait, CoreBlockPyCall, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg, CoreBlockPyYield,
-    CoreBlockPyYieldFrom,
+    CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg, CoreBlockPyYield, CoreBlockPyYieldFrom,
+    ExplicitBlockPyExpr, ExplicitCoreBlockPyExpr,
 };
 use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithoutAwait};
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
 #[cfg(test)]
-use crate::block_py::{BlockPyFunction, BlockPyFunctionKind, CfgBlock, FunctionName};
+use crate::block_py::{BlockPyFunction, BlockPyFunctionKind, FunctionName};
 
 fn expr_name(id: &str) -> ast::ExprName {
     let Expr::Name(expr) = py_expr!("{id:id}", id = id) else {
@@ -17,23 +17,30 @@ fn expr_name(id: &str) -> ast::ExprName {
     expr
 }
 
-fn lower_core_expr_awaits(expr: CoreBlockPyExpr) -> CoreBlockPyExprWithoutAwait {
+fn lower_explicit_atom_awaits(expr: ExplicitBlockPyExpr) -> CoreBlockPyExprWithoutAwait {
     match expr {
-        CoreBlockPyExpr::Name(node) => CoreBlockPyExprWithoutAwait::Name(node),
-        CoreBlockPyExpr::Literal(literal) => CoreBlockPyExprWithoutAwait::Literal(literal),
-        CoreBlockPyExpr::Call(call) => CoreBlockPyExprWithoutAwait::Call(CoreBlockPyCall {
+        ExplicitBlockPyExpr::Name(node) => CoreBlockPyExprWithoutAwait::Name(node),
+        ExplicitBlockPyExpr::Literal(literal) => CoreBlockPyExprWithoutAwait::Literal(literal),
+    }
+}
+
+fn lower_core_expr_awaits(expr: ExplicitCoreBlockPyExpr) -> CoreBlockPyExprWithoutAwait {
+    match expr {
+        ExplicitCoreBlockPyExpr::Name(node) => CoreBlockPyExprWithoutAwait::Name(node),
+        ExplicitCoreBlockPyExpr::Literal(literal) => CoreBlockPyExprWithoutAwait::Literal(literal),
+        ExplicitCoreBlockPyExpr::Call(call) => CoreBlockPyExprWithoutAwait::Call(CoreBlockPyCall {
             node_index: call.node_index,
             range: call.range,
-            func: Box::new(lower_core_expr_awaits(*call.func)),
+            func: Box::new(lower_explicit_atom_awaits(*call.func)),
             args: call
                 .args
                 .into_iter()
                 .map(|arg| match arg {
                     CoreBlockPyCallArg::Positional(value) => {
-                        CoreBlockPyCallArg::Positional(lower_core_expr_awaits(value))
+                        CoreBlockPyCallArg::Positional(lower_explicit_atom_awaits(value))
                     }
                     CoreBlockPyCallArg::Starred(value) => {
-                        CoreBlockPyCallArg::Starred(lower_core_expr_awaits(value))
+                        CoreBlockPyCallArg::Starred(lower_explicit_atom_awaits(value))
                     }
                 })
                 .collect(),
@@ -43,15 +50,15 @@ fn lower_core_expr_awaits(expr: CoreBlockPyExpr) -> CoreBlockPyExprWithoutAwait 
                 .map(|keyword| match keyword {
                     CoreBlockPyKeywordArg::Named { arg, value } => CoreBlockPyKeywordArg::Named {
                         arg,
-                        value: lower_core_expr_awaits(value),
+                        value: lower_explicit_atom_awaits(value),
                     },
                     CoreBlockPyKeywordArg::Starred(value) => {
-                        CoreBlockPyKeywordArg::Starred(lower_core_expr_awaits(value))
+                        CoreBlockPyKeywordArg::Starred(lower_explicit_atom_awaits(value))
                     }
                 })
                 .collect(),
         }),
-        CoreBlockPyExpr::Await(CoreBlockPyAwait {
+        ExplicitCoreBlockPyExpr::Await(CoreBlockPyAwait {
             node_index,
             range,
             value,
@@ -64,29 +71,29 @@ fn lower_core_expr_awaits(expr: CoreBlockPyExpr) -> CoreBlockPyExprWithoutAwait 
                 func: Box::new(CoreBlockPyExprWithoutAwait::Name(expr_name(
                     "__dp_await_iter",
                 ))),
-                args: vec![CoreBlockPyCallArg::Positional(lower_core_expr_awaits(
+                args: vec![CoreBlockPyCallArg::Positional(lower_explicit_atom_awaits(
                     *value,
                 ))],
                 keywords: Vec::new(),
             })),
         }),
-        CoreBlockPyExpr::Yield(CoreBlockPyYield {
+        ExplicitCoreBlockPyExpr::Yield(CoreBlockPyYield {
             node_index,
             range,
             value,
         }) => CoreBlockPyExprWithoutAwait::Yield(CoreBlockPyYield {
             node_index,
             range,
-            value: value.map(|value| Box::new(lower_core_expr_awaits(*value))),
+            value: value.map(|value| Box::new(lower_explicit_atom_awaits(*value))),
         }),
-        CoreBlockPyExpr::YieldFrom(CoreBlockPyYieldFrom {
+        ExplicitCoreBlockPyExpr::YieldFrom(CoreBlockPyYieldFrom {
             node_index,
             range,
             value,
         }) => CoreBlockPyExprWithoutAwait::YieldFrom(CoreBlockPyYieldFrom {
             node_index,
             range,
-            value: Box::new(lower_core_expr_awaits(*value)),
+            value: Box::new(lower_explicit_atom_awaits(*value)),
         }),
     }
 }
@@ -94,7 +101,7 @@ fn lower_core_expr_awaits(expr: CoreBlockPyExpr) -> CoreBlockPyExprWithoutAwait 
 struct CoreAwaitLoweringMap;
 
 impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPassWithoutAwait> for CoreAwaitLoweringMap {
-    fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExprWithoutAwait {
+    fn map_expr(&self, expr: ExplicitCoreBlockPyExpr) -> CoreBlockPyExprWithoutAwait {
         lower_core_expr_awaits(expr)
     }
 }
@@ -108,7 +115,8 @@ pub(crate) fn lower_awaits_in_core_blockpy_module(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block_py::{BlockPyLabel, BlockPyTerm, CoreBlockPyExpr};
+    use crate::block_py::{BlockPyLabel, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyExpr};
+    use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
 
     #[test]
     fn lowers_await_to_yield_from_await_iter() {
@@ -118,8 +126,7 @@ mod tests {
                 names: FunctionName::new("f", "f", "f", "f"),
                 kind: BlockPyFunctionKind::Coroutine,
                 params: Default::default(),
-                param_defaults: Vec::new(),
-                blocks: vec![CfgBlock {
+                blocks: vec![make_eval_order_explicit_in_core_block(CfgBlock {
                     label: BlockPyLabel("start".to_string()),
                     body: Vec::new(),
                     term: BlockPyTerm::Return(CoreBlockPyExpr::from(crate::py_expr!(
@@ -127,7 +134,7 @@ mod tests {
                     ))),
                     params: Vec::new(),
                     meta: None,
-                }],
+                })],
                 doc: None,
                 closure_layout: None,
                 facts: crate::block_py::BlockPyCallableFacts::default(),
@@ -138,9 +145,22 @@ mod tests {
 
         let lowered = lower_awaits_in_core_blockpy_module(module);
         let block = &lowered.callable_defs[0].blocks[0];
-        let BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::YieldFrom(yield_from)) = &block.term
-        else {
-            panic!("expected yield from return");
+        assert_eq!(block.body.len(), 2);
+        let BlockPyStmt::Assign(call_assign) = &block.body[0] else {
+            panic!("expected hoisted call assignment");
+        };
+        let CoreBlockPyExprWithoutAwait::Call(call) = &call_assign.value else {
+            panic!("expected hoisted call");
+        };
+        let CoreBlockPyExprWithoutAwait::Name(name) = call.func.as_ref() else {
+            panic!("expected await target helper name");
+        };
+        assert_eq!(name.id.as_str(), "foo");
+        let BlockPyStmt::Assign(await_assign) = &block.body[1] else {
+            panic!("expected lowered await assignment");
+        };
+        let CoreBlockPyExprWithoutAwait::YieldFrom(yield_from) = &await_assign.value else {
+            panic!("expected lowered await yield from");
         };
         let CoreBlockPyExprWithoutAwait::Call(call) = yield_from.value.as_ref() else {
             panic!("expected __dp_await_iter call");
@@ -149,5 +169,10 @@ mod tests {
             panic!("expected await helper name");
         };
         assert_eq!(name.id.as_str(), "__dp_await_iter");
+        let BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::Name(return_name)) = &block.term
+        else {
+            panic!("expected return of lowered await temp");
+        };
+        assert_eq!(return_name.id, await_assign.target.id);
     }
 }

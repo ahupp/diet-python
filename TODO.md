@@ -43,6 +43,11 @@
   - Planning note:
     - The current direct-simple JIT literal planning in `soac-eval/src/jit/planning.rs` only lowers integer literals that fit in `i64`, so larger Python ints fall out of that fast path.
     - A good first pass is to decide whether large ints should be materialized through a general Python-object literal helper at planning/codegen time, or whether they should be excluded from the direct-simple subset in a more explicit way.
+- Ensure `blockpy_expr_simplify` panics if it receives an expression shape that should already have been removed by `rewrite_ast_to_lowered_blockpy_module_plan`.
+  - Planning note:
+    - The desired boundary is that `rewrite_ast_to_lowered_blockpy_module_plan` fully eliminates the AST expression forms that later core-expression lowering is not supposed to handle.
+    - `blockpy_expr_simplify` should then treat those forms as invariant violations and panic immediately, instead of silently accepting or re-lowering them.
+    - A good first pass is to enumerate the expression kinds currently expected to be gone at that boundary, then add focused panic sites and regression tests that assert the simplify pass fails if one leaks through.
 
 ## Completed
 

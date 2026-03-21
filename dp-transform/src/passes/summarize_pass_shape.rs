@@ -38,7 +38,6 @@ struct BlockPyPassShapeCollector {
 impl<P> BlockPyModuleVisitor<P> for BlockPyPassShapeCollector
 where
     P: BlockPyPass,
-    PassExpr<P>: Into<Expr>,
 {
     fn visit_expr(&mut self, expr: &PassExpr<P>) {
         merge_pass_shape_summary(&mut self.summary, summarize_ruff_expr(&expr.clone().into()));
@@ -61,7 +60,6 @@ fn summarize_ruff_expr(expr: &Expr) -> crate::PassShapeSummary {
 fn summarize_blockpy_module<P>(module: &BlockPyModule<P>) -> crate::PassShapeSummary
 where
     P: BlockPyPass,
-    PassExpr<P>: Into<Expr>,
 {
     let mut collector = BlockPyPassShapeCollector::default();
     module.visit_module(&mut collector);
@@ -72,11 +70,6 @@ pub(crate) fn summarize_tracked_pass_shape(
     result: &crate::LoweringResult,
     name: &str,
 ) -> Option<crate::PassShapeSummary> {
-    if let Some((_, module)) =
-        result.get_pass::<(ruff_python_ast::Suite, BlockPyModule<RuffBlockPyPass>)>(name)
-    {
-        return Some(summarize_blockpy_module(module));
-    }
     if let Some(module) = result.get_pass::<BlockPyModule<RuffBlockPyPass>>(name) {
         return Some(summarize_blockpy_module(module));
     }

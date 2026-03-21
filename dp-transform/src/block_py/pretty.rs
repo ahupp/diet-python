@@ -6,7 +6,7 @@ use super::{
     PassBlock, PassExpr,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
-use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass, RuffBlockPyPass};
+use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass};
 use crate::ruff_ast_to_string;
 use std::collections::{HashMap, HashSet};
 
@@ -16,10 +16,7 @@ enum IfBranchKind {
     Else,
 }
 
-pub trait BlockPyPrettyPrinter: BlockPyPass
-where
-    PassExpr<Self>: Clone + Into<Expr>,
-{
+pub trait BlockPyPrettyPrinter: BlockPyPass {
     fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String>
     where
         Self: Sized;
@@ -33,7 +30,6 @@ impl<P> BlockPyPrettyPrinter for P
 where
     P: BlockPyPass,
     P::BlockMeta: PrettyDefaultBlockMeta<PassExpr<P>>,
-    PassExpr<P>: Clone + Into<Expr>,
 {
     fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
         lowered_entry_liveins(&function.params, &function.blocks, &function.try_regions)
@@ -144,23 +140,15 @@ pub trait BlockPyPrettyPrint {
 impl<P> BlockPyPrettyPrint for BlockPyModule<P>
 where
     P: BlockPyPrettyPrinter,
-    PassExpr<P>: Clone + Into<Expr>,
 {
     fn pretty_print(&self) -> String {
         blockpy_module_to_string(self)
     }
 }
 
-impl BlockPyPrettyPrint for (ruff_python_ast::Suite, BlockPyModule<RuffBlockPyPass>) {
-    fn pretty_print(&self) -> String {
-        self.1.pretty_print()
-    }
-}
-
 pub fn blockpy_module_to_string<P>(module: &BlockPyModule<P>) -> String
 where
     P: BlockPyPrettyPrinter,
-    PassExpr<P>: Clone + Into<Expr>,
 {
     let mut formatter = BlockPyFormatter::default();
     formatter.write_module(module);
@@ -184,7 +172,6 @@ impl BlockPyFormatter {
     fn write_module<P>(&mut self, module: &BlockPyModule<P>)
     where
         P: BlockPyPrettyPrinter,
-        PassExpr<P>: Clone + Into<Expr>,
     {
         for function in &module.callable_defs {
             if !self.out.is_empty() {
@@ -197,9 +184,8 @@ impl BlockPyFormatter {
     fn write_function<P>(&mut self, function: &BlockPyFunction<P>)
     where
         P: BlockPyPrettyPrinter,
-        PassExpr<P>: Clone + Into<Expr>,
     {
-        let params = format_parameters(&function.params, &function.param_defaults);
+        let params = format_parameters(&function.params);
         let parameter_names = function.params.names();
         let referenced_labels = collect_referenced_labels_from_blocks::<P>(&function.blocks);
         let render_layout = BlockRenderLayout::new(function);
@@ -267,7 +253,6 @@ impl BlockPyFormatter {
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         P: BlockPyPrettyPrinter,
-        PassExpr<P>: Clone + Into<Expr>,
     {
         let block = &function.blocks[block_index];
         self.line(format!("block {}:", block.label.as_str()));
@@ -300,7 +285,6 @@ impl BlockPyFormatter {
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         P: BlockPyPrettyPrinter,
-        PassExpr<P>: Clone + Into<Expr>,
     {
         if block.body.is_empty() {
             let term = block.term.clone().into_term();
@@ -386,7 +370,6 @@ impl BlockPyFormatter {
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         P: BlockPyPrettyPrinter,
-        PassExpr<P>: Clone + Into<Expr>,
     {
         match term {
             BlockPyTerm::Jump(edge) => self.line(format!("jump {}", render_edge(edge))),
@@ -655,13 +638,8 @@ pub(crate) fn bb_stmts_text(stmts: &[BbStmt]) -> String {
     out
 }
 
-fn format_parameters<E>(parameters: &ParamSpec, defaults: &[E]) -> String
-where
-    E: Clone + Into<Expr>,
-{
-    parameters.validate_default_count(defaults.len());
+fn format_parameters(parameters: &ParamSpec) -> String {
     let mut parts = Vec::new();
-    let mut defaults_iter = defaults.iter();
     let mut saw_kw_separator = false;
 
     for (index, param) in parameters.params.iter().enumerate() {
@@ -681,30 +659,13 @@ where
             saw_kw_separator = true;
         }
 
-        let default = if param.has_default {
-            Some(
-                defaults_iter
-                    .next()
-                    .expect("ParamSpec default count should match defaults payload"),
-            )
-        } else {
-            None
-        };
         let rendered_name = match param.kind {
             ParamKind::VarArg => format!("*{}", param.name),
             ParamKind::KwArg => format!("**{}", param.name),
             _ => param.name.clone(),
         };
-        parts.push(match default {
-            Some(default) => format!("{}={}", rendered_name, render_inline_expr(default)),
-            None => rendered_name,
-        });
+        parts.push(rendered_name);
     }
-    assert!(
-        defaults_iter.next().is_none(),
-        "ParamSpec default count should match defaults payload",
-    );
-
     parts.join(", ")
 }
 
@@ -780,7 +741,6 @@ impl BlockRenderLayout {
     fn new<P>(function: &BlockPyFunction<P>) -> Self
     where
         P: BlockPyPrettyPrinter,
-        PassExpr<P>: Clone + Into<Expr>,
     {
         let block_count = function.blocks.len();
         if block_count == 0 {
@@ -852,7 +812,6 @@ impl BlockRenderLayout {
 fn sort_block_indices_by_label<P>(indices: &mut [usize], function: &BlockPyFunction<P>)
 where
     P: BlockPyPrettyPrinter,
-    PassExpr<P>: Clone + Into<Expr>,
 {
     indices.sort_by(|left, right| {
         function.blocks[*left]
@@ -870,7 +829,6 @@ fn compute_inline_if_term_targets<P>(
 ) -> (HashMap<(usize, IfBranchKind), usize>, HashSet<usize>)
 where
     P: BlockPyPrettyPrinter,
-    PassExpr<P>: Clone + Into<Expr>,
 {
     let mut targets = HashMap::new();
     let mut inlined_blocks = HashSet::new();
@@ -940,7 +898,6 @@ fn choose_entry_block_index<P>(
 ) -> usize
 where
     P: BlockPyPrettyPrinter,
-    PassExpr<P>: Clone + Into<Expr>,
 {
     0
 }
@@ -951,7 +908,6 @@ fn collect_top_level_successors_from_block<P>(
 ) -> Vec<usize>
 where
     P: BlockPyPass,
-    PassExpr<P>: Clone + Into<Expr>,
 {
     let mut successors = Vec::new();
     let mut seen = HashSet::new();
@@ -1217,7 +1173,6 @@ mod tests {
     ) -> &'a BlockPyFunction<P>
     where
         P: BlockPyPrettyPrinter,
-        PassExpr<P>: Clone + Into<Expr>,
     {
         module
             .callable_defs
@@ -1242,7 +1197,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
         let rendered = blockpy_module_to_string(&blockpy);
 
         assert!(
-            rendered.contains("function classify(a, /, b=1, *args, c=2, **kwargs):"),
+            rendered.contains("function classify(a, /, b, *args, c, **kwargs):"),
             "{rendered}"
         );
         assert!(rendered.contains("function_id: "), "{rendered}");
@@ -1344,7 +1299,6 @@ async def no_lying():
                 names: crate::block_py::FunctionName::new("gen", "gen", "gen", "gen"),
                 kind: BlockPyFunctionKind::Function,
                 params: empty_param_spec(),
-                param_defaults: Vec::new(),
                 blocks: vec![BlockPyBlock {
                     label: "gen_start".into(),
                     body: vec![],
@@ -1389,7 +1343,6 @@ async def no_lying():
             names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
             kind: BlockPyFunctionKind::Function,
             params: empty_param_spec(),
-            param_defaults: Vec::new(),
             blocks: vec![
                 BlockPyBlock {
                     label: "start".into(),
@@ -1468,7 +1421,6 @@ def choose(a, b):
             names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
             kind: BlockPyFunctionKind::Function,
             params: empty_param_spec(),
-            param_defaults: Vec::new(),
             blocks: vec![
                 BlockPyBlock {
                     label: "start".into(),
@@ -1579,7 +1531,6 @@ def choose(a, b):
                 names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
                 kind: BlockPyFunctionKind::Function,
                 params: empty_param_spec(),
-                param_defaults: Vec::new(),
                 blocks: vec![
                     PassBlock::<BbBlockPyPass> {
                         label: "start".into(),

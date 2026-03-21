@@ -99,7 +99,6 @@ struct LoweredFunctionCaptureValue {
 struct LoweredFunctionInstantiationPreview {
     function_id: usize,
     captures: Vec<LoweredFunctionCaptureValue>,
-    param_defaults: Vec<Expr>,
     kind: LoweredFunctionInstantiationKind,
 }
 
@@ -279,7 +278,7 @@ fn try_lower_function_to_blockpy_bundle(
     } else {
         lowered_input_body
     };
-    let (param_spec, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
+    let (param_spec, _param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let param_names = param_spec.names();
     let runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
     let mut outer_scope_names = collect_bound_names(&runtime_input_body);
@@ -322,7 +321,6 @@ fn try_lower_function_to_blockpy_bundle(
             identity.qualname.clone(),
         ),
         param_spec,
-        param_defaults,
         &runtime_input_body,
         doc,
         end_label,
@@ -663,7 +661,6 @@ fn build_lowered_function_instantiation_preview(
     Some(LoweredFunctionInstantiationPreview {
         function_id: callable_def.function_id.0,
         captures,
-        param_defaults: callable_def.param_defaults.clone(),
         kind: if callable_def.kind == BlockPyFunctionKind::Coroutine {
             LoweredFunctionInstantiationKind::MarkCoroutineFunction
         } else {
@@ -682,15 +679,17 @@ struct LoweredFunctionInstantiationData {
 }
 
 fn build_lowered_function_instantiation_data(
+    func: &ast::StmtFunctionDef,
     preview: &LoweredFunctionInstantiationPreview,
     decorator_exprs: Vec<Expr>,
     annotate_fn_expr: Option<Expr>,
 ) -> LoweredFunctionInstantiationData {
+    let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     LoweredFunctionInstantiationData {
         function_id: preview.function_id,
         captures: preview.captures.clone(),
         decorator_exprs,
-        param_defaults: preview.param_defaults.clone(),
+        param_defaults,
         annotate_fn_expr: annotate_fn_expr.unwrap_or_else(|| py_expr!("None")),
         kind: preview.kind,
     }
@@ -920,9 +919,8 @@ mod tests {
             "        sys.setrecursionlimit(original_limit)\n",
         );
         let context = Context::new(Options::for_test(), source);
-        let mut module = parse_module(source).unwrap().into_syntax().body;
-        let (_rewritten, blockpy) =
-            super::rewrite_ast_to_lowered_blockpy_module_plan(&context, module);
+        let module = parse_module(source).unwrap().into_syntax().body;
+        let blockpy = super::rewrite_ast_to_lowered_blockpy_module_plan(&context, module);
         let exercise = blockpy
             .callable_defs
             .iter()
@@ -958,8 +956,7 @@ mod tests {
         );
         let context = Context::new(Options::for_test(), source);
         let module = parse_module(source).unwrap().into_syntax().body;
-        let (_rewritten, blockpy) =
-            super::rewrite_ast_to_lowered_blockpy_module_plan(&context, module);
+        let blockpy = super::rewrite_ast_to_lowered_blockpy_module_plan(&context, module);
         let exercise = blockpy
             .callable_defs
             .iter()
@@ -982,6 +979,13 @@ mod tests {
 
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
     context: &Context,
+    module: Suite,
+) -> BlockPyModule<RuffBlockPyPass> {
+    rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module).1
+}
+
+pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
+    context: &Context,
     mut module: Suite,
 ) -> (Suite, BlockPyModule<RuffBlockPyPass>) {
     crate::passes::ast_to_ast::simplify::flatten(&mut module);
@@ -999,11 +1003,12 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
         callable_defs: Vec::new(),
     };
     rewriter.visit_body(&mut module);
-    let blockpy_module = BlockPyModule {
-        callable_defs: rewriter.callable_defs,
-    };
-
-    (module, blockpy_module)
+    (
+        module,
+        BlockPyModule {
+            callable_defs: rewriter.callable_defs,
+        },
+    )
 }
 
 fn build_binding_stmt(target: BindingTarget, bind_name: &str, value: Expr) -> Stmt {
@@ -1297,6 +1302,7 @@ fn build_lowered_function_instantiation_stmt(
         .as_ref()
         .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone());
     let instantiation_data = build_lowered_function_instantiation_data(
+        func,
         preview,
         rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
         annotate_fn_expr,

@@ -53,7 +53,6 @@ fn rewrite_try_jump_terms(
         names: function.names,
         kind: function.kind,
         params: function.params,
-        param_defaults: function.param_defaults,
         blocks: function
             .blocks
             .into_iter()

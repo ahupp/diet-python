@@ -567,7 +567,7 @@ class C:
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "xs", _dp_listcomp_3(__dp_class_lookup_global(_dp_class_ns, "it", globals())))
 #         return __dp_NONE
 
-# function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict=None):
+# function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
 #     function_id: 2
 #     block _dp_bb_start:
 #         _dp_class_ns = _dp_class_ns_outer

@@ -1472,15 +1472,6 @@ pub(crate) fn lower_generator_like_function(
         names: callable.names.clone(),
         kind: callable.kind,
         params: callable.params.clone(),
-        param_defaults: callable
-            .param_defaults
-            .into_iter()
-            .map(|expr| {
-                expr.try_into().unwrap_or_else(|_| {
-                    panic!("generator factory defaults unexpectedly contained yield/await")
-                })
-            })
-            .collect(),
         blocks: attach_exception_edges_to_blocks(
             vec![factory_block.clone()],
             &HashMap::from([(factory_block.label.as_str().to_string(), None)]),
@@ -1503,7 +1494,6 @@ pub(crate) fn lower_generator_like_function(
         ),
         kind: BlockPyFunctionKind::Function,
         params: resume_params.clone(),
-        param_defaults: Vec::new(),
         blocks: resume_blocks.clone(),
         doc: None,
         closure_layout: Some(closure_layout.clone()),

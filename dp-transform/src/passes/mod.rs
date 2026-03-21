@@ -12,37 +12,10 @@ mod summarize_pass_shape;
 mod trace;
 
 use crate::block_py::{
-    BbBlockMeta, BbTerm, BlockPyLabel, BlockPyPass, BlockPyStmt, CoreBlockPyExpr,
-    CoreBlockPyExprWithoutAwait, CoreBlockPyExprWithoutAwaitOrYield, Expr,
+    BbBlockMeta, BbTerm, BlockPyLabel, BlockPyPass, BlockPyStmt, CoreBlockPyExprWithoutAwait,
+    CoreBlockPyExprWithoutAwaitOrYield, ExplicitCoreBlockPyExpr, Expr,
 };
 
-/*
-
-RuffBlockPyPass converts all flow control into a block-and-jump structure.  For example,
-
-```
-while x < 5:
-  print(x)
-  x += 1
-```
-
-would turn into something like:
-
-```
-block start:
-    if x < 5:
-        jump body
-    else:
-        jump end
-block body:
-    print(x)
-    x += 1
-    jump start
-block end:
-  return None
-```
-
-*/
 #[derive(Debug, Clone)]
 pub struct RuffBlockPyPass;
 
@@ -69,7 +42,7 @@ impl BlockPyPass for LoweredRuffBlockPyPass {
 pub struct CoreBlockPyPass;
 
 impl BlockPyPass for CoreBlockPyPass {
-    type Expr = CoreBlockPyExpr;
+    type Expr = ExplicitCoreBlockPyExpr;
     type Stmt = BlockPyStmt<Self::Expr>;
     type Term = crate::block_py::BlockPyTerm<Self::Expr>;
     type BlockMeta = Option<BlockPyLabel>;
@@ -286,24 +259,11 @@ def fmt(value):
 
         let core_blockpy = lowered.core_blockpy_text();
         assert!(core_blockpy.contains("\"value=\""), "{core_blockpy}");
+        assert!(core_blockpy.contains("_dp_eval_"), "{core_blockpy}");
+        assert!(core_blockpy.contains("__dp_repr(value)"), "{core_blockpy}");
         assert!(
-            core_blockpy.contains("__dp_format(__dp_repr(value))"),
+            core_blockpy.contains("__dp_format(_dp_eval_"),
             "{core_blockpy}"
-        );
-
-        let core_blockpy_with_explicit_eval_order =
-            lowered.pass_text("core_blockpy_with_explicit_eval_order");
-        assert!(
-            core_blockpy_with_explicit_eval_order.contains("_dp_eval_"),
-            "{core_blockpy_with_explicit_eval_order}"
-        );
-        assert!(
-            core_blockpy_with_explicit_eval_order.contains("__dp_repr(value)"),
-            "{core_blockpy_with_explicit_eval_order}"
-        );
-        assert!(
-            core_blockpy_with_explicit_eval_order.contains("__dp_format(_dp_eval_"),
-            "{core_blockpy_with_explicit_eval_order}"
         );
 
         let fmt = lowered.bb_function("fmt");
@@ -1426,11 +1386,8 @@ class Field:
             let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
                 .expect("transform should succeed");
             let blockpy = lowered
-                .get_pass::<(
-                    crate::passes::ast_to_ast::body::Suite,
-                    crate::block_py::BlockPyModule<RuffBlockPyPass>,
-                )>("semantic_blockpy")
-                .map(|(_, module)| module.clone())
+                .get_pass::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+                .cloned()
                 .expect("expected lowered semantic BlockPy module");
             let blockpy_rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
             eprintln!("==== {name} BLOCKPY ====\n{blockpy_rendered}");

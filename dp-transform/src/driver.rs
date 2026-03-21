@@ -13,9 +13,8 @@ use crate::passes::ast_to_ast::{
 };
 use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
-use crate::passes::core_eval_order::make_eval_order_explicit_in_core_callable_def;
 use crate::passes::ruff_to_blockpy::{
-    build_lowered_blockpy_function_bundle, rewrite_ast_to_lowered_blockpy_module_plan,
+    build_lowered_blockpy_function_bundle, rewrite_ast_to_lowered_blockpy_module_plan_with_module,
 };
 use crate::passes::{
     self, BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
@@ -25,20 +24,17 @@ use crate::passes::{
 use crate::PassTracker;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
-pub fn rewrite_module(
-    context: &Context,
-    module: Suite,
-) -> (PassTracker, BlockPyModule<BbBlockPyPass>) {
+pub fn rewrite_module(context: &Context, module: Suite) -> (PassTracker, Suite) {
     let mut pass_tracker = PassTracker::new();
-    let bb_module = rewrite_module_with_tracker(context, module, &mut pass_tracker);
-    (pass_tracker, bb_module)
+    let module = rewrite_module_with_tracker(context, module, &mut pass_tracker);
+    (pass_tracker, module)
 }
 
 pub(crate) fn rewrite_module_with_tracker(
     context: &Context,
     module: Suite,
     pass_tracker: &mut PassTracker,
-) -> BlockPyModule<BbBlockPyPass> {
+) -> Suite {
     let module = pass_tracker.run_renderable_pass("ast-to-ast", || {
         let mut module = body_from_suite(module);
 
@@ -93,27 +89,82 @@ pub(crate) fn rewrite_module_with_tracker(
         );
         module
     });
-    let (_module, semantic_blockpy): (Suite, BlockPyModule<RuffBlockPyPass>) = pass_tracker
-        .run_renderable_pass("semantic_blockpy", || {
-            rewrite_ast_to_lowered_blockpy_module_plan(context, module)
-        });
+
+    /*
+
+        Convert all flow control into a block-and-jump structure.  For example,
+
+        ```
+        x = 0
+        while (y := x + 1) < 5:
+            print(x)
+            x += 1
+        ```
+
+        would turn into something like:
+
+        ```
+        block start:
+            y = x + 1
+            if y < 5:
+                jump body
+            else:
+                jump end
+        block body:
+            print(x)
+            x += 1
+            jump start
+        block end:
+            return None
+        ```
+
+        This removes while/with/for from the AST, as well as expressions that
+        interact with the block structure like walrus and those that short circuit like bool ops.
+
+        "def" is replaced by a call to
+        `__dp_make_function(function_id, closure, param_defaults, module_globals, annotate_fn)`.
+    */
+
+    let (module, semantic_blockpy_untracked) =
+        rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module);
+    let semantic_blockpy: BlockPyModule<RuffBlockPyPass> =
+        pass_tracker.run_renderable_pass("semantic_blockpy", || semantic_blockpy_untracked.clone());
 
     let lowered_blockpy_module: BlockPyModule<LoweredRuffBlockPyPass> = pass_tracker
         .run_renderable_pass("blockpy", || {
             semantic_blockpy.map_callable_defs(build_lowered_blockpy_function_bundle)
         });
+
+    /*
+    Simplify expressions:
+      - replace operators with intrinsic calls like __dp_add
+      - make expression evaluation order explicit by hoisting any complex sub-expressions into temporary, e.g
+        this: `f(g(x), h(y))` becomes:
+        ```
+        tmp1 = g(x)
+        tmp2 = h(y)
+        f(tmp1, tmp2)
+        ```
+    */
     let core_blockpy: BlockPyModule<CoreBlockPyPass> = pass_tracker
         .run_renderable_pass("core_blockpy", || {
             lowered_blockpy_module.map_callable_defs(simplify_blockpy_callable_def_exprs)
         });
-    let core_blockpy_with_explicit_eval_order: BlockPyModule<CoreBlockPyPass> = pass_tracker
-        .run_renderable_pass("core_blockpy_with_explicit_eval_order", || {
-            core_blockpy.map_callable_defs(make_eval_order_explicit_in_core_callable_def)
-        });
+
+    /*
+      Rewrite `await foo` to  `yield from __dp_await_iter(foo)`
+    */
     let core_blockpy_without_await: BlockPyModule<CoreBlockPyPassWithoutAwait> = pass_tracker
         .run_renderable_pass("core_blockpy_without_await", || {
-            lower_awaits_in_core_blockpy_module(core_blockpy_with_explicit_eval_order)
+            lower_awaits_in_core_blockpy_module(core_blockpy)
         });
+
+    /*
+     Convert generators into a state machine, driven by an internal `resume(send, throw)` function.
+
+     `resume` carries state in closure cells, with blocks split at yield/resume points.
+
+    */
     let core_blockpy_without_await_or_yield: BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield> =
         pass_tracker.run_renderable_pass("core_blockpy_without_await_or_yield", || {
             passes::lower_yield_in_lowered_core_blockpy_module_bundle(core_blockpy_without_await)
@@ -130,7 +181,7 @@ pub(crate) fn rewrite_module_with_tracker(
         .run_renderable_pass("bb_codegen", || {
             passes::normalize_bb_module_for_codegen(&bb_prepared)
         });
-    bb_module
+    module
 }
 
 fn is_module_docstring(stmt: &Stmt) -> bool {

@@ -253,6 +253,22 @@ pub enum CoreBlockPyExpr {
 }
 
 #[derive(Debug, Clone)]
+pub enum ExplicitBlockPyExpr {
+    Name(ast::ExprName),
+    Literal(CoreBlockPyLiteral),
+}
+
+#[derive(Debug, Clone)]
+pub enum ExplicitCoreBlockPyExpr {
+    Name(ast::ExprName),
+    Literal(CoreBlockPyLiteral),
+    Call(CoreBlockPyCall<ExplicitBlockPyExpr>),
+    Await(CoreBlockPyAwait<ExplicitBlockPyExpr>),
+    Yield(CoreBlockPyYield<ExplicitBlockPyExpr>),
+    YieldFrom(CoreBlockPyYieldFrom<ExplicitBlockPyExpr>),
+}
+
+#[derive(Debug, Clone)]
 pub enum CoreBlockPyExprWithoutAwait {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
@@ -401,7 +417,6 @@ pub struct BlockPyFunction<P: BlockPyPass> {
     pub names: FunctionName,
     pub kind: BlockPyFunctionKind,
     pub params: ParamSpec,
-    pub param_defaults: Vec<P::Expr>,
     pub blocks: Vec<CfgBlock<P::Stmt, P::Term, P::BlockMeta>>,
     pub doc: Option<String>,
     pub closure_layout: Option<ClosureLayout>,
@@ -444,7 +459,6 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
             names: self.names,
             kind: self.kind,
             params: self.params,
-            param_defaults: self.param_defaults,
             blocks: self.blocks,
             doc: self.doc,
             closure_layout: self.closure_layout,
@@ -466,7 +480,6 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
             names: self.names,
             kind: self.kind,
             params: self.params,
-            param_defaults: self.param_defaults,
             blocks: self.blocks.into_iter().map(&mut f).collect(),
             doc: self.doc,
             closure_layout: self.closure_layout,
@@ -586,7 +599,7 @@ pub trait IntoBlockPyTerm<E>: Clone + fmt::Debug {
 }
 
 pub trait BlockPyPass: Clone + fmt::Debug {
-    type Expr: Clone + fmt::Debug;
+    type Expr: Clone + fmt::Debug + Into<Expr>;
     type Stmt: BlockPyNormalizedStmt + IntoBlockPyStmt<Self::Expr>;
     type Term: IntoBlockPyTerm<Self::Expr>;
     type BlockMeta: Clone + fmt::Debug;
@@ -1110,9 +1123,6 @@ where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
 {
-    for default in &func.param_defaults {
-        visitor.visit_expr(default);
-    }
     for block in &func.blocks {
         visitor.visit_block(block);
     }
@@ -1229,11 +1239,6 @@ where
             names: func.names,
             kind: func.kind,
             params: func.params,
-            param_defaults: func
-                .param_defaults
-                .into_iter()
-                .map(|expr| self.map_expr(expr))
-                .collect(),
             blocks: func
                 .blocks
                 .into_iter()
@@ -1547,7 +1552,6 @@ mod tests {
                 names: FunctionName::new("f", "f", "f", "f"),
                 kind: BlockPyFunctionKind::Function,
                 params: ParamSpec::default(),
-                param_defaults: vec![py_expr!("default_one"), py_expr!("default_two")],
                 blocks: vec![
                     CfgBlock {
                         label: BlockPyLabel::from("start"),
@@ -1605,8 +1609,6 @@ mod tests {
             vec![
                 "module",
                 "fn:f",
-                "expr:default_one",
-                "expr:default_two",
                 "block:start",
                 "stmt:assign",
                 "expr:assign_one",
@@ -1732,6 +1734,81 @@ impl From<CoreBlockPyExpr> for Expr {
                 value: Box::new(Expr::from(*node.value)),
             }),
             CoreBlockPyExpr::Name(node) => Expr::Name(node),
+        }
+    }
+}
+
+impl From<ExplicitBlockPyExpr> for Expr {
+    fn from(value: ExplicitBlockPyExpr) -> Self {
+        match value {
+            ExplicitBlockPyExpr::Name(node) => Expr::Name(node),
+            ExplicitBlockPyExpr::Literal(literal) => core_literal_to_expr(literal),
+        }
+    }
+}
+
+impl From<ExplicitCoreBlockPyExpr> for Expr {
+    fn from(value: ExplicitCoreBlockPyExpr) -> Self {
+        match value {
+            ExplicitCoreBlockPyExpr::Name(node) => Expr::Name(node),
+            ExplicitCoreBlockPyExpr::Literal(literal) => core_literal_to_expr(literal),
+            ExplicitCoreBlockPyExpr::Call(node) => Expr::Call(ast::ExprCall {
+                node_index: node.node_index,
+                range: node.range,
+                func: Box::new(Expr::from(*node.func)),
+                arguments: ast::Arguments {
+                    args: node
+                        .args
+                        .into_iter()
+                        .map(|arg| match arg {
+                            CoreBlockPyCallArg::Positional(expr) => Expr::from(expr),
+                            CoreBlockPyCallArg::Starred(expr) => Expr::Starred(ast::ExprStarred {
+                                value: Box::new(Expr::from(expr)),
+                                ctx: ast::ExprContext::Load,
+                                range: Default::default(),
+                                node_index: ast::AtomicNodeIndex::default(),
+                            }),
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                    keywords: node
+                        .keywords
+                        .into_iter()
+                        .map(|keyword| match keyword {
+                            CoreBlockPyKeywordArg::Named { arg, value } => ast::Keyword {
+                                arg: Some(arg),
+                                value: Expr::from(value),
+                                range: Default::default(),
+                                node_index: ast::AtomicNodeIndex::default(),
+                            },
+                            CoreBlockPyKeywordArg::Starred(expr) => ast::Keyword {
+                                arg: None,
+                                value: Expr::from(expr),
+                                range: Default::default(),
+                                node_index: ast::AtomicNodeIndex::default(),
+                            },
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                    range: Default::default(),
+                    node_index: ast::AtomicNodeIndex::default(),
+                },
+            }),
+            ExplicitCoreBlockPyExpr::Await(node) => Expr::Await(ast::ExprAwait {
+                node_index: node.node_index,
+                range: node.range,
+                value: Box::new(Expr::from(*node.value)),
+            }),
+            ExplicitCoreBlockPyExpr::Yield(node) => Expr::Yield(ast::ExprYield {
+                node_index: node.node_index,
+                range: node.range,
+                value: node.value.map(|value| Box::new(Expr::from(*value))),
+            }),
+            ExplicitCoreBlockPyExpr::YieldFrom(node) => Expr::YieldFrom(ast::ExprYieldFrom {
+                node_index: node.node_index,
+                range: node.range,
+                value: Box::new(Expr::from(*node.value)),
+            }),
         }
     }
 }
@@ -2050,45 +2127,6 @@ impl<M: Clone + fmt::Debug>
     }
 }
 
-impl TryFrom<BlockPyFunction<CoreBlockPyPass>> for BlockPyFunction<CoreBlockPyPassWithoutAwait> {
-    type Error = CoreBlockPyExpr;
-
-    fn try_from(value: BlockPyFunction<CoreBlockPyPass>) -> Result<Self, Self::Error> {
-        let BlockPyFunction {
-            function_id,
-            names,
-            kind,
-            params,
-            param_defaults,
-            blocks,
-            doc,
-            closure_layout,
-            facts,
-            try_regions,
-            extra,
-        } = value;
-        Ok(BlockPyFunction {
-            function_id,
-            names,
-            kind,
-            params,
-            param_defaults: param_defaults
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()?,
-            blocks: blocks
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()?,
-            doc,
-            closure_layout,
-            facts,
-            try_regions,
-            extra,
-        })
-    }
-}
-
 impl From<CoreBlockPyExprWithoutAwait> for CoreBlockPyExpr {
     fn from(value: CoreBlockPyExprWithoutAwait) -> Self {
         match value {
@@ -2326,7 +2364,6 @@ impl TryFrom<BlockPyFunction<CoreBlockPyPassWithoutAwait>>
             names,
             kind,
             params,
-            param_defaults,
             blocks,
             doc,
             closure_layout,
@@ -2339,10 +2376,6 @@ impl TryFrom<BlockPyFunction<CoreBlockPyPassWithoutAwait>>
             names,
             kind,
             params,
-            param_defaults: param_defaults
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()?,
             blocks: blocks
                 .into_iter()
                 .map(TryInto::try_into)

@@ -180,19 +180,6 @@ impl PassTracker {
             .and_then(|pass| pass.value.downcast_ref::<T>())
     }
 
-    pub(crate) fn ast_to_ast_module(&self) -> Option<&Suite> {
-        self.get::<Suite>("ast-to-ast")
-    }
-
-    pub(crate) fn transformed_module(&self) -> Option<&Suite> {
-        self.get::<(
-            Suite,
-            crate::block_py::BlockPyModule<crate::passes::RuffBlockPyPass>,
-        )>("semantic_blockpy")
-            .map(|(module, _)| module)
-            .or_else(|| self.ast_to_ast_module())
-    }
-
     fn names(&self) -> impl Iterator<Item = &str> {
         self.passes.iter().map(|pass| pass.name.as_str())
     }
@@ -281,14 +268,11 @@ pub fn transform_str_to_ruff_with_options(
 
     let body = take_suite(&mut module.body);
     let rewrite_start = timing_start();
-    let _bb_module = rewrite_module_with_tracker(&ctx, body, &mut pass_tracker);
+    let transformed_body = rewrite_module_with_tracker(&ctx, body, &mut pass_tracker);
     let bb_codegen_module = pass_tracker
         .get::<BlockPyModule<PreparedBbBlockPyPass>>("bb_codegen")
         .cloned();
-    *suite_mut(&mut module.body) = pass_tracker
-        .transformed_module()
-        .expect("transformed module pass should be tracked")
-        .clone();
+    *suite_mut(&mut module.body) = transformed_body;
 
     let rewrite_time = timing_elapsed(rewrite_start);
 
@@ -331,7 +315,7 @@ pub fn transform_str_to_blockpy_with_options(
     let ctx = Context::new(options, source);
     let ModModule { body, .. } = module;
 
-    let (pass_tracker, _bb_module) = crate::driver::rewrite_module(&ctx, body);
+    let (pass_tracker, _transformed_body) = crate::driver::rewrite_module(&ctx, body);
     let blockpy = pass_tracker
         .get::<BlockPyModule<crate::passes::LoweredRuffBlockPyPass>>("blockpy")
         .expect("blockpy pass should be tracked");
@@ -344,7 +328,6 @@ pub fn transform_str_to_blockpy_with_options(
             names: lowered.names,
             kind: lowered.kind,
             params: lowered.params,
-            param_defaults: lowered.param_defaults,
             blocks: lowered
                 .blocks
                 .into_iter()
