@@ -39,6 +39,10 @@
     - The key question is whether the setup-emitting behavior for boolop / compare / if-expr / named-expr / await / yield shapes can be preserved while letting a `Transformer` own the generic recursive descent.
     - A good first pass is to separate “plain recursive descent over child `Expr` nodes” from the setup-emitting special cases, then check if the former can move behind a reusable `Transformer` implementation.
   - Allow fallback to bytecode for arbitrary functions, use this for __annotate__
+- Handle integer literals larger than can fit in an `i64`.
+  - Planning note:
+    - The current direct-simple JIT literal planning in `soac-eval/src/jit/planning.rs` only lowers integer literals that fit in `i64`, so larger Python ints fall out of that fast path.
+    - A good first pass is to decide whether large ints should be materialized through a general Python-object literal helper at planning/codegen time, or whether they should be excluded from the direct-simple subset in a more explicit way.
 
 ## Completed
 
@@ -78,4 +82,3 @@
 - rename the "basic_block" module to "passes"
 - Move `codegen_trace` to be a generic transform over `CfgModule`.
 - Remove the “start label” concept and always make the first block the callable entry block.
-

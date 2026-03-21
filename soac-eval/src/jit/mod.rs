@@ -3879,20 +3879,15 @@ fn build_cranelift_run_bb_specialized_function(
                                 .jump(exec_blocks[*default_index], &default_jump_args);
                         }
                         DirectSimpleTermPlan::Ret { value } => {
-                            let ret_value = if let Some(ret_expr) = value.as_ref() {
-                                emit_direct_simple_expr(
-                                    &mut fb,
-                                    ret_expr,
-                                    &local_names,
-                                    &local_values,
-                                    &emit_ctx,
-                                    &mut literal_pool,
-                                    false,
-                                )
-                            } else {
-                                fb.ins().call(incref_ref, &[none_const]);
-                                none_const
-                            };
+                            let ret_value = emit_direct_simple_expr(
+                                &mut fb,
+                                value,
+                                &local_names,
+                                &local_values,
+                                &emit_ctx,
+                                &mut literal_pool,
+                                false,
+                            );
                             emit_decref_ambient_values(&mut fb, &emit_ctx);
                             for value in &local_values {
                                 fb.ins().call(decref_ref, &[*value]);

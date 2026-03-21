@@ -16,6 +16,33 @@ use crate::block_py::{
     CoreBlockPyExprWithoutAwait, CoreBlockPyExprWithoutAwaitOrYield, Expr,
 };
 
+/*
+
+RuffBlockPyPass converts all flow control into a block-and-jump structure.  For example,
+
+```
+while x < 5:
+  print(x)
+  x += 1
+```
+
+would turn into something like:
+
+```
+block start:
+    if x < 5:
+        jump body
+    else:
+        jump end
+block body:
+    print(x)
+    x += 1
+    jump start
+block end:
+  return None
+```
+
+*/
 #[derive(Debug, Clone)]
 pub struct RuffBlockPyPass;
 

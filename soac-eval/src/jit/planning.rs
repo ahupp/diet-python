@@ -127,7 +127,7 @@ pub enum DirectSimpleTermPlan {
         default_params: Vec<String>,
     },
     Ret {
-        value: Option<DirectSimpleExprPlan>,
+        value: DirectSimpleExprPlan,
     },
     Raise {
         exc: Option<DirectSimpleExprPlan>,
@@ -546,12 +546,12 @@ fn direct_simple_block_plan_from_block(
             }
         }
         BbTerm::Return(ret_value) => {
-            let value = Some(direct_simple_expr_from(ret_value).unwrap_or_else(|| {
+            let value = direct_simple_expr_from(ret_value).unwrap_or_else(|| {
                 panic!(
                     "unexpected non-direct-simple return value in {}:{}: {:?}",
                     function.names.qualname, block.label, ret_value
                 )
-            }));
+            });
             DirectSimpleTermPlan::Ret { value }
         }
         BbTerm::Raise(raise_stmt) => {
