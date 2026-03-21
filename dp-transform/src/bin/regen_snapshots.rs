@@ -87,7 +87,7 @@ fn render_blockpy_snapshot(
         .ok();
     let blockpy_rendered = blockpy
         .as_ref()
-        .map(dp_transform::passes::blockpy_module_to_string)
+        .map(dp_transform::block_py::pretty::blockpy_module_to_string)
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
     let blockpy_blocks = blockpy.as_ref().map(count_blockpy_blocks).unwrap_or(0);
     let clif_blocks = result

@@ -40,10 +40,10 @@ use super::{build_blockpy_callable_def_from_runtime_input, take_next_function_id
 struct FunctionScopeFrame {
     name: String,
     parent_name: Option<String>,
+    cell_bindings: HashSet<String>,
     entering_module_init: bool,
     has_parent_hoisted_scope: bool,
     needs_cell_sync: bool,
-    cell_bindings: HashSet<String>,
     hoisted_to_parent: Vec<Stmt>,
 }
 
@@ -56,25 +56,6 @@ struct BlockPyModuleRewriter<'a> {
     reserved_temp_names_stack: Vec<HashSet<String>>,
     function_scope_stack: Vec<FunctionScopeFrame>,
     callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>>,
-}
-
-fn scope_cell_binding_names(scope: &Scope) -> HashSet<String> {
-    scope
-        .scope_bindings()
-        .iter()
-        .filter_map(|(name, kind)| {
-            if matches!(
-                kind,
-                crate::passes::ast_to_ast::scope::BindingKind::Nonlocal
-            ) && scope.is_local_definition(name)
-                && !scope.is_explicit_nonlocal(name)
-            {
-                Some(name.clone())
-            } else {
-                None
-            }
-        })
-        .collect()
 }
 
 enum LoweredFunctionPlacementPlan {
@@ -737,7 +718,17 @@ fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiation
 
 #[cfg(test)]
 mod tests {
-    use super::{capture_items_to_expr, LoweredFunctionCaptureValue};
+    use super::{
+        capture_items_to_expr, BlockPyModuleRewriter, FunctionScopeFrame,
+        LoweredFunctionCaptureValue,
+    };
+    use crate::passes::ast_to_ast::body::suite_mut;
+    use crate::passes::ast_to_ast::context::Context;
+    use crate::passes::ast_to_ast::scope::analyze_module_scope;
+    use crate::passes::ast_to_ast::Options;
+    use crate::passes::function_identity::collect_function_identity_private;
+    use ruff_python_ast::Stmt;
+    use ruff_python_parser::parse_module;
 
     #[test]
     fn capture_items_render_as_name_value_pairs() {
@@ -754,6 +745,236 @@ mod tests {
         assert_eq!(
             crate::ruff_ast_to_string(&expr).trim(),
             "__dp_tuple(__dp_tuple(\"x\", x), __dp_tuple(\"y\", z))"
+        );
+    }
+
+    #[test]
+    fn recursive_local_function_marks_nested_binding_for_cell_sync() {
+        let source = concat!(
+            "def outer():\n",
+            "    def recurse():\n",
+            "        return recurse()\n",
+            "    return recurse\n",
+        );
+        let context = Context::new(Options::for_test(), source);
+        let mut module = parse_module(source).unwrap().into_syntax().body;
+        let module_scope = analyze_module_scope(&mut module);
+        let function_identity_by_node =
+            collect_function_identity_private(&mut module, module_scope.clone());
+        let Stmt::FunctionDef(outer) = &mut module[0] else {
+            panic!("expected outer function");
+        };
+        let outer_scope = module_scope
+            .tree
+            .scope_for_def(outer)
+            .expect("missing outer scope");
+        let mut rewriter = BlockPyModuleRewriter {
+            context: &context,
+            module_scope,
+            function_identity_by_node,
+            next_block_id: 0,
+            next_function_id: 0,
+            reserved_temp_names_stack: Vec::new(),
+            function_scope_stack: vec![FunctionScopeFrame {
+                name: "outer".to_string(),
+                parent_name: None,
+                cell_bindings: outer_scope.local_cell_bindings(),
+                entering_module_init: false,
+                has_parent_hoisted_scope: false,
+                needs_cell_sync: false,
+                hoisted_to_parent: Vec::new(),
+            }],
+            callable_defs: Vec::new(),
+        };
+        let nested_stmt = suite_mut(&mut outer.body)
+            .iter_mut()
+            .find(|stmt| matches!(stmt, Stmt::FunctionDef(_)))
+            .expect("missing nested function");
+        let nested_state = rewriter
+            .walk_function_def_with_scope(nested_stmt)
+            .expect("expected nested function state");
+        assert!(nested_state.needs_cell_sync);
+        let Stmt::FunctionDef(nested_func) = nested_stmt else {
+            panic!("expected nested function def");
+        };
+        let replacement = rewriter
+            .rewrite_visited_function_def(nested_func, nested_state)
+            .expect("expected nested function rewrite");
+        let rendered = replacement
+            .iter()
+            .map(crate::ruff_ast_to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn walking_outer_function_rewrites_nested_recursive_binding_in_place() {
+        let source = concat!(
+            "def outer():\n",
+            "    def recurse():\n",
+            "        return recurse()\n",
+            "    return recurse\n",
+        );
+        let context = Context::new(Options::for_test(), source);
+        let mut module = parse_module(source).unwrap().into_syntax().body;
+        let module_scope = analyze_module_scope(&mut module);
+        let function_identity_by_node =
+            collect_function_identity_private(&mut module, module_scope.clone());
+        let mut rewriter = BlockPyModuleRewriter {
+            context: &context,
+            module_scope,
+            function_identity_by_node,
+            next_block_id: 0,
+            next_function_id: 0,
+            reserved_temp_names_stack: Vec::new(),
+            function_scope_stack: Vec::new(),
+            callable_defs: Vec::new(),
+        };
+        let outer_state = rewriter
+            .walk_function_def_with_scope(&mut module[0])
+            .expect("expected outer function state");
+        let Stmt::FunctionDef(outer) = &module[0] else {
+            panic!("expected outer function");
+        };
+        let rendered_body = outer
+            .body
+            .iter()
+            .map(crate::ruff_ast_to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered_body.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
+            "{rendered_body}"
+        );
+        drop(outer_state);
+    }
+
+    #[test]
+    fn lowering_outer_function_preserves_recursive_cell_sync_stmt() {
+        let source = concat!(
+            "def outer():\n",
+            "    def recurse():\n",
+            "        return recurse()\n",
+            "    return recurse\n",
+        );
+        let context = Context::new(Options::for_test(), source);
+        let mut module = parse_module(source).unwrap().into_syntax().body;
+        let module_scope = analyze_module_scope(&mut module);
+        let function_identity_by_node =
+            collect_function_identity_private(&mut module, module_scope.clone());
+        let mut rewriter = BlockPyModuleRewriter {
+            context: &context,
+            module_scope,
+            function_identity_by_node,
+            next_block_id: 0,
+            next_function_id: 0,
+            reserved_temp_names_stack: Vec::new(),
+            function_scope_stack: Vec::new(),
+            callable_defs: Vec::new(),
+        };
+        let outer_state = rewriter
+            .walk_function_def_with_scope(&mut module[0])
+            .expect("expected outer function state");
+        let Stmt::FunctionDef(outer) = &mut module[0] else {
+            panic!("expected outer function");
+        };
+        let _replacement = rewriter
+            .rewrite_visited_function_def(outer, outer_state)
+            .expect("expected outer function rewrite");
+        let outer_callable = rewriter
+            .callable_defs
+            .iter()
+            .find(|callable| callable.names.bind_name == "outer")
+            .expect("missing lowered outer callable");
+        let rendered =
+            crate::block_py::pretty::blockpy_module_to_string(&crate::block_py::BlockPyModule {
+                callable_defs: vec![outer_callable.clone()],
+            });
+        assert!(
+            rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn lowering_recursive_local_function_with_finally_preserves_cell_sync_stmt() {
+        let source = concat!(
+            "import sys\n",
+            "def exercise():\n",
+            "    original_limit = sys.getrecursionlimit()\n",
+            "    sys.setrecursionlimit(50)\n",
+            "    def recurse():\n",
+            "        return recurse()\n",
+            "    try:\n",
+            "        try:\n",
+            "            recurse()\n",
+            "        except RecursionError:\n",
+            "            return True\n",
+            "        return False\n",
+            "    finally:\n",
+            "        sys.setrecursionlimit(original_limit)\n",
+        );
+        let context = Context::new(Options::for_test(), source);
+        let mut module = parse_module(source).unwrap().into_syntax().body;
+        let (_rewritten, blockpy) =
+            super::rewrite_ast_to_lowered_blockpy_module_plan(&context, module);
+        let exercise = blockpy
+            .callable_defs
+            .iter()
+            .find(|callable| callable.names.bind_name == "exercise")
+            .expect("missing lowered exercise callable");
+        let rendered =
+            crate::block_py::pretty::blockpy_module_to_string(&crate::block_py::BlockPyModule {
+                callable_defs: vec![exercise.clone()],
+            });
+        assert!(
+            rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn lowering_recursive_local_function_finally_return_preserves_liveins() {
+        let source = concat!(
+            "import sys\n",
+            "def exercise():\n",
+            "    original_limit = sys.getrecursionlimit()\n",
+            "    sys.setrecursionlimit(50)\n",
+            "    def recurse():\n",
+            "        return recurse()\n",
+            "    try:\n",
+            "        try:\n",
+            "            recurse()\n",
+            "        except RecursionError:\n",
+            "            return True\n",
+            "        return False\n",
+            "    finally:\n",
+            "        sys.setrecursionlimit(original_limit)\n",
+        );
+        let context = Context::new(Options::for_test(), source);
+        let module = parse_module(source).unwrap().into_syntax().body;
+        let (_rewritten, blockpy) =
+            super::rewrite_ast_to_lowered_blockpy_module_plan(&context, module);
+        let exercise = blockpy
+            .callable_defs
+            .iter()
+            .find(|callable| callable.names.bind_name == "exercise")
+            .expect("missing lowered exercise callable");
+        let rendered =
+            crate::block_py::pretty::blockpy_module_to_string(&crate::block_py::BlockPyModule {
+                callable_defs: vec![exercise.clone()],
+            });
+        assert!(
+            rendered.contains("jump _dp_bb_0(Return, _dp_try_abrupt_payload_5)"),
+            "{rendered}"
+        );
+        assert!(
+            !rendered.contains("jump _dp_bb_0(None, Return, _dp_try_abrupt_payload_5)"),
+            "{rendered}"
         );
     }
 }
@@ -1262,18 +1483,16 @@ impl BlockPyModuleRewriter<'_> {
         };
         let fn_name = func.name.id.to_string();
         let bind_name = func.name.id.to_string();
+        let function_scope = self.module_scope.tree.scope_for_def(func).ok();
         let parent_name = self
             .function_scope_stack
             .last()
             .map(|frame| frame.name.clone());
         let entering_module_init = is_module_init_temp_name(fn_name.as_str());
         let has_parent_hoisted_scope = !self.function_scope_stack.is_empty();
-        let cell_bindings = self
-            .module_scope
-            .tree
-            .scope_for_def(func)
-            .ok()
-            .map(|scope| scope_cell_binding_names(scope.as_ref()))
+        let cell_bindings = function_scope
+            .as_ref()
+            .map(|scope| scope.local_cell_bindings())
             .unwrap_or_default();
         let needs_cell_sync = self
             .function_scope_stack
@@ -1283,10 +1502,10 @@ impl BlockPyModuleRewriter<'_> {
         self.function_scope_stack.push(FunctionScopeFrame {
             name: fn_name,
             parent_name,
+            cell_bindings,
             entering_module_init,
             has_parent_hoisted_scope,
             needs_cell_sync,
-            cell_bindings,
             hoisted_to_parent: Vec::new(),
         });
         walk_stmt(self, stmt);

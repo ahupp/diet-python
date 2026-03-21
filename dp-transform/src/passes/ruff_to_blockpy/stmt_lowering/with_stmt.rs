@@ -1,4 +1,4 @@
-use super::assign_stmt::{build_for_target_assign_body, rewrite_assignment_target};
+use super::assign_stmt::rewrite_assignment_target;
 use super::*;
 use crate::passes::ast_to_ast::body::take_suite;
 
@@ -32,54 +32,6 @@ fn maybe_placeholder(expr: Expr) -> (Vec<Stmt>, Expr, bool) {
     let tmp = fresh_name("tmp");
     let stmt = py_stmt!("{tmp:id} = {expr:expr}", tmp = tmp.as_str(), expr = expr);
     (vec![stmt], py_expr!("{tmp:id}", tmp = tmp.as_str()), true)
-}
-
-fn wrap_with_item_stmt(item: ast::WithItem, body: Vec<Stmt>, is_async: bool) -> Stmt {
-    let ast::WithItem {
-        context_expr,
-        optional_vars,
-        ..
-    } = item;
-    match (is_async, optional_vars.map(|target| *target)) {
-        (true, Some(target)) => py_stmt!(
-            "async with {ctx:expr} as {target:expr}:\n    {body:stmt}",
-            ctx = context_expr,
-            target = target,
-            body = body,
-        ),
-        (true, None) => py_stmt!(
-            "async with {ctx:expr}:\n    {body:stmt}",
-            ctx = context_expr,
-            body = body,
-        ),
-        (false, Some(target)) => py_stmt!(
-            "with {ctx:expr} as {target:expr}:\n    {body:stmt}",
-            ctx = context_expr,
-            target = target,
-            body = body,
-        ),
-        (false, None) => py_stmt!(
-            "with {ctx:expr}:\n    {body:stmt}",
-            ctx = context_expr,
-            body = body,
-        ),
-    }
-}
-
-fn nest_with_stmt_items(with_stmt: ast::StmtWith) -> Vec<Stmt> {
-    let ast::StmtWith {
-        items,
-        body,
-        is_async,
-        ..
-    } = with_stmt;
-    let mut body = body;
-    items
-        .into_iter()
-        .rev()
-        .fold(take_suite(&mut body), |body, item| {
-            vec![wrap_with_item_stmt(item, body, is_async)]
-        })
 }
 
 pub(super) fn desugar_structured_with_stmt_for_blockpy(with_stmt: ast::StmtWith) -> Vec<Stmt> {
@@ -196,46 +148,6 @@ finally:
     lowered_body
 }
 
-fn build_with_finally_body(
-    exit_name: &str,
-    exit_call_name: &str,
-    enter_name: Option<&str>,
-    ctx_cleanup: Vec<Stmt>,
-    is_async: bool,
-) -> Vec<Stmt> {
-    let mut out = vec![
-        py_stmt!(
-            "{exit_call:id} = {exit:id}",
-            exit_call = exit_call_name,
-            exit = exit_name,
-        ),
-        py_stmt!("{exit:id} = None", exit = exit_name),
-    ];
-    if let Some(enter_name) = enter_name {
-        out.push(py_stmt!("{enter:id} = None", enter = enter_name));
-    }
-    if !ctx_cleanup.is_empty() {
-        out.extend(ctx_cleanup);
-    }
-    let exit_stmt = if is_async {
-        py_stmt!(
-            "await __dp_asynccontextmanager_exit({exit_call:id}, __dp_exc_info())",
-            exit_call = exit_call_name,
-        )
-    } else {
-        py_stmt!(
-            "__dp_contextmanager_exit({exit_call:id}, __dp_exc_info())",
-            exit_call = exit_call_name,
-        )
-    };
-    out.push(exit_stmt);
-    out.push(py_stmt!(
-        "{exit_call:id} = None",
-        exit_call = exit_call_name,
-    ));
-    out
-}
-
 pub(crate) fn lower_with_stmt_sequence<F>(
     fn_name: &str,
     with_stmt: ast::StmtWith,
@@ -243,9 +155,9 @@ pub(crate) fn lower_with_stmt_sequence<F>(
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
-    cell_slots: &HashSet<String>,
+    _cell_slots: &HashSet<String>,
     next_block_id: &Cell<usize>,
-    needs_finally_return_flow: bool,
+    _needs_finally_return_flow: bool,
     lower_sequence: &mut F,
 ) -> (String, Option<TryRegionPlan>)
 where
@@ -277,180 +189,26 @@ where
         );
     }
 
-    if with_stmt.is_async {
-        let jump_label = if linear.is_empty() {
-            None
-        } else {
-            let mut next_id = next_block_id.get();
-            let label = compat_next_label(fn_name, &mut next_id);
-            next_block_id.set(next_id);
-            Some(label)
-        };
-        return (
-            lower_expanded_stmt_sequence(
-                desugar_structured_with_stmt_for_blockpy(with_stmt),
-                remaining_stmts,
-                cont_label,
-                linear,
-                blocks,
-                jump_label,
-                lower_sequence,
-            ),
-            None,
-        );
-    }
-
-    if with_stmt.items.len() != 1 {
-        let jump_label = if linear.is_empty() {
-            None
-        } else {
-            let mut next_id = next_block_id.get();
-            let label = compat_next_label(fn_name, &mut next_id);
-            next_block_id.set(next_id);
-            Some(label)
-        };
-        return (
-            lower_expanded_stmt_sequence(
-                nest_with_stmt_items(with_stmt),
-                remaining_stmts,
-                cont_label,
-                linear,
-                blocks,
-                jump_label,
-                lower_sequence,
-            ),
-            None,
-        );
-    }
-
-    let ast::StmtWith {
-        mut items,
-        body,
-        is_async,
-        ..
-    } = with_stmt;
-    let ast::WithItem {
-        context_expr,
-        optional_vars,
-        ..
-    } = items.pop().expect("single-item with should have one item");
-
-    let rest_entry = lower_sequence(remaining_stmts, cont_label.clone(), blocks);
-    let mut next_id = next_block_id.get();
-    let try_plan = build_try_plan(fn_name, true, needs_finally_return_flow, &mut next_id);
-    let label = compat_next_label(fn_name, &mut next_id);
-    let exit_name = compat_next_temp("with_exit", &mut next_id);
-    let exit_call_name = compat_next_temp("with_exit_call", &mut next_id);
-    next_block_id.set(next_id);
-    let (ctx_placeholder_stmt, ctx_expr, ctx_was_placeholder) = maybe_placeholder(context_expr);
-    let ctx_cleanup = if ctx_was_placeholder {
-        vec![py_stmt!("{ctx:expr} = None", ctx = ctx_expr.clone())]
+    let jump_label = if linear.is_empty() {
+        None
     } else {
-        Vec::new()
-    };
-
-    let mut entry_linear = linear;
-    if !ctx_placeholder_stmt.is_empty() {
-        entry_linear.extend(ctx_placeholder_stmt);
-    }
-
-    let exit_lookup = if is_async {
-        py_stmt!(
-            "{exit:id} = __dp_asynccontextmanager_get_aexit({ctx:expr})",
-            exit = exit_name.as_str(),
-            ctx = ctx_expr.clone(),
-        )
-    } else {
-        py_stmt!(
-            "{exit:id} = __dp_contextmanager_get_exit({ctx:expr})",
-            exit = exit_name.as_str(),
-            ctx = ctx_expr.clone(),
-        )
-    };
-    entry_linear.push(exit_lookup);
-
-    let enter_value = if is_async {
-        py_expr!(
-            "await __dp_asynccontextmanager_aenter({ctx:expr})",
-            ctx = ctx_expr.clone(),
-        )
-    } else {
-        py_expr!(
-            "__dp_contextmanager_enter({ctx:expr})",
-            ctx = ctx_expr.clone(),
-        )
-    };
-
-    let mut try_body = Vec::new();
-    let enter_name = optional_vars.as_ref().map(|_| {
         let mut next_id = next_block_id.get();
-        let name = compat_next_temp("with_enter", &mut next_id);
+        let label = compat_next_label(fn_name, &mut next_id);
         next_block_id.set(next_id);
-        name
-    });
-    if let Some(target) = optional_vars.as_ref().map(|target| target.as_ref()) {
-        let enter_name = enter_name
-            .as_ref()
-            .expect("with target should reserve enter temp")
-            .clone();
-        entry_linear.push(py_stmt!(
-            "{enter:id} = {value:expr}",
-            enter = enter_name.as_str(),
-            value = enter_value,
-        ));
-        try_body.extend(
-            build_for_target_assign_body(
-                target,
-                py_expr!("{name:id}", name = enter_name.as_str()),
-                enter_name.as_str(),
-                cell_slots,
-                &mut |prefix| {
-                    let mut next_id = next_block_id.get();
-                    let name = compat_next_temp(prefix, &mut next_id);
-                    next_block_id.set(next_id);
-                    name
-                },
-            )
-            .into_iter(),
-        );
-    } else {
-        entry_linear.push(py_stmt!("{value:expr}", value = enter_value));
-    }
-    try_body.extend(body);
-
-    let finally_body = build_with_finally_body(
-        exit_name.as_str(),
-        exit_call_name.as_str(),
-        enter_name.as_deref(),
-        ctx_cleanup,
-        is_async,
-    );
-    let lowered_with = lower_try_regions(
-        blocks,
-        &try_plan,
-        rest_entry.as_str(),
-        Some(finally_body),
-        Vec::new(),
-        try_body,
+        Some(label)
+    };
+    (
+        lower_expanded_stmt_sequence(
+            desugar_structured_with_stmt_for_blockpy(with_stmt),
+            remaining_stmts,
+            cont_label,
+            linear,
+            blocks,
+            jump_label,
+            lower_sequence,
+        ),
         None,
-        lower_sequence,
-    );
-    let (entry, try_region) = finalize_try_regions(
-        blocks,
-        label,
-        entry_linear,
-        lowered_with.body_label,
-        lowered_with.except_label,
-        try_plan,
-        lowered_with.body_region_range,
-        lowered_with.else_region_range,
-        lowered_with.except_region_range,
-        lowered_with.finally_region_range,
-        lowered_with.finally_label,
-        lowered_with.finally_normal_entry,
-        lowered_with.finally_exception_entry,
-    );
-    (entry, Some(try_region))
+    )
 }
 
 #[cfg(test)]

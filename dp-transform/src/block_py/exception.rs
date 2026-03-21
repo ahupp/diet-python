@@ -17,7 +17,6 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
     blocks: &mut [BlockPyBlock<E>],
     finally_target: &str,
     payload_name: Option<&str>,
-    include_current_exception_arg: bool,
 ) where
     E: From<Expr>,
 {
@@ -39,21 +38,13 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
         } else {
             BlockArg::Expr(ret_expr)
         };
-        if include_current_exception_arg {
-            block.term = BlockPyTerm::Jump(BlockPyEdge::with_args(
-                BlockPyLabel::from(finally_target.to_string()),
-                vec![
-                    BlockArg::None,
-                    BlockArg::AbruptKind(AbruptKind::Return),
-                    payload_arg,
-                ],
-            ));
-        } else {
-            block.term = BlockPyTerm::Jump(BlockPyEdge::with_args(
-                BlockPyLabel::from(finally_target.to_string()),
-                vec![BlockArg::AbruptKind(AbruptKind::Return), payload_arg],
-            ));
-        }
+        // Only bind the synthetic abrupt slots explicitly. Any ordinary live-ins
+        // for the finally entry, including its exception slot, must continue to
+        // forward by name once dataflow adds them as block params later.
+        block.term = BlockPyTerm::Jump(BlockPyEdge::with_args(
+            BlockPyLabel::from(finally_target.to_string()),
+            vec![BlockArg::AbruptKind(AbruptKind::Return), payload_arg],
+        ));
     }
 }
 

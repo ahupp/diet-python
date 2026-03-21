@@ -484,11 +484,51 @@ def raise_uncaught_generator_exception(exc):
         raise RuntimeError("generator raised StopIteration") from exc
     raise exc
 
+
+class _DpAsyncGenComplete(Exception):
+    pass
+
+
+builtins.__dp_AsyncGenComplete = _DpAsyncGenComplete
+
+
 def raise_uncaught_async_generator_exception(exc):
     if isinstance(exc, StopIteration):
         raise RuntimeError("async generator raised StopIteration") from exc
     if isinstance(exc, StopAsyncIteration):
         raise RuntimeError("async generator raised StopAsyncIteration") from exc
+    raise exc
+
+
+def _dp_closed_generator_resume(_gen, _send_value, _resume_exc):
+    raise StopIteration
+
+
+def _dp_closed_async_generator_resume(_gen, _send_value, _resume_exc, _transport_sent):
+    raise _DpAsyncGenComplete
+
+
+def _dp_clear_owner_state(owner, *, async_gen):
+    if hasattr(owner, "_pc"):
+        owner._pc = 0
+    if hasattr(owner, "gi_frame"):
+        owner.gi_frame = None
+    owner._dp_resume = (
+        _dp_closed_async_generator_resume if async_gen else _dp_closed_generator_resume
+    )
+
+
+def _dp_is_cancelled_error(exc):
+    asyncio_mod = sys.modules.get("asyncio")
+    if asyncio_mod is None:
+        return False
+    cancelled_error = getattr(asyncio_mod, "CancelledError", None)
+    return cancelled_error is not None and isinstance(exc, cancelled_error)
+
+
+def _dp_reraise_control_flow(exc):
+    if isinstance(exc, GeneratorExit) or _dp_is_cancelled_error(exc):
+        raise exc.with_traceback(None)
     raise exc
 
 
@@ -562,7 +602,11 @@ class _DpGenerator:
         return self.send(None)
 
     def send(self, value):
-        return self._dp_resume(self, value, NO_DEFAULT)
+        try:
+            return self._dp_resume(self, value, NO_DEFAULT)
+        except BaseException as exc:
+            _dp_clear_owner_state(self, async_gen=False)
+            _dp_reraise_control_flow(exc)
 
     def throw(self, typ=None, val=None, tb=None):
         if val is not None or tb is not None:
@@ -571,7 +615,11 @@ class _DpGenerator:
             )
         exc = raise_from(typ, None)
         _attach_throw_context_from_state(self, exc)
-        return self._dp_resume(self, NO_DEFAULT, exc)
+        try:
+            return self._dp_resume(self, NO_DEFAULT, exc)
+        except BaseException as exc:
+            _dp_clear_owner_state(self, async_gen=False)
+            _dp_reraise_control_flow(exc)
 
     def close(self):
         try:
@@ -613,7 +661,11 @@ class _DpClosureGenerator:
         return self.send(None)
 
     def send(self, value):
-        return self._dp_resume(self, value, NO_DEFAULT)
+        try:
+            return self._dp_resume(self, value, NO_DEFAULT)
+        except BaseException as exc:
+            _dp_clear_owner_state(self, async_gen=False)
+            _dp_reraise_control_flow(exc)
 
     def throw(self, typ=None, val=None, tb=None):
         if val is not None or tb is not None:
@@ -622,7 +674,11 @@ class _DpClosureGenerator:
             )
         exc = raise_from(typ, None)
         _attach_throw_context_from_state(self, exc)
-        return self._dp_resume(self, NO_DEFAULT, exc)
+        try:
+            return self._dp_resume(self, NO_DEFAULT, exc)
+        except BaseException as exc:
+            _dp_clear_owner_state(self, async_gen=False)
+            _dp_reraise_control_flow(exc)
 
     def close(self):
         try:
@@ -837,12 +893,25 @@ class _DpAsyncGenSend:
         step_send_value = (
             transport_sent if _current_yieldfrom(self._dp_gen) is not None else self._dp_value
         )
-        result = self._dp_gen._dp_resume(
-            self._dp_gen,
-            step_send_value,
-            self._dp_resume_exc,
-            transport_sent,
-        )
+        try:
+            result = self._dp_gen._dp_resume(
+                self._dp_gen,
+                step_send_value,
+                self._dp_resume_exc,
+                transport_sent,
+            )
+        except _DpAsyncGenComplete:
+            self._dp_done = True
+            self._dp_resume_exc = NO_DEFAULT
+            _dp_clear_owner_state(self._dp_gen, async_gen=True)
+            raise StopAsyncIteration
+        except BaseException as exc:
+            self._dp_done = True
+            self._dp_resume_exc = NO_DEFAULT
+            _dp_clear_owner_state(self._dp_gen, async_gen=True)
+            if _dp_is_cancelled_error(exc) or isinstance(exc, GeneratorExit):
+                _dp_reraise_control_flow(exc)
+            raise_uncaught_async_generator_exception(exc)
         self._dp_resume_exc = NO_DEFAULT
         if _current_yieldfrom(self._dp_gen) is None:
             self._dp_done = True
@@ -852,6 +921,13 @@ class _DpAsyncGenSend:
     def send(self, value):
         if self._dp_done:
             raise StopIteration
+        if (
+            value is not None
+            and self._dp_value is None
+            and self._dp_resume_exc is NO_DEFAULT
+            and _current_yieldfrom(self._dp_gen) is None
+        ):
+            raise TypeError("can't send non-None value to a just-started async generator")
         return self._dp_step(value)
 
     def throw(self, typ, val=None, tb=None):
@@ -1364,7 +1440,7 @@ class GlobalsProxy(_NormalizedMappingProxy):
 
 def locals():
     frame = sys._getframe(1)
-    return _normalize_mapping(frame.f_locals)
+    return _default_visible_locals(frame)
 
 
 def frame_locals(frame):
@@ -1396,11 +1472,56 @@ def globals():
 builtins.__dp_globals = globals
 
 
+def _find_closure_values(frame):
+    probe = frame
+    while probe is not None:
+        probe_locals = probe.f_locals
+        closure_values = probe_locals.get("__dp_closure")
+        if isinstance(closure_values, dict):
+            return closure_values
+        closure_cells = {}
+        for name, value in probe_locals.items():
+            if name == "_dp_classcell" and isinstance(value, _types.CellType):
+                closure_cells[name] = value
+            elif (
+                isinstance(name, str)
+                and name.startswith(_DP_CELL_PREFIX)
+                and isinstance(value, _types.CellType)
+            ):
+                closure_cells[name] = value
+        if closure_cells:
+            return closure_cells
+        probe = probe.f_back
+    return None
+
+
+def _merge_closure_values_into_locals(locals_map, closure_values):
+    if isinstance(closure_values, dict) and closure_values:
+        merged = {}
+        for name, value in closure_values.items():
+            merged[name] = value
+            if isinstance(name, str) and name.startswith(_DP_CELL_PREFIX):
+                try:
+                    merged[name[len(_DP_CELL_PREFIX) :]] = load_cell(value)
+                except UnboundLocalError:
+                    pass
+        merged.update(locals_map)
+        return merged
+    return locals_map
+
+
+def _default_visible_locals(frame):
+    return _merge_closure_values_into_locals(
+        _normalize_mapping(frame.f_locals),
+        _find_closure_values(frame),
+    )
+
+
 def dir_(*args):
     if args:
         return builtins.dir(*args)
     frame = sys._getframe(1)
-    names = _normalize_mapping(frame.f_locals).keys()
+    names = _default_visible_locals(frame).keys()
     filtered = []
     for name in names:
         if not name.startswith("_dp_"):
@@ -1414,26 +1535,11 @@ def eval_(source, globals=None, locals=None):
         if globals is None:
             globals = frame.f_globals
         if locals is None:
-            locals = _normalize_mapping(frame.f_locals)
-            closure_values = None
-            probe = frame
-            while probe is not None and closure_values is None:
-                closure_values = probe.f_locals.get("__dp_closure")
-                probe = probe.f_back
-            if isinstance(closure_values, dict) and closure_values:
-                # JIT BB wrappers execute through synthetic `entry(...)` frames.
-                # Merge captured lexical bindings so implicit eval() resolves
-                # closure names the same way as regular Python frames.
-                merged = {}
-                for name, value in closure_values.items():
-                    merged[name] = value
-                    if isinstance(name, str) and name.startswith("_dp_cell_"):
-                        try:
-                            merged[name[len("_dp_cell_"):]] = load_cell(value)
-                        except UnboundLocalError:
-                            pass
-                merged.update(locals)
-                locals = merged
+            # JIT BB wrappers execute through synthetic `entry(...)` frames.
+            # Recover captured lexical bindings from either explicit wrapper
+            # metadata or the nearest enclosing frame's cell locals so
+            # implicit eval()/exec()/locals() resolve names like regular Python.
+            locals = _default_visible_locals(frame)
     return builtins.eval(source, globals, locals)
 
 
@@ -1481,7 +1587,7 @@ def exec_(source, globals=None, locals=None, *, closure=None):
             frame = sys._getframe(1)
             globals = frame.f_globals
             if locals is None:
-                locals = _normalize_mapping(frame.f_locals)
+                locals = _default_visible_locals(frame)
             if closure is None:
                 return builtins.exec(source, globals, locals)
             return builtins.exec(source, globals, locals, closure=closure)
@@ -1693,14 +1799,13 @@ def _bb_wrap_with_named_closure(entry, captured_names, captured_values):
         assign_lines.append(f"    {name} = __dp_values[{idx}]")
     assigns = "\n".join(assign_lines)
 
-    ref_lines = []
-    for name in captured_names:
-        ref_lines.append(f"        {name}")
-    refs = "\n".join(ref_lines)
     if not assigns:
         assigns = "    pass"
-    if not refs:
-        refs = "        pass"
+
+    closure_items = []
+    for name in captured_names:
+        closure_items.append(f"            {name!r}: {name},")
+    closure_map = "\n".join(closure_items)
 
     # Build a wrapper whose closure freevar names match captured_names.
     if _inspect.iscoroutinefunction(entry):
@@ -1708,7 +1813,9 @@ def _bb_wrap_with_named_closure(entry, captured_names, captured_values):
             "def __dp_make(__dp_entry, __dp_values):\n"
             f"{assigns}\n"
             "    async def wrapped(*args, __dp_entry=__dp_entry, **kwargs):\n"
-            f"{refs}\n"
+            "        __dp_closure = {\n"
+            f"{closure_map}\n"
+            "        }\n"
             "        return await __dp_entry(*args, **kwargs)\n"
             "    return wrapped\n"
         )
@@ -1717,7 +1824,9 @@ def _bb_wrap_with_named_closure(entry, captured_names, captured_values):
             "def __dp_make(__dp_entry, __dp_values):\n"
             f"{assigns}\n"
             "    def wrapped(*args, __dp_entry=__dp_entry, **kwargs):\n"
-            f"{refs}\n"
+            "        __dp_closure = {\n"
+            f"{closure_map}\n"
+            "        }\n"
             "        return __dp_entry(*args, **kwargs)\n"
             "    return wrapped\n"
         )

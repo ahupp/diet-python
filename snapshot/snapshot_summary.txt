@@ -17,7 +17,7 @@ snapshot_expr::compare_not_in: blockpy=1, clif=1
 snapshot_expr::if_expr: blockpy=1, clif=4
 snapshot_expr::named_expr: blockpy=1, clif=1
 snapshot_expr::lambda_simple: blockpy=2, clif=2
-snapshot_expr::generator_expr: blockpy=6, clif=12
+snapshot_expr::generator_expr: blockpy=6, clif=13
 snapshot_expr::list_literal: blockpy=1, clif=1
 snapshot_expr::list_literal_splat: blockpy=1, clif=1
 snapshot_expr::tuple_splat: blockpy=1, clif=1
@@ -57,11 +57,11 @@ snapshot_stmt::comprehension_global: blockpy=16, clif=16
 snapshot_stmt::comprehension_in_function: blockpy=8, clif=8
 snapshot_stmt::comprehension_in_class_body: blockpy=8, clif=8
 snapshot_stmt::with_multi: ERROR snapshot regeneration failed | panic: TryJump is not allowed in BbTerm
-snapshot_stmt::async_for: blockpy=6, clif=24
+snapshot_stmt::async_for: blockpy=6, clif=25
 snapshot_stmt::async_with: ERROR snapshot regeneration failed | panic: TryJump is not allowed in BbTerm
 snapshot_stmt::match_simple: blockpy=3, clif=3
-snapshot_stmt::generator_yield: blockpy=2, clif=8
-snapshot_stmt::yield_from: blockpy=2, clif=20
+snapshot_stmt::generator_yield: blockpy=2, clif=9
+snapshot_stmt::yield_from: blockpy=2, clif=21
 snapshot_stmt::with_exit_suppresses_exception: ERROR snapshot regeneration failed | panic: TryJump is not allowed in BbTerm
 snapshot_stmt::closure_cell_simple: blockpy=3, clif=3
 snapshot_stmt::bb_if_else_function: blockpy=4, clif=4

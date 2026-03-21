@@ -16,7 +16,7 @@ pub(crate) mod cfg;
 pub(crate) mod dataflow;
 pub(crate) mod exception;
 pub(crate) mod param_specs;
-pub(crate) mod pretty;
+pub mod pretty;
 pub(crate) mod state;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

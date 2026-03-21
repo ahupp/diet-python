@@ -3,16 +3,13 @@ pub(crate) mod ast_symbol_analysis;
 pub(crate) mod ast_to_ast;
 pub(crate) mod blockpy_expr_simplify;
 mod blockpy_generators;
+pub mod blockpy_to_bb;
 mod cfg_trace;
 pub(crate) mod core_await_lower;
 pub(crate) mod core_eval_order;
 mod function_identity;
 pub mod ruff_to_blockpy;
 mod summarize_pass_shape;
-
-// Ruff AST -> BbModule
-pub use crate::block_py::pretty::blockpy_module_to_string;
-pub mod blockpy_to_bb;
 
 pub(crate) use blockpy_to_bb::{
     lower_core_blockpy_module_bundle_to_bb_module,
@@ -56,7 +53,7 @@ mod tests {
         }
 
         fn blockpy_text(&self) -> String {
-            crate::passes::blockpy_module_to_string(&self.blockpy_module())
+            crate::block_py::pretty::blockpy_module_to_string(&self.blockpy_module())
         }
 
         fn semantic_blockpy_text(&self) -> String {
@@ -1304,7 +1301,7 @@ class Field:
                 )>("semantic_blockpy")
                 .map(|(_, module)| module.clone())
                 .expect("expected lowered semantic BlockPy module");
-            let blockpy_rendered = crate::passes::blockpy_module_to_string(&blockpy);
+            let blockpy_rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
             eprintln!("==== {name} BLOCKPY ====\n{blockpy_rendered}");
 
             let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())

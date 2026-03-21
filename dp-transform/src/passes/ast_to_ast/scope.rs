@@ -217,8 +217,40 @@ impl Scope {
         self.inner.borrow().local_defs.contains(name)
     }
 
+    pub fn local_cell_bindings(&self) -> HashSet<String> {
+        let local_defs = self
+            .scope_bindings()
+            .keys()
+            .filter(|name| self.is_local_definition(name))
+            .cloned()
+            .collect::<Vec<_>>();
+        local_defs
+            .into_iter()
+            .filter(|name| self.descendant_uses_nonlocal(name.as_str()))
+            .collect()
+    }
+
     pub fn parent_scope(&self) -> Option<Arc<Scope>> {
         self.parent_id.and_then(|id| self.tree.get(id))
+    }
+
+    fn descendant_uses_nonlocal(&self, name: &str) -> bool {
+        let child_ids = self.child_ids().clone();
+        for child_id in child_ids {
+            let Some(child) = self.tree.get(child_id) else {
+                continue;
+            };
+            if matches!(
+                child.scope_bindings().get(name),
+                Some(BindingKind::Nonlocal)
+            ) {
+                return true;
+            }
+            if child.descendant_uses_nonlocal(name) {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn any_parent_scope<T>(&self, mut func: impl FnMut(&Scope) -> Option<T>) -> Option<T> {
@@ -1057,6 +1089,26 @@ mod test {
         assert_eq!(
             outer_scope.binding_in_scope("x", BindingUse::Load),
             BindingKind::Nonlocal
+        );
+    }
+
+    #[test]
+    fn recursive_local_function_is_tracked_as_cell_binding() {
+        let mut body = parse_module_body(concat!(
+            "def outer():\n",
+            "    def recurse():\n",
+            "        return recurse()\n",
+            "    return recurse\n",
+        ));
+        let module_scope = analyze_module_scope(&mut body);
+        let outer_def = find_function(&body, "outer");
+        let outer_scope = module_scope
+            .lookup_child_scope(outer_def)
+            .expect("missing outer scope");
+
+        assert!(
+            outer_scope.local_cell_bindings().contains("recurse"),
+            "expected recurse to be tracked as a cell binding"
         );
     }
 

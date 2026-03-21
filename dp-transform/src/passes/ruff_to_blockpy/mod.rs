@@ -635,7 +635,7 @@ mod tests {
     use super::*;
     use crate::block_py::{
         BlockPyFunction, BlockPyModule, BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-        CoreBlockPyPassWithoutAwaitOrYield, RuffBlockPyPass,
+        CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyPassWithoutAwaitOrYield, RuffBlockPyPass,
     };
     use crate::passes::ast_to_ast::{context::Context, Options};
     use crate::passes::ruff_to_blockpy::stmt_sequences::{
@@ -743,7 +743,7 @@ def gen(n):
     yield n
 "#,
         );
-        let rendered = crate::passes::blockpy_module_to_string(&blockpy);
+        let rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
         assert!(rendered.contains("generator gen(n):"), "{rendered}");
         assert!(
             rendered.contains("function gen(_dp_self, _dp_send_value, _dp_resume_exc):"),
@@ -944,7 +944,7 @@ def f():
             return None
 "#,
         );
-        let rendered = crate::passes::blockpy_module_to_string(&blockpy);
+        let rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
         assert!(
             !rendered.contains("and __dp_match_class_attr_exists"),
             "{rendered}"
@@ -1002,7 +1002,7 @@ def f(xs):
     }
 
     #[test]
-    fn lower_with_stmt_sequence_emits_shared_cleanup_try_jump() {
+    fn lower_with_stmt_sequence_expands_via_structured_desugar() {
         let module = ruff_python_parser::parse_module(
             r#"
 def f(ctx, value):
@@ -1023,6 +1023,8 @@ def f(ctx, value):
 
         let mut blocks = Vec::new();
         let next_block_id = Cell::new(0usize);
+        let mut saw_try_stmt = false;
+        let mut saw_with_ok_assign = false;
         let (entry, try_region) = lower_with_stmt_sequence(
             "demo",
             with_stmt.clone(),
@@ -1034,30 +1036,26 @@ def f(ctx, value):
             &next_block_id,
             false,
             &mut |_expanded, cont_label, _blocks| {
-                assert!(
-                    cont_label == "cont"
-                        || cont_label.ends_with("__normal")
-                        || cont_label.starts_with("_dp_bb_demo_")
-                );
+                saw_try_stmt = _expanded
+                    .iter()
+                    .any(|stmt| matches!(stmt, ast::Stmt::Try(_)));
+                saw_with_ok_assign = _expanded.iter().any(|stmt| {
+                    match stmt {
+                    ast::Stmt::Assign(assign) => assign.targets.iter().any(|target| {
+                        matches!(target, Expr::Name(name) if name.id.as_str().contains("with_ok"))
+                    }),
+                    _ => false,
+                }
+                });
                 cont_label
             },
         );
 
-        assert!(!entry.is_empty());
-        assert!(try_region.is_some());
-        assert!(blocks
-            .iter()
-            .any(|block| matches!(block.term, BlockPyTerm::TryJump(_))));
-        assert!(!blocks
-            .iter()
-            .flat_map(|block| block.body.iter())
-            .any(|stmt| {
-                matches!(stmt,
-                    BlockPyStmt::Assign(assign)
-                        if assign.target.id.as_str().contains("with_ok")
-                            || assign.target.id.as_str().contains("with_suppress")
-                )
-            }));
+        assert_eq!(entry, "cont");
+        assert!(try_region.is_none());
+        assert!(blocks.is_empty());
+        assert!(saw_try_stmt);
+        assert!(saw_with_ok_assign);
     }
 
     #[test]
@@ -1413,7 +1411,7 @@ def gen(it):
     yield from it
 "#,
         );
-        let rendered = crate::passes::blockpy_module_to_string(&blockpy);
+        let rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
         assert!(rendered.contains("branch_table"));
         assert!(rendered.contains("__dp_exception_matches"), "{rendered}");
         assert!(rendered.contains("yield_from_throw_lookup"), "{rendered}");
@@ -1433,7 +1431,7 @@ async def agen(n):
     yield n
 "#,
         );
-        let rendered = crate::passes::blockpy_module_to_string(&blockpy);
+        let rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
         assert!(rendered.contains("async_generator agen(n):"), "{rendered}");
         assert!(
             rendered.contains(
@@ -1447,6 +1445,55 @@ async def agen(n):
         );
         assert!(rendered.contains("branch_table"), "{rendered}");
         assert!(!rendered.contains("yield n"), "{rendered}");
+    }
+
+    #[test]
+    fn lowers_coroutine_completion_outside_user_exception_region() {
+        let blockpy = wrapped_core_blockpy_without_await_or_yield(
+            r#"
+async def outer(inner):
+    try:
+        value = await inner()
+        return ("ok", False)
+    except Exception:
+        return ("StopIteration", True)
+"#,
+        );
+        let rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
+        let resume = function_by_name(&blockpy, "outer_resume");
+        let stop_iteration_raise_labels = resume
+            .blocks
+            .iter()
+            .filter_map(|block| match &block.term {
+                BlockPyTerm::Raise(BlockPyRaise {
+                    exc: Some(CoreBlockPyExprWithoutAwaitOrYield::Call(call)),
+                }) if matches!(
+                    call.func.as_ref(),
+                    CoreBlockPyExprWithoutAwaitOrYield::Name(name)
+                        if name.id.as_str() == "StopIteration"
+                ) =>
+                {
+                    Some(block.label.as_str().to_string())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            !stop_iteration_raise_labels.is_empty(),
+            "missing synthetic StopIteration blocks in:\n{rendered}"
+        );
+        for label in stop_iteration_raise_labels {
+            assert_eq!(
+                resume
+                    .extra
+                    .exception_edges
+                    .get(label.as_str())
+                    .cloned()
+                    .flatten(),
+                None,
+                "synthetic completion should bypass user handlers for {label}:\n{rendered}"
+            );
+        }
     }
 
     #[test]

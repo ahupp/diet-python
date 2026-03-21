@@ -138,9 +138,6 @@ where
                 BlockPyLabel::from(normal_label.clone()),
             );
             let mut args = Vec::new();
-            if try_plan.finally_exc_name.is_some() {
-                args.push(BlockArg::None);
-            }
             args.push(BlockArg::AbruptKind(AbruptKind::Fallthrough));
             args.push(BlockArg::None);
             block.set_term(BlockPyTerm::Jump(BlockPyEdge::with_args(
@@ -157,7 +154,6 @@ where
             )
             .with_exc_param(Some(finally_exc_name.clone()));
             let args = vec![
-                BlockArg::Name(finally_exc_name.clone()),
                 BlockArg::AbruptKind(AbruptKind::Exception),
                 BlockArg::Name(finally_exc_name.clone()),
             ];
@@ -270,20 +266,17 @@ pub(crate) fn finalize_try_regions(
             &mut blocks[body_region_range.clone()],
             finally_target.as_str(),
             try_plan.finally_abrupt_payload_name.as_deref(),
-            try_plan.finally_exc_name.is_some(),
         );
         rewrite_region_returns_to_finally_blockpy(
             &mut blocks[else_region_range.clone()],
             finally_target.as_str(),
             try_plan.finally_abrupt_payload_name.as_deref(),
-            try_plan.finally_exc_name.is_some(),
         );
         if let Some(except_region_range) = except_region_range.as_ref() {
             rewrite_region_returns_to_finally_blockpy(
                 &mut blocks[except_region_range.clone()],
                 finally_target.as_str(),
                 try_plan.finally_abrupt_payload_name.as_deref(),
-                try_plan.finally_exc_name.is_some(),
             );
         }
     }

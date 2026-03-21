@@ -513,7 +513,6 @@ type TestCoreBlockPyModule = BlockPyModule<CoreBlockPyPass>;
 #[cfg(test)]
 mod tests {
     use super::simplify_blockpy_module_exprs;
-    use crate::block_py::pretty::blockpy_module_to_string;
     use crate::block_py::{
         CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
         RuffBlockPyPass,
@@ -541,8 +540,8 @@ def f(x):
             .map(|(_, module)| module.clone())
             .expect("expected lowered semantic BlockPy module");
         let core = simplify_blockpy_module_exprs(blockpy.clone());
-        let semantic_rendered = blockpy_module_to_string(&blockpy);
-        let core_rendered = blockpy_module_to_string(&core);
+        let semantic_rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
+        let core_rendered = crate::block_py::pretty::blockpy_module_to_string(&core);
 
         assert!(semantic_rendered.contains("function f(x):"));
         assert!(core_rendered.contains("function f(x):"));
@@ -710,7 +709,7 @@ def f(*, d={"metaclass": Meta}, **kw):
             .map(|(_, module)| module.clone())
             .expect("expected lowered semantic BlockPy module");
         let core = simplify_blockpy_module_exprs(blockpy);
-        let rendered = blockpy_module_to_string(&core);
+        let rendered = crate::block_py::pretty::blockpy_module_to_string(&core);
 
         assert!(rendered.contains("__dp_dict("), "{rendered}");
         assert!(!rendered.contains("{\"metaclass\": Meta}"), "{rendered}");

@@ -8,9 +8,9 @@ use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     is_resume_abi_param_name, resume_abi_params, BlockParam, BlockParamRole, BlockPyAssign,
     BlockPyBlock, BlockPyBlockMeta, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyCfgFragment,
-    BlockPyFunction, BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyCall,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
+    BlockPyEdge, BlockPyFunction, BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyLabel,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, ClosureInit, ClosureLayout, ClosureSlot,
+    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral, CoreBlockPyPassWithoutAwait,
     CoreBlockPyPassWithoutAwaitOrYield, FunctionId, FunctionName, LoweredBlockPyExtra,
 };
@@ -691,10 +691,50 @@ fn completion_raise(
             BlockPyTerm::Raise(BlockPyRaise { exc: Some(exc) })
         }
         BlockPyFunctionKind::AsyncGenerator => BlockPyTerm::Raise(BlockPyRaise {
-            exc: Some(core_call("StopAsyncIteration", Vec::new())),
+            exc: Some(core_call("__dp_AsyncGenComplete", Vec::new())),
         }),
         BlockPyFunctionKind::Function => unreachable!(),
     }
+}
+
+fn push_completion_raise_block(
+    state: &mut ResumeLoweringState,
+    label: BlockPyLabel,
+    mut body: Vec<BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>>,
+    value: Option<CoreBlockPyExprWithoutAwaitOrYield>,
+    params: Vec<BlockParam>,
+    meta: BlockPyBlockMeta,
+    exc_target: Option<String>,
+) {
+    body.push(BlockPyStmt::Assign(BlockPyAssign {
+        target: expr_name("_dp_pc"),
+        value: core_literal_int(0),
+    }));
+    body.push(BlockPyStmt::Assign(BlockPyAssign {
+        target: expr_name("_dp_yieldfrom"),
+        value: core_none(),
+    }));
+    let completion_label = state.fresh_label("resume_complete");
+    state.push_block(
+        BlockPyBlock {
+            label,
+            body,
+            term: BlockPyTerm::Jump(completion_label.clone().into()),
+            params: params.clone(),
+            meta: meta.clone(),
+        },
+        exc_target,
+    );
+    state.push_block(
+        BlockPyBlock {
+            label: completion_label,
+            body: Vec::new(),
+            term: completion_raise(state.kind, value),
+            params,
+            meta,
+        },
+        None,
+    );
 }
 
 fn is_resume_exc_test() -> CoreBlockPyExprWithoutAwaitOrYield {
@@ -838,41 +878,39 @@ fn lower_resume_fragment(
         return;
     }
 
-    let mut lowered_body = body
+    let lowered_body = body
         .into_iter()
         .map(lower_stmt_no_yield)
         .collect::<Vec<_>>();
-    let lowered_term = match term {
+    match term {
         BlockPyTerm::Return(value) => {
-            lowered_body.push(BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name("_dp_pc"),
-                value: core_literal_int(0),
-            }));
-            lowered_body.push(BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name("_dp_yieldfrom"),
-                value: core_none(),
-            }));
-            completion_raise(
-                state.kind,
+            push_completion_raise_block(
+                state,
+                label,
+                lowered_body,
                 value.map(|value| {
                     value.try_into().unwrap_or_else(|_| {
                         panic!("generator lowering expected yield-free final return value")
                     })
                 }),
-            )
+                params,
+                meta,
+                exc_target,
+            );
         }
-        other => lower_term_no_yield(other),
-    };
-    state.push_block(
-        BlockPyBlock {
-            label,
-            body: lowered_body,
-            term: lowered_term,
-            params,
-            meta,
-        },
-        exc_target,
-    );
+        other => {
+            state.push_block(
+                BlockPyBlock {
+                    label,
+                    body: lowered_body,
+                    term: lower_term_no_yield(other),
+                    params,
+                    meta,
+                },
+                exc_target,
+            );
+        }
+    }
 }
 
 fn emit_yield_site(

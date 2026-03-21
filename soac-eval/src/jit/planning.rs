@@ -23,13 +23,13 @@ pub struct ClifPlan {
 #[derive(Clone, Debug)]
 pub struct BlockExcDispatchPlan {
     pub target_index: usize,
-    pub owner_param_index: Option<usize>,
+    pub owner_param_name: Option<String>,
     pub arg_sources: Vec<BlockExcArgSource>,
 }
 
 #[derive(Clone, Debug)]
 pub enum BlockExcArgSource {
-    SourceParam { index: usize },
+    SourceParam { name: String },
     Exception,
     NoneValue,
     FrameLocal { name: String },
@@ -624,14 +624,10 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
             let target_block = &function.blocks[target_index];
             let block_param_names = jit_param_names_for_block(block, &ambient_param_name_set);
             let full_target_param_names = target_block.param_name_vec();
-            let owner_param_index = block_param_names
+            let owner_param_name = block_param_names
                 .iter()
-                .position(|param| param == "_dp_self")
-                .or_else(|| {
-                    block_param_names
-                        .iter()
-                        .position(|param| param == "_dp_state")
-                });
+                .find(|param| param.as_str() == "_dp_self" || param.as_str() == "_dp_state")
+                .cloned();
             let mut arg_sources = Vec::with_capacity(full_target_param_names.len());
             if block.meta.exc_arg_sources.len() != full_target_param_names.len() {
                 return Err(format!(
@@ -652,24 +648,22 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                 }
                 match source {
                     BbExceptionArgSource::SourceParam(name) => {
-                        let Some(source_index) = block_param_names
+                        if !block_param_names
                             .iter()
-                            .position(|source_name| source_name == name)
-                        else {
+                            .any(|source_name| source_name == name)
+                        {
                             return Err(format!(
                                 "exception dispatch from {}:{} references missing source param {}",
                                 function.names.qualname, block.label, name
                             ));
-                        };
-                        arg_sources.push(BlockExcArgSource::SourceParam {
-                            index: source_index,
-                        });
+                        }
+                        arg_sources.push(BlockExcArgSource::SourceParam { name: name.clone() });
                     }
                     BbExceptionArgSource::CurrentException => {
                         arg_sources.push(BlockExcArgSource::Exception);
                     }
                     BbExceptionArgSource::FrameLocal(name) => {
-                        if owner_param_index.is_none() {
+                        if owner_param_name.is_none() {
                             arg_sources.push(BlockExcArgSource::NoneValue);
                         } else {
                             arg_sources.push(BlockExcArgSource::FrameLocal { name: name.clone() });
@@ -677,7 +671,7 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                     }
                 }
             }
-            if owner_param_index.is_none()
+            if owner_param_name.is_none()
                 && arg_sources
                     .iter()
                     .any(|src| matches!(src, BlockExcArgSource::FrameLocal { .. }))
@@ -689,7 +683,7 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
             }
             Some(BlockExcDispatchPlan {
                 target_index,
-                owner_param_index,
+                owner_param_name,
                 arg_sources,
             })
         } else {

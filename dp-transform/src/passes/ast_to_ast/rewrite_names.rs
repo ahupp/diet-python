@@ -91,20 +91,26 @@ impl<'a> NameScopeRewriter<'a> {
     }
 
     fn cell_binding_names(&self) -> HashSet<String> {
-        self.scope
-            .scope_bindings()
-            .iter()
-            .filter_map(|(name, kind)| {
-                if matches!(kind, BindingKind::Nonlocal)
-                    && self.scope.is_local_definition(name)
-                    && !self.scope.is_explicit_nonlocal(name)
-                {
-                    Some(name.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
+        self.scope.local_cell_bindings()
+    }
+
+    fn stmt_cell_sync_stmts(&self, stmt: &Stmt) -> Vec<Stmt> {
+        let bind_name = match stmt {
+            Stmt::FunctionDef(func_def) => Some(func_def.name.id.as_str()),
+            _ => None,
+        };
+        let Some(bind_name) = bind_name else {
+            return Vec::new();
+        };
+        if !self.cell_binding_names().contains(bind_name) {
+            return Vec::new();
+        }
+        let cell = cell_name(bind_name);
+        vec![py_stmt!(
+            "__dp_store_cell({cell:id}, {name:id})",
+            cell = cell.as_str(),
+            name = bind_name,
+        )]
     }
 
     fn module_binds_name(&self, name: &str) -> bool {
@@ -381,7 +387,9 @@ impl Transformer for NameScopeRewriter<'_> {
         for stmt in std::mem::take(body) {
             for mut stmt in self.rewrite_stmt_list(stmt) {
                 self.visit_stmt(&mut stmt);
+                let sync_stmts = self.stmt_cell_sync_stmts(&stmt);
                 rewritten.push(stmt);
+                rewritten.extend(sync_stmts);
             }
         }
         *body = rewritten;
@@ -673,13 +681,31 @@ finally:
         match expr {
             Expr::Call(ast::ExprCall { .. }) => {
                 if Self::is_name_call("exec", expr) && self.should_rewrite_exec_call() {
-                    if let Expr::Call(ast::ExprCall { func, .. }) = expr {
+                    if let Expr::Call(ast::ExprCall {
+                        func, arguments, ..
+                    }) = expr
+                    {
                         *func = Box::new(py_expr!("__dp_exec_"));
+                        if arguments.keywords.is_empty() && arguments.args.len() == 1 {
+                            let mut args = arguments.args.to_vec();
+                            args.push(py_expr!("None"));
+                            args.push(py_expr!("__dp_locals()"));
+                            arguments.args = args.into_boxed_slice();
+                        }
                     }
                 }
                 if Self::is_name_call("eval", expr) && self.should_rewrite_eval_call() {
-                    if let Expr::Call(ast::ExprCall { func, .. }) = expr {
+                    if let Expr::Call(ast::ExprCall {
+                        func, arguments, ..
+                    }) = expr
+                    {
                         *func = Box::new(py_expr!("__dp_eval_"));
+                        if arguments.keywords.is_empty() && arguments.args.len() == 1 {
+                            let mut args = arguments.args.to_vec();
+                            args.push(py_expr!("None"));
+                            args.push(py_expr!("__dp_locals()"));
+                            arguments.args = args.into_boxed_slice();
+                        }
                     }
                 }
                 if self.is_class_scope() {
@@ -754,5 +780,63 @@ impl NameScopeRewriter<'_> {
                 .flat_map(|stmt| self.rewrite_stmt_list(stmt))
                 .collect(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rewrite_explicit_bindings;
+    use crate::passes::ast_to_ast::context::Context;
+    use crate::passes::ast_to_ast::scope::analyze_module_scope;
+    use crate::passes::ast_to_ast::Options;
+    use ruff_python_parser::parse_module;
+
+    #[test]
+    fn recursive_local_function_syncs_function_binding_into_cell() {
+        let source = concat!(
+            "def outer():\n",
+            "    def recurse():\n",
+            "        return recurse()\n",
+            "    return recurse()\n",
+        );
+        let context = Context::new(Options::for_test(), source);
+        let mut module = parse_module(source).unwrap().into_syntax().body;
+        let scope = analyze_module_scope(&mut module);
+        rewrite_explicit_bindings(&context, scope, &mut module);
+        let rendered = module
+            .iter()
+            .map(crate::ruff_ast_to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn nested_class_binding_does_not_emit_stale_local_cell_sync() {
+        let source = concat!(
+            "def outer():\n",
+            "    class A:\n",
+            "        pass\n",
+            "    class B:\n",
+            "        def probe(self):\n",
+            "            return A\n",
+            "    return B\n",
+        );
+        let context = Context::new(Options::for_test(), source);
+        let mut module = parse_module(source).unwrap().into_syntax().body;
+        let scope = analyze_module_scope(&mut module);
+        rewrite_explicit_bindings(&context, scope, &mut module);
+        let rendered = module
+            .iter()
+            .map(crate::ruff_ast_to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !rendered.contains("__dp_store_cell(_dp_cell_A, A)"),
+            "{rendered}"
+        );
     }
 }

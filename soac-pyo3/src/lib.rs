@@ -245,26 +245,11 @@ fn make_bb_function(
     kwargs.set_item("async_entry", false)?;
     kwargs.set_item("function_name", function.names.display_name.as_str())?;
     kwargs.set_item("module_globals", &module_globals)?;
-    let entry = dp
+    let raw_entry = dp
         .getattr("_bb_make_lazy_clif_entry")?
         .call((), Some(&kwargs))?;
-    let entry = dp
-        .getattr("_bb_wrap_with_closure")?
-        .call1((entry, closure_values.bind(py)))?;
-    let entry = dp
-        .getattr("_bb_rebind_function_globals")?
-        .call1((entry, &module_globals))?;
-    entry.setattr("__signature__", signature.bind(py))?;
-    let entry = dp.getattr("update_fn")?.call1((
-        entry,
-        function.names.qualname.as_str(),
-        function.names.display_name.as_str(),
-        function.doc.clone(),
-        annotate_fn.bind(py),
-    ))?;
-    entry.setattr("__module__", module_name.as_str())?;
     dp.getattr("_bb_enable_lazy_clif_vectorcall")?.call1((
-        &entry,
+        &raw_entry,
         module_name.as_str(),
         function_id,
         plan_name.as_str(),
@@ -277,6 +262,21 @@ fn make_bb_function(
         0i32,
         py.None(),
     ))?;
+    let entry = dp
+        .getattr("_bb_wrap_with_closure")?
+        .call1((raw_entry, closure_values.bind(py)))?;
+    let entry = dp
+        .getattr("_bb_rebind_function_globals")?
+        .call1((entry, &module_globals))?;
+    entry.setattr("__signature__", signature.bind(py))?;
+    let entry = dp.getattr("update_fn")?.call1((
+        entry,
+        function.names.qualname.as_str(),
+        function.names.display_name.as_str(),
+        function.doc.clone(),
+        annotate_fn.bind(py),
+    ))?;
+    entry.setattr("__module__", module_name.as_str())?;
     Ok(entry.unbind())
 }
 
@@ -308,12 +308,26 @@ fn make_bb_hidden_resume(
     kwargs.set_item("async_entry", false)?;
     kwargs.set_item("function_name", hidden_name)?;
     kwargs.set_item("module_globals", &module_globals)?;
-    let entry = dp
+    let raw_entry = dp
         .getattr("_bb_make_lazy_clif_entry")?
         .call((), Some(&kwargs))?;
+    dp.getattr("_bb_enable_lazy_clif_vectorcall")?.call1((
+        &raw_entry,
+        module_name.as_str(),
+        function_id,
+        plan_name.as_str(),
+        state_order.bind(py),
+        py.None(),
+        PyTuple::empty(py),
+        &closure_map,
+        py.None(),
+        dp.getattr("DELETED")?,
+        if async_gen { 2i32 } else { 1i32 },
+        py.None(),
+    ))?;
     let entry = dp
         .getattr("_bb_wrap_with_closure")?
-        .call1((entry, &closure_map))?;
+        .call1((raw_entry, &closure_map))?;
     let entry = dp
         .getattr("_bb_rebind_function_globals")?
         .call1((entry, &module_globals))?;
@@ -330,20 +344,6 @@ fn make_bb_hidden_resume(
         ),
         Some(&metadata_kwargs),
     )?;
-    dp.getattr("_bb_enable_lazy_clif_vectorcall")?.call1((
-        &entry,
-        module_name.as_str(),
-        function_id,
-        plan_name.as_str(),
-        state_order.bind(py),
-        py.None(),
-        PyTuple::empty(py),
-        &closure_map,
-        py.None(),
-        dp.getattr("DELETED")?,
-        if async_gen { 2i32 } else { 1i32 },
-        py.None(),
-    ))?;
     Ok(entry.unbind())
 }
 

@@ -101,7 +101,7 @@ pub(crate) fn run_transform_fixture_tests(fixture: &str) {
 
 fn blockpy_output_for_snapshot(actual: &str) -> String {
     let mut output = transform_str_to_blockpy_with_options(actual, Options::for_test())
-        .map(|module| crate::passes::blockpy_module_to_string(&module))
+        .map(|module| crate::block_py::pretty::blockpy_module_to_string(&module))
         .unwrap()
         .trim_matches('\n')
         .to_string();
