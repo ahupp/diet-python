@@ -182,7 +182,7 @@ mod tests {
 
     fn validate_bb_module_for_jit(
         bb_module: Option<
-            &dp_transform::block_py::BlockPyModule<dp_transform::block_py::BbBlockPyPass>,
+            &dp_transform::block_py::BlockPyModule<dp_transform::passes::BbBlockPyPass>,
         >,
     ) -> Result<(), String> {
         let bb_module = bb_module.ok_or_else(|| {
@@ -201,7 +201,7 @@ mod tests {
 
     fn run_cranelift_jit_preflight(
         bb_module: Option<
-            &dp_transform::block_py::BlockPyModule<dp_transform::block_py::BbBlockPyPass>,
+            &dp_transform::block_py::BlockPyModule<dp_transform::passes::BbBlockPyPass>,
         >,
     ) -> Result<(), String> {
         let bb_module = bb_module.ok_or_else(|| {

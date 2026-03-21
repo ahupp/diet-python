@@ -1,20 +1,18 @@
 use crate::block_py::{
-    BbBlockPyPass, BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, CoreBlockPyCall,
-    CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral,
+    BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
+    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    CoreBytesLiteral,
 };
-use ruff_python_ast::str::Quote;
-use ruff_python_ast::{self as ast, BytesLiteral, BytesLiteralFlags, ExprName};
+use crate::passes::trace::{instrument_bb_module_for_trace, parse_trace_env};
+use crate::passes::BbBlockPyPass;
+use ruff_python_ast::{self as ast, ExprName};
 use ruff_text_size::TextRange;
-
-use super::codegen_trace::instrument_bb_module_for_trace;
-use crate::passes::cfg_trace::parse_cfg_trace_env;
 
 pub fn normalize_bb_module_for_codegen(
     module: &BlockPyModule<BbBlockPyPass>,
 ) -> BlockPyModule<BbBlockPyPass> {
     let mut normalized = module.clone();
-    if let Some(config) = parse_cfg_trace_env() {
+    if let Some(config) = parse_trace_env() {
         instrument_bb_module_for_trace(&mut normalized, &config);
     }
     let mut rewriter = CodegenExprNormalizer;
@@ -144,22 +142,7 @@ impl CodegenExprNormalizer {
             CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::StringLiteral(
                 node,
             )) => {
-                *expr = str_bytes_call_expr(node.value.to_str().as_bytes());
-            }
-            CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::BooleanLiteral(
-                boolean,
-            )) => {
-                *expr = if boolean.value {
-                    helper_name_expr("__dp_TRUE")
-                } else {
-                    helper_name_expr("__dp_FALSE")
-                };
-            }
-            CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::NoneLiteral(_)) => {
-                *expr = helper_name_expr("__dp_NONE");
-            }
-            CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::EllipsisLiteral(_)) => {
-                *expr = helper_name_expr("__dp_Ellipsis");
+                *expr = str_bytes_call_expr(node.value.as_bytes());
             }
             _ => {}
         }
@@ -185,15 +168,10 @@ fn load_name(id: &str) -> ExprName {
 
 fn bytes_literal_expr(bytes: &[u8]) -> CoreBlockPyExprWithoutAwaitOrYield {
     CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::BytesLiteral(
-        ast::ExprBytesLiteral {
+        CoreBytesLiteral {
             range: compat_range(),
             node_index: compat_node_index(),
-            value: ast::BytesLiteralValue::single(BytesLiteral {
-                range: compat_range(),
-                node_index: compat_node_index(),
-                value: bytes.into(),
-                flags: BytesLiteralFlags::empty().with_quote_style(Quote::Double),
-            }),
+            value: bytes.to_vec(),
         },
     ))
 }
@@ -226,10 +204,6 @@ fn helper_call_expr(
 
 fn str_bytes_call_expr(bytes: &[u8]) -> CoreBlockPyExprWithoutAwaitOrYield {
     helper_call_expr("str", vec![bytes_literal_expr(bytes)])
-}
-
-fn helper_name_expr(name: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
-    CoreBlockPyExprWithoutAwaitOrYield::Name(load_name(name))
 }
 
 #[cfg(test)]

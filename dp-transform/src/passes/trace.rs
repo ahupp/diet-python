@@ -1,20 +1,75 @@
 use crate::block_py::{
-    BbBlockPyPass, BbStmt, BlockPyModule, CoreBlockPyCall, CoreBlockPyCallArg,
+    BbStmt, BlockPyModule, BlockPyPass, BlockPyStmt, CoreBlockPyCall, CoreBlockPyCallArg,
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    CoreStringLiteral,
 };
-use crate::passes::cfg_trace::{instrument_cfg_module_for_trace, CfgTraceConfig};
-use ruff_python_ast::str::Quote;
-use ruff_python_ast::{
-    self as ast, ExprName, StringLiteral, StringLiteralFlags, StringLiteralValue,
-};
+use crate::passes::BbBlockPyPass;
+use ruff_python_ast::{self as ast, ExprName};
 use ruff_text_size::TextRange;
+use std::env;
 
-#[cfg(test)]
-use crate::passes::cfg_trace::parse_cfg_trace_config;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TraceConfig {
+    pub(crate) qualname_filter: Option<String>,
+    pub(crate) include_params: bool,
+}
+
+pub(crate) fn parse_trace_env() -> Option<TraceConfig> {
+    let raw = env::var("DIET_PYTHON_BB_TRACE").ok()?;
+    parse_trace_config(raw.as_str())
+}
+
+pub(crate) fn parse_trace_config(raw: &str) -> Option<TraceConfig> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "0" {
+        return None;
+    }
+    let (selector, include_params) = if let Some(stripped) = trimmed.strip_suffix(":params") {
+        (stripped.trim(), true)
+    } else {
+        (trimmed, false)
+    };
+    let qualname_filter = match selector {
+        "" | "1" | "*" | "all" => None,
+        value => Some(value.to_string()),
+    };
+    Some(TraceConfig {
+        qualname_filter,
+        include_params,
+    })
+}
+
+fn instrument_cfg_module_for_trace<P: BlockPyPass>(
+    module: &mut BlockPyModule<P>,
+    config: &TraceConfig,
+    make_trace_stmt: impl Fn(&str, &str, &[String]) -> BlockPyStmt<P::Expr>,
+) {
+    for function in &mut module.callable_defs {
+        if let Some(filter) = config.qualname_filter.as_ref() {
+            if function.names.qualname != *filter {
+                continue;
+            }
+        }
+        let qualname = function.names.qualname.clone();
+        for block in &mut function.blocks {
+            let block_params = block.param_name_vec();
+            let trace_stmt = make_trace_stmt(
+                qualname.as_str(),
+                block.label.as_str(),
+                if config.include_params {
+                    block_params.as_slice()
+                } else {
+                    &[]
+                },
+            );
+            block.body.insert(0, trace_stmt);
+        }
+    }
+}
 
 pub(crate) fn instrument_bb_module_for_trace(
     module: &mut BlockPyModule<BbBlockPyPass>,
-    config: &CfgTraceConfig,
+    config: &TraceConfig,
 ) {
     instrument_cfg_module_for_trace(module, config, |qualname, label, params| {
         let trace_expr = if !params.is_empty() {
@@ -55,15 +110,10 @@ fn load_name(id: &str) -> ExprName {
 
 fn string_literal_expr(value: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
     CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::StringLiteral(
-        ast::ExprStringLiteral {
+        CoreStringLiteral {
             range: compat_range(),
             node_index: compat_node_index(),
-            value: StringLiteralValue::single(StringLiteral {
-                range: compat_range(),
-                node_index: compat_node_index(),
-                value: value.into(),
-                flags: StringLiteralFlags::empty().with_quote_style(Quote::Double),
-            }),
+            value: value.to_string(),
         },
     ))
 }
@@ -108,36 +158,34 @@ fn param_pairs_expr(params: &[String]) -> CoreBlockPyExprWithoutAwaitOrYield {
 
 #[cfg(test)]
 mod tests {
-    use super::{instrument_bb_module_for_trace, parse_cfg_trace_config};
-    use crate::{
-        passes::{cfg_trace::CfgTraceConfig, normalize_bb_module_for_codegen},
-        transform_str_to_bb_ir_with_options, Options,
-    };
+    use super::{instrument_bb_module_for_trace, parse_trace_config, TraceConfig};
+    use crate::passes::normalize_bb_module_for_codegen;
+    use crate::{transform_str_to_bb_ir_with_options, Options};
 
     #[test]
     fn parses_all_and_params_variants() {
         assert_eq!(
-            parse_cfg_trace_config("all:params"),
-            Some(CfgTraceConfig {
+            parse_trace_config("all:params"),
+            Some(TraceConfig {
                 qualname_filter: None,
                 include_params: true,
             })
         );
         assert_eq!(
-            parse_cfg_trace_config("run"),
-            Some(CfgTraceConfig {
+            parse_trace_config("run"),
+            Some(TraceConfig {
                 qualname_filter: Some("run".to_string()),
                 include_params: false,
             })
         );
         assert_eq!(
-            parse_cfg_trace_config("run:params"),
-            Some(CfgTraceConfig {
+            parse_trace_config("run:params"),
+            Some(TraceConfig {
                 qualname_filter: Some("run".to_string()),
                 include_params: true,
             })
         );
-        assert_eq!(parse_cfg_trace_config("0"), None);
+        assert_eq!(parse_trace_config("0"), None);
     }
 
     #[test]
@@ -150,7 +198,7 @@ mod tests {
         let mut normalized = normalize_bb_module_for_codegen(&bb_module);
         instrument_bb_module_for_trace(
             &mut normalized,
-            &CfgTraceConfig {
+            &TraceConfig {
                 qualname_filter: Some("f".to_string()),
                 include_params: true,
             },

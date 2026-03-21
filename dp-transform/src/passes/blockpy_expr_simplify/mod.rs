@@ -1,23 +1,36 @@
 use super::ast_to_ast::rewrite_expr::string::lower_string_templates_in_expr;
 use crate::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete,
-    BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
-    BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCall, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyPass, CoreBlockPyYield,
-    CoreBlockPyYieldFrom, LoweredRuffBlockPyPass,
+    BlockPyAssign, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyFunction,
+    BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
+    BlockPyStmtFragmentBuilder, BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyCall,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    CoreBlockPyYield, CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral,
+    CoreNumberLiteralValue, CoreStringLiteral,
 };
 use crate::passes::ast_to_ast::expr_utils::{
     make_binop, make_tuple, make_tuple_splat, make_unaryop,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
+use crate::passes::{CoreBlockPyPass, LoweredRuffBlockPyPass};
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
 #[cfg(test)]
-use crate::block_py::{BlockPyModule, LoweredBlockPyExtra, RuffBlockPyPass};
+use crate::block_py::BlockPyModule;
+#[cfg(test)]
+use crate::passes::RuffBlockPyPass;
 
 type CoreStmtBuilder = BlockPyStmtFragmentBuilder<CoreBlockPyExpr>;
 type SemanticExpr = Expr;
+
+fn core_builtin_name(id: &str) -> CoreBlockPyExpr {
+    CoreBlockPyExpr::Name(ast::ExprName {
+        id: id.into(),
+        ctx: ast::ExprContext::Load,
+        range: Default::default(),
+        node_index: ast::AtomicNodeIndex::default(),
+    })
+}
 
 pub(crate) trait PureCoreExprReducer {
     fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExpr;
@@ -122,12 +135,45 @@ impl From<Expr> for CoreBlockPyExpr {
                 range: node.range,
                 value: Box::new(Self::from(*node.value)),
             }),
-            Expr::StringLiteral(node) => Self::Literal(CoreBlockPyLiteral::StringLiteral(node)),
-            Expr::BytesLiteral(node) => Self::Literal(CoreBlockPyLiteral::BytesLiteral(node)),
-            Expr::NumberLiteral(node) => Self::Literal(CoreBlockPyLiteral::NumberLiteral(node)),
-            Expr::BooleanLiteral(node) => Self::Literal(CoreBlockPyLiteral::BooleanLiteral(node)),
-            Expr::NoneLiteral(node) => Self::Literal(CoreBlockPyLiteral::NoneLiteral(node)),
-            Expr::EllipsisLiteral(node) => Self::Literal(CoreBlockPyLiteral::EllipsisLiteral(node)),
+            Expr::StringLiteral(node) => {
+                Self::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
+                    node_index: node.node_index,
+                    range: node.range,
+                    value: node.value.to_str().to_string(),
+                }))
+            }
+            Expr::BytesLiteral(node) => {
+                Self::Literal(CoreBlockPyLiteral::BytesLiteral(CoreBytesLiteral {
+                    node_index: node.node_index,
+                    range: node.range,
+                    value: {
+                        let value: std::borrow::Cow<[u8]> = (&node.value).into();
+                        value.into_owned()
+                    },
+                }))
+            }
+            Expr::NumberLiteral(node) => {
+                Self::Literal(CoreBlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+                    node_index: node.node_index,
+                    range: node.range,
+                    value: match node.value {
+                        ast::Number::Int(value) => CoreNumberLiteralValue::Int(value),
+                        ast::Number::Float(value) => CoreNumberLiteralValue::Float(value),
+                        ast::Number::Complex { .. } => {
+                            panic!("complex literal reached late core BlockPy boundary")
+                        }
+                    },
+                }))
+            }
+            Expr::BooleanLiteral(node) => {
+                if node.value {
+                    core_builtin_name("__dp_TRUE")
+                } else {
+                    core_builtin_name("__dp_FALSE")
+                }
+            }
+            Expr::NoneLiteral(_) => core_builtin_name("__dp_NONE"),
+            Expr::EllipsisLiteral(_) => core_builtin_name("__dp_Ellipsis"),
             Expr::Attribute(node) if matches!(node.ctx, ast::ExprContext::Load) => {
                 Self::from(py_expr!(
                     "__dp_getattr({value:expr}, {attr:literal})",
@@ -414,8 +460,10 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: BlockPyTerm<Exp
     }
 }
 
-fn lower_semantic_block(block: BlockPyBlock<Expr>) -> BlockPyBlock<CoreBlockPyExpr> {
-    let BlockPyBlock {
+fn lower_semantic_block<M: Clone + std::fmt::Debug>(
+    block: CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>, M>,
+) -> CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>, M> {
+    let CfgBlock {
         label,
         body,
         term,
@@ -426,7 +474,7 @@ fn lower_semantic_block(block: BlockPyBlock<Expr>) -> BlockPyBlock<CoreBlockPyEx
         body,
         term: Some(term),
     });
-    BlockPyBlock {
+    CfgBlock {
         label,
         body: fragment.body,
         term: fragment
@@ -491,12 +539,22 @@ fn simplify_semantic_blockpy_callable_def_exprs(
         kind,
         params,
         param_defaults: simplify_param_defaults(&param_defaults),
-        blocks: blocks.into_iter().map(lower_semantic_block).collect(),
+        blocks: blocks
+            .into_iter()
+            .map(lower_semantic_block)
+            .map(|block| CfgBlock {
+                label: block.label,
+                body: block.body,
+                term: block.term,
+                params: block.params,
+                meta: None,
+            })
+            .collect(),
         doc,
         closure_layout,
         facts,
         try_regions,
-        extra: LoweredBlockPyExtra::default(),
+        extra: (),
     }
 }
 
@@ -515,8 +573,8 @@ mod tests {
     use super::simplify_blockpy_module_exprs;
     use crate::block_py::{
         CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-        RuffBlockPyPass,
     };
+    use crate::passes::RuffBlockPyPass;
     use crate::py_expr;
     use crate::ruff_ast_to_string;
     use crate::{transform_str_to_ruff_with_options, Options};
@@ -537,7 +595,12 @@ def f(x):
                 crate::passes::ast_to_ast::body::Suite,
                 crate::block_py::BlockPyModule<RuffBlockPyPass>,
             )>("semantic_blockpy")
-            .map(|(_, module)| module.clone())
+            .map(
+                |(_, module): &(
+                    crate::passes::ast_to_ast::body::Suite,
+                    crate::block_py::BlockPyModule<RuffBlockPyPass>,
+                )| module.clone(),
+            )
             .expect("expected lowered semantic BlockPy module");
         let core = simplify_blockpy_module_exprs(blockpy.clone());
         let semantic_rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
@@ -706,7 +769,12 @@ def f(*, d={"metaclass": Meta}, **kw):
                 crate::passes::ast_to_ast::body::Suite,
                 crate::block_py::BlockPyModule<RuffBlockPyPass>,
             )>("semantic_blockpy")
-            .map(|(_, module)| module.clone())
+            .map(
+                |(_, module): &(
+                    crate::passes::ast_to_ast::body::Suite,
+                    crate::block_py::BlockPyModule<RuffBlockPyPass>,
+                )| module.clone(),
+            )
             .expect("expected lowered semantic BlockPy module");
         let core = simplify_blockpy_module_exprs(blockpy);
         let rendered = crate::block_py::pretty::blockpy_module_to_string(&core);

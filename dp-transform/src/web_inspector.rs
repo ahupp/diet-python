@@ -1,7 +1,8 @@
 use crate::block_py::{
-    pretty as blockpy_pretty, BbBlockPyPass, BlockPyFunction, BlockPyFunctionKind, BlockPyModule,
-    BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
+    pretty as blockpy_pretty, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyTerm,
+    CoreBlockPyExprWithoutAwaitOrYield,
 };
+use crate::passes::BbBlockPyPass;
 use crate::{transform_str_to_ruff_with_options, LoweringResult, Options};
 use cranelift_codegen::ir::{self, condcodes::IntCC, types, AbiParam, InstBuilder, UserFuncName};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
@@ -149,7 +150,7 @@ fn bb_module_to_json(module: &BlockPyModule<BbBlockPyPass>) -> Value {
                 "displayName": function.names.display_name,
                 "qualname": function.names.qualname,
                 "kind": bb_function_kind_to_json(function.lowered_kind()),
-                "entry": function.entry_label(),
+                "entry": function.entry_block().label_str(),
                 "paramNames": function.params.names(),
                 "entryLiveins": function.entry_liveins(),
                 "localCellSlots": function.local_cell_slots(),
@@ -330,12 +331,7 @@ fn render_cranelift_function_from_bb(
     if function.blocks.is_empty() {
         return Err("function has no blocks".to_string());
     }
-    let entry_label = function.entry_label();
-    let entry_block = function
-        .blocks
-        .iter()
-        .find(|block| block.label == entry_label)
-        .ok_or_else(|| format!("missing entry block: {entry_label}"))?;
+    let entry_block = function.entry_block();
 
     let mut func = ir::Function::new();
     func.name = UserFuncName::testcase(sanitize_clif_testcase_name(
@@ -356,11 +352,11 @@ fn render_cranelift_function_from_bb(
         label_to_params.insert(block.label.clone(), block.param_name_vec());
     }
 
-    for block in &function.blocks {
+    for (index, block) in function.blocks.iter().enumerate() {
         let clif_block = *label_to_block
             .get(block.label.as_str())
             .expect("block label must exist");
-        if block.label == entry_label {
+        if index == 0 {
             builder.append_block_params_for_function_params(clif_block);
             let existing = builder.block_params(clif_block).len();
             for _ in existing..block.params.len() {
@@ -522,7 +518,7 @@ fn bb_module_to_clif(module: &BlockPyModule<BbBlockPyPass>) -> String {
             function.names.qualname,
             function.lowered_kind(),
             function.names.bind_name,
-            function.entry_label()
+            function.entry_block().label_str()
         ));
         for block in &function.blocks {
             out.push_str(&format!(
@@ -534,7 +530,7 @@ fn bb_module_to_clif(module: &BlockPyModule<BbBlockPyPass>) -> String {
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
-            if let Some(exc_target) = block.meta.exc_target_label.as_ref() {
+            if let Some(exc_target) = block.meta.exc_edge.as_ref().map(|edge| &edge.target) {
                 out.push_str(&format!(
                     ";     exc_target={}\n",
                     clif_target_comment(exc_target, &label_to_index, &label_to_params)

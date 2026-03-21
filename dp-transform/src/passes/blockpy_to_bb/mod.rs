@@ -1,16 +1,20 @@
 mod codegen_normalize;
-mod codegen_trace;
 mod exception_pass;
 
 use super::blockpy_generators::lower_generator_like_function;
 use super::core_eval_order::make_eval_order_explicit_in_core_callable_def_without_await;
+use super::ruff_to_blockpy::{
+    lowered_exception_edges, recompute_lowered_block_params, should_include_closure_storage_aliases,
+};
 use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
-    BbBlock, BbBlockMeta, BbBlockPyPass, BbExceptionArgSource, BbStmt, BlockParam, BlockParamRole,
-    BlockPyBlock, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyModule, BlockPyStmt,
-    BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
-    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyPassWithoutAwait,
-    CoreBlockPyPassWithoutAwaitOrYield,
+    BbBlock, BbBlockMeta, BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge,
+    BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm,
+    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral,
+};
+use crate::passes::{
+    BbBlockPyPass, CoreBlockPyPassWithoutAwait, CoreBlockPyPassWithoutAwaitOrYield,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
@@ -76,10 +80,26 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
         closure_layout,
         facts,
         try_regions,
-        extra,
+        extra: (),
     } = lowered;
-    let block_params = extra.block_params;
-    let exception_edges = extra.exception_edges;
+    let lowered_view: BlockPyFunction<CoreBlockPyPassWithoutAwaitOrYield> = BlockPyFunction {
+        function_id,
+        names: names.clone(),
+        kind,
+        params: params.clone(),
+        param_defaults: param_defaults.clone(),
+        blocks: blocks.clone(),
+        doc: doc.clone(),
+        closure_layout: closure_layout.clone(),
+        facts: facts.clone(),
+        try_regions: try_regions.clone(),
+        extra: (),
+    };
+    let block_params = recompute_lowered_block_params(
+        &lowered_view,
+        should_include_closure_storage_aliases(&lowered_view),
+    );
+    let exception_edges = lowered_exception_edges(&lowered_view.blocks);
     BlockPyFunction {
         function_id,
         names,
@@ -96,7 +116,11 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
 }
 
 fn lower_blockpy_blocks_to_bb_blocks(
-    blocks: &[BlockPyBlock<CoreBlockPyExprWithoutAwaitOrYield>],
+    blocks: &[crate::block_py::CfgBlock<
+        BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
+        BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
+        Option<crate::block_py::BlockPyLabel>,
+    >],
     block_params: &HashMap<String, Vec<String>>,
     exception_edges: &HashMap<String, Option<String>>,
 ) -> Vec<BbBlock> {
@@ -116,11 +140,12 @@ fn lower_blockpy_blocks_to_bb_blocks(
             if let Some(exc_name) = current_exception_name {
                 rewrite_current_exception_in_blockpy_term(&mut normalized_term, exc_name);
             }
-            let exc_target_label = linear_exception_edges
+            let exc_edge = linear_exception_edges
                 .get(block.label.as_str())
                 .cloned()
                 .flatten()
-                .map(crate::block_py::BlockPyLabel::from);
+                .map(crate::block_py::BlockPyLabel::from)
+                .map(BlockPyEdge::new);
             let ops = normalized_body
                 .into_iter()
                 .map(bb_stmt_from_blockpy_stmt)
@@ -146,10 +171,7 @@ fn lower_blockpy_blocks_to_bb_blocks(
                 body: ops,
                 term: normalized_term,
                 params,
-                meta: BbBlockMeta {
-                    exc_target_label,
-                    exc_arg_sources: Vec::new(),
-                },
+                meta: BbBlockMeta { exc_edge },
             }
         })
         .collect::<Vec<_>>();
@@ -164,29 +186,40 @@ pub(super) fn populate_exception_edge_args(blocks: &mut [BbBlock]) {
         .map(|(index, block)| (block.label.as_str().to_string(), index))
         .collect::<HashMap<_, _>>();
     for block_index in 0..blocks.len() {
-        let Some(exc_target_label) = blocks[block_index].meta.exc_target_label.clone() else {
+        let Some(exc_target_label) = blocks[block_index]
+            .meta
+            .exc_edge
+            .as_ref()
+            .map(|edge| edge.target.clone())
+        else {
             continue;
         };
         let Some(target_index) = label_to_index.get(exc_target_label.as_str()).copied() else {
             continue;
         };
         let source_params = blocks[block_index].param_name_vec();
+        let source_has_owner = source_params
+            .iter()
+            .any(|param| param == "_dp_self" || param == "_dp_state");
         let target_params = blocks[target_index].param_name_vec();
         let exc_name = blocks[target_index]
             .exception_param()
             .map(ToString::to_string);
-        blocks[block_index].meta.exc_arg_sources = target_params
+        let args = target_params
             .into_iter()
             .map(|target_param| {
                 if exc_name.as_deref() == Some(target_param.as_str()) {
-                    BbExceptionArgSource::CurrentException
-                } else if source_params.iter().any(|param| param == &target_param) {
-                    BbExceptionArgSource::SourceParam(target_param)
+                    BlockArg::CurrentException
+                } else if source_params.iter().any(|param| param == &target_param)
+                    || source_has_owner
+                {
+                    BlockArg::Name(target_param)
                 } else {
-                    BbExceptionArgSource::FrameLocal(target_param)
+                    BlockArg::None
                 }
             })
             .collect();
+        blocks[block_index].meta.exc_edge = Some(BlockPyEdge::with_args(exc_target_label, args));
     }
 }
 
@@ -323,11 +356,10 @@ fn is_dp_lookup_call_expr(func: &CoreBlockPyExprWithoutAwaitOrYield, attr_name: 
 fn expr_static_str(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> Option<String> {
     match expr {
         CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::StringLiteral(value)) => {
-            Some(value.value.to_str().to_string())
+            Some(value.value.clone())
         }
         CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::BytesLiteral(bytes)) => {
-            let value: std::borrow::Cow<[u8]> = (&bytes.value).into();
-            String::from_utf8(value.into_owned()).ok()
+            String::from_utf8(bytes.value.clone()).ok()
         }
         CoreBlockPyExprWithoutAwaitOrYield::Call(call)
             if call.keywords.is_empty()
@@ -344,10 +376,7 @@ fn expr_static_str(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> Option<String> 
             match &call.args[0] {
                 CoreBlockPyCallArg::Positional(CoreBlockPyExprWithoutAwaitOrYield::Literal(
                     CoreBlockPyLiteral::BytesLiteral(bytes),
-                )) => {
-                    let value: std::borrow::Cow<[u8]> = (&bytes.value).into();
-                    String::from_utf8(value.into_owned()).ok()
-                }
+                )) => String::from_utf8(bytes.value.clone()).ok(),
                 _ => None,
             }
         }
@@ -455,7 +484,17 @@ mod tests {
             meta: Default::default(),
         };
 
-        let blocks = lower_blockpy_blocks_to_bb_blocks(&[block], &HashMap::new(), &HashMap::new());
+        let blocks = lower_blockpy_blocks_to_bb_blocks(
+            &[crate::block_py::CfgBlock {
+                label: block.label,
+                body: block.body,
+                term: block.term,
+                params: block.params,
+                meta: None,
+            }],
+            &HashMap::new(),
+            &HashMap::new(),
+        );
 
         assert_eq!(blocks.len(), 4, "{blocks:?}");
         assert!(matches!(blocks[0].term, BlockPyTerm::IfTerm(_)));
@@ -499,10 +538,20 @@ mod tests {
                 name: "_dp_try_exc_0".to_string(),
                 role: crate::block_py::BlockParamRole::Exception,
             }],
-            meta: crate::block_py::BlockPyBlockMeta,
+            meta: (),
         };
 
-        let lowered = lower_blockpy_blocks_to_bb_blocks(&[block], &HashMap::new(), &HashMap::new());
+        let lowered = lower_blockpy_blocks_to_bb_blocks(
+            &[crate::block_py::CfgBlock {
+                label: block.label,
+                body: block.body,
+                term: block.term,
+                params: block.params,
+                meta: None,
+            }],
+            &HashMap::new(),
+            &HashMap::new(),
+        );
         let block = &lowered[0];
 
         let BlockPyStmt::Expr(body_expr) = &block.body[0] else {

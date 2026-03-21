@@ -1875,27 +1875,12 @@ def _bb_entry_template_code(async_entry):
     return _DP_ENTRY_TEMPLATE_CODE
 
 
-
-
-def _bb_make_lazy_clif_entry(
-    *,
-    async_entry,
-    function_name,
-    module_globals,
-):
-    entry = _types.FunctionType(
-        _bb_entry_template_code(async_entry),
-        module_globals,
-        name=function_name,
-    )
-    return entry
-
-
 def _bb_make_state_frame(state_order, state_args):
     _dp_frame = dict(())
     for _dp_state_name, _dp_state_value in zip(state_order, state_args):
         _dp_frame[_dp_state_name] = _dp_state_value
     return _dp_frame
+
 
 def _bb_rebind_function_globals(func, module_globals):
     if module_globals is None:
@@ -1915,24 +1900,6 @@ def _bb_rebind_function_globals(func, module_globals):
     rebound.__kwdefaults__ = func.__kwdefaults__
     rebound.__dict__.update(func.__dict__)
     return rebound
-
-
-def _bb_set_plan_metadata(
-    func,
-    module_name,
-    function_id,
-    plan_name,
-    module_globals=None,
-    entry_ref=None,
-):
-    if callable(func):
-        setattr(func, "__dp_plan_module", module_name)
-        setattr(func, "__dp_function_id", function_id)
-        setattr(func, "__dp_plan_name", plan_name)
-        if isinstance(entry_ref, str):
-            setattr(func, "__dp_entry_ref", entry_ref)
-        if isinstance(module_globals, dict):
-            setattr(func, "__dp_plan_globals", module_globals)
 
 
 def _bb_enable_lazy_clif_vectorcall(

@@ -1,6 +1,7 @@
-use crate::block_py::{
-    BlockPyModule, BlockPyModuleVisitor, BlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
-    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, PassExpr, RuffBlockPyPass,
+use crate::block_py::{BlockPyModule, BlockPyModuleVisitor, BlockPyPass, PassExpr};
+use crate::passes::{
+    CoreBlockPyPass, CoreBlockPyPassWithoutAwait, CoreBlockPyPassWithoutAwaitOrYield,
+    LoweredRuffBlockPyPass, RuffBlockPyPass,
 };
 use crate::transformer::Transformer;
 use ruff_python_ast::{self as ast, Expr};

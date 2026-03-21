@@ -5,10 +5,18 @@ use crate::block_py::dataflow::{
 };
 use crate::block_py::state::collect_state_vars;
 use crate::passes::ruff_to_blockpy;
+use crate::passes::{
+    BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
+    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, RuffBlockPyPass,
+};
+use ruff_python_ast::str::Quote;
 pub use ruff_python_ast::Expr;
-use ruff_python_ast::{self as ast, ExprName};
+use ruff_python_ast::{
+    self as ast, BytesLiteral, BytesLiteralFlags, ExprName, StringLiteral, StringLiteralFlags,
+    StringLiteralValue,
+};
 use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt;
 use std::ops::Deref;
 
@@ -260,12 +268,36 @@ pub enum CoreBlockPyExprWithoutAwaitOrYield {
 
 #[derive(Debug, Clone)]
 pub enum CoreBlockPyLiteral {
-    StringLiteral(ast::ExprStringLiteral),
-    BytesLiteral(ast::ExprBytesLiteral),
-    NumberLiteral(ast::ExprNumberLiteral),
-    BooleanLiteral(ast::ExprBooleanLiteral),
-    NoneLiteral(ast::ExprNoneLiteral),
-    EllipsisLiteral(ast::ExprEllipsisLiteral),
+    StringLiteral(CoreStringLiteral),
+    BytesLiteral(CoreBytesLiteral),
+    NumberLiteral(CoreNumberLiteral),
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreStringLiteral {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: ruff_text_size::TextRange,
+    pub value: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreBytesLiteral {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: ruff_text_size::TextRange,
+    pub value: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreNumberLiteral {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: ruff_text_size::TextRange,
+    pub value: CoreNumberLiteralValue,
+}
+
+#[derive(Debug, Clone)]
+pub enum CoreNumberLiteralValue {
+    Int(ast::Int),
+    Float(f64),
 }
 
 #[derive(Debug, Clone)]
@@ -309,8 +341,6 @@ pub struct CoreBlockPyYieldFrom<E = CoreBlockPyExpr> {
     pub range: ruff_text_size::TextRange,
     pub value: Box<E>,
 }
-
-pub const ENTRY_BLOCK_LABEL: &str = "start";
 
 #[derive(Debug, Clone)]
 pub struct BlockPyCallableFacts {
@@ -443,18 +473,14 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
             extra: self.extra,
         }
     }
-
-    pub fn entry_label(&self) -> &str {
-        self.entry_block().label_str()
-    }
 }
 
 impl<P> BlockPyFunction<P>
 where
-    P: BlockPyPass<BlockMeta = BlockPyBlockMeta>,
+    P: BlockPyPass,
     PassExpr<P>: Clone + Into<Expr>,
 {
-    pub fn entry_liveins(&self) -> Vec<String> {
+    pub(crate) fn non_bb_entry_liveins(&self) -> Vec<String> {
         if self.blocks.is_empty() {
             return Vec::new();
         }
@@ -468,7 +494,7 @@ where
         );
         merge_declared_block_params(&self.blocks, &mut block_params);
         block_params
-            .get(self.entry_label())
+            .get(self.entry_block().label_str())
             .cloned()
             .unwrap_or_default()
             .into_iter()
@@ -476,6 +502,26 @@ where
             .collect()
     }
 }
+
+macro_rules! impl_non_bb_entry_liveins {
+    ($($pass:ty),* $(,)?) => {
+        $(
+            impl BlockPyFunction<$pass> {
+                pub fn entry_liveins(&self) -> Vec<String> {
+                    self.non_bb_entry_liveins()
+                }
+            }
+        )*
+    };
+}
+
+impl_non_bb_entry_liveins!(
+    RuffBlockPyPass,
+    LoweredRuffBlockPyPass,
+    CoreBlockPyPass,
+    CoreBlockPyPassWithoutAwait,
+    CoreBlockPyPassWithoutAwaitOrYield,
+);
 
 impl BlockPyFunction<BbBlockPyPass> {
     pub fn entry_liveins(&self) -> Vec<String> {
@@ -491,86 +537,14 @@ impl BlockPyFunction<BbBlockPyPass> {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct BlockPyBlockMeta;
-
-#[derive(Debug, Clone, Default)]
-pub struct LoweredBlockPyExtra {
-    pub block_params: HashMap<String, Vec<String>>,
-    pub exception_edges: HashMap<String, Option<String>>,
-}
-
-#[derive(Debug, Clone, Default)]
 pub struct BbBlockMeta {
-    pub exc_target_label: Option<BlockPyLabel>,
-    pub exc_arg_sources: Vec<BbExceptionArgSource>,
-}
-
-#[derive(Debug, Clone)]
-pub enum BbExceptionArgSource {
-    SourceParam(String),
-    CurrentException,
-    FrameLocal(String),
+    pub exc_edge: Option<BlockPyEdge<CoreBlockPyExprWithoutAwaitOrYield>>,
 }
 
 pub trait BlockPyPass: Clone + fmt::Debug {
     type Expr: Clone + fmt::Debug;
     type BlockMeta: Clone + fmt::Debug;
     type FunctionExtra: Clone + fmt::Debug;
-}
-
-#[derive(Debug, Clone)]
-pub struct RuffBlockPyPass;
-
-impl BlockPyPass for RuffBlockPyPass {
-    type Expr = Expr;
-    type BlockMeta = BlockPyBlockMeta;
-    type FunctionExtra = ();
-}
-
-#[derive(Debug, Clone)]
-pub struct LoweredRuffBlockPyPass;
-
-impl BlockPyPass for LoweredRuffBlockPyPass {
-    type Expr = Expr;
-    type BlockMeta = BlockPyBlockMeta;
-    type FunctionExtra = LoweredBlockPyExtra;
-}
-
-#[derive(Debug, Clone)]
-pub struct CoreBlockPyPass;
-
-impl BlockPyPass for CoreBlockPyPass {
-    type Expr = CoreBlockPyExpr;
-    type BlockMeta = BlockPyBlockMeta;
-    type FunctionExtra = LoweredBlockPyExtra;
-}
-
-#[derive(Debug, Clone)]
-
-pub struct CoreBlockPyPassWithoutAwait;
-
-impl BlockPyPass for CoreBlockPyPassWithoutAwait {
-    type Expr = CoreBlockPyExprWithoutAwait;
-    type BlockMeta = BlockPyBlockMeta;
-    type FunctionExtra = LoweredBlockPyExtra;
-}
-
-#[derive(Debug, Clone)]
-pub struct CoreBlockPyPassWithoutAwaitOrYield;
-
-impl BlockPyPass for CoreBlockPyPassWithoutAwaitOrYield {
-    type Expr = CoreBlockPyExprWithoutAwaitOrYield;
-    type BlockMeta = BlockPyBlockMeta;
-    type FunctionExtra = LoweredBlockPyExtra;
-}
-
-#[derive(Debug, Clone)]
-pub struct BbBlockPyPass;
-
-impl BlockPyPass for BbBlockPyPass {
-    type Expr = CoreBlockPyExprWithoutAwaitOrYield;
-    type BlockMeta = BbBlockMeta;
-    type FunctionExtra = ();
 }
 
 pub type PassExpr<P> = <P as BlockPyPass>::Expr;
@@ -581,7 +555,7 @@ pub type PassBlock<P> = CfgBlock<PassStmt<P>, PassTerm<P>, <P as BlockPyPass>::B
 pub type BbStmt = PassStmt<BbBlockPyPass>;
 pub type BbBlock = PassBlock<BbBlockPyPass>;
 
-pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T, BlockPyBlockMeta>;
+pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
 pub type BlockPyBlock<E = Expr> = BlockPyCfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>;
 pub type BlockPyStructuredIf<E = Expr> = BlockPyIf<E, BlockPyStmt<E>, BlockPyTerm<E>>;
 
@@ -697,7 +671,7 @@ impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
 pub struct BlockPyCfgBlockBuilder<S, T> {
     label: BlockPyLabel,
     params: Vec<BlockParam>,
-    meta: BlockPyBlockMeta,
+    meta: (),
     fragment: BlockPyCfgFragmentBuilder<S, T>,
 }
 
@@ -710,7 +684,7 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
         Self {
             label,
             params: Vec::new(),
-            meta: BlockPyBlockMeta::default(),
+            meta: (),
             fragment: BlockPyCfgFragmentBuilder::new(),
         }
     }
@@ -1387,7 +1361,7 @@ mod tests {
                             else_label: BlockPyLabel::from("else"),
                         }),
                         params: Vec::new(),
-                        meta: BlockPyBlockMeta::default(),
+                        meta: (),
                     },
                     CfgBlock {
                         label: BlockPyLabel::from("done"),
@@ -1396,7 +1370,7 @@ mod tests {
                         })],
                         term: BlockPyTerm::Return(Some(py_expr!("final_return"))),
                         params: Vec::new(),
-                        meta: BlockPyBlockMeta::default(),
+                        meta: (),
                     },
                 ],
                 doc: None,
@@ -1483,14 +1457,7 @@ mod tests {
 impl From<CoreBlockPyExpr> for Expr {
     fn from(value: CoreBlockPyExpr) -> Self {
         match value {
-            CoreBlockPyExpr::Literal(literal) => match literal {
-                CoreBlockPyLiteral::StringLiteral(node) => Expr::StringLiteral(node),
-                CoreBlockPyLiteral::BytesLiteral(node) => Expr::BytesLiteral(node),
-                CoreBlockPyLiteral::NumberLiteral(node) => Expr::NumberLiteral(node),
-                CoreBlockPyLiteral::BooleanLiteral(node) => Expr::BooleanLiteral(node),
-                CoreBlockPyLiteral::NoneLiteral(node) => Expr::NoneLiteral(node),
-                CoreBlockPyLiteral::EllipsisLiteral(node) => Expr::EllipsisLiteral(node),
-            },
+            CoreBlockPyExpr::Literal(literal) => core_literal_to_expr(literal),
             CoreBlockPyExpr::Call(node) => Expr::Call(ast::ExprCall {
                 node_index: node.node_index,
                 range: node.range,
@@ -1556,14 +1523,7 @@ impl From<CoreBlockPyExpr> for Expr {
 impl From<CoreBlockPyExprWithoutAwait> for Expr {
     fn from(value: CoreBlockPyExprWithoutAwait) -> Self {
         match value {
-            CoreBlockPyExprWithoutAwait::Literal(literal) => match literal {
-                CoreBlockPyLiteral::StringLiteral(node) => Expr::StringLiteral(node),
-                CoreBlockPyLiteral::BytesLiteral(node) => Expr::BytesLiteral(node),
-                CoreBlockPyLiteral::NumberLiteral(node) => Expr::NumberLiteral(node),
-                CoreBlockPyLiteral::BooleanLiteral(node) => Expr::BooleanLiteral(node),
-                CoreBlockPyLiteral::NoneLiteral(node) => Expr::NoneLiteral(node),
-                CoreBlockPyLiteral::EllipsisLiteral(node) => Expr::EllipsisLiteral(node),
-            },
+            CoreBlockPyExprWithoutAwait::Literal(literal) => core_literal_to_expr(literal),
             CoreBlockPyExprWithoutAwait::Call(node) => Expr::Call(ast::ExprCall {
                 node_index: node.node_index,
                 range: node.range,
@@ -1624,14 +1584,7 @@ impl From<CoreBlockPyExprWithoutAwait> for Expr {
 impl From<CoreBlockPyExprWithoutAwaitOrYield> for Expr {
     fn from(value: CoreBlockPyExprWithoutAwaitOrYield) -> Self {
         match value {
-            CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => match literal {
-                CoreBlockPyLiteral::StringLiteral(node) => Expr::StringLiteral(node),
-                CoreBlockPyLiteral::BytesLiteral(node) => Expr::BytesLiteral(node),
-                CoreBlockPyLiteral::NumberLiteral(node) => Expr::NumberLiteral(node),
-                CoreBlockPyLiteral::BooleanLiteral(node) => Expr::BooleanLiteral(node),
-                CoreBlockPyLiteral::NoneLiteral(node) => Expr::NoneLiteral(node),
-                CoreBlockPyLiteral::EllipsisLiteral(node) => Expr::EllipsisLiteral(node),
-            },
+            CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => core_literal_to_expr(literal),
             CoreBlockPyExprWithoutAwaitOrYield::Call(node) => Expr::Call(ast::ExprCall {
                 node_index: node.node_index,
                 range: node.range,
@@ -1676,6 +1629,45 @@ impl From<CoreBlockPyExprWithoutAwaitOrYield> for Expr {
             }),
             CoreBlockPyExprWithoutAwaitOrYield::Name(node) => Expr::Name(node),
         }
+    }
+}
+
+fn core_literal_to_expr(literal: CoreBlockPyLiteral) -> Expr {
+    match literal {
+        CoreBlockPyLiteral::StringLiteral(node) => {
+            let node_index = node.node_index.clone();
+            Expr::StringLiteral(ast::ExprStringLiteral {
+                node_index: node_index.clone(),
+                range: node.range,
+                value: StringLiteralValue::single(StringLiteral {
+                    node_index,
+                    range: node.range,
+                    value: node.value.into(),
+                    flags: StringLiteralFlags::empty().with_quote_style(Quote::Double),
+                }),
+            })
+        }
+        CoreBlockPyLiteral::BytesLiteral(node) => {
+            let node_index = node.node_index.clone();
+            Expr::BytesLiteral(ast::ExprBytesLiteral {
+                node_index: node_index.clone(),
+                range: node.range,
+                value: ast::BytesLiteralValue::single(BytesLiteral {
+                    node_index,
+                    range: node.range,
+                    value: node.value.into(),
+                    flags: BytesLiteralFlags::empty().with_quote_style(Quote::Double),
+                }),
+            })
+        }
+        CoreBlockPyLiteral::NumberLiteral(node) => Expr::NumberLiteral(ast::ExprNumberLiteral {
+            node_index: node.node_index,
+            range: node.range,
+            value: match node.value {
+                CoreNumberLiteralValue::Int(value) => ast::Number::Int(value),
+                CoreNumberLiteralValue::Float(value) => ast::Number::Float(value),
+            },
+        }),
     }
 }
 
@@ -1820,11 +1812,20 @@ impl TryFrom<BlockPyCfgFragment<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBl
     }
 }
 
-impl TryFrom<BlockPyBlock<CoreBlockPyExpr>> for BlockPyBlock<CoreBlockPyExprWithoutAwait> {
+impl<M: Clone + fmt::Debug>
+    TryFrom<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>, M>>
+    for CfgBlock<
+        BlockPyStmt<CoreBlockPyExprWithoutAwait>,
+        BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+        M,
+    >
+{
     type Error = CoreBlockPyExpr;
 
-    fn try_from(value: BlockPyBlock<CoreBlockPyExpr>) -> Result<Self, Self::Error> {
-        Ok(BlockPyBlock {
+    fn try_from(
+        value: CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>, M>,
+    ) -> Result<Self, Self::Error> {
+        Ok(CfgBlock {
             label: value.label,
             body: value
                 .body
@@ -2074,13 +2075,30 @@ impl
     }
 }
 
-impl TryFrom<BlockPyBlock<CoreBlockPyExprWithoutAwait>>
-    for BlockPyBlock<CoreBlockPyExprWithoutAwaitOrYield>
+impl<M: Clone + fmt::Debug>
+    TryFrom<
+        CfgBlock<
+            BlockPyStmt<CoreBlockPyExprWithoutAwait>,
+            BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+            M,
+        >,
+    >
+    for CfgBlock<
+        BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
+        BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
+        M,
+    >
 {
     type Error = CoreBlockPyExprWithoutAwait;
 
-    fn try_from(value: BlockPyBlock<CoreBlockPyExprWithoutAwait>) -> Result<Self, Self::Error> {
-        Ok(BlockPyBlock {
+    fn try_from(
+        value: CfgBlock<
+            BlockPyStmt<CoreBlockPyExprWithoutAwait>,
+            BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+            M,
+        >,
+    ) -> Result<Self, Self::Error> {
+        Ok(CfgBlock {
             label: value.label,
             body: value
                 .body

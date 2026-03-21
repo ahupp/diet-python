@@ -5,11 +5,9 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use dp_transform::block_py::{
-    BlockPyBlock, BlockPyCfgFragment, BlockPyModule, BlockPyStmt, RuffBlockPyPass,
-};
+use dp_transform::block_py::{BlockPyBlock, BlockPyCfgFragment, BlockPyModule, BlockPyStmt};
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
-use dp_transform::passes::normalize_bb_module_for_codegen;
+use dp_transform::passes::{normalize_bb_module_for_codegen, BbBlockPyPass, RuffBlockPyPass};
 use dp_transform::{
     init_logging, transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options,
     Options,
@@ -186,7 +184,7 @@ fn count_blockpy_blocks_in_term(term: &dp_transform::block_py::BlockPyTerm) -> u
 }
 
 fn count_clif_blocks(
-    module: &dp_transform::block_py::BlockPyModule<dp_transform::block_py::BbBlockPyPass>,
+    module: &dp_transform::block_py::BlockPyModule<dp_transform::passes::BbBlockPyPass>,
 ) -> usize {
     let normalized = normalize_bb_module_for_codegen(module);
     normalized

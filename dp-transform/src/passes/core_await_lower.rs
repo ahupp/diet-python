@@ -1,15 +1,14 @@
 use crate::block_py::{
     BlockPyModule, BlockPyModuleMap, CoreBlockPyAwait, CoreBlockPyCall, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg, CoreBlockPyPass,
-    CoreBlockPyPassWithoutAwait, CoreBlockPyYield, CoreBlockPyYieldFrom,
+    CoreBlockPyExpr, CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg, CoreBlockPyYield,
+    CoreBlockPyYieldFrom,
 };
+use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithoutAwait};
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
 #[cfg(test)]
-use crate::block_py::{
-    BlockPyBlock, BlockPyFunction, BlockPyFunctionKind, FunctionName, LoweredBlockPyExtra,
-};
+use crate::block_py::{BlockPyFunction, BlockPyFunctionKind, CfgBlock, FunctionName};
 
 fn expr_name(id: &str) -> ast::ExprName {
     let Expr::Name(expr) = py_expr!("{id:id}", id = id) else {
@@ -120,20 +119,20 @@ mod tests {
                 kind: BlockPyFunctionKind::Coroutine,
                 params: Default::default(),
                 param_defaults: Vec::new(),
-                blocks: vec![BlockPyBlock {
+                blocks: vec![CfgBlock {
                     label: BlockPyLabel("start".to_string()),
                     body: Vec::new(),
                     term: BlockPyTerm::Return(Some(CoreBlockPyExpr::from(crate::py_expr!(
                         "await foo()"
                     )))),
                     params: Vec::new(),
-                    meta: Default::default(),
+                    meta: None,
                 }],
                 doc: None,
                 closure_layout: None,
                 facts: crate::block_py::BlockPyCallableFacts::default(),
                 try_regions: Vec::new(),
-                extra: LoweredBlockPyExtra::default(),
+                extra: (),
             }],
         };
 

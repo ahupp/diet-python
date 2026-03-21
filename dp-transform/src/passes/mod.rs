@@ -4,12 +4,71 @@ pub(crate) mod ast_to_ast;
 pub(crate) mod blockpy_expr_simplify;
 mod blockpy_generators;
 pub mod blockpy_to_bb;
-mod cfg_trace;
 pub(crate) mod core_await_lower;
 pub(crate) mod core_eval_order;
 mod function_identity;
 pub mod ruff_to_blockpy;
 mod summarize_pass_shape;
+mod trace;
+
+use crate::block_py::{
+    BbBlockMeta, BlockPyLabel, BlockPyPass, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
+    CoreBlockPyExprWithoutAwaitOrYield, Expr,
+};
+
+#[derive(Debug, Clone)]
+pub struct RuffBlockPyPass;
+
+impl BlockPyPass for RuffBlockPyPass {
+    type Expr = Expr;
+    type BlockMeta = ();
+    type FunctionExtra = ();
+}
+
+#[derive(Debug, Clone)]
+pub struct LoweredRuffBlockPyPass;
+
+impl BlockPyPass for LoweredRuffBlockPyPass {
+    type Expr = Expr;
+    type BlockMeta = Option<BlockPyLabel>;
+    type FunctionExtra = ();
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreBlockPyPass;
+
+impl BlockPyPass for CoreBlockPyPass {
+    type Expr = CoreBlockPyExpr;
+    type BlockMeta = Option<BlockPyLabel>;
+    type FunctionExtra = ();
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreBlockPyPassWithoutAwait;
+
+impl BlockPyPass for CoreBlockPyPassWithoutAwait {
+    type Expr = CoreBlockPyExprWithoutAwait;
+    type BlockMeta = Option<BlockPyLabel>;
+    type FunctionExtra = ();
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreBlockPyPassWithoutAwaitOrYield;
+
+impl BlockPyPass for CoreBlockPyPassWithoutAwaitOrYield {
+    type Expr = CoreBlockPyExprWithoutAwaitOrYield;
+    type BlockMeta = Option<BlockPyLabel>;
+    type FunctionExtra = ();
+}
+
+#[derive(Debug, Clone)]
+pub struct BbBlockPyPass;
+
+impl BlockPyPass for BbBlockPyPass {
+    type Expr = CoreBlockPyExprWithoutAwaitOrYield;
+    type BlockMeta = BbBlockMeta;
+    type FunctionExtra = ();
+}
 
 pub(crate) use blockpy_to_bb::{
     lower_core_blockpy_module_bundle_to_bb_module,
@@ -23,10 +82,11 @@ pub(crate) use summarize_pass_shape::summarize_tracked_pass_shape;
 #[cfg(test)]
 mod tests {
     use crate::block_py::{
-        BbBlock, BbBlockPyPass, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyStmt,
-        BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield, RuffBlockPyPass,
+        BbBlock, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyStmt, BlockPyTerm,
+        CoreBlockPyExprWithoutAwaitOrYield,
     };
     use crate::block_py::{ClosureInit, ClosureSlot};
+    use crate::passes::{BbBlockPyPass, RuffBlockPyPass};
     use crate::LoweringResult;
     use crate::{
         py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
@@ -222,7 +282,8 @@ def fmt(value):
 
         let core_blockpy = lowered.core_blockpy_text();
         assert!(
-            core_blockpy.contains("__dp_templatelib_Interpolation(value, \"value\", None, \"\")"),
+            core_blockpy
+                .contains("__dp_templatelib_Interpolation(value, \"value\", __dp_NONE, \"\")"),
             "{core_blockpy}"
         );
 
@@ -291,7 +352,19 @@ def foo(a, b):
             .iter()
             .find(|func| func.names.bind_name == "foo")
             .expect("foo should be lowered");
-        assert_eq!(foo.entry_label(), "start", "{:?}", foo.entry_label());
+        assert_eq!(
+            foo.entry_block().label_str(),
+            foo.blocks
+                .first()
+                .expect("foo should have a first block")
+                .label_str()
+        );
+        assert_ne!(
+            foo.entry_block().label_str(),
+            "start",
+            "{:?}",
+            foo.entry_block().label_str()
+        );
         assert!(!foo.blocks.is_empty());
     }
 
@@ -740,7 +813,7 @@ def check():
             check
                 .blocks
                 .iter()
-                .any(|block| block.meta.exc_target_label.is_some()),
+                .any(|block| block.meta.exc_edge.is_some()),
             "{check:?}"
         );
     }
@@ -1227,7 +1300,14 @@ def f():
             .expect("transform should succeed")
             .expect("bb module should be available");
         let f = function_by_name(&bb_module, "f");
-        assert_eq!(f.entry_label(), "start", "{f:?}");
+        assert_eq!(
+            f.entry_block().label_str(),
+            f.blocks
+                .first()
+                .expect("f should have a first block")
+                .label_str()
+        );
+        assert_ne!(f.entry_block().label_str(), "start", "{f:?}");
         assert!(
             !f.blocks.iter().any(|block| block.label == "_dp_bb_f_0"),
             "{f:?}"
@@ -1385,8 +1465,24 @@ def outer():
             .expect("bb module should be available");
         let outer = function_by_name(&bb_module, "outer");
         let inner = function_by_name(&bb_module, "inner");
-        assert_eq!(outer.entry_label(), "start", "{outer:?}");
-        assert_eq!(inner.entry_label(), "start", "{inner:?}");
+        assert_eq!(
+            outer.entry_block().label_str(),
+            outer
+                .blocks
+                .first()
+                .expect("outer should have a first block")
+                .label_str()
+        );
+        assert_eq!(
+            inner.entry_block().label_str(),
+            inner
+                .blocks
+                .first()
+                .expect("inner should have a first block")
+                .label_str()
+        );
+        assert_ne!(outer.entry_block().label_str(), "start", "{outer:?}");
+        assert_ne!(inner.entry_block().label_str(), "start", "{inner:?}");
         assert!(
             outer
                 .blocks
@@ -1414,9 +1510,7 @@ def f(x):
             .expect("bb module should be available");
         let f = function_by_name(&bb_module, "f");
         assert!(
-            f.blocks
-                .iter()
-                .any(|block| block.meta.exc_target_label.is_some()),
+            f.blocks.iter().any(|block| block.meta.exc_edge.is_some()),
             "{f:?}"
         );
         let debug = format!("{f:?}");
@@ -1448,9 +1542,7 @@ def run():
             .expect("bb module should be available");
         let run = function_by_name(&bb_module, "run");
         assert!(
-            run.blocks
-                .iter()
-                .any(|block| block.meta.exc_target_label.is_some()),
+            run.blocks.iter().any(|block| block.meta.exc_edge.is_some()),
             "{run:?}"
         );
     }
@@ -1473,7 +1565,7 @@ except Exception:
             init_fn
                 .blocks
                 .iter()
-                .any(|block| block.meta.exc_target_label.is_some()),
+                .any(|block| block.meta.exc_edge.is_some()),
             "{init_fn:?}"
         );
     }
@@ -1533,9 +1625,7 @@ def f():
             "{f:?}"
         );
         assert!(
-            f.blocks
-                .iter()
-                .any(|block| block.meta.exc_target_label.is_some()),
+            f.blocks.iter().any(|block| block.meta.exc_edge.is_some()),
             "{f:?}"
         );
     }

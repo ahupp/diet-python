@@ -6,7 +6,7 @@ import a
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         __dp_store_global(globals(), "a", __dp_import_("a", __spec__))
 #         return
 
@@ -18,7 +18,7 @@ import a.b as c
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         __dp_store_global(globals(), "c", __dp_import_attr(__dp_import_("a.b", __spec__), "b"))
 #         return
 
@@ -30,7 +30,7 @@ from pkg.mod import name as alias
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         _dp_import_1 = __dp_import_("pkg.mod", __spec__, ["name"])
 #         __dp_store_global(globals(), "alias", __dp_import_attr(_dp_import_1, "name"))
 #         return
@@ -47,12 +47,12 @@ def f():
 
 # function f():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         return
 
 # function _dp_module_init():
 #     function_id: 1
-#     block start:
+#     block _dp_bb_start:
 #         __dp_store_global(globals(), "f", dec(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)))
 #         return
 
@@ -64,7 +64,7 @@ obj.x = 1
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
 #         return
 
@@ -76,7 +76,7 @@ obj[i] = v
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         __dp_setitem(__dp_load_deleted_name("obj", obj), i, v)
 #         return
 
@@ -88,7 +88,7 @@ a, b = it
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, True))
 #         __dp_store_global(globals(), "a", __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 0))
 #         __dp_store_global(globals(), "b", __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 1))
@@ -103,7 +103,7 @@ a, *b = it
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, False))
 #         __dp_store_global(globals(), "a", __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 0))
 #         __dp_store_global(globals(), "b", __dp_list(__dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 1)))
@@ -118,7 +118,7 @@ a = b = f()
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         _dp_tmp_1 = f()
 #         __dp_store_global(globals(), "a", _dp_tmp_1)
 #         __dp_store_global(globals(), "b", _dp_tmp_1)
@@ -132,7 +132,7 @@ x: int = 1
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         __dp_store_global(globals(), "x", 1)
 #         __annotate__ = __dp_exec_function_def_source('def __annotate__(_dp_format, _dp=__dp__, *, __dp__=__dp__, __dp_tuple=__dp_tuple):\n    if _dp.eq(_dp_format, 4):\n        return _dp.dict(__dp_tuple(("x", "int")))\n    if _dp.gt(_dp_format, 2):\n        raise _dp.builtins.NotImplementedError\n    return _dp.dict(__dp_tuple(("x", int)))', __dp_globals(), __dp_tuple(), "__annotate__")
 #         __dp_store_global(globals(), "__annotate__", __dp_update_fn(__annotate__, "__annotate__", "__annotate__", None))
@@ -146,7 +146,7 @@ obj.x: int = 1
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
 #         return
 
@@ -158,7 +158,7 @@ obj.x += 1
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", __dp_iadd(obj.x, 1))
 #         return
 
@@ -170,7 +170,7 @@ del obj.x, obj[i], x
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         __dp_delattr(obj, "x")
 #         __dp_delitem(obj, i)
 #         __dp_delitem(globals(), "x")
@@ -184,7 +184,7 @@ assert cond
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         if_term __debug__:
 #             then:
 #                 block _dp_bb_1:
@@ -207,7 +207,7 @@ assert cond, "oops"
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         if_term __debug__:
 #             then:
 #                 block _dp_bb_1:
@@ -230,7 +230,7 @@ raise E from cause
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         raise __dp_raise_from(E, cause)
 
 # try_except_typed
@@ -258,7 +258,7 @@ else:
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         _dp_iter_1 = __dp_iter(it)
 #         jump _dp_bb_3
 #         block _dp_bb_3:
@@ -289,12 +289,12 @@ else:
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         if_term cond:
 #             then:
 #                 block _dp_bb_1:
 #                     body()
-#                     jump start
+#                     jump _dp_bb_start
 #             else:
 #                 block _dp_bb_0:
 #                     done()
@@ -322,13 +322,13 @@ def inner():
 
 # function inner():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         value = 1
 #         return value
 
 # function _dp_module_init():
 #     function_id: 1
-#     block start:
+#     block _dp_bb_start:
 #         __dp_store_global(globals(), "inner", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return
 
@@ -343,7 +343,7 @@ zs = {k: v for k, v in items}
 # function _dp_listcomp_3(_dp_iter_2):
 #     function_id: 0
 #     display_name: <listcomp>
-#     block start:
+#     block _dp_bb_start:
 #         _dp_tmp_1 = []
 #         _dp_iter_1 = __dp_iter(_dp_iter_2)
 #         jump _dp_bb_3
@@ -365,7 +365,7 @@ zs = {k: v for k, v in items}
 # function _dp_setcomp_6(_dp_iter_5):
 #     function_id: 1
 #     display_name: <setcomp>
-#     block start:
+#     block _dp_bb_start:
 #         _dp_tmp_4 = set()
 #         _dp_iter_9 = __dp_iter(_dp_iter_5)
 #         jump _dp_bb_3
@@ -387,7 +387,7 @@ zs = {k: v for k, v in items}
 # function _dp_dictcomp_9(_dp_iter_8):
 #     function_id: 2
 #     display_name: <dictcomp>
-#     block start:
+#     block _dp_bb_start:
 #         _dp_tmp_7 = {}
 #         _dp_iter_17 = __dp_iter(_dp_iter_8)
 #         jump _dp_bb_3
@@ -411,7 +411,7 @@ zs = {k: v for k, v in items}
 
 # function _dp_module_init():
 #     function_id: 3
-#     block start:
+#     block _dp_bb_start:
 #         _dp_listcomp_3 = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         __dp_store_global(globals(), "xs", _dp_listcomp_3(it))
 #         _dp_setcomp_6 = __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
@@ -432,7 +432,7 @@ def f():
 # function f.<locals>._dp_listcomp_3(_dp_iter_2):
 #     function_id: 0
 #     display_name: <listcomp>
-#     block start:
+#     block _dp_bb_start:
 #         _dp_tmp_1 = []
 #         _dp_iter_1 = __dp_iter(_dp_iter_2)
 #         jump _dp_bb_4
@@ -458,13 +458,13 @@ def f():
 
 # function f():
 #     function_id: 1
-#     block start:
+#     block _dp_bb_start:
 #         _dp_listcomp_3 = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return _dp_listcomp_3(it)
 
 # function _dp_module_init():
 #     function_id: 2
-#     block start:
+#     block _dp_bb_start:
 #         __dp_store_global(globals(), "f", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return
 
@@ -480,7 +480,7 @@ class C:
 # function C._dp_listcomp_3(_dp_iter_2):
 #     function_id: 0
 #     display_name: <listcomp>
-#     block start:
+#     block _dp_bb_start:
 #         _dp_tmp_1 = []
 #         _dp_iter_1 = __dp_iter(_dp_iter_2)
 #         jump _dp_bb_3
@@ -501,7 +501,7 @@ class C:
 
 # function _dp_class_ns_C(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 1
-#     block start:
+#     block _dp_bb_start:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
@@ -511,13 +511,13 @@ class C:
 
 # function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict=None):
 #     function_id: 2
-#     block start:
+#     block _dp_bb_start:
 #         _dp_class_ns = _dp_class_ns_outer
 #         return __dp_create_class("C", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 3, ())
 
 # function _dp_module_init():
 #     function_id: 3
-#     block start:
+#     block _dp_bb_start:
 #         _dp_class_ns_C = __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         _dp_define_class_C = __dp_make_function(2, __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
 #         __dp_store_global(globals(), "C", _dp_define_class_C(_dp_class_ns_C, globals()))
@@ -545,7 +545,7 @@ async def run():
 
 # coroutine run():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         _dp_iter_1 = __dp_aiter(ait)
 #         jump _dp_bb_2
 #         block _dp_bb_2:
@@ -565,7 +565,7 @@ async def run():
 
 # function _dp_module_init():
 #     function_id: 1
-#     block start:
+#     block _dp_bb_start:
 #         __dp_store_global(globals(), "run", __dp_mark_coroutine_function(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)))
 #         return
 
@@ -594,7 +594,7 @@ match value:
 
 # function _dp_module_init():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         _dp_match_1 = value
 #         if_term __dp_eq(_dp_match_1, 1):
 #             then:
@@ -617,13 +617,13 @@ def gen():
 
 # generator gen():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         yield 1
 #         return
 
 # function _dp_module_init():
 #     function_id: 1
-#     block start:
+#     block _dp_bb_start:
 #         __dp_store_global(globals(), "gen", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return
 
@@ -638,13 +638,13 @@ def gen():
 
 # generator gen():
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         yield from it
 #         return
 
 # function _dp_module_init():
 #     function_id: 1
-#     block start:
+#     block _dp_bb_start:
 #         __dp_store_global(globals(), "gen", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return
 
@@ -676,14 +676,14 @@ def outer():
 #     function_id: 0
 #     entry_liveins: [_dp_cell_x]
 #     freevars: [x->_dp_cell_x@inherited]
-#     block start:
+#     block _dp_bb_start:
 #         return __dp_load_cell(_dp_cell_x)
 
 # function outer():
 #     function_id: 1
 #     local_cell_slots: [_dp_cell_x]
 #     cellvars: [x->_dp_cell_x@deferred]
-#     block start:
+#     block _dp_bb_start:
 #         _dp_cell_x = __dp_make_cell()
 #         __dp_store_cell(_dp_cell_x, 5)
 #         inner = __dp_make_function(0, __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_globals(), None)
@@ -691,7 +691,7 @@ def outer():
 
 # function _dp_module_init():
 #     function_id: 2
-#     block start:
+#     block _dp_bb_start:
 #         __dp_store_global(globals(), "outer", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return
 
@@ -710,7 +710,7 @@ def choose(a, b):
 
 # function choose(a, b):
 #     function_id: 0
-#     block start:
+#     block _dp_bb_start:
 #         total = a + b
 #         if_term __dp_gt(total, 5):
 #             then:
@@ -722,7 +722,7 @@ def choose(a, b):
 
 # function _dp_module_init():
 #     function_id: 1
-#     block start:
+#     block _dp_bb_start:
 #         __dp_store_global(globals(), "choose", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return
 
@@ -746,7 +746,7 @@ def outer():
 #     function_id: 0
 #     entry_liveins: [_dp_cell_x]
 #     freevars: [x->_dp_cell_x@inherited]
-#     block start:
+#     block _dp_bb_start:
 #         __dp_store_cell(_dp_cell_x, 2)
 #         return __dp_load_cell(_dp_cell_x)
 
@@ -754,7 +754,7 @@ def outer():
 #     function_id: 1
 #     local_cell_slots: [_dp_cell_x]
 #     cellvars: [x->_dp_cell_x@deferred]
-#     block start:
+#     block _dp_bb_start:
 #         _dp_cell_x = __dp_make_cell()
 #         __dp_store_cell(_dp_cell_x, 5)
 #         inner = __dp_make_function(0, __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_globals(), None)
@@ -762,7 +762,7 @@ def outer():
 
 # function _dp_module_init():
 #     function_id: 2
-#     block start:
+#     block _dp_bb_start:
 #         __dp_store_global(globals(), "outer", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return
 

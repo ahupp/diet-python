@@ -1,8 +1,10 @@
 use super::{
     BlockParam, BlockParamRole, BlockPyBlock, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel,
-    BlockPyStmt, BlockPyTerm,
+    BlockPyStmt, BlockPyTerm, CfgBlock,
 };
-use crate::passes::ast_symbol_analysis::collect_assigned_names;
+use crate::block_py::dataflow::{
+    assigned_names_in_blockpy_fragment, assigned_names_in_blockpy_stmts,
+};
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::Expr;
 use std::collections::{HashMap, HashSet};
@@ -179,94 +181,6 @@ fn fresh_linearized_if_label(
     label
 }
 
-fn collect_named_expr_targets(expr: &Expr, names: &mut HashSet<String>) {
-    #[derive(Default)]
-    struct NamedExprTargetCollector {
-        names: HashSet<String>,
-    }
-
-    impl Transformer for NamedExprTargetCollector {
-        fn visit_expr(&mut self, expr: &mut Expr) {
-            if let Expr::Named(ruff_python_ast::ExprNamed { target, value, .. }) = expr {
-                collect_assigned_names(target.as_ref(), &mut self.names);
-                self.visit_expr(value.as_mut());
-                return;
-            }
-            walk_expr(self, expr);
-        }
-    }
-
-    let mut expr = expr.clone();
-    let mut collector = NamedExprTargetCollector::default();
-    collector.visit_expr(&mut expr);
-    names.extend(collector.names);
-}
-
-fn collect_assigned_names_in_blockpy_expr<E>(expr: &E, names: &mut HashSet<String>)
-where
-    E: Clone + Into<Expr>,
-{
-    collect_named_expr_targets(&expr.clone().into(), names);
-}
-
-fn collect_assigned_names_in_blockpy_term<E>(term: &BlockPyTerm<E>, names: &mut HashSet<String>)
-where
-    E: Clone + Into<Expr>,
-{
-    match term {
-        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => {}
-        BlockPyTerm::IfTerm(if_term) => {
-            collect_assigned_names_in_blockpy_expr(&if_term.test, names)
-        }
-        BlockPyTerm::BranchTable(branch_table) => {
-            collect_assigned_names_in_blockpy_expr(&branch_table.index, names);
-        }
-        BlockPyTerm::Raise(raise) => {
-            if let Some(exc) = &raise.exc {
-                collect_assigned_names_in_blockpy_expr(exc, names);
-            }
-        }
-        BlockPyTerm::Return(value) => {
-            if let Some(value) = value {
-                collect_assigned_names_in_blockpy_expr(value, names);
-            }
-        }
-    }
-}
-
-fn collect_assigned_names_in_blockpy_fragment<E>(
-    fragment: &BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
-    names: &mut HashSet<String>,
-) where
-    E: Clone + Into<Expr>,
-{
-    for stmt in &fragment.body {
-        collect_assigned_names_in_blockpy_stmt(stmt, names);
-    }
-    if let Some(term) = &fragment.term {
-        collect_assigned_names_in_blockpy_term(term, names);
-    }
-}
-
-fn collect_assigned_names_in_blockpy_stmt<E>(stmt: &BlockPyStmt<E>, names: &mut HashSet<String>)
-where
-    E: Clone + Into<Expr>,
-{
-    match stmt {
-        BlockPyStmt::Delete(_) => {}
-        BlockPyStmt::Assign(assign) => {
-            names.insert(assign.target.id.to_string());
-            collect_assigned_names_in_blockpy_expr(&assign.value, names);
-        }
-        BlockPyStmt::Expr(expr) => collect_assigned_names_in_blockpy_expr(expr, names),
-        BlockPyStmt::If(if_stmt) => {
-            collect_assigned_names_in_blockpy_expr(&if_stmt.test, names);
-            collect_assigned_names_in_blockpy_fragment(&if_stmt.body, names);
-            collect_assigned_names_in_blockpy_fragment(&if_stmt.orelse, names);
-        }
-    }
-}
-
 fn extend_ordered_state(base: &[String], assigned: HashSet<String>) -> Vec<String> {
     let mut out = base.to_vec();
     let mut assigned = assigned.into_iter().collect::<Vec<_>>();
@@ -283,11 +197,7 @@ fn conservative_state_after_prefix<E>(base: &[String], body: &[BlockPyStmt<E>]) 
 where
     E: Clone + Into<Expr>,
 {
-    let mut assigned = HashSet::new();
-    for stmt in body {
-        collect_assigned_names_in_blockpy_stmt(stmt, &mut assigned);
-    }
-    extend_ordered_state(base, assigned)
+    extend_ordered_state(base, assigned_names_in_blockpy_stmts(body))
 }
 
 fn conservative_state_after_if_branches<E>(
@@ -297,9 +207,8 @@ fn conservative_state_after_if_branches<E>(
 where
     E: Clone + Into<Expr>,
 {
-    let mut assigned = HashSet::new();
-    collect_assigned_names_in_blockpy_fragment(&if_stmt.body, &mut assigned);
-    collect_assigned_names_in_blockpy_fragment(&if_stmt.orelse, &mut assigned);
+    let mut assigned = assigned_names_in_blockpy_fragment(&if_stmt.body);
+    assigned.extend(assigned_names_in_blockpy_fragment(&if_stmt.orelse));
     extend_ordered_state(base, assigned)
 }
 
@@ -320,16 +229,16 @@ fn params_for_linearized_names(
         .collect()
 }
 
-fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
+fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>, M: Clone>(
     label: BlockPyLabel,
     body: Vec<BlockPyStmt<E>>,
     final_term: BlockPyTerm<E>,
-    meta: super::BlockPyBlockMeta,
+    meta: M,
     block_params: Vec<String>,
     declared_params: Vec<BlockParam>,
     exc_target: Option<String>,
     next_label_id: &mut usize,
-    out_blocks: &mut Vec<BlockPyBlock<E>>,
+    out_blocks: &mut Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>>,
     out_block_params: &mut HashMap<String, Vec<String>>,
     out_exception_edges: &mut HashMap<String, Option<String>>,
 ) {
@@ -339,7 +248,7 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
     else {
         out_block_params.insert(label.as_str().to_string(), block_params.clone());
         out_exception_edges.insert(label.as_str().to_string(), exc_target);
-        out_blocks.push(BlockPyBlock {
+        out_blocks.push(CfgBlock {
             label,
             body,
             term: final_term,
@@ -368,7 +277,7 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
 
     out_block_params.insert(label.as_str().to_string(), block_params);
     out_exception_edges.insert(label.as_str().to_string(), exc_target.clone());
-    out_blocks.push(BlockPyBlock {
+    out_blocks.push(CfgBlock {
         label: label.clone(),
         body,
         term: BlockPyTerm::IfTerm(BlockPyIfTerm {
@@ -431,16 +340,16 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
     }
 }
 
-fn linearize_blockpy_fragment<E: Clone + Into<Expr>>(
+fn linearize_blockpy_fragment<E: Clone + Into<Expr>, M: Clone>(
     label: BlockPyLabel,
     fragment: BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
     fallthrough_term: BlockPyTerm<E>,
-    meta: super::BlockPyBlockMeta,
+    meta: M,
     block_params: Vec<String>,
     declared_params: Vec<BlockParam>,
     exc_target: Option<String>,
     next_label_id: &mut usize,
-    out_blocks: &mut Vec<BlockPyBlock<E>>,
+    out_blocks: &mut Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>>,
     out_block_params: &mut HashMap<String, Vec<String>>,
     out_exception_edges: &mut HashMap<String, Option<String>>,
 ) {
@@ -459,12 +368,12 @@ fn linearize_blockpy_fragment<E: Clone + Into<Expr>>(
     );
 }
 
-pub(crate) fn linearize_structured_ifs<E: Clone + Into<Expr>>(
-    blocks: &[BlockPyBlock<E>],
+pub(crate) fn linearize_structured_ifs<E: Clone + Into<Expr>, M: Clone>(
+    blocks: &[CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>],
     block_params: &HashMap<String, Vec<String>>,
     exception_edges: &HashMap<String, Option<String>>,
 ) -> (
-    Vec<BlockPyBlock<E>>,
+    Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>>,
     HashMap<String, Vec<String>>,
     HashMap<String, Option<String>>,
 ) {

@@ -1,10 +1,9 @@
 use dp_transform::block_py::{
-    AbruptKind, BbBlock, BbBlockPyPass, BbExceptionArgSource, BbStmt, BlockArg, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyLabel, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyCallArg,
-    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    AbruptKind, BbBlock, BbStmt, BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule,
+    BlockPyStmt, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
+    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreNumberLiteralValue,
 };
-use ruff_python_ast::Number;
-use std::borrow::Cow;
+use dp_transform::passes::BbBlockPyPass;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
@@ -205,19 +204,13 @@ fn direct_simple_expr_from(
         }
         CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => match literal {
             CoreBlockPyLiteral::NumberLiteral(number) => match &number.value {
-                Number::Int(value) => value.as_i64().map(DirectSimpleExprPlan::Int),
-                Number::Float(value) => Some(DirectSimpleExprPlan::Float(*value)),
-                Number::Complex { .. } => None,
+                CoreNumberLiteralValue::Int(value) => value.as_i64().map(DirectSimpleExprPlan::Int),
+                CoreNumberLiteralValue::Float(value) => Some(DirectSimpleExprPlan::Float(*value)),
             },
             CoreBlockPyLiteral::BytesLiteral(bytes) => {
-                let value: Cow<[u8]> = (&bytes.value).into();
-                Some(DirectSimpleExprPlan::Bytes(value.into_owned()))
+                Some(DirectSimpleExprPlan::Bytes(bytes.value.clone()))
             }
-            CoreBlockPyLiteral::BooleanLiteral(boolean) => {
-                Some(DirectSimpleExprPlan::Bool(boolean.value))
-            }
-            CoreBlockPyLiteral::NoneLiteral(_) => Some(DirectSimpleExprPlan::None),
-            CoreBlockPyLiteral::StringLiteral(_) | CoreBlockPyLiteral::EllipsisLiteral(_) => None,
+            CoreBlockPyLiteral::StringLiteral(_) => None,
         },
         CoreBlockPyExprWithoutAwaitOrYield::Call(call) => {
             let func = direct_simple_expr_from(call.func.as_ref())?;
@@ -487,7 +480,7 @@ fn unsupported_fastpath_block_message(
         bb_term_kind(&block.term),
         op_kinds,
         block.param_name_vec(),
-        block.meta.exc_target_label,
+        block.meta.exc_edge.as_ref().map(|edge| &edge.target),
         op_debug,
     )
 }
@@ -575,19 +568,6 @@ fn direct_simple_block_plan_from_block(
 }
 
 fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan, String> {
-    if !matches!(
-        function.lowered_kind(),
-        BlockPyFunctionKind::Function
-            | BlockPyFunctionKind::Coroutine
-            | BlockPyFunctionKind::Generator
-            | BlockPyFunctionKind::AsyncGenerator
-    ) {
-        return Err(format!(
-            "unsupported JIT function kind in {}: {:?}; only plain/generator/async-generator functions are currently supported",
-            function.names.qualname,
-            function.lowered_kind()
-        ));
-    }
     let ambient_param_names = function
         .closure_layout()
         .as_ref()
@@ -598,20 +578,14 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
     for (index, block) in function.blocks.iter().enumerate() {
         label_to_index.insert(block.label.clone(), index);
     }
-    let entry_label = function.entry_label();
-    let Some(entry_index) = label_to_index.get(entry_label).copied() else {
-        return Err(format!(
-            "missing entry label {} in function {}",
-            entry_label, function.names.qualname
-        ));
-    };
+    let entry_index = 0;
     let mut block_terms = Vec::with_capacity(function.blocks.len());
     let mut block_exc_targets = Vec::with_capacity(function.blocks.len());
     let mut block_exc_dispatches = Vec::with_capacity(function.blocks.len());
     let mut block_param_names = Vec::with_capacity(function.blocks.len());
     let mut block_fast_paths = Vec::with_capacity(function.blocks.len());
     for block in &function.blocks {
-        let exc_target = match block.meta.exc_target_label.as_ref() {
+        let exc_target = match block.meta.exc_edge.as_ref().map(|edge| &edge.target) {
             Some(label) => Some(label_to_index.get(label.as_str()).copied().ok_or_else(|| {
                 format!(
                     "unknown exception target {label} in {}:{}",
@@ -629,45 +603,59 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                 .find(|param| param.as_str() == "_dp_self" || param.as_str() == "_dp_state")
                 .cloned();
             let mut arg_sources = Vec::with_capacity(full_target_param_names.len());
-            if block.meta.exc_arg_sources.len() != full_target_param_names.len() {
+            let exc_args = &block
+                .meta
+                .exc_edge
+                .as_ref()
+                .expect("exc_target implies exc_edge")
+                .args;
+            if exc_args.len() != full_target_param_names.len() {
                 return Err(format!(
-                    "exception dispatch from {}:{} has {} explicit arg sources for target {} with {} full params",
+                    "exception dispatch from {}:{} has {} explicit edge args for target {} with {} full params",
                     function.names.qualname,
                     block.label,
-                    block.meta.exc_arg_sources.len(),
+                    exc_args.len(),
                     target_block.label,
                     full_target_param_names.len()
                 ));
             }
-            for (target_param_name, source) in full_target_param_names
-                .iter()
-                .zip(block.meta.exc_arg_sources.iter())
-            {
+            for (target_param_name, source) in full_target_param_names.iter().zip(exc_args.iter()) {
                 if ambient_param_name_set.contains(target_param_name) {
                     continue;
                 }
                 match source {
-                    BbExceptionArgSource::SourceParam(name) => {
+                    BlockArg::Name(name) => {
                         if !block_param_names
                             .iter()
                             .any(|source_name| source_name == name)
                         {
-                            return Err(format!(
-                                "exception dispatch from {}:{} references missing source param {}",
-                                function.names.qualname, block.label, name
-                            ));
+                            if owner_param_name.is_none() {
+                                arg_sources.push(BlockExcArgSource::NoneValue);
+                            } else {
+                                arg_sources
+                                    .push(BlockExcArgSource::FrameLocal { name: name.clone() });
+                            }
+                        } else {
+                            arg_sources.push(BlockExcArgSource::SourceParam { name: name.clone() });
                         }
-                        arg_sources.push(BlockExcArgSource::SourceParam { name: name.clone() });
                     }
-                    BbExceptionArgSource::CurrentException => {
+                    BlockArg::CurrentException => {
                         arg_sources.push(BlockExcArgSource::Exception);
                     }
-                    BbExceptionArgSource::FrameLocal(name) => {
-                        if owner_param_name.is_none() {
-                            arg_sources.push(BlockExcArgSource::NoneValue);
-                        } else {
-                            arg_sources.push(BlockExcArgSource::FrameLocal { name: name.clone() });
-                        }
+                    BlockArg::None => {
+                        arg_sources.push(BlockExcArgSource::NoneValue);
+                    }
+                    BlockArg::Expr(_) => {
+                        return Err(format!(
+                            "exception dispatch from {}:{} uses expr edge arg for target param {}",
+                            function.names.qualname, block.label, target_param_name
+                        ));
+                    }
+                    BlockArg::AbruptKind(kind) => {
+                        return Err(format!(
+                            "exception dispatch from {}:{} uses abrupt-kind edge arg {:?} for target param {}",
+                            function.names.qualname, block.label, kind, target_param_name
+                        ));
                     }
                 }
             }
@@ -906,7 +894,7 @@ pub fn register_clif_module_plans(
                         "[diet-python:jitskip] module={} qualname={} entry={} reason={}",
                         module_name,
                         function.names.qualname,
-                        function.entry_label(),
+                        function.entry_block().label_str(),
                         err
                     );
                 }

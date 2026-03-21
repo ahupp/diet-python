@@ -1,6 +1,6 @@
 use crate::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
-    prune_unreachable_blockpy_blocks, relabel_blockpy_blocks, rename_blockpy_labels,
+    prune_unreachable_blockpy_blocks, relabel_blockpy_blocks,
 };
 use crate::block_py::dataflow::{
     analyze_blockpy_use_def, compute_block_params_blockpy,
@@ -15,14 +15,14 @@ use crate::block_py::state::{
     collect_state_vars, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use crate::block_py::{
-    assert_blockpy_block_normalized, BlockPyBlock, BlockPyBlockMeta, BlockPyCallableFacts,
-    BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyTerm, BlockPyTryJump,
-    ClosureLayout, FunctionId, FunctionName, LoweredBlockPyExtra, LoweredRuffBlockPyPass,
-    RuffBlockPyPass, ENTRY_BLOCK_LABEL,
+    assert_blockpy_block_normalized, BlockPyBlock, BlockPyCallableFacts, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
+    CfgBlock, ClosureLayout, FunctionId, FunctionName, PassExpr,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
+use crate::passes::{LoweredRuffBlockPyPass, RuffBlockPyPass};
 use crate::ruff_ast_to_string;
 use crate::template::is_simple;
 use crate::{py_expr, py_stmt};
@@ -62,19 +62,6 @@ pub(crate) use try_regions::{
     block_references_label, build_try_plan, finalize_try_regions, lower_try_regions,
     prepare_except_body, prepare_finally_body, TryPlan,
 };
-
-impl<P> BlockPyFunction<P>
-where
-    P: BlockPyPass<FunctionExtra = LoweredBlockPyExtra>,
-{
-    pub fn block_params(&self) -> &HashMap<String, Vec<String>> {
-        &self.extra.block_params
-    }
-
-    pub fn exception_edges(&self) -> &HashMap<String, Option<String>> {
-        &self.extra.exception_edges
-    }
-}
 
 #[derive(Clone)]
 pub(crate) enum StmtSequenceHeadPlan {
@@ -155,120 +142,131 @@ pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId 
     id
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn build_lowered_blockpy_function(
-    callable_def: BlockPyFunction<RuffBlockPyPass>,
-    block_params: HashMap<String, Vec<String>>,
-    exception_edges: HashMap<String, Option<String>>,
-) -> BlockPyFunction<LoweredRuffBlockPyPass> {
-    callable_def.map_extra(|_| LoweredBlockPyExtra {
-        block_params,
-        exception_edges,
-    })
+pub(crate) fn attach_exception_edges_to_blocks<E>(
+    blocks: Vec<BlockPyBlock<E>>,
+    exception_edges: &HashMap<String, Option<String>>,
+) -> Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, Option<BlockPyLabel>>> {
+    blocks
+        .into_iter()
+        .map(|block| CfgBlock {
+            label: block.label.clone(),
+            body: block.body,
+            term: block.term,
+            params: block.params,
+            meta: exception_edges
+                .get(block.label.as_str())
+                .cloned()
+                .flatten()
+                .map(BlockPyLabel::from),
+        })
+        .collect()
 }
 
-fn fresh_normalized_entry_collision_label(
-    blocks: &[BlockPyBlock<Expr>],
-    rename: &HashMap<String, String>,
-) -> String {
-    let existing = blocks
+pub(crate) fn lowered_exception_edges<E>(
+    blocks: &[CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, Option<BlockPyLabel>>],
+) -> HashMap<String, Option<String>> {
+    blocks
         .iter()
-        .map(|block| block.label.as_str().to_string())
-        .collect::<HashSet<_>>();
-    let mut next_id = 0usize;
-    loop {
-        let candidate = format!("{ENTRY_BLOCK_LABEL}_{next_id}");
-        if !existing.contains(candidate.as_str())
-            && !rename.values().any(|value| value == &candidate)
-        {
-            return candidate;
-        }
-        next_id += 1;
-    }
-}
-
-fn rename_label_map_keys<T: Clone>(
-    map: &HashMap<String, T>,
-    rename: &HashMap<String, String>,
-) -> HashMap<String, T> {
-    map.iter()
-        .map(|(label, value)| {
+        .map(|block| {
             (
-                rename
-                    .get(label.as_str())
-                    .cloned()
-                    .unwrap_or_else(|| label.clone()),
-                value.clone(),
+                block.label.as_str().to_string(),
+                block.meta.as_ref().map(ToString::to_string),
             )
         })
         .collect()
 }
 
-fn rename_exception_edges(
-    edges: &HashMap<String, Option<String>>,
-    rename: &HashMap<String, String>,
-) -> HashMap<String, Option<String>> {
-    edges
+fn append_closure_storage_aliases(
+    block_params: &mut HashMap<String, Vec<String>>,
+    layout: &ClosureLayout,
+) {
+    let logical_name_by_storage = layout
+        .cellvars
         .iter()
-        .map(|(label, target)| {
-            let rewritten_label = rename
-                .get(label.as_str())
-                .cloned()
-                .unwrap_or_else(|| label.clone());
-            let rewritten_target = target.as_ref().map(|name| {
-                rename
-                    .get(name.as_str())
-                    .cloned()
-                    .unwrap_or_else(|| name.clone())
-            });
-            (rewritten_label, rewritten_target)
-        })
-        .collect()
+        .chain(layout.runtime_cells.iter())
+        .filter(|slot| slot.logical_name != slot.storage_name)
+        .map(|slot| (slot.storage_name.as_str(), slot.logical_name.as_str()))
+        .collect::<HashMap<_, _>>();
+    for params in block_params.values_mut() {
+        let mut logical_aliases = Vec::new();
+        for param_name in params.iter() {
+            let Some(logical_name) = logical_name_by_storage.get(param_name.as_str()).copied()
+            else {
+                continue;
+            };
+            if params.iter().any(|existing| existing == logical_name)
+                || logical_aliases
+                    .iter()
+                    .any(|existing| existing == logical_name)
+            {
+                continue;
+            }
+            logical_aliases.push(logical_name.to_string());
+        }
+        params.extend(logical_aliases);
+    }
+}
+
+pub(crate) fn should_include_closure_storage_aliases<P>(function: &BlockPyFunction<P>) -> bool
+where
+    P: BlockPyPass,
+{
+    matches!(
+        function.kind,
+        BlockPyFunctionKind::Coroutine
+            | BlockPyFunctionKind::Generator
+            | BlockPyFunctionKind::AsyncGenerator
+    ) || function.names.fn_name == "_dp_resume"
+}
+
+pub(crate) fn recompute_lowered_block_params<P>(
+    function: &BlockPyFunction<P>,
+    include_closure_storage_aliases: bool,
+) -> HashMap<String, Vec<String>>
+where
+    P: BlockPyPass<BlockMeta = Option<BlockPyLabel>>,
+    PassExpr<P>: Clone + Into<Expr>,
+{
+    let param_names = function.params.names();
+    let mut state_vars = collect_state_vars(&param_names, &function.blocks);
+    for block in &function.blocks {
+        let Some(exc_param) = block.exception_param() else {
+            continue;
+        };
+        if !state_vars.iter().any(|existing| existing == exc_param) {
+            state_vars.push(exc_param.to_string());
+        }
+    }
+    extend_state_order_with_declared_block_params(&function.blocks, &mut state_vars);
+
+    let mut extra_successors = HashMap::new();
+    for (source, target) in lowered_exception_edges(&function.blocks) {
+        let Some(target) = target else {
+            continue;
+        };
+        extra_successors
+            .entry(source)
+            .or_insert_with(Vec::new)
+            .push(target);
+    }
+    let mut block_params =
+        compute_block_params_blockpy(&function.blocks, &state_vars, &extra_successors);
+    merge_declared_block_params(&function.blocks, &mut block_params);
+    if include_closure_storage_aliases {
+        if let Some(layout) = function.closure_layout.as_ref() {
+            append_closure_storage_aliases(&mut block_params, layout);
+        }
+    }
+    block_params
 }
 
 pub(crate) fn normalize_exported_entry_block(
     entry_label: String,
     mut blocks: Vec<BlockPyBlock<Expr>>,
-    block_params: HashMap<String, Vec<String>>,
     exception_edges: HashMap<String, Option<String>>,
-) -> (
-    Vec<BlockPyBlock<Expr>>,
-    HashMap<String, Vec<String>>,
-    HashMap<String, Option<String>>,
-) {
-    let mut rename = HashMap::new();
-    if entry_label != ENTRY_BLOCK_LABEL {
-        if blocks
-            .iter()
-            .any(|block| block.label.as_str() == ENTRY_BLOCK_LABEL)
-        {
-            rename.insert(
-                ENTRY_BLOCK_LABEL.to_string(),
-                fresh_normalized_entry_collision_label(&blocks, &rename),
-            );
-        }
-        rename.insert(entry_label.clone(), ENTRY_BLOCK_LABEL.to_string());
-    }
-
-    if !rename.is_empty() {
-        rename_blockpy_labels(&rename, &mut blocks);
-    }
-
-    if let Some(entry_index) = blocks
-        .iter()
-        .position(|block| block.label.as_str() == ENTRY_BLOCK_LABEL)
-    {
-        if entry_index != 0 {
-            let entry_block = blocks.remove(entry_index);
-            blocks.insert(0, entry_block);
-        }
-    }
-
-    (
-        blocks,
-        rename_label_map_keys(&block_params, &rename),
-        rename_exception_edges(&exception_edges, &rename),
-    )
+) -> (Vec<BlockPyBlock<Expr>>, HashMap<String, Option<String>>) {
+    move_blockpy_entry_block_to_front(&mut blocks, entry_label.as_str());
+    (blocks, exception_edges)
 }
 
 fn build_semantic_blockpy_closure_layout(
@@ -330,7 +328,6 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     callable_def: BlockPyFunction<RuffBlockPyPass>,
 ) -> BlockPyFunction<LoweredRuffBlockPyPass> {
     let callable_facts = callable_def.facts.clone();
-    let param_names = callable_def.params.names();
     let mut callable_def = callable_def;
     if !callable_facts.deleted_names.is_empty() {
         rewrite_deleted_name_loads(
@@ -346,34 +343,9 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
         );
     }
     let mut blockpy_function = callable_def;
-    let entry_label = blockpy_function.entry_label().to_string();
+    let entry_label = blockpy_function.entry_block().label_str().to_string();
     let exception_edges = compute_blockpy_exception_edges(&blockpy_function.try_regions);
-    let mut extra_successors = build_try_extra_successors(&blockpy_function.try_regions);
     let blocks_for_dataflow = std::mem::take(&mut blockpy_function.blocks);
-
-    let mut state_vars = collect_state_vars(&param_names, &blocks_for_dataflow);
-    for block in &blocks_for_dataflow {
-        let Some(exc_param) = block.exception_param() else {
-            continue;
-        };
-        if !state_vars.iter().any(|existing| existing == exc_param) {
-            state_vars.push(exc_param.to_string());
-        }
-    }
-    extend_state_order_with_declared_block_params(&blocks_for_dataflow, &mut state_vars);
-
-    for (source, target) in &exception_edges {
-        let Some(target) = target.as_ref() else {
-            continue;
-        };
-        let successors = extra_successors.entry(source.clone()).or_default();
-        if !successors.iter().any(|existing| existing == target) {
-            successors.push(target.clone());
-        }
-    }
-    let mut block_params =
-        compute_block_params_blockpy(&blocks_for_dataflow, &state_vars, &extra_successors);
-    merge_declared_block_params(&blocks_for_dataflow, &mut block_params);
     let semantic_closure_layout = blockpy_function.closure_layout.clone();
 
     let function_id = blockpy_function.function_id;
@@ -382,31 +354,24 @@ pub(crate) fn build_lowered_blockpy_function_bundle(
     let doc = blockpy_function.doc.clone();
     let params = blockpy_function.params.clone();
     let param_defaults = blockpy_function.param_defaults.clone();
-    let (normalized_main_blocks, normalized_main_block_params, normalized_main_exception_edges) =
-        normalize_exported_entry_block(
-            entry_label,
-            blocks_for_dataflow,
-            block_params,
-            exception_edges,
-        );
-    let main_function = build_blockpy_function(
+    let (normalized_main_blocks, normalized_main_exception_edges) =
+        normalize_exported_entry_block(entry_label, blocks_for_dataflow, exception_edges);
+    BlockPyFunction {
         function_id,
         names,
+        kind,
         params,
         param_defaults,
+        blocks: attach_exception_edges_to_blocks(
+            normalized_main_blocks,
+            &normalized_main_exception_edges,
+        ),
         doc,
-        kind,
-        ENTRY_BLOCK_LABEL.to_string(),
-        semantic_closure_layout,
-        blockpy_function.facts.clone(),
-        blockpy_function.try_regions.clone(),
-        normalized_main_blocks,
-    );
-    build_lowered_blockpy_function(
-        main_function,
-        normalized_main_block_params,
-        normalized_main_exception_edges,
-    )
+        closure_layout: semantic_closure_layout,
+        facts: blockpy_function.facts.clone(),
+        try_regions: blockpy_function.try_regions.clone(),
+        extra: (),
+    }
 }
 
 pub(crate) fn build_finalized_blockpy_callable_def(
@@ -596,7 +561,7 @@ pub(crate) fn finalize_blockpy_callable_def(
             body: Vec::new(),
             term: BlockPyTerm::Return(None),
             params: Vec::new(),
-            meta: BlockPyBlockMeta::default(),
+            meta: (),
         });
     }
     fold_jumps_to_trivial_none_return_blockpy(&mut callable_def.blocks);
@@ -635,7 +600,7 @@ mod tests {
     use super::*;
     use crate::block_py::{
         BlockPyFunction, BlockPyModule, BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-        CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyPassWithoutAwaitOrYield, RuffBlockPyPass,
+        CoreBlockPyExprWithoutAwaitOrYield,
     };
     use crate::passes::ast_to_ast::{context::Context, Options};
     use crate::passes::ruff_to_blockpy::stmt_sequences::{
@@ -643,6 +608,7 @@ mod tests {
         lower_while_stmt_sequence, lower_while_stmt_sequence_from_stmt, plan_stmt_sequence_head,
     };
     use crate::passes::ruff_to_blockpy::try_regions::build_try_plan;
+    use crate::passes::{CoreBlockPyPassWithoutAwaitOrYield, RuffBlockPyPass};
     use crate::{transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options};
     fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
         transform_str_to_blockpy_with_options(source, Options::for_test()).unwrap()
@@ -1484,9 +1450,7 @@ async def outer(inner):
         );
         for label in stop_iteration_raise_labels {
             assert_eq!(
-                resume
-                    .extra
-                    .exception_edges
+                lowered_exception_edges(&resume.blocks)
                     .get(label.as_str())
                     .cloned()
                     .flatten(),

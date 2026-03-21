@@ -1,12 +1,12 @@
 use super::{
-    AbruptKind, BbBlockPyPass, BlockArg, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm, BlockPyTryJump, CoreBlockPyExprWithoutAwaitOrYield,
-    CoreBlockPyLiteral, Expr, PassBlock, PassExpr, RuffBlockPyPass,
+    AbruptKind, BlockArg, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise, BlockPyStmt,
+    BlockPyTerm, BlockPyTryJump, CfgBlock, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral,
+    Expr, PassBlock, PassExpr,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
+use crate::passes::{BbBlockPyPass, RuffBlockPyPass};
 use crate::ruff_ast_to_string;
-use ruff_python_ast as ast;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -30,21 +30,27 @@ where
 
 impl<P> BlockPyPrettyPrinter for P
 where
-    P: BlockPyPass<BlockMeta = super::BlockPyBlockMeta>,
+    P: BlockPyPass,
+    P::BlockMeta: PrettyDefaultBlockMeta<PassExpr<P>>,
     PassExpr<P>: Clone + Into<Expr>,
 {
     fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
-        function.entry_liveins()
+        function.non_bb_entry_liveins()
     }
 
     fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
-        render_blockpy_block_metadata(block)
+        <P::BlockMeta as PrettyDefaultBlockMeta<PassExpr<P>>>::block_metadata_lines(block)
     }
 }
 
 impl BlockPyPrettyPrinter for BbBlockPyPass {
     fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
-        function.entry_liveins()
+        function
+            .entry_block()
+            .param_names()
+            .filter(|name| !super::is_resume_abi_param_name(name))
+            .map(ToString::to_string)
+            .collect()
     }
 
     fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
@@ -59,11 +65,33 @@ impl BlockPyPrettyPrinter for BbBlockPyPass {
                     .join(", ")
             ));
         }
-        if let Some(exc_target) = &block.meta.exc_target_label {
-            lines.push(format!("exc_target: {}", exc_target.as_str()));
+        if let Some(exc_edge) = &block.meta.exc_edge {
+            lines.push(format!("exc_target: {}", exc_edge.target.as_str()));
         }
         if let Some(exc_name) = block.exception_param() {
             lines.push(format!("exc_name: {exc_name}"));
+        }
+        lines
+    }
+}
+
+trait PrettyDefaultBlockMeta<E>: Clone + std::fmt::Debug {
+    fn block_metadata_lines(block: &CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, Self>) -> Vec<String>
+    where
+        Self: Sized;
+}
+
+impl<E> PrettyDefaultBlockMeta<E> for () {
+    fn block_metadata_lines(block: &CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, Self>) -> Vec<String> {
+        render_blockpy_block_metadata(block)
+    }
+}
+
+impl<E> PrettyDefaultBlockMeta<E> for Option<BlockPyLabel> {
+    fn block_metadata_lines(block: &CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, Self>) -> Vec<String> {
+        let mut lines = render_blockpy_block_metadata(block);
+        if let Some(exc_target) = &block.meta {
+            lines.push(format!("exc_target: {}", exc_target.as_str()));
         }
         lines
     }
@@ -489,10 +517,10 @@ pub(crate) fn bb_expr_text(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> String 
     match expr {
         CoreBlockPyExprWithoutAwaitOrYield::Name(name) => name.id.to_string(),
         CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => match literal {
-            CoreBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value.to_str()),
+            CoreBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value),
             CoreBlockPyLiteral::BytesLiteral(literal) => {
                 let mut out = String::from("b\"");
-                for byte in literal.value.bytes() {
+                for &byte in &literal.value {
                     for escaped in std::ascii::escape_default(byte) {
                         out.push(escaped as char);
                     }
@@ -501,13 +529,9 @@ pub(crate) fn bb_expr_text(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> String 
                 out
             }
             CoreBlockPyLiteral::NumberLiteral(literal) => match &literal.value {
-                ast::Number::Int(value) => value.to_string(),
-                ast::Number::Float(value) => value.to_string(),
-                ast::Number::Complex { real, imag } => format!("{real}+{imag}j"),
+                super::CoreNumberLiteralValue::Int(value) => value.to_string(),
+                super::CoreNumberLiteralValue::Float(value) => value.to_string(),
             },
-            CoreBlockPyLiteral::BooleanLiteral(literal) => literal.value.to_string(),
-            CoreBlockPyLiteral::NoneLiteral(_) => "None".to_string(),
-            CoreBlockPyLiteral::EllipsisLiteral(_) => "...".to_string(),
         },
         CoreBlockPyExprWithoutAwaitOrYield::Call(call) => {
             let mut parts = Vec::new();
@@ -697,7 +721,9 @@ where
     }
 }
 
-fn render_blockpy_block_metadata<E>(block: &super::BlockPyBlock<E>) -> Vec<String> {
+fn render_blockpy_block_metadata<E, M>(
+    block: &CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>,
+) -> Vec<String> {
     let mut lines = Vec::new();
     if let Some(exc_param) = block.exception_param() {
         lines.push(format!("exc_param: {exc_param}"));
@@ -1136,10 +1162,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block_py::{
-        BbBlockMeta, BlockParam, BlockParamRole, BlockPyBlock, BlockPyBlockMeta, RuffBlockPyPass,
-    };
+    use crate::block_py::{BbBlockMeta, BlockParam, BlockParamRole, BlockPyBlock};
     use crate::block_py::{ClosureInit, ClosureLayout, ClosureSlot};
+    use crate::passes::{BbBlockPyPass, RuffBlockPyPass};
     use ruff_python_parser::parse_expression;
 
     fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
@@ -1182,6 +1207,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
     return "no"
 "#,
         );
+        let classify = function_by_bind_name(&blockpy, "classify");
         let rendered = blockpy_module_to_string(&blockpy);
 
         assert!(
@@ -1191,7 +1217,10 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
         assert!(rendered.contains("function_id: "), "{rendered}");
         assert!(rendered.contains("function _dp_module_init():"));
         assert!(!rendered.contains("module_init: _dp_module_init"));
-        assert!(rendered.contains("block start:"));
+        assert!(
+            rendered.contains(format!("block {}:", classify.entry_block().label_str()).as_str()),
+            "{rendered}"
+        );
         assert!(rendered.contains("if_term a:"));
         assert!(rendered.contains("return \"yes\""));
     }
@@ -1290,7 +1319,7 @@ async def no_lying():
                     body: vec![],
                     term: BlockPyTerm::<Expr>::Return(None),
                     params: Vec::new(),
-                    meta: BlockPyBlockMeta::default(),
+                    meta: (),
                 }],
                 doc: None,
                 closure_layout: Some(ClosureLayout {
@@ -1340,28 +1369,28 @@ async def no_lying():
                         else_label: "else".into(),
                     }),
                     params: Vec::new(),
-                    meta: BlockPyBlockMeta::default(),
+                    meta: (),
                 },
                 BlockPyBlock {
                     label: "then".into(),
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()"))],
                     term: BlockPyTerm::Jump("after".into()),
                     params: Vec::new(),
-                    meta: BlockPyBlockMeta::default(),
+                    meta: (),
                 },
                 BlockPyBlock {
                     label: "else".into(),
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()"))],
                     term: BlockPyTerm::Jump("after".into()),
                     params: Vec::new(),
-                    meta: BlockPyBlockMeta::default(),
+                    meta: (),
                 },
                 BlockPyBlock {
                     label: "after".into(),
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()"))],
                     term: BlockPyTerm::Return(None),
                     params: Vec::new(),
-                    meta: BlockPyBlockMeta::default(),
+                    meta: (),
                 },
             ],
             doc: None,
@@ -1418,35 +1447,35 @@ def choose(a, b):
                         except_label: "alpha".into(),
                     }),
                     params: Vec::new(),
-                    meta: BlockPyBlockMeta::default(),
+                    meta: (),
                 },
                 BlockPyBlock {
                     label: "zeta".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(None),
                     params: Vec::new(),
-                    meta: BlockPyBlockMeta::default(),
+                    meta: (),
                 },
                 BlockPyBlock {
                     label: "alpha".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(None),
                     params: Vec::new(),
-                    meta: BlockPyBlockMeta::default(),
+                    meta: (),
                 },
                 BlockPyBlock {
                     label: "omega".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(None),
                     params: Vec::new(),
-                    meta: BlockPyBlockMeta::default(),
+                    meta: (),
                 },
                 BlockPyBlock {
                     label: "beta".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(None),
                     params: Vec::new(),
-                    meta: BlockPyBlockMeta::default(),
+                    meta: (),
                 },
             ],
             doc: None,
@@ -1493,7 +1522,7 @@ def choose(a, b):
                     except_label: "except_target".into(),
                 }),
                 params: Vec::new(),
-                meta: BlockPyBlockMeta::default(),
+                meta: (),
             }]);
 
         let expected = [
@@ -1536,8 +1565,7 @@ def choose(a, b):
                             },
                         ],
                         meta: BbBlockMeta {
-                            exc_target_label: Some("except".into()),
-                            exc_arg_sources: Vec::new(),
+                            exc_edge: Some(BlockPyEdge::new("except".into())),
                         },
                     },
                     PassBlock::<BbBlockPyPass> {

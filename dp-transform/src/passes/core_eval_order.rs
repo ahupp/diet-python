@@ -1,11 +1,12 @@
 use crate::block_py::BlockPyAssign;
 use crate::block_py::{
-    BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyFunction, BlockPyIf,
-    BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCall,
+    BlockPyBranchTable, BlockPyCfgFragment, BlockPyFunction, BlockPyIf, BlockPyIfTerm,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyCall,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait, CoreBlockPyKeywordArg,
-    CoreBlockPyPass, CoreBlockPyPassWithoutAwait, CoreBlockPyYield, CoreBlockPyYieldFrom,
+    CoreBlockPyYield, CoreBlockPyYieldFrom,
 };
 use crate::namegen::fresh_name;
+use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithoutAwait};
 use crate::py_expr;
 use ruff_python_ast as ast;
 
@@ -199,10 +200,10 @@ fn make_eval_order_explicit_in_core_term(
     }
 }
 
-fn make_eval_order_explicit_in_core_block(
-    block: BlockPyBlock<CoreBlockPyExpr>,
-) -> BlockPyBlock<CoreBlockPyExpr> {
-    let BlockPyBlock {
+fn make_eval_order_explicit_in_core_block<M: Clone + std::fmt::Debug>(
+    block: CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>, M>,
+) -> CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>, M> {
+    let CfgBlock {
         label,
         body: input_body,
         term: input_term,
@@ -214,7 +215,7 @@ fn make_eval_order_explicit_in_core_block(
         make_eval_order_explicit_in_core_stmt(stmt, &mut body);
     }
     let term = make_eval_order_explicit_in_core_term(input_term, &mut body);
-    BlockPyBlock {
+    CfgBlock {
         label,
         body,
         term,
@@ -423,10 +424,15 @@ fn make_eval_order_explicit_in_core_term_without_await(
     }
 }
 
-pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
-    block: BlockPyBlock<CoreBlockPyExprWithoutAwait>,
-) -> BlockPyBlock<CoreBlockPyExprWithoutAwait> {
-    let BlockPyBlock {
+pub(crate) fn make_eval_order_explicit_in_core_block_without_await<M: Clone + std::fmt::Debug>(
+    block: CfgBlock<
+        BlockPyStmt<CoreBlockPyExprWithoutAwait>,
+        BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+        M,
+    >,
+) -> CfgBlock<BlockPyStmt<CoreBlockPyExprWithoutAwait>, BlockPyTerm<CoreBlockPyExprWithoutAwait>, M>
+{
+    let CfgBlock {
         label,
         body: input_body,
         term: input_term,
@@ -438,7 +444,7 @@ pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
         make_eval_order_explicit_in_core_stmt_without_await(stmt, &mut body);
     }
     let term = make_eval_order_explicit_in_core_term_without_await(input_term, &mut body);
-    BlockPyBlock {
+    CfgBlock {
         label,
         body,
         term,
@@ -456,7 +462,7 @@ pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block_py::{BlockPyLabel, BlockPyTerm, CoreBlockPyExpr};
+    use crate::block_py::{BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyExpr};
 
     fn test_name(id: &str) -> ast::ExprName {
         let ast::Expr::Name(expr) = crate::py_expr!("{id:id}", id = id) else {

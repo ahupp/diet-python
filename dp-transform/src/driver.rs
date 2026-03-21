@@ -1,7 +1,4 @@
-use crate::block_py::{
-    BbBlockPyPass, BlockPyModule, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
-    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, RuffBlockPyPass,
-};
+use crate::block_py::BlockPyModule;
 use crate::passes::ast_to_ast::ast_rewrite::rewrite_with_pass;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def;
@@ -20,7 +17,10 @@ use crate::passes::core_eval_order::make_eval_order_explicit_in_core_callable_de
 use crate::passes::ruff_to_blockpy::{
     build_lowered_blockpy_function_bundle, rewrite_ast_to_lowered_blockpy_module_plan,
 };
-use crate::passes::{self};
+use crate::passes::{
+    self, BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
+    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, RuffBlockPyPass,
+};
 use crate::PassTracker;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 

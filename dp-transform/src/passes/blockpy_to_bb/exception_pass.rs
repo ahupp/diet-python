@@ -1,8 +1,9 @@
 use crate::block_py::{
-    BbBlock, BbBlockMeta, BbBlockPyPass, BbStmt, BlockPyFunction, BlockPyLabel, BlockPyModule,
+    BbBlock, BbBlockMeta, BbStmt, BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule,
     BlockPyStmt, BlockPyTerm,
 };
 use crate::passes::blockpy_to_bb::populate_exception_edge_args;
+use crate::passes::BbBlockPyPass;
 use std::collections::HashSet;
 
 pub fn lower_try_jump_exception_flow(
@@ -59,8 +60,8 @@ fn rewrite_try_jump_terms(
             &block.label,
             "try except target",
         )?;
-        if block.meta.exc_target_label.is_none() {
-            block.meta.exc_target_label = Some(try_jump.except_label.clone());
+        if block.meta.exc_edge.is_none() {
+            block.meta.exc_edge = Some(BlockPyEdge::new(try_jump.except_label.clone()));
         }
         block.term = BlockPyTerm::Jump(try_jump.body_label.into());
     }
@@ -94,14 +95,14 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlock
     let mut out = Vec::with_capacity(function.blocks.len());
 
     for block in std::mem::take(&mut function.blocks) {
-        if block.meta.exc_target_label.is_none() || block.body.is_empty() {
+        if block.meta.exc_edge.is_none() || block.body.is_empty() {
             out.push(block);
             continue;
         }
 
         let mut known_names = block.param_name_vec();
         let mut current_label = block.label.clone();
-        let edge_target = block.meta.exc_target_label.clone();
+        let exc_edge = block.meta.exc_edge.clone();
         let edge_exc_name = block.exception_param().map(ToString::to_string);
         let mut ops = block.body.into_iter().peekable();
         let mut segment_start_names = known_names.clone();
@@ -125,8 +126,7 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlock
                         edge_exc_name.as_deref(),
                     ),
                     meta: BbBlockMeta {
-                        exc_target_label: edge_target.clone(),
-                        exc_arg_sources: Vec::new(),
+                        exc_edge: exc_edge.clone(),
                     },
                 });
                 current_label = next_label;
@@ -143,8 +143,7 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlock
                         edge_exc_name.as_deref(),
                     ),
                     meta: BbBlockMeta {
-                        exc_target_label: edge_target.clone(),
-                        exc_arg_sources: Vec::new(),
+                        exc_edge: exc_edge.clone(),
                     },
                 });
             }
@@ -208,15 +207,8 @@ fn validate_function_labels(
     labels: &HashSet<String>,
 ) -> Result<(), String> {
     let qualname = function.names.qualname.as_str();
-    let entry_label = function.entry_label();
-    if !labels.contains(entry_label) {
-        return Err(format!(
-            "missing entry label {} in {}",
-            entry_label, qualname
-        ));
-    }
     for block in &function.blocks {
-        if let Some(exc_target_label) = block.meta.exc_target_label.as_ref() {
+        if let Some(exc_target_label) = block.meta.exc_edge.as_ref().map(|edge| &edge.target) {
             if !labels.contains(exc_target_label.as_str()) {
                 return Err(format!(
                     "unknown exception target {exc_target_label} in {}:{}",
@@ -282,7 +274,8 @@ fn ensure_known_label(
 mod tests {
     use super::lower_try_jump_exception_flow;
     use crate::block_py::{
-        BbBlock, BbBlockMeta, BlockPyLabel, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
+        BbBlock, BbBlockMeta, BlockPyEdge, BlockPyLabel, BlockPyTerm,
+        CoreBlockPyExprWithoutAwaitOrYield,
     };
     use crate::{transform_str_to_bb_ir_with_options, Options};
 
@@ -313,8 +306,7 @@ def f(x):
                     role: crate::block_py::BlockParamRole::Exception,
                 }],
                 meta: BbBlockMeta {
-                    exc_target_label: Some(except_label.clone()),
-                    exc_arg_sources: Vec::new(),
+                    exc_edge: Some(BlockPyEdge::new(except_label.clone())),
                 },
             });
             function.blocks.push(BbBlock {
@@ -341,9 +333,9 @@ def f(x):
         assert_eq!(
             body_block
                 .meta
-                .exc_target_label
+                .exc_edge
                 .as_ref()
-                .map(BlockPyLabel::as_str),
+                .map(|edge| edge.target.as_str()),
             Some(except_label.as_str()),
             "body region should dispatch to except block on exception"
         );
@@ -367,7 +359,8 @@ def f():
             .callable_defs
             .first_mut()
             .expect("must contain function");
-        function.blocks[0].meta.exc_target_label = Some(BlockPyLabel::from("missing_except"));
+        function.blocks[0].meta.exc_edge =
+            Some(BlockPyEdge::new(BlockPyLabel::from("missing_except")));
 
         let err = lower_try_jump_exception_flow(&module).expect_err("must reject unknown labels");
         assert!(
@@ -406,7 +399,7 @@ def f():
             params: Vec::new(),
             meta: BbBlockMeta::default(),
         });
-        function.blocks[block_index].meta.exc_target_label = Some(except_label.clone());
+        function.blocks[block_index].meta.exc_edge = Some(BlockPyEdge::new(except_label.clone()));
         function.blocks[block_index].set_exception_param("_dp_try_exc_split");
 
         let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
@@ -429,9 +422,9 @@ def f():
         assert_eq!(
             first
                 .meta
-                .exc_target_label
+                .exc_edge
                 .as_ref()
-                .map(BlockPyLabel::as_str),
+                .map(|edge| edge.target.as_str()),
             Some(except_label.as_str()),
             "split block must preserve exception edge target"
         );
@@ -478,7 +471,7 @@ def f():
             params: Vec::new(),
             meta: BbBlockMeta::default(),
         });
-        function.blocks[block_index].meta.exc_target_label = Some(except_label.clone());
+        function.blocks[block_index].meta.exc_edge = Some(BlockPyEdge::new(except_label.clone()));
         function.blocks[block_index].set_exception_param("_dp_try_exc_group");
 
         let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
@@ -540,8 +533,8 @@ def f():
                     crate::block_py::BlockPyTerm::Return(Some(
                         crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(
                             crate::block_py::CoreBlockPyLiteral::NumberLiteral(
-                                ruff_python_ast::ExprNumberLiteral {
-                                    value: ruff_python_ast::Number::Int(_),
+                                crate::block_py::CoreNumberLiteral {
+                                    value: crate::block_py::CoreNumberLiteralValue::Int(_),
                                     ..
                                 }
                             )
@@ -565,8 +558,8 @@ def f():
                     crate::block_py::BlockPyTerm::Return(Some(
                         crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(
                             crate::block_py::CoreBlockPyLiteral::NumberLiteral(
-                                ruff_python_ast::ExprNumberLiteral {
-                                    value: ruff_python_ast::Number::Int(_),
+                                crate::block_py::CoreNumberLiteral {
+                                    value: crate::block_py::CoreNumberLiteralValue::Int(_),
                                     ..
                                 }
                             )

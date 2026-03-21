@@ -7,7 +7,7 @@ use crate::block_py::state::{collect_cell_slots, collect_state_vars};
 use crate::block_py::BindingTarget;
 use crate::block_py::{
     is_resume_abi_param_name, BlockPyCallableFacts, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyModule, FunctionName, RuffBlockPyPass, TryRegionPlan,
+    BlockPyModule, FunctionName, TryRegionPlan,
 };
 use crate::passes::annotation_export::{
     build_lowered_annotation_helper_binding, is_annotation_helper_name,
@@ -24,6 +24,7 @@ use crate::passes::ast_to_ast::rewrite_stmt;
 use crate::passes::ast_to_ast::scope::{
     analyze_module_scope, cell_name, is_internal_symbol, Scope,
 };
+use crate::passes::RuffBlockPyPass;
 
 use crate::passes::function_identity::{
     collect_function_identity_private, is_module_init_temp_name, resolve_runtime_function_identity,
@@ -642,7 +643,7 @@ fn build_lowered_function_instantiation_preview(
     );
     merge_declared_block_params(&callable_def.blocks, &mut block_params);
     let entry_liveins = block_params
-        .get(callable_def.entry_label())
+        .get(callable_def.entry_block().label_str())
         .cloned()
         .unwrap_or_default()
         .into_iter()

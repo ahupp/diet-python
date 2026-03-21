@@ -1,12 +1,15 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use dp_transform::block_py::{BbBlockPyPass, BlockPyFunction};
+use dp_transform::block_py::BlockPyFunction;
+use dp_transform::passes::BbBlockPyPass;
 use dp_transform::{Options, transform_str_to_ruff_with_options};
 use log::{info, trace};
-use pyo3::exceptions::{PyRuntimeError, PyTypeError};
+use pyo3::exceptions::{
+    PyAttributeError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
+};
 use pyo3::ffi;
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyDict, PyModule, PyTuple};
+use pyo3::types::{PyAny, PyDict, PyFunction, PyModule, PyTuple};
 use serde_json::json;
 use std::time::Instant;
 
@@ -109,6 +112,224 @@ fn import_dp_module<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyModule>> {
     PyModule::import(py, "__dp__")
 }
 
+fn make_lazy_clif_entry<'py>(
+    py: Python<'py>,
+    dp: &Bound<'py, PyModule>,
+    async_entry: bool,
+    function_name: &str,
+    module_globals: &Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let module_globals = module_globals
+        .cast::<PyDict>()
+        .map_err(|_| PyTypeError::new_err("module_globals must be a dict"))?;
+    let code = dp
+        .getattr("_bb_entry_template_code")?
+        .call1((async_entry,))?;
+    unsafe {
+        let func = ffi::PyFunction_New(code.as_ptr(), module_globals.as_ptr());
+        if func.is_null() {
+            return Err(PyErr::fetch(py));
+        }
+        let func = Bound::from_owned_ptr(py, func);
+        func.setattr("__name__", function_name)?;
+        Ok(func)
+    }
+}
+
+fn register_clif_vectorcall_raw(
+    py: Python<'_>,
+    func: &Bound<'_, PyAny>,
+    module_name: &str,
+    function_id: usize,
+    state_order: &Bound<'_, PyAny>,
+    params: Option<&Bound<'_, PyAny>>,
+    param_defaults: Option<&Bound<'_, PyAny>>,
+    closure_values: Option<&Bound<'_, PyAny>>,
+    closure_layout: Option<&Bound<'_, PyAny>>,
+    deleted_value: &Bound<'_, PyAny>,
+    bind_kind: i32,
+    materialize_result: Option<&Bound<'_, PyAny>>,
+) -> PyResult<()> {
+    unsafe {
+        soac_eval::tree_walk::register_clif_vectorcall(
+            func.as_ptr(),
+            module_name,
+            function_id,
+            state_order.as_ptr(),
+            params.map_or(std::ptr::null_mut(), |value| value.as_ptr()),
+            param_defaults.map_or(std::ptr::null_mut(), |value| value.as_ptr()),
+            closure_values.map_or(std::ptr::null_mut(), |value| value.as_ptr()),
+            closure_layout.map_or(std::ptr::null_mut(), |value| value.as_ptr()),
+            deleted_value.as_ptr(),
+            bind_kind,
+            materialize_result.map_or(std::ptr::null_mut(), |value| value.as_ptr()),
+        )
+        .map_err(|_| {
+            if ffi::PyErr_Occurred().is_null() {
+                PyRuntimeError::new_err("failed to register CLIF vectorcall")
+            } else {
+                PyErr::fetch(py)
+            }
+        })
+    }
+}
+
+fn eager_clif_compile_requested() -> bool {
+    std::env::var("DIET_PYTHON_JIT_COMPILE_MODE")
+        .ok()
+        .map(|value| value.trim().eq_ignore_ascii_case("eager"))
+        .unwrap_or(false)
+}
+
+fn maybe_eager_compile_clif_entry(
+    py: Python<'_>,
+    func: &Bound<'_, PyAny>,
+    module_name: &str,
+    plan_name: &str,
+) -> PyResult<()> {
+    if !eager_clif_compile_requested() {
+        return Ok(());
+    }
+    let start = Instant::now();
+    let compile_result = unsafe {
+        soac_eval::tree_walk::compile_clif_vectorcall(func.as_ptr()).map_err(|_| {
+            if ffi::PyErr_Occurred().is_null() {
+                PyRuntimeError::new_err("failed to eagerly compile CLIF entry")
+            } else {
+                PyErr::fetch(py)
+            }
+        })
+    };
+    match compile_result {
+        Ok(()) => {
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+            info!(
+                "soac_jit_eager_compile module={} qualname={} elapsed_ms={elapsed_ms:.3}",
+                module_name, plan_name
+            );
+            Ok(())
+        }
+        Err(err) if err.is_instance_of::<PyNotImplementedError>(py) => Err(err),
+        Err(err) => Err(PyRuntimeError::new_err(format!(
+            "failed to eagerly compile CLIF entry for {module_name}.{plan_name}: {err}"
+        ))),
+    }
+}
+
+fn register_lazy_clif_vectorcall(
+    py: Python<'_>,
+    func: &Bound<'_, PyAny>,
+    module_name: &str,
+    function_id: usize,
+    plan_name: &str,
+    state_order: &Bound<'_, PyAny>,
+    params: Option<&Bound<'_, PyAny>>,
+    param_defaults: Option<&Bound<'_, PyAny>>,
+    closure_values: Option<&Bound<'_, PyAny>>,
+    closure_layout: Option<&Bound<'_, PyAny>>,
+    deleted_value: &Bound<'_, PyAny>,
+    bind_kind: i32,
+    materialize_result: Option<&Bound<'_, PyAny>>,
+) -> PyResult<()> {
+    match register_clif_vectorcall_raw(
+        py,
+        func,
+        module_name,
+        function_id,
+        state_order,
+        params,
+        param_defaults,
+        closure_values,
+        closure_layout,
+        deleted_value,
+        bind_kind,
+        materialize_result,
+    ) {
+        Ok(()) => maybe_eager_compile_clif_entry(py, func, module_name, plan_name),
+        Err(err) if err.is_instance_of::<PyNotImplementedError>(py) => Err(err),
+        Err(err) => Err(PyRuntimeError::new_err(format!(
+            "failed to register lazy CLIF vectorcall for {module_name}.{plan_name}: {err}"
+        ))),
+    }
+}
+
+fn ignore_attr_or_type_error(py: Python<'_>, result: PyResult<()>) -> PyResult<()> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(err)
+            if err.is_instance_of::<PyAttributeError>(py)
+                || err.is_instance_of::<PyTypeError>(py) =>
+        {
+            Ok(())
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn ignore_attr_or_value_error<T>(py: Python<'_>, result: PyResult<T>) -> PyResult<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(err)
+            if err.is_instance_of::<PyAttributeError>(py)
+                || err.is_instance_of::<PyValueError>(py) =>
+        {
+            Ok(None)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn update_function_metadata(
+    py: Python<'_>,
+    func: &Bound<'_, PyAny>,
+    qualname: &str,
+    name: &str,
+    doc: Option<&str>,
+    annotate_fn: &Bound<'_, PyAny>,
+) -> PyResult<()> {
+    ignore_attr_or_type_error(py, func.setattr("__qualname__", qualname))?;
+    ignore_attr_or_type_error(py, func.setattr("__name__", name))?;
+    if func.cast::<PyFunction>().is_ok() {
+        let kwargs = PyDict::new(py);
+        kwargs.set_item("co_name", name)?;
+        kwargs.set_item("co_qualname", qualname)?;
+        if let Some(replaced) = ignore_attr_or_value_error(
+            py,
+            func.getattr("__code__")?
+                .call_method("replace", (), Some(&kwargs)),
+        )? {
+            ignore_attr_or_type_error(py, func.setattr("__code__", replaced))?;
+        }
+    }
+    if let Some(doc) = doc {
+        ignore_attr_or_type_error(py, func.setattr("__doc__", doc))?;
+    }
+    if !annotate_fn.is_none() {
+        ignore_attr_or_type_error(py, func.setattr("__annotate__", annotate_fn))?;
+    }
+    Ok(())
+}
+
+fn set_plan_metadata(
+    func: &Bound<'_, PyAny>,
+    module_name: &str,
+    function_id: usize,
+    plan_name: &str,
+    module_globals: &Bound<'_, PyAny>,
+    entry_ref: Option<&str>,
+) -> PyResult<()> {
+    func.setattr("__dp_plan_module", module_name)?;
+    func.setattr("__dp_function_id", function_id)?;
+    func.setattr("__dp_plan_name", plan_name)?;
+    if let Some(entry_ref) = entry_ref {
+        func.setattr("__dp_entry_ref", entry_ref)?;
+    }
+    if module_globals.cast::<PyDict>().is_ok() {
+        func.setattr("__dp_plan_globals", module_globals)?;
+    }
+    Ok(())
+}
+
 fn resolve_module_name(module_globals: &Bound<'_, PyAny>, operation: &str) -> PyResult<String> {
     let globals = module_globals
         .cast::<PyDict>()
@@ -138,12 +359,7 @@ fn lookup_bb_function(
 }
 
 fn entry_state_order(function: &BlockPyFunction<BbBlockPyPass>) -> Vec<String> {
-    function
-        .blocks
-        .iter()
-        .find(|block| block.label_str() == function.entry_label())
-        .map(|block| block.param_name_vec())
-        .unwrap_or_else(|| function.params.names())
+    function.entry_block().param_name_vec()
 }
 
 fn py_param_specs(
@@ -240,28 +456,29 @@ fn make_bb_function(
         .getattr("_bb_capture_values")?
         .call1((captures.bind(py),))?
         .unbind();
-
-    let kwargs = PyDict::new(py);
-    kwargs.set_item("async_entry", false)?;
-    kwargs.set_item("function_name", function.names.display_name.as_str())?;
-    kwargs.set_item("module_globals", &module_globals)?;
-    let raw_entry = dp
-        .getattr("_bb_make_lazy_clif_entry")?
-        .call((), Some(&kwargs))?;
-    dp.getattr("_bb_enable_lazy_clif_vectorcall")?.call1((
+    let raw_entry = make_lazy_clif_entry(
+        py,
+        &dp,
+        false,
+        function.names.display_name.as_str(),
+        &module_globals,
+    )?;
+    let deleted_value = dp.getattr("DELETED")?;
+    register_lazy_clif_vectorcall(
+        py,
         &raw_entry,
         module_name.as_str(),
         function_id,
         plan_name.as_str(),
-        state_order.bind(py),
-        params.bind(py),
-        param_defaults.bind(py),
-        closure_values.bind(py),
-        py.None(),
-        dp.getattr("DELETED")?,
-        0i32,
-        py.None(),
-    ))?;
+        state_order.bind(py).as_any(),
+        Some(params.bind(py).as_any()),
+        Some(param_defaults.bind(py)),
+        Some(closure_values.bind(py)),
+        None,
+        &deleted_value,
+        0,
+        None,
+    )?;
     let entry = dp
         .getattr("_bb_wrap_with_closure")?
         .call1((raw_entry, closure_values.bind(py)))?;
@@ -269,13 +486,14 @@ fn make_bb_function(
         .getattr("_bb_rebind_function_globals")?
         .call1((entry, &module_globals))?;
     entry.setattr("__signature__", signature.bind(py))?;
-    let entry = dp.getattr("update_fn")?.call1((
-        entry,
+    update_function_metadata(
+        py,
+        &entry,
         function.names.qualname.as_str(),
         function.names.display_name.as_str(),
-        function.doc.clone(),
+        function.doc.as_deref(),
         annotate_fn.bind(py),
-    ))?;
+    )?;
     entry.setattr("__module__", module_name.as_str())?;
     Ok(entry.unbind())
 }
@@ -303,28 +521,23 @@ fn make_bb_hidden_resume(
     let state_order = PyTuple::new(py, entry_state_order(&function))?.unbind();
     let closure_map = build_closure_map(py, &closure_names.bind(py), &closure_values.bind(py))?;
     let hidden_name = format!("_dp_resume_{}", function.names.fn_name);
-
-    let kwargs = PyDict::new(py);
-    kwargs.set_item("async_entry", false)?;
-    kwargs.set_item("function_name", hidden_name)?;
-    kwargs.set_item("module_globals", &module_globals)?;
-    let raw_entry = dp
-        .getattr("_bb_make_lazy_clif_entry")?
-        .call((), Some(&kwargs))?;
-    dp.getattr("_bb_enable_lazy_clif_vectorcall")?.call1((
+    let raw_entry = make_lazy_clif_entry(py, &dp, false, hidden_name.as_str(), &module_globals)?;
+    let deleted_value = dp.getattr("DELETED")?;
+    register_lazy_clif_vectorcall(
+        py,
         &raw_entry,
         module_name.as_str(),
         function_id,
         plan_name.as_str(),
-        state_order.bind(py),
-        py.None(),
-        PyTuple::empty(py),
-        &closure_map,
-        py.None(),
-        dp.getattr("DELETED")?,
-        if async_gen { 2i32 } else { 1i32 },
-        py.None(),
-    ))?;
+        state_order.bind(py).as_any(),
+        None,
+        None,
+        Some(closure_map.as_any()),
+        None,
+        &deleted_value,
+        if async_gen { 2 } else { 1 },
+        None,
+    )?;
     let entry = dp
         .getattr("_bb_wrap_with_closure")?
         .call1((raw_entry, &closure_map))?;
@@ -332,17 +545,13 @@ fn make_bb_hidden_resume(
         .getattr("_bb_rebind_function_globals")?
         .call1((entry, &module_globals))?;
     entry.setattr("__module__", module_name.as_str())?;
-    let metadata_kwargs = PyDict::new(py);
-    metadata_kwargs.set_item("module_globals", &module_globals)?;
-    metadata_kwargs.set_item("entry_ref", function.entry_label())?;
-    dp.getattr("_bb_set_plan_metadata")?.call(
-        (
-            &entry,
-            module_name.as_str(),
-            function_id,
-            plan_name.as_str(),
-        ),
-        Some(&metadata_kwargs),
+    set_plan_metadata(
+        &entry,
+        module_name.as_str(),
+        function_id,
+        plan_name.as_str(),
+        &module_globals,
+        Some(function.entry_block().label_str()),
     )?;
     Ok(entry.unbind())
 }

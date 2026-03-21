@@ -1,12 +1,10 @@
-use super::dataflow::analyze_blockpy_use_def;
-use super::{
-    BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm, Expr,
+use super::dataflow::{
+    analyze_blockpy_use_def, assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term,
 };
+use super::{BlockPyStmt, BlockPyTerm, CfgBlock, Expr};
 use crate::passes::ast_symbol_analysis::{assigned_names_in_stmt, collect_assigned_names};
 use crate::passes::ast_to_ast::scope::cell_name;
 use crate::py_stmt;
-use crate::transformer::Transformer;
 use ruff_python_ast::{self as ast, Stmt};
 use std::collections::HashSet;
 
@@ -30,9 +28,9 @@ pub(crate) fn collect_parameter_names(parameters: &ast::Parameters) -> Vec<Strin
     names
 }
 
-pub(crate) fn collect_state_vars<E>(
+pub(crate) fn collect_state_vars<E, M>(
     param_names: &[String],
-    blocks: &[BlockPyBlock<E>],
+    blocks: &[CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>],
 ) -> Vec<String>
 where
     E: Clone + Into<Expr>,
@@ -105,109 +103,4 @@ pub(crate) fn sync_target_cells_stmts(target: &Expr, cell_slots: &HashSet<String
             ))
         })
         .collect()
-}
-
-fn assigned_names_in_blockpy_stmt<E>(stmt: &BlockPyStmt<E>) -> HashSet<String>
-where
-    E: Clone + Into<Expr>,
-{
-    match stmt {
-        BlockPyStmt::Delete(_) => HashSet::new(),
-        BlockPyStmt::Assign(assign) => {
-            let mut names = HashSet::from([assign.target.id.to_string()]);
-            collect_named_expr_target_names_in_blockpy_expr(&assign.value, &mut names);
-            names
-        }
-        BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
-            let mut names = HashSet::new();
-            collect_named_expr_target_names_in_blockpy_expr(test, &mut names);
-            names.extend(assigned_names_in_blockpy_stmt_fragment(body));
-            names.extend(assigned_names_in_blockpy_stmt_fragment(orelse));
-            names
-        }
-        BlockPyStmt::Expr(expr) => {
-            let mut names = HashSet::new();
-            collect_named_expr_target_names_in_blockpy_expr(expr, &mut names);
-            names
-        }
-    }
-}
-
-fn assigned_names_in_blockpy_term<E>(term: &BlockPyTerm<E>) -> HashSet<String>
-where
-    E: Clone + Into<Expr>,
-{
-    match term {
-        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => HashSet::new(),
-        BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
-            let mut names = HashSet::new();
-            collect_named_expr_target_names_in_blockpy_expr(test, &mut names);
-            names
-        }
-        BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
-            let mut names = HashSet::new();
-            collect_named_expr_target_names_in_blockpy_expr(index, &mut names);
-            names
-        }
-        BlockPyTerm::Return(value) => {
-            let mut names = HashSet::new();
-            if let Some(value) = value {
-                collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
-            }
-            names
-        }
-        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
-            let mut names = HashSet::new();
-            if let Some(exc) = exc {
-                collect_named_expr_target_names_in_blockpy_expr(exc, &mut names);
-            }
-            names
-        }
-    }
-}
-
-fn assigned_names_in_blockpy_stmt_fragment<E>(
-    fragment: &BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
-) -> HashSet<String>
-where
-    E: Clone + Into<Expr>,
-{
-    let mut out = HashSet::new();
-    for stmt in &fragment.body {
-        out.extend(assigned_names_in_blockpy_stmt(stmt));
-    }
-    if let Some(term) = &fragment.term {
-        out.extend(assigned_names_in_blockpy_term(term));
-    }
-    out
-}
-
-fn collect_named_expr_targets(expr: &Expr, names: &mut HashSet<String>) {
-    #[derive(Default)]
-    struct NamedExprTargetCollector {
-        names: HashSet<String>,
-    }
-
-    impl crate::transformer::Transformer for NamedExprTargetCollector {
-        fn visit_expr(&mut self, expr: &mut Expr) {
-            if let Expr::Named(ast::ExprNamed { target, value, .. }) = expr {
-                collect_assigned_names(target.as_ref(), &mut self.names);
-                self.visit_expr(value.as_mut());
-                return;
-            }
-            crate::transformer::walk_expr(self, expr);
-        }
-    }
-
-    let mut expr = expr.clone();
-    let mut collector = NamedExprTargetCollector::default();
-    collector.visit_expr(&mut expr);
-    names.extend(collector.names);
-}
-
-fn collect_named_expr_target_names_in_blockpy_expr<E>(expr: &E, names: &mut HashSet<String>)
-where
-    E: Clone + Into<Expr>,
-{
-    collect_named_expr_targets(&expr.clone().into(), names);
 }

@@ -1,14 +1,14 @@
 use super::{
-    BlockArg, BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete,
-    BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    BlockArg, BlockPyAssign, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyIf,
+    BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock,
 };
 use crate::passes::ast_symbol_analysis::{collect_assigned_names, load_names_in_expr};
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::Expr;
 use std::collections::{HashMap, HashSet};
 
-pub(crate) fn compute_block_params_blockpy<E>(
-    blocks: &[BlockPyBlock<E>],
+pub(crate) fn compute_block_params_blockpy<E, M>(
+    blocks: &[CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>],
     state_order: &[String],
     extra_successors: &HashMap<String, Vec<String>>,
 ) -> HashMap<String, Vec<String>>
@@ -141,8 +141,8 @@ where
     params
 }
 
-pub(crate) fn merge_declared_block_params<E>(
-    blocks: &[BlockPyBlock<E>],
+pub(crate) fn merge_declared_block_params<E, M>(
+    blocks: &[CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>],
     block_params: &mut HashMap<String, Vec<String>>,
 ) {
     for block in blocks {
@@ -161,8 +161,8 @@ pub(crate) fn merge_declared_block_params<E>(
     }
 }
 
-pub(crate) fn extend_state_order_with_declared_block_params<E>(
-    blocks: &[BlockPyBlock<E>],
+pub(crate) fn extend_state_order_with_declared_block_params<E, M>(
+    blocks: &[CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>],
     state_order: &mut Vec<String>,
 ) {
     for block in blocks {
@@ -178,8 +178,8 @@ pub(crate) fn extend_state_order_with_declared_block_params<E>(
     }
 }
 
-pub(crate) fn analyze_blockpy_use_def<E>(
-    block: &BlockPyBlock<E>,
+pub(crate) fn analyze_blockpy_use_def<E, M>(
+    block: &CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>,
 ) -> (HashSet<String>, HashSet<String>)
 where
     E: Clone + Into<Expr>,
@@ -213,9 +213,9 @@ where
     (uses, defs)
 }
 
-fn extend_successor_live_in<E>(
+fn extend_successor_live_in<E, M>(
     out: &mut HashSet<String>,
-    blocks: &[BlockPyBlock<E>],
+    blocks: &[CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>],
     label_to_index: &HashMap<&str, usize>,
     live_in: &[HashSet<String>],
     target_label: &str,
@@ -312,7 +312,7 @@ where
     }
 }
 
-fn assigned_names_in_blockpy_stmt<E>(stmt: &BlockPyStmt<E>) -> HashSet<String>
+pub(super) fn assigned_names_in_blockpy_stmt<E>(stmt: &BlockPyStmt<E>) -> HashSet<String>
 where
     E: Clone + Into<Expr>,
 {
@@ -331,14 +331,25 @@ where
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
             let mut names = HashSet::new();
             collect_named_expr_target_names_in_blockpy_expr(test, &mut names);
-            names.extend(assigned_names_in_blockpy_stmt_fragment(body));
-            names.extend(assigned_names_in_blockpy_stmt_fragment(orelse));
+            names.extend(assigned_names_in_blockpy_fragment(body));
+            names.extend(assigned_names_in_blockpy_fragment(orelse));
             names
         }
     }
 }
 
-fn assigned_names_in_blockpy_term<E>(term: &BlockPyTerm<E>) -> HashSet<String>
+pub(super) fn assigned_names_in_blockpy_stmts<E>(stmts: &[BlockPyStmt<E>]) -> HashSet<String>
+where
+    E: Clone + Into<Expr>,
+{
+    let mut out = HashSet::new();
+    for stmt in stmts {
+        out.extend(assigned_names_in_blockpy_stmt(stmt));
+    }
+    out
+}
+
+pub(super) fn assigned_names_in_blockpy_term<E>(term: &BlockPyTerm<E>) -> HashSet<String>
 where
     E: Clone + Into<Expr>,
 {
@@ -371,6 +382,19 @@ where
     }
 }
 
+pub(super) fn assigned_names_in_blockpy_fragment<E>(
+    fragment: &BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
+) -> HashSet<String>
+where
+    E: Clone + Into<Expr>,
+{
+    let mut out = assigned_names_in_blockpy_stmts(&fragment.body);
+    if let Some(term) = &fragment.term {
+        out.extend(assigned_names_in_blockpy_term(term));
+    }
+    out
+}
+
 fn load_names_in_blockpy_stmt_list<E>(stmts: &[BlockPyStmt<E>]) -> HashSet<String>
 where
     E: Clone + Into<Expr>,
@@ -391,22 +415,6 @@ where
     let mut out = load_names_in_blockpy_stmt_list(&fragment.body);
     if let Some(term) = &fragment.term {
         out.extend(load_names_in_blockpy_term(term));
-    }
-    out
-}
-
-fn assigned_names_in_blockpy_stmt_fragment<E>(
-    fragment: &BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
-) -> HashSet<String>
-where
-    E: Clone + Into<Expr>,
-{
-    let mut out = HashSet::new();
-    for stmt in &fragment.body {
-        out.extend(assigned_names_in_blockpy_stmt(stmt));
-    }
-    if let Some(term) = &fragment.term {
-        out.extend(assigned_names_in_blockpy_term(term));
     }
     out
 }
@@ -439,4 +447,69 @@ fn collect_named_expr_target_names_in_expr(expr: &Expr, names: &mut HashSet<Stri
     let mut collector = NamedExprTargetCollector::default();
     collector.visit_expr(&mut expr);
     names.extend(collector.names);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term};
+    use crate::block_py::{
+        BlockArg, BlockPyCfgFragment, BlockPyEdge, BlockPyIf, BlockPyIfTerm, BlockPyRaise,
+        BlockPyStmt, BlockPyTerm,
+    };
+    use crate::py_expr;
+    use std::collections::HashSet;
+
+    #[test]
+    fn assigned_names_in_blockpy_stmt_collects_nested_fragments() {
+        let stmt = BlockPyStmt::If(BlockPyIf {
+            test: py_expr!("(test_name := source_test)"),
+            body: BlockPyCfgFragment::with_term(
+                vec![BlockPyStmt::Expr(py_expr!("(body_name := source_body)"))],
+                Some(BlockPyTerm::Return(Some(py_expr!(
+                    "(return_name := source_return)"
+                )))),
+            ),
+            orelse: BlockPyCfgFragment::with_term(
+                vec![BlockPyStmt::Expr(py_expr!("(else_name := source_else)"))],
+                Some(BlockPyTerm::Raise(BlockPyRaise {
+                    exc: Some(py_expr!("(raise_name := source_raise)")),
+                })),
+            ),
+        });
+
+        assert_eq!(
+            assigned_names_in_blockpy_stmt(&stmt),
+            HashSet::from([
+                "test_name".to_string(),
+                "body_name".to_string(),
+                "return_name".to_string(),
+                "else_name".to_string(),
+                "raise_name".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn assigned_names_in_blockpy_term_keeps_jump_edge_args_out_of_results() {
+        let term = BlockPyTerm::Jump(BlockPyEdge::with_args(
+            "after".into(),
+            vec![BlockArg::Expr(py_expr!("(jump_name := source_jump)"))],
+        ));
+
+        assert!(assigned_names_in_blockpy_term(&term).is_empty());
+    }
+
+    #[test]
+    fn assigned_names_in_blockpy_term_collects_named_exprs_from_if_term() {
+        let term = BlockPyTerm::IfTerm(BlockPyIfTerm {
+            test: py_expr!("(branch_name := branch_source)"),
+            then_label: "then".into(),
+            else_label: "else".into(),
+        });
+
+        assert_eq!(
+            assigned_names_in_blockpy_term(&term),
+            HashSet::from(["branch_name".to_string()])
+        );
+    }
 }
