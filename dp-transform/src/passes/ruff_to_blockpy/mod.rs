@@ -15,14 +15,14 @@ use crate::block_py::state::{
     collect_state_vars, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use crate::block_py::{
-    assert_blockpy_block_normalized, BbBlockMeta, BlockPyBlock, BlockPyCallableFacts, BlockPyEdge,
+    assert_blockpy_block_normalized, BbBlockMeta, BlockPyCallableFacts, BlockPyEdge,
     BlockPyFallthroughTerm, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyPass,
     BlockPyStmt, BlockPyTerm, BlockPyTryJump, CfgBlock, ClosureLayout, FunctionId, FunctionName,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
-use crate::passes::RuffBlockPyPass;
+use crate::passes::LoweredRuffBlockPyPass;
 use crate::ruff_ast_to_string;
 use crate::template::is_simple;
 use crate::{py_expr, py_stmt};
@@ -43,10 +43,10 @@ pub(crate) use module_plan::rewrite_ast_to_lowered_blockpy_module_plan_with_modu
 
 pub(crate) use crate::block_py::TryRegionPlan;
 pub(crate) use compat::{
-    compat_block_from_blockpy, compat_next_label, compat_next_temp, emit_for_loop_blocks,
-    emit_if_branch_block_with_expr_setup, emit_sequence_jump_block,
-    emit_sequence_raise_block_with_expr_setup, emit_sequence_return_block_with_expr_setup,
-    emit_simple_while_blocks_with_expr_setup,
+    compat_block_from_blockpy, compat_block_from_blockpy_with_exc_target, compat_next_label,
+    compat_next_temp, emit_for_loop_blocks, emit_if_branch_block_with_expr_setup,
+    emit_sequence_jump_block, emit_sequence_raise_block_with_expr_setup,
+    emit_sequence_return_block_with_expr_setup, emit_simple_while_blocks_with_expr_setup,
 };
 #[cfg(test)]
 use stmt_lowering::lower_stmt_into;
@@ -62,6 +62,10 @@ pub(crate) use try_regions::{
     block_references_label, build_try_plan, finalize_try_regions, lower_try_regions,
     prepare_except_body, prepare_finally_body, TryPlan,
 };
+
+pub(crate) type LoweredBlockPyBlock<E = Expr> =
+    CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, BbBlockMeta>;
+pub(crate) type BlockPyBlock<E = Expr> = LoweredBlockPyBlock<E>;
 
 #[derive(Clone)]
 pub(crate) enum StmtSequenceHeadPlan {
@@ -102,8 +106,8 @@ pub(crate) fn build_blockpy_function(
     closure_layout: Option<ClosureLayout>,
     facts: BlockPyCallableFacts,
     try_regions: Vec<TryRegionPlan>,
-    mut blocks: Vec<BlockPyBlock<Expr>>,
-) -> BlockPyFunction<RuffBlockPyPass> {
+    mut blocks: Vec<LoweredBlockPyBlock<Expr>>,
+) -> BlockPyFunction<LoweredRuffBlockPyPass> {
     move_blockpy_entry_block_to_front(&mut blocks, entry_label.as_str());
     for block in &blocks {
         assert_blockpy_block_normalized(block);
@@ -134,16 +138,25 @@ fn move_blockpy_entry_block_to_front(blocks: &mut Vec<BlockPyBlock<Expr>>, entry
     }
 }
 
-pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId {
-    let id = FunctionId(*next_function_id);
-    *next_function_id += 1;
-    id
+fn move_lowered_entry_block_to_front(
+    blocks: &mut Vec<LoweredBlockPyBlock<Expr>>,
+    entry_label: &str,
+) {
+    if let Some(entry_index) = blocks
+        .iter()
+        .position(|block| block.label.as_str() == entry_label)
+    {
+        if entry_index != 0 {
+            let entry_block = blocks.remove(entry_index);
+            blocks.insert(0, entry_block);
+        }
+    }
 }
 
 pub(crate) fn attach_exception_edges_to_blocks<E>(
-    blocks: Vec<BlockPyBlock<E>>,
+    blocks: Vec<crate::block_py::BlockPyBlock<E>>,
     exception_edges: &HashMap<String, Option<String>>,
-) -> Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, BbBlockMeta>> {
+) -> Vec<LoweredBlockPyBlock<E>> {
     blocks
         .into_iter()
         .map(|block| CfgBlock {
@@ -161,6 +174,12 @@ pub(crate) fn attach_exception_edges_to_blocks<E>(
             },
         })
         .collect()
+}
+
+pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId {
+    let id = FunctionId(*next_function_id);
+    *next_function_id += 1;
+    id
 }
 
 pub(crate) fn lowered_exception_edges<S, T>(
@@ -265,7 +284,7 @@ where
 }
 
 fn build_semantic_blockpy_closure_layout(
-    callable_def: &BlockPyFunction<RuffBlockPyPass>,
+    callable_def: &BlockPyFunction<LoweredRuffBlockPyPass>,
     injected_exception_names: &HashSet<String>,
 ) -> Option<ClosureLayout> {
     let entry_liveins = callable_def.entry_liveins();
@@ -325,12 +344,12 @@ pub(crate) fn build_finalized_blockpy_callable_def(
     params: ParamSpec,
     doc: Option<String>,
     kind: BlockPyFunctionKind,
-    blocks: Vec<BlockPyBlock<Expr>>,
+    blocks: Vec<LoweredBlockPyBlock<Expr>>,
     try_regions: Vec<TryRegionPlan>,
     entry_label: String,
     end_label: String,
     facts: BlockPyCallableFacts,
-) -> BlockPyFunction<RuffBlockPyPass> {
+) -> BlockPyFunction<LoweredRuffBlockPyPass> {
     let callable_def = build_blockpy_function(
         function_id,
         names,
@@ -359,12 +378,11 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input<FTemp>(
     facts: &BlockPyCallableFacts,
     next_block_id: &mut usize,
     next_temp: &mut FTemp,
-) -> BlockPyFunction<RuffBlockPyPass>
+) -> BlockPyFunction<LoweredRuffBlockPyPass>
 where
     FTemp: FnMut(&str, &mut usize) -> String,
 {
     let mut blocks = Vec::new();
-    let mut try_regions = Vec::new();
     let entry_label = lower_stmt_sequence_with_state(
         context,
         names.fn_name.as_str(),
@@ -372,10 +390,10 @@ where
         end_label.clone(),
         None,
         None,
+        None,
         &mut blocks,
         &facts.cell_slots,
         &facts.outer_scope_names,
-        &mut try_regions,
         next_block_id,
         next_temp,
     );
@@ -386,141 +404,51 @@ where
         doc,
         blockpy_kind,
         blocks,
-        try_regions,
+        Vec::new(),
         entry_label,
         end_label,
         facts.clone(),
     )
 }
 
-pub(crate) fn build_try_extra_successors(
-    try_regions: &[TryRegionPlan],
-) -> HashMap<String, Vec<String>> {
-    let mut extra = HashMap::new();
-    for region in try_regions {
-        for label in &region.body_region_labels {
-            extra
-                .entry(label.clone())
-                .or_insert_with(Vec::new)
-                .push(region.body_exception_target.clone());
-        }
-        if let Some(cleanup_target) = region.cleanup_exception_target.as_ref() {
-            for label in &region.cleanup_region_labels {
-                extra
-                    .entry(label.clone())
-                    .or_insert_with(Vec::new)
-                    .push(cleanup_target.clone());
-            }
-        }
-    }
-    extra
-}
-
-pub(crate) fn compute_blockpy_exception_edges(
-    try_regions: &[TryRegionPlan],
-) -> HashMap<String, Option<String>> {
-    let mut exception_edges = HashMap::new();
-    for region in try_regions {
-        let body_rank = region.body_region_labels.len();
-        for label in &region.body_region_labels {
-            update_try_edge_if_better(
-                &mut exception_edges,
-                label.clone(),
-                body_rank,
-                Some(region.body_exception_target.clone()),
-            );
-        }
-        if let Some(cleanup_target) = region.cleanup_exception_target.as_ref() {
-            let cleanup_rank = region.cleanup_region_labels.len();
-            for label in &region.cleanup_region_labels {
-                update_try_edge_if_better(
-                    &mut exception_edges,
-                    label.clone(),
-                    cleanup_rank,
-                    Some(cleanup_target.clone()),
-                );
-            }
-        }
-    }
-    exception_edges
-        .into_iter()
-        .map(|(label, (_rank, target))| (label, target))
-        .collect::<HashMap<_, _>>()
-}
-
-fn update_try_edge_if_better(
-    edges: &mut HashMap<String, (usize, Option<String>)>,
-    label: String,
-    rank: usize,
-    target: Option<String>,
-) {
-    let should_update = match edges.get(label.as_str()) {
-        Some((existing_rank, _)) => rank < *existing_rank,
-        None => true,
-    };
-    if should_update {
-        edges.insert(label, (rank, target));
-    }
-}
-
-fn relabel_try_regions(try_regions: &mut [TryRegionPlan], rename: &HashMap<String, String>) {
-    for region in try_regions {
-        for label in &mut region.body_region_labels {
-            if let Some(rewritten) = rename.get(label.as_str()) {
-                *label = rewritten.clone();
-            }
-        }
-        if let Some(rewritten) = rename.get(region.body_exception_target.as_str()) {
-            region.body_exception_target = rewritten.clone();
-        }
-        for label in &mut region.cleanup_region_labels {
-            if let Some(rewritten) = rename.get(label.as_str()) {
-                *label = rewritten.clone();
-            }
-        }
-        if let Some(target) = region.cleanup_exception_target.as_mut() {
-            if let Some(rewritten) = rename.get(target.as_str()) {
-                *target = rewritten.clone();
-            }
-        }
-    }
-}
-
 pub(crate) fn finalize_blockpy_callable_def(
-    mut callable_def: BlockPyFunction<RuffBlockPyPass>,
+    mut callable_def: BlockPyFunction<LoweredRuffBlockPyPass>,
     mut entry_label: String,
     end_label: String,
-) -> BlockPyFunction<RuffBlockPyPass> {
+) -> BlockPyFunction<LoweredRuffBlockPyPass> {
     let needs_end_block = entry_label == end_label
         || callable_def
             .blocks
             .iter()
             .any(|block| block_references_label(block, end_label.as_str()));
     if needs_end_block {
-        callable_def.blocks.push(BlockPyBlock {
+        callable_def.blocks.push(CfgBlock {
             label: BlockPyLabel::from(end_label),
             body: Vec::new(),
             term: BlockPyTerm::implicit_function_return(),
             params: Vec::new(),
-            meta: (),
+            meta: BbBlockMeta::default(),
         });
     }
     fold_jumps_to_trivial_none_return_blockpy(&mut callable_def.blocks);
     fold_constant_brif_blockpy(&mut callable_def.blocks);
     let extra_roots = callable_def
-        .try_regions
+        .blocks
         .iter()
-        .flat_map(|region| {
-            std::iter::once(region.body_exception_target.clone())
-                .chain(region.cleanup_exception_target.iter().cloned())
+        .filter_map(|block| {
+            block
+                .meta
+                .exc_edge
+                .as_ref()
+                .map(|edge| edge.target.to_string())
         })
         .collect::<Vec<_>>();
     prune_unreachable_blockpy_blocks(entry_label.as_str(), &extra_roots, &mut callable_def.blocks);
     let (relabelled_entry_label, label_rename) =
         relabel_blockpy_blocks("_dp_bb", entry_label.as_str(), &mut callable_def.blocks);
     entry_label = relabelled_entry_label;
-    relabel_try_regions(&mut callable_def.try_regions, &label_rename);
-    move_blockpy_entry_block_to_front(&mut callable_def.blocks, entry_label.as_str());
+    let _ = label_rename;
+    move_lowered_entry_block_to_front(&mut callable_def.blocks, entry_label.as_str());
     callable_def.closure_layout =
         build_semantic_blockpy_closure_layout(&callable_def, &HashSet::new());
     callable_def
@@ -540,8 +468,8 @@ fn assign_delete_error(message: &str, stmt: &Stmt) -> String {
 mod tests {
     use super::*;
     use crate::block_py::{
-        BlockPyFunction, BlockPyModule, BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-        CoreBlockPyExprWithoutAwaitOrYield,
+        BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
+        BlockPyStmt, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
     };
     use crate::passes::ast_to_ast::{context::Context, Options};
     use crate::passes::ruff_to_blockpy::stmt_sequences::{
@@ -549,11 +477,9 @@ mod tests {
         lower_while_stmt_sequence, lower_while_stmt_sequence_from_stmt, plan_stmt_sequence_head,
     };
     use crate::passes::ruff_to_blockpy::try_regions::build_try_plan;
-    use crate::passes::{
-        CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, RuffBlockPyPass,
-    };
+    use crate::passes::{CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass};
     use crate::{transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options};
-    fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
+    fn wrapped_blockpy(source: &str) -> BlockPyModule<LoweredRuffBlockPyPass> {
         transform_str_to_blockpy_with_options(source, Options::for_test()).unwrap()
     }
 
@@ -888,6 +814,7 @@ def f(xs):
             "cont".to_string(),
             Vec::new(),
             &mut blocks,
+            None,
             "_dp_iter_0",
             "_dp_tmp_0",
             "_dp_bb_demo_0".to_string(),
@@ -895,7 +822,11 @@ def f(xs):
             "_dp_bb_demo_1".to_string(),
             "_dp_bb_demo_2".to_string(),
             vec![py_stmt!("x = _dp_tmp_0"), py_stmt!("_dp_tmp_0 = None")],
-            &mut |_stmts, cont_label, _break_label, _blocks| cont_label,
+            &mut |_stmts: &[Stmt],
+                  cont_label: String,
+                  _break_label: Option<String>,
+                  _active_exc_target: Option<String>,
+                  _blocks: &mut Vec<BlockPyBlock>| cont_label,
         );
 
         assert_eq!(entry, "_dp_bb_demo_2");
@@ -931,7 +862,7 @@ def f(ctx, value):
         let next_block_id = Cell::new(0usize);
         let mut saw_try_stmt = false;
         let mut saw_with_ok_assign = false;
-        let (entry, try_region) = lower_with_stmt_sequence(
+        let entry = lower_with_stmt_sequence(
             "demo",
             with_stmt.clone(),
             &[],
@@ -941,7 +872,11 @@ def f(ctx, value):
             &HashSet::new(),
             &next_block_id,
             false,
-            &mut |_expanded, cont_label, _blocks| {
+            None,
+            &mut |_expanded: &[Stmt],
+                  cont_label: String,
+                  _active_exc_target: Option<String>,
+                  _blocks: &mut Vec<BlockPyBlock>| {
                 saw_try_stmt = _expanded
                     .iter()
                     .any(|stmt| matches!(stmt, ast::Stmt::Try(_)));
@@ -958,7 +893,6 @@ def f(ctx, value):
         );
 
         assert_eq!(entry, "cont");
-        assert!(try_region.is_none());
         assert!(blocks.is_empty());
         assert!(saw_try_stmt);
         assert!(saw_with_ok_assign);
@@ -989,7 +923,7 @@ def f():
         let mut blocks = Vec::new();
         let mut next_label_id = 0usize;
         let try_plan = build_try_plan("demo", false, false, &mut next_label_id);
-        let (entry, try_region) = lower_try_stmt_sequence(
+        let entry = lower_try_stmt_sequence(
             try_stmt.clone(),
             &[],
             "cont".to_string(),
@@ -997,14 +931,45 @@ def f():
             &mut blocks,
             "_dp_bb_demo_legacy".to_string(),
             try_plan,
-            &mut |_expanded, cont_label, _blocks| cont_label,
+            None,
+            &mut |_expanded: &[Stmt],
+                  cont_label: String,
+                  active_exc_target: Option<String>,
+                  blocks: &mut Vec<BlockPyBlock>| {
+                let label = format!("lowered_{}", blocks.len());
+                blocks.push(
+                    crate::passes::ruff_to_blockpy::compat::compat_block_from_blockpy_with_exc_target(
+                        label.clone(),
+                        Vec::new(),
+                        BlockPyTerm::Jump(BlockPyEdge::new(BlockPyLabel::from(cont_label))),
+                        active_exc_target.as_deref(),
+                    ),
+                );
+                label
+            },
         );
 
         assert!(!entry.is_empty());
-        assert_eq!(try_region.body_exception_target, "cont");
-        assert!(blocks
+        let Some(try_jump_block) = blocks.iter().find(|block| block.label.as_str() == entry) else {
+            panic!("expected try entry block");
+        };
+        let BlockPyTerm::TryJump(try_jump) = &try_jump_block.term else {
+            panic!("expected try jump entry");
+        };
+        let Some(body_block) = blocks
             .iter()
-            .any(|block| matches!(block.term, BlockPyTerm::TryJump(_))));
+            .find(|block| block.label.as_str() == try_jump.body_label.as_str())
+        else {
+            panic!("expected try body block");
+        };
+        assert_eq!(
+            body_block
+                .meta
+                .exc_edge
+                .as_ref()
+                .map(|edge| edge.target.as_str()),
+            Some(try_jump.except_label.as_str())
+        );
     }
 
     #[test]
@@ -1018,7 +983,11 @@ def f():
             Vec::new(),
             &mut blocks,
             None,
-            &mut |expanded, cont_label, _blocks| {
+            None,
+            &mut |expanded: &[Stmt],
+                  cont_label: String,
+                  _active_exc_target: Option<String>,
+                  _blocks: &mut Vec<BlockPyBlock>| {
                 assert_eq!(expanded.len(), 1);
                 assert_eq!(cont_label, "cont");
                 saw_expanded = true;
@@ -1041,7 +1010,11 @@ def f():
             vec![py_stmt!("x = 1")],
             &mut blocks,
             Some("prefix".to_string()),
-            &mut |_expanded, _cont_label, _blocks| "expanded_entry".to_string(),
+            None,
+            &mut |_expanded: &[Stmt],
+                  _cont_label: String,
+                  _active_exc_target: Option<String>,
+                  _blocks: &mut Vec<BlockPyBlock>| "expanded_entry".to_string(),
         );
 
         assert_eq!(entry, "prefix");
@@ -1070,7 +1043,11 @@ def f():
             &then_body,
             &else_body,
             "rest".to_string(),
-            &mut |stmts, cont_label, _blocks| {
+            None,
+            &mut |stmts: &[Stmt],
+                  cont_label: String,
+                  _active_exc_target: Option<String>,
+                  _blocks: &mut Vec<BlockPyBlock>| {
                 calls.push((stmts.len(), cont_label.clone()));
                 format!("branch_{}", calls.len())
             },
@@ -1096,6 +1073,7 @@ def f():
             "jump_label".to_string(),
             vec![py_stmt!("prefix = 0")],
             "target".to_string(),
+            None,
         );
 
         assert_eq!(entry, "jump_label");
@@ -1116,6 +1094,7 @@ def f():
             "ret_label".to_string(),
             vec![py_stmt!("prefix = 0")],
             Some(py_expr!("value")),
+            None,
         )
         .expect("sequence return helper should lower");
 
@@ -1136,6 +1115,7 @@ def f():
             BlockPyRaise {
                 exc: Some(py_expr!("exc").into()),
             },
+            None,
         )
         .expect("sequence raise helper should lower");
 
@@ -1177,7 +1157,11 @@ y = 3
             vec![py_stmt!("prefix = 0")],
             &mut blocks,
             "if_label".to_string(),
-            &mut |stmts, cont_label, _blocks| {
+            None,
+            &mut |stmts: &[Stmt],
+                  cont_label: String,
+                  _active_exc_target: Option<String>,
+                  _blocks: &mut Vec<BlockPyBlock>| {
                 calls.push((stmts.len(), cont_label.clone()));
                 format!("branch_{}", calls.len())
             },
@@ -1217,7 +1201,12 @@ y = 3
             &else_body,
             &remaining,
             "cont".to_string(),
-            &mut |stmts, cont_label, break_label, _blocks| {
+            None,
+            &mut |stmts: &[Stmt],
+                  cont_label: String,
+                  break_label: Option<String>,
+                  _active_exc_target: Option<String>,
+                  _blocks: &mut Vec<BlockPyBlock>| {
                 if let Some(break_label) = break_label {
                     loop_calls.push((stmts.len(), cont_label.clone(), break_label));
                     "loop_body".to_string()
@@ -1281,7 +1270,12 @@ y = 3
             &mut blocks,
             "_dp_bb_loop_fn_0".to_string(),
             Some("_dp_bb_loop_fn_1".to_string()),
-            &mut |stmts, cont_label, break_label, _blocks| {
+            None,
+            &mut |stmts: &[Stmt],
+                  cont_label: String,
+                  break_label: Option<String>,
+                  _active_exc_target: Option<String>,
+                  _blocks: &mut Vec<BlockPyBlock>| {
                 if let Some(break_label) = break_label {
                     loop_calls.push((stmts.len(), cont_label.clone(), break_label));
                     "loop_body".to_string()

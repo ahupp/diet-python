@@ -1,6 +1,6 @@
 use super::stmt_lowering::lower_stmt_into_with_expr;
 use super::*;
-use crate::block_py::{BlockPyBlock, BlockPyRaise, BlockPyStmt, BlockPyTerm, Expr};
+use crate::block_py::{BlockPyRaise, BlockPyStmt, BlockPyTerm, Expr};
 use crate::passes::annotation_export::build_exec_function_def_binding_stmts;
 use crate::passes::ast_to_ast::body::suite_ref;
 use crate::passes::ast_to_ast::context::Context;
@@ -138,13 +138,14 @@ pub(crate) fn lower_common_stmt_sequence_head<FSeq>(
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
+    active_exc_target: Option<String>,
     next_label: &mut dyn FnMut() -> String,
     break_label: Option<String>,
     continue_label: Option<String>,
     lower_sequence: &mut FSeq,
 ) -> Option<String>
 where
-    FSeq: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    FSeq: FnMut(&[Stmt], String, Option<String>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     match plan {
         StmtSequenceHeadPlan::Raise(raise_stmt) => Some(
@@ -154,6 +155,7 @@ where
                 next_label(),
                 linear,
                 compat_blockpy_raise_from_stmt(raise_stmt),
+                active_exc_target.as_deref(),
             )
             .unwrap_or_else(|err| {
                 panic!("failed to lower sequence raise head through expr seam: {err}")
@@ -166,6 +168,7 @@ where
                 next_label(),
                 linear,
                 value,
+                active_exc_target.as_deref(),
             )
             .unwrap_or_else(|err| {
                 panic!("failed to lower sequence return head through expr seam: {err}")
@@ -179,7 +182,10 @@ where
             linear,
             blocks,
             next_label(),
-            &mut |stmts, cont_label, blocks| lower_sequence(stmts, cont_label, None, blocks),
+            active_exc_target.clone(),
+            &mut |stmts, cont_label, active_exc_target, blocks| {
+                lower_sequence(stmts, cont_label, None, active_exc_target, blocks)
+            },
         )),
         StmtSequenceHeadPlan::While(while_stmt) => {
             let test_label = next_label();
@@ -197,6 +203,7 @@ where
                 blocks,
                 test_label,
                 linear_label,
+                active_exc_target.clone(),
                 lower_sequence,
             ))
         }
@@ -206,6 +213,7 @@ where
                 next_label(),
                 linear,
                 break_label,
+                active_exc_target.as_deref(),
             )),
             None => Some(cont_label),
         },
@@ -215,6 +223,7 @@ where
                 next_label(),
                 linear,
                 continue_label,
+                active_exc_target.as_deref(),
             )),
             None => Some(cont_label),
         },
@@ -230,6 +239,7 @@ pub(crate) fn lower_for_stmt_sequence_head<F>(
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
+    active_exc_target: Option<String>,
     iter_name: &str,
     tmp_name: &str,
     loop_check_label: String,
@@ -239,7 +249,7 @@ pub(crate) fn lower_for_stmt_sequence_head<F>(
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let mut next_id = next_block_id.get();
     let assign_label = compat_next_label(fn_name, &mut next_id);
@@ -251,6 +261,7 @@ where
         cont_label,
         linear,
         blocks,
+        active_exc_target,
         iter_name,
         tmp_name,
         loop_check_label,
@@ -269,10 +280,10 @@ pub(crate) fn lower_stmt_sequence_with_state<FTemp>(
     cont_label: String,
     break_label: Option<String>,
     continue_label: Option<String>,
+    active_exc_target: Option<String>,
     blocks: &mut Vec<BlockPyBlock>,
     cell_slots: &HashSet<String>,
     outer_scope_names: &HashSet<String>,
-    try_regions: &mut Vec<TryRegionPlan>,
     next_block_id: &mut usize,
     next_temp: &mut FTemp,
 ) -> String
@@ -297,7 +308,13 @@ where
         ) {
             StmtSequenceDriveResult::Exhausted { linear } => {
                 let label = compat_next_label(fn_name, next_block_id);
-                return emit_sequence_jump_block(blocks, label, linear, cont_label);
+                return emit_sequence_jump_block(
+                    blocks,
+                    label,
+                    linear,
+                    cont_label,
+                    active_exc_target.as_deref(),
+                );
             }
             StmtSequenceDriveResult::Break {
                 linear,
@@ -321,6 +338,7 @@ where
                     cont_label.clone(),
                     linear,
                     blocks,
+                    active_exc_target.clone(),
                     &mut || {
                         let mut local_next_id = next_id.get();
                         let label = compat_next_label(fn_name, &mut local_next_id);
@@ -329,7 +347,7 @@ where
                     },
                     break_label.clone(),
                     continue_label.clone(),
-                    &mut |stmts, cont_label, loop_break_label, blocks| {
+                    &mut |stmts, cont_label, loop_break_label, active_exc_target, blocks| {
                         if let Some(loop_break_label) = loop_break_label {
                             let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
@@ -339,10 +357,10 @@ where
                                 cont_label.clone(),
                                 Some(loop_break_label),
                                 Some(cont_label),
+                                active_exc_target,
                                 blocks,
                                 cell_slots,
                                 outer_scope_names,
-                                try_regions,
                                 &mut local_next_id,
                                 next_temp,
                             );
@@ -357,10 +375,10 @@ where
                                 cont_label,
                                 break_label.clone(),
                                 continue_label.clone(),
+                                active_exc_target,
                                 blocks,
                                 cell_slots,
                                 outer_scope_names,
-                                try_regions,
                                 &mut local_next_id,
                                 next_temp,
                             );
@@ -379,7 +397,7 @@ where
                 let needs_finally_return_flow =
                     contains_return_stmt_in_body(suite_ref(&with_stmt.body));
                 let next_id = Cell::new(*next_block_id);
-                let (entry, try_region) = lower_with_stmt_sequence(
+                let entry = lower_with_stmt_sequence(
                     fn_name,
                     with_stmt,
                     &stmts[index + 1..],
@@ -389,7 +407,8 @@ where
                     cell_slots,
                     &next_id,
                     needs_finally_return_flow,
-                    &mut |stmts, cont_label, blocks| {
+                    active_exc_target.clone(),
+                    &mut |stmts, cont_label, active_exc_target, blocks| {
                         let mut local_next_id = next_id.get();
                         let label = lower_stmt_sequence_with_state(
                             context,
@@ -398,10 +417,10 @@ where
                             cont_label,
                             break_label.clone(),
                             continue_label.clone(),
+                            active_exc_target,
                             blocks,
                             cell_slots,
                             outer_scope_names,
-                            try_regions,
                             &mut local_next_id,
                             next_temp,
                         );
@@ -410,9 +429,6 @@ where
                     },
                 );
                 *next_block_id = next_id.into_inner();
-                if let Some(try_region) = try_region {
-                    try_regions.push(try_region);
-                }
                 return entry;
             }
             StmtSequenceHeadPlan::For(for_stmt) => {
@@ -436,13 +452,14 @@ where
                     cont_label.clone(),
                     linear,
                     blocks,
+                    active_exc_target.clone(),
                     iter_name.as_str(),
                     tmp_name.as_str(),
                     loop_check_label,
                     loop_continue_label,
                     assign_body,
                     &next_id,
-                    &mut |stmts, cont_label, loop_break_label, blocks| {
+                    &mut |stmts, cont_label, loop_break_label, active_exc_target, blocks| {
                         if let Some(loop_break_label) = loop_break_label {
                             let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
@@ -452,10 +469,10 @@ where
                                 cont_label.clone(),
                                 Some(loop_break_label),
                                 Some(cont_label),
+                                active_exc_target,
                                 blocks,
                                 cell_slots,
                                 outer_scope_names,
-                                try_regions,
                                 &mut local_next_id,
                                 next_temp,
                             );
@@ -470,10 +487,10 @@ where
                                 cont_label,
                                 break_label.clone(),
                                 continue_label.clone(),
+                                active_exc_target,
                                 blocks,
                                 cell_slots,
                                 outer_scope_names,
-                                try_regions,
                                 &mut local_next_id,
                                 next_temp,
                             );
@@ -499,7 +516,8 @@ where
                         linear,
                         blocks,
                         jump_label,
-                        &mut |stmts, cont_label, blocks| {
+                        active_exc_target.clone(),
+                        &mut |stmts, cont_label, active_exc_target, blocks| {
                             let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
                                 context,
@@ -508,10 +526,10 @@ where
                                 cont_label,
                                 break_label.clone(),
                                 continue_label.clone(),
+                                active_exc_target,
                                 blocks,
                                 cell_slots,
                                 outer_scope_names,
-                                try_regions,
                                 &mut local_next_id,
                                 next_temp,
                             );
@@ -534,7 +552,7 @@ where
                     );
                     let label = compat_next_label(fn_name, &mut local_next_id);
                     next_id.set(local_next_id);
-                    let (entry, try_region) = lower_try_stmt_sequence(
+                    let entry = lower_try_stmt_sequence(
                         try_stmt,
                         &stmts[index + 1..],
                         cont_label.clone(),
@@ -542,7 +560,8 @@ where
                         blocks,
                         label.clone(),
                         try_plan,
-                        &mut |stmts, cont_label, blocks| {
+                        active_exc_target.clone(),
+                        &mut |stmts, cont_label, active_exc_target, blocks| {
                             let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
                                 context,
@@ -551,10 +570,10 @@ where
                                 cont_label,
                                 break_label.clone(),
                                 continue_label.clone(),
+                                active_exc_target,
                                 blocks,
                                 cell_slots,
                                 outer_scope_names,
-                                try_regions,
                                 &mut local_next_id,
                                 next_temp,
                             );
@@ -562,7 +581,6 @@ where
                             label
                         },
                     );
-                    try_regions.push(try_region);
                     entry
                 };
                 *next_block_id = next_id.into_inner();
@@ -583,7 +601,8 @@ where
                     linear,
                     blocks,
                     jump_label,
-                    &mut |stmts, cont_label, blocks| {
+                    active_exc_target.clone(),
+                    &mut |stmts, cont_label, active_exc_target, blocks| {
                         lower_stmt_sequence_with_state(
                             context,
                             fn_name,
@@ -591,10 +610,10 @@ where
                             cont_label,
                             break_label.clone(),
                             continue_label.clone(),
+                            active_exc_target,
                             blocks,
                             cell_slots,
                             outer_scope_names,
-                            try_regions,
                             next_block_id,
                             next_temp,
                         )
@@ -606,7 +625,13 @@ where
     }
 
     let label = compat_next_label(fn_name, next_block_id);
-    emit_sequence_jump_block(blocks, label, linear, cont_label)
+    emit_sequence_jump_block(
+        blocks,
+        label,
+        linear,
+        cont_label,
+        active_exc_target.as_deref(),
+    )
 }
 
 pub(crate) fn lower_expanded_stmt_sequence<F>(
@@ -616,14 +641,15 @@ pub(crate) fn lower_expanded_stmt_sequence<F>(
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
     jump_label: Option<String>,
+    active_exc_target: Option<String>,
     lower_sequence: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let mut expanded = desugared_stmts;
     expanded.extend_from_slice(remaining_stmts);
-    let expanded_entry = lower_sequence(&expanded, cont_label, blocks);
+    let expanded_entry = lower_sequence(&expanded, cont_label, active_exc_target.clone(), blocks);
     if linear.is_empty() {
         return expanded_entry;
     }
@@ -633,6 +659,11 @@ where
         linear,
         BlockPyTerm::Jump(BlockPyLabel::from(expanded_entry).into()),
     ));
+    if let Some(block) = blocks.last_mut() {
+        block.meta.exc_edge = active_exc_target
+            .as_ref()
+            .map(|target| BlockPyEdge::new(BlockPyLabel::from(target.clone())));
+    }
     jump_label
 }
 
@@ -645,15 +676,28 @@ pub(crate) fn lower_if_stmt_sequence<F>(
     then_body: &[Stmt],
     else_body: &[Stmt],
     rest_entry: String,
+    active_exc_target: Option<String>,
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
-    let then_entry = lower_region(then_body, rest_entry.clone(), blocks);
-    let else_entry = lower_region(else_body, rest_entry, blocks);
+    let then_entry = lower_region(
+        then_body,
+        rest_entry.clone(),
+        active_exc_target.clone(),
+        blocks,
+    );
+    let else_entry = lower_region(else_body, rest_entry, active_exc_target.clone(), blocks);
     emit_if_branch_block_with_expr_setup(
-        context, blocks, label, linear, test, then_entry, else_entry,
+        context,
+        blocks,
+        label,
+        linear,
+        test,
+        then_entry,
+        else_entry,
+        active_exc_target.as_deref(),
     )
     .unwrap_or_else(|err| panic!("failed to lower sequence if head through expr seam: {err}"))
 }
@@ -666,14 +710,20 @@ pub(crate) fn lower_if_stmt_sequence_from_stmt<F>(
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
     label: String,
+    active_exc_target: Option<String>,
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let then_body = suite_ref(&if_stmt.body).to_vec();
     let else_body = extract_if_else_body(&if_stmt);
-    let rest_entry = lower_region(remaining_stmts, cont_label, blocks);
+    let rest_entry = lower_region(
+        remaining_stmts,
+        cont_label,
+        active_exc_target.clone(),
+        blocks,
+    );
     lower_if_stmt_sequence(
         context,
         blocks,
@@ -683,6 +733,7 @@ where
         &then_body,
         &else_body,
         rest_entry,
+        active_exc_target,
         lower_region,
     )
 }
@@ -709,18 +760,37 @@ pub(crate) fn lower_while_stmt_sequence<F>(
     else_body: &[Stmt],
     remaining_stmts: &[Stmt],
     cont_label: String,
+    active_exc_target: Option<String>,
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
-    let rest_entry = lower_region(remaining_stmts, cont_label, None, blocks);
+    let rest_entry = lower_region(
+        remaining_stmts,
+        cont_label,
+        None,
+        active_exc_target.clone(),
+        blocks,
+    );
     let cond_false_entry = if else_body.is_empty() {
         rest_entry.clone()
     } else {
-        lower_region(else_body, rest_entry.clone(), None, blocks)
+        lower_region(
+            else_body,
+            rest_entry.clone(),
+            None,
+            active_exc_target.clone(),
+            blocks,
+        )
     };
-    let body_entry = lower_region(body, test_label.clone(), Some(rest_entry), blocks);
+    let body_entry = lower_region(
+        body,
+        test_label.clone(),
+        Some(rest_entry),
+        active_exc_target.clone(),
+        blocks,
+    );
     emit_simple_while_blocks_with_expr_setup(
         context,
         blocks,
@@ -730,6 +800,7 @@ where
         test,
         body_entry,
         cond_false_entry,
+        active_exc_target.as_deref(),
     )
     .unwrap_or_else(|err| panic!("failed to lower sequence while head through expr seam: {err}"))
 }
@@ -743,10 +814,11 @@ pub(crate) fn lower_while_stmt_sequence_from_stmt<F>(
     blocks: &mut Vec<BlockPyBlock>,
     test_label: String,
     linear_label: Option<String>,
+    active_exc_target: Option<String>,
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let body = suite_ref(&while_stmt.body).to_vec();
     let else_body = suite_ref(&while_stmt.orelse).to_vec();
@@ -761,6 +833,7 @@ where
         &else_body,
         remaining_stmts,
         cont_label,
+        active_exc_target,
         lower_region,
     )
 }
@@ -770,16 +843,29 @@ pub(crate) fn lower_for_stmt_exit_entries<F>(
     else_body: &[Stmt],
     remaining_stmts: &[Stmt],
     cont_label: String,
+    active_exc_target: Option<String>,
     lower_region: &mut F,
 ) -> (String, String)
 where
-    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
-    let rest_entry = lower_region(remaining_stmts, cont_label, None, blocks);
+    let rest_entry = lower_region(
+        remaining_stmts,
+        cont_label,
+        None,
+        active_exc_target.clone(),
+        blocks,
+    );
     let exhausted_entry = if else_body.is_empty() {
         rest_entry.clone()
     } else {
-        lower_region(else_body, rest_entry.clone(), None, blocks)
+        lower_region(
+            else_body,
+            rest_entry.clone(),
+            None,
+            active_exc_target,
+            blocks,
+        )
     };
     (rest_entry, exhausted_entry)
 }
@@ -789,12 +875,19 @@ pub(crate) fn lower_for_stmt_body_entry<F>(
     loop_continue_label: String,
     body: &[Stmt],
     break_label: String,
+    active_exc_target: Option<String>,
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
-    let body_entry = lower_region(body, loop_continue_label.clone(), Some(break_label), blocks);
+    let body_entry = lower_region(
+        body,
+        loop_continue_label.clone(),
+        Some(break_label),
+        active_exc_target,
+        blocks,
+    );
     body_entry
 }
 
@@ -805,6 +898,7 @@ pub(crate) fn lower_for_stmt_sequence<F>(
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
+    active_exc_target: Option<String>,
     iter_name: &str,
     tmp_name: &str,
     loop_check_label: String,
@@ -815,7 +909,7 @@ pub(crate) fn lower_for_stmt_sequence<F>(
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let else_body = suite_ref(&for_stmt.orelse).to_vec();
     let (rest_entry, exhausted_entry) = lower_for_stmt_exit_entries(
@@ -823,6 +917,7 @@ where
         &else_body,
         remaining_stmts,
         cont_label,
+        active_exc_target.clone(),
         lower_region,
     );
 
@@ -832,6 +927,7 @@ where
         loop_continue_label.clone(),
         &body,
         rest_entry.clone(),
+        active_exc_target.clone(),
         lower_region,
     );
 
@@ -849,5 +945,6 @@ where
         exhausted_entry,
         body_entry,
         assign_body,
+        active_exc_target.as_deref(),
     )
 }

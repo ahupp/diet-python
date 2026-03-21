@@ -17,17 +17,6 @@ use crate::block_py::{
 };
 
 #[derive(Debug, Clone)]
-pub struct RuffBlockPyPass;
-
-impl BlockPyPass for RuffBlockPyPass {
-    type Expr = Expr;
-    type Stmt = BlockPyStmt<Self::Expr>;
-    type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type BlockMeta = ();
-    type FunctionExtra = ();
-}
-
-#[derive(Debug, Clone)]
 pub struct LoweredRuffBlockPyPass;
 
 impl BlockPyPass for LoweredRuffBlockPyPass {
@@ -109,14 +98,14 @@ mod tests {
         CoreBlockPyExprWithoutAwaitOrYield,
     };
     use crate::block_py::{ClosureInit, ClosureSlot};
-    use crate::passes::{BbBlockPyPass, LoweredRuffBlockPyPass, RuffBlockPyPass};
+    use crate::passes::{BbBlockPyPass, LoweredRuffBlockPyPass};
     use crate::LoweringResult;
     use crate::{
         py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
     };
     struct TrackedLowering {
         result: LoweringResult,
-        blockpy_module: BlockPyModule<RuffBlockPyPass>,
+        blockpy_module: BlockPyModule<LoweredRuffBlockPyPass>,
     }
 
     impl TrackedLowering {
@@ -131,7 +120,7 @@ mod tests {
             }
         }
 
-        fn blockpy_module(&self) -> BlockPyModule<RuffBlockPyPass> {
+        fn blockpy_module(&self) -> BlockPyModule<LoweredRuffBlockPyPass> {
             self.blockpy_module.clone()
         }
 
@@ -199,9 +188,9 @@ mod tests {
     }
 
     fn callable_def_by_name<'a>(
-        blockpy_module: &'a BlockPyModule<RuffBlockPyPass>,
+        blockpy_module: &'a BlockPyModule<LoweredRuffBlockPyPass>,
         bind_name: &str,
-    ) -> &'a BlockPyFunction<RuffBlockPyPass> {
+    ) -> &'a BlockPyFunction<LoweredRuffBlockPyPass> {
         blockpy_module
             .callable_defs
             .iter()

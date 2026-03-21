@@ -1,6 +1,6 @@
 use crate::block_py::pretty::BlockPyPrettyPrint;
 use crate::passes::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
-use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass, RuffBlockPyPass};
+use crate::passes::{BbBlockPyPass, LoweredRuffBlockPyPass, PreparedBbBlockPyPass};
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
@@ -23,7 +23,7 @@ pub(crate) mod transformer;
 #[cfg(target_arch = "wasm32")]
 mod web_inspector;
 
-use crate::block_py::{BlockPyFunction, BlockPyModule};
+use crate::block_py::BlockPyModule;
 use crate::driver::rewrite_module_with_tracker;
 use crate::passes::ast_to_ast::context::Context;
 pub use crate::passes::ast_to_ast::scope::{analyze_module_scope, Scope};
@@ -306,7 +306,7 @@ pub fn transform_str_to_bb_ir_with_options(
 pub fn transform_str_to_blockpy_with_options(
     source: &str,
     options: Options,
-) -> Result<BlockPyModule<RuffBlockPyPass>, ParseError> {
+) -> Result<BlockPyModule<LoweredRuffBlockPyPass>, ParseError> {
     init_logging();
     namegen::reset_namegen_state();
 
@@ -316,37 +316,10 @@ pub fn transform_str_to_blockpy_with_options(
     let ModModule { body, .. } = module;
 
     let (pass_tracker, _transformed_body) = crate::driver::rewrite_module(&ctx, body);
-    let blockpy = pass_tracker
+    Ok(pass_tracker
         .get::<BlockPyModule<crate::passes::LoweredRuffBlockPyPass>>("semantic_blockpy")
-        .expect("blockpy pass should be tracked");
-    let callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>> = blockpy
-        .callable_defs
-        .iter()
-        .cloned()
-        .map(|lowered| BlockPyFunction {
-            function_id: lowered.function_id,
-            names: lowered.names,
-            kind: lowered.kind,
-            params: lowered.params,
-            blocks: lowered
-                .blocks
-                .into_iter()
-                .map(|block| crate::block_py::CfgBlock {
-                    label: block.label,
-                    body: block.body,
-                    term: block.term,
-                    params: block.params,
-                    meta: (),
-                })
-                .collect(),
-            doc: lowered.doc,
-            closure_layout: lowered.closure_layout,
-            facts: lowered.facts,
-            try_regions: lowered.try_regions,
-            extra: (),
-        })
-        .collect();
-    Ok(BlockPyModule { callable_defs })
+        .expect("blockpy pass should be tracked")
+        .clone())
 }
 
 pub trait ToRuffAst {

@@ -1,5 +1,5 @@
 use super::{
-    BlockParam, BlockParamRole, BlockPyBlock, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel,
+    BbBlockMeta, BlockParam, BlockParamRole, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel,
     BlockPyStmt, BlockPyTerm, CfgBlock, ImplicitNoneExpr,
 };
 use crate::block_py::dataflow::{
@@ -105,8 +105,27 @@ fn rename_blockpy_term(
     }
 }
 
-fn rename_blockpy_block(
-    block: &mut BlockPyBlock<Expr>,
+pub(crate) trait RenameBlockMeta {
+    fn rename_block_labels(&mut self, rename: &HashMap<String, String>);
+}
+
+impl RenameBlockMeta for () {
+    fn rename_block_labels(&mut self, _rename: &HashMap<String, String>) {}
+}
+
+impl RenameBlockMeta for BbBlockMeta {
+    fn rename_block_labels(&mut self, rename: &HashMap<String, String>) {
+        let Some(exc_edge) = self.exc_edge.as_mut() else {
+            return;
+        };
+        if let Some(rewritten) = rename.get(exc_edge.target.as_str()) {
+            exc_edge.target = BlockPyLabel::from(rewritten.clone());
+        }
+    }
+}
+
+fn rename_blockpy_block<M: RenameBlockMeta>(
+    block: &mut CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>, M>,
     body_renamer: &mut LabelNameRenamer<'_>,
     rename: &HashMap<String, String>,
 ) {
@@ -119,9 +138,10 @@ fn rename_blockpy_block(
         rename_blockpy_stmt(stmt, body_renamer, rename);
     }
     rename_blockpy_term(&mut block.term, body_renamer, rename);
+    block.meta.rename_block_labels(rename);
 }
 
-fn blockpy_successors<E>(block: &BlockPyBlock<E>) -> Vec<String> {
+fn blockpy_successors<E, M>(block: &CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>) -> Vec<String> {
     match &block.term {
         BlockPyTerm::Jump(target) => vec![target.as_str().to_string()],
         BlockPyTerm::IfTerm(if_term) => vec![
@@ -145,9 +165,9 @@ fn blockpy_successors<E>(block: &BlockPyBlock<E>) -> Vec<String> {
     }
 }
 
-pub(crate) fn rename_blockpy_labels(
+pub(crate) fn rename_blockpy_labels<M: RenameBlockMeta>(
     rename: &HashMap<String, String>,
-    blocks: &mut [BlockPyBlock<Expr>],
+    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>, M>],
 ) {
     for block in blocks.iter_mut() {
         let mut body_renamer = LabelNameRenamer { rename };
@@ -155,10 +175,10 @@ pub(crate) fn rename_blockpy_labels(
     }
 }
 
-fn apply_label_rename_blockpy(
+fn apply_label_rename_blockpy<M: RenameBlockMeta>(
     entry_label: &str,
     rename: &HashMap<String, String>,
-    blocks: &mut [BlockPyBlock<Expr>],
+    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>, M>],
 ) -> String {
     rename_blockpy_labels(rename, blocks);
     rename
@@ -408,10 +428,10 @@ pub(crate) fn linearize_structured_ifs<E: Clone + Into<Expr>, M: Clone>(
     (out_blocks, out_block_params, out_exception_edges)
 }
 
-pub(crate) fn relabel_blockpy_blocks(
+pub(crate) fn relabel_blockpy_blocks<M: Clone + RenameBlockMeta>(
     prefix: &str,
     entry_label: &str,
-    blocks: &mut [BlockPyBlock<Expr>],
+    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>, M>],
 ) -> (String, HashMap<String, String>) {
     let mut rename = HashMap::new();
     rename.insert(entry_label.to_string(), format!("{prefix}_start"));
@@ -432,8 +452,9 @@ pub(crate) fn relabel_blockpy_blocks(
     (rewritten_entry, rename)
 }
 
-pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E>(blocks: &mut [BlockPyBlock<E>])
-where
+pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E, M>(
+    blocks: &mut [CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>],
+) where
     E: Clone + ImplicitNoneExpr,
 {
     let trivial_ret_none_terms: HashMap<String, BlockPyTerm<E>> = blocks
@@ -461,7 +482,9 @@ where
     }
 }
 
-pub(crate) fn fold_constant_brif_blockpy(blocks: &mut [BlockPyBlock<Expr>]) {
+pub(crate) fn fold_constant_brif_blockpy<M>(
+    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>, M>],
+) {
     for block in blocks.iter_mut() {
         let jump_target = match &block.term {
             BlockPyTerm::IfTerm(BlockPyIfTerm {
@@ -486,10 +509,10 @@ pub(crate) fn fold_constant_brif_blockpy(blocks: &mut [BlockPyBlock<Expr>]) {
     }
 }
 
-pub(crate) fn prune_unreachable_blockpy_blocks<E>(
+pub(crate) fn prune_unreachable_blockpy_blocks<E, M>(
     entry_label: &str,
     extra_roots: &[String],
-    blocks: &mut Vec<BlockPyBlock<E>>,
+    blocks: &mut Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>>,
 ) {
     let index_by_label: HashMap<String, usize> = blocks
         .iter()

@@ -9,7 +9,6 @@ use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
     BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
     CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, PreparedBbBlockPyPass,
-    RuffBlockPyPass,
 };
 use crate::ruff_ast_to_string;
 use std::collections::{HashMap, HashSet};
@@ -47,7 +46,6 @@ macro_rules! impl_default_blockpy_pretty_printer {
 }
 
 impl_default_blockpy_pretty_printer!(
-    RuffBlockPyPass,
     LoweredRuffBlockPyPass,
     CoreBlockPyPass,
     CoreBlockPyPassWithoutAwait,
@@ -1163,12 +1161,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block_py::{BbBlockMeta, BlockParam, BlockParamRole, BlockPyBlock};
+    use crate::block_py::{BbBlockMeta, BlockParam, BlockParamRole};
     use crate::block_py::{ClosureInit, ClosureLayout, ClosureSlot};
-    use crate::passes::{BbBlockPyPass, RuffBlockPyPass};
+    use crate::passes::{BbBlockPyPass, LoweredRuffBlockPyPass};
     use ruff_python_parser::parse_expression;
 
-    fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
+    fn wrapped_blockpy(source: &str) -> BlockPyModule<LoweredRuffBlockPyPass> {
         crate::transform_str_to_blockpy_with_options(source, crate::Options::for_test())
             .expect("expected lowered semantic BlockPy module")
     }
@@ -1227,7 +1225,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
 
     #[test]
     fn renders_empty_module_marker() {
-        let empty_module: BlockPyModule<RuffBlockPyPass> = BlockPyModule {
+        let empty_module: BlockPyModule<LoweredRuffBlockPyPass> = BlockPyModule {
             callable_defs: Vec::new(),
         };
         let rendered = blockpy_module_to_string(&empty_module);
@@ -1295,7 +1293,7 @@ async def no_lying():
             .collect::<HashSet<_>>();
 
         let missing_labels =
-            collect_referenced_labels_from_blocks::<RuffBlockPyPass>(&function.blocks)
+            collect_referenced_labels_from_blocks::<LoweredRuffBlockPyPass>(&function.blocks)
                 .into_iter()
                 .map(|label| label.as_str().to_string())
                 .filter(|label| !inlined_labels.contains(label))
@@ -1308,17 +1306,17 @@ async def no_lying():
     #[test]
     fn renders_public_closure_metadata_in_function_header() {
         let rendered = blockpy_module_to_string(&BlockPyModule {
-            callable_defs: vec![BlockPyFunction::<RuffBlockPyPass> {
+            callable_defs: vec![BlockPyFunction::<LoweredRuffBlockPyPass> {
                 function_id: crate::block_py::FunctionId(0),
                 names: crate::block_py::FunctionName::new("gen", "gen", "gen", "gen"),
                 kind: BlockPyFunctionKind::Function,
                 params: empty_param_spec(),
-                blocks: vec![BlockPyBlock {
+                blocks: vec![CfgBlock {
                     label: "gen_start".into(),
                     body: vec![],
                     term: BlockPyTerm::<Expr>::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
-                    meta: (),
+                    meta: BbBlockMeta::default(),
                 }],
                 doc: None,
                 closure_layout: Some(ClosureLayout {
@@ -1352,13 +1350,13 @@ async def no_lying():
 
     #[test]
     fn renders_followup_blocks_under_their_owning_entry_block() {
-        let function: BlockPyFunction<RuffBlockPyPass> = BlockPyFunction {
+        let function: BlockPyFunction<LoweredRuffBlockPyPass> = BlockPyFunction {
             function_id: crate::block_py::FunctionId(0),
             names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
             kind: BlockPyFunctionKind::Function,
             params: empty_param_spec(),
             blocks: vec![
-                BlockPyBlock {
+                CfgBlock {
                     label: "start".into(),
                     body: vec![],
                     term: BlockPyTerm::IfTerm(BlockPyIfTerm {
@@ -1367,28 +1365,28 @@ async def no_lying():
                         else_label: "else".into(),
                     }),
                     params: Vec::new(),
-                    meta: (),
+                    meta: BbBlockMeta::default(),
                 },
-                BlockPyBlock {
+                CfgBlock {
                     label: "then".into(),
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()"))],
                     term: BlockPyTerm::Jump("after".into()),
                     params: Vec::new(),
-                    meta: (),
+                    meta: BbBlockMeta::default(),
                 },
-                BlockPyBlock {
+                CfgBlock {
                     label: "else".into(),
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()"))],
                     term: BlockPyTerm::Jump("after".into()),
                     params: Vec::new(),
-                    meta: (),
+                    meta: BbBlockMeta::default(),
                 },
-                BlockPyBlock {
+                CfgBlock {
                     label: "after".into(),
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()"))],
                     term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
-                    meta: (),
+                    meta: BbBlockMeta::default(),
                 },
             ],
             doc: None,
@@ -1430,13 +1428,13 @@ def choose(a, b):
 
     #[test]
     fn sorts_rendered_root_and_child_blocks_by_label() {
-        let function: BlockPyFunction<RuffBlockPyPass> = BlockPyFunction {
+        let function: BlockPyFunction<LoweredRuffBlockPyPass> = BlockPyFunction {
             function_id: crate::block_py::FunctionId(0),
             names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
             kind: BlockPyFunctionKind::Function,
             params: empty_param_spec(),
             blocks: vec![
-                BlockPyBlock {
+                CfgBlock {
                     label: "start".into(),
                     body: vec![],
                     term: BlockPyTerm::TryJump(BlockPyTryJump {
@@ -1444,35 +1442,35 @@ def choose(a, b):
                         except_label: "alpha".into(),
                     }),
                     params: Vec::new(),
-                    meta: (),
+                    meta: BbBlockMeta::default(),
                 },
-                BlockPyBlock {
+                CfgBlock {
                     label: "zeta".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
-                    meta: (),
+                    meta: BbBlockMeta::default(),
                 },
-                BlockPyBlock {
+                CfgBlock {
                     label: "alpha".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
-                    meta: (),
+                    meta: BbBlockMeta::default(),
                 },
-                BlockPyBlock {
+                CfgBlock {
                     label: "omega".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
-                    meta: (),
+                    meta: BbBlockMeta::default(),
                 },
-                BlockPyBlock {
+                CfgBlock {
                     label: "beta".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
-                    meta: (),
+                    meta: BbBlockMeta::default(),
                 },
             ],
             doc: None,
@@ -1497,7 +1495,7 @@ def choose(a, b):
     #[test]
     fn collects_referenced_labels_from_nested_if_fragments_via_visitor() {
         let referenced =
-            collect_referenced_labels_from_blocks::<RuffBlockPyPass>(&[BlockPyBlock {
+            collect_referenced_labels_from_blocks::<LoweredRuffBlockPyPass>(&[CfgBlock {
                 label: "start".into(),
                 body: vec![BlockPyStmt::If(crate::block_py::BlockPyIf {
                     test: parse_blockpy_expr("cond"),
@@ -1519,7 +1517,7 @@ def choose(a, b):
                     except_label: "except_target".into(),
                 }),
                 params: Vec::new(),
-                meta: (),
+                meta: BbBlockMeta::default(),
             }]);
 
         let expected = [

@@ -33,8 +33,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::{
-    attach_exception_edges_to_blocks, build_blockpy_callable_def_from_runtime_input,
-    compute_blockpy_exception_edges, rewrite_deleted_name_loads, take_next_function_id,
+    build_blockpy_callable_def_from_runtime_input, rewrite_deleted_name_loads,
+    take_next_function_id,
 };
 
 struct FunctionScopeFrame {
@@ -344,20 +344,7 @@ fn try_lower_function_to_blockpy_bundle(
         );
     }
 
-    let exception_edges = compute_blockpy_exception_edges(&callable_def.try_regions);
-
-    Some(BlockPyFunction {
-        function_id: callable_def.function_id,
-        names: callable_def.names,
-        kind: callable_def.kind,
-        params: callable_def.params,
-        blocks: attach_exception_edges_to_blocks(callable_def.blocks, &exception_edges),
-        doc: callable_def.doc,
-        closure_layout: callable_def.closure_layout,
-        facts: callable_def.facts,
-        try_regions: callable_def.try_regions,
-        extra: (),
-    })
+    Some(callable_def)
 }
 
 fn function_docstring_text(func: &ast::StmtFunctionDef) -> Option<String> {

@@ -1,16 +1,46 @@
 use super::*;
 use crate::block_py::{
-    BlockPyBlock, BlockPyCfgBlockBuilder, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
+    BbBlockMeta, BlockPyCfgBlockBuilder, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
     BlockPyStmtFragmentBuilder, BlockPyTerm, Expr,
 };
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ruff_to_blockpy::stmt_lowering::lower_nested_stmt_into_with_expr;
 
+fn exc_block_meta(exc_target: Option<&str>) -> BbBlockMeta {
+    BbBlockMeta {
+        exc_edge: exc_target
+            .map(BlockPyLabel::from)
+            .map(crate::block_py::BlockPyEdge::new),
+    }
+}
+
+fn with_exc_meta(
+    block: crate::block_py::CfgBlock<BlockPyStmt, BlockPyTerm>,
+    exc_target: Option<&str>,
+) -> LoweredBlockPyBlock {
+    crate::block_py::CfgBlock {
+        label: block.label,
+        body: block.body,
+        term: block.term,
+        params: block.params,
+        meta: exc_block_meta(exc_target),
+    }
+}
+
 pub(crate) fn compat_block_from_blockpy(
     label: String,
     body: Vec<Stmt>,
     term: BlockPyTerm,
-) -> BlockPyBlock {
+) -> LoweredBlockPyBlock {
+    compat_block_from_blockpy_with_exc_target(label, body, term, None)
+}
+
+pub(crate) fn compat_block_from_blockpy_with_exc_target(
+    label: String,
+    body: Vec<Stmt>,
+    term: BlockPyTerm,
+    exc_target: Option<&str>,
+) -> LoweredBlockPyBlock {
     let body = lower_stmts_to_blockpy_stmts::<Expr>(&body).unwrap_or_else(|err| {
         panic!("failed to convert compatibility block body to BlockPy: {err}")
     });
@@ -22,7 +52,7 @@ pub(crate) fn compat_block_from_blockpy(
         BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(BlockPyLabel::from(label));
     block.extend(body.body);
     block.set_term(term);
-    block.finish(None)
+    with_exc_meta(block.finish(None), exc_target)
 }
 
 pub(crate) fn compat_if_jump_block(
@@ -31,7 +61,7 @@ pub(crate) fn compat_if_jump_block(
     test: Expr,
     then_label: String,
     else_label: String,
-) -> BlockPyBlock {
+) -> LoweredBlockPyBlock {
     compat_block_from_blockpy(
         label.clone(),
         body,
@@ -62,7 +92,21 @@ pub(crate) fn compat_if_jump_block_with_expr_setup(
     test: Expr,
     then_label: String,
     else_label: String,
-) -> Result<BlockPyBlock, String> {
+) -> Result<LoweredBlockPyBlock, String> {
+    compat_if_jump_block_with_expr_setup_and_exc_target(
+        context, label, body, test, then_label, else_label, None,
+    )
+}
+
+pub(crate) fn compat_if_jump_block_with_expr_setup_and_exc_target(
+    context: &Context,
+    label: String,
+    body: Vec<Stmt>,
+    test: Expr,
+    then_label: String,
+    else_label: String,
+    exc_target: Option<&str>,
+) -> Result<LoweredBlockPyBlock, String> {
     let mut out = compat_block_builder_with_expr_setup(context, body)?;
     let mut next_label_id = 0usize;
     let test = crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
@@ -84,14 +128,14 @@ pub(crate) fn compat_if_jump_block_with_expr_setup(
         then_label: BlockPyLabel::from(then_label),
         else_label: BlockPyLabel::from(else_label),
     }));
-    Ok(block.finish(None))
+    Ok(with_exc_meta(block.finish(None), exc_target))
 }
 
 pub(crate) fn compat_jump_block_from_blockpy(
     label: String,
     body: Vec<Stmt>,
     target_label: String,
-) -> BlockPyBlock {
+) -> LoweredBlockPyBlock {
     compat_block_from_blockpy(
         label,
         body,
@@ -100,7 +144,7 @@ pub(crate) fn compat_jump_block_from_blockpy(
 }
 
 pub(crate) fn set_region_exc_param(
-    blocks: &mut [BlockPyBlock],
+    blocks: &mut [LoweredBlockPyBlock],
     region: &std::ops::Range<usize>,
     exc_param: &str,
 ) {
@@ -110,25 +154,28 @@ pub(crate) fn set_region_exc_param(
 }
 
 pub(crate) fn emit_sequence_jump_block(
-    blocks: &mut Vec<BlockPyBlock>,
+    blocks: &mut Vec<LoweredBlockPyBlock>,
     label: String,
     linear: Vec<Stmt>,
     target_label: String,
+    exc_target: Option<&str>,
 ) -> String {
-    blocks.push(compat_jump_block_from_blockpy(
+    blocks.push(compat_block_from_blockpy_with_exc_target(
         label.clone(),
         linear,
-        target_label,
+        BlockPyTerm::Jump(BlockPyLabel::from(target_label).into()),
+        exc_target,
     ));
     label
 }
 
 pub(crate) fn emit_sequence_return_block_with_expr_setup(
     context: &Context,
-    blocks: &mut Vec<BlockPyBlock>,
+    blocks: &mut Vec<LoweredBlockPyBlock>,
     label: String,
     linear: Vec<Stmt>,
     value: Option<Expr>,
+    exc_target: Option<&str>,
 ) -> Result<String, String> {
     let mut out = compat_block_builder_with_expr_setup(context, linear)?;
     let mut next_label_id = 0usize;
@@ -153,16 +200,17 @@ pub(crate) fn emit_sequence_return_block_with_expr_setup(
     block.set_term(BlockPyTerm::Return(
         value.unwrap_or_else(|| crate::py_expr!("__dp_NONE")),
     ));
-    blocks.push(block.finish(None));
+    blocks.push(with_exc_meta(block.finish(None), exc_target));
     Ok(label)
 }
 
 pub(crate) fn emit_sequence_raise_block_with_expr_setup(
     context: &Context,
-    blocks: &mut Vec<BlockPyBlock>,
+    blocks: &mut Vec<LoweredBlockPyBlock>,
     label: String,
     linear: Vec<Stmt>,
     exc: BlockPyRaise,
+    exc_target: Option<&str>,
 ) -> Result<String, String> {
     let mut out = compat_block_builder_with_expr_setup(context, linear)?;
     let mut next_label_id = 0usize;
@@ -188,53 +236,58 @@ pub(crate) fn emit_sequence_raise_block_with_expr_setup(
         BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(BlockPyLabel::from(label.clone()));
     block.extend(fragment.body);
     block.set_term(BlockPyTerm::Raise(exc));
-    blocks.push(block.finish(None));
+    blocks.push(with_exc_meta(block.finish(None), exc_target));
     Ok(label)
 }
 
 pub(crate) fn emit_if_branch_block_with_expr_setup(
     context: &Context,
-    blocks: &mut Vec<BlockPyBlock>,
+    blocks: &mut Vec<LoweredBlockPyBlock>,
     label: String,
     body: Vec<Stmt>,
     test: Expr,
     then_label: String,
     else_label: String,
+    exc_target: Option<&str>,
 ) -> Result<String, String> {
-    blocks.push(compat_if_jump_block_with_expr_setup(
+    blocks.push(compat_if_jump_block_with_expr_setup_and_exc_target(
         context,
         label.clone(),
         body,
         test,
         then_label,
         else_label,
+        exc_target,
     )?);
     Ok(label)
 }
 
 pub(crate) fn emit_simple_while_blocks_with_expr_setup(
     context: &Context,
-    blocks: &mut Vec<BlockPyBlock>,
+    blocks: &mut Vec<LoweredBlockPyBlock>,
     test_label: String,
     linear_label: Option<String>,
     linear: Vec<Stmt>,
     test: Expr,
     body_entry: String,
     cond_false_entry: String,
+    exc_target: Option<&str>,
 ) -> Result<String, String> {
-    blocks.push(compat_if_jump_block_with_expr_setup(
+    blocks.push(compat_if_jump_block_with_expr_setup_and_exc_target(
         context,
         test_label.clone(),
         Vec::new(),
         test,
         body_entry,
         cond_false_entry,
+        exc_target,
     )?);
     if let Some(linear_label) = linear_label {
-        blocks.push(compat_jump_block_from_blockpy(
+        blocks.push(compat_block_from_blockpy_with_exc_target(
             linear_label.clone(),
             linear,
-            test_label,
+            BlockPyTerm::Jump(BlockPyLabel::from(test_label).into()),
+            exc_target,
         ));
         Ok(linear_label)
     } else {
@@ -243,7 +296,7 @@ pub(crate) fn emit_simple_while_blocks_with_expr_setup(
 }
 
 pub(crate) fn emit_for_loop_blocks(
-    blocks: &mut Vec<BlockPyBlock>,
+    blocks: &mut Vec<LoweredBlockPyBlock>,
     setup_label: String,
     assign_label: String,
     loop_check_label: String,
@@ -256,14 +309,16 @@ pub(crate) fn emit_for_loop_blocks(
     exhausted_entry: String,
     body_entry: String,
     assign_body: Vec<Stmt>,
+    exc_target: Option<&str>,
 ) -> String {
     let iter_expr = py_expr!("{iter:id}", iter = iter_name);
     let tmp_expr = py_expr!("{tmp:id}", tmp = tmp_name);
 
-    blocks.push(compat_block_from_blockpy(
+    blocks.push(compat_block_from_blockpy_with_exc_target(
         assign_label.clone(),
         assign_body,
         BlockPyTerm::Jump(BlockPyLabel::from(body_entry).into()),
+        exc_target,
     ));
 
     let exhausted_test = py_expr!(
@@ -283,12 +338,15 @@ pub(crate) fn emit_for_loop_blocks(
             iter = iter_expr.clone(),
         )]
     };
-    blocks.push(compat_if_jump_block(
+    blocks.push(compat_block_from_blockpy_with_exc_target(
         loop_check_label.clone(),
         check_body,
-        exhausted_test,
-        exhausted_entry,
-        assign_label,
+        BlockPyTerm::IfTerm(BlockPyIfTerm {
+            test: exhausted_test.into(),
+            then_label: BlockPyLabel::from(exhausted_entry),
+            else_label: BlockPyLabel::from(assign_label),
+        }),
+        exc_target,
     ));
 
     let mut setup_body = linear;
@@ -305,10 +363,11 @@ pub(crate) fn emit_for_loop_blocks(
             iterable = iterable,
         ));
     }
-    blocks.push(compat_block_from_blockpy(
+    blocks.push(compat_block_from_blockpy_with_exc_target(
         setup_label.clone(),
         setup_body,
         BlockPyTerm::Jump(BlockPyLabel::from(loop_continue_label).into()),
+        exc_target,
     ));
     setup_label
 }

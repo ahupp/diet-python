@@ -5,9 +5,11 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use dp_transform::block_py::{BlockPyBlock, BlockPyCfgFragment, BlockPyModule, BlockPyStmt};
+use dp_transform::block_py::{
+    BlockPyCfgFragment, BlockPyModule, BlockPyStmt, BlockPyTerm, CfgBlock,
+};
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
-use dp_transform::passes::{PreparedBbBlockPyPass, RuffBlockPyPass};
+use dp_transform::passes::{LoweredRuffBlockPyPass, PreparedBbBlockPyPass};
 use dp_transform::{
     init_logging, transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options,
     Options,
@@ -135,7 +137,7 @@ fn with_suppressed_panic_hook<T>(f: impl FnOnce() -> Result<T, String>) -> Resul
     }
 }
 
-fn count_blockpy_blocks(module: &BlockPyModule<RuffBlockPyPass>) -> usize {
+fn count_blockpy_blocks(module: &BlockPyModule<LoweredRuffBlockPyPass>) -> usize {
     module
         .callable_defs
         .iter()
@@ -143,7 +145,9 @@ fn count_blockpy_blocks(module: &BlockPyModule<RuffBlockPyPass>) -> usize {
         .sum()
 }
 
-fn count_blockpy_blocks_in_list(blocks: &[BlockPyBlock]) -> usize {
+fn count_blockpy_blocks_in_list<M: Clone + std::fmt::Debug>(
+    blocks: &[CfgBlock<BlockPyStmt, BlockPyTerm, M>],
+) -> usize {
     blocks
         .iter()
         .map(|block| {

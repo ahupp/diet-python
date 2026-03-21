@@ -158,10 +158,11 @@ pub(crate) fn lower_with_stmt_sequence<F>(
     _cell_slots: &HashSet<String>,
     next_block_id: &Cell<usize>,
     _needs_finally_return_flow: bool,
+    active_exc_target: Option<String>,
     lower_sequence: &mut F,
-) -> (String, Option<TryRegionPlan>)
+) -> String
 where
-    F: FnMut(&[Stmt], String, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     if with_stmt.items.is_empty() {
         let jump_label = if linear.is_empty() {
@@ -172,20 +173,18 @@ where
             next_block_id.set(next_id);
             Some(label)
         };
-        return (
-            lower_expanded_stmt_sequence(
-                {
-                    let mut body = with_stmt.body;
-                    take_suite(&mut body)
-                },
-                remaining_stmts,
-                cont_label,
-                linear,
-                blocks,
-                jump_label,
-                lower_sequence,
-            ),
-            None,
+        return lower_expanded_stmt_sequence(
+            {
+                let mut body = with_stmt.body;
+                take_suite(&mut body)
+            },
+            remaining_stmts,
+            cont_label,
+            linear,
+            blocks,
+            jump_label,
+            active_exc_target,
+            lower_sequence,
         );
     }
 
@@ -197,17 +196,15 @@ where
         next_block_id.set(next_id);
         Some(label)
     };
-    (
-        lower_expanded_stmt_sequence(
-            desugar_structured_with_stmt_for_blockpy(with_stmt),
-            remaining_stmts,
-            cont_label,
-            linear,
-            blocks,
-            jump_label,
-            lower_sequence,
-        ),
-        None,
+    lower_expanded_stmt_sequence(
+        desugar_structured_with_stmt_for_blockpy(with_stmt),
+        remaining_stmts,
+        cont_label,
+        linear,
+        blocks,
+        jump_label,
+        active_exc_target,
+        lower_sequence,
     )
 }
 

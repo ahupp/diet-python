@@ -1,6 +1,6 @@
 use crate::block_py::{
-    BlockPyBlock, BlockPyBranchTable, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
-    BlockPyStmtFragment, BlockPyTerm,
+    BlockPyBranchTable, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
+    BlockPyTerm, CfgBlock,
 };
 use crate::passes::ast_to_ast::body::suite_mut;
 use crate::py_expr;
@@ -15,8 +15,8 @@ fn rewrite_blockpy_expr_deleted_name_loads(
     rewriter.visit_expr(expr);
 }
 
-pub(crate) fn rewrite_deleted_name_loads(
-    blocks: &mut [BlockPyBlock<Expr>],
+pub(crate) fn rewrite_deleted_name_loads<M: Clone + std::fmt::Debug>(
+    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>, M>],
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
 ) {

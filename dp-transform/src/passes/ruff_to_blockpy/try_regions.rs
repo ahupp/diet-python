@@ -1,8 +1,8 @@
 use super::compat::set_region_exc_param;
 use super::*;
 use crate::block_py::{
-    AbruptKind, BlockArg, BlockParamRole, BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder,
-    BlockPyEdge, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    AbruptKind, BlockArg, BlockParamRole, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyEdge,
+    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
 };
 use crate::passes::ast_to_ast::body::{suite_ref, Suite};
 
@@ -108,16 +108,18 @@ pub(crate) fn lower_try_regions<F>(
     else_body: Vec<Stmt>,
     try_body: Vec<Stmt>,
     except_body: Option<Vec<Stmt>>,
+    active_exc_target: Option<String>,
     lower_region: &mut F,
 ) -> LoweredTryRegions
 where
-    F: FnMut(&[Stmt], String, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let finally_label = if let Some(finally_body) = finally_body {
         let finally_region_start = blocks.len();
         let finally_label = lower_region(
             &finally_body,
             try_plan.finally_cont_label(rest_entry),
+            active_exc_target.clone(),
             blocks,
         );
         let finally_region_end = blocks.len();
@@ -144,7 +146,19 @@ where
                 BlockPyLabel::from(finally_label.clone()),
                 args,
             )));
-            blocks.push(block.finish(None));
+            let block = block.finish(None);
+            let block = crate::block_py::CfgBlock {
+                label: block.label,
+                body: block.body,
+                term: block.term,
+                params: block.params,
+                meta: BbBlockMeta {
+                    exc_edge: active_exc_target
+                        .as_ref()
+                        .map(|target| BlockPyEdge::new(BlockPyLabel::from(target.clone()))),
+                },
+            };
+            blocks.push(block);
             normal_label
         });
         let finally_exception_entry = try_plan.finally_exc_name.as_ref().map(|finally_exc_name| {
@@ -161,7 +175,19 @@ where
                 BlockPyLabel::from(finally_label.clone()),
                 args,
             )));
-            blocks.push(block.finish(None));
+            let block = block.finish(None);
+            let block = crate::block_py::CfgBlock {
+                label: block.label,
+                body: block.body,
+                term: block.term,
+                params: block.params,
+                meta: BbBlockMeta {
+                    exc_edge: active_exc_target
+                        .as_ref()
+                        .map(|target| BlockPyEdge::new(BlockPyLabel::from(target.clone()))),
+                },
+            };
+            blocks.push(block);
             exception_label
         });
         if let (
@@ -185,6 +211,7 @@ where
                 payload_name,
                 kind_name,
                 rest_entry.to_string(),
+                active_exc_target.clone(),
             );
         }
         Some((
@@ -201,19 +228,32 @@ where
         .as_ref()
         .map(|(label, _, normal_entry, _)| normal_entry.clone().unwrap_or_else(|| label.clone()))
         .unwrap_or_else(|| rest_entry.to_string());
+    let cleanup_exc_target = finally_label
+        .as_ref()
+        .map(|(label, _, _, finally_exception_entry)| {
+            finally_exception_entry
+                .clone()
+                .unwrap_or_else(|| label.clone())
+        })
+        .or(active_exc_target.clone());
 
     let else_region_start = blocks.len();
     let else_entry = if else_body.is_empty() {
         cleanup_target.clone()
     } else {
-        lower_region(&else_body, cleanup_target.clone(), blocks)
+        lower_region(
+            &else_body,
+            cleanup_target.clone(),
+            cleanup_exc_target.clone(),
+            blocks,
+        )
     };
     let else_region_end = blocks.len();
 
     let except_region_range;
     let except_label = if let Some(except_body) = except_body {
         let except_region_start = blocks.len();
-        let except_label = lower_region(&except_body, cleanup_target, blocks);
+        let except_label = lower_region(&except_body, cleanup_target, cleanup_exc_target, blocks);
         let except_region_end = blocks.len();
         except_region_range = Some(except_region_start..except_region_end);
         except_label
@@ -225,7 +265,7 @@ where
     };
 
     let body_region_start = blocks.len();
-    let body_label = lower_region(&try_body, else_entry, blocks);
+    let body_label = lower_region(&try_body, else_entry, Some(except_label.clone()), blocks);
     let body_region_end = blocks.len();
 
     LoweredTryRegions {
@@ -259,8 +299,9 @@ pub(crate) fn finalize_try_regions(
     _finally_region_range: Option<std::ops::Range<usize>>,
     finally_label: Option<String>,
     _finally_normal_entry: Option<String>,
-    finally_exception_entry: Option<String>,
-) -> (String, TryRegionPlan) {
+    _finally_exception_entry: Option<String>,
+    active_exc_target: Option<String>,
+) -> String {
     if let Some(finally_target) = finally_label.as_ref() {
         let payload_name = try_plan
             .finally_abrupt_payload_name
@@ -298,26 +339,14 @@ pub(crate) fn finalize_try_regions(
     ) {
         set_region_exc_param(blocks, finally_region_range, finally_exc_name.as_str());
     }
-    let cleanup_region_labels = if finally_label.is_some() {
-        let mut labels = collect_region_label_names(&blocks[else_region_range.clone()]);
-        if let Some(except_region_range) = except_region_range.as_ref() {
-            labels.extend(collect_region_label_names(
-                &blocks[except_region_range.clone()],
-            ));
-        }
-        labels
-    } else {
-        Vec::new()
-    };
-    let try_region = TryRegionPlan {
-        body_region_labels: collect_region_label_names(&blocks[body_region_range]),
-        body_exception_target: except_label.clone(),
-        cleanup_region_labels,
-        cleanup_exception_target: finally_exception_entry.or(finally_label.clone()),
-    };
-
-    let label = emit_try_jump_entry(blocks, label, linear, body_label, except_label);
-    (label, try_region)
+    emit_try_jump_entry(
+        blocks,
+        label,
+        linear,
+        body_label,
+        except_label,
+        active_exc_target,
+    )
 }
 
 pub(crate) fn emit_finally_abrupt_dispatch_blocks(
@@ -328,20 +357,23 @@ pub(crate) fn emit_finally_abrupt_dispatch_blocks(
     payload_name: &str,
     kind_name: &str,
     rest_entry: String,
+    active_exc_target: Option<String>,
 ) {
-    blocks.push(compat_block_from_blockpy(
+    blocks.push(compat_block_from_blockpy_with_exc_target(
         finally_return_label.clone(),
         Vec::new(),
         BlockPyTerm::Return(py_expr!("{name:id}", name = payload_name).into()),
+        active_exc_target.as_deref(),
     ));
-    blocks.push(compat_block_from_blockpy(
+    blocks.push(compat_block_from_blockpy_with_exc_target(
         finally_raise_label.clone(),
         Vec::new(),
         BlockPyTerm::Raise(BlockPyRaise {
             exc: Some(py_expr!("{name:id}", name = payload_name).into()),
         }),
+        active_exc_target.as_deref(),
     ));
-    blocks.push(compat_block_from_blockpy(
+    blocks.push(compat_block_from_blockpy_with_exc_target(
         finally_dispatch_label.clone(),
         Vec::new(),
         BlockPyTerm::BranchTable(BlockPyBranchTable {
@@ -353,6 +385,7 @@ pub(crate) fn emit_finally_abrupt_dispatch_blocks(
             ],
             default_label: BlockPyLabel::from(rest_entry),
         }),
+        active_exc_target.as_deref(),
     ));
 }
 
@@ -369,19 +402,24 @@ pub(crate) fn emit_try_jump_entry(
     linear: Vec<Stmt>,
     body_label: String,
     except_label: String,
+    active_exc_target: Option<String>,
 ) -> String {
-    blocks.push(compat_block_from_blockpy(
+    blocks.push(compat_block_from_blockpy_with_exc_target(
         label.clone(),
         linear,
         BlockPyTerm::TryJump(BlockPyTryJump {
             body_label: BlockPyLabel::from(body_label),
             except_label: BlockPyLabel::from(except_label),
         }),
+        active_exc_target.as_deref(),
     ));
     label
 }
 
-pub(crate) fn block_references_label(block: &BlockPyBlock, label: &str) -> bool {
+pub(crate) fn block_references_label<M: Clone + std::fmt::Debug>(
+    block: &crate::block_py::CfgBlock<BlockPyStmt, BlockPyTerm, M>,
+    label: &str,
+) -> bool {
     fn stmt_references_label(stmt: &BlockPyStmt, label: &str) -> bool {
         match stmt {
             BlockPyStmt::If(if_stmt) => {

@@ -1,6 +1,6 @@
 use super::{
-    AbruptKind, BlockArg, BlockPyAssign, BlockPyBlock, BlockPyEdge, BlockPyLabel, BlockPyStmt,
-    BlockPyTerm,
+    AbruptKind, BlockArg, BlockPyAssign, BlockPyEdge, BlockPyLabel, BlockPyStmt, BlockPyTerm,
+    CfgBlock,
 };
 use crate::passes::ast_to_ast::body::suite_ref;
 use crate::py_expr;
@@ -13,8 +13,8 @@ fn expr_name(id: &str) -> ExprName {
     expr
 }
 
-pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
-    blocks: &mut [BlockPyBlock<E>],
+pub(crate) fn rewrite_region_returns_to_finally_blockpy<E, M>(
+    blocks: &mut [CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>],
     finally_target: &str,
     payload_name: &str,
 ) where
