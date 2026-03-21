@@ -1,71 +1,102 @@
 use crate::block_py::{
-    BbBlock, BbBlockMeta, BbStmt, BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule,
-    BlockPyTerm,
+    BbBlockMeta, BbStmt, BbTerm, BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule,
+    BlockPyTerm, PreparedBbBlock,
 };
 use crate::passes::blockpy_to_bb::populate_exception_edge_args;
-use crate::passes::BbBlockPyPass;
+use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass};
 use std::collections::HashSet;
 
 pub fn lower_try_jump_exception_flow(
     module: &BlockPyModule<BbBlockPyPass>,
-) -> Result<BlockPyModule<BbBlockPyPass>, String> {
-    let mut lowered = module.clone();
-    for function in &mut lowered.callable_defs {
-        lower_function_try_jump_exception_flow(function)?;
-    }
-    Ok(lowered)
+) -> Result<BlockPyModule<PreparedBbBlockPyPass>, String> {
+    let callable_defs = module
+        .callable_defs
+        .iter()
+        .cloned()
+        .map(lower_function_try_jump_exception_flow)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(BlockPyModule { callable_defs })
 }
 
 fn lower_function_try_jump_exception_flow(
-    function: &mut BlockPyFunction<BbBlockPyPass>,
-) -> Result<(), String> {
+    function: BlockPyFunction<BbBlockPyPass>,
+) -> Result<BlockPyFunction<PreparedBbBlockPyPass>, String> {
+    let mut function = rewrite_try_jump_terms(function)?;
     let label_set: HashSet<String> = function
         .blocks
         .iter()
         .map(|block| block.label.as_str().to_string())
         .collect();
-    rewrite_try_jump_terms(function, &label_set)?;
-    validate_function_labels(function, &label_set)?;
+    validate_function_labels(&function, &label_set)?;
 
     // Canonicalize exception-edge blocks so each potentially-raising expression
     // step sits in its own block. This keeps per-expression exception checks
     // explicit in CFG shape (op-block -> jump -> ... -> term-block), which
     // allows the JIT fast path to dispatch exceptions directly from each step.
-    split_exception_blocks_for_expr_checks(function);
+    split_exception_blocks_for_expr_checks(&mut function);
     populate_exception_edge_args(&mut function.blocks);
 
-    Ok(())
+    Ok(function)
 }
 
 fn rewrite_try_jump_terms(
-    function: &mut BlockPyFunction<BbBlockPyPass>,
-    labels: &HashSet<String>,
-) -> Result<(), String> {
+    function: BlockPyFunction<BbBlockPyPass>,
+) -> Result<BlockPyFunction<PreparedBbBlockPyPass>, String> {
     let qualname = function.names.qualname.clone();
-    for block in &mut function.blocks {
-        let BlockPyTerm::TryJump(try_jump) = block.term.clone() else {
-            continue;
-        };
-        ensure_known_label(
-            labels,
-            &try_jump.body_label,
-            qualname.as_str(),
-            &block.label,
-            "try body target",
-        )?;
-        ensure_known_label(
-            labels,
-            &try_jump.except_label,
-            qualname.as_str(),
-            &block.label,
-            "try except target",
-        )?;
-        if block.meta.exc_edge.is_none() {
-            block.meta.exc_edge = Some(BlockPyEdge::new(try_jump.except_label.clone()));
-        }
-        block.term = BlockPyTerm::Jump(try_jump.body_label.into());
-    }
-    Ok(())
+    let labels = function
+        .blocks
+        .iter()
+        .map(|block| block.label.as_str().to_string())
+        .collect::<HashSet<_>>();
+    Ok(BlockPyFunction {
+        function_id: function.function_id,
+        names: function.names,
+        kind: function.kind,
+        params: function.params,
+        param_defaults: function.param_defaults,
+        blocks: function
+            .blocks
+            .into_iter()
+            .map(|mut block| {
+                let term = match block.term {
+                    BlockPyTerm::TryJump(try_jump) => {
+                        ensure_known_label(
+                            &labels,
+                            &try_jump.body_label,
+                            qualname.as_str(),
+                            &block.label,
+                            "try body target",
+                        )?;
+                        ensure_known_label(
+                            &labels,
+                            &try_jump.except_label,
+                            qualname.as_str(),
+                            &block.label,
+                            "try except target",
+                        )?;
+                        if block.meta.exc_edge.is_none() {
+                            block.meta.exc_edge =
+                                Some(BlockPyEdge::new(try_jump.except_label.clone()));
+                        }
+                        BbTerm::Jump(try_jump.body_label.into())
+                    }
+                    term => term.into(),
+                };
+                Ok(PreparedBbBlock {
+                    label: block.label,
+                    body: block.body,
+                    term,
+                    params: block.params,
+                    meta: block.meta,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?,
+        doc: function.doc,
+        closure_layout: function.closure_layout,
+        facts: function.facts,
+        try_regions: function.try_regions,
+        extra: function.extra,
+    })
 }
 
 fn bb_params_from_names(
@@ -85,7 +116,7 @@ fn bb_params_from_names(
         .collect()
 }
 
-fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlockPyPass>) {
+fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<PreparedBbBlockPyPass>) {
     let mut used_labels: HashSet<BlockPyLabel> = function
         .blocks
         .iter()
@@ -117,10 +148,10 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlock
                 let next_label =
                     unique_exc_split_label(&mut used_labels, current_label.as_str(), fresh_index);
                 fresh_index += 1;
-                out.push(BbBlock {
+                out.push(PreparedBbBlock {
                     label: current_label.clone(),
                     body: std::mem::take(&mut segment_ops),
-                    term: BlockPyTerm::Jump(next_label.clone().into()),
+                    term: BbTerm::Jump(next_label.clone().into()),
                     params: bb_params_from_names(
                         segment_start_names.clone(),
                         edge_exc_name.as_deref(),
@@ -134,7 +165,7 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlock
             }
 
             if ops.peek().is_none() {
-                out.push(BbBlock {
+                out.push(PreparedBbBlock {
                     label: current_label.clone(),
                     body: std::mem::take(&mut segment_ops),
                     term: block.term.clone(),
@@ -200,7 +231,7 @@ fn apply_op_effect_to_known_names(op: &BbStmt, known_names: &mut Vec<String>) {
 }
 
 fn validate_function_labels(
-    function: &BlockPyFunction<BbBlockPyPass>,
+    function: &BlockPyFunction<PreparedBbBlockPyPass>,
     labels: &HashSet<String>,
 ) -> Result<(), String> {
     let qualname = function.names.qualname.as_str();
@@ -214,20 +245,20 @@ fn validate_function_labels(
             }
         }
         match &block.term {
-            BlockPyTerm::Jump(target) => ensure_known_label(
+            BbTerm::Jump(target) => ensure_known_label(
                 labels,
                 target.as_str(),
                 qualname,
                 &block.label,
                 "jump target",
             )?,
-            BlockPyTerm::IfTerm(if_term) => {
+            BbTerm::IfTerm(if_term) => {
                 let then_label = &if_term.then_label;
                 let else_label = &if_term.else_label;
                 ensure_known_label(labels, then_label, qualname, &block.label, "then target")?;
                 ensure_known_label(labels, else_label, qualname, &block.label, "else target")?;
             }
-            BlockPyTerm::BranchTable(branch) => {
+            BbTerm::BranchTable(branch) => {
                 for target in &branch.targets {
                     ensure_known_label(labels, target, qualname, &block.label, "br_table target")?;
                 }
@@ -239,13 +270,7 @@ fn validate_function_labels(
                     "br_table default target",
                 )?;
             }
-            BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
-            BlockPyTerm::TryJump(_) => {
-                return Err(format!(
-                    "unexpected TryJump in BB function {}:{}",
-                    qualname, block.label
-                ));
-            }
+            BbTerm::Raise(_) | BbTerm::Return(_) => {}
         }
     }
     Ok(())
@@ -271,7 +296,7 @@ fn ensure_known_label(
 mod tests {
     use super::lower_try_jump_exception_flow;
     use crate::block_py::{
-        BbBlock, BbBlockMeta, BlockPyEdge, BlockPyLabel, BlockPyTerm,
+        BbBlock, BbBlockMeta, BbTerm, BlockPyEdge, BlockPyLabel, BlockPyTerm,
         CoreBlockPyExprWithoutAwaitOrYield,
     };
     use crate::{transform_str_to_bb_ir_with_options, Options};
@@ -413,7 +438,7 @@ def f():
             .expect("split must keep original block label");
         assert_eq!(first.body.len(), 1, "first split block must contain one op");
         assert!(
-            matches!(first.term, BlockPyTerm::Jump(_)),
+            matches!(first.term, BbTerm::Jump(_)),
             "split op block must jump to next split block"
         );
         assert_eq!(
@@ -489,7 +514,7 @@ def f():
             "pure expr ops should remain grouped until the local assignment"
         );
         assert!(
-            matches!(first.term, BlockPyTerm::Jump(_)),
+            matches!(first.term, BbTerm::Jump(_)),
             "state-changing assignment should still split the block"
         );
 
@@ -552,7 +577,7 @@ def f():
             lowered_function.blocks.iter().any(|block| {
                 matches!(
                     block.term,
-                    crate::block_py::BlockPyTerm::Return(Some(
+                    crate::block_py::BbTerm::Return(Some(
                         crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(
                             crate::block_py::CoreBlockPyLiteral::NumberLiteral(
                                 crate::block_py::CoreNumberLiteral {

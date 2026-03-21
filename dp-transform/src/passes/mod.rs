@@ -12,7 +12,7 @@ mod summarize_pass_shape;
 mod trace;
 
 use crate::block_py::{
-    BbBlockMeta, BlockPyLabel, BlockPyPass, BlockPyStmt, CoreBlockPyExpr,
+    BbBlockMeta, BbTerm, BlockPyLabel, BlockPyPass, BlockPyStmt, CoreBlockPyExpr,
     CoreBlockPyExprWithoutAwait, CoreBlockPyExprWithoutAwaitOrYield, Expr,
 };
 
@@ -78,6 +78,17 @@ impl BlockPyPass for BbBlockPyPass {
     type Expr = CoreBlockPyExprWithoutAwaitOrYield;
     type Stmt = crate::block_py::BbStmt;
     type Term = crate::block_py::BlockPyTerm<Self::Expr>;
+    type BlockMeta = BbBlockMeta;
+    type FunctionExtra = ();
+}
+
+#[derive(Debug, Clone)]
+pub struct PreparedBbBlockPyPass;
+
+impl BlockPyPass for PreparedBbBlockPyPass {
+    type Expr = CoreBlockPyExprWithoutAwaitOrYield;
+    type Stmt = crate::block_py::BbStmt;
+    type Term = BbTerm;
     type BlockMeta = BbBlockMeta;
     type FunctionExtra = ();
 }

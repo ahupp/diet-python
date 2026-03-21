@@ -10,8 +10,8 @@ use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
     BbBlock, BbBlockMeta, BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge,
     BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm,
-    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral,
+    CfgBlock, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
+    CoreBlockPyKeywordArg, CoreBlockPyLiteral,
 };
 use crate::passes::{
     BbBlockPyPass, CoreBlockPyPassWithoutAwait, CoreBlockPyPassWithoutAwaitOrYield,
@@ -179,7 +179,7 @@ fn lower_blockpy_blocks_to_bb_blocks(
     bb_blocks
 }
 
-pub(super) fn populate_exception_edge_args(blocks: &mut [BbBlock]) {
+pub(super) fn populate_exception_edge_args<T>(blocks: &mut [CfgBlock<BbStmt, T, BbBlockMeta>]) {
     let label_to_index = blocks
         .iter()
         .enumerate()

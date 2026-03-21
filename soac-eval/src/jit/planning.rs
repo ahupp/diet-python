@@ -1,9 +1,9 @@
 use dp_transform::block_py::{
-    AbruptKind, BbBlock, BbStmt, BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule,
-    BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral, CoreNumberLiteralValue,
+    AbruptKind, BbStmt, BbTerm, BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule,
+    CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral, CoreNumberLiteralValue, PreparedBbBlock,
 };
-use dp_transform::passes::BbBlockPyPass;
+use dp_transform::passes::PreparedBbBlockPyPass;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
@@ -176,7 +176,7 @@ pub struct DirectSimpleBlockPlan {
 }
 
 type PlanRegistry = HashMap<PlanKey, ClifPlan>;
-type FunctionRegistry = HashMap<PlanKey, BlockPyFunction<BbBlockPyPass>>;
+type FunctionRegistry = HashMap<PlanKey, BlockPyFunction<PreparedBbBlockPyPass>>;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct PlanKey {
@@ -274,7 +274,7 @@ fn direct_simple_block_arg_from(
     }
 }
 
-fn direct_simple_plan_from_block(block: &BbBlock) -> Option<DirectSimpleRetPlan> {
+fn direct_simple_plan_from_block(block: &PreparedBbBlock) -> Option<DirectSimpleRetPlan> {
     let mut known_names = block.param_name_vec();
     let mut assigns = Vec::new();
     for op in &block.body {
@@ -293,7 +293,7 @@ fn direct_simple_plan_from_block(block: &BbBlock) -> Option<DirectSimpleRetPlan>
             value,
         });
     }
-    let BlockPyTerm::Return(ret_value) = &block.term else {
+    let BbTerm::Return(ret_value) = &block.term else {
         return None;
     };
     let ret = if let Some(value) = ret_value.as_ref() {
@@ -308,7 +308,7 @@ fn direct_simple_plan_from_block(block: &BbBlock) -> Option<DirectSimpleRetPlan>
     })
 }
 
-fn ambient_param_name_set(function: &BlockPyFunction<BbBlockPyPass>) -> HashSet<String> {
+fn ambient_param_name_set(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> HashSet<String> {
     function
         .closure_layout()
         .as_ref()
@@ -317,7 +317,7 @@ fn ambient_param_name_set(function: &BlockPyFunction<BbBlockPyPass>) -> HashSet<
 }
 
 fn jit_param_names_for_block(
-    block: &BbBlock,
+    block: &PreparedBbBlock,
     ambient_param_names: &HashSet<String>,
 ) -> Vec<String> {
     block
@@ -328,15 +328,15 @@ fn jit_param_names_for_block(
 }
 
 fn direct_simple_brif_plan_from_block(
-    function: &BlockPyFunction<BbBlockPyPass>,
-    block: &BbBlock,
+    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    block: &PreparedBbBlock,
     label_to_index: &HashMap<BlockPyLabel, usize>,
     ambient_param_names: &HashSet<String>,
 ) -> Option<DirectSimpleBrIfPlan> {
     if !block.body.is_empty() {
         return None;
     }
-    let BlockPyTerm::IfTerm(if_term) = &block.term else {
+    let BbTerm::IfTerm(if_term) = &block.term else {
         return None;
     };
     let then_index = *label_to_index.get(if_term.then_label.as_str())?;
@@ -358,9 +358,9 @@ fn direct_simple_brif_plan_from_block(
 }
 
 fn direct_simple_expr_ret_none_plan_from_block(
-    block: &BbBlock,
+    block: &PreparedBbBlock,
 ) -> Option<DirectSimpleExprRetNonePlan> {
-    if !matches!(block.term, BlockPyTerm::Return(None)) {
+    if !matches!(block.term, BbTerm::Return(None)) {
         return None;
     }
     let mut exprs = Vec::with_capacity(block.body.len());
@@ -378,7 +378,7 @@ fn direct_simple_expr_ret_none_plan_from_block(
 }
 
 fn target_params_from_index(
-    function: &BlockPyFunction<BbBlockPyPass>,
+    function: &BlockPyFunction<PreparedBbBlockPyPass>,
     target_index: usize,
     ambient_param_names: &HashSet<String>,
 ) -> Option<Vec<String>> {
@@ -444,20 +444,19 @@ fn bb_stmt_kind(op: &BbStmt) -> &'static str {
     }
 }
 
-fn bb_term_kind(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> &'static str {
+fn bb_term_kind(term: &BbTerm) -> &'static str {
     match term {
-        BlockPyTerm::Jump(_) => "Jump",
-        BlockPyTerm::IfTerm(_) => "BrIf",
-        BlockPyTerm::BranchTable(_) => "BrTable",
-        BlockPyTerm::Raise(_) => "Raise",
-        BlockPyTerm::Return(_) => "Ret",
-        BlockPyTerm::TryJump(_) => "TryJump",
+        BbTerm::Jump(_) => "Jump",
+        BbTerm::IfTerm(_) => "BrIf",
+        BbTerm::BranchTable(_) => "BrTable",
+        BbTerm::Raise(_) => "Raise",
+        BbTerm::Return(_) => "Ret",
     }
 }
 
 fn unsupported_fastpath_block_message(
-    function: &BlockPyFunction<BbBlockPyPass>,
-    block: &BbBlock,
+    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    block: &PreparedBbBlock,
 ) -> String {
     let op_kinds = block
         .body
@@ -484,8 +483,8 @@ fn unsupported_fastpath_block_message(
 }
 
 fn direct_simple_block_plan_from_block(
-    function: &BlockPyFunction<BbBlockPyPass>,
-    block: &BbBlock,
+    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    block: &PreparedBbBlock,
     label_to_index: &HashMap<BlockPyLabel, usize>,
     ambient_param_names: &HashSet<String>,
 ) -> Option<DirectSimpleBlockPlan> {
@@ -496,7 +495,7 @@ fn direct_simple_block_plan_from_block(
         ops.push(stmt_op);
     }
     let term = match &block.term {
-        BlockPyTerm::Jump(target_label) => {
+        BbTerm::Jump(target_label) => {
             let target_index = *label_to_index.get(target_label.as_str())?;
             let target_params =
                 target_params_from_index(function, target_index, ambient_param_names)?;
@@ -511,7 +510,7 @@ fn direct_simple_block_plan_from_block(
                 target_args,
             }
         }
-        BlockPyTerm::IfTerm(if_term) => {
+        BbTerm::IfTerm(if_term) => {
             let test_expr = direct_simple_expr_from(&if_term.test)?;
             let then_index = *label_to_index.get(if_term.then_label.as_str())?;
             let then_params = target_params_from_index(function, then_index, ambient_param_names)?;
@@ -525,7 +524,7 @@ fn direct_simple_block_plan_from_block(
                 else_params,
             }
         }
-        BlockPyTerm::BranchTable(branch) => {
+        BbTerm::BranchTable(branch) => {
             let index_expr = direct_simple_expr_from(&branch.index)?;
             let mut target_plans = Vec::with_capacity(branch.targets.len());
             for target_label in &branch.targets {
@@ -544,7 +543,7 @@ fn direct_simple_block_plan_from_block(
                 default_params,
             }
         }
-        BlockPyTerm::Return(ret_value) => {
+        BbTerm::Return(ret_value) => {
             let value = if let Some(expr) = ret_value.as_ref() {
                 Some(direct_simple_expr_from(expr)?)
             } else {
@@ -552,11 +551,10 @@ fn direct_simple_block_plan_from_block(
             };
             DirectSimpleTermPlan::Ret { value }
         }
-        BlockPyTerm::Raise(raise_stmt) => {
+        BbTerm::Raise(raise_stmt) => {
             let exc = raise_stmt.exc.as_ref().and_then(direct_simple_expr_from);
             DirectSimpleTermPlan::Raise { exc }
         }
-        BlockPyTerm::TryJump(_) => return None,
     };
     Some(DirectSimpleBlockPlan {
         params: block.param_name_vec(),
@@ -565,7 +563,7 @@ fn direct_simple_block_plan_from_block(
     })
 }
 
-fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan, String> {
+fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> Result<ClifPlan, String> {
     let ambient_param_names = function
         .closure_layout()
         .as_ref()
@@ -679,7 +677,7 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
             None
         };
         let term = match &block.term {
-            BlockPyTerm::Jump(target) => {
+            BbTerm::Jump(target) => {
                 let target_index =
                     label_to_index
                         .get(target.as_str())
@@ -694,7 +692,7 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                         });
                 BlockTermPlan::Jump { target_index }
             }
-            BlockPyTerm::IfTerm(if_term) => {
+            BbTerm::IfTerm(if_term) => {
                 let then_index = label_to_index
                     .get(if_term.then_label.as_str())
                     .copied()
@@ -718,7 +716,7 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                     else_index,
                 }
             }
-            BlockPyTerm::BranchTable(branch) => {
+            BbTerm::BranchTable(branch) => {
                 let default_index = label_to_index
                     .get(branch.default_label.as_str())
                     .copied()
@@ -747,19 +745,13 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                     default_index,
                 }
             }
-            BlockPyTerm::Raise(_) => BlockTermPlan::Raise,
-            BlockPyTerm::Return(_) => BlockTermPlan::Ret,
-            BlockPyTerm::TryJump(_) => {
-                panic!(
-                    "unexpected TryJump in BB function {}:{}",
-                    function.names.qualname, block.label
-                );
-            }
+            BbTerm::Raise(_) => BlockTermPlan::Raise,
+            BbTerm::Return(_) => BlockTermPlan::Ret,
         };
         let fast_path = {
             if block.body.is_empty() {
                 match &block.term {
-                    BlockPyTerm::Jump(target_label) => {
+                    BbTerm::Jump(target_label) => {
                         let target_index = label_to_index
                             .get(target_label.as_str())
                             .copied()
@@ -792,8 +784,8 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                             BlockFastPath::None
                         }
                     }
-                    BlockPyTerm::Return(None) => BlockFastPath::ReturnNone,
-                    BlockPyTerm::IfTerm(_) => {
+                    BbTerm::Return(None) => BlockFastPath::ReturnNone,
+                    BbTerm::IfTerm(_) => {
                         if let Some(plan) = direct_simple_brif_plan_from_block(
                             function,
                             block,
@@ -869,14 +861,13 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
 
 pub fn register_clif_module_plans(
     module_name: &str,
-    module: &BlockPyModule<BbBlockPyPass>,
+    module: &BlockPyModule<PreparedBbBlockPyPass>,
 ) -> Result<(), String> {
-    let lowered = dp_transform::passes::lower_try_jump_exception_flow(module)?;
     let debug_skips = std::env::var_os("DIET_PYTHON_DEBUG_JIT_PLAN_SKIPS").is_some();
     let mut plans = HashMap::new();
     let mut functions = HashMap::new();
     let mut skipped_errors: HashMap<String, String> = HashMap::new();
-    for function in &lowered.callable_defs {
+    for function in &module.callable_defs {
         let key = PlanKey {
             module: module_name.to_string(),
             function_id: function.function_id.0,
@@ -950,7 +941,7 @@ pub fn lookup_clif_plan(module_name: &str, function_id: usize) -> Option<ClifPla
 pub fn lookup_blockpy_function(
     module_name: &str,
     function_id: usize,
-) -> Option<BlockPyFunction<BbBlockPyPass>> {
+) -> Option<BlockPyFunction<PreparedBbBlockPyPass>> {
     let registry = bb_function_registry().lock().ok()?;
     registry
         .get(&PlanKey {

@@ -19,7 +19,8 @@ use crate::passes::ruff_to_blockpy::{
 };
 use crate::passes::{
     self, BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
-    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, RuffBlockPyPass,
+    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, PreparedBbBlockPyPass,
+    RuffBlockPyPass,
 };
 use crate::PassTracker;
 use ruff_python_ast::{self as ast, Expr, Stmt};
@@ -120,6 +121,15 @@ pub(crate) fn rewrite_module_with_tracker(
     let bb_module: BlockPyModule<BbBlockPyPass> = pass_tracker.run_renderable_pass("bb", || {
         passes::lower_core_blockpy_module_bundle_to_bb_module(core_blockpy_without_await_or_yield)
     });
+    let bb_prepared: BlockPyModule<PreparedBbBlockPyPass> =
+        pass_tracker.run_renderable_pass("bb_prepared", || {
+            passes::lower_try_jump_exception_flow(&bb_module)
+                .expect("bb_prepared pass should succeed for valid BB lowering")
+        });
+    let _bb_codegen: BlockPyModule<PreparedBbBlockPyPass> = pass_tracker
+        .run_renderable_pass("bb_codegen", || {
+            passes::normalize_bb_module_for_codegen(&bb_prepared)
+        });
     bb_module
 }
 

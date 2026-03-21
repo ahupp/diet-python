@@ -9,7 +9,7 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use dp_transform::block_py::BlockPyModule;
-use dp_transform::passes::BbBlockPyPass;
+use dp_transform::passes::PreparedBbBlockPyPass;
 use pyo3::ffi;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -2686,7 +2686,7 @@ fn rewrite_import_fn_aliases(
     out
 }
 
-pub fn run_cranelift_smoke(module: &BlockPyModule<BbBlockPyPass>) -> Result<(), String> {
+pub fn run_cranelift_smoke(module: &BlockPyModule<PreparedBbBlockPyPass>) -> Result<(), String> {
     let function_count = module.callable_defs.len() as i64;
     let block_count = module
         .callable_defs

@@ -1,7 +1,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use dp_transform::block_py::BlockPyFunction;
-use dp_transform::passes::BbBlockPyPass;
+use dp_transform::block_py::{BlockPyFunction, BlockPyModule};
+use dp_transform::passes::PreparedBbBlockPyPass;
 use dp_transform::{Options, transform_str_to_ruff_with_options};
 use log::{info, trace};
 use pyo3::exceptions::{
@@ -41,15 +41,9 @@ fn transform_source_with_name(
     let preview = source.get(..100).unwrap_or(source);
     trace!("transform_source_with_name({module_name}): {}", preview);
     let output = lower_source(source, ensure)?;
-    if let Some(bb_module) = output.bb_module.as_ref() {
-        let prepared =
-            dp_transform::passes::lower_try_jump_exception_flow(bb_module).map_err(|err| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!(
-                    "failed to lower BB exception flow for {module_name}: {err}"
-                ))
-            })?;
-        let normalized = dp_transform::passes::normalize_bb_module_for_codegen(&prepared);
-        soac_eval::jit::register_clif_module_plans(module_name, &normalized).map_err(|err| {
+    if let Some(bb_codegen) = output.get_pass::<BlockPyModule<PreparedBbBlockPyPass>>("bb_codegen")
+    {
+        soac_eval::jit::register_clif_module_plans(module_name, bb_codegen).map_err(|err| {
             pyo3::exceptions::PyRuntimeError::new_err(format!(
                 "failed to register BB plans for {module_name}: {err}"
             ))
@@ -59,7 +53,7 @@ fn transform_source_with_name(
         // BB runtime wrappers resolve plans from module globals, so register an
         // alias under "__main__" to keep lookup consistent for `python -m`.
         if module_name.ends_with(".__main__") && module_name != "__main__" {
-            soac_eval::jit::register_clif_module_plans("__main__", &normalized).map_err(|err| {
+            soac_eval::jit::register_clif_module_plans("__main__", bb_codegen).map_err(|err| {
                 pyo3::exceptions::PyRuntimeError::new_err(format!(
                     "failed to register BB plans alias for __main__ from {module_name}: {err}"
                 ))
@@ -350,7 +344,7 @@ fn lookup_bb_function(
     module_name: &str,
     function_id: usize,
     operation: &str,
-) -> PyResult<BlockPyFunction<BbBlockPyPass>> {
+) -> PyResult<BlockPyFunction<PreparedBbBlockPyPass>> {
     soac_eval::jit::lookup_blockpy_function(module_name, function_id).ok_or_else(|| {
         PyRuntimeError::new_err(format!(
             "JIT basic-block {operation} failed to resolve static function metadata for {module_name}.fn#{function_id}"
@@ -358,13 +352,13 @@ fn lookup_bb_function(
     })
 }
 
-fn entry_state_order(function: &BlockPyFunction<BbBlockPyPass>) -> Vec<String> {
+fn entry_state_order(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> Vec<String> {
     function.entry_block().param_name_vec()
 }
 
 fn py_param_specs(
     py: Python<'_>,
-    function: &BlockPyFunction<BbBlockPyPass>,
+    function: &BlockPyFunction<PreparedBbBlockPyPass>,
 ) -> PyResult<Py<PyTuple>> {
     let params = function
         .params
@@ -383,7 +377,7 @@ fn py_param_specs(
 
 fn ensure_bb_plan(
     module_name: &str,
-    function: &BlockPyFunction<BbBlockPyPass>,
+    function: &BlockPyFunction<PreparedBbBlockPyPass>,
     operation: &str,
 ) -> PyResult<String> {
     let plan_name = function

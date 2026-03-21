@@ -307,8 +307,66 @@ with cm as x:
 
 # ==
 
-# snapshot regeneration failed
-# panic: TryJump is not allowed in BbTerm
+# function _dp_module_init():
+#     function_id: 0
+#     entry_liveins: [_dp_try_exc_7, _dp_try_exc_1, _dp_try_abrupt_kind_2]
+#     block _dp_bb_start:
+#         _dp_with_exit_1 = __dp_contextmanager_get_exit(cm)
+#         x = __dp_contextmanager_enter(cm)
+#         _dp_with_ok_2 = True
+#         try_jump:
+#             body_label: _dp_bb_11
+#             except_label: _dp_bb_10
+#         block _dp_bb_10:
+#             exc_param: _dp_try_exc_1
+#             params: [_dp_try_exc_1:Exception]
+#             if_term __dp_exception_matches(__dp_current_exception(), BaseException):
+#                 then:
+#                     block _dp_bb_8:
+#                         exc_param: _dp_try_exc_1
+#                         params: [_dp_try_exc_1:Exception]
+#                         _dp_with_ok_2 = False
+#                         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
+#                         jump _dp_bb_3
+#                 else:
+#                     block _dp_bb_9:
+#                         exc_param: _dp_try_exc_1
+#                         params: [_dp_try_exc_1:Exception]
+#                         raise
+#         block _dp_bb_11:
+#             body()
+#             jump _dp_bb_3
+#         block _dp_bb_3:
+#             jump _dp_bb_2(Fallthrough, None)
+#             block _dp_bb_2:
+#                 exc_param: _dp_try_exc_7
+#                 params: [_dp_try_abrupt_kind_2:AbruptKind, _dp_try_abrupt_payload_3:AbruptPayload, _dp_try_exc_7:Exception]
+#                 if_term _dp_with_ok_2:
+#                     then:
+#                         block _dp_bb_1:
+#                             exc_param: _dp_try_exc_7
+#                             params: [_dp_try_exc_7:Exception]
+#                             __dp_contextmanager_exit(_dp_with_exit_1, None)
+#                             jump _dp_bb_0
+#                     else:
+#                         jump _dp_bb_0
+#                 block _dp_bb_0:
+#                     exc_param: _dp_try_exc_7
+#                     params: [_dp_try_exc_7:Exception]
+#                     _dp_with_exit_1 = None
+#                     jump _dp_bb_7
+#                     block _dp_bb_7:
+#                         branch_table _dp_try_abrupt_kind_2 -> [_dp_bb_12, _dp_bb_5, _dp_bb_6] default _dp_bb_12
+#                         block _dp_bb_12:
+#                             return
+#                         block _dp_bb_5:
+#                             return _dp_try_abrupt_payload_3
+#                         block _dp_bb_6:
+#                             raise _dp_try_abrupt_payload_3
+#     block _dp_bb_4:
+#         exc_param: _dp_try_exc_7
+#         params: [_dp_try_exc_7:Exception]
+#         jump _dp_bb_2(Exception, _dp_try_exc_7)
 
 # function_local_ann_assign
 
@@ -530,8 +588,119 @@ with a as x, b as y:
 
 # ==
 
-# snapshot regeneration failed
-# panic: TryJump is not allowed in BbTerm
+# function _dp_module_init():
+#     function_id: 0
+#     entry_liveins: [_dp_try_exc_7, _dp_try_exc_1, _dp_try_exc_21, _dp_try_exc_15, _dp_try_abrupt_kind_2, _dp_try_abrupt_kind_16]
+#     block _dp_bb_start:
+#         _dp_with_exit_4 = __dp_contextmanager_get_exit(a)
+#         x = __dp_contextmanager_enter(a)
+#         _dp_with_ok_5 = True
+#         try_jump:
+#             body_label: _dp_bb_23
+#             except_label: _dp_bb_10
+#         block _dp_bb_10:
+#             exc_param: _dp_try_exc_1
+#             params: [_dp_try_exc_1:Exception]
+#             if_term __dp_exception_matches(__dp_current_exception(), BaseException):
+#                 then:
+#                     block _dp_bb_8:
+#                         exc_param: _dp_try_exc_1
+#                         params: [_dp_try_exc_1:Exception]
+#                         _dp_with_ok_5 = False
+#                         __dp_contextmanager_exit(_dp_with_exit_4, __dp_exc_info())
+#                         jump _dp_bb_3
+#                 else:
+#                     block _dp_bb_9:
+#                         exc_param: _dp_try_exc_1
+#                         params: [_dp_try_exc_1:Exception]
+#                         raise
+#         block _dp_bb_2:
+#             exc_param: _dp_try_exc_7
+#             params: [_dp_try_abrupt_kind_2:AbruptKind, _dp_try_abrupt_payload_3:AbruptPayload, _dp_try_exc_7:Exception]
+#             if_term _dp_with_ok_5:
+#                 then:
+#                     block _dp_bb_1:
+#                         exc_param: _dp_try_exc_7
+#                         params: [_dp_try_exc_7:Exception]
+#                         __dp_contextmanager_exit(_dp_with_exit_4, None)
+#                         jump _dp_bb_0
+#                 else:
+#                     jump _dp_bb_0
+#             block _dp_bb_0:
+#                 exc_param: _dp_try_exc_7
+#                 params: [_dp_try_exc_7:Exception]
+#                 _dp_with_exit_4 = None
+#                 jump _dp_bb_7
+#                 block _dp_bb_7:
+#                     branch_table _dp_try_abrupt_kind_2 -> [_dp_bb_24, _dp_bb_5, _dp_bb_6] default _dp_bb_24
+#                     block _dp_bb_24:
+#                         return
+#                     block _dp_bb_5:
+#                         return _dp_try_abrupt_payload_3
+#                     block _dp_bb_6:
+#                         raise _dp_try_abrupt_payload_3
+#         block _dp_bb_23:
+#             _dp_with_exit_1 = __dp_contextmanager_get_exit(b)
+#             y = __dp_contextmanager_enter(b)
+#             _dp_with_ok_2 = True
+#             try_jump:
+#                 body_label: _dp_bb_22
+#                 except_label: _dp_bb_21
+#             block _dp_bb_14:
+#                 jump _dp_bb_13(Fallthrough, None)
+#                 block _dp_bb_13:
+#                     exc_param: _dp_try_exc_21
+#                     params: [_dp_try_abrupt_kind_16:AbruptKind, _dp_try_abrupt_payload_17:AbruptPayload, _dp_try_exc_21:Exception]
+#                     if_term _dp_with_ok_2:
+#                         then:
+#                             block _dp_bb_12:
+#                                 exc_param: _dp_try_exc_21
+#                                 params: [_dp_try_exc_21:Exception]
+#                                 __dp_contextmanager_exit(_dp_with_exit_1, None)
+#                                 jump _dp_bb_11
+#                         else:
+#                             jump _dp_bb_11
+#                     block _dp_bb_11:
+#                         exc_param: _dp_try_exc_21
+#                         params: [_dp_try_exc_21:Exception]
+#                         _dp_with_exit_1 = None
+#                         jump _dp_bb_18
+#                         block _dp_bb_18:
+#                             branch_table _dp_try_abrupt_kind_16 -> [_dp_bb_3, _dp_bb_16, _dp_bb_17] default _dp_bb_3
+#                             block _dp_bb_16:
+#                                 _dp_try_abrupt_payload_3 = _dp_try_abrupt_payload_17
+#                                 jump _dp_bb_2(Return, _dp_try_abrupt_payload_3)
+#                             block _dp_bb_17:
+#                                 raise _dp_try_abrupt_payload_17
+#             block _dp_bb_21:
+#                 exc_param: _dp_try_exc_15
+#                 params: [_dp_try_exc_15:Exception]
+#                 if_term __dp_exception_matches(__dp_current_exception(), BaseException):
+#                     then:
+#                         block _dp_bb_19:
+#                             exc_param: _dp_try_exc_15
+#                             params: [_dp_try_exc_15:Exception]
+#                             _dp_with_ok_2 = False
+#                             __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
+#                             jump _dp_bb_14
+#                     else:
+#                         block _dp_bb_20:
+#                             exc_param: _dp_try_exc_15
+#                             params: [_dp_try_exc_15:Exception]
+#                             raise
+#             block _dp_bb_22:
+#                 body()
+#                 jump _dp_bb_14
+#         block _dp_bb_3:
+#             jump _dp_bb_2(Fallthrough, None)
+#     block _dp_bb_15:
+#         exc_param: _dp_try_exc_21
+#         params: [_dp_try_exc_21:Exception]
+#         jump _dp_bb_13(Exception, _dp_try_exc_21)
+#     block _dp_bb_4:
+#         exc_param: _dp_try_exc_7
+#         params: [_dp_try_exc_7:Exception]
+#         jump _dp_bb_2(Exception, _dp_try_exc_7)
 
 # async_for
 
@@ -579,8 +748,79 @@ async def run():
 
 # ==
 
-# snapshot regeneration failed
-# panic: TryJump is not allowed in BbTerm
+# coroutine run():
+#     function_id: 0
+#     entry_liveins: [_dp_try_exc_7, _dp_try_exc_1, _dp_try_abrupt_kind_2]
+#     block _dp_bb_start:
+#         _dp_with_exit_1 = __dp_asynccontextmanager_get_aexit(cm)
+#         x = await __dp_asynccontextmanager_aenter(cm)
+#         _dp_with_ok_2 = True
+#         try_jump:
+#             body_label: _dp_bb_12
+#             except_label: _dp_bb_11
+#         block _dp_bb_11:
+#             exc_param: _dp_try_exc_1
+#             params: [_dp_try_exc_1:Exception]
+#             if_term __dp_exception_matches(__dp_current_exception(), BaseException):
+#                 then:
+#                     block _dp_bb_9:
+#                         exc_param: _dp_try_exc_1
+#                         params: [_dp_try_exc_1:Exception]
+#                         _dp_with_ok_2 = False
+#                         _dp_with_reraise_3 = await __dp_asynccontextmanager_exit(_dp_with_exit_1, __dp_exc_info())
+#                         if_term __dp_is_not(_dp_with_reraise_3, None):
+#                             then:
+#                                 block _dp_bb_8:
+#                                     exc_param: _dp_try_exc_1
+#                                     params: [_dp_try_exc_1:Exception]
+#                                     raise _dp_with_reraise_3
+#                             else:
+#                                 jump _dp_bb_3
+#                 else:
+#                     block _dp_bb_10:
+#                         exc_param: _dp_try_exc_1
+#                         params: [_dp_try_exc_1:Exception]
+#                         raise
+#         block _dp_bb_12:
+#             body()
+#             jump _dp_bb_3
+#         block _dp_bb_3:
+#             jump _dp_bb_2(Fallthrough, None)
+#             block _dp_bb_2:
+#                 exc_param: _dp_try_exc_7
+#                 params: [_dp_try_abrupt_kind_2:AbruptKind, _dp_try_abrupt_payload_3:AbruptPayload, _dp_try_exc_7:Exception]
+#                 if_term _dp_with_ok_2:
+#                     then:
+#                         block _dp_bb_1:
+#                             exc_param: _dp_try_exc_7
+#                             params: [_dp_try_exc_7:Exception]
+#                             await __dp_asynccontextmanager_exit(_dp_with_exit_1, None)
+#                             jump _dp_bb_0
+#                     else:
+#                         jump _dp_bb_0
+#                 block _dp_bb_0:
+#                     exc_param: _dp_try_exc_7
+#                     params: [_dp_try_exc_7:Exception]
+#                     _dp_with_exit_1 = None
+#                     jump _dp_bb_7
+#                     block _dp_bb_7:
+#                         branch_table _dp_try_abrupt_kind_2 -> [_dp_bb_13, _dp_bb_5, _dp_bb_6] default _dp_bb_13
+#                         block _dp_bb_13:
+#                             return
+#                         block _dp_bb_5:
+#                             return _dp_try_abrupt_payload_3
+#                         block _dp_bb_6:
+#                             raise _dp_try_abrupt_payload_3
+#     block _dp_bb_4:
+#         exc_param: _dp_try_exc_7
+#         params: [_dp_try_exc_7:Exception]
+#         jump _dp_bb_2(Exception, _dp_try_exc_7)
+
+# function _dp_module_init():
+#     function_id: 1
+#     block _dp_bb_start:
+#         __dp_store_global(globals(), "run", __dp_mark_coroutine_function(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)))
+#         return
 
 # match_simple
 
@@ -655,8 +895,67 @@ with Suppress():
 
 # ==
 
-# snapshot regeneration failed
-# panic: TryJump is not allowed in BbTerm
+# function _dp_module_init():
+#     function_id: 0
+#     entry_liveins: [_dp_try_exc_7, _dp_try_exc_1, _dp_try_abrupt_kind_2]
+#     block _dp_bb_start:
+#         _dp_tmp_4 = Suppress()
+#         _dp_with_exit_1 = __dp_contextmanager_get_exit(_dp_tmp_4)
+#         __dp_contextmanager_enter(_dp_tmp_4)
+#         _dp_with_ok_2 = True
+#         try_jump:
+#             body_label: _dp_bb_11
+#             except_label: _dp_bb_10
+#         block _dp_bb_10:
+#             exc_param: _dp_try_exc_1
+#             params: [_dp_try_exc_1:Exception]
+#             if_term __dp_exception_matches(__dp_current_exception(), BaseException):
+#                 then:
+#                     block _dp_bb_8:
+#                         exc_param: _dp_try_exc_1
+#                         params: [_dp_try_exc_1:Exception]
+#                         _dp_with_ok_2 = False
+#                         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
+#                         jump _dp_bb_3
+#                         block _dp_bb_3:
+#                             jump _dp_bb_2(Fallthrough, None)
+#                             block _dp_bb_2:
+#                                 exc_param: _dp_try_exc_7
+#                                 params: [_dp_try_abrupt_kind_2:AbruptKind, _dp_try_abrupt_payload_3:AbruptPayload, _dp_try_exc_7:Exception]
+#                                 if_term _dp_with_ok_2:
+#                                     then:
+#                                         block _dp_bb_1:
+#                                             exc_param: _dp_try_exc_7
+#                                             params: [_dp_try_exc_7:Exception]
+#                                             __dp_contextmanager_exit(_dp_with_exit_1, None)
+#                                             jump _dp_bb_0
+#                                     else:
+#                                         jump _dp_bb_0
+#                                 block _dp_bb_0:
+#                                     exc_param: _dp_try_exc_7
+#                                     params: [_dp_try_exc_7:Exception]
+#                                     _dp_with_exit_1 = None
+#                                     _dp_tmp_4 = None
+#                                     jump _dp_bb_7
+#                                     block _dp_bb_7:
+#                                         branch_table _dp_try_abrupt_kind_2 -> [_dp_bb_12, _dp_bb_5, _dp_bb_6] default _dp_bb_12
+#                                         block _dp_bb_12:
+#                                             return
+#                                         block _dp_bb_5:
+#                                             return _dp_try_abrupt_payload_3
+#                                         block _dp_bb_6:
+#                                             raise _dp_try_abrupt_payload_3
+#                 else:
+#                     block _dp_bb_9:
+#                         exc_param: _dp_try_exc_1
+#                         params: [_dp_try_exc_1:Exception]
+#                         raise
+#         block _dp_bb_11:
+#             raise RuntimeError("boom")
+#     block _dp_bb_4:
+#         exc_param: _dp_try_exc_7
+#         params: [_dp_try_exc_7:Exception]
+#         jump _dp_bb_2(Exception, _dp_try_exc_7)
 
 # closure_cell_simple
 
@@ -775,8 +1074,31 @@ except Exception:
 
 # ==
 
-# snapshot regeneration failed
-# panic: TryJump is not allowed in BbTerm
+# function _dp_module_init():
+#     function_id: 0
+#     entry_liveins: [_dp_try_exc_1]
+#     block _dp_bb_start:
+#         try_jump:
+#             body_label: _dp_bb_3
+#             except_label: _dp_bb_2
+#         block _dp_bb_2:
+#             exc_param: _dp_try_exc_1
+#             params: [_dp_try_exc_1:Exception]
+#             if_term __dp_exception_matches(__dp_current_exception(), Exception):
+#                 then:
+#                     block _dp_bb_0:
+#                         exc_param: _dp_try_exc_1
+#                         params: [_dp_try_exc_1:Exception]
+#                         print(2)
+#                         return
+#                 else:
+#                     block _dp_bb_1:
+#                         exc_param: _dp_try_exc_1
+#                         params: [_dp_try_exc_1:Exception]
+#                         raise
+#         block _dp_bb_3:
+#             print(1)
+#             return
 
 # complicated generator
 
@@ -794,5 +1116,50 @@ def complicated(a):
 
 # ==
 
-# snapshot regeneration failed
-# panic: TryJump is not allowed in BbTerm
+# generator complicated(a):
+#     function_id: 0
+#     entry_liveins: [a, _dp_try_exc_7]
+#     block _dp_bb_start:
+#         _dp_iter_1 = __dp_iter(a)
+#         jump _dp_bb_7
+#         block _dp_bb_7:
+#             _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
+#             if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#                 then:
+#                     block _dp_bb_0:
+#                         print("finsihed")
+#                         return
+#                 else:
+#                     block _dp_bb_6:
+#                         i = _dp_tmp_2
+#                         _dp_tmp_2 = None
+#                         jump _dp_bb_5
+#                         block _dp_bb_5:
+#                             try_jump:
+#                                 body_label: _dp_bb_4
+#                                 except_label: _dp_bb_3
+#                             block _dp_bb_3:
+#                                 exc_param: _dp_try_exc_7
+#                                 params: [_dp_try_exc_7:Exception]
+#                                 if_term __dp_exception_matches(__dp_current_exception(), Exception):
+#                                     then:
+#                                         block _dp_bb_1:
+#                                             exc_param: _dp_try_exc_7
+#                                             params: [_dp_try_exc_7:Exception]
+#                                             print("oops")
+#                                             jump _dp_bb_7
+#                                     else:
+#                                         block _dp_bb_2:
+#                                             exc_param: _dp_try_exc_7
+#                                             params: [_dp_try_exc_7:Exception]
+#                                             raise
+#                             block _dp_bb_4:
+#                                 j = i + 1
+#                                 yield j
+#                                 jump _dp_bb_7
+
+# function _dp_module_init():
+#     function_id: 1
+#     block _dp_bb_start:
+#         __dp_store_global(globals(), "complicated", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
+#         return

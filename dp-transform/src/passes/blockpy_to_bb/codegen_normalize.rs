@@ -1,16 +1,16 @@
 use crate::block_py::{
-    BbStmt, BlockPyModule, BlockPyRaise, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
+    BbStmt, BbTerm, BlockPyModule, BlockPyRaise, CoreBlockPyCall, CoreBlockPyCallArg,
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
     CoreBytesLiteral,
 };
 use crate::passes::trace::{instrument_bb_module_for_trace, parse_trace_env};
-use crate::passes::BbBlockPyPass;
+use crate::passes::PreparedBbBlockPyPass;
 use ruff_python_ast::{self as ast, ExprName};
 use ruff_text_size::TextRange;
 
 pub fn normalize_bb_module_for_codegen(
-    module: &BlockPyModule<BbBlockPyPass>,
-) -> BlockPyModule<BbBlockPyPass> {
+    module: &BlockPyModule<PreparedBbBlockPyPass>,
+) -> BlockPyModule<PreparedBbBlockPyPass> {
     let mut normalized = module.clone();
     if let Some(config) = parse_trace_env() {
         instrument_bb_module_for_trace(&mut normalized, &config);
@@ -31,26 +31,20 @@ pub fn normalize_bb_module_for_codegen(
     normalized
 }
 
-fn rewrite_term_exprs(
-    rewriter: &mut CodegenExprNormalizer,
-    term: &mut BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-) {
+fn rewrite_term_exprs(rewriter: &mut CodegenExprNormalizer, term: &mut BbTerm) {
     match term {
-        BlockPyTerm::Jump(_) => {}
-        BlockPyTerm::IfTerm(if_term) => rewrite_bb_expr(rewriter, &mut if_term.test),
-        BlockPyTerm::BranchTable(branch) => rewrite_bb_expr(rewriter, &mut branch.index),
-        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
+        BbTerm::Jump(_) => {}
+        BbTerm::IfTerm(if_term) => rewrite_bb_expr(rewriter, &mut if_term.test),
+        BbTerm::BranchTable(branch) => rewrite_bb_expr(rewriter, &mut branch.index),
+        BbTerm::Raise(BlockPyRaise { exc }) => {
             if let Some(exc) = exc.as_mut() {
                 rewrite_bb_expr(rewriter, exc);
             }
         }
-        BlockPyTerm::Return(value) => {
+        BbTerm::Return(value) => {
             if let Some(value) = value.as_mut() {
                 rewrite_bb_expr(rewriter, value);
             }
-        }
-        BlockPyTerm::TryJump(_) => {
-            panic!("TryJump is not allowed in BbTerm")
         }
     }
 }
@@ -207,7 +201,8 @@ fn str_bytes_call_expr(bytes: &[u8]) -> CoreBlockPyExprWithoutAwaitOrYield {
 mod tests {
     use super::normalize_bb_module_for_codegen;
     use crate::{
-        block_py::{BbStmt, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield},
+        block_py::{BbStmt, BbTerm},
+        passes::lower_try_jump_exception_flow,
         transform_str_to_bb_ir_with_options, Options,
     };
     use std::cell::Cell;
@@ -290,25 +285,21 @@ mod tests {
         }
     }
 
-    fn probe_bb_term_exprs(
-        probe: &mut ExprShapeProbe,
-        term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-    ) {
+    fn probe_bb_term_exprs(probe: &mut ExprShapeProbe, term: &BbTerm) {
         match term {
-            BlockPyTerm::Jump(_) => {}
-            BlockPyTerm::IfTerm(if_term) => probe_bb_exprs(probe, &if_term.test),
-            BlockPyTerm::BranchTable(branch) => probe_bb_exprs(probe, &branch.index),
-            BlockPyTerm::Raise(raise_stmt) => {
+            BbTerm::Jump(_) => {}
+            BbTerm::IfTerm(if_term) => probe_bb_exprs(probe, &if_term.test),
+            BbTerm::BranchTable(branch) => probe_bb_exprs(probe, &branch.index),
+            BbTerm::Raise(raise_stmt) => {
                 if let Some(exc) = raise_stmt.exc.as_ref() {
                     probe_bb_exprs(probe, exc);
                 }
             }
-            BlockPyTerm::Return(value) => {
+            BbTerm::Return(value) => {
                 if let Some(value) = value {
                     probe_bb_exprs(probe, value);
                 }
             }
-            BlockPyTerm::TryJump(_) => panic!("TryJump is not allowed in BbTerm"),
         }
     }
 
@@ -331,7 +322,9 @@ def f():
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
-        let normalized = normalize_bb_module_for_codegen(&bb_module);
+        let prepared =
+            lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
+        let normalized = normalize_bb_module_for_codegen(&prepared);
 
         let mut probe = ExprShapeProbe::new();
         for function in normalized.callable_defs {
@@ -371,7 +364,9 @@ def f(obj, mapping, key, value):
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
-        let normalized = normalize_bb_module_for_codegen(&bb_module);
+        let prepared =
+            lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
+        let normalized = normalize_bb_module_for_codegen(&prepared);
 
         let mut text = String::new();
         for function in normalized.callable_defs {

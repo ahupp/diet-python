@@ -7,7 +7,7 @@ use std::process::Command;
 
 use dp_transform::block_py::{BlockPyBlock, BlockPyCfgFragment, BlockPyModule, BlockPyStmt};
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
-use dp_transform::passes::{normalize_bb_module_for_codegen, BbBlockPyPass, RuffBlockPyPass};
+use dp_transform::passes::{PreparedBbBlockPyPass, RuffBlockPyPass};
 use dp_transform::{
     init_logging, transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options,
     Options,
@@ -89,8 +89,7 @@ fn render_blockpy_snapshot(
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
     let blockpy_blocks = blockpy.as_ref().map(count_blockpy_blocks).unwrap_or(0);
     let clif_blocks = result
-        .bb_module
-        .as_ref()
+        .get_pass::<BlockPyModule<PreparedBbBlockPyPass>>("bb_codegen")
         .map(count_clif_blocks)
         .unwrap_or(0);
     (blockpy_rendered, blockpy_blocks, clif_blocks)
@@ -183,11 +182,8 @@ fn count_blockpy_blocks_in_term(term: &dp_transform::block_py::BlockPyTerm) -> u
     }
 }
 
-fn count_clif_blocks(
-    module: &dp_transform::block_py::BlockPyModule<dp_transform::passes::BbBlockPyPass>,
-) -> usize {
-    let normalized = normalize_bb_module_for_codegen(module);
-    normalized
+fn count_clif_blocks(module: &BlockPyModule<PreparedBbBlockPyPass>) -> usize {
+    module
         .callable_defs
         .iter()
         .map(|function| function.blocks.len())

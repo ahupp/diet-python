@@ -199,18 +199,13 @@ mod tests {
         Ok(())
     }
 
-    fn run_cranelift_jit_preflight(
-        bb_module: Option<
-            &dp_transform::block_py::BlockPyModule<dp_transform::passes::BbBlockPyPass>,
-        >,
-    ) -> Result<(), String> {
-        let bb_module = bb_module.ok_or_else(|| {
-            "JIT mode requires emitted basic-block IR, but none was produced".to_string()
-        })?;
-        let prepared = dp_transform::passes::lower_try_jump_exception_flow(bb_module)
-            .map_err(|err| format!("failed to lower BB exception flow: {err}"))?;
-        let normalized = dp_transform::passes::normalize_bb_module_for_codegen(&prepared);
-        soac_eval::jit::run_cranelift_smoke(&normalized)
+    fn run_cranelift_jit_preflight(result: &dp_transform::LoweringResult) -> Result<(), String> {
+        let normalized = result
+            .get_pass::<dp_transform::block_py::BlockPyModule<
+                dp_transform::passes::PreparedBbBlockPyPass,
+            >>("bb_codegen")
+            .ok_or_else(|| "JIT mode requires tracked bb_codegen output".to_string())?;
+        soac_eval::jit::run_cranelift_smoke(normalized)
     }
 
     #[test]
@@ -276,11 +271,10 @@ def f():
 def f(x):
     return x
 "#;
-        let bb_module = parse_and_lower(source)
-            .expect("lowering should succeed")
-            .bb_module;
-        validate_bb_module_for_jit(bb_module.as_ref()).expect("validator should allow module");
-        run_cranelift_jit_preflight(bb_module.as_ref()).expect("cranelift preflight should run");
+        let result = parse_and_lower(source).expect("lowering should succeed");
+        validate_bb_module_for_jit(result.bb_module.as_ref())
+            .expect("validator should allow module");
+        run_cranelift_jit_preflight(&result).expect("cranelift preflight should run");
     }
 
     #[test]
@@ -298,13 +292,13 @@ def exercise():
         yield total
     return gen
 "#;
-        let bb_module = parse_and_lower_runtime_style(source)
-            .expect("lowering should succeed")
-            .bb_module
-            .expect("bb module should exist");
-        let prepared = dp_transform::passes::lower_try_jump_exception_flow(&bb_module)
-            .expect("exception flow lowering should succeed");
-        let normalized = dp_transform::passes::normalize_bb_module_for_codegen(&prepared);
+        let result = parse_and_lower_runtime_style(source).expect("lowering should succeed");
+        let normalized = result
+            .get_pass::<dp_transform::block_py::BlockPyModule<
+                dp_transform::passes::PreparedBbBlockPyPass,
+            >>("bb_codegen")
+            .expect("bb_codegen pass should be tracked")
+            .clone();
         let module_name = "jit_plan_generator_throw_handler_param_test";
         jit::register_clif_module_plans(module_name, &normalized)
             .expect("plan registration should succeed");

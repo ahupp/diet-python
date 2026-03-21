@@ -3,7 +3,7 @@ use crate::block_py::{
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
     CoreStringLiteral,
 };
-use crate::passes::BbBlockPyPass;
+use crate::passes::PreparedBbBlockPyPass;
 use ruff_python_ast::{self as ast, ExprName};
 use ruff_text_size::TextRange;
 use std::env;
@@ -70,7 +70,7 @@ fn instrument_cfg_module_for_trace<P: BlockPyPass>(
 }
 
 pub(crate) fn instrument_bb_module_for_trace(
-    module: &mut BlockPyModule<BbBlockPyPass>,
+    module: &mut BlockPyModule<PreparedBbBlockPyPass>,
     config: &TraceConfig,
 ) {
     instrument_cfg_module_for_trace(module, config, |qualname, label, params| {
@@ -161,7 +161,7 @@ fn param_pairs_expr(params: &[String]) -> CoreBlockPyExprWithoutAwaitOrYield {
 #[cfg(test)]
 mod tests {
     use super::{instrument_bb_module_for_trace, parse_trace_config, TraceConfig};
-    use crate::passes::normalize_bb_module_for_codegen;
+    use crate::passes::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
     use crate::{transform_str_to_bb_ir_with_options, Options};
 
     #[test]
@@ -197,7 +197,9 @@ mod tests {
         let bb_module = transform_str_to_bb_ir_with_options(source, options)
             .expect("transform should succeed")
             .expect("bb module should be available");
-        let mut normalized = normalize_bb_module_for_codegen(&bb_module);
+        let prepared =
+            lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
+        let mut normalized = normalize_bb_module_for_codegen(&prepared);
         instrument_bb_module_for_trace(
             &mut normalized,
             &TraceConfig {

@@ -7,7 +7,8 @@ use crate::block_py::state::collect_state_vars;
 use crate::passes::ruff_to_blockpy;
 use crate::passes::{
     BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
-    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, RuffBlockPyPass,
+    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, PreparedBbBlockPyPass,
+    RuffBlockPyPass,
 };
 use ruff_python_ast::str::Quote;
 pub use ruff_python_ast::Expr;
@@ -553,6 +554,19 @@ impl BlockPyFunction<BbBlockPyPass> {
     }
 }
 
+impl BlockPyFunction<PreparedBbBlockPyPass> {
+    pub fn entry_liveins(&self) -> Vec<String> {
+        if self.blocks.is_empty() {
+            return Vec::new();
+        }
+        self.entry_block()
+            .param_names()
+            .filter(|name| !is_resume_abi_param_name(name))
+            .map(ToString::to_string)
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BbBlockMeta {
     pub exc_edge: Option<BlockPyEdge<CoreBlockPyExprWithoutAwaitOrYield>>,
@@ -583,6 +597,7 @@ pub type PassTerm<P> = <P as BlockPyPass>::Term;
 pub type PassBlock<P> =
     CfgBlock<<P as BlockPyPass>::Stmt, PassTerm<P>, <P as BlockPyPass>::BlockMeta>;
 pub type BbBlock = PassBlock<BbBlockPyPass>;
+pub type PreparedBbBlock = PassBlock<PreparedBbBlockPyPass>;
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
 pub type BlockPyBlock<E = Expr> = BlockPyCfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>;
@@ -867,6 +882,40 @@ impl<E: Clone + fmt::Debug> IntoBlockPyStmt<E> for BlockPyStmt<E> {
 impl<E: Clone + fmt::Debug> IntoBlockPyTerm<E> for BlockPyTerm<E> {
     fn into_term(self) -> BlockPyTerm<E> {
         self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum BbTerm {
+    Jump(BlockPyEdge<CoreBlockPyExprWithoutAwaitOrYield>),
+    IfTerm(BlockPyIfTerm<CoreBlockPyExprWithoutAwaitOrYield>),
+    BranchTable(BlockPyBranchTable<CoreBlockPyExprWithoutAwaitOrYield>),
+    Raise(BlockPyRaise<CoreBlockPyExprWithoutAwaitOrYield>),
+    Return(Option<CoreBlockPyExprWithoutAwaitOrYield>),
+}
+
+impl From<BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>> for BbTerm {
+    fn from(value: BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> Self {
+        match value {
+            BlockPyTerm::Jump(edge) => Self::Jump(edge),
+            BlockPyTerm::IfTerm(if_term) => Self::IfTerm(if_term),
+            BlockPyTerm::BranchTable(branch) => Self::BranchTable(branch),
+            BlockPyTerm::Raise(raise_stmt) => Self::Raise(raise_stmt),
+            BlockPyTerm::Return(value) => Self::Return(value),
+            BlockPyTerm::TryJump(_) => panic!("TryJump reached BbTerm conversion"),
+        }
+    }
+}
+
+impl IntoBlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield> for BbTerm {
+    fn into_term(self) -> BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield> {
+        match self {
+            BbTerm::Jump(edge) => BlockPyTerm::Jump(edge),
+            BbTerm::IfTerm(if_term) => BlockPyTerm::IfTerm(if_term),
+            BbTerm::BranchTable(branch) => BlockPyTerm::BranchTable(branch),
+            BbTerm::Raise(raise_stmt) => BlockPyTerm::Raise(raise_stmt),
+            BbTerm::Return(value) => BlockPyTerm::Return(value),
+        }
     }
 }
 
@@ -1285,6 +1334,18 @@ impl<E> BlockPyJumpTerm<BlockPyLabel> for BlockPyTerm<E> {
 }
 
 impl<E> BlockPyFallthroughTerm<BlockPyLabel> for BlockPyTerm<E> {
+    fn implicit_function_return() -> Self {
+        Self::Return(None)
+    }
+}
+
+impl BlockPyJumpTerm<BlockPyLabel> for BbTerm {
+    fn jump_term(target: BlockPyLabel) -> Self {
+        Self::Jump(BlockPyEdge::new(target))
+    }
+}
+
+impl BlockPyFallthroughTerm<BlockPyLabel> for BbTerm {
     fn implicit_function_return() -> Self {
         Self::Return(None)
     }

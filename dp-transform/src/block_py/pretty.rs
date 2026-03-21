@@ -6,7 +6,7 @@ use super::{
     PassBlock, PassExpr,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
-use crate::passes::{BbBlockPyPass, RuffBlockPyPass};
+use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass, RuffBlockPyPass};
 use crate::ruff_ast_to_string;
 use std::collections::{HashMap, HashSet};
 
@@ -45,6 +45,38 @@ where
 }
 
 impl BlockPyPrettyPrinter for BbBlockPyPass {
+    fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
+        function
+            .entry_block()
+            .param_names()
+            .filter(|name| !super::is_resume_abi_param_name(name))
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
+        let mut lines = Vec::new();
+        if !block.params.is_empty() {
+            lines.push(format!(
+                "params: [{}]",
+                block
+                    .param_names()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        if let Some(exc_edge) = &block.meta.exc_edge {
+            lines.push(format!("exc_target: {}", exc_edge.target.as_str()));
+        }
+        if let Some(exc_name) = block.exception_param() {
+            lines.push(format!("exc_name: {exc_name}"));
+        }
+        lines
+    }
+}
+
+impl BlockPyPrettyPrinter for PreparedBbBlockPyPass {
     fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
         function
             .entry_block()
