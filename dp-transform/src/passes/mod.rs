@@ -12,8 +12,8 @@ mod summarize_pass_shape;
 mod trace;
 
 use crate::block_py::{
-    BbBlockMeta, BbTerm, BlockPyPass, BlockPyStmt, CoreBlockPyExprWithoutAwait,
-    CoreBlockPyExprWithoutAwaitOrYield, ExplicitCoreBlockPyExpr, Expr,
+    BbBlockMeta, BbTerm, BlockPyPass, BlockPyStmt, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
+    CoreBlockPyExprWithoutAwaitOrYield, Expr,
 };
 
 #[derive(Debug, Clone)]
@@ -42,7 +42,7 @@ impl BlockPyPass for LoweredRuffBlockPyPass {
 pub struct CoreBlockPyPass;
 
 impl BlockPyPass for CoreBlockPyPass {
-    type Expr = ExplicitCoreBlockPyExpr;
+    type Expr = CoreBlockPyExpr;
     type Stmt = BlockPyStmt<Self::Expr>;
     type Term = crate::block_py::BlockPyTerm<Self::Expr>;
     type BlockMeta = BbBlockMeta;
@@ -259,10 +259,9 @@ def fmt(value):
 
         let core_blockpy = lowered.core_blockpy_text();
         assert!(core_blockpy.contains("\"value=\""), "{core_blockpy}");
-        assert!(core_blockpy.contains("_dp_eval_"), "{core_blockpy}");
         assert!(core_blockpy.contains("__dp_repr(value)"), "{core_blockpy}");
         assert!(
-            core_blockpy.contains("__dp_format(_dp_eval_"),
+            core_blockpy.contains("__dp_format(__dp_repr(value))"),
             "{core_blockpy}"
         );
 
@@ -270,7 +269,13 @@ def fmt(value):
         assert!(
             fmt.blocks
                 .iter()
-                .any(|block| block_uses_text(block, "__dp_format(_dp_eval_")),
+                .any(|block| block_uses_text(block, "__dp_repr(value)")),
+            "{fmt:?}"
+        );
+        assert!(
+            fmt.blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_format(_dp_eval_2)")),
             "{fmt:?}"
         );
     }

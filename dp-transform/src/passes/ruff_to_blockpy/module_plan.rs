@@ -964,17 +964,17 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
     context: &Context,
     module: Suite,
 ) -> BlockPyModule<LoweredRuffBlockPyPass> {
-    rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module).1
+    let mut module = module;
+    rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, &mut module)
 }
 
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
     context: &Context,
-    mut module: Suite,
-) -> (Suite, BlockPyModule<LoweredRuffBlockPyPass>) {
-    crate::passes::ast_to_ast::simplify::flatten(&mut module);
-    let module_scope = analyze_module_scope(&mut module);
-    let function_identity_by_node =
-        collect_function_identity_private(&mut module, module_scope.clone());
+    module: &mut Suite,
+) -> BlockPyModule<LoweredRuffBlockPyPass> {
+    crate::passes::ast_to_ast::simplify::flatten(module);
+    let module_scope = analyze_module_scope(module);
+    let function_identity_by_node = collect_function_identity_private(module, module_scope.clone());
     let mut rewriter = BlockPyModuleRewriter {
         context,
         module_scope,
@@ -985,13 +985,10 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
         function_scope_stack: Vec::new(),
         callable_defs: Vec::new(),
     };
-    rewriter.visit_body(&mut module);
-    (
-        module,
-        BlockPyModule {
-            callable_defs: rewriter.callable_defs,
-        },
-    )
+    rewriter.visit_body(module);
+    BlockPyModule {
+        callable_defs: rewriter.callable_defs,
+    }
 }
 
 fn build_binding_stmt(target: BindingTarget, bind_name: &str, value: Expr) -> Stmt {

@@ -253,22 +253,6 @@ pub enum CoreBlockPyExpr {
 }
 
 #[derive(Debug, Clone)]
-pub enum ExplicitBlockPyExpr {
-    Name(ast::ExprName),
-    Literal(CoreBlockPyLiteral),
-}
-
-#[derive(Debug, Clone)]
-pub enum ExplicitCoreBlockPyExpr {
-    Name(ast::ExprName),
-    Literal(CoreBlockPyLiteral),
-    Call(CoreBlockPyCall<ExplicitBlockPyExpr>),
-    Await(CoreBlockPyAwait<ExplicitBlockPyExpr>),
-    Yield(CoreBlockPyYield<ExplicitBlockPyExpr>),
-    YieldFrom(CoreBlockPyYieldFrom<ExplicitBlockPyExpr>),
-}
-
-#[derive(Debug, Clone)]
 pub enum CoreBlockPyExprWithoutAwait {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
@@ -1772,81 +1756,6 @@ impl From<CoreBlockPyExpr> for Expr {
                 value: Box::new(Expr::from(*node.value)),
             }),
             CoreBlockPyExpr::Name(node) => Expr::Name(node),
-        }
-    }
-}
-
-impl From<ExplicitBlockPyExpr> for Expr {
-    fn from(value: ExplicitBlockPyExpr) -> Self {
-        match value {
-            ExplicitBlockPyExpr::Name(node) => Expr::Name(node),
-            ExplicitBlockPyExpr::Literal(literal) => core_literal_to_expr(literal),
-        }
-    }
-}
-
-impl From<ExplicitCoreBlockPyExpr> for Expr {
-    fn from(value: ExplicitCoreBlockPyExpr) -> Self {
-        match value {
-            ExplicitCoreBlockPyExpr::Name(node) => Expr::Name(node),
-            ExplicitCoreBlockPyExpr::Literal(literal) => core_literal_to_expr(literal),
-            ExplicitCoreBlockPyExpr::Call(node) => Expr::Call(ast::ExprCall {
-                node_index: node.node_index,
-                range: node.range,
-                func: Box::new(Expr::from(*node.func)),
-                arguments: ast::Arguments {
-                    args: node
-                        .args
-                        .into_iter()
-                        .map(|arg| match arg {
-                            CoreBlockPyCallArg::Positional(expr) => Expr::from(expr),
-                            CoreBlockPyCallArg::Starred(expr) => Expr::Starred(ast::ExprStarred {
-                                value: Box::new(Expr::from(expr)),
-                                ctx: ast::ExprContext::Load,
-                                range: Default::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                            }),
-                        })
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice(),
-                    keywords: node
-                        .keywords
-                        .into_iter()
-                        .map(|keyword| match keyword {
-                            CoreBlockPyKeywordArg::Named { arg, value } => ast::Keyword {
-                                arg: Some(arg),
-                                value: Expr::from(value),
-                                range: Default::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                            },
-                            CoreBlockPyKeywordArg::Starred(expr) => ast::Keyword {
-                                arg: None,
-                                value: Expr::from(expr),
-                                range: Default::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                            },
-                        })
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice(),
-                    range: Default::default(),
-                    node_index: ast::AtomicNodeIndex::default(),
-                },
-            }),
-            ExplicitCoreBlockPyExpr::Await(node) => Expr::Await(ast::ExprAwait {
-                node_index: node.node_index,
-                range: node.range,
-                value: Box::new(Expr::from(*node.value)),
-            }),
-            ExplicitCoreBlockPyExpr::Yield(node) => Expr::Yield(ast::ExprYield {
-                node_index: node.node_index,
-                range: node.range,
-                value: node.value.map(|value| Box::new(Expr::from(*value))),
-            }),
-            ExplicitCoreBlockPyExpr::YieldFrom(node) => Expr::YieldFrom(ast::ExprYieldFrom {
-                node_index: node.node_index,
-                range: node.range,
-                value: Box::new(Expr::from(*node.value)),
-            }),
         }
     }
 }

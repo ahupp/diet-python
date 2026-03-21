@@ -3,8 +3,7 @@ use crate::block_py::{
     BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyFunction, BlockPyIf,
     BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
     CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
-    CoreBlockPyKeywordArg, CoreBlockPyYield, CoreBlockPyYieldFrom, ExplicitBlockPyExpr,
-    ExplicitCoreBlockPyExpr,
+    CoreBlockPyKeywordArg, CoreBlockPyYield, CoreBlockPyYieldFrom,
 };
 use crate::namegen::fresh_name;
 use crate::passes::CoreBlockPyPassWithoutAwait;
@@ -19,56 +18,69 @@ fn fresh_eval_name() -> ast::ExprName {
     expr
 }
 
-fn explicit_core_expr_from_atom(expr: ExplicitBlockPyExpr) -> ExplicitCoreBlockPyExpr {
+fn expr_contains_suspend(expr: &CoreBlockPyExpr) -> bool {
     match expr {
-        ExplicitBlockPyExpr::Name(node) => ExplicitCoreBlockPyExpr::Name(node),
-        ExplicitBlockPyExpr::Literal(literal) => ExplicitCoreBlockPyExpr::Literal(literal),
+        CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => false,
+        CoreBlockPyExpr::Call(call) => {
+            expr_contains_suspend(&call.func)
+                || call.args.iter().any(|arg| match arg {
+                    CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
+                        expr_contains_suspend(value)
+                    }
+                })
+                || call.keywords.iter().any(|keyword| match keyword {
+                    CoreBlockPyKeywordArg::Named { value, .. }
+                    | CoreBlockPyKeywordArg::Starred(value) => expr_contains_suspend(value),
+                })
+        }
+        CoreBlockPyExpr::Await(_) => true,
+        CoreBlockPyExpr::Yield(_) => true,
+        CoreBlockPyExpr::YieldFrom(_) => true,
     }
 }
 
-fn hoist_core_expr_to_atom(
+fn hoist_core_expr_if_contains_suspend(
     expr: CoreBlockPyExpr,
-    out: &mut Vec<BlockPyStmt<ExplicitCoreBlockPyExpr>>,
+    out: &mut Vec<BlockPyStmt<CoreBlockPyExpr>>,
     cleanup: &mut Vec<ast::ExprName>,
-) -> ExplicitBlockPyExpr {
+) -> CoreBlockPyExpr {
     let expr = make_eval_order_explicit_in_core_expr(expr, out, cleanup);
-    match expr {
-        ExplicitCoreBlockPyExpr::Name(node) => ExplicitBlockPyExpr::Name(node),
-        ExplicitCoreBlockPyExpr::Literal(literal) => ExplicitBlockPyExpr::Literal(literal),
-        value => {
-            let target = fresh_eval_name();
-            out.push(BlockPyStmt::Assign(BlockPyAssign {
-                target: target.clone(),
-                value,
-            }));
-            cleanup.push(target.clone());
-            ExplicitBlockPyExpr::Name(target)
-        }
+    if expr_contains_suspend(&expr) {
+        let target = fresh_eval_name();
+        out.push(BlockPyStmt::Assign(BlockPyAssign {
+            target: target.clone(),
+            value: expr,
+        }));
+        cleanup.push(target.clone());
+        CoreBlockPyExpr::Name(target)
+    } else {
+        expr
     }
 }
 
 fn make_eval_order_explicit_in_core_expr(
     expr: CoreBlockPyExpr,
-    out: &mut Vec<BlockPyStmt<ExplicitCoreBlockPyExpr>>,
+    out: &mut Vec<BlockPyStmt<CoreBlockPyExpr>>,
     cleanup: &mut Vec<ast::ExprName>,
-) -> ExplicitCoreBlockPyExpr {
+) -> CoreBlockPyExpr {
     match expr {
-        CoreBlockPyExpr::Name(node) => ExplicitCoreBlockPyExpr::Name(node),
-        CoreBlockPyExpr::Literal(literal) => ExplicitCoreBlockPyExpr::Literal(literal),
-        CoreBlockPyExpr::Call(call) => ExplicitCoreBlockPyExpr::Call(CoreBlockPyCall {
+        CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => expr,
+        CoreBlockPyExpr::Call(call) => CoreBlockPyExpr::Call(CoreBlockPyCall {
             node_index: call.node_index,
             range: call.range,
-            func: Box::new(hoist_core_expr_to_atom(*call.func, out, cleanup)),
+            func: Box::new(hoist_core_expr_if_contains_suspend(
+                *call.func, out, cleanup,
+            )),
             args: call
                 .args
                 .into_iter()
                 .map(|arg| match arg {
-                    CoreBlockPyCallArg::Positional(value) => {
-                        CoreBlockPyCallArg::Positional(hoist_core_expr_to_atom(value, out, cleanup))
-                    }
-                    CoreBlockPyCallArg::Starred(value) => {
-                        CoreBlockPyCallArg::Starred(hoist_core_expr_to_atom(value, out, cleanup))
-                    }
+                    CoreBlockPyCallArg::Positional(value) => CoreBlockPyCallArg::Positional(
+                        hoist_core_expr_if_contains_suspend(value, out, cleanup),
+                    ),
+                    CoreBlockPyCallArg::Starred(value) => CoreBlockPyCallArg::Starred(
+                        hoist_core_expr_if_contains_suspend(value, out, cleanup),
+                    ),
                 })
                 .collect(),
             keywords: call
@@ -77,31 +89,35 @@ fn make_eval_order_explicit_in_core_expr(
                 .map(|keyword| match keyword {
                     CoreBlockPyKeywordArg::Named { arg, value } => CoreBlockPyKeywordArg::Named {
                         arg,
-                        value: hoist_core_expr_to_atom(value, out, cleanup),
+                        value: hoist_core_expr_if_contains_suspend(value, out, cleanup),
                     },
-                    CoreBlockPyKeywordArg::Starred(value) => {
-                        CoreBlockPyKeywordArg::Starred(hoist_core_expr_to_atom(value, out, cleanup))
-                    }
+                    CoreBlockPyKeywordArg::Starred(value) => CoreBlockPyKeywordArg::Starred(
+                        hoist_core_expr_if_contains_suspend(value, out, cleanup),
+                    ),
                 })
                 .collect(),
         }),
-        CoreBlockPyExpr::Await(await_expr) => ExplicitCoreBlockPyExpr::Await(CoreBlockPyAwait {
+        CoreBlockPyExpr::Await(await_expr) => CoreBlockPyExpr::Await(CoreBlockPyAwait {
             node_index: await_expr.node_index,
             range: await_expr.range,
-            value: Box::new(hoist_core_expr_to_atom(*await_expr.value, out, cleanup)),
+            value: Box::new(hoist_core_expr_if_contains_suspend(
+                *await_expr.value,
+                out,
+                cleanup,
+            )),
         }),
-        CoreBlockPyExpr::Yield(yield_expr) => ExplicitCoreBlockPyExpr::Yield(CoreBlockPyYield {
+        CoreBlockPyExpr::Yield(yield_expr) => CoreBlockPyExpr::Yield(CoreBlockPyYield {
             node_index: yield_expr.node_index,
             range: yield_expr.range,
             value: yield_expr
                 .value
-                .map(|value| Box::new(hoist_core_expr_to_atom(*value, out, cleanup))),
+                .map(|value| Box::new(hoist_core_expr_if_contains_suspend(*value, out, cleanup))),
         }),
         CoreBlockPyExpr::YieldFrom(yield_from_expr) => {
-            ExplicitCoreBlockPyExpr::YieldFrom(CoreBlockPyYieldFrom {
+            CoreBlockPyExpr::YieldFrom(CoreBlockPyYieldFrom {
                 node_index: yield_from_expr.node_index,
                 range: yield_from_expr.range,
-                value: Box::new(hoist_core_expr_to_atom(
+                value: Box::new(hoist_core_expr_if_contains_suspend(
                     *yield_from_expr.value,
                     out,
                     cleanup,
@@ -119,8 +135,7 @@ fn append_stmt_cleanup<E>(out: &mut Vec<BlockPyStmt<E>>, cleanup: Vec<ast::ExprN
 
 fn make_eval_order_explicit_in_core_fragment(
     fragment: BlockPyCfgFragment<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>,
-) -> BlockPyCfgFragment<BlockPyStmt<ExplicitCoreBlockPyExpr>, BlockPyTerm<ExplicitCoreBlockPyExpr>>
-{
+) -> BlockPyCfgFragment<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>> {
     let mut body = Vec::new();
     for stmt in fragment.body {
         make_eval_order_explicit_in_core_stmt(stmt, &mut body);
@@ -133,7 +148,7 @@ fn make_eval_order_explicit_in_core_fragment(
 
 fn make_eval_order_explicit_in_core_stmt(
     stmt: BlockPyStmt<CoreBlockPyExpr>,
-    out: &mut Vec<BlockPyStmt<ExplicitCoreBlockPyExpr>>,
+    out: &mut Vec<BlockPyStmt<CoreBlockPyExpr>>,
 ) {
     match stmt {
         BlockPyStmt::Assign(assign) => {
@@ -160,11 +175,7 @@ fn make_eval_order_explicit_in_core_stmt(
         BlockPyStmt::If(if_stmt) => {
             let mut setup = Vec::new();
             let mut cleanup = Vec::new();
-            let test = explicit_core_expr_from_atom(hoist_core_expr_to_atom(
-                if_stmt.test,
-                &mut setup,
-                &mut cleanup,
-            ));
+            let test = hoist_core_expr_if_contains_suspend(if_stmt.test, &mut setup, &mut cleanup);
             out.extend(setup);
             out.push(BlockPyStmt::If(BlockPyIf {
                 test,
@@ -178,8 +189,8 @@ fn make_eval_order_explicit_in_core_stmt(
 
 fn make_eval_order_explicit_in_core_term(
     term: BlockPyTerm<CoreBlockPyExpr>,
-    out: &mut Vec<BlockPyStmt<ExplicitCoreBlockPyExpr>>,
-) -> BlockPyTerm<ExplicitCoreBlockPyExpr> {
+    out: &mut Vec<BlockPyStmt<CoreBlockPyExpr>>,
+) -> BlockPyTerm<CoreBlockPyExpr> {
     match term {
         BlockPyTerm::Jump(edge) => BlockPyTerm::Jump(edge),
         BlockPyTerm::TryJump(try_jump) => BlockPyTerm::TryJump(try_jump),
@@ -188,7 +199,7 @@ fn make_eval_order_explicit_in_core_term(
             then_label,
             else_label,
         }) => BlockPyTerm::IfTerm(BlockPyIfTerm {
-            test: explicit_core_expr_from_atom(hoist_core_expr_to_atom(test, out, &mut Vec::new())),
+            test: hoist_core_expr_if_contains_suspend(test, out, &mut Vec::new()),
             then_label,
             else_label,
         }),
@@ -197,28 +208,24 @@ fn make_eval_order_explicit_in_core_term(
             targets,
             default_label,
         }) => BlockPyTerm::BranchTable(BlockPyBranchTable {
-            index: explicit_core_expr_from_atom(hoist_core_expr_to_atom(
-                index,
-                out,
-                &mut Vec::new(),
-            )),
+            index: hoist_core_expr_if_contains_suspend(index, out, &mut Vec::new()),
             targets,
             default_label,
         }),
         BlockPyTerm::Raise(BlockPyRaise { exc }) => BlockPyTerm::Raise(BlockPyRaise {
-            exc: exc.map(|value| {
-                explicit_core_expr_from_atom(hoist_core_expr_to_atom(value, out, &mut Vec::new()))
-            }),
+            exc: exc.map(|value| hoist_core_expr_if_contains_suspend(value, out, &mut Vec::new())),
         }),
-        BlockPyTerm::Return(value) => BlockPyTerm::Return(explicit_core_expr_from_atom(
-            hoist_core_expr_to_atom(value, out, &mut Vec::new()),
+        BlockPyTerm::Return(value) => BlockPyTerm::Return(hoist_core_expr_if_contains_suspend(
+            value,
+            out,
+            &mut Vec::new(),
         )),
     }
 }
 
 pub(crate) fn make_eval_order_explicit_in_core_block<M: Clone + std::fmt::Debug>(
     block: CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>, M>,
-) -> CfgBlock<BlockPyStmt<ExplicitCoreBlockPyExpr>, BlockPyTerm<ExplicitCoreBlockPyExpr>, M> {
+) -> CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>, M> {
     let CfgBlock {
         label,
         body: input_body,
@@ -498,10 +505,7 @@ pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block_py::{
-        BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyExpr, ExplicitBlockPyExpr,
-        ExplicitCoreBlockPyExpr,
-    };
+    use crate::block_py::{BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyExpr};
 
     fn test_name(id: &str) -> ast::ExprName {
         let ast::Expr::Name(expr) = crate::py_expr!("{id:id}", id = id) else {
@@ -521,24 +525,19 @@ mod tests {
         };
 
         let lowered = make_eval_order_explicit_in_core_block(block);
-        assert_eq!(lowered.body.len(), 3);
-        assert!(matches!(lowered.body[0], BlockPyStmt::Assign(_)));
-        assert!(matches!(lowered.body[1], BlockPyStmt::Assign(_)));
-        let BlockPyStmt::Assign(assign) = &lowered.body[2] else {
-            panic!("expected hoisted call assignment");
-        };
-        let ExplicitCoreBlockPyExpr::Call(call) = &assign.value else {
+        assert!(lowered.body.is_empty());
+        let BlockPyTerm::Return(CoreBlockPyExpr::Call(call)) = &lowered.term else {
             panic!("expected call expr");
         };
-        assert!(matches!(call.func.as_ref(), ExplicitBlockPyExpr::Name(_)));
-        assert!(call.args.iter().all(|arg| matches!(
-            arg,
-            CoreBlockPyCallArg::Positional(
-                ExplicitBlockPyExpr::Name(_) | ExplicitBlockPyExpr::Literal(_)
-            ) | CoreBlockPyCallArg::Starred(
-                ExplicitBlockPyExpr::Name(_) | ExplicitBlockPyExpr::Literal(_)
-            )
-        )));
+        assert!(matches!(call.func.as_ref(), CoreBlockPyExpr::Name(_)));
+        assert!(matches!(
+            &call.args[0],
+            CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Call(_))
+        ));
+        assert!(matches!(
+            &call.args[1],
+            CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Call(_))
+        ));
     }
 
     #[test]
@@ -552,12 +551,11 @@ mod tests {
         };
 
         let lowered = make_eval_order_explicit_in_core_block(block);
-        assert_eq!(lowered.body.len(), 2);
-        assert!(matches!(lowered.body[0], BlockPyStmt::Assign(_)));
-        assert!(matches!(lowered.body[1], BlockPyStmt::Assign(_)));
-        let BlockPyTerm::Return(ExplicitCoreBlockPyExpr::Name(_)) = lowered.term else {
-            panic!("expected return of temp name");
+        assert!(lowered.body.is_empty());
+        let BlockPyTerm::Return(CoreBlockPyExpr::Call(call)) = lowered.term else {
+            panic!("expected return of recursive call");
         };
+        assert!(matches!(call.func.as_ref(), CoreBlockPyExpr::Name(_)));
     }
 
     #[test]
@@ -574,28 +572,18 @@ mod tests {
         };
 
         let lowered = make_eval_order_explicit_in_core_block(block);
-        assert_eq!(lowered.body.len(), 3);
-        let BlockPyStmt::Assign(temp_assign) = &lowered.body[0] else {
-            panic!("expected temp assignment");
-        };
-        let ExplicitCoreBlockPyExpr::Call(inner) = &temp_assign.value else {
-            panic!("expected hoisted inner call");
-        };
-        assert!(matches!(inner.func.as_ref(), ExplicitBlockPyExpr::Name(_)));
-        let BlockPyStmt::Assign(assign) = &lowered.body[1] else {
+        assert_eq!(lowered.body.len(), 1);
+        let BlockPyStmt::Assign(assign) = &lowered.body[0] else {
             panic!("expected rewritten assignment");
         };
-        let ExplicitCoreBlockPyExpr::Call(call) = &assign.value else {
+        let CoreBlockPyExpr::Call(call) = &assign.value else {
             panic!("expected outer call");
         };
-        assert!(matches!(call.func.as_ref(), ExplicitBlockPyExpr::Name(_)));
+        assert!(matches!(call.func.as_ref(), CoreBlockPyExpr::Name(_)));
         assert!(matches!(
-            call.args[0],
-            CoreBlockPyCallArg::Positional(ExplicitBlockPyExpr::Name(_))
+            &call.args[0],
+            CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Call(_))
         ));
-        let BlockPyStmt::Delete(_) = &lowered.body[2] else {
-            panic!("expected cleanup delete");
-        };
     }
 
     #[test]
@@ -612,33 +600,22 @@ mod tests {
         };
 
         let lowered = make_eval_order_explicit_in_core_block(block);
-        assert_eq!(lowered.body.len(), 5);
-        let BlockPyStmt::Assign(first_assign) = &lowered.body[0] else {
-            panic!("expected hoisted call temp assignment");
-        };
-        assert!(matches!(
-            first_assign.value,
-            ExplicitCoreBlockPyExpr::Call(_)
-        ));
-        let BlockPyStmt::Assign(temp_assign) = &lowered.body[1] else {
+        assert_eq!(lowered.body.len(), 3);
+        let BlockPyStmt::Assign(temp_assign) = &lowered.body[0] else {
             panic!("expected hoisted await temp assignment");
         };
-        assert!(matches!(
-            temp_assign.value,
-            ExplicitCoreBlockPyExpr::Await(_)
-        ));
-        let BlockPyStmt::Assign(assign) = &lowered.body[2] else {
+        assert!(matches!(temp_assign.value, CoreBlockPyExpr::Await(_)));
+        let BlockPyStmt::Assign(assign) = &lowered.body[1] else {
             panic!("expected rewritten assignment");
         };
-        let ExplicitCoreBlockPyExpr::Call(call) = &assign.value else {
+        let CoreBlockPyExpr::Call(call) = &assign.value else {
             panic!("expected iadd call");
         };
         assert!(matches!(
-            call.args[1],
-            CoreBlockPyCallArg::Positional(ExplicitBlockPyExpr::Name(_))
+            &call.args[1],
+            CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(_))
         ));
-        assert!(matches!(lowered.body[3], BlockPyStmt::Delete(_)));
-        assert!(matches!(lowered.body[4], BlockPyStmt::Delete(_)));
+        assert!(matches!(lowered.body[2], BlockPyStmt::Delete(_)));
     }
 
     #[test]

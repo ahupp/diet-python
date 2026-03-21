@@ -32,7 +32,7 @@ pub(crate) fn rewrite_module_with_tracker(
     module: Suite,
     pass_tracker: &mut PassTracker,
 ) -> Suite {
-    let module = pass_tracker.run_renderable_pass("ast-to-ast", || {
+    let mut module = pass_tracker.run_renderable_pass("ast-to-ast", || {
         let mut module = body_from_suite(module);
 
         // The transform now has a single lowering strategy: basic-block form.
@@ -122,10 +122,10 @@ pub(crate) fn rewrite_module_with_tracker(
         `__dp_make_function(function_id, closure, param_defaults, module_globals, annotate_fn)`.
     */
 
-    let (module, semantic_blockpy_untracked) =
-        rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module);
-    let semantic_blockpy: BlockPyModule<LoweredRuffBlockPyPass> =
-        pass_tracker.run_renderable_pass("semantic_blockpy", || semantic_blockpy_untracked);
+    let semantic_blockpy: BlockPyModule<LoweredRuffBlockPyPass> = pass_tracker
+        .run_renderable_pass("semantic_blockpy", || {
+            rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, &mut module)
+        });
 
     /*
     Simplify expressions:
