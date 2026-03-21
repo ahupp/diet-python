@@ -150,7 +150,9 @@ pub(crate) fn emit_sequence_return_block_with_expr_setup(
     let mut block =
         BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(BlockPyLabel::from(label.clone()));
     block.extend(fragment.body);
-    block.set_term(BlockPyTerm::Return(value));
+    block.set_term(BlockPyTerm::Return(
+        value.unwrap_or_else(|| crate::py_expr!("__dp_NONE")),
+    ));
     blocks.push(block.finish(None));
     Ok(label)
 }

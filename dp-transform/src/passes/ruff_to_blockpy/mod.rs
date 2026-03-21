@@ -15,9 +15,9 @@ use crate::block_py::state::{
     collect_state_vars, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use crate::block_py::{
-    assert_blockpy_block_normalized, BlockPyBlock, BlockPyCallableFacts, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyStmt, BlockPyTerm, BlockPyTryJump,
-    CfgBlock, ClosureLayout, FunctionId, FunctionName, PassExpr,
+    assert_blockpy_block_normalized, BlockPyBlock, BlockPyCallableFacts, BlockPyFallthroughTerm,
+    BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyStmt, BlockPyTerm,
+    BlockPyTryJump, CfgBlock, ClosureLayout, FunctionId, FunctionName, PassExpr,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -559,7 +559,7 @@ pub(crate) fn finalize_blockpy_callable_def(
         callable_def.blocks.push(BlockPyBlock {
             label: BlockPyLabel::from(end_label),
             body: Vec::new(),
-            term: BlockPyTerm::Return(None),
+            term: BlockPyTerm::implicit_function_return(),
             params: Vec::new(),
             meta: (),
         });
@@ -1181,7 +1181,7 @@ def f():
 
         assert_eq!(entry, "ret_label");
         assert_eq!(blocks.len(), 1);
-        assert!(matches!(blocks[0].term, BlockPyTerm::Return(Some(_))));
+        assert!(matches!(blocks[0].term, BlockPyTerm::Return(_)));
     }
 
     #[test]

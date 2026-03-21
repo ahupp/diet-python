@@ -1,6 +1,6 @@
 use crate::block_py::pretty::BlockPyPrettyPrint;
 use crate::passes::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
-use crate::passes::{BbBlockPyPass, RuffBlockPyPass};
+use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass, RuffBlockPyPass};
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
@@ -88,7 +88,7 @@ fn should_skip(source: &str) -> bool {
 pub struct LoweringResult {
     pub timings: TransformTimings,
     pub module: ModModule,
-    pub bb_module: Option<BlockPyModule<BbBlockPyPass>>,
+    pub bb_codegen_module: Option<BlockPyModule<PreparedBbBlockPyPass>>,
     passes: PassTracker,
 }
 
@@ -271,7 +271,7 @@ pub fn transform_str_to_ruff_with_options(
                 pass_times: Vec::new(),
             },
             module,
-            bb_module: None,
+            bb_codegen_module: None,
             passes: PassTracker::new(),
         });
     }
@@ -281,7 +281,10 @@ pub fn transform_str_to_ruff_with_options(
 
     let body = take_suite(&mut module.body);
     let rewrite_start = timing_start();
-    let bb_module = rewrite_module_with_tracker(&ctx, body, &mut pass_tracker);
+    let _bb_module = rewrite_module_with_tracker(&ctx, body, &mut pass_tracker);
+    let bb_codegen_module = pass_tracker
+        .get::<BlockPyModule<PreparedBbBlockPyPass>>("bb_codegen")
+        .cloned();
     *suite_mut(&mut module.body) = pass_tracker
         .transformed_module()
         .expect("transformed module pass should be tracked")
@@ -299,7 +302,7 @@ pub fn transform_str_to_ruff_with_options(
     Ok(LoweringResult {
         timings,
         module,
-        bb_module: Some(bb_module),
+        bb_codegen_module,
         passes: pass_tracker,
     })
 }
@@ -311,7 +314,9 @@ pub fn transform_str_to_bb_ir_with_options(
     let mut options = options;
     options.lower_attributes = true;
 
-    Ok(transform_str_to_ruff_with_options(source, options)?.bb_module)
+    Ok(transform_str_to_ruff_with_options(source, options)?
+        .get_pass::<BlockPyModule<BbBlockPyPass>>("bb")
+        .cloned())
 }
 
 pub fn transform_str_to_blockpy_with_options(

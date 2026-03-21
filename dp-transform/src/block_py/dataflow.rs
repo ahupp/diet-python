@@ -50,7 +50,7 @@ where
                     else_label,
                     ..
                 }) => {
-                    let no_args = &[] as &[BlockArg<E>];
+                    let no_args = &[] as &[BlockArg];
                     extend_successor_live_in(
                         &mut out,
                         blocks,
@@ -73,7 +73,7 @@ where
                     default_label,
                     ..
                 }) => {
-                    let no_args = &[] as &[BlockArg<E>];
+                    let no_args = &[] as &[BlockArg];
                     for target in targets {
                         extend_successor_live_in(
                             &mut out,
@@ -94,7 +94,7 @@ where
                     );
                 }
                 BlockPyTerm::TryJump(try_jump) => {
-                    let no_args = &[] as &[BlockArg<E>];
+                    let no_args = &[] as &[BlockArg];
                     extend_successor_live_in(
                         &mut out,
                         blocks,
@@ -224,16 +224,14 @@ where
     (uses, defs)
 }
 
-fn extend_successor_live_in<S, T, E, M>(
+fn extend_successor_live_in<S, T, M>(
     out: &mut HashSet<String>,
     blocks: &[CfgBlock<S, T, M>],
     label_to_index: &HashMap<&str, usize>,
     live_in: &[HashSet<String>],
     target_label: &str,
-    edge_args: &[BlockArg<E>],
-) where
-    E: Clone + Into<Expr>,
-{
+    edge_args: &[BlockArg],
+) {
     let Some(succ_idx) = label_to_index.get(target_label).copied() else {
         return;
     };
@@ -256,18 +254,12 @@ fn extend_successor_live_in<S, T, E, M>(
     out.extend(load_names_in_blockpy_edge_args(edge_args));
 }
 
-fn load_names_in_blockpy_edge_args<E>(args: &[BlockArg<E>]) -> HashSet<String>
-where
-    E: Clone + Into<Expr>,
-{
+fn load_names_in_blockpy_edge_args(args: &[BlockArg]) -> HashSet<String> {
     let mut names = HashSet::new();
     for arg in args {
         match arg {
             BlockArg::Name(name) => {
                 names.insert(name.clone());
-            }
-            BlockArg::Expr(expr) => {
-                names.extend(load_names_in_blockpy_expr(expr));
             }
             BlockArg::None | BlockArg::CurrentException | BlockArg::AbruptKind(_) => {}
         }
@@ -312,10 +304,7 @@ where
         BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
             load_names_in_blockpy_expr(index)
         }
-        BlockPyTerm::Return(value) => value
-            .as_ref()
-            .map(load_names_in_blockpy_expr)
-            .unwrap_or_default(),
+        BlockPyTerm::Return(value) => load_names_in_blockpy_expr(value),
         BlockPyTerm::Raise(BlockPyRaise { exc }) => exc
             .as_ref()
             .map(load_names_in_blockpy_expr)
@@ -378,9 +367,7 @@ where
         }
         BlockPyTerm::Return(value) => {
             let mut names = HashSet::new();
-            if let Some(value) = value {
-                collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
-            }
+            collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
             names
         }
         BlockPyTerm::Raise(BlockPyRaise { exc }) => {
@@ -464,8 +451,7 @@ fn collect_named_expr_target_names_in_expr(expr: &Expr, names: &mut HashSet<Stri
 mod tests {
     use super::{assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term};
     use crate::block_py::{
-        BlockArg, BlockPyCfgFragment, BlockPyEdge, BlockPyIf, BlockPyIfTerm, BlockPyRaise,
-        BlockPyStmt, BlockPyTerm,
+        BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm,
     };
     use crate::py_expr;
     use std::collections::HashSet;
@@ -476,9 +462,9 @@ mod tests {
             test: py_expr!("(test_name := source_test)"),
             body: BlockPyCfgFragment::with_term(
                 vec![BlockPyStmt::Expr(py_expr!("(body_name := source_body)"))],
-                Some(BlockPyTerm::Return(Some(py_expr!(
+                Some(BlockPyTerm::Return(py_expr!(
                     "(return_name := source_return)"
-                )))),
+                ))),
             ),
             orelse: BlockPyCfgFragment::with_term(
                 vec![BlockPyStmt::Expr(py_expr!("(else_name := source_else)"))],
@@ -502,10 +488,7 @@ mod tests {
 
     #[test]
     fn assigned_names_in_blockpy_term_keeps_jump_edge_args_out_of_results() {
-        let term = BlockPyTerm::Jump(BlockPyEdge::with_args(
-            "after".into(),
-            vec![BlockArg::Expr(py_expr!("(jump_name := source_jump)"))],
-        ));
+        let term: BlockPyTerm = BlockPyTerm::Jump("after".into());
 
         assert!(assigned_names_in_blockpy_term(&term).is_empty());
     }

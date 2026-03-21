@@ -9,14 +9,18 @@ use std::sync::{Mutex, OnceLock};
 
 #[derive(Clone, Debug)]
 pub struct ClifPlan {
-    pub entry_index: usize,
-    pub block_labels: Vec<String>,
     pub ambient_param_names: Vec<String>,
-    pub block_param_names: Vec<Vec<String>>,
-    pub block_terms: Vec<BlockTermPlan>,
-    pub block_exc_targets: Vec<Option<usize>>,
-    pub block_exc_dispatches: Vec<Option<BlockExcDispatchPlan>>,
-    pub block_fast_paths: Vec<BlockFastPath>,
+    pub blocks: Vec<ClifBlockPlan>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ClifBlockPlan {
+    pub label: String,
+    pub param_names: Vec<String>,
+    pub term: BbTerm,
+    pub exc_target: Option<usize>,
+    pub exc_dispatch: Option<BlockExcDispatchPlan>,
+    pub fast_path: BlockFastPath,
 }
 
 #[derive(Clone, Debug)]
@@ -35,28 +39,9 @@ pub enum BlockExcArgSource {
 }
 
 #[derive(Clone, Debug)]
-pub enum BlockTermPlan {
-    Jump {
-        target_index: usize,
-    },
-    BrIf {
-        then_index: usize,
-        else_index: usize,
-    },
-    BrTable {
-        targets: Vec<usize>,
-        default_index: usize,
-    },
-    Raise,
-    Ret,
-}
-
-#[derive(Clone, Debug)]
 pub enum BlockFastPath {
     None,
     JumpPassThrough { target_index: usize },
-    ReturnNone,
-    DirectSimpleExprRetNone { plan: DirectSimpleExprRetNonePlan },
     DirectSimpleBrIf { plan: DirectSimpleBrIfPlan },
     DirectSimpleRet { plan: DirectSimpleRetPlan },
     DirectSimpleBlock { plan: DirectSimpleBlockPlan },
@@ -67,10 +52,7 @@ pub enum DirectSimpleExprPlan {
     Name(String),
     Int(i64),
     Float(f64),
-    Bool(bool),
-    None,
     Bytes(Vec<u8>),
-    Tuple(Vec<DirectSimpleExprPlan>),
     Call {
         func: Box<DirectSimpleExprPlan>,
         parts: Vec<DirectSimpleCallPart>,
@@ -115,12 +97,6 @@ pub struct DirectSimpleBrIfPlan {
     pub test: DirectSimpleExprPlan,
     pub then_index: usize,
     pub else_index: usize,
-}
-
-#[derive(Clone, Debug)]
-pub struct DirectSimpleExprRetNonePlan {
-    pub params: Vec<String>,
-    pub exprs: Vec<DirectSimpleExprPlan>,
 }
 
 #[derive(Clone, Debug)]
@@ -258,14 +234,9 @@ fn abrupt_kind_tag(kind: AbruptKind) -> i64 {
     }
 }
 
-fn direct_simple_block_arg_from(
-    arg: &BlockArg<CoreBlockPyExprWithoutAwaitOrYield>,
-) -> Option<DirectSimpleBlockArgPlan> {
+fn direct_simple_block_arg_from(arg: &BlockArg) -> Option<DirectSimpleBlockArgPlan> {
     match arg {
         BlockArg::Name(name) => Some(DirectSimpleBlockArgPlan::Name(name.clone())),
-        BlockArg::Expr(expr) => Some(DirectSimpleBlockArgPlan::Expr(direct_simple_expr_from(
-            expr,
-        )?)),
         BlockArg::None => Some(DirectSimpleBlockArgPlan::None),
         BlockArg::CurrentException => Some(DirectSimpleBlockArgPlan::CurrentException),
         BlockArg::AbruptKind(kind) => Some(DirectSimpleBlockArgPlan::Expr(
@@ -296,11 +267,7 @@ fn direct_simple_plan_from_block(block: &PreparedBbBlock) -> Option<DirectSimple
     let BbTerm::Return(ret_value) = &block.term else {
         return None;
     };
-    let ret = if let Some(value) = ret_value.as_ref() {
-        direct_simple_expr_from(value)?
-    } else {
-        DirectSimpleExprPlan::None
-    };
+    let ret = direct_simple_expr_from(ret_value)?;
     Some(DirectSimpleRetPlan {
         params: block.param_name_vec(),
         assigns,
@@ -354,26 +321,6 @@ fn direct_simple_brif_plan_from_block(
         test,
         then_index,
         else_index,
-    })
-}
-
-fn direct_simple_expr_ret_none_plan_from_block(
-    block: &PreparedBbBlock,
-) -> Option<DirectSimpleExprRetNonePlan> {
-    if !matches!(block.term, BbTerm::Return(None)) {
-        return None;
-    }
-    let mut exprs = Vec::with_capacity(block.body.len());
-    for op in &block.body {
-        let BbStmt::Expr(expr) = op else {
-            return None;
-        };
-        let expr = direct_simple_expr_from(expr)?;
-        exprs.push(expr);
-    }
-    Some(DirectSimpleExprRetNonePlan {
-        params: block.param_name_vec(),
-        exprs,
     })
 }
 
@@ -444,66 +391,58 @@ fn bb_stmt_kind(op: &BbStmt) -> &'static str {
     }
 }
 
-fn bb_term_kind(term: &BbTerm) -> &'static str {
-    match term {
-        BbTerm::Jump(_) => "Jump",
-        BbTerm::IfTerm(_) => "BrIf",
-        BbTerm::BranchTable(_) => "BrTable",
-        BbTerm::Raise(_) => "Raise",
-        BbTerm::Return(_) => "Ret",
-    }
-}
-
-fn unsupported_fastpath_block_message(
-    function: &BlockPyFunction<PreparedBbBlockPyPass>,
-    block: &PreparedBbBlock,
-) -> String {
-    let op_kinds = block
-        .body
-        .iter()
-        .map(bb_stmt_kind)
-        .collect::<Vec<_>>()
-        .join(", ");
-    let op_debug = block
-        .body
-        .iter()
-        .map(|op| format!("{op:?}"))
-        .collect::<Vec<_>>()
-        .join("; ");
-    format!(
-        "unsupported JIT block shape in {}:{}: term={}, ops=[{}], params={:?}, exc_target={:?}; op_debug=[{}]; expected direct-simple lowered block",
-        function.names.qualname,
-        block.label,
-        bb_term_kind(&block.term),
-        op_kinds,
-        block.param_name_vec(),
-        block.meta.exc_edge.as_ref().map(|edge| &edge.target),
-        op_debug,
-    )
-}
-
 fn direct_simple_block_plan_from_block(
     function: &BlockPyFunction<PreparedBbBlockPyPass>,
     block: &PreparedBbBlock,
     label_to_index: &HashMap<BlockPyLabel, usize>,
     ambient_param_names: &HashSet<String>,
-) -> Option<DirectSimpleBlockPlan> {
+) -> DirectSimpleBlockPlan {
     let mut known_names = block.param_name_vec();
     let mut ops = Vec::new();
     for op in &block.body {
-        let stmt_op = direct_simple_op_from_bb_stmt(op, &mut known_names)?;
+        let stmt_op = direct_simple_op_from_bb_stmt(op, &mut known_names).unwrap_or_else(|| {
+            panic!(
+                "unexpected non-direct-simple BB stmt in {}:{}: kind={} stmt={op:?}",
+                function.names.qualname,
+                block.label,
+                bb_stmt_kind(op),
+            )
+        });
         ops.push(stmt_op);
     }
     let term = match &block.term {
         BbTerm::Jump(target_label) => {
-            let target_index = *label_to_index.get(target_label.as_str())?;
+            let target_index = *label_to_index
+                .get(target_label.as_str())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "unknown jump target {} in {}:{}",
+                        target_label.as_str(),
+                        function.names.qualname,
+                        block.label
+                    )
+                });
             let target_params =
-                target_params_from_index(function, target_index, ambient_param_names)?;
+                target_params_from_index(function, target_index, ambient_param_names)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing target params for jump target {} in {}:{}",
+                            target_label.as_str(),
+                            function.names.qualname,
+                            block.label
+                        )
+                    });
             let target_args = target_label
                 .args
                 .iter()
                 .map(direct_simple_block_arg_from)
-                .collect::<Option<Vec<_>>>()?;
+                .collect::<Option<Vec<_>>>()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "unexpected non-direct-simple jump arg in {}:{}: {:?}",
+                        function.names.qualname, block.label, target_label.args
+                    )
+                });
             DirectSimpleTermPlan::Jump {
                 target_index,
                 target_params,
@@ -511,11 +450,42 @@ fn direct_simple_block_plan_from_block(
             }
         }
         BbTerm::IfTerm(if_term) => {
-            let test_expr = direct_simple_expr_from(&if_term.test)?;
-            let then_index = *label_to_index.get(if_term.then_label.as_str())?;
-            let then_params = target_params_from_index(function, then_index, ambient_param_names)?;
-            let else_index = *label_to_index.get(if_term.else_label.as_str())?;
-            let else_params = target_params_from_index(function, else_index, ambient_param_names)?;
+            let test_expr = direct_simple_expr_from(&if_term.test).unwrap_or_else(|| {
+                panic!(
+                    "unexpected non-direct-simple if test in {}:{}: {:?}",
+                    function.names.qualname, block.label, if_term.test
+                )
+            });
+            let then_index = *label_to_index
+                .get(if_term.then_label.as_str())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "unknown then target {} in {}:{}",
+                        if_term.then_label, function.names.qualname, block.label
+                    )
+                });
+            let then_params = target_params_from_index(function, then_index, ambient_param_names)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing then params for target {} in {}:{}",
+                        if_term.then_label, function.names.qualname, block.label
+                    )
+                });
+            let else_index = *label_to_index
+                .get(if_term.else_label.as_str())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "unknown else target {} in {}:{}",
+                        if_term.else_label, function.names.qualname, block.label
+                    )
+                });
+            let else_params = target_params_from_index(function, else_index, ambient_param_names)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing else params for target {} in {}:{}",
+                        if_term.else_label, function.names.qualname, block.label
+                    )
+                });
             DirectSimpleTermPlan::BrIf {
                 test: test_expr,
                 then_index,
@@ -525,17 +495,49 @@ fn direct_simple_block_plan_from_block(
             }
         }
         BbTerm::BranchTable(branch) => {
-            let index_expr = direct_simple_expr_from(&branch.index)?;
+            let index_expr = direct_simple_expr_from(&branch.index).unwrap_or_else(|| {
+                panic!(
+                    "unexpected non-direct-simple br_table index in {}:{}: {:?}",
+                    function.names.qualname, block.label, branch.index
+                )
+            });
             let mut target_plans = Vec::with_capacity(branch.targets.len());
             for target_label in &branch.targets {
-                let target_index = *label_to_index.get(target_label.as_str())?;
+                let target_index =
+                    *label_to_index
+                        .get(target_label.as_str())
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "unknown br_table target {} in {}:{}",
+                                target_label, function.names.qualname, block.label
+                            )
+                        });
                 let target_params =
-                    target_params_from_index(function, target_index, ambient_param_names)?;
+                    target_params_from_index(function, target_index, ambient_param_names)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "missing br_table params for target {} in {}:{}",
+                                target_label, function.names.qualname, block.label
+                            )
+                        });
                 target_plans.push((target_index, target_params));
             }
-            let default_index = *label_to_index.get(branch.default_label.as_str())?;
+            let default_index = *label_to_index
+                .get(branch.default_label.as_str())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "unknown br_table default target {} in {}:{}",
+                        branch.default_label, function.names.qualname, block.label
+                    )
+                });
             let default_params =
-                target_params_from_index(function, default_index, ambient_param_names)?;
+                target_params_from_index(function, default_index, ambient_param_names)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "missing br_table params for default target {} in {}:{}",
+                            branch.default_label, function.names.qualname, block.label
+                        )
+                    });
             DirectSimpleTermPlan::BrTable {
                 index: index_expr,
                 targets: target_plans,
@@ -544,26 +546,34 @@ fn direct_simple_block_plan_from_block(
             }
         }
         BbTerm::Return(ret_value) => {
-            let value = if let Some(expr) = ret_value.as_ref() {
-                Some(direct_simple_expr_from(expr)?)
-            } else {
-                None
-            };
+            let value = Some(direct_simple_expr_from(ret_value).unwrap_or_else(|| {
+                panic!(
+                    "unexpected non-direct-simple return value in {}:{}: {:?}",
+                    function.names.qualname, block.label, ret_value
+                )
+            }));
             DirectSimpleTermPlan::Ret { value }
         }
         BbTerm::Raise(raise_stmt) => {
-            let exc = raise_stmt.exc.as_ref().and_then(direct_simple_expr_from);
+            let exc = raise_stmt.exc.as_ref().map(|expr| {
+                direct_simple_expr_from(expr).unwrap_or_else(|| {
+                    panic!(
+                        "unexpected non-direct-simple raise value in {}:{}: {:?}",
+                        function.names.qualname, block.label, expr
+                    )
+                })
+            });
             DirectSimpleTermPlan::Raise { exc }
         }
     };
-    Some(DirectSimpleBlockPlan {
+    DirectSimpleBlockPlan {
         params: block.param_name_vec(),
         ops,
         term,
-    })
+    }
 }
 
-fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> Result<ClifPlan, String> {
+fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPlan {
     let ambient_param_names = function
         .closure_layout()
         .as_ref()
@@ -574,12 +584,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> Result<
     for (index, block) in function.blocks.iter().enumerate() {
         label_to_index.insert(block.label.clone(), index);
     }
-    let entry_index = 0;
-    let mut block_terms = Vec::with_capacity(function.blocks.len());
-    let mut block_exc_targets = Vec::with_capacity(function.blocks.len());
-    let mut block_exc_dispatches = Vec::with_capacity(function.blocks.len());
-    let mut block_param_names = Vec::with_capacity(function.blocks.len());
-    let mut block_fast_paths = Vec::with_capacity(function.blocks.len());
+    let mut blocks = Vec::with_capacity(function.blocks.len());
     for block in &function.blocks {
         let exc_target =
             match block.meta.exc_edge.as_ref().map(|edge| &edge.target) {
@@ -644,12 +649,6 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> Result<
                     BlockArg::None => {
                         arg_sources.push(BlockExcArgSource::NoneValue);
                     }
-                    BlockArg::Expr(_) => {
-                        panic!(
-                            "exception dispatch from {}:{} uses expr edge arg for target param {}",
-                            function.names.qualname, block.label, target_param_name
-                        );
-                    }
                     BlockArg::AbruptKind(kind) => {
                         panic!(
                             "exception dispatch from {}:{} uses abrupt-kind edge arg {:?} for target param {}",
@@ -676,78 +675,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> Result<
         } else {
             None
         };
-        let term = match &block.term {
-            BbTerm::Jump(target) => {
-                let target_index =
-                    label_to_index
-                        .get(target.as_str())
-                        .copied()
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "unknown jump target {} in {}:{}",
-                                target.as_str(),
-                                function.names.qualname,
-                                block.label
-                            )
-                        });
-                BlockTermPlan::Jump { target_index }
-            }
-            BbTerm::IfTerm(if_term) => {
-                let then_index = label_to_index
-                    .get(if_term.then_label.as_str())
-                    .copied()
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "unknown then target {} in {}:{}",
-                            if_term.then_label, function.names.qualname, block.label
-                        )
-                    });
-                let else_index = label_to_index
-                    .get(if_term.else_label.as_str())
-                    .copied()
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "unknown else target {} in {}:{}",
-                            if_term.else_label, function.names.qualname, block.label
-                        )
-                    });
-                BlockTermPlan::BrIf {
-                    then_index,
-                    else_index,
-                }
-            }
-            BbTerm::BranchTable(branch) => {
-                let default_index = label_to_index
-                    .get(branch.default_label.as_str())
-                    .copied()
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "unknown br_table default target {} in {}:{}",
-                            branch.default_label, function.names.qualname, block.label
-                        )
-                    });
-                let mut target_indices = Vec::with_capacity(branch.targets.len());
-                for target in &branch.targets {
-                    let target_index =
-                        label_to_index
-                            .get(target.as_str())
-                            .copied()
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "unknown br_table target {target} in {}:{}",
-                                    function.names.qualname, block.label
-                                )
-                            });
-                    target_indices.push(target_index);
-                }
-                BlockTermPlan::BrTable {
-                    targets: target_indices,
-                    default_index,
-                }
-            }
-            BbTerm::Raise(_) => BlockTermPlan::Raise,
-            BbTerm::Return(_) => BlockTermPlan::Ret,
-        };
+        let term = block.term.clone();
         let fast_path = {
             if block.body.is_empty() {
                 match &block.term {
@@ -771,20 +699,17 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> Result<
                         );
                         if target_label.args.is_empty() && source_params == target_params {
                             BlockFastPath::JumpPassThrough { target_index }
-                        } else if let Some(plan) = direct_simple_plan_from_block(block) {
-                            BlockFastPath::DirectSimpleRet { plan }
-                        } else if let Some(plan) = direct_simple_block_plan_from_block(
-                            function,
-                            block,
-                            &label_to_index,
-                            &ambient_param_name_set,
-                        ) {
-                            BlockFastPath::DirectSimpleBlock { plan }
                         } else {
-                            BlockFastPath::None
+                            BlockFastPath::DirectSimpleBlock {
+                                plan: direct_simple_block_plan_from_block(
+                                    function,
+                                    block,
+                                    &label_to_index,
+                                    &ambient_param_name_set,
+                                ),
+                            }
                         }
                     }
-                    BbTerm::Return(None) => BlockFastPath::ReturnNone,
                     BbTerm::IfTerm(_) => {
                         if let Some(plan) = direct_simple_brif_plan_from_block(
                             function,
@@ -793,124 +718,74 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> Result<
                             &ambient_param_name_set,
                         ) {
                             BlockFastPath::DirectSimpleBrIf { plan }
-                        } else if let Some(plan) = direct_simple_block_plan_from_block(
-                            function,
-                            block,
-                            &label_to_index,
-                            &ambient_param_name_set,
-                        ) {
-                            BlockFastPath::DirectSimpleBlock { plan }
                         } else {
-                            BlockFastPath::None
+                            BlockFastPath::DirectSimpleBlock {
+                                plan: direct_simple_block_plan_from_block(
+                                    function,
+                                    block,
+                                    &label_to_index,
+                                    &ambient_param_name_set,
+                                ),
+                            }
                         }
                     }
                     _ => {
                         if let Some(plan) = direct_simple_plan_from_block(block) {
                             BlockFastPath::DirectSimpleRet { plan }
-                        } else if let Some(plan) = direct_simple_block_plan_from_block(
-                            function,
-                            block,
-                            &label_to_index,
-                            &ambient_param_name_set,
-                        ) {
-                            BlockFastPath::DirectSimpleBlock { plan }
                         } else {
-                            BlockFastPath::None
+                            BlockFastPath::DirectSimpleBlock {
+                                plan: direct_simple_block_plan_from_block(
+                                    function,
+                                    block,
+                                    &label_to_index,
+                                    &ambient_param_name_set,
+                                ),
+                            }
                         }
                     }
                 }
             } else if let Some(plan) = direct_simple_plan_from_block(block) {
                 BlockFastPath::DirectSimpleRet { plan }
-            } else if let Some(plan) = direct_simple_expr_ret_none_plan_from_block(block) {
-                BlockFastPath::DirectSimpleExprRetNone { plan }
-            } else if let Some(plan) = direct_simple_block_plan_from_block(
-                function,
-                block,
-                &label_to_index,
-                &ambient_param_name_set,
-            ) {
-                BlockFastPath::DirectSimpleBlock { plan }
             } else {
-                BlockFastPath::None
+                BlockFastPath::DirectSimpleBlock {
+                    plan: direct_simple_block_plan_from_block(
+                        function,
+                        block,
+                        &label_to_index,
+                        &ambient_param_name_set,
+                    ),
+                }
             }
         };
-        if matches!(fast_path, BlockFastPath::None) {
-            return Err(unsupported_fastpath_block_message(function, block));
-        }
-        block_terms.push(term);
-        block_exc_targets.push(exc_target);
-        block_exc_dispatches.push(exc_dispatch);
-        block_param_names.push(block.param_name_vec());
-        block_fast_paths.push(fast_path);
+        blocks.push(ClifBlockPlan {
+            label: block.label.to_string(),
+            param_names: block.param_name_vec(),
+            term,
+            exc_target,
+            exc_dispatch,
+            fast_path,
+        });
     }
-    Ok(ClifPlan {
-        entry_index,
-        block_labels: function
-            .blocks
-            .iter()
-            .map(|block| block.label.to_string())
-            .collect(),
+    ClifPlan {
         ambient_param_names,
-        block_param_names,
-        block_terms,
-        block_exc_targets,
-        block_exc_dispatches,
-        block_fast_paths,
-    })
+        blocks,
+    }
 }
 
 pub fn register_clif_module_plans(
     module_name: &str,
     module: &BlockPyModule<PreparedBbBlockPyPass>,
 ) -> Result<(), String> {
-    let debug_skips = std::env::var_os("DIET_PYTHON_DEBUG_JIT_PLAN_SKIPS").is_some();
     let mut plans = HashMap::new();
     let mut functions = HashMap::new();
-    let mut skipped_errors: HashMap<String, String> = HashMap::new();
     for function in &module.callable_defs {
         let key = PlanKey {
             module: module_name.to_string(),
             function_id: function.function_id.0,
         };
-        let plan_name = function
-            .function_id
-            .plan_qualname(function.names.qualname.as_str());
-        match build_clif_plan(function) {
-            Ok(plan) => {
-                plans.insert(key.clone(), plan);
-                functions.insert(key, function.clone());
-            }
-            Err(err) => {
-                if debug_skips {
-                    eprintln!(
-                        "[diet-python:jitskip] module={} qualname={} entry={} reason={}",
-                        module_name,
-                        function.names.qualname,
-                        function.entry_block().label_str(),
-                        err
-                    );
-                }
-                skipped_errors.insert(plan_name, err);
-            }
-        }
-    }
-
-    if !skipped_errors.is_empty() {
-        let mut skipped = skipped_errors.into_iter().collect::<Vec<_>>();
-        skipped.sort_by(|(left, _), (right, _)| left.cmp(right));
-        let mut details = String::new();
-        for (idx, (qualname, reason)) in skipped.iter().enumerate() {
-            if idx > 0 {
-                details.push_str("; ");
-            }
-            details.push_str(qualname.as_str());
-            details.push_str(": ");
-            details.push_str(reason.as_str());
-        }
-        return Err(format!(
-            "module {module_name} has unsupported JIT plans ({count}): {details}",
-            count = skipped.len()
-        ));
+        let plan = build_clif_plan(function);
+        plans.insert(key.clone(), plan);
+        functions.insert(key, function.clone());
     }
 
     let mut registry = clif_plan_registry()

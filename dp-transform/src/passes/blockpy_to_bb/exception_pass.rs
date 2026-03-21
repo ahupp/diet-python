@@ -322,7 +322,9 @@ def f(x):
             function.blocks.push(BbBlock {
                 label: body_label.clone(),
                 body: vec![],
-                term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(None),
+                term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(
+                    <CoreBlockPyExprWithoutAwaitOrYield as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+                ),
                 params: vec![crate::block_py::BlockParam {
                     name: "_dp_try_exc_manual".to_string(),
                     role: crate::block_py::BlockParamRole::Exception,
@@ -334,7 +336,9 @@ def f(x):
             function.blocks.push(BbBlock {
                 label: except_label.clone(),
                 body: vec![],
-                term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(None),
+                term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(
+                    <CoreBlockPyExprWithoutAwaitOrYield as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+                ),
                 params: Vec::new(),
                 meta: BbBlockMeta::default(),
             });
@@ -417,7 +421,9 @@ def f():
         function.blocks.push(BbBlock {
             label: except_label.clone(),
             body: vec![],
-            term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(None),
+            term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(
+                <CoreBlockPyExprWithoutAwaitOrYield as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+            ),
             params: Vec::new(),
             meta: BbBlockMeta::default(),
         });
@@ -489,7 +495,9 @@ def f():
         function.blocks.push(BbBlock {
             label: except_label.clone(),
             body: vec![],
-            term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(None),
+            term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(
+                <CoreBlockPyExprWithoutAwaitOrYield as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+            ),
             params: Vec::new(),
             meta: BbBlockMeta::default(),
         });
@@ -552,7 +560,7 @@ def f():
             raw_function.blocks.iter().any(|block| {
                 matches!(
                     block.term,
-                    crate::block_py::BlockPyTerm::Return(Some(
+                    crate::block_py::BlockPyTerm::Return(
                         crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(
                             crate::block_py::CoreBlockPyLiteral::NumberLiteral(
                                 crate::block_py::CoreNumberLiteral {
@@ -561,7 +569,7 @@ def f():
                                 }
                             )
                         )
-                    ))
+                    )
                 )
             }),
             "{raw_function:#?}"
@@ -577,7 +585,7 @@ def f():
             lowered_function.blocks.iter().any(|block| {
                 matches!(
                     block.term,
-                    crate::block_py::BbTerm::Return(Some(
+                    crate::block_py::BbTerm::Return(
                         crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(
                             crate::block_py::CoreBlockPyLiteral::NumberLiteral(
                                 crate::block_py::CoreNumberLiteral {
@@ -586,7 +594,7 @@ def f():
                                 }
                             )
                         )
-                    ))
+                    )
                 )
             }),
             "{lowered_function:#?}"

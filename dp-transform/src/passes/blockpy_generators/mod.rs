@@ -478,7 +478,7 @@ fn build_factory_block(
         }
     };
 
-    block.set_term(BlockPyTerm::Return(Some(factory_value)));
+    block.set_term(BlockPyTerm::Return(factory_value));
     block.finish(None)
 }
 
@@ -565,10 +565,10 @@ fn stmt_yield_site(stmt: &BlockPyStmt<CoreBlockPyExprWithoutAwait>) -> Option<Yi
 
 fn term_yield_site(term: &BlockPyTerm<CoreBlockPyExprWithoutAwait>) -> Option<YieldSite> {
     match term {
-        BlockPyTerm::Return(Some(CoreBlockPyExprWithoutAwait::Yield(yield_expr))) => {
+        BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::Yield(yield_expr)) => {
             Some(YieldSite::ReturnYield(yield_expr.value.as_deref().cloned()))
         }
-        BlockPyTerm::Return(Some(CoreBlockPyExprWithoutAwait::YieldFrom(yield_from))) => {
+        BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::YieldFrom(yield_from)) => {
             Some(YieldSite::ReturnYieldFrom((*yield_from.value).clone()))
         }
         _ => None,
@@ -800,7 +800,7 @@ fn lower_resume_fragment(
             &mut prefix,
             site,
             Vec::new(),
-            BlockPyTerm::Return(None),
+            BlockPyTerm::Return(core_none().into()),
             params,
             meta,
             exc_target,
@@ -818,11 +818,9 @@ fn lower_resume_fragment(
                 state,
                 label,
                 lowered_body,
-                value.map(|value| {
-                    value.try_into().unwrap_or_else(|_| {
-                        panic!("generator lowering expected yield-free final return value")
-                    })
-                }),
+                Some(value.try_into().unwrap_or_else(|_| {
+                    panic!("generator lowering expected yield-free final return value")
+                })),
                 params,
                 meta,
                 exc_target,
@@ -869,7 +867,7 @@ fn emit_yield_site(
                 BlockPyBlock {
                     label,
                     body: std::mem::take(prefix),
-                    term: BlockPyTerm::Return(Some(yield_value_expr(value))),
+                    term: BlockPyTerm::Return(yield_value_expr(value)),
                     params: params.clone(),
                     meta: meta.clone(),
                 },
@@ -900,7 +898,7 @@ fn emit_yield_site(
                 BlockPyBlock {
                     label,
                     body: std::mem::take(prefix),
-                    term: BlockPyTerm::Return(Some(yield_value_expr(value))),
+                    term: BlockPyTerm::Return(yield_value_expr(value)),
                     params: params.clone(),
                     meta: meta.clone(),
                 },
@@ -931,7 +929,7 @@ fn emit_yield_site(
                 BlockPyBlock {
                     label,
                     body: std::mem::take(prefix),
-                    term: BlockPyTerm::Return(Some(yield_value_expr(value))),
+                    term: BlockPyTerm::Return(yield_value_expr(value)),
                     params: params.clone(),
                     meta: meta.clone(),
                 },
@@ -942,9 +940,9 @@ fn emit_yield_site(
                 resume_label,
                 None,
                 Vec::new(),
-                BlockPyTerm::Return(Some(CoreBlockPyExprWithoutAwait::Name(expr_name(
+                BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::Name(expr_name(
                     "_dp_send_value",
-                )))),
+                ))),
                 params,
                 meta,
                 exc_target,
@@ -972,9 +970,9 @@ fn emit_yield_site(
             value,
             None,
             Vec::new(),
-            BlockPyTerm::Return(Some(CoreBlockPyExprWithoutAwait::Name(expr_name(
+            BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::Name(expr_name(
                 "_dp_yield_from_value",
-            )))),
+            ))),
             params,
             meta,
             exc_target,
@@ -1290,7 +1288,7 @@ fn emit_yield_from_site(
                 target: expr_name("_dp_pc"),
                 value: core_literal_int(delegate_pc),
             })],
-            term: BlockPyTerm::Return(Some(core_name(yielded_value_name.as_str()))),
+            term: BlockPyTerm::Return(core_name(yielded_value_name.as_str())),
             params: params.clone(),
             meta: meta.clone(),
         },
@@ -1322,7 +1320,7 @@ fn emit_yield_from_site(
                 value: CoreBlockPyExprWithoutAwait::Name(expr_name(yielded_value_name.as_str())),
             }),
         );
-    } else if matches!(tail_term, BlockPyTerm::Return(Some(CoreBlockPyExprWithoutAwait::Name(ref name))) if name.id.as_str() == "_dp_yield_from_value")
+    } else if matches!(tail_term, BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::Name(ref name)) if name.id.as_str() == "_dp_yield_from_value")
     {
         tail_body.insert(
             1,
@@ -1629,7 +1627,7 @@ mod tests {
 
         let mut block = BlockPyCfgBlockBuilder::new(factory_label.into());
         block.extend(body);
-        block.set_term(BlockPyTerm::Return(Some(return_value.into())));
+        block.set_term(BlockPyTerm::Return(return_value.into()));
         block.finish(None)
     }
 
@@ -1739,7 +1737,7 @@ mod tests {
         );
 
         assert_eq!(block.label.as_str(), "_dp_bb_demo_factory");
-        assert!(matches!(block.term, BlockPyTerm::Return(Some(_))));
+        assert!(matches!(block.term, BlockPyTerm::Return(_)));
     }
 
     #[test]

@@ -20,11 +20,11 @@ mod planning;
 mod specialized_helpers;
 
 pub use planning::{
-    BlockExcArgSource, BlockExcDispatchPlan, BlockFastPath, BlockTermPlan, ClifPlan,
+    BlockExcArgSource, BlockExcDispatchPlan, BlockFastPath, ClifBlockPlan, ClifPlan,
     DirectSimpleAssignPlan, DirectSimpleBlockArgPlan, DirectSimpleBlockPlan, DirectSimpleBrIfPlan,
     DirectSimpleCallPart, DirectSimpleDeletePlan, DirectSimpleDeleteTargetPlan,
-    DirectSimpleExprPlan, DirectSimpleExprRetNonePlan, DirectSimpleOpPlan, DirectSimpleRetPlan,
-    DirectSimpleTermPlan, lookup_blockpy_function, lookup_clif_plan, register_clif_module_plans,
+    DirectSimpleExprPlan, DirectSimpleOpPlan, DirectSimpleRetPlan, DirectSimpleTermPlan,
+    lookup_blockpy_function, lookup_clif_plan, register_clif_module_plans,
 };
 pub use specialized_helpers::ObjPtr;
 pub use specialized_helpers::SpecializedJitHooks;
@@ -78,11 +78,9 @@ struct CompiledVectorcallRunner {
 fn direct_simple_expr_is_borrowable(expr: &DirectSimpleExprPlan, local_names: &[String]) -> bool {
     match expr {
         DirectSimpleExprPlan::Name(name) => local_names.iter().any(|candidate| candidate == name),
-        DirectSimpleExprPlan::Bool(_) | DirectSimpleExprPlan::None => true,
         DirectSimpleExprPlan::Int(_)
         | DirectSimpleExprPlan::Float(_)
         | DirectSimpleExprPlan::Bytes(_)
-        | DirectSimpleExprPlan::Tuple(_)
         | DirectSimpleExprPlan::Call { .. } => false,
     }
 }
@@ -710,8 +708,6 @@ fn emit_direct_simple_expr(
     let i32_ty = ir::types::I32;
     let i64_ty = ctx.consts.i64_ty;
     let none_const = ctx.consts.none_const;
-    let true_const = ctx.consts.true_const;
-    let false_const = ctx.consts.false_const;
     let deleted_const = ctx.consts.deleted_const;
     let empty_tuple_const = ctx.consts.empty_tuple_const;
     let block_const = ctx.consts.block_const;
@@ -822,19 +818,6 @@ fn emit_direct_simple_expr(
             fb.switch_to_block(float_ok_block);
             fb.block_params(float_ok_block)[0]
         }
-        DirectSimpleExprPlan::Bool(value) => {
-            let bool_const = if *value { true_const } else { false_const };
-            if !borrowed {
-                fb.ins().call(incref_ref, &[bool_const]);
-            }
-            bool_const
-        }
-        DirectSimpleExprPlan::None => {
-            if !borrowed {
-                fb.ins().call(incref_ref, &[none_const]);
-            }
-            none_const
-        }
         DirectSimpleExprPlan::Bytes(bytes) => {
             assert!(!borrowed, "bytes literal must produce owned references");
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
@@ -855,66 +838,6 @@ fn emit_direct_simple_expr(
             );
             fb.switch_to_block(value_ok_block);
             fb.block_params(value_ok_block)[0]
-        }
-        DirectSimpleExprPlan::Tuple(items) => {
-            assert!(!borrowed, "tuple expression must produce owned references");
-            let null_ptr = fb.ins().iconst(ptr_ty, 0);
-            let tuple_len = fb.ins().iconst(i64_ty, items.len() as i64);
-            let tuple_inst = fb.ins().call(tuple_new_ref, &[tuple_len]);
-            let tuple_obj = fb.inst_results(tuple_inst)[0];
-            let tuple_is_null = fb
-                .ins()
-                .icmp(ir::condcodes::IntCC::Equal, tuple_obj, null_ptr);
-            let tuple_ok_block = fb.create_block();
-            fb.append_block_param(tuple_ok_block, ptr_ty);
-            fb.ins().brif(
-                tuple_is_null,
-                step_null_block,
-                &step_null_block_args(ctx),
-                tuple_ok_block,
-                &[ir::BlockArg::Value(tuple_obj)],
-            );
-            fb.switch_to_block(tuple_ok_block);
-            let tuple_obj = fb.block_params(tuple_ok_block)[0];
-            for (index, item) in items.iter().enumerate() {
-                let borrowed_item = direct_simple_expr_is_borrowable(item, local_names);
-                let value = emit_direct_simple_expr(
-                    fb,
-                    item,
-                    local_names,
-                    local_values,
-                    ctx,
-                    literal_pool,
-                    borrowed_item,
-                );
-                if borrowed_item {
-                    fb.ins().call(incref_ref, &[value]);
-                }
-                let item_index = fb.ins().iconst(i64_ty, index as i64);
-                let set_inst = fb
-                    .ins()
-                    .call(tuple_set_item_ref, &[tuple_obj, item_index, value]);
-                let set_result = fb.inst_results(set_inst)[0];
-                let set_failed = fb
-                    .ins()
-                    .icmp_imm(ir::condcodes::IntCC::NotEqual, set_result, 0);
-                let set_ok_block = fb.create_block();
-                let set_fail_block = fb.create_block();
-                fb.append_block_param(set_fail_block, ptr_ty);
-                fb.ins().brif(
-                    set_failed,
-                    set_fail_block,
-                    &[ir::BlockArg::Value(tuple_obj)],
-                    set_ok_block,
-                    &[],
-                );
-                fb.switch_to_block(set_fail_block);
-                let failed_tuple = fb.block_params(set_fail_block)[0];
-                fb.ins().call(decref_ref, &[failed_tuple]);
-                fb.ins().jump(step_null_block, &step_null_block_args(ctx));
-                fb.switch_to_block(set_ok_block);
-            }
-            tuple_obj
         }
         DirectSimpleExprPlan::Call { func, parts } => {
             assert!(
@@ -2754,33 +2677,14 @@ fn build_cranelift_run_bb_specialized_function(
     ),
     String,
 > {
-    let block_count = plan.block_labels.len();
-    if block_count != plan.block_param_names.len()
-        || block_count != plan.block_terms.len()
-        || block_count != plan.block_exc_targets.len()
-        || block_count != plan.block_exc_dispatches.len()
-        || block_count != plan.block_fast_paths.len()
-    {
-        return Err(format!(
-            "specialized JIT plan size mismatch: labels={}, params={}, terms={}, exc_targets={}, exc_dispatches={}, fast_paths={}",
-            plan.block_labels.len(),
-            plan.block_param_names.len(),
-            plan.block_terms.len(),
-            plan.block_exc_targets.len(),
-            plan.block_exc_dispatches.len(),
-            plan.block_fast_paths.len(),
-        ));
-    }
-    if plan.entry_index >= block_count {
-        return Err(format!(
-            "specialized JIT run_bb entry index out of range: {} >= {}",
-            plan.entry_index, block_count
-        ));
+    let block_count = plan.blocks.len();
+    if block_count == 0 {
+        return Err(format!("specialized JIT run_bb plan has no blocks"));
     }
     let has_generic_blocks = plan
-        .block_fast_paths
+        .blocks
         .iter()
-        .any(|path| matches!(path, BlockFastPath::None));
+        .any(|block| matches!(block.fast_path, BlockFastPath::None));
     if has_generic_blocks {
         return Err(
             "specialized JIT requires fully lowered fastpath blocks (no BlockFastPath::None)"
@@ -3212,10 +3116,11 @@ fn build_cranelift_run_bb_specialized_function(
         let entry_block = fb.create_block();
         let mut exec_blocks = Vec::with_capacity(block_count);
         let runtime_block_param_names = plan
-            .block_param_names
+            .blocks
             .iter()
-            .map(|params| {
-                params
+            .map(|block| {
+                block
+                    .param_names
                     .iter()
                     .filter(|name| {
                         !plan
@@ -3347,8 +3252,7 @@ fn build_cranelift_run_bb_specialized_function(
 
         let mut ambient_names = Vec::new();
         let mut ambient_values = Vec::new();
-        let mut entry_jump_args =
-            Vec::with_capacity(runtime_block_param_names[plan.entry_index].len());
+        let mut entry_jump_args = Vec::with_capacity(runtime_block_param_names[0].len());
         let null_ptr = fb.ins().iconst(ptr_ty, 0);
         for (param_index, param_name) in plan.ambient_param_names.iter().enumerate() {
             let index_val = fb.ins().iconst(i64_ty, param_index as i64);
@@ -3370,8 +3274,7 @@ fn build_cranelift_run_bb_specialized_function(
             ambient_names.push(param_name.clone());
             ambient_values.push(fb.block_params(ok_block)[0]);
         }
-        for (param_index, param_name) in plan.block_param_names[plan.entry_index].iter().enumerate()
-        {
+        for (param_index, param_name) in plan.blocks[0].param_names.iter().enumerate() {
             if plan
                 .ambient_param_names
                 .iter()
@@ -3398,12 +3301,11 @@ fn build_cranelift_run_bb_specialized_function(
             let value = fb.block_params(ok_block)[0];
             entry_jump_args.push(ir::BlockArg::Value(value));
         }
-        fb.ins()
-            .jump(exec_blocks[plan.entry_index], &entry_jump_args);
+        fb.ins().jump(exec_blocks[0], &entry_jump_args);
 
         let mut exception_dispatch_blocks: Vec<Option<ir::Block>> = vec![None; exec_blocks.len()];
-        for (index, exc_dispatch_plan) in plan.block_exc_dispatches.iter().enumerate() {
-            if exc_dispatch_plan.is_some() {
+        for (index, block) in plan.blocks.iter().enumerate() {
+            if block.exc_dispatch.is_some() {
                 let dispatch_block = fb.create_block();
                 for _ in &runtime_block_param_names[index] {
                     fb.append_block_param(dispatch_block, ptr_ty);
@@ -3497,7 +3399,7 @@ fn build_cranelift_run_bb_specialized_function(
                 ambient_names: ambient_names.clone(),
                 ambient_values: ambient_values.clone(),
             };
-            match &plan.block_fast_paths[index] {
+            match &plan.blocks[index].fast_path {
                 BlockFastPath::JumpPassThrough { target_index } => {
                     let jump_args = block_param_values
                         .iter()
@@ -3505,36 +3407,6 @@ fn build_cranelift_run_bb_specialized_function(
                         .map(ir::BlockArg::Value)
                         .collect::<Vec<_>>();
                     fb.ins().jump(exec_blocks[*target_index], &jump_args);
-                    continue;
-                }
-                BlockFastPath::ReturnNone => {
-                    emit_decref_ambient_values(&mut fb, &emit_ctx);
-                    fb.ins().call(incref_ref, &[none_const]);
-                    fb.ins().return_(&[none_const]);
-                    continue;
-                }
-                BlockFastPath::DirectSimpleExprRetNone { plan } => {
-                    let local_names = runtime_block_param_names[index].clone();
-                    let local_values = block_param_values.clone();
-
-                    for expr in &plan.exprs {
-                        let value = emit_direct_simple_expr(
-                            &mut fb,
-                            expr,
-                            &local_names,
-                            &local_values,
-                            &emit_ctx,
-                            &mut literal_pool,
-                            false,
-                        );
-                        fb.ins().call(decref_ref, &[value]);
-                    }
-                    emit_decref_ambient_values(&mut fb, &emit_ctx);
-                    for value in local_values {
-                        fb.ins().call(decref_ref, &[value]);
-                    }
-                    fb.ins().call(incref_ref, &[none_const]);
-                    fb.ins().return_(&[none_const]);
                     continue;
                 }
                 BlockFastPath::DirectSimpleBrIf { plan } => {
@@ -3797,7 +3669,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 .ok_or_else(|| {
                                     format!(
                                         "missing local mapping for jump block params in block {}",
-                                        plan.block_labels[index]
+                                        plan.blocks[index].label
                                     )
                                 })?,
                             );
@@ -3856,7 +3728,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 .ok_or_else(|| {
                                     format!(
                                         "missing local mapping for then-branch block params in block {}",
-                                        plan.block_labels[index]
+                                        plan.blocks[index].label
                                     )
                                 })?,
                             );
@@ -3885,7 +3757,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 .ok_or_else(|| {
                                     format!(
                                         "missing local mapping for else-branch block params in block {}",
-                                        plan.block_labels[index]
+                                        plan.blocks[index].label
                                     )
                                 })?,
                             );
@@ -3962,7 +3834,7 @@ fn build_cranelift_run_bb_specialized_function(
                                     .ok_or_else(|| {
                                         format!(
                                             "missing local mapping for br_table case block params in block {}",
-                                            plan.block_labels[index]
+                                            plan.blocks[index].label
                                         )
                                     })?,
                                 );
@@ -3992,7 +3864,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 .ok_or_else(|| {
                                     format!(
                                         "missing local mapping for br_table default block params in block {}",
-                                        plan.block_labels[index]
+                                        plan.blocks[index].label
                                     )
                                 })?,
                             );
@@ -4121,7 +3993,7 @@ fn build_cranelift_run_bb_specialized_function(
                             .ok_or_else(|| {
                                 format!(
                                     "missing local mapping for raise terminator cleanup args in block {}",
-                                    plan.block_labels[index]
+                                    plan.blocks[index].label
                                 )
                             })?;
                             emit_decref_unforwarded_locals(
@@ -4140,7 +4012,7 @@ fn build_cranelift_run_bb_specialized_function(
                 BlockFastPath::None => {
                     return Err(format!(
                         "specialized JIT encountered unexpected slow-path block {}",
-                        plan.block_labels[index]
+                        plan.blocks[index].label
                     ));
                 }
             }
@@ -4150,14 +4022,14 @@ fn build_cranelift_run_bb_specialized_function(
             let Some(dispatch_block) = *maybe_dispatch_block else {
                 continue;
             };
-            let Some(dispatch_plan) = plan.block_exc_dispatches[index].as_ref() else {
+            let Some(dispatch_plan) = plan.blocks[index].exc_dispatch.as_ref() else {
                 continue;
             };
 
             fb.switch_to_block(dispatch_block);
             let dispatch_values = fb.block_params(dispatch_block).to_vec();
             let dispatch_runtime_names = &runtime_block_param_names[index];
-            let dispatch_original_names = &plan.block_param_names[index];
+            let dispatch_original_names = &plan.blocks[index].param_names;
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
             let none_const = fb.ins().iconst(ptr_ty, none_obj as i64);
             let dispatch_step_null_args = dispatch_values
@@ -4207,7 +4079,7 @@ fn build_cranelift_run_bb_specialized_function(
                         .ok_or_else(|| {
                             format!(
                                 "missing exception dispatch source param {name} in block {}; runtime={:?}; original={:?}; ambient={:?}; target={:?}",
-                                plan.block_labels[index],
+                                plan.blocks[index].label,
                                 dispatch_runtime_names,
                                 dispatch_original_names,
                                 ambient_names,
@@ -4240,7 +4112,7 @@ fn build_cranelift_run_bb_specialized_function(
                         .ok_or_else(|| {
                             format!(
                                 "missing exception dispatch owner {owner_name} in block {}",
-                                plan.block_labels[index]
+                                plan.blocks[index].label
                             )
                         })?;
                         let (name_ptr, name_len) =
@@ -4729,29 +4601,42 @@ pub unsafe fn run_cranelift_run_bb_specialized(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dp_transform::block_py::{BbTerm, BlockPyRaise};
+
+    fn test_term() -> BbTerm {
+        BbTerm::Raise(BlockPyRaise { exc: None })
+    }
 
     #[test]
     fn render_specialized_jit_clif_smoke() {
         let blocks = [1usize as ObjPtr, 2usize as ObjPtr, 3usize as ObjPtr];
         let plan = ClifPlan {
-            entry_index: 1,
-            block_labels: vec!["b0".into(), "b1".into(), "b2".into()],
             ambient_param_names: vec![],
-            block_param_names: vec![vec![], vec![], vec![]],
-            block_terms: vec![
-                BlockTermPlan::Ret,
-                BlockTermPlan::BrIf {
-                    then_index: 2,
-                    else_index: 0,
+            blocks: vec![
+                ClifBlockPlan {
+                    label: "b0".into(),
+                    param_names: vec![],
+                    term: test_term(),
+                    exc_target: None,
+                    exc_dispatch: None,
+                    fast_path: BlockFastPath::None,
                 },
-                BlockTermPlan::Ret,
-            ],
-            block_exc_targets: vec![None, None, None],
-            block_exc_dispatches: vec![None, None, None],
-            block_fast_paths: vec![
-                BlockFastPath::None,
-                BlockFastPath::None,
-                BlockFastPath::None,
+                ClifBlockPlan {
+                    label: "b1".into(),
+                    param_names: vec![],
+                    term: test_term(),
+                    exc_target: None,
+                    exc_dispatch: None,
+                    fast_path: BlockFastPath::None,
+                },
+                ClifBlockPlan {
+                    label: "b2".into(),
+                    param_names: vec![],
+                    term: test_term(),
+                    exc_target: None,
+                    exc_dispatch: None,
+                    fast_path: BlockFastPath::None,
+                },
             ],
         };
         let err = unsafe {
@@ -4772,65 +4657,27 @@ mod tests {
     }
 
     #[test]
-    fn render_specialized_jit_fastpath_ret_none_avoids_block_call() {
-        let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_index: 0,
-            block_labels: vec!["b0".into()],
-            ambient_param_names: vec![],
-            block_param_names: vec![vec![]],
-            block_terms: vec![BlockTermPlan::Ret],
-            block_exc_targets: vec![None],
-            block_exc_dispatches: vec![None],
-            block_fast_paths: vec![BlockFastPath::ReturnNone],
-        };
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed");
-        let clif = rendered.clif.as_str();
-        assert!(
-            !clif.contains("call PyObject_CallObject"),
-            "fast-path ret-none should avoid block function calls:\n{clif}"
-        );
-        assert!(
-            !clif.contains("call PyObject_CallFunctionObjArgs"),
-            "fast-path ret-none should avoid helper Python calls:\n{clif}"
-        );
-        assert!(
-            !rendered.vcode_disasm.trim().is_empty(),
-            "rendered JIT disassembly should not be empty"
-        );
-    }
-
-    #[test]
     fn render_specialized_jit_operator_calls_use_python_capi() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
-            entry_index: 0,
-            block_labels: vec!["b0".into()],
             ambient_param_names: vec![],
-            block_param_names: vec![vec![]],
-            block_terms: vec![BlockTermPlan::Ret],
-            block_exc_targets: vec![None],
-            block_exc_dispatches: vec![None],
-            block_fast_paths: vec![BlockFastPath::DirectSimpleRet {
-                plan: DirectSimpleRetPlan {
-                    params: vec![],
-                    assigns: vec![],
-                    ret: DirectSimpleExprPlan::Call {
-                        func: Box::new(DirectSimpleExprPlan::Name("__dp_add".into())),
-                        parts: vec![
-                            DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(1)),
-                            DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(2)),
-                        ],
+            blocks: vec![ClifBlockPlan {
+                label: "b0".into(),
+                param_names: vec![],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleRet {
+                    plan: DirectSimpleRetPlan {
+                        params: vec![],
+                        assigns: vec![],
+                        ret: DirectSimpleExprPlan::Call {
+                            func: Box::new(DirectSimpleExprPlan::Name("__dp_add".into())),
+                            parts: vec![
+                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(1)),
+                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(2)),
+                            ],
+                        },
                     },
                 },
             }],
@@ -4861,23 +4708,24 @@ mod tests {
     fn render_specialized_jit_compare_calls_use_richcompare() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
-            entry_index: 0,
-            block_labels: vec!["b0".into()],
             ambient_param_names: vec![],
-            block_param_names: vec![vec![]],
-            block_terms: vec![BlockTermPlan::Ret],
-            block_exc_targets: vec![None],
-            block_exc_dispatches: vec![None],
-            block_fast_paths: vec![BlockFastPath::DirectSimpleRet {
-                plan: DirectSimpleRetPlan {
-                    params: vec![],
-                    assigns: vec![],
-                    ret: DirectSimpleExprPlan::Call {
-                        func: Box::new(DirectSimpleExprPlan::Name("__dp_lt".into())),
-                        parts: vec![
-                            DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(1)),
-                            DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(2)),
-                        ],
+            blocks: vec![ClifBlockPlan {
+                label: "b0".into(),
+                param_names: vec![],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleRet {
+                    plan: DirectSimpleRetPlan {
+                        params: vec![],
+                        assigns: vec![],
+                        ret: DirectSimpleExprPlan::Call {
+                            func: Box::new(DirectSimpleExprPlan::Name("__dp_lt".into())),
+                            parts: vec![
+                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(1)),
+                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(2)),
+                            ],
+                        },
                     },
                 },
             }],

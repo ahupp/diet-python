@@ -8,7 +8,7 @@ import a
 #     function_id: 0
 #     block _dp_bb_start:
 #         __dp_store_global(globals(), "a", __dp_import_("a", __spec__))
-#         return
+#         return __dp_NONE
 
 # import_dotted_alias
 
@@ -20,7 +20,7 @@ import a.b as c
 #     function_id: 0
 #     block _dp_bb_start:
 #         __dp_store_global(globals(), "c", __dp_import_attr(__dp_import_("a.b", __spec__), "b"))
-#         return
+#         return __dp_NONE
 
 # import_from_alias
 
@@ -33,7 +33,7 @@ from pkg.mod import name as alias
 #     block _dp_bb_start:
 #         _dp_import_1 = __dp_import_("pkg.mod", __spec__, ["name"])
 #         __dp_store_global(globals(), "alias", __dp_import_attr(_dp_import_1, "name"))
-#         return
+#         return __dp_NONE
 
 # decorator_function
 
@@ -48,13 +48,13 @@ def f():
 # function f():
 #     function_id: 0
 #     block _dp_bb_start:
-#         return
+#         return __dp_NONE
 
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_start:
 #         __dp_store_global(globals(), "f", dec(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)))
-#         return
+#         return __dp_NONE
 
 # assign_attr
 
@@ -66,7 +66,7 @@ obj.x = 1
 #     function_id: 0
 #     block _dp_bb_start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
-#         return
+#         return __dp_NONE
 
 # assign_subscript
 
@@ -78,7 +78,7 @@ obj[i] = v
 #     function_id: 0
 #     block _dp_bb_start:
 #         __dp_setitem(__dp_load_deleted_name("obj", obj), i, v)
-#         return
+#         return __dp_NONE
 
 # assign_tuple_unpack
 
@@ -93,7 +93,7 @@ a, b = it
 #         __dp_store_global(globals(), "a", __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 0))
 #         __dp_store_global(globals(), "b", __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 1))
 #         _dp_tmp_1 = __dp_DELETED
-#         return
+#         return __dp_NONE
 
 # assign_star_unpack
 
@@ -108,7 +108,7 @@ a, *b = it
 #         __dp_store_global(globals(), "a", __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 0))
 #         __dp_store_global(globals(), "b", __dp_list(__dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 1)))
 #         _dp_tmp_1 = __dp_DELETED
-#         return
+#         return __dp_NONE
 
 # assign_multi_targets
 
@@ -122,7 +122,7 @@ a = b = f()
 #         _dp_tmp_1 = f()
 #         __dp_store_global(globals(), "a", _dp_tmp_1)
 #         __dp_store_global(globals(), "b", _dp_tmp_1)
-#         return
+#         return __dp_NONE
 
 # ann_assign_simple
 
@@ -136,7 +136,7 @@ x: int = 1
 #         __dp_store_global(globals(), "x", 1)
 #         __annotate__ = __dp_exec_function_def_source('def __annotate__(_dp_format, _dp=__dp__, *, __dp__=__dp__, __dp_tuple=__dp_tuple):\n    if _dp.eq(_dp_format, 4):\n        return _dp.dict(__dp_tuple(("x", "int")))\n    if _dp.gt(_dp_format, 2):\n        raise _dp.builtins.NotImplementedError\n    return _dp.dict(__dp_tuple(("x", int)))', __dp_globals(), __dp_tuple(), "__annotate__")
 #         __dp_store_global(globals(), "__annotate__", __dp_update_fn(__annotate__, "__annotate__", "__annotate__", None))
-#         return
+#         return __dp_NONE
 
 # ann_assign_attr
 
@@ -148,7 +148,7 @@ obj.x: int = 1
 #     function_id: 0
 #     block _dp_bb_start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
-#         return
+#         return __dp_NONE
 
 # aug_assign_attr
 
@@ -160,7 +160,7 @@ obj.x += 1
 #     function_id: 0
 #     block _dp_bb_start:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", __dp_iadd(obj.x, 1))
-#         return
+#         return __dp_NONE
 
 # delete_mixed
 
@@ -174,7 +174,7 @@ del obj.x, obj[i], x
 #         __dp_delattr(obj, "x")
 #         __dp_delitem(obj, i)
 #         __dp_delitem(globals(), "x")
-#         return
+#         return __dp_NONE
 
 # assert_no_msg
 
@@ -197,7 +197,7 @@ assert cond
 #             else:
 #                 jump _dp_bb_2
 #         block _dp_bb_2:
-#             return
+#             return __dp_NONE
 
 # assert_with_msg
 
@@ -220,7 +220,7 @@ assert cond, "oops"
 #             else:
 #                 jump _dp_bb_2
 #         block _dp_bb_2:
-#             return
+#             return __dp_NONE
 
 # raise_from
 
@@ -267,7 +267,7 @@ else:
 #                 then:
 #                     block _dp_bb_0:
 #                         done()
-#                         return
+#                         return __dp_NONE
 #                 else:
 #                     block _dp_bb_2:
 #                         x = _dp_tmp_2
@@ -298,7 +298,7 @@ else:
 #             else:
 #                 block _dp_bb_0:
 #                     done()
-#                     return
+#                     return __dp_NONE
 
 # with_as
 
@@ -358,7 +358,7 @@ with cm as x:
 #                     block _dp_bb_7:
 #                         branch_table _dp_try_abrupt_kind_2 -> [_dp_bb_12, _dp_bb_5, _dp_bb_6] default _dp_bb_12
 #                         block _dp_bb_12:
-#                             return
+#                             return __dp_NONE
 #                         block _dp_bb_5:
 #                             return _dp_try_abrupt_payload_3
 #                         block _dp_bb_6:
@@ -388,7 +388,7 @@ def inner():
 #     function_id: 1
 #     block _dp_bb_start:
 #         __dp_store_global(globals(), "inner", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
-#         return
+#         return __dp_NONE
 
 # comprehension_global
 
@@ -476,7 +476,7 @@ zs = {k: v for k, v in items}
 #         __dp_store_global(globals(), "ys", _dp_setcomp_6(it))
 #         _dp_dictcomp_9 = __dp_make_function(2, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         __dp_store_global(globals(), "zs", _dp_dictcomp_9(items))
-#         return
+#         return __dp_NONE
 
 # comprehension_in_function
 
@@ -524,7 +524,7 @@ def f():
 #     function_id: 2
 #     block _dp_bb_start:
 #         __dp_store_global(globals(), "f", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
-#         return
+#         return __dp_NONE
 
 # comprehension_in_class_body
 
@@ -565,7 +565,7 @@ class C:
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
 #         _dp_listcomp_3 = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "xs", _dp_listcomp_3(__dp_class_lookup_global(_dp_class_ns, "it", globals())))
-#         return
+#         return __dp_NONE
 
 # function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict=None):
 #     function_id: 2
@@ -579,7 +579,7 @@ class C:
 #         _dp_class_ns_C = __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         _dp_define_class_C = __dp_make_function(2, __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
 #         __dp_store_global(globals(), "C", _dp_define_class_C(_dp_class_ns_C, globals()))
-#         return
+#         return __dp_NONE
 
 # with_multi
 
@@ -634,7 +634,7 @@ with a as x, b as y:
 #                 block _dp_bb_7:
 #                     branch_table _dp_try_abrupt_kind_2 -> [_dp_bb_24, _dp_bb_5, _dp_bb_6] default _dp_bb_24
 #                     block _dp_bb_24:
-#                         return
+#                         return __dp_NONE
 #                     block _dp_bb_5:
 #                         return _dp_try_abrupt_payload_3
 #                     block _dp_bb_6:
@@ -722,7 +722,7 @@ async def run():
 #             if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
 #                 then:
 #                     block _dp_bb_3:
-#                         return
+#                         return __dp_NONE
 #                 else:
 #                     block _dp_bb_1:
 #                         x = _dp_tmp_2
@@ -736,7 +736,7 @@ async def run():
 #     function_id: 1
 #     block _dp_bb_start:
 #         __dp_store_global(globals(), "run", __dp_mark_coroutine_function(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)))
-#         return
+#         return __dp_NONE
 
 # async_with
 
@@ -806,7 +806,7 @@ async def run():
 #                     block _dp_bb_7:
 #                         branch_table _dp_try_abrupt_kind_2 -> [_dp_bb_13, _dp_bb_5, _dp_bb_6] default _dp_bb_13
 #                         block _dp_bb_13:
-#                             return
+#                             return __dp_NONE
 #                         block _dp_bb_5:
 #                             return _dp_try_abrupt_payload_3
 #                         block _dp_bb_6:
@@ -820,7 +820,7 @@ async def run():
 #     function_id: 1
 #     block _dp_bb_start:
 #         __dp_store_global(globals(), "run", __dp_mark_coroutine_function(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)))
-#         return
+#         return __dp_NONE
 
 # match_simple
 
@@ -840,11 +840,11 @@ match value:
 #             then:
 #                 block _dp_bb_0:
 #                     one()
-#                     return
+#                     return __dp_NONE
 #             else:
 #                 block _dp_bb_1:
 #                     other()
-#                     return
+#                     return __dp_NONE
 
 # generator_yield
 
@@ -859,13 +859,13 @@ def gen():
 #     function_id: 0
 #     block _dp_bb_start:
 #         yield 1
-#         return
+#         return __dp_NONE
 
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_start:
 #         __dp_store_global(globals(), "gen", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
-#         return
+#         return __dp_NONE
 
 # yield_from
 
@@ -880,13 +880,13 @@ def gen():
 #     function_id: 0
 #     block _dp_bb_start:
 #         yield from it
-#         return
+#         return __dp_NONE
 
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_start:
 #         __dp_store_global(globals(), "gen", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
-#         return
+#         return __dp_NONE
 
 # with_exit_suppresses_exception
 
@@ -940,7 +940,7 @@ with Suppress():
 #                                     block _dp_bb_7:
 #                                         branch_table _dp_try_abrupt_kind_2 -> [_dp_bb_12, _dp_bb_5, _dp_bb_6] default _dp_bb_12
 #                                         block _dp_bb_12:
-#                                             return
+#                                             return __dp_NONE
 #                                         block _dp_bb_5:
 #                                             return _dp_try_abrupt_payload_3
 #                                         block _dp_bb_6:
@@ -992,7 +992,7 @@ def outer():
 #     function_id: 2
 #     block _dp_bb_start:
 #         __dp_store_global(globals(), "outer", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
-#         return
+#         return __dp_NONE
 
 # bb_if_else_function
 
@@ -1023,7 +1023,7 @@ def choose(a, b):
 #     function_id: 1
 #     block _dp_bb_start:
 #         __dp_store_global(globals(), "choose", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
-#         return
+#         return __dp_NONE
 
 # closure_cell_nonlocal
 
@@ -1063,7 +1063,7 @@ def outer():
 #     function_id: 2
 #     block _dp_bb_start:
 #         __dp_store_global(globals(), "outer", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
-#         return
+#         return __dp_NONE
 
 # plain try / catch
 
@@ -1090,7 +1090,7 @@ except Exception:
 #                         exc_param: _dp_try_exc_1
 #                         params: [_dp_try_exc_1:Exception]
 #                         print(2)
-#                         return
+#                         return __dp_NONE
 #                 else:
 #                     block _dp_bb_1:
 #                         exc_param: _dp_try_exc_1
@@ -1098,7 +1098,7 @@ except Exception:
 #                         raise
 #         block _dp_bb_3:
 #             print(1)
-#             return
+#             return __dp_NONE
 
 # complicated generator
 
@@ -1128,7 +1128,7 @@ def complicated(a):
 #                 then:
 #                     block _dp_bb_0:
 #                         print("finsihed")
-#                         return
+#                         return __dp_NONE
 #                 else:
 #                     block _dp_bb_6:
 #                         i = _dp_tmp_2
@@ -1162,4 +1162,4 @@ def complicated(a):
 #     function_id: 1
 #     block _dp_bb_start:
 #         __dp_store_global(globals(), "complicated", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
-#         return
+#         return __dp_NONE

@@ -41,11 +41,7 @@ fn rewrite_term_exprs(rewriter: &mut CodegenExprNormalizer, term: &mut BbTerm) {
                 rewrite_bb_expr(rewriter, exc);
             }
         }
-        BbTerm::Return(value) => {
-            if let Some(value) = value.as_mut() {
-                rewrite_bb_expr(rewriter, value);
-            }
-        }
+        BbTerm::Return(value) => rewrite_bb_expr(rewriter, value),
     }
 }
 
@@ -295,11 +291,7 @@ mod tests {
                     probe_bb_exprs(probe, exc);
                 }
             }
-            BbTerm::Return(value) => {
-                if let Some(value) = value {
-                    probe_bb_exprs(probe, value);
-                }
-            }
+            BbTerm::Return(value) => probe_bb_exprs(probe, value),
         }
     }
 

@@ -271,11 +271,7 @@ fn rewrite_current_exception_in_blockpy_term(
                 raise_stmt.exc = Some(current_exception_name_expr(exc_name).into());
             }
         }
-        BlockPyTerm::Return(value) => {
-            if let Some(value) = value.as_mut() {
-                rewrite_current_exception_in_blockpy_expr(value, exc_name);
-            }
-        }
+        BlockPyTerm::Return(value) => rewrite_current_exception_in_blockpy_expr(value, exc_name),
         BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => {}
     }
 }
@@ -474,7 +470,7 @@ mod tests {
                 }),
                 BlockPyStmt::Expr(core_call_expr("sink", vec![core_name_expr("x")])),
             ],
-            term: BlockPyTerm::Return(None),
+            term: BlockPyTerm::Return(core_name_expr("__dp_NONE")),
             params: Vec::new(),
             meta: Default::default(),
         };
@@ -528,7 +524,7 @@ mod tests {
                 "__dp_current_exception",
                 Vec::new(),
             ))],
-            term: BlockPyTerm::Return(Some(core_call_expr("__dp_exc_info", Vec::new()))),
+            term: BlockPyTerm::Return(core_call_expr("__dp_exc_info", Vec::new())),
             params: vec![crate::block_py::BlockParam {
                 name: "_dp_try_exc_0".to_string(),
                 role: crate::block_py::BlockParamRole::Exception,
@@ -557,7 +553,7 @@ mod tests {
             CoreBlockPyExprWithoutAwaitOrYield::Name(name) if name.id.as_str() == "_dp_try_exc_0"
         ));
 
-        let BlockPyTerm::Return(Some(CoreBlockPyExprWithoutAwaitOrYield::Call(call))) = &block.term
+        let BlockPyTerm::Return(CoreBlockPyExprWithoutAwaitOrYield::Call(call)) = &block.term
         else {
             panic!("expected rewritten return expr");
         };

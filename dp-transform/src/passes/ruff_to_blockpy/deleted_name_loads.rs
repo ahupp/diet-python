@@ -74,10 +74,7 @@ fn rewrite_blockpy_term_deleted_name_loads(
         BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
             rewrite_blockpy_expr_deleted_name_loads(index, rewriter)
         }
-        BlockPyTerm::Return(Some(value)) => {
-            rewrite_blockpy_expr_deleted_name_loads(value, rewriter)
-        }
-        BlockPyTerm::Return(None) => {}
+        BlockPyTerm::Return(value) => rewrite_blockpy_expr_deleted_name_loads(value, rewriter),
         BlockPyTerm::Raise(BlockPyRaise { exc }) => {
             if let Some(exc) = exc {
                 rewrite_blockpy_expr_deleted_name_loads(exc, rewriter);

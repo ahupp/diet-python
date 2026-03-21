@@ -169,15 +169,15 @@ impl StmtLowerer for ast::StmtReturn {
         E: From<Expr> + std::fmt::Debug,
     {
         let value = match self.value.as_ref() {
-            Some(value) => Some(
+            Some(value) => {
                 crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
                     (**value).clone(),
                     out,
                     loop_ctx,
                     next_label_id,
-                )?,
-            ),
-            None => None,
+                )?
+            }
+            None => crate::py_expr!("__dp_NONE").into(),
         };
         out.set_term(BlockPyTerm::Return(value));
         Ok(())
@@ -295,6 +295,6 @@ mod tests {
 
         let fragment = out.finish();
         assert!(!fragment.body.is_empty());
-        assert!(matches!(fragment.term, Some(BlockPyTerm::Return(Some(_)))));
+        assert!(matches!(fragment.term, Some(BlockPyTerm::Return(_))));
     }
 }

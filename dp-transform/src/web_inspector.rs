@@ -295,13 +295,7 @@ fn clif_term_comment(
             )
         }
         BlockPyTerm::Raise(raise_stmt) => blockpy_pretty::bb_raise_text(raise_stmt),
-        BlockPyTerm::Return(value) => {
-            let value = value
-                .as_ref()
-                .map(blockpy_pretty::bb_expr_text)
-                .unwrap_or_else(|| "None".to_string());
-            format!("return {value}")
-        }
+        BlockPyTerm::Return(value) => format!("return {}", blockpy_pretty::bb_expr_text(value)),
         BlockPyTerm::TryJump(_) => "try_jump".to_string(),
     }
 }

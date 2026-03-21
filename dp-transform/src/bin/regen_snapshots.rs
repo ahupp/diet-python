@@ -89,7 +89,8 @@ fn render_blockpy_snapshot(
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
     let blockpy_blocks = blockpy.as_ref().map(count_blockpy_blocks).unwrap_or(0);
     let clif_blocks = result
-        .get_pass::<BlockPyModule<PreparedBbBlockPyPass>>("bb_codegen")
+        .bb_codegen_module
+        .as_ref()
         .map(count_clif_blocks)
         .unwrap_or(0);
     (blockpy_rendered, blockpy_blocks, clif_blocks)

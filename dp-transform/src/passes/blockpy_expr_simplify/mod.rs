@@ -390,12 +390,6 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: BlockPyTerm<Exp
             for arg in edge.args {
                 args.push(match arg {
                     crate::block_py::BlockArg::Name(name) => crate::block_py::BlockArg::Name(name),
-                    crate::block_py::BlockArg::Expr(expr) => {
-                        let mut setup = CoreStmtBuilder::new();
-                        let expr = lower_semantic_expr_into(&mut setup, &expr);
-                        builder.extend(finish_expr_setup(setup));
-                        crate::block_py::BlockArg::Expr(expr)
-                    }
                     crate::block_py::BlockArg::None => crate::block_py::BlockArg::None,
                     crate::block_py::BlockArg::CurrentException => {
                         crate::block_py::BlockArg::CurrentException
@@ -449,12 +443,9 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: BlockPyTerm<Exp
         }
         BlockPyTerm::TryJump(try_jump) => builder.set_term(BlockPyTerm::TryJump(try_jump)),
         BlockPyTerm::Return(value) => {
-            let value = value.map(|value| {
-                let mut setup = CoreStmtBuilder::new();
-                let value = lower_semantic_expr_into(&mut setup, &value);
-                builder.extend(finish_expr_setup(setup));
-                value
-            });
+            let mut setup = CoreStmtBuilder::new();
+            let value = lower_semantic_expr_into(&mut setup, &value);
+            builder.extend(finish_expr_setup(setup));
             builder.set_term(BlockPyTerm::Return(value));
         }
     }

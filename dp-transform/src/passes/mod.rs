@@ -159,8 +159,7 @@ mod tests {
 
         fn bb_module(&self) -> &BlockPyModule<BbBlockPyPass> {
             self.result
-                .bb_module
-                .as_ref()
+                .get_pass::<BlockPyModule<BbBlockPyPass>>("bb")
                 .expect("bb module should be available")
         }
 
@@ -224,9 +223,7 @@ mod tests {
                 .exc
                 .as_ref()
                 .is_some_and(|value| expr_text(value).contains(needle)),
-            BlockPyTerm::Return(value) => value
-                .as_ref()
-                .is_some_and(|ret| expr_text(ret).contains(needle)),
+            BlockPyTerm::Return(value) => expr_text(value).contains(needle),
             BlockPyTerm::TryJump(_) => false,
             _ => false,
         }
@@ -1352,9 +1349,11 @@ def f():
             .expect("bb module should be available");
         let f = function_by_name(&bb_module, "f");
         assert!(
-            f.blocks
-                .iter()
-                .any(|block| matches!(block.term, BlockPyTerm::Return(None))),
+            f.blocks.iter().any(|block| matches!(
+                &block.term,
+                BlockPyTerm::Return(CoreBlockPyExprWithoutAwaitOrYield::Name(name))
+                    if name.id.as_str() == "__dp_NONE"
+            )),
             "{f:?}"
         );
         assert!(

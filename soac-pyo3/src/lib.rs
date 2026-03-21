@@ -1,6 +1,6 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use dp_transform::block_py::{BlockPyFunction, BlockPyModule};
+use dp_transform::block_py::BlockPyFunction;
 use dp_transform::passes::PreparedBbBlockPyPass;
 use dp_transform::{Options, transform_str_to_ruff_with_options};
 use log::{info, trace};
@@ -41,8 +41,7 @@ fn transform_source_with_name(
     let preview = source.get(..100).unwrap_or(source);
     trace!("transform_source_with_name({module_name}): {}", preview);
     let output = lower_source(source, ensure)?;
-    if let Some(bb_codegen) = output.get_pass::<BlockPyModule<PreparedBbBlockPyPass>>("bb_codegen")
-    {
+    if let Some(bb_codegen) = output.bb_codegen_module.as_ref() {
         soac_eval::jit::register_clif_module_plans(module_name, bb_codegen).map_err(|err| {
             pyo3::exceptions::PyRuntimeError::new_err(format!(
                 "failed to register BB plans for {module_name}: {err}"

@@ -194,9 +194,7 @@ fn make_eval_order_explicit_in_core_term(
         BlockPyTerm::Raise(BlockPyRaise { exc }) => BlockPyTerm::Raise(BlockPyRaise {
             exc: exc.map(|value| hoist_core_expr_to_atom(value, out)),
         }),
-        BlockPyTerm::Return(value) => {
-            BlockPyTerm::Return(value.map(|value| hoist_core_expr_to_atom(value, out)))
-        }
+        BlockPyTerm::Return(value) => BlockPyTerm::Return(hoist_core_expr_to_atom(value, out)),
     }
 }
 
@@ -418,9 +416,9 @@ fn make_eval_order_explicit_in_core_term_without_await(
         BlockPyTerm::Raise(BlockPyRaise { exc }) => BlockPyTerm::Raise(BlockPyRaise {
             exc: exc.map(|value| hoist_core_expr_without_await_to_atom(value, out)),
         }),
-        BlockPyTerm::Return(value) => BlockPyTerm::Return(
-            value.map(|value| hoist_core_expr_without_await_to_atom(value, out)),
-        ),
+        BlockPyTerm::Return(value) => {
+            BlockPyTerm::Return(hoist_core_expr_without_await_to_atom(value, out))
+        }
     }
 }
 
@@ -476,9 +474,7 @@ mod tests {
         let block = BlockPyBlock {
             label: BlockPyLabel("start".to_string()),
             body: Vec::new(),
-            term: BlockPyTerm::Return(Some(CoreBlockPyExpr::from(crate::py_expr!(
-                "f(g(x), h(y))"
-            )))),
+            term: BlockPyTerm::Return(CoreBlockPyExpr::from(crate::py_expr!("f(g(x), h(y))"))),
             params: Vec::new(),
             meta: Default::default(),
         };
@@ -508,7 +504,7 @@ mod tests {
         let block = BlockPyBlock {
             label: BlockPyLabel("start".to_string()),
             body: Vec::new(),
-            term: BlockPyTerm::Return(Some(CoreBlockPyExpr::from(crate::py_expr!("f(g(x))")))),
+            term: BlockPyTerm::Return(CoreBlockPyExpr::from(crate::py_expr!("f(g(x))"))),
             params: Vec::new(),
             meta: Default::default(),
         };
@@ -517,7 +513,7 @@ mod tests {
         assert_eq!(lowered.body.len(), 2);
         assert!(matches!(lowered.body[0], BlockPyStmt::Assign(_)));
         assert!(matches!(lowered.body[1], BlockPyStmt::Assign(_)));
-        let BlockPyTerm::Return(Some(CoreBlockPyExpr::Name(_))) = lowered.term else {
+        let BlockPyTerm::Return(CoreBlockPyExpr::Name(_)) = lowered.term else {
             panic!("expected return of temp name");
         };
     }
@@ -530,7 +526,7 @@ mod tests {
                 target: fresh_eval_name(),
                 value: CoreBlockPyExpr::from(crate::py_expr!("f(g(x))")),
             })],
-            term: BlockPyTerm::Return(None),
+            term: BlockPyTerm::Return(CoreBlockPyExpr::from(crate::py_expr!("__dp_NONE"))),
             params: Vec::new(),
             meta: Default::default(),
         };
@@ -558,7 +554,7 @@ mod tests {
                 target: test_name("total"),
                 value: CoreBlockPyExpr::from(crate::py_expr!("__dp_iadd(total, await Once())")),
             })],
-            term: BlockPyTerm::Return(None),
+            term: BlockPyTerm::Return(CoreBlockPyExpr::from(crate::py_expr!("__dp_NONE"))),
             params: Vec::new(),
             meta: Default::default(),
         };
@@ -610,7 +606,7 @@ mod tests {
                     keywords: Vec::new(),
                 }),
             })],
-            term: BlockPyTerm::Return(None),
+            term: BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::Name(test_name("__dp_NONE"))),
             params: Vec::new(),
             meta: Default::default(),
         };

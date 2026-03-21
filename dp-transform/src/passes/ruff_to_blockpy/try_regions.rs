@@ -262,21 +262,25 @@ pub(crate) fn finalize_try_regions(
     finally_exception_entry: Option<String>,
 ) -> (String, TryRegionPlan) {
     if let Some(finally_target) = finally_label.as_ref() {
+        let payload_name = try_plan
+            .finally_abrupt_payload_name
+            .as_deref()
+            .expect("finally region must have abrupt payload slot");
         rewrite_region_returns_to_finally_blockpy(
             &mut blocks[body_region_range.clone()],
             finally_target.as_str(),
-            try_plan.finally_abrupt_payload_name.as_deref(),
+            payload_name,
         );
         rewrite_region_returns_to_finally_blockpy(
             &mut blocks[else_region_range.clone()],
             finally_target.as_str(),
-            try_plan.finally_abrupt_payload_name.as_deref(),
+            payload_name,
         );
         if let Some(except_region_range) = except_region_range.as_ref() {
             rewrite_region_returns_to_finally_blockpy(
                 &mut blocks[except_region_range.clone()],
                 finally_target.as_str(),
-                try_plan.finally_abrupt_payload_name.as_deref(),
+                payload_name,
             );
         }
     }
@@ -328,7 +332,7 @@ pub(crate) fn emit_finally_abrupt_dispatch_blocks(
     blocks.push(compat_block_from_blockpy(
         finally_return_label.clone(),
         Vec::new(),
-        BlockPyTerm::Return(Some(py_expr!("{name:id}", name = payload_name).into())),
+        BlockPyTerm::Return(py_expr!("{name:id}", name = payload_name).into()),
     ));
     blocks.push(compat_block_from_blockpy(
         finally_raise_label.clone(),

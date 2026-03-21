@@ -15,20 +15,17 @@ pub(crate) fn jit_has_bb_plan_impl(module_name: &str, function_id: usize) -> boo
         return false;
     };
     let has_none = plan
-        .block_fast_paths
+        .blocks
         .iter()
-        .any(|path| matches!(path, soac_eval::jit::BlockFastPath::None));
+        .any(|block| matches!(block.fast_path, soac_eval::jit::BlockFastPath::None));
     if has_none && std::env::var("DIET_PYTHON_DEBUG_JIT_HAS").as_deref() == Ok("1") {
         eprintln!("jit_has_bb_plan=false for {module_name}.fn#{function_id}");
-        for (idx, (label, path)) in plan
-            .block_labels
-            .iter()
-            .zip(plan.block_fast_paths.iter())
-            .enumerate()
-        {
+        for (idx, block) in plan.blocks.iter().enumerate() {
             eprintln!(
                 "  [{idx}] {label}: {path:?}, exc_target={:?}",
-                plan.block_exc_targets.get(idx).copied().flatten()
+                block.exc_target,
+                label = block.label.as_str(),
+                path = &block.fast_path
             );
         }
     }
@@ -46,16 +43,16 @@ pub(crate) fn jit_block_param_names_impl(
         )));
     };
     let Some(index) = plan
-        .block_labels
+        .blocks
         .iter()
-        .position(|label| label == entry_label)
+        .position(|block| block.label == entry_label)
     else {
         return Err(PyRuntimeError::new_err(format!(
             "entry label {:?} not found in plan {module_name}.fn#{}",
             entry_label, function_id
         )));
     };
-    Ok(plan.block_param_names[index].clone())
+    Ok(plan.blocks[index].param_names.clone())
 }
 
 pub(crate) fn jit_debug_plan_impl(module_name: &str, function_id: usize) -> PyResult<String> {
@@ -79,20 +76,18 @@ fn resolve_specialized_jit_blocks_by_key(
         )));
     };
     if plan
-        .block_fast_paths
+        .blocks
         .iter()
-        .any(|path| matches!(path, soac_eval::jit::BlockFastPath::None))
+        .any(|block| matches!(block.fast_path, soac_eval::jit::BlockFastPath::None))
     {
         return Err(PyRuntimeError::new_err(format!(
             "specialized JIT requires fully lowered fastpath blocks: {module_name}.fn#{function_id}"
         )));
     }
-    let block_ptrs = vec![std::ptr::null_mut::<c_void>(); plan.block_labels.len()];
-    if plan.entry_index >= block_ptrs.len() {
+    let block_ptrs = vec![std::ptr::null_mut::<c_void>(); plan.blocks.len()];
+    if block_ptrs.is_empty() {
         return Err(PyRuntimeError::new_err(format!(
-            "invalid JIT entry index {} for {} blocks",
-            plan.entry_index,
-            block_ptrs.len()
+            "invalid JIT plan with no blocks for {module_name}.fn#{function_id}"
         )));
     }
 
@@ -201,9 +196,8 @@ mod tests {
 
     fn run_cranelift_jit_preflight(result: &dp_transform::LoweringResult) -> Result<(), String> {
         let normalized = result
-            .get_pass::<dp_transform::block_py::BlockPyModule<
-                dp_transform::passes::PreparedBbBlockPyPass,
-            >>("bb_codegen")
+            .bb_codegen_module
+            .as_ref()
             .ok_or_else(|| "JIT mode requires tracked bb_codegen output".to_string())?;
         soac_eval::jit::run_cranelift_smoke(normalized)
     }
@@ -216,11 +210,11 @@ class C:
     def m(self):
         return self.x
 "#;
-        let bb_module = parse_and_lower(source)
-            .expect("lowering should succeed")
-            .bb_module;
-        validate_bb_module_for_jit(bb_module.as_ref())
-            .expect("validator should accept lowered class defs");
+        let result = parse_and_lower(source).expect("lowering should succeed");
+        let bb_module = result.get_pass::<dp_transform::block_py::BlockPyModule<
+            dp_transform::passes::BbBlockPyPass,
+        >>("bb");
+        validate_bb_module_for_jit(bb_module).expect("validator should accept lowered class defs");
     }
 
     #[test]
@@ -229,11 +223,11 @@ class C:
 async def run():
     return 1
 "#;
-        let bb_module = parse_and_lower(source)
-            .expect("lowering should succeed")
-            .bb_module;
-        validate_bb_module_for_jit(bb_module.as_ref())
-            .expect("validator should accept coroutine lowering");
+        let result = parse_and_lower(source).expect("lowering should succeed");
+        let bb_module = result.get_pass::<dp_transform::block_py::BlockPyModule<
+            dp_transform::passes::BbBlockPyPass,
+        >>("bb");
+        validate_bb_module_for_jit(bb_module).expect("validator should accept coroutine lowering");
     }
 
     #[test]
@@ -242,10 +236,11 @@ async def run():
 async def run():
     yield 1
 "#;
-        let bb_module = parse_and_lower(source)
-            .expect("lowering should succeed")
-            .bb_module;
-        validate_bb_module_for_jit(bb_module.as_ref())
+        let result = parse_and_lower(source).expect("lowering should succeed");
+        let bb_module = result.get_pass::<dp_transform::block_py::BlockPyModule<
+            dp_transform::passes::BbBlockPyPass,
+        >>("bb");
+        validate_bb_module_for_jit(bb_module)
             .expect("validator should accept async generator lowering");
     }
 
@@ -258,11 +253,11 @@ def f():
     except Exception:
         return 2
 "#;
-        let bb_module = parse_and_lower(source)
-            .expect("lowering should succeed")
-            .bb_module;
-        validate_bb_module_for_jit(bb_module.as_ref())
-            .expect("validator should accept lowered try blocks");
+        let result = parse_and_lower(source).expect("lowering should succeed");
+        let bb_module = result.get_pass::<dp_transform::block_py::BlockPyModule<
+            dp_transform::passes::BbBlockPyPass,
+        >>("bb");
+        validate_bb_module_for_jit(bb_module).expect("validator should accept lowered try blocks");
     }
 
     #[test]
@@ -272,8 +267,10 @@ def f(x):
     return x
 "#;
         let result = parse_and_lower(source).expect("lowering should succeed");
-        validate_bb_module_for_jit(result.bb_module.as_ref())
-            .expect("validator should allow module");
+        let bb_module = result.get_pass::<dp_transform::block_py::BlockPyModule<
+            dp_transform::passes::BbBlockPyPass,
+        >>("bb");
+        validate_bb_module_for_jit(bb_module).expect("validator should allow module");
         run_cranelift_jit_preflight(&result).expect("cranelift preflight should run");
     }
 
@@ -294,9 +291,8 @@ def exercise():
 "#;
         let result = parse_and_lower_runtime_style(source).expect("lowering should succeed");
         let normalized = result
-            .get_pass::<dp_transform::block_py::BlockPyModule<
-                dp_transform::passes::PreparedBbBlockPyPass,
-            >>("bb_codegen")
+            .bb_codegen_module
+            .as_ref()
             .expect("bb_codegen pass should be tracked")
             .clone();
         let module_name = "jit_plan_generator_throw_handler_param_test";
@@ -311,35 +307,43 @@ def exercise():
             .expect("registered plan should exist");
 
         let handler_entry_targets = plan
-            .block_param_names
+            .blocks
             .iter()
             .enumerate()
-            .filter(|(_, params)| params.iter().any(|name| name.starts_with("_dp_try_exc_")))
+            .filter(|(_, block)| {
+                block
+                    .param_names
+                    .iter()
+                    .any(|name| name.starts_with("_dp_try_exc_"))
+            })
             .map(|(index, _)| index)
             .collect::<Vec<_>>();
 
         assert!(
             !handler_entry_targets.is_empty(),
             "expected at least one except handler block with an explicit try-exception carrier: {:?}",
-            plan.block_param_names
+            plan.blocks
         );
         assert!(
-            plan.block_exc_dispatches.iter().flatten().any(|dispatch| {
-                handler_entry_targets.contains(&dispatch.target_index)
-                    && dispatch
-                        .arg_sources
-                        .iter()
-                        .any(|source| matches!(source, BlockExcArgSource::Exception))
-            }),
+            plan.blocks
+                .iter()
+                .filter_map(|block| block.exc_dispatch.as_ref())
+                .any(|dispatch| {
+                    handler_entry_targets.contains(&dispatch.target_index)
+                        && dispatch
+                            .arg_sources
+                            .iter()
+                            .any(|source| matches!(source, BlockExcArgSource::Exception))
+                }),
             "expected a dispatch into an except handler target to pass the active exception: {:?}",
-            plan.block_exc_dispatches
+            plan.blocks
                 .iter()
                 .enumerate()
-                .filter_map(|(index, dispatch)| {
-                    dispatch.as_ref().map(|dispatch| {
+                .filter_map(|(index, block)| {
+                    block.exc_dispatch.as_ref().map(|dispatch| {
                         (
-                            &plan.block_labels[index],
-                            &plan.block_labels[dispatch.target_index],
+                            &plan.blocks[index].label,
+                            &plan.blocks[dispatch.target_index].label,
                             &dispatch.arg_sources,
                         )
                     })
@@ -347,19 +351,24 @@ def exercise():
                 .collect::<Vec<_>>()
         );
         assert!(
-            plan.block_param_names
-                .iter()
-                .enumerate()
-                .any(|(_, params)| {
-                    params.iter().any(|name| name.starts_with("_dp_try_exc_"))
-                        && params.iter().any(|name| name == "exc")
-                }),
+            plan.blocks.iter().enumerate().any(|(_, block)| {
+                block
+                    .param_names
+                    .iter()
+                    .any(|name| name.starts_with("_dp_try_exc_"))
+                    && block.param_names.iter().any(|name| name == "exc")
+            }),
             "expected some lowered handler block to preserve the user-visible exception binding: {:?}",
-            plan.block_param_names
+            plan.blocks
                 .iter()
                 .enumerate()
-                .filter(|(_, params)| params.iter().any(|name| name.starts_with("_dp_try_exc_")))
-                .map(|(index, params)| (&plan.block_labels[index], params))
+                .filter(|(_, block)| {
+                    block
+                        .param_names
+                        .iter()
+                        .any(|name| name.starts_with("_dp_try_exc_"))
+                })
+                .map(|(_, block)| (&block.label, &block.param_names))
                 .collect::<Vec<_>>()
         );
     }

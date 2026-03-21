@@ -549,15 +549,15 @@ unsafe fn make_clif_function_data(
         return Err(());
     };
     if let Some((index, _)) = plan
-        .block_fast_paths
+        .blocks
         .iter()
         .enumerate()
-        .find(|(_, path)| matches!(path, jit::BlockFastPath::None))
+        .find(|(_, block)| matches!(block.fast_path, jit::BlockFastPath::None))
     {
         let label = plan
-            .block_labels
+            .blocks
             .get(index)
-            .map(String::as_str)
+            .map(|block| block.label.as_str())
             .unwrap_or("<unknown>");
         let msg = format!(
             "CLIF function requires full fast-path plan; unsupported block at index {index} label {label:?} for module={module_name:?} function_id={function_id:?}"
@@ -682,7 +682,7 @@ unsafe fn ensure_clif_vectorcall_compiled(
         }
         let empty_tuple_obj = PyTuple::empty(py);
         let compile_start = Instant::now();
-        let block_ptrs = vec![ptr::null_mut::<c_void>(); data.plan.block_labels.len()];
+        let block_ptrs = vec![ptr::null_mut::<c_void>(); data.plan.blocks.len()];
         data.compiled_handle = match jit::compile_cranelift_run_bb_specialized_cached(
             block_ptrs.as_slice(),
             &data.plan,
@@ -711,7 +711,7 @@ unsafe fn ensure_clif_vectorcall_compiled(
             "soac_jit_precompile module={} qualname={} blocks={} elapsed_ms={elapsed_ms:.3}",
             data.module_name,
             data.qualname,
-            data.plan.block_labels.len(),
+            data.plan.blocks.len(),
         );
     }
     if data.compiled_vectorcall_handle.is_null() {

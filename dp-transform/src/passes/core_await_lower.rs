@@ -122,9 +122,9 @@ mod tests {
                 blocks: vec![CfgBlock {
                     label: BlockPyLabel("start".to_string()),
                     body: Vec::new(),
-                    term: BlockPyTerm::Return(Some(CoreBlockPyExpr::from(crate::py_expr!(
+                    term: BlockPyTerm::Return(CoreBlockPyExpr::from(crate::py_expr!(
                         "await foo()"
-                    )))),
+                    ))),
                     params: Vec::new(),
                     meta: None,
                 }],
@@ -138,8 +138,7 @@ mod tests {
 
         let lowered = lower_awaits_in_core_blockpy_module(module);
         let block = &lowered.callable_defs[0].blocks[0];
-        let BlockPyTerm::Return(Some(CoreBlockPyExprWithoutAwait::YieldFrom(yield_from))) =
-            &block.term
+        let BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::YieldFrom(yield_from)) = &block.term
         else {
             panic!("expected yield from return");
         };

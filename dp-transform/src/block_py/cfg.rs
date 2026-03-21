@@ -1,6 +1,6 @@
 use super::{
     BlockParam, BlockParamRole, BlockPyBlock, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel,
-    BlockPyStmt, BlockPyTerm, CfgBlock,
+    BlockPyStmt, BlockPyTerm, CfgBlock, ImplicitNoneExpr,
 };
 use crate::block_py::dataflow::{
     assigned_names_in_blockpy_fragment, assigned_names_in_blockpy_stmts,
@@ -101,11 +101,7 @@ fn rename_blockpy_term(
             rename_target_label(&mut try_jump.body_label, rename);
             rename_target_label(&mut try_jump.except_label, rename);
         }
-        BlockPyTerm::Return(value) => {
-            if let Some(value) = value {
-                body_renamer.visit_expr(value);
-            }
-        }
+        BlockPyTerm::Return(value) => body_renamer.visit_expr(value),
     }
 }
 
@@ -436,11 +432,20 @@ pub(crate) fn relabel_blockpy_blocks(
     (rewritten_entry, rename)
 }
 
-pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E>(blocks: &mut [BlockPyBlock<E>]) {
-    let trivial_ret_none_labels: std::collections::HashSet<String> = blocks
+pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E>(blocks: &mut [BlockPyBlock<E>])
+where
+    E: Clone + ImplicitNoneExpr,
+{
+    let trivial_ret_none_terms: HashMap<String, BlockPyTerm<E>> = blocks
         .iter()
-        .filter(|block| block.body.is_empty() && matches!(block.term, BlockPyTerm::Return(None)))
-        .map(|block| block.label.as_str().to_string())
+        .filter(|block| {
+            block.body.is_empty()
+                && match &block.term {
+                    BlockPyTerm::Return(expr) => E::is_implicit_none_expr(expr),
+                    _ => false,
+                }
+        })
+        .map(|block| (block.label.as_str().to_string(), block.term.clone()))
         .collect();
 
     for block in blocks.iter_mut() {
@@ -449,8 +454,8 @@ pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E>(blocks: &mut [BlockPy
             _ => None,
         };
         if let Some(target) = jump_target {
-            if trivial_ret_none_labels.contains(target.as_str()) {
-                block.term = BlockPyTerm::Return(None);
+            if let Some(term) = trivial_ret_none_terms.get(target.as_str()) {
+                block.term = term.clone();
             }
         }
     }

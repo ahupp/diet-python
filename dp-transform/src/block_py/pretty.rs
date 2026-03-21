@@ -443,10 +443,9 @@ impl BlockPyFormatter {
             )),
             BlockPyTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
             BlockPyTerm::TryJump(try_jump) => self.write_try_jump(try_jump),
-            BlockPyTerm::Return(value) => match value {
-                Some(value) => self.line(format!("return {}", render_inline_expr(value))),
-                None => self.line("return"),
-            },
+            BlockPyTerm::Return(value) => {
+                self.line(format!("return {}", render_inline_expr(value)))
+            }
         }
     }
 
@@ -474,10 +473,9 @@ impl BlockPyFormatter {
             )),
             BlockPyTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
             BlockPyTerm::TryJump(try_jump) => self.write_try_jump(try_jump),
-            BlockPyTerm::Return(value) => match value {
-                Some(value) => self.line(format!("return {}", render_inline_expr(value))),
-                None => self.line("return"),
-            },
+            BlockPyTerm::Return(value) => {
+                self.line(format!("return {}", render_inline_expr(value)))
+            }
             BlockPyTerm::IfTerm(_) => {
                 panic!("IfTerm is only valid as a top-level block terminator");
             }
@@ -642,13 +640,7 @@ pub(crate) fn bb_term_text(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield
             )
         }
         BlockPyTerm::Raise(raise_stmt) => bb_raise_text(raise_stmt),
-        BlockPyTerm::Return(value) => {
-            let value = value
-                .as_ref()
-                .map(bb_expr_text)
-                .unwrap_or_else(|| "None".to_string());
-            format!("return {value}")
-        }
+        BlockPyTerm::Return(value) => format!("return {}", bb_expr_text(value)),
         BlockPyTerm::TryJump(_) => "try_jump".to_string(),
     }
 }
@@ -724,10 +716,7 @@ fn join_labels(labels: &[BlockPyLabel]) -> String {
         .join(", ")
 }
 
-fn render_edge<E>(edge: &BlockPyEdge<E>) -> String
-where
-    E: Clone + Into<Expr>,
-{
+fn render_edge(edge: &BlockPyEdge) -> String {
     if edge.args.is_empty() {
         return edge.as_str().to_string();
     }
@@ -742,13 +731,9 @@ where
     )
 }
 
-fn render_block_arg<E>(arg: &BlockArg<E>) -> String
-where
-    E: Clone + Into<Expr>,
-{
+fn render_block_arg(arg: &BlockArg) -> String {
     match arg {
         BlockArg::Name(name) => name.clone(),
-        BlockArg::Expr(expr) => render_inline_expr(expr),
         BlockArg::None => "None".to_string(),
         BlockArg::CurrentException => "<current_exception>".to_string(),
         BlockArg::AbruptKind(kind) => match kind {
@@ -1363,7 +1348,7 @@ async def no_lying():
                 blocks: vec![BlockPyBlock {
                     label: "gen_start".into(),
                     body: vec![],
-                    term: BlockPyTerm::<Expr>::Return(None),
+                    term: BlockPyTerm::<Expr>::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
                     meta: (),
                 }],
@@ -1434,7 +1419,7 @@ async def no_lying():
                 BlockPyBlock {
                     label: "after".into(),
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()"))],
-                    term: BlockPyTerm::Return(None),
+                    term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
                     meta: (),
                 },
@@ -1452,7 +1437,7 @@ async def no_lying():
         assert!(rendered.contains("    block start:\n"));
         assert!(rendered.contains("        block after:\n"));
         assert!(rendered.contains(
-            "        if_term cond:\n            then:\n                block then:\n                    then_side_effect()\n                    jump after\n            else:\n                block else:\n                    else_side_effect()\n                    jump after\n        block after:\n            finish()\n            return\n"
+            "        if_term cond:\n            then:\n                block then:\n                    then_side_effect()\n                    jump after\n            else:\n                block else:\n                    else_side_effect()\n                    jump after\n        block after:\n            finish()\n            return __dp_NONE\n"
         ));
     }
 
@@ -1498,28 +1483,28 @@ def choose(a, b):
                 BlockPyBlock {
                     label: "zeta".into(),
                     body: vec![],
-                    term: BlockPyTerm::Return(None),
+                    term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
                     meta: (),
                 },
                 BlockPyBlock {
                     label: "alpha".into(),
                     body: vec![],
-                    term: BlockPyTerm::Return(None),
+                    term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
                     meta: (),
                 },
                 BlockPyBlock {
                     label: "omega".into(),
                     body: vec![],
-                    term: BlockPyTerm::Return(None),
+                    term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
                     meta: (),
                 },
                 BlockPyBlock {
                     label: "beta".into(),
                     body: vec![],
-                    term: BlockPyTerm::Return(None),
+                    term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
                     meta: (),
                 },
@@ -1617,7 +1602,9 @@ def choose(a, b):
                     PassBlock::<BbBlockPyPass> {
                         label: "except".into(),
                         body: vec![],
-                        term: BlockPyTerm::Return(None),
+                        term: BlockPyTerm::Return(
+                            <CoreBlockPyExprWithoutAwaitOrYield as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+                        ),
                         params: vec![BlockParam {
                             name: "err".to_string(),
                             role: BlockParamRole::Exception,

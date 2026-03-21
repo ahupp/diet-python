@@ -10,6 +10,7 @@ use crate::passes::{
     CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, PreparedBbBlockPyPass,
     RuffBlockPyPass,
 };
+use crate::py_expr;
 use ruff_python_ast::str::Quote;
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{
@@ -569,7 +570,7 @@ impl BlockPyFunction<PreparedBbBlockPyPass> {
 
 #[derive(Debug, Clone, Default)]
 pub struct BbBlockMeta {
-    pub exc_edge: Option<BlockPyEdge<CoreBlockPyExprWithoutAwaitOrYield>>,
+    pub exc_edge: Option<BlockPyEdge>,
 }
 
 pub trait BlockPyNormalizedStmt {
@@ -609,6 +610,18 @@ pub trait BlockPyJumpTerm<L> {
 
 pub trait BlockPyFallthroughTerm<L>: BlockPyJumpTerm<L> {
     fn implicit_function_return() -> Self;
+}
+
+pub(crate) trait ImplicitNoneExpr {
+    fn implicit_none_expr() -> Self;
+    fn is_implicit_none_expr(expr: &Self) -> bool;
+}
+
+fn implicit_none_name() -> ast::ExprName {
+    let Expr::Name(name) = py_expr!("__dp_NONE") else {
+        unreachable!();
+    };
+    name
 }
 
 pub fn assert_blockpy_block_normalized<S: BlockPyNormalizedStmt, T>(block: &BlockPyCfgBlock<S, T>) {
@@ -887,11 +900,11 @@ impl<E: Clone + fmt::Debug> IntoBlockPyTerm<E> for BlockPyTerm<E> {
 
 #[derive(Debug, Clone)]
 pub enum BbTerm {
-    Jump(BlockPyEdge<CoreBlockPyExprWithoutAwaitOrYield>),
+    Jump(BlockPyEdge),
     IfTerm(BlockPyIfTerm<CoreBlockPyExprWithoutAwaitOrYield>),
     BranchTable(BlockPyBranchTable<CoreBlockPyExprWithoutAwaitOrYield>),
     Raise(BlockPyRaise<CoreBlockPyExprWithoutAwaitOrYield>),
-    Return(Option<CoreBlockPyExprWithoutAwaitOrYield>),
+    Return(CoreBlockPyExprWithoutAwaitOrYield),
 }
 
 impl From<BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>> for BbTerm {
@@ -921,12 +934,12 @@ impl IntoBlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield> for BbTerm {
 
 #[derive(Debug, Clone)]
 pub enum BlockPyTerm<E = Expr> {
-    Jump(BlockPyEdge<E>),
+    Jump(BlockPyEdge),
     IfTerm(BlockPyIfTerm<E>),
     BranchTable(BlockPyBranchTable<E>),
     Raise(BlockPyRaise<E>),
     TryJump(BlockPyTryJump),
-    Return(Option<E>),
+    Return(E),
 }
 
 #[derive(Debug, Clone)]
@@ -967,12 +980,12 @@ pub struct BlockPyRaise<E = Expr> {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyEdge<E = Expr> {
+pub struct BlockPyEdge {
     pub target: BlockPyLabel,
-    pub args: Vec<BlockArg<E>>,
+    pub args: Vec<BlockArg>,
 }
 
-impl<E> BlockPyEdge<E> {
+impl BlockPyEdge {
     pub fn new(target: BlockPyLabel) -> Self {
         Self {
             target,
@@ -980,7 +993,7 @@ impl<E> BlockPyEdge<E> {
         }
     }
 
-    pub fn with_args(target: BlockPyLabel, args: Vec<BlockArg<E>>) -> Self {
+    pub fn with_args(target: BlockPyLabel, args: Vec<BlockArg>) -> Self {
         Self { target, args }
     }
 
@@ -989,28 +1002,27 @@ impl<E> BlockPyEdge<E> {
     }
 }
 
-impl<E> From<BlockPyLabel> for BlockPyEdge<E> {
+impl From<BlockPyLabel> for BlockPyEdge {
     fn from(value: BlockPyLabel) -> Self {
         Self::new(value)
     }
 }
 
-impl<E> From<&str> for BlockPyEdge<E> {
+impl From<&str> for BlockPyEdge {
     fn from(value: &str) -> Self {
         Self::new(BlockPyLabel::from(value))
     }
 }
 
-impl<E> From<String> for BlockPyEdge<E> {
+impl From<String> for BlockPyEdge {
     fn from(value: String) -> Self {
         Self::new(BlockPyLabel::from(value))
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum BlockArg<E = Expr> {
+pub enum BlockArg {
     Name(String),
-    Expr(E),
     None,
     CurrentException,
     AbruptKind(AbruptKind),
@@ -1167,11 +1179,6 @@ where
 {
     match term {
         BlockPyTerm::Jump(edge) => {
-            for arg in &edge.args {
-                if let BlockArg::Expr(expr) = arg {
-                    visitor.visit_expr(expr);
-                }
-            }
             visitor.visit_label(&edge.target);
         }
         BlockPyTerm::TryJump(try_jump) => {
@@ -1195,11 +1202,7 @@ where
                 visitor.visit_expr(exc);
             }
         }
-        BlockPyTerm::Return(value) => {
-            if let Some(value) = value {
-                visitor.visit_expr(value);
-            }
-        }
+        BlockPyTerm::Return(value) => visitor.visit_expr(value),
     }
 }
 
@@ -1297,7 +1300,6 @@ where
                     .into_iter()
                     .map(|arg| match arg {
                         BlockArg::Name(name) => BlockArg::Name(name),
-                        BlockArg::Expr(expr) => BlockArg::Expr(self.map_expr(expr)),
                         BlockArg::None => BlockArg::None,
                         BlockArg::CurrentException => BlockArg::CurrentException,
                         BlockArg::AbruptKind(kind) => BlockArg::AbruptKind(kind),
@@ -1318,9 +1320,7 @@ where
                 exc: raise_stmt.exc.map(|exc| self.map_expr(exc)),
             }),
             BlockPyTerm::TryJump(try_jump) => BlockPyTerm::TryJump(try_jump),
-            BlockPyTerm::Return(value) => {
-                BlockPyTerm::Return(value.map(|value| self.map_expr(value)))
-            }
+            BlockPyTerm::Return(value) => BlockPyTerm::Return(self.map_expr(value)),
         }
     }
 
@@ -1333,9 +1333,49 @@ impl<E> BlockPyJumpTerm<BlockPyLabel> for BlockPyTerm<E> {
     }
 }
 
-impl<E> BlockPyFallthroughTerm<BlockPyLabel> for BlockPyTerm<E> {
+impl ImplicitNoneExpr for Expr {
+    fn implicit_none_expr() -> Self {
+        py_expr!("__dp_NONE")
+    }
+
+    fn is_implicit_none_expr(expr: &Self) -> bool {
+        matches!(expr, Expr::Name(name) if name.id.as_str() == "__dp_NONE")
+    }
+}
+
+impl ImplicitNoneExpr for CoreBlockPyExpr {
+    fn implicit_none_expr() -> Self {
+        Self::Name(implicit_none_name())
+    }
+
+    fn is_implicit_none_expr(expr: &Self) -> bool {
+        matches!(expr, CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_NONE")
+    }
+}
+
+impl ImplicitNoneExpr for CoreBlockPyExprWithoutAwait {
+    fn implicit_none_expr() -> Self {
+        Self::Name(implicit_none_name())
+    }
+
+    fn is_implicit_none_expr(expr: &Self) -> bool {
+        matches!(expr, CoreBlockPyExprWithoutAwait::Name(name) if name.id.as_str() == "__dp_NONE")
+    }
+}
+
+impl ImplicitNoneExpr for CoreBlockPyExprWithoutAwaitOrYield {
+    fn implicit_none_expr() -> Self {
+        Self::Name(implicit_none_name())
+    }
+
+    fn is_implicit_none_expr(expr: &Self) -> bool {
+        matches!(expr, CoreBlockPyExprWithoutAwaitOrYield::Name(name) if name.id.as_str() == "__dp_NONE")
+    }
+}
+
+impl<E: ImplicitNoneExpr> BlockPyFallthroughTerm<BlockPyLabel> for BlockPyTerm<E> {
     fn implicit_function_return() -> Self {
-        Self::Return(None)
+        Self::Return(E::implicit_none_expr())
     }
 }
 
@@ -1347,7 +1387,7 @@ impl BlockPyJumpTerm<BlockPyLabel> for BbTerm {
 
 impl BlockPyFallthroughTerm<BlockPyLabel> for BbTerm {
     fn implicit_function_return() -> Self {
-        Self::Return(None)
+        Self::Return(CoreBlockPyExprWithoutAwaitOrYield::implicit_none_expr())
     }
 }
 
@@ -1388,15 +1428,29 @@ mod tests {
     }
 
     #[test]
+    fn block_builder_without_term_uses_implicit_none_return_value() {
+        let mut block: BlockPyBlockBuilder<Expr> =
+            BlockPyBlockBuilder::new(BlockPyLabel::from("start"));
+        block.push_stmt(BlockPyStmt::Expr(py_expr!("x")));
+        let block = block.finish(None);
+
+        assert_eq!(block.body.len(), 1);
+        assert!(matches!(
+            &block.term,
+            BlockPyTerm::Return(Expr::Name(name)) if name.id.as_str() == "__dp_NONE"
+        ));
+    }
+
+    #[test]
     fn stmt_fragment_can_carry_optional_term() {
         let fragment: BlockPyStmtFragment<Expr> = BlockPyStmtFragment::with_term(
             vec![BlockPyStmt::Expr(py_expr!("x"))],
-            Some(BlockPyTerm::Return(None)),
+            Some(BlockPyTerm::Return(py_expr!("__dp_NONE"))),
         );
 
         assert_eq!(fragment.body.len(), 1);
         assert!(matches!(fragment.body[0], BlockPyStmt::Expr(_)));
-        assert!(matches!(fragment.term, Some(BlockPyTerm::Return(None))));
+        assert!(matches!(fragment.term, Some(BlockPyTerm::Return(_))));
     }
 
     #[test]
@@ -1506,7 +1560,7 @@ mod tests {
                                 test: py_expr!("if_test"),
                                 body: BlockPyCfgFragment::with_term(
                                     vec![BlockPyStmt::Expr(py_expr!("then_expr"))],
-                                    Some(BlockPyTerm::Return(Some(py_expr!("then_return")))),
+                                    Some(BlockPyTerm::Return(py_expr!("then_return"))),
                                 ),
                                 orelse: BlockPyCfgFragment::with_term(
                                     vec![BlockPyStmt::Expr(py_expr!("else_expr"))],
@@ -1530,7 +1584,7 @@ mod tests {
                         body: vec![BlockPyStmt::Delete(BlockPyDelete {
                             target: name_expr("trash"),
                         })],
-                        term: BlockPyTerm::Return(Some(py_expr!("final_return"))),
+                        term: BlockPyTerm::Return(py_expr!("final_return")),
                         params: Vec::new(),
                         meta: (),
                     },
@@ -1598,7 +1652,7 @@ mod tests {
 
     #[test]
     fn term_conversion_to_no_yield_rejects_nested_yield() {
-        let term = BlockPyTerm::Return(Some(CoreBlockPyExprWithoutAwait::Call(CoreBlockPyCall {
+        let term = BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::Call(CoreBlockPyCall {
             node_index: ast::AtomicNodeIndex::default(),
             range: ruff_text_size::TextRange::default(),
             func: Box::new(CoreBlockPyExprWithoutAwait::Name(name_expr("f"))),
@@ -1610,7 +1664,7 @@ mod tests {
                 }),
             )],
             keywords: Vec::new(),
-        })));
+        }));
 
         assert!(BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::try_from(term).is_err());
     }
@@ -1918,17 +1972,14 @@ impl TryFrom<BlockPyTerm<CoreBlockPyExpr>> for BlockPyTerm<CoreBlockPyExprWithou
                 args: target
                     .args
                     .into_iter()
-                    .map(
-                        |arg| -> Result<BlockArg<CoreBlockPyExprWithoutAwait>, CoreBlockPyExpr> {
-                            match arg {
-                                BlockArg::Name(name) => Ok(BlockArg::Name(name)),
-                                BlockArg::Expr(expr) => Ok(BlockArg::Expr(expr.try_into()?)),
-                                BlockArg::None => Ok(BlockArg::None),
-                                BlockArg::CurrentException => Ok(BlockArg::CurrentException),
-                                BlockArg::AbruptKind(kind) => Ok(BlockArg::AbruptKind(kind)),
-                            }
-                        },
-                    )
+                    .map(|arg| -> Result<BlockArg, CoreBlockPyExpr> {
+                        match arg {
+                            BlockArg::Name(name) => Ok(BlockArg::Name(name)),
+                            BlockArg::None => Ok(BlockArg::None),
+                            BlockArg::CurrentException => Ok(BlockArg::CurrentException),
+                            BlockArg::AbruptKind(kind) => Ok(BlockArg::AbruptKind(kind)),
+                        }
+                    })
                     .collect::<Result<Vec<_>, _>>()?,
             })),
             BlockPyTerm::IfTerm(if_term) => Ok(BlockPyTerm::IfTerm(BlockPyIfTerm {
@@ -1945,9 +1996,7 @@ impl TryFrom<BlockPyTerm<CoreBlockPyExpr>> for BlockPyTerm<CoreBlockPyExprWithou
                 exc: raise_stmt.exc.map(TryInto::try_into).transpose()?,
             })),
             BlockPyTerm::TryJump(try_jump) => Ok(BlockPyTerm::TryJump(try_jump)),
-            BlockPyTerm::Return(value) => Ok(BlockPyTerm::Return(
-                value.map(TryInto::try_into).transpose()?,
-            )),
+            BlockPyTerm::Return(value) => Ok(BlockPyTerm::Return(value.try_into()?)),
         }
     }
 }
@@ -2169,20 +2218,14 @@ impl TryFrom<BlockPyTerm<CoreBlockPyExprWithoutAwait>>
                 args: target
                     .args
                     .into_iter()
-                    .map(
-                        |arg| -> Result<
-                            BlockArg<CoreBlockPyExprWithoutAwaitOrYield>,
-                            CoreBlockPyExprWithoutAwait,
-                        > {
-                            match arg {
-                                BlockArg::Name(name) => Ok(BlockArg::Name(name)),
-                                BlockArg::Expr(expr) => Ok(BlockArg::Expr(expr.try_into()?)),
-                                BlockArg::None => Ok(BlockArg::None),
-                                BlockArg::CurrentException => Ok(BlockArg::CurrentException),
-                                BlockArg::AbruptKind(kind) => Ok(BlockArg::AbruptKind(kind)),
-                            }
-                        },
-                    )
+                    .map(|arg| -> Result<BlockArg, CoreBlockPyExprWithoutAwait> {
+                        match arg {
+                            BlockArg::Name(name) => Ok(BlockArg::Name(name)),
+                            BlockArg::None => Ok(BlockArg::None),
+                            BlockArg::CurrentException => Ok(BlockArg::CurrentException),
+                            BlockArg::AbruptKind(kind) => Ok(BlockArg::AbruptKind(kind)),
+                        }
+                    })
                     .collect::<Result<Vec<_>, _>>()?,
             })),
             BlockPyTerm::IfTerm(if_term) => Ok(BlockPyTerm::IfTerm(BlockPyIfTerm {
@@ -2199,9 +2242,7 @@ impl TryFrom<BlockPyTerm<CoreBlockPyExprWithoutAwait>>
                 exc: raise_stmt.exc.map(TryInto::try_into).transpose()?,
             })),
             BlockPyTerm::TryJump(try_jump) => Ok(BlockPyTerm::TryJump(try_jump)),
-            BlockPyTerm::Return(value) => Ok(BlockPyTerm::Return(
-                value.map(TryInto::try_into).transpose()?,
-            )),
+            BlockPyTerm::Return(value) => Ok(BlockPyTerm::Return(value.try_into()?)),
         }
     }
 }

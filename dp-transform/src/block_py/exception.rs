@@ -16,28 +16,26 @@ fn expr_name(id: &str) -> ExprName {
 pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
     blocks: &mut [BlockPyBlock<E>],
     finally_target: &str,
-    payload_name: Option<&str>,
+    payload_name: &str,
 ) where
     E: From<Expr>,
 {
     for block in blocks.iter_mut() {
-        let ret_value = match std::mem::replace(&mut block.term, BlockPyTerm::Return(None)) {
+        let ret_value = match std::mem::replace(
+            &mut block.term,
+            BlockPyTerm::Return(py_expr!("__dp_NONE").into()),
+        ) {
             BlockPyTerm::Return(value) => value,
             other => {
                 block.term = other;
                 continue;
             }
         };
-        let ret_expr = ret_value.unwrap_or_else(|| py_expr!("None").into());
-        let payload_arg = if let Some(payload_name) = payload_name {
-            block.body.push(BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name(payload_name),
-                value: ret_expr,
-            }));
-            BlockArg::Name(payload_name.to_string())
-        } else {
-            BlockArg::Expr(ret_expr)
-        };
+        block.body.push(BlockPyStmt::Assign(BlockPyAssign {
+            target: expr_name(payload_name),
+            value: ret_value,
+        }));
+        let payload_arg = BlockArg::Name(payload_name.to_string());
         // Only bind the synthetic abrupt slots explicitly. Any ordinary live-ins
         // for the finally entry, including its exception slot, must continue to
         // forward by name once dataflow adds them as block params later.
