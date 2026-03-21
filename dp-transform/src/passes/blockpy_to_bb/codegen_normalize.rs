@@ -1,5 +1,5 @@
 use crate::block_py::{
-    BlockPyModule, BlockPyRaise, BlockPyStmt, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
+    BbStmt, BlockPyModule, BlockPyRaise, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
     CoreBytesLiteral,
 };
@@ -20,12 +20,9 @@ pub fn normalize_bb_module_for_codegen(
         for block in &mut function.blocks {
             for op in &mut block.body {
                 match op {
-                    BlockPyStmt::Assign(assign) => {
-                        rewrite_bb_expr(&mut rewriter, &mut assign.value)
-                    }
-                    BlockPyStmt::Expr(expr) => rewrite_bb_expr(&mut rewriter, expr),
-                    BlockPyStmt::Delete(_) => {}
-                    BlockPyStmt::If(_) => panic!("structured BlockPy If is not allowed in BbBlock"),
+                    BbStmt::Assign(assign) => rewrite_bb_expr(&mut rewriter, &mut assign.value),
+                    BbStmt::Expr(expr) => rewrite_bb_expr(&mut rewriter, expr),
+                    BbStmt::Delete(_) => {}
                 }
             }
             rewrite_term_exprs(&mut rewriter, &mut block.term);
@@ -210,7 +207,7 @@ fn str_bytes_call_expr(bytes: &[u8]) -> CoreBlockPyExprWithoutAwaitOrYield {
 mod tests {
     use super::normalize_bb_module_for_codegen;
     use crate::{
-        block_py::{BbStmt, BlockPyStmt, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield},
+        block_py::{BbStmt, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield},
         transform_str_to_bb_ir_with_options, Options,
     };
     use std::cell::Cell;
@@ -317,10 +314,9 @@ mod tests {
 
     fn probe_bb_stmt_exprs(probe: &mut ExprShapeProbe, stmt: &BbStmt) {
         match stmt {
-            BlockPyStmt::Assign(assign) => probe_bb_exprs(probe, &assign.value),
-            BlockPyStmt::Expr(expr) => probe_bb_exprs(probe, expr),
-            BlockPyStmt::Delete(_) => {}
-            BlockPyStmt::If(_) => panic!("structured BlockPy If is not allowed in BbBlock"),
+            BbStmt::Assign(assign) => probe_bb_exprs(probe, &assign.value),
+            BbStmt::Expr(expr) => probe_bb_exprs(probe, expr),
+            BbStmt::Delete(_) => {}
         }
     }
 

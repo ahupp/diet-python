@@ -419,12 +419,7 @@ fn compat_range() -> TextRange {
 }
 
 fn bb_stmt_from_blockpy_stmt(stmt: BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>) -> BbStmt {
-    match stmt {
-        BlockPyStmt::Assign(_) | BlockPyStmt::Expr(_) | BlockPyStmt::Delete(_) => stmt,
-        BlockPyStmt::If(_) => {
-            panic!("structured BlockPy If reached BB block body after linearization")
-        }
-    }
+    stmt.into()
 }
 
 #[cfg(test)]
@@ -554,7 +549,7 @@ mod tests {
         );
         let block = &lowered[0];
 
-        let BlockPyStmt::Expr(body_expr) = &block.body[0] else {
+        let crate::block_py::BbStmt::Expr(body_expr) = &block.body[0] else {
             panic!("expected expr stmt in lowered BB block");
         };
         assert!(matches!(

@@ -1,6 +1,6 @@
 use crate::block_py::{
     BbBlock, BbBlockMeta, BbStmt, BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule,
-    BlockPyStmt, BlockPyTerm,
+    BlockPyTerm,
 };
 use crate::passes::blockpy_to_bb::populate_exception_edge_args;
 use crate::passes::BbBlockPyPass;
@@ -154,7 +154,7 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<BbBlock
 }
 
 fn op_updates_exception_state(op: &BbStmt) -> bool {
-    matches!(op, BlockPyStmt::Assign(_) | BlockPyStmt::Delete(_))
+    matches!(op, BbStmt::Assign(_) | BbStmt::Delete(_))
 }
 
 fn unique_exc_split_label(
@@ -174,7 +174,7 @@ fn unique_exc_split_label(
 
 fn apply_op_effect_to_known_names(op: &BbStmt, known_names: &mut Vec<String>) {
     match op {
-        BlockPyStmt::Assign(assign) => {
+        BbStmt::Assign(assign) => {
             let target = assign.target.id.to_string();
             for target_name in [Some(target.as_str()), target.strip_prefix("_dp_cell_")]
                 .into_iter()
@@ -185,8 +185,8 @@ fn apply_op_effect_to_known_names(op: &BbStmt, known_names: &mut Vec<String>) {
                 }
             }
         }
-        BlockPyStmt::Expr(_) => {}
-        BlockPyStmt::Delete(delete) => {
+        BbStmt::Expr(_) => {}
+        BbStmt::Delete(delete) => {
             let target_name = delete.target.id.to_string();
             known_names.retain(|existing| {
                 existing != &target_name
@@ -195,9 +195,6 @@ fn apply_op_effect_to_known_names(op: &BbStmt, known_names: &mut Vec<String>) {
                         .map(|logical_name| existing != logical_name)
                         .unwrap_or(true)
             });
-        }
-        BlockPyStmt::If(_) => {
-            panic!("structured BlockPy If is not allowed in BbBlock.body")
         }
     }
 }

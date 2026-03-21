@@ -162,8 +162,8 @@ pub(crate) fn attach_exception_edges_to_blocks<E>(
         .collect()
 }
 
-pub(crate) fn lowered_exception_edges<E>(
-    blocks: &[CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, Option<BlockPyLabel>>],
+pub(crate) fn lowered_exception_edges<S, T>(
+    blocks: &[CfgBlock<S, T, Option<BlockPyLabel>>],
 ) -> HashMap<String, Option<String>> {
     blocks
         .iter()

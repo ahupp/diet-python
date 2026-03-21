@@ -1,5 +1,5 @@
 use crate::block_py::{
-    BbStmt, BlockPyModule, BlockPyPass, BlockPyStmt, CoreBlockPyCall, CoreBlockPyCallArg,
+    BlockPyModule, BlockPyPass, BlockPyStmt, CoreBlockPyCall, CoreBlockPyCallArg,
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
     CoreStringLiteral,
 };
@@ -43,7 +43,9 @@ fn instrument_cfg_module_for_trace<P: BlockPyPass>(
     module: &mut BlockPyModule<P>,
     config: &TraceConfig,
     make_trace_stmt: impl Fn(&str, &str, &[String]) -> BlockPyStmt<P::Expr>,
-) {
+) where
+    BlockPyStmt<P::Expr>: Into<P::Stmt>,
+{
     for function in &mut module.callable_defs {
         if let Some(filter) = config.qualname_filter.as_ref() {
             if function.names.qualname != *filter {
@@ -62,7 +64,7 @@ fn instrument_cfg_module_for_trace<P: BlockPyPass>(
                     &[]
                 },
             );
-            block.body.insert(0, trace_stmt);
+            block.body.insert(0, trace_stmt.into());
         }
     }
 }
@@ -87,7 +89,7 @@ pub(crate) fn instrument_bb_module_for_trace(
                 vec![string_literal_expr(qualname), string_literal_expr(label)],
             )
         };
-        BbStmt::Expr(trace_expr)
+        BlockPyStmt::Expr(trace_expr)
     });
 }
 

@@ -1,7 +1,7 @@
 use dp_transform::block_py::{
     AbruptKind, BbBlock, BbStmt, BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule,
-    BlockPyStmt, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
-    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreNumberLiteralValue,
+    BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral, CoreNumberLiteralValue,
 };
 use dp_transform::passes::BbBlockPyPass;
 use std::collections::{HashMap, HashSet};
@@ -278,7 +278,7 @@ fn direct_simple_plan_from_block(block: &BbBlock) -> Option<DirectSimpleRetPlan>
     let mut known_names = block.param_name_vec();
     let mut assigns = Vec::new();
     for op in &block.body {
-        let BlockPyStmt::Assign(assign) = op else {
+        let BbStmt::Assign(assign) = op else {
             return None;
         };
         let value = direct_simple_expr_from(&assign.value)?;
@@ -365,7 +365,7 @@ fn direct_simple_expr_ret_none_plan_from_block(
     }
     let mut exprs = Vec::with_capacity(block.body.len());
     for op in &block.body {
-        let BlockPyStmt::Expr(expr) = op else {
+        let BbStmt::Expr(expr) = op else {
             return None;
         };
         let expr = direct_simple_expr_from(expr)?;
@@ -411,11 +411,11 @@ fn direct_simple_op_from_bb_stmt(
     known_names: &mut Vec<String>,
 ) -> Option<DirectSimpleOpPlan> {
     match op {
-        BlockPyStmt::Expr(expr_stmt) => {
+        BbStmt::Expr(expr_stmt) => {
             let value = direct_simple_expr_from(expr_stmt)?;
             Some(DirectSimpleOpPlan::Expr(value))
         }
-        BlockPyStmt::Assign(assign) => {
+        BbStmt::Assign(assign) => {
             let value = direct_simple_expr_from(&assign.value)?;
             let target_name = assign.target.id.to_string();
             if !known_names.iter().any(|known| known == &target_name) {
@@ -426,23 +426,21 @@ fn direct_simple_op_from_bb_stmt(
                 value,
             }))
         }
-        BlockPyStmt::Delete(delete_stmt) => {
+        BbStmt::Delete(delete_stmt) => {
             let delete_plan = direct_simple_delete_plan_from_targets(
                 std::slice::from_ref(&delete_stmt.target),
                 known_names,
             )?;
             Some(DirectSimpleOpPlan::Delete(delete_plan))
         }
-        BlockPyStmt::If(_) => None,
     }
 }
 
 fn bb_stmt_kind(op: &BbStmt) -> &'static str {
     match op {
-        BlockPyStmt::Assign(_) => "Assign",
-        BlockPyStmt::Expr(_) => "Expr",
-        BlockPyStmt::Delete(_) => "Delete",
-        BlockPyStmt::If(_) => "If",
+        BbStmt::Assign(_) => "Assign",
+        BbStmt::Expr(_) => "Expr",
+        BbStmt::Delete(_) => "Delete",
     }
 }
 
@@ -585,15 +583,18 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
     let mut block_param_names = Vec::with_capacity(function.blocks.len());
     let mut block_fast_paths = Vec::with_capacity(function.blocks.len());
     for block in &function.blocks {
-        let exc_target = match block.meta.exc_edge.as_ref().map(|edge| &edge.target) {
-            Some(label) => Some(label_to_index.get(label.as_str()).copied().ok_or_else(|| {
-                format!(
-                    "unknown exception target {label} in {}:{}",
-                    function.names.qualname, block.label
-                )
-            })?),
-            None => None,
-        };
+        let exc_target =
+            match block.meta.exc_edge.as_ref().map(|edge| &edge.target) {
+                Some(label) => Some(label_to_index.get(label.as_str()).copied().unwrap_or_else(
+                    || {
+                        panic!(
+                            "unknown exception target {label} in {}:{}",
+                            function.names.qualname, block.label
+                        )
+                    },
+                )),
+                None => None,
+            };
         let exc_dispatch = if let Some(target_index) = exc_target {
             let target_block = &function.blocks[target_index];
             let block_param_names = jit_param_names_for_block(block, &ambient_param_name_set);
@@ -610,14 +611,14 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                 .expect("exc_target implies exc_edge")
                 .args;
             if exc_args.len() != full_target_param_names.len() {
-                return Err(format!(
+                panic!(
                     "exception dispatch from {}:{} has {} explicit edge args for target {} with {} full params",
                     function.names.qualname,
                     block.label,
                     exc_args.len(),
                     target_block.label,
                     full_target_param_names.len()
-                ));
+                );
             }
             for (target_param_name, source) in full_target_param_names.iter().zip(exc_args.iter()) {
                 if ambient_param_name_set.contains(target_param_name) {
@@ -646,16 +647,16 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                         arg_sources.push(BlockExcArgSource::NoneValue);
                     }
                     BlockArg::Expr(_) => {
-                        return Err(format!(
+                        panic!(
                             "exception dispatch from {}:{} uses expr edge arg for target param {}",
                             function.names.qualname, block.label, target_param_name
-                        ));
+                        );
                     }
                     BlockArg::AbruptKind(kind) => {
-                        return Err(format!(
+                        panic!(
                             "exception dispatch from {}:{} uses abrupt-kind edge arg {:?} for target param {}",
                             function.names.qualname, block.label, kind, target_param_name
-                        ));
+                        );
                     }
                 }
             }
@@ -664,10 +665,10 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                     .iter()
                     .any(|src| matches!(src, BlockExcArgSource::FrameLocal { .. }))
             {
-                return Err(format!(
+                panic!(
                     "exception dispatch from {}:{} requires frame-local fallback but has no _dp_self/_dp_state parameter",
                     function.names.qualname, block.label
-                ));
+                );
             }
             Some(BlockExcDispatchPlan {
                 target_index,
@@ -683,35 +684,35 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                     label_to_index
                         .get(target.as_str())
                         .copied()
-                        .ok_or_else(|| {
-                            format!(
+                        .unwrap_or_else(|| {
+                            panic!(
                                 "unknown jump target {} in {}:{}",
                                 target.as_str(),
                                 function.names.qualname,
                                 block.label
                             )
-                        })?;
+                        });
                 BlockTermPlan::Jump { target_index }
             }
             BlockPyTerm::IfTerm(if_term) => {
                 let then_index = label_to_index
                     .get(if_term.then_label.as_str())
                     .copied()
-                    .ok_or_else(|| {
-                        format!(
+                    .unwrap_or_else(|| {
+                        panic!(
                             "unknown then target {} in {}:{}",
                             if_term.then_label, function.names.qualname, block.label
                         )
-                    })?;
+                    });
                 let else_index = label_to_index
                     .get(if_term.else_label.as_str())
                     .copied()
-                    .ok_or_else(|| {
-                        format!(
+                    .unwrap_or_else(|| {
+                        panic!(
                             "unknown else target {} in {}:{}",
                             if_term.else_label, function.names.qualname, block.label
                         )
-                    })?;
+                    });
                 BlockTermPlan::BrIf {
                     then_index,
                     else_index,
@@ -721,24 +722,24 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                 let default_index = label_to_index
                     .get(branch.default_label.as_str())
                     .copied()
-                    .ok_or_else(|| {
-                        format!(
+                    .unwrap_or_else(|| {
+                        panic!(
                             "unknown br_table default target {} in {}:{}",
                             branch.default_label, function.names.qualname, block.label
                         )
-                    })?;
+                    });
                 let mut target_indices = Vec::with_capacity(branch.targets.len());
                 for target in &branch.targets {
                     let target_index =
                         label_to_index
                             .get(target.as_str())
                             .copied()
-                            .ok_or_else(|| {
-                                format!(
+                            .unwrap_or_else(|| {
+                                panic!(
                                     "unknown br_table target {target} in {}:{}",
                                     function.names.qualname, block.label
                                 )
-                            })?;
+                            });
                     target_indices.push(target_index);
                 }
                 BlockTermPlan::BrTable {
@@ -749,10 +750,10 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
             BlockPyTerm::Raise(_) => BlockTermPlan::Raise,
             BlockPyTerm::Return(_) => BlockTermPlan::Ret,
             BlockPyTerm::TryJump(_) => {
-                return Err(format!(
+                panic!(
                     "unexpected TryJump in BB function {}:{}",
                     function.names.qualname, block.label
-                ));
+                );
             }
         };
         let fast_path = {
@@ -762,14 +763,14 @@ fn build_clif_plan(function: &BlockPyFunction<BbBlockPyPass>) -> Result<ClifPlan
                         let target_index = label_to_index
                             .get(target_label.as_str())
                             .copied()
-                            .ok_or_else(|| {
-                                format!(
+                            .unwrap_or_else(|| {
+                                panic!(
                                     "unknown jump target {} in {}:{}",
                                     target_label.as_str(),
                                     function.names.qualname,
                                     block.label
                                 )
-                            })?;
+                            });
                         let source_params =
                             jit_param_names_for_block(block, &ambient_param_name_set);
                         let target_params = jit_param_names_for_block(

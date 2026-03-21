@@ -400,7 +400,7 @@ pub struct BlockPyFunction<P: BlockPyPass> {
     pub kind: BlockPyFunctionKind,
     pub params: ParamSpec,
     pub param_defaults: Vec<P::Expr>,
-    pub blocks: Vec<CfgBlock<BlockPyStmt<P::Expr>, BlockPyTerm<P::Expr>, P::BlockMeta>>,
+    pub blocks: Vec<CfgBlock<P::Stmt, P::Term, P::BlockMeta>>,
     pub doc: Option<String>,
     pub closure_layout: Option<ClosureLayout>,
     pub facts: BlockPyCallableFacts,
@@ -435,7 +435,7 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
         f: impl FnOnce(P::FunctionExtra) -> Q::FunctionExtra,
     ) -> BlockPyFunction<Q>
     where
-        Q: BlockPyPass<Expr = P::Expr, BlockMeta = P::BlockMeta>,
+        Q: BlockPyPass<Expr = P::Expr, Stmt = P::Stmt, Term = P::Term, BlockMeta = P::BlockMeta>,
     {
         BlockPyFunction {
             function_id: self.function_id,
@@ -457,7 +457,7 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
         mut f: impl FnMut(PassBlock<P>) -> PassBlock<Q>,
     ) -> BlockPyFunction<Q>
     where
-        Q: BlockPyPass<Expr = P::Expr, BlockMeta = P::BlockMeta, FunctionExtra = P::FunctionExtra>,
+        Q: BlockPyPass<Expr = P::Expr, FunctionExtra = P::FunctionExtra>,
     {
         BlockPyFunction {
             function_id: self.function_id,
@@ -475,32 +475,49 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
     }
 }
 
-impl<P> BlockPyFunction<P>
+pub(crate) fn lowered_entry_liveins<S, T, E, M>(
+    params: &ParamSpec,
+    blocks: &[CfgBlock<S, T, M>],
+    try_regions: &[TryRegionPlan],
+) -> Vec<String>
 where
-    P: BlockPyPass,
-    PassExpr<P>: Clone + Into<Expr>,
+    S: IntoBlockPyStmt<E>,
+    T: IntoBlockPyTerm<E>,
+    E: Clone + Into<Expr> + fmt::Debug,
 {
-    pub(crate) fn non_bb_entry_liveins(&self) -> Vec<String> {
-        if self.blocks.is_empty() {
-            return Vec::new();
-        }
-        let param_names = self.params.names();
-        let mut state_vars = collect_state_vars(&param_names, &self.blocks);
-        extend_state_order_with_declared_block_params(&self.blocks, &mut state_vars);
-        let mut block_params = compute_block_params_blockpy(
-            &self.blocks,
-            &state_vars,
-            &ruff_to_blockpy::build_try_extra_successors(&self.try_regions),
-        );
-        merge_declared_block_params(&self.blocks, &mut block_params);
-        block_params
-            .get(self.entry_block().label_str())
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|name| !is_resume_abi_param_name(name))
-            .collect()
+    if blocks.is_empty() {
+        return Vec::new();
     }
+    let lowered_blocks = blocks
+        .iter()
+        .map(|block| CfgBlock {
+            label: block.label.clone(),
+            body: block
+                .body
+                .iter()
+                .map(|stmt| stmt.clone().into_stmt())
+                .collect(),
+            term: block.term.clone().into_term(),
+            params: block.params.clone(),
+            meta: (),
+        })
+        .collect::<Vec<_>>();
+    let param_names = params.names();
+    let mut state_vars = collect_state_vars(&param_names, &lowered_blocks);
+    extend_state_order_with_declared_block_params(&lowered_blocks, &mut state_vars);
+    let mut block_params = compute_block_params_blockpy(
+        &lowered_blocks,
+        &state_vars,
+        &ruff_to_blockpy::build_try_extra_successors(try_regions),
+    );
+    merge_declared_block_params(&lowered_blocks, &mut block_params);
+    block_params
+        .get(lowered_blocks[0].label.as_str())
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|name| !is_resume_abi_param_name(name))
+        .collect()
 }
 
 macro_rules! impl_non_bb_entry_liveins {
@@ -508,7 +525,7 @@ macro_rules! impl_non_bb_entry_liveins {
         $(
             impl BlockPyFunction<$pass> {
                 pub fn entry_liveins(&self) -> Vec<String> {
-                    self.non_bb_entry_liveins()
+                    lowered_entry_liveins(&self.params, &self.blocks, &self.try_regions)
                 }
             }
         )*
@@ -541,27 +558,35 @@ pub struct BbBlockMeta {
     pub exc_edge: Option<BlockPyEdge<CoreBlockPyExprWithoutAwaitOrYield>>,
 }
 
+pub trait BlockPyNormalizedStmt {
+    fn assert_blockpy_normalized(&self);
+}
+
+pub trait IntoBlockPyStmt<E>: Clone + fmt::Debug {
+    fn into_stmt(self) -> BlockPyStmt<E>;
+}
+
+pub trait IntoBlockPyTerm<E>: Clone + fmt::Debug {
+    fn into_term(self) -> BlockPyTerm<E>;
+}
+
 pub trait BlockPyPass: Clone + fmt::Debug {
     type Expr: Clone + fmt::Debug;
+    type Stmt: BlockPyNormalizedStmt + IntoBlockPyStmt<Self::Expr>;
+    type Term: IntoBlockPyTerm<Self::Expr>;
     type BlockMeta: Clone + fmt::Debug;
     type FunctionExtra: Clone + fmt::Debug;
 }
 
 pub type PassExpr<P> = <P as BlockPyPass>::Expr;
-
-pub type PassStmt<P> = BlockPyStmt<<P as BlockPyPass>::Expr>;
-pub type PassTerm<P> = BlockPyTerm<<P as BlockPyPass>::Expr>;
-pub type PassBlock<P> = CfgBlock<PassStmt<P>, PassTerm<P>, <P as BlockPyPass>::BlockMeta>;
-pub type BbStmt = PassStmt<BbBlockPyPass>;
+pub type PassTerm<P> = <P as BlockPyPass>::Term;
+pub type PassBlock<P> =
+    CfgBlock<<P as BlockPyPass>::Stmt, PassTerm<P>, <P as BlockPyPass>::BlockMeta>;
 pub type BbBlock = PassBlock<BbBlockPyPass>;
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
 pub type BlockPyBlock<E = Expr> = BlockPyCfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>;
 pub type BlockPyStructuredIf<E = Expr> = BlockPyIf<E, BlockPyStmt<E>, BlockPyTerm<E>>;
-
-pub trait BlockPyNormalizedStmt {
-    fn assert_blockpy_normalized(&self);
-}
 
 pub trait BlockPyJumpTerm<L> {
     fn jump_term(target: L) -> Self;
@@ -784,6 +809,68 @@ impl<E: std::fmt::Debug> BlockPyNormalizedStmt for BlockPyStmt<E> {
 }
 
 #[derive(Debug, Clone)]
+pub enum BbStmt {
+    Assign(BlockPyAssign<CoreBlockPyExprWithoutAwaitOrYield>),
+    Expr(CoreBlockPyExprWithoutAwaitOrYield),
+    Delete(BlockPyDelete),
+}
+
+impl From<BlockPyAssign<CoreBlockPyExprWithoutAwaitOrYield>> for BbStmt {
+    fn from(value: BlockPyAssign<CoreBlockPyExprWithoutAwaitOrYield>) -> Self {
+        Self::Assign(value)
+    }
+}
+
+impl From<CoreBlockPyExprWithoutAwaitOrYield> for BbStmt {
+    fn from(value: CoreBlockPyExprWithoutAwaitOrYield) -> Self {
+        Self::Expr(value)
+    }
+}
+
+impl From<BlockPyDelete> for BbStmt {
+    fn from(value: BlockPyDelete) -> Self {
+        Self::Delete(value)
+    }
+}
+
+impl From<BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>> for BbStmt {
+    fn from(value: BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>) -> Self {
+        match value {
+            BlockPyStmt::Assign(assign) => Self::Assign(assign),
+            BlockPyStmt::Expr(expr) => Self::Expr(expr),
+            BlockPyStmt::Delete(delete) => Self::Delete(delete),
+            BlockPyStmt::If(_) => panic!("structured BlockPy If reached BbStmt conversion"),
+        }
+    }
+}
+
+impl IntoBlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield> for BbStmt {
+    fn into_stmt(self) -> BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield> {
+        match self {
+            BbStmt::Assign(assign) => BlockPyStmt::Assign(assign),
+            BbStmt::Expr(expr) => BlockPyStmt::Expr(expr),
+            BbStmt::Delete(delete) => BlockPyStmt::Delete(delete),
+        }
+    }
+}
+
+impl BlockPyNormalizedStmt for BbStmt {
+    fn assert_blockpy_normalized(&self) {}
+}
+
+impl<E: Clone + fmt::Debug> IntoBlockPyStmt<E> for BlockPyStmt<E> {
+    fn into_stmt(self) -> BlockPyStmt<E> {
+        self
+    }
+}
+
+impl<E: Clone + fmt::Debug> IntoBlockPyTerm<E> for BlockPyTerm<E> {
+    fn into_term(self) -> BlockPyTerm<E> {
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum BlockPyTerm<E = Expr> {
     Jump(BlockPyEdge<E>),
     IfTerm(BlockPyIfTerm<E>),
@@ -925,15 +1012,18 @@ where
         walk_block(self, block);
     }
 
-    fn visit_fragment(&mut self, fragment: &BlockPyCfgFragment<PassStmt<P>, PassTerm<P>>) {
+    fn visit_fragment(
+        &mut self,
+        fragment: &BlockPyCfgFragment<BlockPyStmt<PassExpr<P>>, BlockPyTerm<PassExpr<P>>>,
+    ) {
         walk_fragment(self, fragment);
     }
 
-    fn visit_stmt(&mut self, stmt: &PassStmt<P>) {
+    fn visit_stmt(&mut self, stmt: &BlockPyStmt<PassExpr<P>>) {
         walk_stmt(self, stmt);
     }
 
-    fn visit_term(&mut self, term: &PassTerm<P>) {
+    fn visit_term(&mut self, term: &BlockPyTerm<PassExpr<P>>) {
         walk_term(self, term);
     }
 
@@ -973,13 +1063,17 @@ where
     P: BlockPyPass,
 {
     for stmt in &block.body {
-        visitor.visit_stmt(stmt);
+        let stmt = stmt.clone().into_stmt();
+        visitor.visit_stmt(&stmt);
     }
-    visitor.visit_term(&block.term);
+    let term = block.term.clone().into_term();
+    visitor.visit_term(&term);
 }
 
-pub fn walk_fragment<V, P>(visitor: &mut V, fragment: &BlockPyCfgFragment<PassStmt<P>, PassTerm<P>>)
-where
+pub fn walk_fragment<V, P>(
+    visitor: &mut V,
+    fragment: &BlockPyCfgFragment<BlockPyStmt<PassExpr<P>>, BlockPyTerm<PassExpr<P>>>,
+) where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
 {
@@ -991,7 +1085,7 @@ where
     }
 }
 
-pub fn walk_stmt<V, P>(visitor: &mut V, stmt: &PassStmt<P>)
+pub fn walk_stmt<V, P>(visitor: &mut V, stmt: &BlockPyStmt<PassExpr<P>>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
@@ -1017,7 +1111,7 @@ where
     let _ = label;
 }
 
-pub fn walk_term<V, P>(visitor: &mut V, term: &PassTerm<P>)
+pub fn walk_term<V, P>(visitor: &mut V, term: &BlockPyTerm<PassExpr<P>>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
@@ -1064,6 +1158,8 @@ pub trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass<BlockMeta = PIn::BlockMeta, FunctionExtra = PIn::FunctionExtra>,
+    BlockPyStmt<POut::Expr>: Into<POut::Stmt>,
+    BlockPyTerm<POut::Expr>: Into<POut::Term>,
 {
     fn map_module(&self, module: BlockPyModule<PIn>) -> BlockPyModule<POut> {
         BlockPyModule {
@@ -1105,9 +1201,9 @@ where
             body: block
                 .body
                 .into_iter()
-                .map(|stmt| self.map_stmt(stmt))
+                .map(|stmt| self.map_stmt(stmt.into_stmt()).into())
                 .collect(),
-            term: self.map_term(block.term),
+            term: self.map_term(block.term.into_term()).into(),
             params: block.params,
             meta: block.meta,
         }
@@ -1115,8 +1211,8 @@ where
 
     fn map_fragment(
         &self,
-        fragment: BlockPyCfgFragment<PassStmt<PIn>, PassTerm<PIn>>,
-    ) -> BlockPyCfgFragment<PassStmt<POut>, PassTerm<POut>> {
+        fragment: BlockPyCfgFragment<BlockPyStmt<PassExpr<PIn>>, BlockPyTerm<PassExpr<PIn>>>,
+    ) -> BlockPyCfgFragment<BlockPyStmt<PassExpr<POut>>, BlockPyTerm<PassExpr<POut>>> {
         BlockPyCfgFragment {
             body: fragment
                 .body
@@ -1127,7 +1223,7 @@ where
         }
     }
 
-    fn map_stmt(&self, stmt: PassStmt<PIn>) -> PassStmt<POut> {
+    fn map_stmt(&self, stmt: BlockPyStmt<PassExpr<PIn>>) -> BlockPyStmt<PassExpr<POut>> {
         match stmt {
             BlockPyStmt::Assign(assign) => BlockPyStmt::Assign(BlockPyAssign {
                 target: assign.target,
@@ -1143,7 +1239,7 @@ where
         }
     }
 
-    fn map_term(&self, term: PassTerm<PIn>) -> PassTerm<POut> {
+    fn map_term(&self, term: BlockPyTerm<PassExpr<PIn>>) -> BlockPyTerm<PassExpr<POut>> {
         match term {
             BlockPyTerm::Jump(edge) => BlockPyTerm::Jump(BlockPyEdge {
                 target: edge.target,
@@ -1205,6 +1301,8 @@ where
     pub fn map_module<POut>(self, mapper: &impl BlockPyModuleMap<PIn, POut>) -> BlockPyModule<POut>
     where
         POut: BlockPyPass<BlockMeta = PIn::BlockMeta, FunctionExtra = PIn::FunctionExtra>,
+        BlockPyStmt<POut::Expr>: Into<POut::Stmt>,
+        BlockPyTerm<POut::Expr>: Into<POut::Term>,
     {
         mapper.map_module(self)
     }
@@ -1283,13 +1381,16 @@ mod tests {
 
             fn visit_fragment(
                 &mut self,
-                fragment: &BlockPyCfgFragment<PassStmt<RuffBlockPyPass>, PassTerm<RuffBlockPyPass>>,
+                fragment: &BlockPyCfgFragment<
+                    <RuffBlockPyPass as BlockPyPass>::Stmt,
+                    BlockPyTerm<PassExpr<RuffBlockPyPass>>,
+                >,
             ) {
                 self.trace.push("fragment".to_string());
                 walk_fragment(self, fragment);
             }
 
-            fn visit_stmt(&mut self, stmt: &PassStmt<RuffBlockPyPass>) {
+            fn visit_stmt(&mut self, stmt: &BlockPyStmt<PassExpr<RuffBlockPyPass>>) {
                 let kind = match stmt {
                     BlockPyStmt::Assign(_) => "assign",
                     BlockPyStmt::Expr(_) => "expr",
@@ -1300,7 +1401,7 @@ mod tests {
                 walk_stmt(self, stmt);
             }
 
-            fn visit_term(&mut self, term: &PassTerm<RuffBlockPyPass>) {
+            fn visit_term(&mut self, term: &BlockPyTerm<PassExpr<RuffBlockPyPass>>) {
                 let kind = match term {
                     BlockPyTerm::Jump(_) => "jump",
                     BlockPyTerm::IfTerm(_) => "if",

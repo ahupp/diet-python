@@ -12,8 +12,8 @@ mod summarize_pass_shape;
 mod trace;
 
 use crate::block_py::{
-    BbBlockMeta, BlockPyLabel, BlockPyPass, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
-    CoreBlockPyExprWithoutAwaitOrYield, Expr,
+    BbBlockMeta, BlockPyLabel, BlockPyPass, BlockPyStmt, CoreBlockPyExpr,
+    CoreBlockPyExprWithoutAwait, CoreBlockPyExprWithoutAwaitOrYield, Expr,
 };
 
 #[derive(Debug, Clone)]
@@ -21,6 +21,8 @@ pub struct RuffBlockPyPass;
 
 impl BlockPyPass for RuffBlockPyPass {
     type Expr = Expr;
+    type Stmt = BlockPyStmt<Self::Expr>;
+    type Term = crate::block_py::BlockPyTerm<Self::Expr>;
     type BlockMeta = ();
     type FunctionExtra = ();
 }
@@ -30,6 +32,8 @@ pub struct LoweredRuffBlockPyPass;
 
 impl BlockPyPass for LoweredRuffBlockPyPass {
     type Expr = Expr;
+    type Stmt = BlockPyStmt<Self::Expr>;
+    type Term = crate::block_py::BlockPyTerm<Self::Expr>;
     type BlockMeta = Option<BlockPyLabel>;
     type FunctionExtra = ();
 }
@@ -39,6 +43,8 @@ pub struct CoreBlockPyPass;
 
 impl BlockPyPass for CoreBlockPyPass {
     type Expr = CoreBlockPyExpr;
+    type Stmt = BlockPyStmt<Self::Expr>;
+    type Term = crate::block_py::BlockPyTerm<Self::Expr>;
     type BlockMeta = Option<BlockPyLabel>;
     type FunctionExtra = ();
 }
@@ -48,6 +54,8 @@ pub struct CoreBlockPyPassWithoutAwait;
 
 impl BlockPyPass for CoreBlockPyPassWithoutAwait {
     type Expr = CoreBlockPyExprWithoutAwait;
+    type Stmt = BlockPyStmt<Self::Expr>;
+    type Term = crate::block_py::BlockPyTerm<Self::Expr>;
     type BlockMeta = Option<BlockPyLabel>;
     type FunctionExtra = ();
 }
@@ -57,6 +65,8 @@ pub struct CoreBlockPyPassWithoutAwaitOrYield;
 
 impl BlockPyPass for CoreBlockPyPassWithoutAwaitOrYield {
     type Expr = CoreBlockPyExprWithoutAwaitOrYield;
+    type Stmt = BlockPyStmt<Self::Expr>;
+    type Term = crate::block_py::BlockPyTerm<Self::Expr>;
     type BlockMeta = Option<BlockPyLabel>;
     type FunctionExtra = ();
 }
@@ -66,6 +76,8 @@ pub struct BbBlockPyPass;
 
 impl BlockPyPass for BbBlockPyPass {
     type Expr = CoreBlockPyExprWithoutAwaitOrYield;
+    type Stmt = crate::block_py::BbStmt;
+    type Term = crate::block_py::BlockPyTerm<Self::Expr>;
     type BlockMeta = BbBlockMeta;
     type FunctionExtra = ();
 }
@@ -82,7 +94,7 @@ pub(crate) use summarize_pass_shape::summarize_tracked_pass_shape;
 #[cfg(test)]
 mod tests {
     use crate::block_py::{
-        BbBlock, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyStmt, BlockPyTerm,
+        BbBlock, BbStmt, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyTerm,
         CoreBlockPyExprWithoutAwaitOrYield,
     };
     use crate::block_py::{ClosureInit, ClosureSlot};
@@ -191,10 +203,9 @@ mod tests {
 
     fn block_uses_text(block: &BbBlock, needle: &str) -> bool {
         block.body.iter().any(|op| match op {
-            BlockPyStmt::Assign(assign) => expr_text(&assign.value).contains(needle),
-            BlockPyStmt::Expr(expr) => expr_text(expr).contains(needle),
-            BlockPyStmt::Delete(delete) => delete.target.id.as_str().contains(needle),
-            BlockPyStmt::If(_) => false,
+            BbStmt::Assign(assign) => expr_text(&assign.value).contains(needle),
+            BbStmt::Expr(expr) => expr_text(expr).contains(needle),
+            BbStmt::Delete(delete) => delete.target.id.as_str().contains(needle),
         }) || match &block.term {
             BlockPyTerm::IfTerm(if_term) => expr_text(&if_term.test).contains(needle),
             BlockPyTerm::BranchTable(branch) => expr_text(&branch.index).contains(needle),
@@ -920,7 +931,10 @@ def bump(x):
         let bump = lowered.bb_function("bump");
         assert!(
             bump.blocks.iter().any(|block| match block.body.as_slice() {
-                [BlockPyStmt::Assign(assign)] => expr_text(&assign.value).contains("__dp_iadd"),
+                [stmt] => matches!(
+                    stmt,
+                    BbStmt::Assign(assign) if expr_text(&assign.value).contains("__dp_iadd")
+                ),
                 _ => false,
             }),
             "{bump:?}"
