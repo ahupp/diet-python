@@ -12,7 +12,7 @@ mod summarize_pass_shape;
 mod trace;
 
 use crate::block_py::{
-    BbBlockMeta, BbTerm, BlockPyLabel, BlockPyPass, BlockPyStmt, CoreBlockPyExprWithoutAwait,
+    BbBlockMeta, BbTerm, BlockPyPass, BlockPyStmt, CoreBlockPyExprWithoutAwait,
     CoreBlockPyExprWithoutAwaitOrYield, ExplicitCoreBlockPyExpr, Expr,
 };
 
@@ -34,7 +34,7 @@ impl BlockPyPass for LoweredRuffBlockPyPass {
     type Expr = Expr;
     type Stmt = BlockPyStmt<Self::Expr>;
     type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type BlockMeta = Option<BlockPyLabel>;
+    type BlockMeta = BbBlockMeta;
     type FunctionExtra = ();
 }
 
@@ -45,7 +45,7 @@ impl BlockPyPass for CoreBlockPyPass {
     type Expr = ExplicitCoreBlockPyExpr;
     type Stmt = BlockPyStmt<Self::Expr>;
     type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type BlockMeta = Option<BlockPyLabel>;
+    type BlockMeta = BbBlockMeta;
     type FunctionExtra = ();
 }
 
@@ -56,7 +56,7 @@ impl BlockPyPass for CoreBlockPyPassWithoutAwait {
     type Expr = CoreBlockPyExprWithoutAwait;
     type Stmt = BlockPyStmt<Self::Expr>;
     type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type BlockMeta = Option<BlockPyLabel>;
+    type BlockMeta = BbBlockMeta;
     type FunctionExtra = ();
 }
 
@@ -67,7 +67,7 @@ impl BlockPyPass for CoreBlockPyPassWithoutAwaitOrYield {
     type Expr = CoreBlockPyExprWithoutAwaitOrYield;
     type Stmt = BlockPyStmt<Self::Expr>;
     type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type BlockMeta = Option<BlockPyLabel>;
+    type BlockMeta = BbBlockMeta;
     type FunctionExtra = ();
 }
 
@@ -109,7 +109,7 @@ mod tests {
         CoreBlockPyExprWithoutAwaitOrYield,
     };
     use crate::block_py::{ClosureInit, ClosureSlot};
-    use crate::passes::{BbBlockPyPass, RuffBlockPyPass};
+    use crate::passes::{BbBlockPyPass, LoweredRuffBlockPyPass, RuffBlockPyPass};
     use crate::LoweringResult;
     use crate::{
         py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
@@ -1386,7 +1386,9 @@ class Field:
             let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
                 .expect("transform should succeed");
             let blockpy = lowered
-                .get_pass::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+                .get_pass::<crate::block_py::BlockPyModule<LoweredRuffBlockPyPass>>(
+                    "semantic_blockpy",
+                )
                 .cloned()
                 .expect("expected lowered semantic BlockPy module");
             let blockpy_rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);

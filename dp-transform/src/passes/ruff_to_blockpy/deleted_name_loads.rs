@@ -15,7 +15,7 @@ fn rewrite_blockpy_expr_deleted_name_loads(
     rewriter.visit_expr(expr);
 }
 
-pub(super) fn rewrite_deleted_name_loads(
+pub(crate) fn rewrite_deleted_name_loads(
     blocks: &mut [BlockPyBlock<Expr>],
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,

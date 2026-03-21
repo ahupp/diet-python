@@ -1,13 +1,9 @@
-use crate::block_py::dataflow::{
-    analyze_blockpy_use_def, compute_block_params_blockpy,
-    extend_state_order_with_declared_block_params, merge_declared_block_params,
-};
+use crate::block_py::dataflow::analyze_blockpy_use_def;
 use crate::block_py::param_specs::{collect_param_spec_and_defaults, param_defaults_to_expr};
-use crate::block_py::state::{collect_cell_slots, collect_state_vars};
+use crate::block_py::state::collect_cell_slots;
 use crate::block_py::BindingTarget;
 use crate::block_py::{
-    is_resume_abi_param_name, BlockPyCallableFacts, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyModule, FunctionName, TryRegionPlan,
+    BlockPyCallableFacts, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, FunctionName,
 };
 use crate::passes::annotation_export::{
     build_lowered_annotation_helper_binding, is_annotation_helper_name,
@@ -24,7 +20,7 @@ use crate::passes::ast_to_ast::rewrite_stmt;
 use crate::passes::ast_to_ast::scope::{
     analyze_module_scope, cell_name, is_internal_symbol, Scope,
 };
-use crate::passes::RuffBlockPyPass;
+use crate::passes::LoweredRuffBlockPyPass;
 
 use crate::passes::function_identity::{
     collect_function_identity_private, is_module_init_temp_name, resolve_runtime_function_identity,
@@ -36,7 +32,10 @@ use ruff_python_ast::{self as ast, name::Name, Expr, NodeIndex, Stmt};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use super::{build_blockpy_callable_def_from_runtime_input, take_next_function_id};
+use super::{
+    attach_exception_edges_to_blocks, build_blockpy_callable_def_from_runtime_input,
+    compute_blockpy_exception_edges, rewrite_deleted_name_loads, take_next_function_id,
+};
 
 struct FunctionScopeFrame {
     name: String,
@@ -56,7 +55,7 @@ struct BlockPyModuleRewriter<'a> {
     next_function_id: usize,
     reserved_temp_names_stack: Vec<HashSet<String>>,
     function_scope_stack: Vec<FunctionScopeFrame>,
-    callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>>,
+    callable_defs: Vec<BlockPyFunction<LoweredRuffBlockPyPass>>,
 }
 
 enum LoweredFunctionPlacementPlan {
@@ -261,7 +260,7 @@ fn try_lower_function_to_blockpy_bundle(
     reserved_temp_names_stack: &mut Vec<HashSet<String>>,
     next_block_id: &mut usize,
     next_function_id: &mut usize,
-) -> Option<BlockPyFunction<RuffBlockPyPass>> {
+) -> Option<BlockPyFunction<LoweredRuffBlockPyPass>> {
     if should_keep_non_lowered_for_annotationlib(func) {
         return None;
     }
@@ -311,7 +310,7 @@ fn try_lower_function_to_blockpy_bundle(
     let main_function_id = take_next_function_id(next_function_id);
     let fn_name = func.name.id.to_string();
     let blockpy_kind = function_kind(func);
-    let callable_def = build_blockpy_callable_def_from_runtime_input(
+    let mut callable_def = build_blockpy_callable_def_from_runtime_input(
         context,
         main_function_id,
         FunctionName::new(
@@ -331,7 +330,34 @@ fn try_lower_function_to_blockpy_bundle(
             next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
         },
     );
-    Some(callable_def)
+    if !callable_facts.deleted_names.is_empty() {
+        rewrite_deleted_name_loads(
+            &mut callable_def.blocks,
+            &callable_facts.deleted_names,
+            &callable_facts.unbound_local_names,
+        );
+    } else if !callable_facts.unbound_local_names.is_empty() {
+        rewrite_deleted_name_loads(
+            &mut callable_def.blocks,
+            &HashSet::new(),
+            &callable_facts.unbound_local_names,
+        );
+    }
+
+    let exception_edges = compute_blockpy_exception_edges(&callable_def.try_regions);
+
+    Some(BlockPyFunction {
+        function_id: callable_def.function_id,
+        names: callable_def.names,
+        kind: callable_def.kind,
+        params: callable_def.params,
+        blocks: attach_exception_edges_to_blocks(callable_def.blocks, &exception_edges),
+        doc: callable_def.doc,
+        closure_layout: callable_def.closure_layout,
+        facts: callable_def.facts,
+        try_regions: callable_def.try_regions,
+        extra: (),
+    })
 }
 
 fn function_docstring_text(func: &ast::StmtFunctionDef) -> Option<String> {
@@ -570,27 +596,6 @@ fn capture_items_to_expr(captures: &[LoweredFunctionCaptureValue]) -> Expr {
     )
 }
 
-fn build_try_extra_successors(try_regions: &[TryRegionPlan]) -> HashMap<String, Vec<String>> {
-    let mut extra = HashMap::new();
-    for region in try_regions {
-        for label in &region.body_region_labels {
-            extra
-                .entry(label.clone())
-                .or_insert_with(Vec::new)
-                .push(region.body_exception_target.clone());
-        }
-        if let Some(cleanup_target) = region.cleanup_exception_target.as_ref() {
-            for label in &region.cleanup_region_labels {
-                extra
-                    .entry(label.clone())
-                    .or_insert_with(Vec::new)
-                    .push(cleanup_target.clone());
-            }
-        }
-    }
-    extra
-}
-
 fn classify_capture_items(
     entry_liveins: &[String],
     param_names: &HashSet<String>,
@@ -620,33 +625,11 @@ fn classify_capture_items(
 }
 
 fn build_lowered_function_instantiation_preview(
-    callable_def: &BlockPyFunction<RuffBlockPyPass>,
+    callable_def: &BlockPyFunction<LoweredRuffBlockPyPass>,
 ) -> Option<LoweredFunctionInstantiationPreview> {
     let param_names = callable_def.params.names();
     let param_name_set: HashSet<String> = param_names.iter().cloned().collect();
-    let mut state_vars = collect_state_vars(&param_names, &callable_def.blocks);
-    for block in &callable_def.blocks {
-        let Some(exc_param) = block.exception_param() else {
-            continue;
-        };
-        if !state_vars.iter().any(|existing| existing == exc_param) {
-            state_vars.push(exc_param.to_string());
-        }
-    }
-    extend_state_order_with_declared_block_params(&callable_def.blocks, &mut state_vars);
-    let mut block_params = compute_block_params_blockpy(
-        &callable_def.blocks,
-        &state_vars,
-        &build_try_extra_successors(&callable_def.try_regions),
-    );
-    merge_declared_block_params(&callable_def.blocks, &mut block_params);
-    let entry_liveins = block_params
-        .get(callable_def.entry_block().label_str())
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|name| !is_resume_abi_param_name(name))
-        .collect::<Vec<_>>();
+    let entry_liveins = callable_def.entry_liveins();
     let locally_assigned: HashSet<String> = callable_def
         .blocks
         .iter()
@@ -980,14 +963,14 @@ mod tests {
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
     context: &Context,
     module: Suite,
-) -> BlockPyModule<RuffBlockPyPass> {
+) -> BlockPyModule<LoweredRuffBlockPyPass> {
     rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module).1
 }
 
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
     context: &Context,
     mut module: Suite,
-) -> (Suite, BlockPyModule<RuffBlockPyPass>) {
+) -> (Suite, BlockPyModule<LoweredRuffBlockPyPass>) {
     crate::passes::ast_to_ast::simplify::flatten(&mut module);
     let module_scope = analyze_module_scope(&mut module);
     let function_identity_by_node =
@@ -1441,7 +1424,7 @@ fn rewrite_function_def_stmt_via_blockpy(
     reserved_temp_names_stack: &mut Vec<HashSet<String>>,
     next_block_id: &mut usize,
     next_function_id: &mut usize,
-    callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
+    callable_defs: &mut Vec<BlockPyFunction<LoweredRuffBlockPyPass>>,
 ) -> Option<Vec<Stmt>> {
     let doc = function_docstring_text(func);
     if let Some(lowered_plan) = try_lower_function_to_blockpy_bundle(

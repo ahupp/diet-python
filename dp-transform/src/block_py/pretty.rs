@@ -1,12 +1,16 @@
 use super::{
-    lowered_entry_liveins, AbruptKind, BbStmt, BlockArg, BlockPyCfgFragment, BlockPyEdge,
-    BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass,
-    BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump, CfgBlock,
+    lowered_entry_liveins, AbruptKind, BbBlockMeta, BbStmt, BlockArg, BlockPyCfgFragment,
+    BlockPyEdge, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule,
+    BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump, CfgBlock,
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral, Expr, IntoBlockPyStmt, IntoBlockPyTerm,
     PassBlock, PassExpr,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
-use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass};
+use crate::passes::{
+    BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
+    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, PreparedBbBlockPyPass,
+    RuffBlockPyPass,
+};
 use crate::ruff_ast_to_string;
 use std::collections::{HashMap, HashSet};
 
@@ -26,19 +30,29 @@ pub trait BlockPyPrettyPrinter: BlockPyPass {
         Self: Sized;
 }
 
-impl<P> BlockPyPrettyPrinter for P
-where
-    P: BlockPyPass,
-    P::BlockMeta: PrettyDefaultBlockMeta<PassExpr<P>>,
-{
-    fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
-        lowered_entry_liveins(&function.params, &function.blocks, &function.try_regions)
-    }
+macro_rules! impl_default_blockpy_pretty_printer {
+    ($($pass:ty),* $(,)?) => {
+        $(
+            impl BlockPyPrettyPrinter for $pass {
+                fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
+                    lowered_entry_liveins(&function.params, &function.blocks, &function.try_regions)
+                }
 
-    fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
-        <P::BlockMeta as PrettyDefaultBlockMeta<PassExpr<P>>>::block_metadata_lines(block)
-    }
+                fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
+                    <<Self as BlockPyPass>::BlockMeta as PrettyDefaultBlockMeta<PassExpr<Self>>>::block_metadata_lines(block)
+                }
+            }
+        )*
+    };
 }
+
+impl_default_blockpy_pretty_printer!(
+    RuffBlockPyPass,
+    LoweredRuffBlockPyPass,
+    CoreBlockPyPass,
+    CoreBlockPyPassWithoutAwait,
+    CoreBlockPyPassWithoutAwaitOrYield,
+);
 
 impl BlockPyPrettyPrinter for BbBlockPyPass {
     fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
@@ -120,14 +134,14 @@ impl<E> PrettyDefaultBlockMeta<E> for () {
     }
 }
 
-impl<E> PrettyDefaultBlockMeta<E> for Option<BlockPyLabel> {
+impl<E> PrettyDefaultBlockMeta<E> for BbBlockMeta {
     fn block_metadata_lines<S, T>(block: &CfgBlock<S, T, Self>) -> Vec<String>
     where
         S: IntoBlockPyStmt<E>,
     {
         let mut lines = render_blockpy_block_metadata(block);
-        if let Some(exc_target) = &block.meta {
-            lines.push(format!("exc_target: {}", exc_target.as_str()));
+        if let Some(exc_edge) = &block.meta.exc_edge {
+            lines.push(format!("exc_target: {}", exc_edge.target.as_str()));
         }
         lines
     }

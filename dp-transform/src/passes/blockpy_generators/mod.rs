@@ -3,10 +3,10 @@ use crate::block_py::dataflow::analyze_blockpy_use_def;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
-    is_resume_abi_param_name, resume_abi_params, BlockParam, BlockParamRole, BlockPyAssign,
-    BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyCfgFragment, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyCall,
+    is_resume_abi_param_name, resume_abi_params, BbBlockMeta, BlockParam, BlockParamRole,
+    BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyCfgFragment,
+    BlockPyFunction, BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise,
+    BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyCall,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
     CoreBlockPyExprWithoutAwaitOrYield, FunctionId, FunctionName,
 };
@@ -372,7 +372,7 @@ fn sync_resume_state_blocks(
         CfgBlock<
             BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
             BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-            Option<BlockPyLabel>,
+            BbBlockMeta,
         >,
     >,
     layout: &ClosureLayout,
@@ -380,7 +380,7 @@ fn sync_resume_state_blocks(
     CfgBlock<
         BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
         BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-        Option<BlockPyLabel>,
+        BbBlockMeta,
     >,
 > {
     let storage_by_logical_name = generator_cell_storage_by_logical_name(layout);
@@ -1342,7 +1342,7 @@ fn lower_resume_blocks(
         CfgBlock<
             BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
             BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-            Option<BlockPyLabel>,
+            BbBlockMeta,
         >,
     >,
     HashMap<String, Option<String>>,
@@ -1351,9 +1351,9 @@ fn lower_resume_blocks(
     let block_params =
         recompute_lowered_block_params(callable, should_include_closure_storage_aliases(callable));
     let exception_edges = lowered_exception_edges(&callable.blocks);
-    let (linear_blocks, _linear_params, mut linear_exception_edges) =
+    let (linear_blocks, _linear_params, linear_exception_edges) =
         linearize_structured_ifs(&callable.blocks, &block_params, &exception_edges);
-    let mut linear_blocks = linear_blocks
+    let linear_blocks = linear_blocks
         .into_iter()
         .map(make_eval_order_explicit_in_core_block_without_await)
         .map(|block| BlockPyBlock {

@@ -97,13 +97,12 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
         &lowered_view,
         should_include_closure_storage_aliases(&lowered_view),
     );
-    let exception_edges = lowered_exception_edges(&lowered_view.blocks);
     BlockPyFunction {
         function_id,
         names,
         kind,
         params,
-        blocks: lower_blockpy_blocks_to_bb_blocks(&blocks, &block_params, &exception_edges),
+        blocks: lower_blockpy_blocks_to_bb_blocks(&blocks, &block_params),
         doc,
         closure_layout,
         facts,
@@ -116,13 +115,13 @@ fn lower_blockpy_blocks_to_bb_blocks(
     blocks: &[crate::block_py::CfgBlock<
         BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
         BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-        Option<crate::block_py::BlockPyLabel>,
+        BbBlockMeta,
     >],
     block_params: &HashMap<String, Vec<String>>,
-    exception_edges: &HashMap<String, Option<String>>,
 ) -> Vec<BbBlock> {
+    let exception_edges = lowered_exception_edges(blocks);
     let (linear_blocks, linear_block_params, linear_exception_edges) =
-        linearize_structured_ifs(blocks, block_params, exception_edges);
+        linearize_structured_ifs(blocks, block_params, &exception_edges);
     let mut bb_blocks = linear_blocks
         .iter()
         .map(|block| {
@@ -418,8 +417,9 @@ fn bb_stmt_from_blockpy_stmt(stmt: BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYiel
 #[cfg(test)]
 mod tests {
     use crate::block_py::{
-        BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt, BlockPyStmtFragment,
-        BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
+        BbBlockMeta, BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt,
+        BlockPyStmtFragment, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
+        CoreBlockPyExprWithoutAwaitOrYield,
     };
     use crate::passes::blockpy_to_bb::lower_blockpy_blocks_to_bb_blocks;
     use ruff_python_ast::{self as ast};
@@ -478,9 +478,8 @@ mod tests {
                 body: block.body,
                 term: block.term,
                 params: block.params,
-                meta: None,
+                meta: BbBlockMeta::default(),
             }],
-            &HashMap::new(),
             &HashMap::new(),
         );
 
@@ -535,9 +534,8 @@ mod tests {
                 body: block.body,
                 term: block.term,
                 params: block.params,
-                meta: None,
+                meta: BbBlockMeta::default(),
             }],
-            &HashMap::new(),
             &HashMap::new(),
         );
         let block = &lowered[0];

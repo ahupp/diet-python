@@ -15,14 +15,14 @@ use crate::block_py::state::{
     collect_state_vars, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use crate::block_py::{
-    assert_blockpy_block_normalized, BlockPyBlock, BlockPyCallableFacts, BlockPyFallthroughTerm,
-    BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyStmt, BlockPyTerm,
-    BlockPyTryJump, CfgBlock, ClosureLayout, FunctionId, FunctionName,
+    assert_blockpy_block_normalized, BbBlockMeta, BlockPyBlock, BlockPyCallableFacts, BlockPyEdge,
+    BlockPyFallthroughTerm, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyPass,
+    BlockPyStmt, BlockPyTerm, BlockPyTryJump, CfgBlock, ClosureLayout, FunctionId, FunctionName,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
-use crate::passes::{LoweredRuffBlockPyPass, RuffBlockPyPass};
+use crate::passes::RuffBlockPyPass;
 use crate::ruff_ast_to_string;
 use crate::template::is_simple;
 use crate::{py_expr, py_stmt};
@@ -36,7 +36,7 @@ mod module_plan;
 mod stmt_lowering;
 mod stmt_sequences;
 mod try_regions;
-use deleted_name_loads::rewrite_deleted_name_loads;
+pub(crate) use deleted_name_loads::rewrite_deleted_name_loads;
 
 pub(crate) use super::blockpy_generators::build_blockpy_closure_layout;
 pub(crate) use module_plan::rewrite_ast_to_lowered_blockpy_module_plan_with_module;
@@ -143,7 +143,7 @@ pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId 
 pub(crate) fn attach_exception_edges_to_blocks<E>(
     blocks: Vec<BlockPyBlock<E>>,
     exception_edges: &HashMap<String, Option<String>>,
-) -> Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, Option<BlockPyLabel>>> {
+) -> Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, BbBlockMeta>> {
     blocks
         .into_iter()
         .map(|block| CfgBlock {
@@ -151,24 +151,31 @@ pub(crate) fn attach_exception_edges_to_blocks<E>(
             body: block.body,
             term: block.term,
             params: block.params,
-            meta: exception_edges
-                .get(block.label.as_str())
-                .cloned()
-                .flatten()
-                .map(BlockPyLabel::from),
+            meta: BbBlockMeta {
+                exc_edge: exception_edges
+                    .get(block.label.as_str())
+                    .cloned()
+                    .flatten()
+                    .map(BlockPyLabel::from)
+                    .map(BlockPyEdge::new),
+            },
         })
         .collect()
 }
 
 pub(crate) fn lowered_exception_edges<S, T>(
-    blocks: &[CfgBlock<S, T, Option<BlockPyLabel>>],
+    blocks: &[CfgBlock<S, T, BbBlockMeta>],
 ) -> HashMap<String, Option<String>> {
     blocks
         .iter()
         .map(|block| {
             (
                 block.label.as_str().to_string(),
-                block.meta.as_ref().map(ToString::to_string),
+                block
+                    .meta
+                    .exc_edge
+                    .as_ref()
+                    .map(|edge| edge.target.to_string()),
             )
         })
         .collect()
@@ -222,7 +229,7 @@ pub(crate) fn recompute_lowered_block_params<P>(
     include_closure_storage_aliases: bool,
 ) -> HashMap<String, Vec<String>>
 where
-    P: BlockPyPass<BlockMeta = Option<BlockPyLabel>>,
+    P: BlockPyPass<BlockMeta = BbBlockMeta>,
 {
     let param_names = function.params.names();
     let mut state_vars = collect_state_vars(&param_names, &function.blocks);
@@ -255,15 +262,6 @@ where
         }
     }
     block_params
-}
-
-pub(crate) fn normalize_exported_entry_block(
-    entry_label: String,
-    mut blocks: Vec<BlockPyBlock<Expr>>,
-    exception_edges: HashMap<String, Option<String>>,
-) -> (Vec<BlockPyBlock<Expr>>, HashMap<String, Option<String>>) {
-    move_blockpy_entry_block_to_front(&mut blocks, entry_label.as_str());
-    (blocks, exception_edges)
 }
 
 fn build_semantic_blockpy_closure_layout(
@@ -319,54 +317,6 @@ fn build_semantic_blockpy_closure_layout(
         &capture_names,
         injected_exception_names,
     ))
-}
-
-pub(crate) fn build_lowered_blockpy_function_bundle(
-    callable_def: BlockPyFunction<RuffBlockPyPass>,
-) -> BlockPyFunction<LoweredRuffBlockPyPass> {
-    let callable_facts = callable_def.facts.clone();
-    let mut callable_def = callable_def;
-    if !callable_facts.deleted_names.is_empty() {
-        rewrite_deleted_name_loads(
-            &mut callable_def.blocks,
-            &callable_facts.deleted_names,
-            &callable_facts.unbound_local_names,
-        );
-    } else if !callable_facts.unbound_local_names.is_empty() {
-        rewrite_deleted_name_loads(
-            &mut callable_def.blocks,
-            &HashSet::new(),
-            &callable_facts.unbound_local_names,
-        );
-    }
-    let mut blockpy_function = callable_def;
-    let entry_label = blockpy_function.entry_block().label_str().to_string();
-    let exception_edges = compute_blockpy_exception_edges(&blockpy_function.try_regions);
-    let blocks_for_dataflow = std::mem::take(&mut blockpy_function.blocks);
-    let semantic_closure_layout = blockpy_function.closure_layout.clone();
-
-    let function_id = blockpy_function.function_id;
-    let names = blockpy_function.names.clone();
-    let kind = blockpy_function.kind;
-    let doc = blockpy_function.doc.clone();
-    let params = blockpy_function.params.clone();
-    let (normalized_main_blocks, normalized_main_exception_edges) =
-        normalize_exported_entry_block(entry_label, blocks_for_dataflow, exception_edges);
-    BlockPyFunction {
-        function_id,
-        names,
-        kind,
-        params,
-        blocks: attach_exception_edges_to_blocks(
-            normalized_main_blocks,
-            &normalized_main_exception_edges,
-        ),
-        doc,
-        closure_layout: semantic_closure_layout,
-        facts: blockpy_function.facts.clone(),
-        try_regions: blockpy_function.try_regions.clone(),
-        extra: (),
-    }
 }
 
 pub(crate) fn build_finalized_blockpy_callable_def(
@@ -599,16 +549,18 @@ mod tests {
         lower_while_stmt_sequence, lower_while_stmt_sequence_from_stmt, plan_stmt_sequence_head,
     };
     use crate::passes::ruff_to_blockpy::try_regions::build_try_plan;
-    use crate::passes::{CoreBlockPyPassWithoutAwaitOrYield, RuffBlockPyPass};
+    use crate::passes::{
+        CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, RuffBlockPyPass,
+    };
     use crate::{transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options};
     fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
         transform_str_to_blockpy_with_options(source, Options::for_test()).unwrap()
     }
 
-    fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
+    fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<LoweredRuffBlockPyPass> {
         transform_str_to_ruff_with_options(source, Options::for_test())
             .unwrap()
-            .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+            .get_pass::<BlockPyModule<LoweredRuffBlockPyPass>>("semantic_blockpy")
             .cloned()
             .expect("semantic_blockpy pass should be tracked")
     }

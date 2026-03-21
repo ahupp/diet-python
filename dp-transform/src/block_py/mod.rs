@@ -18,7 +18,7 @@ use ruff_python_ast::{
     StringLiteralValue,
 };
 use std::borrow::Borrow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::ops::Deref;
 
@@ -490,7 +490,44 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
     }
 }
 
-pub(crate) fn lowered_entry_liveins<S, T, E, M>(
+trait EntryLiveinsBlockMeta: Clone + fmt::Debug {
+    fn extra_successors<S, T>(
+        blocks: &[CfgBlock<S, T, Self>],
+        try_regions: &[TryRegionPlan],
+    ) -> HashMap<String, Vec<String>>
+    where
+        Self: Sized;
+}
+
+impl EntryLiveinsBlockMeta for () {
+    fn extra_successors<S, T>(
+        _blocks: &[CfgBlock<S, T, Self>],
+        try_regions: &[TryRegionPlan],
+    ) -> HashMap<String, Vec<String>> {
+        ruff_to_blockpy::build_try_extra_successors(try_regions)
+    }
+}
+
+impl EntryLiveinsBlockMeta for BbBlockMeta {
+    fn extra_successors<S, T>(
+        blocks: &[CfgBlock<S, T, Self>],
+        _try_regions: &[TryRegionPlan],
+    ) -> HashMap<String, Vec<String>> {
+        let mut extra_successors = HashMap::new();
+        for (source, target) in ruff_to_blockpy::lowered_exception_edges(blocks) {
+            let Some(target) = target else {
+                continue;
+            };
+            extra_successors
+                .entry(source)
+                .or_insert_with(Vec::new)
+                .push(target);
+        }
+        extra_successors
+    }
+}
+
+fn lowered_entry_liveins<S, T, E, M>(
     params: &ParamSpec,
     blocks: &[CfgBlock<S, T, M>],
     try_regions: &[TryRegionPlan],
@@ -499,6 +536,7 @@ where
     S: IntoBlockPyStmt<E>,
     T: IntoBlockPyTerm<E>,
     E: Clone + Into<Expr> + fmt::Debug,
+    M: EntryLiveinsBlockMeta,
 {
     if blocks.is_empty() {
         return Vec::new();
@@ -523,7 +561,7 @@ where
     let mut block_params = compute_block_params_blockpy(
         &lowered_blocks,
         &state_vars,
-        &ruff_to_blockpy::build_try_extra_successors(try_regions),
+        &M::extra_successors(blocks, try_regions),
     );
     merge_declared_block_params(&lowered_blocks, &mut block_params);
     block_params

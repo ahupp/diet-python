@@ -13,13 +13,10 @@ use crate::passes::ast_to_ast::{
 };
 use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
-use crate::passes::ruff_to_blockpy::{
-    build_lowered_blockpy_function_bundle, rewrite_ast_to_lowered_blockpy_module_plan_with_module,
-};
+use crate::passes::ruff_to_blockpy::rewrite_ast_to_lowered_blockpy_module_plan_with_module;
 use crate::passes::{
     self, BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
     CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, PreparedBbBlockPyPass,
-    RuffBlockPyPass,
 };
 use crate::PassTracker;
 use ruff_python_ast::{self as ast, Expr, Stmt};
@@ -127,28 +124,26 @@ pub(crate) fn rewrite_module_with_tracker(
 
     let (module, semantic_blockpy_untracked) =
         rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module);
-    let semantic_blockpy: BlockPyModule<RuffBlockPyPass> =
-        pass_tracker.run_renderable_pass("semantic_blockpy", || semantic_blockpy_untracked.clone());
-
-    let lowered_blockpy_module: BlockPyModule<LoweredRuffBlockPyPass> = pass_tracker
-        .run_renderable_pass("blockpy", || {
-            semantic_blockpy.map_callable_defs(build_lowered_blockpy_function_bundle)
-        });
+    let semantic_blockpy: BlockPyModule<LoweredRuffBlockPyPass> =
+        pass_tracker.run_renderable_pass("semantic_blockpy", || semantic_blockpy_untracked);
 
     /*
     Simplify expressions:
       - replace operators with intrinsic calls like __dp_add
       - make expression evaluation order explicit by hoisting any complex sub-expressions into temporary, e.g
-        this: `f(g(x), h(y))` becomes:
-        ```
-        tmp1 = g(x)
-        tmp2 = h(y)
-        f(tmp1, tmp2)
-        ```
+        this:
+            `f(g(x), h(y))`
+
+        becomes:
+            ```
+            tmp1 = g(x)
+            tmp2 = h(y)
+            f(tmp1, tmp2)
+            ```
     */
     let core_blockpy: BlockPyModule<CoreBlockPyPass> = pass_tracker
         .run_renderable_pass("core_blockpy", || {
-            lowered_blockpy_module.map_callable_defs(simplify_blockpy_callable_def_exprs)
+            semantic_blockpy.map_callable_defs(simplify_blockpy_callable_def_exprs)
         });
 
     /*

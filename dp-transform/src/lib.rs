@@ -317,7 +317,7 @@ pub fn transform_str_to_blockpy_with_options(
 
     let (pass_tracker, _transformed_body) = crate::driver::rewrite_module(&ctx, body);
     let blockpy = pass_tracker
-        .get::<BlockPyModule<crate::passes::LoweredRuffBlockPyPass>>("blockpy")
+        .get::<BlockPyModule<crate::passes::LoweredRuffBlockPyPass>>("semantic_blockpy")
         .expect("blockpy pass should be tracked");
     let callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>> = blockpy
         .callable_defs
