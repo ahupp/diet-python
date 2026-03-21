@@ -2,15 +2,11 @@ use crate::block_py::{
     BlockPyBlock, BlockPyBranchTable, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
     BlockPyStmtFragment, BlockPyTerm,
 };
-use crate::passes::ast_to_ast::ast_rewrite::{Rewrite, StmtRewritePass};
 use crate::passes::ast_to_ast::body::suite_mut;
-use crate::passes::ast_to_ast::context::Context;
 use crate::py_expr;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::collections::HashSet;
-
-pub struct SingleNamedAssignmentPass;
 
 fn rewrite_blockpy_expr_deleted_name_loads(
     expr: &mut Expr,
@@ -19,7 +15,7 @@ fn rewrite_blockpy_expr_deleted_name_loads(
     rewriter.visit_expr(expr);
 }
 
-pub(crate) fn rewrite_deleted_name_loads(
+pub(super) fn rewrite_deleted_name_loads(
     blocks: &mut [BlockPyBlock<Expr>],
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
@@ -172,17 +168,5 @@ impl Transformer for DeletedNameLoadRewriter<'_> {
             }
         }
         walk_expr(self, expr);
-    }
-}
-
-impl StmtRewritePass for SingleNamedAssignmentPass {
-    fn lower_stmt(&self, context: &Context, stmt: Stmt) -> Rewrite {
-        match stmt {
-            Stmt::Assign(assign) => {
-                crate::passes::ruff_to_blockpy::rewrite_assign_stmt(context, assign)
-            }
-            Stmt::Delete(del) => crate::passes::ruff_to_blockpy::rewrite_delete_stmt(del),
-            other => Rewrite::Unmodified(other),
-        }
     }
 }

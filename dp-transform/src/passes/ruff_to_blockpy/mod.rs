@@ -1,4 +1,3 @@
-use super::function_lowering::rewrite_deleted_name_loads;
 use crate::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
     prune_unreachable_blockpy_blocks, relabel_blockpy_blocks, rename_blockpy_labels,
@@ -31,11 +30,13 @@ use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 mod compat;
+mod deleted_name_loads;
 pub(crate) mod expr_lowering;
 mod module_plan;
 mod stmt_lowering;
 mod stmt_sequences;
 mod try_regions;
+use deleted_name_loads::rewrite_deleted_name_loads;
 
 pub(crate) use super::blockpy_generators::build_blockpy_closure_layout;
 pub(crate) use module_plan::rewrite_ast_to_lowered_blockpy_module_plan;

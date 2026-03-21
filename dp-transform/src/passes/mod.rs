@@ -7,7 +7,6 @@ mod cfg_trace;
 pub(crate) mod core_await_lower;
 pub(crate) mod core_eval_order;
 mod function_identity;
-mod function_lowering;
 pub mod ruff_to_blockpy;
 mod summarize_pass_shape;
 
@@ -21,7 +20,7 @@ pub(crate) use blockpy_to_bb::{
 };
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
 
-pub use function_lowering::SingleNamedAssignmentPass;
+pub use ast_to_ast::rewrite_stmt::single_assigment::SingleNamedAssignmentPass;
 pub(crate) use summarize_pass_shape::summarize_tracked_pass_shape;
 
 #[cfg(test)]

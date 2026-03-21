@@ -5,11 +5,9 @@
 - Add one entry per request and include any plan or relevant response summary with it.
 
 
-- move bb_ir into blockpy_to_bb/mod.rs
+
 - Determine if codegen_trace.rs and cfg_trace.rs are doing similar things, and merge if so.
 
-- move "block_py" to be a top-level module.
-- rename the "basic_block" module to "passes"
 
 - Simplify should remove literals for true/false/none/ellipsis, replacing them with their _dp_ versions, remove that from codegen_normalize.  Remove those from the expr ast.
 
@@ -95,4 +93,7 @@
 - I don't think flatten_stmt_boxes and flatten_stmt do anything anymore, remove
 - merge bound_names into ast_symbol_analysis
 - There is pretty-print logic in bb_ir.rs, web_inspector.rs, and block_py/pretty.rs. \ Determine if all those can be merged into a single implementation, possibly with BlockPyModuleVisitor.
+- move bb_ir into blockpy_to_bb/mod.rs
+- move "block_py" to be a top-level module.
+- rename the "basic_block" module to "passes"
 
