@@ -247,6 +247,71 @@ struct DirectSimpleIntrinsicEmitState<'a, 'b, 'c> {
     literal_pool: &'c mut Vec<Box<[u8]>>,
 }
 
+struct FunctionStateSlots {
+    names: Vec<String>,
+    slots: Vec<ir::StackSlot>,
+}
+
+impl FunctionStateSlots {
+    fn new(fb: &mut FunctionBuilder<'_>, slot_names: &[String]) -> Self {
+        let mut slots = Vec::with_capacity(slot_names.len());
+        for _ in slot_names {
+            slots.push(fb.create_sized_stack_slot(ir::StackSlotData::new(
+                ir::StackSlotKind::ExplicitSlot,
+                std::mem::size_of::<u64>() as u32,
+                0,
+            )));
+        }
+        Self {
+            names: slot_names.to_vec(),
+            slots,
+        }
+    }
+
+    fn slot_for_name(&self, name: &str) -> Option<ir::StackSlot> {
+        self.names
+            .iter()
+            .position(|candidate| candidate == name)
+            .map(|index| self.slots[index])
+    }
+
+    fn initialize_all_to_value(
+        &self,
+        fb: &mut FunctionBuilder<'_>,
+        value: ir::Value,
+        incref_ref: ir::FuncRef,
+    ) {
+        for slot in &self.slots {
+            fb.ins().call(incref_ref, &[value]);
+            fb.ins().stack_store(value, *slot, 0);
+        }
+    }
+
+    fn replace_cloned_value(
+        &self,
+        fb: &mut FunctionBuilder<'_>,
+        name: &str,
+        value: ir::Value,
+        ptr_ty: ir::Type,
+        incref_ref: ir::FuncRef,
+        decref_ref: ir::FuncRef,
+    ) -> Option<()> {
+        let slot = self.slot_for_name(name)?;
+        let previous = fb.ins().stack_load(ptr_ty, slot, 0);
+        fb.ins().call(incref_ref, &[value]);
+        fb.ins().stack_store(value, slot, 0);
+        fb.ins().call(decref_ref, &[previous]);
+        Some(())
+    }
+
+    fn decref_all(&self, fb: &mut FunctionBuilder<'_>, ptr_ty: ir::Type, decref_ref: ir::FuncRef) {
+        for slot in &self.slots {
+            let value = fb.ins().stack_load(ptr_ty, *slot, 0);
+            fb.ins().call(decref_ref, &[value]);
+        }
+    }
+}
+
 impl DirectSimpleIntrinsicEmitState<'_, '_, '_> {
     fn positional_args_only<'a>(
         &self,
@@ -3369,6 +3434,7 @@ fn build_cranelift_run_bb_specialized_function(
         }
         let step_null_block = fb.create_block();
         let raise_exc_direct_block = fb.create_block();
+        let function_state_slots = FunctionStateSlots::new(&mut fb, &plan.slot_names);
 
         fb.append_block_params_for_function_params(entry_block);
         for (index, block) in exec_blocks.iter().enumerate() {
@@ -3480,8 +3546,11 @@ fn build_cranelift_run_bb_specialized_function(
             jit_module.declare_func_in_func(pynumber_negative_id, &mut fb.func);
         let pynumber_invert_ref = jit_module.declare_func_in_func(pynumber_invert_id, &mut fb.func);
 
-        let mut ambient_names = Vec::new();
-        let mut ambient_values = Vec::new();
+        let entry_deleted_const = fb.ins().iconst(ptr_ty, deleted_obj as i64);
+        function_state_slots.initialize_all_to_value(&mut fb, entry_deleted_const, incref_ref);
+
+        let ambient_names = plan.ambient_param_names.clone();
+        let mut ambient_values = Vec::with_capacity(plan.ambient_param_names.len());
         let mut entry_jump_args = Vec::with_capacity(runtime_block_param_names[0].len());
         let null_ptr = fb.ins().iconst(ptr_ty, 0);
         for (param_index, param_name) in plan.ambient_param_names.iter().enumerate() {
@@ -3501,8 +3570,11 @@ fn build_cranelift_run_bb_specialized_function(
                 &[ir::BlockArg::Value(item_val)],
             );
             fb.switch_to_block(ok_block);
-            ambient_names.push(param_name.clone());
-            ambient_values.push(fb.block_params(ok_block)[0]);
+            let value = fb.block_params(ok_block)[0];
+            function_state_slots
+                .replace_cloned_value(&mut fb, param_name, value, ptr_ty, incref_ref, decref_ref)
+                .expect("ambient slot missing from function state slots");
+            ambient_values.push(value);
         }
         for (param_index, param_name) in plan.blocks[0].param_names.iter().enumerate() {
             if plan
@@ -3529,6 +3601,9 @@ fn build_cranelift_run_bb_specialized_function(
             );
             fb.switch_to_block(ok_block);
             let value = fb.block_params(ok_block)[0];
+            function_state_slots
+                .replace_cloned_value(&mut fb, param_name, value, ptr_ty, incref_ref, decref_ref)
+                .expect("entry slot missing from function state slots");
             entry_jump_args.push(ir::BlockArg::Value(value));
         }
         fb.ins().jump(exec_blocks[0], &entry_jump_args);
@@ -3862,6 +3937,7 @@ fn build_cranelift_run_bb_specialized_function(
                     for value in local_values {
                         fb.ins().call(decref_ref, &[value]);
                     }
+                    function_state_slots.decref_all(&mut fb, ptr_ty, decref_ref);
                     fb.ins().return_(&[ret_value]);
                     continue;
                 }
@@ -4122,6 +4198,7 @@ fn build_cranelift_run_bb_specialized_function(
                             for value in &local_values {
                                 fb.ins().call(decref_ref, &[*value]);
                             }
+                            function_state_slots.decref_all(&mut fb, ptr_ty, decref_ref);
                             fb.ins().return_(&[ret_value]);
                         }
                         DirectSimpleTermPlan::Raise { exc } => {
@@ -4421,12 +4498,14 @@ fn build_cranelift_run_bb_specialized_function(
             for value in &ambient_values {
                 fb.ins().call(decref_ref, &[*value]);
             }
+            function_state_slots.decref_all(&mut fb, ptr_ty, decref_ref);
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
             fb.ins().return_(&[null_ptr]);
         }
 
         fb.switch_to_block(step_null_block);
         let step_null_args = fb.block_params(step_null_block)[0];
+        function_state_slots.decref_all(&mut fb, ptr_ty, decref_ref);
         fb.ins().call(decref_ref, &[step_null_args]);
         let null_ptr = fb.ins().iconst(ptr_ty, 0);
         fb.ins().return_(&[null_ptr]);
@@ -4458,6 +4537,7 @@ fn build_cranelift_run_bb_specialized_function(
         for value in &ambient_values {
             fb.ins().call(decref_ref, &[*value]);
         }
+        function_state_slots.decref_all(&mut fb, ptr_ty, decref_ref);
         fb.ins().return_(&[red_null]);
 
         fb.seal_all_blocks();
@@ -4973,6 +5053,45 @@ mod tests {
         assert!(
             rendered.contains("call PyObject_RichCompare"),
             "comparison lowering should use PyObject_RichCompare in rendered CLIF:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_allocates_function_state_slots() {
+        let blocks = [1usize as ObjPtr];
+        let plan = ClifPlan {
+            ambient_param_names: vec![],
+            slot_names: vec!["x".into(), "y".into()],
+            blocks: vec![ClifBlockPlan {
+                label: "b0".into(),
+                param_names: vec![],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleRet {
+                    plan: DirectSimpleRetPlan {
+                        params: vec![],
+                        assigns: vec![],
+                        ret: DirectSimpleExprPlan::Int(7),
+                    },
+                },
+            }],
+        };
+        let rendered = unsafe {
+            render_cranelift_run_bb_specialized_with_cfg(
+                &blocks,
+                &plan,
+                11usize as ObjPtr,
+                12usize as ObjPtr,
+                13usize as ObjPtr,
+                14usize as ObjPtr,
+            )
+        }
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
+        assert!(
+            rendered.matches("explicit_slot 8").count() >= 2,
+            "slot-backed JIT plans should allocate explicit stack slots:\n{rendered}"
         );
     }
 }
