@@ -10,6 +10,7 @@ use std::sync::{Mutex, OnceLock};
 #[derive(Clone, Debug)]
 pub struct ClifPlan {
     pub ambient_param_names: Vec<String>,
+    pub slot_names: Vec<String>,
     pub blocks: Vec<ClifBlockPlan>,
 }
 
@@ -341,6 +342,27 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
             owner_param_name,
             arg_sources,
         })
+    }
+
+    fn slot_names(&self) -> Vec<String> {
+        let mut slot_names = Vec::new();
+        let mut seen = HashSet::new();
+
+        for name in &self.ambient_param_names {
+            if seen.insert(name.clone()) {
+                slot_names.push(name.clone());
+            }
+        }
+
+        for block in &self.function.blocks {
+            for name in block.param_names() {
+                if seen.insert(name.to_string()) {
+                    slot_names.push(name.to_string());
+                }
+            }
+        }
+
+        slot_names
     }
 }
 
@@ -676,6 +698,7 @@ fn direct_simple_block_plan_from_block(
 
 fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPlan {
     let function = ValidatedPreparedBbFunction::new(function);
+    let slot_names = function.slot_names();
     let mut blocks = Vec::with_capacity(function.function.blocks.len());
     for block in &function.function.blocks {
         let exc_target = function.exc_target_index(block);
@@ -734,6 +757,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPla
     }
     ClifPlan {
         ambient_param_names: function.ambient_param_names.clone(),
+        slot_names,
         blocks,
     }
 }

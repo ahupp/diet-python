@@ -131,6 +131,7 @@ mod tests {
     use dp_transform::block_py::BlockPyFunctionKind;
     use soac_eval::jit::{self, BlockExcArgSource};
     use std::any::Any;
+    use std::collections::HashSet;
 
     fn panic_payload_to_string(payload: Box<dyn Any + Send>) -> String {
         if let Some(s) = payload.downcast_ref::<&str>() {
@@ -200,6 +201,81 @@ mod tests {
             .as_ref()
             .ok_or_else(|| "JIT mode requires tracked bb_codegen output".to_string())?;
         soac_eval::jit::run_cranelift_smoke(normalized)
+    }
+
+    #[test]
+    fn function_plan_reports_slot_inventory_for_locals_capture_and_except_state() {
+        let source = r#"
+def outer(scale):
+    factor = scale
+    def inner(x):
+        total = x
+        try:
+            total += factor
+        except Exception as exc:
+            return total + len(str(exc))
+        return total
+    return inner
+"#;
+        let result = parse_and_lower(source).expect("lowering should succeed");
+        let normalized = result
+            .bb_codegen_module
+            .as_ref()
+            .expect("bb_codegen pass should be tracked")
+            .clone();
+        let module_name = "jit_plan_slot_inventory_test";
+        jit::register_clif_module_plans(module_name, &normalized)
+            .expect("plan registration should succeed");
+        let inner_function = normalized
+            .callable_defs
+            .iter()
+            .find(|function| function.names.bind_name == "inner")
+            .expect("missing lowered inner function");
+        let plan = jit::lookup_clif_plan(module_name, inner_function.function_id.0)
+            .expect("registered plan should exist");
+
+        assert_eq!(
+            plan.ambient_param_names.len(),
+            1,
+            "expected one closure capture in ambient state: {:?}",
+            plan.ambient_param_names
+        );
+        let capture_name = &plan.ambient_param_names[0];
+        assert!(
+            capture_name.contains("factor"),
+            "expected capture name to track factor: {capture_name:?}"
+        );
+        assert_eq!(
+            plan.slot_names.first(),
+            Some(capture_name),
+            "slot inventory should seed ambient captures first: {:?}",
+            plan.slot_names
+        );
+        assert!(
+            plan.slot_names.iter().any(|name| name == "x"),
+            "expected parameter x in slot inventory: {:?}",
+            plan.slot_names
+        );
+        assert!(
+            plan.slot_names.iter().any(|name| name == "total"),
+            "expected local total in slot inventory: {:?}",
+            plan.slot_names
+        );
+        assert!(
+            plan.slot_names
+                .iter()
+                .any(|name| name.starts_with("_dp_try_exc_")),
+            "expected synthetic try-exception state in slot inventory: {:?}",
+            plan.slot_names
+        );
+
+        let unique_names = plan.slot_names.iter().collect::<HashSet<_>>();
+        assert_eq!(
+            unique_names.len(),
+            plan.slot_names.len(),
+            "slot inventory should not duplicate names: {:?}",
+            plan.slot_names
+        );
     }
 
     #[test]

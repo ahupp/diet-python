@@ -4837,6 +4837,7 @@ mod tests {
         let blocks = [1usize as ObjPtr, 2usize as ObjPtr, 3usize as ObjPtr];
         let plan = ClifPlan {
             ambient_param_names: vec![],
+            slot_names: vec![],
             blocks: vec![
                 ClifBlockPlan {
                     label: "b0".into(),
@@ -4886,6 +4887,7 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
             ambient_param_names: vec![],
+            slot_names: vec![],
             blocks: vec![ClifBlockPlan {
                 label: "b0".into(),
                 param_names: vec![],
@@ -4934,6 +4936,7 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
             ambient_param_names: vec![],
+            slot_names: vec![],
             blocks: vec![ClifBlockPlan {
                 label: "b0".into(),
                 param_names: vec![],
