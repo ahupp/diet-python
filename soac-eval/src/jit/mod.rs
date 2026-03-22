@@ -349,18 +349,19 @@ struct DirectSimpleEmitCtx {
     py_call_with_kw_ref: ir::FuncRef,
     tuple_new_ref: ir::FuncRef,
     tuple_set_item_ref: ir::FuncRef,
-    add_intrinsic_ref: ir::FuncRef,
     operator_refs: DirectSimpleOperatorRefs,
     ambient_names: Vec<String>,
     ambient_values: Vec<ir::Value>,
 }
 
-struct DirectSimpleIntrinsicEmitState<'a, 'b, 'c> {
+struct DirectSimpleIntrinsicEmitState<'a, 'b, 'c, 'd> {
     fb: &'a mut FunctionBuilder<'b>,
     local_names: &'c [String],
     local_values: &'c [ir::Value],
     ctx: &'c DirectSimpleEmitCtx,
     literal_pool: &'c mut Vec<Box<[u8]>>,
+    jit_module: &'a mut JITModule,
+    func_imports: &'a mut FuncBuildImports<'d>,
 }
 
 struct FunctionStateSlots {
@@ -479,7 +480,7 @@ fn delete_local_value(
     Ok(())
 }
 
-impl DirectSimpleIntrinsicEmitState<'_, '_, '_> {
+impl DirectSimpleIntrinsicEmitState<'_, '_, '_, '_> {
     fn positional_args_for_intrinsic<'a>(
         &self,
         intrinsic: &dyn intrinsics::Intrinsic,
@@ -518,10 +519,23 @@ impl DirectSimpleIntrinsicEmitState<'_, '_, '_> {
                 self.ctx,
                 self.literal_pool,
                 borrowed_arg,
+                self.jit_module,
+                self.func_imports,
             );
             arg_values.push((value, borrowed_arg));
         }
         arg_values
+    }
+
+    fn import_func(&mut self, spec: &'static ImportSpec) -> ir::FuncRef {
+        self.func_imports
+            .get(self.jit_module, &mut self.fb.func, spec)
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to bind import {} during direct-simple intrinsic emission: {}",
+                    spec.symbol, err
+                )
+            })
     }
 
     fn release_arg_values(&mut self, arg_values: &[(ir::Value, bool)]) {
@@ -611,7 +625,7 @@ impl DirectSimpleIntrinsicEmitState<'_, '_, '_> {
 trait JitIntrinsic: intrinsics::Intrinsic {
     fn emit_direct_simple(
         &self,
-        state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_>,
+        state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_, '_>,
         parts: &[DirectSimpleCallPart],
     ) -> Option<ir::Value>;
 }
@@ -624,11 +638,12 @@ static PYNUMBER_ADD_IMPORT: ImportSpec = ImportSpec::new("PyNumber_Add", BINARY_
 impl JitIntrinsic for intrinsics::AddIntrinsic {
     fn emit_direct_simple(
         &self,
-        state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_>,
+        state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_, '_>,
         parts: &[DirectSimpleCallPart],
     ) -> Option<ir::Value> {
         let args = state.positional_args_for_intrinsic(self, parts);
-        Some(state.emit_owned_func_call(state.ctx.add_intrinsic_ref, &args))
+        let add_ref = state.import_func(&PYNUMBER_ADD_IMPORT);
+        Some(state.emit_owned_func_call(add_ref, &args))
     }
 }
 
@@ -876,6 +891,8 @@ fn emit_direct_simple_expr(
     ctx: &DirectSimpleEmitCtx,
     literal_pool: &mut Vec<Box<[u8]>>,
     borrowed: bool,
+    jit_module: &mut JITModule,
+    func_imports: &mut FuncBuildImports<'_>,
 ) -> ir::Value {
     let incref_ref = ctx.incref_ref;
     let decref_ref = ctx.decref_ref;
@@ -1028,6 +1045,8 @@ fn emit_direct_simple_expr(
                 local_values,
                 ctx,
                 literal_pool,
+                jit_module,
+                func_imports,
             };
             if let Some(jit_intrinsic) = jit_intrinsic_by_intrinsic(*intrinsic) {
                 if let Some(value) = jit_intrinsic.emit_direct_simple(&mut intrinsic_state, parts) {
@@ -1046,6 +1065,8 @@ fn emit_direct_simple_expr(
                 intrinsic_state.ctx,
                 intrinsic_state.literal_pool,
                 false,
+                intrinsic_state.jit_module,
+                intrinsic_state.func_imports,
             )
         }
         DirectSimpleExprPlan::Call { func, parts } => {
@@ -1149,6 +1170,8 @@ fn emit_direct_simple_expr(
                     ctx,
                     literal_pool,
                     callable_is_borrowed,
+                    jit_module,
+                    func_imports,
                 );
 
                 let list_name_bytes = b"__dp_list";
@@ -1304,6 +1327,8 @@ fn emit_direct_simple_expr(
                                 ctx,
                                 literal_pool,
                                 value_borrowed,
+                                jit_module,
+                                func_imports,
                             );
                             let call_inst = fb.ins().call(
                                 py_call_ref,
@@ -1365,6 +1390,8 @@ fn emit_direct_simple_expr(
                                 ctx,
                                 literal_pool,
                                 value_borrowed,
+                                jit_module,
+                                func_imports,
                             );
                             let set_inst = fb
                                 .ins()
@@ -1454,6 +1481,8 @@ fn emit_direct_simple_expr(
                                 ctx,
                                 literal_pool,
                                 value_borrowed,
+                                jit_module,
+                                func_imports,
                             );
                             let call_inst = fb.ins().call(
                                 py_call_ref,
@@ -1633,6 +1662,8 @@ fn emit_direct_simple_expr(
                                 ctx,
                                 literal_pool,
                                 borrowed_arg,
+                                jit_module,
+                                func_imports,
                             );
                             arg_values.push(value);
                             borrowed_args.push(borrowed_arg);
@@ -1662,6 +1693,8 @@ fn emit_direct_simple_expr(
                                 ctx,
                                 literal_pool,
                                 value_borrowed,
+                                jit_module,
+                                func_imports,
                             );
                             let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
                             let name_len_val = fb.ins().iconst(i64_ty, name_len);
@@ -1708,6 +1741,8 @@ fn emit_direct_simple_expr(
                                 ctx,
                                 literal_pool,
                                 borrowed_arg,
+                                jit_module,
+                                func_imports,
                             );
                             arg_values.push((value, borrowed_arg));
                         }
@@ -1807,6 +1842,8 @@ fn emit_direct_simple_expr(
                                 ctx,
                                 literal_pool,
                                 borrowed_arg,
+                                jit_module,
+                                func_imports,
                             );
                             arg_values.push((value, borrowed_arg));
                         }
@@ -2037,6 +2074,8 @@ fn emit_direct_simple_expr(
                 ctx,
                 literal_pool,
                 direct_simple_expr_is_borrowable(func.as_ref(), local_names),
+                jit_module,
+                func_imports,
             );
             let callable_is_borrowed = direct_simple_expr_is_borrowable(func.as_ref(), local_names);
             if keywords.is_empty() && args.len() <= 3 {
@@ -2053,6 +2092,8 @@ fn emit_direct_simple_expr(
                         ctx,
                         literal_pool,
                         borrowed_arg,
+                        jit_module,
+                        func_imports,
                     );
                 }
                 let call_inst = fb.ins().call(
@@ -2118,6 +2159,8 @@ fn emit_direct_simple_expr(
                     ctx,
                     literal_pool,
                     borrowed_arg,
+                    jit_module,
+                    func_imports,
                 );
                 tuple_items.push((value, borrowed_arg));
             }
@@ -2247,6 +2290,8 @@ fn emit_direct_simple_expr(
                         ctx,
                         literal_pool,
                         value_borrowed,
+                        jit_module,
+                        func_imports,
                     );
                     let set_inst = fb
                         .ins()
@@ -2319,6 +2364,8 @@ fn emit_prepare_target_args(
     local_values: &[ir::Value],
     ctx: &DirectSimpleEmitCtx,
     literal_pool: &mut Vec<Box<[u8]>>,
+    jit_module: &mut JITModule,
+    func_imports: &mut FuncBuildImports<'_>,
 ) -> Option<Vec<ir::BlockArg>> {
     let mut args = Vec::with_capacity(target_params.len());
     let mut forwarded_local_indices = HashMap::new();
@@ -2361,6 +2408,8 @@ fn emit_prepare_target_args(
                     ctx,
                     literal_pool,
                     false,
+                    jit_module,
+                    func_imports,
                 ),
                 DirectSimpleBlockArgPlan::None => {
                     fb.ins().call(ctx.incref_ref, &[ctx.consts.none_const]);
@@ -2483,6 +2532,8 @@ fn emit_direct_simple_ops(
     function_state_slots: &FunctionStateSlots,
     emit_ctx: &DirectSimpleEmitCtx,
     literal_pool: &mut Vec<Box<[u8]>>,
+    jit_module: &mut JITModule,
+    func_imports: &mut FuncBuildImports<'_>,
 ) -> Result<(), String> {
     let mut frame_locals_aliases: HashSet<String> = HashSet::new();
     for op in ops {
@@ -2501,6 +2552,8 @@ fn emit_direct_simple_ops(
                     emit_ctx,
                     literal_pool,
                     false,
+                    jit_module,
+                    func_imports,
                 );
                 bind_local_value(
                     fb,
@@ -2535,6 +2588,8 @@ fn emit_direct_simple_ops(
                         emit_ctx,
                         literal_pool,
                         obj_borrowed,
+                        jit_module,
+                        func_imports,
                     );
                     let key_value = emit_direct_simple_expr(
                         fb,
@@ -2544,6 +2599,8 @@ fn emit_direct_simple_ops(
                         emit_ctx,
                         literal_pool,
                         key_borrowed,
+                        jit_module,
+                        func_imports,
                     );
                     let value_value = emit_direct_simple_expr(
                         fb,
@@ -2553,6 +2610,8 @@ fn emit_direct_simple_ops(
                         emit_ctx,
                         literal_pool,
                         value_borrowed,
+                        jit_module,
+                        func_imports,
                     );
                     let set_item_inst = fb.ins().call(
                         emit_ctx.pyobject_setitem_ref,
@@ -2640,6 +2699,8 @@ fn emit_direct_simple_ops(
                     emit_ctx,
                     literal_pool,
                     false,
+                    jit_module,
+                    func_imports,
                 );
                 fb.ins().call(emit_ctx.decref_ref, &[value]);
             }
@@ -3171,7 +3232,6 @@ fn build_cranelift_run_bb_specialized_function(
         declare_import_fn(jit_module, "PySequence_Contains", &binary_i32_sig)?;
     let pyobject_not_id = declare_import_fn(jit_module, "PyObject_Not", &unary_i32_sig)?;
     let pyobject_is_true_id = declare_import_fn(jit_module, "PyObject_IsTrue", &unary_i32_sig)?;
-    module_imports.ensure_declared(jit_module, &PYNUMBER_ADD_IMPORT)?;
     let pynumber_subtract_id = declare_import_fn(jit_module, "PyNumber_Subtract", &binary_obj_sig)?;
     let pynumber_multiply_id = declare_import_fn(jit_module, "PyNumber_Multiply", &binary_obj_sig)?;
     let pynumber_matrix_multiply_id =
@@ -3414,7 +3474,6 @@ fn build_cranelift_run_bb_specialized_function(
         let pyobject_not_ref = jit_module.declare_func_in_func(pyobject_not_id, &mut fb.func);
         let pyobject_is_true_ref =
             jit_module.declare_func_in_func(pyobject_is_true_id, &mut fb.func);
-        let add_intrinsic_ref = func_imports.get(jit_module, &mut fb.func, &PYNUMBER_ADD_IMPORT)?;
         let pynumber_subtract_ref =
             jit_module.declare_func_in_func(pynumber_subtract_id, &mut fb.func);
         let pynumber_multiply_ref =
@@ -3585,7 +3644,6 @@ fn build_cranelift_run_bb_specialized_function(
                 py_call_with_kw_ref,
                 tuple_new_ref,
                 tuple_set_item_ref,
-                add_intrinsic_ref,
                 operator_refs: DirectSimpleOperatorRefs {
                     richcompare_ref: pyobject_richcompare_ref,
                     sequence_contains_ref: pysequence_contains_ref,
@@ -3645,6 +3703,8 @@ fn build_cranelift_run_bb_specialized_function(
                         &emit_ctx,
                         &mut literal_pool,
                         false,
+                        jit_module,
+                        &mut func_imports,
                     );
                     let truth_inst = fb.ins().call(is_true_ref, &[test_value]);
                     let truth_value = fb.inst_results(truth_inst)[0];
@@ -3717,6 +3777,8 @@ fn build_cranelift_run_bb_specialized_function(
                                 &emit_ctx,
                                 &mut literal_pool,
                                 obj_borrowed,
+                                jit_module,
+                                &mut func_imports,
                             );
                             let key_value = emit_direct_simple_expr(
                                 &mut fb,
@@ -3726,6 +3788,8 @@ fn build_cranelift_run_bb_specialized_function(
                                 &emit_ctx,
                                 &mut literal_pool,
                                 key_borrowed,
+                                jit_module,
+                                &mut func_imports,
                             );
                             let value_value = emit_direct_simple_expr(
                                 &mut fb,
@@ -3735,6 +3799,8 @@ fn build_cranelift_run_bb_specialized_function(
                                 &emit_ctx,
                                 &mut literal_pool,
                                 value_borrowed,
+                                jit_module,
+                                &mut func_imports,
                             );
                             let set_item_inst = fb
                                 .ins()
@@ -3821,6 +3887,8 @@ fn build_cranelift_run_bb_specialized_function(
                                 &emit_ctx,
                                 &mut literal_pool,
                                 false,
+                                jit_module,
+                                &mut func_imports,
                             )
                         };
 
@@ -3850,6 +3918,8 @@ fn build_cranelift_run_bb_specialized_function(
                         &emit_ctx,
                         &mut literal_pool,
                         false,
+                        jit_module,
+                        &mut func_imports,
                     );
 
                     emit_decref_ambient_values(&mut fb, &emit_ctx);
@@ -3872,6 +3942,8 @@ fn build_cranelift_run_bb_specialized_function(
                         &function_state_slots,
                         &emit_ctx,
                         &mut literal_pool,
+                        jit_module,
+                        &mut func_imports,
                     )?;
 
                     match &block_plan.term {
@@ -3891,6 +3963,8 @@ fn build_cranelift_run_bb_specialized_function(
                                     &local_values,
                                     &emit_ctx,
                                     &mut literal_pool,
+                                    jit_module,
+                                    &mut func_imports,
                                 )
                                 .ok_or_else(|| {
                                     format!(
@@ -3923,6 +3997,8 @@ fn build_cranelift_run_bb_specialized_function(
                                 &emit_ctx,
                                 &mut literal_pool,
                                 false,
+                                jit_module,
+                                &mut func_imports,
                             );
                             let is_true = emit_truthy_from_owned(
                                 &mut fb,
@@ -3950,6 +4026,8 @@ fn build_cranelift_run_bb_specialized_function(
                                     &local_values,
                                     &emit_ctx,
                                     &mut literal_pool,
+                                    jit_module,
+                                    &mut func_imports,
                                 )
                                 .ok_or_else(|| {
                                     format!(
@@ -3979,6 +4057,8 @@ fn build_cranelift_run_bb_specialized_function(
                                     &local_values,
                                     &emit_ctx,
                                     &mut literal_pool,
+                                    jit_module,
+                                    &mut func_imports,
                                 )
                                 .ok_or_else(|| {
                                     format!(
@@ -4010,6 +4090,8 @@ fn build_cranelift_run_bb_specialized_function(
                                 &emit_ctx,
                                 &mut literal_pool,
                                 false,
+                                jit_module,
+                                &mut func_imports,
                             );
                             let index_i64_inst = fb.ins().call(pyobject_to_i64_ref, &[index_obj]);
                             let index_i64 = fb.inst_results(index_i64_inst)[0];
@@ -4048,7 +4130,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 let target_params = &runtime_block_param_names[*target_index];
                                 let mut case_jump_args = Vec::with_capacity(target_params.len());
                                 case_jump_args.extend(
-                                emit_prepare_target_args(
+                                    emit_prepare_target_args(
                                     &mut fb,
                                     target_params,
                                     None,
@@ -4056,6 +4138,8 @@ fn build_cranelift_run_bb_specialized_function(
                                     &local_values,
                                     &emit_ctx,
                                     &mut literal_pool,
+                                    jit_module,
+                                    &mut func_imports,
                                     )
                                     .ok_or_else(|| {
                                         format!(
@@ -4086,6 +4170,8 @@ fn build_cranelift_run_bb_specialized_function(
                                     &local_values,
                                     &emit_ctx,
                                     &mut literal_pool,
+                                    jit_module,
+                                    &mut func_imports,
                                 )
                                 .ok_or_else(|| {
                                     format!(
@@ -4113,6 +4199,8 @@ fn build_cranelift_run_bb_specialized_function(
                                 &emit_ctx,
                                 &mut literal_pool,
                                 false,
+                                jit_module,
+                                &mut func_imports,
                             );
                             emit_decref_ambient_values(&mut fb, &emit_ctx);
                             for value in &local_values {
@@ -4155,6 +4243,8 @@ fn build_cranelift_run_bb_specialized_function(
                                     &emit_ctx,
                                     &mut literal_pool,
                                     false,
+                                    jit_module,
+                                    &mut func_imports,
                                 )
                             } else {
                                 fb.ins().call(incref_ref, &[none_const]);
@@ -4211,6 +4301,8 @@ fn build_cranelift_run_bb_specialized_function(
                                 &local_values,
                                 &emit_ctx,
                                 &mut literal_pool,
+                                jit_module,
+                                &mut func_imports,
                             )
                             .ok_or_else(|| {
                                 format!(
@@ -4463,6 +4555,13 @@ fn build_cranelift_run_bb_specialized_function(
         fb.seal_all_blocks();
         fb.finalize();
     }
+
+    import_id_to_symbol.extend(
+        module_imports
+            .debug_symbols()
+            .iter()
+            .map(|(import_id, symbol)| (*import_id, *symbol)),
+    );
 
     Ok((ctx, main_id, literal_pool, import_id_to_symbol))
 }
