@@ -41,7 +41,6 @@ pub(crate) use deleted_name_loads::rewrite_deleted_name_loads;
 pub(crate) use super::blockpy_generators::build_blockpy_closure_layout;
 pub(crate) use module_plan::rewrite_ast_to_lowered_blockpy_module_plan_with_module;
 
-pub(crate) use crate::block_py::TryRegionPlan;
 pub(crate) use compat::{
     compat_block_from_blockpy, compat_block_from_blockpy_with_exc_target, compat_next_label,
     compat_next_temp, emit_for_loop_blocks, emit_if_branch_block_with_expr_setup,
@@ -104,7 +103,6 @@ pub(crate) fn build_blockpy_function(
     entry_label: String,
     closure_layout: Option<ClosureLayout>,
     facts: BlockPyCallableFacts,
-    try_regions: Vec<TryRegionPlan>,
     mut blocks: Vec<LoweredBlockPyBlock<Expr>>,
 ) -> BlockPyFunction<RuffBlockPyPass> {
     move_blockpy_entry_block_to_front(&mut blocks, entry_label.as_str());
@@ -120,7 +118,6 @@ pub(crate) fn build_blockpy_function(
         doc,
         closure_layout,
         facts,
-        try_regions,
     }
 }
 
@@ -337,7 +334,6 @@ pub(crate) fn build_finalized_blockpy_callable_def(
     doc: Option<String>,
     kind: BlockPyFunctionKind,
     blocks: Vec<LoweredBlockPyBlock<Expr>>,
-    try_regions: Vec<TryRegionPlan>,
     entry_label: String,
     end_label: String,
     facts: BlockPyCallableFacts,
@@ -351,7 +347,6 @@ pub(crate) fn build_finalized_blockpy_callable_def(
         entry_label.clone(),
         None,
         facts,
-        try_regions,
         blocks,
     );
     finalize_blockpy_callable_def(callable_def, entry_label, end_label)
@@ -396,7 +391,6 @@ where
         doc,
         blockpy_kind,
         blocks,
-        Vec::new(),
         entry_label,
         end_label,
         facts.clone(),

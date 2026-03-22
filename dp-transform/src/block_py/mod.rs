@@ -513,14 +513,6 @@ impl Default for BlockPyCallableFacts {
 }
 
 #[derive(Debug, Clone)]
-pub struct TryRegionPlan {
-    pub body_region_labels: Vec<String>,
-    pub body_exception_target: String,
-    pub cleanup_region_labels: Vec<String>,
-    pub cleanup_exception_target: Option<String>,
-}
-
-#[derive(Debug, Clone)]
 pub struct FunctionName {
     pub bind_name: String,
     pub fn_name: String,
@@ -554,7 +546,6 @@ pub struct BlockPyFunction<P: BlockPyPass> {
     pub doc: Option<String>,
     pub closure_layout: Option<ClosureLayout>,
     pub facts: BlockPyCallableFacts,
-    pub try_regions: Vec<TryRegionPlan>,
 }
 
 impl<P: BlockPyPass> BlockPyFunction<P> {
@@ -595,7 +586,6 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
             doc: self.doc,
             closure_layout: self.closure_layout,
             facts: self.facts,
-            try_regions: self.try_regions,
         }
     }
 }
@@ -1293,7 +1283,6 @@ where
             doc: func.doc,
             closure_layout: func.closure_layout,
             facts: func.facts,
-            try_regions: func.try_regions,
         }
     }
 
@@ -1626,7 +1615,6 @@ mod tests {
                 doc: None,
                 closure_layout: None,
                 facts: BlockPyCallableFacts::default(),
-                try_regions: Vec::new(),
             }],
         };
 
@@ -2391,7 +2379,6 @@ impl TryFrom<BlockPyFunction<CoreBlockPyPassWithYield>> for BlockPyFunction<Core
             doc,
             closure_layout,
             facts,
-            try_regions,
         } = value;
         Ok(BlockPyFunction {
             function_id,
@@ -2405,7 +2392,6 @@ impl TryFrom<BlockPyFunction<CoreBlockPyPassWithYield>> for BlockPyFunction<Core
             doc,
             closure_layout,
             facts,
-            try_regions,
         })
     }
 }

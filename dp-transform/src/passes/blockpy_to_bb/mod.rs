@@ -76,7 +76,6 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
         doc,
         closure_layout,
         facts,
-        try_regions,
     } = lowered;
     let lowered_view: BlockPyFunction<CoreBlockPyPass> = BlockPyFunction {
         function_id,
@@ -87,7 +86,6 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
         doc: doc.clone(),
         closure_layout: closure_layout.clone(),
         facts: facts.clone(),
-        try_regions: try_regions.clone(),
     };
     let block_params = recompute_lowered_block_params(
         &lowered_view,
@@ -102,7 +100,6 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
         doc,
         closure_layout,
         facts,
-        try_regions,
     }
 }
 

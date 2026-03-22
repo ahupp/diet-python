@@ -511,7 +511,6 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
         doc,
         closure_layout,
         facts,
-        try_regions,
     } = callable_def;
     BlockPyFunction {
         function_id,
@@ -526,7 +525,6 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
         doc,
         closure_layout,
         facts,
-        try_regions,
     }
 }
 

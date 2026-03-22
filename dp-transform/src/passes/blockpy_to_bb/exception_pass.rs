@@ -29,7 +29,6 @@ fn lower_function_try_jump_exception_flow(
         doc: function.doc,
         closure_layout: function.closure_layout,
         facts: function.facts,
-        try_regions: function.try_regions,
     };
     let label_set: HashSet<String> = function
         .blocks

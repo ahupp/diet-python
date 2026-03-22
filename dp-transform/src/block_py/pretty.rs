@@ -1307,7 +1307,6 @@ async def no_lying():
                         init: ClosureInit::RuntimePcUnstarted,
                     }],
                 }),
-                try_regions: Vec::new(),
                 facts: crate::block_py::BlockPyCallableFacts::default(),
             }],
         });
@@ -1361,7 +1360,6 @@ async def no_lying():
             ],
             doc: None,
             closure_layout: None,
-            try_regions: Vec::new(),
             facts: crate::block_py::BlockPyCallableFacts::default(),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
@@ -1441,7 +1439,6 @@ def choose(a, b):
             ],
             doc: None,
             closure_layout: None,
-            try_regions: Vec::new(),
             facts: crate::block_py::BlockPyCallableFacts::default(),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
@@ -1536,7 +1533,6 @@ def choose(a, b):
                 ],
                 doc: None,
                 closure_layout: None,
-                try_regions: Vec::new(),
                 facts: crate::block_py::BlockPyCallableFacts::default(),
             }],
         });
