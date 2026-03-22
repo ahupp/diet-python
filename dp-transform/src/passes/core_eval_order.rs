@@ -732,9 +732,10 @@ mod tests {
         let BlockPyStmt::Assign(assign) = &lowered.body[1] else {
             panic!("expected rewritten assignment");
         };
-        let CoreBlockPyExprWithAwaitAndYield::Call(call) = &assign.value else {
-            panic!("expected iadd call");
+        let CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) = &assign.value else {
+            panic!("expected iadd intrinsic");
         };
+        assert_eq!(call.intrinsic.name(), "__dp_iadd");
         assert!(matches!(
             &call.args[1],
             CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Name(_))

@@ -67,55 +67,6 @@ impl CodegenExprNormalizer {
         }
 
         match expr {
-            CoreBlockPyExpr::Call(call)
-                if call.keywords.is_empty()
-                    && matches!(call.func.as_ref(), CoreBlockPyExpr::Name(_)) =>
-            {
-                let func_name = match call.func.as_ref() {
-                    CoreBlockPyExpr::Name(name) => name.id.as_str(),
-                    _ => unreachable!(),
-                };
-                let args = call.args.clone();
-                let call_meta = (call.node_index.clone(), call.range);
-                let replacement = match (func_name, args.as_slice()) {
-                    (
-                        "__dp_getattr",
-                        [CoreBlockPyCallArg::Positional(obj), CoreBlockPyCallArg::Positional(attr)],
-                    ) => Some(helper_call_expr_with_meta(
-                        "PyObject_GetAttr",
-                        vec![obj.clone(), attr.clone()],
-                        call_meta,
-                    )),
-                    (
-                        "__dp_setattr",
-                        [CoreBlockPyCallArg::Positional(obj), CoreBlockPyCallArg::Positional(attr), CoreBlockPyCallArg::Positional(value)],
-                    ) => Some(helper_call_expr_with_meta(
-                        "PyObject_SetAttr",
-                        vec![obj.clone(), attr.clone(), value.clone()],
-                        call_meta,
-                    )),
-                    (
-                        "__dp_getitem",
-                        [CoreBlockPyCallArg::Positional(obj), CoreBlockPyCallArg::Positional(key)],
-                    ) => Some(helper_call_expr_with_meta(
-                        "PyObject_GetItem",
-                        vec![obj.clone(), key.clone()],
-                        call_meta,
-                    )),
-                    (
-                        "__dp_setitem",
-                        [CoreBlockPyCallArg::Positional(obj), CoreBlockPyCallArg::Positional(key), CoreBlockPyCallArg::Positional(value)],
-                    ) => Some(helper_call_expr_with_meta(
-                        "PyObject_SetItem",
-                        vec![obj.clone(), key.clone(), value.clone()],
-                        call_meta,
-                    )),
-                    _ => None,
-                };
-                if let Some(replacement) = replacement {
-                    *expr = replacement;
-                }
-            }
             CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(node)) => {
                 *expr = str_bytes_call_expr(node.value.as_bytes());
             }
@@ -356,7 +307,7 @@ def f():
     }
 
     #[test]
-    fn rewrites_intrinsics_to_python_capi_names() {
+    fn preserves_structured_intrinsics_for_attr_and_item_helpers() {
         let source = r#"
 def f(obj, mapping, key, value):
     a = __dp_getattr(obj, "x")
@@ -380,13 +331,13 @@ def f(obj, mapping, key, value):
             }
         }
 
-        assert!(text.contains("PyObject_GetAttr"), "{text}");
-        assert!(text.contains("PyObject_SetAttr"), "{text}");
-        assert!(text.contains("PyObject_GetItem"), "{text}");
-        assert!(text.contains("PyObject_SetItem"), "{text}");
-        assert!(!text.contains("__dp_getattr"), "{text}");
-        assert!(!text.contains("__dp_setattr"), "{text}");
-        assert!(!text.contains("__dp_getitem"), "{text}");
-        assert!(!text.contains("__dp_setitem"), "{text}");
+        assert!(text.contains("__dp_getattr"), "{text}");
+        assert!(text.contains("__dp_setattr"), "{text}");
+        assert!(text.contains("__dp_getitem"), "{text}");
+        assert!(text.contains("__dp_setitem"), "{text}");
+        assert!(!text.contains("PyObject_GetAttr"), "{text}");
+        assert!(!text.contains("PyObject_SetAttr"), "{text}");
+        assert!(!text.contains("PyObject_GetItem"), "{text}");
+        assert!(!text.contains("PyObject_SetItem"), "{text}");
     }
 }

@@ -11,7 +11,7 @@ use crate::block_py::{
     BbBlock, BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm, CfgBlock,
     CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral,
+    CoreBlockPyLiteral, IntrinsicCall,
 };
 use crate::passes::{BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithYield};
 use ruff_python_ast::{self as ast};
@@ -263,23 +263,43 @@ fn rewrite_current_exception_in_blockpy_term(
 }
 
 fn rewrite_current_exception_in_blockpy_expr(expr: &mut CoreBlockPyExpr, exc_name: &str) {
-    if let CoreBlockPyExpr::Call(call) = expr {
-        rewrite_current_exception_in_blockpy_expr(call.func.as_mut(), exc_name);
-        for arg in &mut call.args {
-            match arg {
-                CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
-                    rewrite_current_exception_in_blockpy_expr(value, exc_name);
+    match expr {
+        CoreBlockPyExpr::Call(call) => {
+            rewrite_current_exception_in_blockpy_expr(call.func.as_mut(), exc_name);
+            for arg in &mut call.args {
+                match arg {
+                    CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
+                        rewrite_current_exception_in_blockpy_expr(value, exc_name);
+                    }
+                }
+            }
+            for keyword in &mut call.keywords {
+                match keyword {
+                    CoreBlockPyKeywordArg::Named { value, .. }
+                    | CoreBlockPyKeywordArg::Starred(value) => {
+                        rewrite_current_exception_in_blockpy_expr(value, exc_name);
+                    }
                 }
             }
         }
-        for keyword in &mut call.keywords {
-            match keyword {
-                CoreBlockPyKeywordArg::Named { value, .. }
-                | CoreBlockPyKeywordArg::Starred(value) => {
-                    rewrite_current_exception_in_blockpy_expr(value, exc_name);
+        CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, keywords, .. }) => {
+            for arg in args {
+                match arg {
+                    CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
+                        rewrite_current_exception_in_blockpy_expr(value, exc_name);
+                    }
+                }
+            }
+            for keyword in keywords {
+                match keyword {
+                    CoreBlockPyKeywordArg::Named { value, .. }
+                    | CoreBlockPyKeywordArg::Starred(value) => {
+                        rewrite_current_exception_in_blockpy_expr(value, exc_name);
+                    }
                 }
             }
         }
+        CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
     }
 
     if is_current_exception_call(expr) {
@@ -313,19 +333,33 @@ fn is_dp_lookup_call_expr(func: &CoreBlockPyExpr, attr_name: &str) -> bool {
         CoreBlockPyExpr::Call(call) if call.keywords.is_empty() && call.args.len() == 2 => {
             matches!(
                 call.func.as_ref(),
-                CoreBlockPyExpr::Name(name)
-                    if name.id.as_str() == "__dp_getattr"
-            ) && matches!(
-                &call.args[0],
-                CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(base))
-                    if base.id.as_str() == "__dp__"
-            ) && expr_static_str(match &call.args[1] {
-                CoreBlockPyCallArg::Positional(value) => value,
-                CoreBlockPyCallArg::Starred(_) => return false,
-            }) == Some(attr_name.to_string())
+                CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_getattr"
+            ) && is_dp_getattr_lookup_args(&call.args, attr_name)
+        }
+        CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+            intrinsic,
+            args,
+            keywords,
+            ..
+        }) if keywords.is_empty() && args.len() == 2 && intrinsic.name() == "__dp_getattr" => {
+            is_dp_getattr_lookup_args(args, attr_name)
         }
         _ => false,
     }
+}
+
+fn is_dp_getattr_lookup_args(
+    args: &[CoreBlockPyCallArg<CoreBlockPyExpr>],
+    attr_name: &str,
+) -> bool {
+    matches!(
+        &args[0],
+        CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(base))
+            if base.id.as_str() == "__dp__"
+    ) && expr_static_str(match &args[1] {
+        CoreBlockPyCallArg::Positional(value) => value,
+        CoreBlockPyCallArg::Starred(_) => return false,
+    }) == Some(attr_name.to_string())
 }
 
 fn expr_static_str(expr: &CoreBlockPyExpr) -> Option<String> {
@@ -401,7 +435,8 @@ fn bb_stmt_from_blockpy_stmt(stmt: BlockPyStmt<CoreBlockPyExpr>) -> BbStmt {
 mod tests {
     use crate::block_py::{
         BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt, BlockPyStmtFragment,
-        BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
+        BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
+        CoreStringLiteral, IntrinsicCall,
     };
     use crate::passes::blockpy_to_bb::lower_blockpy_blocks_to_bb_blocks;
     use ruff_python_ast::{self as ast};
@@ -491,6 +526,14 @@ mod tests {
         })
     }
 
+    fn core_string_expr(value: &str) -> CoreBlockPyExpr {
+        CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
+            node_index: ast::AtomicNodeIndex::default(),
+            range: TextRange::default(),
+            value: value.to_string(),
+        }))
+    }
+
     #[test]
     fn rewrites_current_exception_placeholders_in_final_core_blocks() {
         let block = BlockPyBlock {
@@ -539,6 +582,58 @@ mod tests {
             call.args.as_slice(),
             [CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(name))]
                 if name.id.as_str() == "_dp_try_exc_0"
+        ));
+    }
+
+    #[test]
+    fn rewrites_current_exception_inside_intrinsic_helper_args() {
+        let block = BlockPyBlock {
+            label: BlockPyLabel::from("start"),
+            body: Vec::new(),
+            term: BlockPyTerm::Return(CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+                intrinsic: &crate::block_py::intrinsics::GETATTR_INTRINSIC,
+                node_index: ast::AtomicNodeIndex::default(),
+                range: TextRange::default(),
+                args: vec![
+                    CoreBlockPyCallArg::Positional(core_call_expr(
+                        "__dp_current_exception",
+                        Vec::new(),
+                    )),
+                    CoreBlockPyCallArg::Positional(core_string_expr("value")),
+                ],
+                keywords: Vec::new(),
+            })),
+            params: vec![crate::block_py::BlockParam {
+                name: "_dp_try_exc_0".to_string(),
+                role: crate::block_py::BlockParamRole::Exception,
+            }],
+            exc_edge: None,
+        };
+
+        let lowered = lower_blockpy_blocks_to_bb_blocks(
+            &[crate::block_py::CfgBlock {
+                label: block.label,
+                body: block.body,
+                term: block.term,
+                params: block.params,
+                exc_edge: None,
+            }],
+            &HashMap::new(),
+        );
+        let block = &lowered[0];
+
+        let BlockPyTerm::Return(CoreBlockPyExpr::Intrinsic(call)) = &block.term else {
+            panic!("expected intrinsic return expr");
+        };
+        assert_eq!(call.intrinsic.name(), "__dp_getattr");
+        assert!(matches!(
+            call.args.as_slice(),
+            [
+                CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(name)),
+                CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Literal(
+                    CoreBlockPyLiteral::StringLiteral(value)
+                ))
+            ] if name.id.as_str() == "_dp_try_exc_0" && value.value == "value"
         ));
     }
 }

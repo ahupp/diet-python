@@ -135,6 +135,82 @@ fn add_intrinsic_expr(
     )
 }
 
+fn lower_core_call_args(
+    args: Vec<Expr>,
+) -> Vec<CoreBlockPyCallArg<CoreBlockPyExprWithAwaitAndYield>> {
+    args.into_iter()
+        .map(|arg| match arg {
+            Expr::Starred(starred) => {
+                CoreBlockPyCallArg::Starred(CoreBlockPyExprWithAwaitAndYield::from(*starred.value))
+            }
+            other => CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::from(other)),
+        })
+        .collect()
+}
+
+fn lower_core_call_keywords(
+    keywords: Vec<ast::Keyword>,
+) -> Vec<CoreBlockPyKeywordArg<CoreBlockPyExprWithAwaitAndYield>> {
+    keywords
+        .into_iter()
+        .map(|keyword| match keyword.arg {
+            Some(arg) => CoreBlockPyKeywordArg::Named {
+                arg,
+                value: CoreBlockPyExprWithAwaitAndYield::from(keyword.value),
+            },
+            None => CoreBlockPyKeywordArg::Starred(CoreBlockPyExprWithAwaitAndYield::from(
+                keyword.value,
+            )),
+        })
+        .collect()
+}
+
+fn lower_core_call_expr_with_meta(
+    func: Expr,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    args: Vec<Expr>,
+    keywords: Vec<ast::Keyword>,
+) -> CoreBlockPyExprWithAwaitAndYield {
+    if keywords.is_empty() {
+        if let Expr::Name(name) = &func {
+            if let Some(intrinsic) =
+                intrinsics::intrinsic_by_name_and_arity(name.id.as_str(), args.len())
+            {
+                let mut intrinsic_args = Vec::with_capacity(args.len());
+                for arg in &args {
+                    if matches!(arg, Expr::Starred(_)) {
+                        return core_call_expr_with_meta(
+                            CoreBlockPyExprWithAwaitAndYield::from(func),
+                            node_index,
+                            range,
+                            lower_core_call_args(args),
+                            Vec::new(),
+                        );
+                    }
+                }
+                for arg in args {
+                    intrinsic_args.push(CoreBlockPyExprWithAwaitAndYield::from(arg));
+                }
+                return core_positional_intrinsic_expr_with_meta(
+                    intrinsic,
+                    node_index,
+                    range,
+                    intrinsic_args,
+                );
+            }
+        }
+    }
+
+    core_call_expr_with_meta(
+        CoreBlockPyExprWithAwaitAndYield::from(func),
+        node_index,
+        range,
+        lower_core_call_args(args),
+        lower_core_call_keywords(keywords),
+    )
+}
+
 fn reduce_core_tuple_splat(elts: Vec<Expr>) -> CoreBlockPyExprWithAwaitAndYield {
     let mut segments: Vec<CoreBlockPyExprWithAwaitAndYield> = Vec::new();
     let mut values: Vec<CoreBlockPyExprWithAwaitAndYield> = Vec::new();
@@ -191,33 +267,12 @@ fn reduce_core_tuple_splat(elts: Vec<Expr>) -> CoreBlockPyExprWithAwaitAndYield 
 impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
     fn from(value: Expr) -> Self {
         match value {
-            Expr::Call(node) => core_call_expr_with_meta(
-                Self::from(*node.func),
+            Expr::Call(node) => lower_core_call_expr_with_meta(
+                *node.func,
                 node.node_index,
                 node.range,
-                node.arguments
-                    .args
-                    .into_vec()
-                    .into_iter()
-                    .map(|arg| match arg {
-                        Expr::Starred(starred) => {
-                            CoreBlockPyCallArg::Starred(Self::from(*starred.value))
-                        }
-                        other => CoreBlockPyCallArg::Positional(Self::from(other)),
-                    })
-                    .collect(),
-                node.arguments
-                    .keywords
-                    .into_vec()
-                    .into_iter()
-                    .map(|keyword| match keyword.arg {
-                        Some(arg) => CoreBlockPyKeywordArg::Named {
-                            arg,
-                            value: Self::from(keyword.value),
-                        },
-                        None => CoreBlockPyKeywordArg::Starred(Self::from(keyword.value)),
-                    })
-                    .collect(),
+                node.arguments.args.into_vec(),
+                node.arguments.keywords.into_vec(),
             ),
             Expr::Await(node) => Self::Await(CoreBlockPyAwait {
                 node_index: node.node_index,
@@ -676,13 +731,10 @@ def f(x):
         let expr = Expr::from(py_expr!("-(x + 1)"));
         let lowered = super::lower_semantic_expr_without_setup(&expr);
 
-        let CoreBlockPyExprWithAwaitAndYield::Call(outer) = lowered else {
-            panic!("expected call-shaped core expr");
+        let CoreBlockPyExprWithAwaitAndYield::Intrinsic(outer) = lowered else {
+            panic!("expected intrinsic-shaped core expr");
         };
-        assert!(matches!(
-            &*outer.func,
-            CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "__dp_neg"
-        ));
+        assert_eq!(outer.intrinsic.name(), "__dp_neg");
         let [CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Intrinsic(inner))] =
             &outer.args[..]
         else {
@@ -759,12 +811,28 @@ def f(x):
     }
 
     #[test]
-    fn core_blockpy_expr_keeps_other_reduced_helper_families_as_named_calls() {
+    fn core_blockpy_expr_reduces_operator_helper_families_to_intrinsics() {
         for (expr, helper_name) in [
             ("obj.attr", "__dp_getattr"),
             ("obj[idx]", "__dp_getitem"),
             ("-x", "__dp_neg"),
             ("x < y", "__dp_lt"),
+            ("x in y", "__dp_contains"),
+            ("x is y", "__dp_is_"),
+        ] {
+            let parsed = *parse_expression(expr).unwrap().into_syntax().body;
+            let CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) =
+                CoreBlockPyExprWithAwaitAndYield::from(parsed)
+            else {
+                panic!("expected intrinsic-shaped reduced expr for {expr}");
+            };
+            assert_eq!(call.intrinsic.name(), helper_name, "{call:?}");
+        }
+    }
+
+    #[test]
+    fn core_blockpy_expr_keeps_non_intrinsic_helper_families_as_named_calls() {
+        for (expr, helper_name) in [
             ("(x, y)", "__dp_tuple"),
             ("[x, y]", "__dp_list"),
             ("{x, y}", "__dp_set"),
