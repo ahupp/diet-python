@@ -1,7 +1,7 @@
 use dp_transform::block_py::{
     AbruptKind, BbStmt, BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyTerm,
     CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral, CoreNumberLiteralValue, PreparedBbBlock,
+    CoreBlockPyLiteral, CoreNumberLiteralValue, PreparedBbBlock, intrinsics,
 };
 use dp_transform::passes::PreparedBbBlockPyPass;
 use std::collections::{HashMap, HashSet};
@@ -53,6 +53,10 @@ pub enum DirectSimpleExprPlan {
     Int(i64),
     Float(f64),
     Bytes(Vec<u8>),
+    Intrinsic {
+        intrinsic: &'static dyn intrinsics::Intrinsic,
+        parts: Vec<DirectSimpleCallPart>,
+    },
     Call {
         func: Box<DirectSimpleExprPlan>,
         parts: Vec<DirectSimpleCallPart>,
@@ -395,6 +399,38 @@ fn direct_simple_expr_from(
             }
             Some(DirectSimpleExprPlan::Call {
                 func: Box::new(func),
+                parts,
+            })
+        }
+        CoreBlockPyExprWithoutAwaitOrYield::Intrinsic(call) => {
+            let mut parts = Vec::with_capacity(call.args.len() + call.keywords.len());
+            for arg in &call.args {
+                match arg {
+                    CoreBlockPyCallArg::Positional(arg) => {
+                        parts.push(DirectSimpleCallPart::Pos(direct_simple_expr_from(arg)?));
+                    }
+                    CoreBlockPyCallArg::Starred(arg) => {
+                        parts.push(DirectSimpleCallPart::Star(direct_simple_expr_from(arg)?));
+                    }
+                }
+            }
+            for keyword in &call.keywords {
+                match keyword {
+                    CoreBlockPyKeywordArg::Named { arg: name, value } => {
+                        parts.push(DirectSimpleCallPart::Kw {
+                            name: name.to_string(),
+                            value: direct_simple_expr_from(value)?,
+                        });
+                    }
+                    CoreBlockPyKeywordArg::Starred(value) => {
+                        parts.push(DirectSimpleCallPart::KwStar(direct_simple_expr_from(
+                            value,
+                        )?));
+                    }
+                }
+            }
+            Some(DirectSimpleExprPlan::Intrinsic {
+                intrinsic: call.intrinsic,
                 parts,
             })
         }

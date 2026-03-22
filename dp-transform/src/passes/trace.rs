@@ -1,7 +1,6 @@
 use crate::block_py::{
-    BlockPyModule, BlockPyPass, BlockPyStmt, CoreBlockPyCall, CoreBlockPyCallArg,
-    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-    CoreStringLiteral,
+    core_positional_call_expr_with_meta, BlockPyModule, BlockPyPass, BlockPyStmt,
+    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral, CoreStringLiteral,
 };
 use crate::passes::PreparedBbBlockPyPass;
 use ruff_python_ast::{self as ast, ExprName};
@@ -124,18 +123,7 @@ fn helper_call_expr(
     helper_name: &str,
     args: Vec<CoreBlockPyExprWithoutAwaitOrYield>,
 ) -> CoreBlockPyExprWithoutAwaitOrYield {
-    CoreBlockPyExprWithoutAwaitOrYield::Call(CoreBlockPyCall {
-        node_index: compat_node_index(),
-        range: compat_range(),
-        func: Box::new(CoreBlockPyExprWithoutAwaitOrYield::Name(load_name(
-            helper_name,
-        ))),
-        args: args
-            .into_iter()
-            .map(CoreBlockPyCallArg::Positional)
-            .collect(),
-        keywords: Vec::<CoreBlockPyKeywordArg<CoreBlockPyExprWithoutAwaitOrYield>>::new(),
-    })
+    core_positional_call_expr_with_meta(helper_name, compat_node_index(), compat_range(), args)
 }
 
 fn tuple_expr(

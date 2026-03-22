@@ -1,12 +1,12 @@
 use super::ast_to_ast::rewrite_expr::string::lower_string_templates_in_expr;
 use super::core_eval_order::make_eval_order_explicit_in_core_block;
 use crate::block_py::{
-    BlockPyAssign, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyFunction,
-    BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
-    BlockPyStmtFragmentBuilder, BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyCall,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-    CoreBlockPyYield, CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral,
-    CoreNumberLiteralValue, CoreStringLiteral,
+    core_call_expr_with_meta, BlockPyAssign, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete,
+    BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
+    BlockPyStmtFragmentBuilder, BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyCallArg,
+    CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyYield,
+    CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
+    CoreStringLiteral,
 };
 use crate::passes::ast_to_ast::expr_utils::{
     make_binop, make_tuple, make_tuple_splat, make_unaryop,
@@ -113,12 +113,11 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExpr {
 impl From<Expr> for CoreBlockPyExpr {
     fn from(value: Expr) -> Self {
         match value {
-            Expr::Call(node) => Self::Call(CoreBlockPyCall {
-                node_index: node.node_index,
-                range: node.range,
-                func: Box::new(Self::from(*node.func)),
-                args: node
-                    .arguments
+            Expr::Call(node) => core_call_expr_with_meta(
+                Self::from(*node.func),
+                node.node_index,
+                node.range,
+                node.arguments
                     .args
                     .into_vec()
                     .into_iter()
@@ -129,8 +128,7 @@ impl From<Expr> for CoreBlockPyExpr {
                         other => CoreBlockPyCallArg::Positional(Self::from(other)),
                     })
                     .collect(),
-                keywords: node
-                    .arguments
+                node.arguments
                     .keywords
                     .into_vec()
                     .into_iter()
@@ -142,7 +140,7 @@ impl From<Expr> for CoreBlockPyExpr {
                         None => CoreBlockPyKeywordArg::Starred(Self::from(keyword.value)),
                     })
                     .collect(),
-            }),
+            ),
             Expr::Await(node) => Self::Await(CoreBlockPyAwait {
                 node_index: node.node_index,
                 range: node.range,
@@ -582,13 +580,11 @@ def f(x):
             &*outer.func,
             CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_neg"
         ));
-        let [CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Call(inner))] = &outer.args[..] else {
-            panic!("expected __dp_neg to receive one lowered call arg");
+        let [CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Intrinsic(inner))] = &outer.args[..]
+        else {
+            panic!("expected __dp_neg to receive one lowered intrinsic arg");
         };
-        assert!(matches!(
-            &*inner.func,
-            CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_add"
-        ));
+        assert_eq!(inner.intrinsic.name(), "__dp_add");
     }
 
     #[test]
@@ -641,12 +637,20 @@ def f(x):
     }
 
     #[test]
-    fn core_blockpy_expr_reduces_local_expr_forms_to_intrinsic_calls() {
-        for (expr, intrinsic) in [
+    fn core_blockpy_expr_reduces_add_to_structured_intrinsic() {
+        let parsed = *parse_expression("x + y").unwrap().into_syntax().body;
+        let CoreBlockPyExpr::Intrinsic(call) = CoreBlockPyExpr::from(parsed) else {
+            panic!("expected intrinsic-shaped reduced expr for x + y");
+        };
+        assert_eq!(call.intrinsic.name(), "__dp_add");
+    }
+
+    #[test]
+    fn core_blockpy_expr_keeps_other_reduced_helper_families_as_named_calls() {
+        for (expr, helper_name) in [
             ("obj.attr", "__dp_getattr"),
             ("obj[idx]", "__dp_getitem"),
             ("-x", "__dp_neg"),
-            ("x + y", "__dp_add"),
             ("x < y", "__dp_lt"),
             ("(x, y)", "__dp_tuple"),
             ("[x, y]", "__dp_list"),
@@ -658,7 +662,7 @@ def f(x):
                 panic!("expected call-shaped reduced expr for {expr}");
             };
             assert!(
-                matches!(&*call.func, CoreBlockPyExpr::Name(name) if name.id.as_str() == intrinsic),
+                matches!(&*call.func, CoreBlockPyExpr::Name(name) if name.id.as_str() == helper_name),
                 "{call:?}",
             );
         }
@@ -667,14 +671,11 @@ def f(x):
     #[test]
     fn core_blockpy_expr_reuses_shared_tuple_splat_intrinsic_shape() {
         let parsed = *parse_expression("(x, *xs, y)").unwrap().into_syntax().body;
-        let CoreBlockPyExpr::Call(call) = CoreBlockPyExpr::from(parsed) else {
-            panic!("expected call-shaped reduced tuple expr");
+        let CoreBlockPyExpr::Intrinsic(call) = CoreBlockPyExpr::from(parsed) else {
+            panic!("expected intrinsic-shaped reduced tuple expr");
         };
-        assert!(matches!(
-            &*call.func,
-            CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_add"
-        ));
-        let rendered = ruff_ast_to_string(&Expr::from(CoreBlockPyExpr::Call(call)));
+        assert_eq!(call.intrinsic.name(), "__dp_add");
+        let rendered = ruff_ast_to_string(&Expr::from(CoreBlockPyExpr::Intrinsic(call)));
         assert!(rendered.contains("__dp_tuple_from_iter(xs)"), "{rendered}");
     }
 

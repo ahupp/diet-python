@@ -24,6 +24,7 @@ use std::ops::Deref;
 pub(crate) mod cfg;
 pub(crate) mod dataflow;
 pub(crate) mod exception;
+pub mod intrinsics;
 pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod state;
@@ -246,6 +247,7 @@ pub enum CoreBlockPyExpr {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
     Call(CoreBlockPyCall<CoreBlockPyExpr>),
+    Intrinsic(IntrinsicCall<CoreBlockPyExpr>),
     Await(CoreBlockPyAwait<CoreBlockPyExpr>),
     Yield(CoreBlockPyYield<CoreBlockPyExpr>),
     YieldFrom(CoreBlockPyYieldFrom<CoreBlockPyExpr>),
@@ -256,6 +258,7 @@ pub enum CoreBlockPyExprWithoutAwait {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
     Call(CoreBlockPyCall<CoreBlockPyExprWithoutAwait>),
+    Intrinsic(IntrinsicCall<CoreBlockPyExprWithoutAwait>),
     Yield(CoreBlockPyYield<CoreBlockPyExprWithoutAwait>),
     YieldFrom(CoreBlockPyYieldFrom<CoreBlockPyExprWithoutAwait>),
 }
@@ -265,6 +268,7 @@ pub enum CoreBlockPyExprWithoutAwaitOrYield {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
     Call(CoreBlockPyCall<CoreBlockPyExprWithoutAwaitOrYield>),
+    Intrinsic(IntrinsicCall<CoreBlockPyExprWithoutAwaitOrYield>),
 }
 
 #[derive(Debug, Clone)]
@@ -308,6 +312,152 @@ pub struct CoreBlockPyCall<E> {
     pub func: Box<E>,
     pub args: Vec<CoreBlockPyCallArg<E>>,
     pub keywords: Vec<CoreBlockPyKeywordArg<E>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct IntrinsicCall<E> {
+    pub intrinsic: &'static dyn intrinsics::Intrinsic,
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: ruff_text_size::TextRange,
+    pub args: Vec<CoreBlockPyCallArg<E>>,
+    pub keywords: Vec<CoreBlockPyKeywordArg<E>>,
+}
+
+pub(crate) trait CoreCallLikeExpr: Sized {
+    fn from_name(name: ast::ExprName) -> Self;
+
+    fn name_id(&self) -> Option<&str>;
+
+    fn from_call(call: CoreBlockPyCall<Self>) -> Self;
+
+    fn from_intrinsic(call: IntrinsicCall<Self>) -> Self;
+}
+
+impl CoreCallLikeExpr for CoreBlockPyExpr {
+    fn from_name(name: ast::ExprName) -> Self {
+        Self::Name(name)
+    }
+
+    fn name_id(&self) -> Option<&str> {
+        match self {
+            Self::Name(name) => Some(name.id.as_str()),
+            _ => None,
+        }
+    }
+
+    fn from_call(call: CoreBlockPyCall<Self>) -> Self {
+        Self::Call(call)
+    }
+
+    fn from_intrinsic(call: IntrinsicCall<Self>) -> Self {
+        Self::Intrinsic(call)
+    }
+}
+
+impl CoreCallLikeExpr for CoreBlockPyExprWithoutAwait {
+    fn from_name(name: ast::ExprName) -> Self {
+        Self::Name(name)
+    }
+
+    fn name_id(&self) -> Option<&str> {
+        match self {
+            Self::Name(name) => Some(name.id.as_str()),
+            _ => None,
+        }
+    }
+
+    fn from_call(call: CoreBlockPyCall<Self>) -> Self {
+        Self::Call(call)
+    }
+
+    fn from_intrinsic(call: IntrinsicCall<Self>) -> Self {
+        Self::Intrinsic(call)
+    }
+}
+
+impl CoreCallLikeExpr for CoreBlockPyExprWithoutAwaitOrYield {
+    fn from_name(name: ast::ExprName) -> Self {
+        Self::Name(name)
+    }
+
+    fn name_id(&self) -> Option<&str> {
+        match self {
+            Self::Name(name) => Some(name.id.as_str()),
+            _ => None,
+        }
+    }
+
+    fn from_call(call: CoreBlockPyCall<Self>) -> Self {
+        Self::Call(call)
+    }
+
+    fn from_intrinsic(call: IntrinsicCall<Self>) -> Self {
+        Self::Intrinsic(call)
+    }
+}
+
+pub(crate) fn core_call_expr_with_meta<E: CoreCallLikeExpr>(
+    func: E,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    args: Vec<CoreBlockPyCallArg<E>>,
+    keywords: Vec<CoreBlockPyKeywordArg<E>>,
+) -> E {
+    if let Some(intrinsic) = func.name_id().and_then(intrinsics::intrinsic_by_name) {
+        E::from_intrinsic(IntrinsicCall {
+            intrinsic,
+            node_index,
+            range,
+            args,
+            keywords,
+        })
+    } else {
+        E::from_call(CoreBlockPyCall {
+            node_index,
+            range,
+            func: Box::new(func),
+            args,
+            keywords,
+        })
+    }
+}
+
+pub(crate) fn core_named_call_expr_with_meta<E: CoreCallLikeExpr>(
+    func_name: &str,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    args: Vec<CoreBlockPyCallArg<E>>,
+    keywords: Vec<CoreBlockPyKeywordArg<E>>,
+) -> E {
+    core_call_expr_with_meta(
+        E::from_name(ExprName {
+            id: func_name.into(),
+            ctx: ast::ExprContext::Load,
+            range,
+            node_index: node_index.clone(),
+        }),
+        node_index,
+        range,
+        args,
+        keywords,
+    )
+}
+
+pub(crate) fn core_positional_call_expr_with_meta<E: CoreCallLikeExpr>(
+    func_name: &str,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    args: Vec<E>,
+) -> E {
+    core_named_call_expr_with_meta(
+        func_name,
+        node_index,
+        range,
+        args.into_iter()
+            .map(CoreBlockPyCallArg::Positional)
+            .collect(),
+        Vec::new(),
+    )
 }
 
 #[derive(Debug, Clone)]
@@ -1555,48 +1705,20 @@ impl From<CoreBlockPyExpr> for Expr {
     fn from(value: CoreBlockPyExpr) -> Self {
         match value {
             CoreBlockPyExpr::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExpr::Call(node) => Expr::Call(ast::ExprCall {
-                node_index: node.node_index,
-                range: node.range,
-                func: Box::new(Expr::from(*node.func)),
-                arguments: ast::Arguments {
-                    args: node
-                        .args
-                        .into_iter()
-                        .map(|arg| match arg {
-                            CoreBlockPyCallArg::Positional(expr) => Expr::from(expr),
-                            CoreBlockPyCallArg::Starred(expr) => Expr::Starred(ast::ExprStarred {
-                                value: Box::new(Expr::from(expr)),
-                                ctx: ast::ExprContext::Load,
-                                range: Default::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                            }),
-                        })
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice(),
-                    keywords: node
-                        .keywords
-                        .into_iter()
-                        .map(|keyword| match keyword {
-                            CoreBlockPyKeywordArg::Named { arg, value } => ast::Keyword {
-                                arg: Some(arg),
-                                value: Expr::from(value),
-                                range: Default::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                            },
-                            CoreBlockPyKeywordArg::Starred(expr) => ast::Keyword {
-                                arg: None,
-                                value: Expr::from(expr),
-                                range: Default::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                            },
-                        })
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice(),
-                    range: Default::default(),
-                    node_index: ast::AtomicNodeIndex::default(),
-                },
-            }),
+            CoreBlockPyExpr::Call(node) => call_like_to_ast(
+                Expr::from(*node.func),
+                node.node_index,
+                node.range,
+                node.args,
+                node.keywords,
+            ),
+            CoreBlockPyExpr::Intrinsic(node) => call_like_to_ast(
+                Expr::Name(intrinsic_name_expr(node.intrinsic)),
+                node.node_index,
+                node.range,
+                node.args,
+                node.keywords,
+            ),
             CoreBlockPyExpr::Await(node) => Expr::Await(ast::ExprAwait {
                 node_index: node.node_index,
                 range: node.range,
@@ -1621,48 +1743,20 @@ impl From<CoreBlockPyExprWithoutAwait> for Expr {
     fn from(value: CoreBlockPyExprWithoutAwait) -> Self {
         match value {
             CoreBlockPyExprWithoutAwait::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExprWithoutAwait::Call(node) => Expr::Call(ast::ExprCall {
-                node_index: node.node_index,
-                range: node.range,
-                func: Box::new(Expr::from(*node.func)),
-                arguments: ast::Arguments {
-                    args: node
-                        .args
-                        .into_iter()
-                        .map(|arg| match arg {
-                            CoreBlockPyCallArg::Positional(expr) => Expr::from(expr),
-                            CoreBlockPyCallArg::Starred(expr) => Expr::Starred(ast::ExprStarred {
-                                value: Box::new(Expr::from(expr)),
-                                ctx: ast::ExprContext::Load,
-                                range: Default::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                            }),
-                        })
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice(),
-                    keywords: node
-                        .keywords
-                        .into_iter()
-                        .map(|keyword| match keyword {
-                            CoreBlockPyKeywordArg::Named { arg, value } => ast::Keyword {
-                                arg: Some(arg),
-                                value: Expr::from(value),
-                                range: Default::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                            },
-                            CoreBlockPyKeywordArg::Starred(expr) => ast::Keyword {
-                                arg: None,
-                                value: Expr::from(expr),
-                                range: Default::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                            },
-                        })
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice(),
-                    range: Default::default(),
-                    node_index: ast::AtomicNodeIndex::default(),
-                },
-            }),
+            CoreBlockPyExprWithoutAwait::Call(node) => call_like_to_ast(
+                Expr::from(*node.func),
+                node.node_index,
+                node.range,
+                node.args,
+                node.keywords,
+            ),
+            CoreBlockPyExprWithoutAwait::Intrinsic(node) => call_like_to_ast(
+                Expr::Name(intrinsic_name_expr(node.intrinsic)),
+                node.node_index,
+                node.range,
+                node.args,
+                node.keywords,
+            ),
             CoreBlockPyExprWithoutAwait::Yield(node) => Expr::Yield(ast::ExprYield {
                 node_index: node.node_index,
                 range: node.range,
@@ -1682,48 +1776,20 @@ impl From<CoreBlockPyExprWithoutAwaitOrYield> for Expr {
     fn from(value: CoreBlockPyExprWithoutAwaitOrYield) -> Self {
         match value {
             CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExprWithoutAwaitOrYield::Call(node) => Expr::Call(ast::ExprCall {
-                node_index: node.node_index,
-                range: node.range,
-                func: Box::new(Expr::from(*node.func)),
-                arguments: ast::Arguments {
-                    args: node
-                        .args
-                        .into_iter()
-                        .map(|arg| match arg {
-                            CoreBlockPyCallArg::Positional(expr) => Expr::from(expr),
-                            CoreBlockPyCallArg::Starred(expr) => Expr::Starred(ast::ExprStarred {
-                                value: Box::new(Expr::from(expr)),
-                                ctx: ast::ExprContext::Load,
-                                range: Default::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                            }),
-                        })
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice(),
-                    keywords: node
-                        .keywords
-                        .into_iter()
-                        .map(|keyword| match keyword {
-                            CoreBlockPyKeywordArg::Named { arg, value } => ast::Keyword {
-                                arg: Some(arg),
-                                value: Expr::from(value),
-                                range: Default::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                            },
-                            CoreBlockPyKeywordArg::Starred(expr) => ast::Keyword {
-                                arg: None,
-                                value: Expr::from(expr),
-                                range: Default::default(),
-                                node_index: ast::AtomicNodeIndex::default(),
-                            },
-                        })
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice(),
-                    range: Default::default(),
-                    node_index: ast::AtomicNodeIndex::default(),
-                },
-            }),
+            CoreBlockPyExprWithoutAwaitOrYield::Call(node) => call_like_to_ast(
+                Expr::from(*node.func),
+                node.node_index,
+                node.range,
+                node.args,
+                node.keywords,
+            ),
+            CoreBlockPyExprWithoutAwaitOrYield::Intrinsic(node) => call_like_to_ast(
+                Expr::Name(intrinsic_name_expr(node.intrinsic)),
+                node.node_index,
+                node.range,
+                node.args,
+                node.keywords,
+            ),
             CoreBlockPyExprWithoutAwaitOrYield::Name(node) => Expr::Name(node),
         }
     }
@@ -1768,6 +1834,71 @@ fn core_literal_to_expr(literal: CoreBlockPyLiteral) -> Expr {
     }
 }
 
+fn intrinsic_name_expr(intrinsic: &'static dyn intrinsics::Intrinsic) -> ast::ExprName {
+    let Expr::Name(name) = py_expr!("{id:id}", id = intrinsic.name()) else {
+        unreachable!();
+    };
+    name
+}
+
+fn call_args_to_ast<E: Into<Expr>>(args: Vec<CoreBlockPyCallArg<E>>) -> Box<[Expr]> {
+    args.into_iter()
+        .map(|arg| match arg {
+            CoreBlockPyCallArg::Positional(expr) => expr.into(),
+            CoreBlockPyCallArg::Starred(expr) => Expr::Starred(ast::ExprStarred {
+                value: Box::new(expr.into()),
+                ctx: ast::ExprContext::Load,
+                range: Default::default(),
+                node_index: ast::AtomicNodeIndex::default(),
+            }),
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+fn call_keywords_to_ast<E: Into<Expr>>(
+    keywords: Vec<CoreBlockPyKeywordArg<E>>,
+) -> Box<[ast::Keyword]> {
+    keywords
+        .into_iter()
+        .map(|keyword| match keyword {
+            CoreBlockPyKeywordArg::Named { arg, value } => ast::Keyword {
+                arg: Some(arg),
+                value: value.into(),
+                range: Default::default(),
+                node_index: ast::AtomicNodeIndex::default(),
+            },
+            CoreBlockPyKeywordArg::Starred(expr) => ast::Keyword {
+                arg: None,
+                value: expr.into(),
+                range: Default::default(),
+                node_index: ast::AtomicNodeIndex::default(),
+            },
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+fn call_like_to_ast<E: Into<Expr>>(
+    func: Expr,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    args: Vec<CoreBlockPyCallArg<E>>,
+    keywords: Vec<CoreBlockPyKeywordArg<E>>,
+) -> Expr {
+    Expr::Call(ast::ExprCall {
+        node_index,
+        range,
+        func: Box::new(func),
+        arguments: ast::Arguments {
+            args: call_args_to_ast(args),
+            keywords: call_keywords_to_ast(keywords),
+            range: Default::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        },
+    })
+}
+
 impl TryFrom<CoreBlockPyExpr> for CoreBlockPyExprWithoutAwait {
     type Error = CoreBlockPyExpr;
 
@@ -1779,6 +1910,34 @@ impl TryFrom<CoreBlockPyExpr> for CoreBlockPyExprWithoutAwait {
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(Self::try_from(*call.func)?),
+                args: call
+                    .args
+                    .into_iter()
+                    .map(|arg| match arg {
+                        CoreBlockPyCallArg::Positional(expr) => {
+                            Self::try_from(expr).map(CoreBlockPyCallArg::Positional)
+                        }
+                        CoreBlockPyCallArg::Starred(expr) => {
+                            Self::try_from(expr).map(CoreBlockPyCallArg::Starred)
+                        }
+                    })
+                    .collect::<Result<_, _>>()?,
+                keywords: call
+                    .keywords
+                    .into_iter()
+                    .map(|keyword| match keyword {
+                        CoreBlockPyKeywordArg::Named { arg, value } => Self::try_from(value)
+                            .map(|value| CoreBlockPyKeywordArg::Named { arg, value }),
+                        CoreBlockPyKeywordArg::Starred(value) => {
+                            Self::try_from(value).map(CoreBlockPyKeywordArg::Starred)
+                        }
+                    })
+                    .collect::<Result<_, _>>()?,
+            })),
+            CoreBlockPyExpr::Intrinsic(call) => Ok(Self::Intrinsic(IntrinsicCall {
+                intrinsic: call.intrinsic,
+                node_index: call.node_index,
+                range: call.range,
                 args: call
                     .args
                     .into_iter()
@@ -1962,6 +2121,38 @@ impl From<CoreBlockPyExprWithoutAwait> for CoreBlockPyExpr {
                     })
                     .collect(),
             }),
+            CoreBlockPyExprWithoutAwait::Intrinsic(call) => Self::Intrinsic(IntrinsicCall {
+                intrinsic: call.intrinsic,
+                node_index: call.node_index,
+                range: call.range,
+                args: call
+                    .args
+                    .into_iter()
+                    .map(|arg| match arg {
+                        CoreBlockPyCallArg::Positional(expr) => {
+                            CoreBlockPyCallArg::Positional(Self::from(expr))
+                        }
+                        CoreBlockPyCallArg::Starred(expr) => {
+                            CoreBlockPyCallArg::Starred(Self::from(expr))
+                        }
+                    })
+                    .collect(),
+                keywords: call
+                    .keywords
+                    .into_iter()
+                    .map(|keyword| match keyword {
+                        CoreBlockPyKeywordArg::Named { arg, value } => {
+                            CoreBlockPyKeywordArg::Named {
+                                arg,
+                                value: Self::from(value),
+                            }
+                        }
+                        CoreBlockPyKeywordArg::Starred(value) => {
+                            CoreBlockPyKeywordArg::Starred(Self::from(value))
+                        }
+                    })
+                    .collect(),
+            }),
             CoreBlockPyExprWithoutAwait::Yield(yield_expr) => Self::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,
                 range: yield_expr.range,
@@ -1989,6 +2180,34 @@ impl TryFrom<CoreBlockPyExprWithoutAwait> for CoreBlockPyExprWithoutAwaitOrYield
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(Self::try_from(*call.func)?),
+                args: call
+                    .args
+                    .into_iter()
+                    .map(|arg| match arg {
+                        CoreBlockPyCallArg::Positional(expr) => {
+                            Self::try_from(expr).map(CoreBlockPyCallArg::Positional)
+                        }
+                        CoreBlockPyCallArg::Starred(expr) => {
+                            Self::try_from(expr).map(CoreBlockPyCallArg::Starred)
+                        }
+                    })
+                    .collect::<Result<_, _>>()?,
+                keywords: call
+                    .keywords
+                    .into_iter()
+                    .map(|keyword| match keyword {
+                        CoreBlockPyKeywordArg::Named { arg, value } => Self::try_from(value)
+                            .map(|value| CoreBlockPyKeywordArg::Named { arg, value }),
+                        CoreBlockPyKeywordArg::Starred(value) => {
+                            Self::try_from(value).map(CoreBlockPyKeywordArg::Starred)
+                        }
+                    })
+                    .collect::<Result<_, _>>()?,
+            })),
+            CoreBlockPyExprWithoutAwait::Intrinsic(call) => Ok(Self::Intrinsic(IntrinsicCall {
+                intrinsic: call.intrinsic,
+                node_index: call.node_index,
+                range: call.range,
                 args: call
                     .args
                     .into_iter()
@@ -2190,6 +2409,38 @@ impl From<CoreBlockPyExprWithoutAwaitOrYield> for CoreBlockPyExprWithoutAwait {
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(Self::from(*call.func)),
+                args: call
+                    .args
+                    .into_iter()
+                    .map(|arg| match arg {
+                        CoreBlockPyCallArg::Positional(expr) => {
+                            CoreBlockPyCallArg::Positional(Self::from(expr))
+                        }
+                        CoreBlockPyCallArg::Starred(expr) => {
+                            CoreBlockPyCallArg::Starred(Self::from(expr))
+                        }
+                    })
+                    .collect(),
+                keywords: call
+                    .keywords
+                    .into_iter()
+                    .map(|keyword| match keyword {
+                        CoreBlockPyKeywordArg::Named { arg, value } => {
+                            CoreBlockPyKeywordArg::Named {
+                                arg,
+                                value: Self::from(value),
+                            }
+                        }
+                        CoreBlockPyKeywordArg::Starred(value) => {
+                            CoreBlockPyKeywordArg::Starred(Self::from(value))
+                        }
+                    })
+                    .collect(),
+            }),
+            CoreBlockPyExprWithoutAwaitOrYield::Intrinsic(call) => Self::Intrinsic(IntrinsicCall {
+                intrinsic: call.intrinsic,
+                node_index: call.node_index,
+                range: call.range,
                 args: call
                     .args
                     .into_iter()

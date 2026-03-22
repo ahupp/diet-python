@@ -1,7 +1,7 @@
 use crate::block_py::{
     BbStmt, BlockPyModule, BlockPyRaise, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-    CoreBytesLiteral,
+    CoreBytesLiteral, IntrinsicCall,
 };
 use crate::passes::trace::{instrument_bb_module_for_trace, parse_trace_env};
 use crate::passes::PreparedBbBlockPyPass;
@@ -59,21 +59,18 @@ struct CodegenExprNormalizer;
 
 impl CodegenExprNormalizer {
     fn rewrite_expr(&mut self, expr: &mut CoreBlockPyExprWithoutAwaitOrYield) {
-        if let CoreBlockPyExprWithoutAwaitOrYield::Call(call) = expr {
-            self.rewrite_expr(call.func.as_mut());
-            for arg in &mut call.args {
-                match arg {
-                    CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
-                        self.rewrite_expr(value);
-                    }
-                }
+        match expr {
+            CoreBlockPyExprWithoutAwaitOrYield::Call(call) => {
+                self.rewrite_expr(call.func.as_mut());
+                rewrite_call_parts(self, &mut call.args, &mut call.keywords);
             }
-            for keyword in &mut call.keywords {
-                match keyword {
-                    CoreBlockPyKeywordArg::Named { value, .. }
-                    | CoreBlockPyKeywordArg::Starred(value) => self.rewrite_expr(value),
-                }
+            CoreBlockPyExprWithoutAwaitOrYield::Intrinsic(IntrinsicCall {
+                args, keywords, ..
+            }) => {
+                rewrite_call_parts(self, args, keywords);
             }
+            CoreBlockPyExprWithoutAwaitOrYield::Name(_)
+            | CoreBlockPyExprWithoutAwaitOrYield::Literal(_) => {}
         }
 
         match expr {
@@ -135,6 +132,27 @@ impl CodegenExprNormalizer {
                 *expr = str_bytes_call_expr(node.value.as_bytes());
             }
             _ => {}
+        }
+    }
+}
+
+fn rewrite_call_parts(
+    rewriter: &mut CodegenExprNormalizer,
+    args: &mut [CoreBlockPyCallArg<CoreBlockPyExprWithoutAwaitOrYield>],
+    keywords: &mut [CoreBlockPyKeywordArg<CoreBlockPyExprWithoutAwaitOrYield>],
+) {
+    for arg in args {
+        match arg {
+            CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
+                rewriter.rewrite_expr(value);
+            }
+        }
+    }
+    for keyword in keywords {
+        match keyword {
+            CoreBlockPyKeywordArg::Named { value, .. } | CoreBlockPyKeywordArg::Starred(value) => {
+                rewriter.rewrite_expr(value)
+            }
         }
     }
 }
@@ -264,6 +282,24 @@ mod tests {
                     }
                 }
                 probe_bb_exprs(probe, &call.func);
+                for arg in &call.args {
+                    match arg {
+                        crate::block_py::CoreBlockPyCallArg::Positional(value)
+                        | crate::block_py::CoreBlockPyCallArg::Starred(value) => {
+                            probe_bb_exprs(probe, value);
+                        }
+                    }
+                }
+                for kw in &call.keywords {
+                    match kw {
+                        crate::block_py::CoreBlockPyKeywordArg::Named { value, .. }
+                        | crate::block_py::CoreBlockPyKeywordArg::Starred(value) => {
+                            probe_bb_exprs(probe, value);
+                        }
+                    }
+                }
+            }
+            crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Intrinsic(call) => {
                 for arg in &call.args {
                     match arg {
                         crate::block_py::CoreBlockPyCallArg::Positional(value)

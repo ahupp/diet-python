@@ -8,7 +8,7 @@ use cranelift_control::ControlPlane;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
-use dp_transform::block_py::BlockPyModule;
+use dp_transform::block_py::{BlockPyModule, intrinsics};
 use dp_transform::passes::PreparedBbBlockPyPass;
 use pyo3::ffi;
 use std::borrow::Cow;
@@ -81,18 +81,43 @@ fn direct_simple_expr_is_borrowable(expr: &DirectSimpleExprPlan, local_names: &[
         DirectSimpleExprPlan::Int(_)
         | DirectSimpleExprPlan::Float(_)
         | DirectSimpleExprPlan::Bytes(_)
+        | DirectSimpleExprPlan::Intrinsic { .. }
         | DirectSimpleExprPlan::Call { .. } => false,
+    }
+}
+
+enum DirectSimpleCallCallee<'a> {
+    Name(&'a str),
+    Intrinsic(&'static dyn intrinsics::Intrinsic),
+}
+
+impl DirectSimpleCallCallee<'_> {
+    fn name(&self) -> &str {
+        match self {
+            DirectSimpleCallCallee::Name(name) => name,
+            DirectSimpleCallCallee::Intrinsic(intrinsic) => intrinsic.name(),
+        }
     }
 }
 
 fn direct_simple_call_positional_args<'a>(
     expr: &'a DirectSimpleExprPlan,
-) -> Option<(&'a str, Vec<&'a DirectSimpleExprPlan>)> {
-    let DirectSimpleExprPlan::Call { func, parts } = expr else {
-        return None;
-    };
-    let DirectSimpleExprPlan::Name(func_name) = func.as_ref() else {
-        return None;
+) -> Option<(DirectSimpleCallCallee<'a>, Vec<&'a DirectSimpleExprPlan>)> {
+    let (callee, parts) = match expr {
+        DirectSimpleExprPlan::Call { func, parts } => {
+            let DirectSimpleExprPlan::Name(func_name) = func.as_ref() else {
+                return None;
+            };
+            (
+                DirectSimpleCallCallee::Name(func_name.as_str()),
+                parts.as_slice(),
+            )
+        }
+        DirectSimpleExprPlan::Intrinsic { intrinsic, parts } => (
+            DirectSimpleCallCallee::Intrinsic(*intrinsic),
+            parts.as_slice(),
+        ),
+        _ => return None,
     };
     let mut args = Vec::with_capacity(parts.len());
     for part in parts {
@@ -101,17 +126,18 @@ fn direct_simple_call_positional_args<'a>(
         };
         args.push(value);
     }
-    Some((func_name.as_str(), args))
+    Some((callee, args))
 }
 
 fn direct_simple_expr_const_string(expr: &DirectSimpleExprPlan) -> Option<String> {
     match expr {
         DirectSimpleExprPlan::Bytes(bytes) => String::from_utf8(bytes.clone()).ok(),
-        DirectSimpleExprPlan::Call { .. } => {
-            let (func_name, args) = direct_simple_call_positional_args(expr)?;
+        DirectSimpleExprPlan::Intrinsic { .. } | DirectSimpleExprPlan::Call { .. } => {
+            let (callee, args) = direct_simple_call_positional_args(expr)?;
             if args.len() != 1 {
                 return None;
             }
+            let func_name = callee.name();
             if func_name != "__dp_decode_literal_bytes" && func_name != "str" {
                 return None;
             }
@@ -125,9 +151,10 @@ fn direct_simple_expr_const_string(expr: &DirectSimpleExprPlan) -> Option<String
 }
 
 fn direct_simple_expr_is_frame_locals_fetch(expr: &DirectSimpleExprPlan) -> bool {
-    let Some((func_name, args)) = direct_simple_call_positional_args(expr) else {
+    let Some((callee, args)) = direct_simple_call_positional_args(expr) else {
         return false;
     };
+    let func_name = callee.name();
     if func_name == "__dp_frame_locals" && args.len() == 1 {
         return true;
     }
@@ -146,7 +173,8 @@ fn direct_simple_expr_as_frame_locals_setitem<'a>(
     &'a DirectSimpleExprPlan,
     String,
 )> {
-    let (func_name, args) = direct_simple_call_positional_args(expr)?;
+    let (callee, args) = direct_simple_call_positional_args(expr)?;
+    let func_name = callee.name();
     if (func_name != "PyObject_SetItem" && func_name != "__dp_setitem") || args.len() != 3 {
         return None;
     }
@@ -209,6 +237,162 @@ struct DirectSimpleEmitCtx {
     operator_refs: DirectSimpleOperatorRefs,
     ambient_names: Vec<String>,
     ambient_values: Vec<ir::Value>,
+}
+
+struct DirectSimpleIntrinsicEmitState<'a, 'b, 'c> {
+    fb: &'a mut FunctionBuilder<'b>,
+    local_names: &'c [String],
+    local_values: &'c [ir::Value],
+    ctx: &'c DirectSimpleEmitCtx,
+    literal_pool: &'c mut Vec<Box<[u8]>>,
+}
+
+impl DirectSimpleIntrinsicEmitState<'_, '_, '_> {
+    fn positional_args_only<'a>(
+        &self,
+        parts: &'a [DirectSimpleCallPart],
+    ) -> Option<Vec<&'a DirectSimpleExprPlan>> {
+        let mut args = Vec::with_capacity(parts.len());
+        for part in parts {
+            let DirectSimpleCallPart::Pos(value) = part else {
+                return None;
+            };
+            args.push(value);
+        }
+        Some(args)
+    }
+
+    fn emit_arg_values(&mut self, args: &[&DirectSimpleExprPlan]) -> Vec<(ir::Value, bool)> {
+        let mut arg_values = Vec::with_capacity(args.len());
+        for arg in args {
+            let borrowed_arg = direct_simple_expr_is_borrowable(arg, self.local_names);
+            let value = emit_direct_simple_expr(
+                self.fb,
+                arg,
+                self.local_names,
+                self.local_values,
+                self.ctx,
+                self.literal_pool,
+                borrowed_arg,
+            );
+            arg_values.push((value, borrowed_arg));
+        }
+        arg_values
+    }
+
+    fn release_arg_values(&mut self, arg_values: &[(ir::Value, bool)]) {
+        for (value, borrowed_arg) in arg_values {
+            if !borrowed_arg {
+                self.fb.ins().call(self.ctx.decref_ref, &[*value]);
+            }
+        }
+    }
+
+    fn finish_owned_result(&mut self, value: ir::Value) -> ir::Value {
+        let null_ptr = self.fb.ins().iconst(self.ctx.consts.ptr_ty, 0);
+        let value_is_null = self
+            .fb
+            .ins()
+            .icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
+        let value_ok_block = self.fb.create_block();
+        self.fb
+            .append_block_param(value_ok_block, self.ctx.consts.ptr_ty);
+        self.fb.ins().brif(
+            value_is_null,
+            self.ctx.consts.step_null_block,
+            &step_null_block_args(self.ctx),
+            value_ok_block,
+            &[ir::BlockArg::Value(value)],
+        );
+        self.fb.switch_to_block(value_ok_block);
+        self.fb.block_params(value_ok_block)[0]
+    }
+
+    fn emit_owned_func_call(
+        &mut self,
+        func_ref: ir::FuncRef,
+        args: &[&DirectSimpleExprPlan],
+    ) -> ir::Value {
+        let arg_values = self.emit_arg_values(args);
+        let values = arg_values
+            .iter()
+            .map(|(value, _)| *value)
+            .collect::<Vec<_>>();
+        let call_inst = self.fb.ins().call(func_ref, &values);
+        self.release_arg_values(&arg_values);
+        self.finish_owned_result(self.fb.inst_results(call_inst)[0])
+    }
+
+    fn emit_bool_func_call(
+        &mut self,
+        func_ref: ir::FuncRef,
+        args: &[&DirectSimpleExprPlan],
+    ) -> ir::Value {
+        let arg_values = self.emit_arg_values(args);
+        let values = arg_values
+            .iter()
+            .map(|(value, _)| *value)
+            .collect::<Vec<_>>();
+        let call_inst = self.fb.ins().call(func_ref, &values);
+        self.release_arg_values(&arg_values);
+        emit_owned_bool_from_i32_result(self.fb, self.fb.inst_results(call_inst)[0], self.ctx)
+    }
+
+    fn emit_decode_literal_bytes(&mut self, bytes: &[u8]) -> ir::Value {
+        let data = intern_bytes_literal(self.literal_pool, bytes);
+        let data_ptr_val = self.fb.ins().iconst(self.ctx.consts.ptr_ty, data.0 as i64);
+        let data_len_val = self.fb.ins().iconst(self.ctx.consts.i64_ty, data.1);
+        let value_inst = self.fb.ins().call(
+            self.ctx.decode_literal_bytes_ref,
+            &[data_ptr_val, data_len_val],
+        );
+        self.finish_owned_result(self.fb.inst_results(value_inst)[0])
+    }
+
+    fn emit_pack_tuple(&mut self, args: &[&DirectSimpleExprPlan]) -> ir::Value {
+        let arg_values = self.emit_arg_values(args);
+        let tuple_value = emit_pack_current_values_tuple(
+            self.fb,
+            &arg_values
+                .iter()
+                .map(|(value, _)| *value)
+                .collect::<Vec<_>>(),
+            self.ctx,
+        );
+        self.release_arg_values(&arg_values);
+        tuple_value
+    }
+}
+
+trait JitIntrinsic: intrinsics::Intrinsic {
+    fn emit_direct_simple(
+        &self,
+        state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_>,
+        parts: &[DirectSimpleCallPart],
+    ) -> Option<ir::Value>;
+}
+
+impl JitIntrinsic for intrinsics::AddIntrinsic {
+    fn emit_direct_simple(
+        &self,
+        state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_>,
+        parts: &[DirectSimpleCallPart],
+    ) -> Option<ir::Value> {
+        let args = state.positional_args_only(parts)?;
+        if args.len() != 2 {
+            return None;
+        }
+        Some(state.emit_owned_func_call(state.ctx.operator_refs.number_add_ref, &args))
+    }
+}
+
+fn jit_intrinsic_by_intrinsic(
+    intrinsic: &'static dyn intrinsics::Intrinsic,
+) -> Option<&'static dyn JitIntrinsic> {
+    intrinsic
+        .as_any()
+        .downcast_ref::<intrinsics::AddIntrinsic>()
+        .map(|value| value as &dyn JitIntrinsic)
 }
 
 fn lookup_ambient_value(ctx: &DirectSimpleEmitCtx, name: &str) -> Option<ir::Value> {
@@ -839,6 +1023,37 @@ fn emit_direct_simple_expr(
             fb.switch_to_block(value_ok_block);
             fb.block_params(value_ok_block)[0]
         }
+        DirectSimpleExprPlan::Intrinsic { intrinsic, parts } => {
+            assert!(
+                !borrowed,
+                "direct simple plan must not use borrowed intrinsic expression"
+            );
+            let mut intrinsic_state = DirectSimpleIntrinsicEmitState {
+                fb,
+                local_names,
+                local_values,
+                ctx,
+                literal_pool,
+            };
+            if let Some(jit_intrinsic) = jit_intrinsic_by_intrinsic(*intrinsic) {
+                if let Some(value) = jit_intrinsic.emit_direct_simple(&mut intrinsic_state, parts) {
+                    return value;
+                }
+            }
+            let fallback = DirectSimpleExprPlan::Call {
+                func: Box::new(DirectSimpleExprPlan::Name(intrinsic.name().to_string())),
+                parts: parts.clone(),
+            };
+            emit_direct_simple_expr(
+                intrinsic_state.fb,
+                &fallback,
+                intrinsic_state.local_names,
+                intrinsic_state.local_values,
+                intrinsic_state.ctx,
+                intrinsic_state.literal_pool,
+                false,
+            )
+        }
         DirectSimpleExprPlan::Call { func, parts } => {
             assert!(
                 !borrowed,
@@ -862,6 +1077,24 @@ fn emit_direct_simple_expr(
             let args: Vec<&DirectSimpleExprPlan> = simple_args.clone();
             let keywords: Vec<(&str, &DirectSimpleExprPlan)> = simple_keywords.clone();
             if let DirectSimpleExprPlan::Name(func_name) = func.as_ref() {
+                if !has_unpack {
+                    if let Some(intrinsic) = intrinsics::intrinsic_by_name(func_name) {
+                        let mut intrinsic_state = DirectSimpleIntrinsicEmitState {
+                            fb,
+                            local_names,
+                            local_values,
+                            ctx,
+                            literal_pool,
+                        };
+                        if let Some(jit_intrinsic) = jit_intrinsic_by_intrinsic(intrinsic) {
+                            if let Some(value) =
+                                jit_intrinsic.emit_direct_simple(&mut intrinsic_state, parts)
+                            {
+                                return value;
+                            }
+                        }
+                    }
+                }
                 if !has_unpack
                     && simple_keywords.is_empty()
                     && func_name == "__dp_decode_literal_bytes"
@@ -1565,7 +1798,6 @@ fn emit_direct_simple_expr(
                             | ("PyObject_SetAttr", 3)
                             | ("PyObject_GetItem", 2)
                             | ("PyObject_SetItem", 3)
-                            | ("__dp_add", 2)
                             | ("__dp_sub", 2)
                             | ("__dp_mul", 2)
                             | ("__dp_matmul", 2)
@@ -1626,7 +1858,6 @@ fn emit_direct_simple_expr(
                             | ("PyObject_GetItem", 2)
                             | ("PyObject_SetAttr", 3)
                             | ("PyObject_SetItem", 3)
-                            | ("__dp_add", 2)
                             | ("__dp_sub", 2)
                             | ("__dp_mul", 2)
                             | ("__dp_matmul", 2)
@@ -1666,7 +1897,6 @@ fn emit_direct_simple_expr(
                                     ("PyObject_SetAttr", 3) => pyobject_setattr_ref,
                                     ("PyObject_GetItem", 2) => pyobject_getitem_ref,
                                     ("PyObject_SetItem", 3) => pyobject_setitem_ref,
-                                    ("__dp_add", 2) => operator_refs.number_add_ref,
                                     ("__dp_sub", 2) => operator_refs.number_subtract_ref,
                                     ("__dp_mul", 2) => operator_refs.number_multiply_ref,
                                     ("__dp_matmul", 2) => operator_refs.number_matrix_multiply_ref,
@@ -4666,8 +4896,8 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Call {
-                            func: Box::new(DirectSimpleExprPlan::Name("__dp_add".into())),
+                        ret: DirectSimpleExprPlan::Intrinsic {
+                            intrinsic: &intrinsics::ADD_INTRINSIC,
                             parts: vec![
                                 DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(1)),
                                 DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(2)),

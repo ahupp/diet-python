@@ -3,12 +3,12 @@ use crate::block_py::dataflow::analyze_blockpy_use_def;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
-    is_resume_abi_param_name, resume_abi_params, BlockParam, BlockParamRole, BlockPyAssign,
-    BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyCfgFragment, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyCall,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
-    CoreBlockPyExprWithoutAwaitOrYield, FunctionId, FunctionName,
+    core_positional_call_expr_with_meta, is_resume_abi_param_name, resume_abi_params, BlockParam,
+    BlockParamRole, BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder,
+    BlockPyCfgFragment, BlockPyFunction, BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm,
+    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout,
+    ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait, CoreBlockPyExprWithoutAwaitOrYield,
+    FunctionId, FunctionName,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope::cell_name;
@@ -139,16 +139,12 @@ fn core_call(
     func_name: &str,
     args: Vec<CoreBlockPyExprWithoutAwaitOrYield>,
 ) -> CoreBlockPyExprWithoutAwaitOrYield {
-    CoreBlockPyExprWithoutAwaitOrYield::Call(CoreBlockPyCall {
-        node_index: ast::AtomicNodeIndex::default(),
-        range: Default::default(),
-        func: Box::new(core_name(func_name)),
-        args: args
-            .into_iter()
-            .map(CoreBlockPyCallArg::Positional)
-            .collect(),
-        keywords: Vec::new(),
-    })
+    core_positional_call_expr_with_meta(
+        func_name,
+        ast::AtomicNodeIndex::default(),
+        Default::default(),
+        args,
+    )
 }
 
 fn runtime_init_expr(slot: &ClosureSlot) -> CoreBlockPyExprWithoutAwaitOrYield {
