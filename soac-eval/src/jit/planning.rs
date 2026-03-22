@@ -18,6 +18,7 @@ pub struct ClifPlan {
 pub struct ClifBlockPlan {
     pub label: String,
     pub param_names: Vec<String>,
+    pub runtime_param_names: Vec<String>,
     pub term: BlockPyTerm<CoreBlockPyExpr>,
     pub exc_target: Option<usize>,
     pub exc_dispatch: Option<BlockExcDispatchPlan>,
@@ -27,16 +28,14 @@ pub struct ClifBlockPlan {
 #[derive(Clone, Debug)]
 pub struct BlockExcDispatchPlan {
     pub target_index: usize,
-    pub owner_param_name: Option<String>,
-    pub arg_sources: Vec<BlockExcArgSource>,
+    pub slot_writes: Vec<(String, BlockExcArgSource)>,
 }
 
 #[derive(Clone, Debug)]
 pub enum BlockExcArgSource {
-    SourceParam { name: String },
+    Name(String),
     Exception,
     NoneValue,
-    FrameLocal { name: String },
 }
 
 #[derive(Clone, Debug)]
@@ -116,6 +115,7 @@ pub enum DirectSimpleTermPlan {
     Jump {
         target_index: usize,
         target_params: Vec<String>,
+        full_target_params: Vec<String>,
         target_args: Vec<DirectSimpleBlockArgPlan>,
     },
     BrIf {
@@ -248,8 +248,8 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
 
     fn jit_param_names_for_block(&self, block: &PreparedBbBlock) -> Vec<String> {
         block
-            .param_names()
-            .filter(|name| !self.ambient_param_name_set.contains(*name))
+            .exception_param()
+            .into_iter()
             .map(ToString::to_string)
             .collect()
     }
@@ -272,16 +272,15 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
     ) -> Option<BlockExcDispatchPlan> {
         let target_index = exc_target?;
         let target_block = &self.function.blocks[target_index];
-        let block_param_names = self.jit_param_names_for_block(block);
-        let full_target_param_names = target_block.param_name_vec();
-        let owner_param_name = block_param_names
-            .iter()
-            .find(|param| param.as_str() == "_dp_self" || param.as_str() == "_dp_state")
-            .cloned();
+        let runtime_param_name_set = self
+            .jit_param_names_for_index(target_index)
+            .into_iter()
+            .collect::<HashSet<_>>();
         let exc_edge = block
             .exc_edge
             .as_ref()
             .expect("exc_target implies exc_edge");
+        let full_target_param_names = target_block.param_name_vec();
         if exc_edge.args.len() != full_target_param_names.len() {
             panic!(
                 "exception dispatch from {}:{} has {} explicit edge args for target {} with {} full params",
@@ -292,55 +291,30 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
                 full_target_param_names.len()
             );
         }
-        let mut arg_sources = Vec::with_capacity(full_target_param_names.len());
+        let mut slot_writes = Vec::new();
         for (target_param_name, source) in full_target_param_names.iter().zip(exc_edge.args.iter())
         {
-            if self.ambient_param_name_set.contains(target_param_name) {
+            if runtime_param_name_set.contains(target_param_name)
+                || self.ambient_param_name_set.contains(target_param_name)
+            {
                 continue;
             }
-            match source {
-                BlockArg::Name(name) => {
-                    if !block_param_names
-                        .iter()
-                        .any(|source_name| source_name == name)
-                    {
-                        if owner_param_name.is_none() {
-                            arg_sources.push(BlockExcArgSource::NoneValue);
-                        } else {
-                            arg_sources.push(BlockExcArgSource::FrameLocal { name: name.clone() });
-                        }
-                    } else {
-                        arg_sources.push(BlockExcArgSource::SourceParam { name: name.clone() });
-                    }
-                }
-                BlockArg::CurrentException => {
-                    arg_sources.push(BlockExcArgSource::Exception);
-                }
-                BlockArg::None => {
-                    arg_sources.push(BlockExcArgSource::NoneValue);
-                }
+            let source = match source {
+                BlockArg::Name(name) => BlockExcArgSource::Name(name.clone()),
+                BlockArg::CurrentException => BlockExcArgSource::Exception,
+                BlockArg::None => BlockExcArgSource::NoneValue,
                 BlockArg::AbruptKind(kind) => {
                     panic!(
                         "exception dispatch from {}:{} uses abrupt-kind edge arg {:?} for target param {}",
                         self.function.names.qualname, block.label, kind, target_param_name
                     );
                 }
-            }
-        }
-        if owner_param_name.is_none()
-            && arg_sources
-                .iter()
-                .any(|src| matches!(src, BlockExcArgSource::FrameLocal { .. }))
-        {
-            panic!(
-                "exception dispatch from {}:{} requires frame-local fallback but has no _dp_self/_dp_state parameter",
-                self.function.names.qualname, block.label
-            );
+            };
+            slot_writes.push((target_param_name.clone(), source));
         }
         Some(BlockExcDispatchPlan {
             target_index,
-            owner_param_name,
-            arg_sources,
+            slot_writes,
         })
     }
 
@@ -519,7 +493,8 @@ fn direct_simple_brif_plan_from_block(
     let then_index = function.index_of_target(if_term.then_label.as_str());
     let else_index = function.index_of_target(if_term.else_label.as_str());
     let source_params = function.jit_param_names_for_block(block);
-    if function.jit_param_names_for_index(then_index) != source_params
+    if !source_params.is_empty()
+        || function.jit_param_names_for_index(then_index) != source_params
         || function.jit_param_names_for_index(else_index) != source_params
     {
         return None;
@@ -610,6 +585,7 @@ fn direct_simple_block_plan_from_block(
         BlockPyTerm::Jump(target_label) => {
             let target_index = function.index_of_target(target_label.as_str());
             let target_params = function.jit_param_names_for_index(target_index);
+            let full_target_params = function.function.blocks[target_index].param_name_vec();
             let target_args = target_label
                 .args
                 .iter()
@@ -624,6 +600,7 @@ fn direct_simple_block_plan_from_block(
             DirectSimpleTermPlan::Jump {
                 target_index,
                 target_params,
+                full_target_params,
                 target_args,
             }
         }
@@ -703,6 +680,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPla
     for block in &function.function.blocks {
         let exc_target = function.exc_target_index(block);
         let exc_dispatch = function.exc_dispatch_plan(block, exc_target);
+        let runtime_param_names = function.jit_param_names_for_block(block);
         let term = block.term.clone();
         let fast_path = {
             if block.body.is_empty() {
@@ -711,7 +689,10 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPla
                         let target_index = function.index_of_target(target_label.as_str());
                         let source_params = function.jit_param_names_for_block(block);
                         let target_params = function.jit_param_names_for_index(target_index);
-                        if target_label.args.is_empty() && source_params == target_params {
+                        if target_label.args.is_empty()
+                            && source_params.is_empty()
+                            && source_params == target_params
+                        {
                             BlockFastPath::JumpPassThrough { target_index }
                         } else {
                             BlockFastPath::DirectSimpleBlock {
@@ -749,6 +730,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPla
         blocks.push(ClifBlockPlan {
             label: block.label.to_string(),
             param_names: block.param_name_vec(),
+            runtime_param_names,
             term,
             exc_target,
             exc_dispatch,

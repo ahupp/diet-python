@@ -406,10 +406,14 @@ def exercise():
                 .filter_map(|block| block.exc_dispatch.as_ref())
                 .any(|dispatch| {
                     handler_entry_targets.contains(&dispatch.target_index)
-                        && dispatch
-                            .arg_sources
+                        && (plan.blocks[dispatch.target_index]
+                            .runtime_param_names
                             .iter()
-                            .any(|source| matches!(source, BlockExcArgSource::Exception))
+                            .any(|name| name.starts_with("_dp_try_exc_"))
+                            || dispatch
+                                .slot_writes
+                                .iter()
+                                .any(|(_, source)| matches!(source, BlockExcArgSource::Exception)))
                 }),
             "expected a dispatch into an except handler target to pass the active exception: {:?}",
             plan.blocks
@@ -420,7 +424,7 @@ def exercise():
                         (
                             &plan.blocks[index].label,
                             &plan.blocks[dispatch.target_index].label,
-                            &dispatch.arg_sources,
+                            &dispatch.slot_writes,
                         )
                     })
                 })
