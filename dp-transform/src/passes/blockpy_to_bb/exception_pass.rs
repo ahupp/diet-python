@@ -1,6 +1,5 @@
 use crate::block_py::{
-    BbStmt, BbTerm, BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyTerm,
-    PreparedBbBlock,
+    BbStmt, BbTerm, BlockPyFunction, BlockPyLabel, BlockPyModule, PreparedBbBlock,
 };
 use crate::passes::blockpy_to_bb::populate_exception_edge_args;
 use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass};
@@ -21,7 +20,17 @@ pub fn lower_try_jump_exception_flow(
 fn lower_function_try_jump_exception_flow(
     function: BlockPyFunction<BbBlockPyPass>,
 ) -> Result<BlockPyFunction<PreparedBbBlockPyPass>, String> {
-    let mut function = rewrite_try_jump_terms(function)?;
+    let mut function = BlockPyFunction {
+        function_id: function.function_id,
+        names: function.names,
+        kind: function.kind,
+        params: function.params,
+        blocks: function.blocks,
+        doc: function.doc,
+        closure_layout: function.closure_layout,
+        facts: function.facts,
+        try_regions: function.try_regions,
+    };
     let label_set: HashSet<String> = function
         .blocks
         .iter()
@@ -37,64 +46,6 @@ fn lower_function_try_jump_exception_flow(
     populate_exception_edge_args(&mut function.blocks);
 
     Ok(function)
-}
-
-fn rewrite_try_jump_terms(
-    function: BlockPyFunction<BbBlockPyPass>,
-) -> Result<BlockPyFunction<PreparedBbBlockPyPass>, String> {
-    let qualname = function.names.qualname.clone();
-    let labels = function
-        .blocks
-        .iter()
-        .map(|block| block.label.as_str().to_string())
-        .collect::<HashSet<_>>();
-    Ok(BlockPyFunction {
-        function_id: function.function_id,
-        names: function.names,
-        kind: function.kind,
-        params: function.params,
-        blocks: function
-            .blocks
-            .into_iter()
-            .map(|mut block| {
-                let term = match block.term {
-                    BlockPyTerm::TryJump(try_jump) => {
-                        ensure_known_label(
-                            &labels,
-                            &try_jump.body_label,
-                            qualname.as_str(),
-                            &block.label,
-                            "try body target",
-                        )?;
-                        ensure_known_label(
-                            &labels,
-                            &try_jump.except_label,
-                            qualname.as_str(),
-                            &block.label,
-                            "try except target",
-                        )?;
-                        if block.exc_edge.is_none() {
-                            block.exc_edge = Some(BlockPyEdge::new(try_jump.except_label.clone()));
-                        }
-                        BbTerm::Jump(try_jump.body_label.into())
-                    }
-                    term => term.into(),
-                };
-                Ok(PreparedBbBlock {
-                    label: block.label,
-                    body: block.body,
-                    term,
-                    params: block.params,
-                    exc_edge: block.exc_edge,
-                })
-            })
-            .collect::<Result<Vec<_>, String>>()?,
-        doc: function.doc,
-        closure_layout: function.closure_layout,
-        facts: function.facts,
-        try_regions: function.try_regions,
-        extra: function.extra,
-    })
 }
 
 fn bb_params_from_names(

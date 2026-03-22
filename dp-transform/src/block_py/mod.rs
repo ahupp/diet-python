@@ -400,12 +400,11 @@ pub struct BlockPyFunction<P: BlockPyPass> {
     pub names: FunctionName,
     pub kind: BlockPyFunctionKind,
     pub params: ParamSpec,
-    pub blocks: Vec<CfgBlock<P::Stmt, P::Term>>,
+    pub blocks: Vec<CfgBlock<P::Stmt, BlockPyTerm<P::Expr>>>,
     pub doc: Option<String>,
     pub closure_layout: Option<ClosureLayout>,
     pub facts: BlockPyCallableFacts,
     pub try_regions: Vec<TryRegionPlan>,
-    pub extra: P::FunctionExtra,
 }
 
 impl<P: BlockPyPass> BlockPyFunction<P> {
@@ -430,33 +429,12 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
             .expect("BlockPyFunction should have at least one block")
     }
 
-    pub fn map_extra<Q: BlockPyPass>(
-        self,
-        f: impl FnOnce(P::FunctionExtra) -> Q::FunctionExtra,
-    ) -> BlockPyFunction<Q>
-    where
-        Q: BlockPyPass<Expr = P::Expr, Stmt = P::Stmt, Term = P::Term>,
-    {
-        BlockPyFunction {
-            function_id: self.function_id,
-            names: self.names,
-            kind: self.kind,
-            params: self.params,
-            blocks: self.blocks,
-            doc: self.doc,
-            closure_layout: self.closure_layout,
-            facts: self.facts,
-            try_regions: self.try_regions,
-            extra: f(self.extra),
-        }
-    }
-
     pub fn map_blocks<Q: BlockPyPass>(
         self,
         mut f: impl FnMut(PassBlock<P>) -> PassBlock<Q>,
     ) -> BlockPyFunction<Q>
     where
-        Q: BlockPyPass<Expr = P::Expr, FunctionExtra = P::FunctionExtra>,
+        Q: BlockPyPass<Expr = P::Expr>,
     {
         BlockPyFunction {
             function_id: self.function_id,
@@ -468,15 +446,16 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
             closure_layout: self.closure_layout,
             facts: self.facts,
             try_regions: self.try_regions,
-            extra: self.extra,
         }
     }
 }
 
-pub fn lowered_entry_liveins<S, T, E>(params: &ParamSpec, blocks: &[CfgBlock<S, T>]) -> Vec<String>
+pub fn lowered_entry_liveins<S, E>(
+    params: &ParamSpec,
+    blocks: &[CfgBlock<S, BlockPyTerm<E>>],
+) -> Vec<String>
 where
     S: IntoBlockPyStmt<E>,
-    T: IntoBlockPyTerm<E>,
     E: Clone + Into<Expr> + fmt::Debug,
 {
     if blocks.is_empty() {
@@ -491,7 +470,7 @@ where
                 .iter()
                 .map(|stmt| stmt.clone().into_stmt())
                 .collect(),
-            term: block.term.clone().into_term(),
+            term: block.term.clone(),
             params: block.params.clone(),
             exc_edge: block.exc_edge.clone(),
         })
@@ -570,20 +549,13 @@ pub trait IntoBlockPyStmt<E>: Clone + fmt::Debug {
     fn into_stmt(self) -> BlockPyStmt<E>;
 }
 
-pub trait IntoBlockPyTerm<E>: Clone + fmt::Debug {
-    fn into_term(self) -> BlockPyTerm<E>;
-}
-
 pub trait BlockPyPass: Clone + fmt::Debug {
     type Expr: Clone + fmt::Debug + Into<Expr>;
     type Stmt: BlockPyNormalizedStmt + IntoBlockPyStmt<Self::Expr>;
-    type Term: IntoBlockPyTerm<Self::Expr>;
-    type FunctionExtra: Clone + fmt::Debug;
 }
 
 pub type PassExpr<P> = <P as BlockPyPass>::Expr;
-pub type PassTerm<P> = <P as BlockPyPass>::Term;
-pub type PassBlock<P> = CfgBlock<<P as BlockPyPass>::Stmt, PassTerm<P>>;
+pub type PassBlock<P> = CfgBlock<<P as BlockPyPass>::Stmt, BlockPyTerm<PassExpr<P>>>;
 pub type BbBlock = PassBlock<BbBlockPyPass>;
 pub type PreparedBbBlock = PassBlock<PreparedBbBlockPyPass>;
 
@@ -879,45 +851,7 @@ impl<E: Clone + fmt::Debug> IntoBlockPyStmt<E> for BlockPyStmt<E> {
     }
 }
 
-impl<E: Clone + fmt::Debug> IntoBlockPyTerm<E> for BlockPyTerm<E> {
-    fn into_term(self) -> BlockPyTerm<E> {
-        self
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum BbTerm {
-    Jump(BlockPyEdge),
-    IfTerm(BlockPyIfTerm<CoreBlockPyExprWithoutAwaitOrYield>),
-    BranchTable(BlockPyBranchTable<CoreBlockPyExprWithoutAwaitOrYield>),
-    Raise(BlockPyRaise<CoreBlockPyExprWithoutAwaitOrYield>),
-    Return(CoreBlockPyExprWithoutAwaitOrYield),
-}
-
-impl From<BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>> for BbTerm {
-    fn from(value: BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> Self {
-        match value {
-            BlockPyTerm::Jump(edge) => Self::Jump(edge),
-            BlockPyTerm::IfTerm(if_term) => Self::IfTerm(if_term),
-            BlockPyTerm::BranchTable(branch) => Self::BranchTable(branch),
-            BlockPyTerm::Raise(raise_stmt) => Self::Raise(raise_stmt),
-            BlockPyTerm::Return(value) => Self::Return(value),
-            BlockPyTerm::TryJump(_) => panic!("TryJump reached BbTerm conversion"),
-        }
-    }
-}
-
-impl IntoBlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield> for BbTerm {
-    fn into_term(self) -> BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield> {
-        match self {
-            BbTerm::Jump(edge) => BlockPyTerm::Jump(edge),
-            BbTerm::IfTerm(if_term) => BlockPyTerm::IfTerm(if_term),
-            BbTerm::BranchTable(branch) => BlockPyTerm::BranchTable(branch),
-            BbTerm::Raise(raise_stmt) => BlockPyTerm::Raise(raise_stmt),
-            BbTerm::Return(value) => BlockPyTerm::Return(value),
-        }
-    }
-}
+pub type BbTerm = BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>;
 
 #[derive(Debug, Clone)]
 pub enum BlockPyTerm<E = Expr> {
@@ -925,7 +859,6 @@ pub enum BlockPyTerm<E = Expr> {
     IfTerm(BlockPyIfTerm<E>),
     BranchTable(BlockPyBranchTable<E>),
     Raise(BlockPyRaise<E>),
-    TryJump(BlockPyTryJump),
     Return(E),
 }
 
@@ -1038,12 +971,6 @@ pub struct BlockParam {
     pub role: BlockParamRole,
 }
 
-#[derive(Debug, Clone)]
-pub struct BlockPyTryJump {
-    pub body_label: BlockPyLabel,
-    pub except_label: BlockPyLabel,
-}
-
 pub trait BlockPyModuleVisitor<P>
 where
     P: BlockPyPass,
@@ -1111,8 +1038,10 @@ where
         let stmt = stmt.clone().into_stmt();
         visitor.visit_stmt(&stmt);
     }
-    let term = block.term.clone().into_term();
-    visitor.visit_term(&term);
+    if let Some(exc_edge) = &block.exc_edge {
+        visitor.visit_label(&exc_edge.target);
+    }
+    visitor.visit_term(&block.term);
 }
 
 pub fn walk_fragment<V, P>(
@@ -1165,10 +1094,6 @@ where
         BlockPyTerm::Jump(edge) => {
             visitor.visit_label(&edge.target);
         }
-        BlockPyTerm::TryJump(try_jump) => {
-            visitor.visit_label(&try_jump.body_label);
-            visitor.visit_label(&try_jump.except_label);
-        }
         BlockPyTerm::IfTerm(if_term) => {
             visitor.visit_expr(&if_term.test);
             visitor.visit_label(&if_term.then_label);
@@ -1193,9 +1118,8 @@ where
 pub trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
-    POut: BlockPyPass<FunctionExtra = PIn::FunctionExtra>,
+    POut: BlockPyPass,
     BlockPyStmt<POut::Expr>: Into<POut::Stmt>,
-    BlockPyTerm<POut::Expr>: Into<POut::Term>,
 {
     fn map_module(&self, module: BlockPyModule<PIn>) -> BlockPyModule<POut> {
         BlockPyModule {
@@ -1222,7 +1146,6 @@ where
             closure_layout: func.closure_layout,
             facts: func.facts,
             try_regions: func.try_regions,
-            extra: func.extra,
         }
     }
 
@@ -1234,7 +1157,7 @@ where
                 .into_iter()
                 .map(|stmt| self.map_stmt(stmt.into_stmt()).into())
                 .collect(),
-            term: self.map_term(block.term.into_term()).into(),
+            term: self.map_term(block.term),
             params: block.params,
             exc_edge: block.exc_edge,
         }
@@ -1298,7 +1221,6 @@ where
             BlockPyTerm::Raise(raise_stmt) => BlockPyTerm::Raise(BlockPyRaise {
                 exc: raise_stmt.exc.map(|exc| self.map_expr(exc)),
             }),
-            BlockPyTerm::TryJump(try_jump) => BlockPyTerm::TryJump(try_jump),
             BlockPyTerm::Return(value) => BlockPyTerm::Return(self.map_expr(value)),
         }
     }
@@ -1358,18 +1280,6 @@ impl<E: ImplicitNoneExpr> BlockPyFallthroughTerm<BlockPyLabel> for BlockPyTerm<E
     }
 }
 
-impl BlockPyJumpTerm<BlockPyLabel> for BbTerm {
-    fn jump_term(target: BlockPyLabel) -> Self {
-        Self::Jump(BlockPyEdge::new(target))
-    }
-}
-
-impl BlockPyFallthroughTerm<BlockPyLabel> for BbTerm {
-    fn implicit_function_return() -> Self {
-        Self::Return(CoreBlockPyExprWithoutAwaitOrYield::implicit_none_expr())
-    }
-}
-
 impl<PIn> BlockPyModule<PIn>
 where
     PIn: BlockPyPass,
@@ -1380,9 +1290,8 @@ where
 
     pub fn map_module<POut>(self, mapper: &impl BlockPyModuleMap<PIn, POut>) -> BlockPyModule<POut>
     where
-        POut: BlockPyPass<FunctionExtra = PIn::FunctionExtra>,
+        POut: BlockPyPass,
         BlockPyStmt<POut::Expr>: Into<POut::Stmt>,
-        BlockPyTerm<POut::Expr>: Into<POut::Term>,
     {
         mapper.map_module(self)
     }
@@ -1501,7 +1410,6 @@ mod tests {
                     BlockPyTerm::IfTerm(_) => "if",
                     BlockPyTerm::BranchTable(_) => "branch_table",
                     BlockPyTerm::Raise(_) => "raise",
-                    BlockPyTerm::TryJump(_) => "try_jump",
                     BlockPyTerm::Return(_) => "return",
                 };
                 self.trace.push(format!("term:{kind}"));
@@ -1571,7 +1479,6 @@ mod tests {
                 closure_layout: None,
                 facts: BlockPyCallableFacts::default(),
                 try_regions: Vec::new(),
-                extra: (),
             }],
         };
 
@@ -1971,7 +1878,6 @@ impl TryFrom<BlockPyTerm<CoreBlockPyExpr>> for BlockPyTerm<CoreBlockPyExprWithou
             BlockPyTerm::Raise(raise_stmt) => Ok(BlockPyTerm::Raise(BlockPyRaise {
                 exc: raise_stmt.exc.map(TryInto::try_into).transpose()?,
             })),
-            BlockPyTerm::TryJump(try_jump) => Ok(BlockPyTerm::TryJump(try_jump)),
             BlockPyTerm::Return(value) => Ok(BlockPyTerm::Return(value.try_into()?)),
         }
     }
@@ -2173,7 +2079,6 @@ impl TryFrom<BlockPyTerm<CoreBlockPyExprWithoutAwait>>
             BlockPyTerm::Raise(raise_stmt) => Ok(BlockPyTerm::Raise(BlockPyRaise {
                 exc: raise_stmt.exc.map(TryInto::try_into).transpose()?,
             })),
-            BlockPyTerm::TryJump(try_jump) => Ok(BlockPyTerm::TryJump(try_jump)),
             BlockPyTerm::Return(value) => Ok(BlockPyTerm::Return(value.try_into()?)),
         }
     }
@@ -2260,7 +2165,6 @@ impl TryFrom<BlockPyFunction<CoreBlockPyPassWithoutAwait>>
             closure_layout,
             facts,
             try_regions,
-            extra,
         } = value;
         Ok(BlockPyFunction {
             function_id,
@@ -2275,7 +2179,6 @@ impl TryFrom<BlockPyFunction<CoreBlockPyPassWithoutAwait>>
             closure_layout,
             facts,
             try_regions,
-            extra,
         })
     }
 }

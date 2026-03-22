@@ -191,7 +191,6 @@ fn bb_term_kind(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> &'sta
         BlockPyTerm::BranchTable(_) => "br_table",
         BlockPyTerm::Raise(_) => "raise",
         BlockPyTerm::Return(_) => "return",
-        BlockPyTerm::TryJump(_) => "try_jump",
     }
 }
 
@@ -215,7 +214,6 @@ fn bb_term_successors(
         }
         BlockPyTerm::Raise(_) => Vec::new(),
         BlockPyTerm::Return(_) => Vec::new(),
-        BlockPyTerm::TryJump(_) => Vec::new(),
     }
 }
 
@@ -296,7 +294,6 @@ fn clif_term_comment(
         }
         BlockPyTerm::Raise(raise_stmt) => blockpy_pretty::bb_raise_text(raise_stmt),
         BlockPyTerm::Return(value) => format!("return {}", blockpy_pretty::bb_expr_text(value)),
-        BlockPyTerm::TryJump(_) => "try_jump".to_string(),
     }
 }
 
@@ -440,9 +437,6 @@ fn render_cranelift_function_from_bb(
             BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {
                 let ret_value = builder.ins().iconst(types::I64, 0);
                 builder.ins().return_(&[ret_value]);
-            }
-            BlockPyTerm::TryJump(_) => {
-                return Err("TryJump is not allowed in BbTerm".to_string());
             }
         }
     }

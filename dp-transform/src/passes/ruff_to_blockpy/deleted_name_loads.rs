@@ -67,7 +67,7 @@ fn rewrite_blockpy_term_deleted_name_loads(
     rewriter: &mut DeletedNameLoadRewriter<'_>,
 ) {
     match term {
-        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => {}
+        BlockPyTerm::Jump(_) => {}
         BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
             rewrite_blockpy_expr_deleted_name_loads(test, rewriter);
         }

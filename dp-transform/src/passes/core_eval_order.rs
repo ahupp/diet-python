@@ -193,7 +193,6 @@ fn make_eval_order_explicit_in_core_term(
 ) -> BlockPyTerm<CoreBlockPyExpr> {
     match term {
         BlockPyTerm::Jump(edge) => BlockPyTerm::Jump(edge),
-        BlockPyTerm::TryJump(try_jump) => BlockPyTerm::TryJump(try_jump),
         BlockPyTerm::IfTerm(BlockPyIfTerm {
             test,
             then_label,
@@ -436,7 +435,7 @@ fn make_eval_order_explicit_in_core_term_without_await(
     out: &mut Vec<BlockPyStmt<CoreBlockPyExprWithoutAwait>>,
 ) -> BlockPyTerm<CoreBlockPyExprWithoutAwait> {
     match term {
-        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => term,
+        BlockPyTerm::Jump(_) => term,
         BlockPyTerm::IfTerm(BlockPyIfTerm {
             test,
             then_label,

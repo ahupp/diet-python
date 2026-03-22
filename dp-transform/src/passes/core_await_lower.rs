@@ -132,7 +132,6 @@ mod tests {
                 closure_layout: None,
                 facts: crate::block_py::BlockPyCallableFacts::default(),
                 try_regions: Vec::new(),
-                extra: (),
             }],
         };
 

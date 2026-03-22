@@ -1457,7 +1457,6 @@ pub(crate) fn lower_generator_like_function(
         closure_layout: Some(closure_layout.clone()),
         facts: callable.facts.clone(),
         try_regions: Vec::new(),
-        extra: (),
     };
 
     let resume_params = resume_param_spec(callable.kind);
@@ -1476,7 +1475,6 @@ pub(crate) fn lower_generator_like_function(
         closure_layout: Some(closure_layout.clone()),
         facts: callable.facts,
         try_regions: Vec::new(),
-        extra: (),
     };
 
     vec![visible_function, resume_function]

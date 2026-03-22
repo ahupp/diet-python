@@ -97,10 +97,6 @@ fn rename_blockpy_term(
                 body_renamer.visit_expr(exc);
             }
         }
-        BlockPyTerm::TryJump(try_jump) => {
-            rename_target_label(&mut try_jump.body_label, rename);
-            rename_target_label(&mut try_jump.except_label, rename);
-        }
         BlockPyTerm::Return(value) => body_renamer.visit_expr(value),
     }
 }
@@ -142,10 +138,6 @@ fn blockpy_successors<E>(block: &CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>) -> Ve
             out.push(branch.default_label.as_str().to_string());
             out
         }
-        BlockPyTerm::TryJump(try_jump) => vec![
-            try_jump.body_label.as_str().to_string(),
-            try_jump.except_label.as_str().to_string(),
-        ],
         BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => Vec::new(),
     }
 }

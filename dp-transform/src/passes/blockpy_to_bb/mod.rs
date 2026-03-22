@@ -79,7 +79,6 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
         closure_layout,
         facts,
         try_regions,
-        extra: (),
     } = lowered;
     let lowered_view: BlockPyFunction<CoreBlockPyPassWithoutAwaitOrYield> = BlockPyFunction {
         function_id,
@@ -91,7 +90,6 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
         closure_layout: closure_layout.clone(),
         facts: facts.clone(),
         try_regions: try_regions.clone(),
-        extra: (),
     };
     let block_params = recompute_lowered_block_params(
         &lowered_view,
@@ -107,7 +105,6 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
         closure_layout,
         facts,
         try_regions,
-        extra: (),
     }
 }
 
@@ -266,7 +263,7 @@ fn rewrite_current_exception_in_blockpy_term(
             }
         }
         BlockPyTerm::Return(value) => rewrite_current_exception_in_blockpy_expr(value, exc_name),
-        BlockPyTerm::Jump(_) | BlockPyTerm::TryJump(_) => {}
+        BlockPyTerm::Jump(_) => {}
     }
 }
 

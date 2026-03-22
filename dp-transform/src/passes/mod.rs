@@ -12,7 +12,7 @@ mod summarize_pass_shape;
 mod trace;
 
 use crate::block_py::{
-    BbTerm, BlockPyPass, BlockPyStmt, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
+    BlockPyPass, BlockPyStmt, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
     CoreBlockPyExprWithoutAwaitOrYield, Expr,
 };
 
@@ -22,8 +22,6 @@ pub struct RuffBlockPyPass;
 impl BlockPyPass for RuffBlockPyPass {
     type Expr = Expr;
     type Stmt = BlockPyStmt<Self::Expr>;
-    type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type FunctionExtra = ();
 }
 
 #[derive(Debug, Clone)]
@@ -32,8 +30,6 @@ pub struct CoreBlockPyPass;
 impl BlockPyPass for CoreBlockPyPass {
     type Expr = CoreBlockPyExpr;
     type Stmt = BlockPyStmt<Self::Expr>;
-    type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type FunctionExtra = ();
 }
 
 #[derive(Debug, Clone)]
@@ -42,8 +38,6 @@ pub struct CoreBlockPyPassWithoutAwait;
 impl BlockPyPass for CoreBlockPyPassWithoutAwait {
     type Expr = CoreBlockPyExprWithoutAwait;
     type Stmt = BlockPyStmt<Self::Expr>;
-    type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type FunctionExtra = ();
 }
 
 #[derive(Debug, Clone)]
@@ -52,8 +46,6 @@ pub struct CoreBlockPyPassWithoutAwaitOrYield;
 impl BlockPyPass for CoreBlockPyPassWithoutAwaitOrYield {
     type Expr = CoreBlockPyExprWithoutAwaitOrYield;
     type Stmt = BlockPyStmt<Self::Expr>;
-    type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type FunctionExtra = ();
 }
 
 #[derive(Debug, Clone)]
@@ -62,8 +54,6 @@ pub struct BbBlockPyPass;
 impl BlockPyPass for BbBlockPyPass {
     type Expr = CoreBlockPyExprWithoutAwaitOrYield;
     type Stmt = crate::block_py::BbStmt;
-    type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type FunctionExtra = ();
 }
 
 #[derive(Debug, Clone)]
@@ -72,8 +62,6 @@ pub struct PreparedBbBlockPyPass;
 impl BlockPyPass for PreparedBbBlockPyPass {
     type Expr = CoreBlockPyExprWithoutAwaitOrYield;
     type Stmt = crate::block_py::BbStmt;
-    type Term = BbTerm;
-    type FunctionExtra = ();
 }
 
 pub(crate) use blockpy_to_bb::{
@@ -207,7 +195,6 @@ mod tests {
                 .as_ref()
                 .is_some_and(|value| expr_text(value).contains(needle)),
             BlockPyTerm::Return(value) => expr_text(value).contains(needle),
-            BlockPyTerm::TryJump(_) => false,
             _ => false,
         }
     }

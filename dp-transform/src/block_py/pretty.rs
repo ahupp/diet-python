@@ -1,9 +1,8 @@
 use super::{
     lowered_entry_liveins, AbruptKind, BbStmt, BlockArg, BlockPyCfgFragment, BlockPyEdge,
     BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass,
-    BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump, CfgBlock,
-    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral, Expr, IntoBlockPyStmt, IntoBlockPyTerm,
-    PassBlock, PassExpr,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyExprWithoutAwaitOrYield,
+    CoreBlockPyLiteral, Expr, IntoBlockPyStmt, PassBlock, PassExpr,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
@@ -270,23 +269,21 @@ impl BlockPyFormatter {
         P: BlockPyPrettyPrinter,
     {
         if block.body.is_empty() {
-            let term = block.term.clone().into_term();
             self.write_term(
                 function,
                 render_layout,
                 current_block_index,
-                &term,
+                &block.term,
                 referenced_labels,
             );
             return;
         }
         self.write_stmt_list(&block.body, referenced_labels);
-        let term = block.term.clone().into_term();
         self.write_term(
             function,
             render_layout,
             current_block_index,
-            &term,
+            &block.term,
             referenced_labels,
         );
     }
@@ -408,7 +405,6 @@ impl BlockPyFormatter {
                 branch.default_label.as_str(),
             )),
             BlockPyTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
-            BlockPyTerm::TryJump(try_jump) => self.write_try_jump(try_jump),
             BlockPyTerm::Return(value) => {
                 self.line(format!("return {}", render_inline_expr(value)))
             }
@@ -438,7 +434,6 @@ impl BlockPyFormatter {
                 branch.default_label.as_str(),
             )),
             BlockPyTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
-            BlockPyTerm::TryJump(try_jump) => self.write_try_jump(try_jump),
             BlockPyTerm::Return(value) => {
                 self.line(format!("return {}", render_inline_expr(value)))
             }
@@ -446,14 +441,6 @@ impl BlockPyFormatter {
                 panic!("IfTerm is only valid as a top-level block terminator");
             }
         }
-    }
-
-    fn write_try_jump(&mut self, try_jump: &BlockPyTryJump) {
-        self.line("try_jump:");
-        self.with_indent(|this| {
-            this.line(format!("body_label: {}", try_jump.body_label.as_str()));
-            this.line(format!("except_label: {}", try_jump.except_label.as_str()));
-        });
     }
 
     fn with_indent(&mut self, f: impl FnOnce(&mut Self)) {
@@ -607,7 +594,6 @@ pub(crate) fn bb_term_text(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield
         }
         BlockPyTerm::Raise(raise_stmt) => bb_raise_text(raise_stmt),
         BlockPyTerm::Return(value) => format!("return {}", bb_expr_text(value)),
-        BlockPyTerm::TryJump(_) => "try_jump".to_string(),
     }
 }
 
@@ -817,12 +803,11 @@ where
     let mut inlined_blocks = HashSet::new();
 
     for (block_index, block) in function.blocks.iter().enumerate() {
-        let term = block.term.clone().into_term();
         let BlockPyTerm::IfTerm(BlockPyIfTerm {
             then_label,
             else_label,
             ..
-        }) = &term
+        }) = &block.term
         else {
             continue;
         };
@@ -900,8 +885,7 @@ where
         &mut seen,
         &mut successors,
     );
-    let term = block.term.clone().into_term();
-    collect_top_level_successors_from_term(&term, label_to_index, &mut seen, &mut successors);
+    collect_top_level_successors_from_term(&block.term, label_to_index, &mut seen, &mut successors);
     successors
 }
 
@@ -964,10 +948,6 @@ fn collect_top_level_successors_from_term(
                 push_top_level_successor(label, label_to_index, seen, out);
             }
             push_top_level_successor(&branch.default_label, label_to_index, seen, out);
-        }
-        BlockPyTerm::TryJump(try_jump) => {
-            push_top_level_successor(&try_jump.body_label, label_to_index, seen, out);
-            push_top_level_successor(&try_jump.except_label, label_to_index, seen, out);
         }
         BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
     }
@@ -1309,7 +1289,6 @@ async def no_lying():
                 }),
                 try_regions: Vec::new(),
                 facts: crate::block_py::BlockPyCallableFacts::default(),
-                extra: (),
             }],
         });
 
@@ -1364,7 +1343,6 @@ async def no_lying():
             closure_layout: None,
             try_regions: Vec::new(),
             facts: crate::block_py::BlockPyCallableFacts::default(),
-            extra: (),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
             callable_defs: vec![function],
@@ -1408,12 +1386,9 @@ def choose(a, b):
                 CfgBlock {
                     label: "start".into(),
                     body: vec![],
-                    term: BlockPyTerm::TryJump(BlockPyTryJump {
-                        body_label: "zeta".into(),
-                        except_label: "alpha".into(),
-                    }),
+                    term: BlockPyTerm::Jump("zeta".into()),
                     params: Vec::new(),
-                    exc_edge: None,
+                    exc_edge: Some(BlockPyEdge::new("alpha".into())),
                 },
                 CfgBlock {
                     label: "zeta".into(),
@@ -1448,7 +1423,6 @@ def choose(a, b):
             closure_layout: None,
             try_regions: Vec::new(),
             facts: crate::block_py::BlockPyCallableFacts::default(),
-            extra: (),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
             callable_defs: vec![function],
@@ -1459,7 +1433,7 @@ def choose(a, b):
         let beta_pos = rendered.find("block beta:").expect("beta block");
         let omega_pos = rendered.find("block omega:").expect("omega block");
 
-        assert!(alpha_pos < zeta_pos, "{rendered}");
+        assert!(zeta_pos < alpha_pos, "{rendered}");
         assert!(beta_pos < omega_pos, "{rendered}");
     }
 
@@ -1482,12 +1456,9 @@ def choose(a, b):
                     })),
                 },
             })],
-            term: BlockPyTerm::TryJump(BlockPyTryJump {
-                body_label: "body_target".into(),
-                except_label: "except_target".into(),
-            }),
+            term: BlockPyTerm::Jump("body_target".into()),
             params: Vec::new(),
-            exc_edge: None,
+            exc_edge: Some(BlockPyEdge::new("except_target".into())),
         }]);
 
         let expected = [
@@ -1547,7 +1518,6 @@ def choose(a, b):
                 closure_layout: None,
                 try_regions: Vec::new(),
                 facts: crate::block_py::BlockPyCallableFacts::default(),
-                extra: (),
             }],
         });
 

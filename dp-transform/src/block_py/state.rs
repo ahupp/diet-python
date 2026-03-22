@@ -1,7 +1,7 @@
 use super::dataflow::{
     analyze_blockpy_use_def, assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term,
 };
-use super::{CfgBlock, Expr, IntoBlockPyStmt, IntoBlockPyTerm};
+use super::{BlockPyTerm, CfgBlock, Expr, IntoBlockPyStmt};
 use crate::passes::ast_symbol_analysis::{assigned_names_in_stmt, collect_assigned_names};
 use crate::passes::ast_to_ast::scope::cell_name;
 use crate::py_stmt;
@@ -28,13 +28,12 @@ pub(crate) fn collect_parameter_names(parameters: &ast::Parameters) -> Vec<Strin
     names
 }
 
-pub(crate) fn collect_state_vars<S, T, E>(
+pub(crate) fn collect_state_vars<S, E>(
     param_names: &[String],
-    blocks: &[CfgBlock<S, T>],
+    blocks: &[CfgBlock<S, BlockPyTerm<E>>],
 ) -> Vec<String>
 where
     S: IntoBlockPyStmt<E>,
-    T: IntoBlockPyTerm<E>,
     E: Clone + Into<Expr>,
 {
     let mut defs_anywhere = HashSet::new();
@@ -43,8 +42,7 @@ where
             let stmt = stmt.clone().into_stmt();
             defs_anywhere.extend(assigned_names_in_blockpy_stmt(&stmt));
         }
-        let term = block.term.clone().into_term();
-        defs_anywhere.extend(assigned_names_in_blockpy_term(&term));
+        defs_anywhere.extend(assigned_names_in_blockpy_term(&block.term));
     }
 
     let mut state = param_names.to_vec();

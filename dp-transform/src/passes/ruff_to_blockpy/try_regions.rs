@@ -397,16 +397,13 @@ pub(crate) fn emit_try_jump_entry(
     label: String,
     linear: Vec<Stmt>,
     body_label: String,
-    except_label: String,
+    _except_label: String,
     active_exc_target: Option<String>,
 ) -> String {
     blocks.push(compat_block_from_blockpy_with_exc_target(
         label.clone(),
         linear,
-        BlockPyTerm::TryJump(BlockPyTryJump {
-            body_label: BlockPyLabel::from(body_label),
-            except_label: BlockPyLabel::from(except_label),
-        }),
+        BlockPyTerm::Jump(BlockPyLabel::from(body_label).into()),
         active_exc_target.as_deref(),
     ));
     label
@@ -451,9 +448,6 @@ pub(crate) fn block_references_label(
                 branch.default_label.as_str() == label
                     || branch.targets.iter().any(|target| target.as_str() == label)
             }
-            BlockPyTerm::TryJump(try_jump) => {
-                try_jump.body_label.as_str() == label || try_jump.except_label.as_str() == label
-            }
             BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => false,
         }
     }
@@ -462,5 +456,9 @@ pub(crate) fn block_references_label(
         .body
         .iter()
         .any(|stmt| stmt_references_label(stmt, label))
+        || block
+            .exc_edge
+            .as_ref()
+            .is_some_and(|edge| edge.target.as_str() == label)
         || term_references_label(&block.term, label)
 }

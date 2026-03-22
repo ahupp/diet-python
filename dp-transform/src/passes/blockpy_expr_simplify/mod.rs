@@ -434,7 +434,6 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: BlockPyTerm<Exp
             });
             builder.set_term(BlockPyTerm::Raise(BlockPyRaise { exc }));
         }
-        BlockPyTerm::TryJump(try_jump) => builder.set_term(BlockPyTerm::TryJump(try_jump)),
         BlockPyTerm::Return(value) => {
             let mut setup = CoreStmtBuilder::new();
             let value = lower_semantic_expr_into(&mut setup, &value);
@@ -482,7 +481,6 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
         closure_layout,
         facts,
         try_regions,
-        extra,
     } = callable_def;
     BlockPyFunction {
         function_id,
@@ -498,7 +496,6 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
         closure_layout,
         facts,
         try_regions,
-        extra,
     }
 }
 

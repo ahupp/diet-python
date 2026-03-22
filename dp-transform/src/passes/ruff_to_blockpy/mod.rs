@@ -17,7 +17,7 @@ use crate::block_py::state::{
 use crate::block_py::{
     assert_blockpy_block_normalized, BlockPyCallableFacts, BlockPyEdge, BlockPyFallthroughTerm,
     BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyStmt, BlockPyTerm,
-    BlockPyTryJump, CfgBlock, ClosureLayout, FunctionId, FunctionName,
+    CfgBlock, ClosureLayout, FunctionId, FunctionName,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -121,7 +121,6 @@ pub(crate) fn build_blockpy_function(
         closure_layout,
         facts,
         try_regions,
-        extra: (),
     }
 }
 
@@ -533,7 +532,10 @@ def f(x, ys):
         assert!(blocks
             .iter()
             .any(|block| matches!(block.term, BlockPyTerm::IfTerm(_))));
-        assert!(rendered.contains("try_jump"), "{rendered}");
+        assert!(
+            blocks.iter().any(|block| block.exc_edge.is_some()),
+            "{rendered}"
+        );
         assert!(rendered.contains("return x"), "{rendered}");
     }
 
@@ -886,7 +888,7 @@ def f(ctx, value):
     }
 
     #[test]
-    fn lower_try_stmt_sequence_emits_try_jump() {
+    fn lower_try_stmt_sequence_emits_entry_jump_and_except_edge() {
         let module = ruff_python_parser::parse_module(
             r#"
 def f():
@@ -937,24 +939,29 @@ def f():
         );
 
         assert!(!entry.is_empty());
-        let Some(try_jump_block) = blocks.iter().find(|block| block.label.as_str() == entry) else {
+        let Some(try_entry_block) = blocks.iter().find(|block| block.label.as_str() == entry)
+        else {
             panic!("expected try entry block");
         };
-        let BlockPyTerm::TryJump(try_jump) = &try_jump_block.term else {
-            panic!("expected try jump entry");
+        let BlockPyTerm::Jump(try_body_edge) = &try_entry_block.term else {
+            panic!("expected try entry jump");
         };
         let Some(body_block) = blocks
             .iter()
-            .find(|block| block.label.as_str() == try_jump.body_label.as_str())
+            .find(|block| block.label.as_str() == try_body_edge.as_str())
         else {
             panic!("expected try body block");
         };
-        assert_eq!(
-            body_block
-                .exc_edge
-                .as_ref()
-                .map(|edge| edge.target.as_str()),
-            Some(try_jump.except_label.as_str())
+        let exc_edge = body_block
+            .exc_edge
+            .as_ref()
+            .expect("try body block must carry except edge");
+        assert_ne!(exc_edge.target.as_str(), try_body_edge.as_str());
+        assert!(
+            blocks
+                .iter()
+                .any(|block| block.label.as_str() == exc_edge.target.as_str()),
+            "except edge target should resolve to another block"
         );
     }
 
