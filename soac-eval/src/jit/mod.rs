@@ -14,6 +14,7 @@ use pyo3::ffi;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::ptr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 mod planning;
@@ -34,6 +35,7 @@ use specialized_helpers::{
 };
 
 static INCREMENTAL_CLIF_CACHE: OnceLock<Mutex<HashMap<Vec<u8>, Vec<u8>>>> = OnceLock::new();
+static NEXT_IMPORT_SPEC_ID: AtomicUsize = AtomicUsize::new(0);
 
 fn incremental_clif_cache() -> &'static Mutex<HashMap<Vec<u8>, Vec<u8>>> {
     INCREMENTAL_CLIF_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
@@ -41,6 +43,119 @@ fn incremental_clif_cache() -> &'static Mutex<HashMap<Vec<u8>, Vec<u8>>> {
 
 struct GlobalIncrementalCacheStore<'a> {
     map: &'a Mutex<HashMap<Vec<u8>, Vec<u8>>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum SigType {
+    Pointer,
+    I64,
+    I32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct StaticSignature {
+    params: &'static [SigType],
+    returns: &'static [SigType],
+}
+
+impl StaticSignature {
+    const fn new(params: &'static [SigType], returns: &'static [SigType]) -> Self {
+        Self { params, returns }
+    }
+}
+
+#[derive(Debug)]
+struct ImportSpec {
+    symbol: &'static str,
+    signature: StaticSignature,
+    internal_id: OnceLock<usize>,
+}
+
+impl ImportSpec {
+    const fn new(symbol: &'static str, signature: StaticSignature) -> Self {
+        Self {
+            symbol,
+            signature,
+            internal_id: OnceLock::new(),
+        }
+    }
+
+    fn internal_id(&'static self) -> usize {
+        *self
+            .internal_id
+            .get_or_init(|| NEXT_IMPORT_SPEC_ID.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+struct ModuleFuncImports {
+    func_ids_by_internal_id: Vec<Option<FuncId>>,
+    import_id_to_symbol: HashMap<u32, &'static str>,
+}
+
+impl ModuleFuncImports {
+    fn new() -> Self {
+        Self {
+            func_ids_by_internal_id: Vec::new(),
+            import_id_to_symbol: HashMap::new(),
+        }
+    }
+
+    fn debug_symbols(&self) -> &HashMap<u32, &'static str> {
+        &self.import_id_to_symbol
+    }
+
+    fn ensure_declared(
+        &mut self,
+        jit_module: &mut JITModule,
+        spec: &'static ImportSpec,
+    ) -> Result<FuncId, String> {
+        let internal_id = spec.internal_id();
+        if internal_id >= self.func_ids_by_internal_id.len() {
+            self.func_ids_by_internal_id.resize(internal_id + 1, None);
+        }
+        if let Some(func_id) = self.func_ids_by_internal_id[internal_id] {
+            return Ok(func_id);
+        }
+        let sig = lower_static_signature(jit_module, spec.signature);
+        let func_id = declare_import_fn(jit_module, spec.symbol, &sig)?;
+        self.func_ids_by_internal_id[internal_id] = Some(func_id);
+        self.import_id_to_symbol
+            .insert(func_id.as_u32(), spec.symbol);
+        Ok(func_id)
+    }
+}
+
+struct FuncBuildImports<'a> {
+    module_imports: &'a mut ModuleFuncImports,
+    func_refs_by_internal_id: Vec<Option<ir::FuncRef>>,
+}
+
+impl<'a> FuncBuildImports<'a> {
+    fn new(module_imports: &'a mut ModuleFuncImports) -> Self {
+        Self {
+            module_imports,
+            func_refs_by_internal_id: Vec::new(),
+        }
+    }
+
+    fn get(
+        &mut self,
+        jit_module: &mut JITModule,
+        func: &mut ir::Function,
+        spec: &'static ImportSpec,
+    ) -> Result<ir::FuncRef, String> {
+        let internal_id = spec.internal_id();
+        if internal_id >= self.func_refs_by_internal_id.len() {
+            self.func_refs_by_internal_id.resize(internal_id + 1, None);
+        }
+        if let Some(func_ref) = self.func_refs_by_internal_id[internal_id] {
+            return Ok(func_ref);
+        }
+        let func_id = self.module_imports.ensure_declared(jit_module, spec)?;
+        let func_ref = jit_module.declare_func_in_func(func_id, func);
+        self.func_refs_by_internal_id[internal_id] = Some(func_ref);
+        Ok(func_ref)
+    }
 }
 
 impl CacheKvStore for GlobalIncrementalCacheStore<'_> {
@@ -234,6 +349,7 @@ struct DirectSimpleEmitCtx {
     py_call_with_kw_ref: ir::FuncRef,
     tuple_new_ref: ir::FuncRef,
     tuple_set_item_ref: ir::FuncRef,
+    add_intrinsic_ref: ir::FuncRef,
     operator_refs: DirectSimpleOperatorRefs,
     ambient_names: Vec<String>,
     ambient_values: Vec<ir::Value>,
@@ -500,6 +616,11 @@ trait JitIntrinsic: intrinsics::Intrinsic {
     ) -> Option<ir::Value>;
 }
 
+static BINARY_OBJECT_SIGNATURE: StaticSignature =
+    StaticSignature::new(&[SigType::Pointer, SigType::Pointer], &[SigType::Pointer]);
+
+static PYNUMBER_ADD_IMPORT: ImportSpec = ImportSpec::new("PyNumber_Add", BINARY_OBJECT_SIGNATURE);
+
 impl JitIntrinsic for intrinsics::AddIntrinsic {
     fn emit_direct_simple(
         &self,
@@ -507,7 +628,7 @@ impl JitIntrinsic for intrinsics::AddIntrinsic {
         parts: &[DirectSimpleCallPart],
     ) -> Option<ir::Value> {
         let args = state.positional_args_for_intrinsic(self, parts);
-        Some(state.emit_owned_func_call(state.ctx.operator_refs.number_add_ref, &args))
+        Some(state.emit_owned_func_call(state.ctx.add_intrinsic_ref, &args))
     }
 }
 
@@ -686,7 +807,6 @@ struct DirectSimpleOperatorRefs {
     sequence_contains_ref: ir::FuncRef,
     object_not_ref: ir::FuncRef,
     object_is_true_ref: ir::FuncRef,
-    number_add_ref: ir::FuncRef,
     number_subtract_ref: ir::FuncRef,
     number_multiply_ref: ir::FuncRef,
     number_matrix_multiply_ref: ir::FuncRef,
@@ -2595,6 +2715,26 @@ fn define_function_with_incremental_cache(
     Ok(())
 }
 
+fn lower_static_signature(jit_module: &mut JITModule, signature: StaticSignature) -> ir::Signature {
+    let mut lowered = jit_module.make_signature();
+    let lower_sig_type = |sig_type| match sig_type {
+        SigType::Pointer => jit_module.target_config().pointer_type(),
+        SigType::I64 => ir::types::I64,
+        SigType::I32 => ir::types::I32,
+    };
+    for param in signature.params {
+        lowered
+            .params
+            .push(ir::AbiParam::new(lower_sig_type(*param)));
+    }
+    for ret in signature.returns {
+        lowered
+            .returns
+            .push(ir::AbiParam::new(lower_sig_type(*ret)));
+    }
+    lowered
+}
+
 fn declare_import_fn(
     jit_module: &mut JITModule,
     symbol: &str,
@@ -2774,6 +2914,7 @@ fn build_cranelift_run_bb_specialized_function(
     let ptr_ty = jit_module.target_config().pointer_type();
     let i64_ty = ir::types::I64;
     let i32_ty = ir::types::I32;
+    let mut module_imports = ModuleFuncImports::new();
 
     let mut incref_sig = jit_module.make_signature();
     incref_sig.params.push(ir::AbiParam::new(ptr_ty));
@@ -3030,7 +3171,7 @@ fn build_cranelift_run_bb_specialized_function(
         declare_import_fn(jit_module, "PySequence_Contains", &binary_i32_sig)?;
     let pyobject_not_id = declare_import_fn(jit_module, "PyObject_Not", &unary_i32_sig)?;
     let pyobject_is_true_id = declare_import_fn(jit_module, "PyObject_IsTrue", &unary_i32_sig)?;
-    let pynumber_add_id = declare_import_fn(jit_module, "PyNumber_Add", &binary_obj_sig)?;
+    module_imports.ensure_declared(jit_module, &PYNUMBER_ADD_IMPORT)?;
     let pynumber_subtract_id = declare_import_fn(jit_module, "PyNumber_Subtract", &binary_obj_sig)?;
     let pynumber_multiply_id = declare_import_fn(jit_module, "PyNumber_Multiply", &binary_obj_sig)?;
     let pynumber_matrix_multiply_id =
@@ -3081,7 +3222,8 @@ fn build_cranelift_run_bb_specialized_function(
     let pynumber_invert_id = declare_import_fn(jit_module, "PyNumber_Invert", &unary_obj_sig)?;
     let raise_exc_id = declare_import_fn(jit_module, "dp_jit_raise_from_exc", &raise_exc_sig)?;
     let main_id = declare_local_fn(jit_module, "dp_jit_run_bb_specialized", &main_sig)?;
-    let mut import_id_to_symbol: HashMap<u32, &'static str> = HashMap::new();
+    let mut import_id_to_symbol: HashMap<u32, &'static str> =
+        module_imports.debug_symbols().clone();
     import_id_to_symbol.insert(incref_id.as_u32(), "dp_jit_incref");
     import_id_to_symbol.insert(decref_id.as_u32(), "dp_jit_decref");
     import_id_to_symbol.insert(py_call_id.as_u32(), "PyObject_CallFunctionObjArgs");
@@ -3121,7 +3263,6 @@ fn build_cranelift_run_bb_specialized_function(
     import_id_to_symbol.insert(pysequence_contains_id.as_u32(), "PySequence_Contains");
     import_id_to_symbol.insert(pyobject_not_id.as_u32(), "PyObject_Not");
     import_id_to_symbol.insert(pyobject_is_true_id.as_u32(), "PyObject_IsTrue");
-    import_id_to_symbol.insert(pynumber_add_id.as_u32(), "PyNumber_Add");
     import_id_to_symbol.insert(pynumber_subtract_id.as_u32(), "PyNumber_Subtract");
     import_id_to_symbol.insert(pynumber_multiply_id.as_u32(), "PyNumber_Multiply");
     import_id_to_symbol.insert(
@@ -3229,6 +3370,7 @@ fn build_cranelift_run_bb_specialized_function(
         fb.switch_to_block(entry_block);
         let entry_args = fb.block_params(entry_block)[0];
         let ambient_args = fb.block_params(entry_block)[1];
+        let mut func_imports = FuncBuildImports::new(&mut module_imports);
         let incref_ref = jit_module.declare_func_in_func(incref_id, &mut fb.func);
         let decref_ref = jit_module.declare_func_in_func(decref_id, &mut fb.func);
         let py_call_ref = jit_module.declare_func_in_func(py_call_id, &mut fb.func);
@@ -3272,7 +3414,7 @@ fn build_cranelift_run_bb_specialized_function(
         let pyobject_not_ref = jit_module.declare_func_in_func(pyobject_not_id, &mut fb.func);
         let pyobject_is_true_ref =
             jit_module.declare_func_in_func(pyobject_is_true_id, &mut fb.func);
-        let pynumber_add_ref = jit_module.declare_func_in_func(pynumber_add_id, &mut fb.func);
+        let add_intrinsic_ref = func_imports.get(jit_module, &mut fb.func, &PYNUMBER_ADD_IMPORT)?;
         let pynumber_subtract_ref =
             jit_module.declare_func_in_func(pynumber_subtract_id, &mut fb.func);
         let pynumber_multiply_ref =
@@ -3443,12 +3585,12 @@ fn build_cranelift_run_bb_specialized_function(
                 py_call_with_kw_ref,
                 tuple_new_ref,
                 tuple_set_item_ref,
+                add_intrinsic_ref,
                 operator_refs: DirectSimpleOperatorRefs {
                     richcompare_ref: pyobject_richcompare_ref,
                     sequence_contains_ref: pysequence_contains_ref,
                     object_not_ref: pyobject_not_ref,
                     object_is_true_ref: pyobject_is_true_ref,
-                    number_add_ref: pynumber_add_ref,
                     number_subtract_ref: pynumber_subtract_ref,
                     number_multiply_ref: pynumber_multiply_ref,
                     number_matrix_multiply_ref: pynumber_matrix_multiply_ref,
