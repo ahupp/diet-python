@@ -1026,9 +1026,7 @@ fn emit_direct_simple_expr(
                 func_imports,
             };
             if let Some(jit_intrinsic) = jit_intrinsic_by_intrinsic(*intrinsic) {
-                if let Some(value) = jit_intrinsic.emit_direct_simple(&mut intrinsic_state, parts) {
-                    return value;
-                }
+                return jit_intrinsic.emit_direct_simple(&mut intrinsic_state, parts);
             }
             let fallback = DirectSimpleExprPlan::Call {
                 func: Box::new(DirectSimpleExprPlan::Name(intrinsic.name().to_string())),
