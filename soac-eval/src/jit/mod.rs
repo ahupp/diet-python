@@ -315,6 +315,26 @@ fn direct_simple_expr_as_frame_locals_setitem<'a>(
     Some((args[0], args[1], args[2], key_name))
 }
 
+fn direct_simple_expr_is_frame_locals_alias(
+    expr: &DirectSimpleExprPlan,
+    aliases: &HashSet<String>,
+) -> bool {
+    direct_simple_expr_is_frame_locals_fetch(expr)
+        || matches!(expr, DirectSimpleExprPlan::Name(name) if aliases.contains(name))
+}
+
+fn update_frame_locals_aliases_for_assignment(
+    aliases: &mut HashSet<String>,
+    target: &str,
+    value: &DirectSimpleExprPlan,
+) {
+    if direct_simple_expr_is_frame_locals_alias(value, aliases) {
+        aliases.insert(target.to_string());
+    } else {
+        aliases.remove(target);
+    }
+}
+
 fn intern_bytes_literal(literal_pool: &mut Vec<Box<[u8]>>, bytes: &[u8]) -> (*const u8, i64) {
     let boxed = bytes.to_vec().into_boxed_slice();
     let ptr = boxed.as_ptr();
@@ -788,6 +808,135 @@ fn emit_pack_current_values_tuple(
 
     fb.switch_to_block(done_block);
     fb.block_params(done_block)[0]
+}
+
+fn emit_frame_locals_setitem_sync(
+    fb: &mut FunctionBuilder<'_>,
+    obj_expr: &DirectSimpleExprPlan,
+    key_expr: &DirectSimpleExprPlan,
+    value_expr: &DirectSimpleExprPlan,
+    key_name: &str,
+    local_names: &mut Vec<String>,
+    local_values: &mut Vec<ir::Value>,
+    function_state_slots: &FunctionStateSlots,
+    ctx: &DirectSimpleEmitCtx,
+    literal_pool: &mut Vec<Box<[u8]>>,
+    jit_module: &mut JITModule,
+    func_imports: &mut FuncBuildImports<'_>,
+) -> ir::Value {
+    let null_ptr = fb.ins().iconst(ctx.consts.ptr_ty, 0);
+    let obj_borrowed =
+        direct_simple_expr_is_borrowable(obj_expr, local_names, &ctx.function_state_slots);
+    let key_borrowed =
+        direct_simple_expr_is_borrowable(key_expr, local_names, &ctx.function_state_slots);
+    let value_borrowed =
+        direct_simple_expr_is_borrowable(value_expr, local_names, &ctx.function_state_slots);
+    let obj_value = emit_direct_simple_expr(
+        fb,
+        obj_expr,
+        local_names,
+        local_values,
+        ctx,
+        literal_pool,
+        obj_borrowed,
+        jit_module,
+        func_imports,
+    );
+    let key_value = emit_direct_simple_expr(
+        fb,
+        key_expr,
+        local_names,
+        local_values,
+        ctx,
+        literal_pool,
+        key_borrowed,
+        jit_module,
+        func_imports,
+    );
+    let value_value = emit_direct_simple_expr(
+        fb,
+        value_expr,
+        local_names,
+        local_values,
+        ctx,
+        literal_pool,
+        value_borrowed,
+        jit_module,
+        func_imports,
+    );
+    let set_item_inst = fb.ins().call(
+        ctx.pyobject_setitem_ref,
+        &[obj_value, key_value, value_value],
+    );
+    let set_item_value = fb.inst_results(set_item_inst)[0];
+    let set_item_failed = fb
+        .ins()
+        .icmp(ir::condcodes::IntCC::Equal, set_item_value, null_ptr);
+    let set_item_ok = fb.create_block();
+    let set_item_fail = fb.create_block();
+    fb.append_block_param(set_item_ok, ctx.consts.ptr_ty);
+    fb.append_block_param(set_item_fail, ctx.consts.ptr_ty);
+    fb.ins().brif(
+        set_item_failed,
+        set_item_fail,
+        &[ir::BlockArg::Value(set_item_value)],
+        set_item_ok,
+        &[ir::BlockArg::Value(set_item_value)],
+    );
+    fb.switch_to_block(set_item_fail);
+    let failed_set_item_value = fb.block_params(set_item_fail)[0];
+    fb.ins().call(ctx.decref_ref, &[failed_set_item_value]);
+    fb.ins()
+        .jump(ctx.consts.step_null_block, &step_null_block_args(ctx));
+    fb.switch_to_block(set_item_ok);
+    let set_item_value = fb.block_params(set_item_ok)[0];
+
+    let synced_inst = fb
+        .ins()
+        .call(ctx.pyobject_getitem_ref, &[obj_value, key_value]);
+    let synced_value = fb.inst_results(synced_inst)[0];
+    let synced_failed = fb
+        .ins()
+        .icmp(ir::condcodes::IntCC::Equal, synced_value, null_ptr);
+    let synced_ok = fb.create_block();
+    let synced_fail = fb.create_block();
+    fb.append_block_param(synced_ok, ctx.consts.ptr_ty);
+    fb.append_block_param(synced_fail, ctx.consts.ptr_ty);
+    fb.ins().brif(
+        synced_failed,
+        synced_fail,
+        &[ir::BlockArg::Value(synced_value)],
+        synced_ok,
+        &[ir::BlockArg::Value(synced_value)],
+    );
+    fb.switch_to_block(synced_fail);
+    let failed_synced_value = fb.block_params(synced_fail)[0];
+    fb.ins().call(ctx.decref_ref, &[failed_synced_value]);
+    fb.ins()
+        .jump(ctx.consts.step_null_block, &step_null_block_args(ctx));
+    fb.switch_to_block(synced_ok);
+    let synced_value = fb.block_params(synced_ok)[0];
+    bind_local_value(
+        fb,
+        local_names,
+        local_values,
+        key_name,
+        synced_value,
+        function_state_slots,
+        ctx.consts.ptr_ty,
+        ctx.incref_ref,
+        ctx.decref_ref,
+    );
+    if !obj_borrowed {
+        fb.ins().call(ctx.decref_ref, &[obj_value]);
+    }
+    if !key_borrowed {
+        fb.ins().call(ctx.decref_ref, &[key_value]);
+    }
+    if !value_borrowed {
+        fb.ins().call(ctx.decref_ref, &[value_value]);
+    }
+    set_item_value
 }
 
 fn emit_owned_bool_from_cond(
@@ -2325,11 +2474,6 @@ fn emit_direct_simple_ops(
     for op in ops {
         match op {
             DirectSimpleOpPlan::Assign(assign) => {
-                let value_is_frame_locals = direct_simple_expr_is_frame_locals_fetch(&assign.value)
-                    || matches!(
-                        &assign.value,
-                        DirectSimpleExprPlan::Name(name) if frame_locals_aliases.contains(name)
-                    );
                 let value = emit_direct_simple_expr(
                     fb,
                     &assign.value,
@@ -2352,141 +2496,31 @@ fn emit_direct_simple_ops(
                     emit_ctx.incref_ref,
                     emit_ctx.decref_ref,
                 );
-                if value_is_frame_locals {
-                    frame_locals_aliases.insert(assign.target.clone());
-                } else {
-                    frame_locals_aliases.remove(assign.target.as_str());
-                }
+                update_frame_locals_aliases_for_assignment(
+                    &mut frame_locals_aliases,
+                    assign.target.as_str(),
+                    &assign.value,
+                );
             }
             DirectSimpleOpPlan::Expr(expr) => {
                 if let Some((obj_expr, key_expr, value_expr, key_name)) =
                     direct_simple_expr_as_frame_locals_setitem(expr, &frame_locals_aliases)
                 {
-                    let null_ptr = fb.ins().iconst(emit_ctx.consts.ptr_ty, 0);
-                    let obj_borrowed = direct_simple_expr_is_borrowable(
-                        obj_expr,
-                        local_names,
-                        &emit_ctx.function_state_slots,
-                    );
-                    let key_borrowed = direct_simple_expr_is_borrowable(
-                        key_expr,
-                        local_names,
-                        &emit_ctx.function_state_slots,
-                    );
-                    let value_borrowed = direct_simple_expr_is_borrowable(
-                        value_expr,
-                        local_names,
-                        &emit_ctx.function_state_slots,
-                    );
-                    let obj_value = emit_direct_simple_expr(
+                    let value = emit_frame_locals_setitem_sync(
                         fb,
                         obj_expr,
-                        local_names,
-                        local_values,
-                        emit_ctx,
-                        literal_pool,
-                        obj_borrowed,
-                        jit_module,
-                        func_imports,
-                    );
-                    let key_value = emit_direct_simple_expr(
-                        fb,
                         key_expr,
-                        local_names,
-                        local_values,
-                        emit_ctx,
-                        literal_pool,
-                        key_borrowed,
-                        jit_module,
-                        func_imports,
-                    );
-                    let value_value = emit_direct_simple_expr(
-                        fb,
                         value_expr,
-                        local_names,
-                        local_values,
-                        emit_ctx,
-                        literal_pool,
-                        value_borrowed,
-                        jit_module,
-                        func_imports,
-                    );
-                    let set_item_inst = fb.ins().call(
-                        emit_ctx.pyobject_setitem_ref,
-                        &[obj_value, key_value, value_value],
-                    );
-                    let set_item_value = fb.inst_results(set_item_inst)[0];
-                    let set_item_failed =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, set_item_value, null_ptr);
-                    let set_item_ok = fb.create_block();
-                    let set_item_fail = fb.create_block();
-                    fb.append_block_param(set_item_ok, emit_ctx.consts.ptr_ty);
-                    fb.append_block_param(set_item_fail, emit_ctx.consts.ptr_ty);
-                    fb.ins().brif(
-                        set_item_failed,
-                        set_item_fail,
-                        &[ir::BlockArg::Value(set_item_value)],
-                        set_item_ok,
-                        &[ir::BlockArg::Value(set_item_value)],
-                    );
-                    fb.switch_to_block(set_item_fail);
-                    let failed_set_item_value = fb.block_params(set_item_fail)[0];
-                    fb.ins().call(emit_ctx.decref_ref, &[failed_set_item_value]);
-                    fb.ins().jump(
-                        emit_ctx.consts.step_null_block,
-                        &step_null_block_args(emit_ctx),
-                    );
-                    fb.switch_to_block(set_item_ok);
-                    let set_item_value = fb.block_params(set_item_ok)[0];
-                    fb.ins().call(emit_ctx.decref_ref, &[set_item_value]);
-                    let synced_inst = fb
-                        .ins()
-                        .call(emit_ctx.pyobject_getitem_ref, &[obj_value, key_value]);
-                    let synced_value = fb.inst_results(synced_inst)[0];
-                    let synced_failed =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, synced_value, null_ptr);
-                    let synced_ok = fb.create_block();
-                    let synced_fail = fb.create_block();
-                    fb.append_block_param(synced_ok, emit_ctx.consts.ptr_ty);
-                    fb.append_block_param(synced_fail, emit_ctx.consts.ptr_ty);
-                    fb.ins().brif(
-                        synced_failed,
-                        synced_fail,
-                        &[ir::BlockArg::Value(synced_value)],
-                        synced_ok,
-                        &[ir::BlockArg::Value(synced_value)],
-                    );
-                    fb.switch_to_block(synced_fail);
-                    let failed_synced_value = fb.block_params(synced_fail)[0];
-                    fb.ins().call(emit_ctx.decref_ref, &[failed_synced_value]);
-                    fb.ins().jump(
-                        emit_ctx.consts.step_null_block,
-                        &step_null_block_args(emit_ctx),
-                    );
-                    fb.switch_to_block(synced_ok);
-                    let synced_value = fb.block_params(synced_ok)[0];
-                    bind_local_value(
-                        fb,
-                        local_names,
-                        local_values,
                         key_name.as_str(),
-                        synced_value,
+                        local_names,
+                        local_values,
                         function_state_slots,
-                        emit_ctx.consts.ptr_ty,
-                        emit_ctx.incref_ref,
-                        emit_ctx.decref_ref,
+                        emit_ctx,
+                        literal_pool,
+                        jit_module,
+                        func_imports,
                     );
-                    if !obj_borrowed {
-                        fb.ins().call(emit_ctx.decref_ref, &[obj_value]);
-                    }
-                    if !key_borrowed {
-                        fb.ins().call(emit_ctx.decref_ref, &[key_value]);
-                    }
-                    if !value_borrowed {
-                        fb.ins().call(emit_ctx.decref_ref, &[value_value]);
-                    }
+                    fb.ins().call(emit_ctx.decref_ref, &[value]);
                     continue;
                 }
                 let value = emit_direct_simple_expr(
@@ -3310,145 +3344,27 @@ fn build_cranelift_run_bb_specialized_function(
                     let mut local_names = Vec::new();
                     let mut local_values = Vec::new();
                     let mut frame_locals_aliases: HashSet<String> = HashSet::new();
-                    let null_ptr = fb.ins().iconst(ptr_ty, 0);
 
                     for assign in &plan.assigns {
-                        let value_is_frame_locals =
-                            direct_simple_expr_is_frame_locals_fetch(&assign.value)
-                                || matches!(
-                                    &assign.value,
-                                    DirectSimpleExprPlan::Name(name)
-                                        if frame_locals_aliases.contains(name)
-                                );
                         let value = if let Some((obj_expr, key_expr, value_expr, key_name)) =
                             direct_simple_expr_as_frame_locals_setitem(
                                 &assign.value,
                                 &frame_locals_aliases,
                             ) {
-                            let obj_borrowed = direct_simple_expr_is_borrowable(
-                                obj_expr,
-                                &local_names,
-                                &emit_ctx.function_state_slots,
-                            );
-                            let key_borrowed = direct_simple_expr_is_borrowable(
-                                key_expr,
-                                &local_names,
-                                &emit_ctx.function_state_slots,
-                            );
-                            let value_borrowed = direct_simple_expr_is_borrowable(
-                                value_expr,
-                                &local_names,
-                                &emit_ctx.function_state_slots,
-                            );
-                            let obj_value = emit_direct_simple_expr(
+                            emit_frame_locals_setitem_sync(
                                 &mut fb,
                                 obj_expr,
-                                &local_names,
-                                &local_values,
-                                &emit_ctx,
-                                &mut literal_pool,
-                                obj_borrowed,
-                                jit_module,
-                                &mut func_imports,
-                            );
-                            let key_value = emit_direct_simple_expr(
-                                &mut fb,
                                 key_expr,
-                                &local_names,
-                                &local_values,
-                                &emit_ctx,
-                                &mut literal_pool,
-                                key_borrowed,
-                                jit_module,
-                                &mut func_imports,
-                            );
-                            let value_value = emit_direct_simple_expr(
-                                &mut fb,
                                 value_expr,
-                                &local_names,
-                                &local_values,
-                                &emit_ctx,
-                                &mut literal_pool,
-                                value_borrowed,
-                                jit_module,
-                                &mut func_imports,
-                            );
-                            let set_item_inst = fb
-                                .ins()
-                                .call(pyobject_setitem_ref, &[obj_value, key_value, value_value]);
-                            let set_item_value = fb.inst_results(set_item_inst)[0];
-                            let set_item_failed = fb.ins().icmp(
-                                ir::condcodes::IntCC::Equal,
-                                set_item_value,
-                                null_ptr,
-                            );
-                            let set_item_ok = fb.create_block();
-                            let set_item_fail = fb.create_block();
-                            fb.append_block_param(set_item_ok, ptr_ty);
-                            fb.append_block_param(set_item_fail, ptr_ty);
-                            fb.ins().brif(
-                                set_item_failed,
-                                set_item_fail,
-                                &[ir::BlockArg::Value(set_item_value)],
-                                set_item_ok,
-                                &[ir::BlockArg::Value(set_item_value)],
-                            );
-                            fb.switch_to_block(set_item_fail);
-                            let failed_set_item_value = fb.block_params(set_item_fail)[0];
-                            fb.ins().call(decref_ref, &[failed_set_item_value]);
-                            fb.ins().jump(
-                                emit_ctx.consts.step_null_block,
-                                &step_null_block_args(&emit_ctx),
-                            );
-                            fb.switch_to_block(set_item_ok);
-                            let set_item_value = fb.block_params(set_item_ok)[0];
-                            let synced_inst =
-                                fb.ins().call(pyobject_getitem_ref, &[obj_value, key_value]);
-                            let synced_value = fb.inst_results(synced_inst)[0];
-                            let synced_failed =
-                                fb.ins()
-                                    .icmp(ir::condcodes::IntCC::Equal, synced_value, null_ptr);
-                            let synced_ok = fb.create_block();
-                            let synced_fail = fb.create_block();
-                            fb.append_block_param(synced_ok, ptr_ty);
-                            fb.append_block_param(synced_fail, ptr_ty);
-                            fb.ins().brif(
-                                synced_failed,
-                                synced_fail,
-                                &[ir::BlockArg::Value(synced_value)],
-                                synced_ok,
-                                &[ir::BlockArg::Value(synced_value)],
-                            );
-                            fb.switch_to_block(synced_fail);
-                            let failed_synced_value = fb.block_params(synced_fail)[0];
-                            fb.ins().call(decref_ref, &[failed_synced_value]);
-                            fb.ins().jump(
-                                emit_ctx.consts.step_null_block,
-                                &step_null_block_args(&emit_ctx),
-                            );
-                            fb.switch_to_block(synced_ok);
-                            let synced_value = fb.block_params(synced_ok)[0];
-                            bind_local_value(
-                                &mut fb,
+                                key_name.as_str(),
                                 &mut local_names,
                                 &mut local_values,
-                                key_name.as_str(),
-                                synced_value,
                                 &function_state_slots,
-                                ptr_ty,
-                                incref_ref,
-                                decref_ref,
-                            );
-                            if !obj_borrowed {
-                                fb.ins().call(decref_ref, &[obj_value]);
-                            }
-                            if !key_borrowed {
-                                fb.ins().call(decref_ref, &[key_value]);
-                            }
-                            if !value_borrowed {
-                                fb.ins().call(decref_ref, &[value_value]);
-                            }
-                            set_item_value
+                                &emit_ctx,
+                                &mut literal_pool,
+                                jit_module,
+                                &mut func_imports,
+                            )
                         } else {
                             emit_direct_simple_expr(
                                 &mut fb,
@@ -3474,11 +3390,11 @@ fn build_cranelift_run_bb_specialized_function(
                             incref_ref,
                             decref_ref,
                         );
-                        if value_is_frame_locals {
-                            frame_locals_aliases.insert(assign.target.clone());
-                        } else {
-                            frame_locals_aliases.remove(assign.target.as_str());
-                        }
+                        update_frame_locals_aliases_for_assignment(
+                            &mut frame_locals_aliases,
+                            assign.target.as_str(),
+                            &assign.value,
+                        );
                     }
 
                     let ret_value = emit_direct_simple_expr(
