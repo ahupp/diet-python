@@ -35,14 +35,13 @@
   - Planning note:
     - The current direct-simple JIT literal planning in `soac-eval/src/jit/planning.rs` only lowers integer literals that fit in `i64`, so larger Python ints fall out of that fast path.
     - A good first pass is to decide whether large ints should be materialized through a general Python-object literal helper at planning/codegen time, or whether they should be excluded from the direct-simple subset in a more explicit way.
-- Ensure `blockpy_expr_simplify` panics if it receives an expression shape that should already have been removed by `rewrite_ast_to_lowered_blockpy_module_plan`.
-  - Planning note:
-    - The desired boundary is that `rewrite_ast_to_lowered_blockpy_module_plan` fully eliminates the AST expression forms that later core-expression lowering is not supposed to handle.
-    - `blockpy_expr_simplify` should then treat those forms as invariant violations and panic immediately, instead of silently accepting or re-lowering them.
-    - A good first pass is to enumerate the expression kinds currently expected to be gone at that boundary, then add focused panic sites and regression tests that assert the simplify pass fails if one leaks through.
 ## Completed
 
 - Move completed TODO entries here and include a short description of the work done.
+- Ensure `blockpy_expr_simplify` panics if it receives an expression shape that should already have been removed by `rewrite_ast_to_lowered_blockpy_module_plan`.
+  - `blockpy_expr_simplify` now validates incoming semantic `Expr` trees with a `Transformer` before any core lowering work.
+  - Helper-scoped expression families that should already have been rewritten away there, namely lambdas, generator expressions, and comprehensions, now panic immediately with a boundary-specific invariant message.
+  - Added a focused regression that proves a leaked nested lambda trips that simplify-pass boundary.
 - Eliminate the temporary Ruff semantic pass split:
   - `rewrite_ast_to_lowered_blockpy_module_plan_with_module` now emits lowered semantic blocks directly, threads exception edges recursively during semantic lowering, and no longer needs a metadata-free intermediate Ruff pass shape.
   - The remaining Ruff-backed semantic pass marker was then renamed back to `RuffBlockPyPass`, so there is again just one Ruff semantic BlockPy stage instead of a `LoweredRuffBlockPyPass` / `RuffBlockPyPass` split.

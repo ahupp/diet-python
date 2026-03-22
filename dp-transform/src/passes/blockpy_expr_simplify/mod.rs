@@ -14,6 +14,7 @@ use crate::passes::ast_to_ast::expr_utils::{
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::passes::{CoreBlockPyPass, RuffBlockPyPass};
 use crate::py_expr;
+use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::{self as ast, Expr};
 
 #[cfg(test)]
@@ -21,6 +22,29 @@ use crate::block_py::BlockPyModule;
 
 type CoreStmtBuilder = BlockPyStmtFragmentBuilder<CoreBlockPyExpr>;
 type SemanticExpr = Expr;
+
+struct SemanticExprBoundaryValidator;
+
+impl Transformer for SemanticExprBoundaryValidator {
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::Lambda(_)
+            | Expr::Generator(_)
+            | Expr::ListComp(_)
+            | Expr::SetComp(_)
+            | Expr::DictComp(_) => panic!(
+                "helper-scoped expr leaked past rewrite_ast_to_lowered_blockpy_module_plan: {}",
+                crate::ruff_ast_to_string(&*expr)
+            ),
+            other => walk_expr(self, other),
+        }
+    }
+}
+
+fn assert_expr_simplify_boundary(expr: &SemanticExpr) {
+    let mut expr = expr.clone();
+    SemanticExprBoundaryValidator.visit_expr(&mut expr);
+}
 
 fn core_builtin_name(id: &str) -> CoreBlockPyExpr {
     CoreBlockPyExpr::Name(ast::ExprName {
@@ -302,6 +326,7 @@ fn finish_expr_setup(builder: CoreStmtBuilder) -> Vec<BlockPyStmt<CoreBlockPyExp
 }
 
 fn lower_semantic_expr_into(builder: &mut CoreStmtBuilder, expr: &SemanticExpr) -> CoreBlockPyExpr {
+    assert_expr_simplify_boundary(expr);
     let mut next_label_id = 0usize;
     let mut setup_builder = BlockPyStmtFragmentBuilder::<Expr>::new();
     let lowered_expr: Expr =
@@ -688,6 +713,15 @@ def f(x):
                 "{expr} should be lowered before the core boundary"
             );
         }
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "helper-scoped expr leaked past rewrite_ast_to_lowered_blockpy_module_plan"
+    )]
+    fn semantic_expr_simplify_panics_on_nested_helper_scoped_expr_leak() {
+        let expr = Expr::from(py_expr!("f(lambda x: x)"));
+        let _ = super::lower_semantic_expr_without_setup(&expr);
     }
 
     #[test]
