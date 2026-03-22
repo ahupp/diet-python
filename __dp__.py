@@ -1222,16 +1222,6 @@ def _normalize_mapping(values):
 def normalize_mapping(values):
     return _normalize_mapping(values)
 
-
-def dir_from_locals_mapping(values):
-    names = _normalize_mapping(values).keys()
-    filtered = []
-    for name in names:
-        if not name.startswith("_dp_"):
-            filtered.append(name)
-    return sorted(filtered)
-
-
 def _lookup_normalized_name(mapping, name, *, hide_internal=False):
     if hide_internal and isinstance(name, str) and name.startswith("_dp_"):
         raise KeyError(name)
@@ -1437,11 +1427,6 @@ class GlobalsProxy(_NormalizedMappingProxy):
     def __delitem__(self, name):
         del self._globals[name]
 
-
-def locals():
-    return unsupported_implicit_locals("locals()")
-
-
 def frame_locals(frame):
     if frame is not None:
         locals_map = frame.f_locals
@@ -1475,57 +1460,6 @@ def unsupported_implicit_locals(feature):
     raise builtins.NotImplementedError(
         f"{feature} is unsupported in transformed code; pass explicit globals/locals instead"
     )
-
-
-def _find_closure_values(frame):
-    probe = frame
-    while probe is not None:
-        probe_locals = probe.f_locals
-        closure_values = probe_locals.get("__dp_closure")
-        if isinstance(closure_values, dict):
-            return closure_values
-        closure_cells = {}
-        for name, value in probe_locals.items():
-            if name == "_dp_classcell" and isinstance(value, _types.CellType):
-                closure_cells[name] = value
-            elif (
-                isinstance(name, str)
-                and name.startswith(_DP_CELL_PREFIX)
-                and isinstance(value, _types.CellType)
-            ):
-                closure_cells[name] = value
-        if closure_cells:
-            return closure_cells
-        probe = probe.f_back
-    return None
-
-
-def _merge_closure_values_into_locals(locals_map, closure_values):
-    if isinstance(closure_values, dict) and closure_values:
-        merged = {}
-        for name, value in closure_values.items():
-            merged[name] = value
-            if isinstance(name, str) and name.startswith(_DP_CELL_PREFIX):
-                try:
-                    merged[name[len(_DP_CELL_PREFIX) :]] = load_cell(value)
-                except UnboundLocalError:
-                    pass
-        merged.update(locals_map)
-        return merged
-    return locals_map
-
-
-def _default_visible_locals(frame):
-    return _merge_closure_values_into_locals(
-        _normalize_mapping(frame.f_locals),
-        _find_closure_values(frame),
-    )
-
-
-def dir_(*args):
-    if args:
-        return builtins.dir(*args)
-    return unsupported_implicit_locals("dir()")
 
 
 def eval_(source, globals=None, locals=None):
