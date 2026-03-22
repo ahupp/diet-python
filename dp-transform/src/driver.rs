@@ -6,7 +6,7 @@ use crate::passes::ast_to_ast::rewrite_expr::ScopedHelperExprPass;
 use crate::passes::ast_to_ast::scope::{analyze_module_scope, BindingKind};
 use crate::passes::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::passes::ast_to_ast::{
-    body::{body_from_suite, suite_mut, Suite},
+    body::{body_from_suite, suite_mut, take_suite, Suite},
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
 };
 use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
@@ -19,19 +19,13 @@ use crate::passes::{
 use crate::PassTracker;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
-pub fn rewrite_module(context: &Context, module: Suite) -> (PassTracker, Suite) {
-    let mut pass_tracker = PassTracker::new();
-    let module = rewrite_module_with_tracker(context, module, &mut pass_tracker);
-    (pass_tracker, module)
-}
-
 pub(crate) fn rewrite_module_with_tracker(
     context: &Context,
-    module: Suite,
+    module: &mut Suite,
     pass_tracker: &mut PassTracker,
-) -> Suite {
-    let mut module = pass_tracker.run_renderable_pass("ast-to-ast", || {
-        let mut module = body_from_suite(module);
+) -> BlockPyModule<PreparedBbBlockPyPass> {
+    let mut ast_module = pass_tracker.run_renderable_pass("ast-to-ast", || {
+        let mut module = body_from_suite(std::mem::take(module));
 
         // The transform now has a single lowering strategy: basic-block form.
         lower_surrogate_string_literals(context, suite_mut(&mut module));
@@ -88,6 +82,7 @@ pub(crate) fn rewrite_module_with_tracker(
         );
         module
     });
+    *module = take_suite(&mut ast_module);
 
     /*
 
@@ -130,7 +125,7 @@ pub(crate) fn rewrite_module_with_tracker(
 
     let semantic_blockpy: BlockPyModule<RuffBlockPyPass> = pass_tracker
         .run_renderable_pass("semantic_blockpy", || {
-            rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, &mut module)
+            rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module)
         });
 
     /*
@@ -174,11 +169,9 @@ pub(crate) fn rewrite_module_with_tracker(
             passes::lower_try_jump_exception_flow(&bb_module)
                 .expect("bb_prepared pass should succeed for valid BB lowering")
         });
-    let _bb_codegen: BlockPyModule<PreparedBbBlockPyPass> = pass_tracker
-        .run_renderable_pass("bb_codegen", || {
-            passes::normalize_bb_module_for_codegen(&bb_prepared)
-        });
-    module
+    pass_tracker.run_renderable_pass("bb_codegen", || {
+        passes::normalize_bb_module_for_codegen(&bb_prepared)
+    })
 }
 
 fn is_module_docstring(stmt: &Stmt) -> bool {

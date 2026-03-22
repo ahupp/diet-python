@@ -1,5 +1,5 @@
 use crate::block_py::pretty::BlockPyPrettyPrint;
-use crate::passes::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
+use crate::passes::ast_to_ast::body::{suite_mut, suite_ref, Suite};
 use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass, RuffBlockPyPass};
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
@@ -266,13 +266,9 @@ pub fn transform_str_to_ruff_with_options(
     let ctx = Context::new(options, source);
     let mut pass_tracker = PassTracker::new();
 
-    let body = take_suite(&mut module.body);
     let rewrite_start = timing_start();
-    let transformed_body = rewrite_module_with_tracker(&ctx, body, &mut pass_tracker);
-    let bb_codegen_module = pass_tracker
-        .get::<BlockPyModule<PreparedBbBlockPyPass>>("bb_codegen")
-        .cloned();
-    *suite_mut(&mut module.body) = transformed_body;
+    let bb_codegen_module =
+        rewrite_module_with_tracker(&ctx, suite_mut(&mut module.body), &mut pass_tracker);
 
     let rewrite_time = timing_elapsed(rewrite_start);
 
@@ -286,7 +282,7 @@ pub fn transform_str_to_ruff_with_options(
     Ok(LoweringResult {
         timings,
         module,
-        bb_codegen_module,
+        bb_codegen_module: Some(bb_codegen_module),
         passes: pass_tracker,
     })
 }
@@ -307,17 +303,8 @@ pub fn transform_str_to_blockpy_with_options(
     source: &str,
     options: Options,
 ) -> Result<BlockPyModule<RuffBlockPyPass>, ParseError> {
-    init_logging();
-    namegen::reset_namegen_state();
-
-    let module = parse_module(source)?.into_syntax();
-
-    let ctx = Context::new(options, source);
-    let ModModule { body, .. } = module;
-
-    let (pass_tracker, _transformed_body) = crate::driver::rewrite_module(&ctx, body);
-    Ok(pass_tracker
-        .get::<BlockPyModule<crate::passes::RuffBlockPyPass>>("semantic_blockpy")
+    Ok(transform_str_to_ruff_with_options(source, options)?
+        .get_pass::<BlockPyModule<crate::passes::RuffBlockPyPass>>("semantic_blockpy")
         .expect("blockpy pass should be tracked")
         .clone())
 }
