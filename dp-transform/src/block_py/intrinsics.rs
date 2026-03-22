@@ -4,6 +4,8 @@ use std::fmt;
 pub trait Intrinsic: Any + fmt::Debug + Sync {
     fn name(&self) -> &'static str;
 
+    fn arity(&self) -> usize;
+
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -13,6 +15,10 @@ pub struct AddIntrinsic;
 impl Intrinsic for AddIntrinsic {
     fn name(&self) -> &'static str {
         "__dp_add"
+    }
+
+    fn arity(&self) -> usize {
+        2
     }
 
     fn as_any(&self) -> &dyn Any {

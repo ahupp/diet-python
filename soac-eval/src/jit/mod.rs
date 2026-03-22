@@ -364,18 +364,30 @@ fn delete_local_value(
 }
 
 impl DirectSimpleIntrinsicEmitState<'_, '_, '_> {
-    fn positional_args_only<'a>(
+    fn positional_args_for_intrinsic<'a>(
         &self,
+        intrinsic: &dyn intrinsics::Intrinsic,
         parts: &'a [DirectSimpleCallPart],
-    ) -> Option<Vec<&'a DirectSimpleExprPlan>> {
+    ) -> Vec<&'a DirectSimpleExprPlan> {
         let mut args = Vec::with_capacity(parts.len());
         for part in parts {
             let DirectSimpleCallPart::Pos(value) = part else {
-                return None;
+                panic!(
+                    "intrinsic {} received non-positional args in JIT plan",
+                    intrinsic.name()
+                );
             };
             args.push(value);
         }
-        Some(args)
+        assert_eq!(
+            args.len(),
+            intrinsic.arity(),
+            "intrinsic {} received {} args in JIT plan, expected {}",
+            intrinsic.name(),
+            args.len(),
+            intrinsic.arity()
+        );
+        args
     }
 
     fn emit_arg_values(&mut self, args: &[&DirectSimpleExprPlan]) -> Vec<(ir::Value, bool)> {
@@ -488,24 +500,14 @@ trait JitIntrinsic: intrinsics::Intrinsic {
     ) -> Option<ir::Value>;
 }
 
-fn emit_binary_add_intrinsic(
-    state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_>,
-    parts: &[DirectSimpleCallPart],
-) -> Option<ir::Value> {
-    let args = state.positional_args_only(parts)?;
-    if args.len() != 2 {
-        return None;
-    }
-    Some(state.emit_owned_func_call(state.ctx.operator_refs.number_add_ref, &args))
-}
-
 impl JitIntrinsic for intrinsics::AddIntrinsic {
     fn emit_direct_simple(
         &self,
         state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_>,
         parts: &[DirectSimpleCallPart],
     ) -> Option<ir::Value> {
-        emit_binary_add_intrinsic(state, parts)
+        let args = state.positional_args_for_intrinsic(self, parts);
+        Some(state.emit_owned_func_call(state.ctx.operator_refs.number_add_ref, &args))
     }
 }
 
