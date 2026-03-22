@@ -7,7 +7,7 @@ use crate::block_py::{
     IntrinsicCall,
 };
 use crate::namegen::fresh_name;
-use crate::passes::CoreBlockPyPassWithoutAwait;
+use crate::passes::CoreBlockPyPassWithYield;
 use crate::py_expr;
 use ruff_python_ast as ast;
 
@@ -596,8 +596,8 @@ pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
 }
 
 pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
-    callable_def: BlockPyFunction<CoreBlockPyPassWithoutAwait>,
-) -> BlockPyFunction<CoreBlockPyPassWithoutAwait> {
+    callable_def: BlockPyFunction<CoreBlockPyPassWithYield>,
+) -> BlockPyFunction<CoreBlockPyPassWithYield> {
     callable_def.map_blocks(make_eval_order_explicit_in_core_block_without_await)
 }
 

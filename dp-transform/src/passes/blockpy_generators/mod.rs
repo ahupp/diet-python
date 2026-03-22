@@ -17,7 +17,7 @@ use crate::passes::ruff_to_blockpy::{
     attach_exception_edges_to_blocks, lowered_exception_edges, recompute_lowered_block_params,
     should_include_closure_storage_aliases,
 };
-use crate::passes::{CoreBlockPyPassWithoutAwait, CoreBlockPyPassWithoutAwaitOrYield};
+use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithYield};
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr, ExprName};
 use std::collections::HashSet;
@@ -185,7 +185,7 @@ fn injected_exception_names(
 }
 
 fn build_generator_closure_layout(
-    callable: &BlockPyFunction<CoreBlockPyPassWithoutAwait>,
+    callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
 ) -> ClosureLayout {
     let entry_liveins = callable.entry_liveins();
     let param_names = callable.params.names();
@@ -1279,7 +1279,7 @@ fn emit_yield_from_site(
 }
 
 fn lower_resume_blocks(
-    callable: &BlockPyFunction<CoreBlockPyPassWithoutAwait>,
+    callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
 ) -> (
     Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>,
     HashMap<String, Option<String>>,
@@ -1382,9 +1382,9 @@ fn lower_resume_blocks(
 }
 
 pub(crate) fn lower_generator_like_function(
-    callable: BlockPyFunction<CoreBlockPyPassWithoutAwait>,
+    callable: BlockPyFunction<CoreBlockPyPassWithYield>,
     resume_function_id: FunctionId,
-) -> Vec<BlockPyFunction<CoreBlockPyPassWithoutAwaitOrYield>> {
+) -> Vec<BlockPyFunction<CoreBlockPyPass>> {
     assert!(
         is_generator_like(callable.kind),
         "generator lowering only applies to generator-like callables"

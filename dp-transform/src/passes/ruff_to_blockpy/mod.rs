@@ -463,7 +463,7 @@ mod tests {
         lower_while_stmt_sequence, lower_while_stmt_sequence_from_stmt, plan_stmt_sequence_head,
     };
     use crate::passes::ruff_to_blockpy::try_regions::build_try_plan;
-    use crate::passes::{CoreBlockPyPassWithoutAwaitOrYield, RuffBlockPyPass};
+    use crate::passes::{CoreBlockPyPass, RuffBlockPyPass};
     use crate::{transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options};
     fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
         transform_str_to_blockpy_with_options(source, Options::for_test()).unwrap()
@@ -477,14 +477,10 @@ mod tests {
             .expect("semantic_blockpy pass should be tracked")
     }
 
-    fn wrapped_core_blockpy_without_await_or_yield(
-        source: &str,
-    ) -> BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield> {
+    fn wrapped_core_blockpy_without_await_or_yield(source: &str) -> BlockPyModule<CoreBlockPyPass> {
         transform_str_to_ruff_with_options(source, Options::for_test())
             .unwrap()
-            .get_pass::<BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield>>(
-                "core_blockpy_without_await_or_yield",
-            )
+            .get_pass::<BlockPyModule<CoreBlockPyPass>>("core_blockpy_without_await_or_yield")
             .cloned()
             .expect("core_blockpy_without_await_or_yield pass should be tracked")
     }

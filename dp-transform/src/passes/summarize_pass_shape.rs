@@ -1,6 +1,6 @@
 use crate::block_py::{BlockPyModule, BlockPyModuleVisitor, BlockPyPass, PassExpr};
 use crate::passes::{
-    CoreBlockPyPass, CoreBlockPyPassWithoutAwait, CoreBlockPyPassWithoutAwaitOrYield,
+    CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield,
     PreparedBbBlockPyPass, RuffBlockPyPass,
 };
 use crate::transformer::Transformer;
@@ -73,14 +73,13 @@ pub(crate) fn summarize_tracked_pass_shape(
     if let Some(module) = result.get_pass::<BlockPyModule<RuffBlockPyPass>>(name) {
         return Some(summarize_blockpy_module(module));
     }
+    if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyPassWithAwaitAndYield>>(name) {
+        return Some(summarize_blockpy_module(module));
+    }
+    if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyPassWithYield>>(name) {
+        return Some(summarize_blockpy_module(module));
+    }
     if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyPass>>(name) {
-        return Some(summarize_blockpy_module(module));
-    }
-    if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyPassWithoutAwait>>(name) {
-        return Some(summarize_blockpy_module(module));
-    }
-    if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield>>(name)
-    {
         return Some(summarize_blockpy_module(module));
     }
     if let Some(module) = result.get_pass::<BlockPyModule<PreparedBbBlockPyPass>>(name) {

@@ -12,7 +12,7 @@ use crate::passes::ast_to_ast::expr_utils::{
     make_binop, make_tuple, make_tuple_splat, make_unaryop,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
-use crate::passes::{CoreBlockPyPass, RuffBlockPyPass};
+use crate::passes::{CoreBlockPyPassWithAwaitAndYield, RuffBlockPyPass};
 use crate::py_expr;
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::{self as ast, Expr};
@@ -501,7 +501,7 @@ fn lower_semantic_block(
 
 pub(crate) fn simplify_blockpy_callable_def_exprs(
     callable_def: BlockPyFunction<RuffBlockPyPass>,
-) -> BlockPyFunction<CoreBlockPyPass> {
+) -> BlockPyFunction<CoreBlockPyPassWithAwaitAndYield> {
     let BlockPyFunction {
         function_id,
         names,
@@ -538,7 +538,7 @@ pub(crate) fn simplify_blockpy_module_exprs(
 }
 
 #[cfg(test)]
-type TestCoreBlockPyModule = BlockPyModule<CoreBlockPyPass>;
+type TestCoreBlockPyModule = BlockPyModule<CoreBlockPyPassWithAwaitAndYield>;
 
 #[cfg(test)]
 mod tests {

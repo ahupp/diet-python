@@ -25,25 +25,25 @@ impl BlockPyPass for RuffBlockPyPass {
 }
 
 #[derive(Debug, Clone)]
-pub struct CoreBlockPyPass;
+pub struct CoreBlockPyPassWithAwaitAndYield;
 
-impl BlockPyPass for CoreBlockPyPass {
+impl BlockPyPass for CoreBlockPyPassWithAwaitAndYield {
     type Expr = CoreBlockPyExprWithAwaitAndYield;
     type Stmt = BlockPyStmt<Self::Expr>;
 }
 
 #[derive(Debug, Clone)]
-pub struct CoreBlockPyPassWithoutAwait;
+pub struct CoreBlockPyPassWithYield;
 
-impl BlockPyPass for CoreBlockPyPassWithoutAwait {
+impl BlockPyPass for CoreBlockPyPassWithYield {
     type Expr = CoreBlockPyExprWithYield;
     type Stmt = BlockPyStmt<Self::Expr>;
 }
 
 #[derive(Debug, Clone)]
-pub struct CoreBlockPyPassWithoutAwaitOrYield;
+pub struct CoreBlockPyPass;
 
-impl BlockPyPass for CoreBlockPyPassWithoutAwaitOrYield {
+impl BlockPyPass for CoreBlockPyPass {
     type Expr = CoreBlockPyExpr;
     type Stmt = BlockPyStmt<Self::Expr>;
 }

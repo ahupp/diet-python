@@ -4,7 +4,7 @@ use crate::block_py::{
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, CoreBlockPyYield, CoreBlockPyYieldFrom,
     IntrinsicCall,
 };
-use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithoutAwait};
+use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
@@ -129,15 +129,17 @@ fn lower_core_expr_awaits(expr: CoreBlockPyExprWithAwaitAndYield) -> CoreBlockPy
 
 struct CoreAwaitLoweringMap;
 
-impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPassWithoutAwait> for CoreAwaitLoweringMap {
+impl BlockPyModuleMap<CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield>
+    for CoreAwaitLoweringMap
+{
     fn map_expr(&self, expr: CoreBlockPyExprWithAwaitAndYield) -> CoreBlockPyExprWithYield {
         lower_core_expr_awaits(expr)
     }
 }
 
 pub(crate) fn lower_awaits_in_core_blockpy_module(
-    module: BlockPyModule<CoreBlockPyPass>,
-) -> BlockPyModule<CoreBlockPyPassWithoutAwait> {
+    module: BlockPyModule<CoreBlockPyPassWithAwaitAndYield>,
+) -> BlockPyModule<CoreBlockPyPassWithYield> {
     module.map_module(&CoreAwaitLoweringMap)
 }
 

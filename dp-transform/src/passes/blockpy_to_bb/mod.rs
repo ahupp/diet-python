@@ -13,9 +13,7 @@ use crate::block_py::{
     CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
     CoreBlockPyLiteral,
 };
-use crate::passes::{
-    BbBlockPyPass, CoreBlockPyPassWithoutAwait, CoreBlockPyPassWithoutAwaitOrYield,
-};
+use crate::passes::{BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithYield};
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 use std::collections::HashMap;
@@ -25,8 +23,8 @@ pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
 
 pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
-    module: BlockPyModule<CoreBlockPyPassWithoutAwait>,
-) -> BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield> {
+    module: BlockPyModule<CoreBlockPyPassWithYield>,
+) -> BlockPyModule<CoreBlockPyPass> {
     let module =
         module.map_callable_defs(make_eval_order_explicit_in_core_callable_def_without_await);
     let mut next_hidden_function_id = module
@@ -61,13 +59,13 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
 }
 
 pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
-    module: BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield>,
+    module: BlockPyModule<CoreBlockPyPass>,
 ) -> BlockPyModule<BbBlockPyPass> {
     module.map_callable_defs(lower_core_blockpy_function_to_bb_function)
 }
 
 pub(crate) fn lower_core_blockpy_function_to_bb_function(
-    lowered: BlockPyFunction<CoreBlockPyPassWithoutAwaitOrYield>,
+    lowered: BlockPyFunction<CoreBlockPyPass>,
 ) -> BlockPyFunction<BbBlockPyPass> {
     let BlockPyFunction {
         function_id,
@@ -80,7 +78,7 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
         facts,
         try_regions,
     } = lowered;
-    let lowered_view: BlockPyFunction<CoreBlockPyPassWithoutAwaitOrYield> = BlockPyFunction {
+    let lowered_view: BlockPyFunction<CoreBlockPyPass> = BlockPyFunction {
         function_id,
         names: names.clone(),
         kind,

@@ -15,8 +15,8 @@ use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
 use crate::passes::ruff_to_blockpy::rewrite_ast_to_lowered_blockpy_module_plan_with_module;
 use crate::passes::{
-    self, BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
-    CoreBlockPyPassWithoutAwaitOrYield, PreparedBbBlockPyPass, RuffBlockPyPass,
+    self, BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield,
+    CoreBlockPyPassWithYield, PreparedBbBlockPyPass, RuffBlockPyPass,
 };
 use crate::PassTracker;
 use ruff_python_ast::{self as ast, Expr, Stmt};
@@ -141,7 +141,7 @@ pub(crate) fn rewrite_module_with_tracker(
             __dp_add(__dp_getitem(a, 1), __dp_getitem(b, 2))
             ```
     */
-    let core_blockpy: BlockPyModule<CoreBlockPyPass> = pass_tracker
+    let core_blockpy: BlockPyModule<CoreBlockPyPassWithAwaitAndYield> = pass_tracker
         .run_renderable_pass("core_blockpy", || {
             semantic_blockpy.map_callable_defs(simplify_blockpy_callable_def_exprs)
         });
@@ -149,7 +149,7 @@ pub(crate) fn rewrite_module_with_tracker(
     /*
       Rewrite `await foo` to  `yield from __dp_await_iter(foo)`
     */
-    let core_blockpy_without_await: BlockPyModule<CoreBlockPyPassWithoutAwait> = pass_tracker
+    let core_blockpy_without_await: BlockPyModule<CoreBlockPyPassWithYield> = pass_tracker
         .run_renderable_pass("core_blockpy_without_await", || {
             lower_awaits_in_core_blockpy_module(core_blockpy)
         });
@@ -160,8 +160,8 @@ pub(crate) fn rewrite_module_with_tracker(
      `resume` carries state in closure cells, with blocks split at yield/resume points.
 
     */
-    let core_blockpy_without_await_or_yield: BlockPyModule<CoreBlockPyPassWithoutAwaitOrYield> =
-        pass_tracker.run_renderable_pass("core_blockpy_without_await_or_yield", || {
+    let core_blockpy_without_await_or_yield: BlockPyModule<CoreBlockPyPass> = pass_tracker
+        .run_renderable_pass("core_blockpy_without_await_or_yield", || {
             passes::lower_yield_in_lowered_core_blockpy_module_bundle(core_blockpy_without_await)
         });
     let bb_module: BlockPyModule<BbBlockPyPass> = pass_tracker.run_renderable_pass("bb", || {

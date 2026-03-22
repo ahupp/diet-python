@@ -6,8 +6,8 @@ use crate::block_py::dataflow::{
 use crate::block_py::state::collect_state_vars;
 use crate::passes::ruff_to_blockpy;
 use crate::passes::{
-    BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
-    CoreBlockPyPassWithoutAwaitOrYield, PreparedBbBlockPyPass, RuffBlockPyPass,
+    BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield,
+    PreparedBbBlockPyPass, RuffBlockPyPass,
 };
 use crate::py_expr;
 use ruff_python_ast::str::Quote;
@@ -660,9 +660,9 @@ macro_rules! impl_non_bb_entry_liveins {
 
 impl_non_bb_entry_liveins!(
     RuffBlockPyPass,
+    CoreBlockPyPassWithAwaitAndYield,
+    CoreBlockPyPassWithYield,
     CoreBlockPyPass,
-    CoreBlockPyPassWithoutAwait,
-    CoreBlockPyPassWithoutAwaitOrYield,
 );
 
 impl BlockPyFunction<BbBlockPyPass> {
@@ -2378,12 +2378,10 @@ impl TryFrom<CfgBlock<BlockPyStmt<CoreBlockPyExprWithYield>, BlockPyTerm<CoreBlo
     }
 }
 
-impl TryFrom<BlockPyFunction<CoreBlockPyPassWithoutAwait>>
-    for BlockPyFunction<CoreBlockPyPassWithoutAwaitOrYield>
-{
+impl TryFrom<BlockPyFunction<CoreBlockPyPassWithYield>> for BlockPyFunction<CoreBlockPyPass> {
     type Error = CoreBlockPyExprWithYield;
 
-    fn try_from(value: BlockPyFunction<CoreBlockPyPassWithoutAwait>) -> Result<Self, Self::Error> {
+    fn try_from(value: BlockPyFunction<CoreBlockPyPassWithYield>) -> Result<Self, Self::Error> {
         let BlockPyFunction {
             function_id,
             names,
