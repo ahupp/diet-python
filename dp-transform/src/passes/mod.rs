@@ -80,7 +80,7 @@ mod tests {
         CoreBlockPyExpr,
     };
     use crate::block_py::{ClosureInit, ClosureSlot};
-    use crate::passes::{BbBlockPyPass, RuffBlockPyPass};
+    use crate::passes::{BbBlockPyPass, CoreBlockPyPass, RuffBlockPyPass};
     use crate::LoweringResult;
     use crate::{
         py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
@@ -404,6 +404,49 @@ def delegator():
         assert!(
             !delegator.entry_liveins().iter().any(|name| name == "child"),
             "{delegator:?}"
+        );
+    }
+
+    #[test]
+    fn generator_resume_yield_from_blocks_drop_cell_storage_alias_params() {
+        let source = r#"
+def child():
+    yield "start"
+
+def delegator():
+    result = yield from child()
+    return ("done", result)
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let core_module = lowered
+            .result
+            .get_pass::<BlockPyModule<CoreBlockPyPass>>("core_blockpy_without_await_or_yield")
+            .expect("expected core no-yield pass");
+        let resume_function = core_module
+            .callable_defs
+            .iter()
+            .find(|func| func.names.bind_name == "delegator_resume")
+            .expect("expected hidden generator resume function");
+        let yield_from_except = resume_function
+            .blocks
+            .iter()
+            .find(|block| block.label.as_str().starts_with("yield_from_except_"))
+            .expect("expected synthesized yield_from_except block");
+
+        assert!(
+            yield_from_except
+                .params
+                .iter()
+                .any(|param| param.name.starts_with("_dp_yield_from_exc_")),
+            "{yield_from_except:?}"
+        );
+        assert!(
+            yield_from_except
+                .params
+                .iter()
+                .all(|param| !param.name.starts_with("_dp_cell_")),
+            "{yield_from_except:?}"
         );
     }
 

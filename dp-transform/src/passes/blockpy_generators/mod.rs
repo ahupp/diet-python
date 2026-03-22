@@ -373,6 +373,14 @@ fn sync_resume_state_blocks(
         .collect()
 }
 
+fn generator_resume_declared_params(params: &[BlockParam]) -> Vec<BlockParam> {
+    params
+        .iter()
+        .filter(|param| !param.name.starts_with("_dp_cell_"))
+        .cloned()
+        .collect()
+}
+
 fn build_factory_block(
     visible_function_id: FunctionId,
     resume_function_id: FunctionId,
@@ -1315,7 +1323,7 @@ fn lower_resume_blocks(
                 block.label.clone(),
                 block.body,
                 block.term,
-                block.params,
+                generator_resume_declared_params(&block.params),
                 linear_exception_edges
                     .get(block.label.as_str())
                     .cloned()
