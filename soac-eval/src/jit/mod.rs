@@ -488,17 +488,24 @@ trait JitIntrinsic: intrinsics::Intrinsic {
     ) -> Option<ir::Value>;
 }
 
+fn emit_binary_add_intrinsic(
+    state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_>,
+    parts: &[DirectSimpleCallPart],
+) -> Option<ir::Value> {
+    let args = state.positional_args_only(parts)?;
+    if args.len() != 2 {
+        return None;
+    }
+    Some(state.emit_owned_func_call(state.ctx.operator_refs.number_add_ref, &args))
+}
+
 impl JitIntrinsic for intrinsics::AddIntrinsic {
     fn emit_direct_simple(
         &self,
         state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_>,
         parts: &[DirectSimpleCallPart],
     ) -> Option<ir::Value> {
-        let args = state.positional_args_only(parts)?;
-        if args.len() != 2 {
-            return None;
-        }
-        Some(state.emit_owned_func_call(state.ctx.operator_refs.number_add_ref, &args))
+        emit_binary_add_intrinsic(state, parts)
     }
 }
 
@@ -942,24 +949,6 @@ fn emit_direct_simple_expr(
             let args: Vec<&DirectSimpleExprPlan> = simple_args.clone();
             let keywords: Vec<(&str, &DirectSimpleExprPlan)> = simple_keywords.clone();
             if let DirectSimpleExprPlan::Name(func_name) = func.as_ref() {
-                if !has_unpack {
-                    if let Some(intrinsic) = intrinsics::intrinsic_by_name(func_name) {
-                        let mut intrinsic_state = DirectSimpleIntrinsicEmitState {
-                            fb,
-                            local_names,
-                            local_values,
-                            ctx,
-                            literal_pool,
-                        };
-                        if let Some(jit_intrinsic) = jit_intrinsic_by_intrinsic(intrinsic) {
-                            if let Some(value) =
-                                jit_intrinsic.emit_direct_simple(&mut intrinsic_state, parts)
-                            {
-                                return value;
-                            }
-                        }
-                    }
-                }
                 if !has_unpack
                     && simple_keywords.is_empty()
                     && func_name == "__dp_decode_literal_bytes"

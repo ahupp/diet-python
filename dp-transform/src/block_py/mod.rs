@@ -326,8 +326,6 @@ pub struct IntrinsicCall<E> {
 pub(crate) trait CoreCallLikeExpr: Sized {
     fn from_name(name: ast::ExprName) -> Self;
 
-    fn name_id(&self) -> Option<&str>;
-
     fn from_call(call: CoreBlockPyCall<Self>) -> Self;
 
     fn from_intrinsic(call: IntrinsicCall<Self>) -> Self;
@@ -336,13 +334,6 @@ pub(crate) trait CoreCallLikeExpr: Sized {
 impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
     fn from_name(name: ast::ExprName) -> Self {
         Self::Name(name)
-    }
-
-    fn name_id(&self) -> Option<&str> {
-        match self {
-            Self::Name(name) => Some(name.id.as_str()),
-            _ => None,
-        }
     }
 
     fn from_call(call: CoreBlockPyCall<Self>) -> Self {
@@ -359,13 +350,6 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
         Self::Name(name)
     }
 
-    fn name_id(&self) -> Option<&str> {
-        match self {
-            Self::Name(name) => Some(name.id.as_str()),
-            _ => None,
-        }
-    }
-
     fn from_call(call: CoreBlockPyCall<Self>) -> Self {
         Self::Call(call)
     }
@@ -378,13 +362,6 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
 impl CoreCallLikeExpr for CoreBlockPyExpr {
     fn from_name(name: ast::ExprName) -> Self {
         Self::Name(name)
-    }
-
-    fn name_id(&self) -> Option<&str> {
-        match self {
-            Self::Name(name) => Some(name.id.as_str()),
-            _ => None,
-        }
     }
 
     fn from_call(call: CoreBlockPyCall<Self>) -> Self {
@@ -403,23 +380,13 @@ pub(crate) fn core_call_expr_with_meta<E: CoreCallLikeExpr>(
     args: Vec<CoreBlockPyCallArg<E>>,
     keywords: Vec<CoreBlockPyKeywordArg<E>>,
 ) -> E {
-    if let Some(intrinsic) = func.name_id().and_then(intrinsics::intrinsic_by_name) {
-        E::from_intrinsic(IntrinsicCall {
-            intrinsic,
-            node_index,
-            range,
-            args,
-            keywords,
-        })
-    } else {
-        E::from_call(CoreBlockPyCall {
-            node_index,
-            range,
-            func: Box::new(func),
-            args,
-            keywords,
-        })
-    }
+    E::from_call(CoreBlockPyCall {
+        node_index,
+        range,
+        func: Box::new(func),
+        args,
+        keywords,
+    })
 }
 
 pub(crate) fn core_named_call_expr_with_meta<E: CoreCallLikeExpr>(
@@ -440,6 +407,39 @@ pub(crate) fn core_named_call_expr_with_meta<E: CoreCallLikeExpr>(
         range,
         args,
         keywords,
+    )
+}
+
+pub(crate) fn core_intrinsic_expr_with_meta<E: CoreCallLikeExpr>(
+    intrinsic: &'static dyn intrinsics::Intrinsic,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    args: Vec<CoreBlockPyCallArg<E>>,
+    keywords: Vec<CoreBlockPyKeywordArg<E>>,
+) -> E {
+    E::from_intrinsic(IntrinsicCall {
+        intrinsic,
+        node_index,
+        range,
+        args,
+        keywords,
+    })
+}
+
+pub(crate) fn core_positional_intrinsic_expr_with_meta<E: CoreCallLikeExpr>(
+    intrinsic: &'static dyn intrinsics::Intrinsic,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    args: Vec<E>,
+) -> E {
+    core_intrinsic_expr_with_meta(
+        intrinsic,
+        node_index,
+        range,
+        args.into_iter()
+            .map(CoreBlockPyCallArg::Positional)
+            .collect(),
+        Vec::new(),
     )
 }
 

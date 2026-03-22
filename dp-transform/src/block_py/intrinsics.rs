@@ -21,10 +21,3 @@ impl Intrinsic for AddIntrinsic {
 }
 
 pub static ADD_INTRINSIC: AddIntrinsic = AddIntrinsic;
-
-pub fn intrinsic_by_name(name: &str) -> Option<&'static dyn Intrinsic> {
-    match name {
-        "__dp_add" => Some(&ADD_INTRINSIC),
-        _ => None,
-    }
-}
