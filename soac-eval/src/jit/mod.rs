@@ -50,6 +50,7 @@ enum SigType {
     Pointer,
     I64,
     I32,
+    F64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -90,6 +91,142 @@ impl ImportSpec {
             .get_or_init(|| NEXT_IMPORT_SPEC_ID.fetch_add(1, Ordering::Relaxed))
     }
 }
+
+static DP_JIT_INCREF_IMPORT: ImportSpec =
+    ImportSpec::new("dp_jit_incref", &[SigType::Pointer], &[]);
+static DP_JIT_DECREF_IMPORT: ImportSpec =
+    ImportSpec::new("dp_jit_decref", &[SigType::Pointer], &[]);
+static DP_JIT_PY_CALL_POSITIONAL_THREE_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_py_call_positional_three",
+    &[
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+    ],
+    &[SigType::Pointer],
+);
+static DP_JIT_PY_CALL_OBJECT_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_py_call_object",
+    &[SigType::Pointer, SigType::Pointer],
+    &[SigType::Pointer],
+);
+static DP_JIT_PY_CALL_WITH_KW_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_py_call_with_kw",
+    &[SigType::Pointer, SigType::Pointer, SigType::Pointer],
+    &[SigType::Pointer],
+);
+static DP_JIT_GET_RAISED_EXCEPTION_IMPORT: ImportSpec =
+    ImportSpec::new("dp_jit_get_raised_exception", &[], &[SigType::Pointer]);
+static DP_JIT_GET_ARG_ITEM_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_get_arg_item",
+    &[SigType::Pointer, SigType::I64],
+    &[SigType::Pointer],
+);
+static DP_JIT_MAKE_INT_IMPORT: ImportSpec =
+    ImportSpec::new("dp_jit_make_int", &[SigType::I64], &[SigType::Pointer]);
+static DP_JIT_MAKE_FLOAT_IMPORT: ImportSpec =
+    ImportSpec::new("dp_jit_make_float", &[SigType::F64], &[SigType::Pointer]);
+static DP_JIT_MAKE_BYTES_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_make_bytes",
+    &[SigType::Pointer, SigType::I64],
+    &[SigType::Pointer],
+);
+static DP_JIT_LOAD_NAME_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_load_name",
+    &[SigType::Pointer, SigType::Pointer, SigType::I64],
+    &[SigType::Pointer],
+);
+static DP_JIT_LOAD_LOCAL_RAW_BY_NAME_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_load_local_raw_by_name",
+    &[SigType::Pointer, SigType::Pointer, SigType::I64],
+    &[SigType::Pointer],
+);
+static DP_JIT_PYOBJECT_GETATTR_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_pyobject_getattr",
+    &[SigType::Pointer, SigType::Pointer],
+    &[SigType::Pointer],
+);
+static DP_JIT_PYOBJECT_SETATTR_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_pyobject_setattr",
+    &[SigType::Pointer, SigType::Pointer, SigType::Pointer],
+    &[SigType::Pointer],
+);
+static DP_JIT_PYOBJECT_GETITEM_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_pyobject_getitem",
+    &[SigType::Pointer, SigType::Pointer],
+    &[SigType::Pointer],
+);
+static DP_JIT_PYOBJECT_SETITEM_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_pyobject_setitem",
+    &[SigType::Pointer, SigType::Pointer, SigType::Pointer],
+    &[SigType::Pointer],
+);
+static DP_JIT_PYOBJECT_TO_I64_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_pyobject_to_i64",
+    &[SigType::Pointer],
+    &[SigType::I64],
+);
+static DP_JIT_DECODE_LITERAL_BYTES_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_decode_literal_bytes",
+    &[SigType::Pointer, SigType::I64],
+    &[SigType::Pointer],
+);
+static DP_JIT_LOAD_DELETED_NAME_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_load_deleted_name",
+    &[
+        SigType::Pointer,
+        SigType::I64,
+        SigType::Pointer,
+        SigType::Pointer,
+    ],
+    &[SigType::Pointer],
+);
+static DP_JIT_MAKE_CELL_IMPORT: ImportSpec =
+    ImportSpec::new("dp_jit_make_cell", &[SigType::Pointer], &[SigType::Pointer]);
+static DP_JIT_LOAD_CELL_IMPORT: ImportSpec =
+    ImportSpec::new("dp_jit_load_cell", &[SigType::Pointer], &[SigType::Pointer]);
+static DP_JIT_STORE_CELL_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_store_cell",
+    &[SigType::Pointer, SigType::Pointer],
+    &[SigType::Pointer],
+);
+static DP_JIT_STORE_CELL_IF_NOT_DELETED_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_store_cell_if_not_deleted",
+    &[SigType::Pointer, SigType::Pointer, SigType::Pointer],
+    &[SigType::Pointer],
+);
+static DP_JIT_TUPLE_NEW_IMPORT: ImportSpec =
+    ImportSpec::new("dp_jit_tuple_new", &[SigType::I64], &[SigType::Pointer]);
+static DP_JIT_TUPLE_SET_ITEM_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_tuple_set_item",
+    &[SigType::Pointer, SigType::I64, SigType::Pointer],
+    &[SigType::I32],
+);
+static DP_JIT_IS_TRUE_IMPORT: ImportSpec =
+    ImportSpec::new("dp_jit_is_true", &[SigType::Pointer], &[SigType::I32]);
+static DP_JIT_RAISE_FROM_EXC_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_raise_from_exc",
+    &[SigType::Pointer],
+    &[SigType::I32],
+);
+static DP_JIT_VECTORCALL_BUILD_BB_ARGS_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_vectorcall_build_bb_args",
+    &[
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+    ],
+    &[SigType::Pointer],
+);
+static DP_JIT_VECTORCALL_RUN_COMPILED_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_vectorcall_run_compiled",
+    &[SigType::Pointer, SigType::Pointer, SigType::Pointer],
+    &[SigType::Pointer],
+);
 
 struct ModuleFuncImports {
     func_ids_by_internal_id: Vec<Option<FuncId>>,
@@ -159,6 +296,20 @@ impl<'a> FuncBuildImports<'a> {
         let func_ref = jit_module.declare_func_in_func(func_id, func);
         self.func_refs_by_internal_id[internal_id] = Some(func_ref);
         Ok(func_ref)
+    }
+
+    fn get_or_panic(
+        &mut self,
+        jit_module: &mut JITModule,
+        func: &mut ir::Function,
+        spec: &'static ImportSpec,
+    ) -> ir::FuncRef {
+        self.get(jit_module, func, spec).unwrap_or_else(|err| {
+            panic!(
+                "failed to bind import {} during JIT codegen: {}",
+                spec.symbol, err
+            )
+        })
     }
 }
 
@@ -359,7 +510,7 @@ struct DirectSimpleEmitConsts {
 struct DirectSimpleEmitCtx {
     incref_ref: ir::FuncRef,
     decref_ref: ir::FuncRef,
-    py_call_ref: ir::FuncRef,
+    py_call_positional_three_ref: ir::FuncRef,
     make_int_ref: ir::FuncRef,
     consts: DirectSimpleEmitConsts,
     load_name_ref: ir::FuncRef,
@@ -567,13 +718,7 @@ impl DirectSimpleIntrinsicEmitState<'_, '_, '_, '_> {
 
     fn import_func(&mut self, spec: &'static ImportSpec) -> ir::FuncRef {
         self.func_imports
-            .get(self.jit_module, &mut self.fb.func, spec)
-            .unwrap_or_else(|err| {
-                panic!(
-                    "failed to bind import {} during direct-simple intrinsic emission: {}",
-                    spec.symbol, err
-                )
-            })
+            .get_or_panic(self.jit_module, &mut self.fb.func, spec)
     }
 
     fn release_arg_values(&mut self, arg_values: &[(ir::Value, bool)]) {
@@ -983,7 +1128,7 @@ fn emit_direct_simple_expr(
 ) -> ir::Value {
     let incref_ref = ctx.incref_ref;
     let decref_ref = ctx.decref_ref;
-    let py_call_ref = ctx.py_call_ref;
+    let py_call_ref = ctx.py_call_positional_three_ref;
     let make_int_ref = ctx.make_int_ref;
     let step_null_block = ctx.consts.step_null_block;
     let ptr_ty = ctx.consts.ptr_ty;
@@ -993,8 +1138,6 @@ fn emit_direct_simple_expr(
     let block_const = ctx.consts.block_const;
     let load_name_ref = ctx.load_name_ref;
     let pyobject_getattr_ref = ctx.pyobject_getattr_ref;
-    let pyobject_setattr_ref = ctx.pyobject_setattr_ref;
-    let pyobject_getitem_ref = ctx.pyobject_getitem_ref;
     let pyobject_setitem_ref = ctx.pyobject_setitem_ref;
     let decode_literal_bytes_ref = ctx.decode_literal_bytes_ref;
     let load_deleted_name_ref = ctx.load_deleted_name_ref;
@@ -2614,6 +2757,7 @@ fn lower_static_signature(jit_module: &mut JITModule, signature: StaticSignature
         SigType::Pointer => jit_module.target_config().pointer_type(),
         SigType::I64 => ir::types::I64,
         SigType::I32 => ir::types::I32,
+        SigType::F64 => ir::types::F64,
     };
     for param in signature.params {
         lowered
@@ -2809,265 +2953,12 @@ fn build_cranelift_run_bb_specialized_function(
     let i32_ty = ir::types::I32;
     let mut module_imports = ModuleFuncImports::new();
 
-    let mut incref_sig = jit_module.make_signature();
-    incref_sig.params.push(ir::AbiParam::new(ptr_ty));
-    let mut decref_sig = jit_module.make_signature();
-    decref_sig.params.push(ir::AbiParam::new(ptr_ty));
-
-    let mut py_call_sig = jit_module.make_signature();
-    py_call_sig.params.push(ir::AbiParam::new(ptr_ty));
-    py_call_sig.params.push(ir::AbiParam::new(ptr_ty));
-    py_call_sig.params.push(ir::AbiParam::new(ptr_ty));
-    py_call_sig.params.push(ir::AbiParam::new(ptr_ty));
-    py_call_sig.params.push(ir::AbiParam::new(ptr_ty));
-    py_call_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut py_call_object_sig = jit_module.make_signature();
-    py_call_object_sig.params.push(ir::AbiParam::new(ptr_ty));
-    py_call_object_sig.params.push(ir::AbiParam::new(ptr_ty));
-    py_call_object_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut py_call_with_kw_sig = jit_module.make_signature();
-    py_call_with_kw_sig.params.push(ir::AbiParam::new(ptr_ty));
-    py_call_with_kw_sig.params.push(ir::AbiParam::new(ptr_ty));
-    py_call_with_kw_sig.params.push(ir::AbiParam::new(ptr_ty));
-    py_call_with_kw_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut py_get_raised_exc_sig = jit_module.make_signature();
-    py_get_raised_exc_sig
-        .returns
-        .push(ir::AbiParam::new(ptr_ty));
-
-    let mut get_arg_item_sig = jit_module.make_signature();
-    get_arg_item_sig.params.push(ir::AbiParam::new(ptr_ty));
-    get_arg_item_sig.params.push(ir::AbiParam::new(i64_ty));
-    get_arg_item_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut make_int_sig = jit_module.make_signature();
-    make_int_sig.params.push(ir::AbiParam::new(i64_ty));
-    make_int_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut make_float_sig = jit_module.make_signature();
-    make_float_sig
-        .params
-        .push(ir::AbiParam::new(ir::types::F64));
-    make_float_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut make_bytes_sig = jit_module.make_signature();
-    make_bytes_sig.params.push(ir::AbiParam::new(ptr_ty));
-    make_bytes_sig.params.push(ir::AbiParam::new(i64_ty));
-    make_bytes_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut load_name_sig = jit_module.make_signature();
-    load_name_sig.params.push(ir::AbiParam::new(ptr_ty));
-    load_name_sig.params.push(ir::AbiParam::new(ptr_ty));
-    load_name_sig.params.push(ir::AbiParam::new(i64_ty));
-    load_name_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut load_local_raw_by_name_sig = jit_module.make_signature();
-    load_local_raw_by_name_sig
-        .params
-        .push(ir::AbiParam::new(ptr_ty));
-    load_local_raw_by_name_sig
-        .params
-        .push(ir::AbiParam::new(ptr_ty));
-    load_local_raw_by_name_sig
-        .params
-        .push(ir::AbiParam::new(i64_ty));
-    load_local_raw_by_name_sig
-        .returns
-        .push(ir::AbiParam::new(ptr_ty));
-
-    let mut pyobject_getattr_sig = jit_module.make_signature();
-    pyobject_getattr_sig.params.push(ir::AbiParam::new(ptr_ty));
-    pyobject_getattr_sig.params.push(ir::AbiParam::new(ptr_ty));
-    pyobject_getattr_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut pyobject_setattr_sig = jit_module.make_signature();
-    pyobject_setattr_sig.params.push(ir::AbiParam::new(ptr_ty));
-    pyobject_setattr_sig.params.push(ir::AbiParam::new(ptr_ty));
-    pyobject_setattr_sig.params.push(ir::AbiParam::new(ptr_ty));
-    pyobject_setattr_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut pyobject_getitem_sig = jit_module.make_signature();
-    pyobject_getitem_sig.params.push(ir::AbiParam::new(ptr_ty));
-    pyobject_getitem_sig.params.push(ir::AbiParam::new(ptr_ty));
-    pyobject_getitem_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut pyobject_setitem_sig = jit_module.make_signature();
-    pyobject_setitem_sig.params.push(ir::AbiParam::new(ptr_ty));
-    pyobject_setitem_sig.params.push(ir::AbiParam::new(ptr_ty));
-    pyobject_setitem_sig.params.push(ir::AbiParam::new(ptr_ty));
-    pyobject_setitem_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut pyobject_to_i64_sig = jit_module.make_signature();
-    pyobject_to_i64_sig.params.push(ir::AbiParam::new(ptr_ty));
-    pyobject_to_i64_sig.returns.push(ir::AbiParam::new(i64_ty));
-
-    let mut decode_literal_bytes_sig = jit_module.make_signature();
-    decode_literal_bytes_sig
-        .params
-        .push(ir::AbiParam::new(ptr_ty));
-    decode_literal_bytes_sig
-        .params
-        .push(ir::AbiParam::new(i64_ty));
-    decode_literal_bytes_sig
-        .returns
-        .push(ir::AbiParam::new(ptr_ty));
-
-    let mut load_deleted_name_sig = jit_module.make_signature();
-    load_deleted_name_sig.params.push(ir::AbiParam::new(ptr_ty));
-    load_deleted_name_sig.params.push(ir::AbiParam::new(i64_ty));
-    load_deleted_name_sig.params.push(ir::AbiParam::new(ptr_ty));
-    load_deleted_name_sig.params.push(ir::AbiParam::new(ptr_ty));
-    load_deleted_name_sig
-        .returns
-        .push(ir::AbiParam::new(ptr_ty));
-
-    let mut make_cell_sig = jit_module.make_signature();
-    make_cell_sig.params.push(ir::AbiParam::new(ptr_ty));
-    make_cell_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut load_cell_sig = jit_module.make_signature();
-    load_cell_sig.params.push(ir::AbiParam::new(ptr_ty));
-    load_cell_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut store_cell_sig = jit_module.make_signature();
-    store_cell_sig.params.push(ir::AbiParam::new(ptr_ty));
-    store_cell_sig.params.push(ir::AbiParam::new(ptr_ty));
-    store_cell_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut store_cell_if_not_deleted_sig = jit_module.make_signature();
-    store_cell_if_not_deleted_sig
-        .params
-        .push(ir::AbiParam::new(ptr_ty));
-    store_cell_if_not_deleted_sig
-        .params
-        .push(ir::AbiParam::new(ptr_ty));
-    store_cell_if_not_deleted_sig
-        .params
-        .push(ir::AbiParam::new(ptr_ty));
-    store_cell_if_not_deleted_sig
-        .returns
-        .push(ir::AbiParam::new(ptr_ty));
-
-    let mut tuple_new_sig = jit_module.make_signature();
-    tuple_new_sig.params.push(ir::AbiParam::new(i64_ty));
-    tuple_new_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut tuple_set_item_sig = jit_module.make_signature();
-    tuple_set_item_sig.params.push(ir::AbiParam::new(ptr_ty));
-    tuple_set_item_sig.params.push(ir::AbiParam::new(i64_ty));
-    tuple_set_item_sig.params.push(ir::AbiParam::new(ptr_ty));
-    tuple_set_item_sig.returns.push(ir::AbiParam::new(i32_ty));
-
-    let mut is_true_sig = jit_module.make_signature();
-    is_true_sig.params.push(ir::AbiParam::new(ptr_ty));
-    is_true_sig.returns.push(ir::AbiParam::new(i32_ty));
-
-    let mut raise_exc_sig = jit_module.make_signature();
-    raise_exc_sig.params.push(ir::AbiParam::new(ptr_ty));
-    raise_exc_sig.returns.push(ir::AbiParam::new(i32_ty));
-
     let mut main_sig = jit_module.make_signature();
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
     main_sig.returns.push(ir::AbiParam::new(ptr_ty));
 
-    let incref_id = declare_import_fn(jit_module, "dp_jit_incref", &incref_sig)?;
-    let decref_id = declare_import_fn(jit_module, "dp_jit_decref", &decref_sig)?;
-    let py_call_id = declare_import_fn(jit_module, "PyObject_CallFunctionObjArgs", &py_call_sig)?;
-    let py_call_object_id =
-        declare_import_fn(jit_module, "PyObject_CallObject", &py_call_object_sig)?;
-    let py_call_with_kw_id =
-        declare_import_fn(jit_module, "dp_jit_py_call_with_kw", &py_call_with_kw_sig)?;
-    let py_get_raised_exc_id = declare_import_fn(
-        jit_module,
-        "PyErr_GetRaisedException",
-        &py_get_raised_exc_sig,
-    )?;
-    let get_arg_item_id = declare_import_fn(jit_module, "dp_jit_get_arg_item", &get_arg_item_sig)?;
-    let make_int_id = declare_import_fn(jit_module, "dp_jit_make_int", &make_int_sig)?;
-    let make_float_id = declare_import_fn(jit_module, "dp_jit_make_float", &make_float_sig)?;
-    let make_bytes_id = declare_import_fn(jit_module, "dp_jit_make_bytes", &make_bytes_sig)?;
-    let load_name_id = declare_import_fn(jit_module, "dp_jit_load_name", &load_name_sig)?;
-    let load_local_raw_by_name_id = declare_import_fn(
-        jit_module,
-        "dp_jit_load_local_raw_by_name",
-        &load_local_raw_by_name_sig,
-    )?;
-    let pyobject_getattr_id =
-        declare_import_fn(jit_module, "dp_jit_pyobject_getattr", &pyobject_getattr_sig)?;
-    let pyobject_setattr_id =
-        declare_import_fn(jit_module, "dp_jit_pyobject_setattr", &pyobject_setattr_sig)?;
-    let pyobject_getitem_id =
-        declare_import_fn(jit_module, "dp_jit_pyobject_getitem", &pyobject_getitem_sig)?;
-    let pyobject_setitem_id =
-        declare_import_fn(jit_module, "dp_jit_pyobject_setitem", &pyobject_setitem_sig)?;
-    let pyobject_to_i64_id =
-        declare_import_fn(jit_module, "dp_jit_pyobject_to_i64", &pyobject_to_i64_sig)?;
-    let decode_literal_bytes_id = declare_import_fn(
-        jit_module,
-        "dp_jit_decode_literal_bytes",
-        &decode_literal_bytes_sig,
-    )?;
-    let load_deleted_name_id = declare_import_fn(
-        jit_module,
-        "dp_jit_load_deleted_name",
-        &load_deleted_name_sig,
-    )?;
-    let make_cell_id = declare_import_fn(jit_module, "dp_jit_make_cell", &make_cell_sig)?;
-    let load_cell_id = declare_import_fn(jit_module, "dp_jit_load_cell", &load_cell_sig)?;
-    let store_cell_id = declare_import_fn(jit_module, "dp_jit_store_cell", &store_cell_sig)?;
-    let store_cell_if_not_deleted_id = declare_import_fn(
-        jit_module,
-        "dp_jit_store_cell_if_not_deleted",
-        &store_cell_if_not_deleted_sig,
-    )?;
-    let tuple_new_id = declare_import_fn(jit_module, "dp_jit_tuple_new", &tuple_new_sig)?;
-    let tuple_set_item_id =
-        declare_import_fn(jit_module, "dp_jit_tuple_set_item", &tuple_set_item_sig)?;
-    let is_true_id = declare_import_fn(jit_module, "dp_jit_is_true", &is_true_sig)?;
-    let raise_exc_id = declare_import_fn(jit_module, "dp_jit_raise_from_exc", &raise_exc_sig)?;
     let main_id = declare_local_fn(jit_module, "dp_jit_run_bb_specialized", &main_sig)?;
-    let mut import_id_to_symbol: HashMap<u32, &'static str> =
-        module_imports.debug_symbols().clone();
-    import_id_to_symbol.insert(incref_id.as_u32(), "dp_jit_incref");
-    import_id_to_symbol.insert(decref_id.as_u32(), "dp_jit_decref");
-    import_id_to_symbol.insert(py_call_id.as_u32(), "PyObject_CallFunctionObjArgs");
-    import_id_to_symbol.insert(py_call_object_id.as_u32(), "PyObject_CallObject");
-    import_id_to_symbol.insert(py_call_with_kw_id.as_u32(), "dp_jit_py_call_with_kw");
-    import_id_to_symbol.insert(py_get_raised_exc_id.as_u32(), "PyErr_GetRaisedException");
-    import_id_to_symbol.insert(get_arg_item_id.as_u32(), "dp_jit_get_arg_item");
-    import_id_to_symbol.insert(make_int_id.as_u32(), "dp_jit_make_int");
-    import_id_to_symbol.insert(make_float_id.as_u32(), "dp_jit_make_float");
-    import_id_to_symbol.insert(make_bytes_id.as_u32(), "dp_jit_make_bytes");
-    import_id_to_symbol.insert(load_name_id.as_u32(), "dp_jit_load_name");
-    import_id_to_symbol.insert(
-        load_local_raw_by_name_id.as_u32(),
-        "dp_jit_load_local_raw_by_name",
-    );
-    import_id_to_symbol.insert(pyobject_getattr_id.as_u32(), "dp_jit_pyobject_getattr");
-    import_id_to_symbol.insert(pyobject_setattr_id.as_u32(), "dp_jit_pyobject_setattr");
-    import_id_to_symbol.insert(pyobject_getitem_id.as_u32(), "dp_jit_pyobject_getitem");
-    import_id_to_symbol.insert(pyobject_setitem_id.as_u32(), "dp_jit_pyobject_setitem");
-    import_id_to_symbol.insert(pyobject_to_i64_id.as_u32(), "dp_jit_pyobject_to_i64");
-    import_id_to_symbol.insert(
-        decode_literal_bytes_id.as_u32(),
-        "dp_jit_decode_literal_bytes",
-    );
-    import_id_to_symbol.insert(load_deleted_name_id.as_u32(), "dp_jit_load_deleted_name");
-    import_id_to_symbol.insert(make_cell_id.as_u32(), "dp_jit_make_cell");
-    import_id_to_symbol.insert(load_cell_id.as_u32(), "dp_jit_load_cell");
-    import_id_to_symbol.insert(store_cell_id.as_u32(), "dp_jit_store_cell");
-    import_id_to_symbol.insert(
-        store_cell_if_not_deleted_id.as_u32(),
-        "dp_jit_store_cell_if_not_deleted",
-    );
-    import_id_to_symbol.insert(tuple_new_id.as_u32(), "dp_jit_tuple_new");
-    import_id_to_symbol.insert(tuple_set_item_id.as_u32(), "dp_jit_tuple_set_item");
-    import_id_to_symbol.insert(is_true_id.as_u32(), "dp_jit_is_true");
-    import_id_to_symbol.insert(raise_exc_id.as_u32(), "dp_jit_raise_from_exc");
 
     let mut ctx = jit_module.make_context();
     let mut literal_pool: Vec<Box<[u8]>> = Vec::new();
@@ -3105,42 +2996,73 @@ fn build_cranelift_run_bb_specialized_function(
         let entry_args = fb.block_params(entry_block)[0];
         let ambient_args = fb.block_params(entry_block)[1];
         let mut func_imports = FuncBuildImports::new(&mut module_imports);
-        let incref_ref = jit_module.declare_func_in_func(incref_id, &mut fb.func);
-        let decref_ref = jit_module.declare_func_in_func(decref_id, &mut fb.func);
-        let py_call_ref = jit_module.declare_func_in_func(py_call_id, &mut fb.func);
-        let py_call_object_ref = jit_module.declare_func_in_func(py_call_object_id, &mut fb.func);
-        let py_call_with_kw_ref = jit_module.declare_func_in_func(py_call_with_kw_id, &mut fb.func);
-        let py_get_raised_exc_ref =
-            jit_module.declare_func_in_func(py_get_raised_exc_id, &mut fb.func);
-        let get_arg_item_ref = jit_module.declare_func_in_func(get_arg_item_id, &mut fb.func);
-        let make_int_ref = jit_module.declare_func_in_func(make_int_id, &mut fb.func);
-        let is_true_ref = jit_module.declare_func_in_func(is_true_id, &mut fb.func);
-        let raise_exc_ref = jit_module.declare_func_in_func(raise_exc_id, &mut fb.func);
-        let make_float_ref = jit_module.declare_func_in_func(make_float_id, &mut fb.func);
-        let load_name_ref = jit_module.declare_func_in_func(load_name_id, &mut fb.func);
-        let load_local_raw_by_name_ref =
-            jit_module.declare_func_in_func(load_local_raw_by_name_id, &mut fb.func);
+        let incref_ref = func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_INCREF_IMPORT);
+        let decref_ref = func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_DECREF_IMPORT);
+        let py_call_positional_three_ref = func_imports.get_or_panic(
+            jit_module,
+            &mut fb.func,
+            &DP_JIT_PY_CALL_POSITIONAL_THREE_IMPORT,
+        );
+        let py_call_object_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PY_CALL_OBJECT_IMPORT);
+        let py_call_with_kw_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PY_CALL_WITH_KW_IMPORT);
+        let get_raised_exception_ref = func_imports.get_or_panic(
+            jit_module,
+            &mut fb.func,
+            &DP_JIT_GET_RAISED_EXCEPTION_IMPORT,
+        );
+        let get_arg_item_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_GET_ARG_ITEM_IMPORT);
+        let make_int_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_MAKE_INT_IMPORT);
+        let is_true_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_IS_TRUE_IMPORT);
+        let raise_exc_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_RAISE_FROM_EXC_IMPORT);
+        let make_float_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_MAKE_FLOAT_IMPORT);
+        let load_name_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_LOAD_NAME_IMPORT);
+        let load_local_raw_by_name_ref = func_imports.get_or_panic(
+            jit_module,
+            &mut fb.func,
+            &DP_JIT_LOAD_LOCAL_RAW_BY_NAME_IMPORT,
+        );
         let pyobject_getattr_ref =
-            jit_module.declare_func_in_func(pyobject_getattr_id, &mut fb.func);
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_GETATTR_IMPORT);
         let pyobject_setattr_ref =
-            jit_module.declare_func_in_func(pyobject_setattr_id, &mut fb.func);
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_SETATTR_IMPORT);
         let pyobject_getitem_ref =
-            jit_module.declare_func_in_func(pyobject_getitem_id, &mut fb.func);
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_GETITEM_IMPORT);
         let pyobject_setitem_ref =
-            jit_module.declare_func_in_func(pyobject_setitem_id, &mut fb.func);
-        let pyobject_to_i64_ref = jit_module.declare_func_in_func(pyobject_to_i64_id, &mut fb.func);
-        let decode_literal_bytes_ref =
-            jit_module.declare_func_in_func(decode_literal_bytes_id, &mut fb.func);
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_SETITEM_IMPORT);
+        let pyobject_to_i64_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_TO_I64_IMPORT);
+        let decode_literal_bytes_ref = func_imports.get_or_panic(
+            jit_module,
+            &mut fb.func,
+            &DP_JIT_DECODE_LITERAL_BYTES_IMPORT,
+        );
         let load_deleted_name_ref =
-            jit_module.declare_func_in_func(load_deleted_name_id, &mut fb.func);
-        let make_cell_ref = jit_module.declare_func_in_func(make_cell_id, &mut fb.func);
-        let load_cell_ref = jit_module.declare_func_in_func(load_cell_id, &mut fb.func);
-        let store_cell_ref = jit_module.declare_func_in_func(store_cell_id, &mut fb.func);
-        let store_cell_if_not_deleted_ref =
-            jit_module.declare_func_in_func(store_cell_if_not_deleted_id, &mut fb.func);
-        let make_bytes_ref = jit_module.declare_func_in_func(make_bytes_id, &mut fb.func);
-        let tuple_new_ref = jit_module.declare_func_in_func(tuple_new_id, &mut fb.func);
-        let tuple_set_item_ref = jit_module.declare_func_in_func(tuple_set_item_id, &mut fb.func);
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_LOAD_DELETED_NAME_IMPORT);
+        let make_cell_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_MAKE_CELL_IMPORT);
+        let load_cell_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_LOAD_CELL_IMPORT);
+        let store_cell_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_STORE_CELL_IMPORT);
+        let store_cell_if_not_deleted_ref = func_imports.get_or_panic(
+            jit_module,
+            &mut fb.func,
+            &DP_JIT_STORE_CELL_IF_NOT_DELETED_IMPORT,
+        );
+        let make_bytes_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_MAKE_BYTES_IMPORT);
+        let tuple_new_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_TUPLE_NEW_IMPORT);
+        let tuple_set_item_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_TUPLE_SET_ITEM_IMPORT);
 
         let entry_deleted_const = fb.ins().iconst(ptr_ty, deleted_obj as i64);
         function_state_slots.initialize_all_to_value(&mut fb, entry_deleted_const, incref_ref);
@@ -3253,7 +3175,7 @@ fn build_cranelift_run_bb_specialized_function(
             let emit_ctx = DirectSimpleEmitCtx {
                 incref_ref,
                 decref_ref,
-                py_call_ref,
+                py_call_positional_three_ref,
                 make_int_ref,
                 consts: DirectSimpleEmitConsts {
                     step_null_block: fast_step_null_block,
@@ -3757,7 +3679,7 @@ fn build_cranelift_run_bb_specialized_function(
                             fb.ins().call(incref_ref, &[none_const]);
                             let cause_value = none_const;
                             let raise_call_inst = fb.ins().call(
-                                py_call_ref,
+                                py_call_positional_three_ref,
                                 &[rfo_raise_fn, exc_value, cause_value, null_ptr, null_ptr],
                             );
                             let raise_exc_obj = fb.inst_results(raise_call_inst)[0];
@@ -3830,7 +3752,7 @@ fn build_cranelift_run_bb_specialized_function(
             let none_const = fb.ins().iconst(ptr_ty, none_obj as i64);
             let dispatch_step_null_args = Vec::new();
 
-            let raised_exc_inst = fb.ins().call(py_get_raised_exc_ref, &[]);
+            let raised_exc_inst = fb.ins().call(get_raised_exception_ref, &[]);
             let raised_exc = fb.inst_results(raised_exc_inst)[0];
             let raised_exc_null = fb
                 .ins()
@@ -3917,14 +3839,12 @@ fn build_cranelift_run_bb_specialized_function(
         fb.finalize();
     }
 
-    import_id_to_symbol.extend(
-        module_imports
-            .debug_symbols()
-            .iter()
-            .map(|(import_id, symbol)| (*import_id, *symbol)),
-    );
-
-    Ok((ctx, main_id, literal_pool, import_id_to_symbol))
+    Ok((
+        ctx,
+        main_id,
+        literal_pool,
+        module_imports.debug_symbols().clone(),
+    ))
 }
 
 pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
@@ -4081,23 +4001,7 @@ pub unsafe fn compile_cranelift_vectorcall_trampoline(
     builder.symbol("dp_jit_decref", dp_jit_decref as *const u8);
     let mut jit_module = JITModule::new(builder);
     let ptr_ty = jit_module.target_config().pointer_type();
-
-    let mut build_sig = jit_module.make_signature();
-    build_sig.params.push(ir::AbiParam::new(ptr_ty));
-    build_sig.params.push(ir::AbiParam::new(ptr_ty));
-    build_sig.params.push(ir::AbiParam::new(ptr_ty));
-    build_sig.params.push(ir::AbiParam::new(ptr_ty));
-    build_sig.params.push(ir::AbiParam::new(ptr_ty));
-    build_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut run_sig = jit_module.make_signature();
-    run_sig.params.push(ir::AbiParam::new(ptr_ty));
-    run_sig.params.push(ir::AbiParam::new(ptr_ty));
-    run_sig.params.push(ir::AbiParam::new(ptr_ty));
-    run_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let mut decref_sig = jit_module.make_signature();
-    decref_sig.params.push(ir::AbiParam::new(ptr_ty));
+    let mut module_imports = ModuleFuncImports::new();
 
     let mut main_sig = jit_module.make_signature();
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
@@ -4106,13 +4010,6 @@ pub unsafe fn compile_cranelift_vectorcall_trampoline(
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
     main_sig.returns.push(ir::AbiParam::new(ptr_ty));
 
-    let build_id = declare_import_fn(
-        &mut jit_module,
-        "dp_jit_vectorcall_build_bb_args",
-        &build_sig,
-    )?;
-    let run_id = declare_import_fn(&mut jit_module, "dp_jit_vectorcall_run_compiled", &run_sig)?;
-    let decref_id = declare_import_fn(&mut jit_module, "dp_jit_decref", &decref_sig)?;
     let main_id = declare_local_fn(&mut jit_module, "dp_jit_vectorcall_trampoline", &main_sig)?;
 
     let mut ctx = jit_module.make_context();
@@ -4130,9 +4027,19 @@ pub unsafe fn compile_cranelift_vectorcall_trampoline(
         let nargsf_val = fb.block_params(entry)[2];
         let kwnames_val = fb.block_params(entry)[3];
 
-        let build_ref = jit_module.declare_func_in_func(build_id, &mut fb.func);
-        let run_ref = jit_module.declare_func_in_func(run_id, &mut fb.func);
-        let decref_ref = jit_module.declare_func_in_func(decref_id, &mut fb.func);
+        let mut func_imports = FuncBuildImports::new(&mut module_imports);
+        let build_ref = func_imports.get_or_panic(
+            &mut jit_module,
+            &mut fb.func,
+            &DP_JIT_VECTORCALL_BUILD_BB_ARGS_IMPORT,
+        );
+        let run_ref = func_imports.get_or_panic(
+            &mut jit_module,
+            &mut fb.func,
+            &DP_JIT_VECTORCALL_RUN_COMPILED_IMPORT,
+        );
+        let decref_ref =
+            func_imports.get_or_panic(&mut jit_module, &mut fb.func, &DP_JIT_DECREF_IMPORT);
 
         let data_const = fb.ins().iconst(ptr_ty, data_ptr as i64);
         let compiled_const = fb.ins().iconst(ptr_ty, compiled_handle as i64);
@@ -4390,7 +4297,7 @@ mod tests {
             "operator lowering should use PyNumber_Add in rendered CLIF:\n{rendered}"
         );
         assert!(
-            !rendered.contains("call PyObject_CallFunctionObjArgs"),
+            !rendered.contains("call dp_jit_py_call_positional_three"),
             "direct operator lowering should avoid generic Python helper calls:\n{rendered}"
         );
     }

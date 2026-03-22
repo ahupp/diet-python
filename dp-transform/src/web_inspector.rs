@@ -457,12 +457,15 @@ fn bb_module_to_clif(module: &BlockPyModule<BbBlockPyPass>) -> String {
     out.push_str("; runtime helper declarations\n");
     out.push_str("decl @dp_jit_incref(pyobj)\n");
     out.push_str("decl @dp_jit_decref(pyobj)\n");
-    out.push_str("decl @PyObject_CallFunctionObjArgs(pyobj, pyobj, pyobj, pyobj) -> pyobj\n");
-    out.push_str("decl @PyObject_Call(pyobj, pyobj, pyobj) -> pyobj\n");
-    out.push_str("decl @PyObject_GetAttr(pyobj, pyobj) -> pyobj\n");
-    out.push_str("decl @PyObject_SetAttr(pyobj, pyobj, pyobj) -> i32\n");
-    out.push_str("decl @PyObject_GetItem(pyobj, pyobj) -> pyobj\n");
-    out.push_str("decl @PyObject_SetItem(pyobj, pyobj, pyobj) -> i32\n");
+    out.push_str(
+        "decl @dp_jit_py_call_positional_three(pyobj, pyobj, pyobj, pyobj, pyobj) -> pyobj\n",
+    );
+    out.push_str("decl @dp_jit_py_call_with_kw(pyobj, pyobj, pyobj) -> pyobj\n");
+    out.push_str("decl @dp_jit_pyobject_getattr(pyobj, pyobj) -> pyobj\n");
+    out.push_str("decl @dp_jit_pyobject_setattr(pyobj, pyobj, pyobj) -> pyobj\n");
+    out.push_str("decl @dp_jit_pyobject_getitem(pyobj, pyobj) -> pyobj\n");
+    out.push_str("decl @dp_jit_pyobject_setitem(pyobj, pyobj, pyobj) -> pyobj\n");
+    out.push_str("decl @dp_jit_get_raised_exception() -> pyobj\n");
     out.push_str("decl @dp_jit_term_kind(pyobj) -> termkind\n");
     out.push_str("decl @dp_jit_raise_from_exc(pyobj) -> i32\n");
     out.push_str("decl @dp_jit_term_invalid(pyobj) -> i32\n");

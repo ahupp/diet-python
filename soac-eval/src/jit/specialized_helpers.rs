@@ -15,7 +15,7 @@ unsafe extern "C" {
 pub type ObjPtr = *mut c_void;
 pub type IncrefFn = unsafe extern "C" fn(ObjPtr);
 pub type DecrefFn = unsafe extern "C" fn(ObjPtr);
-pub type CallVarArgsFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
+pub type CallPositionalThreeFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
 pub type CallObjectFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
 pub type CallWithKwFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
 pub type GetRaisedExceptionFn = unsafe extern "C" fn() -> ObjPtr;
@@ -45,7 +45,7 @@ pub type RaiseFromExcFn = unsafe extern "C" fn(ObjPtr) -> i32;
 pub struct SpecializedJitHooks {
     pub incref: IncrefFn,
     pub decref: DecrefFn,
-    pub py_call_three: CallVarArgsFn,
+    pub py_call_positional_three: CallPositionalThreeFn,
     pub py_call_object: CallObjectFn,
     pub py_call_with_kw: CallWithKwFn,
     pub py_get_raised_exception: GetRaisedExceptionFn,
@@ -74,7 +74,7 @@ pub struct SpecializedJitHooks {
 
 static mut DP_JIT_INCREF_FN: Option<IncrefFn> = None;
 static mut DP_JIT_DECREF_FN: Option<DecrefFn> = None;
-static mut DP_JIT_CALL_VAR_ARGS_FN: Option<CallVarArgsFn> = None;
+static mut DP_JIT_CALL_POSITIONAL_THREE_FN: Option<CallPositionalThreeFn> = None;
 static mut DP_JIT_CALL_OBJECT_FN: Option<CallObjectFn> = None;
 static mut DP_JIT_CALL_WITH_KW_FN: Option<CallWithKwFn> = None;
 static mut DP_JIT_GET_RAISED_EXCEPTION_FN: Option<GetRaisedExceptionFn> = None;
@@ -103,7 +103,7 @@ static mut DP_JIT_RAISE_FROM_EXC_FN: Option<RaiseFromExcFn> = None;
 pub unsafe fn install_specialized_hooks(hooks: &SpecializedJitHooks) {
     DP_JIT_INCREF_FN = Some(hooks.incref);
     DP_JIT_DECREF_FN = Some(hooks.decref);
-    DP_JIT_CALL_VAR_ARGS_FN = Some(hooks.py_call_three);
+    DP_JIT_CALL_POSITIONAL_THREE_FN = Some(hooks.py_call_positional_three);
     DP_JIT_CALL_OBJECT_FN = Some(hooks.py_call_object);
     DP_JIT_CALL_WITH_KW_FN = Some(hooks.py_call_with_kw);
     DP_JIT_GET_RAISED_EXCEPTION_FN = Some(hooks.py_get_raised_exception);
@@ -142,7 +142,7 @@ unsafe extern "C" fn jit_decref_hook(obj: ObjPtr) {
     }
 }
 
-unsafe extern "C" fn py_call_three_hook(
+unsafe extern "C" fn py_call_positional_three_hook(
     callable: ObjPtr,
     arg1: ObjPtr,
     arg2: ObjPtr,
@@ -534,7 +534,7 @@ pub fn default_specialized_hooks() -> SpecializedJitHooks {
     SpecializedJitHooks {
         incref: jit_incref_hook,
         decref: jit_decref_hook,
-        py_call_three: py_call_three_hook,
+        py_call_positional_three: py_call_positional_three_hook,
         py_call_object: py_call_object_hook,
         py_call_with_kw: py_call_with_kw_hook,
         py_get_raised_exception: py_get_raised_exception_hook,
@@ -581,14 +581,14 @@ pub unsafe extern "C" fn dp_jit_raise_from_exc(exc: ObjPtr) -> i32 {
     -1
 }
 
-pub unsafe extern "C" fn dp_jit_py_call_three(
+pub unsafe extern "C" fn dp_jit_py_call_positional_three(
     callable: ObjPtr,
     arg1: ObjPtr,
     arg2: ObjPtr,
     arg3: ObjPtr,
     _sentinel: ObjPtr,
 ) -> ObjPtr {
-    if let Some(func) = DP_JIT_CALL_VAR_ARGS_FN {
+    if let Some(func) = DP_JIT_CALL_POSITIONAL_THREE_FN {
         return func(callable, arg1, arg2, arg3);
     }
     ptr::null_mut()
@@ -968,16 +968,16 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol("dp_jit_incref", dp_jit_incref as *const u8);
     builder.symbol("dp_jit_decref", dp_jit_decref as *const u8);
     builder.symbol(
-        "PyObject_CallFunctionObjArgs",
-        dp_jit_py_call_three as *const u8,
+        "dp_jit_py_call_positional_three",
+        dp_jit_py_call_positional_three as *const u8,
     );
-    builder.symbol("PyObject_CallObject", dp_jit_py_call_object as *const u8);
+    builder.symbol("dp_jit_py_call_object", dp_jit_py_call_object as *const u8);
     builder.symbol(
         "dp_jit_py_call_with_kw",
         dp_jit_py_call_with_kw as *const u8,
     );
     builder.symbol(
-        "PyErr_GetRaisedException",
+        "dp_jit_get_raised_exception",
         dp_jit_get_raised_exception as *const u8,
     );
     builder.symbol("dp_jit_get_arg_item", dp_jit_get_arg_item as *const u8);
