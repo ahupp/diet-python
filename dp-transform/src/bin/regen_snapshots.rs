@@ -145,9 +145,7 @@ fn count_blockpy_blocks(module: &BlockPyModule<RuffBlockPyPass>) -> usize {
         .sum()
 }
 
-fn count_blockpy_blocks_in_list<M: Clone + std::fmt::Debug>(
-    blocks: &[CfgBlock<BlockPyStmt, BlockPyTerm, M>],
-) -> usize {
+fn count_blockpy_blocks_in_list(blocks: &[CfgBlock<BlockPyStmt, BlockPyTerm>]) -> usize {
     blocks
         .iter()
         .map(|block| {

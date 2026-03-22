@@ -17,7 +17,7 @@ use ruff_python_ast::{
     StringLiteralValue,
 };
 use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt;
 use std::ops::Deref;
 
@@ -156,15 +156,15 @@ pub(crate) fn is_resume_abi_param_name(name: &str) -> bool {
 }
 
 #[derive(Debug, Clone)]
-pub struct CfgBlock<S, T, M = ()> {
+pub struct CfgBlock<S, T> {
     pub label: BlockPyLabel,
     pub body: Vec<S>,
     pub term: T,
     pub params: Vec<BlockParam>,
-    pub meta: M,
+    pub exc_edge: Option<BlockPyEdge>,
 }
 
-impl<S, T, M> CfgBlock<S, T, M> {
+impl<S, T> CfgBlock<S, T> {
     pub fn label_str(&self) -> &str {
         self.label.as_str()
     }
@@ -400,7 +400,7 @@ pub struct BlockPyFunction<P: BlockPyPass> {
     pub names: FunctionName,
     pub kind: BlockPyFunctionKind,
     pub params: ParamSpec,
-    pub blocks: Vec<CfgBlock<P::Stmt, P::Term, P::BlockMeta>>,
+    pub blocks: Vec<CfgBlock<P::Stmt, P::Term>>,
     pub doc: Option<String>,
     pub closure_layout: Option<ClosureLayout>,
     pub facts: BlockPyCallableFacts,
@@ -435,7 +435,7 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
         f: impl FnOnce(P::FunctionExtra) -> Q::FunctionExtra,
     ) -> BlockPyFunction<Q>
     where
-        Q: BlockPyPass<Expr = P::Expr, Stmt = P::Stmt, Term = P::Term, BlockMeta = P::BlockMeta>,
+        Q: BlockPyPass<Expr = P::Expr, Stmt = P::Stmt, Term = P::Term>,
     {
         BlockPyFunction {
             function_id: self.function_id,
@@ -473,53 +473,11 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
     }
 }
 
-trait EntryLiveinsBlockMeta: Clone + fmt::Debug {
-    fn extra_successors<S, T>(
-        blocks: &[CfgBlock<S, T, Self>],
-        try_regions: &[TryRegionPlan],
-    ) -> HashMap<String, Vec<String>>
-    where
-        Self: Sized;
-}
-
-impl EntryLiveinsBlockMeta for () {
-    fn extra_successors<S, T>(
-        _blocks: &[CfgBlock<S, T, Self>],
-        _try_regions: &[TryRegionPlan],
-    ) -> HashMap<String, Vec<String>> {
-        HashMap::new()
-    }
-}
-
-impl EntryLiveinsBlockMeta for BbBlockMeta {
-    fn extra_successors<S, T>(
-        blocks: &[CfgBlock<S, T, Self>],
-        _try_regions: &[TryRegionPlan],
-    ) -> HashMap<String, Vec<String>> {
-        let mut extra_successors = HashMap::new();
-        for (source, target) in ruff_to_blockpy::lowered_exception_edges(blocks) {
-            let Some(target) = target else {
-                continue;
-            };
-            extra_successors
-                .entry(source)
-                .or_insert_with(Vec::new)
-                .push(target);
-        }
-        extra_successors
-    }
-}
-
-fn lowered_entry_liveins<S, T, E, M>(
-    params: &ParamSpec,
-    blocks: &[CfgBlock<S, T, M>],
-    try_regions: &[TryRegionPlan],
-) -> Vec<String>
+pub fn lowered_entry_liveins<S, T, E>(params: &ParamSpec, blocks: &[CfgBlock<S, T>]) -> Vec<String>
 where
     S: IntoBlockPyStmt<E>,
     T: IntoBlockPyTerm<E>,
     E: Clone + Into<Expr> + fmt::Debug,
-    M: EntryLiveinsBlockMeta,
 {
     if blocks.is_empty() {
         return Vec::new();
@@ -535,7 +493,7 @@ where
                 .collect(),
             term: block.term.clone().into_term(),
             params: block.params.clone(),
-            meta: (),
+            exc_edge: block.exc_edge.clone(),
         })
         .collect::<Vec<_>>();
     let param_names = params.names();
@@ -544,7 +502,10 @@ where
     let mut block_params = compute_block_params_blockpy(
         &lowered_blocks,
         &state_vars,
-        &M::extra_successors(blocks, try_regions),
+        &ruff_to_blockpy::lowered_exception_edges(&lowered_blocks)
+            .into_iter()
+            .filter_map(|(source, target)| target.map(|target| (source, vec![target])))
+            .collect(),
     );
     merge_declared_block_params(&lowered_blocks, &mut block_params);
     block_params
@@ -561,7 +522,7 @@ macro_rules! impl_non_bb_entry_liveins {
         $(
             impl BlockPyFunction<$pass> {
                 pub fn entry_liveins(&self) -> Vec<String> {
-                    lowered_entry_liveins(&self.params, &self.blocks, &self.try_regions)
+                    lowered_entry_liveins(&self.params, &self.blocks)
                 }
             }
         )*
@@ -601,11 +562,6 @@ impl BlockPyFunction<PreparedBbBlockPyPass> {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct BbBlockMeta {
-    pub exc_edge: Option<BlockPyEdge>,
-}
-
 pub trait BlockPyNormalizedStmt {
     fn assert_blockpy_normalized(&self);
 }
@@ -622,14 +578,12 @@ pub trait BlockPyPass: Clone + fmt::Debug {
     type Expr: Clone + fmt::Debug + Into<Expr>;
     type Stmt: BlockPyNormalizedStmt + IntoBlockPyStmt<Self::Expr>;
     type Term: IntoBlockPyTerm<Self::Expr>;
-    type BlockMeta: Clone + fmt::Debug;
     type FunctionExtra: Clone + fmt::Debug;
 }
 
 pub type PassExpr<P> = <P as BlockPyPass>::Expr;
 pub type PassTerm<P> = <P as BlockPyPass>::Term;
-pub type PassBlock<P> =
-    CfgBlock<<P as BlockPyPass>::Stmt, PassTerm<P>, <P as BlockPyPass>::BlockMeta>;
+pub type PassBlock<P> = CfgBlock<<P as BlockPyPass>::Stmt, PassTerm<P>>;
 pub type BbBlock = PassBlock<BbBlockPyPass>;
 pub type PreparedBbBlock = PassBlock<PreparedBbBlockPyPass>;
 
@@ -657,7 +611,7 @@ fn implicit_none_name() -> ast::ExprName {
     name
 }
 
-pub fn assert_blockpy_block_normalized<S: BlockPyNormalizedStmt, T, M>(block: &CfgBlock<S, T, M>) {
+pub fn assert_blockpy_block_normalized<S: BlockPyNormalizedStmt, T>(block: &CfgBlock<S, T>) {
     for stmt in &block.body {
         stmt.assert_blockpy_normalized();
     }
@@ -757,7 +711,7 @@ impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
 pub struct BlockPyCfgBlockBuilder<S, T> {
     label: BlockPyLabel,
     params: Vec<BlockParam>,
-    meta: (),
+    exc_edge: Option<BlockPyEdge>,
     fragment: BlockPyCfgFragmentBuilder<S, T>,
 }
 
@@ -770,7 +724,7 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
         Self {
             label,
             params: Vec::new(),
-            meta: (),
+            exc_edge: None,
             fragment: BlockPyCfgFragmentBuilder::new(),
         }
     }
@@ -839,7 +793,7 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
                 None => T::implicit_function_return(),
             }),
             params: self.params,
-            meta: self.meta,
+            exc_edge: self.exc_edge,
         };
         assert_blockpy_block_normalized(&block);
         block
@@ -1239,7 +1193,7 @@ where
 pub trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
-    POut: BlockPyPass<BlockMeta = PIn::BlockMeta, FunctionExtra = PIn::FunctionExtra>,
+    POut: BlockPyPass<FunctionExtra = PIn::FunctionExtra>,
     BlockPyStmt<POut::Expr>: Into<POut::Stmt>,
     BlockPyTerm<POut::Expr>: Into<POut::Term>,
 {
@@ -1282,7 +1236,7 @@ where
                 .collect(),
             term: self.map_term(block.term.into_term()).into(),
             params: block.params,
-            meta: block.meta,
+            exc_edge: block.exc_edge,
         }
     }
 
@@ -1426,7 +1380,7 @@ where
 
     pub fn map_module<POut>(self, mapper: &impl BlockPyModuleMap<PIn, POut>) -> BlockPyModule<POut>
     where
-        POut: BlockPyPass<BlockMeta = PIn::BlockMeta, FunctionExtra = PIn::FunctionExtra>,
+        POut: BlockPyPass<FunctionExtra = PIn::FunctionExtra>,
         BlockPyStmt<POut::Expr>: Into<POut::Stmt>,
         BlockPyTerm<POut::Expr>: Into<POut::Term>,
     {
@@ -1601,7 +1555,7 @@ mod tests {
                             else_label: BlockPyLabel::from("else"),
                         }),
                         params: Vec::new(),
-                        meta: BbBlockMeta::default(),
+                        exc_edge: None,
                     },
                     CfgBlock {
                         label: BlockPyLabel::from("done"),
@@ -1610,7 +1564,7 @@ mod tests {
                         })],
                         term: BlockPyTerm::Return(py_expr!("final_return")),
                         params: Vec::new(),
-                        meta: BbBlockMeta::default(),
+                        exc_edge: None,
                     },
                 ],
                 doc: None,
@@ -2045,18 +1999,13 @@ impl TryFrom<BlockPyCfgFragment<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBl
     }
 }
 
-impl<M: Clone + fmt::Debug>
-    TryFrom<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>, M>>
-    for CfgBlock<
-        BlockPyStmt<CoreBlockPyExprWithoutAwait>,
-        BlockPyTerm<CoreBlockPyExprWithoutAwait>,
-        M,
-    >
+impl TryFrom<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>
+    for CfgBlock<BlockPyStmt<CoreBlockPyExprWithoutAwait>, BlockPyTerm<CoreBlockPyExprWithoutAwait>>
 {
     type Error = CoreBlockPyExpr;
 
     fn try_from(
-        value: CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>, M>,
+        value: CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>,
     ) -> Result<Self, Self::Error> {
         Ok(CfgBlock {
             label: value.label,
@@ -2067,7 +2016,7 @@ impl<M: Clone + fmt::Debug>
                 .collect::<Result<_, _>>()?,
             term: value.term.try_into()?,
             params: value.params,
-            meta: value.meta,
+            exc_edge: value.exc_edge,
         })
     }
 }
@@ -2261,18 +2210,16 @@ impl
     }
 }
 
-impl<M: Clone + fmt::Debug>
+impl
     TryFrom<
         CfgBlock<
             BlockPyStmt<CoreBlockPyExprWithoutAwait>,
             BlockPyTerm<CoreBlockPyExprWithoutAwait>,
-            M,
         >,
     >
     for CfgBlock<
         BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
         BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-        M,
     >
 {
     type Error = CoreBlockPyExprWithoutAwait;
@@ -2281,7 +2228,6 @@ impl<M: Clone + fmt::Debug>
         value: CfgBlock<
             BlockPyStmt<CoreBlockPyExprWithoutAwait>,
             BlockPyTerm<CoreBlockPyExprWithoutAwait>,
-            M,
         >,
     ) -> Result<Self, Self::Error> {
         Ok(CfgBlock {
@@ -2293,7 +2239,7 @@ impl<M: Clone + fmt::Debug>
                 .collect::<Result<_, _>>()?,
             term: value.term.try_into()?,
             params: value.params,
-            meta: value.meta,
+            exc_edge: value.exc_edge,
         })
     }
 }

@@ -320,13 +320,11 @@ with cm as x:
 #         block _dp_bb_10:
 #             exc_param: _dp_try_exc_1
 #             params: [_dp_try_exc_1:Exception]
-#             exc_target: _dp_bb_4
 #             if_term __dp_exception_matches(__dp_current_exception(), BaseException):
 #                 then:
 #                     block _dp_bb_8:
 #                         exc_param: _dp_try_exc_1
 #                         params: [_dp_try_exc_1:Exception]
-#                         exc_target: _dp_bb_4
 #                         _dp_with_ok_2 = False
 #                         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
 #                         jump _dp_bb_3
@@ -334,10 +332,8 @@ with cm as x:
 #                     block _dp_bb_9:
 #                         exc_param: _dp_try_exc_1
 #                         params: [_dp_try_exc_1:Exception]
-#                         exc_target: _dp_bb_4
 #                         raise
 #         block _dp_bb_11:
-#             exc_target: _dp_bb_10
 #             body()
 #             jump _dp_bb_3
 #         block _dp_bb_3:
@@ -605,13 +601,11 @@ with a as x, b as y:
 #         block _dp_bb_10:
 #             exc_param: _dp_try_exc_1
 #             params: [_dp_try_exc_1:Exception]
-#             exc_target: _dp_bb_4
 #             if_term __dp_exception_matches(__dp_current_exception(), BaseException):
 #                 then:
 #                     block _dp_bb_8:
 #                         exc_param: _dp_try_exc_1
 #                         params: [_dp_try_exc_1:Exception]
-#                         exc_target: _dp_bb_4
 #                         _dp_with_ok_5 = False
 #                         __dp_contextmanager_exit(_dp_with_exit_4, __dp_exc_info())
 #                         jump _dp_bb_3
@@ -619,7 +613,6 @@ with a as x, b as y:
 #                     block _dp_bb_9:
 #                         exc_param: _dp_try_exc_1
 #                         params: [_dp_try_exc_1:Exception]
-#                         exc_target: _dp_bb_4
 #                         raise
 #         block _dp_bb_2:
 #             exc_param: _dp_try_exc_7
@@ -647,7 +640,6 @@ with a as x, b as y:
 #                     block _dp_bb_6:
 #                         raise _dp_try_abrupt_payload_3
 #         block _dp_bb_23:
-#             exc_target: _dp_bb_10
 #             _dp_with_exit_1 = __dp_contextmanager_get_exit(b)
 #             y = __dp_contextmanager_enter(b)
 #             _dp_with_ok_2 = True
@@ -655,18 +647,15 @@ with a as x, b as y:
 #                 body_label: _dp_bb_22
 #                 except_label: _dp_bb_21
 #             block _dp_bb_14:
-#                 exc_target: _dp_bb_10
 #                 jump _dp_bb_13(Fallthrough, None)
 #                 block _dp_bb_13:
 #                     exc_param: _dp_try_exc_21
 #                     params: [_dp_try_abrupt_kind_16:AbruptKind, _dp_try_abrupt_payload_17:AbruptPayload, _dp_try_exc_21:Exception]
-#                     exc_target: _dp_bb_10
 #                     if_term _dp_with_ok_2:
 #                         then:
 #                             block _dp_bb_12:
 #                                 exc_param: _dp_try_exc_21
 #                                 params: [_dp_try_exc_21:Exception]
-#                                 exc_target: _dp_bb_10
 #                                 __dp_contextmanager_exit(_dp_with_exit_1, None)
 #                                 jump _dp_bb_11
 #                         else:
@@ -674,29 +663,23 @@ with a as x, b as y:
 #                     block _dp_bb_11:
 #                         exc_param: _dp_try_exc_21
 #                         params: [_dp_try_exc_21:Exception]
-#                         exc_target: _dp_bb_10
 #                         _dp_with_exit_1 = None
 #                         jump _dp_bb_18
 #                         block _dp_bb_18:
-#                             exc_target: _dp_bb_10
 #                             branch_table _dp_try_abrupt_kind_16 -> [_dp_bb_3, _dp_bb_16, _dp_bb_17] default _dp_bb_3
 #                             block _dp_bb_16:
-#                                 exc_target: _dp_bb_10
 #                                 _dp_try_abrupt_payload_3 = _dp_try_abrupt_payload_17
 #                                 jump _dp_bb_2(Return, _dp_try_abrupt_payload_3)
 #                             block _dp_bb_17:
-#                                 exc_target: _dp_bb_10
 #                                 raise _dp_try_abrupt_payload_17
 #             block _dp_bb_21:
 #                 exc_param: _dp_try_exc_15
 #                 params: [_dp_try_exc_15:Exception]
-#                 exc_target: _dp_bb_15
 #                 if_term __dp_exception_matches(__dp_current_exception(), BaseException):
 #                     then:
 #                         block _dp_bb_19:
 #                             exc_param: _dp_try_exc_15
 #                             params: [_dp_try_exc_15:Exception]
-#                             exc_target: _dp_bb_15
 #                             _dp_with_ok_2 = False
 #                             __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
 #                             jump _dp_bb_14
@@ -704,10 +687,8 @@ with a as x, b as y:
 #                         block _dp_bb_20:
 #                             exc_param: _dp_try_exc_15
 #                             params: [_dp_try_exc_15:Exception]
-#                             exc_target: _dp_bb_15
 #                             raise
 #             block _dp_bb_22:
-#                 exc_target: _dp_bb_21
 #                 body()
 #                 jump _dp_bb_14
 #         block _dp_bb_3:
@@ -715,7 +696,6 @@ with a as x, b as y:
 #     block _dp_bb_15:
 #         exc_param: _dp_try_exc_21
 #         params: [_dp_try_exc_21:Exception]
-#         exc_target: _dp_bb_10
 #         jump _dp_bb_13(Exception, _dp_try_exc_21)
 #     block _dp_bb_4:
 #         exc_param: _dp_try_exc_7
@@ -781,13 +761,11 @@ async def run():
 #         block _dp_bb_11:
 #             exc_param: _dp_try_exc_1
 #             params: [_dp_try_exc_1:Exception]
-#             exc_target: _dp_bb_4
 #             if_term __dp_exception_matches(__dp_current_exception(), BaseException):
 #                 then:
 #                     block _dp_bb_9:
 #                         exc_param: _dp_try_exc_1
 #                         params: [_dp_try_exc_1:Exception]
-#                         exc_target: _dp_bb_4
 #                         _dp_with_ok_2 = False
 #                         _dp_with_reraise_3 = await __dp_asynccontextmanager_exit(_dp_with_exit_1, __dp_exc_info())
 #                         if_term __dp_is_not(_dp_with_reraise_3, None):
@@ -795,7 +773,6 @@ async def run():
 #                                 block _dp_bb_8:
 #                                     exc_param: _dp_try_exc_1
 #                                     params: [_dp_try_exc_1:Exception]
-#                                     exc_target: _dp_bb_4
 #                                     raise _dp_with_reraise_3
 #                             else:
 #                                 jump _dp_bb_3
@@ -803,10 +780,8 @@ async def run():
 #                     block _dp_bb_10:
 #                         exc_param: _dp_try_exc_1
 #                         params: [_dp_try_exc_1:Exception]
-#                         exc_target: _dp_bb_4
 #                         raise
 #         block _dp_bb_12:
-#             exc_target: _dp_bb_11
 #             body()
 #             jump _dp_bb_3
 #         block _dp_bb_3:
@@ -934,13 +909,11 @@ with Suppress():
 #         block _dp_bb_10:
 #             exc_param: _dp_try_exc_1
 #             params: [_dp_try_exc_1:Exception]
-#             exc_target: _dp_bb_4
 #             if_term __dp_exception_matches(__dp_current_exception(), BaseException):
 #                 then:
 #                     block _dp_bb_8:
 #                         exc_param: _dp_try_exc_1
 #                         params: [_dp_try_exc_1:Exception]
-#                         exc_target: _dp_bb_4
 #                         _dp_with_ok_2 = False
 #                         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
 #                         jump _dp_bb_3
@@ -976,10 +949,8 @@ with Suppress():
 #                     block _dp_bb_9:
 #                         exc_param: _dp_try_exc_1
 #                         params: [_dp_try_exc_1:Exception]
-#                         exc_target: _dp_bb_4
 #                         raise
 #         block _dp_bb_11:
-#             exc_target: _dp_bb_10
 #             raise RuntimeError("boom")
 #     block _dp_bb_4:
 #         exc_param: _dp_try_exc_7
@@ -1126,7 +1097,6 @@ except Exception:
 #                         params: [_dp_try_exc_1:Exception]
 #                         raise
 #         block _dp_bb_3:
-#             exc_target: _dp_bb_2
 #             print(1)
 #             return __dp_NONE
 
@@ -1184,7 +1154,6 @@ def complicated(a):
 #                                             params: [_dp_try_exc_7:Exception]
 #                                             raise
 #                             block _dp_bb_4:
-#                                 exc_target: _dp_bb_3
 #                                 j = i + 1
 #                                 yield j
 #                                 jump _dp_bb_7

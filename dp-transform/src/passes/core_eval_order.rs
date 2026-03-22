@@ -223,15 +223,15 @@ fn make_eval_order_explicit_in_core_term(
     }
 }
 
-pub(crate) fn make_eval_order_explicit_in_core_block<M: Clone + std::fmt::Debug>(
-    block: CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>, M>,
-) -> CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>, M> {
+pub(crate) fn make_eval_order_explicit_in_core_block(
+    block: CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>,
+) -> CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>> {
     let CfgBlock {
         label,
         body: input_body,
         term: input_term,
         params,
-        meta,
+        exc_edge,
     } = block;
     let mut body = Vec::new();
     for stmt in input_body {
@@ -243,7 +243,7 @@ pub(crate) fn make_eval_order_explicit_in_core_block<M: Clone + std::fmt::Debug>
         body,
         term,
         params,
-        meta,
+        exc_edge,
     }
 }
 
@@ -467,20 +467,18 @@ fn make_eval_order_explicit_in_core_term_without_await(
     }
 }
 
-pub(crate) fn make_eval_order_explicit_in_core_block_without_await<M: Clone + std::fmt::Debug>(
+pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
     block: CfgBlock<
         BlockPyStmt<CoreBlockPyExprWithoutAwait>,
         BlockPyTerm<CoreBlockPyExprWithoutAwait>,
-        M,
     >,
-) -> CfgBlock<BlockPyStmt<CoreBlockPyExprWithoutAwait>, BlockPyTerm<CoreBlockPyExprWithoutAwait>, M>
-{
+) -> CfgBlock<BlockPyStmt<CoreBlockPyExprWithoutAwait>, BlockPyTerm<CoreBlockPyExprWithoutAwait>> {
     let CfgBlock {
         label,
         body: input_body,
         term: input_term,
         params,
-        meta,
+        exc_edge,
     } = block;
     let mut body = Vec::new();
     for stmt in input_body {
@@ -492,7 +490,7 @@ pub(crate) fn make_eval_order_explicit_in_core_block_without_await<M: Clone + st
         body,
         term,
         params,
-        meta,
+        exc_edge,
     }
 }
 
@@ -521,7 +519,7 @@ mod tests {
             body: Vec::new(),
             term: BlockPyTerm::Return(CoreBlockPyExpr::from(crate::py_expr!("f(g(x), h(y))"))),
             params: Vec::new(),
-            meta: Default::default(),
+            exc_edge: None,
         };
 
         let lowered = make_eval_order_explicit_in_core_block(block);
@@ -547,7 +545,7 @@ mod tests {
             body: Vec::new(),
             term: BlockPyTerm::Return(CoreBlockPyExpr::from(crate::py_expr!("f(g(x))"))),
             params: Vec::new(),
-            meta: Default::default(),
+            exc_edge: None,
         };
 
         let lowered = make_eval_order_explicit_in_core_block(block);
@@ -568,7 +566,7 @@ mod tests {
             })],
             term: BlockPyTerm::Return(CoreBlockPyExpr::from(crate::py_expr!("__dp_NONE"))),
             params: Vec::new(),
-            meta: Default::default(),
+            exc_edge: None,
         };
 
         let lowered = make_eval_order_explicit_in_core_block(block);
@@ -596,7 +594,7 @@ mod tests {
             })],
             term: BlockPyTerm::Return(CoreBlockPyExpr::from(crate::py_expr!("__dp_NONE"))),
             params: Vec::new(),
-            meta: Default::default(),
+            exc_edge: None,
         };
 
         let lowered = make_eval_order_explicit_in_core_block(block);
@@ -645,7 +643,7 @@ mod tests {
             })],
             term: BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::Name(test_name("__dp_NONE"))),
             params: Vec::new(),
-            meta: Default::default(),
+            exc_edge: None,
         };
 
         let lowered = make_eval_order_explicit_in_core_block_without_await(block);

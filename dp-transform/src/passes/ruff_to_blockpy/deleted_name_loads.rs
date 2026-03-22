@@ -15,8 +15,8 @@ fn rewrite_blockpy_expr_deleted_name_loads(
     rewriter.visit_expr(expr);
 }
 
-pub(crate) fn rewrite_deleted_name_loads<M: Clone + std::fmt::Debug>(
-    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>, M>],
+pub(crate) fn rewrite_deleted_name_loads(
+    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>>],
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
 ) {

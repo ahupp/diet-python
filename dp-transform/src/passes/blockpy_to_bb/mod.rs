@@ -8,10 +8,10 @@ use super::ruff_to_blockpy::{
 };
 use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
-    BbBlock, BbBlockMeta, BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge,
-    BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm,
-    CfgBlock, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
-    CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    BbBlock, BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm, CfgBlock,
+    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral,
 };
 use crate::passes::{
     BbBlockPyPass, CoreBlockPyPassWithoutAwait, CoreBlockPyPassWithoutAwaitOrYield,
@@ -115,7 +115,6 @@ fn lower_blockpy_blocks_to_bb_blocks(
     blocks: &[crate::block_py::CfgBlock<
         BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
         BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-        BbBlockMeta,
     >],
     block_params: &HashMap<String, Vec<String>>,
 ) -> Vec<BbBlock> {
@@ -167,7 +166,7 @@ fn lower_blockpy_blocks_to_bb_blocks(
                 body: ops,
                 term: normalized_term,
                 params,
-                meta: BbBlockMeta { exc_edge },
+                exc_edge,
             }
         })
         .collect::<Vec<_>>();
@@ -175,7 +174,7 @@ fn lower_blockpy_blocks_to_bb_blocks(
     bb_blocks
 }
 
-pub(super) fn populate_exception_edge_args<T>(blocks: &mut [CfgBlock<BbStmt, T, BbBlockMeta>]) {
+pub(super) fn populate_exception_edge_args<T>(blocks: &mut [CfgBlock<BbStmt, T>]) {
     let label_to_index = blocks
         .iter()
         .enumerate()
@@ -183,7 +182,6 @@ pub(super) fn populate_exception_edge_args<T>(blocks: &mut [CfgBlock<BbStmt, T, 
         .collect::<HashMap<_, _>>();
     for block_index in 0..blocks.len() {
         let Some(exc_target_label) = blocks[block_index]
-            .meta
             .exc_edge
             .as_ref()
             .map(|edge| edge.target.clone())
@@ -215,7 +213,7 @@ pub(super) fn populate_exception_edge_args<T>(blocks: &mut [CfgBlock<BbStmt, T, 
                 }
             })
             .collect();
-        blocks[block_index].meta.exc_edge = Some(BlockPyEdge::with_args(exc_target_label, args));
+        blocks[block_index].exc_edge = Some(BlockPyEdge::with_args(exc_target_label, args));
     }
 }
 
@@ -417,9 +415,8 @@ fn bb_stmt_from_blockpy_stmt(stmt: BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYiel
 #[cfg(test)]
 mod tests {
     use crate::block_py::{
-        BbBlockMeta, BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt,
-        BlockPyStmtFragment, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
-        CoreBlockPyExprWithoutAwaitOrYield,
+        BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt, BlockPyStmtFragment,
+        BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
     };
     use crate::passes::blockpy_to_bb::lower_blockpy_blocks_to_bb_blocks;
     use ruff_python_ast::{self as ast};
@@ -469,7 +466,7 @@ mod tests {
             ],
             term: BlockPyTerm::Return(core_name_expr("__dp_NONE")),
             params: Vec::new(),
-            meta: Default::default(),
+            exc_edge: None,
         };
 
         let blocks = lower_blockpy_blocks_to_bb_blocks(
@@ -478,7 +475,7 @@ mod tests {
                 body: block.body,
                 term: block.term,
                 params: block.params,
-                meta: BbBlockMeta::default(),
+                exc_edge: None,
             }],
             &HashMap::new(),
         );
@@ -525,7 +522,7 @@ mod tests {
                 name: "_dp_try_exc_0".to_string(),
                 role: crate::block_py::BlockParamRole::Exception,
             }],
-            meta: (),
+            exc_edge: None,
         };
 
         let lowered = lower_blockpy_blocks_to_bb_blocks(
@@ -534,7 +531,7 @@ mod tests {
                 body: block.body,
                 term: block.term,
                 params: block.params,
-                meta: BbBlockMeta::default(),
+                exc_edge: None,
             }],
             &HashMap::new(),
         );

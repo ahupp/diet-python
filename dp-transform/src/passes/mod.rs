@@ -12,7 +12,7 @@ mod summarize_pass_shape;
 mod trace;
 
 use crate::block_py::{
-    BbBlockMeta, BbTerm, BlockPyPass, BlockPyStmt, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
+    BbTerm, BlockPyPass, BlockPyStmt, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
     CoreBlockPyExprWithoutAwaitOrYield, Expr,
 };
 
@@ -23,7 +23,6 @@ impl BlockPyPass for RuffBlockPyPass {
     type Expr = Expr;
     type Stmt = BlockPyStmt<Self::Expr>;
     type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type BlockMeta = BbBlockMeta;
     type FunctionExtra = ();
 }
 
@@ -34,7 +33,6 @@ impl BlockPyPass for CoreBlockPyPass {
     type Expr = CoreBlockPyExpr;
     type Stmt = BlockPyStmt<Self::Expr>;
     type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type BlockMeta = BbBlockMeta;
     type FunctionExtra = ();
 }
 
@@ -45,7 +43,6 @@ impl BlockPyPass for CoreBlockPyPassWithoutAwait {
     type Expr = CoreBlockPyExprWithoutAwait;
     type Stmt = BlockPyStmt<Self::Expr>;
     type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type BlockMeta = BbBlockMeta;
     type FunctionExtra = ();
 }
 
@@ -56,7 +53,6 @@ impl BlockPyPass for CoreBlockPyPassWithoutAwaitOrYield {
     type Expr = CoreBlockPyExprWithoutAwaitOrYield;
     type Stmt = BlockPyStmt<Self::Expr>;
     type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type BlockMeta = BbBlockMeta;
     type FunctionExtra = ();
 }
 
@@ -67,7 +63,6 @@ impl BlockPyPass for BbBlockPyPass {
     type Expr = CoreBlockPyExprWithoutAwaitOrYield;
     type Stmt = crate::block_py::BbStmt;
     type Term = crate::block_py::BlockPyTerm<Self::Expr>;
-    type BlockMeta = BbBlockMeta;
     type FunctionExtra = ();
 }
 
@@ -78,7 +73,6 @@ impl BlockPyPass for PreparedBbBlockPyPass {
     type Expr = CoreBlockPyExprWithoutAwaitOrYield;
     type Stmt = crate::block_py::BbStmt;
     type Term = BbTerm;
-    type BlockMeta = BbBlockMeta;
     type FunctionExtra = ();
 }
 
@@ -810,10 +804,7 @@ def check():
             "{check:?}"
         );
         assert!(
-            check
-                .blocks
-                .iter()
-                .any(|block| block.meta.exc_edge.is_some()),
+            check.blocks.iter().any(|block| block.exc_edge.is_some()),
             "{check:?}"
         );
     }
@@ -1512,7 +1503,7 @@ def f(x):
             .expect("bb module should be available");
         let f = function_by_name(&bb_module, "f");
         assert!(
-            f.blocks.iter().any(|block| block.meta.exc_edge.is_some()),
+            f.blocks.iter().any(|block| block.exc_edge.is_some()),
             "{f:?}"
         );
         let debug = format!("{f:?}");
@@ -1544,7 +1535,7 @@ def run():
             .expect("bb module should be available");
         let run = function_by_name(&bb_module, "run");
         assert!(
-            run.blocks.iter().any(|block| block.meta.exc_edge.is_some()),
+            run.blocks.iter().any(|block| block.exc_edge.is_some()),
             "{run:?}"
         );
     }
@@ -1564,10 +1555,7 @@ except Exception:
             .expect("bb module should be available");
         let init_fn = function_by_name(&bb_module, "_dp_module_init");
         assert!(
-            init_fn
-                .blocks
-                .iter()
-                .any(|block| block.meta.exc_edge.is_some()),
+            init_fn.blocks.iter().any(|block| block.exc_edge.is_some()),
             "{init_fn:?}"
         );
     }
@@ -1627,7 +1615,7 @@ def f():
             "{f:?}"
         );
         assert!(
-            f.blocks.iter().any(|block| block.meta.exc_edge.is_some()),
+            f.blocks.iter().any(|block| block.exc_edge.is_some()),
             "{f:?}"
         );
     }

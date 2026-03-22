@@ -28,9 +28,9 @@ pub(crate) fn collect_parameter_names(parameters: &ast::Parameters) -> Vec<Strin
     names
 }
 
-pub(crate) fn collect_state_vars<S, T, E, M>(
+pub(crate) fn collect_state_vars<S, T, E>(
     param_names: &[String],
-    blocks: &[CfgBlock<S, T, M>],
+    blocks: &[CfgBlock<S, T>],
 ) -> Vec<String>
 where
     S: IntoBlockPyStmt<E>,

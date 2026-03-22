@@ -108,9 +108,7 @@ pub(crate) fn lower_awaits_in_core_blockpy_module(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block_py::{
-        BbBlockMeta, BlockPyLabel, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyExpr,
-    };
+    use crate::block_py::{BlockPyLabel, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyExpr};
     use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
 
     #[test]
@@ -128,7 +126,7 @@ mod tests {
                         "await foo()"
                     ))),
                     params: Vec::new(),
-                    meta: BbBlockMeta::default(),
+                    exc_edge: None,
                 })],
                 doc: None,
                 closure_layout: None,

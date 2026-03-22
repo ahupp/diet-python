@@ -1,7 +1,7 @@
 use super::{
-    lowered_entry_liveins, AbruptKind, BbBlockMeta, BbStmt, BlockArg, BlockPyCfgFragment,
-    BlockPyEdge, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule,
-    BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump, CfgBlock,
+    lowered_entry_liveins, AbruptKind, BbStmt, BlockArg, BlockPyCfgFragment, BlockPyEdge,
+    BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, BlockPyTryJump, CfgBlock,
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral, Expr, IntoBlockPyStmt, IntoBlockPyTerm,
     PassBlock, PassExpr,
 };
@@ -34,11 +34,11 @@ macro_rules! impl_default_blockpy_pretty_printer {
         $(
             impl BlockPyPrettyPrinter for $pass {
                 fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
-                    lowered_entry_liveins(&function.params, &function.blocks, &function.try_regions)
+                    lowered_entry_liveins(&function.params, &function.blocks)
                 }
 
                 fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
-                    <<Self as BlockPyPass>::BlockMeta as PrettyDefaultBlockMeta<PassExpr<Self>>>::block_metadata_lines(block)
+                    render_blockpy_block_metadata(block)
                 }
             }
         )*
@@ -74,7 +74,7 @@ impl BlockPyPrettyPrinter for BbBlockPyPass {
                     .join(", ")
             ));
         }
-        if let Some(exc_edge) = &block.meta.exc_edge {
+        if let Some(exc_edge) = &block.exc_edge {
             lines.push(format!("exc_target: {}", exc_edge.target.as_str()));
         }
         if let Some(exc_name) = block.exception_param() {
@@ -106,40 +106,11 @@ impl BlockPyPrettyPrinter for PreparedBbBlockPyPass {
                     .join(", ")
             ));
         }
-        if let Some(exc_edge) = &block.meta.exc_edge {
+        if let Some(exc_edge) = &block.exc_edge {
             lines.push(format!("exc_target: {}", exc_edge.target.as_str()));
         }
         if let Some(exc_name) = block.exception_param() {
             lines.push(format!("exc_name: {exc_name}"));
-        }
-        lines
-    }
-}
-
-trait PrettyDefaultBlockMeta<E>: Clone + std::fmt::Debug {
-    fn block_metadata_lines<S, T>(block: &CfgBlock<S, T, Self>) -> Vec<String>
-    where
-        S: IntoBlockPyStmt<E>,
-        Self: Sized;
-}
-
-impl<E> PrettyDefaultBlockMeta<E> for () {
-    fn block_metadata_lines<S, T>(block: &CfgBlock<S, T, Self>) -> Vec<String>
-    where
-        S: IntoBlockPyStmt<E>,
-    {
-        render_blockpy_block_metadata(block)
-    }
-}
-
-impl<E> PrettyDefaultBlockMeta<E> for BbBlockMeta {
-    fn block_metadata_lines<S, T>(block: &CfgBlock<S, T, Self>) -> Vec<String>
-    where
-        S: IntoBlockPyStmt<E>,
-    {
-        let mut lines = render_blockpy_block_metadata(block);
-        if let Some(exc_edge) = &block.meta.exc_edge {
-            lines.push(format!("exc_target: {}", exc_edge.target.as_str()));
         }
         lines
     }
@@ -719,7 +690,7 @@ fn render_block_arg(arg: &BlockArg) -> String {
     }
 }
 
-fn render_blockpy_block_metadata<S, T, E, M>(block: &CfgBlock<S, T, M>) -> Vec<String>
+fn render_blockpy_block_metadata<S, T, E>(block: &CfgBlock<S, T>) -> Vec<String>
 where
     S: IntoBlockPyStmt<E>,
 {
@@ -1161,7 +1132,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block_py::{BbBlockMeta, BlockParam, BlockParamRole};
+    use crate::block_py::{BlockParam, BlockParamRole};
     use crate::block_py::{ClosureInit, ClosureLayout, ClosureSlot};
     use crate::passes::{BbBlockPyPass, RuffBlockPyPass};
     use ruff_python_parser::parse_expression;
@@ -1316,7 +1287,7 @@ async def no_lying():
                     body: vec![],
                     term: BlockPyTerm::<Expr>::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
-                    meta: BbBlockMeta::default(),
+                    exc_edge: None,
                 }],
                 doc: None,
                 closure_layout: Some(ClosureLayout {
@@ -1365,28 +1336,28 @@ async def no_lying():
                         else_label: "else".into(),
                     }),
                     params: Vec::new(),
-                    meta: BbBlockMeta::default(),
+                    exc_edge: None,
                 },
                 CfgBlock {
                     label: "then".into(),
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()"))],
                     term: BlockPyTerm::Jump("after".into()),
                     params: Vec::new(),
-                    meta: BbBlockMeta::default(),
+                    exc_edge: None,
                 },
                 CfgBlock {
                     label: "else".into(),
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()"))],
                     term: BlockPyTerm::Jump("after".into()),
                     params: Vec::new(),
-                    meta: BbBlockMeta::default(),
+                    exc_edge: None,
                 },
                 CfgBlock {
                     label: "after".into(),
                     body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()"))],
                     term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
-                    meta: BbBlockMeta::default(),
+                    exc_edge: None,
                 },
             ],
             doc: None,
@@ -1442,35 +1413,35 @@ def choose(a, b):
                         except_label: "alpha".into(),
                     }),
                     params: Vec::new(),
-                    meta: BbBlockMeta::default(),
+                    exc_edge: None,
                 },
                 CfgBlock {
                     label: "zeta".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
-                    meta: BbBlockMeta::default(),
+                    exc_edge: None,
                 },
                 CfgBlock {
                     label: "alpha".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
-                    meta: BbBlockMeta::default(),
+                    exc_edge: None,
                 },
                 CfgBlock {
                     label: "omega".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
-                    meta: BbBlockMeta::default(),
+                    exc_edge: None,
                 },
                 CfgBlock {
                     label: "beta".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                     params: Vec::new(),
-                    meta: BbBlockMeta::default(),
+                    exc_edge: None,
                 },
             ],
             doc: None,
@@ -1516,7 +1487,7 @@ def choose(a, b):
                 except_label: "except_target".into(),
             }),
             params: Vec::new(),
-            meta: BbBlockMeta::default(),
+            exc_edge: None,
         }]);
 
         let expected = [
@@ -1557,9 +1528,7 @@ def choose(a, b):
                                 role: BlockParamRole::Local,
                             },
                         ],
-                        meta: BbBlockMeta {
-                            exc_edge: Some(BlockPyEdge::new("except".into())),
-                        },
+                        exc_edge: Some(BlockPyEdge::new("except".into())),
                     },
                     PassBlock::<BbBlockPyPass> {
                         label: "except".into(),
@@ -1571,7 +1540,7 @@ def choose(a, b):
                             name: "err".to_string(),
                             role: BlockParamRole::Exception,
                         }],
-                        meta: BbBlockMeta::default(),
+                        exc_edge: None,
                     },
                 ],
                 doc: None,

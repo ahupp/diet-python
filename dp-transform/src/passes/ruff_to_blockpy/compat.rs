@@ -1,18 +1,10 @@
 use super::*;
 use crate::block_py::{
-    BbBlockMeta, BlockPyCfgBlockBuilder, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
+    BlockPyCfgBlockBuilder, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
     BlockPyStmtFragmentBuilder, BlockPyTerm, Expr,
 };
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ruff_to_blockpy::stmt_lowering::lower_nested_stmt_into_with_expr;
-
-fn exc_block_meta(exc_target: Option<&str>) -> BbBlockMeta {
-    BbBlockMeta {
-        exc_edge: exc_target
-            .map(BlockPyLabel::from)
-            .map(crate::block_py::BlockPyEdge::new),
-    }
-}
 
 fn with_exc_meta(
     block: crate::block_py::CfgBlock<BlockPyStmt, BlockPyTerm>,
@@ -23,7 +15,9 @@ fn with_exc_meta(
         body: block.body,
         term: block.term,
         params: block.params,
-        meta: exc_block_meta(exc_target),
+        exc_edge: exc_target
+            .map(BlockPyLabel::from)
+            .map(crate::block_py::BlockPyEdge::new),
     }
 }
 

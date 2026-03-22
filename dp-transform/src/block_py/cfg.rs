@@ -1,6 +1,6 @@
 use super::{
-    BbBlockMeta, BlockParam, BlockParamRole, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel,
-    BlockPyStmt, BlockPyTerm, CfgBlock, ImplicitNoneExpr,
+    BlockParam, BlockParamRole, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel, BlockPyStmt,
+    BlockPyTerm, CfgBlock, ImplicitNoneExpr,
 };
 use crate::block_py::dataflow::{
     assigned_names_in_blockpy_fragment, assigned_names_in_blockpy_stmts,
@@ -105,27 +105,8 @@ fn rename_blockpy_term(
     }
 }
 
-pub(crate) trait RenameBlockMeta {
-    fn rename_block_labels(&mut self, rename: &HashMap<String, String>);
-}
-
-impl RenameBlockMeta for () {
-    fn rename_block_labels(&mut self, _rename: &HashMap<String, String>) {}
-}
-
-impl RenameBlockMeta for BbBlockMeta {
-    fn rename_block_labels(&mut self, rename: &HashMap<String, String>) {
-        let Some(exc_edge) = self.exc_edge.as_mut() else {
-            return;
-        };
-        if let Some(rewritten) = rename.get(exc_edge.target.as_str()) {
-            exc_edge.target = BlockPyLabel::from(rewritten.clone());
-        }
-    }
-}
-
-fn rename_blockpy_block<M: RenameBlockMeta>(
-    block: &mut CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>, M>,
+fn rename_blockpy_block(
+    block: &mut CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>>,
     body_renamer: &mut LabelNameRenamer<'_>,
     rename: &HashMap<String, String>,
 ) {
@@ -138,10 +119,14 @@ fn rename_blockpy_block<M: RenameBlockMeta>(
         rename_blockpy_stmt(stmt, body_renamer, rename);
     }
     rename_blockpy_term(&mut block.term, body_renamer, rename);
-    block.meta.rename_block_labels(rename);
+    if let Some(exc_edge) = block.exc_edge.as_mut() {
+        if let Some(rewritten) = rename.get(exc_edge.target.as_str()) {
+            exc_edge.target = BlockPyLabel::from(rewritten.clone());
+        }
+    }
 }
 
-fn blockpy_successors<E, M>(block: &CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>) -> Vec<String> {
+fn blockpy_successors<E>(block: &CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>) -> Vec<String> {
     match &block.term {
         BlockPyTerm::Jump(target) => vec![target.as_str().to_string()],
         BlockPyTerm::IfTerm(if_term) => vec![
@@ -165,9 +150,9 @@ fn blockpy_successors<E, M>(block: &CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>)
     }
 }
 
-pub(crate) fn rename_blockpy_labels<M: RenameBlockMeta>(
+pub(crate) fn rename_blockpy_labels(
     rename: &HashMap<String, String>,
-    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>, M>],
+    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>>],
 ) {
     for block in blocks.iter_mut() {
         let mut body_renamer = LabelNameRenamer { rename };
@@ -175,10 +160,10 @@ pub(crate) fn rename_blockpy_labels<M: RenameBlockMeta>(
     }
 }
 
-fn apply_label_rename_blockpy<M: RenameBlockMeta>(
+fn apply_label_rename_blockpy(
     entry_label: &str,
     rename: &HashMap<String, String>,
-    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>, M>],
+    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>>],
 ) -> String {
     rename_blockpy_labels(rename, blocks);
     rename
@@ -245,16 +230,16 @@ fn params_for_linearized_names(
         .collect()
 }
 
-fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>, M: Clone>(
+fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
     label: BlockPyLabel,
     body: Vec<BlockPyStmt<E>>,
     final_term: BlockPyTerm<E>,
-    meta: M,
+    exc_edge: Option<super::BlockPyEdge>,
     block_params: Vec<String>,
     declared_params: Vec<BlockParam>,
     exc_target: Option<String>,
     next_label_id: &mut usize,
-    out_blocks: &mut Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>>,
+    out_blocks: &mut Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>>,
     out_block_params: &mut HashMap<String, Vec<String>>,
     out_exception_edges: &mut HashMap<String, Option<String>>,
 ) {
@@ -269,7 +254,7 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>, M: Clone>(
             body,
             term: final_term,
             params: params_for_linearized_names(&block_params, &declared_params),
-            meta,
+            exc_edge,
         });
         return;
     };
@@ -305,7 +290,7 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>, M: Clone>(
             out_block_params.get(label.as_str()).unwrap(),
             &declared_params,
         ),
-        meta: meta.clone(),
+        exc_edge: exc_edge.clone(),
     });
 
     let branch_fallthrough = join_label
@@ -316,7 +301,7 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>, M: Clone>(
         then_label,
         if_stmt.body,
         branch_fallthrough.clone(),
-        meta.clone(),
+        exc_edge.clone(),
         available_before_if.clone(),
         declared_params.clone(),
         exc_target.clone(),
@@ -329,7 +314,7 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>, M: Clone>(
         else_label,
         if_stmt.orelse,
         branch_fallthrough,
-        meta.clone(),
+        exc_edge.clone(),
         available_before_if.clone(),
         declared_params.clone(),
         exc_target.clone(),
@@ -344,7 +329,7 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>, M: Clone>(
             join_label,
             rest,
             final_term,
-            meta,
+            exc_edge,
             join_block_params,
             declared_params,
             exc_target,
@@ -356,16 +341,16 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>, M: Clone>(
     }
 }
 
-fn linearize_blockpy_fragment<E: Clone + Into<Expr>, M: Clone>(
+fn linearize_blockpy_fragment<E: Clone + Into<Expr>>(
     label: BlockPyLabel,
     fragment: BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
     fallthrough_term: BlockPyTerm<E>,
-    meta: M,
+    exc_edge: Option<super::BlockPyEdge>,
     block_params: Vec<String>,
     declared_params: Vec<BlockParam>,
     exc_target: Option<String>,
     next_label_id: &mut usize,
-    out_blocks: &mut Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>>,
+    out_blocks: &mut Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>>,
     out_block_params: &mut HashMap<String, Vec<String>>,
     out_exception_edges: &mut HashMap<String, Option<String>>,
 ) {
@@ -373,7 +358,7 @@ fn linearize_blockpy_fragment<E: Clone + Into<Expr>, M: Clone>(
         label,
         fragment.body,
         fragment.term.unwrap_or(fallthrough_term),
-        meta,
+        exc_edge,
         block_params,
         declared_params,
         exc_target,
@@ -384,12 +369,12 @@ fn linearize_blockpy_fragment<E: Clone + Into<Expr>, M: Clone>(
     );
 }
 
-pub(crate) fn linearize_structured_ifs<E: Clone + Into<Expr>, M: Clone>(
-    blocks: &[CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>],
+pub(crate) fn linearize_structured_ifs<E: Clone + Into<Expr>>(
+    blocks: &[CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>],
     block_params: &HashMap<String, Vec<String>>,
     exception_edges: &HashMap<String, Option<String>>,
 ) -> (
-    Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>>,
+    Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>>,
     HashMap<String, Vec<String>>,
     HashMap<String, Option<String>>,
 ) {
@@ -415,7 +400,7 @@ pub(crate) fn linearize_structured_ifs<E: Clone + Into<Expr>, M: Clone>(
             block.label.clone(),
             block.body.clone(),
             block.term.clone(),
-            block.meta.clone(),
+            block.exc_edge.clone(),
             params,
             block.params.clone(),
             exc_target,
@@ -428,10 +413,10 @@ pub(crate) fn linearize_structured_ifs<E: Clone + Into<Expr>, M: Clone>(
     (out_blocks, out_block_params, out_exception_edges)
 }
 
-pub(crate) fn relabel_blockpy_blocks<M: Clone + RenameBlockMeta>(
+pub(crate) fn relabel_blockpy_blocks(
     prefix: &str,
     entry_label: &str,
-    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>, M>],
+    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>>],
 ) -> (String, HashMap<String, String>) {
     let mut rename = HashMap::new();
     rename.insert(entry_label.to_string(), format!("{prefix}_start"));
@@ -452,8 +437,8 @@ pub(crate) fn relabel_blockpy_blocks<M: Clone + RenameBlockMeta>(
     (rewritten_entry, rename)
 }
 
-pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E, M>(
-    blocks: &mut [CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>],
+pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E>(
+    blocks: &mut [CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>],
 ) where
     E: Clone + ImplicitNoneExpr,
 {
@@ -482,8 +467,8 @@ pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E, M>(
     }
 }
 
-pub(crate) fn fold_constant_brif_blockpy<M>(
-    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>, M>],
+pub(crate) fn fold_constant_brif_blockpy(
+    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>>],
 ) {
     for block in blocks.iter_mut() {
         let jump_target = match &block.term {
@@ -509,10 +494,10 @@ pub(crate) fn fold_constant_brif_blockpy<M>(
     }
 }
 
-pub(crate) fn prune_unreachable_blockpy_blocks<E, M>(
+pub(crate) fn prune_unreachable_blockpy_blocks<E>(
     entry_label: &str,
     extra_roots: &[String],
-    blocks: &mut Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>>,
+    blocks: &mut Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>>,
 ) {
     let index_by_label: HashMap<String, usize> = blocks
         .iter()

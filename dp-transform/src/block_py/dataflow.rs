@@ -8,8 +8,8 @@ use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::Expr;
 use std::collections::{HashMap, HashSet};
 
-pub(crate) fn compute_block_params_blockpy<S, T, E, M>(
-    blocks: &[CfgBlock<S, T, M>],
+pub(crate) fn compute_block_params_blockpy<S, T, E>(
+    blocks: &[CfgBlock<S, T>],
     state_order: &[String],
     extra_successors: &HashMap<String, Vec<String>>,
 ) -> HashMap<String, Vec<String>>
@@ -148,8 +148,8 @@ where
     params
 }
 
-pub(crate) fn merge_declared_block_params<S, T, M>(
-    blocks: &[CfgBlock<S, T, M>],
+pub(crate) fn merge_declared_block_params<S, T>(
+    blocks: &[CfgBlock<S, T>],
     block_params: &mut HashMap<String, Vec<String>>,
 ) {
     for block in blocks {
@@ -168,8 +168,8 @@ pub(crate) fn merge_declared_block_params<S, T, M>(
     }
 }
 
-pub(crate) fn extend_state_order_with_declared_block_params<S, T, M>(
-    blocks: &[CfgBlock<S, T, M>],
+pub(crate) fn extend_state_order_with_declared_block_params<S, T>(
+    blocks: &[CfgBlock<S, T>],
     state_order: &mut Vec<String>,
 ) {
     for block in blocks {
@@ -185,8 +185,8 @@ pub(crate) fn extend_state_order_with_declared_block_params<S, T, M>(
     }
 }
 
-pub(crate) fn analyze_blockpy_use_def<S, T, E, M>(
-    block: &CfgBlock<S, T, M>,
+pub(crate) fn analyze_blockpy_use_def<S, T, E>(
+    block: &CfgBlock<S, T>,
 ) -> (HashSet<String>, HashSet<String>)
 where
     S: IntoBlockPyStmt<E>,
@@ -224,9 +224,9 @@ where
     (uses, defs)
 }
 
-fn extend_successor_live_in<S, T, M>(
+fn extend_successor_live_in<S, T>(
     out: &mut HashSet<String>,
-    blocks: &[CfgBlock<S, T, M>],
+    blocks: &[CfgBlock<S, T>],
     label_to_index: &HashMap<&str, usize>,
     live_in: &[HashSet<String>],
     target_label: &str,

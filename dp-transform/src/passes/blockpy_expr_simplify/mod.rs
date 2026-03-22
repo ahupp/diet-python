@@ -444,15 +444,15 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: BlockPyTerm<Exp
     }
 }
 
-fn lower_semantic_block<M: Clone + std::fmt::Debug>(
-    block: CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>, M>,
-) -> CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>, M> {
+fn lower_semantic_block(
+    block: CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>>,
+) -> CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>> {
     let CfgBlock {
         label,
         body,
         term,
         params,
-        meta,
+        exc_edge,
     } = block;
     let fragment = lower_semantic_stmt_fragment(BlockPyCfgFragment {
         body,
@@ -465,7 +465,7 @@ fn lower_semantic_block<M: Clone + std::fmt::Debug>(
             .term
             .expect("semantic BlockPy block must lower to a core terminator"),
         params,
-        meta,
+        exc_edge,
     }
 }
 

@@ -152,11 +152,9 @@ where
                 body: block.body,
                 term: block.term,
                 params: block.params,
-                meta: BbBlockMeta {
-                    exc_edge: active_exc_target
-                        .as_ref()
-                        .map(|target| BlockPyEdge::new(BlockPyLabel::from(target.clone()))),
-                },
+                exc_edge: active_exc_target
+                    .as_ref()
+                    .map(|target| BlockPyEdge::new(BlockPyLabel::from(target.clone()))),
             };
             blocks.push(block);
             normal_label
@@ -181,11 +179,9 @@ where
                 body: block.body,
                 term: block.term,
                 params: block.params,
-                meta: BbBlockMeta {
-                    exc_edge: active_exc_target
-                        .as_ref()
-                        .map(|target| BlockPyEdge::new(BlockPyLabel::from(target.clone()))),
-                },
+                exc_edge: active_exc_target
+                    .as_ref()
+                    .map(|target| BlockPyEdge::new(BlockPyLabel::from(target.clone()))),
             };
             blocks.push(block);
             exception_label
@@ -416,8 +412,8 @@ pub(crate) fn emit_try_jump_entry(
     label
 }
 
-pub(crate) fn block_references_label<M: Clone + std::fmt::Debug>(
-    block: &crate::block_py::CfgBlock<BlockPyStmt, BlockPyTerm, M>,
+pub(crate) fn block_references_label(
+    block: &crate::block_py::CfgBlock<BlockPyStmt, BlockPyTerm>,
     label: &str,
 ) -> bool {
     fn stmt_references_label(stmt: &BlockPyStmt, label: &str) -> bool {

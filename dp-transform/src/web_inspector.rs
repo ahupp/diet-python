@@ -524,7 +524,7 @@ fn bb_module_to_clif(module: &BlockPyModule<BbBlockPyPass>) -> String {
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
-            if let Some(exc_target) = block.meta.exc_edge.as_ref().map(|edge| &edge.target) {
+            if let Some(exc_target) = block.exc_edge.as_ref().map(|edge| &edge.target) {
                 out.push_str(&format!(
                     ";     exc_target={}\n",
                     clif_target_comment(exc_target, &label_to_index, &label_to_params)

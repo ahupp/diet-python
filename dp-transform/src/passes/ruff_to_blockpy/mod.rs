@@ -15,9 +15,9 @@ use crate::block_py::state::{
     collect_state_vars, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use crate::block_py::{
-    assert_blockpy_block_normalized, BbBlockMeta, BlockPyCallableFacts, BlockPyEdge,
-    BlockPyFallthroughTerm, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyPass,
-    BlockPyStmt, BlockPyTerm, BlockPyTryJump, CfgBlock, ClosureLayout, FunctionId, FunctionName,
+    assert_blockpy_block_normalized, BlockPyCallableFacts, BlockPyEdge, BlockPyFallthroughTerm,
+    BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyStmt, BlockPyTerm,
+    BlockPyTryJump, CfgBlock, ClosureLayout, FunctionId, FunctionName,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -63,8 +63,7 @@ pub(crate) use try_regions::{
     prepare_except_body, prepare_finally_body, TryPlan,
 };
 
-pub(crate) type LoweredBlockPyBlock<E = Expr> =
-    CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, BbBlockMeta>;
+pub(crate) type LoweredBlockPyBlock<E = Expr> = CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>;
 pub(crate) type BlockPyBlock<E = Expr> = LoweredBlockPyBlock<E>;
 
 #[derive(Clone)]
@@ -164,14 +163,12 @@ pub(crate) fn attach_exception_edges_to_blocks<E>(
             body: block.body,
             term: block.term,
             params: block.params,
-            meta: BbBlockMeta {
-                exc_edge: exception_edges
-                    .get(block.label.as_str())
-                    .cloned()
-                    .flatten()
-                    .map(BlockPyLabel::from)
-                    .map(BlockPyEdge::new),
-            },
+            exc_edge: exception_edges
+                .get(block.label.as_str())
+                .cloned()
+                .flatten()
+                .map(BlockPyLabel::from)
+                .map(BlockPyEdge::new),
         })
         .collect()
 }
@@ -183,18 +180,14 @@ pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId 
 }
 
 pub(crate) fn lowered_exception_edges<S, T>(
-    blocks: &[CfgBlock<S, T, BbBlockMeta>],
+    blocks: &[CfgBlock<S, T>],
 ) -> HashMap<String, Option<String>> {
     blocks
         .iter()
         .map(|block| {
             (
                 block.label.as_str().to_string(),
-                block
-                    .meta
-                    .exc_edge
-                    .as_ref()
-                    .map(|edge| edge.target.to_string()),
+                block.exc_edge.as_ref().map(|edge| edge.target.to_string()),
             )
         })
         .collect()
@@ -248,7 +241,7 @@ pub(crate) fn recompute_lowered_block_params<P>(
     include_closure_storage_aliases: bool,
 ) -> HashMap<String, Vec<String>>
 where
-    P: BlockPyPass<BlockMeta = BbBlockMeta>,
+    P: BlockPyPass,
 {
     let param_names = function.params.names();
     let mut state_vars = collect_state_vars(&param_names, &function.blocks);
@@ -427,7 +420,7 @@ pub(crate) fn finalize_blockpy_callable_def(
             body: Vec::new(),
             term: BlockPyTerm::implicit_function_return(),
             params: Vec::new(),
-            meta: BbBlockMeta::default(),
+            exc_edge: None,
         });
     }
     fold_jumps_to_trivial_none_return_blockpy(&mut callable_def.blocks);
@@ -435,13 +428,7 @@ pub(crate) fn finalize_blockpy_callable_def(
     let extra_roots = callable_def
         .blocks
         .iter()
-        .filter_map(|block| {
-            block
-                .meta
-                .exc_edge
-                .as_ref()
-                .map(|edge| edge.target.to_string())
-        })
+        .filter_map(|block| block.exc_edge.as_ref().map(|edge| edge.target.to_string()))
         .collect::<Vec<_>>();
     prune_unreachable_blockpy_blocks(entry_label.as_str(), &extra_roots, &mut callable_def.blocks);
     let (relabelled_entry_label, label_rename) =
@@ -964,7 +951,6 @@ def f():
         };
         assert_eq!(
             body_block
-                .meta
                 .exc_edge
                 .as_ref()
                 .map(|edge| edge.target.as_str()),

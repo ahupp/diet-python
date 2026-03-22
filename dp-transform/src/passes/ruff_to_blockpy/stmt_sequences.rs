@@ -660,7 +660,7 @@ where
         BlockPyTerm::Jump(BlockPyLabel::from(expanded_entry).into()),
     ));
     if let Some(block) = blocks.last_mut() {
-        block.meta.exc_edge = active_exc_target
+        block.exc_edge = active_exc_target
             .as_ref()
             .map(|target| BlockPyEdge::new(BlockPyLabel::from(target.clone())));
     }

@@ -13,8 +13,8 @@ fn expr_name(id: &str) -> ExprName {
     expr
 }
 
-pub(crate) fn rewrite_region_returns_to_finally_blockpy<E, M>(
-    blocks: &mut [CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>, M>],
+pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
+    blocks: &mut [CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>],
     finally_target: &str,
     payload_name: &str,
 ) where

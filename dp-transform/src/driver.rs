@@ -89,37 +89,41 @@ pub(crate) fn rewrite_module_with_tracker(
 
     /*
 
-        Convert all flow control into a block-and-jump structure.  For example,
+       Convert all flow control into a block-and-jump structure.  For example,
 
-        ```
-        x = 0
-        while (y := x + 1) < 5:
-            print(x)
-            x += 1
-        ```
+       ```
+       x = 0
+       while (y := x + 1) < 5:
+           print(x)
+           x += 1
+       ```
 
-        would turn into something like:
+       would turn into something like:
 
-        ```
-        block start:
-            y = x + 1
-            if y < 5:
-                jump body
-            else:
-                jump end
-        block body:
-            print(x)
-            x += 1
-            jump start
-        block end:
-            return None
-        ```
+       ```
+       block start:
+           y = x + 1
+           if y < 5:
+               jump body
+           else:
+               jump end
+       block body:
+           print(x)
+           x += 1
+           jump start
+       block end:
+           return None
+       ```
 
-        This removes while/with/for from the AST, as well as expressions that
-        interact with the block structure like walrus and those that short circuit like bool ops.
+       This removes while/with/for from the AST, as well as expressions that
+       interact with the block structure like walrus and those that short circuit like bool ops.
 
-        "def" is replaced by a call to
-        `__dp_make_function(function_id, closure, param_defaults, module_globals, annotate_fn)`.
+       "def" is replaced by a call to
+       `__dp_make_function(function_id, closure, param_defaults, module_globals, annotate_fn)`.
+
+       try/except are replaced by an exception handling block, and each block in the `try` has exc_edge
+       set to that handler.  except block has it's own exc_edge to ensure exceptions in except
+       still jump to finally.
     */
 
     let semantic_blockpy: BlockPyModule<RuffBlockPyPass> = pass_tracker

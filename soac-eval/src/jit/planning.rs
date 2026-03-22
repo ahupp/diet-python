@@ -199,7 +199,7 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
 
     fn validate_cfg_targets(&self) {
         for block in &self.function.blocks {
-            if let Some(exc_edge) = &block.meta.exc_edge {
+            if let Some(exc_edge) = &block.exc_edge {
                 self.require_known_target(block, exc_edge.target.as_str(), "exception target");
             }
             match &block.term {
@@ -255,7 +255,6 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
 
     fn exc_target_index(&self, block: &PreparedBbBlock) -> Option<usize> {
         block
-            .meta
             .exc_edge
             .as_ref()
             .map(|edge| self.index_of_target(edge.target.as_str()))
@@ -275,7 +274,6 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
             .find(|param| param.as_str() == "_dp_self" || param.as_str() == "_dp_state")
             .cloned();
         let exc_edge = block
-            .meta
             .exc_edge
             .as_ref()
             .expect("exc_target implies exc_edge");
