@@ -4,9 +4,6 @@
 - Reserved for user requests that start with `TODO`.
 - Add one entry per request and include any plan or relevant response summary with it.
 
-- Determine if codegen_trace.rs and cfg_trace.rs are doing similar things, and merge if so.
-
-- Simplify should remove literals for true/false/none/ellipsis, replacing them with their _dp_ versions, remove that from codegen_normalize.  Remove those from the expr ast.
 
 - there are many places where we switch behavior based on the names of things, ex:
     * _dp_class_ns_
@@ -28,11 +25,6 @@
     - The current JIT path in `soac-eval` still owns a large amount of `incref` / `decref` insertion and runtime helper wiring (`dp_jit_incref`, `dp_jit_decref`), which makes ownership of reference semantics backend-local instead of pipeline-visible.
     - The desired end state is for refcount ownership to become an explicit lowered-module pass in `rewrite_module`, so later backends consume already-refcount-annotated IR instead of each backend re-deriving those rules.
     - A good first pass is to identify the minimal IR annotation or explicit stmt/term forms needed for retain/release edges, then move the current JIT-only reference-management decisions behind one driver-visible transform boundary.
-- Review all visibility annotations and make them as restrictive as possible, moving helpers into the narrowest owning module when they are only consumed there.
-  - Planning note:
-    - The desired end state is that non-local visibility exists only for real cross-module boundaries, not as a convenience for call sites that could instead live beside their only consumers.
-    - A good first pass is to audit `pub`, `pub(crate)`, and cross-module free functions, then inline or relocate single-consumer helpers before tightening the remaining visibility annotations.
-    - Keep the resulting ownership aligned with the codebase-size goal: each concept should live in one place, and each place should expose only the smallest surface needed by later passes.
 - Revisit `ruff_to_blockpy/expr_lowering/recursive.rs` and see whether the recursive expression lowering can be expressed as a `Transformer` over `Expr`.
   - Planning note:
     - The current file is a hand-written recursive traversal even though the repo rule is to prefer `Transformer`-based AST walks.
@@ -89,3 +81,5 @@
 - rename the "basic_block" module to "passes"
 - Move `codegen_trace` to be a generic transform over `CfgModule`.
 - Remove the “start label” concept and always make the first block the callable entry block.
+- Determine if codegen_trace.rs and cfg_trace.rs are doing similar things, and merge if so.
+- Simplify should remove literals for true/false/none/ellipsis, replacing them with their _dp_ versions, remove that from codegen_normalize.  Remove those from the expr ast.

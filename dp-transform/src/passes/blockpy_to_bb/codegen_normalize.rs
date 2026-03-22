@@ -1,5 +1,5 @@
 use crate::block_py::{
-    BbStmt, BbTerm, BlockPyModule, BlockPyRaise, CoreBlockPyCall, CoreBlockPyCallArg,
+    BbStmt, BlockPyModule, BlockPyRaise, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
     CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
     CoreBytesLiteral,
 };
@@ -31,17 +31,20 @@ pub fn normalize_bb_module_for_codegen(
     normalized
 }
 
-fn rewrite_term_exprs(rewriter: &mut CodegenExprNormalizer, term: &mut BbTerm) {
+fn rewrite_term_exprs(
+    rewriter: &mut CodegenExprNormalizer,
+    term: &mut BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
+) {
     match term {
-        BbTerm::Jump(_) => {}
-        BbTerm::IfTerm(if_term) => rewrite_bb_expr(rewriter, &mut if_term.test),
-        BbTerm::BranchTable(branch) => rewrite_bb_expr(rewriter, &mut branch.index),
-        BbTerm::Raise(BlockPyRaise { exc }) => {
+        BlockPyTerm::Jump(_) => {}
+        BlockPyTerm::IfTerm(if_term) => rewrite_bb_expr(rewriter, &mut if_term.test),
+        BlockPyTerm::BranchTable(branch) => rewrite_bb_expr(rewriter, &mut branch.index),
+        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
             if let Some(exc) = exc.as_mut() {
                 rewrite_bb_expr(rewriter, exc);
             }
         }
-        BbTerm::Return(value) => rewrite_bb_expr(rewriter, value),
+        BlockPyTerm::Return(value) => rewrite_bb_expr(rewriter, value),
     }
 }
 
@@ -197,7 +200,7 @@ fn str_bytes_call_expr(bytes: &[u8]) -> CoreBlockPyExprWithoutAwaitOrYield {
 mod tests {
     use super::normalize_bb_module_for_codegen;
     use crate::{
-        block_py::{BbStmt, BbTerm},
+        block_py::{BbStmt, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield},
         passes::lower_try_jump_exception_flow,
         transform_str_to_bb_ir_with_options, Options,
     };
@@ -281,17 +284,20 @@ mod tests {
         }
     }
 
-    fn probe_bb_term_exprs(probe: &mut ExprShapeProbe, term: &BbTerm) {
+    fn probe_bb_term_exprs(
+        probe: &mut ExprShapeProbe,
+        term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
+    ) {
         match term {
-            BbTerm::Jump(_) => {}
-            BbTerm::IfTerm(if_term) => probe_bb_exprs(probe, &if_term.test),
-            BbTerm::BranchTable(branch) => probe_bb_exprs(probe, &branch.index),
-            BbTerm::Raise(raise_stmt) => {
+            BlockPyTerm::Jump(_) => {}
+            BlockPyTerm::IfTerm(if_term) => probe_bb_exprs(probe, &if_term.test),
+            BlockPyTerm::BranchTable(branch) => probe_bb_exprs(probe, &branch.index),
+            BlockPyTerm::Raise(raise_stmt) => {
                 if let Some(exc) = raise_stmt.exc.as_ref() {
                     probe_bb_exprs(probe, exc);
                 }
             }
-            BbTerm::Return(value) => probe_bb_exprs(probe, value),
+            BlockPyTerm::Return(value) => probe_bb_exprs(probe, value),
         }
     }
 

@@ -1,5 +1,5 @@
 use dp_transform::block_py::{
-    AbruptKind, BbStmt, BbTerm, BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule,
+    AbruptKind, BbStmt, BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyTerm,
     CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
     CoreBlockPyLiteral, CoreNumberLiteralValue, PreparedBbBlock,
 };
@@ -17,7 +17,7 @@ pub struct ClifPlan {
 pub struct ClifBlockPlan {
     pub label: String,
     pub param_names: Vec<String>,
-    pub term: BbTerm,
+    pub term: BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
     pub exc_target: Option<usize>,
     pub exc_dispatch: Option<BlockExcDispatchPlan>,
     pub fast_path: BlockFastPath,
@@ -203,14 +203,14 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
                 self.require_known_target(block, exc_edge.target.as_str(), "exception target");
             }
             match &block.term {
-                BbTerm::Jump(target_label) => {
+                BlockPyTerm::Jump(target_label) => {
                     self.require_known_target(block, target_label.as_str(), "jump target");
                 }
-                BbTerm::IfTerm(if_term) => {
+                BlockPyTerm::IfTerm(if_term) => {
                     self.require_known_target(block, if_term.then_label.as_str(), "then target");
                     self.require_known_target(block, if_term.else_label.as_str(), "else target");
                 }
-                BbTerm::BranchTable(branch) => {
+                BlockPyTerm::BranchTable(branch) => {
                     for target_label in &branch.targets {
                         self.require_known_target(block, target_label.as_str(), "br_table target");
                     }
@@ -220,7 +220,7 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
                         "br_table default target",
                     );
                 }
-                BbTerm::Return(_) | BbTerm::Raise(_) => {}
+                BlockPyTerm::Return(_) | BlockPyTerm::Raise(_) => {}
             }
         }
     }
@@ -441,7 +441,7 @@ fn direct_simple_plan_from_block(block: &PreparedBbBlock) -> Option<DirectSimple
             value,
         });
     }
-    let BbTerm::Return(ret_value) = &block.term else {
+    let BlockPyTerm::Return(ret_value) = &block.term else {
         return None;
     };
     let ret = direct_simple_expr_from(ret_value)?;
@@ -459,7 +459,7 @@ fn direct_simple_brif_plan_from_block(
     if !block.body.is_empty() {
         return None;
     }
-    let BbTerm::IfTerm(if_term) = &block.term else {
+    let BlockPyTerm::IfTerm(if_term) = &block.term else {
         return None;
     };
     let then_index = function.index_of_target(if_term.then_label.as_str());
@@ -553,7 +553,7 @@ fn direct_simple_block_plan_from_block(
         ops.push(stmt_op);
     }
     let term = match &block.term {
-        BbTerm::Jump(target_label) => {
+        BlockPyTerm::Jump(target_label) => {
             let target_index = function.index_of_target(target_label.as_str());
             let target_params = function.jit_param_names_for_index(target_index);
             let target_args = target_label
@@ -573,7 +573,7 @@ fn direct_simple_block_plan_from_block(
                 target_args,
             }
         }
-        BbTerm::IfTerm(if_term) => {
+        BlockPyTerm::IfTerm(if_term) => {
             let test_expr = direct_simple_expr_from(&if_term.test).unwrap_or_else(|| {
                 panic!(
                     "unexpected non-direct-simple if test in {}:{}: {:?}",
@@ -592,7 +592,7 @@ fn direct_simple_block_plan_from_block(
                 else_params,
             }
         }
-        BbTerm::BranchTable(branch) => {
+        BlockPyTerm::BranchTable(branch) => {
             let index_expr = direct_simple_expr_from(&branch.index).unwrap_or_else(|| {
                 panic!(
                     "unexpected non-direct-simple br_table index in {}:{}: {:?}",
@@ -614,7 +614,7 @@ fn direct_simple_block_plan_from_block(
                 default_params,
             }
         }
-        BbTerm::Return(ret_value) => {
+        BlockPyTerm::Return(ret_value) => {
             let value = direct_simple_expr_from(ret_value).unwrap_or_else(|| {
                 panic!(
                     "unexpected non-direct-simple return value in {}:{}: {:?}",
@@ -623,7 +623,7 @@ fn direct_simple_block_plan_from_block(
             });
             DirectSimpleTermPlan::Ret { value }
         }
-        BbTerm::Raise(raise_stmt) => {
+        BlockPyTerm::Raise(raise_stmt) => {
             let exc = raise_stmt.exc.as_ref().map(|expr| {
                 direct_simple_expr_from(expr).unwrap_or_else(|| {
                     panic!(
@@ -652,7 +652,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPla
         let fast_path = {
             if block.body.is_empty() {
                 match &block.term {
-                    BbTerm::Jump(target_label) => {
+                    BlockPyTerm::Jump(target_label) => {
                         let target_index = function.index_of_target(target_label.as_str());
                         let source_params = function.jit_param_names_for_block(block);
                         let target_params = function.jit_param_names_for_index(target_index);
@@ -664,7 +664,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPla
                             }
                         }
                     }
-                    BbTerm::IfTerm(_) => {
+                    BlockPyTerm::IfTerm(_) => {
                         if let Some(plan) = direct_simple_brif_plan_from_block(&function, block) {
                             BlockFastPath::DirectSimpleBrIf { plan }
                         } else {

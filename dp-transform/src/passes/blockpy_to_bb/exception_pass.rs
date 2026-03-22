@@ -1,5 +1,5 @@
 use crate::block_py::{
-    BbStmt, BbTerm, BlockPyFunction, BlockPyLabel, BlockPyModule, PreparedBbBlock,
+    BbStmt, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyTerm, PreparedBbBlock,
 };
 use crate::passes::blockpy_to_bb::populate_exception_edge_args;
 use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass};
@@ -100,7 +100,7 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<Prepare
                 out.push(PreparedBbBlock {
                     label: current_label.clone(),
                     body: std::mem::take(&mut segment_ops),
-                    term: BbTerm::Jump(next_label.clone().into()),
+                    term: BlockPyTerm::Jump(next_label.clone().into()),
                     params: bb_params_from_names(
                         segment_start_names.clone(),
                         edge_exc_name.as_deref(),
@@ -190,20 +190,20 @@ fn validate_function_labels(
             }
         }
         match &block.term {
-            BbTerm::Jump(target) => ensure_known_label(
+            BlockPyTerm::Jump(target) => ensure_known_label(
                 labels,
                 target.as_str(),
                 qualname,
                 &block.label,
                 "jump target",
             )?,
-            BbTerm::IfTerm(if_term) => {
+            BlockPyTerm::IfTerm(if_term) => {
                 let then_label = &if_term.then_label;
                 let else_label = &if_term.else_label;
                 ensure_known_label(labels, then_label, qualname, &block.label, "then target")?;
                 ensure_known_label(labels, else_label, qualname, &block.label, "else target")?;
             }
-            BbTerm::BranchTable(branch) => {
+            BlockPyTerm::BranchTable(branch) => {
                 for target in &branch.targets {
                     ensure_known_label(labels, target, qualname, &block.label, "br_table target")?;
                 }
@@ -215,7 +215,7 @@ fn validate_function_labels(
                     "br_table default target",
                 )?;
             }
-            BbTerm::Raise(_) | BbTerm::Return(_) => {}
+            BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
         }
     }
     Ok(())
@@ -241,7 +241,7 @@ fn ensure_known_label(
 mod tests {
     use super::lower_try_jump_exception_flow;
     use crate::block_py::{
-        BbBlock, BbTerm, BlockPyEdge, BlockPyLabel, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
+        BbBlock, BlockPyEdge, BlockPyLabel, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
     };
     use crate::{transform_str_to_bb_ir_with_options, Options};
 
@@ -384,7 +384,7 @@ def f():
             .expect("split must keep original block label");
         assert_eq!(first.body.len(), 1, "first split block must contain one op");
         assert!(
-            matches!(first.term, BbTerm::Jump(_)),
+            matches!(first.term, BlockPyTerm::Jump(_)),
             "split op block must jump to next split block"
         );
         assert_eq!(
@@ -458,7 +458,7 @@ def f():
             "pure expr ops should remain grouped until the local assignment"
         );
         assert!(
-            matches!(first.term, BbTerm::Jump(_)),
+            matches!(first.term, BlockPyTerm::Jump(_)),
             "state-changing assignment should still split the block"
         );
 
@@ -521,7 +521,7 @@ def f():
             lowered_function.blocks.iter().any(|block| {
                 matches!(
                     block.term,
-                    crate::block_py::BbTerm::Return(
+                    crate::block_py::BlockPyTerm::Return(
                         crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(
                             crate::block_py::CoreBlockPyLiteral::NumberLiteral(
                                 crate::block_py::CoreNumberLiteral {

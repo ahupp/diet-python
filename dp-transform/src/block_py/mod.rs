@@ -851,8 +851,6 @@ impl<E: Clone + fmt::Debug> IntoBlockPyStmt<E> for BlockPyStmt<E> {
     }
 }
 
-pub type BbTerm = BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>;
-
 #[derive(Debug, Clone)]
 pub enum BlockPyTerm<E = Expr> {
     Jump(BlockPyEdge),

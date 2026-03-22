@@ -4596,10 +4596,10 @@ pub unsafe fn run_cranelift_run_bb_specialized(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dp_transform::block_py::{BbTerm, BlockPyRaise};
+    use dp_transform::block_py::{BlockPyRaise, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield};
 
-    fn test_term() -> BbTerm {
-        BbTerm::Raise(BlockPyRaise { exc: None })
+    fn test_term() -> BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield> {
+        BlockPyTerm::Raise(BlockPyRaise { exc: None })
     }
 
     #[test]
