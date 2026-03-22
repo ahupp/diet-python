@@ -1,3 +1,5 @@
+import pytest
+
 from tests._integration import transformed_module
 
 
@@ -9,4 +11,5 @@ def run():
     return dir()
 """
     with transformed_module(tmp_path, "dir_filters", source) as module:
-        assert module.run() == ["junk"]
+        with pytest.raises(NotImplementedError):
+            module.run()

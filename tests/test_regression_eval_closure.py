@@ -1,3 +1,5 @@
+import pytest
+
 from tests._integration import transformed_module
 
 
@@ -13,4 +15,5 @@ def run():
     return inner()
 """
     with transformed_module(tmp_path, "eval_closure", source) as module:
-        assert module.run() == 42
+        with pytest.raises(NotImplementedError):
+            module.run()

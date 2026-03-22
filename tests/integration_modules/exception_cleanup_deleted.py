@@ -3,7 +3,11 @@ def cleanup_deleted():
         raise Exception()
     except Exception as e:
         del e
-    return "e" in locals()
+    try:
+        e
+    except UnboundLocalError:
+        return False
+    return True
 
 
 def unbound_after_delete():

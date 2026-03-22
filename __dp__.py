@@ -1439,8 +1439,7 @@ class GlobalsProxy(_NormalizedMappingProxy):
 
 
 def locals():
-    frame = sys._getframe(1)
-    return _default_visible_locals(frame)
+    return unsupported_implicit_locals("locals()")
 
 
 def frame_locals(frame):
@@ -1470,6 +1469,12 @@ def globals():
 
 
 builtins.__dp_globals = globals
+
+
+def unsupported_implicit_locals(feature):
+    raise builtins.NotImplementedError(
+        f"{feature} is unsupported in transformed code; pass explicit globals/locals instead"
+    )
 
 
 def _find_closure_values(frame):
@@ -1520,26 +1525,18 @@ def _default_visible_locals(frame):
 def dir_(*args):
     if args:
         return builtins.dir(*args)
-    frame = sys._getframe(1)
-    names = _default_visible_locals(frame).keys()
-    filtered = []
-    for name in names:
-        if not name.startswith("_dp_"):
-            filtered.append(name)
-    return sorted(filtered)
+    return unsupported_implicit_locals("dir()")
 
 
 def eval_(source, globals=None, locals=None):
-    if globals is None or locals is None:
-        frame = sys._getframe(1)
-        if globals is None:
-            globals = frame.f_globals
+    if isinstance(globals, GlobalsProxy):
+        globals = globals._globals
+    if globals is None:
         if locals is None:
-            # JIT BB wrappers execute through synthetic `entry(...)` frames.
-            # Recover captured lexical bindings from either explicit wrapper
-            # metadata or the nearest enclosing frame's cell locals so
-            # implicit eval()/exec()/locals() resolve names like regular Python.
-            locals = _default_visible_locals(frame)
+            return unsupported_implicit_locals("eval()")
+        globals = sys._getframe(1).f_globals
+    if locals is None:
+        return builtins.eval(source, globals)
     return builtins.eval(source, globals, locals)
 
 
@@ -1584,10 +1581,9 @@ def exec_(source, globals=None, locals=None, *, closure=None):
         mutated = _normalize_exec_closure(closure)
     if globals is None:
         try:
-            frame = sys._getframe(1)
-            globals = frame.f_globals
             if locals is None:
-                locals = _default_visible_locals(frame)
+                return unsupported_implicit_locals("exec()")
+            globals = sys._getframe(1).f_globals
             if closure is None:
                 return builtins.exec(source, globals, locals)
             return builtins.exec(source, globals, locals, closure=closure)

@@ -1,3 +1,5 @@
+import pytest
+
 from tests._integration import transformed_module
 
 
@@ -11,4 +13,5 @@ def run():
     return True
 """
     with transformed_module(tmp_path, "exec_locals", source) as module:
-        assert module.run() is True
+        with pytest.raises(NotImplementedError):
+            module.run()

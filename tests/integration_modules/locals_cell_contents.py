@@ -10,5 +10,13 @@ def outer():
 from __future__ import annotations
 
 module = __import__("sys").modules[__name__]
-result = module.outer()
-assert result == {"x": 2, "y": 4, "z": 6}
+if __dp_integration_transformed__:
+    try:
+        module.outer()
+    except NotImplementedError:
+        pass
+    else:
+        raise AssertionError("expected locals() to be unsupported")
+else:
+    result = module.outer()
+    assert result == {"x": 2, "y": 4, "z": 6}

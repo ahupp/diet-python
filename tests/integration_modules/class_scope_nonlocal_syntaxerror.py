@@ -1,7 +1,7 @@
 
 def nonlocal_in_class_body_error():
     try:
-        exec("class Bad:\n    nonlocal x\n")
+        exec("class Bad:\n    nonlocal x\n", globals())
     except SyntaxError as exc:
         return exc.msg
     return None

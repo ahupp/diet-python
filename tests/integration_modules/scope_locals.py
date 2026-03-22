@@ -17,7 +17,7 @@ def class_locals():
             y = x
             def m(self):
                 return x
-            z = list(locals())
+            z = list(vars())
         return C
 
     return f(1).z
@@ -26,18 +26,26 @@ def class_locals():
 def class_namespace_overrides_closure():
     x = 42
     class X:
-        locals()["x"] = 43
+        vars()["x"] = 43
         y = x
     return X.y
 
 # diet-python: validate
 
 module = __import__("sys").modules[__name__]
-func_locals = module.function_locals()
-assert "h" in func_locals
-assert "_dp_fn_h" not in func_locals
-del func_locals["h"]
-assert func_locals == {"x": 2, "y": 7, "w": 6}
+if __dp_integration_transformed__:
+    try:
+        module.function_locals()
+    except NotImplementedError:
+        pass
+    else:
+        raise AssertionError("expected locals() to be unsupported")
+else:
+    func_locals = module.function_locals()
+    assert "h" in func_locals
+    assert "_dp_fn_h" not in func_locals
+    del func_locals["h"]
+    assert func_locals == {"x": 2, "y": 7, "w": 6}
 
 class_locals = set(module.class_locals())
 assert "x" not in class_locals

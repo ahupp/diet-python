@@ -139,6 +139,20 @@ impl<'a> NameScopeRewriter<'a> {
         true
     }
 
+    fn should_rewrite_vars_call(&self) -> bool {
+        if let Some(binding) = self.scope.scope_bindings().get("vars").copied() {
+            match binding {
+                BindingKind::Local | BindingKind::Nonlocal => return false,
+                BindingKind::Global => {
+                    if self.module_binds_name("vars") {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
     fn should_rewrite_globals_call(&self) -> bool {
         if let Some(binding) = self.scope.scope_bindings().get("globals").copied() {
             match binding {
@@ -681,38 +695,27 @@ finally:
         match expr {
             Expr::Call(ast::ExprCall { .. }) => {
                 if Self::is_name_call("exec", expr) && self.should_rewrite_exec_call() {
-                    if let Expr::Call(ast::ExprCall {
-                        func, arguments, ..
-                    }) = expr
-                    {
+                    if let Expr::Call(ast::ExprCall { func, .. }) = expr {
                         *func = Box::new(py_expr!("__dp_exec_"));
-                        if arguments.keywords.is_empty() && arguments.args.len() == 1 {
-                            let mut args = arguments.args.to_vec();
-                            args.push(py_expr!("None"));
-                            args.push(py_expr!("__dp_locals()"));
-                            arguments.args = args.into_boxed_slice();
-                        }
                     }
                 }
                 if Self::is_name_call("eval", expr) && self.should_rewrite_eval_call() {
-                    if let Expr::Call(ast::ExprCall {
-                        func, arguments, ..
-                    }) = expr
-                    {
+                    if let Expr::Call(ast::ExprCall { func, .. }) = expr {
                         *func = Box::new(py_expr!("__dp_eval_"));
-                        if arguments.keywords.is_empty() && arguments.args.len() == 1 {
-                            let mut args = arguments.args.to_vec();
-                            args.push(py_expr!("None"));
-                            args.push(py_expr!("__dp_locals()"));
-                            arguments.args = args.into_boxed_slice();
-                        }
                     }
                 }
                 if self.is_class_scope() {
                     if Self::is_class_lookup_call(expr) {
                         return;
                     }
-                    if is_noarg_call("locals", expr) || is_noarg_call("vars", expr) {
+                    if is_noarg_call("locals", expr) && self.should_rewrite_locals_call() {
+                        *expr = py_expr!(
+                            "__dp_unsupported_implicit_locals({feature:literal})",
+                            feature = "locals()",
+                        );
+                        return;
+                    }
+                    if is_noarg_call("vars", expr) && self.should_rewrite_vars_call() {
                         *expr = py_expr!("_dp_class_ns");
                         return;
                     }
@@ -721,10 +724,22 @@ finally:
                         return;
                     }
                 } else if is_noarg_call("locals", expr) && self.should_rewrite_locals_call() {
-                    *expr = py_expr!("__dp_locals()");
+                    *expr = py_expr!(
+                        "__dp_unsupported_implicit_locals({feature:literal})",
+                        feature = "locals()",
+                    );
+                    return;
+                } else if is_noarg_call("vars", expr) && self.should_rewrite_vars_call() {
+                    *expr = py_expr!(
+                        "__dp_unsupported_implicit_locals({feature:literal})",
+                        feature = "vars()",
+                    );
                     return;
                 } else if is_noarg_call("dir", expr) && self.should_rewrite_dir_call() {
-                    *expr = py_expr!("__dp_dir_()");
+                    *expr = py_expr!(
+                        "__dp_unsupported_implicit_locals({feature:literal})",
+                        feature = "dir()",
+                    );
                     return;
                 } else if is_noarg_call("globals", expr) && self.should_rewrite_globals_call() {
                     *expr = py_expr!("__dp_globals()");

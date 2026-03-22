@@ -13,4 +13,12 @@ def has_exception_name():
 from __future__ import annotations
 
 module = __import__("sys").modules[__name__]
-assert module.has_exception_name() is False
+if __dp_integration_transformed__:
+    try:
+        module.has_exception_name()
+    except NotImplementedError:
+        pass
+    else:
+        raise AssertionError("expected locals() to be unsupported")
+else:
+    assert module.has_exception_name() is False

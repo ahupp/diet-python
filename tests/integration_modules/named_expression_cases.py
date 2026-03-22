@@ -37,8 +37,16 @@ assert module.dict_comp_fib() == {
 8: 13,
 13: 21,
 }
-has_c_before, values, c_value = module.genexp_scope_state()
-assert has_c_before is False
-assert values == [2, 3, 4, 5]
-assert c_value == 5
+if __dp_integration_transformed__:
+    try:
+        module.genexp_scope_state()
+    except NotImplementedError:
+        pass
+    else:
+        raise AssertionError("expected locals() to be unsupported")
+else:
+    has_c_before, values, c_value = module.genexp_scope_state()
+    assert has_c_before is False
+    assert values == [2, 3, 4, 5]
+    assert c_value == 5
 assert module.mangled_global_value() == 2
