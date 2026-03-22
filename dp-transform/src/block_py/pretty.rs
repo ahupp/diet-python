@@ -1,8 +1,8 @@
 use super::{
     lowered_entry_liveins, AbruptKind, BbStmt, BlockArg, BlockPyCfgFragment, BlockPyEdge,
     BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass,
-    BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyExprWithoutAwaitOrYield,
-    CoreBlockPyLiteral, Expr, IntoBlockPyStmt, PassBlock, PassExpr,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyExpr, CoreBlockPyLiteral, Expr,
+    IntoBlockPyStmt, PassBlock, PassExpr,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
@@ -505,10 +505,10 @@ where
 }
 
 #[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
-pub(crate) fn bb_expr_text(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> String {
+pub(crate) fn bb_expr_text(expr: &CoreBlockPyExpr) -> String {
     match expr {
-        CoreBlockPyExprWithoutAwaitOrYield::Name(name) => name.id.to_string(),
-        CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => match literal {
+        CoreBlockPyExpr::Name(name) => name.id.to_string(),
+        CoreBlockPyExpr::Literal(literal) => match literal {
             CoreBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value),
             CoreBlockPyLiteral::BytesLiteral(literal) => {
                 let mut out = String::from("b\"");
@@ -525,7 +525,7 @@ pub(crate) fn bb_expr_text(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> String 
                 super::CoreNumberLiteralValue::Float(value) => value.to_string(),
             },
         },
-        CoreBlockPyExprWithoutAwaitOrYield::Call(call) => {
+        CoreBlockPyExpr::Call(call) => {
             let mut parts = Vec::new();
             for arg in &call.args {
                 parts.push(match arg {
@@ -547,7 +547,7 @@ pub(crate) fn bb_expr_text(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> String 
             }
             format!("{}({})", bb_expr_text(&call.func), parts.join(", "))
         }
-        CoreBlockPyExprWithoutAwaitOrYield::Intrinsic(call) => {
+        CoreBlockPyExpr::Intrinsic(call) => {
             let mut parts = Vec::new();
             for arg in &call.args {
                 parts.push(match arg {
@@ -584,9 +584,7 @@ pub(crate) fn bb_stmt_text(stmt: &BbStmt) -> String {
 }
 
 #[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
-pub(crate) fn bb_raise_text(
-    raise_stmt: &BlockPyRaise<CoreBlockPyExprWithoutAwaitOrYield>,
-) -> String {
+pub(crate) fn bb_raise_text(raise_stmt: &BlockPyRaise<CoreBlockPyExpr>) -> String {
     let exc = raise_stmt
         .exc
         .as_ref()
@@ -596,7 +594,7 @@ pub(crate) fn bb_raise_text(
 }
 
 #[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
-pub(crate) fn bb_term_text(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> String {
+pub(crate) fn bb_term_text(term: &BlockPyTerm<CoreBlockPyExpr>) -> String {
     match term {
         BlockPyTerm::Jump(edge) => format!("jump {}", render_edge(edge)),
         BlockPyTerm::IfTerm(if_term) => {
@@ -1527,7 +1525,7 @@ def choose(a, b):
                         label: "except".into(),
                         body: vec![],
                         term: BlockPyTerm::Return(
-                            <CoreBlockPyExprWithoutAwaitOrYield as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+                            <CoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
                         ),
                         params: vec![BlockParam {
                             name: "err".to_string(),

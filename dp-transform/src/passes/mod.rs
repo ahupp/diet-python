@@ -12,8 +12,8 @@ mod summarize_pass_shape;
 mod trace;
 
 use crate::block_py::{
-    BlockPyPass, BlockPyStmt, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
-    CoreBlockPyExprWithoutAwaitOrYield, Expr,
+    BlockPyPass, BlockPyStmt, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, Expr,
 };
 
 #[derive(Debug, Clone)]
@@ -28,7 +28,7 @@ impl BlockPyPass for RuffBlockPyPass {
 pub struct CoreBlockPyPass;
 
 impl BlockPyPass for CoreBlockPyPass {
-    type Expr = CoreBlockPyExpr;
+    type Expr = CoreBlockPyExprWithAwaitAndYield;
     type Stmt = BlockPyStmt<Self::Expr>;
 }
 
@@ -36,7 +36,7 @@ impl BlockPyPass for CoreBlockPyPass {
 pub struct CoreBlockPyPassWithoutAwait;
 
 impl BlockPyPass for CoreBlockPyPassWithoutAwait {
-    type Expr = CoreBlockPyExprWithoutAwait;
+    type Expr = CoreBlockPyExprWithYield;
     type Stmt = BlockPyStmt<Self::Expr>;
 }
 
@@ -44,7 +44,7 @@ impl BlockPyPass for CoreBlockPyPassWithoutAwait {
 pub struct CoreBlockPyPassWithoutAwaitOrYield;
 
 impl BlockPyPass for CoreBlockPyPassWithoutAwaitOrYield {
-    type Expr = CoreBlockPyExprWithoutAwaitOrYield;
+    type Expr = CoreBlockPyExpr;
     type Stmt = BlockPyStmt<Self::Expr>;
 }
 
@@ -52,7 +52,7 @@ impl BlockPyPass for CoreBlockPyPassWithoutAwaitOrYield {
 pub struct BbBlockPyPass;
 
 impl BlockPyPass for BbBlockPyPass {
-    type Expr = CoreBlockPyExprWithoutAwaitOrYield;
+    type Expr = CoreBlockPyExpr;
     type Stmt = crate::block_py::BbStmt;
 }
 
@@ -60,7 +60,7 @@ impl BlockPyPass for BbBlockPyPass {
 pub struct PreparedBbBlockPyPass;
 
 impl BlockPyPass for PreparedBbBlockPyPass {
-    type Expr = CoreBlockPyExprWithoutAwaitOrYield;
+    type Expr = CoreBlockPyExpr;
     type Stmt = crate::block_py::BbStmt;
 }
 
@@ -77,7 +77,7 @@ pub(crate) use summarize_pass_shape::summarize_tracked_pass_shape;
 mod tests {
     use crate::block_py::{
         BbBlock, BbStmt, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyTerm,
-        CoreBlockPyExprWithoutAwaitOrYield,
+        CoreBlockPyExpr,
     };
     use crate::block_py::{ClosureInit, ClosureSlot};
     use crate::passes::{BbBlockPyPass, RuffBlockPyPass};
@@ -165,7 +165,7 @@ mod tests {
             .unwrap_or_else(|| panic!("missing closure slot {logical_name}; got {slots:?}"))
     }
 
-    fn expr_text(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> String {
+    fn expr_text(expr: &CoreBlockPyExpr) -> String {
         crate::block_py::pretty::bb_expr_text(expr)
     }
 
@@ -1310,7 +1310,7 @@ def f():
         assert!(
             f.blocks.iter().any(|block| matches!(
                 &block.term,
-                BlockPyTerm::Return(CoreBlockPyExprWithoutAwaitOrYield::Name(name))
+                BlockPyTerm::Return(CoreBlockPyExpr::Name(name))
                     if name.id.as_str() == "__dp_NONE"
             )),
             "{f:?}"

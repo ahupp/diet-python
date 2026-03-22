@@ -10,7 +10,7 @@ use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
     BbBlock, BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm, CfgBlock,
-    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
+    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
     CoreBlockPyLiteral,
 };
 use crate::passes::{
@@ -110,8 +110,8 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
 
 fn lower_blockpy_blocks_to_bb_blocks(
     blocks: &[crate::block_py::CfgBlock<
-        BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
-        BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
+        BlockPyStmt<CoreBlockPyExpr>,
+        BlockPyTerm<CoreBlockPyExpr>,
     >],
     block_params: &HashMap<String, Vec<String>>,
 ) -> Vec<BbBlock> {
@@ -215,7 +215,7 @@ pub(super) fn populate_exception_edge_args<T>(blocks: &mut [CfgBlock<BbStmt, T>]
 }
 
 fn rewrite_current_exception_in_blockpy_stmt(
-    stmt: &mut BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
+    stmt: &mut BlockPyStmt<CoreBlockPyExpr>,
     exc_name: &str,
 ) {
     match stmt {
@@ -245,7 +245,7 @@ fn rewrite_current_exception_in_blockpy_stmt(
 }
 
 fn rewrite_current_exception_in_blockpy_term(
-    term: &mut BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
+    term: &mut BlockPyTerm<CoreBlockPyExpr>,
     exc_name: &str,
 ) {
     match term {
@@ -267,11 +267,8 @@ fn rewrite_current_exception_in_blockpy_term(
     }
 }
 
-fn rewrite_current_exception_in_blockpy_expr(
-    expr: &mut CoreBlockPyExprWithoutAwaitOrYield,
-    exc_name: &str,
-) {
-    if let CoreBlockPyExprWithoutAwaitOrYield::Call(call) = expr {
+fn rewrite_current_exception_in_blockpy_expr(expr: &mut CoreBlockPyExpr, exc_name: &str) {
+    if let CoreBlockPyExpr::Call(call) = expr {
         rewrite_current_exception_in_blockpy_expr(call.func.as_mut(), exc_name);
         for arg in &mut call.args {
             match arg {
@@ -297,8 +294,8 @@ fn rewrite_current_exception_in_blockpy_expr(
     }
 }
 
-fn is_current_exception_call(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> bool {
-    let CoreBlockPyExprWithoutAwaitOrYield::Call(call) = expr else {
+fn is_current_exception_call(expr: &CoreBlockPyExpr) -> bool {
+    let CoreBlockPyExpr::Call(call) = expr else {
         return false;
     };
     call.args.is_empty()
@@ -306,8 +303,8 @@ fn is_current_exception_call(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> bool 
         && is_dp_lookup_call_expr(call.func.as_ref(), "current_exception")
 }
 
-fn is_exc_info_call(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> bool {
-    let CoreBlockPyExprWithoutAwaitOrYield::Call(call) = expr else {
+fn is_exc_info_call(expr: &CoreBlockPyExpr) -> bool {
+    let CoreBlockPyExpr::Call(call) = expr else {
         return false;
     };
     call.args.is_empty()
@@ -315,21 +312,17 @@ fn is_exc_info_call(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> bool {
         && is_dp_lookup_call_expr(call.func.as_ref(), "exc_info")
 }
 
-fn is_dp_lookup_call_expr(func: &CoreBlockPyExprWithoutAwaitOrYield, attr_name: &str) -> bool {
+fn is_dp_lookup_call_expr(func: &CoreBlockPyExpr, attr_name: &str) -> bool {
     match func {
-        CoreBlockPyExprWithoutAwaitOrYield::Name(name) => {
-            name.id.as_str() == format!("__dp_{attr_name}")
-        }
-        CoreBlockPyExprWithoutAwaitOrYield::Call(call)
-            if call.keywords.is_empty() && call.args.len() == 2 =>
-        {
+        CoreBlockPyExpr::Name(name) => name.id.as_str() == format!("__dp_{attr_name}"),
+        CoreBlockPyExpr::Call(call) if call.keywords.is_empty() && call.args.len() == 2 => {
             matches!(
                 call.func.as_ref(),
-                CoreBlockPyExprWithoutAwaitOrYield::Name(name)
+                CoreBlockPyExpr::Name(name)
                     if name.id.as_str() == "__dp_getattr"
             ) && matches!(
                 &call.args[0],
-                CoreBlockPyCallArg::Positional(CoreBlockPyExprWithoutAwaitOrYield::Name(base))
+                CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(base))
                     if base.id.as_str() == "__dp__"
             ) && expr_static_str(match &call.args[1] {
                 CoreBlockPyCallArg::Positional(value) => value,
@@ -340,20 +333,20 @@ fn is_dp_lookup_call_expr(func: &CoreBlockPyExprWithoutAwaitOrYield, attr_name: 
     }
 }
 
-fn expr_static_str(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> Option<String> {
+fn expr_static_str(expr: &CoreBlockPyExpr) -> Option<String> {
     match expr {
-        CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::StringLiteral(value)) => {
+        CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(value)) => {
             Some(value.value.clone())
         }
-        CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::BytesLiteral(bytes)) => {
+        CoreBlockPyExpr::Literal(CoreBlockPyLiteral::BytesLiteral(bytes)) => {
             String::from_utf8(bytes.value.clone()).ok()
         }
-        CoreBlockPyExprWithoutAwaitOrYield::Call(call)
+        CoreBlockPyExpr::Call(call)
             if call.keywords.is_empty()
                 && call.args.len() == 1
                 && matches!(
                     call.func.as_ref(),
-                    CoreBlockPyExprWithoutAwaitOrYield::Name(name)
+                    CoreBlockPyExpr::Name(name)
                         if matches!(
                             name.id.as_str(),
                             "__dp_decode_literal_bytes" | "__dp_decode_literal_source_bytes"
@@ -361,7 +354,7 @@ fn expr_static_str(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> Option<String> 
                 ) =>
         {
             match &call.args[0] {
-                CoreBlockPyCallArg::Positional(CoreBlockPyExprWithoutAwaitOrYield::Literal(
+                CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Literal(
                     CoreBlockPyLiteral::BytesLiteral(bytes),
                 )) => String::from_utf8(bytes.value.clone()).ok(),
                 _ => None,
@@ -371,8 +364,8 @@ fn expr_static_str(expr: &CoreBlockPyExprWithoutAwaitOrYield) -> Option<String> 
     }
 }
 
-fn current_exception_name_expr(exc_name: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
-    CoreBlockPyExprWithoutAwaitOrYield::Name(ast::ExprName {
+fn current_exception_name_expr(exc_name: &str) -> CoreBlockPyExpr {
+    CoreBlockPyExpr::Name(ast::ExprName {
         id: exc_name.into(),
         ctx: ast::ExprContext::Load,
         range: compat_range(),
@@ -380,11 +373,11 @@ fn current_exception_name_expr(exc_name: &str) -> CoreBlockPyExprWithoutAwaitOrY
     })
 }
 
-fn current_exception_info_expr(exc_name: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
-    CoreBlockPyExprWithoutAwaitOrYield::Call(CoreBlockPyCall {
+fn current_exception_info_expr(exc_name: &str) -> CoreBlockPyExpr {
+    CoreBlockPyExpr::Call(CoreBlockPyCall {
         node_index: compat_node_index(),
         range: compat_range(),
-        func: Box::new(CoreBlockPyExprWithoutAwaitOrYield::Name(ast::ExprName {
+        func: Box::new(CoreBlockPyExpr::Name(ast::ExprName {
             id: "__dp_exc_info_from_exception".into(),
             ctx: ast::ExprContext::Load,
             range: compat_range(),
@@ -405,7 +398,7 @@ fn compat_range() -> TextRange {
     TextRange::default()
 }
 
-fn bb_stmt_from_blockpy_stmt(stmt: BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>) -> BbStmt {
+fn bb_stmt_from_blockpy_stmt(stmt: BlockPyStmt<CoreBlockPyExpr>) -> BbStmt {
     stmt.into()
 }
 
@@ -413,7 +406,7 @@ fn bb_stmt_from_blockpy_stmt(stmt: BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYiel
 mod tests {
     use crate::block_py::{
         BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt, BlockPyStmtFragment,
-        BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield,
+        BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
     };
     use crate::passes::blockpy_to_bb::lower_blockpy_blocks_to_bb_blocks;
     use ruff_python_ast::{self as ast};
@@ -481,8 +474,8 @@ mod tests {
         assert!(matches!(blocks[0].term, BlockPyTerm::IfTerm(_)));
     }
 
-    fn core_name_expr(name: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
-        CoreBlockPyExprWithoutAwaitOrYield::Name(ast::ExprName {
+    fn core_name_expr(name: &str) -> CoreBlockPyExpr {
+        CoreBlockPyExpr::Name(ast::ExprName {
             id: name.into(),
             ctx: ast::ExprContext::Load,
             range: TextRange::default(),
@@ -490,11 +483,8 @@ mod tests {
         })
     }
 
-    fn core_call_expr(
-        name: &str,
-        args: Vec<CoreBlockPyExprWithoutAwaitOrYield>,
-    ) -> CoreBlockPyExprWithoutAwaitOrYield {
-        CoreBlockPyExprWithoutAwaitOrYield::Call(CoreBlockPyCall {
+    fn core_call_expr(name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
+        CoreBlockPyExpr::Call(CoreBlockPyCall {
             node_index: ast::AtomicNodeIndex::default(),
             range: TextRange::default(),
             func: Box::new(core_name_expr(name)),
@@ -539,21 +529,20 @@ mod tests {
         };
         assert!(matches!(
             body_expr,
-            CoreBlockPyExprWithoutAwaitOrYield::Name(name) if name.id.as_str() == "_dp_try_exc_0"
+            CoreBlockPyExpr::Name(name) if name.id.as_str() == "_dp_try_exc_0"
         ));
 
-        let BlockPyTerm::Return(CoreBlockPyExprWithoutAwaitOrYield::Call(call)) = &block.term
-        else {
+        let BlockPyTerm::Return(CoreBlockPyExpr::Call(call)) = &block.term else {
             panic!("expected rewritten return expr");
         };
         assert!(matches!(
             call.func.as_ref(),
-            CoreBlockPyExprWithoutAwaitOrYield::Name(name)
+            CoreBlockPyExpr::Name(name)
                 if name.id.as_str() == "__dp_exc_info_from_exception"
         ));
         assert!(matches!(
             call.args.as_slice(),
-            [CoreBlockPyCallArg::Positional(CoreBlockPyExprWithoutAwaitOrYield::Name(name))]
+            [CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(name))]
                 if name.id.as_str() == "_dp_try_exc_0"
         ));
     }

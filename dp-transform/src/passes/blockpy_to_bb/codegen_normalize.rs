@@ -1,7 +1,6 @@
 use crate::block_py::{
     BbStmt, BlockPyModule, BlockPyRaise, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
-    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-    CoreBytesLiteral, IntrinsicCall,
+    CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBytesLiteral, IntrinsicCall,
 };
 use crate::passes::trace::{instrument_bb_module_for_trace, parse_trace_env};
 use crate::passes::PreparedBbBlockPyPass;
@@ -33,7 +32,7 @@ pub fn normalize_bb_module_for_codegen(
 
 fn rewrite_term_exprs(
     rewriter: &mut CodegenExprNormalizer,
-    term: &mut BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
+    term: &mut BlockPyTerm<CoreBlockPyExpr>,
 ) {
     match term {
         BlockPyTerm::Jump(_) => {}
@@ -48,41 +47,32 @@ fn rewrite_term_exprs(
     }
 }
 
-fn rewrite_bb_expr(
-    rewriter: &mut CodegenExprNormalizer,
-    expr: &mut CoreBlockPyExprWithoutAwaitOrYield,
-) {
+fn rewrite_bb_expr(rewriter: &mut CodegenExprNormalizer, expr: &mut CoreBlockPyExpr) {
     rewriter.rewrite_expr(expr);
 }
 
 struct CodegenExprNormalizer;
 
 impl CodegenExprNormalizer {
-    fn rewrite_expr(&mut self, expr: &mut CoreBlockPyExprWithoutAwaitOrYield) {
+    fn rewrite_expr(&mut self, expr: &mut CoreBlockPyExpr) {
         match expr {
-            CoreBlockPyExprWithoutAwaitOrYield::Call(call) => {
+            CoreBlockPyExpr::Call(call) => {
                 self.rewrite_expr(call.func.as_mut());
                 rewrite_call_parts(self, &mut call.args, &mut call.keywords);
             }
-            CoreBlockPyExprWithoutAwaitOrYield::Intrinsic(IntrinsicCall {
-                args, keywords, ..
-            }) => {
+            CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, keywords, .. }) => {
                 rewrite_call_parts(self, args, keywords);
             }
-            CoreBlockPyExprWithoutAwaitOrYield::Name(_)
-            | CoreBlockPyExprWithoutAwaitOrYield::Literal(_) => {}
+            CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
         }
 
         match expr {
-            CoreBlockPyExprWithoutAwaitOrYield::Call(call)
+            CoreBlockPyExpr::Call(call)
                 if call.keywords.is_empty()
-                    && matches!(
-                        call.func.as_ref(),
-                        CoreBlockPyExprWithoutAwaitOrYield::Name(_)
-                    ) =>
+                    && matches!(call.func.as_ref(), CoreBlockPyExpr::Name(_)) =>
             {
                 let func_name = match call.func.as_ref() {
-                    CoreBlockPyExprWithoutAwaitOrYield::Name(name) => name.id.as_str(),
+                    CoreBlockPyExpr::Name(name) => name.id.as_str(),
                     _ => unreachable!(),
                 };
                 let args = call.args.clone();
@@ -126,9 +116,7 @@ impl CodegenExprNormalizer {
                     *expr = replacement;
                 }
             }
-            CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::StringLiteral(
-                node,
-            )) => {
+            CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(node)) => {
                 *expr = str_bytes_call_expr(node.value.as_bytes());
             }
             _ => {}
@@ -138,8 +126,8 @@ impl CodegenExprNormalizer {
 
 fn rewrite_call_parts(
     rewriter: &mut CodegenExprNormalizer,
-    args: &mut [CoreBlockPyCallArg<CoreBlockPyExprWithoutAwaitOrYield>],
-    keywords: &mut [CoreBlockPyKeywordArg<CoreBlockPyExprWithoutAwaitOrYield>],
+    args: &mut [CoreBlockPyCallArg<CoreBlockPyExpr>],
+    keywords: &mut [CoreBlockPyKeywordArg<CoreBlockPyExpr>],
 ) {
     for arg in args {
         match arg {
@@ -174,43 +162,36 @@ fn load_name(id: &str) -> ExprName {
     }
 }
 
-fn bytes_literal_expr(bytes: &[u8]) -> CoreBlockPyExprWithoutAwaitOrYield {
-    CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::BytesLiteral(
-        CoreBytesLiteral {
-            range: compat_range(),
-            node_index: compat_node_index(),
-            value: bytes.to_vec(),
-        },
-    ))
+fn bytes_literal_expr(bytes: &[u8]) -> CoreBlockPyExpr {
+    CoreBlockPyExpr::Literal(CoreBlockPyLiteral::BytesLiteral(CoreBytesLiteral {
+        range: compat_range(),
+        node_index: compat_node_index(),
+        value: bytes.to_vec(),
+    }))
 }
 
 fn helper_call_expr_with_meta(
     helper_name: &str,
-    args: Vec<CoreBlockPyExprWithoutAwaitOrYield>,
+    args: Vec<CoreBlockPyExpr>,
     (node_index, range): (ast::AtomicNodeIndex, TextRange),
-) -> CoreBlockPyExprWithoutAwaitOrYield {
-    CoreBlockPyExprWithoutAwaitOrYield::Call(CoreBlockPyCall {
+) -> CoreBlockPyExpr {
+    CoreBlockPyExpr::Call(CoreBlockPyCall {
         node_index,
         range,
-        func: Box::new(CoreBlockPyExprWithoutAwaitOrYield::Name(load_name(
-            helper_name,
-        ))),
+        func: Box::new(CoreBlockPyExpr::Name(load_name(helper_name))),
         args: args
             .into_iter()
             .map(CoreBlockPyCallArg::Positional)
             .collect(),
-        keywords: Vec::<CoreBlockPyKeywordArg<CoreBlockPyExprWithoutAwaitOrYield>>::new(),
+        keywords: Vec::<CoreBlockPyKeywordArg<CoreBlockPyExpr>>::new(),
     })
 }
 
-fn helper_call_expr(
-    helper_name: &str,
-    args: Vec<CoreBlockPyExprWithoutAwaitOrYield>,
-) -> CoreBlockPyExprWithoutAwaitOrYield {
+fn helper_call_expr(helper_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
     helper_call_expr_with_meta(helper_name, args, (compat_node_index(), compat_range()))
 }
 
-fn str_bytes_call_expr(bytes: &[u8]) -> CoreBlockPyExprWithoutAwaitOrYield {
+fn str_bytes_call_expr(bytes: &[u8]) -> CoreBlockPyExpr {
     helper_call_expr("str", vec![bytes_literal_expr(bytes)])
 }
 
@@ -218,7 +199,7 @@ fn str_bytes_call_expr(bytes: &[u8]) -> CoreBlockPyExprWithoutAwaitOrYield {
 mod tests {
     use super::normalize_bb_module_for_codegen;
     use crate::{
-        block_py::{BbStmt, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield},
+        block_py::{BbStmt, BlockPyTerm, CoreBlockPyExpr},
         passes::lower_try_jump_exception_flow,
         transform_str_to_bb_ir_with_options, Options,
     };
@@ -242,34 +223,27 @@ mod tests {
         }
     }
 
-    fn probe_bb_exprs(
-        probe: &mut ExprShapeProbe,
-        expr: &crate::block_py::CoreBlockPyExprWithoutAwaitOrYield,
-    ) {
+    fn probe_bb_exprs(probe: &mut ExprShapeProbe, expr: &crate::block_py::CoreBlockPyExpr) {
         match expr {
-            crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Name(_) => {}
-            crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => {
-                match literal {
-                    crate::block_py::CoreBlockPyLiteral::StringLiteral(_) => {
-                        probe.saw_string_literal.set(true);
-                    }
-                    crate::block_py::CoreBlockPyLiteral::BytesLiteral(_) => {
-                        probe.saw_bytes_literal.set(true);
-                    }
-                    _ => {}
+            crate::block_py::CoreBlockPyExpr::Name(_) => {}
+            crate::block_py::CoreBlockPyExpr::Literal(literal) => match literal {
+                crate::block_py::CoreBlockPyLiteral::StringLiteral(_) => {
+                    probe.saw_string_literal.set(true);
                 }
-            }
-            crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Call(call) => {
-                if let crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Name(name) =
-                    call.func.as_ref()
-                {
+                crate::block_py::CoreBlockPyLiteral::BytesLiteral(_) => {
+                    probe.saw_bytes_literal.set(true);
+                }
+                _ => {}
+            },
+            crate::block_py::CoreBlockPyExpr::Call(call) => {
+                if let crate::block_py::CoreBlockPyExpr::Name(name) = call.func.as_ref() {
                     if name.id.as_str() == "str"
                         && call.args.len() == 1
                         && call.keywords.is_empty()
                         && matches!(
                             call.args[0],
                             crate::block_py::CoreBlockPyCallArg::Positional(
-                                crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(
+                                crate::block_py::CoreBlockPyExpr::Literal(
                                     crate::block_py::CoreBlockPyLiteral::BytesLiteral(_)
                                 )
                             )
@@ -299,7 +273,7 @@ mod tests {
                     }
                 }
             }
-            crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Intrinsic(call) => {
+            crate::block_py::CoreBlockPyExpr::Intrinsic(call) => {
                 for arg in &call.args {
                     match arg {
                         crate::block_py::CoreBlockPyCallArg::Positional(value)
@@ -320,10 +294,7 @@ mod tests {
         }
     }
 
-    fn probe_bb_term_exprs(
-        probe: &mut ExprShapeProbe,
-        term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-    ) {
+    fn probe_bb_term_exprs(probe: &mut ExprShapeProbe, term: &BlockPyTerm<CoreBlockPyExpr>) {
         match term {
             BlockPyTerm::Jump(_) => {}
             BlockPyTerm::IfTerm(if_term) => probe_bb_exprs(probe, &if_term.test),

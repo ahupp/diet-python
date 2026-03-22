@@ -2,8 +2,9 @@ use crate::block_py::BlockPyAssign;
 use crate::block_py::{
     BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyFunction, BlockPyIf,
     BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
-    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait,
-    CoreBlockPyKeywordArg, CoreBlockPyYield, CoreBlockPyYieldFrom, IntrinsicCall,
+    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, CoreBlockPyYield, CoreBlockPyYieldFrom,
+    IntrinsicCall,
 };
 use crate::namegen::fresh_name;
 use crate::passes::CoreBlockPyPassWithoutAwait;
@@ -18,10 +19,11 @@ fn fresh_eval_name() -> ast::ExprName {
     expr
 }
 
-fn expr_contains_suspend(expr: &CoreBlockPyExpr) -> bool {
+fn expr_contains_suspend(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
     match expr {
-        CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => false,
-        CoreBlockPyExpr::Call(call) => {
+        CoreBlockPyExprWithAwaitAndYield::Name(_)
+        | CoreBlockPyExprWithAwaitAndYield::Literal(_) => false,
+        CoreBlockPyExprWithAwaitAndYield::Call(call) => {
             expr_contains_suspend(&call.func)
                 || call.args.iter().any(|arg| match arg {
                     CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
@@ -33,7 +35,7 @@ fn expr_contains_suspend(expr: &CoreBlockPyExpr) -> bool {
                     | CoreBlockPyKeywordArg::Starred(value) => expr_contains_suspend(value),
                 })
         }
-        CoreBlockPyExpr::Intrinsic(call) => {
+        CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) => {
             call.args.iter().any(|arg| match arg {
                 CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
                     expr_contains_suspend(value)
@@ -43,17 +45,17 @@ fn expr_contains_suspend(expr: &CoreBlockPyExpr) -> bool {
                 | CoreBlockPyKeywordArg::Starred(value) => expr_contains_suspend(value),
             })
         }
-        CoreBlockPyExpr::Await(_) => true,
-        CoreBlockPyExpr::Yield(_) => true,
-        CoreBlockPyExpr::YieldFrom(_) => true,
+        CoreBlockPyExprWithAwaitAndYield::Await(_) => true,
+        CoreBlockPyExprWithAwaitAndYield::Yield(_) => true,
+        CoreBlockPyExprWithAwaitAndYield::YieldFrom(_) => true,
     }
 }
 
 fn hoist_core_expr_if_contains_suspend(
-    expr: CoreBlockPyExpr,
-    out: &mut Vec<BlockPyStmt<CoreBlockPyExpr>>,
+    expr: CoreBlockPyExprWithAwaitAndYield,
+    out: &mut Vec<BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>>,
     cleanup: &mut Vec<ast::ExprName>,
-) -> CoreBlockPyExpr {
+) -> CoreBlockPyExprWithAwaitAndYield {
     let expr = make_eval_order_explicit_in_core_expr(expr, out, cleanup);
     if expr_contains_suspend(&expr) {
         let target = fresh_eval_name();
@@ -62,99 +64,112 @@ fn hoist_core_expr_if_contains_suspend(
             value: expr,
         }));
         cleanup.push(target.clone());
-        CoreBlockPyExpr::Name(target)
+        CoreBlockPyExprWithAwaitAndYield::Name(target)
     } else {
         expr
     }
 }
 
 fn make_eval_order_explicit_in_core_expr(
-    expr: CoreBlockPyExpr,
-    out: &mut Vec<BlockPyStmt<CoreBlockPyExpr>>,
+    expr: CoreBlockPyExprWithAwaitAndYield,
+    out: &mut Vec<BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>>,
     cleanup: &mut Vec<ast::ExprName>,
-) -> CoreBlockPyExpr {
+) -> CoreBlockPyExprWithAwaitAndYield {
     match expr {
-        CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => expr,
-        CoreBlockPyExpr::Call(call) => CoreBlockPyExpr::Call(CoreBlockPyCall {
-            node_index: call.node_index,
-            range: call.range,
-            func: Box::new(hoist_core_expr_if_contains_suspend(
-                *call.func, out, cleanup,
-            )),
-            args: call
-                .args
-                .into_iter()
-                .map(|arg| match arg {
-                    CoreBlockPyCallArg::Positional(value) => CoreBlockPyCallArg::Positional(
-                        hoist_core_expr_if_contains_suspend(value, out, cleanup),
-                    ),
-                    CoreBlockPyCallArg::Starred(value) => CoreBlockPyCallArg::Starred(
-                        hoist_core_expr_if_contains_suspend(value, out, cleanup),
-                    ),
-                })
-                .collect(),
-            keywords: call
-                .keywords
-                .into_iter()
-                .map(|keyword| match keyword {
-                    CoreBlockPyKeywordArg::Named { arg, value } => CoreBlockPyKeywordArg::Named {
-                        arg,
-                        value: hoist_core_expr_if_contains_suspend(value, out, cleanup),
-                    },
-                    CoreBlockPyKeywordArg::Starred(value) => CoreBlockPyKeywordArg::Starred(
-                        hoist_core_expr_if_contains_suspend(value, out, cleanup),
-                    ),
-                })
-                .collect(),
-        }),
-        CoreBlockPyExpr::Intrinsic(call) => CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-            intrinsic: call.intrinsic,
-            node_index: call.node_index,
-            range: call.range,
-            args: call
-                .args
-                .into_iter()
-                .map(|arg| match arg {
-                    CoreBlockPyCallArg::Positional(value) => CoreBlockPyCallArg::Positional(
-                        hoist_core_expr_if_contains_suspend(value, out, cleanup),
-                    ),
-                    CoreBlockPyCallArg::Starred(value) => CoreBlockPyCallArg::Starred(
-                        hoist_core_expr_if_contains_suspend(value, out, cleanup),
-                    ),
-                })
-                .collect(),
-            keywords: call
-                .keywords
-                .into_iter()
-                .map(|keyword| match keyword {
-                    CoreBlockPyKeywordArg::Named { arg, value } => CoreBlockPyKeywordArg::Named {
-                        arg,
-                        value: hoist_core_expr_if_contains_suspend(value, out, cleanup),
-                    },
-                    CoreBlockPyKeywordArg::Starred(value) => CoreBlockPyKeywordArg::Starred(
-                        hoist_core_expr_if_contains_suspend(value, out, cleanup),
-                    ),
-                })
-                .collect(),
-        }),
-        CoreBlockPyExpr::Await(await_expr) => CoreBlockPyExpr::Await(CoreBlockPyAwait {
-            node_index: await_expr.node_index,
-            range: await_expr.range,
-            value: Box::new(hoist_core_expr_if_contains_suspend(
-                *await_expr.value,
-                out,
-                cleanup,
-            )),
-        }),
-        CoreBlockPyExpr::Yield(yield_expr) => CoreBlockPyExpr::Yield(CoreBlockPyYield {
-            node_index: yield_expr.node_index,
-            range: yield_expr.range,
-            value: yield_expr
-                .value
-                .map(|value| Box::new(hoist_core_expr_if_contains_suspend(*value, out, cleanup))),
-        }),
-        CoreBlockPyExpr::YieldFrom(yield_from_expr) => {
-            CoreBlockPyExpr::YieldFrom(CoreBlockPyYieldFrom {
+        CoreBlockPyExprWithAwaitAndYield::Name(_)
+        | CoreBlockPyExprWithAwaitAndYield::Literal(_) => expr,
+        CoreBlockPyExprWithAwaitAndYield::Call(call) => {
+            CoreBlockPyExprWithAwaitAndYield::Call(CoreBlockPyCall {
+                node_index: call.node_index,
+                range: call.range,
+                func: Box::new(hoist_core_expr_if_contains_suspend(
+                    *call.func, out, cleanup,
+                )),
+                args: call
+                    .args
+                    .into_iter()
+                    .map(|arg| match arg {
+                        CoreBlockPyCallArg::Positional(value) => CoreBlockPyCallArg::Positional(
+                            hoist_core_expr_if_contains_suspend(value, out, cleanup),
+                        ),
+                        CoreBlockPyCallArg::Starred(value) => CoreBlockPyCallArg::Starred(
+                            hoist_core_expr_if_contains_suspend(value, out, cleanup),
+                        ),
+                    })
+                    .collect(),
+                keywords: call
+                    .keywords
+                    .into_iter()
+                    .map(|keyword| match keyword {
+                        CoreBlockPyKeywordArg::Named { arg, value } => {
+                            CoreBlockPyKeywordArg::Named {
+                                arg,
+                                value: hoist_core_expr_if_contains_suspend(value, out, cleanup),
+                            }
+                        }
+                        CoreBlockPyKeywordArg::Starred(value) => CoreBlockPyKeywordArg::Starred(
+                            hoist_core_expr_if_contains_suspend(value, out, cleanup),
+                        ),
+                    })
+                    .collect(),
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) => {
+            CoreBlockPyExprWithAwaitAndYield::Intrinsic(IntrinsicCall {
+                intrinsic: call.intrinsic,
+                node_index: call.node_index,
+                range: call.range,
+                args: call
+                    .args
+                    .into_iter()
+                    .map(|arg| match arg {
+                        CoreBlockPyCallArg::Positional(value) => CoreBlockPyCallArg::Positional(
+                            hoist_core_expr_if_contains_suspend(value, out, cleanup),
+                        ),
+                        CoreBlockPyCallArg::Starred(value) => CoreBlockPyCallArg::Starred(
+                            hoist_core_expr_if_contains_suspend(value, out, cleanup),
+                        ),
+                    })
+                    .collect(),
+                keywords: call
+                    .keywords
+                    .into_iter()
+                    .map(|keyword| match keyword {
+                        CoreBlockPyKeywordArg::Named { arg, value } => {
+                            CoreBlockPyKeywordArg::Named {
+                                arg,
+                                value: hoist_core_expr_if_contains_suspend(value, out, cleanup),
+                            }
+                        }
+                        CoreBlockPyKeywordArg::Starred(value) => CoreBlockPyKeywordArg::Starred(
+                            hoist_core_expr_if_contains_suspend(value, out, cleanup),
+                        ),
+                    })
+                    .collect(),
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::Await(await_expr) => {
+            CoreBlockPyExprWithAwaitAndYield::Await(CoreBlockPyAwait {
+                node_index: await_expr.node_index,
+                range: await_expr.range,
+                value: Box::new(hoist_core_expr_if_contains_suspend(
+                    *await_expr.value,
+                    out,
+                    cleanup,
+                )),
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::Yield(yield_expr) => {
+            CoreBlockPyExprWithAwaitAndYield::Yield(CoreBlockPyYield {
+                node_index: yield_expr.node_index,
+                range: yield_expr.range,
+                value: yield_expr.value.map(|value| {
+                    Box::new(hoist_core_expr_if_contains_suspend(*value, out, cleanup))
+                }),
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::YieldFrom(yield_from_expr) => {
+            CoreBlockPyExprWithAwaitAndYield::YieldFrom(CoreBlockPyYieldFrom {
                 node_index: yield_from_expr.node_index,
                 range: yield_from_expr.range,
                 value: Box::new(hoist_core_expr_if_contains_suspend(
@@ -174,8 +189,14 @@ fn append_stmt_cleanup<E>(out: &mut Vec<BlockPyStmt<E>>, cleanup: Vec<ast::ExprN
 }
 
 fn make_eval_order_explicit_in_core_fragment(
-    fragment: BlockPyCfgFragment<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>,
-) -> BlockPyCfgFragment<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>> {
+    fragment: BlockPyCfgFragment<
+        BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    >,
+) -> BlockPyCfgFragment<
+    BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+    BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+> {
     let mut body = Vec::new();
     for stmt in fragment.body {
         make_eval_order_explicit_in_core_stmt(stmt, &mut body);
@@ -187,8 +208,8 @@ fn make_eval_order_explicit_in_core_fragment(
 }
 
 fn make_eval_order_explicit_in_core_stmt(
-    stmt: BlockPyStmt<CoreBlockPyExpr>,
-    out: &mut Vec<BlockPyStmt<CoreBlockPyExpr>>,
+    stmt: BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+    out: &mut Vec<BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>>,
 ) {
     match stmt {
         BlockPyStmt::Assign(assign) => {
@@ -228,9 +249,9 @@ fn make_eval_order_explicit_in_core_stmt(
 }
 
 fn make_eval_order_explicit_in_core_term(
-    term: BlockPyTerm<CoreBlockPyExpr>,
-    out: &mut Vec<BlockPyStmt<CoreBlockPyExpr>>,
-) -> BlockPyTerm<CoreBlockPyExpr> {
+    term: BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    out: &mut Vec<BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>>,
+) -> BlockPyTerm<CoreBlockPyExprWithAwaitAndYield> {
     match term {
         BlockPyTerm::Jump(edge) => BlockPyTerm::Jump(edge),
         BlockPyTerm::IfTerm(BlockPyIfTerm {
@@ -263,8 +284,14 @@ fn make_eval_order_explicit_in_core_term(
 }
 
 pub(crate) fn make_eval_order_explicit_in_core_block(
-    block: CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>,
-) -> CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>> {
+    block: CfgBlock<
+        BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    >,
+) -> CfgBlock<
+    BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+    BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+> {
     let CfgBlock {
         label,
         body: input_body,
@@ -286,17 +313,17 @@ pub(crate) fn make_eval_order_explicit_in_core_block(
     }
 }
 
-fn is_core_atom_without_await(expr: &CoreBlockPyExprWithoutAwait) -> bool {
+fn is_core_atom_without_await(expr: &CoreBlockPyExprWithYield) -> bool {
     matches!(
         expr,
-        CoreBlockPyExprWithoutAwait::Name(_) | CoreBlockPyExprWithoutAwait::Literal(_)
+        CoreBlockPyExprWithYield::Name(_) | CoreBlockPyExprWithYield::Literal(_)
     )
 }
 
-fn expr_contains_yield(expr: &CoreBlockPyExprWithoutAwait) -> bool {
+fn expr_contains_yield(expr: &CoreBlockPyExprWithYield) -> bool {
     match expr {
-        CoreBlockPyExprWithoutAwait::Name(_) | CoreBlockPyExprWithoutAwait::Literal(_) => false,
-        CoreBlockPyExprWithoutAwait::Call(call) => {
+        CoreBlockPyExprWithYield::Name(_) | CoreBlockPyExprWithYield::Literal(_) => false,
+        CoreBlockPyExprWithYield::Call(call) => {
             expr_contains_yield(&call.func)
                 || call.args.iter().any(|arg| match arg {
                     CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
@@ -308,7 +335,7 @@ fn expr_contains_yield(expr: &CoreBlockPyExprWithoutAwait) -> bool {
                     | CoreBlockPyKeywordArg::Starred(value) => expr_contains_yield(value),
                 })
         }
-        CoreBlockPyExprWithoutAwait::Intrinsic(call) => {
+        CoreBlockPyExprWithYield::Intrinsic(call) => {
             call.args.iter().any(|arg| match arg {
                 CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
                     expr_contains_yield(value)
@@ -318,16 +345,16 @@ fn expr_contains_yield(expr: &CoreBlockPyExprWithoutAwait) -> bool {
                 | CoreBlockPyKeywordArg::Starred(value) => expr_contains_yield(value),
             })
         }
-        CoreBlockPyExprWithoutAwait::Yield(_) => true,
-        CoreBlockPyExprWithoutAwait::YieldFrom(_) => true,
+        CoreBlockPyExprWithYield::Yield(_) => true,
+        CoreBlockPyExprWithYield::YieldFrom(_) => true,
     }
 }
 
 fn hoist_core_expr_without_await_to_atom(
-    expr: CoreBlockPyExprWithoutAwait,
-    out: &mut Vec<BlockPyStmt<CoreBlockPyExprWithoutAwait>>,
+    expr: CoreBlockPyExprWithYield,
+    out: &mut Vec<BlockPyStmt<CoreBlockPyExprWithYield>>,
     cleanup: &mut Vec<ast::ExprName>,
-) -> CoreBlockPyExprWithoutAwait {
+) -> CoreBlockPyExprWithYield {
     let expr = make_eval_order_explicit_in_core_expr_without_await(expr, out, cleanup);
     if is_core_atom_without_await(&expr) {
         expr
@@ -338,55 +365,51 @@ fn hoist_core_expr_without_await_to_atom(
             value: expr,
         }));
         cleanup.push(target.clone());
-        CoreBlockPyExprWithoutAwait::Name(target)
+        CoreBlockPyExprWithYield::Name(target)
     }
 }
 
 fn make_eval_order_explicit_in_core_expr_without_await(
-    expr: CoreBlockPyExprWithoutAwait,
-    out: &mut Vec<BlockPyStmt<CoreBlockPyExprWithoutAwait>>,
+    expr: CoreBlockPyExprWithYield,
+    out: &mut Vec<BlockPyStmt<CoreBlockPyExprWithYield>>,
     cleanup: &mut Vec<ast::ExprName>,
-) -> CoreBlockPyExprWithoutAwait {
+) -> CoreBlockPyExprWithYield {
     match expr {
-        CoreBlockPyExprWithoutAwait::Name(_) | CoreBlockPyExprWithoutAwait::Literal(_) => expr,
-        CoreBlockPyExprWithoutAwait::Call(call) => {
-            CoreBlockPyExprWithoutAwait::Call(CoreBlockPyCall {
-                node_index: call.node_index,
-                range: call.range,
-                func: Box::new(hoist_core_expr_without_await_to_atom(
-                    *call.func, out, cleanup,
-                )),
-                args: call
-                    .args
-                    .into_iter()
-                    .map(|arg| match arg {
-                        CoreBlockPyCallArg::Positional(value) => CoreBlockPyCallArg::Positional(
-                            hoist_core_expr_without_await_to_atom(value, out, cleanup),
-                        ),
-                        CoreBlockPyCallArg::Starred(value) => CoreBlockPyCallArg::Starred(
-                            hoist_core_expr_without_await_to_atom(value, out, cleanup),
-                        ),
-                    })
-                    .collect(),
-                keywords: call
-                    .keywords
-                    .into_iter()
-                    .map(|keyword| match keyword {
-                        CoreBlockPyKeywordArg::Named { arg, value } => {
-                            CoreBlockPyKeywordArg::Named {
-                                arg,
-                                value: hoist_core_expr_without_await_to_atom(value, out, cleanup),
-                            }
-                        }
-                        CoreBlockPyKeywordArg::Starred(value) => CoreBlockPyKeywordArg::Starred(
-                            hoist_core_expr_without_await_to_atom(value, out, cleanup),
-                        ),
-                    })
-                    .collect(),
-            })
-        }
-        CoreBlockPyExprWithoutAwait::Intrinsic(call) => {
-            CoreBlockPyExprWithoutAwait::Intrinsic(IntrinsicCall {
+        CoreBlockPyExprWithYield::Name(_) | CoreBlockPyExprWithYield::Literal(_) => expr,
+        CoreBlockPyExprWithYield::Call(call) => CoreBlockPyExprWithYield::Call(CoreBlockPyCall {
+            node_index: call.node_index,
+            range: call.range,
+            func: Box::new(hoist_core_expr_without_await_to_atom(
+                *call.func, out, cleanup,
+            )),
+            args: call
+                .args
+                .into_iter()
+                .map(|arg| match arg {
+                    CoreBlockPyCallArg::Positional(value) => CoreBlockPyCallArg::Positional(
+                        hoist_core_expr_without_await_to_atom(value, out, cleanup),
+                    ),
+                    CoreBlockPyCallArg::Starred(value) => CoreBlockPyCallArg::Starred(
+                        hoist_core_expr_without_await_to_atom(value, out, cleanup),
+                    ),
+                })
+                .collect(),
+            keywords: call
+                .keywords
+                .into_iter()
+                .map(|keyword| match keyword {
+                    CoreBlockPyKeywordArg::Named { arg, value } => CoreBlockPyKeywordArg::Named {
+                        arg,
+                        value: hoist_core_expr_without_await_to_atom(value, out, cleanup),
+                    },
+                    CoreBlockPyKeywordArg::Starred(value) => CoreBlockPyKeywordArg::Starred(
+                        hoist_core_expr_without_await_to_atom(value, out, cleanup),
+                    ),
+                })
+                .collect(),
+        }),
+        CoreBlockPyExprWithYield::Intrinsic(call) => {
+            CoreBlockPyExprWithYield::Intrinsic(IntrinsicCall {
                 intrinsic: call.intrinsic,
                 node_index: call.node_index,
                 range: call.range,
@@ -419,8 +442,8 @@ fn make_eval_order_explicit_in_core_expr_without_await(
                     .collect(),
             })
         }
-        CoreBlockPyExprWithoutAwait::Yield(yield_expr) => {
-            CoreBlockPyExprWithoutAwait::Yield(CoreBlockPyYield {
+        CoreBlockPyExprWithYield::Yield(yield_expr) => {
+            CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,
                 range: yield_expr.range,
                 value: yield_expr.value.map(|value| {
@@ -428,8 +451,8 @@ fn make_eval_order_explicit_in_core_expr_without_await(
                 }),
             })
         }
-        CoreBlockPyExprWithoutAwait::YieldFrom(yield_from_expr) => {
-            CoreBlockPyExprWithoutAwait::YieldFrom(CoreBlockPyYieldFrom {
+        CoreBlockPyExprWithYield::YieldFrom(yield_from_expr) => {
+            CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
                 node_index: yield_from_expr.node_index,
                 range: yield_from_expr.range,
                 value: Box::new(hoist_core_expr_without_await_to_atom(
@@ -443,8 +466,8 @@ fn make_eval_order_explicit_in_core_expr_without_await(
 }
 
 fn make_eval_order_explicit_in_core_stmt_without_await(
-    stmt: BlockPyStmt<CoreBlockPyExprWithoutAwait>,
-    out: &mut Vec<BlockPyStmt<CoreBlockPyExprWithoutAwait>>,
+    stmt: BlockPyStmt<CoreBlockPyExprWithYield>,
+    out: &mut Vec<BlockPyStmt<CoreBlockPyExprWithYield>>,
 ) {
     match stmt {
         BlockPyStmt::Assign(assign) => {
@@ -497,13 +520,11 @@ fn make_eval_order_explicit_in_core_stmt_without_await(
 
 fn make_eval_order_explicit_in_core_fragment_without_await(
     fragment: BlockPyCfgFragment<
-        BlockPyStmt<CoreBlockPyExprWithoutAwait>,
-        BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+        BlockPyStmt<CoreBlockPyExprWithYield>,
+        BlockPyTerm<CoreBlockPyExprWithYield>,
     >,
-) -> BlockPyCfgFragment<
-    BlockPyStmt<CoreBlockPyExprWithoutAwait>,
-    BlockPyTerm<CoreBlockPyExprWithoutAwait>,
-> {
+) -> BlockPyCfgFragment<BlockPyStmt<CoreBlockPyExprWithYield>, BlockPyTerm<CoreBlockPyExprWithYield>>
+{
     let mut body = Vec::new();
     for stmt in fragment.body {
         make_eval_order_explicit_in_core_stmt_without_await(stmt, &mut body);
@@ -515,9 +536,9 @@ fn make_eval_order_explicit_in_core_fragment_without_await(
 }
 
 fn make_eval_order_explicit_in_core_term_without_await(
-    term: BlockPyTerm<CoreBlockPyExprWithoutAwait>,
-    out: &mut Vec<BlockPyStmt<CoreBlockPyExprWithoutAwait>>,
-) -> BlockPyTerm<CoreBlockPyExprWithoutAwait> {
+    term: BlockPyTerm<CoreBlockPyExprWithYield>,
+    out: &mut Vec<BlockPyStmt<CoreBlockPyExprWithYield>>,
+) -> BlockPyTerm<CoreBlockPyExprWithYield> {
     match term {
         BlockPyTerm::Jump(_) => term,
         BlockPyTerm::IfTerm(BlockPyIfTerm {
@@ -551,11 +572,8 @@ fn make_eval_order_explicit_in_core_term_without_await(
 }
 
 pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
-    block: CfgBlock<
-        BlockPyStmt<CoreBlockPyExprWithoutAwait>,
-        BlockPyTerm<CoreBlockPyExprWithoutAwait>,
-    >,
-) -> CfgBlock<BlockPyStmt<CoreBlockPyExprWithoutAwait>, BlockPyTerm<CoreBlockPyExprWithoutAwait>> {
+    block: CfgBlock<BlockPyStmt<CoreBlockPyExprWithYield>, BlockPyTerm<CoreBlockPyExprWithYield>>,
+) -> CfgBlock<BlockPyStmt<CoreBlockPyExprWithYield>, BlockPyTerm<CoreBlockPyExprWithYield>> {
     let CfgBlock {
         label,
         body: input_body,
@@ -586,7 +604,9 @@ pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block_py::{BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyExpr};
+    use crate::block_py::{
+        BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyExprWithAwaitAndYield,
+    };
 
     fn test_name(id: &str) -> ast::ExprName {
         let ast::Expr::Name(expr) = crate::py_expr!("{id:id}", id = id) else {
@@ -600,24 +620,30 @@ mod tests {
         let block = BlockPyBlock {
             label: BlockPyLabel("start".to_string()),
             body: Vec::new(),
-            term: BlockPyTerm::Return(CoreBlockPyExpr::from(crate::py_expr!("f(g(x), h(y))"))),
+            term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
+                "f(g(x), h(y))"
+            ))),
             params: Vec::new(),
             exc_edge: None,
         };
 
         let lowered = make_eval_order_explicit_in_core_block(block);
         assert!(lowered.body.is_empty());
-        let BlockPyTerm::Return(CoreBlockPyExpr::Call(call)) = &lowered.term else {
+        let BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Call(call)) = &lowered.term
+        else {
             panic!("expected call expr");
         };
-        assert!(matches!(call.func.as_ref(), CoreBlockPyExpr::Name(_)));
+        assert!(matches!(
+            call.func.as_ref(),
+            CoreBlockPyExprWithAwaitAndYield::Name(_)
+        ));
         assert!(matches!(
             &call.args[0],
-            CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Call(_))
+            CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
         ));
         assert!(matches!(
             &call.args[1],
-            CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Call(_))
+            CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
         ));
     }
 
@@ -626,17 +652,22 @@ mod tests {
         let block = BlockPyBlock {
             label: BlockPyLabel("start".to_string()),
             body: Vec::new(),
-            term: BlockPyTerm::Return(CoreBlockPyExpr::from(crate::py_expr!("f(g(x))"))),
+            term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
+                "f(g(x))"
+            ))),
             params: Vec::new(),
             exc_edge: None,
         };
 
         let lowered = make_eval_order_explicit_in_core_block(block);
         assert!(lowered.body.is_empty());
-        let BlockPyTerm::Return(CoreBlockPyExpr::Call(call)) = lowered.term else {
+        let BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Call(call)) = lowered.term else {
             panic!("expected return of recursive call");
         };
-        assert!(matches!(call.func.as_ref(), CoreBlockPyExpr::Name(_)));
+        assert!(matches!(
+            call.func.as_ref(),
+            CoreBlockPyExprWithAwaitAndYield::Name(_)
+        ));
     }
 
     #[test]
@@ -645,9 +676,11 @@ mod tests {
             label: BlockPyLabel("start".to_string()),
             body: vec![BlockPyStmt::Assign(BlockPyAssign {
                 target: fresh_eval_name(),
-                value: CoreBlockPyExpr::from(crate::py_expr!("f(g(x))")),
+                value: CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("f(g(x))")),
             })],
-            term: BlockPyTerm::Return(CoreBlockPyExpr::from(crate::py_expr!("__dp_NONE"))),
+            term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
+                "__dp_NONE"
+            ))),
             params: Vec::new(),
             exc_edge: None,
         };
@@ -657,13 +690,16 @@ mod tests {
         let BlockPyStmt::Assign(assign) = &lowered.body[0] else {
             panic!("expected rewritten assignment");
         };
-        let CoreBlockPyExpr::Call(call) = &assign.value else {
+        let CoreBlockPyExprWithAwaitAndYield::Call(call) = &assign.value else {
             panic!("expected outer call");
         };
-        assert!(matches!(call.func.as_ref(), CoreBlockPyExpr::Name(_)));
+        assert!(matches!(
+            call.func.as_ref(),
+            CoreBlockPyExprWithAwaitAndYield::Name(_)
+        ));
         assert!(matches!(
             &call.args[0],
-            CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Call(_))
+            CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
         ));
     }
 
@@ -673,9 +709,13 @@ mod tests {
             label: BlockPyLabel("start".to_string()),
             body: vec![BlockPyStmt::Assign(BlockPyAssign {
                 target: test_name("total"),
-                value: CoreBlockPyExpr::from(crate::py_expr!("__dp_iadd(total, await Once())")),
+                value: CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
+                    "__dp_iadd(total, await Once())"
+                )),
             })],
-            term: BlockPyTerm::Return(CoreBlockPyExpr::from(crate::py_expr!("__dp_NONE"))),
+            term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
+                "__dp_NONE"
+            ))),
             params: Vec::new(),
             exc_edge: None,
         };
@@ -685,16 +725,19 @@ mod tests {
         let BlockPyStmt::Assign(temp_assign) = &lowered.body[0] else {
             panic!("expected hoisted await temp assignment");
         };
-        assert!(matches!(temp_assign.value, CoreBlockPyExpr::Await(_)));
+        assert!(matches!(
+            temp_assign.value,
+            CoreBlockPyExprWithAwaitAndYield::Await(_)
+        ));
         let BlockPyStmt::Assign(assign) = &lowered.body[1] else {
             panic!("expected rewritten assignment");
         };
-        let CoreBlockPyExpr::Call(call) = &assign.value else {
+        let CoreBlockPyExprWithAwaitAndYield::Call(call) = &assign.value else {
             panic!("expected iadd call");
         };
         assert!(matches!(
             &call.args[1],
-            CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(_))
+            CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Name(_))
         ));
         assert!(matches!(lowered.body[2], BlockPyStmt::Delete(_)));
     }
@@ -705,26 +748,26 @@ mod tests {
             label: BlockPyLabel("start".to_string()),
             body: vec![BlockPyStmt::Assign(BlockPyAssign {
                 target: test_name("total"),
-                value: CoreBlockPyExprWithoutAwait::Call(CoreBlockPyCall {
+                value: CoreBlockPyExprWithYield::Call(CoreBlockPyCall {
                     node_index: Default::default(),
                     range: Default::default(),
-                    func: Box::new(CoreBlockPyExprWithoutAwait::Name(test_name("__dp_iadd"))),
+                    func: Box::new(CoreBlockPyExprWithYield::Name(test_name("__dp_iadd"))),
                     args: vec![
-                        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithoutAwait::Name(
-                            test_name("total"),
-                        )),
-                        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithoutAwait::YieldFrom(
+                        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithYield::Name(test_name(
+                            "total",
+                        ))),
+                        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithYield::YieldFrom(
                             CoreBlockPyYieldFrom {
                                 node_index: Default::default(),
                                 range: Default::default(),
-                                value: Box::new(CoreBlockPyExprWithoutAwait::Name(test_name("it"))),
+                                value: Box::new(CoreBlockPyExprWithYield::Name(test_name("it"))),
                             },
                         )),
                     ],
                     keywords: Vec::new(),
                 }),
             })],
-            term: BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::Name(test_name("__dp_NONE"))),
+            term: BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(test_name("__dp_NONE"))),
             params: Vec::new(),
             exc_edge: None,
         };
@@ -736,17 +779,17 @@ mod tests {
         };
         assert!(matches!(
             temp_assign.value,
-            CoreBlockPyExprWithoutAwait::YieldFrom(_)
+            CoreBlockPyExprWithYield::YieldFrom(_)
         ));
         let BlockPyStmt::Assign(assign) = &lowered.body[1] else {
             panic!("expected rewritten assignment");
         };
-        let CoreBlockPyExprWithoutAwait::Call(call) = &assign.value else {
+        let CoreBlockPyExprWithYield::Call(call) = &assign.value else {
             panic!("expected iadd call");
         };
         assert!(matches!(
             call.args[1],
-            CoreBlockPyCallArg::Positional(CoreBlockPyExprWithoutAwait::Name(_))
+            CoreBlockPyCallArg::Positional(CoreBlockPyExprWithYield::Name(_))
         ));
         assert!(matches!(lowered.body[2], BlockPyStmt::Delete(_)));
     }

@@ -1,6 +1,6 @@
 use crate::block_py::{
-    core_positional_call_expr_with_meta, BlockPyModule, BlockPyPass, BlockPyStmt,
-    CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyLiteral, CoreStringLiteral,
+    core_positional_call_expr_with_meta, BlockPyModule, BlockPyPass, BlockPyStmt, CoreBlockPyExpr,
+    CoreBlockPyLiteral, CoreStringLiteral,
 };
 use crate::passes::PreparedBbBlockPyPass;
 use ruff_python_ast::{self as ast, ExprName};
@@ -109,37 +109,30 @@ fn load_name(id: &str) -> ExprName {
     }
 }
 
-fn string_literal_expr(value: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
-    CoreBlockPyExprWithoutAwaitOrYield::Literal(CoreBlockPyLiteral::StringLiteral(
-        CoreStringLiteral {
-            range: compat_range(),
-            node_index: compat_node_index(),
-            value: value.to_string(),
-        },
-    ))
+fn string_literal_expr(value: &str) -> CoreBlockPyExpr {
+    CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
+        range: compat_range(),
+        node_index: compat_node_index(),
+        value: value.to_string(),
+    }))
 }
 
-fn helper_call_expr(
-    helper_name: &str,
-    args: Vec<CoreBlockPyExprWithoutAwaitOrYield>,
-) -> CoreBlockPyExprWithoutAwaitOrYield {
+fn helper_call_expr(helper_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
     core_positional_call_expr_with_meta(helper_name, compat_node_index(), compat_range(), args)
 }
 
-fn tuple_expr(
-    values: Vec<CoreBlockPyExprWithoutAwaitOrYield>,
-) -> CoreBlockPyExprWithoutAwaitOrYield {
+fn tuple_expr(values: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
     helper_call_expr("__dp_tuple", values)
 }
 
-fn param_pairs_expr(params: &[String]) -> CoreBlockPyExprWithoutAwaitOrYield {
+fn param_pairs_expr(params: &[String]) -> CoreBlockPyExpr {
     tuple_expr(
         params
             .iter()
             .map(|param| {
                 tuple_expr(vec![
                     string_literal_expr(param),
-                    CoreBlockPyExprWithoutAwaitOrYield::Name(load_name(param)),
+                    CoreBlockPyExpr::Name(load_name(param)),
                 ])
             })
             .collect(),

@@ -240,9 +240,7 @@ fn ensure_known_label(
 #[cfg(test)]
 mod tests {
     use super::lower_try_jump_exception_flow;
-    use crate::block_py::{
-        BbBlock, BlockPyEdge, BlockPyLabel, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
-    };
+    use crate::block_py::{BbBlock, BlockPyEdge, BlockPyLabel, BlockPyTerm, CoreBlockPyExpr};
     use crate::{transform_str_to_bb_ir_with_options, Options};
 
     #[test]
@@ -266,8 +264,8 @@ def f(x):
             function.blocks.push(BbBlock {
                 label: body_label.clone(),
                 body: vec![],
-                term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(
-                    <CoreBlockPyExprWithoutAwaitOrYield as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+                term: BlockPyTerm::<CoreBlockPyExpr>::Return(
+                    <CoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
                 ),
                 params: vec![crate::block_py::BlockParam {
                     name: "_dp_try_exc_manual".to_string(),
@@ -278,8 +276,8 @@ def f(x):
             function.blocks.push(BbBlock {
                 label: except_label.clone(),
                 body: vec![],
-                term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(
-                    <CoreBlockPyExprWithoutAwaitOrYield as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+                term: BlockPyTerm::<CoreBlockPyExpr>::Return(
+                    <CoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
                 ),
                 params: Vec::new(),
                 exc_edge: None,
@@ -361,8 +359,8 @@ def f():
         function.blocks.push(BbBlock {
             label: except_label.clone(),
             body: vec![],
-            term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(
-                <CoreBlockPyExprWithoutAwaitOrYield as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+            term: BlockPyTerm::<CoreBlockPyExpr>::Return(
+                <CoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
             ),
             params: Vec::new(),
             exc_edge: None,
@@ -431,8 +429,8 @@ def f():
         function.blocks.push(BbBlock {
             label: except_label.clone(),
             body: vec![],
-            term: BlockPyTerm::<CoreBlockPyExprWithoutAwaitOrYield>::Return(
-                <CoreBlockPyExprWithoutAwaitOrYield as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+            term: BlockPyTerm::<CoreBlockPyExpr>::Return(
+                <CoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
             ),
             params: Vec::new(),
             exc_edge: None,
@@ -497,7 +495,7 @@ def f():
                 matches!(
                     block.term,
                     crate::block_py::BlockPyTerm::Return(
-                        crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(
+                        crate::block_py::CoreBlockPyExpr::Literal(
                             crate::block_py::CoreBlockPyLiteral::NumberLiteral(
                                 crate::block_py::CoreNumberLiteral {
                                     value: crate::block_py::CoreNumberLiteralValue::Int(_),
@@ -522,7 +520,7 @@ def f():
                 matches!(
                     block.term,
                     crate::block_py::BlockPyTerm::Return(
-                        crate::block_py::CoreBlockPyExprWithoutAwaitOrYield::Literal(
+                        crate::block_py::CoreBlockPyExpr::Literal(
                             crate::block_py::CoreBlockPyLiteral::NumberLiteral(
                                 crate::block_py::CoreNumberLiteral {
                                     value: crate::block_py::CoreNumberLiteralValue::Int(_),

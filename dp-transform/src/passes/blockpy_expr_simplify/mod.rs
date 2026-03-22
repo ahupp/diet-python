@@ -4,7 +4,7 @@ use crate::block_py::{
     core_call_expr_with_meta, BlockPyAssign, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete,
     BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyStmtFragment,
     BlockPyStmtFragmentBuilder, BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyYield,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyYield,
     CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
     CoreStringLiteral,
 };
@@ -20,7 +20,7 @@ use ruff_python_ast::{self as ast, Expr};
 #[cfg(test)]
 use crate::block_py::BlockPyModule;
 
-type CoreStmtBuilder = BlockPyStmtFragmentBuilder<CoreBlockPyExpr>;
+type CoreStmtBuilder = BlockPyStmtFragmentBuilder<CoreBlockPyExprWithAwaitAndYield>;
 type SemanticExpr = Expr;
 
 struct SemanticExprBoundaryValidator;
@@ -46,8 +46,8 @@ fn assert_expr_simplify_boundary(expr: &SemanticExpr) {
     SemanticExprBoundaryValidator.visit_expr(&mut expr);
 }
 
-fn core_builtin_name(id: &str) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Name(ast::ExprName {
+fn core_builtin_name(id: &str) -> CoreBlockPyExprWithAwaitAndYield {
+    CoreBlockPyExprWithAwaitAndYield::Name(ast::ExprName {
         id: id.into(),
         ctx: ast::ExprContext::Load,
         range: Default::default(),
@@ -56,20 +56,20 @@ fn core_builtin_name(id: &str) -> CoreBlockPyExpr {
 }
 
 pub(crate) trait PureCoreExprReducer {
-    fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExpr;
+    fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExprWithAwaitAndYield;
 }
 
 struct DefaultCoreExprReducer;
 
 impl PureCoreExprReducer for DefaultCoreExprReducer {
-    fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExpr {
+    fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExprWithAwaitAndYield {
         let mut expr = expr.clone();
         lower_string_templates_in_expr(&mut expr);
         expr.into()
     }
 }
 
-fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExpr {
+fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithAwaitAndYield {
     let mut segments: Vec<Expr> = Vec::new();
     let mut keyed_pairs = Vec::new();
 
@@ -107,10 +107,10 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExpr {
             .reduce(|left, right| make_binop("or_", left, right))
             .expect("dict segments are non-empty"),
     };
-    CoreBlockPyExpr::from(expr)
+    CoreBlockPyExprWithAwaitAndYield::from(expr)
 }
 
-impl From<Expr> for CoreBlockPyExpr {
+impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
     fn from(value: Expr) -> Self {
         match value {
             Expr::Call(node) => core_call_expr_with_meta(
@@ -314,7 +314,9 @@ impl From<Expr> for CoreBlockPyExpr {
     }
 }
 
-fn finish_expr_setup(builder: CoreStmtBuilder) -> Vec<BlockPyStmt<CoreBlockPyExpr>> {
+fn finish_expr_setup(
+    builder: CoreStmtBuilder,
+) -> Vec<BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>> {
     let fragment = builder.finish();
     assert!(
         fragment.term.is_none(),
@@ -323,7 +325,10 @@ fn finish_expr_setup(builder: CoreStmtBuilder) -> Vec<BlockPyStmt<CoreBlockPyExp
     fragment.body
 }
 
-fn lower_semantic_expr_into(builder: &mut CoreStmtBuilder, expr: &SemanticExpr) -> CoreBlockPyExpr {
+fn lower_semantic_expr_into(
+    builder: &mut CoreStmtBuilder,
+    expr: &SemanticExpr,
+) -> CoreBlockPyExprWithAwaitAndYield {
     assert_expr_simplify_boundary(expr);
     let mut next_label_id = 0usize;
     let mut setup_builder = BlockPyStmtFragmentBuilder::<Expr>::new();
@@ -341,7 +346,7 @@ fn lower_semantic_expr_into(builder: &mut CoreStmtBuilder, expr: &SemanticExpr) 
 }
 
 #[cfg(test)]
-fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExpr {
+fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExprWithAwaitAndYield {
     let mut setup = CoreStmtBuilder::new();
     let lowered = lower_semantic_expr_into(&mut setup, expr);
     assert!(
@@ -353,7 +358,7 @@ fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExpr {
 
 fn lower_semantic_stmt_fragment(
     fragment: CoreLikeStmtFragmentInput,
-) -> BlockPyStmtFragment<CoreBlockPyExpr> {
+) -> BlockPyStmtFragment<CoreBlockPyExprWithAwaitAndYield> {
     let mut builder = CoreStmtBuilder::new();
     for stmt in fragment.body {
         lower_semantic_stmt_into(&mut builder, stmt);
@@ -468,7 +473,10 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: BlockPyTerm<Exp
 
 fn lower_semantic_block(
     block: CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>>,
-) -> CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>> {
+) -> CfgBlock<
+    BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+    BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+> {
     let CfgBlock {
         label,
         body,
@@ -536,7 +544,8 @@ type TestCoreBlockPyModule = BlockPyModule<CoreBlockPyPass>;
 mod tests {
     use super::simplify_blockpy_module_exprs;
     use crate::block_py::{
-        CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+        CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg,
+        CoreBlockPyLiteral,
     };
     use crate::passes::RuffBlockPyPass;
     use crate::py_expr;
@@ -573,14 +582,15 @@ def f(x):
         let expr = Expr::from(py_expr!("-(x + 1)"));
         let lowered = super::lower_semantic_expr_without_setup(&expr);
 
-        let CoreBlockPyExpr::Call(outer) = lowered else {
+        let CoreBlockPyExprWithAwaitAndYield::Call(outer) = lowered else {
             panic!("expected call-shaped core expr");
         };
         assert!(matches!(
             &*outer.func,
-            CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_neg"
+            CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "__dp_neg"
         ));
-        let [CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Intrinsic(inner))] = &outer.args[..]
+        let [CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Intrinsic(inner))] =
+            &outer.args[..]
         else {
             panic!("expected __dp_neg to receive one lowered intrinsic arg");
         };
@@ -590,38 +600,41 @@ def f(x):
     #[test]
     fn core_blockpy_expr_uses_reduced_variants_for_simple_shapes() {
         assert!(matches!(
-            CoreBlockPyExpr::from(py_expr!("x")),
-            CoreBlockPyExpr::Name(_)
+            CoreBlockPyExprWithAwaitAndYield::from(py_expr!("x")),
+            CoreBlockPyExprWithAwaitAndYield::Name(_)
         ));
         assert!(matches!(
-            CoreBlockPyExpr::from(py_expr!("1")),
-            CoreBlockPyExpr::Literal(CoreBlockPyLiteral::NumberLiteral(_))
+            CoreBlockPyExprWithAwaitAndYield::from(py_expr!("1")),
+            CoreBlockPyExprWithAwaitAndYield::Literal(CoreBlockPyLiteral::NumberLiteral(_))
         ));
         assert!(matches!(
-            CoreBlockPyExpr::from(py_expr!("f(x)")),
-            CoreBlockPyExpr::Call(_)
+            CoreBlockPyExprWithAwaitAndYield::from(py_expr!("f(x)")),
+            CoreBlockPyExprWithAwaitAndYield::Call(_)
         ));
         assert!(matches!(
-            CoreBlockPyExpr::from(py_expr!("await f(x)")),
-            CoreBlockPyExpr::Await(_)
+            CoreBlockPyExprWithAwaitAndYield::from(py_expr!("await f(x)")),
+            CoreBlockPyExprWithAwaitAndYield::Await(_)
         ));
         assert!(matches!(
-            CoreBlockPyExpr::from(py_expr!("yield x")),
-            CoreBlockPyExpr::Yield(_)
+            CoreBlockPyExprWithAwaitAndYield::from(py_expr!("yield x")),
+            CoreBlockPyExprWithAwaitAndYield::Yield(_)
         ));
         assert!(matches!(
-            CoreBlockPyExpr::from(py_expr!("yield from xs")),
-            CoreBlockPyExpr::YieldFrom(_)
+            CoreBlockPyExprWithAwaitAndYield::from(py_expr!("yield from xs")),
+            CoreBlockPyExprWithAwaitAndYield::YieldFrom(_)
         ));
     }
 
     #[test]
     fn core_blockpy_call_supports_star_args_and_kwargs() {
-        let CoreBlockPyExpr::Call(call) = CoreBlockPyExpr::from(py_expr!("f(x, *args, y=z, **kw)"))
+        let CoreBlockPyExprWithAwaitAndYield::Call(call) =
+            CoreBlockPyExprWithAwaitAndYield::from(py_expr!("f(x, *args, y=z, **kw)"))
         else {
             panic!("expected reduced call expr");
         };
-        assert!(matches!(&*call.func, CoreBlockPyExpr::Name(name) if name.id.as_str() == "f"));
+        assert!(
+            matches!(&*call.func, CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "f")
+        );
         assert_eq!(call.args.len(), 2);
         assert!(matches!(call.args[0], CoreBlockPyCallArg::Positional(_)));
         assert!(matches!(call.args[1], CoreBlockPyCallArg::Starred(_)));
@@ -639,7 +652,9 @@ def f(x):
     #[test]
     fn core_blockpy_expr_reduces_add_to_structured_intrinsic() {
         let parsed = *parse_expression("x + y").unwrap().into_syntax().body;
-        let CoreBlockPyExpr::Intrinsic(call) = CoreBlockPyExpr::from(parsed) else {
+        let CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) =
+            CoreBlockPyExprWithAwaitAndYield::from(parsed)
+        else {
             panic!("expected intrinsic-shaped reduced expr for x + y");
         };
         assert_eq!(call.intrinsic.name(), "__dp_add");
@@ -658,11 +673,13 @@ def f(x):
             ("{x: y}", "__dp_dict"),
         ] {
             let parsed = *parse_expression(expr).unwrap().into_syntax().body;
-            let CoreBlockPyExpr::Call(call) = CoreBlockPyExpr::from(parsed) else {
+            let CoreBlockPyExprWithAwaitAndYield::Call(call) =
+                CoreBlockPyExprWithAwaitAndYield::from(parsed)
+            else {
                 panic!("expected call-shaped reduced expr for {expr}");
             };
             assert!(
-                matches!(&*call.func, CoreBlockPyExpr::Name(name) if name.id.as_str() == helper_name),
+                matches!(&*call.func, CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == helper_name),
                 "{call:?}",
             );
         }
@@ -671,11 +688,15 @@ def f(x):
     #[test]
     fn core_blockpy_expr_reuses_shared_tuple_splat_intrinsic_shape() {
         let parsed = *parse_expression("(x, *xs, y)").unwrap().into_syntax().body;
-        let CoreBlockPyExpr::Intrinsic(call) = CoreBlockPyExpr::from(parsed) else {
+        let CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) =
+            CoreBlockPyExprWithAwaitAndYield::from(parsed)
+        else {
             panic!("expected intrinsic-shaped reduced tuple expr");
         };
         assert_eq!(call.intrinsic.name(), "__dp_add");
-        let rendered = ruff_ast_to_string(&Expr::from(CoreBlockPyExpr::Intrinsic(call)));
+        let rendered = ruff_ast_to_string(&Expr::from(
+            CoreBlockPyExprWithAwaitAndYield::Intrinsic(call),
+        ));
         assert!(rendered.contains("__dp_tuple_from_iter(xs)"), "{rendered}");
     }
 
@@ -683,12 +704,14 @@ def f(x):
     fn core_blockpy_expr_reuses_shared_tuple_splat_for_list_and_set() {
         for (expr, intrinsic) in [("[x, *xs, y]", "__dp_list"), ("{x, *xs, y}", "__dp_set")] {
             let parsed = *parse_expression(expr).unwrap().into_syntax().body;
-            let CoreBlockPyExpr::Call(call) = CoreBlockPyExpr::from(parsed) else {
+            let CoreBlockPyExprWithAwaitAndYield::Call(call) =
+                CoreBlockPyExprWithAwaitAndYield::from(parsed)
+            else {
                 panic!("expected call-shaped reduced expr for {expr}");
             };
             assert!(matches!(
                 &*call.func,
-                CoreBlockPyExpr::Name(name) if name.id.as_str() == intrinsic
+                CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == intrinsic
             ));
             let [CoreBlockPyCallArg::Positional(tupleish)] = &call.args[..] else {
                 panic!("expected one positional arg for {expr}");
@@ -708,7 +731,7 @@ def f(x):
             "(x for x in xs)",
         ] {
             let parsed = *parse_expression(expr).unwrap().into_syntax().body;
-            let panic = std::panic::catch_unwind(|| CoreBlockPyExpr::from(parsed));
+            let panic = std::panic::catch_unwind(|| CoreBlockPyExprWithAwaitAndYield::from(parsed));
             assert!(
                 panic.is_err(),
                 "{expr} should be lowered before the core boundary"

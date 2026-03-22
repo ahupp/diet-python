@@ -4826,9 +4826,9 @@ pub unsafe fn run_cranelift_run_bb_specialized(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dp_transform::block_py::{BlockPyRaise, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield};
+    use dp_transform::block_py::{BlockPyRaise, BlockPyTerm, CoreBlockPyExpr};
 
-    fn test_term() -> BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield> {
+    fn test_term() -> BlockPyTerm<CoreBlockPyExpr> {
         BlockPyTerm::Raise(BlockPyRaise { exc: None })
     }
 

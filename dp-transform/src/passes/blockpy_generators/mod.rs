@@ -7,7 +7,7 @@ use crate::block_py::{
     BlockParamRole, BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder,
     BlockPyCfgFragment, BlockPyFunction, BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm,
     BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout,
-    ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithoutAwait, CoreBlockPyExprWithoutAwaitOrYield,
+    ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
     FunctionId, FunctionName,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
@@ -113,9 +113,9 @@ fn expr_name(id: &str) -> ExprName {
     expr
 }
 
-fn core_expr_without_yield(expr: Expr) -> CoreBlockPyExprWithoutAwaitOrYield {
-    let core = CoreBlockPyExpr::from(expr);
-    let core_without_await: CoreBlockPyExprWithoutAwait = core
+fn core_expr_without_yield(expr: Expr) -> CoreBlockPyExpr {
+    let core = CoreBlockPyExprWithAwaitAndYield::from(expr);
+    let core_without_await: CoreBlockPyExprWithYield = core
         .try_into()
         .unwrap_or_else(|_| panic!("generator helper expression unexpectedly contained await"));
     core_without_await
@@ -123,22 +123,19 @@ fn core_expr_without_yield(expr: Expr) -> CoreBlockPyExprWithoutAwaitOrYield {
         .unwrap_or_else(|_| panic!("generator helper expression unexpectedly contained yield"))
 }
 
-fn core_name(name: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
+fn core_name(name: &str) -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("{name:id}", name = name))
 }
 
-fn core_literal_int(value: usize) -> CoreBlockPyExprWithoutAwaitOrYield {
+fn core_literal_int(value: usize) -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("{value:literal}", value = value))
 }
 
-fn core_none() -> CoreBlockPyExprWithoutAwaitOrYield {
+fn core_none() -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("None"))
 }
 
-fn core_call(
-    func_name: &str,
-    args: Vec<CoreBlockPyExprWithoutAwaitOrYield>,
-) -> CoreBlockPyExprWithoutAwaitOrYield {
+fn core_call(func_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
     core_positional_call_expr_with_meta(
         func_name,
         ast::AtomicNodeIndex::default(),
@@ -147,7 +144,7 @@ fn core_call(
     )
 }
 
-fn runtime_init_expr(slot: &ClosureSlot) -> CoreBlockPyExprWithoutAwaitOrYield {
+fn runtime_init_expr(slot: &ClosureSlot) -> CoreBlockPyExpr {
     match slot.init {
         ClosureInit::InheritedCapture => {
             panic!("inherited captures do not allocate new cells in outer factories")
@@ -174,8 +171,8 @@ fn is_async_generator(kind: BlockPyFunctionKind) -> bool {
 
 fn injected_exception_names(
     blocks: &[CfgBlock<
-        BlockPyStmt<CoreBlockPyExprWithoutAwait>,
-        BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+        BlockPyStmt<CoreBlockPyExprWithYield>,
+        BlockPyTerm<CoreBlockPyExprWithYield>,
     >],
 ) -> HashSet<String> {
     let mut names = HashSet::new();
@@ -307,15 +304,9 @@ fn generator_cell_storage_by_logical_name(layout: &ClosureLayout) -> HashMap<Str
 }
 
 fn sync_resume_state_fragment(
-    fragment: BlockPyCfgFragment<
-        BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
-        BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-    >,
+    fragment: BlockPyCfgFragment<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>,
     storage_by_logical_name: &HashMap<String, String>,
-) -> BlockPyCfgFragment<
-    BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
-    BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-> {
+) -> BlockPyCfgFragment<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>> {
     BlockPyCfgFragment {
         body: sync_resume_state_body(fragment.body, storage_by_logical_name),
         term: fragment.term,
@@ -323,9 +314,9 @@ fn sync_resume_state_fragment(
 }
 
 fn sync_resume_state_stmt(
-    stmt: BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
+    stmt: BlockPyStmt<CoreBlockPyExpr>,
     storage_by_logical_name: &HashMap<String, String>,
-) -> Vec<BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>> {
+) -> Vec<BlockPyStmt<CoreBlockPyExpr>> {
     match stmt {
         BlockPyStmt::Assign(assign) => {
             let target_name = assign.target.id.to_string();
@@ -352,9 +343,9 @@ fn sync_resume_state_stmt(
 }
 
 fn sync_resume_state_body(
-    body: Vec<BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>>,
+    body: Vec<BlockPyStmt<CoreBlockPyExpr>>,
     storage_by_logical_name: &HashMap<String, String>,
-) -> Vec<BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>> {
+) -> Vec<BlockPyStmt<CoreBlockPyExpr>> {
     let mut synced = Vec::new();
     for stmt in body {
         synced.extend(sync_resume_state_stmt(stmt, storage_by_logical_name));
@@ -363,19 +354,9 @@ fn sync_resume_state_body(
 }
 
 fn sync_resume_state_blocks(
-    blocks: Vec<
-        CfgBlock<
-            BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
-            BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-        >,
-    >,
+    blocks: Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>,
     layout: &ClosureLayout,
-) -> Vec<
-    CfgBlock<
-        BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
-        BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-    >,
-> {
+) -> Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>> {
     let storage_by_logical_name = generator_cell_storage_by_logical_name(layout);
     if storage_by_logical_name.is_empty() {
         return blocks;
@@ -398,7 +379,7 @@ fn build_factory_block(
     resume_state_order: &[String],
     layout: &ClosureLayout,
     kind: BlockPyFunctionKind,
-) -> BlockPyBlock<CoreBlockPyExprWithoutAwaitOrYield> {
+) -> BlockPyBlock<CoreBlockPyExpr> {
     let mut block = BlockPyCfgBlockBuilder::new(BlockPyLabel::from("_dp_factory_entry"));
 
     for slot in layout.cellvars.iter().chain(layout.runtime_cells.iter()) {
@@ -489,10 +470,7 @@ fn resume_param_spec(kind: BlockPyFunctionKind) -> ParamSpec {
 }
 
 fn fresh_resume_dispatch_label(
-    blocks: &[CfgBlock<
-        BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
-        BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-    >],
+    blocks: &[CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>],
     exhausted_label: &BlockPyLabel,
 ) -> BlockPyLabel {
     let base = "_dp_resume_dispatch";
@@ -516,51 +494,49 @@ fn fresh_resume_dispatch_label(
 
 #[derive(Clone)]
 enum YieldSite {
-    ExprYield(Option<CoreBlockPyExprWithoutAwait>),
+    ExprYield(Option<CoreBlockPyExprWithYield>),
     AssignYield {
         target: ExprName,
-        value: Option<CoreBlockPyExprWithoutAwait>,
+        value: Option<CoreBlockPyExprWithYield>,
     },
-    ReturnYield(Option<CoreBlockPyExprWithoutAwait>),
-    ExprYieldFrom(CoreBlockPyExprWithoutAwait),
+    ReturnYield(Option<CoreBlockPyExprWithYield>),
+    ExprYieldFrom(CoreBlockPyExprWithYield),
     AssignYieldFrom {
         target: ExprName,
-        value: CoreBlockPyExprWithoutAwait,
+        value: CoreBlockPyExprWithYield,
     },
-    ReturnYieldFrom(CoreBlockPyExprWithoutAwait),
+    ReturnYieldFrom(CoreBlockPyExprWithYield),
 }
 
-fn stmt_yield_site(stmt: &BlockPyStmt<CoreBlockPyExprWithoutAwait>) -> Option<YieldSite> {
+fn stmt_yield_site(stmt: &BlockPyStmt<CoreBlockPyExprWithYield>) -> Option<YieldSite> {
     match stmt {
-        BlockPyStmt::Expr(CoreBlockPyExprWithoutAwait::Yield(yield_expr)) => {
+        BlockPyStmt::Expr(CoreBlockPyExprWithYield::Yield(yield_expr)) => {
             Some(YieldSite::ExprYield(yield_expr.value.as_deref().cloned()))
         }
-        BlockPyStmt::Expr(CoreBlockPyExprWithoutAwait::YieldFrom(yield_from)) => {
+        BlockPyStmt::Expr(CoreBlockPyExprWithYield::YieldFrom(yield_from)) => {
             Some(YieldSite::ExprYieldFrom((*yield_from.value).clone()))
         }
         BlockPyStmt::Assign(assign) => match &assign.value {
-            CoreBlockPyExprWithoutAwait::Yield(yield_expr) => Some(YieldSite::AssignYield {
+            CoreBlockPyExprWithYield::Yield(yield_expr) => Some(YieldSite::AssignYield {
                 target: assign.target.clone(),
                 value: yield_expr.value.as_deref().cloned(),
             }),
-            CoreBlockPyExprWithoutAwait::YieldFrom(yield_from) => {
-                Some(YieldSite::AssignYieldFrom {
-                    target: assign.target.clone(),
-                    value: (*yield_from.value).clone(),
-                })
-            }
+            CoreBlockPyExprWithYield::YieldFrom(yield_from) => Some(YieldSite::AssignYieldFrom {
+                target: assign.target.clone(),
+                value: (*yield_from.value).clone(),
+            }),
             _ => None,
         },
         BlockPyStmt::Delete(_) | BlockPyStmt::If(_) | BlockPyStmt::Expr(_) => None,
     }
 }
 
-fn term_yield_site(term: &BlockPyTerm<CoreBlockPyExprWithoutAwait>) -> Option<YieldSite> {
+fn term_yield_site(term: &BlockPyTerm<CoreBlockPyExprWithYield>) -> Option<YieldSite> {
     match term {
-        BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::Yield(yield_expr)) => {
+        BlockPyTerm::Return(CoreBlockPyExprWithYield::Yield(yield_expr)) => {
             Some(YieldSite::ReturnYield(yield_expr.value.as_deref().cloned()))
         }
-        BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::YieldFrom(yield_from)) => {
+        BlockPyTerm::Return(CoreBlockPyExprWithYield::YieldFrom(yield_from)) => {
             Some(YieldSite::ReturnYieldFrom((*yield_from.value).clone()))
         }
         _ => None,
@@ -568,8 +544,8 @@ fn term_yield_site(term: &BlockPyTerm<CoreBlockPyExprWithoutAwait>) -> Option<Yi
 }
 
 fn lower_stmt_no_yield(
-    stmt: BlockPyStmt<CoreBlockPyExprWithoutAwait>,
-) -> BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield> {
+    stmt: BlockPyStmt<CoreBlockPyExprWithYield>,
+) -> BlockPyStmt<CoreBlockPyExpr> {
     stmt.clone().try_into().unwrap_or_else(|_| {
         panic!(
             "generator lowering expected yield-like sites to be split before stmt conversion: {stmt:?}"
@@ -578,8 +554,8 @@ fn lower_stmt_no_yield(
 }
 
 fn lower_term_no_yield(
-    term: BlockPyTerm<CoreBlockPyExprWithoutAwait>,
-) -> BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield> {
+    term: BlockPyTerm<CoreBlockPyExprWithYield>,
+) -> BlockPyTerm<CoreBlockPyExpr> {
     term.clone().try_into().unwrap_or_else(|_| {
         panic!(
             "generator lowering expected yield-like sites to be split before term conversion: {term:?}"
@@ -587,9 +563,7 @@ fn lower_term_no_yield(
     })
 }
 
-fn yield_value_expr(
-    value: Option<CoreBlockPyExprWithoutAwait>,
-) -> CoreBlockPyExprWithoutAwaitOrYield {
+fn yield_value_expr(value: Option<CoreBlockPyExprWithYield>) -> CoreBlockPyExpr {
     value
         .map(|value| {
             value
@@ -601,8 +575,8 @@ fn yield_value_expr(
 
 fn completion_raise(
     kind: BlockPyFunctionKind,
-    value: Option<CoreBlockPyExprWithoutAwaitOrYield>,
-) -> BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield> {
+    value: Option<CoreBlockPyExpr>,
+) -> BlockPyTerm<CoreBlockPyExpr> {
     match kind {
         BlockPyFunctionKind::Generator | BlockPyFunctionKind::Coroutine => {
             let exc = if let Some(value) = value {
@@ -622,8 +596,8 @@ fn completion_raise(
 fn push_completion_raise_block(
     state: &mut ResumeLoweringState,
     label: BlockPyLabel,
-    mut body: Vec<BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>>,
-    value: Option<CoreBlockPyExprWithoutAwaitOrYield>,
+    mut body: Vec<BlockPyStmt<CoreBlockPyExpr>>,
+    value: Option<CoreBlockPyExpr>,
     params: Vec<BlockParam>,
     exc_target: Option<String>,
 ) {
@@ -658,39 +632,39 @@ fn push_completion_raise_block(
     );
 }
 
-fn is_resume_exc_test() -> CoreBlockPyExprWithoutAwaitOrYield {
+fn is_resume_exc_test() -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("__dp_is_not(_dp_resume_exc, __dp_NO_DEFAULT)"))
 }
 
-fn is_send_none_test() -> CoreBlockPyExprWithoutAwaitOrYield {
+fn is_send_none_test() -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("__dp_is_(_dp_send_value, None)"))
 }
 
-fn is_name_none_test(name: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
+fn is_name_none_test(name: &str) -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("__dp_is_({name:id}, None)", name = name))
 }
 
-fn is_name_not_none_test(name: &str) -> CoreBlockPyExprWithoutAwaitOrYield {
+fn is_name_not_none_test(name: &str) -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("__dp_is_not({name:id}, None)", name = name))
 }
 
-fn is_resume_generator_exit_test() -> CoreBlockPyExprWithoutAwaitOrYield {
+fn is_resume_generator_exit_test() -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("isinstance(_dp_resume_exc, GeneratorExit)"))
 }
 
-fn resume_exc_raise_term() -> BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield> {
+fn resume_exc_raise_term() -> BlockPyTerm<CoreBlockPyExpr> {
     BlockPyTerm::Raise(BlockPyRaise {
         exc: Some(core_name("_dp_resume_exc")),
     })
 }
 
-fn stop_iteration_match_test() -> CoreBlockPyExprWithoutAwaitOrYield {
+fn stop_iteration_match_test() -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!(
         "__dp_exception_matches(__dp_current_exception(), StopIteration)"
     ))
 }
 
-fn current_exception_value_expr() -> CoreBlockPyExprWithoutAwaitOrYield {
+fn current_exception_value_expr() -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!(
         "__dp_getattr(__dp_current_exception(), \"value\")"
     ))
@@ -700,7 +674,7 @@ struct ResumeLoweringState {
     kind: BlockPyFunctionKind,
     next_label_id: usize,
     next_resume_pc: usize,
-    blocks: Vec<BlockPyBlock<CoreBlockPyExprWithoutAwaitOrYield>>,
+    blocks: Vec<BlockPyBlock<CoreBlockPyExpr>>,
     exception_edges: HashMap<String, Option<String>>,
     resume_targets: Vec<(usize, BlockPyLabel)>,
     exhausted_label: BlockPyLabel,
@@ -739,11 +713,7 @@ impl ResumeLoweringState {
         name
     }
 
-    fn push_block(
-        &mut self,
-        block: BlockPyBlock<CoreBlockPyExprWithoutAwaitOrYield>,
-        exc_target: Option<String>,
-    ) {
+    fn push_block(&mut self, block: BlockPyBlock<CoreBlockPyExpr>, exc_target: Option<String>) {
         self.exception_edges
             .insert(block.label.as_str().to_string(), exc_target);
         self.blocks.push(block);
@@ -753,8 +723,8 @@ impl ResumeLoweringState {
 fn lower_resume_fragment(
     state: &mut ResumeLoweringState,
     label: BlockPyLabel,
-    body: Vec<BlockPyStmt<CoreBlockPyExprWithoutAwait>>,
-    term: BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+    body: Vec<BlockPyStmt<CoreBlockPyExprWithYield>>,
+    term: BlockPyTerm<CoreBlockPyExprWithYield>,
     params: Vec<BlockParam>,
     exc_target: Option<String>,
 ) {
@@ -831,10 +801,10 @@ fn lower_resume_fragment(
 fn emit_yield_site(
     state: &mut ResumeLoweringState,
     label: BlockPyLabel,
-    prefix: &mut Vec<BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>>,
+    prefix: &mut Vec<BlockPyStmt<CoreBlockPyExpr>>,
     site: YieldSite,
-    tail_body: Vec<BlockPyStmt<CoreBlockPyExprWithoutAwait>>,
-    tail_term: BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+    tail_body: Vec<BlockPyStmt<CoreBlockPyExprWithYield>>,
+    tail_term: BlockPyTerm<CoreBlockPyExprWithYield>,
     params: Vec<BlockParam>,
     exc_target: Option<String>,
 ) {
@@ -924,9 +894,7 @@ fn emit_yield_site(
                 resume_label,
                 None,
                 Vec::new(),
-                BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::Name(expr_name(
-                    "_dp_send_value",
-                ))),
+                BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(expr_name("_dp_send_value"))),
                 params,
                 exc_target,
             );
@@ -952,7 +920,7 @@ fn emit_yield_site(
             value,
             None,
             Vec::new(),
-            BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::Name(expr_name(
+            BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(expr_name(
                 "_dp_yield_from_value",
             ))),
             params,
@@ -965,8 +933,8 @@ fn emit_resume_after_yield(
     state: &mut ResumeLoweringState,
     resume_label: BlockPyLabel,
     assign_target: Option<ExprName>,
-    mut tail_body: Vec<BlockPyStmt<CoreBlockPyExprWithoutAwait>>,
-    tail_term: BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+    mut tail_body: Vec<BlockPyStmt<CoreBlockPyExprWithYield>>,
+    tail_term: BlockPyTerm<CoreBlockPyExprWithYield>,
     params: Vec<BlockParam>,
     exc_target: Option<String>,
 ) {
@@ -1001,7 +969,7 @@ fn emit_resume_after_yield(
             0,
             BlockPyStmt::Assign(BlockPyAssign {
                 target,
-                value: CoreBlockPyExprWithoutAwait::Name(expr_name("_dp_send_value")),
+                value: CoreBlockPyExprWithYield::Name(expr_name("_dp_send_value")),
             }),
         );
     }
@@ -1019,11 +987,11 @@ fn emit_resume_after_yield(
 fn emit_yield_from_site(
     state: &mut ResumeLoweringState,
     label: BlockPyLabel,
-    prefix: &mut Vec<BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>>,
-    value: CoreBlockPyExprWithoutAwait,
+    prefix: &mut Vec<BlockPyStmt<CoreBlockPyExpr>>,
+    value: CoreBlockPyExprWithYield,
     assign_target: Option<ExprName>,
-    mut tail_body: Vec<BlockPyStmt<CoreBlockPyExprWithoutAwait>>,
-    tail_term: BlockPyTerm<CoreBlockPyExprWithoutAwait>,
+    mut tail_body: Vec<BlockPyStmt<CoreBlockPyExprWithYield>>,
+    tail_term: BlockPyTerm<CoreBlockPyExprWithYield>,
     params: Vec<BlockParam>,
     exc_target: Option<String>,
 ) {
@@ -1040,7 +1008,7 @@ fn emit_yield_from_site(
     let call_except_label = state.fresh_label("yield_from_except");
     let stopiter_label = state.fresh_label("yield_from_stopiter");
     let non_stopiter_label = state.fresh_label("yield_from_non_stopiter");
-    let value_expr: CoreBlockPyExprWithoutAwaitOrYield = value
+    let value_expr: CoreBlockPyExpr = value
         .try_into()
         .unwrap_or_else(|_| panic!("yield from payload unexpectedly contained nested yield"));
     let yielded_value_name = state.fresh_temp("yield_from_value");
@@ -1286,7 +1254,7 @@ fn emit_yield_from_site(
         0,
         BlockPyStmt::Assign(BlockPyAssign {
             target: expr_name("_dp_yieldfrom"),
-            value: CoreBlockPyExprWithoutAwait::Name(expr_name("__dp_NONE")),
+            value: CoreBlockPyExprWithYield::Name(expr_name("__dp_NONE")),
         }),
     );
     if let Some(target) = assign_target {
@@ -1294,16 +1262,16 @@ fn emit_yield_from_site(
             1,
             BlockPyStmt::Assign(BlockPyAssign {
                 target,
-                value: CoreBlockPyExprWithoutAwait::Name(expr_name(yielded_value_name.as_str())),
+                value: CoreBlockPyExprWithYield::Name(expr_name(yielded_value_name.as_str())),
             }),
         );
-    } else if matches!(tail_term, BlockPyTerm::Return(CoreBlockPyExprWithoutAwait::Name(ref name)) if name.id.as_str() == "_dp_yield_from_value")
+    } else if matches!(tail_term, BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(ref name)) if name.id.as_str() == "_dp_yield_from_value")
     {
         tail_body.insert(
             1,
             BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name("_dp_yield_from_value"),
-                value: CoreBlockPyExprWithoutAwait::Name(expr_name(yielded_value_name.as_str())),
+                value: CoreBlockPyExprWithYield::Name(expr_name(yielded_value_name.as_str())),
             }),
         );
     }
@@ -1313,12 +1281,7 @@ fn emit_yield_from_site(
 fn lower_resume_blocks(
     callable: &BlockPyFunction<CoreBlockPyPassWithoutAwait>,
 ) -> (
-    Vec<
-        CfgBlock<
-            BlockPyStmt<CoreBlockPyExprWithoutAwaitOrYield>,
-            BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-        >,
-    >,
+    Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>,
     HashMap<String, Option<String>>,
     String,
 ) {

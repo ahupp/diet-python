@@ -1,7 +1,7 @@
 use dp_transform::block_py::{
     AbruptKind, BbStmt, BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyTerm,
-    CoreBlockPyCallArg, CoreBlockPyExprWithoutAwaitOrYield, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral, CoreNumberLiteralValue, PreparedBbBlock, intrinsics,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    CoreNumberLiteralValue, PreparedBbBlock, intrinsics,
 };
 use dp_transform::passes::PreparedBbBlockPyPass;
 use std::collections::{HashMap, HashSet};
@@ -17,7 +17,7 @@ pub struct ClifPlan {
 pub struct ClifBlockPlan {
     pub label: String,
     pub param_names: Vec<String>,
-    pub term: BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
+    pub term: BlockPyTerm<CoreBlockPyExpr>,
     pub exc_target: Option<usize>,
     pub exc_dispatch: Option<BlockExcDispatchPlan>,
     pub fast_path: BlockFastPath,
@@ -352,14 +352,10 @@ fn bb_function_registry() -> &'static Mutex<FunctionRegistry> {
     BB_FUNCTION_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn direct_simple_expr_from(
-    expr: &CoreBlockPyExprWithoutAwaitOrYield,
-) -> Option<DirectSimpleExprPlan> {
+fn direct_simple_expr_from(expr: &CoreBlockPyExpr) -> Option<DirectSimpleExprPlan> {
     match expr {
-        CoreBlockPyExprWithoutAwaitOrYield::Name(name) => {
-            Some(DirectSimpleExprPlan::Name(name.id.to_string()))
-        }
-        CoreBlockPyExprWithoutAwaitOrYield::Literal(literal) => match literal {
+        CoreBlockPyExpr::Name(name) => Some(DirectSimpleExprPlan::Name(name.id.to_string())),
+        CoreBlockPyExpr::Literal(literal) => match literal {
             CoreBlockPyLiteral::NumberLiteral(number) => match &number.value {
                 CoreNumberLiteralValue::Int(value) => value.as_i64().map(DirectSimpleExprPlan::Int),
                 CoreNumberLiteralValue::Float(value) => Some(DirectSimpleExprPlan::Float(*value)),
@@ -369,7 +365,7 @@ fn direct_simple_expr_from(
             }
             CoreBlockPyLiteral::StringLiteral(_) => None,
         },
-        CoreBlockPyExprWithoutAwaitOrYield::Call(call) => {
+        CoreBlockPyExpr::Call(call) => {
             let func = direct_simple_expr_from(call.func.as_ref())?;
             let mut parts = Vec::with_capacity(call.args.len() + call.keywords.len());
             for arg in &call.args {
@@ -402,7 +398,7 @@ fn direct_simple_expr_from(
                 parts,
             })
         }
-        CoreBlockPyExprWithoutAwaitOrYield::Intrinsic(call) => {
+        CoreBlockPyExpr::Intrinsic(call) => {
             let mut parts = Vec::with_capacity(call.args.len() + call.keywords.len());
             for arg in &call.args {
                 match arg {

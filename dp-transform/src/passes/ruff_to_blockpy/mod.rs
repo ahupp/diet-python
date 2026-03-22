@@ -455,7 +455,7 @@ mod tests {
     use super::*;
     use crate::block_py::{
         BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
-        BlockPyStmt, BlockPyTerm, CoreBlockPyExprWithoutAwaitOrYield,
+        BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
     };
     use crate::passes::ast_to_ast::{context::Context, Options};
     use crate::passes::ruff_to_blockpy::stmt_sequences::{
@@ -1359,10 +1359,10 @@ async def outer(inner):
             .iter()
             .filter_map(|block| match &block.term {
                 BlockPyTerm::Raise(BlockPyRaise {
-                    exc: Some(CoreBlockPyExprWithoutAwaitOrYield::Call(call)),
+                    exc: Some(CoreBlockPyExpr::Call(call)),
                 }) if matches!(
                     call.func.as_ref(),
-                    CoreBlockPyExprWithoutAwaitOrYield::Name(name)
+                    CoreBlockPyExpr::Name(name)
                         if name.id.as_str() == "StopIteration"
                 ) =>
                 {

@@ -1,6 +1,6 @@
 use crate::block_py::{
     pretty as blockpy_pretty, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyTerm,
-    CoreBlockPyExprWithoutAwaitOrYield,
+    CoreBlockPyExpr,
 };
 use crate::passes::BbBlockPyPass;
 use crate::{transform_str_to_ruff_with_options, LoweringResult, Options};
@@ -184,7 +184,7 @@ fn bb_function_kind_to_json(kind: &BlockPyFunctionKind) -> Value {
     }
 }
 
-fn bb_term_kind(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> &'static str {
+fn bb_term_kind(term: &BlockPyTerm<CoreBlockPyExpr>) -> &'static str {
     match term {
         BlockPyTerm::Jump(_) => "jump",
         BlockPyTerm::IfTerm(_) => "br_if",
@@ -194,9 +194,7 @@ fn bb_term_kind(term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>) -> &'sta
     }
 }
 
-fn bb_term_successors(
-    term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
-) -> Vec<(&str, &'static str)> {
+fn bb_term_successors(term: &BlockPyTerm<CoreBlockPyExpr>) -> Vec<(&str, &'static str)> {
     match term {
         BlockPyTerm::Jump(label) => vec![(label.as_str(), "jump")],
         BlockPyTerm::IfTerm(if_term) => vec![
@@ -257,7 +255,7 @@ fn clif_target_comment(
 }
 
 fn clif_term_comment(
-    term: &BlockPyTerm<CoreBlockPyExprWithoutAwaitOrYield>,
+    term: &BlockPyTerm<CoreBlockPyExpr>,
     label_to_index: &HashMap<crate::block_py::BlockPyLabel, usize>,
     label_to_params: &HashMap<crate::block_py::BlockPyLabel, Vec<String>>,
 ) -> String {
