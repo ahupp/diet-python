@@ -312,6 +312,57 @@ impl FunctionStateSlots {
     }
 }
 
+fn bind_local_value(
+    fb: &mut FunctionBuilder<'_>,
+    local_names: &mut Vec<String>,
+    local_values: &mut Vec<ir::Value>,
+    name: &str,
+    value: ir::Value,
+    function_state_slots: &FunctionStateSlots,
+    ptr_ty: ir::Type,
+    incref_ref: ir::FuncRef,
+    decref_ref: ir::FuncRef,
+) {
+    if let Some(existing_index) = local_names.iter().position(|candidate| candidate == name) {
+        let previous = local_values[existing_index];
+        fb.ins().call(decref_ref, &[previous]);
+        local_values[existing_index] = value;
+    } else {
+        local_names.push(name.to_string());
+        local_values.push(value);
+    }
+    let _ =
+        function_state_slots.replace_cloned_value(fb, name, value, ptr_ty, incref_ref, decref_ref);
+}
+
+fn delete_local_value(
+    fb: &mut FunctionBuilder<'_>,
+    local_names: &mut Vec<String>,
+    local_values: &mut Vec<ir::Value>,
+    name: &str,
+    function_state_slots: &FunctionStateSlots,
+    deleted_const: ir::Value,
+    ptr_ty: ir::Type,
+    incref_ref: ir::FuncRef,
+    decref_ref: ir::FuncRef,
+) -> Result<(), String> {
+    let Some(index) = local_names.iter().position(|candidate| candidate == name) else {
+        return Err(format!("missing local binding for delete target: {name}"));
+    };
+    let previous = local_values.remove(index);
+    local_names.remove(index);
+    fb.ins().call(decref_ref, &[previous]);
+    let _ = function_state_slots.replace_cloned_value(
+        fb,
+        name,
+        deleted_const,
+        ptr_ty,
+        incref_ref,
+        decref_ref,
+    );
+    Ok(())
+}
+
 impl DirectSimpleIntrinsicEmitState<'_, '_, '_> {
     fn positional_args_only<'a>(
         &self,
@@ -2588,6 +2639,7 @@ fn emit_direct_simple_ops(
     ops: &[DirectSimpleOpPlan],
     local_names: &mut Vec<String>,
     local_values: &mut Vec<ir::Value>,
+    function_state_slots: &FunctionStateSlots,
     emit_ctx: &DirectSimpleEmitCtx,
     literal_pool: &mut Vec<Box<[u8]>>,
 ) -> Result<(), String> {
@@ -2609,17 +2661,17 @@ fn emit_direct_simple_ops(
                     literal_pool,
                     false,
                 );
-                if let Some(existing_index) = local_names
-                    .iter()
-                    .position(|candidate| candidate == &assign.target)
-                {
-                    let previous = local_values[existing_index];
-                    fb.ins().call(emit_ctx.decref_ref, &[previous]);
-                    local_values[existing_index] = value;
-                } else {
-                    local_names.push(assign.target.clone());
-                    local_values.push(value);
-                }
+                bind_local_value(
+                    fb,
+                    local_names,
+                    local_values,
+                    assign.target.as_str(),
+                    value,
+                    function_state_slots,
+                    emit_ctx.consts.ptr_ty,
+                    emit_ctx.incref_ref,
+                    emit_ctx.decref_ref,
+                );
                 if value_is_frame_locals {
                     frame_locals_aliases.insert(assign.target.clone());
                 } else {
@@ -2717,17 +2769,17 @@ fn emit_direct_simple_ops(
                     );
                     fb.switch_to_block(synced_ok);
                     let synced_value = fb.block_params(synced_ok)[0];
-                    if let Some(existing_index) = local_names
-                        .iter()
-                        .position(|candidate| candidate == &key_name)
-                    {
-                        let previous = local_values[existing_index];
-                        fb.ins().call(emit_ctx.decref_ref, &[previous]);
-                        local_values[existing_index] = synced_value;
-                    } else {
-                        local_names.push(key_name);
-                        local_values.push(synced_value);
-                    }
+                    bind_local_value(
+                        fb,
+                        local_names,
+                        local_values,
+                        key_name.as_str(),
+                        synced_value,
+                        function_state_slots,
+                        emit_ctx.consts.ptr_ty,
+                        emit_ctx.incref_ref,
+                        emit_ctx.decref_ref,
+                    );
                     if !obj_borrowed {
                         fb.ins().call(emit_ctx.decref_ref, &[obj_value]);
                     }
@@ -2753,14 +2805,18 @@ fn emit_direct_simple_ops(
             DirectSimpleOpPlan::Delete(delete_plan) => {
                 for target in &delete_plan.targets {
                     let DirectSimpleDeleteTargetPlan::LocalName(name) = target;
-                    let Some(index) = local_names.iter().position(|candidate| candidate == name)
-                    else {
-                        return Err(format!("missing local binding for delete target: {name}"));
-                    };
-                    let previous = local_values.remove(index);
-                    local_names.remove(index);
+                    delete_local_value(
+                        fb,
+                        local_names,
+                        local_values,
+                        name.as_str(),
+                        function_state_slots,
+                        emit_ctx.consts.deleted_const,
+                        emit_ctx.consts.ptr_ty,
+                        emit_ctx.incref_ref,
+                        emit_ctx.decref_ref,
+                    )?;
                     frame_locals_aliases.remove(name.as_str());
-                    fb.ins().call(emit_ctx.decref_ref, &[previous]);
                 }
             }
         }
@@ -3872,17 +3928,17 @@ fn build_cranelift_run_bb_specialized_function(
                             );
                             fb.switch_to_block(synced_ok);
                             let synced_value = fb.block_params(synced_ok)[0];
-                            if let Some(existing_index) = local_names
-                                .iter()
-                                .position(|candidate| candidate == &key_name)
-                            {
-                                let previous = local_values[existing_index];
-                                fb.ins().call(decref_ref, &[previous]);
-                                local_values[existing_index] = synced_value;
-                            } else {
-                                local_names.push(key_name);
-                                local_values.push(synced_value);
-                            }
+                            bind_local_value(
+                                &mut fb,
+                                &mut local_names,
+                                &mut local_values,
+                                key_name.as_str(),
+                                synced_value,
+                                &function_state_slots,
+                                ptr_ty,
+                                incref_ref,
+                                decref_ref,
+                            );
                             if !obj_borrowed {
                                 fb.ins().call(decref_ref, &[obj_value]);
                             }
@@ -3905,17 +3961,17 @@ fn build_cranelift_run_bb_specialized_function(
                             )
                         };
 
-                        if let Some(existing_index) = local_names
-                            .iter()
-                            .position(|candidate| candidate == &assign.target)
-                        {
-                            let previous = local_values[existing_index];
-                            fb.ins().call(decref_ref, &[previous]);
-                            local_values[existing_index] = value;
-                        } else {
-                            local_names.push(assign.target.clone());
-                            local_values.push(value);
-                        }
+                        bind_local_value(
+                            &mut fb,
+                            &mut local_names,
+                            &mut local_values,
+                            assign.target.as_str(),
+                            value,
+                            &function_state_slots,
+                            ptr_ty,
+                            incref_ref,
+                            decref_ref,
+                        );
                         if value_is_frame_locals {
                             frame_locals_aliases.insert(assign.target.clone());
                         } else {
@@ -3950,6 +4006,7 @@ fn build_cranelift_run_bb_specialized_function(
                         &block_plan.ops,
                         &mut local_names,
                         &mut local_values,
+                        &function_state_slots,
                         &emit_ctx,
                         &mut literal_pool,
                     )?;
@@ -5092,6 +5149,50 @@ mod tests {
         assert!(
             rendered.matches("explicit_slot 8").count() >= 2,
             "slot-backed JIT plans should allocate explicit stack slots:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_assignments_sync_function_state_slots() {
+        let blocks = [1usize as ObjPtr];
+        let plan = ClifPlan {
+            ambient_param_names: vec![],
+            slot_names: vec!["x".into()],
+            blocks: vec![ClifBlockPlan {
+                label: "b0".into(),
+                param_names: vec![],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleBlock {
+                    plan: DirectSimpleBlockPlan {
+                        params: vec![],
+                        ops: vec![DirectSimpleOpPlan::Assign(DirectSimpleAssignPlan {
+                            target: "x".into(),
+                            value: DirectSimpleExprPlan::Int(7),
+                        })],
+                        term: DirectSimpleTermPlan::Ret {
+                            value: DirectSimpleExprPlan::Name("x".into()),
+                        },
+                    },
+                },
+            }],
+        };
+        let rendered = unsafe {
+            render_cranelift_run_bb_specialized_with_cfg(
+                &blocks,
+                &plan,
+                11usize as ObjPtr,
+                12usize as ObjPtr,
+                13usize as ObjPtr,
+                14usize as ObjPtr,
+            )
+        }
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
+        assert!(
+            rendered.contains("store.i64") || rendered.contains("stack_store"),
+            "assignment-backed JIT plans should update mirrored function-state slots:\n{rendered}"
         );
     }
 }
