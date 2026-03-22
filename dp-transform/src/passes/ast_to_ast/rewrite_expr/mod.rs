@@ -6,7 +6,7 @@ use ruff_python_codegen::{Generator, Indentation};
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
 
-use crate::passes::ast_to_ast::ast_rewrite::{push_stmts, BodyBuilder};
+use crate::passes::ast_to_ast::ast_rewrite::{push_stmts, BodyBuilder, ExprRewritePass};
 use crate::passes::ast_to_ast::expr_utils::{
     make_binop, make_tuple, make_tuple_splat, make_unaryop,
 };
@@ -40,37 +40,6 @@ fn panic_for_deferred_expr(expr: &Expr) -> ! {
 
 pub(super) fn lower_expr_nested(context: &Context, expr: Expr) -> LoweredExpr {
     lower_expr_impl(context, expr, true)
-}
-
-pub(crate) fn lower_scoped_helper_expr(context: &Context, expr: Expr) -> LoweredExpr {
-    match expr {
-        Expr::ListComp(ast::ExprListComp {
-            elt, generators, ..
-        }) => comprehension::lower_list_comp(context, *elt, generators),
-        Expr::SetComp(ast::ExprSetComp {
-            elt, generators, ..
-        }) => comprehension::lower_set_comp(context, *elt, generators),
-        Expr::DictComp(ast::ExprDictComp {
-            key,
-            value,
-            generators,
-            ..
-        }) => comprehension::lower_dict_comp(context, *key, *value, generators),
-        Expr::Lambda(ast::ExprLambda {
-            parameters, body, ..
-        }) => lower_lambda_expr(context, parameters.map(|params| *params), *body),
-        Expr::Generator(ast::ExprGenerator {
-            elt, generators, ..
-        }) => lower_generator_expr(context, *elt, generators),
-        other => panic!(
-            "lower_scoped_helper_expr received unsupported expr: {}",
-            crate::ruff_ast_to_string(&other)
-        ),
-    }
-}
-
-pub fn lower_expr(context: &Context, expr: Expr) -> LoweredExpr {
-    lower_expr_impl(context, expr, false)
 }
 
 fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> LoweredExpr {
@@ -910,9 +879,39 @@ impl Transformer for NamedExprRewriter<'_> {
     }
 }
 
+use crate::passes::ast_to_ast::body::body_from_suite;
+
+pub struct ScopedHelperExprPass;
+
+impl ExprRewritePass for ScopedHelperExprPass {
+    fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr {
+        match expr {
+            Expr::ListComp(ast::ExprListComp {
+                elt, generators, ..
+            }) => comprehension::lower_list_comp(context, *elt, generators),
+            Expr::SetComp(ast::ExprSetComp {
+                elt, generators, ..
+            }) => comprehension::lower_set_comp(context, *elt, generators),
+            Expr::DictComp(ast::ExprDictComp {
+                key,
+                value,
+                generators,
+                ..
+            }) => comprehension::lower_dict_comp(context, *key, *value, generators),
+            Expr::Lambda(ast::ExprLambda {
+                parameters, body, ..
+            }) => lower_lambda_expr(context, parameters.map(|params| *params), *body),
+            Expr::Generator(ast::ExprGenerator {
+                elt, generators, ..
+            }) => lower_generator_expr(context, *elt, generators),
+            other => LoweredExpr::unmodified(other),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::lower_expr;
+    use super::lower_expr_impl;
     use crate::passes::ast_to_ast::context::Context;
     use crate::Options;
     use ruff_python_ast::Expr;
@@ -929,28 +928,27 @@ mod tests {
     #[should_panic(expected = "helper-scoped expr leaked to lower_expr")]
     fn lower_expr_rejects_lambda() {
         let context = Context::new(Options::for_test(), "lambda x: x");
-        let _ = lower_expr(&context, parse_expr("lambda x: x"));
+        let _ = lower_expr_impl(&context, parse_expr("lambda x: x"), false);
     }
 
     #[test]
     #[should_panic(expected = "helper-scoped expr leaked to lower_expr")]
     fn lower_expr_rejects_listcomp() {
         let context = Context::new(Options::for_test(), "[x for x in xs]");
-        let _ = lower_expr(&context, parse_expr("[x for x in xs]"));
+        let _ = lower_expr_impl(&context, parse_expr("[x for x in xs]"), false);
     }
 
     #[test]
     #[should_panic(expected = "expr-if leaked to lower_expr")]
     fn lower_expr_rejects_expr_if() {
         let context = Context::new(Options::for_test(), "a if cond else b");
-        let _ = lower_expr(&context, parse_expr("a if cond else b"));
+        let _ = lower_expr_impl(&context, parse_expr("a if cond else b"), false);
     }
 
     #[test]
     #[should_panic(expected = "string template leaked to lower_expr")]
     fn lower_expr_rejects_fstring() {
         let context = Context::new(Options::for_test(), "f\"{x}\"");
-        let _ = lower_expr(&context, parse_expr("f\"{x}\""));
+        let _ = lower_expr_impl(&context, parse_expr("f\"{x}\""), false);
     }
 }
-use crate::passes::ast_to_ast::body::body_from_suite;

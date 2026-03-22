@@ -2,13 +2,11 @@ use crate::block_py::BlockPyModule;
 use crate::passes::ast_to_ast::ast_rewrite::rewrite_with_pass;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def;
+use crate::passes::ast_to_ast::rewrite_expr::ScopedHelperExprPass;
 use crate::passes::ast_to_ast::scope::{analyze_module_scope, BindingKind};
 use crate::passes::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::passes::ast_to_ast::{
-    ast_rewrite::ExprRewritePass,
-    ast_rewrite::LoweredExpr,
     body::{body_from_suite, suite_mut, Suite},
-    rewrite_expr::lower_scoped_helper_expr,
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
 };
 use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
@@ -38,7 +36,7 @@ pub(crate) fn rewrite_module_with_tracker(
         // The transform now has a single lowering strategy: basic-block form.
         lower_surrogate_string_literals(context, suite_mut(&mut module));
 
-        rewrite_future_annotations::rewrite(context, suite_mut(&mut module));
+        let future_imports = rewrite_future_annotations::rewrite(context, suite_mut(&mut module));
 
         // Rewrite names like "__foo" in class bodies to "_<class_name>__foo"
         rewrite_class_def::private::rewrite_private_names(context, suite_mut(&mut module));
@@ -83,6 +81,10 @@ pub(crate) fn rewrite_module_with_tracker(
             context,
             scope,
             suite_mut(&mut module),
+        );
+        suite_mut(&mut module).splice(
+            0..0,
+            rewrite_future_annotations::invalid_future_feature_syntax_error_stmts(&future_imports),
         );
         module
     });
@@ -186,14 +188,6 @@ fn is_module_docstring(stmt: &Stmt) -> bool {
     )
 }
 
-fn is_future_import(stmt: &Stmt) -> bool {
-    matches!(
-        stmt,
-        Stmt::ImportFrom(ast::StmtImportFrom { module, .. })
-            if module.as_ref().map(|name| name.id.as_str()) == Some("__future__")
-    )
-}
-
 pub(crate) fn wrap_module_init(module: &mut Suite) {
     let mut global_names = {
         let scope = analyze_module_scope(module);
@@ -224,10 +218,6 @@ pub(crate) fn wrap_module_init(module: &mut Suite) {
                 continue;
             }
             docstring_seen = true;
-            if is_future_import(&stmt) {
-                prelude.push(stmt);
-                continue;
-            }
             seen_non_prelude = true;
         }
         init_body.push(stmt);
@@ -254,19 +244,4 @@ def _dp_module_init():
 
     prelude.push(Stmt::FunctionDef(module_init));
     *module = prelude;
-}
-
-pub struct ScopedHelperExprPass;
-
-impl ExprRewritePass for ScopedHelperExprPass {
-    fn lower_expr(&self, context: &Context, expr: Expr) -> LoweredExpr {
-        match expr {
-            Expr::Lambda(_)
-            | Expr::Generator(_)
-            | Expr::ListComp(_)
-            | Expr::SetComp(_)
-            | Expr::DictComp(_) => lower_scoped_helper_expr(context, expr),
-            other => LoweredExpr::unmodified(other),
-        }
-    }
 }
