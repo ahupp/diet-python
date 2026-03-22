@@ -8,7 +8,7 @@ use cranelift_control::ControlPlane;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
-use dp_transform::block_py::{BlockPyModule, intrinsics};
+use dp_transform::block_py::{BlockPyModule, intrinsics as blockpy_intrinsics};
 use dp_transform::passes::PreparedBbBlockPyPass;
 use pyo3::ffi;
 use std::borrow::Cow;
@@ -17,6 +17,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+mod intrinsics;
 mod planning;
 mod specialized_helpers;
 
@@ -72,10 +73,14 @@ struct ImportSpec {
 }
 
 impl ImportSpec {
-    const fn new(symbol: &'static str, signature: StaticSignature) -> Self {
+    const fn new(
+        symbol: &'static str,
+        params: &'static [SigType],
+        returns: &'static [SigType],
+    ) -> Self {
         Self {
             symbol,
-            signature,
+            signature: StaticSignature::new(params, returns),
             internal_id: OnceLock::new(),
         }
     }
@@ -203,7 +208,7 @@ fn direct_simple_expr_is_borrowable(expr: &DirectSimpleExprPlan, local_names: &[
 
 enum DirectSimpleCallCallee<'a> {
     Name(&'a str),
-    Intrinsic(&'static dyn intrinsics::Intrinsic),
+    Intrinsic(&'static dyn blockpy_intrinsics::Intrinsic),
 }
 
 impl DirectSimpleCallCallee<'_> {
@@ -483,7 +488,7 @@ fn delete_local_value(
 impl DirectSimpleIntrinsicEmitState<'_, '_, '_, '_> {
     fn positional_args_for_intrinsic<'a>(
         &self,
-        intrinsic: &dyn intrinsics::Intrinsic,
+        intrinsic: &dyn blockpy_intrinsics::Intrinsic,
         parts: &'a [DirectSimpleCallPart],
     ) -> Vec<&'a DirectSimpleExprPlan> {
         let mut args = Vec::with_capacity(parts.len());
@@ -622,38 +627,10 @@ impl DirectSimpleIntrinsicEmitState<'_, '_, '_, '_> {
     }
 }
 
-trait JitIntrinsic: intrinsics::Intrinsic {
-    fn emit_direct_simple(
-        &self,
-        state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_, '_>,
-        parts: &[DirectSimpleCallPart],
-    ) -> Option<ir::Value>;
-}
-
-static BINARY_OBJECT_SIGNATURE: StaticSignature =
-    StaticSignature::new(&[SigType::Pointer, SigType::Pointer], &[SigType::Pointer]);
-
-static PYNUMBER_ADD_IMPORT: ImportSpec = ImportSpec::new("PyNumber_Add", BINARY_OBJECT_SIGNATURE);
-
-impl JitIntrinsic for intrinsics::AddIntrinsic {
-    fn emit_direct_simple(
-        &self,
-        state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_, '_>,
-        parts: &[DirectSimpleCallPart],
-    ) -> Option<ir::Value> {
-        let args = state.positional_args_for_intrinsic(self, parts);
-        let add_ref = state.import_func(&PYNUMBER_ADD_IMPORT);
-        Some(state.emit_owned_func_call(add_ref, &args))
-    }
-}
-
 fn jit_intrinsic_by_intrinsic(
-    intrinsic: &'static dyn intrinsics::Intrinsic,
-) -> Option<&'static dyn JitIntrinsic> {
-    intrinsic
-        .as_any()
-        .downcast_ref::<intrinsics::AddIntrinsic>()
-        .map(|value| value as &dyn JitIntrinsic)
+    intrinsic: &'static dyn blockpy_intrinsics::Intrinsic,
+) -> Option<&'static dyn intrinsics::JitIntrinsic> {
+    intrinsics::jit_intrinsic_by_intrinsic(intrinsic)
 }
 
 fn lookup_ambient_value(ctx: &DirectSimpleEmitCtx, name: &str) -> Option<ir::Value> {
@@ -4998,7 +4975,7 @@ mod tests {
                         params: vec![],
                         assigns: vec![],
                         ret: DirectSimpleExprPlan::Intrinsic {
-                            intrinsic: &intrinsics::ADD_INTRINSIC,
+                            intrinsic: &blockpy_intrinsics::ADD_INTRINSIC,
                             parts: vec![
                                 DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(1)),
                                 DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(2)),
