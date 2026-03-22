@@ -284,7 +284,7 @@ fn direct_simple_expr_is_frame_locals_fetch(expr: &DirectSimpleExprPlan) -> bool
     if func_name == "__dp_frame_locals" && args.len() == 1 {
         return true;
     }
-    if (func_name == "PyObject_GetAttr" || func_name == "__dp_getattr") && args.len() == 2 {
+    if func_name == "__dp_getattr" && args.len() == 2 {
         return direct_simple_expr_const_string(args[1]).as_deref() == Some("f_locals");
     }
     false
@@ -301,7 +301,7 @@ fn direct_simple_expr_as_frame_locals_setitem<'a>(
 )> {
     let (callee, args) = direct_simple_call_positional_args(expr)?;
     let func_name = callee.name();
-    if (func_name != "PyObject_SetItem" && func_name != "__dp_setitem") || args.len() != 3 {
+    if func_name != "__dp_setitem" || args.len() != 3 {
         return None;
     }
     if let DirectSimpleExprPlan::Name(alias_name) = args[0] {
@@ -1722,71 +1722,6 @@ fn emit_direct_simple_expr(
                                 &[arg_values[0].0, arg_values[1].0, deleted_const],
                             ),
                             _ => unreachable!("unexpected direct cell call"),
-                        };
-                        for (value, borrowed_arg) in arg_values {
-                            if !borrowed_arg {
-                                fb.ins().call(decref_ref, &[value]);
-                            }
-                        }
-                        let call_value = fb.inst_results(call_inst)[0];
-                        let call_is_null =
-                            fb.ins()
-                                .icmp(ir::condcodes::IntCC::Equal, call_value, null_ptr);
-                        let call_ok_block = fb.create_block();
-                        fb.append_block_param(call_ok_block, ptr_ty);
-                        fb.ins().brif(
-                            call_is_null,
-                            step_null_block,
-                            &step_null_block_args(ctx),
-                            call_ok_block,
-                            &[ir::BlockArg::Value(call_value)],
-                        );
-                        fb.switch_to_block(call_ok_block);
-                        return fb.block_params(call_ok_block)[0];
-                    }
-                    if matches!(
-                        (func_name.as_str(), args.len()),
-                        ("PyObject_GetAttr", 2)
-                            | ("PyObject_SetAttr", 3)
-                            | ("PyObject_GetItem", 2)
-                            | ("PyObject_SetItem", 3)
-                    ) {
-                        let mut arg_values: Vec<(ir::Value, bool)> = Vec::with_capacity(args.len());
-                        for arg in &args {
-                            let borrowed_arg = direct_simple_expr_is_borrowable(
-                                arg,
-                                local_names,
-                                &ctx.function_state_slots,
-                            );
-                            let value = emit_direct_simple_expr(
-                                fb,
-                                arg,
-                                local_names,
-                                local_values,
-                                ctx,
-                                literal_pool,
-                                borrowed_arg,
-                                jit_module,
-                                func_imports,
-                            );
-                            arg_values.push((value, borrowed_arg));
-                        }
-                        let intrinsic_ref = match (func_name.as_str(), args.len()) {
-                            ("PyObject_GetAttr", 2) => pyobject_getattr_ref,
-                            ("PyObject_SetAttr", 3) => pyobject_setattr_ref,
-                            ("PyObject_GetItem", 2) => pyobject_getitem_ref,
-                            ("PyObject_SetItem", 3) => pyobject_setitem_ref,
-                            _ => unreachable!("unexpected direct helper call"),
-                        };
-                        let call_inst = match (func_name.as_str(), args.len()) {
-                            (_, 2) => fb
-                                .ins()
-                                .call(intrinsic_ref, &[arg_values[0].0, arg_values[1].0]),
-                            (_, 3) => fb.ins().call(
-                                intrinsic_ref,
-                                &[arg_values[0].0, arg_values[1].0, arg_values[2].0],
-                            ),
-                            _ => unreachable!("unexpected direct helper arity"),
                         };
                         for (value, borrowed_arg) in arg_values {
                             if !borrowed_arg {
