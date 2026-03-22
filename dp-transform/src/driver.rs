@@ -16,7 +16,7 @@ use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
 use crate::passes::ruff_to_blockpy::rewrite_ast_to_lowered_blockpy_module_plan_with_module;
 use crate::passes::{
     self, BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
-    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, PreparedBbBlockPyPass,
+    CoreBlockPyPassWithoutAwaitOrYield, PreparedBbBlockPyPass, RuffBlockPyPass,
 };
 use crate::PassTracker;
 use ruff_python_ast::{self as ast, Expr, Stmt};
@@ -122,7 +122,7 @@ pub(crate) fn rewrite_module_with_tracker(
         `__dp_make_function(function_id, closure, param_defaults, module_globals, annotate_fn)`.
     */
 
-    let semantic_blockpy: BlockPyModule<LoweredRuffBlockPyPass> = pass_tracker
+    let semantic_blockpy: BlockPyModule<RuffBlockPyPass> = pass_tracker
         .run_renderable_pass("semantic_blockpy", || {
             rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, &mut module)
         });

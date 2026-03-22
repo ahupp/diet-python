@@ -7,7 +7,7 @@ use crate::block_py::state::collect_state_vars;
 use crate::passes::ruff_to_blockpy;
 use crate::passes::{
     BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithoutAwait,
-    CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass, PreparedBbBlockPyPass,
+    CoreBlockPyPassWithoutAwaitOrYield, PreparedBbBlockPyPass, RuffBlockPyPass,
 };
 use crate::py_expr;
 use ruff_python_ast::str::Quote;
@@ -569,7 +569,7 @@ macro_rules! impl_non_bb_entry_liveins {
 }
 
 impl_non_bb_entry_liveins!(
-    LoweredRuffBlockPyPass,
+    RuffBlockPyPass,
     CoreBlockPyPass,
     CoreBlockPyPassWithoutAwait,
     CoreBlockPyPassWithoutAwaitOrYield,
@@ -1503,18 +1503,18 @@ mod tests {
             trace: Vec<String>,
         }
 
-        impl BlockPyModuleVisitor<LoweredRuffBlockPyPass> for TraceVisitor {
-            fn visit_module(&mut self, module: &BlockPyModule<LoweredRuffBlockPyPass>) {
+        impl BlockPyModuleVisitor<RuffBlockPyPass> for TraceVisitor {
+            fn visit_module(&mut self, module: &BlockPyModule<RuffBlockPyPass>) {
                 self.trace.push("module".to_string());
                 walk_module(self, module);
             }
 
-            fn visit_fn(&mut self, func: &BlockPyFunction<LoweredRuffBlockPyPass>) {
+            fn visit_fn(&mut self, func: &BlockPyFunction<RuffBlockPyPass>) {
                 self.trace.push(format!("fn:{}", func.names.bind_name));
                 walk_fn(self, func);
             }
 
-            fn visit_block(&mut self, block: &PassBlock<LoweredRuffBlockPyPass>) {
+            fn visit_block(&mut self, block: &PassBlock<RuffBlockPyPass>) {
                 self.trace.push(format!("block:{}", block.label));
                 walk_block(self, block);
             }
@@ -1522,15 +1522,15 @@ mod tests {
             fn visit_fragment(
                 &mut self,
                 fragment: &BlockPyCfgFragment<
-                    <LoweredRuffBlockPyPass as BlockPyPass>::Stmt,
-                    BlockPyTerm<PassExpr<LoweredRuffBlockPyPass>>,
+                    <RuffBlockPyPass as BlockPyPass>::Stmt,
+                    BlockPyTerm<PassExpr<RuffBlockPyPass>>,
                 >,
             ) {
                 self.trace.push("fragment".to_string());
                 walk_fragment(self, fragment);
             }
 
-            fn visit_stmt(&mut self, stmt: &BlockPyStmt<PassExpr<LoweredRuffBlockPyPass>>) {
+            fn visit_stmt(&mut self, stmt: &BlockPyStmt<PassExpr<RuffBlockPyPass>>) {
                 let kind = match stmt {
                     BlockPyStmt::Assign(_) => "assign",
                     BlockPyStmt::Expr(_) => "expr",
@@ -1541,7 +1541,7 @@ mod tests {
                 walk_stmt(self, stmt);
             }
 
-            fn visit_term(&mut self, term: &BlockPyTerm<PassExpr<LoweredRuffBlockPyPass>>) {
+            fn visit_term(&mut self, term: &BlockPyTerm<PassExpr<RuffBlockPyPass>>) {
                 let kind = match term {
                     BlockPyTerm::Jump(_) => "jump",
                     BlockPyTerm::IfTerm(_) => "if",
@@ -1558,7 +1558,7 @@ mod tests {
                 self.trace.push(format!("label:{}", label.as_str()));
             }
 
-            fn visit_expr(&mut self, expr: &PassExpr<LoweredRuffBlockPyPass>) {
+            fn visit_expr(&mut self, expr: &PassExpr<RuffBlockPyPass>) {
                 let Expr::Name(name) = expr else {
                     panic!("expected name expr in visitor trace test");
                 };
@@ -1566,7 +1566,7 @@ mod tests {
             }
         }
 
-        let module = BlockPyModule::<LoweredRuffBlockPyPass> {
+        let module = BlockPyModule::<RuffBlockPyPass> {
             callable_defs: vec![BlockPyFunction {
                 function_id: FunctionId(0),
                 names: FunctionName::new("f", "f", "f", "f"),

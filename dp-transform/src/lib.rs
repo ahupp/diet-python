@@ -1,6 +1,6 @@
 use crate::block_py::pretty::BlockPyPrettyPrint;
 use crate::passes::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
-use crate::passes::{BbBlockPyPass, LoweredRuffBlockPyPass, PreparedBbBlockPyPass};
+use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass, RuffBlockPyPass};
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
@@ -306,7 +306,7 @@ pub fn transform_str_to_bb_ir_with_options(
 pub fn transform_str_to_blockpy_with_options(
     source: &str,
     options: Options,
-) -> Result<BlockPyModule<LoweredRuffBlockPyPass>, ParseError> {
+) -> Result<BlockPyModule<RuffBlockPyPass>, ParseError> {
     init_logging();
     namegen::reset_namegen_state();
 
@@ -317,7 +317,7 @@ pub fn transform_str_to_blockpy_with_options(
 
     let (pass_tracker, _transformed_body) = crate::driver::rewrite_module(&ctx, body);
     Ok(pass_tracker
-        .get::<BlockPyModule<crate::passes::LoweredRuffBlockPyPass>>("semantic_blockpy")
+        .get::<BlockPyModule<crate::passes::RuffBlockPyPass>>("semantic_blockpy")
         .expect("blockpy pass should be tracked")
         .clone())
 }

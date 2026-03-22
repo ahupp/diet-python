@@ -17,9 +17,9 @@ use crate::block_py::{
 };
 
 #[derive(Debug, Clone)]
-pub struct LoweredRuffBlockPyPass;
+pub struct RuffBlockPyPass;
 
-impl BlockPyPass for LoweredRuffBlockPyPass {
+impl BlockPyPass for RuffBlockPyPass {
     type Expr = Expr;
     type Stmt = BlockPyStmt<Self::Expr>;
     type Term = crate::block_py::BlockPyTerm<Self::Expr>;
@@ -98,14 +98,14 @@ mod tests {
         CoreBlockPyExprWithoutAwaitOrYield,
     };
     use crate::block_py::{ClosureInit, ClosureSlot};
-    use crate::passes::{BbBlockPyPass, LoweredRuffBlockPyPass};
+    use crate::passes::{BbBlockPyPass, RuffBlockPyPass};
     use crate::LoweringResult;
     use crate::{
         py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
     };
     struct TrackedLowering {
         result: LoweringResult,
-        blockpy_module: BlockPyModule<LoweredRuffBlockPyPass>,
+        blockpy_module: BlockPyModule<RuffBlockPyPass>,
     }
 
     impl TrackedLowering {
@@ -120,7 +120,7 @@ mod tests {
             }
         }
 
-        fn blockpy_module(&self) -> BlockPyModule<LoweredRuffBlockPyPass> {
+        fn blockpy_module(&self) -> BlockPyModule<RuffBlockPyPass> {
             self.blockpy_module.clone()
         }
 
@@ -188,9 +188,9 @@ mod tests {
     }
 
     fn callable_def_by_name<'a>(
-        blockpy_module: &'a BlockPyModule<LoweredRuffBlockPyPass>,
+        blockpy_module: &'a BlockPyModule<RuffBlockPyPass>,
         bind_name: &str,
-    ) -> &'a BlockPyFunction<LoweredRuffBlockPyPass> {
+    ) -> &'a BlockPyFunction<RuffBlockPyPass> {
         blockpy_module
             .callable_defs
             .iter()
@@ -1380,9 +1380,7 @@ class Field:
             let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
                 .expect("transform should succeed");
             let blockpy = lowered
-                .get_pass::<crate::block_py::BlockPyModule<LoweredRuffBlockPyPass>>(
-                    "semantic_blockpy",
-                )
+                .get_pass::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
                 .cloned()
                 .expect("expected lowered semantic BlockPy module");
             let blockpy_rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);

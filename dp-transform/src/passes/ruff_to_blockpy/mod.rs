@@ -22,7 +22,7 @@ use crate::block_py::{
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
-use crate::passes::LoweredRuffBlockPyPass;
+use crate::passes::RuffBlockPyPass;
 use crate::ruff_ast_to_string;
 use crate::template::is_simple;
 use crate::{py_expr, py_stmt};
@@ -107,7 +107,7 @@ pub(crate) fn build_blockpy_function(
     facts: BlockPyCallableFacts,
     try_regions: Vec<TryRegionPlan>,
     mut blocks: Vec<LoweredBlockPyBlock<Expr>>,
-) -> BlockPyFunction<LoweredRuffBlockPyPass> {
+) -> BlockPyFunction<RuffBlockPyPass> {
     move_blockpy_entry_block_to_front(&mut blocks, entry_label.as_str());
     for block in &blocks {
         assert_blockpy_block_normalized(block);
@@ -284,7 +284,7 @@ where
 }
 
 fn build_semantic_blockpy_closure_layout(
-    callable_def: &BlockPyFunction<LoweredRuffBlockPyPass>,
+    callable_def: &BlockPyFunction<RuffBlockPyPass>,
     injected_exception_names: &HashSet<String>,
 ) -> Option<ClosureLayout> {
     let entry_liveins = callable_def.entry_liveins();
@@ -349,7 +349,7 @@ pub(crate) fn build_finalized_blockpy_callable_def(
     entry_label: String,
     end_label: String,
     facts: BlockPyCallableFacts,
-) -> BlockPyFunction<LoweredRuffBlockPyPass> {
+) -> BlockPyFunction<RuffBlockPyPass> {
     let callable_def = build_blockpy_function(
         function_id,
         names,
@@ -378,7 +378,7 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input<FTemp>(
     facts: &BlockPyCallableFacts,
     next_block_id: &mut usize,
     next_temp: &mut FTemp,
-) -> BlockPyFunction<LoweredRuffBlockPyPass>
+) -> BlockPyFunction<RuffBlockPyPass>
 where
     FTemp: FnMut(&str, &mut usize) -> String,
 {
@@ -412,10 +412,10 @@ where
 }
 
 pub(crate) fn finalize_blockpy_callable_def(
-    mut callable_def: BlockPyFunction<LoweredRuffBlockPyPass>,
+    mut callable_def: BlockPyFunction<RuffBlockPyPass>,
     mut entry_label: String,
     end_label: String,
-) -> BlockPyFunction<LoweredRuffBlockPyPass> {
+) -> BlockPyFunction<RuffBlockPyPass> {
     let needs_end_block = entry_label == end_label
         || callable_def
             .blocks
@@ -477,16 +477,16 @@ mod tests {
         lower_while_stmt_sequence, lower_while_stmt_sequence_from_stmt, plan_stmt_sequence_head,
     };
     use crate::passes::ruff_to_blockpy::try_regions::build_try_plan;
-    use crate::passes::{CoreBlockPyPassWithoutAwaitOrYield, LoweredRuffBlockPyPass};
+    use crate::passes::{CoreBlockPyPassWithoutAwaitOrYield, RuffBlockPyPass};
     use crate::{transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options};
-    fn wrapped_blockpy(source: &str) -> BlockPyModule<LoweredRuffBlockPyPass> {
+    fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
         transform_str_to_blockpy_with_options(source, Options::for_test()).unwrap()
     }
 
-    fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<LoweredRuffBlockPyPass> {
+    fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
         transform_str_to_ruff_with_options(source, Options::for_test())
             .unwrap()
-            .get_pass::<BlockPyModule<LoweredRuffBlockPyPass>>("semantic_blockpy")
+            .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
             .cloned()
             .expect("semantic_blockpy pass should be tracked")
     }

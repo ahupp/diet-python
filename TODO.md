@@ -48,20 +48,12 @@
     - The desired boundary is that `rewrite_ast_to_lowered_blockpy_module_plan` fully eliminates the AST expression forms that later core-expression lowering is not supposed to handle.
     - `blockpy_expr_simplify` should then treat those forms as invariant violations and panic immediately, instead of silently accepting or re-lowering them.
     - A good first pass is to enumerate the expression kinds currently expected to be gone at that boundary, then add focused panic sites and regression tests that assert the simplify pass fails if one leaks through.
-- It looks like `RuffBlockPyPass` is now an internal detail of `rewrite_ast_to_lowered_blockpy_module_plan_with_module`. Try to restructure that function so we do not need a separate pass type there.
-  - Planning note:
-    - The recent module-plan refactors pulled more of the semantic lowering/bundling work directly into `rewrite_ast_to_lowered_blockpy_module_plan_with_module`, which makes `RuffBlockPyPass` look less like a real pipeline boundary and more like a transient construction detail.
-    - A good first pass is to audit what data is still uniquely represented by `BlockPyModule<RuffBlockPyPass>` versus `BlockPyModule<LoweredRuffBlockPyPass>`, then see whether the rewriter can build the lowered form directly or keep the pre-lowered form entirely local to the rewrite helper.
-    - The desired end state is that callers only see the real tracked semantic-lowering boundary, and the temporary internal construction shape does not need its own public pass marker.
-- Merge `LoweredRuffBlockPyPass` and `RuffBlockPyPass`.
-  - Planning note:
-    - The recent semantic-lowering/module-plan changes have narrowed the gap between these two pass markers, and `RuffBlockPyPass` increasingly looks like a temporary construction shape rather than a meaningful external stage boundary.
-    - A good first pass is to list the remaining type-level differences between the two passes, especially stmt/term/meta/function-extra shape and any tests or renderers that still rely on the pre-lowered form.
-    - The desired end state is one Ruff-backed semantic/lowered BlockPy stage, with any transient rewrite-only state kept local to the lowering helper instead of exposed as a distinct pass type.
-
 ## Completed
 
 - Move completed TODO entries here and include a short description of the work done.
+- Eliminate the temporary Ruff semantic pass split:
+  - `rewrite_ast_to_lowered_blockpy_module_plan_with_module` now emits lowered semantic blocks directly, threads exception edges recursively during semantic lowering, and no longer needs a metadata-free intermediate Ruff pass shape.
+  - The remaining Ruff-backed semantic pass marker was then renamed back to `RuffBlockPyPass`, so there is again just one Ruff semantic BlockPy stage instead of a `LoweredRuffBlockPyPass` / `RuffBlockPyPass` split.
 - Sequential string literal merge:
   - `lower_surrogate_string_literals` now first merges Ruff's implicitly concatenated string and bytes literal expressions into single logical literal nodes.
   - Surrogate decoding still runs after that normalization step, so later phases no longer need to reason about multi-part ordinary literal expressions.

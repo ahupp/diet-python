@@ -20,7 +20,7 @@ use crate::passes::ast_to_ast::rewrite_stmt;
 use crate::passes::ast_to_ast::scope::{
     analyze_module_scope, cell_name, is_internal_symbol, Scope,
 };
-use crate::passes::LoweredRuffBlockPyPass;
+use crate::passes::RuffBlockPyPass;
 
 use crate::passes::function_identity::{
     collect_function_identity_private, is_module_init_temp_name, resolve_runtime_function_identity,
@@ -55,7 +55,7 @@ struct BlockPyModuleRewriter<'a> {
     next_function_id: usize,
     reserved_temp_names_stack: Vec<HashSet<String>>,
     function_scope_stack: Vec<FunctionScopeFrame>,
-    callable_defs: Vec<BlockPyFunction<LoweredRuffBlockPyPass>>,
+    callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>>,
 }
 
 enum LoweredFunctionPlacementPlan {
@@ -260,7 +260,7 @@ fn try_lower_function_to_blockpy_bundle(
     reserved_temp_names_stack: &mut Vec<HashSet<String>>,
     next_block_id: &mut usize,
     next_function_id: &mut usize,
-) -> Option<BlockPyFunction<LoweredRuffBlockPyPass>> {
+) -> Option<BlockPyFunction<RuffBlockPyPass>> {
     if should_keep_non_lowered_for_annotationlib(func) {
         return None;
     }
@@ -612,7 +612,7 @@ fn classify_capture_items(
 }
 
 fn build_lowered_function_instantiation_preview(
-    callable_def: &BlockPyFunction<LoweredRuffBlockPyPass>,
+    callable_def: &BlockPyFunction<RuffBlockPyPass>,
 ) -> Option<LoweredFunctionInstantiationPreview> {
     let param_names = callable_def.params.names();
     let param_name_set: HashSet<String> = param_names.iter().cloned().collect();
@@ -950,7 +950,7 @@ mod tests {
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
     context: &Context,
     module: Suite,
-) -> BlockPyModule<LoweredRuffBlockPyPass> {
+) -> BlockPyModule<RuffBlockPyPass> {
     let mut module = module;
     rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, &mut module)
 }
@@ -958,7 +958,7 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
     context: &Context,
     module: &mut Suite,
-) -> BlockPyModule<LoweredRuffBlockPyPass> {
+) -> BlockPyModule<RuffBlockPyPass> {
     crate::passes::ast_to_ast::simplify::flatten(module);
     let module_scope = analyze_module_scope(module);
     let function_identity_by_node = collect_function_identity_private(module, module_scope.clone());
@@ -1408,7 +1408,7 @@ fn rewrite_function_def_stmt_via_blockpy(
     reserved_temp_names_stack: &mut Vec<HashSet<String>>,
     next_block_id: &mut usize,
     next_function_id: &mut usize,
-    callable_defs: &mut Vec<BlockPyFunction<LoweredRuffBlockPyPass>>,
+    callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
 ) -> Option<Vec<Stmt>> {
     let doc = function_docstring_text(func);
     if let Some(lowered_plan) = try_lower_function_to_blockpy_bundle(
