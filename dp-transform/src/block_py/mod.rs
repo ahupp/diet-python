@@ -17,6 +17,7 @@ use ruff_python_ast::{
     StringLiteralValue,
 };
 use std::borrow::Borrow;
+use std::cell::Cell;
 use std::collections::HashSet;
 use std::fmt;
 use std::ops::Deref;
@@ -38,6 +39,39 @@ pub struct FunctionId(pub usize);
 impl FunctionId {
     pub fn plan_qualname(self, qualname: &str) -> String {
         format!("{qualname}::__dp_fn_{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NameGen {
+    function_id: FunctionId,
+    next_block_id: Cell<usize>,
+    next_tmp_id: Cell<usize>,
+}
+
+impl NameGen {
+    pub fn new(function_id: FunctionId) -> Self {
+        Self {
+            function_id,
+            next_block_id: Cell::new(0),
+            next_tmp_id: Cell::new(0),
+        }
+    }
+
+    pub fn function_id(&self) -> FunctionId {
+        self.function_id
+    }
+
+    pub fn next_block_name(&self) -> BlockPyLabel {
+        let current = self.next_block_id.get();
+        self.next_block_id.set(current + 1);
+        BlockPyLabel(format!("_dp_bb_{}_{}", self.function_id.0, current))
+    }
+
+    pub fn next_tmp_name(&self, prefix: &str) -> ast::name::Name {
+        let current = self.next_tmp_id.get();
+        self.next_tmp_id.set(current + 1);
+        ast::name::Name::new(format!("_dp_{prefix}_{}_{}", self.function_id.0, current))
     }
 }
 
@@ -577,6 +611,7 @@ impl BlockPyCallableSemanticInfo {
 #[derive(Debug, Clone)]
 pub struct BlockPyFunction<P: BlockPyPass> {
     pub function_id: FunctionId,
+    pub name_gen: NameGen,
     pub names: FunctionName,
     pub kind: BlockPyFunctionKind,
     pub params: ParamSpec,
@@ -618,6 +653,7 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
     {
         BlockPyFunction {
             function_id: self.function_id,
+            name_gen: self.name_gen,
             names: self.names,
             kind: self.kind,
             params: self.params,
@@ -1312,6 +1348,7 @@ where
     fn map_fn(&self, func: BlockPyFunction<PIn>) -> BlockPyFunction<POut> {
         BlockPyFunction {
             function_id: func.function_id,
+            name_gen: func.name_gen,
             names: func.names,
             kind: func.kind,
             params: func.params,
@@ -1609,6 +1646,7 @@ mod tests {
         let module = BlockPyModule::<RuffBlockPyPass> {
             callable_defs: vec![BlockPyFunction {
                 function_id: FunctionId(0),
+                name_gen: NameGen::new(FunctionId(0)),
                 names: FunctionName::new("f", "f", "f", "f"),
                 kind: BlockPyFunctionKind::Function,
                 params: ParamSpec::default(),
@@ -2414,6 +2452,7 @@ impl TryFrom<BlockPyFunction<CoreBlockPyPassWithYield>> for BlockPyFunction<Core
     fn try_from(value: BlockPyFunction<CoreBlockPyPassWithYield>) -> Result<Self, Self::Error> {
         let BlockPyFunction {
             function_id,
+            name_gen,
             names,
             kind,
             params,
@@ -2425,6 +2464,7 @@ impl TryFrom<BlockPyFunction<CoreBlockPyPassWithYield>> for BlockPyFunction<Core
         } = value;
         Ok(BlockPyFunction {
             function_id,
+            name_gen,
             names,
             kind,
             params,

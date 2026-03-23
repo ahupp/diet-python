@@ -22,6 +22,7 @@ fn lower_function_try_jump_exception_flow(
 ) -> Result<BlockPyFunction<PreparedBbBlockPyPass>, String> {
     let mut function = BlockPyFunction {
         function_id: function.function_id,
+        name_gen: function.name_gen,
         names: function.names,
         kind: function.kind,
         params: function.params,

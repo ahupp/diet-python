@@ -14,6 +14,12 @@
     * _dp_try_exc_
     * _dp_classcell
 
+- Avoid collisions between generated temp/block names and user-written names.
+  - Planning note:
+    - `NameGen` should be reusable per `BlockPyFunction`, instead of each pass inventing fresh local counters, so later transforms stay in one generated-name namespace.
+    - The current simplification is to stop inspecting locals for reservations and rely on the generated namespace shape; this keeps the pipeline simpler but does not prove collision-freedom.
+    - The likely real fix is either a non-string temp/id representation carried through the IR, or one late legalization/materialization pass that checks concrete Python names once.
+
 - Everything about annotation_export.rs needs revisiting.
 - Use Ruff for scope analysis and see if it can be computed once and preserved through transform layers.
   - Planning note:

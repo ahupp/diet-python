@@ -280,7 +280,6 @@ fn try_lower_function_to_blockpy_bundle(
         rewrite_annotation_helper_defs_as_exec_calls(runtime_input_body, &outer_scope_names);
     let mut outer_scope_names = collect_bound_names(&runtime_input_body);
     outer_scope_names.extend(param_names.iter().cloned());
-    name_gen.reserve_names(outer_scope_names.iter().cloned());
     let unbound_local_names = if has_dead_stmt_suffixes(&lowered_input_body) {
         always_unbound_local_names(&lowered_input_body, &runtime_input_body, &param_names)
     } else {
@@ -950,13 +949,6 @@ fn plan_non_lowered_function_instantiation(
     }
 }
 
-fn function_reserved_temp_names(func: &ast::StmtFunctionDef) -> HashSet<String> {
-    let (param_spec, _) = collect_param_spec_and_defaults(&func.parameters);
-    let mut reserved_names = collect_bound_names(suite_ref(&func.body));
-    reserved_names.extend(param_spec.names());
-    reserved_names
-}
-
 fn build_updated_function_binding_stmt(
     target: BindingTarget,
     bind_name: &str,
@@ -1206,10 +1198,7 @@ fn rewrite_function_def_stmt_via_blockpy(
     callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
 ) -> Option<Vec<Stmt>> {
     let doc = function_docstring_text(func);
-    let name_gen = NameGen::new(
-        take_next_function_id(next_function_id),
-        function_reserved_temp_names(func),
-    );
+    let name_gen = NameGen::new(take_next_function_id(next_function_id));
     if let Some(lowered_plan) = try_lower_function_to_blockpy_bundle(
         context,
         function_identity_by_node,
@@ -1308,10 +1297,7 @@ impl BlockPyModuleRewriter<'_> {
             "root _dp_module_init should not produce hoisted statements"
         );
         *func = lowered_root;
-        let name_gen = NameGen::new(
-            take_next_function_id(&mut self.next_function_id),
-            function_reserved_temp_names(func),
-        );
+        let name_gen = NameGen::new(take_next_function_id(&mut self.next_function_id));
         let lowered_plan = try_lower_function_to_blockpy_bundle(
             self.context,
             &self.function_identity_by_node,

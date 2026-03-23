@@ -158,6 +158,7 @@ mod tests {
         let module = BlockPyModule {
             callable_defs: vec![BlockPyFunction {
                 function_id: crate::block_py::FunctionId(0),
+                name_gen: crate::block_py::NameGen::new(crate::block_py::FunctionId(0)),
                 names: FunctionName::new("f", "f", "f", "f"),
                 kind: BlockPyFunctionKind::Coroutine,
                 params: Default::default(),

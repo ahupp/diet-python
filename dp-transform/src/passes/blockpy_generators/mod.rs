@@ -1408,6 +1408,7 @@ pub(crate) fn lower_generator_like_function(
 
     let visible_function = BlockPyFunction {
         function_id: callable.function_id,
+        name_gen: callable.name_gen.clone(),
         names: callable.names.clone(),
         kind: callable.kind,
         params: callable.params.clone(),
@@ -1424,6 +1425,7 @@ pub(crate) fn lower_generator_like_function(
     let resume_params = resume_param_spec(callable.kind);
     let resume_function = BlockPyFunction {
         function_id: resume_function_id,
+        name_gen: crate::block_py::NameGen::new(resume_function_id),
         names: FunctionName::new(
             format!("{}_resume", callable.names.bind_name),
             "_dp_resume",

@@ -655,6 +655,7 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
 ) -> BlockPyFunction<CoreBlockPyPassWithAwaitAndYield> {
     let BlockPyFunction {
         function_id,
+        name_gen,
         names,
         kind,
         params,
@@ -666,6 +667,7 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
     } = callable_def;
     BlockPyFunction {
         function_id,
+        name_gen,
         names,
         kind,
         params,
