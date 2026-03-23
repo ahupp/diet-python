@@ -842,7 +842,8 @@ mod tests {
         );
         let context = Context::new(Options::for_test(), source);
         let mut module = parse_module(source).unwrap().into_syntax().body;
-        let semantic_state = SemanticAstState::new(analyze_module_scope(&mut module));
+        let module_scope = analyze_module_scope(&mut module);
+        let semantic_state = SemanticAstState::from_ruff(&mut module, Some(module_scope));
         rewrite_explicit_bindings(&context, &semantic_state, &mut module);
         let rendered = module
             .iter()
@@ -868,7 +869,8 @@ mod tests {
         );
         let context = Context::new(Options::for_test(), source);
         let mut module = parse_module(source).unwrap().into_syntax().body;
-        let semantic_state = SemanticAstState::new(analyze_module_scope(&mut module));
+        let module_scope = analyze_module_scope(&mut module);
+        let semantic_state = SemanticAstState::from_ruff(&mut module, Some(module_scope));
         rewrite_explicit_bindings(&context, &semantic_state, &mut module);
         let rendered = module
             .iter()

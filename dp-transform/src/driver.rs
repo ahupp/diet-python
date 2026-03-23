@@ -65,8 +65,9 @@ pub(crate) fn rewrite_module_with_tracker(
             suite_mut(&mut module),
         );
 
+        let expected_module_scope = analyze_module_scope(suite_mut(&mut module));
         let mut current_semantic_state =
-            SemanticAstState::new(analyze_module_scope(suite_mut(&mut module)));
+            SemanticAstState::from_scope_tree(suite_mut(&mut module), expected_module_scope);
 
         // Replace global / nonlocal and class-body scoping with explicit loads/stores.
         //  - globals: __dp__.load/store_global(globals(), name)
@@ -83,7 +84,14 @@ pub(crate) fn rewrite_module_with_tracker(
             &mut current_semantic_state,
             suite_mut(&mut module),
         );
-        debug_assert_matches_scope_tree(suite_mut(&mut module), &current_semantic_state);
+        if cfg!(debug_assertions) {
+            let rewritten_expected_module_scope = analyze_module_scope(suite_mut(&mut module));
+            let rewritten_ruff_semantic_state = SemanticAstState::from_ruff(
+                suite_mut(&mut module),
+                Some(rewritten_expected_module_scope),
+            );
+            debug_assert_matches_scope_tree(suite_mut(&mut module), &rewritten_ruff_semantic_state);
+        }
         suite_mut(&mut module).splice(
             0..0,
             rewrite_future_annotations::invalid_future_feature_syntax_error_stmts(&future_imports),

@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 ruff_python_parser = { workspace = true }
 ruff_python_ast = { workspace = true }
 ruff_python_codegen = { workspace = true }
+ruff_python_semantic = { workspace = true }
 ruff_text_size = { workspace = true }
 ruff_source_file = { workspace = true }
 regex = "1"
@@ -20,9 +21,6 @@ similar = "2"
 log = "0.4"
 env_logger = "0.11"
 anyhow = { version = "1.0.100", features = ["backtrace"] }
-
-[dev-dependencies]
-ruff_python_semantic = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "0.2" }

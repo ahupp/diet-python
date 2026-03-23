@@ -728,7 +728,7 @@ mod tests {
         let context = Context::new(Options::for_test(), source);
         let mut module = parse_module(source).unwrap().into_syntax().body;
         let module_scope = analyze_module_scope(&mut module);
-        let semantic_state = SemanticAstState::new(module_scope.clone());
+        let semantic_state = SemanticAstState::from_ruff(&mut module, Some(module_scope.clone()));
         let function_identity_by_node =
             collect_function_identity_private(&mut module, &semantic_state);
         let Stmt::FunctionDef(outer) = &mut module[0] else {
@@ -792,7 +792,7 @@ mod tests {
         let context = Context::new(Options::for_test(), source);
         let mut module = parse_module(source).unwrap().into_syntax().body;
         let module_scope = analyze_module_scope(&mut module);
-        let semantic_state = SemanticAstState::new(module_scope.clone());
+        let semantic_state = SemanticAstState::from_ruff(&mut module, Some(module_scope.clone()));
         let function_identity_by_node =
             collect_function_identity_private(&mut module, &semantic_state);
         let mut rewriter = BlockPyModuleRewriter {
@@ -835,7 +835,7 @@ mod tests {
         let context = Context::new(Options::for_test(), source);
         let mut module = parse_module(source).unwrap().into_syntax().body;
         let module_scope = analyze_module_scope(&mut module);
-        let semantic_state = SemanticAstState::new(module_scope.clone());
+        let semantic_state = SemanticAstState::from_ruff(&mut module, Some(module_scope.clone()));
         let function_identity_by_node =
             collect_function_identity_private(&mut module, &semantic_state);
         let mut rewriter = BlockPyModuleRewriter {
@@ -956,7 +956,7 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
     let mut module = module;
     crate::passes::ast_to_ast::simplify::flatten(&mut module);
     let module_scope = analyze_module_scope(&mut module);
-    let semantic_state = SemanticAstState::new(module_scope);
+    let semantic_state = SemanticAstState::from_scope_tree(&mut module, module_scope);
     rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, &mut module, &semantic_state)
 }
 
