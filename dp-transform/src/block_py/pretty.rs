@@ -1308,6 +1308,7 @@ async def no_lying():
                     }],
                 }),
                 facts: crate::block_py::BlockPyCallableFacts::default(),
+                semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
             }],
         });
 
@@ -1361,6 +1362,7 @@ async def no_lying():
             doc: None,
             closure_layout: None,
             facts: crate::block_py::BlockPyCallableFacts::default(),
+            semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
             callable_defs: vec![function],
@@ -1440,6 +1442,7 @@ def choose(a, b):
             doc: None,
             closure_layout: None,
             facts: crate::block_py::BlockPyCallableFacts::default(),
+            semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
         };
         let rendered = blockpy_module_to_string(&BlockPyModule {
             callable_defs: vec![function],
@@ -1534,6 +1537,7 @@ def choose(a, b):
                 doc: None,
                 closure_layout: None,
                 facts: crate::block_py::BlockPyCallableFacts::default(),
+                semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
             }],
         });
 

@@ -9,7 +9,9 @@ use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
 #[cfg(test)]
-use crate::block_py::{BlockPyFunction, BlockPyFunctionKind, FunctionName};
+use crate::block_py::{
+    BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind, FunctionName,
+};
 
 fn expr_name(id: &str) -> ast::ExprName {
     let Expr::Name(expr) = py_expr!("{id:id}", id = id) else {
@@ -171,6 +173,7 @@ mod tests {
                 doc: None,
                 closure_layout: None,
                 facts: crate::block_py::BlockPyCallableFacts::default(),
+                semantic: BlockPyCallableSemanticInfo::default(),
             }],
         };
 

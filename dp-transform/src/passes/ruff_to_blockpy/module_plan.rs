@@ -3,7 +3,8 @@ use crate::block_py::param_specs::{collect_param_spec_and_defaults, param_defaul
 use crate::block_py::state::collect_cell_slots;
 use crate::block_py::BindingTarget;
 use crate::block_py::{
-    BlockPyCallableFacts, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, FunctionName,
+    BlockPyCallableFacts, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyModule, FunctionName,
 };
 use crate::passes::annotation_export::{
     build_lowered_annotation_helper_binding, is_annotation_helper_name,
@@ -18,7 +19,7 @@ use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::{make_dp_tuple, name_expr};
 use crate::passes::ast_to_ast::rewrite_stmt;
 use crate::passes::ast_to_ast::scope::{analyze_module_scope, cell_name, is_internal_symbol};
-use crate::passes::ast_to_ast::semantic::SemanticAstState;
+use crate::passes::ast_to_ast::semantic::{SemanticAstState, SemanticScope, SemanticScopeKind};
 use crate::passes::RuffBlockPyPass;
 
 use crate::passes::function_identity::{
@@ -39,6 +40,7 @@ struct FunctionScopeFrame {
     name: String,
     parent_name: Option<String>,
     cell_bindings: HashSet<String>,
+    callable_semantic: BlockPyCallableSemanticInfo,
     entering_module_init: bool,
     has_parent_hoisted_scope: bool,
     needs_cell_sync: bool,
@@ -102,6 +104,20 @@ struct LoweredFunctionInstantiationPreview {
 #[derive(Default)]
 struct YieldFamilyDetector {
     found: bool,
+}
+
+fn callable_semantic_info(function_scope: Option<&SemanticScope>) -> BlockPyCallableSemanticInfo {
+    let Some(function_scope) = function_scope else {
+        return BlockPyCallableSemanticInfo::default();
+    };
+    BlockPyCallableSemanticInfo {
+        scope_kind: match function_scope.kind() {
+            SemanticScopeKind::Function => BlockPyCallableScopeKind::Function,
+            SemanticScopeKind::Class => BlockPyCallableScopeKind::Class,
+            SemanticScopeKind::Module => BlockPyCallableScopeKind::Module,
+        },
+        local_cell_bindings: function_scope.local_cell_bindings(),
+    }
 }
 
 impl Transformer for YieldFamilyDetector {
@@ -255,6 +271,7 @@ fn try_lower_function_to_blockpy_bundle(
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &ast::StmtFunctionDef,
     parent_name: Option<&str>,
+    callable_semantic: &BlockPyCallableSemanticInfo,
     reserved_temp_names_stack: &mut Vec<HashSet<String>>,
     next_block_id: &mut usize,
     next_function_id: &mut usize,
@@ -341,6 +358,7 @@ fn try_lower_function_to_blockpy_bundle(
             &callable_facts.unbound_local_names,
         );
     }
+    callable_def.semantic = callable_semantic.clone();
 
     Some(callable_def)
 }
@@ -620,10 +638,11 @@ fn build_lowered_function_instantiation_preview(
         .iter()
         .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
         .collect();
+    let local_cell_slots = callable_def.semantic.local_cell_storage_names();
     let captures = classify_capture_items(
         &entry_liveins,
         &param_name_set,
-        &callable_def.facts.cell_slots,
+        &local_cell_slots,
         &locally_assigned,
     )?;
     Some(LoweredFunctionInstantiationPreview {
@@ -749,6 +768,7 @@ mod tests {
                 name: "outer".to_string(),
                 parent_name: None,
                 cell_bindings: outer_scope.local_cell_bindings(),
+                callable_semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
                 entering_module_init: false,
                 has_parent_hoisted_scope: false,
                 needs_cell_sync: false,
@@ -1413,6 +1433,7 @@ fn rewrite_function_def_stmt_via_blockpy(
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &mut ast::StmtFunctionDef,
     current_parent: Option<&str>,
+    callable_semantic: &BlockPyCallableSemanticInfo,
     needs_cell_sync: bool,
     entering_module_init: bool,
     has_parent_hoisted_scope: bool,
@@ -1428,6 +1449,7 @@ fn rewrite_function_def_stmt_via_blockpy(
         function_identity_by_node,
         func,
         current_parent,
+        callable_semantic,
         reserved_temp_names_stack,
         next_block_id,
         next_function_id,
@@ -1480,6 +1502,7 @@ impl BlockPyModuleRewriter<'_> {
             .as_ref()
             .map(|scope| scope.local_cell_bindings())
             .unwrap_or_default();
+        let callable_semantic = callable_semantic_info(function_scope.as_ref());
         let needs_cell_sync = self
             .function_scope_stack
             .last()
@@ -1489,6 +1512,7 @@ impl BlockPyModuleRewriter<'_> {
             name: fn_name,
             parent_name,
             cell_bindings,
+            callable_semantic,
             entering_module_init,
             has_parent_hoisted_scope,
             needs_cell_sync,
@@ -1513,6 +1537,7 @@ impl BlockPyModuleRewriter<'_> {
             &self.function_identity_by_node,
             func,
             state.parent_name.as_deref(),
+            &state.callable_semantic,
             state.needs_cell_sync,
             state.entering_module_init,
             state.has_parent_hoisted_scope,

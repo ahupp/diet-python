@@ -662,6 +662,7 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
         doc,
         closure_layout,
         facts,
+        semantic,
     } = callable_def;
     BlockPyFunction {
         function_id,
@@ -676,6 +677,7 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
         doc,
         closure_layout,
         facts,
+        semantic,
     }
 }
 

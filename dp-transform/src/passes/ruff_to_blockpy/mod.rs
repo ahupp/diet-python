@@ -15,9 +15,9 @@ use crate::block_py::state::{
     collect_state_vars, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use crate::block_py::{
-    assert_blockpy_block_normalized, BlockPyCallableFacts, BlockPyEdge, BlockPyFallthroughTerm,
-    BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyStmt, BlockPyTerm,
-    CfgBlock, ClosureLayout, FunctionId, FunctionName,
+    assert_blockpy_block_normalized, BlockPyCallableFacts, BlockPyCallableSemanticInfo,
+    BlockPyEdge, BlockPyFallthroughTerm, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel,
+    BlockPyPass, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureLayout, FunctionId, FunctionName,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -118,6 +118,7 @@ pub(crate) fn build_blockpy_function(
         doc,
         closure_layout,
         facts,
+        semantic: BlockPyCallableSemanticInfo::default(),
     }
 }
 
@@ -278,12 +279,8 @@ fn build_semantic_blockpy_closure_layout(
 ) -> Option<ClosureLayout> {
     let entry_liveins = callable_def.entry_liveins();
     let param_names = callable_def.params.names();
-    let mut local_cell_slots = callable_def
-        .facts
-        .cell_slots
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>();
+    let local_cell_slot_names = callable_def.semantic.local_cell_storage_names();
+    let mut local_cell_slots = local_cell_slot_names.iter().cloned().collect::<Vec<_>>();
     local_cell_slots.sort();
     let param_name_set = param_names.iter().cloned().collect::<HashSet<_>>();
     let locally_assigned: HashSet<String> = callable_def
@@ -296,8 +293,7 @@ fn build_semantic_blockpy_closure_layout(
         .filter(|name| !param_name_set.contains(name.as_str()))
         .filter(|name| {
             *name == "_dp_classcell"
-                || (name.starts_with("_dp_cell_")
-                    && !callable_def.facts.cell_slots.contains(name.as_str()))
+                || (name.starts_with("_dp_cell_") && !local_cell_slot_names.contains(name.as_str()))
                 || (!name.starts_with("_dp_") && !locally_assigned.contains(name.as_str()))
         })
         .cloned()

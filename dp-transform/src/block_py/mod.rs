@@ -536,6 +536,32 @@ impl FunctionName {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub enum BlockPyCallableScopeKind {
+    #[default]
+    Function,
+    Class,
+    Module,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BlockPyCallableSemanticInfo {
+    pub scope_kind: BlockPyCallableScopeKind,
+    pub local_cell_bindings: HashSet<String>,
+}
+
+impl BlockPyCallableSemanticInfo {
+    pub fn local_cell_storage_names(&self) -> HashSet<String> {
+        if !matches!(self.scope_kind, BlockPyCallableScopeKind::Function) {
+            return HashSet::new();
+        }
+        self.local_cell_bindings
+            .iter()
+            .map(|name| format!("_dp_cell_{name}"))
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BlockPyFunction<P: BlockPyPass> {
     pub function_id: FunctionId,
@@ -546,6 +572,7 @@ pub struct BlockPyFunction<P: BlockPyPass> {
     pub doc: Option<String>,
     pub closure_layout: Option<ClosureLayout>,
     pub facts: BlockPyCallableFacts,
+    pub semantic: BlockPyCallableSemanticInfo,
 }
 
 impl<P: BlockPyPass> BlockPyFunction<P> {
@@ -586,6 +613,7 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
             doc: self.doc,
             closure_layout: self.closure_layout,
             facts: self.facts,
+            semantic: self.semantic,
         }
     }
 }
@@ -1283,6 +1311,7 @@ where
             doc: func.doc,
             closure_layout: func.closure_layout,
             facts: func.facts,
+            semantic: func.semantic,
         }
     }
 
@@ -1615,6 +1644,7 @@ mod tests {
                 doc: None,
                 closure_layout: None,
                 facts: BlockPyCallableFacts::default(),
+                semantic: BlockPyCallableSemanticInfo::default(),
             }],
         };
 
@@ -2379,6 +2409,7 @@ impl TryFrom<BlockPyFunction<CoreBlockPyPassWithYield>> for BlockPyFunction<Core
             doc,
             closure_layout,
             facts,
+            semantic,
         } = value;
         Ok(BlockPyFunction {
             function_id,
@@ -2392,6 +2423,7 @@ impl TryFrom<BlockPyFunction<CoreBlockPyPassWithYield>> for BlockPyFunction<Core
             doc,
             closure_layout,
             facts,
+            semantic,
         })
     }
 }

@@ -189,12 +189,8 @@ fn build_generator_closure_layout(
 ) -> ClosureLayout {
     let entry_liveins = callable.entry_liveins();
     let param_names = callable.params.names();
-    let mut local_cell_slots = callable
-        .facts
-        .cell_slots
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>();
+    let local_cell_slot_names = callable.semantic.local_cell_storage_names();
+    let mut local_cell_slots = local_cell_slot_names.iter().cloned().collect::<Vec<_>>();
     local_cell_slots.sort();
     let param_name_set = param_names.iter().cloned().collect::<HashSet<_>>();
     let locally_assigned: HashSet<String> = callable
@@ -207,8 +203,7 @@ fn build_generator_closure_layout(
         .filter(|name| !param_name_set.contains(name.as_str()))
         .filter(|name| {
             *name == "_dp_classcell"
-                || (name.starts_with("_dp_cell_")
-                    && !callable.facts.cell_slots.contains(name.as_str()))
+                || (name.starts_with("_dp_cell_") && !local_cell_slot_names.contains(name.as_str()))
                 || (!name.starts_with("_dp_") && !locally_assigned.contains(name.as_str()))
         })
         .cloned()
@@ -1423,6 +1418,7 @@ pub(crate) fn lower_generator_like_function(
         doc: callable.doc.clone(),
         closure_layout: Some(closure_layout.clone()),
         facts: callable.facts.clone(),
+        semantic: callable.semantic.clone(),
     };
 
     let resume_params = resume_param_spec(callable.kind);
@@ -1440,6 +1436,7 @@ pub(crate) fn lower_generator_like_function(
         doc: None,
         closure_layout: Some(closure_layout.clone()),
         facts: callable.facts,
+        semantic: callable.semantic,
     };
 
     vec![visible_function, resume_function]

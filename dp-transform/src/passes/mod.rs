@@ -76,8 +76,8 @@ pub(crate) use summarize_pass_shape::summarize_tracked_pass_shape;
 #[cfg(test)]
 mod tests {
     use crate::block_py::{
-        BbBlock, BbStmt, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyTerm,
-        CoreBlockPyExpr,
+        BbBlock, BbStmt, BlockPyCallableScopeKind, BlockPyFunction, BlockPyFunctionKind,
+        BlockPyModule, BlockPyTerm, CoreBlockPyExpr,
     };
     use crate::block_py::{ClosureInit, ClosureSlot};
     use crate::passes::{BbBlockPyPass, CoreBlockPyPass, RuffBlockPyPass};
@@ -371,6 +371,41 @@ def build_qualnames():
         assert_eq!(
             inner_global_function.names.qualname,
             "inner_global_function"
+        );
+    }
+
+    #[test]
+    fn lowered_class_helper_records_class_scope_kind() {
+        let source = r#"
+class Box:
+    value = 1
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let blockpy_module = lowered.blockpy_module();
+        let class_helper = callable_def_by_name(&blockpy_module, "_dp_class_ns_Box");
+        assert_eq!(
+            class_helper.semantic.scope_kind,
+            BlockPyCallableScopeKind::Class
+        );
+    }
+
+    #[test]
+    fn lowered_callable_records_semantic_local_cell_bindings() {
+        let source = r#"
+def outer():
+    def recurse():
+        return recurse()
+    return recurse
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let blockpy_module = lowered.blockpy_module();
+        let outer = callable_def_by_name(&blockpy_module, "outer");
+        assert!(
+            outer.semantic.local_cell_bindings.contains("recurse"),
+            "{:?}",
+            outer.semantic.local_cell_bindings
         );
     }
 

@@ -147,8 +147,6 @@ def outer():
 
 # function outer():
 #     function_id: 2
-#     local_cell_slots: [_dp_cell_x]
-#     cellvars: [x->_dp_cell_x@deferred]
 #     block _dp_bb_start:
 #         _dp_cell_x = __dp_make_cell()
 #         __dp_store_cell(_dp_cell_x, "outer")
