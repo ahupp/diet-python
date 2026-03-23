@@ -66,6 +66,10 @@ pub(crate) fn rewrite_module_with_tracker(
         );
 
         let expected_module_scope = analyze_module_scope(suite_mut(&mut module));
+        let rewrite_semantic_state = SemanticAstState::from_ruff(
+            suite_mut(&mut module),
+            Some(expected_module_scope.clone()),
+        );
         let mut current_semantic_state =
             SemanticAstState::from_scope_tree(suite_mut(&mut module), expected_module_scope);
 
@@ -75,7 +79,7 @@ pub(crate) fn rewrite_module_with_tracker(
         //  - class-body: class_body_load_cell/global(_dp_class_ns, name, cell / globals()) captures "try class, then outer"
         rewrite_names::rewrite_explicit_bindings(
             context,
-            &current_semantic_state,
+            &rewrite_semantic_state,
             suite_mut(&mut module),
         );
 
