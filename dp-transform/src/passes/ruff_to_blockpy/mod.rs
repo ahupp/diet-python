@@ -94,34 +94,6 @@ pub(crate) enum StmtSequenceDriveResult {
     },
 }
 
-pub(crate) fn build_blockpy_function(
-    function_id: FunctionId,
-    names: FunctionName,
-    params: ParamSpec,
-    doc: Option<String>,
-    kind: BlockPyFunctionKind,
-    entry_label: String,
-    closure_layout: Option<ClosureLayout>,
-    facts: BlockPyCallableFacts,
-    mut blocks: Vec<LoweredBlockPyBlock<Expr>>,
-) -> BlockPyFunction<RuffBlockPyPass> {
-    move_blockpy_entry_block_to_front(&mut blocks, entry_label.as_str());
-    for block in &blocks {
-        assert_blockpy_block_normalized(block);
-    }
-    BlockPyFunction {
-        function_id,
-        names,
-        kind,
-        params,
-        blocks,
-        doc,
-        closure_layout,
-        facts,
-        semantic: BlockPyCallableSemanticInfo::default(),
-    }
-}
-
 fn move_blockpy_entry_block_to_front(blocks: &mut Vec<BlockPyBlock<Expr>>, entry_label: &str) {
     if let Some(entry_index) = blocks
         .iter()
@@ -323,31 +295,6 @@ fn build_semantic_blockpy_closure_layout(
     ))
 }
 
-pub(crate) fn build_finalized_blockpy_callable_def(
-    function_id: FunctionId,
-    names: FunctionName,
-    params: ParamSpec,
-    doc: Option<String>,
-    kind: BlockPyFunctionKind,
-    blocks: Vec<LoweredBlockPyBlock<Expr>>,
-    entry_label: String,
-    end_label: String,
-    facts: BlockPyCallableFacts,
-) -> BlockPyFunction<RuffBlockPyPass> {
-    let callable_def = build_blockpy_function(
-        function_id,
-        names,
-        params,
-        doc,
-        kind,
-        entry_label.clone(),
-        None,
-        facts,
-        blocks,
-    );
-    finalize_blockpy_callable_def(callable_def, entry_label, end_label)
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_blockpy_callable_def_from_runtime_input<FTemp>(
     context: &Context,
@@ -366,7 +313,7 @@ where
     FTemp: FnMut(&str, &mut usize) -> String,
 {
     let mut blocks = Vec::new();
-    let entry_label = lower_stmt_sequence_with_state(
+    let mut entry_label = lower_stmt_sequence_with_state(
         context,
         names.fn_name.as_str(),
         runtime_input_body,
@@ -380,24 +327,21 @@ where
         next_block_id,
         next_temp,
     );
-    build_finalized_blockpy_callable_def(
+    move_blockpy_entry_block_to_front(&mut blocks, entry_label.as_str());
+    for block in &blocks {
+        assert_blockpy_block_normalized(block);
+    }
+    let mut callable_def = BlockPyFunction {
         function_id,
         names,
+        kind: blockpy_kind,
         params,
-        doc,
-        blockpy_kind,
         blocks,
-        entry_label,
-        end_label,
-        facts.clone(),
-    )
-}
-
-pub(crate) fn finalize_blockpy_callable_def(
-    mut callable_def: BlockPyFunction<RuffBlockPyPass>,
-    mut entry_label: String,
-    end_label: String,
-) -> BlockPyFunction<RuffBlockPyPass> {
+        doc,
+        closure_layout: None,
+        facts: facts.clone(),
+        semantic: BlockPyCallableSemanticInfo::default(),
+    };
     let needs_end_block = entry_label == end_label
         || callable_def
             .blocks
