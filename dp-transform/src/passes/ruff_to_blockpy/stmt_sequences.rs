@@ -35,17 +35,13 @@ pub(crate) fn plan_stmt_sequence_head(context: &Context, stmt: &Stmt) -> StmtSeq
     super::stmt_lowering::plan_stmt_head_for_blockpy(context, stmt)
 }
 
-pub(crate) fn drive_stmt_sequence_until_control<FDelete>(
+pub(crate) fn drive_stmt_sequence_until_control(
     context: &Context,
     stmts: &[Stmt],
     mut linear: Vec<Stmt>,
     cell_slots: &HashSet<String>,
     outer_scope_names: &HashSet<String>,
-    rewrite_delete: &mut FDelete,
-) -> StmtSequenceDriveResult
-where
-    FDelete: FnMut(&ast::StmtDelete) -> Vec<Stmt>,
-{
+) -> StmtSequenceDriveResult {
     let mut index = 0;
     while index < stmts.len() {
         match plan_stmt_sequence_head(context, &stmts[index]) {
@@ -73,7 +69,7 @@ where
                 index += 1;
             }
             StmtSequenceHeadPlan::Delete(delete_stmt) => {
-                linear.extend(rewrite_delete(&delete_stmt));
+                linear.extend(rewrite_delete_to_deleted_sentinel(&delete_stmt));
                 index += 1;
             }
             plan => {
@@ -304,7 +300,6 @@ where
             linear,
             cell_slots,
             outer_scope_names,
-            &mut rewrite_delete_to_deleted_sentinel,
         ) {
             StmtSequenceDriveResult::Exhausted { linear } => {
                 let label = compat_next_label(fn_name, next_block_id);
