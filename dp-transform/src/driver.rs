@@ -45,8 +45,6 @@ pub(crate) fn rewrite_module_with_tracker(
             suite_mut(&mut module),
         );
 
-        wrap_module_init(suite_mut(&mut module));
-
         // Lower helper-scoped expressions that synthesize nested defs for Python
         // scoping semantics before the more direct BlockPy expr lowering boundary.
         rewrite_with_pass(
@@ -66,6 +64,7 @@ pub(crate) fn rewrite_module_with_tracker(
         );
 
         let mut rewrite_semantic_state = SemanticAstState::from_ruff(suite_mut(&mut module));
+        wrap_module_init(&mut rewrite_semantic_state, suite_mut(&mut module));
 
         // Replace global / nonlocal and class-body scoping with explicit loads/stores.
         //  - globals: __dp__.load/store_global(globals(), name)
@@ -197,14 +196,7 @@ fn is_module_docstring(stmt: &Stmt) -> bool {
     )
 }
 
-pub(crate) fn wrap_module_init(module: &mut Suite) {
-    let mut global_names = SemanticAstState::from_ruff(module)
-        .module_scope()
-        .local_binding_names()
-        .into_iter()
-        .collect::<Vec<_>>();
-    global_names.sort();
-
+pub(crate) fn wrap_module_init(semantic_state: &mut SemanticAstState, module: &mut Suite) {
     let mut prelude = Vec::new();
     let mut init_body = Vec::new();
     let mut seen_non_prelude = false;
@@ -227,20 +219,14 @@ pub(crate) fn wrap_module_init(module: &mut Suite) {
         init_body.push(crate::py_stmt!("pass"));
     }
 
-    let global_stmts = global_names
-        .into_iter()
-        .map(|name| crate::py_stmt!("global {name:id}", name = name.as_str()))
-        .collect::<Vec<_>>();
-
     let module_init: ast::StmtFunctionDef = crate::py_stmt_typed!(
         r#"
 def _dp_module_init():
-    {global_stmts:stmt}
     {init_body:stmt}
 "#,
-        global_stmts = global_stmts,
         init_body = init_body,
     );
+    semantic_state.synthesize_module_init_scope(&module_init);
 
     prelude.push(Stmt::FunctionDef(module_init));
     *module = prelude;

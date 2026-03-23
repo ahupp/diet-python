@@ -47,6 +47,7 @@ struct SemanticScopeData {
     local_cell_bindings: HashSet<String>,
     parent: Option<SemanticScopeId>,
     qualname: String,
+    reuses_child_scopes: bool,
     function_children: HashMap<NodeIndex, SemanticScopeId>,
     class_children: HashMap<NodeIndex, SemanticScopeId>,
 }
@@ -220,7 +221,7 @@ impl SemanticScope {
     ) -> Option<SemanticScope> {
         if let Some(scope_id) = self.state.function_scope_id(func_def) {
             let child = self.state.inner.snapshot.scope(scope_id);
-            if child.parent == Some(self.scope_id) {
+            if child.parent == Some(self.scope_id) || self.data().reuses_child_scopes {
                 return Some(self.state.scope(scope_id));
             }
         }
@@ -229,7 +230,8 @@ impl SemanticScope {
             .get(&func_def.node_index().load())
             .copied()
             .filter(|scope_id| {
-                self.state.inner.snapshot.scope(*scope_id).parent == Some(self.scope_id)
+                self.data().reuses_child_scopes
+                    || self.state.inner.snapshot.scope(*scope_id).parent == Some(self.scope_id)
             })
             .map(|scope_id| self.state.scope(scope_id))
     }
@@ -240,7 +242,8 @@ impl SemanticScope {
             .get(&class_def.node_index().load())
             .copied()
             .filter(|scope_id| {
-                self.state.inner.snapshot.scope(*scope_id).parent == Some(self.scope_id)
+                self.data().reuses_child_scopes
+                    || self.state.inner.snapshot.scope(*scope_id).parent == Some(self.scope_id)
             })
             .map(|scope_id| self.state.scope(scope_id))
     }
@@ -533,6 +536,7 @@ impl RuffSemanticSnapshotBuilder {
                     local_cell_bindings: HashSet::new(),
                     parent: None,
                     qualname: String::new(),
+                    reuses_child_scopes: false,
                     function_children: HashMap::new(),
                     class_children: HashMap::new(),
                 }],
@@ -720,6 +724,7 @@ impl RuffSemanticSnapshotBuilder {
             local_cell_bindings: HashSet::new(),
             parent: Some(parent_id),
             qualname,
+            reuses_child_scopes: false,
             function_children: HashMap::new(),
             class_children: HashMap::new(),
         });
@@ -937,6 +942,51 @@ impl SemanticAstState {
         self.scope(SemanticScopeId(0))
     }
 
+    pub(crate) fn synthesize_module_init_scope(
+        &mut self,
+        func_def: &StmtFunctionDef,
+    ) -> SemanticScope {
+        let module_scope = self.module_scope();
+        let module_data = module_scope.data().clone();
+        let translated_bindings = module_data
+            .bindings
+            .into_iter()
+            .map(|(name, binding)| {
+                let translated = if is_internal_symbol(name.as_str()) {
+                    SemanticBindingKind::Local
+                } else {
+                    match binding {
+                        SemanticBindingKind::Local => SemanticBindingKind::Global,
+                        SemanticBindingKind::Nonlocal => SemanticBindingKind::Nonlocal,
+                        SemanticBindingKind::Global => SemanticBindingKind::Global,
+                    }
+                };
+                (name, translated)
+            })
+            .collect::<HashMap<_, _>>();
+
+        let scope_id = {
+            let inner = Arc::make_mut(&mut self.inner);
+            let scope_id = SemanticScopeId(inner.snapshot.scopes.len());
+            inner.snapshot.scopes.push(SemanticScopeData {
+                kind: SemanticScopeKind::Function,
+                bindings: translated_bindings,
+                local_defs: HashSet::new(),
+                local_cell_bindings: HashSet::new(),
+                parent: Some(module_scope.scope_id),
+                qualname: "_dp_module_init".to_string(),
+                reuses_child_scopes: true,
+                function_children: module_scope.data().function_children.clone(),
+                class_children: module_scope.data().class_children.clone(),
+            });
+            scope_id
+        };
+
+        let scope = self.scope(scope_id);
+        self.register_function_scope_override(func_def, scope.clone());
+        scope
+    }
+
     pub(crate) fn register_function_scope_override(
         &mut self,
         func_def: &StmtFunctionDef,
@@ -1082,6 +1132,40 @@ mod tests {
             scope.binding_in_scope("y", SemanticBindingUse::Load),
             SemanticBindingKind::Local
         );
+    }
+
+    #[test]
+    fn synthesized_module_init_scope_reuses_module_children_and_translates_bindings() {
+        let mut body = parse_module_body(concat!(
+            "x = 1\n",
+            "def f():\n",
+            "    return x\n",
+            "class C:\n",
+            "    y = x\n",
+        ));
+        let mut semantic_state = SemanticAstState::from_ruff(&mut body);
+        let module_init: ast::StmtFunctionDef = crate::py_stmt_typed!(
+            r#"
+def _dp_module_init():
+    pass
+"#
+        );
+        let module_init_scope = semantic_state.synthesize_module_init_scope(&module_init);
+
+        assert_eq!(
+            module_init_scope.binding_in_scope("x", SemanticBindingUse::Load),
+            SemanticBindingKind::Global
+        );
+        assert_eq!(
+            module_init_scope.binding_in_scope("f", SemanticBindingUse::Load),
+            SemanticBindingKind::Global
+        );
+        assert!(module_init_scope
+            .child_scope_for_function(find_function(&body, "f"))
+            .is_some());
+        assert!(module_init_scope
+            .child_scope_for_class(find_class(&body, "C"))
+            .is_some());
     }
 
     #[test]

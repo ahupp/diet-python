@@ -1659,6 +1659,64 @@ def outer_read():
     }
 
     #[test]
+    fn ast_to_ast_module_init_does_not_inject_global_prelude() {
+        let source = r#"
+VALUE = 1
+
+def build():
+    return VALUE
+
+class Box:
+    item = VALUE
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let rendered = lowered.pass_text("ast-to-ast");
+        assert!(rendered.contains("def _dp_module_init()"), "{rendered}");
+        assert!(!rendered.contains("global VALUE"), "{rendered}");
+        assert!(!rendered.contains("global build"), "{rendered}");
+        assert!(!rendered.contains("global Box"), "{rendered}");
+    }
+
+    #[test]
+    fn module_init_rebinds_top_level_assignments_and_classes_without_global_prelude() {
+        let source = r#"
+VALUE = 1
+
+class Box:
+    item = VALUE
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let rendered = lowered.pass_text("ast-to-ast");
+        assert!(!rendered.contains("global VALUE"), "{rendered}");
+        assert!(!rendered.contains("global Box"), "{rendered}");
+
+        let init_fn = lowered.bb_function("_dp_module_init");
+        assert!(
+            init_fn
+                .blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_store_global")),
+            "{init_fn:?}"
+        );
+        assert!(
+            init_fn
+                .blocks
+                .iter()
+                .any(|block| block_uses_text(block, "\"VALUE\"")),
+            "{init_fn:?}"
+        );
+        assert!(
+            init_fn
+                .blocks
+                .iter()
+                .any(|block| block_uses_text(block, "\"Box\"")),
+            "{init_fn:?}"
+        );
+    }
+
+    #[test]
     fn lowers_try_star_except_star_via_exceptiongroup_split() {
         let source = r#"
 def f():
