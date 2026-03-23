@@ -26,6 +26,7 @@ pub(crate) fn rewrite_module_with_tracker(
     pass_tracker: &mut PassTracker,
 ) -> BlockPyModule<PreparedBbBlockPyPass> {
     let mut semantic_state: Option<SemanticAstState> = None;
+    let mut function_identity_state: Option<SemanticAstState> = None;
     let mut ast_module = pass_tracker.run_renderable_pass("ast-to-ast", || {
         let mut module = body_from_suite(std::mem::take(module));
 
@@ -66,7 +67,7 @@ pub(crate) fn rewrite_module_with_tracker(
         );
 
         let expected_module_scope = analyze_module_scope(suite_mut(&mut module));
-        let rewrite_semantic_state = SemanticAstState::from_ruff(
+        let mut rewrite_semantic_state = SemanticAstState::from_ruff(
             suite_mut(&mut module),
             Some(expected_module_scope.clone()),
         );
@@ -88,23 +89,25 @@ pub(crate) fn rewrite_module_with_tracker(
             &mut current_semantic_state,
             suite_mut(&mut module),
         );
+        current_semantic_state.mirror_function_scope_overrides_to(
+            &mut rewrite_semantic_state,
+            suite_mut(&mut module),
+        );
         if cfg!(debug_assertions) {
-            let rewritten_expected_module_scope = analyze_module_scope(suite_mut(&mut module));
-            let rewritten_ruff_semantic_state = SemanticAstState::from_ruff(
-                suite_mut(&mut module),
-                Some(rewritten_expected_module_scope),
-            );
-            debug_assert_matches_scope_tree(suite_mut(&mut module), &rewritten_ruff_semantic_state);
+            debug_assert_matches_scope_tree(suite_mut(&mut module), &rewrite_semantic_state);
         }
         suite_mut(&mut module).splice(
             0..0,
             rewrite_future_annotations::invalid_future_feature_syntax_error_stmts(&future_imports),
         );
         semantic_state = Some(current_semantic_state);
+        function_identity_state = Some(rewrite_semantic_state);
         module
     });
     *module = take_suite(&mut ast_module);
     let semantic_state = semantic_state.expect("semantic AST state should be available");
+    let function_identity_state =
+        function_identity_state.expect("function identity semantic AST state should be available");
 
     /*
 
@@ -145,9 +148,14 @@ pub(crate) fn rewrite_module_with_tracker(
        still jump to finally.
     */
 
-    let semantic_blockpy: BlockPyModule<RuffBlockPyPass> = pass_tracker
-        .run_renderable_pass("semantic_blockpy", || {
-            rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module, &semantic_state)
+    let semantic_blockpy: BlockPyModule<RuffBlockPyPass> =
+        pass_tracker.run_renderable_pass("semantic_blockpy", || {
+            rewrite_ast_to_lowered_blockpy_module_plan_with_module(
+                context,
+                module,
+                &semantic_state,
+                &function_identity_state,
+            )
         });
 
     /*

@@ -957,16 +957,23 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
     crate::passes::ast_to_ast::simplify::flatten(&mut module);
     let module_scope = analyze_module_scope(&mut module);
     let semantic_state = SemanticAstState::from_scope_tree(&mut module, module_scope);
-    rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, &mut module, &semantic_state)
+    rewrite_ast_to_lowered_blockpy_module_plan_with_module(
+        context,
+        &mut module,
+        &semantic_state,
+        &semantic_state,
+    )
 }
 
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
     context: &Context,
     module: &mut Suite,
     semantic_state: &SemanticAstState,
+    function_identity_state: &SemanticAstState,
 ) -> BlockPyModule<RuffBlockPyPass> {
     crate::passes::ast_to_ast::simplify::flatten(module);
-    let function_identity_by_node = collect_function_identity_private(module, semantic_state);
+    let function_identity_by_node =
+        collect_function_identity_private(module, function_identity_state);
     let mut rewriter = BlockPyModuleRewriter {
         context,
         semantic_state,

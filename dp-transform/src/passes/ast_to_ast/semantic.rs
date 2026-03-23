@@ -938,6 +938,8 @@ impl RuffSemanticSnapshotBuilder {
             SemanticScopeKind::Module => {}
         }
         if let Some(expected_scope) = expected_scope {
+            self.expected_scope_ids_by_raw_id
+                .insert(expected_scope.id(), scope_id);
             self.expected_scopes_by_id.insert(scope_id, expected_scope);
         }
         scope_id
@@ -1189,6 +1191,35 @@ impl SemanticAstState {
         }
     }
 
+    fn register_function_scope_override_for_expected_scope(
+        &mut self,
+        func_def: &StmtFunctionDef,
+        expected_scope: Arc<Scope>,
+    ) {
+        let Some(scope_id) = self
+            .inner
+            .expected_scope_ids_by_raw_id
+            .get(&expected_scope.id())
+            .copied()
+        else {
+            panic!(
+                "missing semantic scope for expected raw scope id {} while mirroring override",
+                expected_scope.id()
+            );
+        };
+        let mut provenance = self
+            .provenance
+            .lock()
+            .expect("semantic provenance mutex poisoned");
+        let node_index = provenance.ensure_node_index(func_def);
+        provenance
+            .function_scope_overrides
+            .insert(node_index, scope_id);
+        provenance
+            .expected_function_scope_overrides
+            .insert(node_index, expected_scope);
+    }
+
     pub(crate) fn function_scope(&self, func_def: &StmtFunctionDef) -> Option<SemanticScope> {
         if matches!(self.inner.source, SemanticSourceKind::ScopeTree) {
             if let Some(expected_scope) = self
@@ -1272,6 +1303,37 @@ impl SemanticAstState {
             .lock()
             .expect("semantic provenance mutex poisoned")
             .expected_function_scope_override(func_def)
+    }
+
+    pub(crate) fn mirror_function_scope_overrides_to(
+        &self,
+        dest: &mut SemanticAstState,
+        module: &mut Suite,
+    ) {
+        struct OverrideMirror<'a> {
+            source: &'a SemanticAstState,
+            dest: &'a mut SemanticAstState,
+        }
+
+        impl Transformer for OverrideMirror<'_> {
+            fn visit_stmt(&mut self, stmt: &mut ast::Stmt) {
+                if let ast::Stmt::FunctionDef(func_def) = stmt {
+                    if let Some(expected_scope) =
+                        self.source.expected_function_scope_override(func_def)
+                    {
+                        self.dest
+                            .register_function_scope_override_for_expected_scope(
+                                func_def,
+                                expected_scope,
+                            );
+                    }
+                }
+                crate::transformer::walk_stmt(self, stmt);
+            }
+        }
+
+        let mut cloned_module = module.clone();
+        OverrideMirror { source: self, dest }.visit_body(&mut cloned_module);
     }
 }
 
