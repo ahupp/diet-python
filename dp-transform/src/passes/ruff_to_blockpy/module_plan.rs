@@ -834,36 +834,6 @@ fn build_lowered_function_binding_stmt(
     }
 }
 
-fn build_lowered_function_instantiation_stmt(
-    func: &ast::StmtFunctionDef,
-    preview: &LoweredFunctionInstantiationPreview,
-    instantiation_plan: &LoweredFunctionInstantiationPlan,
-) -> Vec<Stmt> {
-    let bind_name = instantiation_plan.identity.bind_name.as_str();
-    let annotate_helper = build_lowered_annotation_helper_binding(func, bind_name);
-    let annotate_fn_expr = annotate_helper
-        .as_ref()
-        .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone())
-        .unwrap_or_else(|| py_expr!("None"));
-    let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
-    let decorated = build_lowered_function_instantiation_expr(
-        preview.function_id,
-        &preview.captures,
-        rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
-        &param_defaults,
-        annotate_fn_expr,
-        preview.kind,
-    );
-    let binding_stmt =
-        build_lowered_function_binding_stmt(bind_name, decorated, instantiation_plan.binding);
-    let mut stmts = Vec::new();
-    if let Some((helper_stmt, _)) = annotate_helper {
-        stmts.push(helper_stmt);
-    }
-    stmts.extend(binding_stmt);
-    stmts
-}
-
 #[allow(clippy::too_many_arguments)]
 fn rewrite_function_def_stmt_via_blockpy(
     context: &Context,
@@ -922,8 +892,26 @@ fn rewrite_function_def_stmt_via_blockpy(
         },
         identity,
     };
-    let binding_stmt =
-        build_lowered_function_instantiation_stmt(func, &preview, &instantiation_plan);
+    let bind_name = instantiation_plan.identity.bind_name.as_str();
+    let annotate_helper = build_lowered_annotation_helper_binding(func, bind_name);
+    let annotate_fn_expr = annotate_helper
+        .as_ref()
+        .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone())
+        .unwrap_or_else(|| py_expr!("None"));
+    let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
+    let decorated = build_lowered_function_instantiation_expr(
+        preview.function_id,
+        &preview.captures,
+        rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
+        &param_defaults,
+        annotate_fn_expr,
+        preview.kind,
+    );
+    let mut binding_stmt =
+        build_lowered_function_binding_stmt(bind_name, decorated, instantiation_plan.binding);
+    if let Some((helper_stmt, _)) = annotate_helper {
+        binding_stmt.insert(0, helper_stmt);
+    }
     let replacement = apply_lowered_function_placement(
         parent_hoisted,
         plan_lowered_function_placement(
