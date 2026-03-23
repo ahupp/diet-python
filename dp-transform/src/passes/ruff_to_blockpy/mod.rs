@@ -287,12 +287,11 @@ where
     FTemp: FnMut(&str, &mut usize) -> String,
 {
     let mut blocks = Vec::new();
-    let mut entry_label = lower_stmt_sequence_with_state(
+    let entry_label = lower_stmt_sequence_with_state(
         context,
         names.fn_name.as_str(),
         runtime_input_body,
         end_label.clone(),
-        None,
         None,
         None,
         &mut blocks,
@@ -712,7 +711,7 @@ def f(xs):
             vec![py_stmt!("x = _dp_tmp_0"), py_stmt!("_dp_tmp_0 = None")],
             &mut |_stmts: &[Stmt],
                   cont_label: String,
-                  _break_label: Option<String>,
+                  _loop_labels: Option<stmt_sequences::LoopLabels>,
                   _active_exc_target: Option<String>,
                   _blocks: &mut Vec<BlockPyBlock>| cont_label,
         );
@@ -1096,11 +1095,11 @@ y = 3
             None,
             &mut |stmts: &[Stmt],
                   cont_label: String,
-                  break_label: Option<String>,
+                  loop_labels: Option<stmt_sequences::LoopLabels>,
                   _active_exc_target: Option<String>,
                   _blocks: &mut Vec<BlockPyBlock>| {
-                if let Some(break_label) = break_label {
-                    loop_calls.push((stmts.len(), cont_label.clone(), break_label));
+                if let Some(loop_labels) = loop_labels {
+                    loop_calls.push((stmts.len(), cont_label.clone(), loop_labels.break_label));
                     "loop_body".to_string()
                 } else {
                     sequence_calls.push((stmts.len(), cont_label.clone()));
@@ -1165,11 +1164,11 @@ y = 3
             None,
             &mut |stmts: &[Stmt],
                   cont_label: String,
-                  break_label: Option<String>,
+                  loop_labels: Option<stmt_sequences::LoopLabels>,
                   _active_exc_target: Option<String>,
                   _blocks: &mut Vec<BlockPyBlock>| {
-                if let Some(break_label) = break_label {
-                    loop_calls.push((stmts.len(), cont_label.clone(), break_label));
+                if let Some(loop_labels) = loop_labels {
+                    loop_calls.push((stmts.len(), cont_label.clone(), loop_labels.break_label));
                     "loop_body".to_string()
                 } else {
                     sequence_calls.push((stmts.len(), cont_label.clone()));

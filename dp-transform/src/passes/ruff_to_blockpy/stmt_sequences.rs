@@ -123,6 +123,12 @@ fn rewrite_delete_target_to_deleted_sentinel(target: &Expr, out: &mut Vec<Stmt>)
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct LoopLabels {
+    pub break_label: String,
+    pub continue_label: String,
+}
+
 pub(crate) fn lower_common_stmt_sequence_head<FSeq>(
     context: &Context,
     plan: StmtSequenceHeadPlan,
@@ -132,12 +138,17 @@ pub(crate) fn lower_common_stmt_sequence_head<FSeq>(
     blocks: &mut Vec<BlockPyBlock>,
     active_exc_target: Option<String>,
     next_label: &mut dyn FnMut() -> String,
-    break_label: Option<String>,
-    continue_label: Option<String>,
+    loop_labels: Option<LoopLabels>,
     lower_sequence: &mut FSeq,
 ) -> Option<String>
 where
-    FSeq: FnMut(&[Stmt], String, Option<String>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    FSeq: FnMut(
+        &[Stmt],
+        String,
+        Option<LoopLabels>,
+        Option<String>,
+        &mut Vec<BlockPyBlock>,
+    ) -> String,
 {
     match plan {
         StmtSequenceHeadPlan::Raise(raise_stmt) => Some(
@@ -199,22 +210,22 @@ where
                 lower_sequence,
             ))
         }
-        StmtSequenceHeadPlan::Break => match break_label {
-            Some(break_label) => Some(emit_sequence_jump_block(
+        StmtSequenceHeadPlan::Break => match loop_labels {
+            Some(loop_labels) => Some(emit_sequence_jump_block(
                 blocks,
                 next_label(),
                 linear,
-                break_label,
+                loop_labels.break_label,
                 active_exc_target.as_deref(),
             )),
             None => Some(cont_label),
         },
-        StmtSequenceHeadPlan::Continue => match continue_label {
-            Some(continue_label) => Some(emit_sequence_jump_block(
+        StmtSequenceHeadPlan::Continue => match loop_labels {
+            Some(loop_labels) => Some(emit_sequence_jump_block(
                 blocks,
                 next_label(),
                 linear,
-                continue_label,
+                loop_labels.continue_label,
                 active_exc_target.as_deref(),
             )),
             None => Some(cont_label),
@@ -241,7 +252,7 @@ pub(crate) fn lower_for_stmt_sequence_head<F>(
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, Option<String>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<LoopLabels>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let mut next_id = next_block_id.get();
     let assign_label = compat_next_label(fn_name, &mut next_id);
@@ -270,8 +281,7 @@ pub(crate) fn lower_stmt_sequence_with_state<FTemp>(
     fn_name: &str,
     stmts: &[Stmt],
     cont_label: String,
-    break_label: Option<String>,
-    continue_label: Option<String>,
+    loop_labels: Option<LoopLabels>,
     active_exc_target: Option<String>,
     blocks: &mut Vec<BlockPyBlock>,
     cell_slots: &HashSet<String>,
@@ -336,18 +346,19 @@ where
                         next_id.set(local_next_id);
                         label
                     },
-                    break_label.clone(),
-                    continue_label.clone(),
-                    &mut |stmts, cont_label, loop_break_label, active_exc_target, blocks| {
-                        if let Some(loop_break_label) = loop_break_label {
+                    loop_labels.clone(),
+                    &mut |stmts, cont_label, nested_loop_labels, active_exc_target, blocks| {
+                        if let Some(nested_loop_labels) = nested_loop_labels {
                             let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
                                 context,
                                 fn_name,
                                 stmts,
                                 cont_label.clone(),
-                                Some(loop_break_label),
-                                Some(cont_label),
+                                Some(LoopLabels {
+                                    break_label: nested_loop_labels.break_label,
+                                    continue_label: cont_label,
+                                }),
                                 active_exc_target,
                                 blocks,
                                 cell_slots,
@@ -364,8 +375,7 @@ where
                                 fn_name,
                                 stmts,
                                 cont_label,
-                                break_label.clone(),
-                                continue_label.clone(),
+                                loop_labels.clone(),
                                 active_exc_target,
                                 blocks,
                                 cell_slots,
@@ -406,8 +416,7 @@ where
                             fn_name,
                             stmts,
                             cont_label,
-                            break_label.clone(),
-                            continue_label.clone(),
+                            loop_labels.clone(),
                             active_exc_target,
                             blocks,
                             cell_slots,
@@ -450,16 +459,18 @@ where
                     loop_continue_label,
                     assign_body,
                     &next_id,
-                    &mut |stmts, cont_label, loop_break_label, active_exc_target, blocks| {
-                        if let Some(loop_break_label) = loop_break_label {
+                    &mut |stmts, cont_label, nested_loop_labels, active_exc_target, blocks| {
+                        if let Some(nested_loop_labels) = nested_loop_labels {
                             let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
                                 context,
                                 fn_name,
                                 stmts,
                                 cont_label.clone(),
-                                Some(loop_break_label),
-                                Some(cont_label),
+                                Some(LoopLabels {
+                                    break_label: nested_loop_labels.break_label,
+                                    continue_label: cont_label,
+                                }),
                                 active_exc_target,
                                 blocks,
                                 cell_slots,
@@ -476,8 +487,7 @@ where
                                 fn_name,
                                 stmts,
                                 cont_label,
-                                break_label.clone(),
-                                continue_label.clone(),
+                                loop_labels.clone(),
                                 active_exc_target,
                                 blocks,
                                 cell_slots,
@@ -515,8 +525,7 @@ where
                                 fn_name,
                                 stmts,
                                 cont_label,
-                                break_label.clone(),
-                                continue_label.clone(),
+                                loop_labels.clone(),
                                 active_exc_target,
                                 blocks,
                                 cell_slots,
@@ -559,8 +568,7 @@ where
                                 fn_name,
                                 stmts,
                                 cont_label,
-                                break_label.clone(),
-                                continue_label.clone(),
+                                loop_labels.clone(),
                                 active_exc_target,
                                 blocks,
                                 cell_slots,
@@ -599,8 +607,7 @@ where
                             fn_name,
                             stmts,
                             cont_label,
-                            break_label.clone(),
-                            continue_label.clone(),
+                            loop_labels.clone(),
                             active_exc_target,
                             blocks,
                             cell_slots,
@@ -755,7 +762,7 @@ pub(crate) fn lower_while_stmt_sequence<F>(
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, Option<String>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<LoopLabels>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let rest_entry = lower_region(
         remaining_stmts,
@@ -778,7 +785,10 @@ where
     let body_entry = lower_region(
         body,
         test_label.clone(),
-        Some(rest_entry),
+        Some(LoopLabels {
+            break_label: rest_entry,
+            continue_label: test_label.clone(),
+        }),
         active_exc_target.clone(),
         blocks,
     );
@@ -809,7 +819,7 @@ pub(crate) fn lower_while_stmt_sequence_from_stmt<F>(
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, Option<String>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<LoopLabels>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let body = suite_ref(&while_stmt.body).to_vec();
     let else_body = suite_ref(&while_stmt.orelse).to_vec();
@@ -838,7 +848,7 @@ pub(crate) fn lower_for_stmt_exit_entries<F>(
     lower_region: &mut F,
 ) -> (String, String)
 where
-    F: FnMut(&[Stmt], String, Option<String>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<LoopLabels>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let rest_entry = lower_region(
         remaining_stmts,
@@ -870,12 +880,15 @@ pub(crate) fn lower_for_stmt_body_entry<F>(
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, Option<String>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<LoopLabels>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let body_entry = lower_region(
         body,
         loop_continue_label.clone(),
-        Some(break_label),
+        Some(LoopLabels {
+            break_label,
+            continue_label: loop_continue_label,
+        }),
         active_exc_target,
         blocks,
     );
@@ -900,7 +913,7 @@ pub(crate) fn lower_for_stmt_sequence<F>(
     lower_region: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, Option<String>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], String, Option<LoopLabels>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
     let else_body = suite_ref(&for_stmt.orelse).to_vec();
     let (rest_entry, exhausted_entry) = lower_for_stmt_exit_entries(
