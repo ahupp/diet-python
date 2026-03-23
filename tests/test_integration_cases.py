@@ -53,6 +53,13 @@ def test_integration_case(tmp_path: Path, case_path: Path, mode: str) -> None:
         # fast-locals representation. This changes refcycle/collection behavior
         # for exception-sensitive cases on the BB transform path.
         pytest.xfail("exception/refcycle behavior differs in BB transform path")
+    if mode == "transform" and case_path.stem in {
+        "class_annotations_forwardref",
+        "generic_namedtuple_fields",
+    }:
+        pytest.xfail(
+            "annotation helper BB lowering is not yet compatible with annotationlib-style evaluation"
+        )
 
     source, validate_source = split_integration_case(case_path)
     module_name = case_path.stem

@@ -1,8 +1,6 @@
 use crate::block_py::state::{collect_parameter_names, sync_target_cells_stmts};
 use crate::passes::ast_symbol_analysis::collect_bound_names;
-use crate::passes::ast_to_ast::ast_rewrite::{rewrite_with_pass, Rewrite, StmtRewritePass};
 use crate::passes::ast_to_ast::body::{suite_mut, suite_ref};
-use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::{make_dp_tuple, name_expr};
 use crate::passes::ast_to_ast::rewrite_stmt;
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
@@ -15,42 +13,6 @@ use std::collections::HashSet;
 
 pub(crate) fn is_annotation_helper_name(name: &str) -> bool {
     name.contains("__annotate_func__") || name.contains("__annotate__")
-}
-
-pub(crate) fn should_keep_non_lowered_for_annotationlib(func: &ast::StmtFunctionDef) -> bool {
-    // annotationlib.call_annotate_function rebuilds callables via FunctionType(..., fake_globals).
-    // BB-lowered wrappers delegate into pre-bound block function objects, so fake globals do not
-    // apply to the annotation expression evaluation. Keep likely annotate callables in regular
-    // function form so fake-globals execution can observe transformed expressions directly.
-    let params = func.parameters.as_ref();
-    let Some(first) = params.posonlyargs.first() else {
-        return false;
-    };
-    first.parameter.name.id.as_str() == "format"
-}
-
-pub(crate) struct AnnotationHelperForLoweringPass;
-
-impl StmtRewritePass for AnnotationHelperForLoweringPass {
-    fn lower_stmt(&self, _context: &Context, stmt: Stmt) -> Rewrite {
-        Rewrite::Unmodified(stmt)
-    }
-}
-
-pub(crate) fn prepare_non_lowered_annotationlib_function(
-    context: &Context,
-    func: &mut ast::StmtFunctionDef,
-) {
-    if !should_keep_non_lowered_for_annotationlib(func) {
-        return;
-    }
-    rewrite_with_pass(
-        context,
-        Some(&AnnotationHelperForLoweringPass),
-        None,
-        suite_mut(&mut func.body),
-    );
-    ensure_dp_default_param(func);
 }
 
 pub(crate) fn ensure_dp_default_param(func: &mut ast::StmtFunctionDef) {

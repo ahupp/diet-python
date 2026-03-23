@@ -7,14 +7,12 @@ use crate::block_py::{
     BlockPyFunctionKind, BlockPyModule, FunctionName,
 };
 use crate::passes::annotation_export::{
-    build_lowered_annotation_helper_binding, is_annotation_helper_name,
-    prepare_non_lowered_annotationlib_function, rewrite_annotation_helper_defs_as_exec_calls,
-    should_keep_non_lowered_for_annotationlib,
+    build_lowered_annotation_helper_binding, rewrite_annotation_helper_defs_as_exec_calls,
 };
 use crate::passes::ast_symbol_analysis::{
     collect_bound_names, collect_explicit_global_or_nonlocal_names,
 };
-use crate::passes::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
+use crate::passes::ast_to_ast::body::{suite_mut, suite_ref, Suite};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::{make_dp_tuple, name_expr};
 use crate::passes::ast_to_ast::rewrite_stmt;
@@ -27,7 +25,7 @@ use crate::passes::function_identity::{
 };
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::{self as ast, name::Name, Expr, NodeIndex, Stmt};
+use ruff_python_ast::{self as ast, Expr, NodeIndex, Stmt};
 use std::collections::{HashMap, HashSet};
 
 use super::{
@@ -59,12 +57,6 @@ enum LoweredFunctionPlacementPlan {
         replacement: Vec<Stmt>,
         hoisted_to_parent: Vec<Stmt>,
     },
-}
-
-enum NonLoweredFunctionPlacementPlan {
-    ReplaceWith(Vec<Stmt>),
-    PrependBody(Vec<Stmt>),
-    LeaveInPlace,
 }
 
 #[derive(Clone, Copy)]
@@ -254,16 +246,7 @@ fn try_lower_function_to_blockpy_bundle(
     parent_name: Option<&str>,
     callable_semantic: &BlockPyCallableSemanticInfo,
     name_gen: &NameGen,
-) -> Option<BlockPyFunction<RuffBlockPyPass>> {
-    if should_keep_non_lowered_for_annotationlib(func) {
-        return None;
-    }
-    // Keep generated annotation helpers in their lexical scope. BB-lowering
-    // and hoisting them out of class/module init can break name resolution
-    // for class-local symbols (for example, `T` in `value: T`).
-    if is_annotation_helper_name(func.name.id.as_str()) {
-        return None;
-    }
+) -> BlockPyFunction<RuffBlockPyPass> {
     let (_, lowered_input_body) = split_docstring(suite_ref(&func.body));
     let lowered_input_body = lowered_input_body.to_vec();
     let lowered_input_body = if should_strip_nonlocal_for_bb(func.name.id.as_str()) {
@@ -330,7 +313,7 @@ fn try_lower_function_to_blockpy_bundle(
     }
     callable_def.semantic = callable_semantic.clone();
 
-    Some(callable_def)
+    callable_def
 }
 
 fn function_docstring_text(func: &ast::StmtFunctionDef) -> Option<String> {
@@ -487,30 +470,8 @@ fn always_unbound_local_names(
         .collect()
 }
 
-fn doc_text_to_expr(doc: Option<&str>) -> Expr {
-    doc.map(|doc| py_expr!("{doc:literal}", doc = doc))
-        .unwrap_or_else(|| py_expr!("None"))
-}
-
 struct LoweredFunctionRewriteResult {
     replacement: Vec<Stmt>,
-}
-
-enum NonLoweredFunctionBindingPlan {
-    LeaveLocal,
-    CellSyncOnly,
-    Rebind { target: BindingTarget },
-}
-
-enum NonLoweredLocalNamePlan {
-    KeepOriginal,
-    UseFreshTemp,
-}
-
-struct NonLoweredFunctionInstantiationPlan {
-    identity: FunctionIdentity,
-    binding: NonLoweredFunctionBindingPlan,
-    local_name_plan: Option<NonLoweredLocalNamePlan>,
 }
 
 // Function-definition rewriting stays in one tree pass, but the instantiation
@@ -888,121 +849,6 @@ fn resolve_function_binding_target(
     }
 }
 
-fn plan_non_lowered_function_binding(
-    binding_target: BindingTarget,
-    bind_name: &str,
-    qualname: &str,
-    needs_cell_sync: bool,
-) -> NonLoweredFunctionBindingPlan {
-    match resolve_function_binding_target(binding_target, bind_name, qualname) {
-        BindingTarget::Local => {
-            if needs_cell_sync {
-                NonLoweredFunctionBindingPlan::CellSyncOnly
-            } else {
-                NonLoweredFunctionBindingPlan::LeaveLocal
-            }
-        }
-        target => NonLoweredFunctionBindingPlan::Rebind { target },
-    }
-}
-
-fn plan_non_lowered_local_name(
-    local_name: &str,
-    bind_name: &str,
-    is_annotation_helper: bool,
-) -> NonLoweredLocalNamePlan {
-    if !is_internal_symbol(local_name) && !is_annotation_helper && local_name == bind_name {
-        NonLoweredLocalNamePlan::UseFreshTemp
-    } else {
-        NonLoweredLocalNamePlan::KeepOriginal
-    }
-}
-
-fn plan_non_lowered_function_instantiation(
-    func: &ast::StmtFunctionDef,
-    function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
-    current_parent: Option<&str>,
-    needs_cell_sync: bool,
-    is_annotation_helper: bool,
-) -> NonLoweredFunctionInstantiationPlan {
-    let identity =
-        resolve_runtime_function_identity(func, function_identity_by_node, current_parent);
-    let binding = plan_non_lowered_function_binding(
-        identity.binding_target,
-        identity.bind_name.as_str(),
-        identity.qualname.as_str(),
-        needs_cell_sync,
-    );
-    let local_name_plan = if matches!(binding, NonLoweredFunctionBindingPlan::Rebind { .. }) {
-        Some(plan_non_lowered_local_name(
-            func.name.id.as_str(),
-            identity.bind_name.as_str(),
-            is_annotation_helper,
-        ))
-    } else {
-        None
-    };
-    NonLoweredFunctionInstantiationPlan {
-        identity,
-        binding,
-        local_name_plan,
-    }
-}
-
-fn build_updated_function_binding_stmt(
-    target: BindingTarget,
-    bind_name: &str,
-    local_name: &str,
-    qualname: &str,
-    display_name: &str,
-    doc: Option<String>,
-    decorator_exprs: Vec<Expr>,
-) -> Stmt {
-    let updated = py_expr!(
-        "__dp_update_fn({name:id}, {qualname:literal}, {display_name:literal}, {doc:expr})",
-        name = local_name,
-        qualname = qualname,
-        display_name = display_name,
-        doc = doc_text_to_expr(doc.as_deref()),
-    );
-    let value = rewrite_stmt::decorator::rewrite_exprs(decorator_exprs, updated);
-    build_binding_stmt(target, bind_name, value)
-}
-
-fn build_non_lowered_binding_stmt(
-    func: &mut ast::StmtFunctionDef,
-    bind_name: &str,
-    qualname: &str,
-    display_name: &str,
-    binding_plan: NonLoweredFunctionBindingPlan,
-    fresh_local_name: Option<String>,
-    doc: Option<String>,
-) -> Option<Vec<Stmt>> {
-    match binding_plan {
-        NonLoweredFunctionBindingPlan::LeaveLocal => None,
-        NonLoweredFunctionBindingPlan::CellSyncOnly => Some(vec![build_cell_sync_stmt(bind_name)]),
-        NonLoweredFunctionBindingPlan::Rebind { target } => {
-            let local_name = if let Some(local_name) = fresh_local_name {
-                func.name.id = Name::new(local_name.as_str());
-                local_name
-            } else {
-                func.name.id.to_string()
-            };
-            let decorator_exprs =
-                rewrite_stmt::decorator::into_exprs(std::mem::take(&mut func.decorator_list));
-            Some(vec![build_updated_function_binding_stmt(
-                target,
-                bind_name,
-                local_name.as_str(),
-                qualname,
-                display_name,
-                doc,
-                decorator_exprs,
-            )])
-        }
-    }
-}
-
 fn plan_lowered_function_placement(
     bind_name: &str,
     function_hoisted: Vec<Stmt>,
@@ -1023,23 +869,6 @@ fn plan_lowered_function_placement(
     }
 }
 
-fn plan_non_lowered_function_placement(
-    function_hoisted: Vec<Stmt>,
-    function_stmt: Stmt,
-    binding_stmt: Option<Vec<Stmt>>,
-) -> NonLoweredFunctionPlacementPlan {
-    if let Some(binding_stmt) = binding_stmt {
-        let mut body = function_hoisted;
-        body.push(function_stmt);
-        body.extend(binding_stmt);
-        NonLoweredFunctionPlacementPlan::ReplaceWith(body)
-    } else if !function_hoisted.is_empty() {
-        NonLoweredFunctionPlacementPlan::PrependBody(function_hoisted)
-    } else {
-        NonLoweredFunctionPlacementPlan::LeaveInPlace
-    }
-}
-
 fn apply_lowered_function_placement(
     parent_hoisted: &mut Vec<Stmt>,
     plan: LoweredFunctionPlacementPlan,
@@ -1053,22 +882,6 @@ fn apply_lowered_function_placement(
             parent_hoisted.append(&mut hoisted_to_parent);
             replacement
         }
-    }
-}
-
-fn apply_non_lowered_function_placement(
-    func: &mut ast::StmtFunctionDef,
-    plan: NonLoweredFunctionPlacementPlan,
-) -> Option<Vec<Stmt>> {
-    match plan {
-        NonLoweredFunctionPlacementPlan::ReplaceWith(replacement) => Some(replacement),
-        NonLoweredFunctionPlacementPlan::PrependBody(function_hoisted) => {
-            let mut new_body = function_hoisted;
-            new_body.extend(take_suite(&mut func.body));
-            *suite_mut(&mut func.body) = new_body;
-            None
-        }
-        NonLoweredFunctionPlacementPlan::LeaveInPlace => None,
     }
 }
 
@@ -1154,36 +967,6 @@ fn plan_and_rewrite_lowered_function_instantiation(
     Some(LoweredFunctionRewriteResult { replacement })
 }
 
-fn rewrite_non_lowered_function_instantiation(
-    func: &mut ast::StmtFunctionDef,
-    instantiation_plan: NonLoweredFunctionInstantiationPlan,
-    function_hoisted: Vec<Stmt>,
-    doc: Option<String>,
-    mut next_temp: impl FnMut() -> String,
-) -> Option<Vec<Stmt>> {
-    let fresh_local_name = match instantiation_plan.local_name_plan {
-        Some(NonLoweredLocalNamePlan::UseFreshTemp) => Some(next_temp()),
-        Some(NonLoweredLocalNamePlan::KeepOriginal) | None => None,
-    };
-    let binding_stmt = build_non_lowered_binding_stmt(
-        func,
-        instantiation_plan.identity.bind_name.as_str(),
-        instantiation_plan.identity.qualname.as_str(),
-        instantiation_plan.identity.display_name.as_str(),
-        instantiation_plan.binding,
-        fresh_local_name,
-        doc,
-    );
-    apply_non_lowered_function_placement(
-        func,
-        plan_non_lowered_function_placement(
-            function_hoisted,
-            Stmt::FunctionDef(func.clone()),
-            binding_stmt,
-        ),
-    )
-}
-
 #[allow(clippy::too_many_arguments)]
 fn rewrite_function_def_stmt_via_blockpy(
     context: &Context,
@@ -1197,47 +980,29 @@ fn rewrite_function_def_stmt_via_blockpy(
     next_function_id: &mut usize,
     callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
 ) -> Option<Vec<Stmt>> {
-    let doc = function_docstring_text(func);
     let name_gen = NameGen::new(take_next_function_id(next_function_id));
-    if let Some(lowered_plan) = try_lower_function_to_blockpy_bundle(
+    let lowered_plan = try_lower_function_to_blockpy_bundle(
         context,
         function_identity_by_node,
         func,
         current_parent,
         callable_semantic,
         &name_gen,
-    ) {
-        let preview = build_lowered_function_instantiation_preview(&lowered_plan)
-            .expect("failed to build BB function instantiation preview");
-        let rewrite = plan_and_rewrite_lowered_function_instantiation(
-            parent_hoisted,
-            func,
-            &preview,
-            function_identity_by_node,
-            current_parent,
-            needs_cell_sync,
-            function_hoisted,
-        )
-        .expect("failed to build BB function binding");
-        callable_defs.push(lowered_plan);
-        return Some(rewrite.replacement);
-    }
-
-    prepare_non_lowered_annotationlib_function(context, func);
-    let instantiation_plan = plan_non_lowered_function_instantiation(
+    );
+    let preview = build_lowered_function_instantiation_preview(&lowered_plan)
+        .expect("failed to build BB function instantiation preview");
+    let rewrite = plan_and_rewrite_lowered_function_instantiation(
+        parent_hoisted,
         func,
+        &preview,
         function_identity_by_node,
         current_parent,
         needs_cell_sync,
-        is_annotation_helper_name(func.name.id.as_str()),
-    );
-    rewrite_non_lowered_function_instantiation(
-        func,
-        instantiation_plan,
         function_hoisted,
-        doc,
-        || name_gen.next_tmp_name("fn_local").to_string(),
     )
+    .expect("failed to build BB function binding");
+    callable_defs.push(lowered_plan);
+    Some(rewrite.replacement)
 }
 
 impl BlockPyModuleRewriter<'_> {
@@ -1305,8 +1070,7 @@ impl BlockPyModuleRewriter<'_> {
             None,
             &state.callable_semantic,
             &name_gen,
-        )
-        .expect("_dp_module_init should lower to BlockPy");
+        );
         self.callable_defs.push(lowered_plan);
     }
 

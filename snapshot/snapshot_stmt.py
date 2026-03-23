@@ -130,12 +130,28 @@ x: int = 1
 
 # ==
 
+# function __annotate__(_dp_format, _dp):
+#     function_id: 0
+#     block _dp_bb_0_1:
+#         if_term _dp.eq(_dp_format, 4):
+#             then:
+#                 block _dp_bb_0_5:
+#                     return _dp.dict(__dp_tuple(("x", "int")))
+#             else:
+#                 block _dp_bb_0_2:
+#                     if_term _dp.gt(_dp_format, 2):
+#                         then:
+#                             block _dp_bb_0_4:
+#                                 raise _dp.builtins.NotImplementedError
+#                         else:
+#                             block _dp_bb_0_3:
+#                                 return _dp.dict(__dp_tuple(("x", int)))
+
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
 #         __dp_store_global(globals(), "x", 1)
-#         __annotate__ = __dp_exec_function_def_source('def __annotate__(_dp_format, _dp=__dp__, *, __dp__=__dp__, __dp_tuple=__dp_tuple):\n    if _dp.eq(_dp_format, 4):\n        return _dp.dict(__dp_tuple(("x", "int")))\n    if _dp.gt(_dp_format, 2):\n        raise _dp.builtins.NotImplementedError\n    return _dp.dict(__dp_tuple(("x", int)))', __dp_globals(), __dp_tuple(), "__annotate__")
-#         __dp_store_global(globals(), "__annotate__", __dp_update_fn(__annotate__, "__annotate__", "__annotate__", None))
+#         __dp_store_global(globals(), "__annotate__", __dp_make_function(0, __dp_tuple(), __dp_tuple(__dp__), __dp_globals(), None))
 #         return __dp_NONE
 
 # ann_assign_attr

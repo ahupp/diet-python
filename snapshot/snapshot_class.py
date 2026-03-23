@@ -15,6 +15,23 @@ class C:
 #     block _dp_bb_0_1:
 #         return self.x
 
+# function C.__annotate_func__(_dp_format, _dp):
+#     function_id: 1
+#     block _dp_bb_1_1:
+#         if_term _dp.eq(_dp_format, 4):
+#             then:
+#                 block _dp_bb_1_5:
+#                     return _dp.dict(__dp_tuple(("x", "int")))
+#             else:
+#                 block _dp_bb_1_2:
+#                     if_term _dp.gt(_dp_format, 2):
+#                         then:
+#                             block _dp_bb_1_4:
+#                                 raise _dp.builtins.NotImplementedError
+#                         else:
+#                             block _dp_bb_1_3:
+#                                 return _dp.dict(__dp_tuple(("x", int)))
+
 # function _dp_class_ns_C(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 2
 #     block _dp_bb_2_1:
@@ -23,8 +40,7 @@ class C:
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "x", 1)
 #         __dp_setitem(_dp_class_ns, "m", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
-#         __annotate_func__ = __dp_exec_function_def_source('def __annotate_func__(_dp_format, _dp=__dp__, *, __dp__=__dp__, __dp_tuple=__dp_tuple):\n    if _dp.eq(_dp_format, 4):\n        return _dp.dict(__dp_tuple(("x", "int")))\n    if _dp.gt(_dp_format, 2):\n        raise _dp.builtins.NotImplementedError\n    return _dp.dict(__dp_tuple(("x", int)))', __dp_globals(), __dp_tuple(), "__annotate_func__")
-#         __dp_setitem(_dp_class_ns, "__annotate_func__", __dp_update_fn(__annotate_func__, "C.__annotate_func__", "__annotate_func__", None))
+#         __dp_setitem(_dp_class_ns, "__annotate_func__", __dp_make_function(1, __dp_tuple(), __dp_tuple(__dp__), __dp_globals(), None))
 #         return __dp_NONE
 
 # function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
