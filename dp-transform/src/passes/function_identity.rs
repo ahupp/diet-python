@@ -2,6 +2,7 @@ use crate::block_py::BindingTarget;
 use crate::passes::ast_to_ast::body::Suite;
 use crate::passes::ast_to_ast::scope::is_internal_symbol;
 use crate::passes::ast_to_ast::scope::{BindingKind, BindingUse, Scope, ScopeKind};
+use crate::passes::ast_to_ast::semantic::SemanticAstState;
 use crate::passes::ast_to_ast::util::{
     strip_synthetic_class_namespace_qualname, strip_synthetic_module_init_qualname,
 };
@@ -109,7 +110,7 @@ fn normalize_qualname(raw_qualname: &str, raw_name: &str, display_name: &str) ->
 
 pub(crate) fn collect_function_identity_private(
     module: &mut Suite,
-    module_scope: Arc<Scope>,
+    semantic_state: &SemanticAstState,
 ) -> HashMap<NodeIndex, FunctionIdentity> {
     fn binding_target_for_scope(scope: &Scope, bind_name: &str) -> BindingTarget {
         if is_internal_symbol(bind_name) {
@@ -123,12 +124,13 @@ pub(crate) fn collect_function_identity_private(
         }
     }
 
-    struct Collector {
+    struct Collector<'a> {
+        semantic_state: &'a SemanticAstState,
         scope_stack: Vec<Arc<Scope>>,
         out: HashMap<NodeIndex, FunctionIdentity>,
     }
 
-    impl Transformer for Collector {
+    impl Transformer for Collector<'_> {
         fn visit_stmt(&mut self, stmt: &mut ast::Stmt) {
             match stmt {
                 ast::Stmt::FunctionDef(func) => {
@@ -146,9 +148,19 @@ pub(crate) fn collect_function_identity_private(
                             .scope_stack
                             .last()
                             .expect("missing scope while collecting function identity");
-                        let child_scope = parent_scope.tree.scope_for_def(func).ok();
+                        let child_scope = self.semantic_state.function_scope(func);
                         let qualname = if is_module_init_temp_name(raw_bind_name.as_str()) {
                             "_dp_module_init".to_string()
+                        } else if self.semantic_state.has_function_scope_override(func) {
+                            normalize_qualname(
+                                parent_scope
+                                    .qualnamer
+                                    .enter_scope(ScopeKind::Function, raw_bind_name.clone())
+                                    .qualname
+                                    .as_str(),
+                                bind_name.as_str(),
+                                display_name.as_str(),
+                            )
                         } else {
                             child_scope
                                 .as_ref()
@@ -202,7 +214,8 @@ pub(crate) fn collect_function_identity_private(
 
     let mut module = module.clone();
     let mut collector = Collector {
-        scope_stack: vec![module_scope],
+        semantic_state,
+        scope_stack: vec![semantic_state.module_scope()],
         out: HashMap::new(),
     };
     collector.visit_body(&mut module);

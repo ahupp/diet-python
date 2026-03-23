@@ -730,7 +730,7 @@ mod tests {
         let module_scope = analyze_module_scope(&mut module);
         let semantic_state = SemanticAstState::new(module_scope.clone());
         let function_identity_by_node =
-            collect_function_identity_private(&mut module, module_scope.clone());
+            collect_function_identity_private(&mut module, &semantic_state);
         let Stmt::FunctionDef(outer) = &mut module[0] else {
             panic!("expected outer function");
         };
@@ -794,7 +794,7 @@ mod tests {
         let module_scope = analyze_module_scope(&mut module);
         let semantic_state = SemanticAstState::new(module_scope.clone());
         let function_identity_by_node =
-            collect_function_identity_private(&mut module, module_scope.clone());
+            collect_function_identity_private(&mut module, &semantic_state);
         let mut rewriter = BlockPyModuleRewriter {
             context: &context,
             semantic_state: &semantic_state,
@@ -837,7 +837,7 @@ mod tests {
         let module_scope = analyze_module_scope(&mut module);
         let semantic_state = SemanticAstState::new(module_scope.clone());
         let function_identity_by_node =
-            collect_function_identity_private(&mut module, module_scope.clone());
+            collect_function_identity_private(&mut module, &semantic_state);
         let mut rewriter = BlockPyModuleRewriter {
             context: &context,
             semantic_state: &semantic_state,
@@ -966,8 +966,7 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
     semantic_state: &SemanticAstState,
 ) -> BlockPyModule<RuffBlockPyPass> {
     crate::passes::ast_to_ast::simplify::flatten(module);
-    let function_identity_by_node =
-        collect_function_identity_private(module, semantic_state.module_scope());
+    let function_identity_by_node = collect_function_identity_private(module, semantic_state);
     let mut rewriter = BlockPyModuleRewriter {
         context,
         semantic_state,

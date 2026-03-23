@@ -55,4 +55,8 @@ impl SemanticAstState {
             .function_scope_override(func_def)
             .or_else(|| self.module_scope.tree.scope_for_def(func_def).ok())
     }
+
+    pub(crate) fn has_function_scope_override(&self, func_def: &StmtFunctionDef) -> bool {
+        self.provenance.function_scope_override(func_def).is_some()
+    }
 }
