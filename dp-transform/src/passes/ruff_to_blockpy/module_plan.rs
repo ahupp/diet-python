@@ -65,11 +65,6 @@ struct LoweredFunctionBindingPlan {
     needs_cell_sync: bool,
 }
 
-struct LoweredFunctionInstantiationPlan {
-    identity: FunctionIdentity,
-    binding: LoweredFunctionBindingPlan,
-}
-
 #[derive(Clone, Copy)]
 enum LoweredFunctionInstantiationKind {
     DirectFunction,
@@ -80,12 +75,6 @@ enum LoweredFunctionInstantiationKind {
 struct LoweredFunctionCaptureValue {
     name: String,
     value_expr: Expr,
-}
-
-struct LoweredFunctionInstantiationPreview {
-    function_id: usize,
-    captures: Vec<LoweredFunctionCaptureValue>,
-    kind: LoweredFunctionInstantiationKind,
 }
 
 #[derive(Default)]
@@ -865,34 +854,29 @@ fn rewrite_function_def_stmt_via_blockpy(
         .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
         .collect();
     let local_cell_slots = lowered_plan.semantic.local_cell_storage_names();
-    let preview = LoweredFunctionInstantiationPreview {
-        function_id: lowered_plan.function_id.0,
-        captures: classify_capture_items(
-            &entry_liveins,
-            &param_name_set,
-            &local_cell_slots,
-            &locally_assigned,
-        ),
-        kind: if lowered_plan.kind == BlockPyFunctionKind::Coroutine {
-            LoweredFunctionInstantiationKind::MarkCoroutineFunction
-        } else {
-            LoweredFunctionInstantiationKind::DirectFunction
-        },
+    let function_id = lowered_plan.function_id.0;
+    let captures = classify_capture_items(
+        &entry_liveins,
+        &param_name_set,
+        &local_cell_slots,
+        &locally_assigned,
+    );
+    let instantiation_kind = if lowered_plan.kind == BlockPyFunctionKind::Coroutine {
+        LoweredFunctionInstantiationKind::MarkCoroutineFunction
+    } else {
+        LoweredFunctionInstantiationKind::DirectFunction
     };
     let identity =
         resolve_runtime_function_identity(func, function_identity_by_node, current_parent);
-    let instantiation_plan = LoweredFunctionInstantiationPlan {
-        binding: LoweredFunctionBindingPlan {
-            target: resolve_function_binding_target(
-                identity.binding_target,
-                identity.bind_name.as_str(),
-                identity.qualname.as_str(),
-            ),
-            needs_cell_sync,
-        },
-        identity,
+    let binding_plan = LoweredFunctionBindingPlan {
+        target: resolve_function_binding_target(
+            identity.binding_target,
+            identity.bind_name.as_str(),
+            identity.qualname.as_str(),
+        ),
+        needs_cell_sync,
     };
-    let bind_name = instantiation_plan.identity.bind_name.as_str();
+    let bind_name = identity.bind_name.as_str();
     let annotate_helper = build_lowered_annotation_helper_binding(func, bind_name);
     let annotate_fn_expr = annotate_helper
         .as_ref()
@@ -900,22 +884,21 @@ fn rewrite_function_def_stmt_via_blockpy(
         .unwrap_or_else(|| py_expr!("None"));
     let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let decorated = build_lowered_function_instantiation_expr(
-        preview.function_id,
-        &preview.captures,
+        function_id,
+        &captures,
         rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
         &param_defaults,
         annotate_fn_expr,
-        preview.kind,
+        instantiation_kind,
     );
-    let mut binding_stmt =
-        build_lowered_function_binding_stmt(bind_name, decorated, instantiation_plan.binding);
+    let mut binding_stmt = build_lowered_function_binding_stmt(bind_name, decorated, binding_plan);
     if let Some((helper_stmt, _)) = annotate_helper {
         binding_stmt.insert(0, helper_stmt);
     }
     let replacement = apply_lowered_function_placement(
         parent_hoisted,
         plan_lowered_function_placement(
-            instantiation_plan.identity.bind_name.as_str(),
+            identity.bind_name.as_str(),
             function_hoisted,
             binding_stmt,
         ),
