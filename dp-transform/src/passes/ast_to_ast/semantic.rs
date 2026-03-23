@@ -219,6 +219,23 @@ impl SemanticScope {
         self.data().bindings.get(name).copied()
     }
 
+    pub(crate) fn local_binding_names(&self) -> HashSet<String> {
+        if let Some(raw_scope) = self.expected_raw_scope() {
+            return raw_scope
+                .scope_bindings()
+                .iter()
+                .filter_map(|(name, kind)| matches!(kind, BindingKind::Local).then(|| name.clone()))
+                .collect();
+        }
+        self.data()
+            .bindings
+            .iter()
+            .filter_map(|(name, kind)| {
+                matches!(kind, SemanticBindingKind::Local).then(|| name.clone())
+            })
+            .collect()
+    }
+
     pub(crate) fn child_scope_for_function(
         &self,
         func_def: &StmtFunctionDef,

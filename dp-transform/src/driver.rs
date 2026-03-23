@@ -3,7 +3,7 @@ use crate::passes::ast_to_ast::ast_rewrite::rewrite_with_pass;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def;
 use crate::passes::ast_to_ast::rewrite_expr::ScopedHelperExprPass;
-use crate::passes::ast_to_ast::scope::{analyze_module_scope, BindingKind};
+use crate::passes::ast_to_ast::scope::analyze_module_scope;
 use crate::passes::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::passes::ast_to_ast::{
     body::{body_from_suite, suite_mut, take_suite, Suite},
@@ -66,13 +66,13 @@ pub(crate) fn rewrite_module_with_tracker(
             suite_mut(&mut module),
         );
 
-        let expected_module_scope = analyze_module_scope(suite_mut(&mut module));
-        let mut rewrite_semantic_state = SemanticAstState::from_ruff(
-            suite_mut(&mut module),
-            Some(expected_module_scope.clone()),
-        );
-        let mut current_semantic_state =
-            SemanticAstState::from_scope_tree(suite_mut(&mut module), expected_module_scope);
+        let expected_module_scope = if cfg!(debug_assertions) {
+            Some(analyze_module_scope(suite_mut(&mut module)))
+        } else {
+            None
+        };
+        let mut rewrite_semantic_state =
+            SemanticAstState::from_ruff(suite_mut(&mut module), expected_module_scope);
 
         // Replace global / nonlocal and class-body scoping with explicit loads/stores.
         //  - globals: __dp__.load/store_global(globals(), name)
@@ -86,10 +86,6 @@ pub(crate) fn rewrite_module_with_tracker(
 
         rewrite_class_def::class_body::rewrite_class_body_scopes(
             context,
-            &mut current_semantic_state,
-            suite_mut(&mut module),
-        );
-        current_semantic_state.mirror_function_scope_overrides_to(
             &mut rewrite_semantic_state,
             suite_mut(&mut module),
         );
@@ -212,20 +208,11 @@ fn is_module_docstring(stmt: &Stmt) -> bool {
 }
 
 pub(crate) fn wrap_module_init(module: &mut Suite) {
-    let mut global_names = {
-        let scope = analyze_module_scope(module);
-        let bindings = scope.scope_bindings();
-        bindings
-            .iter()
-            .filter_map(|(name, kind)| {
-                if *kind == BindingKind::Local {
-                    Some(name.clone())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-    };
+    let mut global_names = SemanticAstState::from_ruff(module, None)
+        .module_scope()
+        .local_binding_names()
+        .into_iter()
+        .collect::<Vec<_>>();
     global_names.sort();
 
     let mut prelude = Vec::new();
