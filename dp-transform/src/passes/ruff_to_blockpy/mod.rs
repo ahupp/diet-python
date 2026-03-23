@@ -296,7 +296,7 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
     }
     let mut callable_def = BlockPyFunction {
         function_id: name_gen.function_id(),
-        name_gen: name_gen.clone(),
+        name_gen: NameGen::new(name_gen.function_id()),
         names,
         kind: blockpy_kind,
         params,

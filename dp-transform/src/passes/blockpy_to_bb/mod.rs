@@ -81,7 +81,7 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
     } = lowered;
     let lowered_view: BlockPyFunction<CoreBlockPyPass> = BlockPyFunction {
         function_id,
-        name_gen: name_gen.clone(),
+        name_gen: crate::block_py::NameGen::new(function_id),
         names: names.clone(),
         kind,
         params: params.clone(),

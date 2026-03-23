@@ -1408,7 +1408,7 @@ pub(crate) fn lower_generator_like_function(
 
     let visible_function = BlockPyFunction {
         function_id: callable.function_id,
-        name_gen: callable.name_gen.clone(),
+        name_gen: crate::block_py::NameGen::new(callable.function_id),
         names: callable.names.clone(),
         kind: callable.kind,
         params: callable.params.clone(),

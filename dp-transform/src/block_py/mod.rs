@@ -42,7 +42,7 @@ impl FunctionId {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct NameGen {
     function_id: FunctionId,
     next_block_id: Cell<usize>,
@@ -608,7 +608,7 @@ impl BlockPyCallableSemanticInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BlockPyFunction<P: BlockPyPass> {
     pub function_id: FunctionId,
     pub name_gen: NameGen,
@@ -620,6 +620,26 @@ pub struct BlockPyFunction<P: BlockPyPass> {
     pub closure_layout: Option<ClosureLayout>,
     pub facts: BlockPyCallableFacts,
     pub semantic: BlockPyCallableSemanticInfo,
+}
+
+impl<P: BlockPyPass> Clone for BlockPyFunction<P> {
+    fn clone(&self) -> Self {
+        Self {
+            function_id: self.function_id,
+            // Cloned BlockPyFunction values are used as read-only snapshots for
+            // rendering, pass tracking, and analysis. Reinitialize the allocator
+            // instead of duplicating live counter state.
+            name_gen: NameGen::new(self.function_id),
+            names: self.names.clone(),
+            kind: self.kind,
+            params: self.params.clone(),
+            blocks: self.blocks.clone(),
+            doc: self.doc.clone(),
+            closure_layout: self.closure_layout.clone(),
+            facts: self.facts.clone(),
+            semantic: self.semantic.clone(),
+        }
+    }
 }
 
 impl<P: BlockPyPass> BlockPyFunction<P> {
