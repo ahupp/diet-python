@@ -142,20 +142,6 @@ fn function_kind(func: &ast::StmtFunctionDef) -> BlockPyFunctionKind {
     }
 }
 
-fn strip_nonlocal_directives(stmts: Vec<Stmt>) -> Vec<Stmt> {
-    stmts
-        .into_iter()
-        .filter(|stmt| !matches!(stmt, Stmt::Global(_) | Stmt::Nonlocal(_)))
-        .collect()
-}
-
-fn should_strip_nonlocal_for_bb(fn_name: &str) -> bool {
-    // Generated helper functions (comprehensions/lambdas/etc.) are prefixed
-    // `_dp_fn__dp_...` and currently rely on their existing non-BB lowering
-    // behavior for closure propagation. Keep nonlocal directives there.
-    !fn_name.starts_with("_dp_fn__dp_")
-}
-
 fn collect_deleted_names(stmts: &[Stmt]) -> HashSet<String> {
     let mut names = HashSet::new();
     for stmt in stmts {
@@ -249,11 +235,6 @@ fn try_lower_function_to_blockpy_bundle(
 ) -> BlockPyFunction<RuffBlockPyPass> {
     let (_, lowered_input_body) = split_docstring(suite_ref(&func.body));
     let lowered_input_body = lowered_input_body.to_vec();
-    let lowered_input_body = if should_strip_nonlocal_for_bb(func.name.id.as_str()) {
-        strip_nonlocal_directives(lowered_input_body)
-    } else {
-        lowered_input_body
-    };
     let (param_spec, _param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let param_names = param_spec.names();
     let runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
