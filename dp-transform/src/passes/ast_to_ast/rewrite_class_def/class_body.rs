@@ -1,5 +1,4 @@
 use std::mem::take;
-use std::sync::Arc;
 
 use ruff_python_ast::{Expr, ExprContext, Stmt};
 
@@ -7,8 +6,10 @@ use crate::passes::ast_to_ast::body::{suite_mut, Suite};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def::{class_def_to_create_class_fn, method};
 use crate::passes::ast_to_ast::rewrite_stmt;
-use crate::passes::ast_to_ast::scope::{cell_name, BindingKind, BindingUse, Scope, ScopeKind};
-use crate::passes::ast_to_ast::semantic::SemanticAstState;
+use crate::passes::ast_to_ast::scope::cell_name;
+use crate::passes::ast_to_ast::semantic::{
+    SemanticAstState, SemanticBindingKind, SemanticBindingUse, SemanticScope, SemanticScopeKind,
+};
 use crate::transformer::{walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 
@@ -52,15 +53,15 @@ pub fn rewrite_class_body_scopes(
     ClassBodyScopeRewriter::new(context, scope, semantic_state).visit_body(body);
 }
 
-fn class_binding_stmt(scope: &Scope, name: &str, value: Expr) -> Stmt {
+fn class_binding_stmt(scope: &SemanticScope, name: &str, value: Expr) -> Stmt {
     match scope.kind() {
-        ScopeKind::Class => match scope.binding_in_scope(name, BindingUse::Load) {
-            BindingKind::Global => py_stmt!(
+        SemanticScopeKind::Class => match scope.binding_in_scope(name, SemanticBindingUse::Load) {
+            SemanticBindingKind::Global => py_stmt!(
                 "__dp_store_global(globals(), {name:literal}, {value:expr})",
                 name = name,
                 value = value
             ),
-            BindingKind::Local | BindingKind::Nonlocal => {
+            SemanticBindingKind::Local | SemanticBindingKind::Nonlocal => {
                 let target = class_body_store_target(name, ExprContext::Store);
                 py_stmt!(
                     "{target:expr} = {value:expr}",
@@ -69,31 +70,35 @@ fn class_binding_stmt(scope: &Scope, name: &str, value: Expr) -> Stmt {
                 )
             }
         },
-        ScopeKind::Function => match scope.binding_in_scope(name, BindingUse::Load) {
-            BindingKind::Global => py_stmt!(
-                "__dp_store_global(globals(), {name:literal}, {value:expr})",
-                name = name,
-                value = value
-            ),
-            BindingKind::Nonlocal => {
-                let cell = cell_name(name);
-                py_stmt!(
-                    "__dp_store_cell({cell:id}, {value:expr})",
-                    cell = cell.as_str(),
+        SemanticScopeKind::Function => {
+            match scope.binding_in_scope(name, SemanticBindingUse::Load) {
+                SemanticBindingKind::Global => py_stmt!(
+                    "__dp_store_global(globals(), {name:literal}, {value:expr})",
+                    name = name,
                     value = value
-                )
+                ),
+                SemanticBindingKind::Nonlocal => {
+                    let cell = cell_name(name);
+                    py_stmt!(
+                        "__dp_store_cell({cell:id}, {value:expr})",
+                        cell = cell.as_str(),
+                        value = value
+                    )
+                }
+                SemanticBindingKind::Local => {
+                    py_stmt!("{name:id} = {value:expr}", name = name, value = value)
+                }
             }
-            BindingKind::Local => {
-                py_stmt!("{name:id} = {value:expr}", name = name, value = value)
-            }
-        },
-        ScopeKind::Module => py_stmt!("{name:id} = {value:expr}", name = name, value = value),
+        }
+        SemanticScopeKind::Module => {
+            py_stmt!("{name:id} = {value:expr}", name = name, value = value)
+        }
     }
 }
 
 struct ClassBodyScopeRewriter<'a> {
     context: &'a Context,
-    scope: Arc<Scope>,
+    scope: SemanticScope,
     semantic_state: &'a mut SemanticAstState,
     hoisted_class_defs: Vec<Stmt>,
 }
@@ -101,7 +106,7 @@ struct ClassBodyScopeRewriter<'a> {
 impl<'a> ClassBodyScopeRewriter<'a> {
     fn new(
         context: &'a Context,
-        scope: Arc<Scope>,
+        scope: SemanticScope,
         semantic_state: &'a mut SemanticAstState,
     ) -> Self {
         Self {
@@ -165,7 +170,7 @@ impl<'a> ClassBodyScopeRewriter<'a> {
         let (class_ns_def, define_class_fn) = class_def_to_create_class_fn(
             self.context,
             &mut class_def,
-            class_scope.qualnamer.qualname.clone(),
+            class_scope.qualname().to_string(),
             needs_class_cell,
         );
         self.semantic_state
@@ -184,7 +189,7 @@ impl<'a> ClassBodyScopeRewriter<'a> {
         children.append(&mut hoisted);
         children.push(define_class_fn.clone().into());
 
-        let class_ns_outer = if matches!(self.scope.kind(), ScopeKind::Class) {
+        let class_ns_outer = if matches!(self.scope.kind(), SemanticScopeKind::Class) {
             py_expr!("_dp_class_ns")
         } else {
             py_expr!("globals()")
@@ -201,7 +206,7 @@ impl<'a> ClassBodyScopeRewriter<'a> {
         );
 
         children.push(class_binding_stmt(
-            self.scope.as_ref(),
+            &self.scope,
             class_def.name.id.as_str(),
             decorated_class,
         ));

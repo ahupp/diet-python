@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc};
+use std::collections::HashSet;
 
 use ruff_python_ast::name::Name;
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
@@ -6,7 +6,9 @@ use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 use super::{
     body::{suite_mut, take_suite, Suite},
     context::Context,
-    semantic::SemanticAstState,
+    semantic::{
+        SemanticAstState, SemanticBindingKind, SemanticBindingUse, SemanticScope, SemanticScopeKind,
+    },
 };
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{
@@ -17,7 +19,7 @@ use crate::{
             class_body_store_target,
         },
         rewrite_import,
-        scope::{cell_name, is_internal_symbol, BindingKind, BindingUse, Scope, ScopeKind},
+        scope::{cell_name, is_internal_symbol},
         util::is_noarg_call,
     },
     passes::ruff_to_blockpy,
@@ -42,16 +44,16 @@ fn is_annotation_function_name(name: &str) -> bool {
 
 struct NameScopeRewriter<'a> {
     context: &'a Context,
-    scope: Arc<Scope>,
+    scope: SemanticScope,
 }
 
 impl<'a> NameScopeRewriter<'a> {
-    fn new(context: &'a Context, scope: Arc<Scope>) -> Self {
+    fn new(context: &'a Context, scope: SemanticScope) -> Self {
         Self { context, scope }
     }
 
     fn is_class_scope(&self) -> bool {
-        matches!(self.scope.kind(), ScopeKind::Class)
+        matches!(self.scope.kind(), SemanticScopeKind::Class)
     }
 
     fn cell_init_needed(&self) -> bool {
@@ -121,8 +123,8 @@ impl<'a> NameScopeRewriter<'a> {
     fn module_binds_name(&self, name: &str) -> bool {
         self.scope
             .any_parent_scope(|scope| {
-                if matches!(scope.kind(), ScopeKind::Module) {
-                    return Some(scope.scope_bindings().contains_key(name));
+                if matches!(scope.kind(), SemanticScopeKind::Module) {
+                    return Some(scope.has_binding(name));
                 } else {
                     None
                 }
@@ -131,10 +133,10 @@ impl<'a> NameScopeRewriter<'a> {
     }
 
     fn should_rewrite_locals_call(&self) -> bool {
-        if let Some(binding) = self.scope.scope_bindings().get("locals").copied() {
+        if let Some(binding) = self.scope.binding_in_current_scope("locals") {
             match binding {
-                BindingKind::Local | BindingKind::Nonlocal => return false,
-                BindingKind::Global => {
+                SemanticBindingKind::Local | SemanticBindingKind::Nonlocal => return false,
+                SemanticBindingKind::Global => {
                     if self.module_binds_name("locals") {
                         return false;
                     }
@@ -145,10 +147,10 @@ impl<'a> NameScopeRewriter<'a> {
     }
 
     fn should_rewrite_vars_call(&self) -> bool {
-        if let Some(binding) = self.scope.scope_bindings().get("vars").copied() {
+        if let Some(binding) = self.scope.binding_in_current_scope("vars") {
             match binding {
-                BindingKind::Local | BindingKind::Nonlocal => return false,
-                BindingKind::Global => {
+                SemanticBindingKind::Local | SemanticBindingKind::Nonlocal => return false,
+                SemanticBindingKind::Global => {
                     if self.module_binds_name("vars") {
                         return false;
                     }
@@ -159,10 +161,10 @@ impl<'a> NameScopeRewriter<'a> {
     }
 
     fn should_rewrite_globals_call(&self) -> bool {
-        if let Some(binding) = self.scope.scope_bindings().get("globals").copied() {
+        if let Some(binding) = self.scope.binding_in_current_scope("globals") {
             match binding {
-                BindingKind::Local | BindingKind::Nonlocal => return false,
-                BindingKind::Global => {
+                SemanticBindingKind::Local | SemanticBindingKind::Nonlocal => return false,
+                SemanticBindingKind::Global => {
                     if self.module_binds_name("globals") {
                         return false;
                     }
@@ -173,10 +175,10 @@ impl<'a> NameScopeRewriter<'a> {
     }
 
     fn should_rewrite_exec_call(&self) -> bool {
-        if let Some(binding) = self.scope.scope_bindings().get("exec").copied() {
+        if let Some(binding) = self.scope.binding_in_current_scope("exec") {
             match binding {
-                BindingKind::Local | BindingKind::Nonlocal => return false,
-                BindingKind::Global => {
+                SemanticBindingKind::Local | SemanticBindingKind::Nonlocal => return false,
+                SemanticBindingKind::Global => {
                     if self.module_binds_name("exec") {
                         return false;
                     }
@@ -187,10 +189,10 @@ impl<'a> NameScopeRewriter<'a> {
     }
 
     fn should_rewrite_eval_call(&self) -> bool {
-        if let Some(binding) = self.scope.scope_bindings().get("eval").copied() {
+        if let Some(binding) = self.scope.binding_in_current_scope("eval") {
             match binding {
-                BindingKind::Local | BindingKind::Nonlocal => return false,
-                BindingKind::Global => {
+                SemanticBindingKind::Local | SemanticBindingKind::Nonlocal => return false,
+                SemanticBindingKind::Global => {
                     if self.module_binds_name("eval") {
                         return false;
                     }
@@ -201,10 +203,10 @@ impl<'a> NameScopeRewriter<'a> {
     }
 
     fn should_rewrite_dir_call(&self) -> bool {
-        if let Some(binding) = self.scope.scope_bindings().get("dir").copied() {
+        if let Some(binding) = self.scope.binding_in_current_scope("dir") {
             match binding {
-                BindingKind::Local | BindingKind::Nonlocal => return false,
-                BindingKind::Global => {
+                SemanticBindingKind::Local | SemanticBindingKind::Nonlocal => return false,
+                SemanticBindingKind::Global => {
                     if self.module_binds_name("dir") {
                         return false;
                     }
@@ -230,24 +232,28 @@ impl<'a> NameScopeRewriter<'a> {
             return None;
         }
 
-        let binding = self.scope.scope_bindings().get(id).copied();
+        let binding = self.scope.binding_in_current_scope(id);
         match (self.scope.kind(), binding) {
-            (ScopeKind::Class, Some(BindingKind::Global)) => Some(class_body_load_global(id)),
-            (ScopeKind::Class, Some(BindingKind::Nonlocal)) => {
+            (SemanticScopeKind::Class, Some(SemanticBindingKind::Global)) => {
+                Some(class_body_load_global(id))
+            }
+            (SemanticScopeKind::Class, Some(SemanticBindingKind::Nonlocal)) => {
                 let cell = cell_name(id);
                 Some(class_body_load_cell(id, cell.as_str()))
             }
-            (ScopeKind::Class, Some(BindingKind::Local)) => Some(class_body_load_global(id)),
-            (ScopeKind::Class, None) => Some(class_body_load_global(id)),
-            (_, Some(BindingKind::Global)) => Some(py_expr!(
+            (SemanticScopeKind::Class, Some(SemanticBindingKind::Local)) => {
+                Some(class_body_load_global(id))
+            }
+            (SemanticScopeKind::Class, None) => Some(class_body_load_global(id)),
+            (_, Some(SemanticBindingKind::Global)) => Some(py_expr!(
                 "__dp_load_global(globals(), {name:literal})",
                 name = id
             )),
-            (_, Some(BindingKind::Nonlocal)) => {
+            (_, Some(SemanticBindingKind::Nonlocal)) => {
                 let cell = cell_name(id);
                 Some(py_expr!("__dp_load_cell({cell:id})", cell = cell.as_str()))
             }
-            (_, Some(BindingKind::Local)) => None,
+            (_, Some(SemanticBindingKind::Local)) => None,
             (_, None) => None,
         }
     }
@@ -260,11 +266,15 @@ impl<'a> NameScopeRewriter<'a> {
 
         match (
             self.scope.kind(),
-            self.scope.binding_in_scope(id, BindingUse::Load),
+            self.scope.binding_in_scope(id, SemanticBindingUse::Load),
         ) {
-            (ScopeKind::Class, BindingKind::Global) => Some(class_body_store_global(id, name.ctx)),
-            (ScopeKind::Class, BindingKind::Nonlocal) => None,
-            (ScopeKind::Class, BindingKind::Local) => Some(class_body_store_target(id, name.ctx)),
+            (SemanticScopeKind::Class, SemanticBindingKind::Global) => {
+                Some(class_body_store_global(id, name.ctx))
+            }
+            (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal) => None,
+            (SemanticScopeKind::Class, SemanticBindingKind::Local) => {
+                Some(class_body_store_target(id, name.ctx))
+            }
             (_, _) => None,
         }
     }
@@ -282,13 +292,16 @@ impl<'a> NameScopeRewriter<'a> {
 
         self.visit_expr(value.as_mut());
 
-        match self.scope.binding_in_scope(id.as_str(), BindingUse::Modify) {
-            BindingKind::Global => Some(py_expr!(
+        match self
+            .scope
+            .binding_in_scope(id.as_str(), SemanticBindingUse::Modify)
+        {
+            SemanticBindingKind::Global => Some(py_expr!(
                 "__dp_store_global(globals(), {name:literal}, {value:expr})",
                 name = id.as_str(),
                 value = value.as_ref().clone()
             )),
-            BindingKind::Nonlocal => {
+            SemanticBindingKind::Nonlocal => {
                 let cell = cell_name(id.as_str());
                 Some(py_expr!(
                     "__dp_store_cell({cell:id}, {value:expr})",
@@ -338,9 +351,12 @@ impl<'a> NameScopeRewriter<'a> {
                     return None;
                 }
                 let value = py_expr!("{name:id}", name = name.as_str());
-                let binding = self.scope.binding_in_scope(name.as_str(), BindingUse::Load);
+                let binding = self
+                    .scope
+                    .binding_in_scope(name.as_str(), SemanticBindingUse::Load);
                 match (self.scope.kind(), binding) {
-                    (ScopeKind::Class, BindingKind::Nonlocal) | (_, BindingKind::Nonlocal) => {
+                    (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal)
+                    | (_, SemanticBindingKind::Nonlocal) => {
                         let cell = cell_name(name.as_str());
                         Some(py_stmt!(
                             "__dp_store_cell({cell:id}, {value:expr})",
@@ -348,7 +364,7 @@ impl<'a> NameScopeRewriter<'a> {
                             value = value
                         ))
                     }
-                    (_, BindingKind::Global) => Some(py_stmt!(
+                    (_, SemanticBindingKind::Global) => Some(py_stmt!(
                         "__dp_store_global(globals(), {name:literal}, {value:expr})",
                         name = name.as_str(),
                         value = value
@@ -446,25 +462,25 @@ impl Transformer for NameScopeRewriter<'_> {
 
                     match (
                         self.scope.kind(),
-                        self.scope.binding_in_scope(name, BindingUse::Load),
+                        self.scope.binding_in_scope(name, SemanticBindingUse::Load),
                     ) {
-                        (&ScopeKind::Class, BindingKind::Local) => {
+                        (SemanticScopeKind::Class, SemanticBindingKind::Local) => {
                             *stmt =
                                 py_stmt!("__dp_delitem(_dp_class_ns, {name:literal})", name = name);
                         }
-                        (&ScopeKind::Class, BindingKind::Global) => {
+                        (SemanticScopeKind::Class, SemanticBindingKind::Global) => {
                             *stmt =
                                 py_stmt!("__dp_delitem(globals(), {name:literal})", name = name);
                         }
-                        (&ScopeKind::Class, BindingKind::Nonlocal) => {
+                        (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal) => {
                             let cell = cell_name(name);
                             *stmt = py_stmt!("del {cell:id}.cell_contents", cell = cell.as_str());
                         }
-                        (_, BindingKind::Global) => {
+                        (_, SemanticBindingKind::Global) => {
                             *stmt =
                                 py_stmt!("__dp_delitem(globals(), {name:literal})", name = name);
                         }
-                        (_, BindingKind::Nonlocal) => {
+                        (_, SemanticBindingKind::Nonlocal) => {
                             let cell = cell_name(name);
                             *stmt = py_stmt!("del {cell:id}.cell_contents", cell = cell.as_str());
                         }
@@ -496,24 +512,26 @@ impl Transformer for NameScopeRewriter<'_> {
                     if is_internal_symbol(id.as_str()) {
                         return;
                     }
-                    let binding = self.scope.binding_in_scope(id.as_str(), BindingUse::Load);
+                    let binding = self
+                        .scope
+                        .binding_in_scope(id.as_str(), SemanticBindingUse::Load);
 
                     match (self.scope.kind(), binding) {
-                        (ScopeKind::Class, BindingKind::Local) => {
+                        (SemanticScopeKind::Class, SemanticBindingKind::Local) => {
                             *stmt = py_stmt!(
                                 "_dp_class_ns[{name:literal}] = {value:expr}",
                                 name = id.as_str(),
                                 value = value.clone()
                             );
                         }
-                        (_, BindingKind::Global) => {
+                        (_, SemanticBindingKind::Global) => {
                             *stmt = py_stmt!(
                                 "__dp_store_global(globals(), {name:literal}, {value:expr})",
                                 name = id.as_str(),
                                 value = value.clone()
                             );
                         }
-                        (_, BindingKind::Nonlocal) => {
+                        (_, SemanticBindingKind::Nonlocal) => {
                             let cell = cell_name(id.as_str());
                             *stmt = py_stmt!(
                                 "__dp_store_cell({cell:id}, {value:expr})",
@@ -537,30 +555,30 @@ impl Transformer for NameScopeRewriter<'_> {
                         if exc_name != "__class__" && !is_internal_symbol(&exc_name) {
                             let binding = self
                                 .scope
-                                .binding_in_scope(exc_name.as_str(), BindingUse::Load);
+                                .binding_in_scope(exc_name.as_str(), SemanticBindingUse::Load);
                             let needs_rewrite = matches!(
                                 (self.scope.kind(), binding),
-                                (&ScopeKind::Class, BindingKind::Local)
-                                    | (&ScopeKind::Class, BindingKind::Global)
-                                    | (&ScopeKind::Class, BindingKind::Nonlocal)
-                                    | (_, BindingKind::Global)
-                                    | (_, BindingKind::Nonlocal)
+                                (SemanticScopeKind::Class, SemanticBindingKind::Local)
+                                    | (SemanticScopeKind::Class, SemanticBindingKind::Global)
+                                    | (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal)
+                                    | (_, SemanticBindingKind::Global)
+                                    | (_, SemanticBindingKind::Nonlocal)
                             );
                             if needs_rewrite {
                                 let temp_name = format!("_dp_exc_{exc_name}");
                                 name.id = Name::new(temp_name.as_str());
                                 let store_stmt = match (self.scope.kind(), binding) {
-                                    (&ScopeKind::Class, BindingKind::Local) => py_stmt!(
+                                    (SemanticScopeKind::Class, SemanticBindingKind::Local) => py_stmt!(
                                         "_dp_class_ns[{name:literal}] = {value:expr}",
                                         name = exc_name.as_str(),
                                         value = py_expr!("{temp:id}", temp = temp_name.as_str()),
                                     ),
-                                    (&ScopeKind::Class, BindingKind::Global) => py_stmt!(
+                                    (SemanticScopeKind::Class, SemanticBindingKind::Global) => py_stmt!(
                                         "__dp_store_global(globals(), {name:literal}, {value:expr})",
                                         name = exc_name.as_str(),
                                         value = py_expr!("{temp:id}", temp = temp_name.as_str()),
                                     ),
-                                    (&ScopeKind::Class, BindingKind::Nonlocal) => {
+                                    (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal) => {
                                         let cell = cell_name(exc_name.as_str());
                                         py_stmt!(
                                             "__dp_store_cell({cell:id}, {value:expr})",
@@ -568,12 +586,12 @@ impl Transformer for NameScopeRewriter<'_> {
                                             value = py_expr!("{temp:id}", temp = temp_name.as_str()),
                                         )
                                     }
-                                    (_, BindingKind::Global) => py_stmt!(
+                                    (_, SemanticBindingKind::Global) => py_stmt!(
                                         "__dp_store_global(globals(), {name:literal}, {value:expr})",
                                         name = exc_name.as_str(),
                                         value = py_expr!("{temp:id}", temp = temp_name.as_str()),
                                     ),
-                                    (_, BindingKind::Nonlocal) => {
+                                    (_, SemanticBindingKind::Nonlocal) => {
                                         let cell = cell_name(exc_name.as_str());
                                         py_stmt!(
                                             "__dp_store_cell({cell:id}, {value:expr})",
@@ -584,19 +602,21 @@ impl Transformer for NameScopeRewriter<'_> {
                                     _ => py_stmt!("pass"),
                                 };
                                 let delete_stmt = match (self.scope.kind(), binding) {
-                                    (&ScopeKind::Class, BindingKind::Local) => py_stmt!(
-                                        "__dp_delitem(_dp_class_ns, {name:literal})",
-                                        name = exc_name.as_str()
-                                    ),
-                                    (&ScopeKind::Class, BindingKind::Global)
-                                    | (_, BindingKind::Global) => {
+                                    (SemanticScopeKind::Class, SemanticBindingKind::Local) => {
+                                        py_stmt!(
+                                            "__dp_delitem(_dp_class_ns, {name:literal})",
+                                            name = exc_name.as_str()
+                                        )
+                                    }
+                                    (SemanticScopeKind::Class, SemanticBindingKind::Global)
+                                    | (_, SemanticBindingKind::Global) => {
                                         py_stmt!(
                                             "__dp_delitem(globals(), {name:literal})",
                                             name = exc_name.as_str()
                                         )
                                     }
-                                    (&ScopeKind::Class, BindingKind::Nonlocal)
-                                    | (_, BindingKind::Nonlocal) => {
+                                    (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal)
+                                    | (_, SemanticBindingKind::Nonlocal) => {
                                         let cell = cell_name(exc_name.as_str());
                                         py_stmt!(
                                             "del {cell:id}.cell_contents",

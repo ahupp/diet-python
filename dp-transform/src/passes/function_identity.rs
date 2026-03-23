@@ -1,15 +1,15 @@
 use crate::block_py::BindingTarget;
 use crate::passes::ast_to_ast::body::Suite;
 use crate::passes::ast_to_ast::scope::is_internal_symbol;
-use crate::passes::ast_to_ast::scope::{BindingKind, BindingUse, Scope, ScopeKind};
-use crate::passes::ast_to_ast::semantic::SemanticAstState;
+use crate::passes::ast_to_ast::semantic::{
+    SemanticAstState, SemanticBindingKind, SemanticBindingUse, SemanticScope, SemanticScopeKind,
+};
 use crate::passes::ast_to_ast::util::{
     strip_synthetic_class_namespace_qualname, strip_synthetic_module_init_qualname,
 };
 use crate::transformer::{walk_stmt, Transformer};
 use ruff_python_ast::{self as ast, NodeIndex};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub(crate) struct FunctionIdentity {
@@ -112,21 +112,21 @@ pub(crate) fn collect_function_identity_private(
     module: &mut Suite,
     semantic_state: &SemanticAstState,
 ) -> HashMap<NodeIndex, FunctionIdentity> {
-    fn binding_target_for_scope(scope: &Scope, bind_name: &str) -> BindingTarget {
+    fn binding_target_for_scope(scope: &SemanticScope, bind_name: &str) -> BindingTarget {
         if is_internal_symbol(bind_name) {
             return BindingTarget::Local;
         }
-        let binding = scope.binding_in_scope(bind_name, BindingUse::Load);
+        let binding = scope.binding_in_scope(bind_name, SemanticBindingUse::Load);
         match (scope.kind(), binding) {
-            (ScopeKind::Class, BindingKind::Local) => BindingTarget::ClassNamespace,
-            (_, BindingKind::Global) => BindingTarget::ModuleGlobal,
+            (SemanticScopeKind::Class, SemanticBindingKind::Local) => BindingTarget::ClassNamespace,
+            (_, SemanticBindingKind::Global) => BindingTarget::ModuleGlobal,
             _ => BindingTarget::Local,
         }
     }
 
     struct Collector<'a> {
         semantic_state: &'a SemanticAstState,
-        scope_stack: Vec<Arc<Scope>>,
+        scope_stack: Vec<SemanticScope>,
         out: HashMap<NodeIndex, FunctionIdentity>,
     }
 
@@ -154,9 +154,7 @@ pub(crate) fn collect_function_identity_private(
                         } else if self.semantic_state.has_function_scope_override(func) {
                             normalize_qualname(
                                 parent_scope
-                                    .qualnamer
-                                    .enter_scope(ScopeKind::Function, raw_bind_name.clone())
-                                    .qualname
+                                    .child_function_qualname(raw_bind_name.as_str())
                                     .as_str(),
                                 bind_name.as_str(),
                                 display_name.as_str(),
@@ -166,7 +164,7 @@ pub(crate) fn collect_function_identity_private(
                                 .as_ref()
                                 .map(|scope| {
                                     normalize_qualname(
-                                        scope.qualnamer.qualname.as_str(),
+                                        scope.qualname(),
                                         bind_name.as_str(),
                                         display_name.as_str(),
                                     )
@@ -180,7 +178,7 @@ pub(crate) fn collect_function_identity_private(
                                 display_name,
                                 qualname,
                                 binding_target: binding_target_for_scope(
-                                    parent_scope.as_ref(),
+                                    parent_scope,
                                     raw_bind_name.as_str(),
                                 ),
                             },
@@ -199,7 +197,7 @@ pub(crate) fn collect_function_identity_private(
                         .scope_stack
                         .last()
                         .expect("missing scope while collecting class scope");
-                    if let Ok(child_scope) = parent_scope.tree.scope_for_def(class_def) {
+                    if let Some(child_scope) = parent_scope.child_scope_for_class(class_def) {
                         self.scope_stack.push(child_scope);
                         walk_stmt(self, stmt);
                         self.scope_stack.pop();
