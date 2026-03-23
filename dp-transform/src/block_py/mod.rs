@@ -226,6 +226,18 @@ impl<S, T> CfgBlock<S, T> {
     }
 }
 
+pub(crate) fn move_entry_block_to_front<S, T>(blocks: &mut Vec<CfgBlock<S, T>>, entry_label: &str) {
+    if let Some(entry_index) = blocks
+        .iter()
+        .position(|block| block.label.as_str() == entry_label)
+    {
+        if entry_index != 0 {
+            let entry_block = blocks.remove(entry_index);
+            blocks.insert(0, entry_block);
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BlockPyModule<P: BlockPyPass> {
     pub callable_defs: Vec<BlockPyFunction<P>>,

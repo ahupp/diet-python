@@ -15,9 +15,10 @@ use crate::block_py::state::{
     collect_state_vars, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use crate::block_py::{
-    assert_blockpy_block_normalized, BlockPyCallableFacts, BlockPyCallableSemanticInfo,
-    BlockPyEdge, BlockPyFallthroughTerm, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel,
-    BlockPyPass, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureLayout, FunctionId, FunctionName,
+    assert_blockpy_block_normalized, move_entry_block_to_front, BlockPyCallableFacts,
+    BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyStmt, BlockPyTerm, CfgBlock,
+    ClosureLayout, FunctionId, FunctionName,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -92,33 +93,6 @@ pub(crate) enum StmtSequenceDriveResult {
         index: usize,
         plan: StmtSequenceHeadPlan,
     },
-}
-
-fn move_blockpy_entry_block_to_front(blocks: &mut Vec<BlockPyBlock<Expr>>, entry_label: &str) {
-    if let Some(entry_index) = blocks
-        .iter()
-        .position(|block| block.label.as_str() == entry_label)
-    {
-        if entry_index != 0 {
-            let entry_block = blocks.remove(entry_index);
-            blocks.insert(0, entry_block);
-        }
-    }
-}
-
-fn move_lowered_entry_block_to_front(
-    blocks: &mut Vec<LoweredBlockPyBlock<Expr>>,
-    entry_label: &str,
-) {
-    if let Some(entry_index) = blocks
-        .iter()
-        .position(|block| block.label.as_str() == entry_label)
-    {
-        if entry_index != 0 {
-            let entry_block = blocks.remove(entry_index);
-            blocks.insert(0, entry_block);
-        }
-    }
 }
 
 pub(crate) fn attach_exception_edges_to_blocks<E>(
@@ -327,7 +301,7 @@ where
         next_block_id,
         next_temp,
     );
-    move_blockpy_entry_block_to_front(&mut blocks, entry_label.as_str());
+    move_entry_block_to_front(&mut blocks, entry_label.as_str());
     for block in &blocks {
         assert_blockpy_block_normalized(block);
     }
@@ -368,7 +342,7 @@ where
         relabel_blockpy_blocks("_dp_bb", entry_label.as_str(), &mut callable_def.blocks);
     entry_label = relabelled_entry_label;
     let _ = label_rename;
-    move_lowered_entry_block_to_front(&mut callable_def.blocks, entry_label.as_str());
+    move_entry_block_to_front(&mut callable_def.blocks, entry_label.as_str());
     callable_def.closure_layout =
         build_semantic_blockpy_closure_layout(&callable_def, &HashSet::new());
     callable_def
