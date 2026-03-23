@@ -209,15 +209,14 @@ impl StmtLowerer for ast::StmtTry {
 pub(crate) fn lower_star_try_stmt_sequence<F>(
     try_stmt: ast::StmtTry,
     remaining_stmts: &[Stmt],
-    cont_label: String,
+    targets: RegionTargets,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
     jump_label: Option<String>,
-    active_exc_target: Option<String>,
     lower_sequence: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
 {
     let rewritten_try = match rewrite_try_stmt(try_stmt) {
         Rewrite::Unmodified(stmt) => stmt_to_stmts(stmt),
@@ -226,11 +225,10 @@ where
     lower_expanded_stmt_sequence(
         rewritten_try,
         remaining_stmts,
-        cont_label,
+        targets,
         linear,
         blocks,
         jump_label,
-        active_exc_target,
         lower_sequence,
     )
 }
@@ -238,23 +236,17 @@ where
 pub(crate) fn lower_try_stmt_sequence<F>(
     try_stmt: ast::StmtTry,
     remaining_stmts: &[Stmt],
-    cont_label: String,
+    targets: RegionTargets,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
     label: String,
     try_plan: TryPlan,
-    active_exc_target: Option<String>,
     lower_sequence: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
 {
-    let rest_entry = lower_sequence(
-        remaining_stmts,
-        cont_label.clone(),
-        active_exc_target.clone(),
-        blocks,
-    );
+    let rest_entry = lower_sequence(remaining_stmts, targets.clone(), blocks);
 
     let else_body = suite_ref(&try_stmt.orelse).to_vec();
     let try_body = suite_ref(&try_stmt.body).to_vec();
@@ -274,8 +266,18 @@ where
         else_body,
         try_body,
         except_body,
-        active_exc_target.clone(),
-        lower_sequence,
+        targets.active_exc.clone(),
+        &mut |stmts, cont_label, active_exc_target, blocks| {
+            lower_sequence(
+                stmts,
+                RegionTargets {
+                    normal_cont: cont_label,
+                    loop_labels: targets.loop_labels.clone(),
+                    active_exc: active_exc_target,
+                },
+                blocks,
+            )
+        },
     );
 
     finalize_try_regions(
@@ -292,7 +294,7 @@ where
         lowered_try.finally_label,
         lowered_try.finally_normal_entry,
         lowered_try.finally_exception_entry,
-        active_exc_target,
+        targets.active_exc,
     )
 }
 

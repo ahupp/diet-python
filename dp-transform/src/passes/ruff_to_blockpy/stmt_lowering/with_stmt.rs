@@ -151,17 +151,16 @@ finally:
 pub(crate) fn lower_with_stmt_sequence<F>(
     with_stmt: ast::StmtWith,
     remaining_stmts: &[Stmt],
-    cont_label: String,
+    targets: RegionTargets,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
     _cell_slots: &HashSet<String>,
     name_gen: &NameGen,
     _needs_finally_return_flow: bool,
-    active_exc_target: Option<String>,
     lower_sequence: &mut F,
 ) -> String
 where
-    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
 {
     if with_stmt.items.is_empty() {
         let jump_label = if linear.is_empty() {
@@ -175,11 +174,10 @@ where
                 take_suite(&mut body)
             },
             remaining_stmts,
-            cont_label,
+            targets,
             linear,
             blocks,
             jump_label,
-            active_exc_target,
             lower_sequence,
         );
     }
@@ -192,11 +190,10 @@ where
     lower_expanded_stmt_sequence(
         desugar_structured_with_stmt_for_blockpy(with_stmt),
         remaining_stmts,
-        cont_label,
+        targets,
         linear,
         blocks,
         jump_label,
-        active_exc_target,
         lower_sequence,
     )
 }

@@ -332,9 +332,7 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
     let entry_label = lower_stmt_sequence_with_state(
         context,
         runtime_input_body,
-        end_label.clone(),
-        None,
-        None,
+        RegionTargets::new(end_label.clone(), None),
         &mut blocks,
         &facts.cell_slots,
         &facts.outer_scope_names,
@@ -386,6 +384,49 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
 pub(crate) struct LoopContext {
     continue_label: BlockPyLabel,
     break_label: BlockPyLabel,
+}
+
+#[derive(Clone)]
+pub(crate) struct LoopLabels {
+    pub break_label: String,
+    pub continue_label: String,
+}
+
+#[derive(Clone)]
+pub(crate) struct RegionTargets {
+    pub normal_cont: String,
+    pub loop_labels: Option<LoopLabels>,
+    pub active_exc: Option<String>,
+}
+
+impl RegionTargets {
+    pub(crate) fn new(normal_cont: String, active_exc: Option<String>) -> Self {
+        Self {
+            normal_cont,
+            loop_labels: None,
+            active_exc,
+        }
+    }
+
+    pub(crate) fn nested(&self, normal_cont: String) -> Self {
+        Self {
+            normal_cont,
+            loop_labels: self.loop_labels.clone(),
+            active_exc: self.active_exc.clone(),
+        }
+    }
+
+    pub(crate) fn nested_with_loop(
+        &self,
+        normal_cont: String,
+        loop_labels: Option<LoopLabels>,
+    ) -> Self {
+        Self {
+            normal_cont,
+            loop_labels,
+            active_exc: self.active_exc.clone(),
+        }
+    }
 }
 
 fn assign_delete_error(message: &str, stmt: &Stmt) -> String {
@@ -738,10 +779,9 @@ def f(xs):
         let entry = lower_for_stmt_sequence(
             for_stmt.clone(),
             &[],
-            "cont".to_string(),
+            RegionTargets::new("cont".to_string(), None),
             Vec::new(),
             &mut blocks,
-            None,
             "_dp_iter_0",
             "_dp_tmp_0",
             "_dp_bb_demo_0".to_string(),
@@ -749,11 +789,9 @@ def f(xs):
             "_dp_bb_demo_1".to_string(),
             "_dp_bb_demo_2".to_string(),
             vec![py_stmt!("x = _dp_tmp_0"), py_stmt!("_dp_tmp_0 = None")],
-            &mut |_stmts: &[Stmt],
-                  cont_label: String,
-                  _loop_labels: Option<stmt_sequences::LoopLabels>,
-                  _active_exc_target: Option<String>,
-                  _blocks: &mut Vec<BlockPyBlock>| cont_label,
+            &mut |_stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
+                targets.normal_cont
+            },
         );
 
         assert_eq!(entry, "_dp_bb_demo_2");
@@ -792,17 +830,13 @@ def f(ctx, value):
         let entry = lower_with_stmt_sequence(
             with_stmt.clone(),
             &[],
-            "cont".to_string(),
+            RegionTargets::new("cont".to_string(), None),
             Vec::new(),
             &mut blocks,
             &HashSet::new(),
             &name_gen,
             false,
-            None,
-            &mut |_expanded: &[Stmt],
-                  cont_label: String,
-                  _active_exc_target: Option<String>,
-                  _blocks: &mut Vec<BlockPyBlock>| {
+            &mut |_expanded: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
                 saw_try_stmt = _expanded
                     .iter()
                     .any(|stmt| matches!(stmt, ast::Stmt::Try(_)));
@@ -814,7 +848,7 @@ def f(ctx, value):
                     _ => false,
                 }
                 });
-                cont_label
+                targets.normal_cont
             },
         );
 
@@ -852,23 +886,21 @@ def f():
         let entry = lower_try_stmt_sequence(
             try_stmt.clone(),
             &[],
-            "cont".to_string(),
+            RegionTargets::new("cont".to_string(), None),
             Vec::new(),
             &mut blocks,
             "_dp_bb_demo_legacy".to_string(),
             try_plan,
-            None,
-            &mut |_expanded: &[Stmt],
-                  cont_label: String,
-                  active_exc_target: Option<String>,
-                  blocks: &mut Vec<BlockPyBlock>| {
+            &mut |_expanded: &[Stmt], targets: RegionTargets, blocks: &mut Vec<BlockPyBlock>| {
                 let label = format!("lowered_{}", blocks.len());
                 blocks.push(
                     crate::passes::ruff_to_blockpy::compat::compat_block_from_blockpy_with_exc_target(
                         label.clone(),
                         Vec::new(),
-                        BlockPyTerm::Jump(BlockPyEdge::new(BlockPyLabel::from(cont_label))),
-                        active_exc_target.as_deref(),
+                        BlockPyTerm::Jump(BlockPyEdge::new(BlockPyLabel::from(
+                            targets.normal_cont,
+                        ))),
+                        targets.active_exc.as_deref(),
                     ),
                 );
                 label
@@ -909,17 +941,13 @@ def f():
         let entry = lower_expanded_stmt_sequence(
             vec![py_stmt!("pass")],
             &[],
-            "cont".to_string(),
+            RegionTargets::new("cont".to_string(), None),
             Vec::new(),
             &mut blocks,
             None,
-            None,
-            &mut |expanded: &[Stmt],
-                  cont_label: String,
-                  _active_exc_target: Option<String>,
-                  _blocks: &mut Vec<BlockPyBlock>| {
+            &mut |expanded: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
                 assert_eq!(expanded.len(), 1);
-                assert_eq!(cont_label, "cont");
+                assert_eq!(targets.normal_cont, "cont");
                 saw_expanded = true;
                 "expanded_entry".to_string()
             },
@@ -936,15 +964,13 @@ def f():
         let entry = lower_expanded_stmt_sequence(
             vec![py_stmt!("pass")],
             &[],
-            "cont".to_string(),
+            RegionTargets::new("cont".to_string(), None),
             vec![py_stmt!("x = 1")],
             &mut blocks,
             Some("prefix".to_string()),
-            None,
-            &mut |_expanded: &[Stmt],
-                  _cont_label: String,
-                  _active_exc_target: Option<String>,
-                  _blocks: &mut Vec<BlockPyBlock>| "expanded_entry".to_string(),
+            &mut |_expanded: &[Stmt], _targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
+                "expanded_entry".to_string()
+            },
         );
 
         assert_eq!(entry, "prefix");
@@ -973,12 +999,9 @@ def f():
             &then_body,
             &else_body,
             "rest".to_string(),
-            None,
-            &mut |stmts: &[Stmt],
-                  cont_label: String,
-                  _active_exc_target: Option<String>,
-                  _blocks: &mut Vec<BlockPyBlock>| {
-                calls.push((stmts.len(), cont_label.clone()));
+            &RegionTargets::new("rest".to_string(), None),
+            &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
+                calls.push((stmts.len(), targets.normal_cont.clone()));
                 format!("branch_{}", calls.len())
             },
         );
@@ -1083,16 +1106,12 @@ y = 3
             &context,
             if_stmt.clone(),
             &remaining,
-            "cont".to_string(),
+            RegionTargets::new("cont".to_string(), None),
             vec![py_stmt!("prefix = 0")],
             &mut blocks,
             "if_label".to_string(),
-            None,
-            &mut |stmts: &[Stmt],
-                  cont_label: String,
-                  _active_exc_target: Option<String>,
-                  _blocks: &mut Vec<BlockPyBlock>| {
-                calls.push((stmts.len(), cont_label.clone()));
+            &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
+                calls.push((stmts.len(), targets.normal_cont.clone()));
                 format!("branch_{}", calls.len())
             },
         );
@@ -1130,18 +1149,17 @@ y = 3
             &body,
             &else_body,
             &remaining,
-            "cont".to_string(),
-            None,
-            &mut |stmts: &[Stmt],
-                  cont_label: String,
-                  loop_labels: Option<stmt_sequences::LoopLabels>,
-                  _active_exc_target: Option<String>,
-                  _blocks: &mut Vec<BlockPyBlock>| {
-                if let Some(loop_labels) = loop_labels {
-                    loop_calls.push((stmts.len(), cont_label.clone(), loop_labels.break_label));
+            RegionTargets::new("cont".to_string(), None),
+            &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
+                if let Some(loop_labels) = targets.loop_labels {
+                    loop_calls.push((
+                        stmts.len(),
+                        targets.normal_cont.clone(),
+                        loop_labels.break_label,
+                    ));
                     "loop_body".to_string()
                 } else {
-                    sequence_calls.push((stmts.len(), cont_label.clone()));
+                    sequence_calls.push((stmts.len(), targets.normal_cont.clone()));
                     format!("seq_{}", sequence_calls.len())
                 }
             },
@@ -1195,22 +1213,21 @@ y = 3
             &context,
             while_stmt.clone(),
             &remaining,
-            "cont".to_string(),
+            RegionTargets::new("cont".to_string(), None),
             vec![py_stmt!("prefix = 0")],
             &mut blocks,
             "_dp_bb_loop_fn_0".to_string(),
             Some("_dp_bb_loop_fn_1".to_string()),
-            None,
-            &mut |stmts: &[Stmt],
-                  cont_label: String,
-                  loop_labels: Option<stmt_sequences::LoopLabels>,
-                  _active_exc_target: Option<String>,
-                  _blocks: &mut Vec<BlockPyBlock>| {
-                if let Some(loop_labels) = loop_labels {
-                    loop_calls.push((stmts.len(), cont_label.clone(), loop_labels.break_label));
+            &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
+                if let Some(loop_labels) = targets.loop_labels {
+                    loop_calls.push((
+                        stmts.len(),
+                        targets.normal_cont.clone(),
+                        loop_labels.break_label,
+                    ));
                     "loop_body".to_string()
                 } else {
-                    sequence_calls.push((stmts.len(), cont_label.clone()));
+                    sequence_calls.push((stmts.len(), targets.normal_cont.clone()));
                     format!("seq_{}", sequence_calls.len())
                 }
             },
