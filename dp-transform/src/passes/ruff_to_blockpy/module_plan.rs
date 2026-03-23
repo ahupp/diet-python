@@ -51,14 +51,6 @@ struct BlockPyModuleRewriter<'a> {
     callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>>,
 }
 
-enum LoweredFunctionPlacementPlan {
-    ReplaceWith(Vec<Stmt>),
-    HoistToParent {
-        replacement: Vec<Stmt>,
-        hoisted_to_parent: Vec<Stmt>,
-    },
-}
-
 #[derive(Clone, Copy)]
 struct LoweredFunctionBindingPlan {
     target: BindingTarget,
@@ -767,42 +759,6 @@ fn resolve_function_binding_target(
     }
 }
 
-fn plan_lowered_function_placement(
-    bind_name: &str,
-    function_hoisted: Vec<Stmt>,
-    binding_stmt: Vec<Stmt>,
-) -> LoweredFunctionPlacementPlan {
-    let keep_local_blocks =
-        bind_name.starts_with("_dp_class_ns_") || bind_name.starts_with("_dp_define_class_");
-
-    if keep_local_blocks {
-        let mut body = function_hoisted;
-        body.extend(binding_stmt);
-        LoweredFunctionPlacementPlan::ReplaceWith(body)
-    } else {
-        LoweredFunctionPlacementPlan::HoistToParent {
-            replacement: binding_stmt,
-            hoisted_to_parent: function_hoisted,
-        }
-    }
-}
-
-fn apply_lowered_function_placement(
-    parent_hoisted: &mut Vec<Stmt>,
-    plan: LoweredFunctionPlacementPlan,
-) -> Vec<Stmt> {
-    match plan {
-        LoweredFunctionPlacementPlan::ReplaceWith(replacement) => replacement,
-        LoweredFunctionPlacementPlan::HoistToParent {
-            replacement,
-            mut hoisted_to_parent,
-        } => {
-            parent_hoisted.append(&mut hoisted_to_parent);
-            replacement
-        }
-    }
-}
-
 fn build_lowered_function_binding_stmt(
     bind_name: &str,
     value: Expr,
@@ -895,16 +851,17 @@ fn rewrite_function_def_stmt_via_blockpy(
     if let Some((helper_stmt, _)) = annotate_helper {
         binding_stmt.insert(0, helper_stmt);
     }
-    let replacement = apply_lowered_function_placement(
-        parent_hoisted,
-        plan_lowered_function_placement(
-            identity.bind_name.as_str(),
-            function_hoisted,
-            binding_stmt,
-        ),
-    );
     callable_defs.push(lowered_plan);
-    replacement
+    if identity.bind_name.starts_with("_dp_class_ns_")
+        || identity.bind_name.starts_with("_dp_define_class_")
+    {
+        let mut replacement = function_hoisted;
+        replacement.extend(binding_stmt);
+        replacement
+    } else {
+        parent_hoisted.extend(function_hoisted);
+        binding_stmt
+    }
 }
 
 impl BlockPyModuleRewriter<'_> {
