@@ -8,7 +8,7 @@ use crate::passes::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::passes::ast_to_ast::{
     body::{body_from_suite, suite_mut, take_suite, Suite},
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
-    semantic::SemanticAstState,
+    semantic::{debug_assert_matches_scope_tree, SemanticAstState},
 };
 use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
@@ -83,6 +83,7 @@ pub(crate) fn rewrite_module_with_tracker(
             &mut current_semantic_state,
             suite_mut(&mut module),
         );
+        debug_assert_matches_scope_tree(suite_mut(&mut module), &current_semantic_state);
         suite_mut(&mut module).splice(
             0..0,
             rewrite_future_annotations::invalid_future_feature_syntax_error_stmts(&future_imports),
