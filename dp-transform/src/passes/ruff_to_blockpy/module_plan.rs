@@ -40,7 +40,6 @@ struct FunctionScopeFrame {
     parent_name: Option<String>,
     cell_bindings: HashSet<String>,
     callable_semantic: BlockPyCallableSemanticInfo,
-    has_parent_hoisted_scope: bool,
     needs_cell_sync: bool,
     hoisted_to_parent: Vec<Stmt>,
 }
@@ -764,7 +763,6 @@ mod tests {
                 parent_name: None,
                 cell_bindings: outer_scope.local_cell_bindings(),
                 callable_semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
-                has_parent_hoisted_scope: false,
                 needs_cell_sync: false,
                 hoisted_to_parent: Vec::new(),
             }],
@@ -789,95 +787,6 @@ mod tests {
             .map(crate::ruff_ast_to_string)
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(
-            rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
-            "{rendered}"
-        );
-    }
-
-    #[test]
-    fn walking_outer_function_rewrites_nested_recursive_binding_in_place() {
-        let source = concat!(
-            "def outer():\n",
-            "    def recurse():\n",
-            "        return recurse()\n",
-            "    return recurse\n",
-        );
-        let context = Context::new(Options::for_test(), source);
-        let mut module = parse_module(source).unwrap().into_syntax().body;
-        let semantic_state = SemanticAstState::from_ruff(&mut module);
-        let function_identity_by_node =
-            collect_function_identity_private(&mut module, &semantic_state);
-        let mut rewriter = BlockPyModuleRewriter {
-            context: &context,
-            semantic_state: &semantic_state,
-            function_identity_by_node,
-            next_block_id: 0,
-            next_function_id: 0,
-            reserved_temp_names_stack: Vec::new(),
-            function_scope_stack: Vec::new(),
-            callable_defs: Vec::new(),
-        };
-        let outer_state = rewriter
-            .walk_function_def_with_scope(&mut module[0])
-            .expect("expected outer function state");
-        let Stmt::FunctionDef(outer) = &module[0] else {
-            panic!("expected outer function");
-        };
-        let rendered_body = outer
-            .body
-            .iter()
-            .map(crate::ruff_ast_to_string)
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(
-            rendered_body.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
-            "{rendered_body}"
-        );
-        drop(outer_state);
-    }
-
-    #[test]
-    fn lowering_outer_function_preserves_recursive_cell_sync_stmt() {
-        let source = concat!(
-            "def outer():\n",
-            "    def recurse():\n",
-            "        return recurse()\n",
-            "    return recurse\n",
-        );
-        let context = Context::new(Options::for_test(), source);
-        let mut module = parse_module(source).unwrap().into_syntax().body;
-        let semantic_state = SemanticAstState::from_ruff(&mut module);
-        let function_identity_by_node =
-            collect_function_identity_private(&mut module, &semantic_state);
-        let mut rewriter = BlockPyModuleRewriter {
-            context: &context,
-            semantic_state: &semantic_state,
-            function_identity_by_node,
-            next_block_id: 0,
-            next_function_id: 0,
-            reserved_temp_names_stack: Vec::new(),
-            function_scope_stack: Vec::new(),
-            callable_defs: Vec::new(),
-        };
-        let outer_state = rewriter
-            .walk_function_def_with_scope(&mut module[0])
-            .expect("expected outer function state");
-        let Stmt::FunctionDef(outer) = &mut module[0] else {
-            panic!("expected outer function");
-        };
-        let _replacement = rewriter
-            .rewrite_visited_function_def(outer, outer_state)
-            .expect("expected outer function rewrite");
-        let outer_callable = rewriter
-            .callable_defs
-            .iter()
-            .find(|callable| callable.names.bind_name == "outer")
-            .expect("missing lowered outer callable");
-        let rendered =
-            crate::block_py::pretty::blockpy_module_to_string(&crate::block_py::BlockPyModule {
-                callable_defs: vec![outer_callable.clone()],
-            });
         assert!(
             rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
             "{rendered}"
@@ -1196,14 +1105,13 @@ fn build_non_lowered_binding_stmt(
 
 fn plan_lowered_function_placement(
     bind_name: &str,
-    has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
     binding_stmt: Vec<Stmt>,
 ) -> LoweredFunctionPlacementPlan {
-    let keep_local_blocks = has_parent_hoisted_scope
-        && (bind_name.starts_with("_dp_class_ns_") || bind_name.starts_with("_dp_define_class_"));
+    let keep_local_blocks =
+        bind_name.starts_with("_dp_class_ns_") || bind_name.starts_with("_dp_define_class_");
 
-    if keep_local_blocks || !has_parent_hoisted_scope {
+    if keep_local_blocks {
         let mut body = function_hoisted;
         body.extend(binding_stmt);
         LoweredFunctionPlacementPlan::ReplaceWith(body)
@@ -1233,7 +1141,7 @@ fn plan_non_lowered_function_placement(
 }
 
 fn apply_lowered_function_placement(
-    parent_hoisted: Option<&mut Vec<Stmt>>,
+    parent_hoisted: &mut Vec<Stmt>,
     plan: LoweredFunctionPlacementPlan,
 ) -> Vec<Stmt> {
     match plan {
@@ -1242,9 +1150,7 @@ fn apply_lowered_function_placement(
             replacement,
             mut hoisted_to_parent,
         } => {
-            if let Some(parent_hoisted) = parent_hoisted {
-                parent_hoisted.append(&mut hoisted_to_parent);
-            }
+            parent_hoisted.append(&mut hoisted_to_parent);
             replacement
         }
     }
@@ -1314,11 +1220,10 @@ fn build_lowered_function_instantiation_stmt(
 }
 
 fn rewrite_lowered_function_instantiation_stmt(
-    parent_hoisted: Option<&mut Vec<Stmt>>,
+    parent_hoisted: &mut Vec<Stmt>,
     func: &ast::StmtFunctionDef,
     preview: &LoweredFunctionInstantiationPreview,
     instantiation_plan: &LoweredFunctionInstantiationPlan,
-    has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
 ) -> Option<LoweredFunctionRewriteResult> {
     let binding_stmt = build_lowered_function_instantiation_stmt(func, preview, instantiation_plan);
@@ -1326,7 +1231,6 @@ fn rewrite_lowered_function_instantiation_stmt(
         parent_hoisted,
         plan_lowered_function_placement(
             instantiation_plan.identity.bind_name.as_str(),
-            has_parent_hoisted_scope,
             function_hoisted,
             binding_stmt,
         ),
@@ -1335,13 +1239,12 @@ fn rewrite_lowered_function_instantiation_stmt(
 }
 
 fn plan_and_rewrite_lowered_function_instantiation(
-    parent_hoisted: Option<&mut Vec<Stmt>>,
+    parent_hoisted: &mut Vec<Stmt>,
     func: &ast::StmtFunctionDef,
     preview: &LoweredFunctionInstantiationPreview,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     current_parent: Option<&str>,
     needs_cell_sync: bool,
-    has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
 ) -> Option<LoweredFunctionRewriteResult> {
     let instantiation_plan = plan_lowered_function_instantiation(
@@ -1355,7 +1258,6 @@ fn plan_and_rewrite_lowered_function_instantiation(
         func,
         preview,
         &instantiation_plan,
-        has_parent_hoisted_scope,
         function_hoisted,
     )?;
     Some(rewrite)
@@ -1421,13 +1323,12 @@ fn plan_and_rewrite_non_lowered_function_instantiation(
 #[allow(clippy::too_many_arguments)]
 fn rewrite_function_def_stmt_via_blockpy(
     context: &Context,
-    parent_hoisted: Option<&mut Vec<Stmt>>,
+    parent_hoisted: &mut Vec<Stmt>,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &mut ast::StmtFunctionDef,
     current_parent: Option<&str>,
     callable_semantic: &BlockPyCallableSemanticInfo,
     needs_cell_sync: bool,
-    has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
     reserved_temp_names_stack: &mut Vec<HashSet<String>>,
     next_block_id: &mut usize,
@@ -1454,7 +1355,6 @@ fn rewrite_function_def_stmt_via_blockpy(
             function_identity_by_node,
             current_parent,
             needs_cell_sync,
-            has_parent_hoisted_scope,
             function_hoisted,
         )
         .expect("failed to build BB function binding");
@@ -1496,7 +1396,6 @@ impl BlockPyModuleRewriter<'_> {
             .function_scope_stack
             .last()
             .map(|frame| frame.name.clone());
-        let has_parent_hoisted_scope = !self.function_scope_stack.is_empty();
         let cell_bindings = function_scope
             .as_ref()
             .map(|scope| scope.local_cell_bindings())
@@ -1512,7 +1411,6 @@ impl BlockPyModuleRewriter<'_> {
             parent_name,
             cell_bindings,
             callable_semantic,
-            has_parent_hoisted_scope,
             needs_cell_sync,
             hoisted_to_parent: Vec::new(),
         });
@@ -1528,6 +1426,10 @@ impl BlockPyModuleRewriter<'_> {
         let Stmt::FunctionDef(lowered_root) = root_stmt else {
             panic!("root function rewrite should remain a function");
         };
+        assert!(
+            state.hoisted_to_parent.is_empty(),
+            "root _dp_module_init should not produce hoisted statements"
+        );
         *func = lowered_root;
         let lowered_plan = try_lower_function_to_blockpy_bundle(
             self.context,
@@ -1551,7 +1453,8 @@ impl BlockPyModuleRewriter<'_> {
         let parent_hoisted = self
             .function_scope_stack
             .last_mut()
-            .map(|parent_frame| &mut parent_frame.hoisted_to_parent);
+            .map(|parent_frame| &mut parent_frame.hoisted_to_parent)
+            .expect("nested function rewrite should always have a parent hoist buffer");
         rewrite_function_def_stmt_via_blockpy(
             self.context,
             parent_hoisted,
@@ -1560,7 +1463,6 @@ impl BlockPyModuleRewriter<'_> {
             state.parent_name.as_deref(),
             &state.callable_semantic,
             state.needs_cell_sync,
-            state.has_parent_hoisted_scope,
             state.hoisted_to_parent,
             &mut self.reserved_temp_names_stack,
             &mut self.next_block_id,
