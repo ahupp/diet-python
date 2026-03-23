@@ -232,6 +232,20 @@ impl LoweringResult {
         };
         Some(value.to_string())
     }
+
+    pub fn invalid_future_feature(&self) -> Option<String> {
+        let body = suite_ref(&self.module.body);
+        let [Stmt::Global(global_stmt), Stmt::Nonlocal(nonlocal_stmt), ..] = &body[..] else {
+            return None;
+        };
+        let [global_name] = global_stmt.names.as_slice() else {
+            return None;
+        };
+        let [nonlocal_name] = nonlocal_stmt.names.as_slice() else {
+            return None;
+        };
+        (global_name == nonlocal_name).then(|| global_name.id.to_string())
+    }
 }
 
 /// Transform the source code and return the resulting Ruff AST.

@@ -1,5 +1,6 @@
 
 import importlib.machinery
+import builtins
 import linecache
 import os
 import sys
@@ -48,6 +49,28 @@ def _run_module_init(module) -> None:
             delattr(module, "_dp_module_init")
         except Exception:
             pass
+
+
+def _build_module_init(path: str, module):
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            original_source = file.read()
+    except OSError as err:
+        raise ImportError(f"diet-python could not read source for {path}: {err}") from err
+    transformer = _get_pyo3_transform()
+    try:
+        init, doc = transformer.build_module_init(
+            original_source,
+            module.__dict__,
+            True,
+        )
+    except SyntaxError as err:
+        if err.filename is None:
+            err.filename = path
+        raise
+    except Exception as err:
+        raise ImportError(f"diet-python failed for {path}: {err}") from err
+    return init, doc
 
 
 def _get_pyo3_transform():
@@ -112,22 +135,14 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
         return None
 
     def exec_module(self, module):
-        result = super().exec_module(module)
+        module.__dict__.setdefault("__builtins__", builtins.__dict__)
+        init, doc = _build_module_init(self.path, module)
+        if doc is not None:
+            module.__doc__ = doc
+        if init is not None:
+            module._dp_module_init = init
         _run_module_init(module)
-        return result
-
-    def get_code(self, fullname):
-        if self.path and (
-            self.path.endswith(os.path.join("encodings", "__init__.py"))
-            or os.path.basename(self.path) == "encodings.py"
-        ):
-            return super().get_code(fullname)
-        source_bytes = self.get_data(self.path)
-        return self.source_to_code(source_bytes, self.path)
-
-    def source_to_code(self, data, path, *, _optimize=-1):
-        source = _transform_source(path, getattr(self, "name", None))
-        return super().source_to_code(source.encode("utf-8"), path, _optimize=_optimize)
+        return None
 
 
 class DietPythonFinder(importlib.machinery.PathFinder):

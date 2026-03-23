@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import builtins
 import importlib.util
 import os
 import sys
@@ -47,10 +48,6 @@ def main(argv: list[str] | None = None) -> int:
     transform = _get_pyo3_transform()
     sys.argv = [str(path), *args.args]
     source = path.read_text(encoding="utf-8")
-    if hasattr(transform, "transform_source_with_name"):
-        transformed_source = transform.transform_source_with_name(source, run_name, True)
-    else:
-        transformed_source = transform.transform_source(source, True)
     module = types.ModuleType(run_name)
     module.__file__ = str(path)
     module.__name__ = run_name
@@ -59,7 +56,12 @@ def main(argv: list[str] | None = None) -> int:
     if module_name != run_name:
         sys.modules[module_name] = module
     sys.argv[0] = str(path)
-    exec(compile(transformed_source, str(path), "exec"), module.__dict__)
+    module.__dict__.setdefault("__builtins__", builtins.__dict__)
+    init, doc = transform.build_module_init(source, module.__dict__, True)
+    if doc is not None:
+        module.__doc__ = doc
+    if callable(init):
+        module._dp_module_init = init
     init = getattr(module, "_dp_module_init", None)
     if callable(init):
         init()

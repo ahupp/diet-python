@@ -25,6 +25,30 @@ fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<dp_transform::Lo
         .map_err(|err| pyo3::exceptions::PySyntaxError::new_err(err.to_string()))
 }
 
+fn register_lowered_module_plans(
+    output: &dp_transform::LoweringResult,
+    module_name: &str,
+) -> PyResult<()> {
+    let Some(bb_codegen) = output.bb_codegen_module.as_ref() else {
+        return Err(PyRuntimeError::new_err(format!(
+            "no bb_codegen module available for {module_name}"
+        )));
+    };
+    soac_eval::jit::register_clif_module_plans(module_name, bb_codegen).map_err(|err| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!(
+            "failed to register BB plans for {module_name}: {err}"
+        ))
+    })?;
+    if module_name.ends_with(".__main__") && module_name != "__main__" {
+        soac_eval::jit::register_clif_module_plans("__main__", bb_codegen).map_err(|err| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "failed to register BB plans alias for __main__ from {module_name}: {err}"
+            ))
+        })?;
+    }
+    Ok(())
+}
+
 #[pyfunction]
 fn transform_source(source: &str, ensure: Option<bool>) -> PyResult<String> {
     let preview = source.get(..100).unwrap_or(source);
@@ -41,24 +65,7 @@ fn transform_source_with_name(
     let preview = source.get(..100).unwrap_or(source);
     trace!("transform_source_with_name({module_name}): {}", preview);
     let output = lower_source(source, ensure)?;
-    if let Some(bb_codegen) = output.bb_codegen_module.as_ref() {
-        soac_eval::jit::register_clif_module_plans(module_name, bb_codegen).map_err(|err| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "failed to register BB plans for {module_name}: {err}"
-            ))
-        })?;
-        // Modules executed via `python -m pkg` are transformed under
-        // loader fullname `pkg.__main__` but run with `__name__ == "__main__"`.
-        // BB runtime wrappers resolve plans from module globals, so register an
-        // alias under "__main__" to keep lookup consistent for `python -m`.
-        if module_name.ends_with(".__main__") && module_name != "__main__" {
-            soac_eval::jit::register_clif_module_plans("__main__", bb_codegen).map_err(|err| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!(
-                    "failed to register BB plans alias for __main__ from {module_name}: {err}"
-                ))
-            })?;
-        }
-    }
+    register_lowered_module_plans(&output, module_name)?;
     Ok(output.to_string())
 }
 
@@ -351,6 +358,27 @@ fn lookup_bb_function(
     })
 }
 
+fn lookup_module_init_function(
+    output: &dp_transform::LoweringResult,
+    module_name: &str,
+) -> PyResult<BlockPyFunction<PreparedBbBlockPyPass>> {
+    let module = output.bb_codegen_module.as_ref().ok_or_else(|| {
+        PyRuntimeError::new_err(format!(
+            "JIT basic-block module init requires a registered bb_codegen module for {module_name}"
+        ))
+    })?;
+    module
+        .callable_defs
+        .iter()
+        .find(|function| function.names.bind_name == "_dp_module_init")
+        .cloned()
+        .ok_or_else(|| {
+            PyRuntimeError::new_err(format!(
+                "JIT basic-block module init failed to resolve lowered _dp_module_init for {module_name}"
+            ))
+        })
+}
+
 fn entry_state_order(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> Vec<String> {
     function.entry_block().param_name_vec()
 }
@@ -372,6 +400,69 @@ fn py_param_specs(
         })
         .collect::<Vec<_>>();
     Ok(PyTuple::new(py, params)?.unbind())
+}
+
+fn instantiate_bb_function(
+    py: Python<'_>,
+    dp: &Bound<'_, PyModule>,
+    module_name: &str,
+    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    captures: &Bound<'_, PyAny>,
+    param_defaults: &Bound<'_, PyAny>,
+    module_globals: &Bound<'_, PyAny>,
+    annotate_fn: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyAny>> {
+    let plan_name = ensure_bb_plan(module_name, function, "function instantiation")?;
+    let params = py_param_specs(py, function)?;
+    let state_order = PyTuple::new(py, entry_state_order(function))?.unbind();
+    let signature_info = dp
+        .getattr("_build_bb_signature")?
+        .call1((params.bind(py), param_defaults))?;
+    let signature = signature_info.cast::<PyTuple>()?.get_item(0)?.unbind();
+    let closure_values = dp
+        .getattr("_bb_capture_values")?
+        .call1((captures,))?
+        .unbind();
+    let raw_entry = make_lazy_clif_entry(
+        py,
+        dp,
+        false,
+        function.names.display_name.as_str(),
+        module_globals,
+    )?;
+    let deleted_value = dp.getattr("DELETED")?;
+    register_lazy_clif_vectorcall(
+        py,
+        &raw_entry,
+        module_name,
+        function.function_id.0,
+        plan_name.as_str(),
+        state_order.bind(py).as_any(),
+        Some(params.bind(py).as_any()),
+        Some(param_defaults),
+        Some(closure_values.bind(py)),
+        None,
+        &deleted_value,
+        0,
+        None,
+    )?;
+    let entry = dp
+        .getattr("_bb_wrap_with_closure")?
+        .call1((raw_entry, closure_values.bind(py)))?;
+    let entry = dp
+        .getattr("_bb_rebind_function_globals")?
+        .call1((entry, module_globals))?;
+    entry.setattr("__signature__", signature.bind(py))?;
+    update_function_metadata(
+        py,
+        &entry,
+        function.names.qualname.as_str(),
+        function.names.display_name.as_str(),
+        function.doc.as_deref(),
+        annotate_fn,
+    )?;
+    entry.setattr("__module__", module_name)?;
+    Ok(entry.unbind())
 }
 
 fn ensure_bb_plan(
@@ -438,57 +529,53 @@ fn make_bb_function(
     let module_globals = module_globals.bind(py);
     let module_name = resolve_module_name(&module_globals, "function instantiation")?;
     let function = lookup_bb_function(&module_name, function_id, "function instantiation")?;
-    let plan_name = ensure_bb_plan(&module_name, &function, "function instantiation")?;
-    let params = py_param_specs(py, &function)?;
-    let state_order = PyTuple::new(py, entry_state_order(&function))?.unbind();
-    let signature_info = dp
-        .getattr("_build_bb_signature")?
-        .call1((params.bind(py), param_defaults.bind(py)))?;
-    let signature = signature_info.cast::<PyTuple>()?.get_item(0)?.unbind();
-    let closure_values = dp
-        .getattr("_bb_capture_values")?
-        .call1((captures.bind(py),))?
-        .unbind();
-    let raw_entry = make_lazy_clif_entry(
+    instantiate_bb_function(
         py,
         &dp,
-        false,
-        function.names.display_name.as_str(),
+        &module_name,
+        &function,
+        captures.bind(py).as_any(),
+        param_defaults.bind(py).as_any(),
         &module_globals,
-    )?;
-    let deleted_value = dp.getattr("DELETED")?;
-    register_lazy_clif_vectorcall(
-        py,
-        &raw_entry,
-        module_name.as_str(),
-        function_id,
-        plan_name.as_str(),
-        state_order.bind(py).as_any(),
-        Some(params.bind(py).as_any()),
-        Some(param_defaults.bind(py)),
-        Some(closure_values.bind(py)),
-        None,
-        &deleted_value,
-        0,
-        None,
-    )?;
-    let entry = dp
-        .getattr("_bb_wrap_with_closure")?
-        .call1((raw_entry, closure_values.bind(py)))?;
-    let entry = dp
-        .getattr("_bb_rebind_function_globals")?
-        .call1((entry, &module_globals))?;
-    entry.setattr("__signature__", signature.bind(py))?;
-    update_function_metadata(
-        py,
-        &entry,
-        function.names.qualname.as_str(),
-        function.names.display_name.as_str(),
-        function.doc.as_deref(),
         annotate_fn.bind(py),
+    )
+}
+
+#[pyfunction]
+fn build_module_init(
+    py: Python<'_>,
+    source: &str,
+    module_globals: Py<PyAny>,
+    ensure: Option<bool>,
+) -> PyResult<Py<PyTuple>> {
+    let module_globals = module_globals.bind(py);
+    let module_name = resolve_module_name(&module_globals, "module init construction")?;
+    let output = lower_source(source, ensure)?;
+    if let Some(feature) = output.invalid_future_feature() {
+        return Err(pyo3::exceptions::PySyntaxError::new_err(format!(
+            "name '{feature}' is nonlocal and global"
+        )));
+    }
+    register_lowered_module_plans(&output, &module_name)?;
+    let function = lookup_module_init_function(&output, &module_name)?;
+    let dp = import_dp_module(py)?;
+    let empty = PyTuple::empty(py);
+    let none = py.None();
+    let module_init = instantiate_bb_function(
+        py,
+        &dp,
+        &module_name,
+        &function,
+        empty.as_any(),
+        empty.as_any(),
+        &module_globals,
+        none.bind(py),
     )?;
-    entry.setattr("__module__", module_name.as_str())?;
-    Ok(entry.unbind())
+    let doc = match output.module_docstring() {
+        Some(doc) => pyo3::types::PyString::new(py, &doc).into_any().unbind(),
+        None => none.clone_ref(py),
+    };
+    Ok(PyTuple::new(py, [module_init.bind(py).as_any(), doc.bind(py).as_any()])?.unbind())
 }
 
 #[pyfunction]
@@ -743,6 +830,7 @@ fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     dp_transform::init_logging();
     module.add_function(wrap_pyfunction!(transform_source, module)?)?;
     module.add_function(wrap_pyfunction!(transform_source_with_name, module)?)?;
+    module.add_function(wrap_pyfunction!(build_module_init, module)?)?;
     module.add_function(wrap_pyfunction!(debug_pass_shape, module)?)?;
     module.add_function(wrap_pyfunction!(inspect_pipeline, module)?)?;
     module.add_function(wrap_pyfunction!(make_bb_function, module)?)?;
