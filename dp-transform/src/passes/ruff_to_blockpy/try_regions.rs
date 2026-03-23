@@ -18,39 +18,38 @@ pub(crate) struct TryPlan {
 }
 
 pub(crate) fn build_try_plan(
-    fn_name: &str,
+    name_gen: &NameGen,
     has_finally: bool,
     _needs_finally_return_flow: bool,
-    next_id: &mut usize,
 ) -> TryPlan {
-    let except_exc_name = compat_next_temp("try_exc", next_id);
+    let except_exc_name = name_gen.next_tmp_name("try_exc").to_string();
     let finally_abrupt_kind_name = if has_finally {
-        Some(compat_next_temp("try_abrupt_kind", next_id))
+        Some(name_gen.next_tmp_name("try_abrupt_kind").to_string())
     } else {
         None
     };
     let finally_abrupt_payload_name = if has_finally {
-        Some(compat_next_temp("try_abrupt_payload", next_id))
+        Some(name_gen.next_tmp_name("try_abrupt_payload").to_string())
     } else {
         None
     };
     let finally_dispatch_label = if has_finally {
-        Some(compat_next_label(fn_name, next_id))
+        Some(name_gen.next_block_name().to_string())
     } else {
         None
     };
     let finally_return_label = if has_finally {
-        Some(compat_next_label(fn_name, next_id))
+        Some(name_gen.next_block_name().to_string())
     } else {
         None
     };
     let finally_raise_label = if has_finally {
-        Some(compat_next_label(fn_name, next_id))
+        Some(name_gen.next_block_name().to_string())
     } else {
         None
     };
     let finally_exc_name = if has_finally {
-        Some(compat_next_temp("try_exc", next_id))
+        Some(name_gen.next_tmp_name("try_exc").to_string())
     } else {
         None
     };

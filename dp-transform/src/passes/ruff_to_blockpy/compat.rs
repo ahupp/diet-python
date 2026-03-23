@@ -365,27 +365,3 @@ pub(crate) fn emit_for_loop_blocks(
     ));
     setup_label
 }
-
-pub(crate) fn compat_next_temp(prefix: &str, next_id: &mut usize) -> String {
-    let current = *next_id;
-    *next_id += 1;
-    format!("_dp_{prefix}_{current}")
-}
-
-pub(crate) fn compat_sanitize_ident(raw: &str) -> String {
-    raw.chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '_' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
-pub(crate) fn compat_next_label(fn_name: &str, next_id: &mut usize) -> String {
-    let current = *next_id;
-    *next_id += 1;
-    format!("_dp_bb_{}_{}", compat_sanitize_ident(fn_name), current)
-}

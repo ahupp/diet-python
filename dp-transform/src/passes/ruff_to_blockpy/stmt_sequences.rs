@@ -236,7 +236,7 @@ where
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_for_stmt_sequence_head<F>(
-    fn_name: &str,
+    name_gen: &NameGen,
     for_stmt: ast::StmtFor,
     remaining_stmts: &[Stmt],
     cont_label: String,
@@ -248,16 +248,13 @@ pub(crate) fn lower_for_stmt_sequence_head<F>(
     loop_check_label: String,
     loop_continue_label: String,
     assign_body: Vec<Stmt>,
-    next_block_id: &Cell<usize>,
     lower_region: &mut F,
 ) -> String
 where
     F: FnMut(&[Stmt], String, Option<LoopLabels>, Option<String>, &mut Vec<BlockPyBlock>) -> String,
 {
-    let mut next_id = next_block_id.get();
-    let assign_label = compat_next_label(fn_name, &mut next_id);
-    let setup_label = compat_next_label(fn_name, &mut next_id);
-    next_block_id.set(next_id);
+    let assign_label = name_gen.next_block_name().to_string();
+    let setup_label = name_gen.next_block_name().to_string();
     lower_for_stmt_sequence(
         for_stmt,
         remaining_stmts,
@@ -276,9 +273,8 @@ where
     )
 }
 
-pub(crate) fn lower_stmt_sequence_with_state<FTemp>(
+pub(crate) fn lower_stmt_sequence_with_state(
     context: &Context,
-    fn_name: &str,
     stmts: &[Stmt],
     cont_label: String,
     loop_labels: Option<LoopLabels>,
@@ -286,12 +282,8 @@ pub(crate) fn lower_stmt_sequence_with_state<FTemp>(
     blocks: &mut Vec<BlockPyBlock>,
     cell_slots: &HashSet<String>,
     outer_scope_names: &HashSet<String>,
-    next_block_id: &mut usize,
-    next_temp: &mut FTemp,
-) -> String
-where
-    FTemp: FnMut(&str, &mut usize) -> String,
-{
+    name_gen: &NameGen,
+) -> String {
     if stmts.is_empty() {
         return cont_label;
     }
@@ -308,7 +300,7 @@ where
             outer_scope_names,
         ) {
             StmtSequenceDriveResult::Exhausted { linear } => {
-                let label = compat_next_label(fn_name, next_block_id);
+                let label = name_gen.next_block_name().to_string();
                 return emit_sequence_jump_block(
                     blocks,
                     label,
@@ -331,7 +323,6 @@ where
             | StmtSequenceHeadPlan::While(_)
             | StmtSequenceHeadPlan::Break
             | StmtSequenceHeadPlan::Continue) => {
-                let next_id = Cell::new(*next_block_id);
                 let label = lower_common_stmt_sequence_head(
                     context,
                     plan,
@@ -340,19 +331,12 @@ where
                     linear,
                     blocks,
                     active_exc_target.clone(),
-                    &mut || {
-                        let mut local_next_id = next_id.get();
-                        let label = compat_next_label(fn_name, &mut local_next_id);
-                        next_id.set(local_next_id);
-                        label
-                    },
+                    &mut || name_gen.next_block_name().to_string(),
                     loop_labels.clone(),
                     &mut |stmts, cont_label, nested_loop_labels, active_exc_target, blocks| {
                         if let Some(nested_loop_labels) = nested_loop_labels {
-                            let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
                                 context,
-                                fn_name,
                                 stmts,
                                 cont_label.clone(),
                                 Some(LoopLabels {
@@ -363,16 +347,12 @@ where
                                 blocks,
                                 cell_slots,
                                 outer_scope_names,
-                                &mut local_next_id,
-                                next_temp,
+                                name_gen,
                             );
-                            next_id.set(local_next_id);
                             label
                         } else {
-                            let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
                                 context,
-                                fn_name,
                                 stmts,
                                 cont_label,
                                 loop_labels.clone(),
@@ -380,15 +360,12 @@ where
                                 blocks,
                                 cell_slots,
                                 outer_scope_names,
-                                &mut local_next_id,
-                                next_temp,
+                                name_gen,
                             );
-                            next_id.set(local_next_id);
                             label
                         }
                     },
                 );
-                *next_block_id = next_id.into_inner();
                 if let Some(label) = label {
                     return label;
                 }
@@ -397,23 +374,19 @@ where
             StmtSequenceHeadPlan::With(with_stmt) => {
                 let needs_finally_return_flow =
                     contains_return_stmt_in_body(suite_ref(&with_stmt.body));
-                let next_id = Cell::new(*next_block_id);
                 let entry = lower_with_stmt_sequence(
-                    fn_name,
                     with_stmt,
                     &stmts[index + 1..],
                     cont_label.clone(),
                     linear,
                     blocks,
                     cell_slots,
-                    &next_id,
+                    name_gen,
                     needs_finally_return_flow,
                     active_exc_target.clone(),
                     &mut |stmts, cont_label, active_exc_target, blocks| {
-                        let mut local_next_id = next_id.get();
                         let label = lower_stmt_sequence_with_state(
                             context,
-                            fn_name,
                             stmts,
                             cont_label,
                             loop_labels.clone(),
@@ -421,32 +394,28 @@ where
                             blocks,
                             cell_slots,
                             outer_scope_names,
-                            &mut local_next_id,
-                            next_temp,
+                            name_gen,
                         );
-                        next_id.set(local_next_id);
                         label
                     },
                 );
-                *next_block_id = next_id.into_inner();
                 return entry;
             }
             StmtSequenceHeadPlan::For(for_stmt) => {
-                let iter_name = next_temp("iter", next_block_id);
-                let tmp_name = next_temp("tmp", next_block_id);
+                let iter_name = name_gen.next_tmp_name("iter");
+                let tmp_name = name_gen.next_tmp_name("tmp");
                 let tmp_expr = py_expr!("{name:id}", name = tmp_name.as_str());
-                let loop_check_label = compat_next_label(fn_name, next_block_id);
+                let loop_check_label = name_gen.next_block_name().to_string();
                 let loop_continue_label = loop_check_label.clone();
                 let assign_body = build_for_target_assign_body(
                     for_stmt.target.as_ref(),
                     tmp_expr,
                     tmp_name.as_str(),
                     cell_slots,
-                    &mut |prefix| next_temp(prefix, next_block_id),
+                    &mut |prefix| name_gen.next_tmp_name(prefix).to_string(),
                 );
-                let next_id = Cell::new(*next_block_id);
                 let label = lower_for_stmt_sequence_head(
-                    fn_name,
+                    name_gen,
                     for_stmt,
                     &stmts[index + 1..],
                     cont_label.clone(),
@@ -458,13 +427,10 @@ where
                     loop_check_label,
                     loop_continue_label,
                     assign_body,
-                    &next_id,
                     &mut |stmts, cont_label, nested_loop_labels, active_exc_target, blocks| {
                         if let Some(nested_loop_labels) = nested_loop_labels {
-                            let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
                                 context,
-                                fn_name,
                                 stmts,
                                 cont_label.clone(),
                                 Some(LoopLabels {
@@ -475,16 +441,12 @@ where
                                 blocks,
                                 cell_slots,
                                 outer_scope_names,
-                                &mut local_next_id,
-                                next_temp,
+                                name_gen,
                             );
-                            next_id.set(local_next_id);
                             label
                         } else {
-                            let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
                                 context,
-                                fn_name,
                                 stmts,
                                 cont_label,
                                 loop_labels.clone(),
@@ -492,24 +454,18 @@ where
                                 blocks,
                                 cell_slots,
                                 outer_scope_names,
-                                &mut local_next_id,
-                                next_temp,
+                                name_gen,
                             );
-                            next_id.set(local_next_id);
                             label
                         }
                     },
                 );
-                *next_block_id = next_id.into_inner();
                 return label;
             }
             StmtSequenceHeadPlan::Try(try_stmt) => {
-                let next_id = Cell::new(*next_block_id);
                 let label = if try_stmt.is_star {
-                    let mut local_next_id = next_id.get();
-                    let jump_label = (!linear.is_empty())
-                        .then(|| compat_next_label(fn_name, &mut local_next_id));
-                    next_id.set(local_next_id);
+                    let jump_label =
+                        (!linear.is_empty()).then(|| name_gen.next_block_name().to_string());
                     lower_star_try_stmt_sequence(
                         try_stmt,
                         &stmts[index + 1..],
@@ -519,10 +475,8 @@ where
                         jump_label,
                         active_exc_target.clone(),
                         &mut |stmts, cont_label, active_exc_target, blocks| {
-                            let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
                                 context,
-                                fn_name,
                                 stmts,
                                 cont_label,
                                 loop_labels.clone(),
@@ -530,28 +484,19 @@ where
                                 blocks,
                                 cell_slots,
                                 outer_scope_names,
-                                &mut local_next_id,
-                                next_temp,
+                                name_gen,
                             );
-                            next_id.set(local_next_id);
                             label
                         },
                     )
                 } else {
-                    let mut local_next_id = next_id.get();
                     let has_finally = !suite_ref(&try_stmt.finalbody).is_empty();
                     let needs_finally_return_flow = has_finally
                         && (contains_return_stmt_in_body(suite_ref(&try_stmt.body))
                             || contains_return_stmt_in_handlers(&try_stmt.handlers)
                             || contains_return_stmt_in_body(suite_ref(&try_stmt.orelse)));
-                    let try_plan = build_try_plan(
-                        fn_name,
-                        has_finally,
-                        needs_finally_return_flow,
-                        &mut local_next_id,
-                    );
-                    let label = compat_next_label(fn_name, &mut local_next_id);
-                    next_id.set(local_next_id);
+                    let try_plan = build_try_plan(name_gen, has_finally, needs_finally_return_flow);
+                    let label = name_gen.next_block_name().to_string();
                     let entry = lower_try_stmt_sequence(
                         try_stmt,
                         &stmts[index + 1..],
@@ -562,10 +507,8 @@ where
                         try_plan,
                         active_exc_target.clone(),
                         &mut |stmts, cont_label, active_exc_target, blocks| {
-                            let mut local_next_id = next_id.get();
                             let label = lower_stmt_sequence_with_state(
                                 context,
-                                fn_name,
                                 stmts,
                                 cont_label,
                                 loop_labels.clone(),
@@ -573,16 +516,13 @@ where
                                 blocks,
                                 cell_slots,
                                 outer_scope_names,
-                                &mut local_next_id,
-                                next_temp,
+                                name_gen,
                             );
-                            next_id.set(local_next_id);
                             label
                         },
                     );
                     entry
                 };
-                *next_block_id = next_id.into_inner();
                 return label;
             }
             StmtSequenceHeadPlan::Linear(_)
@@ -592,7 +532,7 @@ where
             }
             StmtSequenceHeadPlan::Expanded(expanded_stmts) => {
                 let jump_label =
-                    (!linear.is_empty()).then(|| compat_next_label(fn_name, next_block_id));
+                    (!linear.is_empty()).then(|| name_gen.next_block_name().to_string());
                 return lower_expanded_stmt_sequence(
                     expanded_stmts,
                     &stmts[index + 1..],
@@ -604,7 +544,6 @@ where
                     &mut |stmts, cont_label, active_exc_target, blocks| {
                         lower_stmt_sequence_with_state(
                             context,
-                            fn_name,
                             stmts,
                             cont_label,
                             loop_labels.clone(),
@@ -612,8 +551,7 @@ where
                             blocks,
                             cell_slots,
                             outer_scope_names,
-                            next_block_id,
-                            next_temp,
+                            name_gen,
                         )
                     },
                 );
@@ -622,7 +560,7 @@ where
         }
     }
 
-    let label = compat_next_label(fn_name, next_block_id);
+    let label = name_gen.next_block_name().to_string();
     emit_sequence_jump_block(
         blocks,
         label,

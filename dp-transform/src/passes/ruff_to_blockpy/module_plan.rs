@@ -32,7 +32,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::{
     build_blockpy_callable_def_from_runtime_input, rewrite_deleted_name_loads,
-    take_next_function_id,
+    take_next_function_id, NameGen,
 };
 
 struct FunctionScopeFrame {
@@ -48,9 +48,7 @@ struct BlockPyModuleRewriter<'a> {
     context: &'a Context,
     semantic_state: &'a SemanticAstState,
     function_identity_by_node: HashMap<NodeIndex, FunctionIdentity>,
-    next_block_id: usize,
     next_function_id: usize,
-    reserved_temp_names_stack: Vec<HashSet<String>>,
     function_scope_stack: Vec<FunctionScopeFrame>,
     callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>>,
 }
@@ -249,29 +247,13 @@ fn collect_deleted_names_in_target(target: &Expr, names: &mut HashSet<String>) {
     }
 }
 
-struct ReservedTempNamesGuard {
-    stack: *mut Vec<HashSet<String>>,
-}
-
-impl Drop for ReservedTempNamesGuard {
-    fn drop(&mut self) {
-        // The guard only exists while function lowering is active and the
-        // stack itself lives in the caller, so popping here is safe.
-        unsafe {
-            (*self.stack).pop();
-        }
-    }
-}
-
 fn try_lower_function_to_blockpy_bundle(
     context: &Context,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &ast::StmtFunctionDef,
     parent_name: Option<&str>,
     callable_semantic: &BlockPyCallableSemanticInfo,
-    reserved_temp_names_stack: &mut Vec<HashSet<String>>,
-    next_block_id: &mut usize,
-    next_function_id: &mut usize,
+    name_gen: &NameGen,
 ) -> Option<BlockPyFunction<RuffBlockPyPass>> {
     if should_keep_non_lowered_for_annotationlib(func) {
         return None;
@@ -298,10 +280,7 @@ fn try_lower_function_to_blockpy_bundle(
         rewrite_annotation_helper_defs_as_exec_calls(runtime_input_body, &outer_scope_names);
     let mut outer_scope_names = collect_bound_names(&runtime_input_body);
     outer_scope_names.extend(param_names.iter().cloned());
-    reserved_temp_names_stack.push(outer_scope_names.clone());
-    let _reserved_temp_names_guard = ReservedTempNamesGuard {
-        stack: reserved_temp_names_stack,
-    };
+    name_gen.reserve_names(outer_scope_names.iter().cloned());
     let unbound_local_names = if has_dead_stmt_suffixes(&lowered_input_body) {
         always_unbound_local_names(&lowered_input_body, &runtime_input_body, &param_names)
     } else {
@@ -316,15 +295,14 @@ fn try_lower_function_to_blockpy_bundle(
         cell_slots,
     };
 
-    let end_label = next_label(func.name.id.as_str(), next_block_id);
+    let end_label = name_gen.next_block_name().to_string();
     let identity = resolve_runtime_function_identity(func, function_identity_by_node, parent_name);
     let doc = function_docstring_text(func);
-    let main_function_id = take_next_function_id(next_function_id);
     let fn_name = func.name.id.to_string();
     let blockpy_kind = function_kind(func);
     let mut callable_def = build_blockpy_callable_def_from_runtime_input(
         context,
-        main_function_id,
+        name_gen,
         FunctionName::new(
             identity.bind_name.clone(),
             fn_name,
@@ -337,10 +315,6 @@ fn try_lower_function_to_blockpy_bundle(
         end_label,
         blockpy_kind,
         &callable_facts,
-        next_block_id,
-        &mut |prefix, next_block_id| {
-            next_temp_from_counter(reserved_temp_names_stack, prefix, next_block_id)
-        },
     );
     if !callable_facts.deleted_names.is_empty() {
         rewrite_deleted_name_loads(
@@ -484,46 +458,6 @@ fn prune_dead_stmt_suffixes_in_stmt(stmt: &mut Stmt) {
         }
         _ => {}
     }
-}
-
-fn next_temp_from_counter(
-    reserved_temp_names_stack: &mut Vec<HashSet<String>>,
-    prefix: &str,
-    next_id: &mut usize,
-) -> String {
-    loop {
-        let current = *next_id;
-        *next_id += 1;
-        let candidate = format!("_dp_{prefix}_{current}");
-        let collides = reserved_temp_names_stack
-            .last()
-            .is_some_and(|names| names.contains(candidate.as_str()));
-        if collides {
-            continue;
-        }
-        if let Some(names) = reserved_temp_names_stack.last_mut() {
-            names.insert(candidate.clone());
-        }
-        return candidate;
-    }
-}
-
-fn next_label(fn_name: &str, next_id: &mut usize) -> String {
-    let current = *next_id;
-    *next_id += 1;
-    format!("_dp_bb_{}_{}", sanitize_ident(fn_name), current)
-}
-
-fn sanitize_ident(raw: &str) -> String {
-    raw.chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '_' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect()
 }
 
 fn always_unbound_local_names(
@@ -755,9 +689,7 @@ mod tests {
             context: &context,
             semantic_state: &semantic_state,
             function_identity_by_node,
-            next_block_id: 0,
             next_function_id: 0,
-            reserved_temp_names_stack: Vec::new(),
             function_scope_stack: vec![FunctionScopeFrame {
                 name: "outer".to_string(),
                 parent_name: None,
@@ -860,11 +792,11 @@ mod tests {
                 callable_defs: vec![exercise.clone()],
             });
         assert!(
-            rendered.contains("jump ") && rendered.contains("(Return, _dp_try_abrupt_payload_5)"),
+            rendered.contains("jump ") && rendered.contains("(Return, _dp_try_abrupt_payload_"),
             "{rendered}"
         );
         assert!(
-            !rendered.contains("jump _dp_bb_0(None, Return, _dp_try_abrupt_payload_5)"),
+            !rendered.contains("(None, Return, _dp_try_abrupt_payload_"),
             "{rendered}"
         );
     }
@@ -904,9 +836,7 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
         context,
         semantic_state,
         function_identity_by_node,
-        next_block_id: 0,
         next_function_id: 0,
-        reserved_temp_names_stack: Vec::new(),
         function_scope_stack: Vec::new(),
         callable_defs: Vec::new(),
     };
@@ -1018,6 +948,13 @@ fn plan_non_lowered_function_instantiation(
         binding,
         local_name_plan,
     }
+}
+
+fn function_reserved_temp_names(func: &ast::StmtFunctionDef) -> HashSet<String> {
+    let (param_spec, _) = collect_param_spec_and_defaults(&func.parameters);
+    let mut reserved_names = collect_bound_names(suite_ref(&func.body));
+    reserved_names.extend(param_spec.names());
+    reserved_names
 }
 
 fn build_updated_function_binding_stmt(
@@ -1265,21 +1202,21 @@ fn rewrite_function_def_stmt_via_blockpy(
     callable_semantic: &BlockPyCallableSemanticInfo,
     needs_cell_sync: bool,
     function_hoisted: Vec<Stmt>,
-    reserved_temp_names_stack: &mut Vec<HashSet<String>>,
-    next_block_id: &mut usize,
     next_function_id: &mut usize,
     callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
 ) -> Option<Vec<Stmt>> {
     let doc = function_docstring_text(func);
+    let name_gen = NameGen::new(
+        take_next_function_id(next_function_id),
+        function_reserved_temp_names(func),
+    );
     if let Some(lowered_plan) = try_lower_function_to_blockpy_bundle(
         context,
         function_identity_by_node,
         func,
         current_parent,
         callable_semantic,
-        reserved_temp_names_stack,
-        next_block_id,
-        next_function_id,
+        &name_gen,
     ) {
         let preview = build_lowered_function_instantiation_preview(&lowered_plan)
             .expect("failed to build BB function instantiation preview");
@@ -1310,7 +1247,7 @@ fn rewrite_function_def_stmt_via_blockpy(
         instantiation_plan,
         function_hoisted,
         doc,
-        || next_temp_from_counter(reserved_temp_names_stack, "fn_local", next_block_id),
+        || name_gen.next_tmp_name("fn_local").to_string(),
     )
 }
 
@@ -1371,15 +1308,17 @@ impl BlockPyModuleRewriter<'_> {
             "root _dp_module_init should not produce hoisted statements"
         );
         *func = lowered_root;
+        let name_gen = NameGen::new(
+            take_next_function_id(&mut self.next_function_id),
+            function_reserved_temp_names(func),
+        );
         let lowered_plan = try_lower_function_to_blockpy_bundle(
             self.context,
             &self.function_identity_by_node,
             func,
             None,
             &state.callable_semantic,
-            &mut self.reserved_temp_names_stack,
-            &mut self.next_block_id,
-            &mut self.next_function_id,
+            &name_gen,
         )
         .expect("_dp_module_init should lower to BlockPy");
         self.callable_defs.push(lowered_plan);
@@ -1404,8 +1343,6 @@ impl BlockPyModuleRewriter<'_> {
             &state.callable_semantic,
             state.needs_cell_sync,
             state.hoisted_to_parent,
-            &mut self.reserved_temp_names_stack,
-            &mut self.next_block_id,
             &mut self.next_function_id,
             &mut self.callable_defs,
         )

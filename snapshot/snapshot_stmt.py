@@ -6,7 +6,7 @@ import a
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         __dp_store_global(globals(), "a", __dp_import_("a", __spec__))
 #         return __dp_NONE
 
@@ -18,7 +18,7 @@ import a.b as c
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         __dp_store_global(globals(), "c", __dp_import_attr(__dp_import_("a.b", __spec__), "b"))
 #         return __dp_NONE
 
@@ -30,7 +30,7 @@ from pkg.mod import name as alias
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         _dp_import_1 = __dp_import_("pkg.mod", __spec__, ["name"])
 #         __dp_store_global(globals(), "alias", __dp_import_attr(_dp_import_1, "name"))
 #         return __dp_NONE
@@ -47,12 +47,12 @@ def f():
 
 # function f():
 #     function_id: 0
-#     block _dp_bb_f_1:
+#     block _dp_bb_0_1:
 #         return __dp_NONE
 
 # function _dp_module_init():
 #     function_id: 1
-#     block _dp_bb__dp_module_init_3:
+#     block _dp_bb_1_1:
 #         __dp_store_global(globals(), "f", dec(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)))
 #         return __dp_NONE
 
@@ -64,7 +64,7 @@ obj.x = 1
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
 #         return __dp_NONE
 
@@ -76,7 +76,7 @@ obj[i] = v
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         __dp_setitem(__dp_load_deleted_name("obj", obj), i, v)
 #         return __dp_NONE
 
@@ -88,7 +88,7 @@ a, b = it
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, True))
 #         __dp_store_global(globals(), "a", __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 0))
 #         __dp_store_global(globals(), "b", __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 1))
@@ -103,7 +103,7 @@ a, *b = it
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, False))
 #         __dp_store_global(globals(), "a", __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 0))
 #         __dp_store_global(globals(), "b", __dp_list(__dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 1)))
@@ -118,7 +118,7 @@ a = b = f()
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         _dp_tmp_1 = f()
 #         __dp_store_global(globals(), "a", _dp_tmp_1)
 #         __dp_store_global(globals(), "b", _dp_tmp_1)
@@ -131,8 +131,8 @@ x: int = 1
 # ==
 
 # function _dp_module_init():
-#     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     function_id: 1
+#     block _dp_bb_1_1:
 #         __dp_store_global(globals(), "x", 1)
 #         __annotate__ = __dp_exec_function_def_source('def __annotate__(_dp_format, _dp=__dp__, *, __dp__=__dp__, __dp_tuple=__dp_tuple):\n    if _dp.eq(_dp_format, 4):\n        return _dp.dict(__dp_tuple(("x", "int")))\n    if _dp.gt(_dp_format, 2):\n        raise _dp.builtins.NotImplementedError\n    return _dp.dict(__dp_tuple(("x", int)))', __dp_globals(), __dp_tuple(), "__annotate__")
 #         __dp_store_global(globals(), "__annotate__", __dp_update_fn(__annotate__, "__annotate__", "__annotate__", None))
@@ -146,7 +146,7 @@ obj.x: int = 1
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
 #         return __dp_NONE
 
@@ -158,7 +158,7 @@ obj.x += 1
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", __dp_iadd(obj.x, 1))
 #         return __dp_NONE
 
@@ -170,7 +170,7 @@ del obj.x, obj[i], x
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         __dp_delattr(obj, "x")
 #         __dp_delitem(obj, i)
 #         __dp_delitem(globals(), "x")
@@ -184,19 +184,19 @@ assert cond
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         if_term __debug__:
 #             then:
-#                 block _dp_bb__dp_module_init_2:
+#                 block _dp_bb_0_2:
 #                     if_term not cond:
 #                         then:
-#                             block _dp_bb__dp_module_init_3:
+#                             block _dp_bb_0_3:
 #                                 raise __dp_AssertionError
 #                         else:
-#                             jump _dp_bb__dp_module_init_0
+#                             jump _dp_bb_0_0
 #             else:
-#                 jump _dp_bb__dp_module_init_0
-#         block _dp_bb__dp_module_init_0:
+#                 jump _dp_bb_0_0
+#         block _dp_bb_0_0:
 #             return __dp_NONE
 
 # assert_with_msg
@@ -207,19 +207,19 @@ assert cond, "oops"
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         if_term __debug__:
 #             then:
-#                 block _dp_bb__dp_module_init_2:
+#                 block _dp_bb_0_2:
 #                     if_term not cond:
 #                         then:
-#                             block _dp_bb__dp_module_init_3:
+#                             block _dp_bb_0_3:
 #                                 raise __dp_AssertionError("oops")
 #                         else:
-#                             jump _dp_bb__dp_module_init_0
+#                             jump _dp_bb_0_0
 #             else:
-#                 jump _dp_bb__dp_module_init_0
-#         block _dp_bb__dp_module_init_0:
+#                 jump _dp_bb_0_0
+#         block _dp_bb_0_0:
 #             return __dp_NONE
 
 # raise_from
@@ -230,7 +230,7 @@ raise E from cause
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         raise __dp_raise_from(E, cause)
 
 # try_except_typed
@@ -258,25 +258,25 @@ else:
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_5:
-#         _dp_iter_1 = __dp_iter(it)
-#         jump _dp_bb__dp_module_init_3
-#         block _dp_bb__dp_module_init_3:
-#             _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
-#             if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#     block _dp_bb_0_3:
+#         _dp_iter_0_0 = __dp_iter(it)
+#         jump _dp_bb_0_1
+#         block _dp_bb_0_1:
+#             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
+#             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
-#                     block _dp_bb__dp_module_init_6:
+#                     block _dp_bb_0_4:
 #                         done()
 #                         return __dp_NONE
 #                 else:
-#                     block _dp_bb__dp_module_init_4:
-#                         x = _dp_tmp_2
-#                         _dp_tmp_2 = None
-#                         jump _dp_bb__dp_module_init_7
-#                         block _dp_bb__dp_module_init_7:
+#                     block _dp_bb_0_2:
+#                         x = _dp_tmp_0_1
+#                         _dp_tmp_0_1 = None
+#                         jump _dp_bb_0_5
+#                         block _dp_bb_0_5:
 #                             __dp_store_global(globals(), "x", x)
 #                             body()
-#                             jump _dp_bb__dp_module_init_3
+#                             jump _dp_bb_0_1
 
 # while_else
 
@@ -289,14 +289,14 @@ else:
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         if_term cond:
 #             then:
-#                 block _dp_bb__dp_module_init_3:
+#                 block _dp_bb_0_3:
 #                     body()
-#                     jump _dp_bb__dp_module_init_1
+#                     jump _dp_bb_0_1
 #             else:
-#                 block _dp_bb__dp_module_init_2:
+#                 block _dp_bb_0_2:
 #                     done()
 #                     return __dp_NONE
 
@@ -309,64 +309,64 @@ with cm as x:
 
 # function _dp_module_init():
 #     function_id: 0
-#     entry_liveins: [_dp_try_exc_7, _dp_try_exc_1, _dp_try_abrupt_kind_2]
-#     block _dp_bb__dp_module_init_8:
+#     entry_liveins: [_dp_try_exc_0_3, _dp_try_exc_0_0, _dp_try_abrupt_kind_0_1]
+#     block _dp_bb_0_4:
 #         _dp_with_exit_1 = __dp_contextmanager_get_exit(cm)
 #         x = __dp_contextmanager_enter(cm)
 #         _dp_with_ok_2 = True
-#         jump _dp_bb__dp_module_init_15
-#         block _dp_bb__dp_module_init_15:
+#         jump _dp_bb_0_11
+#         block _dp_bb_0_11:
 #             body()
-#             jump _dp_bb__dp_module_init_9__normal
-#             block _dp_bb__dp_module_init_9__normal:
-#                 jump _dp_bb__dp_module_init_9(Fallthrough, None)
-#                 block _dp_bb__dp_module_init_9:
-#                     exc_param: _dp_try_exc_7
-#                     params: [_dp_try_abrupt_kind_2:AbruptKind, _dp_try_abrupt_payload_3:AbruptPayload, _dp_try_exc_7:Exception]
+#             jump _dp_bb_0_5__normal
+#             block _dp_bb_0_5__normal:
+#                 jump _dp_bb_0_5(Fallthrough, None)
+#                 block _dp_bb_0_5:
+#                     exc_param: _dp_try_exc_0_3
+#                     params: [_dp_try_abrupt_kind_0_1:AbruptKind, _dp_try_abrupt_payload_0_2:AbruptPayload, _dp_try_exc_0_3:Exception]
 #                     if_term _dp_with_ok_2:
 #                         then:
-#                             block _dp_bb__dp_module_init_11:
-#                                 exc_param: _dp_try_exc_7
-#                                 params: [_dp_try_exc_7:Exception]
+#                             block _dp_bb_0_7:
+#                                 exc_param: _dp_try_exc_0_3
+#                                 params: [_dp_try_exc_0_3:Exception]
 #                                 __dp_contextmanager_exit(_dp_with_exit_1, None)
-#                                 jump _dp_bb__dp_module_init_10
+#                                 jump _dp_bb_0_6
 #                         else:
-#                             jump _dp_bb__dp_module_init_10
-#                     block _dp_bb__dp_module_init_10:
-#                         exc_param: _dp_try_exc_7
-#                         params: [_dp_try_exc_7:Exception]
+#                             jump _dp_bb_0_6
+#                     block _dp_bb_0_6:
+#                         exc_param: _dp_try_exc_0_3
+#                         params: [_dp_try_exc_0_3:Exception]
 #                         _dp_with_exit_1 = None
-#                         jump _dp_bb__dp_module_init_4
-#                         block _dp_bb__dp_module_init_4:
-#                             branch_table _dp_try_abrupt_kind_2 -> [_dp_bb__dp_module_init_0, _dp_bb__dp_module_init_5, _dp_bb__dp_module_init_6] default _dp_bb__dp_module_init_0
-#                             block _dp_bb__dp_module_init_0:
+#                         jump _dp_bb_0_1
+#                         block _dp_bb_0_1:
+#                             branch_table _dp_try_abrupt_kind_0_1 -> [_dp_bb_0_0, _dp_bb_0_2, _dp_bb_0_3] default _dp_bb_0_0
+#                             block _dp_bb_0_0:
 #                                 return __dp_NONE
-#                             block _dp_bb__dp_module_init_5:
-#                                 return _dp_try_abrupt_payload_3
-#                             block _dp_bb__dp_module_init_6:
-#                                 raise _dp_try_abrupt_payload_3
-#     block _dp_bb__dp_module_init_12:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
+#                             block _dp_bb_0_2:
+#                                 return _dp_try_abrupt_payload_0_2
+#                             block _dp_bb_0_3:
+#                                 raise _dp_try_abrupt_payload_0_2
+#     block _dp_bb_0_10:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
+#         raise
+#     block _dp_bb_0_5__exception:
+#         exc_param: _dp_try_exc_0_3
+#         params: [_dp_try_exc_0_3:Exception]
+#         jump _dp_bb_0_5(Exception, _dp_try_exc_0_3)
+#     block _dp_bb_0_8:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
 #         if_term __dp_exception_matches(__dp_current_exception(), BaseException):
 #             then:
-#                 jump _dp_bb__dp_module_init_13
+#                 jump _dp_bb_0_9
 #             else:
-#                 jump _dp_bb__dp_module_init_14
-#     block _dp_bb__dp_module_init_13:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
+#                 jump _dp_bb_0_10
+#     block _dp_bb_0_9:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
 #         _dp_with_ok_2 = False
 #         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
-#         jump _dp_bb__dp_module_init_9__normal
-#     block _dp_bb__dp_module_init_14:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
-#         raise
-#     block _dp_bb__dp_module_init_9__exception:
-#         exc_param: _dp_try_exc_7
-#         params: [_dp_try_exc_7:Exception]
-#         jump _dp_bb__dp_module_init_9(Exception, _dp_try_exc_7)
+#         jump _dp_bb_0_5__normal
 
 # function_local_ann_assign
 
@@ -380,13 +380,13 @@ def inner():
 
 # function inner():
 #     function_id: 0
-#     block _dp_bb_inner_1:
+#     block _dp_bb_0_1:
 #         value = 1
 #         return value
 
 # function _dp_module_init():
 #     function_id: 1
-#     block _dp_bb__dp_module_init_3:
+#     block _dp_bb_1_1:
 #         __dp_store_global(globals(), "inner", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return __dp_NONE
 
@@ -401,75 +401,75 @@ zs = {k: v for k, v in items}
 # function _dp_listcomp_3(_dp_iter_2):
 #     function_id: 0
 #     display_name: <listcomp>
-#     block _dp_bb__dp_listcomp_3_5:
+#     block _dp_bb_0_3:
 #         _dp_tmp_1 = []
-#         _dp_iter_1 = __dp_iter(_dp_iter_2)
-#         jump _dp_bb__dp_listcomp_3_3
-#         block _dp_bb__dp_listcomp_3_3:
-#             _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
-#             if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
+#         jump _dp_bb_0_1
+#         block _dp_bb_0_1:
+#             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
+#             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
-#                     block _dp_bb__dp_listcomp_3_6:
+#                     block _dp_bb_0_4:
 #                         return _dp_tmp_1
 #                 else:
-#                     block _dp_bb__dp_listcomp_3_4:
-#                         x = _dp_tmp_2
-#                         _dp_tmp_2 = None
-#                         jump _dp_bb__dp_listcomp_3_7
-#                         block _dp_bb__dp_listcomp_3_7:
+#                     block _dp_bb_0_2:
+#                         x = _dp_tmp_0_1
+#                         _dp_tmp_0_1 = None
+#                         jump _dp_bb_0_5
+#                         block _dp_bb_0_5:
 #                             _dp_tmp_1.append(x)
-#                             jump _dp_bb__dp_listcomp_3_3
+#                             jump _dp_bb_0_1
 
 # function _dp_setcomp_6(_dp_iter_5):
 #     function_id: 1
 #     display_name: <setcomp>
-#     block _dp_bb__dp_setcomp_6_13:
+#     block _dp_bb_1_3:
 #         _dp_tmp_4 = set()
-#         _dp_iter_9 = __dp_iter(_dp_iter_5)
-#         jump _dp_bb__dp_setcomp_6_11
-#         block _dp_bb__dp_setcomp_6_11:
-#             _dp_tmp_10 = __dp_next_or_sentinel(_dp_iter_9)
-#             if_term __dp_is_(_dp_tmp_10, __dp__.ITER_COMPLETE):
+#         _dp_iter_1_0 = __dp_iter(_dp_iter_5)
+#         jump _dp_bb_1_1
+#         block _dp_bb_1_1:
+#             _dp_tmp_1_1 = __dp_next_or_sentinel(_dp_iter_1_0)
+#             if_term __dp_is_(_dp_tmp_1_1, __dp__.ITER_COMPLETE):
 #                 then:
-#                     block _dp_bb__dp_setcomp_6_14:
+#                     block _dp_bb_1_4:
 #                         return _dp_tmp_4
 #                 else:
-#                     block _dp_bb__dp_setcomp_6_12:
-#                         x = _dp_tmp_10
-#                         _dp_tmp_10 = None
-#                         jump _dp_bb__dp_setcomp_6_15
-#                         block _dp_bb__dp_setcomp_6_15:
+#                     block _dp_bb_1_2:
+#                         x = _dp_tmp_1_1
+#                         _dp_tmp_1_1 = None
+#                         jump _dp_bb_1_5
+#                         block _dp_bb_1_5:
 #                             _dp_tmp_4.add(x)
-#                             jump _dp_bb__dp_setcomp_6_11
+#                             jump _dp_bb_1_1
 
 # function _dp_dictcomp_9(_dp_iter_8):
 #     function_id: 2
 #     display_name: <dictcomp>
-#     block _dp_bb__dp_dictcomp_9_22:
+#     block _dp_bb_2_3:
 #         _dp_tmp_7 = {}
-#         _dp_iter_17 = __dp_iter(_dp_iter_8)
-#         jump _dp_bb__dp_dictcomp_9_19
-#         block _dp_bb__dp_dictcomp_9_19:
-#             _dp_tmp_18 = __dp_next_or_sentinel(_dp_iter_17)
-#             if_term __dp_is_(_dp_tmp_18, __dp__.ITER_COMPLETE):
+#         _dp_iter_2_0 = __dp_iter(_dp_iter_8)
+#         jump _dp_bb_2_1
+#         block _dp_bb_2_1:
+#             _dp_tmp_2_1 = __dp_next_or_sentinel(_dp_iter_2_0)
+#             if_term __dp_is_(_dp_tmp_2_1, __dp__.ITER_COMPLETE):
 #                 then:
-#                     block _dp_bb__dp_dictcomp_9_23:
+#                     block _dp_bb_2_4:
 #                         return _dp_tmp_7
 #                 else:
-#                     block _dp_bb__dp_dictcomp_9_21:
-#                         _dp_tmp_20 = __dp_unpack(_dp_tmp_18, __dp_tuple(True, True))
-#                         k = __dp_getitem(_dp_tmp_20, 0)
-#                         v = __dp_getitem(_dp_tmp_20, 1)
-#                         del _dp_tmp_20
-#                         _dp_tmp_18 = None
-#                         jump _dp_bb__dp_dictcomp_9_24
-#                         block _dp_bb__dp_dictcomp_9_24:
+#                     block _dp_bb_2_2:
+#                         _dp_tmp_2_2 = __dp_unpack(_dp_tmp_2_1, __dp_tuple(True, True))
+#                         k = __dp_getitem(_dp_tmp_2_2, 0)
+#                         v = __dp_getitem(_dp_tmp_2_2, 1)
+#                         del _dp_tmp_2_2
+#                         _dp_tmp_2_1 = None
+#                         jump _dp_bb_2_5
+#                         block _dp_bb_2_5:
 #                             __dp_setitem(_dp_tmp_7, k, v)
-#                             jump _dp_bb__dp_dictcomp_9_19
+#                             jump _dp_bb_2_1
 
 # function _dp_module_init():
 #     function_id: 3
-#     block _dp_bb__dp_module_init_26:
+#     block _dp_bb_3_1:
 #         _dp_listcomp_3 = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         __dp_store_global(globals(), "xs", _dp_listcomp_3(it))
 #         _dp_setcomp_6 = __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
@@ -490,39 +490,39 @@ def f():
 # function f.<locals>._dp_listcomp_3(_dp_iter_2):
 #     function_id: 0
 #     display_name: <listcomp>
-#     block _dp_bb__dp_listcomp_3_5:
+#     block _dp_bb_0_3:
 #         _dp_tmp_1 = []
-#         _dp_iter_1 = __dp_iter(_dp_iter_2)
-#         jump _dp_bb__dp_listcomp_3_3
-#         block _dp_bb__dp_listcomp_3_3:
-#             _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
-#             if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
+#         jump _dp_bb_0_1
+#         block _dp_bb_0_1:
+#             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
+#             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
-#                     block _dp_bb__dp_listcomp_3_6:
+#                     block _dp_bb_0_4:
 #                         return _dp_tmp_1
 #                 else:
-#                     block _dp_bb__dp_listcomp_3_4:
-#                         x = _dp_tmp_2
-#                         _dp_tmp_2 = None
-#                         jump _dp_bb__dp_listcomp_3_7
-#                         block _dp_bb__dp_listcomp_3_7:
+#                     block _dp_bb_0_2:
+#                         x = _dp_tmp_0_1
+#                         _dp_tmp_0_1 = None
+#                         jump _dp_bb_0_5
+#                         block _dp_bb_0_5:
 #                             if_term __dp_gt(x, 0):
 #                                 then:
-#                                     block _dp_bb__dp_listcomp_3_8:
+#                                     block _dp_bb_0_6:
 #                                         _dp_tmp_1.append(x)
-#                                         jump _dp_bb__dp_listcomp_3_3
+#                                         jump _dp_bb_0_1
 #                                 else:
-#                                     jump _dp_bb__dp_listcomp_3_3
+#                                     jump _dp_bb_0_1
 
 # function f():
 #     function_id: 1
-#     block _dp_bb_f_10:
+#     block _dp_bb_1_1:
 #         _dp_listcomp_3 = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return _dp_listcomp_3(it)
 
 # function _dp_module_init():
 #     function_id: 2
-#     block _dp_bb__dp_module_init_12:
+#     block _dp_bb_2_1:
 #         __dp_store_global(globals(), "f", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return __dp_NONE
 
@@ -538,28 +538,28 @@ class C:
 # function C._dp_listcomp_3(_dp_iter_2):
 #     function_id: 0
 #     display_name: <listcomp>
-#     block _dp_bb__dp_listcomp_3_5:
+#     block _dp_bb_0_3:
 #         _dp_tmp_1 = []
-#         _dp_iter_1 = __dp_iter(_dp_iter_2)
-#         jump _dp_bb__dp_listcomp_3_3
-#         block _dp_bb__dp_listcomp_3_3:
-#             _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
-#             if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
+#         jump _dp_bb_0_1
+#         block _dp_bb_0_1:
+#             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
+#             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
-#                     block _dp_bb__dp_listcomp_3_6:
+#                     block _dp_bb_0_4:
 #                         return _dp_tmp_1
 #                 else:
-#                     block _dp_bb__dp_listcomp_3_4:
-#                         x = _dp_tmp_2
-#                         _dp_tmp_2 = None
-#                         jump _dp_bb__dp_listcomp_3_7
-#                         block _dp_bb__dp_listcomp_3_7:
+#                     block _dp_bb_0_2:
+#                         x = _dp_tmp_0_1
+#                         _dp_tmp_0_1 = None
+#                         jump _dp_bb_0_5
+#                         block _dp_bb_0_5:
 #                             _dp_tmp_1.append(x)
-#                             jump _dp_bb__dp_listcomp_3_3
+#                             jump _dp_bb_0_1
 
 # function _dp_class_ns_C(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 1
-#     block _dp_bb__dp_class_ns_C_9:
+#     block _dp_bb_1_1:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
@@ -569,13 +569,13 @@ class C:
 
 # function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
 #     function_id: 2
-#     block _dp_bb__dp_define_class_C_11:
+#     block _dp_bb_2_1:
 #         _dp_class_ns = _dp_class_ns_outer
 #         return __dp_create_class("C", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 3, ())
 
 # function _dp_module_init():
 #     function_id: 3
-#     block _dp_bb__dp_module_init_13:
+#     block _dp_bb_3_1:
 #         _dp_class_ns_C = __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         _dp_define_class_C = __dp_make_function(2, __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
 #         __dp_store_global(globals(), "C", _dp_define_class_C(_dp_class_ns_C, globals()))
@@ -590,117 +590,117 @@ with a as x, b as y:
 
 # function _dp_module_init():
 #     function_id: 0
-#     entry_liveins: [_dp_try_exc_7, _dp_try_exc_1, _dp_try_exc_21, _dp_try_exc_15, _dp_try_abrupt_kind_2, _dp_try_abrupt_kind_16]
-#     block _dp_bb__dp_module_init_8:
+#     entry_liveins: [_dp_try_exc_0_3, _dp_try_exc_0_0, _dp_try_exc_0_7, _dp_try_exc_0_4, _dp_try_abrupt_kind_0_1, _dp_try_abrupt_kind_0_5]
+#     block _dp_bb_0_4:
 #         _dp_with_exit_4 = __dp_contextmanager_get_exit(a)
 #         x = __dp_contextmanager_enter(a)
 #         _dp_with_ok_5 = True
-#         jump _dp_bb__dp_module_init_22
-#         block _dp_bb__dp_module_init_22:
+#         jump _dp_bb_0_14
+#         block _dp_bb_0_14:
 #             _dp_with_exit_1 = __dp_contextmanager_get_exit(b)
 #             y = __dp_contextmanager_enter(b)
 #             _dp_with_ok_2 = True
-#             jump _dp_bb__dp_module_init_29
-#             block _dp_bb__dp_module_init_29:
+#             jump _dp_bb_0_21
+#             block _dp_bb_0_21:
 #                 body()
-#                 jump _dp_bb__dp_module_init_23__normal
-#                 block _dp_bb__dp_module_init_23__normal:
-#                     jump _dp_bb__dp_module_init_23(Fallthrough, None)
-#                     block _dp_bb__dp_module_init_23:
-#                         exc_param: _dp_try_exc_21
-#                         params: [_dp_try_abrupt_kind_16:AbruptKind, _dp_try_abrupt_payload_17:AbruptPayload, _dp_try_exc_21:Exception]
+#                 jump _dp_bb_0_15__normal
+#                 block _dp_bb_0_15__normal:
+#                     jump _dp_bb_0_15(Fallthrough, None)
+#                     block _dp_bb_0_15:
+#                         exc_param: _dp_try_exc_0_7
+#                         params: [_dp_try_abrupt_kind_0_5:AbruptKind, _dp_try_abrupt_payload_0_6:AbruptPayload, _dp_try_exc_0_7:Exception]
 #                         if_term _dp_with_ok_2:
 #                             then:
-#                                 block _dp_bb__dp_module_init_25:
-#                                     exc_param: _dp_try_exc_21
-#                                     params: [_dp_try_exc_21:Exception]
+#                                 block _dp_bb_0_17:
+#                                     exc_param: _dp_try_exc_0_7
+#                                     params: [_dp_try_exc_0_7:Exception]
 #                                     __dp_contextmanager_exit(_dp_with_exit_1, None)
-#                                     jump _dp_bb__dp_module_init_24
+#                                     jump _dp_bb_0_16
 #                             else:
-#                                 jump _dp_bb__dp_module_init_24
-#                         block _dp_bb__dp_module_init_24:
-#                             exc_param: _dp_try_exc_21
-#                             params: [_dp_try_exc_21:Exception]
+#                                 jump _dp_bb_0_16
+#                         block _dp_bb_0_16:
+#                             exc_param: _dp_try_exc_0_7
+#                             params: [_dp_try_exc_0_7:Exception]
 #                             _dp_with_exit_1 = None
-#                             jump _dp_bb__dp_module_init_18
-#                             block _dp_bb__dp_module_init_18:
-#                                 branch_table _dp_try_abrupt_kind_16 -> [_dp_bb__dp_module_init_9__normal, _dp_bb__dp_module_init_19, _dp_bb__dp_module_init_20] default _dp_bb__dp_module_init_9__normal
-#                                 block _dp_bb__dp_module_init_19:
-#                                     _dp_try_abrupt_payload_3 = _dp_try_abrupt_payload_17
-#                                     jump _dp_bb__dp_module_init_9(Return, _dp_try_abrupt_payload_3)
-#                                 block _dp_bb__dp_module_init_20:
-#                                     raise _dp_try_abrupt_payload_17
-#                                 block _dp_bb__dp_module_init_9:
-#                                     exc_param: _dp_try_exc_7
-#                                     params: [_dp_try_abrupt_kind_2:AbruptKind, _dp_try_abrupt_payload_3:AbruptPayload, _dp_try_exc_7:Exception]
+#                             jump _dp_bb_0_11
+#                             block _dp_bb_0_11:
+#                                 branch_table _dp_try_abrupt_kind_0_5 -> [_dp_bb_0_5__normal, _dp_bb_0_12, _dp_bb_0_13] default _dp_bb_0_5__normal
+#                                 block _dp_bb_0_12:
+#                                     _dp_try_abrupt_payload_0_2 = _dp_try_abrupt_payload_0_6
+#                                     jump _dp_bb_0_5(Return, _dp_try_abrupt_payload_0_2)
+#                                 block _dp_bb_0_13:
+#                                     raise _dp_try_abrupt_payload_0_6
+#                                 block _dp_bb_0_5:
+#                                     exc_param: _dp_try_exc_0_3
+#                                     params: [_dp_try_abrupt_kind_0_1:AbruptKind, _dp_try_abrupt_payload_0_2:AbruptPayload, _dp_try_exc_0_3:Exception]
 #                                     if_term _dp_with_ok_5:
 #                                         then:
-#                                             block _dp_bb__dp_module_init_11:
-#                                                 exc_param: _dp_try_exc_7
-#                                                 params: [_dp_try_exc_7:Exception]
+#                                             block _dp_bb_0_7:
+#                                                 exc_param: _dp_try_exc_0_3
+#                                                 params: [_dp_try_exc_0_3:Exception]
 #                                                 __dp_contextmanager_exit(_dp_with_exit_4, None)
-#                                                 jump _dp_bb__dp_module_init_10
+#                                                 jump _dp_bb_0_6
 #                                         else:
-#                                             jump _dp_bb__dp_module_init_10
-#                                     block _dp_bb__dp_module_init_10:
-#                                         exc_param: _dp_try_exc_7
-#                                         params: [_dp_try_exc_7:Exception]
+#                                             jump _dp_bb_0_6
+#                                     block _dp_bb_0_6:
+#                                         exc_param: _dp_try_exc_0_3
+#                                         params: [_dp_try_exc_0_3:Exception]
 #                                         _dp_with_exit_4 = None
-#                                         jump _dp_bb__dp_module_init_4
-#                                         block _dp_bb__dp_module_init_4:
-#                                             branch_table _dp_try_abrupt_kind_2 -> [_dp_bb__dp_module_init_0, _dp_bb__dp_module_init_5, _dp_bb__dp_module_init_6] default _dp_bb__dp_module_init_0
-#                                             block _dp_bb__dp_module_init_0:
+#                                         jump _dp_bb_0_1
+#                                         block _dp_bb_0_1:
+#                                             branch_table _dp_try_abrupt_kind_0_1 -> [_dp_bb_0_0, _dp_bb_0_2, _dp_bb_0_3] default _dp_bb_0_0
+#                                             block _dp_bb_0_0:
 #                                                 return __dp_NONE
-#                                             block _dp_bb__dp_module_init_5:
-#                                                 return _dp_try_abrupt_payload_3
-#                                             block _dp_bb__dp_module_init_6:
-#                                                 raise _dp_try_abrupt_payload_3
-#                                 block _dp_bb__dp_module_init_9__normal:
-#                                     jump _dp_bb__dp_module_init_9(Fallthrough, None)
-#     block _dp_bb__dp_module_init_12:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
-#         if_term __dp_exception_matches(__dp_current_exception(), BaseException):
-#             then:
-#                 jump _dp_bb__dp_module_init_13
-#             else:
-#                 jump _dp_bb__dp_module_init_14
-#     block _dp_bb__dp_module_init_13:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
-#         _dp_with_ok_5 = False
-#         __dp_contextmanager_exit(_dp_with_exit_4, __dp_exc_info())
-#         jump _dp_bb__dp_module_init_9__normal
-#     block _dp_bb__dp_module_init_14:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
+#                                             block _dp_bb_0_2:
+#                                                 return _dp_try_abrupt_payload_0_2
+#                                             block _dp_bb_0_3:
+#                                                 raise _dp_try_abrupt_payload_0_2
+#                                 block _dp_bb_0_5__normal:
+#                                     jump _dp_bb_0_5(Fallthrough, None)
+#     block _dp_bb_0_10:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
 #         raise
-#     block _dp_bb__dp_module_init_23__exception:
-#         exc_param: _dp_try_exc_21
-#         params: [_dp_try_exc_21:Exception]
-#         jump _dp_bb__dp_module_init_23(Exception, _dp_try_exc_21)
-#     block _dp_bb__dp_module_init_26:
-#         exc_param: _dp_try_exc_15
-#         params: [_dp_try_exc_15:Exception]
+#     block _dp_bb_0_15__exception:
+#         exc_param: _dp_try_exc_0_7
+#         params: [_dp_try_exc_0_7:Exception]
+#         jump _dp_bb_0_15(Exception, _dp_try_exc_0_7)
+#     block _dp_bb_0_18:
+#         exc_param: _dp_try_exc_0_4
+#         params: [_dp_try_exc_0_4:Exception]
 #         if_term __dp_exception_matches(__dp_current_exception(), BaseException):
 #             then:
-#                 jump _dp_bb__dp_module_init_27
+#                 jump _dp_bb_0_19
 #             else:
-#                 jump _dp_bb__dp_module_init_28
-#     block _dp_bb__dp_module_init_27:
-#         exc_param: _dp_try_exc_15
-#         params: [_dp_try_exc_15:Exception]
+#                 jump _dp_bb_0_20
+#     block _dp_bb_0_19:
+#         exc_param: _dp_try_exc_0_4
+#         params: [_dp_try_exc_0_4:Exception]
 #         _dp_with_ok_2 = False
 #         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
-#         jump _dp_bb__dp_module_init_23__normal
-#     block _dp_bb__dp_module_init_28:
-#         exc_param: _dp_try_exc_15
-#         params: [_dp_try_exc_15:Exception]
+#         jump _dp_bb_0_15__normal
+#     block _dp_bb_0_20:
+#         exc_param: _dp_try_exc_0_4
+#         params: [_dp_try_exc_0_4:Exception]
 #         raise
-#     block _dp_bb__dp_module_init_9__exception:
-#         exc_param: _dp_try_exc_7
-#         params: [_dp_try_exc_7:Exception]
-#         jump _dp_bb__dp_module_init_9(Exception, _dp_try_exc_7)
+#     block _dp_bb_0_5__exception:
+#         exc_param: _dp_try_exc_0_3
+#         params: [_dp_try_exc_0_3:Exception]
+#         jump _dp_bb_0_5(Exception, _dp_try_exc_0_3)
+#     block _dp_bb_0_8:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
+#         if_term __dp_exception_matches(__dp_current_exception(), BaseException):
+#             then:
+#                 jump _dp_bb_0_9
+#             else:
+#                 jump _dp_bb_0_10
+#     block _dp_bb_0_9:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
+#         _dp_with_ok_5 = False
+#         __dp_contextmanager_exit(_dp_with_exit_4, __dp_exc_info())
+#         jump _dp_bb_0_5__normal
 
 # async_for
 
@@ -714,27 +714,27 @@ async def run():
 
 # coroutine run():
 #     function_id: 0
-#     block _dp_bb_run_5:
-#         _dp_iter_1 = __dp_aiter(ait)
-#         jump _dp_bb_run_3
-#         block _dp_bb_run_3:
-#             _dp_tmp_2 = await __dp_anext_or_sentinel(_dp_iter_1)
-#             if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#     block _dp_bb_0_3:
+#         _dp_iter_0_0 = __dp_aiter(ait)
+#         jump _dp_bb_0_1
+#         block _dp_bb_0_1:
+#             _dp_tmp_0_1 = await __dp_anext_or_sentinel(_dp_iter_0_0)
+#             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
-#                     block _dp_bb_run_0:
+#                     block _dp_bb_0_0:
 #                         return __dp_NONE
 #                 else:
-#                     block _dp_bb_run_4:
-#                         x = _dp_tmp_2
-#                         _dp_tmp_2 = None
-#                         jump _dp_bb_run_6
-#                         block _dp_bb_run_6:
+#                     block _dp_bb_0_2:
+#                         x = _dp_tmp_0_1
+#                         _dp_tmp_0_1 = None
+#                         jump _dp_bb_0_4
+#                         block _dp_bb_0_4:
 #                             body()
-#                             jump _dp_bb_run_3
+#                             jump _dp_bb_0_1
 
 # function _dp_module_init():
 #     function_id: 1
-#     block _dp_bb__dp_module_init_8:
+#     block _dp_bb_1_1:
 #         __dp_store_global(globals(), "run", __dp_mark_coroutine_function(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)))
 #         return __dp_NONE
 
@@ -750,76 +750,76 @@ async def run():
 
 # coroutine run():
 #     function_id: 0
-#     entry_liveins: [_dp_try_exc_7, _dp_try_exc_1, _dp_try_abrupt_kind_2]
-#     block _dp_bb_run_8:
+#     entry_liveins: [_dp_try_exc_0_3, _dp_try_exc_0_0, _dp_try_abrupt_kind_0_1]
+#     block _dp_bb_0_4:
 #         _dp_with_exit_1 = __dp_asynccontextmanager_get_aexit(cm)
 #         x = await __dp_asynccontextmanager_aenter(cm)
 #         _dp_with_ok_2 = True
-#         jump _dp_bb_run_16
-#         block _dp_bb_run_16:
+#         jump _dp_bb_0_12
+#         block _dp_bb_0_12:
 #             body()
-#             jump _dp_bb_run_9__normal
-#             block _dp_bb_run_9__normal:
-#                 jump _dp_bb_run_9(Fallthrough, None)
-#                 block _dp_bb_run_9:
-#                     exc_param: _dp_try_exc_7
-#                     params: [_dp_try_abrupt_kind_2:AbruptKind, _dp_try_abrupt_payload_3:AbruptPayload, _dp_try_exc_7:Exception]
+#             jump _dp_bb_0_5__normal
+#             block _dp_bb_0_5__normal:
+#                 jump _dp_bb_0_5(Fallthrough, None)
+#                 block _dp_bb_0_5:
+#                     exc_param: _dp_try_exc_0_3
+#                     params: [_dp_try_abrupt_kind_0_1:AbruptKind, _dp_try_abrupt_payload_0_2:AbruptPayload, _dp_try_exc_0_3:Exception]
 #                     if_term _dp_with_ok_2:
 #                         then:
-#                             block _dp_bb_run_11:
-#                                 exc_param: _dp_try_exc_7
-#                                 params: [_dp_try_exc_7:Exception]
+#                             block _dp_bb_0_7:
+#                                 exc_param: _dp_try_exc_0_3
+#                                 params: [_dp_try_exc_0_3:Exception]
 #                                 await __dp_asynccontextmanager_exit(_dp_with_exit_1, None)
-#                                 jump _dp_bb_run_10
+#                                 jump _dp_bb_0_6
 #                         else:
-#                             jump _dp_bb_run_10
-#                     block _dp_bb_run_10:
-#                         exc_param: _dp_try_exc_7
-#                         params: [_dp_try_exc_7:Exception]
+#                             jump _dp_bb_0_6
+#                     block _dp_bb_0_6:
+#                         exc_param: _dp_try_exc_0_3
+#                         params: [_dp_try_exc_0_3:Exception]
 #                         _dp_with_exit_1 = None
-#                         jump _dp_bb_run_4
-#                         block _dp_bb_run_4:
-#                             branch_table _dp_try_abrupt_kind_2 -> [_dp_bb_run_0, _dp_bb_run_5, _dp_bb_run_6] default _dp_bb_run_0
-#                             block _dp_bb_run_0:
+#                         jump _dp_bb_0_1
+#                         block _dp_bb_0_1:
+#                             branch_table _dp_try_abrupt_kind_0_1 -> [_dp_bb_0_0, _dp_bb_0_2, _dp_bb_0_3] default _dp_bb_0_0
+#                             block _dp_bb_0_0:
 #                                 return __dp_NONE
-#                             block _dp_bb_run_5:
-#                                 return _dp_try_abrupt_payload_3
-#                             block _dp_bb_run_6:
-#                                 raise _dp_try_abrupt_payload_3
-#     block _dp_bb_run_12:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
+#                             block _dp_bb_0_2:
+#                                 return _dp_try_abrupt_payload_0_2
+#                             block _dp_bb_0_3:
+#                                 raise _dp_try_abrupt_payload_0_2
+#     block _dp_bb_0_10:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
+#         raise _dp_with_reraise_3
+#     block _dp_bb_0_11:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
+#         raise
+#     block _dp_bb_0_5__exception:
+#         exc_param: _dp_try_exc_0_3
+#         params: [_dp_try_exc_0_3:Exception]
+#         jump _dp_bb_0_5(Exception, _dp_try_exc_0_3)
+#     block _dp_bb_0_8:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
 #         if_term __dp_exception_matches(__dp_current_exception(), BaseException):
 #             then:
-#                 jump _dp_bb_run_13
+#                 jump _dp_bb_0_9
 #             else:
-#                 jump _dp_bb_run_15
-#     block _dp_bb_run_13:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
+#                 jump _dp_bb_0_11
+#     block _dp_bb_0_9:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
 #         _dp_with_ok_2 = False
 #         _dp_with_reraise_3 = await __dp_asynccontextmanager_exit(_dp_with_exit_1, __dp_exc_info())
 #         if_term __dp_is_not(_dp_with_reraise_3, None):
 #             then:
-#                 jump _dp_bb_run_14
+#                 jump _dp_bb_0_10
 #             else:
-#                 jump _dp_bb_run_9__normal
-#     block _dp_bb_run_14:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
-#         raise _dp_with_reraise_3
-#     block _dp_bb_run_15:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
-#         raise
-#     block _dp_bb_run_9__exception:
-#         exc_param: _dp_try_exc_7
-#         params: [_dp_try_exc_7:Exception]
-#         jump _dp_bb_run_9(Exception, _dp_try_exc_7)
+#                 jump _dp_bb_0_5__normal
 
 # function _dp_module_init():
 #     function_id: 1
-#     block _dp_bb__dp_module_init_18:
+#     block _dp_bb_1_1:
 #         __dp_store_global(globals(), "run", __dp_mark_coroutine_function(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)))
 #         return __dp_NONE
 
@@ -835,15 +835,15 @@ match value:
 
 # function _dp_module_init():
 #     function_id: 0
-#     block _dp_bb__dp_module_init_1:
+#     block _dp_bb_0_1:
 #         _dp_match_1 = value
 #         if_term __dp_eq(_dp_match_1, 1):
 #             then:
-#                 block _dp_bb__dp_module_init_2:
+#                 block _dp_bb_0_2:
 #                     one()
 #                     return __dp_NONE
 #             else:
-#                 block _dp_bb__dp_module_init_3:
+#                 block _dp_bb_0_3:
 #                     other()
 #                     return __dp_NONE
 
@@ -858,13 +858,13 @@ def gen():
 
 # generator gen():
 #     function_id: 0
-#     block _dp_bb_gen_1:
+#     block _dp_bb_0_1:
 #         yield 1
 #         return __dp_NONE
 
 # function _dp_module_init():
 #     function_id: 1
-#     block _dp_bb__dp_module_init_3:
+#     block _dp_bb_1_1:
 #         __dp_store_global(globals(), "gen", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return __dp_NONE
 
@@ -879,13 +879,13 @@ def gen():
 
 # generator gen():
 #     function_id: 0
-#     block _dp_bb_gen_1:
+#     block _dp_bb_0_1:
 #         yield from it
 #         return __dp_NONE
 
 # function _dp_module_init():
 #     function_id: 1
-#     block _dp_bb__dp_module_init_3:
+#     block _dp_bb_1_1:
 #         __dp_store_global(globals(), "gen", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return __dp_NONE
 
@@ -898,66 +898,66 @@ with Suppress():
 
 # function _dp_module_init():
 #     function_id: 0
-#     entry_liveins: [_dp_try_exc_7, _dp_try_exc_1, _dp_try_abrupt_kind_2]
-#     block _dp_bb__dp_module_init_8:
+#     entry_liveins: [_dp_try_exc_0_3, _dp_try_exc_0_0, _dp_try_abrupt_kind_0_1]
+#     block _dp_bb_0_4:
 #         _dp_tmp_4 = Suppress()
 #         _dp_with_exit_1 = __dp_contextmanager_get_exit(_dp_tmp_4)
 #         __dp_contextmanager_enter(_dp_tmp_4)
 #         _dp_with_ok_2 = True
-#         jump _dp_bb__dp_module_init_15
-#         block _dp_bb__dp_module_init_15:
+#         jump _dp_bb_0_11
+#         block _dp_bb_0_11:
 #             raise RuntimeError("boom")
-#     block _dp_bb__dp_module_init_0:
+#     block _dp_bb_0_0:
 #         return __dp_NONE
-#     block _dp_bb__dp_module_init_10:
-#         exc_param: _dp_try_exc_7
-#         params: [_dp_try_exc_7:Exception]
-#         _dp_with_exit_1 = None
-#         _dp_tmp_4 = None
-#         jump _dp_bb__dp_module_init_4
-#     block _dp_bb__dp_module_init_11:
-#         exc_param: _dp_try_exc_7
-#         params: [_dp_try_exc_7:Exception]
-#         __dp_contextmanager_exit(_dp_with_exit_1, None)
-#         jump _dp_bb__dp_module_init_10
-#     block _dp_bb__dp_module_init_12:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
-#         if_term __dp_exception_matches(__dp_current_exception(), BaseException):
-#             then:
-#                 jump _dp_bb__dp_module_init_13
-#             else:
-#                 jump _dp_bb__dp_module_init_14
-#     block _dp_bb__dp_module_init_13:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
-#         _dp_with_ok_2 = False
-#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
-#         jump _dp_bb__dp_module_init_9__normal
-#     block _dp_bb__dp_module_init_14:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
+#     block _dp_bb_0_1:
+#         branch_table _dp_try_abrupt_kind_0_1 -> [_dp_bb_0_0, _dp_bb_0_2, _dp_bb_0_3] default _dp_bb_0_0
+#     block _dp_bb_0_10:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
 #         raise
-#     block _dp_bb__dp_module_init_4:
-#         branch_table _dp_try_abrupt_kind_2 -> [_dp_bb__dp_module_init_0, _dp_bb__dp_module_init_5, _dp_bb__dp_module_init_6] default _dp_bb__dp_module_init_0
-#     block _dp_bb__dp_module_init_5:
-#         return _dp_try_abrupt_payload_3
-#     block _dp_bb__dp_module_init_6:
-#         raise _dp_try_abrupt_payload_3
-#     block _dp_bb__dp_module_init_9:
-#         exc_param: _dp_try_exc_7
-#         params: [_dp_try_abrupt_kind_2:AbruptKind, _dp_try_abrupt_payload_3:AbruptPayload, _dp_try_exc_7:Exception]
+#     block _dp_bb_0_2:
+#         return _dp_try_abrupt_payload_0_2
+#     block _dp_bb_0_3:
+#         raise _dp_try_abrupt_payload_0_2
+#     block _dp_bb_0_5:
+#         exc_param: _dp_try_exc_0_3
+#         params: [_dp_try_abrupt_kind_0_1:AbruptKind, _dp_try_abrupt_payload_0_2:AbruptPayload, _dp_try_exc_0_3:Exception]
 #         if_term _dp_with_ok_2:
 #             then:
-#                 jump _dp_bb__dp_module_init_11
+#                 jump _dp_bb_0_7
 #             else:
-#                 jump _dp_bb__dp_module_init_10
-#     block _dp_bb__dp_module_init_9__exception:
-#         exc_param: _dp_try_exc_7
-#         params: [_dp_try_exc_7:Exception]
-#         jump _dp_bb__dp_module_init_9(Exception, _dp_try_exc_7)
-#     block _dp_bb__dp_module_init_9__normal:
-#         jump _dp_bb__dp_module_init_9(Fallthrough, None)
+#                 jump _dp_bb_0_6
+#     block _dp_bb_0_5__exception:
+#         exc_param: _dp_try_exc_0_3
+#         params: [_dp_try_exc_0_3:Exception]
+#         jump _dp_bb_0_5(Exception, _dp_try_exc_0_3)
+#     block _dp_bb_0_5__normal:
+#         jump _dp_bb_0_5(Fallthrough, None)
+#     block _dp_bb_0_6:
+#         exc_param: _dp_try_exc_0_3
+#         params: [_dp_try_exc_0_3:Exception]
+#         _dp_with_exit_1 = None
+#         _dp_tmp_4 = None
+#         jump _dp_bb_0_1
+#     block _dp_bb_0_7:
+#         exc_param: _dp_try_exc_0_3
+#         params: [_dp_try_exc_0_3:Exception]
+#         __dp_contextmanager_exit(_dp_with_exit_1, None)
+#         jump _dp_bb_0_6
+#     block _dp_bb_0_8:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
+#         if_term __dp_exception_matches(__dp_current_exception(), BaseException):
+#             then:
+#                 jump _dp_bb_0_9
+#             else:
+#                 jump _dp_bb_0_10
+#     block _dp_bb_0_9:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
+#         _dp_with_ok_2 = False
+#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
+#         jump _dp_bb_0_5__normal
 
 # closure_cell_simple
 
@@ -977,12 +977,12 @@ def outer():
 #     function_id: 0
 #     entry_liveins: [_dp_cell_x]
 #     freevars: [x->_dp_cell_x@inherited]
-#     block _dp_bb_inner_1:
+#     block _dp_bb_0_1:
 #         return __dp_load_cell(_dp_cell_x)
 
 # function outer():
 #     function_id: 1
-#     block _dp_bb_outer_3:
+#     block _dp_bb_1_1:
 #         _dp_cell_x = __dp_make_cell()
 #         __dp_store_cell(_dp_cell_x, 5)
 #         inner = __dp_make_function(0, __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_globals(), None)
@@ -990,7 +990,7 @@ def outer():
 
 # function _dp_module_init():
 #     function_id: 2
-#     block _dp_bb__dp_module_init_5:
+#     block _dp_bb_2_1:
 #         __dp_store_global(globals(), "outer", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return __dp_NONE
 
@@ -1009,19 +1009,19 @@ def choose(a, b):
 
 # function choose(a, b):
 #     function_id: 0
-#     block _dp_bb_choose_1:
+#     block _dp_bb_0_1:
 #         total = a + b
 #         if_term __dp_gt(total, 5):
 #             then:
-#                 block _dp_bb_choose_2:
+#                 block _dp_bb_0_2:
 #                     return a
 #             else:
-#                 block _dp_bb_choose_3:
+#                 block _dp_bb_0_3:
 #                     return b
 
 # function _dp_module_init():
 #     function_id: 1
-#     block _dp_bb__dp_module_init_5:
+#     block _dp_bb_1_1:
 #         __dp_store_global(globals(), "choose", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return __dp_NONE
 
@@ -1045,13 +1045,13 @@ def outer():
 #     function_id: 0
 #     entry_liveins: [_dp_cell_x]
 #     freevars: [x->_dp_cell_x@inherited]
-#     block _dp_bb_inner_1:
+#     block _dp_bb_0_1:
 #         __dp_store_cell(_dp_cell_x, 2)
 #         return __dp_load_cell(_dp_cell_x)
 
 # function outer():
 #     function_id: 1
-#     block _dp_bb_outer_3:
+#     block _dp_bb_1_1:
 #         _dp_cell_x = __dp_make_cell()
 #         __dp_store_cell(_dp_cell_x, 5)
 #         inner = __dp_make_function(0, __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_globals(), None)
@@ -1059,7 +1059,7 @@ def outer():
 
 # function _dp_module_init():
 #     function_id: 2
-#     block _dp_bb__dp_module_init_5:
+#     block _dp_bb_2_1:
 #         __dp_store_global(globals(), "outer", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return __dp_NONE
 
@@ -1074,28 +1074,28 @@ except Exception:
 
 # function _dp_module_init():
 #     function_id: 0
-#     entry_liveins: [_dp_try_exc_1]
-#     block _dp_bb__dp_module_init_2:
-#         jump _dp_bb__dp_module_init_6
-#         block _dp_bb__dp_module_init_6:
+#     entry_liveins: [_dp_try_exc_0_0]
+#     block _dp_bb_0_1:
+#         jump _dp_bb_0_5
+#         block _dp_bb_0_5:
 #             print(1)
 #             return __dp_NONE
-#     block _dp_bb__dp_module_init_3:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
+#     block _dp_bb_0_2:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
 #         if_term __dp_exception_matches(__dp_current_exception(), Exception):
 #             then:
-#                 jump _dp_bb__dp_module_init_4
+#                 jump _dp_bb_0_3
 #             else:
-#                 jump _dp_bb__dp_module_init_5
-#     block _dp_bb__dp_module_init_4:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
+#                 jump _dp_bb_0_4
+#     block _dp_bb_0_3:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
 #         print(2)
 #         return __dp_NONE
-#     block _dp_bb__dp_module_init_5:
-#         exc_param: _dp_try_exc_1
-#         params: [_dp_try_exc_1:Exception]
+#     block _dp_bb_0_4:
+#         exc_param: _dp_try_exc_0_0
+#         params: [_dp_try_exc_0_0:Exception]
 #         raise
 
 # complicated generator
@@ -1116,48 +1116,48 @@ def complicated(a):
 
 # generator complicated(a):
 #     function_id: 0
-#     entry_liveins: [a, _dp_try_exc_7]
-#     block _dp_bb_complicated_5:
-#         _dp_iter_1 = __dp_iter(a)
-#         jump _dp_bb_complicated_3
-#         block _dp_bb_complicated_3:
-#             _dp_tmp_2 = __dp_next_or_sentinel(_dp_iter_1)
-#             if_term __dp_is_(_dp_tmp_2, __dp__.ITER_COMPLETE):
+#     entry_liveins: [a, _dp_try_exc_0_2]
+#     block _dp_bb_0_3:
+#         _dp_iter_0_0 = __dp_iter(a)
+#         jump _dp_bb_0_1
+#         block _dp_bb_0_1:
+#             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
+#             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
-#                     block _dp_bb_complicated_6:
+#                     block _dp_bb_0_4:
 #                         print("finsihed")
 #                         return __dp_NONE
 #                 else:
-#                     block _dp_bb_complicated_4:
-#                         i = _dp_tmp_2
-#                         _dp_tmp_2 = None
-#                         jump _dp_bb_complicated_8
-#                         block _dp_bb_complicated_8:
-#                             jump _dp_bb_complicated_12
-#                             block _dp_bb_complicated_12:
+#                     block _dp_bb_0_2:
+#                         i = _dp_tmp_0_1
+#                         _dp_tmp_0_1 = None
+#                         jump _dp_bb_0_5
+#                         block _dp_bb_0_5:
+#                             jump _dp_bb_0_9
+#                             block _dp_bb_0_9:
 #                                 j = i + 1
 #                                 yield j
-#                                 jump _dp_bb_complicated_3
-#     block _dp_bb_complicated_10:
-#         exc_param: _dp_try_exc_7
-#         params: [_dp_try_exc_7:Exception]
-#         print("oops")
-#         jump _dp_bb_complicated_3
-#     block _dp_bb_complicated_11:
-#         exc_param: _dp_try_exc_7
-#         params: [_dp_try_exc_7:Exception]
-#         raise
-#     block _dp_bb_complicated_9:
-#         exc_param: _dp_try_exc_7
-#         params: [_dp_try_exc_7:Exception]
+#                                 jump _dp_bb_0_1
+#     block _dp_bb_0_6:
+#         exc_param: _dp_try_exc_0_2
+#         params: [_dp_try_exc_0_2:Exception]
 #         if_term __dp_exception_matches(__dp_current_exception(), Exception):
 #             then:
-#                 jump _dp_bb_complicated_10
+#                 jump _dp_bb_0_7
 #             else:
-#                 jump _dp_bb_complicated_11
+#                 jump _dp_bb_0_8
+#     block _dp_bb_0_7:
+#         exc_param: _dp_try_exc_0_2
+#         params: [_dp_try_exc_0_2:Exception]
+#         print("oops")
+#         jump _dp_bb_0_1
+#     block _dp_bb_0_8:
+#         exc_param: _dp_try_exc_0_2
+#         params: [_dp_try_exc_0_2:Exception]
+#         raise
 
 # function _dp_module_init():
 #     function_id: 1
-#     block _dp_bb__dp_module_init_14:
+#     block _dp_bb_1_1:
 #         __dp_store_global(globals(), "complicated", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return __dp_NONE

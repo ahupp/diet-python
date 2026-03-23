@@ -149,14 +149,13 @@ finally:
 }
 
 pub(crate) fn lower_with_stmt_sequence<F>(
-    fn_name: &str,
     with_stmt: ast::StmtWith,
     remaining_stmts: &[Stmt],
     cont_label: String,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
     _cell_slots: &HashSet<String>,
-    next_block_id: &Cell<usize>,
+    name_gen: &NameGen,
     _needs_finally_return_flow: bool,
     active_exc_target: Option<String>,
     lower_sequence: &mut F,
@@ -168,10 +167,7 @@ where
         let jump_label = if linear.is_empty() {
             None
         } else {
-            let mut next_id = next_block_id.get();
-            let label = compat_next_label(fn_name, &mut next_id);
-            next_block_id.set(next_id);
-            Some(label)
+            Some(name_gen.next_block_name().to_string())
         };
         return lower_expanded_stmt_sequence(
             {
@@ -191,10 +187,7 @@ where
     let jump_label = if linear.is_empty() {
         None
     } else {
-        let mut next_id = next_block_id.get();
-        let label = compat_next_label(fn_name, &mut next_id);
-        next_block_id.set(next_id);
-        Some(label)
+        Some(name_gen.next_block_name().to_string())
     };
     lower_expanded_stmt_sequence(
         desugar_structured_with_stmt_for_blockpy(with_stmt),

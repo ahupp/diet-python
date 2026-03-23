@@ -27,8 +27,8 @@ use crate::passes::RuffBlockPyPass;
 use crate::ruff_ast_to_string;
 use crate::template::is_simple;
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::{self as ast, Expr, Stmt};
-use std::cell::Cell;
+use ruff_python_ast::{self as ast, name::Name, Expr, Stmt};
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 mod compat;
 mod deleted_name_loads;
@@ -43,10 +43,10 @@ pub(crate) use super::blockpy_generators::build_blockpy_closure_layout;
 pub(crate) use module_plan::rewrite_ast_to_lowered_blockpy_module_plan_with_module;
 
 pub(crate) use compat::{
-    compat_block_from_blockpy, compat_block_from_blockpy_with_exc_target, compat_next_label,
-    compat_next_temp, emit_for_loop_blocks, emit_if_branch_block_with_expr_setup,
-    emit_sequence_jump_block, emit_sequence_raise_block_with_expr_setup,
-    emit_sequence_return_block_with_expr_setup, emit_simple_while_blocks_with_expr_setup,
+    compat_block_from_blockpy, compat_block_from_blockpy_with_exc_target, emit_for_loop_blocks,
+    emit_if_branch_block_with_expr_setup, emit_sequence_jump_block,
+    emit_sequence_raise_block_with_expr_setup, emit_sequence_return_block_with_expr_setup,
+    emit_simple_while_blocks_with_expr_setup,
 };
 #[cfg(test)]
 use stmt_lowering::lower_stmt_into;
@@ -120,6 +120,53 @@ pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId 
     let id = FunctionId(*next_function_id);
     *next_function_id += 1;
     id
+}
+
+pub(crate) struct NameGen {
+    function_id: FunctionId,
+    next_block_id: Cell<usize>,
+    next_tmp_id: Cell<usize>,
+    reserved_tmp_names: RefCell<HashSet<String>>,
+}
+
+impl NameGen {
+    pub(crate) fn new(function_id: FunctionId, reserved_tmp_names: HashSet<String>) -> Self {
+        Self {
+            function_id,
+            next_block_id: Cell::new(0),
+            next_tmp_id: Cell::new(0),
+            reserved_tmp_names: RefCell::new(reserved_tmp_names),
+        }
+    }
+
+    pub(crate) fn function_id(&self) -> FunctionId {
+        self.function_id
+    }
+
+    pub(crate) fn reserve_names<I>(&self, names: I)
+    where
+        I: IntoIterator<Item = String>,
+    {
+        self.reserved_tmp_names.borrow_mut().extend(names);
+    }
+
+    pub(crate) fn next_block_name(&self) -> BlockPyLabel {
+        let current = self.next_block_id.get();
+        self.next_block_id.set(current + 1);
+        BlockPyLabel(format!("_dp_bb_{}_{}", self.function_id.0, current))
+    }
+
+    pub(crate) fn next_tmp_name(&self, prefix: &str) -> Name {
+        loop {
+            let current = self.next_tmp_id.get();
+            self.next_tmp_id.set(current + 1);
+            let candidate = format!("_dp_{prefix}_{}_{}", self.function_id.0, current);
+            let mut reserved_names = self.reserved_tmp_names.borrow_mut();
+            if reserved_names.insert(candidate.clone()) {
+                return Name::new(candidate);
+            }
+        }
+    }
 }
 
 pub(crate) fn lowered_exception_edges<S, T>(
@@ -270,9 +317,9 @@ fn build_semantic_blockpy_closure_layout(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn build_blockpy_callable_def_from_runtime_input<FTemp>(
+pub(crate) fn build_blockpy_callable_def_from_runtime_input(
     context: &Context,
-    function_id: FunctionId,
+    name_gen: &NameGen,
     names: FunctionName,
     params: ParamSpec,
     runtime_input_body: &[Stmt],
@@ -280,16 +327,10 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input<FTemp>(
     end_label: String,
     blockpy_kind: BlockPyFunctionKind,
     facts: &BlockPyCallableFacts,
-    next_block_id: &mut usize,
-    next_temp: &mut FTemp,
-) -> BlockPyFunction<RuffBlockPyPass>
-where
-    FTemp: FnMut(&str, &mut usize) -> String,
-{
+) -> BlockPyFunction<RuffBlockPyPass> {
     let mut blocks = Vec::new();
     let entry_label = lower_stmt_sequence_with_state(
         context,
-        names.fn_name.as_str(),
         runtime_input_body,
         end_label.clone(),
         None,
@@ -297,15 +338,14 @@ where
         &mut blocks,
         &facts.cell_slots,
         &facts.outer_scope_names,
-        next_block_id,
-        next_temp,
+        name_gen,
     );
     move_entry_block_to_front(&mut blocks, entry_label.as_str());
     for block in &blocks {
         assert_blockpy_block_normalized(block);
     }
     let mut callable_def = BlockPyFunction {
-        function_id,
+        function_id: name_gen.function_id(),
         names,
         kind: blockpy_kind,
         params,
@@ -357,7 +397,7 @@ mod tests {
     use super::*;
     use crate::block_py::{
         BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
-        BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
+        BlockPyStmt, BlockPyTerm, CoreBlockPyExpr, FunctionId,
     };
     use crate::passes::ast_to_ast::{context::Context, Options};
     use crate::passes::ruff_to_blockpy::stmt_sequences::{
@@ -746,18 +786,17 @@ def f(ctx, value):
         };
 
         let mut blocks = Vec::new();
-        let next_block_id = Cell::new(0usize);
+        let name_gen = NameGen::new(FunctionId(0), HashSet::new());
         let mut saw_try_stmt = false;
         let mut saw_with_ok_assign = false;
         let entry = lower_with_stmt_sequence(
-            "demo",
             with_stmt.clone(),
             &[],
             "cont".to_string(),
             Vec::new(),
             &mut blocks,
             &HashSet::new(),
-            &next_block_id,
+            &name_gen,
             false,
             None,
             &mut |_expanded: &[Stmt],
@@ -808,8 +847,8 @@ def f():
         };
 
         let mut blocks = Vec::new();
-        let mut next_label_id = 0usize;
-        let try_plan = build_try_plan("demo", false, false, &mut next_label_id);
+        let name_gen = NameGen::new(FunctionId(0), HashSet::new());
+        let try_plan = build_try_plan(&name_gen, false, false);
         let entry = lower_try_stmt_sequence(
             try_stmt.clone(),
             &[],
