@@ -100,7 +100,7 @@ pub(crate) fn rewrite_module_with_tracker(
             0..0,
             rewrite_future_annotations::invalid_future_feature_syntax_error_stmts(&future_imports),
         );
-        semantic_state = Some(current_semantic_state);
+        semantic_state = Some(rewrite_semantic_state.clone());
         function_identity_state = Some(rewrite_semantic_state);
         module
     });
