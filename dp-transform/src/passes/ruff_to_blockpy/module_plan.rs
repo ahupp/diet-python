@@ -52,12 +52,6 @@ struct BlockPyModuleRewriter<'a> {
 }
 
 #[derive(Clone, Copy)]
-struct LoweredFunctionBindingPlan {
-    target: BindingTarget,
-    needs_cell_sync: bool,
-}
-
-#[derive(Clone, Copy)]
 enum LoweredFunctionInstantiationKind {
     DirectFunction,
     MarkCoroutineFunction,
@@ -762,19 +756,20 @@ fn resolve_function_binding_target(
 fn build_lowered_function_binding_stmt(
     bind_name: &str,
     value: Expr,
-    binding_plan: LoweredFunctionBindingPlan,
+    target: BindingTarget,
+    needs_cell_sync: bool,
 ) -> Vec<Stmt> {
-    match binding_plan.target {
+    match target {
         BindingTarget::Local => {
             let assign_stmt = py_stmt!("{name:id} = {value:expr}", name = bind_name, value = value);
-            if binding_plan.needs_cell_sync {
+            if needs_cell_sync {
                 vec![assign_stmt, build_cell_sync_stmt(bind_name)]
             } else {
                 vec![assign_stmt]
             }
         }
         BindingTarget::ModuleGlobal | BindingTarget::ClassNamespace => {
-            vec![build_binding_stmt(binding_plan.target, bind_name, value)]
+            vec![build_binding_stmt(target, bind_name, value)]
         }
     }
 }
@@ -824,14 +819,11 @@ fn rewrite_function_def_stmt_via_blockpy(
     };
     let identity =
         resolve_runtime_function_identity(func, function_identity_by_node, current_parent);
-    let binding_plan = LoweredFunctionBindingPlan {
-        target: resolve_function_binding_target(
-            identity.binding_target,
-            identity.bind_name.as_str(),
-            identity.qualname.as_str(),
-        ),
-        needs_cell_sync,
-    };
+    let binding_target = resolve_function_binding_target(
+        identity.binding_target,
+        identity.bind_name.as_str(),
+        identity.qualname.as_str(),
+    );
     let bind_name = identity.bind_name.as_str();
     let annotate_helper = build_lowered_annotation_helper_binding(func, bind_name);
     let annotate_fn_expr = annotate_helper
@@ -847,7 +839,8 @@ fn rewrite_function_def_stmt_via_blockpy(
         annotate_fn_expr,
         instantiation_kind,
     );
-    let mut binding_stmt = build_lowered_function_binding_stmt(bind_name, decorated, binding_plan);
+    let mut binding_stmt =
+        build_lowered_function_binding_stmt(bind_name, decorated, binding_target, needs_cell_sync);
     if let Some((helper_stmt, _)) = annotate_helper {
         binding_stmt.insert(0, helper_stmt);
     }
