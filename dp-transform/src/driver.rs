@@ -65,19 +65,22 @@ pub(crate) fn rewrite_module_with_tracker(
             suite_mut(&mut module),
         );
 
-        let scope = analyze_module_scope(suite_mut(&mut module));
-        let mut current_semantic_state = SemanticAstState::new(scope.clone());
+        let mut current_semantic_state =
+            SemanticAstState::new(analyze_module_scope(suite_mut(&mut module)));
 
         // Replace global / nonlocal and class-body scoping with explicit loads/stores.
         //  - globals: __dp__.load/store_global(globals(), name)
         //  - nonlocal: create a cell in the outermost scope, and access with __dp__.load/store_cell(cell, value)
         //  - class-body: class_body_load_cell/global(_dp_class_ns, name, cell / globals()) captures "try class, then outer"
-        rewrite_names::rewrite_explicit_bindings(context, scope.clone(), suite_mut(&mut module));
+        rewrite_names::rewrite_explicit_bindings(
+            context,
+            &current_semantic_state,
+            suite_mut(&mut module),
+        );
 
         rewrite_class_def::class_body::rewrite_class_body_scopes(
             context,
-            scope,
-            current_semantic_state.provenance_mut(),
+            &mut current_semantic_state,
             suite_mut(&mut module),
         );
         suite_mut(&mut module).splice(

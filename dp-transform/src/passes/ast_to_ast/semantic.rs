@@ -46,8 +46,13 @@ impl SemanticAstState {
         self.module_scope.clone()
     }
 
-    pub(crate) fn provenance_mut(&mut self) -> &mut SemanticProvenance {
-        &mut self.provenance
+    pub(crate) fn register_function_scope_override(
+        &mut self,
+        func_def: &StmtFunctionDef,
+        scope: Arc<Scope>,
+    ) {
+        self.provenance
+            .register_function_scope_override(&self.module_scope.tree, func_def, scope);
     }
 
     pub(crate) fn function_scope(&self, func_def: &StmtFunctionDef) -> Option<Arc<Scope>> {

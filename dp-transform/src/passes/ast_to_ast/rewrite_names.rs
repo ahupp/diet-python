@@ -6,6 +6,7 @@ use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 use super::{
     body::{suite_mut, take_suite, Suite},
     context::Context,
+    semantic::SemanticAstState,
 };
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{
@@ -23,8 +24,12 @@ use crate::{
     py_expr, py_stmt,
 };
 
-pub fn rewrite_explicit_bindings(context: &Context, scope: Arc<Scope>, body: &mut Suite) {
-    let mut rewriter = NameScopeRewriter::new(context, scope);
+pub fn rewrite_explicit_bindings(
+    context: &Context,
+    semantic_state: &SemanticAstState,
+    body: &mut Suite,
+) {
+    let mut rewriter = NameScopeRewriter::new(context, semantic_state.module_scope());
     rewriter.visit_body(body);
 }
 
@@ -803,6 +808,7 @@ mod tests {
     use super::rewrite_explicit_bindings;
     use crate::passes::ast_to_ast::context::Context;
     use crate::passes::ast_to_ast::scope::analyze_module_scope;
+    use crate::passes::ast_to_ast::semantic::SemanticAstState;
     use crate::passes::ast_to_ast::Options;
     use ruff_python_parser::parse_module;
 
@@ -816,8 +822,8 @@ mod tests {
         );
         let context = Context::new(Options::for_test(), source);
         let mut module = parse_module(source).unwrap().into_syntax().body;
-        let scope = analyze_module_scope(&mut module);
-        rewrite_explicit_bindings(&context, scope, &mut module);
+        let semantic_state = SemanticAstState::new(analyze_module_scope(&mut module));
+        rewrite_explicit_bindings(&context, &semantic_state, &mut module);
         let rendered = module
             .iter()
             .map(crate::ruff_ast_to_string)
@@ -842,8 +848,8 @@ mod tests {
         );
         let context = Context::new(Options::for_test(), source);
         let mut module = parse_module(source).unwrap().into_syntax().body;
-        let scope = analyze_module_scope(&mut module);
-        rewrite_explicit_bindings(&context, scope, &mut module);
+        let semantic_state = SemanticAstState::new(analyze_module_scope(&mut module));
+        rewrite_explicit_bindings(&context, &semantic_state, &mut module);
         let rendered = module
             .iter()
             .map(crate::ruff_ast_to_string)

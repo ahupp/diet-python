@@ -8,7 +8,7 @@ use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def::{class_def_to_create_class_fn, method};
 use crate::passes::ast_to_ast::rewrite_stmt;
 use crate::passes::ast_to_ast::scope::{cell_name, BindingKind, BindingUse, Scope, ScopeKind};
-use crate::passes::ast_to_ast::semantic::SemanticProvenance;
+use crate::passes::ast_to_ast::semantic::SemanticAstState;
 use crate::transformer::{walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 
@@ -45,11 +45,11 @@ pub(crate) fn class_body_store_global(name: &str, ctx: ExprContext) -> Expr {
 
 pub fn rewrite_class_body_scopes(
     context: &Context,
-    scope: Arc<Scope>,
-    provenance: &mut SemanticProvenance,
+    semantic_state: &mut SemanticAstState,
     body: &mut Suite,
 ) {
-    ClassBodyScopeRewriter::new(context, scope, provenance).visit_body(body);
+    let scope = semantic_state.module_scope();
+    ClassBodyScopeRewriter::new(context, scope, semantic_state).visit_body(body);
 }
 
 fn class_binding_stmt(scope: &Scope, name: &str, value: Expr) -> Stmt {
@@ -94,7 +94,7 @@ fn class_binding_stmt(scope: &Scope, name: &str, value: Expr) -> Stmt {
 struct ClassBodyScopeRewriter<'a> {
     context: &'a Context,
     scope: Arc<Scope>,
-    provenance: &'a mut SemanticProvenance,
+    semantic_state: &'a mut SemanticAstState,
     hoisted_class_defs: Vec<Stmt>,
 }
 
@@ -102,12 +102,12 @@ impl<'a> ClassBodyScopeRewriter<'a> {
     fn new(
         context: &'a Context,
         scope: Arc<Scope>,
-        provenance: &'a mut SemanticProvenance,
+        semantic_state: &'a mut SemanticAstState,
     ) -> Self {
         Self {
             context,
             scope,
-            provenance,
+            semantic_state,
             hoisted_class_defs: Vec::new(),
         }
     }
@@ -133,7 +133,7 @@ impl<'a> Transformer for ClassBodyScopeRewriter<'a> {
                     .scope
                     .child_scope_for_function(func_def)
                     .expect("no child scope for function");
-                ClassBodyScopeRewriter::new(self.context, func_scope, self.provenance)
+                ClassBodyScopeRewriter::new(self.context, func_scope, self.semantic_state)
                     .visit_body(suite_mut(&mut func_def.body));
             }
             _ => walk_stmt(self, stmt),
@@ -158,7 +158,7 @@ impl<'a> ClassBodyScopeRewriter<'a> {
             .expect("no child scope for class");
 
         let mut class_rewriter =
-            ClassBodyScopeRewriter::new(self.context, class_scope.clone(), self.provenance);
+            ClassBodyScopeRewriter::new(self.context, class_scope.clone(), self.semantic_state);
         class_rewriter.visit_body(suite_mut(&mut class_def.body));
         let mut hoisted = class_rewriter.take_hoisted();
 
@@ -168,16 +168,10 @@ impl<'a> ClassBodyScopeRewriter<'a> {
             class_scope.qualnamer.qualname.clone(),
             needs_class_cell,
         );
-        self.provenance.register_function_scope_override(
-            &self.scope.tree,
-            &class_ns_def,
-            class_scope.clone(),
-        );
-        self.provenance.register_function_scope_override(
-            &self.scope.tree,
-            &define_class_fn,
-            self.scope.clone(),
-        );
+        self.semantic_state
+            .register_function_scope_override(&class_ns_def, class_scope.clone());
+        self.semantic_state
+            .register_function_scope_override(&define_class_fn, self.scope.clone());
 
         hoisted.push(class_ns_def.clone().into());
 
