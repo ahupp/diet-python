@@ -295,7 +295,7 @@ fn try_lower_function_to_blockpy_bundle(
         cell_slots,
     };
 
-    let end_label = name_gen.next_block_name().to_string();
+    let end_label = name_gen.next_block_name();
     let identity = resolve_runtime_function_identity(func, function_identity_by_node, parent_name);
     let doc = function_docstring_text(func);
     let fn_name = func.name.id.to_string();

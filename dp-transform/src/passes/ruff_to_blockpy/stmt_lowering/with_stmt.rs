@@ -166,7 +166,7 @@ where
         let jump_label = if linear.is_empty() {
             None
         } else {
-            Some(name_gen.next_block_name().to_string())
+            Some(name_gen.next_block_name())
         };
         return lower_expanded_stmt_sequence(
             {
@@ -185,7 +185,7 @@ where
     let jump_label = if linear.is_empty() {
         None
     } else {
-        Some(name_gen.next_block_name().to_string())
+        Some(name_gen.next_block_name())
     };
     lower_expanded_stmt_sequence(
         desugar_structured_with_stmt_for_blockpy(with_stmt),

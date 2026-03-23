@@ -212,7 +212,7 @@ pub(crate) fn lower_star_try_stmt_sequence<F>(
     targets: RegionTargets,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
-    jump_label: Option<String>,
+    jump_label: Option<BlockPyLabel>,
     lower_sequence: &mut F,
 ) -> String
 where
@@ -239,7 +239,7 @@ pub(crate) fn lower_try_stmt_sequence<F>(
     targets: RegionTargets,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
-    label: String,
+    label: BlockPyLabel,
     try_plan: TryPlan,
     lower_sequence: &mut F,
 ) -> String

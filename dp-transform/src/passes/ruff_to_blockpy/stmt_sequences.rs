@@ -130,7 +130,7 @@ pub(crate) fn lower_common_stmt_sequence_head<FSeq>(
     targets: RegionTargets,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
-    next_label: &mut dyn FnMut() -> String,
+    next_label: &mut dyn FnMut() -> BlockPyLabel,
     lower_sequence: &mut FSeq,
 ) -> Option<String>
 where
@@ -226,16 +226,16 @@ pub(crate) fn lower_for_stmt_sequence_head<F>(
     blocks: &mut Vec<BlockPyBlock>,
     iter_name: &str,
     tmp_name: &str,
-    loop_check_label: String,
-    loop_continue_label: String,
+    loop_check_label: BlockPyLabel,
+    loop_continue_label: BlockPyLabel,
     assign_body: Vec<Stmt>,
     lower_region: &mut F,
 ) -> String
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
 {
-    let assign_label = name_gen.next_block_name().to_string();
-    let setup_label = name_gen.next_block_name().to_string();
+    let assign_label = name_gen.next_block_name();
+    let setup_label = name_gen.next_block_name();
     lower_for_stmt_sequence(
         for_stmt,
         remaining_stmts,
@@ -278,7 +278,7 @@ pub(crate) fn lower_stmt_sequence_with_state(
             outer_scope_names,
         ) {
             StmtSequenceDriveResult::Exhausted { linear } => {
-                let label = name_gen.next_block_name().to_string();
+                let label = name_gen.next_block_name();
                 return emit_sequence_jump_block(
                     blocks,
                     label,
@@ -308,7 +308,7 @@ pub(crate) fn lower_stmt_sequence_with_state(
                     targets.clone(),
                     linear,
                     blocks,
-                    &mut || name_gen.next_block_name().to_string(),
+                    &mut || name_gen.next_block_name(),
                     &mut |stmts, nested_targets, blocks| {
                         let label = lower_stmt_sequence_with_state(
                             context,
@@ -358,7 +358,7 @@ pub(crate) fn lower_stmt_sequence_with_state(
                 let iter_name = name_gen.next_tmp_name("iter");
                 let tmp_name = name_gen.next_tmp_name("tmp");
                 let tmp_expr = py_expr!("{name:id}", name = tmp_name.as_str());
-                let loop_check_label = name_gen.next_block_name().to_string();
+                let loop_check_label = name_gen.next_block_name();
                 let loop_continue_label = loop_check_label.clone();
                 let assign_body = build_for_target_assign_body(
                     for_stmt.target.as_ref(),
@@ -396,8 +396,7 @@ pub(crate) fn lower_stmt_sequence_with_state(
             }
             StmtSequenceHeadPlan::Try(try_stmt) => {
                 let label = if try_stmt.is_star {
-                    let jump_label =
-                        (!linear.is_empty()).then(|| name_gen.next_block_name().to_string());
+                    let jump_label = (!linear.is_empty()).then(|| name_gen.next_block_name());
                     lower_star_try_stmt_sequence(
                         try_stmt,
                         &stmts[index + 1..],
@@ -425,7 +424,7 @@ pub(crate) fn lower_stmt_sequence_with_state(
                             || contains_return_stmt_in_handlers(&try_stmt.handlers)
                             || contains_return_stmt_in_body(suite_ref(&try_stmt.orelse)));
                     let try_plan = build_try_plan(name_gen, has_finally, needs_finally_return_flow);
-                    let label = name_gen.next_block_name().to_string();
+                    let label = name_gen.next_block_name();
                     let entry = lower_try_stmt_sequence(
                         try_stmt,
                         &stmts[index + 1..],
@@ -457,8 +456,7 @@ pub(crate) fn lower_stmt_sequence_with_state(
                 unreachable!("sequence driver should consume linear/functiondef/delete heads")
             }
             StmtSequenceHeadPlan::Expanded(expanded_stmts) => {
-                let jump_label =
-                    (!linear.is_empty()).then(|| name_gen.next_block_name().to_string());
+                let jump_label = (!linear.is_empty()).then(|| name_gen.next_block_name());
                 return lower_expanded_stmt_sequence(
                     expanded_stmts,
                     &stmts[index + 1..],
@@ -483,7 +481,7 @@ pub(crate) fn lower_stmt_sequence_with_state(
         }
     }
 
-    let label = name_gen.next_block_name().to_string();
+    let label = name_gen.next_block_name();
     emit_sequence_jump_block(
         blocks,
         label,
@@ -499,7 +497,7 @@ pub(crate) fn lower_expanded_stmt_sequence<F>(
     targets: RegionTargets,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
-    jump_label: Option<String>,
+    jump_label: Option<BlockPyLabel>,
     lower_sequence: &mut F,
 ) -> String
 where
@@ -523,13 +521,13 @@ where
             .as_ref()
             .map(|target| BlockPyEdge::new(BlockPyLabel::from(target.clone())));
     }
-    jump_label
+    jump_label.to_string()
 }
 
 pub(crate) fn lower_if_stmt_sequence<F>(
     context: &Context,
     blocks: &mut Vec<BlockPyBlock>,
-    label: String,
+    label: BlockPyLabel,
     linear: Vec<Stmt>,
     test: Expr,
     then_body: &[Stmt],
@@ -579,7 +577,7 @@ pub(crate) fn lower_if_stmt_sequence_from_stmt<F>(
     targets: RegionTargets,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
-    label: String,
+    label: BlockPyLabel,
     lower_region: &mut F,
 ) -> String
 where
@@ -616,8 +614,8 @@ fn extract_if_else_body(if_stmt: &ast::StmtIf) -> Vec<Stmt> {
 pub(crate) fn lower_while_stmt_sequence<F>(
     context: &Context,
     blocks: &mut Vec<BlockPyBlock>,
-    test_label: String,
-    linear_label: Option<String>,
+    test_label: BlockPyLabel,
+    linear_label: Option<BlockPyLabel>,
     linear: Vec<Stmt>,
     test: Expr,
     body: &[Stmt],
@@ -638,10 +636,10 @@ where
     let body_entry = lower_region(
         body,
         targets.nested_with_loop(
-            test_label.clone(),
+            test_label.to_string(),
             Some(LoopLabels {
                 break_label: rest_entry,
-                continue_label: test_label.clone(),
+                continue_label: test_label.to_string(),
             }),
         ),
         blocks,
@@ -667,8 +665,8 @@ pub(crate) fn lower_while_stmt_sequence_from_stmt<F>(
     targets: RegionTargets,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
-    test_label: String,
-    linear_label: Option<String>,
+    test_label: BlockPyLabel,
+    linear_label: Option<BlockPyLabel>,
     lower_region: &mut F,
 ) -> String
 where
@@ -712,7 +710,7 @@ where
 
 pub(crate) fn lower_for_stmt_body_entry<F>(
     blocks: &mut Vec<BlockPyBlock>,
-    loop_continue_label: String,
+    loop_continue_label: BlockPyLabel,
     body: &[Stmt],
     break_label: String,
     targets: &RegionTargets,
@@ -724,10 +722,10 @@ where
     let body_entry = lower_region(
         body,
         targets.nested_with_loop(
-            loop_continue_label.clone(),
+            loop_continue_label.to_string(),
             Some(LoopLabels {
                 break_label,
-                continue_label: loop_continue_label,
+                continue_label: loop_continue_label.to_string(),
             }),
         ),
         blocks,
@@ -744,10 +742,10 @@ pub(crate) fn lower_for_stmt_sequence<F>(
     blocks: &mut Vec<BlockPyBlock>,
     iter_name: &str,
     tmp_name: &str,
-    loop_check_label: String,
-    loop_continue_label: String,
-    assign_label: String,
-    setup_label: String,
+    loop_check_label: BlockPyLabel,
+    loop_continue_label: BlockPyLabel,
+    assign_label: BlockPyLabel,
+    setup_label: BlockPyLabel,
     assign_body: Vec<Stmt>,
     lower_region: &mut F,
 ) -> String

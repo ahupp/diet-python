@@ -22,7 +22,7 @@ fn with_exc_meta(
 }
 
 pub(crate) fn compat_block_from_blockpy(
-    label: String,
+    label: BlockPyLabel,
     body: Vec<Stmt>,
     term: BlockPyTerm,
 ) -> LoweredBlockPyBlock {
@@ -30,7 +30,7 @@ pub(crate) fn compat_block_from_blockpy(
 }
 
 pub(crate) fn compat_block_from_blockpy_with_exc_target(
-    label: String,
+    label: BlockPyLabel,
     body: Vec<Stmt>,
     term: BlockPyTerm,
     exc_target: Option<&str>,
@@ -42,15 +42,14 @@ pub(crate) fn compat_block_from_blockpy_with_exc_target(
         body.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block =
-        BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(BlockPyLabel::from(label));
+    let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(label);
     block.extend(body.body);
     block.set_term(term);
     with_exc_meta(block.finish(None), exc_target)
 }
 
 pub(crate) fn compat_if_jump_block(
-    label: String,
+    label: BlockPyLabel,
     body: Vec<Stmt>,
     test: Expr,
     then_label: String,
@@ -81,7 +80,7 @@ fn compat_block_builder_with_expr_setup(
 
 pub(crate) fn compat_if_jump_block_with_expr_setup(
     context: &Context,
-    label: String,
+    label: BlockPyLabel,
     body: Vec<Stmt>,
     test: Expr,
     then_label: String,
@@ -94,7 +93,7 @@ pub(crate) fn compat_if_jump_block_with_expr_setup(
 
 pub(crate) fn compat_if_jump_block_with_expr_setup_and_exc_target(
     context: &Context,
-    label: String,
+    label: BlockPyLabel,
     body: Vec<Stmt>,
     test: Expr,
     then_label: String,
@@ -114,8 +113,7 @@ pub(crate) fn compat_if_jump_block_with_expr_setup_and_exc_target(
         fragment.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block =
-        BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(BlockPyLabel::from(label));
+    let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(label);
     block.extend(fragment.body);
     block.set_term(BlockPyTerm::IfTerm(BlockPyIfTerm {
         test,
@@ -126,7 +124,7 @@ pub(crate) fn compat_if_jump_block_with_expr_setup_and_exc_target(
 }
 
 pub(crate) fn compat_jump_block_from_blockpy(
-    label: String,
+    label: BlockPyLabel,
     body: Vec<Stmt>,
     target_label: String,
 ) -> LoweredBlockPyBlock {
@@ -149,7 +147,7 @@ pub(crate) fn set_region_exc_param(
 
 pub(crate) fn emit_sequence_jump_block(
     blocks: &mut Vec<LoweredBlockPyBlock>,
-    label: String,
+    label: BlockPyLabel,
     linear: Vec<Stmt>,
     target_label: String,
     exc_target: Option<&str>,
@@ -160,13 +158,13 @@ pub(crate) fn emit_sequence_jump_block(
         BlockPyTerm::Jump(BlockPyLabel::from(target_label).into()),
         exc_target,
     ));
-    label
+    label.to_string()
 }
 
 pub(crate) fn emit_sequence_return_block_with_expr_setup(
     context: &Context,
     blocks: &mut Vec<LoweredBlockPyBlock>,
-    label: String,
+    label: BlockPyLabel,
     linear: Vec<Stmt>,
     value: Option<Expr>,
     exc_target: Option<&str>,
@@ -188,20 +186,19 @@ pub(crate) fn emit_sequence_return_block_with_expr_setup(
         fragment.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block =
-        BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(BlockPyLabel::from(label.clone()));
+    let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(label.clone());
     block.extend(fragment.body);
     block.set_term(BlockPyTerm::Return(
         value.unwrap_or_else(|| crate::py_expr!("__dp_NONE")),
     ));
     blocks.push(with_exc_meta(block.finish(None), exc_target));
-    Ok(label)
+    Ok(label.to_string())
 }
 
 pub(crate) fn emit_sequence_raise_block_with_expr_setup(
     context: &Context,
     blocks: &mut Vec<LoweredBlockPyBlock>,
-    label: String,
+    label: BlockPyLabel,
     linear: Vec<Stmt>,
     exc: BlockPyRaise,
     exc_target: Option<&str>,
@@ -226,18 +223,17 @@ pub(crate) fn emit_sequence_raise_block_with_expr_setup(
         fragment.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block =
-        BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(BlockPyLabel::from(label.clone()));
+    let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(label.clone());
     block.extend(fragment.body);
     block.set_term(BlockPyTerm::Raise(exc));
     blocks.push(with_exc_meta(block.finish(None), exc_target));
-    Ok(label)
+    Ok(label.to_string())
 }
 
 pub(crate) fn emit_if_branch_block_with_expr_setup(
     context: &Context,
     blocks: &mut Vec<LoweredBlockPyBlock>,
-    label: String,
+    label: BlockPyLabel,
     body: Vec<Stmt>,
     test: Expr,
     then_label: String,
@@ -253,14 +249,14 @@ pub(crate) fn emit_if_branch_block_with_expr_setup(
         else_label,
         exc_target,
     )?);
-    Ok(label)
+    Ok(label.to_string())
 }
 
 pub(crate) fn emit_simple_while_blocks_with_expr_setup(
     context: &Context,
     blocks: &mut Vec<LoweredBlockPyBlock>,
-    test_label: String,
-    linear_label: Option<String>,
+    test_label: BlockPyLabel,
+    linear_label: Option<BlockPyLabel>,
     linear: Vec<Stmt>,
     test: Expr,
     body_entry: String,
@@ -280,21 +276,21 @@ pub(crate) fn emit_simple_while_blocks_with_expr_setup(
         blocks.push(compat_block_from_blockpy_with_exc_target(
             linear_label.clone(),
             linear,
-            BlockPyTerm::Jump(BlockPyLabel::from(test_label).into()),
+            BlockPyTerm::Jump(test_label.into()),
             exc_target,
         ));
-        Ok(linear_label)
+        Ok(linear_label.to_string())
     } else {
-        Ok(test_label)
+        Ok(test_label.to_string())
     }
 }
 
 pub(crate) fn emit_for_loop_blocks(
     blocks: &mut Vec<LoweredBlockPyBlock>,
-    setup_label: String,
-    assign_label: String,
-    loop_check_label: String,
-    loop_continue_label: String,
+    setup_label: BlockPyLabel,
+    assign_label: BlockPyLabel,
+    loop_check_label: BlockPyLabel,
+    loop_continue_label: BlockPyLabel,
     linear: Vec<Stmt>,
     iter_name: &str,
     tmp_name: &str,
@@ -338,7 +334,7 @@ pub(crate) fn emit_for_loop_blocks(
         BlockPyTerm::IfTerm(BlockPyIfTerm {
             test: exhausted_test.into(),
             then_label: BlockPyLabel::from(exhausted_entry),
-            else_label: BlockPyLabel::from(assign_label),
+            else_label: assign_label.clone(),
         }),
         exc_target,
     ));
@@ -360,8 +356,8 @@ pub(crate) fn emit_for_loop_blocks(
     blocks.push(compat_block_from_blockpy_with_exc_target(
         setup_label.clone(),
         setup_body,
-        BlockPyTerm::Jump(BlockPyLabel::from(loop_continue_label).into()),
+        BlockPyTerm::Jump(loop_continue_label.into()),
         exc_target,
     ));
-    setup_label
+    setup_label.to_string()
 }

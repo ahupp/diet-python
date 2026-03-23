@@ -11,9 +11,9 @@ pub(crate) struct TryPlan {
     pub except_exc_name: String,
     pub finally_abrupt_kind_name: Option<String>,
     pub finally_abrupt_payload_name: Option<String>,
-    pub finally_dispatch_label: Option<String>,
-    pub finally_return_label: Option<String>,
-    pub finally_raise_label: Option<String>,
+    pub finally_dispatch_label: Option<BlockPyLabel>,
+    pub finally_return_label: Option<BlockPyLabel>,
+    pub finally_raise_label: Option<BlockPyLabel>,
     pub finally_exc_name: Option<String>,
 }
 
@@ -34,17 +34,17 @@ pub(crate) fn build_try_plan(
         None
     };
     let finally_dispatch_label = if has_finally {
-        Some(name_gen.next_block_name().to_string())
+        Some(name_gen.next_block_name())
     } else {
         None
     };
     let finally_return_label = if has_finally {
-        Some(name_gen.next_block_name().to_string())
+        Some(name_gen.next_block_name())
     } else {
         None
     };
     let finally_raise_label = if has_finally {
-        Some(name_gen.next_block_name().to_string())
+        Some(name_gen.next_block_name())
     } else {
         None
     };
@@ -68,7 +68,8 @@ pub(crate) fn build_try_plan(
 impl TryPlan {
     pub(crate) fn finally_cont_label(&self, rest_entry: &str) -> String {
         self.finally_dispatch_label
-            .clone()
+            .as_ref()
+            .map(ToString::to_string)
             .unwrap_or_else(|| rest_entry.to_string())
     }
 }
@@ -283,7 +284,7 @@ where
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn finalize_try_regions(
     blocks: &mut Vec<BlockPyBlock>,
-    label: String,
+    label: BlockPyLabel,
     linear: Vec<Stmt>,
     body_label: String,
     except_label: String,
@@ -346,9 +347,9 @@ pub(crate) fn finalize_try_regions(
 
 pub(crate) fn emit_finally_abrupt_dispatch_blocks(
     blocks: &mut Vec<BlockPyBlock>,
-    finally_return_label: String,
-    finally_raise_label: String,
-    finally_dispatch_label: String,
+    finally_return_label: BlockPyLabel,
+    finally_raise_label: BlockPyLabel,
+    finally_dispatch_label: BlockPyLabel,
     payload_name: &str,
     kind_name: &str,
     rest_entry: String,
@@ -375,8 +376,8 @@ pub(crate) fn emit_finally_abrupt_dispatch_blocks(
             index: py_expr!("{name:id}", name = kind_name).into(),
             targets: vec![
                 BlockPyLabel::from(rest_entry.clone()),
-                BlockPyLabel::from(finally_return_label),
-                BlockPyLabel::from(finally_raise_label),
+                finally_return_label,
+                finally_raise_label,
             ],
             default_label: BlockPyLabel::from(rest_entry),
         }),
@@ -393,7 +394,7 @@ pub(crate) fn collect_region_label_names(blocks: &[BlockPyBlock]) -> Vec<String>
 
 pub(crate) fn emit_try_jump_entry(
     blocks: &mut Vec<BlockPyBlock>,
-    label: String,
+    label: BlockPyLabel,
     linear: Vec<Stmt>,
     body_label: String,
     _except_label: String,
@@ -405,7 +406,7 @@ pub(crate) fn emit_try_jump_entry(
         BlockPyTerm::Jump(BlockPyLabel::from(body_label).into()),
         active_exc_target.as_deref(),
     ));
-    label
+    label.to_string()
 }
 
 pub(crate) fn block_references_label(

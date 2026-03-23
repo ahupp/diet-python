@@ -324,7 +324,7 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
     params: ParamSpec,
     runtime_input_body: &[Stmt],
     doc: Option<String>,
-    end_label: String,
+    end_label: BlockPyLabel,
     blockpy_kind: BlockPyFunctionKind,
     facts: &BlockPyCallableFacts,
 ) -> BlockPyFunction<RuffBlockPyPass> {
@@ -332,7 +332,7 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
     let entry_label = lower_stmt_sequence_with_state(
         context,
         runtime_input_body,
-        RegionTargets::new(end_label.clone(), None),
+        RegionTargets::new(end_label.to_string(), None),
         &mut blocks,
         &facts.cell_slots,
         &facts.outer_scope_names,
@@ -353,14 +353,14 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
         facts: facts.clone(),
         semantic: BlockPyCallableSemanticInfo::default(),
     };
-    let needs_end_block = entry_label == end_label
+    let needs_end_block = entry_label == end_label.as_str()
         || callable_def
             .blocks
             .iter()
             .any(|block| block_references_label(block, end_label.as_str()));
     if needs_end_block {
         callable_def.blocks.push(CfgBlock {
-            label: BlockPyLabel::from(end_label),
+            label: end_label,
             body: Vec::new(),
             term: BlockPyTerm::implicit_function_return(),
             params: Vec::new(),
@@ -784,10 +784,10 @@ def f(xs):
             &mut blocks,
             "_dp_iter_0",
             "_dp_tmp_0",
-            "_dp_bb_demo_0".to_string(),
-            "_dp_bb_demo_0".to_string(),
-            "_dp_bb_demo_1".to_string(),
-            "_dp_bb_demo_2".to_string(),
+            BlockPyLabel::from("_dp_bb_demo_0"),
+            BlockPyLabel::from("_dp_bb_demo_0"),
+            BlockPyLabel::from("_dp_bb_demo_1"),
+            BlockPyLabel::from("_dp_bb_demo_2"),
             vec![py_stmt!("x = _dp_tmp_0"), py_stmt!("_dp_tmp_0 = None")],
             &mut |_stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
                 targets.normal_cont
@@ -889,13 +889,13 @@ def f():
             RegionTargets::new("cont".to_string(), None),
             Vec::new(),
             &mut blocks,
-            "_dp_bb_demo_legacy".to_string(),
+            BlockPyLabel::from("_dp_bb_demo_legacy"),
             try_plan,
             &mut |_expanded: &[Stmt], targets: RegionTargets, blocks: &mut Vec<BlockPyBlock>| {
                 let label = format!("lowered_{}", blocks.len());
                 blocks.push(
                     crate::passes::ruff_to_blockpy::compat::compat_block_from_blockpy_with_exc_target(
-                        label.clone(),
+                        BlockPyLabel::from(label.clone()),
                         Vec::new(),
                         BlockPyTerm::Jump(BlockPyEdge::new(BlockPyLabel::from(
                             targets.normal_cont,
@@ -967,7 +967,7 @@ def f():
             RegionTargets::new("cont".to_string(), None),
             vec![py_stmt!("x = 1")],
             &mut blocks,
-            Some("prefix".to_string()),
+            Some(BlockPyLabel::from("prefix")),
             &mut |_expanded: &[Stmt], _targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
                 "expanded_entry".to_string()
             },
@@ -993,7 +993,7 @@ def f():
         let entry = lower_if_stmt_sequence(
             &context,
             &mut blocks,
-            "if_label".to_string(),
+            BlockPyLabel::from("if_label"),
             vec![py_stmt!("prefix = 0")],
             py_expr!("flag"),
             &then_body,
@@ -1023,7 +1023,7 @@ def f():
         let mut blocks = Vec::new();
         let entry = emit_sequence_jump_block(
             &mut blocks,
-            "jump_label".to_string(),
+            BlockPyLabel::from("jump_label"),
             vec![py_stmt!("prefix = 0")],
             "target".to_string(),
             None,
@@ -1044,7 +1044,7 @@ def f():
         let entry = emit_sequence_return_block_with_expr_setup(
             &context,
             &mut blocks,
-            "ret_label".to_string(),
+            BlockPyLabel::from("ret_label"),
             vec![py_stmt!("prefix = 0")],
             Some(py_expr!("value")),
             None,
@@ -1063,7 +1063,7 @@ def f():
         let entry = emit_sequence_raise_block_with_expr_setup(
             &context,
             &mut blocks,
-            "raise_label".to_string(),
+            BlockPyLabel::from("raise_label"),
             vec![py_stmt!("prefix = 0")],
             BlockPyRaise {
                 exc: Some(py_expr!("exc").into()),
@@ -1109,7 +1109,7 @@ y = 3
             RegionTargets::new("cont".to_string(), None),
             vec![py_stmt!("prefix = 0")],
             &mut blocks,
-            "if_label".to_string(),
+            BlockPyLabel::from("if_label"),
             &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
                 calls.push((stmts.len(), targets.normal_cont.clone()));
                 format!("branch_{}", calls.len())
@@ -1142,8 +1142,8 @@ y = 3
         let entry = lower_while_stmt_sequence(
             &context,
             &mut blocks,
-            "_dp_bb_loop_fn_0".to_string(),
-            Some("_dp_bb_loop_fn_1".to_string()),
+            BlockPyLabel::from("_dp_bb_loop_fn_0"),
+            Some(BlockPyLabel::from("_dp_bb_loop_fn_1")),
             vec![py_stmt!("prefix = 0")],
             py_expr!("flag"),
             &body,
@@ -1216,8 +1216,8 @@ y = 3
             RegionTargets::new("cont".to_string(), None),
             vec![py_stmt!("prefix = 0")],
             &mut blocks,
-            "_dp_bb_loop_fn_0".to_string(),
-            Some("_dp_bb_loop_fn_1".to_string()),
+            BlockPyLabel::from("_dp_bb_loop_fn_0"),
+            Some(BlockPyLabel::from("_dp_bb_loop_fn_1")),
             &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
                 if let Some(loop_labels) = targets.loop_labels {
                     loop_calls.push((
