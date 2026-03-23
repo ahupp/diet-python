@@ -4,6 +4,7 @@ use std::sync::Arc;
 use ruff_python_ast::{
     self as ast, ExprContext, HasNodeIndex, NodeIndex, StmtClassDef, StmtFunctionDef,
 };
+use ruff_text_size::Ranged;
 
 use crate::passes::ast_to_ast::body::{suite_mut, Suite};
 use crate::passes::ast_to_ast::scope::is_internal_symbol;
@@ -376,21 +377,24 @@ where
                 (Some(expected_binding), Some(actual_binding)) => {
                     if expected_binding != actual_binding {
                         self.issues.push(format!(
-                            "binding mismatch for name {id} at {:?}: expected {:?}, got {:?}",
+                            "binding mismatch for name {id} at {:?} {:?}: expected {:?}, got {:?}",
                             name.node_index().load(),
+                            name.range(),
                             expected_binding,
                             actual_binding
                         ));
                     }
                 }
                 (Some(expected_binding), None) => self.issues.push(format!(
-                    "binding missing in actual resolver for name {id} at {:?}: expected {:?}",
+                    "binding missing in actual resolver for name {id} at {:?} {:?}: expected {:?}",
                     name.node_index().load(),
+                    name.range(),
                     expected_binding
                 )),
                 (None, Some(actual_binding)) => self.issues.push(format!(
-                    "binding missing in expected resolver for name {id} at {:?}: got {:?}",
+                    "binding missing in expected resolver for name {id} at {:?} {:?}: got {:?}",
                     name.node_index().load(),
+                    name.range(),
                     actual_binding
                 )),
                 (None, None) => {}
@@ -539,12 +543,492 @@ pub(crate) fn debug_assert_matches_scope_tree(
 
 #[cfg(test)]
 mod tests {
-    use super::{compare_semantic_resolvers, ScopeTreeSemanticResolver, SemanticAstState};
+    use std::collections::{HashMap, HashSet};
+    use std::path::Path;
+
+    use super::{
+        compare_semantic_resolvers, is_internal_symbol, ScopeTreeSemanticResolver,
+        SemanticAstState, SemanticBindingKind, SemanticBindingUse, SemanticResolver,
+        SemanticScopeKind,
+    };
+    use crate::passes::ast_to_ast::body::Suite;
     use crate::passes::ast_to_ast::context::Context;
     use crate::passes::ast_to_ast::rewrite_class_def::class_body::rewrite_class_body_scopes;
     use crate::passes::ast_to_ast::scope::analyze_module_scope;
     use crate::passes::ast_to_ast::Options;
+    use crate::transformer::{walk_expr, walk_stmt, Transformer};
+    use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
     use ruff_python_parser::parse_module;
+    use ruff_python_semantic::{
+        Binding, BindingFlags as RuffBindingFlags, BindingKind as RuffBindingKind,
+        Module as RuffModule, ModuleKind as RuffModuleKind, ModuleSource as RuffModuleSource,
+        ScopeId as RuffScopeId, ScopeKind as RuffScopeKind, SemanticModel as RuffSemanticModel,
+    };
+    use ruff_text_size::{Ranged, TextRange};
+
+    #[derive(Default)]
+    struct RuffScopeBindingCollector {
+        bound_names: HashSet<String>,
+        explicit_globals: Vec<(String, TextRange)>,
+        explicit_nonlocals: Vec<(String, TextRange)>,
+        load_names: HashSet<String>,
+    }
+
+    impl Transformer for RuffScopeBindingCollector {
+        fn visit_stmt(&mut self, stmt: &mut Stmt) {
+            match stmt {
+                Stmt::Assign(assign) => {
+                    {
+                        for target in &assign.targets {
+                            collect_bound_target_names(target, &mut self.bound_names);
+                        }
+                    }
+                    walk_stmt(self, stmt);
+                }
+                Stmt::AugAssign(aug) => {
+                    {
+                        collect_bound_target_names(aug.target.as_ref(), &mut self.bound_names);
+                    }
+                    walk_stmt(self, stmt);
+                }
+                Stmt::AnnAssign(ann) => {
+                    {
+                        collect_bound_target_names(ann.target.as_ref(), &mut self.bound_names);
+                    }
+                    walk_stmt(self, stmt);
+                }
+                Stmt::For(for_stmt) => {
+                    {
+                        collect_bound_target_names(for_stmt.target.as_ref(), &mut self.bound_names);
+                    }
+                    walk_stmt(self, stmt);
+                }
+                Stmt::With(with_stmt) => {
+                    {
+                        for item in &with_stmt.items {
+                            if let Some(optional_vars) = item.optional_vars.as_ref() {
+                                collect_bound_target_names(
+                                    optional_vars.as_ref(),
+                                    &mut self.bound_names,
+                                );
+                            }
+                        }
+                    }
+                    walk_stmt(self, stmt);
+                }
+                Stmt::Delete(delete_stmt) => {
+                    {
+                        for target in &delete_stmt.targets {
+                            collect_bound_target_names(target, &mut self.bound_names);
+                        }
+                    }
+                    walk_stmt(self, stmt);
+                }
+                Stmt::Try(try_stmt) => {
+                    {
+                        for handler in &try_stmt.handlers {
+                            let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                            if let Some(name) = handler.name.as_ref() {
+                                self.bound_names.insert(name.id.to_string());
+                            }
+                        }
+                    }
+                    walk_stmt(self, stmt);
+                }
+                Stmt::Import(import_stmt) => {
+                    for alias in &import_stmt.names {
+                        self.bound_names
+                            .insert(import_binding_name(alias).to_string());
+                    }
+                }
+                Stmt::ImportFrom(import_stmt) => {
+                    for alias in &import_stmt.names {
+                        if alias.name.as_str() == "*" {
+                            continue;
+                        }
+                        self.bound_names
+                            .insert(alias.asname.as_ref().unwrap_or(&alias.name).to_string());
+                    }
+                }
+                Stmt::Global(global_stmt) => {
+                    for name in &global_stmt.names {
+                        self.explicit_globals
+                            .push((name.id.to_string(), name.range()));
+                    }
+                }
+                Stmt::Nonlocal(nonlocal_stmt) => {
+                    for name in &nonlocal_stmt.names {
+                        self.explicit_nonlocals
+                            .push((name.id.to_string(), name.range()));
+                    }
+                }
+                Stmt::FunctionDef(func_def) => {
+                    self.bound_names.insert(func_def.name.id.to_string());
+                    for decorator in &mut func_def.decorator_list {
+                        self.visit_decorator(decorator);
+                    }
+                    if let Some(type_params) = func_def.type_params.as_mut() {
+                        self.visit_type_params(type_params);
+                    }
+                    self.visit_parameters(&mut func_def.parameters);
+                    if let Some(returns) = func_def.returns.as_mut() {
+                        self.visit_annotation(returns);
+                    }
+                }
+                Stmt::ClassDef(class_def) => {
+                    self.bound_names.insert(class_def.name.id.to_string());
+                    for decorator in &mut class_def.decorator_list {
+                        self.visit_decorator(decorator);
+                    }
+                    if let Some(type_params) = class_def.type_params.as_mut() {
+                        self.visit_type_params(type_params);
+                    }
+                    if let Some(arguments) = class_def.arguments.as_mut() {
+                        self.visit_arguments(arguments);
+                    }
+                }
+                _ => walk_stmt(self, stmt),
+            }
+        }
+
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            match expr {
+                Expr::Name(name) if matches!(name.ctx, ExprContext::Load) => {
+                    let id = name.id.as_str();
+                    if id != "__class__" && !is_internal_symbol(id) {
+                        self.load_names.insert(id.to_string());
+                    }
+                    return;
+                }
+                Expr::Lambda(_) | Expr::Generator(_) => return,
+                _ => {}
+            }
+            walk_expr(self, expr);
+        }
+    }
+
+    fn collect_bound_target_names(expr: &Expr, names: &mut HashSet<String>) {
+        match expr {
+            Expr::Name(name) => {
+                names.insert(name.id.to_string());
+            }
+            Expr::Tuple(tuple) => {
+                for elt in &tuple.elts {
+                    collect_bound_target_names(elt, names);
+                }
+            }
+            Expr::List(list) => {
+                for elt in &list.elts {
+                    collect_bound_target_names(elt, names);
+                }
+            }
+            Expr::Starred(starred) => collect_bound_target_names(starred.value.as_ref(), names),
+            _ => {}
+        }
+    }
+
+    fn import_binding_name(alias: &ast::Alias) -> &str {
+        alias.asname.as_ref().map_or_else(
+            || alias.name.as_str().split('.').next().unwrap(),
+            |asname| asname.as_str(),
+        )
+    }
+
+    fn collect_scope_bindings(body: &mut Suite) -> RuffScopeBindingCollector {
+        let mut collector = RuffScopeBindingCollector::default();
+        collector.visit_body(body);
+        collector
+    }
+
+    struct RuffSemanticResolver {
+        semantic: RuffSemanticModel<'static>,
+        function_scopes: HashMap<TextRange, RuffScopeId>,
+        class_scopes: HashMap<TextRange, RuffScopeId>,
+        implicit_nonlocals_by_scope: HashMap<RuffScopeId, HashSet<String>>,
+        propagated_nonlocal_roots: HashMap<RuffScopeId, HashSet<String>>,
+    }
+
+    impl RuffSemanticResolver {
+        fn from_module(module: &Suite) -> Self {
+            let module_for_model = Box::leak(Box::new(module.clone()));
+            let module_for_build = Box::leak(Box::new(module.clone()));
+            let path = Path::new("<semantic-compare>");
+            let python_ast: &'static [Stmt] = &*module_for_model;
+            let module_info = RuffModule {
+                kind: RuffModuleKind::Module,
+                source: RuffModuleSource::File(path),
+                python_ast,
+                name: Some("<semantic-compare>"),
+            };
+            let typing_modules: &[String] = &[];
+            let semantic = RuffSemanticModel::new(typing_modules, path, module_info);
+            let mut resolver = Self {
+                semantic,
+                function_scopes: HashMap::new(),
+                class_scopes: HashMap::new(),
+                implicit_nonlocals_by_scope: HashMap::new(),
+                propagated_nonlocal_roots: HashMap::new(),
+            };
+            resolver.prepare_scope(module_for_build, &[]);
+            resolver.visit_body(module_for_build);
+            resolver.propagate_nonlocal_roots();
+            resolver
+        }
+
+        fn prepare_scope(&mut self, body: &mut Suite, parameters: &[(String, TextRange)]) {
+            let collector = collect_scope_bindings(body);
+            for (name, range) in collector.explicit_globals {
+                if !self.semantic.scope_id.is_global() {
+                    let global_binding = self.semantic.global_scope().get(name.as_str());
+                    let binding_id = self.semantic.push_binding(
+                        range,
+                        RuffBindingKind::Global(global_binding),
+                        RuffBindingFlags::GLOBAL,
+                    );
+                    let leaked_name = Box::leak(name.into_boxed_str());
+                    self.semantic
+                        .current_scope_mut()
+                        .add(leaked_name, binding_id);
+                }
+            }
+            for (name, range) in collector.explicit_nonlocals {
+                if let Some((scope_id, binding_id)) = self.semantic.nonlocal(name.as_str()) {
+                    let binding_id = self.semantic.push_binding(
+                        range,
+                        RuffBindingKind::Nonlocal(binding_id, scope_id),
+                        RuffBindingFlags::NONLOCAL,
+                    );
+                    let leaked_name = Box::leak(name.into_boxed_str());
+                    self.semantic
+                        .current_scope_mut()
+                        .add(leaked_name, binding_id);
+                }
+            }
+            for (name, range) in parameters {
+                let binding_id = self.semantic.push_binding(
+                    *range,
+                    RuffBindingKind::Argument,
+                    RuffBindingFlags::empty(),
+                );
+                let leaked_name = Box::leak(name.clone().into_boxed_str());
+                self.semantic
+                    .current_scope_mut()
+                    .add(leaked_name, binding_id);
+            }
+            for name in collector.bound_names {
+                if self.semantic.current_scope().has(name.as_str()) {
+                    continue;
+                }
+                let binding_id = self.semantic.push_binding(
+                    TextRange::default(),
+                    RuffBindingKind::Assignment,
+                    RuffBindingFlags::empty(),
+                );
+                let leaked_name = Box::leak(name.into_boxed_str());
+                self.semantic
+                    .current_scope_mut()
+                    .add(leaked_name, binding_id);
+            }
+            for name in collector.load_names {
+                if self.semantic.current_scope().has(name.as_str()) {
+                    continue;
+                }
+                if self.resolves_to_enclosing_function(name.as_str()) {
+                    self.implicit_nonlocals_by_scope
+                        .entry(self.semantic.scope_id)
+                        .or_default()
+                        .insert(name);
+                }
+            }
+        }
+
+        fn parameter_refs(&self, parameters: &ast::Parameters) -> Vec<(String, TextRange)> {
+            let mut refs = Vec::new();
+            for parameter in &parameters.posonlyargs {
+                refs.push((
+                    parameter.parameter.name.id.to_string(),
+                    parameter.parameter.range(),
+                ));
+            }
+            for parameter in &parameters.args {
+                refs.push((
+                    parameter.parameter.name.id.to_string(),
+                    parameter.parameter.range(),
+                ));
+            }
+            if let Some(vararg) = parameters.vararg.as_ref() {
+                refs.push((vararg.name.id.to_string(), vararg.range()));
+            }
+            for parameter in &parameters.kwonlyargs {
+                refs.push((
+                    parameter.parameter.name.id.to_string(),
+                    parameter.parameter.range(),
+                ));
+            }
+            if let Some(kwarg) = parameters.kwarg.as_ref() {
+                refs.push((kwarg.name.id.to_string(), kwarg.range()));
+            }
+            refs
+        }
+
+        fn classify_binding_in_scope(
+            &self,
+            scope_id: RuffScopeId,
+            binding: &Binding<'_>,
+        ) -> SemanticBindingKind {
+            if matches!(binding.kind, RuffBindingKind::Builtin) {
+                return SemanticBindingKind::Local;
+            }
+            if binding.flags.intersects(RuffBindingFlags::GLOBAL) {
+                return SemanticBindingKind::Global;
+            }
+            if binding.flags.intersects(RuffBindingFlags::NONLOCAL) {
+                return SemanticBindingKind::Nonlocal;
+            }
+            if binding.scope != scope_id && !binding.scope.is_global() {
+                return SemanticBindingKind::Nonlocal;
+            }
+            SemanticBindingKind::Local
+        }
+
+        fn resolves_to_enclosing_function(&self, name: &str) -> bool {
+            self.semantic
+                .scopes
+                .ancestor_ids(self.semantic.scope_id)
+                .find_map(|scope_id| match self.semantic.scopes[scope_id].kind {
+                    RuffScopeKind::Function(_) => self.semantic.scopes[scope_id]
+                        .get(name)
+                        .map(|binding_id| !self.semantic.binding(binding_id).is_global()),
+                    RuffScopeKind::Module => Some(false),
+                    RuffScopeKind::Class(_) => None,
+                    _ => None,
+                })
+                .unwrap_or(false)
+        }
+
+        fn nonlocal_names_for_scope(&self, scope_id: RuffScopeId) -> HashSet<String> {
+            let mut names = self
+                .implicit_nonlocals_by_scope
+                .get(&scope_id)
+                .cloned()
+                .unwrap_or_default();
+            for (name, binding_id) in self.semantic.scopes[scope_id].bindings() {
+                if self.semantic.binding(binding_id).is_nonlocal() {
+                    names.insert(name.to_string());
+                }
+            }
+            names
+        }
+
+        fn propagate_nonlocal_roots(&mut self) {
+            let scope_ids = self.semantic.scopes.indices().collect::<Vec<_>>();
+            for scope_id in scope_ids {
+                for name in self.nonlocal_names_for_scope(scope_id) {
+                    let mut current = self.semantic.scopes[scope_id].parent;
+                    while let Some(parent_id) = current {
+                        let parent_scope = &self.semantic.scopes[parent_id];
+                        if matches!(parent_scope.kind, RuffScopeKind::Function(_))
+                            && parent_scope.get(name.as_str()).is_some_and(|binding_id| {
+                                !self.semantic.binding(binding_id).is_global()
+                            })
+                        {
+                            self.propagated_nonlocal_roots
+                                .entry(parent_id)
+                                .or_default()
+                                .insert(name.clone());
+                            break;
+                        }
+                        current = parent_scope.parent;
+                    }
+                }
+            }
+        }
+    }
+
+    impl Transformer for RuffSemanticResolver {
+        fn visit_stmt(&mut self, stmt: &mut Stmt) {
+            match stmt {
+                Stmt::FunctionDef(func_def) => {
+                    let leaked_func = Box::leak(Box::new(func_def.clone()));
+                    self.semantic
+                        .push_scope(RuffScopeKind::Function(leaked_func));
+                    let scope_id = self.semantic.scope_id;
+                    self.function_scopes.insert(func_def.range(), scope_id);
+                    let parameters = self.parameter_refs(&func_def.parameters);
+                    self.prepare_scope(&mut func_def.body, &parameters);
+                    self.visit_body(&mut func_def.body);
+                    self.semantic.pop_scope();
+                }
+                Stmt::ClassDef(class_def) => {
+                    let leaked_class = Box::leak(Box::new(class_def.clone()));
+                    self.semantic.push_scope(RuffScopeKind::Class(leaked_class));
+                    let scope_id = self.semantic.scope_id;
+                    self.class_scopes.insert(class_def.range(), scope_id);
+                    self.prepare_scope(&mut class_def.body, &[]);
+                    self.visit_body(&mut class_def.body);
+                    self.semantic.pop_scope();
+                }
+                _ => walk_stmt(self, stmt),
+            }
+        }
+    }
+
+    impl SemanticResolver for RuffSemanticResolver {
+        type Scope = RuffScopeId;
+
+        fn module_scope(&self) -> Self::Scope {
+            RuffScopeId::global()
+        }
+
+        fn function_scope(&self, func_def: &ast::StmtFunctionDef) -> Option<Self::Scope> {
+            self.function_scopes.get(&func_def.range()).copied()
+        }
+
+        fn class_scope(&self, class_def: &ast::StmtClassDef) -> Option<Self::Scope> {
+            self.class_scopes.get(&class_def.range()).copied()
+        }
+
+        fn scope_kind(&self, scope: &Self::Scope) -> SemanticScopeKind {
+            match self.semantic.scopes[*scope].kind {
+                RuffScopeKind::Function(_) => SemanticScopeKind::Function,
+                RuffScopeKind::Class(_) => SemanticScopeKind::Class,
+                RuffScopeKind::Module => SemanticScopeKind::Module,
+                _ => SemanticScopeKind::Function,
+            }
+        }
+
+        fn binding_in_scope_checked(
+            &self,
+            scope: &Self::Scope,
+            name: &str,
+            use_kind: SemanticBindingUse,
+        ) -> Option<SemanticBindingKind> {
+            if let Some(binding_id) = self.semantic.scopes[*scope].get(name) {
+                let binding = self.semantic.binding(binding_id);
+                if self
+                    .propagated_nonlocal_roots
+                    .get(scope)
+                    .is_some_and(|names| names.contains(name))
+                    && !binding.is_global()
+                {
+                    return Some(SemanticBindingKind::Nonlocal);
+                }
+                return Some(self.classify_binding_in_scope(*scope, binding));
+            }
+            match use_kind {
+                SemanticBindingUse::Modify => None,
+                SemanticBindingUse::Load => {
+                    let binding = self
+                        .semantic
+                        .lookup_symbol_in_scope(name, *scope, false)
+                        .map(|binding_id| self.semantic.binding(binding_id));
+                    Some(binding.map_or(SemanticBindingKind::Local, |binding| {
+                        self.classify_binding_in_scope(*scope, binding)
+                    }))
+                }
+            }
+        }
+    }
 
     #[test]
     fn semantic_comparison_accepts_class_helper_scope_overrides() {
@@ -589,5 +1073,44 @@ mod tests {
         let broken_state = SemanticAstState::new(module_scope);
         let issues = compare_semantic_resolvers(&mut module, &expected, &broken_state);
         assert!(!issues.is_empty(), "expected missing override mismatch");
+    }
+
+    #[test]
+    fn semantic_comparison_matches_ruff_for_original_scope_facts() {
+        let source = concat!(
+            "x = 0\n",
+            "def outer():\n",
+            "    y = 1\n",
+            "    class Box:\n",
+            "        probe = y\n",
+            "        other = x\n",
+            "    def inner():\n",
+            "        nonlocal y\n",
+            "        return y + x\n",
+            "    return Box, inner\n",
+        );
+        let mut module = parse_module(source).unwrap().into_syntax().body;
+        let semantic_state = SemanticAstState::new(analyze_module_scope(&mut module));
+        let ruff = RuffSemanticResolver::from_module(&mut module);
+
+        let issues = compare_semantic_resolvers(&mut module, &semantic_state, &ruff);
+        assert!(issues.is_empty(), "{issues:#?}");
+    }
+
+    #[test]
+    fn semantic_comparison_matches_ruff_for_implicit_class_nonlocal_roots() {
+        let source = concat!(
+            "def outer():\n",
+            "    y = 1\n",
+            "    class Box:\n",
+            "        probe = y\n",
+            "    return Box\n",
+        );
+        let mut module = parse_module(source).unwrap().into_syntax().body;
+        let semantic_state = SemanticAstState::new(analyze_module_scope(&mut module));
+        let ruff = RuffSemanticResolver::from_module(&mut module);
+
+        let issues = compare_semantic_resolvers(&mut module, &semantic_state, &ruff);
+        assert!(issues.is_empty(), "{issues:#?}");
     }
 }
