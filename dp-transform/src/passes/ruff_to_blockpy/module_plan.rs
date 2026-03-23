@@ -470,10 +470,6 @@ fn always_unbound_local_names(
         .collect()
 }
 
-struct LoweredFunctionRewriteResult {
-    replacement: Vec<Stmt>,
-}
-
 // Function-definition rewriting stays in one tree pass, but the instantiation
 // machinery is grouped here so the later binding split has one obvious home.
 fn capture_items_to_expr(captures: &[LoweredFunctionCaptureValue]) -> Expr {
@@ -495,7 +491,7 @@ fn classify_capture_items(
     param_names: &HashSet<String>,
     local_cell_slots: &HashSet<String>,
     locally_assigned: &HashSet<String>,
-) -> Option<Vec<LoweredFunctionCaptureValue>> {
+) -> Vec<LoweredFunctionCaptureValue> {
     let mut captures = Vec::new();
     for entry_name in entry_liveins {
         if param_names.contains(entry_name) {
@@ -506,45 +502,18 @@ fn classify_capture_items(
         {
             captures.push(LoweredFunctionCaptureValue {
                 name: entry_name.clone(),
-                value_expr: name_expr(entry_name.as_str())?,
+                value_expr: name_expr(entry_name.as_str())
+                    .expect("capture name should always parse as an expression"),
             });
         } else if !entry_name.starts_with("_dp_") && !locally_assigned.contains(entry_name) {
             captures.push(LoweredFunctionCaptureValue {
                 name: entry_name.clone(),
-                value_expr: name_expr(entry_name.as_str())?,
+                value_expr: name_expr(entry_name.as_str())
+                    .expect("capture name should always parse as an expression"),
             });
         }
     }
-    Some(captures)
-}
-
-fn build_lowered_function_instantiation_preview(
-    callable_def: &BlockPyFunction<RuffBlockPyPass>,
-) -> Option<LoweredFunctionInstantiationPreview> {
-    let param_names = callable_def.params.names();
-    let param_name_set: HashSet<String> = param_names.iter().cloned().collect();
-    let entry_liveins = callable_def.entry_liveins();
-    let locally_assigned: HashSet<String> = callable_def
-        .blocks
-        .iter()
-        .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
-        .collect();
-    let local_cell_slots = callable_def.semantic.local_cell_storage_names();
-    let captures = classify_capture_items(
-        &entry_liveins,
-        &param_name_set,
-        &local_cell_slots,
-        &locally_assigned,
-    )?;
-    Some(LoweredFunctionInstantiationPreview {
-        function_id: callable_def.function_id.0,
-        captures,
-        kind: if callable_def.kind == BlockPyFunctionKind::Coroutine {
-            LoweredFunctionInstantiationKind::MarkCoroutineFunction
-        } else {
-            LoweredFunctionInstantiationKind::DirectFunction
-        },
-    })
+    captures
 }
 
 struct LoweredFunctionInstantiationData {
@@ -671,9 +640,7 @@ mod tests {
         let Stmt::FunctionDef(nested_func) = nested_stmt else {
             panic!("expected nested function def");
         };
-        let replacement = rewriter
-            .rewrite_visited_function_def(nested_func, nested_state)
-            .expect("expected nested function rewrite");
+        let replacement = rewriter.rewrite_visited_function_def(nested_func, nested_state);
         let rendered = replacement
             .iter()
             .map(crate::ruff_ast_to_string)
@@ -932,15 +899,51 @@ fn build_lowered_function_instantiation_stmt(
     stmts
 }
 
-fn plan_and_rewrite_lowered_function_instantiation(
+#[allow(clippy::too_many_arguments)]
+fn rewrite_function_def_stmt_via_blockpy(
+    context: &Context,
     parent_hoisted: &mut Vec<Stmt>,
-    func: &ast::StmtFunctionDef,
-    preview: &LoweredFunctionInstantiationPreview,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
+    func: &mut ast::StmtFunctionDef,
     current_parent: Option<&str>,
+    callable_semantic: &BlockPyCallableSemanticInfo,
     needs_cell_sync: bool,
     function_hoisted: Vec<Stmt>,
-) -> Option<LoweredFunctionRewriteResult> {
+    next_function_id: &mut usize,
+    callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
+) -> Vec<Stmt> {
+    let name_gen = NameGen::new(take_next_function_id(next_function_id));
+    let lowered_plan = try_lower_function_to_blockpy_bundle(
+        context,
+        function_identity_by_node,
+        func,
+        current_parent,
+        callable_semantic,
+        &name_gen,
+    );
+    let param_names = lowered_plan.params.names();
+    let param_name_set: HashSet<String> = param_names.iter().cloned().collect();
+    let entry_liveins = lowered_plan.entry_liveins();
+    let locally_assigned: HashSet<String> = lowered_plan
+        .blocks
+        .iter()
+        .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
+        .collect();
+    let local_cell_slots = lowered_plan.semantic.local_cell_storage_names();
+    let preview = LoweredFunctionInstantiationPreview {
+        function_id: lowered_plan.function_id.0,
+        captures: classify_capture_items(
+            &entry_liveins,
+            &param_name_set,
+            &local_cell_slots,
+            &locally_assigned,
+        ),
+        kind: if lowered_plan.kind == BlockPyFunctionKind::Coroutine {
+            LoweredFunctionInstantiationKind::MarkCoroutineFunction
+        } else {
+            LoweredFunctionInstantiationKind::DirectFunction
+        },
+    };
     let identity =
         resolve_runtime_function_identity(func, function_identity_by_node, current_parent);
     let instantiation_plan = LoweredFunctionInstantiationPlan {
@@ -955,7 +958,7 @@ fn plan_and_rewrite_lowered_function_instantiation(
         identity,
     };
     let binding_stmt =
-        build_lowered_function_instantiation_stmt(func, preview, &instantiation_plan);
+        build_lowered_function_instantiation_stmt(func, &preview, &instantiation_plan);
     let replacement = apply_lowered_function_placement(
         parent_hoisted,
         plan_lowered_function_placement(
@@ -964,45 +967,8 @@ fn plan_and_rewrite_lowered_function_instantiation(
             binding_stmt,
         ),
     );
-    Some(LoweredFunctionRewriteResult { replacement })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn rewrite_function_def_stmt_via_blockpy(
-    context: &Context,
-    parent_hoisted: &mut Vec<Stmt>,
-    function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
-    func: &mut ast::StmtFunctionDef,
-    current_parent: Option<&str>,
-    callable_semantic: &BlockPyCallableSemanticInfo,
-    needs_cell_sync: bool,
-    function_hoisted: Vec<Stmt>,
-    next_function_id: &mut usize,
-    callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
-) -> Option<Vec<Stmt>> {
-    let name_gen = NameGen::new(take_next_function_id(next_function_id));
-    let lowered_plan = try_lower_function_to_blockpy_bundle(
-        context,
-        function_identity_by_node,
-        func,
-        current_parent,
-        callable_semantic,
-        &name_gen,
-    );
-    let preview = build_lowered_function_instantiation_preview(&lowered_plan)
-        .expect("failed to build BB function instantiation preview");
-    let rewrite = plan_and_rewrite_lowered_function_instantiation(
-        parent_hoisted,
-        func,
-        &preview,
-        function_identity_by_node,
-        current_parent,
-        needs_cell_sync,
-        function_hoisted,
-    )
-    .expect("failed to build BB function binding");
     callable_defs.push(lowered_plan);
-    Some(rewrite.replacement)
+    replacement
 }
 
 impl BlockPyModuleRewriter<'_> {
@@ -1078,7 +1044,7 @@ impl BlockPyModuleRewriter<'_> {
         &mut self,
         func: &mut ast::StmtFunctionDef,
         state: FunctionScopeFrame,
-    ) -> Option<Vec<Stmt>> {
+    ) -> Vec<Stmt> {
         let parent_hoisted = self
             .function_scope_stack
             .last_mut()
@@ -1110,10 +1076,9 @@ impl Transformer for BlockPyModuleRewriter<'_> {
                     continue;
                 };
                 if let Stmt::FunctionDef(func) = &mut stmt {
-                    if let Some(replacement) = self.rewrite_visited_function_def(func, state) {
-                        rewritten.extend(replacement);
-                        continue;
-                    }
+                    let replacement = self.rewrite_visited_function_def(func, state);
+                    rewritten.extend(replacement);
+                    continue;
                 }
                 rewritten.push(stmt);
                 continue;
