@@ -1,6 +1,6 @@
 use crate::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
-    prune_unreachable_blockpy_blocks, relabel_blockpy_blocks,
+    prune_unreachable_blockpy_blocks,
 };
 use crate::block_py::dataflow::{
     analyze_blockpy_use_def, compute_block_params_blockpy,
@@ -338,11 +338,6 @@ where
         .filter_map(|block| block.exc_edge.as_ref().map(|edge| edge.target.to_string()))
         .collect::<Vec<_>>();
     prune_unreachable_blockpy_blocks(entry_label.as_str(), &extra_roots, &mut callable_def.blocks);
-    let (relabelled_entry_label, label_rename) =
-        relabel_blockpy_blocks("_dp_bb", entry_label.as_str(), &mut callable_def.blocks);
-    entry_label = relabelled_entry_label;
-    let _ = label_rename;
-    move_entry_block_to_front(&mut callable_def.blocks, entry_label.as_str());
     callable_def.closure_layout =
         build_semantic_blockpy_closure_layout(&callable_def, &HashSet::new());
     callable_def

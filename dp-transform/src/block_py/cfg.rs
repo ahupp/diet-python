@@ -5,122 +5,8 @@ use super::{
 use crate::block_py::dataflow::{
     assigned_names_in_blockpy_fragment, assigned_names_in_blockpy_stmts,
 };
-use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::Expr;
 use std::collections::{HashMap, HashSet};
-
-struct LabelNameRenamer<'a> {
-    rename: &'a HashMap<String, String>,
-}
-
-impl Transformer for LabelNameRenamer<'_> {
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        if let Expr::Name(name) = expr {
-            if let Some(rewritten) = self.rename.get(name.id.as_str()) {
-                name.id = rewritten.as_str().into();
-            }
-        }
-        walk_expr(self, expr);
-    }
-}
-
-fn rename_blockpy_stmt(
-    stmt: &mut BlockPyStmt<Expr>,
-    body_renamer: &mut LabelNameRenamer<'_>,
-    rename: &HashMap<String, String>,
-) {
-    match stmt {
-        BlockPyStmt::Assign(assign) => {
-            if let Some(rewritten) = rename.get(assign.target.id.as_str()) {
-                assign.target.id = rewritten.as_str().into();
-            }
-            body_renamer.visit_expr(&mut assign.value);
-        }
-        BlockPyStmt::Expr(expr) => body_renamer.visit_expr(expr),
-        BlockPyStmt::Delete(delete) => {
-            if let Some(rewritten) = rename.get(delete.target.id.as_str()) {
-                delete.target.id = rewritten.as_str().into();
-            }
-        }
-        BlockPyStmt::If(if_stmt) => {
-            body_renamer.visit_expr(&mut if_stmt.test);
-            rename_blockpy_stmt_fragment(&mut if_stmt.body, body_renamer, rename);
-            rename_blockpy_stmt_fragment(&mut if_stmt.orelse, body_renamer, rename);
-        }
-    }
-}
-
-fn rename_blockpy_stmt_fragment(
-    fragment: &mut BlockPyCfgFragment<BlockPyStmt<Expr>, BlockPyTerm<Expr>>,
-    body_renamer: &mut LabelNameRenamer<'_>,
-    rename: &HashMap<String, String>,
-) {
-    for stmt in &mut fragment.body {
-        rename_blockpy_stmt(stmt, body_renamer, rename);
-    }
-    if let Some(term) = &mut fragment.term {
-        rename_blockpy_term(term, body_renamer, rename);
-    }
-}
-
-fn rename_blockpy_term(
-    term: &mut BlockPyTerm<Expr>,
-    body_renamer: &mut LabelNameRenamer<'_>,
-    rename: &HashMap<String, String>,
-) {
-    fn rename_target_label(label: &mut BlockPyLabel, rename: &HashMap<String, String>) {
-        if let Some(rewritten) = rename.get(label.as_str()) {
-            *label = BlockPyLabel::from(rewritten.clone());
-        }
-    }
-
-    match term {
-        BlockPyTerm::Jump(target) => rename_target_label(&mut target.target, rename),
-        BlockPyTerm::IfTerm(BlockPyIfTerm {
-            test,
-            then_label,
-            else_label,
-        }) => {
-            body_renamer.visit_expr(test);
-            rename_target_label(then_label, rename);
-            rename_target_label(else_label, rename);
-        }
-        BlockPyTerm::BranchTable(branch) => {
-            body_renamer.visit_expr(&mut branch.index);
-            for target in &mut branch.targets {
-                rename_target_label(target, rename);
-            }
-            rename_target_label(&mut branch.default_label, rename);
-        }
-        BlockPyTerm::Raise(raise_stmt) => {
-            if let Some(exc) = raise_stmt.exc.as_mut() {
-                body_renamer.visit_expr(exc);
-            }
-        }
-        BlockPyTerm::Return(value) => body_renamer.visit_expr(value),
-    }
-}
-
-fn rename_blockpy_block(
-    block: &mut CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>>,
-    body_renamer: &mut LabelNameRenamer<'_>,
-    rename: &HashMap<String, String>,
-) {
-    let new_label = rename
-        .get(block.label.as_str())
-        .cloned()
-        .unwrap_or_else(|| block.label.as_str().to_string());
-    block.label = BlockPyLabel::from(new_label);
-    for stmt in &mut block.body {
-        rename_blockpy_stmt(stmt, body_renamer, rename);
-    }
-    rename_blockpy_term(&mut block.term, body_renamer, rename);
-    if let Some(exc_edge) = block.exc_edge.as_mut() {
-        if let Some(rewritten) = rename.get(exc_edge.target.as_str()) {
-            exc_edge.target = BlockPyLabel::from(rewritten.clone());
-        }
-    }
-}
 
 fn blockpy_successors<E>(block: &CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>) -> Vec<String> {
     match &block.term {
@@ -140,28 +26,6 @@ fn blockpy_successors<E>(block: &CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>) -> Ve
         }
         BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => Vec::new(),
     }
-}
-
-pub(crate) fn rename_blockpy_labels(
-    rename: &HashMap<String, String>,
-    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>>],
-) {
-    for block in blocks.iter_mut() {
-        let mut body_renamer = LabelNameRenamer { rename };
-        rename_blockpy_block(block, &mut body_renamer, rename);
-    }
-}
-
-fn apply_label_rename_blockpy(
-    entry_label: &str,
-    rename: &HashMap<String, String>,
-    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>>],
-) -> String {
-    rename_blockpy_labels(rename, blocks);
-    rename
-        .get(entry_label)
-        .cloned()
-        .unwrap_or_else(|| entry_label.to_string())
 }
 
 fn fresh_linearized_if_label(
@@ -403,30 +267,6 @@ pub(crate) fn linearize_structured_ifs<E: Clone + Into<Expr>>(
         );
     }
     (out_blocks, out_block_params, out_exception_edges)
-}
-
-pub(crate) fn relabel_blockpy_blocks(
-    prefix: &str,
-    entry_label: &str,
-    blocks: &mut [CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>>],
-) -> (String, HashMap<String, String>) {
-    let mut rename = HashMap::new();
-    rename.insert(entry_label.to_string(), format!("{prefix}_start"));
-
-    let mut next_id = 0usize;
-    for block in blocks.iter() {
-        if rename.contains_key(block.label.as_str()) {
-            continue;
-        }
-        rename.insert(
-            block.label.as_str().to_string(),
-            format!("{prefix}_{next_id}"),
-        );
-        next_id += 1;
-    }
-
-    let rewritten_entry = apply_label_rename_blockpy(entry_label, &rename, blocks);
-    (rewritten_entry, rename)
 }
 
 pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E>(

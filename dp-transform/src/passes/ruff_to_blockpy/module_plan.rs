@@ -860,7 +860,7 @@ mod tests {
                 callable_defs: vec![exercise.clone()],
             });
         assert!(
-            rendered.contains("jump _dp_bb_0(Return, _dp_try_abrupt_payload_5)"),
+            rendered.contains("jump ") && rendered.contains("(Return, _dp_try_abrupt_payload_5)"),
             "{rendered}"
         );
         assert!(
