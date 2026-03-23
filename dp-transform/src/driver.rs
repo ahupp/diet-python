@@ -3,12 +3,11 @@ use crate::passes::ast_to_ast::ast_rewrite::rewrite_with_pass;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def;
 use crate::passes::ast_to_ast::rewrite_expr::ScopedHelperExprPass;
-use crate::passes::ast_to_ast::scope::analyze_module_scope;
 use crate::passes::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::passes::ast_to_ast::{
     body::{body_from_suite, suite_mut, take_suite, Suite},
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
-    semantic::{debug_assert_matches_scope_tree, SemanticAstState},
+    semantic::SemanticAstState,
 };
 use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
@@ -66,13 +65,7 @@ pub(crate) fn rewrite_module_with_tracker(
             suite_mut(&mut module),
         );
 
-        let expected_module_scope = if cfg!(debug_assertions) {
-            Some(analyze_module_scope(suite_mut(&mut module)))
-        } else {
-            None
-        };
-        let mut rewrite_semantic_state =
-            SemanticAstState::from_ruff(suite_mut(&mut module), expected_module_scope);
+        let mut rewrite_semantic_state = SemanticAstState::from_ruff(suite_mut(&mut module));
 
         // Replace global / nonlocal and class-body scoping with explicit loads/stores.
         //  - globals: __dp__.load/store_global(globals(), name)
@@ -89,9 +82,6 @@ pub(crate) fn rewrite_module_with_tracker(
             &mut rewrite_semantic_state,
             suite_mut(&mut module),
         );
-        if cfg!(debug_assertions) {
-            debug_assert_matches_scope_tree(suite_mut(&mut module), &rewrite_semantic_state);
-        }
         suite_mut(&mut module).splice(
             0..0,
             rewrite_future_annotations::invalid_future_feature_syntax_error_stmts(&future_imports),
@@ -208,7 +198,7 @@ fn is_module_docstring(stmt: &Stmt) -> bool {
 }
 
 pub(crate) fn wrap_module_init(module: &mut Suite) {
-    let mut global_names = SemanticAstState::from_ruff(module, None)
+    let mut global_names = SemanticAstState::from_ruff(module)
         .module_scope()
         .local_binding_names()
         .into_iter()

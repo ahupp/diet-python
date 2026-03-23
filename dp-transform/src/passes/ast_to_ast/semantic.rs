@@ -12,9 +12,8 @@ use ruff_python_semantic::{
 };
 use ruff_text_size::{Ranged, TextRange};
 
-use crate::passes::ast_to_ast::body::{suite_mut, Suite};
+use crate::passes::ast_to_ast::body::Suite;
 use crate::passes::ast_to_ast::scope::is_internal_symbol;
-use crate::passes::ast_to_ast::scope::{BindingKind, BindingUse, Scope, ScopeKind};
 use crate::transformer::Transformer;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,7 +69,6 @@ impl SemanticSnapshot {
 #[derive(Debug, Default)]
 struct SemanticProvenance {
     function_scope_overrides: HashMap<NodeIndex, SemanticScopeId>,
-    expected_function_scope_overrides: HashMap<NodeIndex, Arc<Scope>>,
     next_node_index: u32,
 }
 
@@ -94,12 +92,6 @@ impl SemanticProvenance {
         self.function_scope_overrides
             .get(&func_def.node_index().load())
             .copied()
-    }
-
-    fn expected_function_scope_override(&self, func_def: &StmtFunctionDef) -> Option<Arc<Scope>> {
-        self.expected_function_scope_overrides
-            .get(&func_def.node_index().load())
-            .cloned()
     }
 }
 
@@ -131,19 +123,37 @@ fn next_node_index_for_suite(module: &mut Suite) -> u32 {
     collector.max.saturating_add(1)
 }
 
-#[derive(Clone, Debug)]
-struct SemanticStateInner {
-    source: SemanticSourceKind,
-    snapshot: SemanticSnapshot,
-    expected_module_scope: Option<Arc<Scope>>,
-    expected_scopes_by_id: HashMap<SemanticScopeId, Arc<Scope>>,
-    expected_scope_ids_by_raw_id: HashMap<usize, SemanticScopeId>,
+struct MissingNodeIndexAssigner {
+    next: u32,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SemanticSourceKind {
-    ScopeTree,
-    Ruff,
+impl Transformer for MissingNodeIndexAssigner {
+    fn visit_stmt(&mut self, stmt: &mut ast::Stmt) {
+        if stmt.node_index().load() == NodeIndex::NONE {
+            stmt.node_index().set(NodeIndex::from(self.next));
+            self.next += 1;
+        }
+        crate::transformer::walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &mut ast::Expr) {
+        if expr.node_index().load() == NodeIndex::NONE {
+            expr.node_index().set(NodeIndex::from(self.next));
+            self.next += 1;
+        }
+        crate::transformer::walk_expr(self, expr);
+    }
+}
+
+fn ensure_node_indices_for_suite(module: &mut Suite) -> u32 {
+    let next = next_node_index_for_suite(module);
+    MissingNodeIndexAssigner { next }.visit_body(module);
+    next_node_index_for_suite(module)
+}
+
+#[derive(Clone, Debug)]
+struct SemanticStateInner {
+    snapshot: SemanticSnapshot,
 }
 
 #[derive(Clone, Debug)]
@@ -167,17 +177,6 @@ impl SemanticScope {
         self.state.inner.snapshot.scope(self.scope_id)
     }
 
-    fn expected_raw_scope(&self) -> Option<Arc<Scope>> {
-        if !matches!(self.state.inner.source, SemanticSourceKind::ScopeTree) {
-            return None;
-        }
-        self.state
-            .inner
-            .expected_scopes_by_id
-            .get(&self.scope_id)
-            .cloned()
-    }
-
     pub(crate) fn kind(&self) -> SemanticScopeKind {
         self.data().kind
     }
@@ -187,13 +186,6 @@ impl SemanticScope {
         name: &str,
         use_kind: SemanticBindingUse,
     ) -> SemanticBindingKind {
-        if let Some(raw_scope) = self.expected_raw_scope() {
-            let use_kind = match use_kind {
-                SemanticBindingUse::Load => BindingUse::Load,
-                SemanticBindingUse::Modify => BindingUse::Modify,
-            };
-            return semantic_binding_kind(raw_scope.binding_in_scope(name, use_kind));
-        }
         match self.binding_in_current_scope(name) {
             Some(binding) => binding,
             None => match use_kind {
@@ -209,24 +201,10 @@ impl SemanticScope {
     }
 
     pub(crate) fn binding_in_current_scope(&self, name: &str) -> Option<SemanticBindingKind> {
-        if let Some(raw_scope) = self.expected_raw_scope() {
-            return raw_scope
-                .scope_bindings()
-                .get(name)
-                .copied()
-                .map(semantic_binding_kind);
-        }
         self.data().bindings.get(name).copied()
     }
 
     pub(crate) fn local_binding_names(&self) -> HashSet<String> {
-        if let Some(raw_scope) = self.expected_raw_scope() {
-            return raw_scope
-                .scope_bindings()
-                .iter()
-                .filter_map(|(name, kind)| matches!(kind, BindingKind::Local).then(|| name.clone()))
-                .collect();
-        }
         self.data()
             .bindings
             .iter()
@@ -240,19 +218,6 @@ impl SemanticScope {
         &self,
         func_def: &StmtFunctionDef,
     ) -> Option<SemanticScope> {
-        if let Some(raw_scope) = self.expected_raw_scope() {
-            return raw_scope
-                .child_scope_for_function(func_def)
-                .ok()
-                .and_then(|child_scope| {
-                    self.state
-                        .inner
-                        .expected_scope_ids_by_raw_id
-                        .get(&child_scope.id())
-                        .copied()
-                })
-                .map(|scope_id| self.state.scope(scope_id));
-        }
         if let Some(scope_id) = self.state.function_scope_id(func_def) {
             let child = self.state.inner.snapshot.scope(scope_id);
             if child.parent == Some(self.scope_id) {
@@ -270,19 +235,6 @@ impl SemanticScope {
     }
 
     pub(crate) fn child_scope_for_class(&self, class_def: &StmtClassDef) -> Option<SemanticScope> {
-        if let Some(raw_scope) = self.expected_raw_scope() {
-            return raw_scope
-                .child_scope_for_class(class_def)
-                .ok()
-                .and_then(|child_scope| {
-                    self.state
-                        .inner
-                        .expected_scope_ids_by_raw_id
-                        .get(&child_scope.id())
-                        .copied()
-                })
-                .map(|scope_id| self.state.scope(scope_id));
-        }
         self.data()
             .class_children
             .get(&class_def.node_index().load())
@@ -294,30 +246,14 @@ impl SemanticScope {
     }
 
     pub(crate) fn local_cell_bindings(&self) -> HashSet<String> {
-        if let Some(raw_scope) = self.expected_raw_scope() {
-            return raw_scope.local_cell_bindings();
-        }
         self.data().local_cell_bindings.clone()
     }
 
     pub(crate) fn has_binding(&self, name: &str) -> bool {
-        if let Some(raw_scope) = self.expected_raw_scope() {
-            return raw_scope.scope_bindings().contains_key(name);
-        }
         self.data().bindings.contains_key(name)
     }
 
     pub(crate) fn parent_scope(&self) -> Option<SemanticScope> {
-        if let Some(raw_scope) = self.expected_raw_scope() {
-            return raw_scope.parent_scope().and_then(|parent_scope| {
-                self.state
-                    .inner
-                    .expected_scope_ids_by_raw_id
-                    .get(&parent_scope.id())
-                    .copied()
-                    .map(|scope_id| self.state.scope(scope_id))
-            });
-        }
         self.data()
             .parent
             .map(|scope_id| self.state.scope(scope_id))
@@ -342,12 +278,6 @@ impl SemanticScope {
     }
 
     pub(crate) fn child_function_qualname(&self, name: &str) -> String {
-        if let Some(raw_scope) = self.expected_raw_scope() {
-            return raw_scope
-                .qualnamer
-                .enter_scope(ScopeKind::Function, name.to_string())
-                .qualname;
-        }
         child_qualname(self.data(), name)
     }
 }
@@ -571,145 +501,16 @@ struct ScopePreparation {
     local_defs: HashSet<String>,
 }
 
-fn semantic_binding_kind(binding: BindingKind) -> SemanticBindingKind {
-    match binding {
-        BindingKind::Local => SemanticBindingKind::Local,
-        BindingKind::Nonlocal => SemanticBindingKind::Nonlocal,
-        BindingKind::Global => SemanticBindingKind::Global,
-    }
-}
-
-fn snapshot_scope_data(scope: &Scope, parent: Option<SemanticScopeId>) -> SemanticScopeData {
-    let kind = match scope.kind() {
-        ScopeKind::Function => SemanticScopeKind::Function,
-        ScopeKind::Class => SemanticScopeKind::Class,
-        ScopeKind::Module => SemanticScopeKind::Module,
-    };
-    let bindings = scope
-        .scope_bindings()
-        .iter()
-        .map(|(name, binding)| (name.clone(), semantic_binding_kind(*binding)))
-        .collect();
-    let local_defs = scope
-        .scope_bindings()
-        .keys()
-        .filter(|name| scope.is_local_definition(name))
-        .cloned()
-        .collect();
-    SemanticScopeData {
-        kind,
-        bindings,
-        local_defs,
-        local_cell_bindings: scope.local_cell_bindings(),
-        parent,
-        qualname: scope.qualnamer.qualname.clone(),
-        function_children: HashMap::new(),
-        class_children: HashMap::new(),
-    }
-}
-
-struct ScopeTreeSnapshotBuilder {
-    snapshot: SemanticSnapshot,
-    scope_stack: Vec<(SemanticScopeId, Arc<Scope>)>,
-    expected_scopes_by_id: HashMap<SemanticScopeId, Arc<Scope>>,
-    expected_scope_ids_by_raw_id: HashMap<usize, SemanticScopeId>,
-}
-
-impl ScopeTreeSnapshotBuilder {
-    fn build(module: &mut Suite, module_scope: Arc<Scope>) -> SemanticStateInner {
-        let root_id = SemanticScopeId(0);
-        let mut builder = Self {
-            snapshot: SemanticSnapshot {
-                scopes: vec![snapshot_scope_data(&module_scope, None)],
-            },
-            scope_stack: vec![(root_id, module_scope.clone())],
-            expected_scopes_by_id: HashMap::from([(root_id, module_scope.clone())]),
-            expected_scope_ids_by_raw_id: HashMap::from([(module_scope.id(), root_id)]),
-        };
-        let mut cloned_module = module.clone();
-        builder.visit_body(&mut cloned_module);
-        SemanticStateInner {
-            source: SemanticSourceKind::ScopeTree,
-            snapshot: builder.snapshot,
-            expected_module_scope: Some(module_scope),
-            expected_scopes_by_id: builder.expected_scopes_by_id,
-            expected_scope_ids_by_raw_id: builder.expected_scope_ids_by_raw_id,
-        }
-    }
-}
-
-impl Transformer for ScopeTreeSnapshotBuilder {
-    fn visit_stmt(&mut self, stmt: &mut ast::Stmt) {
-        match stmt {
-            ast::Stmt::FunctionDef(func_def) => {
-                let (parent_id, parent_scope) = self
-                    .scope_stack
-                    .last()
-                    .cloned()
-                    .expect("missing current scope while building scope-tree snapshot");
-                let child_scope = parent_scope
-                    .tree
-                    .child_scope_for_function(func_def)
-                    .expect("missing child function scope in scope-tree snapshot");
-                let scope_id = SemanticScopeId(self.snapshot.scopes.len());
-                self.snapshot
-                    .scopes
-                    .push(snapshot_scope_data(&child_scope, Some(parent_id)));
-                self.snapshot
-                    .scope_mut(parent_id)
-                    .function_children
-                    .insert(func_def.node_index().load(), scope_id);
-                self.expected_scopes_by_id
-                    .insert(scope_id, child_scope.clone());
-                self.expected_scope_ids_by_raw_id
-                    .insert(child_scope.id(), scope_id);
-                self.scope_stack.push((scope_id, child_scope));
-                self.visit_body(&mut func_def.body);
-                self.scope_stack.pop();
-            }
-            ast::Stmt::ClassDef(class_def) => {
-                let (parent_id, parent_scope) = self
-                    .scope_stack
-                    .last()
-                    .cloned()
-                    .expect("missing current scope while building scope-tree snapshot");
-                let child_scope = parent_scope
-                    .tree
-                    .child_scope_for_class(class_def)
-                    .expect("missing child class scope in scope-tree snapshot");
-                let scope_id = SemanticScopeId(self.snapshot.scopes.len());
-                self.snapshot
-                    .scopes
-                    .push(snapshot_scope_data(&child_scope, Some(parent_id)));
-                self.snapshot
-                    .scope_mut(parent_id)
-                    .class_children
-                    .insert(class_def.node_index().load(), scope_id);
-                self.expected_scopes_by_id
-                    .insert(scope_id, child_scope.clone());
-                self.expected_scope_ids_by_raw_id
-                    .insert(child_scope.id(), scope_id);
-                self.scope_stack.push((scope_id, child_scope));
-                self.visit_body(&mut class_def.body);
-                self.scope_stack.pop();
-            }
-            _ => crate::transformer::walk_stmt(self, stmt),
-        }
-    }
-}
-
 struct RuffSemanticSnapshotBuilder {
     semantic: RuffSemanticModel<'static>,
     snapshot: SemanticSnapshot,
     scope_stack: Vec<(SemanticScopeId, RuffScopeId)>,
     implicit_nonlocals_by_scope: HashMap<SemanticScopeId, HashSet<String>>,
-    expected_scopes_by_id: HashMap<SemanticScopeId, Arc<Scope>>,
-    expected_scope_ids_by_raw_id: HashMap<usize, SemanticScopeId>,
     next_node_index: u32,
 }
 
 impl RuffSemanticSnapshotBuilder {
-    fn build(module: &mut Suite, expected_module_scope: Option<Arc<Scope>>) -> SemanticStateInner {
+    fn build(module: &mut Suite) -> SemanticStateInner {
         let module_for_model = Box::leak(Box::new(module.clone()));
         let module_for_build = Box::leak(Box::new(module.clone()));
         let path = Path::new("<semantic-state>");
@@ -738,20 +539,8 @@ impl RuffSemanticSnapshotBuilder {
             },
             scope_stack: vec![(SemanticScopeId(0), RuffScopeId::global())],
             implicit_nonlocals_by_scope: HashMap::new(),
-            expected_scopes_by_id: HashMap::new(),
-            expected_scope_ids_by_raw_id: HashMap::new(),
             next_node_index: 1,
         };
-        if let Some(expected_module_scope) = expected_module_scope.clone() {
-            builder
-                .expected_scopes_by_id
-                .insert(SemanticScopeId(0), expected_module_scope);
-            if let Some(scope) = builder.expected_scopes_by_id.get(&SemanticScopeId(0)) {
-                builder
-                    .expected_scope_ids_by_raw_id
-                    .insert(scope.id(), SemanticScopeId(0));
-            }
-        }
 
         let module_preparation = builder.prepare_current_scope(module_for_build, &[]);
         {
@@ -764,11 +553,7 @@ impl RuffSemanticSnapshotBuilder {
         builder.compute_local_cell_bindings();
 
         SemanticStateInner {
-            source: SemanticSourceKind::Ruff,
             snapshot: builder.snapshot,
-            expected_module_scope,
-            expected_scopes_by_id: builder.expected_scopes_by_id,
-            expected_scope_ids_by_raw_id: builder.expected_scope_ids_by_raw_id,
         }
     }
 
@@ -923,7 +708,6 @@ impl RuffSemanticSnapshotBuilder {
         kind: SemanticScopeKind,
         name: &str,
         node_index: NodeIndex,
-        expected_scope: Option<Arc<Scope>>,
         preparation: ScopePreparation,
     ) -> SemanticScopeId {
         let parent_id = self.current_ids().0;
@@ -953,11 +737,6 @@ impl RuffSemanticSnapshotBuilder {
                     .insert(node_index, scope_id);
             }
             SemanticScopeKind::Module => {}
-        }
-        if let Some(expected_scope) = expected_scope {
-            self.expected_scope_ids_by_raw_id
-                .insert(expected_scope.id(), scope_id);
-            self.expected_scopes_by_id.insert(scope_id, expected_scope);
         }
         scope_id
     }
@@ -1050,19 +829,10 @@ impl Transformer for RuffSemanticSnapshotBuilder {
                     .push_scope(RuffScopeKind::Function(leaked_func));
                 let parameters = parameter_refs(&func_def.parameters);
                 let preparation = self.prepare_current_scope(&mut func_def.body, &parameters);
-                let expected_scope = self
-                    .expected_scopes_by_id
-                    .get(&SemanticScopeId(0))
-                    .and_then(|_| {
-                        self.expected_scopes_by_id
-                            .get(&self.current_ids().0)
-                            .and_then(|scope| scope.child_scope_for_function(func_def).ok())
-                    });
                 let scope_id = self.push_snapshot_scope(
                     SemanticScopeKind::Function,
                     func_def.name.id.as_str(),
                     node_index,
-                    expected_scope,
                     preparation,
                 );
                 let ruff_scope_id = self.semantic.scope_id;
@@ -1076,19 +846,10 @@ impl Transformer for RuffSemanticSnapshotBuilder {
                 let leaked_class = Box::leak(Box::new(class_def.clone()));
                 self.semantic.push_scope(RuffScopeKind::Class(leaked_class));
                 let preparation = self.prepare_current_scope(&mut class_def.body, &[]);
-                let expected_scope = self
-                    .expected_scopes_by_id
-                    .get(&SemanticScopeId(0))
-                    .and_then(|_| {
-                        self.expected_scopes_by_id
-                            .get(&self.current_ids().0)
-                            .and_then(|scope| scope.child_scope_for_class(class_def).ok())
-                    });
                 let scope_id = self.push_snapshot_scope(
                     SemanticScopeKind::Class,
                     class_def.name.id.as_str(),
                     node_index,
-                    expected_scope,
                     preparation,
                 );
                 let ruff_scope_id = self.semantic.scope_id;
@@ -1132,23 +893,11 @@ fn parameter_refs(parameters: &ast::Parameters) -> Vec<(String, TextRange)> {
 }
 
 impl SemanticAstState {
-    pub(crate) fn from_scope_tree(module: &mut Suite, module_scope: Arc<Scope>) -> Self {
-        let inner = Arc::new(ScopeTreeSnapshotBuilder::build(module, module_scope));
+    pub(crate) fn from_ruff(module: &mut Suite) -> Self {
+        let next_node_index = ensure_node_indices_for_suite(module);
+        let inner = Arc::new(RuffSemanticSnapshotBuilder::build(module));
         let mut provenance = SemanticProvenance::default();
-        provenance.next_node_index = next_node_index_for_suite(module);
-        Self {
-            inner,
-            provenance: Arc::new(Mutex::new(provenance)),
-        }
-    }
-
-    pub(crate) fn from_ruff(module: &mut Suite, expected_module_scope: Option<Arc<Scope>>) -> Self {
-        let inner = Arc::new(RuffSemanticSnapshotBuilder::build(
-            module,
-            expected_module_scope,
-        ));
-        let mut provenance = SemanticProvenance::default();
-        provenance.next_node_index = next_node_index_for_suite(module);
+        provenance.next_node_index = next_node_index;
         Self {
             inner,
             provenance: Arc::new(Mutex::new(provenance)),
@@ -1201,105 +950,10 @@ impl SemanticAstState {
         provenance
             .function_scope_overrides
             .insert(node_index, scope.scope_id);
-        if let Some(expected_scope) = self.inner.expected_scopes_by_id.get(&scope.scope_id) {
-            provenance
-                .expected_function_scope_overrides
-                .insert(node_index, expected_scope.clone());
-        }
-    }
-
-    fn register_function_scope_override_for_expected_scope(
-        &mut self,
-        func_def: &StmtFunctionDef,
-        expected_scope: Arc<Scope>,
-    ) {
-        let Some(scope_id) = self
-            .inner
-            .expected_scope_ids_by_raw_id
-            .get(&expected_scope.id())
-            .copied()
-        else {
-            panic!(
-                "missing semantic scope for expected raw scope id {} while mirroring override",
-                expected_scope.id()
-            );
-        };
-        let mut provenance = self
-            .provenance
-            .lock()
-            .expect("semantic provenance mutex poisoned");
-        let node_index = provenance.ensure_node_index(func_def);
-        provenance
-            .function_scope_overrides
-            .insert(node_index, scope_id);
-        provenance
-            .expected_function_scope_overrides
-            .insert(node_index, expected_scope);
     }
 
     pub(crate) fn function_scope(&self, func_def: &StmtFunctionDef) -> Option<SemanticScope> {
-        if matches!(self.inner.source, SemanticSourceKind::ScopeTree) {
-            if let Some(expected_scope) = self
-                .provenance
-                .lock()
-                .expect("semantic provenance mutex poisoned")
-                .expected_function_scope_override(func_def)
-            {
-                if let Some(scope_id) = self
-                    .inner
-                    .expected_scope_ids_by_raw_id
-                    .get(&expected_scope.id())
-                    .copied()
-                {
-                    return Some(self.scope(scope_id));
-                }
-            }
-            if let Some(module_scope) = self.inner.expected_module_scope.as_ref() {
-                if let Ok(scope) = module_scope.tree.scope_for_def(func_def) {
-                    if let Some(scope_id) = self
-                        .inner
-                        .expected_scope_ids_by_raw_id
-                        .get(&scope.id())
-                        .copied()
-                    {
-                        return Some(self.scope(scope_id));
-                    }
-                }
-            }
-        }
         self.function_scope_id(func_def)
-            .map(|scope_id| self.scope(scope_id))
-    }
-
-    pub(crate) fn class_scope(&self, class_def: &StmtClassDef) -> Option<SemanticScope> {
-        if matches!(self.inner.source, SemanticSourceKind::ScopeTree) {
-            if let Some(module_scope) = self.inner.expected_module_scope.as_ref() {
-                if let Ok(scope) = module_scope.tree.scope_for_def(class_def) {
-                    if let Some(scope_id) = self
-                        .inner
-                        .expected_scope_ids_by_raw_id
-                        .get(&scope.id())
-                        .copied()
-                    {
-                        return Some(self.scope(scope_id));
-                    }
-                }
-            }
-        }
-        self.inner
-            .snapshot
-            .scope(SemanticScopeId(0))
-            .class_children
-            .get(&class_def.node_index().load())
-            .copied()
-            .or_else(|| {
-                self.inner.snapshot.scopes.iter().find_map(|scope| {
-                    scope
-                        .class_children
-                        .get(&class_def.node_index().load())
-                        .copied()
-                })
-            })
             .map(|scope_id| self.scope(scope_id))
     }
 
@@ -1310,415 +964,19 @@ impl SemanticAstState {
             .function_scope_override(func_def)
             .is_some()
     }
-
-    fn expected_module_scope(&self) -> Option<Arc<Scope>> {
-        self.inner.expected_module_scope.clone()
-    }
-
-    fn expected_function_scope_override(&self, func_def: &StmtFunctionDef) -> Option<Arc<Scope>> {
-        self.provenance
-            .lock()
-            .expect("semantic provenance mutex poisoned")
-            .expected_function_scope_override(func_def)
-    }
-
-    pub(crate) fn mirror_function_scope_overrides_to(
-        &self,
-        dest: &mut SemanticAstState,
-        module: &mut Suite,
-    ) {
-        struct OverrideMirror<'a> {
-            source: &'a SemanticAstState,
-            dest: &'a mut SemanticAstState,
-        }
-
-        impl Transformer for OverrideMirror<'_> {
-            fn visit_stmt(&mut self, stmt: &mut ast::Stmt) {
-                if let ast::Stmt::FunctionDef(func_def) = stmt {
-                    if let Some(expected_scope) =
-                        self.source.expected_function_scope_override(func_def)
-                    {
-                        self.dest
-                            .register_function_scope_override_for_expected_scope(
-                                func_def,
-                                expected_scope,
-                            );
-                    }
-                }
-                crate::transformer::walk_stmt(self, stmt);
-            }
-        }
-
-        let mut cloned_module = module.clone();
-        OverrideMirror { source: self, dest }.visit_body(&mut cloned_module);
-    }
-}
-
-trait SemanticResolver {
-    type Scope: Clone;
-
-    fn module_scope(&self) -> Self::Scope;
-    fn function_scope(&self, func_def: &StmtFunctionDef) -> Option<Self::Scope>;
-    fn class_scope(&self, class_def: &StmtClassDef) -> Option<Self::Scope>;
-    fn scope_kind(&self, scope: &Self::Scope) -> SemanticScopeKind;
-    fn binding_in_scope_checked(
-        &self,
-        scope: &Self::Scope,
-        name: &str,
-        use_kind: SemanticBindingUse,
-    ) -> Option<SemanticBindingKind>;
-    fn local_cell_bindings(&self, scope: &Self::Scope) -> HashSet<String>;
-}
-
-impl SemanticResolver for SemanticAstState {
-    type Scope = SemanticScope;
-
-    fn module_scope(&self) -> Self::Scope {
-        SemanticAstState::module_scope(self)
-    }
-
-    fn function_scope(&self, func_def: &StmtFunctionDef) -> Option<Self::Scope> {
-        SemanticAstState::function_scope(self, func_def)
-    }
-
-    fn class_scope(&self, class_def: &StmtClassDef) -> Option<Self::Scope> {
-        SemanticAstState::class_scope(self, class_def)
-    }
-
-    fn scope_kind(&self, scope: &Self::Scope) -> SemanticScopeKind {
-        scope.kind()
-    }
-
-    fn binding_in_scope_checked(
-        &self,
-        scope: &Self::Scope,
-        name: &str,
-        use_kind: SemanticBindingUse,
-    ) -> Option<SemanticBindingKind> {
-        match scope.binding_in_current_scope(name) {
-            Some(binding) => Some(binding),
-            None => match use_kind {
-                SemanticBindingUse::Load => Some(SemanticBindingKind::Local),
-                SemanticBindingUse::Modify => None,
-            },
-        }
-    }
-
-    fn local_cell_bindings(&self, scope: &Self::Scope) -> HashSet<String> {
-        scope.local_cell_bindings()
-    }
-}
-
-#[derive(Clone)]
-struct ScopeTreeSemanticResolver {
-    module_scope: Arc<Scope>,
-    provenance: Arc<Mutex<SemanticProvenance>>,
-}
-
-impl ScopeTreeSemanticResolver {
-    fn from_semantic_state(semantic_state: &SemanticAstState) -> Option<Self> {
-        semantic_state
-            .expected_module_scope()
-            .map(|module_scope| Self {
-                module_scope,
-                provenance: semantic_state.provenance.clone(),
-            })
-    }
-}
-
-impl SemanticResolver for ScopeTreeSemanticResolver {
-    type Scope = Arc<Scope>;
-
-    fn module_scope(&self) -> Self::Scope {
-        self.module_scope.clone()
-    }
-
-    fn function_scope(&self, func_def: &StmtFunctionDef) -> Option<Self::Scope> {
-        self.provenance
-            .lock()
-            .expect("semantic provenance mutex poisoned")
-            .expected_function_scope_override(func_def)
-            .or_else(|| self.module_scope.tree.scope_for_def(func_def).ok())
-    }
-
-    fn class_scope(&self, class_def: &StmtClassDef) -> Option<Self::Scope> {
-        self.module_scope.tree.scope_for_def(class_def).ok()
-    }
-
-    fn scope_kind(&self, scope: &Self::Scope) -> SemanticScopeKind {
-        match scope.kind() {
-            ScopeKind::Function => SemanticScopeKind::Function,
-            ScopeKind::Class => SemanticScopeKind::Class,
-            ScopeKind::Module => SemanticScopeKind::Module,
-        }
-    }
-
-    fn binding_in_scope_checked(
-        &self,
-        scope: &Self::Scope,
-        name: &str,
-        use_kind: SemanticBindingUse,
-    ) -> Option<SemanticBindingKind> {
-        match scope.scope_bindings().get(name).copied() {
-            Some(crate::passes::ast_to_ast::scope::BindingKind::Local) => {
-                Some(SemanticBindingKind::Local)
-            }
-            Some(crate::passes::ast_to_ast::scope::BindingKind::Nonlocal) => {
-                Some(SemanticBindingKind::Nonlocal)
-            }
-            Some(crate::passes::ast_to_ast::scope::BindingKind::Global) => {
-                Some(SemanticBindingKind::Global)
-            }
-            None => match use_kind {
-                SemanticBindingUse::Load => Some(SemanticBindingKind::Local),
-                SemanticBindingUse::Modify => None,
-            },
-        }
-    }
-
-    fn local_cell_bindings(&self, scope: &Self::Scope) -> HashSet<String> {
-        scope.local_cell_bindings()
-    }
-}
-
-fn compare_semantic_resolvers<Expected, Actual>(
-    module: &mut Suite,
-    expected: &Expected,
-    actual: &Actual,
-) -> Vec<String>
-where
-    Expected: SemanticResolver,
-    Actual: SemanticResolver,
-{
-    struct Comparator<'a, Expected: SemanticResolver, Actual: SemanticResolver> {
-        expected: &'a Expected,
-        actual: &'a Actual,
-        expected_scope_stack: Vec<Expected::Scope>,
-        actual_scope_stack: Vec<Actual::Scope>,
-        issues: Vec<String>,
-    }
-
-    impl<Expected, Actual> Comparator<'_, Expected, Actual>
-    where
-        Expected: SemanticResolver,
-        Actual: SemanticResolver,
-    {
-        fn compare_name(&mut self, name: &ast::ExprName) {
-            let id = name.id.as_str();
-            if id == "__class__" {
-                return;
-            }
-            let use_kind = match name.ctx {
-                ExprContext::Load => SemanticBindingUse::Load,
-                ExprContext::Store | ExprContext::Del => SemanticBindingUse::Modify,
-                ExprContext::Invalid => return,
-            };
-            let Some(expected_scope) = self.expected_scope_stack.last() else {
-                self.issues
-                    .push(format!("missing expected scope for name {id}"));
-                return;
-            };
-            let Some(actual_scope) = self.actual_scope_stack.last() else {
-                self.issues
-                    .push(format!("missing actual scope for name {id}"));
-                return;
-            };
-            let expected_binding =
-                self.expected
-                    .binding_in_scope_checked(expected_scope, id, use_kind);
-            let actual_binding = self
-                .actual
-                .binding_in_scope_checked(actual_scope, id, use_kind);
-            match (expected_binding, actual_binding) {
-                (Some(expected_binding), Some(actual_binding)) => {
-                    if expected_binding != actual_binding {
-                        self.issues.push(format!(
-                            "binding mismatch for name {id} at {:?} {:?}: expected {:?}, got {:?}",
-                            name.node_index().load(),
-                            name.range(),
-                            expected_binding,
-                            actual_binding
-                        ));
-                    }
-                }
-                (Some(expected_binding), None) => self.issues.push(format!(
-                    "binding missing in actual resolver for name {id} at {:?} {:?}: expected {:?}",
-                    name.node_index().load(),
-                    name.range(),
-                    expected_binding
-                )),
-                (None, Some(actual_binding)) => self.issues.push(format!(
-                    "binding missing in expected resolver for name {id} at {:?} {:?}: got {:?}",
-                    name.node_index().load(),
-                    name.range(),
-                    actual_binding
-                )),
-                (None, None) => {}
-            }
-        }
-
-        fn compare_scope_entry<EScope, AScope>(
-            &mut self,
-            label: &str,
-            name: &str,
-            node_index: NodeIndex,
-            expected_scope: Option<EScope>,
-            actual_scope: Option<AScope>,
-        ) where
-            EScope: Into<Expected::Scope>,
-            AScope: Into<Actual::Scope>,
-        {
-            match (expected_scope.map(Into::into), actual_scope.map(Into::into)) {
-                (Some(expected_scope), Some(actual_scope)) => {
-                    let expected_kind = self.expected.scope_kind(&expected_scope);
-                    let actual_kind = self.actual.scope_kind(&actual_scope);
-                    if expected_kind != actual_kind {
-                        self.issues.push(format!(
-                            "{label} scope mismatch for {name} at {:?}: expected {:?}, got {:?}",
-                            node_index, expected_kind, actual_kind
-                        ));
-                    }
-                    let expected_cells = self.expected.local_cell_bindings(&expected_scope);
-                    let actual_cells = self.actual.local_cell_bindings(&actual_scope);
-                    if expected_cells != actual_cells {
-                        self.issues.push(format!(
-                            "{label} cell bindings mismatch for {name} at {:?}: expected {:?}, got {:?}",
-                            node_index, expected_cells, actual_cells
-                        ));
-                    }
-                    self.expected_scope_stack.push(expected_scope);
-                    self.actual_scope_stack.push(actual_scope);
-                }
-                (None, None) => {}
-                (Some(_), None) => self.issues.push(format!(
-                    "{label} scope missing in actual resolver for {name} at {:?}",
-                    node_index
-                )),
-                (None, Some(_)) => self.issues.push(format!(
-                    "{label} scope missing in expected resolver for {name} at {:?}",
-                    node_index
-                )),
-            }
-        }
-
-        fn pop_scope_pair(&mut self) {
-            self.expected_scope_stack.pop();
-            self.actual_scope_stack.pop();
-        }
-    }
-
-    impl<Expected, Actual> Transformer for Comparator<'_, Expected, Actual>
-    where
-        Expected: SemanticResolver,
-        Actual: SemanticResolver,
-    {
-        fn visit_expr(&mut self, expr: &mut ast::Expr) {
-            if let ast::Expr::Name(name) = expr {
-                self.compare_name(name);
-            }
-            crate::transformer::walk_expr(self, expr);
-        }
-
-        fn visit_stmt(&mut self, stmt: &mut ast::Stmt) {
-            match stmt {
-                ast::Stmt::FunctionDef(func_def) => {
-                    for decorator in &mut func_def.decorator_list {
-                        self.visit_decorator(decorator);
-                    }
-                    if let Some(type_params) = func_def.type_params.as_mut() {
-                        self.visit_type_params(type_params);
-                    }
-                    self.visit_parameters(&mut func_def.parameters);
-                    if let Some(returns) = func_def.returns.as_mut() {
-                        self.visit_annotation(returns);
-                    }
-                    let previous_expected_len = self.expected_scope_stack.len();
-                    self.compare_scope_entry(
-                        "function",
-                        func_def.name.id.as_str(),
-                        func_def.node_index().load(),
-                        self.expected.function_scope(func_def),
-                        self.actual.function_scope(func_def),
-                    );
-                    if self.expected_scope_stack.len() == previous_expected_len + 1 {
-                        self.visit_body(suite_mut(&mut func_def.body));
-                        self.pop_scope_pair();
-                    } else {
-                        self.visit_body(suite_mut(&mut func_def.body));
-                    }
-                }
-                ast::Stmt::ClassDef(class_def) => {
-                    for decorator in &mut class_def.decorator_list {
-                        self.visit_decorator(decorator);
-                    }
-                    if let Some(type_params) = class_def.type_params.as_mut() {
-                        self.visit_type_params(type_params);
-                    }
-                    if let Some(arguments) = class_def.arguments.as_mut() {
-                        self.visit_arguments(arguments);
-                    }
-                    let previous_expected_len = self.expected_scope_stack.len();
-                    self.compare_scope_entry(
-                        "class",
-                        class_def.name.id.as_str(),
-                        class_def.node_index().load(),
-                        self.expected.class_scope(class_def),
-                        self.actual.class_scope(class_def),
-                    );
-                    if self.expected_scope_stack.len() == previous_expected_len + 1 {
-                        self.visit_body(suite_mut(&mut class_def.body));
-                        self.pop_scope_pair();
-                    } else {
-                        self.visit_body(suite_mut(&mut class_def.body));
-                    }
-                }
-                _ => crate::transformer::walk_stmt(self, stmt),
-            }
-        }
-    }
-
-    let mut cloned_module = module.clone();
-    let mut comparator = Comparator {
-        expected,
-        actual,
-        expected_scope_stack: vec![expected.module_scope()],
-        actual_scope_stack: vec![actual.module_scope()],
-        issues: Vec::new(),
-    };
-    comparator.visit_body(&mut cloned_module);
-    comparator.issues
-}
-
-pub(crate) fn debug_assert_matches_scope_tree(
-    module: &mut Suite,
-    semantic_state: &SemanticAstState,
-) {
-    if !cfg!(debug_assertions) {
-        return;
-    }
-    let Some(expected) = ScopeTreeSemanticResolver::from_semantic_state(semantic_state) else {
-        return;
-    };
-    let issues = compare_semantic_resolvers(module, &expected, semantic_state);
-    assert!(
-        issues.is_empty(),
-        "semantic resolver mismatch:\n{}",
-        issues.join("\n")
-    );
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{compare_semantic_resolvers, ScopeTreeSemanticResolver, SemanticAstState};
+    use super::SemanticAstState;
     use crate::passes::ast_to_ast::context::Context;
     use crate::passes::ast_to_ast::rewrite_class_def::class_body::rewrite_class_body_scopes;
-    use crate::passes::ast_to_ast::scope::analyze_module_scope;
     use crate::passes::ast_to_ast::Options;
     use crate::transform_str_to_ruff_with_options;
     use ruff_python_parser::parse_module;
 
     #[test]
-    fn semantic_comparison_accepts_class_helper_scope_overrides() {
+    fn semantic_state_keeps_class_helper_scope_overrides_transformable() {
         let source = concat!(
             "def outer():\n",
             "    shared = 1\n",
@@ -1730,85 +988,12 @@ mod tests {
         );
         let context = Context::new(Options::for_test(), source);
         let mut module = parse_module(source).unwrap().into_syntax().body;
-        let module_scope = analyze_module_scope(&mut module);
-        let mut semantic_state =
-            SemanticAstState::from_ruff(&mut module, Some(module_scope.clone()));
+        let mut semantic_state = SemanticAstState::from_ruff(&mut module);
         rewrite_class_body_scopes(&context, &mut semantic_state, &mut module);
-
-        let expected = ScopeTreeSemanticResolver::from_semantic_state(&semantic_state)
-            .expect("expected scope-tree resolver");
-        let issues = compare_semantic_resolvers(&mut module, &expected, &semantic_state);
-        assert!(issues.is_empty(), "{issues:#?}");
     }
 
     #[test]
-    fn semantic_comparison_detects_missing_class_helper_scope_overrides() {
-        let source = concat!(
-            "def outer():\n",
-            "    shared = 1\n",
-            "    class Box:\n",
-            "        probe = shared\n",
-            "        def get(self):\n",
-            "            return shared\n",
-            "    return Box\n",
-        );
-        let context = Context::new(Options::for_test(), source);
-        let mut module = parse_module(source).unwrap().into_syntax().body;
-        let module_scope = analyze_module_scope(&mut module);
-        let mut semantic_state =
-            SemanticAstState::from_ruff(&mut module, Some(module_scope.clone()));
-        rewrite_class_body_scopes(&context, &mut semantic_state, &mut module);
-
-        let expected = ScopeTreeSemanticResolver::from_semantic_state(&semantic_state)
-            .expect("expected scope-tree resolver");
-        let broken_state = SemanticAstState::from_ruff(&mut module, Some(module_scope));
-        let issues = compare_semantic_resolvers(&mut module, &expected, &broken_state);
-        assert!(!issues.is_empty(), "expected missing override mismatch");
-    }
-
-    #[test]
-    fn semantic_comparison_matches_ruff_for_original_scope_facts() {
-        let source = concat!(
-            "x = 0\n",
-            "def outer():\n",
-            "    y = 1\n",
-            "    class Box:\n",
-            "        probe = y\n",
-            "        other = x\n",
-            "    def inner():\n",
-            "        nonlocal y\n",
-            "        return y + x\n",
-            "    return Box, inner\n",
-        );
-        let mut module = parse_module(source).unwrap().into_syntax().body;
-        let module_scope = analyze_module_scope(&mut module);
-        let semantic_state = SemanticAstState::from_ruff(&mut module, Some(module_scope));
-        let expected = ScopeTreeSemanticResolver::from_semantic_state(&semantic_state)
-            .expect("expected scope-tree resolver");
-        let issues = compare_semantic_resolvers(&mut module, &expected, &semantic_state);
-        assert!(issues.is_empty(), "{issues:#?}");
-    }
-
-    #[test]
-    fn semantic_comparison_matches_ruff_for_implicit_class_nonlocal_roots() {
-        let source = concat!(
-            "def outer():\n",
-            "    y = 1\n",
-            "    class Box:\n",
-            "        probe = y\n",
-            "    return Box\n",
-        );
-        let mut module = parse_module(source).unwrap().into_syntax().body;
-        let module_scope = analyze_module_scope(&mut module);
-        let semantic_state = SemanticAstState::from_ruff(&mut module, Some(module_scope));
-        let expected = ScopeTreeSemanticResolver::from_semantic_state(&semantic_state)
-            .expect("expected scope-tree resolver");
-        let issues = compare_semantic_resolvers(&mut module, &expected, &semantic_state);
-        assert!(issues.is_empty(), "{issues:#?}");
-    }
-
-    #[test]
-    fn semantic_comparison_keeps_nested_class_binding_shape_transformable() {
+    fn semantic_state_keeps_nested_class_binding_shape_transformable() {
         let source = concat!(
             "class Container:\n",
             "    class Member:\n",
@@ -1822,7 +1007,7 @@ mod tests {
     }
 
     #[test]
-    fn semantic_comparison_keeps_genexpr_iter_once_shape_transformable() {
+    fn semantic_state_keeps_genexpr_iter_once_shape_transformable() {
         let source = concat!(
             "class Iterator:\n",
             "    def __next__(self):\n",

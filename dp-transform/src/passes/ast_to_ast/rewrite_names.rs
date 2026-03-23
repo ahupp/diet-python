@@ -827,7 +827,6 @@ impl NameScopeRewriter<'_> {
 mod tests {
     use super::rewrite_explicit_bindings;
     use crate::passes::ast_to_ast::context::Context;
-    use crate::passes::ast_to_ast::scope::analyze_module_scope;
     use crate::passes::ast_to_ast::semantic::SemanticAstState;
     use crate::passes::ast_to_ast::Options;
     use ruff_python_parser::parse_module;
@@ -842,8 +841,7 @@ mod tests {
         );
         let context = Context::new(Options::for_test(), source);
         let mut module = parse_module(source).unwrap().into_syntax().body;
-        let module_scope = analyze_module_scope(&mut module);
-        let semantic_state = SemanticAstState::from_ruff(&mut module, Some(module_scope));
+        let semantic_state = SemanticAstState::from_ruff(&mut module);
         rewrite_explicit_bindings(&context, &semantic_state, &mut module);
         let rendered = module
             .iter()
@@ -869,8 +867,7 @@ mod tests {
         );
         let context = Context::new(Options::for_test(), source);
         let mut module = parse_module(source).unwrap().into_syntax().body;
-        let module_scope = analyze_module_scope(&mut module);
-        let semantic_state = SemanticAstState::from_ruff(&mut module, Some(module_scope));
+        let semantic_state = SemanticAstState::from_ruff(&mut module);
         rewrite_explicit_bindings(&context, &semantic_state, &mut module);
         let rendered = module
             .iter()
