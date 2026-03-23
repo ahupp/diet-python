@@ -497,51 +497,32 @@ fn classify_capture_items(
     captures
 }
 
-struct LoweredFunctionInstantiationData {
+fn build_lowered_function_instantiation_expr(
     function_id: usize,
-    captures: Vec<LoweredFunctionCaptureValue>,
+    captures: &[LoweredFunctionCaptureValue],
     decorator_exprs: Vec<Expr>,
-    param_defaults: Vec<Expr>,
+    param_defaults: &[Expr],
     annotate_fn_expr: Expr,
     kind: LoweredFunctionInstantiationKind,
-}
-
-fn build_lowered_function_instantiation_data(
-    func: &ast::StmtFunctionDef,
-    preview: &LoweredFunctionInstantiationPreview,
-    decorator_exprs: Vec<Expr>,
-    annotate_fn_expr: Option<Expr>,
-) -> LoweredFunctionInstantiationData {
-    let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
-    LoweredFunctionInstantiationData {
-        function_id: preview.function_id,
-        captures: preview.captures.clone(),
-        decorator_exprs,
-        param_defaults,
-        annotate_fn_expr: annotate_fn_expr.unwrap_or_else(|| py_expr!("None")),
-        kind: preview.kind,
-    }
-}
-
-fn build_lowered_function_instantiation_expr(data: &LoweredFunctionInstantiationData) -> Expr {
-    let capture_expr = capture_items_to_expr(&data.captures);
-    let param_defaults_expr = param_defaults_to_expr(&data.param_defaults);
+) -> Expr {
+    let capture_expr = capture_items_to_expr(captures);
+    let param_defaults_expr = param_defaults_to_expr(param_defaults);
     let function_entry_expr = py_expr!(
         "__dp_make_function({function_id:literal}, {closure:expr}, {param_defaults:expr}, {module_globals:expr}, {annotate_fn:expr})",
-        function_id = data.function_id,
+        function_id = function_id,
         closure = capture_expr.clone(),
         param_defaults = param_defaults_expr.clone(),
         module_globals = py_expr!("__dp_globals()"),
-        annotate_fn = data.annotate_fn_expr.clone(),
+        annotate_fn = annotate_fn_expr.clone(),
     );
-    let base_function_expr = match data.kind {
+    let base_function_expr = match kind {
         LoweredFunctionInstantiationKind::DirectFunction => function_entry_expr,
         LoweredFunctionInstantiationKind::MarkCoroutineFunction => py_expr!(
             "__dp_mark_coroutine_function({func:expr})",
             func = function_entry_expr,
         ),
     };
-    rewrite_stmt::decorator::rewrite_exprs(data.decorator_exprs.clone(), base_function_expr)
+    rewrite_stmt::decorator::rewrite_exprs(decorator_exprs, base_function_expr)
 }
 
 #[cfg(test)]
@@ -862,14 +843,17 @@ fn build_lowered_function_instantiation_stmt(
     let annotate_helper = build_lowered_annotation_helper_binding(func, bind_name);
     let annotate_fn_expr = annotate_helper
         .as_ref()
-        .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone());
-    let instantiation_data = build_lowered_function_instantiation_data(
-        func,
-        preview,
+        .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone())
+        .unwrap_or_else(|| py_expr!("None"));
+    let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
+    let decorated = build_lowered_function_instantiation_expr(
+        preview.function_id,
+        &preview.captures,
         rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
+        &param_defaults,
         annotate_fn_expr,
+        preview.kind,
     );
-    let decorated = build_lowered_function_instantiation_expr(&instantiation_data);
     let binding_stmt =
         build_lowered_function_binding_stmt(bind_name, decorated, instantiation_plan.binding);
     let mut stmts = Vec::new();
