@@ -23,8 +23,7 @@ use crate::passes::ast_to_ast::semantic::{SemanticAstState, SemanticScope, Seman
 use crate::passes::RuffBlockPyPass;
 
 use crate::passes::function_identity::{
-    collect_function_identity_private, is_module_init_temp_name, resolve_runtime_function_identity,
-    FunctionIdentity,
+    collect_function_identity_private, resolve_runtime_function_identity, FunctionIdentity,
 };
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
@@ -41,7 +40,6 @@ struct FunctionScopeFrame {
     parent_name: Option<String>,
     cell_bindings: HashSet<String>,
     callable_semantic: BlockPyCallableSemanticInfo,
-    entering_module_init: bool,
     has_parent_hoisted_scope: bool,
     needs_cell_sync: bool,
     hoisted_to_parent: Vec<Stmt>,
@@ -766,7 +764,6 @@ mod tests {
                 parent_name: None,
                 cell_bindings: outer_scope.local_cell_bindings(),
                 callable_semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
-                entering_module_init: false,
                 has_parent_hoisted_scope: false,
                 needs_cell_sync: false,
                 hoisted_to_parent: Vec::new(),
@@ -970,7 +967,13 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
 ) -> BlockPyModule<RuffBlockPyPass> {
     let mut module = module;
     crate::passes::ast_to_ast::simplify::flatten(&mut module);
-    let semantic_state = SemanticAstState::from_ruff(&mut module);
+    let mut semantic_state = SemanticAstState::from_ruff(&mut module);
+    if !module
+        .iter()
+        .any(|stmt| matches!(stmt, Stmt::FunctionDef(func) if func.name.id.as_str() == "_dp_module_init"))
+    {
+        crate::driver::wrap_module_init(&mut semantic_state, &mut module);
+    }
     rewrite_ast_to_lowered_blockpy_module_plan_with_module(
         context,
         &mut module,
@@ -998,7 +1001,8 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
         function_scope_stack: Vec::new(),
         callable_defs: Vec::new(),
     };
-    rewriter.visit_body(module);
+    let module_init = BlockPyModuleRewriter::root_module_init_stmt(module);
+    rewriter.lower_root_function_def(module_init);
     BlockPyModule {
         callable_defs: rewriter.callable_defs,
     }
@@ -1192,16 +1196,14 @@ fn build_non_lowered_binding_stmt(
 
 fn plan_lowered_function_placement(
     bind_name: &str,
-    entering_module_init: bool,
     has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
     binding_stmt: Vec<Stmt>,
 ) -> LoweredFunctionPlacementPlan {
-    let keep_local_blocks = !entering_module_init
-        && has_parent_hoisted_scope
+    let keep_local_blocks = has_parent_hoisted_scope
         && (bind_name.starts_with("_dp_class_ns_") || bind_name.starts_with("_dp_define_class_"));
 
-    if entering_module_init || keep_local_blocks || !has_parent_hoisted_scope {
+    if keep_local_blocks || !has_parent_hoisted_scope {
         let mut body = function_hoisted;
         body.extend(binding_stmt);
         LoweredFunctionPlacementPlan::ReplaceWith(body)
@@ -1316,7 +1318,6 @@ fn rewrite_lowered_function_instantiation_stmt(
     func: &ast::StmtFunctionDef,
     preview: &LoweredFunctionInstantiationPreview,
     instantiation_plan: &LoweredFunctionInstantiationPlan,
-    entering_module_init: bool,
     has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
 ) -> Option<LoweredFunctionRewriteResult> {
@@ -1325,7 +1326,6 @@ fn rewrite_lowered_function_instantiation_stmt(
         parent_hoisted,
         plan_lowered_function_placement(
             instantiation_plan.identity.bind_name.as_str(),
-            entering_module_init,
             has_parent_hoisted_scope,
             function_hoisted,
             binding_stmt,
@@ -1341,7 +1341,6 @@ fn plan_and_rewrite_lowered_function_instantiation(
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     current_parent: Option<&str>,
     needs_cell_sync: bool,
-    entering_module_init: bool,
     has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
 ) -> Option<LoweredFunctionRewriteResult> {
@@ -1356,7 +1355,6 @@ fn plan_and_rewrite_lowered_function_instantiation(
         func,
         preview,
         &instantiation_plan,
-        entering_module_init,
         has_parent_hoisted_scope,
         function_hoisted,
     )?;
@@ -1429,7 +1427,6 @@ fn rewrite_function_def_stmt_via_blockpy(
     current_parent: Option<&str>,
     callable_semantic: &BlockPyCallableSemanticInfo,
     needs_cell_sync: bool,
-    entering_module_init: bool,
     has_parent_hoisted_scope: bool,
     function_hoisted: Vec<Stmt>,
     reserved_temp_names_stack: &mut Vec<HashSet<String>>,
@@ -1457,7 +1454,6 @@ fn rewrite_function_def_stmt_via_blockpy(
             function_identity_by_node,
             current_parent,
             needs_cell_sync,
-            entering_module_init,
             has_parent_hoisted_scope,
             function_hoisted,
         )
@@ -1479,6 +1475,16 @@ fn rewrite_function_def_stmt_via_blockpy(
 }
 
 impl BlockPyModuleRewriter<'_> {
+    fn root_module_init_stmt<'a>(module: &'a mut Suite) -> &'a mut ast::StmtFunctionDef {
+        module
+            .iter_mut()
+            .find_map(|stmt| match stmt {
+                Stmt::FunctionDef(func) if func.name.id.as_str() == "_dp_module_init" => Some(func),
+                _ => None,
+            })
+            .expect("missing _dp_module_init root function")
+    }
+
     fn walk_function_def_with_scope(&mut self, stmt: &mut Stmt) -> Option<FunctionScopeFrame> {
         let Stmt::FunctionDef(func) = stmt else {
             return None;
@@ -1490,7 +1496,6 @@ impl BlockPyModuleRewriter<'_> {
             .function_scope_stack
             .last()
             .map(|frame| frame.name.clone());
-        let entering_module_init = is_module_init_temp_name(fn_name.as_str());
         let has_parent_hoisted_scope = !self.function_scope_stack.is_empty();
         let cell_bindings = function_scope
             .as_ref()
@@ -1507,13 +1512,35 @@ impl BlockPyModuleRewriter<'_> {
             parent_name,
             cell_bindings,
             callable_semantic,
-            entering_module_init,
             has_parent_hoisted_scope,
             needs_cell_sync,
             hoisted_to_parent: Vec::new(),
         });
         walk_stmt(self, stmt);
         self.function_scope_stack.pop()
+    }
+
+    fn lower_root_function_def(&mut self, func: &mut ast::StmtFunctionDef) {
+        let mut root_stmt = Stmt::FunctionDef(func.clone());
+        let state = self
+            .walk_function_def_with_scope(&mut root_stmt)
+            .expect("expected root function scope");
+        let Stmt::FunctionDef(lowered_root) = root_stmt else {
+            panic!("root function rewrite should remain a function");
+        };
+        *func = lowered_root;
+        let lowered_plan = try_lower_function_to_blockpy_bundle(
+            self.context,
+            &self.function_identity_by_node,
+            func,
+            None,
+            &state.callable_semantic,
+            &mut self.reserved_temp_names_stack,
+            &mut self.next_block_id,
+            &mut self.next_function_id,
+        )
+        .expect("_dp_module_init should lower to BlockPy");
+        self.callable_defs.push(lowered_plan);
     }
 
     fn rewrite_visited_function_def(
@@ -1533,7 +1560,6 @@ impl BlockPyModuleRewriter<'_> {
             state.parent_name.as_deref(),
             &state.callable_semantic,
             state.needs_cell_sync,
-            state.entering_module_init,
             state.has_parent_hoisted_scope,
             state.hoisted_to_parent,
             &mut self.reserved_temp_names_stack,

@@ -44,13 +44,6 @@ pub(crate) fn default_binding_target_for_parent(
     bind_name: &str,
 ) -> BindingTarget {
     match current_parent {
-        Some(parent) if is_module_init_temp_name(parent) => {
-            if is_internal_symbol(bind_name) {
-                BindingTarget::Local
-            } else {
-                BindingTarget::ModuleGlobal
-            }
-        }
         Some(parent) if parent.starts_with("_dp_class_ns_") => {
             if is_internal_symbol(bind_name) {
                 BindingTarget::Local
