@@ -959,35 +959,6 @@ fn resolve_function_binding_target(
     }
 }
 
-fn plan_lowered_function_binding(
-    binding_target: BindingTarget,
-    bind_name: &str,
-    qualname: &str,
-    needs_cell_sync: bool,
-) -> LoweredFunctionBindingPlan {
-    LoweredFunctionBindingPlan {
-        target: resolve_function_binding_target(binding_target, bind_name, qualname),
-        needs_cell_sync,
-    }
-}
-
-fn plan_lowered_function_instantiation(
-    func: &ast::StmtFunctionDef,
-    function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
-    current_parent: Option<&str>,
-    needs_cell_sync: bool,
-) -> LoweredFunctionInstantiationPlan {
-    let identity =
-        resolve_runtime_function_identity(func, function_identity_by_node, current_parent);
-    let binding = plan_lowered_function_binding(
-        identity.binding_target,
-        identity.bind_name.as_str(),
-        identity.qualname.as_str(),
-        needs_cell_sync,
-    );
-    LoweredFunctionInstantiationPlan { identity, binding }
-}
-
 fn plan_non_lowered_function_binding(
     binding_target: BindingTarget,
     bind_name: &str,
@@ -1219,25 +1190,6 @@ fn build_lowered_function_instantiation_stmt(
     stmts
 }
 
-fn rewrite_lowered_function_instantiation_stmt(
-    parent_hoisted: &mut Vec<Stmt>,
-    func: &ast::StmtFunctionDef,
-    preview: &LoweredFunctionInstantiationPreview,
-    instantiation_plan: &LoweredFunctionInstantiationPlan,
-    function_hoisted: Vec<Stmt>,
-) -> Option<LoweredFunctionRewriteResult> {
-    let binding_stmt = build_lowered_function_instantiation_stmt(func, preview, instantiation_plan);
-    let replacement = apply_lowered_function_placement(
-        parent_hoisted,
-        plan_lowered_function_placement(
-            instantiation_plan.identity.bind_name.as_str(),
-            function_hoisted,
-            binding_stmt,
-        ),
-    );
-    Some(LoweredFunctionRewriteResult { replacement })
-}
-
 fn plan_and_rewrite_lowered_function_instantiation(
     parent_hoisted: &mut Vec<Stmt>,
     func: &ast::StmtFunctionDef,
@@ -1247,20 +1199,30 @@ fn plan_and_rewrite_lowered_function_instantiation(
     needs_cell_sync: bool,
     function_hoisted: Vec<Stmt>,
 ) -> Option<LoweredFunctionRewriteResult> {
-    let instantiation_plan = plan_lowered_function_instantiation(
-        func,
-        function_identity_by_node,
-        current_parent,
-        needs_cell_sync,
-    );
-    let rewrite = rewrite_lowered_function_instantiation_stmt(
+    let identity =
+        resolve_runtime_function_identity(func, function_identity_by_node, current_parent);
+    let instantiation_plan = LoweredFunctionInstantiationPlan {
+        binding: LoweredFunctionBindingPlan {
+            target: resolve_function_binding_target(
+                identity.binding_target,
+                identity.bind_name.as_str(),
+                identity.qualname.as_str(),
+            ),
+            needs_cell_sync,
+        },
+        identity,
+    };
+    let binding_stmt =
+        build_lowered_function_instantiation_stmt(func, preview, &instantiation_plan);
+    let replacement = apply_lowered_function_placement(
         parent_hoisted,
-        func,
-        preview,
-        &instantiation_plan,
-        function_hoisted,
-    )?;
-    Some(rewrite)
+        plan_lowered_function_placement(
+            instantiation_plan.identity.bind_name.as_str(),
+            function_hoisted,
+            binding_stmt,
+        ),
+    );
+    Some(LoweredFunctionRewriteResult { replacement })
 }
 
 fn rewrite_non_lowered_function_instantiation(
@@ -1290,33 +1252,6 @@ fn rewrite_non_lowered_function_instantiation(
             Stmt::FunctionDef(func.clone()),
             binding_stmt,
         ),
-    )
-}
-
-fn plan_and_rewrite_non_lowered_function_instantiation(
-    context: &Context,
-    func: &mut ast::StmtFunctionDef,
-    function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
-    current_parent: Option<&str>,
-    needs_cell_sync: bool,
-    function_hoisted: Vec<Stmt>,
-    doc: Option<String>,
-    next_temp: impl FnMut() -> String,
-) -> Option<Vec<Stmt>> {
-    prepare_non_lowered_annotationlib_function(context, func);
-    let instantiation_plan = plan_non_lowered_function_instantiation(
-        func,
-        function_identity_by_node,
-        current_parent,
-        needs_cell_sync,
-        is_annotation_helper_name(func.name.id.as_str()),
-    );
-    rewrite_non_lowered_function_instantiation(
-        func,
-        instantiation_plan,
-        function_hoisted,
-        doc,
-        next_temp,
     )
 }
 
@@ -1362,12 +1297,17 @@ fn rewrite_function_def_stmt_via_blockpy(
         return Some(rewrite.replacement);
     }
 
-    plan_and_rewrite_non_lowered_function_instantiation(
-        context,
+    prepare_non_lowered_annotationlib_function(context, func);
+    let instantiation_plan = plan_non_lowered_function_instantiation(
         func,
         function_identity_by_node,
         current_parent,
         needs_cell_sync,
+        is_annotation_helper_name(func.name.id.as_str()),
+    );
+    rewrite_non_lowered_function_instantiation(
+        func,
+        instantiation_plan,
         function_hoisted,
         doc,
         || next_temp_from_counter(reserved_temp_names_stack, "fn_local", next_block_id),
