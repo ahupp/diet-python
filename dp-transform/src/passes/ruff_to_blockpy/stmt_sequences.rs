@@ -57,15 +57,11 @@ pub(crate) fn drive_stmt_sequence_until_control(
                 };
             }
             StmtSequenceHeadPlan::FunctionDef(func_def) => {
-                if func_def.name.id.as_str().starts_with("_dp_bb_") {
-                    linear.push(Stmt::FunctionDef(func_def));
-                } else {
-                    linear.extend(build_exec_function_def_binding_stmts(
-                        &func_def,
-                        cell_slots,
-                        outer_scope_names,
-                    ));
-                }
+                linear.extend(build_exec_function_def_binding_stmts(
+                    &func_def,
+                    cell_slots,
+                    outer_scope_names,
+                ));
                 index += 1;
             }
             StmtSequenceHeadPlan::Delete(delete_stmt) => {
