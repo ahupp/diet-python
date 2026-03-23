@@ -126,7 +126,7 @@ def outer():
 
 # ==
 
-# function outer.<locals>._dp_class_ns_Inner(_dp_class_ns, _dp_classcell_arg):
+# function _dp_class_ns_Inner(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 0
 #     entry_liveins: [_dp_class_ns, _dp_classcell_arg, _dp_cell_x]
 #     local_cell_slots: [_dp_cell__dp_class_ns, _dp_cell__dp_classcell_arg]
@@ -139,7 +139,7 @@ def outer():
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "y", __dp_class_lookup_cell(_dp_class_ns, "x", _dp_cell_x))
 #         return __dp_NONE
 
-# function outer.<locals>._dp_define_class_Inner(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
+# function _dp_define_class_Inner(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
 #     function_id: 1
 #     block _dp_bb_start:
 #         _dp_class_ns = _dp_class_ns_outer
@@ -219,7 +219,7 @@ class A:
 
 # ==
 
-# function A._dp_class_ns_B(_dp_class_ns, _dp_classcell_arg):
+# function _dp_class_ns_B(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 0
 #     block _dp_bb_start:
 #         _dp_classcell = _dp_classcell_arg
@@ -227,7 +227,7 @@ class A:
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "A.B")
 #         return __dp_NONE
 
-# function A._dp_define_class_B(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
+# function _dp_define_class_B(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
 #     function_id: 1
 #     block _dp_bb_start:
 #         _dp_class_ns = _dp_class_ns_outer
@@ -271,7 +271,7 @@ def foo():
 
 # ==
 
-# function foo.<locals>.A._dp_class_ns_B(_dp_class_ns, _dp_classcell_arg):
+# function _dp_class_ns_B(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 0
 #     block _dp_bb_start:
 #         _dp_classcell = _dp_classcell_arg
@@ -279,13 +279,13 @@ def foo():
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "B")
 #         return __dp_NONE
 
-# function foo.<locals>.A._dp_define_class_B(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
+# function _dp_define_class_B(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
 #     function_id: 1
 #     block _dp_bb_start:
 #         _dp_class_ns = _dp_class_ns_outer
 #         return __dp_create_class("B", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 7, ())
 
-# function foo.<locals>._dp_class_ns_A(_dp_class_ns, _dp_classcell_arg):
+# function _dp_class_ns_A(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 2
 #     block _dp_bb_start:
 #         _dp_classcell = _dp_classcell_arg
@@ -296,7 +296,7 @@ def foo():
 #         __dp_store_global(globals(), "B", _dp_define_class_B(_dp_class_ns_B, _dp_class_ns))
 #         return __dp_NONE
 
-# function foo.<locals>._dp_define_class_A(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
+# function _dp_define_class_A(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
 #     function_id: 3
 #     block _dp_bb_start:
 #         _dp_class_ns = _dp_class_ns_outer

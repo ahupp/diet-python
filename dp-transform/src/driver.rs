@@ -8,6 +8,7 @@ use crate::passes::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::passes::ast_to_ast::{
     body::{body_from_suite, suite_mut, take_suite, Suite},
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
+    semantic::SemanticAstState,
 };
 use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
@@ -24,6 +25,7 @@ pub(crate) fn rewrite_module_with_tracker(
     module: &mut Suite,
     pass_tracker: &mut PassTracker,
 ) -> BlockPyModule<PreparedBbBlockPyPass> {
+    let mut semantic_state: Option<SemanticAstState> = None;
     let mut ast_module = pass_tracker.run_renderable_pass("ast-to-ast", || {
         let mut module = body_from_suite(std::mem::take(module));
 
@@ -64,6 +66,7 @@ pub(crate) fn rewrite_module_with_tracker(
         );
 
         let scope = analyze_module_scope(suite_mut(&mut module));
+        let mut current_semantic_state = SemanticAstState::new(scope.clone());
 
         // Replace global / nonlocal and class-body scoping with explicit loads/stores.
         //  - globals: __dp__.load/store_global(globals(), name)
@@ -74,15 +77,18 @@ pub(crate) fn rewrite_module_with_tracker(
         rewrite_class_def::class_body::rewrite_class_body_scopes(
             context,
             scope,
+            current_semantic_state.provenance_mut(),
             suite_mut(&mut module),
         );
         suite_mut(&mut module).splice(
             0..0,
             rewrite_future_annotations::invalid_future_feature_syntax_error_stmts(&future_imports),
         );
+        semantic_state = Some(current_semantic_state);
         module
     });
     *module = take_suite(&mut ast_module);
+    let semantic_state = semantic_state.expect("semantic AST state should be available");
 
     /*
 
@@ -125,7 +131,7 @@ pub(crate) fn rewrite_module_with_tracker(
 
     let semantic_blockpy: BlockPyModule<RuffBlockPyPass> = pass_tracker
         .run_renderable_pass("semantic_blockpy", || {
-            rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module)
+            rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module, &semantic_state)
         });
 
     /*

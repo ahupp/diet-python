@@ -124,7 +124,7 @@ impl ScopeTree {
         scope
     }
 
-    fn ensure_node_index<T: HasNodeIndex>(&self, node: &T) -> NodeIndex {
+    pub fn ensure_node_index<T: HasNodeIndex>(&self, node: &T) -> NodeIndex {
         let mut inner = self.inner.lock().expect("ScopeTree mutex poisoned");
         let node_index = node.node_index().load();
         if node_index != NodeIndex::NONE {

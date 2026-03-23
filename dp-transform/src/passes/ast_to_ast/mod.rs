@@ -9,6 +9,7 @@ pub(crate) mod rewrite_import;
 pub(crate) mod rewrite_names;
 pub(crate) mod rewrite_stmt;
 pub(crate) mod scope;
+pub(crate) mod semantic;
 pub(crate) mod simplify;
 pub(crate) mod util;
 
