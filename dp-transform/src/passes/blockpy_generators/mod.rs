@@ -11,7 +11,7 @@ use crate::block_py::{
     FunctionId, FunctionName,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
-use crate::passes::ast_to_ast::scope::cell_name;
+use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block_without_await;
 use crate::passes::ruff_to_blockpy::{
     attach_exception_edges_to_blocks, lowered_exception_edges, recompute_lowered_block_params,

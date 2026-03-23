@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 
 use super::Options;
-use crate::passes::ast_to_ast::scope::ScopeKind;
+use crate::passes::ast_to_ast::scope_helpers::ScopeKind;
 
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::ast_rewrite::LoweredExpr;

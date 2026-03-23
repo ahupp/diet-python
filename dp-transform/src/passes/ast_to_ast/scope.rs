@@ -8,6 +8,7 @@ use std::{
 use ruff_python_ast::{self as ast, Expr, ExprContext, HasNodeIndex, NodeIndex, Stmt};
 
 use crate::passes::ast_to_ast::body::{suite_mut, suite_ref, Suite};
+use crate::passes::ast_to_ast::scope_helpers::{is_internal_symbol, ScopeKind};
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BindingKind {
@@ -23,13 +24,6 @@ pub enum BindingUse {
 }
 
 type ScopeBindings = HashMap<String, BindingKind>;
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum ScopeKind {
-    Function,
-    Class,
-    Module,
-}
 
 #[derive(Debug)]
 pub struct ScopeTree {
@@ -372,14 +366,6 @@ fn merge_binding(existing: BindingKind, incoming: BindingKind) -> BindingKind {
         (BindingKind::Local, BindingKind::Global | BindingKind::Nonlocal) => incoming,
         _ => existing,
     }
-}
-
-pub fn is_internal_symbol(name: &str) -> bool {
-    name.starts_with("_dp_") || name == "__dp__"
-}
-
-pub fn cell_name(name: &str) -> String {
-    format!("_dp_cell_{name}")
 }
 
 fn set_binding(bindings: &mut HashMap<String, BindingKind>, name: &str, binding: BindingKind) {

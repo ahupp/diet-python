@@ -8,7 +8,9 @@ pub(crate) mod rewrite_future_annotations;
 pub(crate) mod rewrite_import;
 pub(crate) mod rewrite_names;
 pub(crate) mod rewrite_stmt;
+#[cfg(test)]
 pub(crate) mod scope;
+pub(crate) mod scope_helpers;
 pub(crate) mod semantic;
 pub(crate) mod simplify;
 pub(crate) mod util;

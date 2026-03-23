@@ -5,7 +5,7 @@ use crate::passes::ast_to_ast::body::{suite_mut, suite_ref};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::{make_dp_tuple, name_expr};
 use crate::passes::ast_to_ast::rewrite_stmt;
-use crate::passes::ast_to_ast::scope::cell_name;
+use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};

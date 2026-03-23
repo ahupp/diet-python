@@ -18,7 +18,7 @@ use crate::passes::ast_to_ast::body::{suite_mut, suite_ref, take_suite, Suite};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::{make_dp_tuple, name_expr};
 use crate::passes::ast_to_ast::rewrite_stmt;
-use crate::passes::ast_to_ast::scope::{cell_name, is_internal_symbol};
+use crate::passes::ast_to_ast::scope_helpers::{cell_name, is_internal_symbol};
 use crate::passes::ast_to_ast::semantic::{SemanticAstState, SemanticScope, SemanticScopeKind};
 use crate::passes::RuffBlockPyPass;
 
@@ -711,7 +711,6 @@ mod tests {
     };
     use crate::passes::ast_to_ast::body::suite_mut;
     use crate::passes::ast_to_ast::context::Context;
-    use crate::passes::ast_to_ast::scope::analyze_module_scope;
     use crate::passes::ast_to_ast::semantic::SemanticAstState;
     use crate::passes::ast_to_ast::Options;
     use crate::passes::function_identity::collect_function_identity_private;
@@ -746,16 +745,14 @@ mod tests {
         );
         let context = Context::new(Options::for_test(), source);
         let mut module = parse_module(source).unwrap().into_syntax().body;
-        let module_scope = analyze_module_scope(&mut module);
         let semantic_state = SemanticAstState::from_ruff(&mut module);
         let function_identity_by_node =
             collect_function_identity_private(&mut module, &semantic_state);
         let Stmt::FunctionDef(outer) = &mut module[0] else {
             panic!("expected outer function");
         };
-        let outer_scope = module_scope
-            .tree
-            .scope_for_def(outer)
+        let outer_scope = semantic_state
+            .function_scope(outer)
             .expect("missing outer scope");
         let mut rewriter = BlockPyModuleRewriter {
             context: &context,

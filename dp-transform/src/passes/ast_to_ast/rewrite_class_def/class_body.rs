@@ -6,7 +6,7 @@ use crate::passes::ast_to_ast::body::{suite_mut, Suite};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def::{class_def_to_create_class_fn, method};
 use crate::passes::ast_to_ast::rewrite_stmt;
-use crate::passes::ast_to_ast::scope::cell_name;
+use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::ast_to_ast::semantic::{
     SemanticAstState, SemanticBindingKind, SemanticBindingUse, SemanticScope, SemanticScopeKind,
 };

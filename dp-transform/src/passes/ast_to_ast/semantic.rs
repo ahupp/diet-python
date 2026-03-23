@@ -13,7 +13,7 @@ use ruff_python_semantic::{
 use ruff_text_size::{Ranged, TextRange};
 
 use crate::passes::ast_to_ast::body::Suite;
-use crate::passes::ast_to_ast::scope::is_internal_symbol;
+use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::transformer::Transformer;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

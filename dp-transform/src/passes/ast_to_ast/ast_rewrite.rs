@@ -5,7 +5,7 @@ use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::{Ranged, TextRange};
 
 use crate::passes::ast_to_ast::body::{suite_mut, Suite};
-use crate::passes::ast_to_ast::scope::ScopeKind;
+use crate::passes::ast_to_ast::scope_helpers::ScopeKind;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{
     passes::ast_to_ast::context::{Context, ScopeFrame},

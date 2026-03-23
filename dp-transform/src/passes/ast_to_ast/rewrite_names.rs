@@ -19,7 +19,7 @@ use crate::{
             class_body_store_target,
         },
         rewrite_import,
-        scope::{cell_name, is_internal_symbol},
+        scope_helpers::{cell_name, is_internal_symbol},
         util::is_noarg_call,
     },
     passes::ruff_to_blockpy,

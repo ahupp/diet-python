@@ -1,6 +1,6 @@
 use crate::block_py::BindingTarget;
 use crate::passes::ast_to_ast::body::Suite;
-use crate::passes::ast_to_ast::scope::is_internal_symbol;
+use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ast_to_ast::semantic::{
     SemanticAstState, SemanticBindingKind, SemanticBindingUse, SemanticScope, SemanticScopeKind,
 };

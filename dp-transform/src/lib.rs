@@ -26,7 +26,6 @@ mod web_inspector;
 use crate::block_py::BlockPyModule;
 use crate::driver::rewrite_module_with_tracker;
 use crate::passes::ast_to_ast::context::Context;
-pub use crate::passes::ast_to_ast::scope::{analyze_module_scope, Scope};
 pub use crate::passes::ast_to_ast::Options;
 
 #[derive(Debug, Clone)]

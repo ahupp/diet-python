@@ -3,7 +3,7 @@ use super::dataflow::{
 };
 use super::{BlockPyTerm, CfgBlock, Expr, IntoBlockPyStmt};
 use crate::passes::ast_symbol_analysis::{assigned_names_in_stmt, collect_assigned_names};
-use crate::passes::ast_to_ast::scope::cell_name;
+use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::py_stmt;
 use ruff_python_ast::{self as ast, Stmt};
 use std::collections::HashSet;

@@ -10,7 +10,7 @@ use crate::passes::ast_to_ast::ast_rewrite::{push_stmts, BodyBuilder, ExprRewrit
 use crate::passes::ast_to_ast::expr_utils::{
     make_binop, make_tuple, make_tuple_splat, make_unaryop,
 };
-use crate::passes::ast_to_ast::scope::ScopeKind;
+use crate::passes::ast_to_ast::scope_helpers::ScopeKind;
 use crate::transformer::{walk_expr, Transformer};
 use crate::{
     passes::ast_to_ast::{ast_rewrite::LoweredExpr, context::Context},
