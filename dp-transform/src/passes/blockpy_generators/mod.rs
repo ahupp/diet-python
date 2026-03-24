@@ -1,14 +1,13 @@
 use crate::block_py::cfg::linearize_structured_ifs;
-use crate::block_py::dataflow::{analyze_blockpy_use_def, loaded_names_in_blockpy_block};
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     core_positional_call_expr_with_meta, is_resume_abi_param_name, resume_abi_params, BlockParam,
-    BlockParamRole, BlockPyAssign, BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable,
-    BlockPyCfgBlockBuilder, BlockPyCfgFragment, BlockPyFunction, BlockPyFunctionKind, BlockPyIf,
-    BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit,
-    ClosureLayout, ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, FunctionId, FunctionName, ModuleNameGen,
+    BlockParamRole, BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder,
+    BlockPyCfgFragment, BlockPyFunction, BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm,
+    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout,
+    ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
+    FunctionId, FunctionName, ModuleNameGen,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
@@ -192,53 +191,17 @@ fn build_generator_closure_layout(
     local_cell_slot_names.extend(callable.facts.cell_slots.iter().cloned());
     let mut local_cell_slots = local_cell_slot_names.iter().cloned().collect::<Vec<_>>();
     local_cell_slots.sort();
-    let param_name_set = param_names.iter().cloned().collect::<HashSet<_>>();
-    let mut capture_names = if callable.facts.capture_storage_names.is_empty() {
-        let used_names: HashSet<String> = callable
-            .blocks
-            .iter()
-            .flat_map(|block| loaded_names_in_blockpy_block(block).into_iter())
-            .collect();
-        let defined_names: HashSet<String> = callable
-            .blocks
-            .iter()
-            .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
-            .collect();
-        used_names
-            .iter()
-            .filter(|name| !param_name_set.contains(name.as_str()))
-            .filter(|name| {
-                if *name == "_dp_classcell" {
-                    if param_name_set.contains("_dp_classcell_arg")
-                        || defined_names.contains(name.as_str())
-                    {
-                        return false;
-                    }
-                    return true;
-                }
-                if name.starts_with("_dp_cell_") {
-                    return !local_cell_slot_names.contains(name.as_str())
-                        && !defined_names.contains(name.as_str());
-                }
-                if callable.semantic.resolved_load_binding_kind(name.as_str())
-                    == BlockPyBindingKind::Cell(crate::block_py::BlockPyCellBindingKind::Capture)
-                {
-                    let capture_name = cell_name(name.as_str());
-                    return !local_cell_slot_names.contains(capture_name.as_str())
-                        && !defined_names.contains(capture_name.as_str());
-                }
-                false
-            })
-            .cloned()
-            .collect::<Vec<_>>()
-    } else {
-        callable
-            .facts
-            .capture_storage_names
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>()
-    };
+    let mut capture_names = callable
+        .closure_layout
+        .as_ref()
+        .map(|layout| {
+            layout
+                .freevars
+                .iter()
+                .map(|slot| slot.storage_name.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     capture_names.sort();
     capture_names.dedup();
 

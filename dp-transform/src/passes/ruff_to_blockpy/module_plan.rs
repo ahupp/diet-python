@@ -1,10 +1,10 @@
-use crate::block_py::dataflow::{analyze_blockpy_use_def, loaded_names_in_blockpy_block};
 use crate::block_py::param_specs::{collect_param_spec_and_defaults, param_defaults_to_expr};
 use crate::block_py::state::collect_cell_slots;
 use crate::block_py::{BindingTarget, BlockPyBindingKind, BlockPyCellBindingKind};
 use crate::block_py::{
     BlockPyCallableFacts, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyModule, FunctionName, FunctionNameGen, ModuleNameGen,
+    BlockPyFunctionKind, BlockPyModule, ClosureLayout, FunctionName, FunctionNameGen,
+    ModuleNameGen,
 };
 use crate::passes::ast_symbol_analysis::{
     collect_bound_names, collect_explicit_global_or_nonlocal_names, collect_loaded_names,
@@ -13,7 +13,7 @@ use crate::passes::ast_to_ast::body::{suite_mut, suite_ref, Suite};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::{make_dp_tuple, name_expr};
 use crate::passes::ast_to_ast::rewrite_stmt;
-use crate::passes::ast_to_ast::scope_helpers::{cell_name, is_internal_symbol};
+use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ast_to_ast::semantic::{
     SemanticAstState, SemanticBindingKind, SemanticScope, SemanticScopeKind,
 };
@@ -44,12 +44,6 @@ struct BlockPyModuleRewriter<'a> {
     module_name_gen: ModuleNameGen,
     function_scope_stack: Vec<FunctionScopeFrame>,
     callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>>,
-}
-
-#[derive(Clone)]
-struct LoweredFunctionCaptureValue {
-    name: String,
-    value_expr: Expr,
 }
 
 #[derive(Default)]
@@ -287,7 +281,6 @@ fn try_lower_function_to_blockpy_bundle(
         deleted_names,
         unbound_local_names,
         cell_slots,
-        capture_storage_names: HashSet::new(),
     };
 
     let end_label = name_gen.next_block_name();
@@ -484,89 +477,44 @@ fn always_unbound_local_names(
 
 // Function-definition rewriting stays in one tree pass, but the instantiation
 // machinery is grouped here so the later binding split has one obvious home.
-fn capture_items_to_expr(captures: &[LoweredFunctionCaptureValue]) -> Expr {
+fn capture_items_to_expr(captures: &[(String, Expr)]) -> Expr {
     make_dp_tuple(
         captures
             .iter()
-            .map(|capture| {
+            .map(|(name, value_expr)| {
                 make_dp_tuple(vec![
-                    py_expr!("{value:literal}", value = capture.name.as_str()),
-                    capture.value_expr.clone(),
+                    py_expr!("{value:literal}", value = name.as_str()),
+                    value_expr.clone(),
                 ])
             })
             .collect(),
     )
 }
 
-fn classify_capture_items(
-    used_names: &HashSet<String>,
-    defined_names: &HashSet<String>,
-    param_names: &HashSet<String>,
-    local_cell_slots: &HashSet<String>,
-    callable_semantic: &BlockPyCallableSemanticInfo,
-) -> Vec<LoweredFunctionCaptureValue> {
-    let mut captures = Vec::new();
-    let mut referenced_names = used_names
-        .iter()
-        .chain(defined_names.iter())
-        .cloned()
-        .collect::<Vec<_>>();
-    referenced_names.sort();
-    referenced_names.dedup();
-    for used_name in referenced_names {
-        if param_names.contains(used_name.as_str()) {
-            continue;
-        }
-        if used_name == "_dp_classcell" {
-            if param_names.contains("_dp_classcell_arg")
-                || defined_names.contains(used_name.as_str())
-            {
-                continue;
-            }
-            if local_cell_slots.contains(cell_name("_dp_classcell").as_str()) {
-                continue;
-            }
-            captures.push(LoweredFunctionCaptureValue {
-                name: used_name.clone(),
-                value_expr: name_expr(used_name.as_str())
-                    .expect("capture name should always parse as an expression"),
-            });
-        } else if used_name.starts_with("_dp_cell_")
-            && !local_cell_slots.contains(used_name.as_str())
-        {
-            captures.push(LoweredFunctionCaptureValue {
-                name: used_name.clone(),
-                value_expr: name_expr(used_name.as_str())
-                    .expect("capture name should always parse as an expression"),
-            });
-        } else if callable_semantic.resolved_load_binding_kind(used_name.as_str())
-            == BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
-        {
-            let capture_name = cell_name(used_name.as_str());
-            if local_cell_slots.contains(capture_name.as_str())
-                || defined_names.contains(capture_name.as_str())
-            {
-                continue;
-            }
-            captures.push(LoweredFunctionCaptureValue {
-                name: capture_name.clone(),
-                value_expr: name_expr(capture_name.as_str())
-                    .expect("capture name should always parse as an expression"),
-            });
-        }
-    }
-    captures
+fn closure_freevar_capture_items(closure_layout: Option<&ClosureLayout>) -> Vec<(String, Expr)> {
+    closure_layout
+        .into_iter()
+        .flat_map(|layout| layout.freevars.iter())
+        .map(|slot| {
+            (
+                slot.storage_name.clone(),
+                name_expr(slot.storage_name.as_str())
+                    .expect("capture storage name should always parse as an expression"),
+            )
+        })
+        .collect()
 }
 
 fn build_lowered_function_instantiation_expr(
     function_id: crate::block_py::FunctionId,
-    captures: &[LoweredFunctionCaptureValue],
+    closure_layout: Option<&ClosureLayout>,
     decorator_exprs: Vec<Expr>,
     param_defaults: &[Expr],
     annotate_fn_expr: Expr,
     kind: BlockPyFunctionKind,
 ) -> Expr {
-    let capture_expr = capture_items_to_expr(captures);
+    let captures = closure_freevar_capture_items(closure_layout);
+    let capture_expr = capture_items_to_expr(&captures);
     let param_defaults_expr = param_defaults_to_expr(param_defaults);
     let kind_name = match kind {
         BlockPyFunctionKind::Function => "function",
@@ -650,39 +598,13 @@ fn rewrite_function_def_stmt_via_blockpy(
         callable_semantic,
         name_gen,
     );
-    let param_names = lowered_plan.params.names();
-    let param_name_set: HashSet<String> = param_names.iter().cloned().collect();
-    let used_names: HashSet<String> = lowered_plan
-        .blocks
-        .iter()
-        .flat_map(|block| loaded_names_in_blockpy_block(block).into_iter())
-        .collect();
-    let defined_names: HashSet<String> = lowered_plan
-        .blocks
-        .iter()
-        .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
-        .collect();
-    let mut local_cell_slots = lowered_plan.semantic.local_cell_storage_names();
-    local_cell_slots.extend(lowered_plan.facts.cell_slots.iter().cloned());
-
-    let captures = classify_capture_items(
-        &used_names,
-        &defined_names,
-        &param_name_set,
-        &local_cell_slots,
-        &lowered_plan.semantic,
-    );
-    lowered_plan.facts.capture_storage_names = captures
-        .iter()
-        .map(|capture| capture.name.clone())
-        .collect();
     lowered_plan.closure_layout = recompute_semantic_blockpy_closure_layout(&lowered_plan);
     let bind_name = lowered_plan.names.bind_name.clone();
     let binding_target = parent_semantic.binding_target_for_name(bind_name.as_str());
     let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let decorated = build_lowered_function_instantiation_expr(
         lowered_plan.function_id,
-        &captures,
+        lowered_plan.closure_layout.as_ref(),
         rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
         &param_defaults,
         py_expr!("None"),
@@ -806,11 +728,11 @@ impl Transformer for BlockPyModuleRewriter<'_> {
 #[cfg(test)]
 mod tests {
     use super::{
-        callable_semantic_info, capture_items_to_expr,
+        callable_semantic_info, capture_items_to_expr, closure_freevar_capture_items,
         rewrite_ast_to_lowered_blockpy_module_plan_with_module, BlockPyModuleRewriter,
-        FunctionScopeFrame, LoweredFunctionCaptureValue,
+        FunctionScopeFrame,
     };
-    use crate::block_py::{BlockPyModule, ModuleNameGen};
+    use crate::block_py::{BlockPyModule, ClosureInit, ClosureLayout, ClosureSlot, ModuleNameGen};
     use crate::passes::ast_to_ast::body::suite_mut;
     use crate::passes::ast_to_ast::context::Context;
     use crate::passes::ast_to_ast::semantic::SemanticAstState;
@@ -843,19 +765,26 @@ mod tests {
 
     #[test]
     fn capture_items_render_as_name_value_pairs() {
-        let expr = capture_items_to_expr(&[
-            LoweredFunctionCaptureValue {
-                name: "x".to_string(),
-                value_expr: crate::py_expr!("x"),
-            },
-            LoweredFunctionCaptureValue {
-                name: "y".to_string(),
-                value_expr: crate::py_expr!("z"),
-            },
-        ]);
+        let captures = closure_freevar_capture_items(Some(&ClosureLayout {
+            freevars: vec![
+                ClosureSlot {
+                    logical_name: "x".to_string(),
+                    storage_name: "x".to_string(),
+                    init: ClosureInit::InheritedCapture,
+                },
+                ClosureSlot {
+                    logical_name: "y".to_string(),
+                    storage_name: "z".to_string(),
+                    init: ClosureInit::InheritedCapture,
+                },
+            ],
+            cellvars: vec![],
+            runtime_cells: vec![],
+        }));
+        let expr = capture_items_to_expr(&captures);
         assert_eq!(
             crate::ruff_ast_to_string(&expr).trim(),
-            "__dp_tuple(__dp_tuple(\"x\", x), __dp_tuple(\"y\", z))"
+            "__dp_tuple(__dp_tuple(\"x\", x), __dp_tuple(\"z\", z))"
         );
     }
 

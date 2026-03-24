@@ -224,54 +224,52 @@ fn build_semantic_blockpy_closure_layout(
     let mut local_cell_slots = local_cell_slot_names.iter().cloned().collect::<Vec<_>>();
     local_cell_slots.sort();
     let param_name_set = param_names.iter().cloned().collect::<HashSet<_>>();
-    let mut capture_names = if callable_def.facts.capture_storage_names.is_empty() {
-        let used_names: HashSet<String> = callable_def
-            .blocks
-            .iter()
-            .flat_map(|block| loaded_names_in_blockpy_block(block).into_iter())
-            .collect();
-        let defined_names: HashSet<String> = callable_def
-            .blocks
-            .iter()
-            .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
-            .collect();
-        used_names
-            .iter()
-            .filter(|name| !param_name_set.contains(name.as_str()))
-            .filter(|name| {
-                if *name == "_dp_classcell" {
-                    if param_name_set.contains("_dp_classcell_arg")
-                        || defined_names.contains(name.as_str())
-                    {
-                        return false;
-                    }
-                    return true;
-                }
-                if name.starts_with("_dp_cell_") {
-                    return !local_cell_slot_names.contains(name.as_str())
-                        && !defined_names.contains(name.as_str());
-                }
-                if callable_def
-                    .semantic
-                    .resolved_load_binding_kind(name.as_str())
-                    == BlockPyBindingKind::Cell(crate::block_py::BlockPyCellBindingKind::Capture)
+    let used_names: HashSet<String> = callable_def
+        .blocks
+        .iter()
+        .flat_map(|block| loaded_names_in_blockpy_block(block).into_iter())
+        .collect();
+    let defined_names: HashSet<String> = callable_def
+        .blocks
+        .iter()
+        .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
+        .collect();
+    let mut referenced_names = used_names
+        .iter()
+        .chain(defined_names.iter())
+        .cloned()
+        .collect::<Vec<_>>();
+    referenced_names.sort();
+    referenced_names.dedup();
+    let mut capture_names = referenced_names
+        .iter()
+        .filter(|name| !param_name_set.contains(name.as_str()))
+        .filter(|name| {
+            if *name == "_dp_classcell" {
+                if param_name_set.contains("_dp_classcell_arg")
+                    || defined_names.contains(name.as_str())
                 {
-                    let capture_name = cell_name(name.as_str());
-                    return !local_cell_slot_names.contains(capture_name.as_str())
-                        && !defined_names.contains(capture_name.as_str());
+                    return false;
                 }
-                false
-            })
-            .cloned()
-            .collect::<Vec<_>>()
-    } else {
-        callable_def
-            .facts
-            .capture_storage_names
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>()
-    };
+                return true;
+            }
+            if name.starts_with("_dp_cell_") {
+                return !local_cell_slot_names.contains(name.as_str())
+                    && !defined_names.contains(name.as_str());
+            }
+            if callable_def
+                .semantic
+                .resolved_load_binding_kind(name.as_str())
+                == BlockPyBindingKind::Cell(crate::block_py::BlockPyCellBindingKind::Capture)
+            {
+                let capture_name = cell_name(name.as_str());
+                return !local_cell_slot_names.contains(capture_name.as_str())
+                    && !defined_names.contains(capture_name.as_str());
+            }
+            false
+        })
+        .cloned()
+        .collect::<Vec<_>>();
     capture_names.sort();
     capture_names.dedup();
     if capture_names.is_empty()
