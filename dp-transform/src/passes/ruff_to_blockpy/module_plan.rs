@@ -16,22 +16,20 @@ use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ast_to_ast::semantic::{
     SemanticAstState, SemanticBindingKind, SemanticScope, SemanticScopeKind,
 };
-use crate::passes::RuffBlockPyPass;
-
-use crate::passes::function_identity::{
-    collect_function_identity_private, resolve_runtime_function_identity, FunctionIdentity,
+use crate::passes::ast_to_ast::util::{
+    strip_synthetic_class_namespace_qualname, strip_synthetic_module_init_qualname,
 };
 use crate::passes::ruff_to_blockpy::recompute_semantic_blockpy_closure_layout;
+use crate::passes::RuffBlockPyPass;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
-use ruff_python_ast::{self as ast, Expr, NodeIndex, Stmt};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
 
 use super::{build_blockpy_callable_def_from_runtime_input, rewrite_deleted_name_loads};
 
 struct FunctionScopeFrame {
-    name: String,
-    parent_name: Option<String>,
+    scope: Option<SemanticScope>,
     callable_semantic: BlockPyCallableSemanticInfo,
     hoisted_to_parent: Vec<Stmt>,
 }
@@ -39,7 +37,6 @@ struct FunctionScopeFrame {
 struct BlockPyModuleRewriter<'a> {
     context: &'a Context,
     semantic_state: &'a SemanticAstState,
-    function_identity_by_node: HashMap<NodeIndex, FunctionIdentity>,
     module_name_gen: ModuleNameGen,
     function_scope_stack: Vec<FunctionScopeFrame>,
     callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>>,
@@ -54,15 +51,11 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
     context: &Context,
     module: &mut Suite,
     semantic_state: &SemanticAstState,
-    function_identity_state: &SemanticAstState,
 ) -> BlockPyModule<RuffBlockPyPass> {
     crate::passes::ast_to_ast::simplify::flatten(module);
-    let function_identity_by_node =
-        collect_function_identity_private(module, function_identity_state);
     let mut rewriter = BlockPyModuleRewriter {
         context,
         semantic_state,
-        function_identity_by_node,
         module_name_gen: ModuleNameGen::new(0),
         function_scope_stack: Vec::new(),
         callable_defs: Vec::new(),
@@ -74,8 +67,44 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
     }
 }
 
+fn is_module_init_name(name: &str) -> bool {
+    name == "_dp_module_init" || name.starts_with("_dp_fn__dp_module_init_")
+}
+
+fn display_name_for_function(raw_name: &str) -> &str {
+    if raw_name.starts_with("_dp_lambda_") {
+        "<lambda>"
+    } else if raw_name.starts_with("_dp_genexpr_") {
+        "<genexpr>"
+    } else if raw_name.starts_with("_dp_listcomp_") {
+        "<listcomp>"
+    } else if raw_name.starts_with("_dp_setcomp_") {
+        "<setcomp>"
+    } else if raw_name.starts_with("_dp_dictcomp_") {
+        "<dictcomp>"
+    } else {
+        raw_name
+    }
+}
+
+fn normalize_qualname(raw_qualname: &str, raw_name: &str, display_name: &str) -> String {
+    let raw_qualname = strip_synthetic_module_init_qualname(raw_qualname);
+    let raw_qualname = strip_synthetic_class_namespace_qualname(&raw_qualname);
+    let should_replace_tail = matches!(display_name, "<lambda>" | "<genexpr>");
+    if raw_name == display_name || !should_replace_tail {
+        return raw_qualname;
+    }
+    match raw_qualname.rsplit_once('.') {
+        Some((prefix, _)) => format!("{prefix}.{display_name}"),
+        None => display_name.to_string(),
+    }
+}
+
 fn callable_semantic_info(
+    semantic_state: &SemanticAstState,
+    parent_scope: Option<&SemanticScope>,
     function_scope: Option<&SemanticScope>,
+    func: Option<&ast::StmtFunctionDef>,
     body: &[Stmt],
 ) -> BlockPyCallableSemanticInfo {
     let Some(function_scope) = function_scope else {
@@ -109,7 +138,41 @@ fn callable_semantic_info(
             )
         });
     }
+    let (bind_name, display_name, qualname) = match func {
+        Some(func) => {
+            let raw_bind_name = func.name.id.to_string();
+            let bind_name = if is_module_init_name(raw_bind_name.as_str()) {
+                "_dp_module_init".to_string()
+            } else {
+                raw_bind_name.clone()
+            };
+            let display_name = display_name_for_function(bind_name.as_str()).to_string();
+            let qualname = if is_module_init_name(raw_bind_name.as_str()) {
+                "_dp_module_init".to_string()
+            } else if semantic_state.has_function_scope_override(func) {
+                normalize_qualname(
+                    parent_scope
+                        .expect("missing parent scope for function scope override")
+                        .child_function_qualname(raw_bind_name.as_str())
+                        .as_str(),
+                    bind_name.as_str(),
+                    display_name.as_str(),
+                )
+            } else {
+                normalize_qualname(
+                    function_scope.qualname(),
+                    bind_name.as_str(),
+                    display_name.as_str(),
+                )
+            };
+            (bind_name, display_name, qualname)
+        }
+        None => (String::new(), String::new(), String::new()),
+    };
     BlockPyCallableSemanticInfo {
+        bind_name,
+        display_name,
+        qualname,
         scope_kind: match function_scope.kind() {
             SemanticScopeKind::Function => BlockPyCallableScopeKind::Function,
             SemanticScopeKind::Class => BlockPyCallableScopeKind::Class,
@@ -258,7 +321,6 @@ fn collect_deleted_names_in_target(target: &Expr, names: &mut HashSet<String>) {
 
 fn try_lower_function_to_blockpy_bundle(
     context: &Context,
-    function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &ast::StmtFunctionDef,
     callable_semantic: &BlockPyCallableSemanticInfo,
     name_gen: FunctionNameGen,
@@ -280,7 +342,6 @@ fn try_lower_function_to_blockpy_bundle(
     };
 
     let end_label = name_gen.next_block_name();
-    let identity = resolve_runtime_function_identity(func, function_identity_by_node);
     let doc = match docstring {
         Some(Stmt::Expr(expr_stmt)) => match *expr_stmt.value {
             Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => Some(value.to_string()),
@@ -294,10 +355,10 @@ fn try_lower_function_to_blockpy_bundle(
         context,
         name_gen,
         FunctionName::new(
-            identity.bind_name.clone(),
+            callable_semantic.bind_name.clone(),
             fn_name,
-            identity.display_name.clone(),
-            identity.qualname.clone(),
+            callable_semantic.display_name.clone(),
+            callable_semantic.qualname.clone(),
         ),
         param_spec,
         &runtime_input_body,
@@ -557,7 +618,6 @@ fn rewrite_function_def_stmt_via_blockpy(
     context: &Context,
     parent_hoisted: &mut Vec<Stmt>,
     parent_semantic: &BlockPyCallableSemanticInfo,
-    function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &mut ast::StmtFunctionDef,
     callable_semantic: &BlockPyCallableSemanticInfo,
     function_hoisted: Vec<Stmt>,
@@ -565,13 +625,8 @@ fn rewrite_function_def_stmt_via_blockpy(
     callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
 ) -> Vec<Stmt> {
     let name_gen = module_name_gen.next_function_name_gen();
-    let mut lowered_plan = try_lower_function_to_blockpy_bundle(
-        context,
-        function_identity_by_node,
-        func,
-        callable_semantic,
-        name_gen,
-    );
+    let mut lowered_plan =
+        try_lower_function_to_blockpy_bundle(context, func, callable_semantic, name_gen);
     lowered_plan.closure_layout = recompute_semantic_blockpy_closure_layout(&lowered_plan);
     let bind_name = lowered_plan.names.bind_name.clone();
     let binding_target = parent_semantic.binding_target_for_name(bind_name.as_str());
@@ -629,17 +684,21 @@ impl BlockPyModuleRewriter<'_> {
         &mut self,
         func: &mut ast::StmtFunctionDef,
     ) -> FunctionScopeFrame {
-        let fn_name = func.name.id.to_string();
         let function_scope = self.semantic_state.function_scope(func);
-        let parent_name = self
+        let parent_scope = self
             .function_scope_stack
             .last()
-            .map(|frame| frame.name.clone());
-        let callable_semantic =
-            callable_semantic_info(function_scope.as_ref(), suite_ref(&func.body));
+            .and_then(|frame| frame.scope.as_ref())
+            .cloned();
+        let callable_semantic = callable_semantic_info(
+            self.semantic_state,
+            parent_scope.as_ref(),
+            function_scope.as_ref(),
+            Some(func),
+            suite_ref(&func.body),
+        );
         self.function_scope_stack.push(FunctionScopeFrame {
-            name: fn_name,
-            parent_name,
+            scope: function_scope.clone(),
             callable_semantic,
             hoisted_to_parent: Vec::new(),
         });
@@ -658,7 +717,6 @@ impl BlockPyModuleRewriter<'_> {
         let name_gen = self.module_name_gen.next_function_name_gen();
         let lowered_plan = try_lower_function_to_blockpy_bundle(
             self.context,
-            &self.function_identity_by_node,
             func,
             &state.callable_semantic,
             name_gen,
@@ -681,7 +739,6 @@ impl BlockPyModuleRewriter<'_> {
             self.context,
             parent_hoisted,
             &parent_semantic,
-            &self.function_identity_by_node,
             func,
             &state.callable_semantic,
             state.hoisted_to_parent,
@@ -726,12 +783,10 @@ mod tests {
     use crate::passes::ast_to_ast::context::Context;
     use crate::passes::ast_to_ast::semantic::SemanticAstState;
     use crate::passes::ast_to_ast::Options;
-    use crate::passes::function_identity::{collect_function_identity_private, FunctionIdentity};
     use crate::passes::RuffBlockPyPass;
-    use crate::transformer::{walk_stmt, Transformer};
-    use ruff_python_ast::{NodeIndex, Stmt};
+    use crate::transform_str_to_ruff_with_options;
+    use ruff_python_ast::Stmt;
     use ruff_python_parser::parse_module;
-    use std::collections::HashMap;
 
     fn lower_test_module_plan(
         context: &Context,
@@ -747,7 +802,6 @@ mod tests {
         rewrite_ast_to_lowered_blockpy_module_plan_with_module(
             context,
             &mut module,
-            &semantic_state,
             &semantic_state,
         )
     }
@@ -788,8 +842,6 @@ mod tests {
         let context = Context::new(Options::for_test(), source);
         let mut module = parse_module(source).unwrap().into_syntax().body;
         let semantic_state = SemanticAstState::from_ruff(&mut module);
-        let function_identity_by_node =
-            collect_function_identity_private(&mut module, &semantic_state);
         let Stmt::FunctionDef(outer) = &mut module[0] else {
             panic!("expected outer function");
         };
@@ -799,13 +851,14 @@ mod tests {
         let mut rewriter = BlockPyModuleRewriter {
             context: &context,
             semantic_state: &semantic_state,
-            function_identity_by_node,
             module_name_gen: ModuleNameGen::new(0),
             function_scope_stack: vec![FunctionScopeFrame {
-                name: "outer".to_string(),
-                parent_name: None,
+                scope: Some(outer_scope.clone()),
                 callable_semantic: callable_semantic_info(
+                    &semantic_state,
+                    None,
                     Some(&outer_scope),
+                    Some(outer),
                     crate::passes::ast_to_ast::body::suite_ref(&outer.body),
                 ),
                 hoisted_to_parent: Vec::new(),
@@ -844,84 +897,21 @@ mod tests {
     }
 
     #[test]
-    fn callable_semantic_bindings_match_function_identity_targets() {
-        struct Checker<'a> {
-            semantic_state: &'a SemanticAstState,
-            identity_by_node: &'a HashMap<NodeIndex, FunctionIdentity>,
-            scope_stack: Vec<crate::passes::ast_to_ast::semantic::SemanticScope>,
-        }
-
-        impl Transformer for Checker<'_> {
-            fn visit_stmt(&mut self, stmt: &mut Stmt) {
-                match stmt {
-                    Stmt::FunctionDef(func) => {
-                        let identity = self
-                            .identity_by_node
-                            .get(&func.node_index.load())
-                            .expect("missing function identity");
-                        let parent_scope = self.scope_stack.last().expect("missing parent scope");
-                        let parent_semantic = callable_semantic_info(Some(parent_scope), &[]);
-                        assert_eq!(
-                            parent_semantic.binding_target_for_name(identity.bind_name.as_str()),
-                            identity.binding_target,
-                            "{}",
-                            identity.bind_name
-                        );
-                        if let Some(function_scope) = self.semantic_state.function_scope(func) {
-                            self.scope_stack.push(function_scope);
-                            walk_stmt(self, stmt);
-                            self.scope_stack.pop();
-                            return;
-                        }
-                        walk_stmt(self, stmt);
-                    }
-                    Stmt::ClassDef(class_def) => {
-                        let parent_scope = self
-                            .scope_stack
-                            .last()
-                            .expect("missing parent scope")
-                            .clone();
-                        if let Some(class_scope) = parent_scope.child_scope_for_class(class_def) {
-                            self.scope_stack.push(class_scope);
-                            walk_stmt(self, stmt);
-                            self.scope_stack.pop();
-                            return;
-                        }
-                        walk_stmt(self, stmt);
-                    }
-                    _ => walk_stmt(self, stmt),
-                }
-            }
-        }
-
-        let source = concat!(
-            "def outer():\n",
-            "    def local():\n",
-            "        return 1\n",
-            "    global exported\n",
-            "    def exported():\n",
-            "        return 2\n",
-            "    class C:\n",
-            "        def method(self):\n",
-            "            return local()\n",
-            "    return local, exported, C\n",
-        );
-        let mut module = parse_module(source).unwrap().into_syntax().body;
-        let mut semantic_state = SemanticAstState::from_ruff(&mut module);
-        crate::driver::wrap_module_init(&mut semantic_state, &mut module);
-        let identity_by_node = collect_function_identity_private(&mut module, &semantic_state);
-        let Stmt::FunctionDef(module_init) = &mut module[0] else {
-            panic!("expected _dp_module_init");
-        };
-        let module_init_scope = semantic_state
-            .function_scope(module_init)
-            .expect("missing module init scope");
-        let mut checker = Checker {
-            semantic_state: &semantic_state,
-            identity_by_node: &identity_by_node,
-            scope_stack: vec![module_init_scope],
-        };
-        checker.visit_body(&mut module_init.body);
+    fn callable_semantic_info_tracks_bind_and_qualname_for_class_helper_override() {
+        let source = "class Box:\n    value = 1\n";
+        let blockpy_module = transform_str_to_ruff_with_options(source, Options::for_test())
+            .unwrap()
+            .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+            .cloned()
+            .expect("semantic_blockpy pass should be tracked");
+        let class_helper = blockpy_module
+            .callable_defs
+            .iter()
+            .find(|func| func.names.bind_name == "_dp_class_ns_Box")
+            .expect("missing class helper");
+        assert_eq!(class_helper.semantic.bind_name, "_dp_class_ns_Box");
+        assert_eq!(class_helper.semantic.display_name, "_dp_class_ns_Box");
+        assert_eq!(class_helper.semantic.qualname, "_dp_class_ns_Box");
     }
 
     #[test]
@@ -951,8 +941,14 @@ mod tests {
         let inner_scope = semantic_state
             .function_scope(inner)
             .expect("missing inner scope");
+        let outer_scope = semantic_state
+            .function_scope(outer)
+            .expect("missing outer scope");
         let semantic = callable_semantic_info(
+            &semantic_state,
+            Some(&outer_scope),
             Some(&inner_scope),
+            Some(inner),
             crate::passes::ast_to_ast::body::suite_ref(&inner.body),
         );
 

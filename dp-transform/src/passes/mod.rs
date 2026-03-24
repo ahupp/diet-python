@@ -5,7 +5,6 @@ mod blockpy_generators;
 pub mod blockpy_to_bb;
 pub(crate) mod core_await_lower;
 pub(crate) mod core_eval_order;
-mod function_identity;
 mod name_binding;
 pub mod ruff_to_blockpy;
 mod summarize_pass_shape;
