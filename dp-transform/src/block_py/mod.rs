@@ -1444,10 +1444,7 @@ where
 
     fn map_stmt(&self, stmt: BlockPyStmt<PassExpr<PIn>>) -> BlockPyStmt<PassExpr<POut>> {
         match stmt {
-            BlockPyStmt::Assign(assign) => BlockPyStmt::Assign(BlockPyAssign {
-                target: assign.target,
-                value: self.map_expr(assign.value),
-            }),
+            BlockPyStmt::Assign(assign) => self.map_assign(assign),
             BlockPyStmt::Expr(expr) => BlockPyStmt::Expr(self.map_expr(expr)),
             BlockPyStmt::Delete(delete) => BlockPyStmt::Delete(delete),
             BlockPyStmt::If(if_stmt) => BlockPyStmt::If(BlockPyIf {
@@ -1456,6 +1453,13 @@ where
                 orelse: self.map_fragment(if_stmt.orelse),
             }),
         }
+    }
+
+    fn map_assign(&self, assign: BlockPyAssign<PassExpr<PIn>>) -> BlockPyStmt<PassExpr<POut>> {
+        BlockPyStmt::Assign(BlockPyAssign {
+            target: assign.target,
+            value: self.map_expr(assign.value),
+        })
     }
 
     fn map_term(&self, term: BlockPyTerm<PassExpr<PIn>>) -> BlockPyTerm<PassExpr<POut>> {

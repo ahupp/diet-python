@@ -105,30 +105,21 @@ impl NameBindingMapper<'_> {
 }
 
 impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_> {
-    fn map_stmt(&self, stmt: BlockPyStmt<CoreBlockPyExpr>) -> BlockPyStmt<CoreBlockPyExpr> {
-        match stmt {
-            BlockPyStmt::Assign(assign)
-                if self
-                    .semantic
-                    .binding_target_for_name(assign.target.id.as_str())
-                    == BindingTarget::ModuleGlobal =>
-            {
-                rewrite_global_binding_assign(BlockPyAssign {
-                    target: assign.target,
-                    value: self.map_expr(assign.value),
-                })
-            }
-            BlockPyStmt::Assign(assign) => BlockPyStmt::Assign(BlockPyAssign {
+    fn map_assign(&self, assign: BlockPyAssign<CoreBlockPyExpr>) -> BlockPyStmt<CoreBlockPyExpr> {
+        if self
+            .semantic
+            .binding_target_for_name(assign.target.id.as_str())
+            == BindingTarget::ModuleGlobal
+        {
+            rewrite_global_binding_assign(BlockPyAssign {
                 target: assign.target,
                 value: self.map_expr(assign.value),
-            }),
-            BlockPyStmt::Expr(expr) => BlockPyStmt::Expr(self.map_expr(expr)),
-            BlockPyStmt::Delete(delete) => BlockPyStmt::Delete(delete),
-            BlockPyStmt::If(BlockPyIf { test, body, orelse }) => BlockPyStmt::If(BlockPyIf {
-                test: self.map_expr(test),
-                body: self.map_fragment(body),
-                orelse: self.map_fragment(orelse),
-            }),
+            })
+        } else {
+            BlockPyStmt::Assign(BlockPyAssign {
+                target: assign.target,
+                value: self.map_expr(assign.value),
+            })
         }
     }
 
