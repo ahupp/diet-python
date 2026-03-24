@@ -474,10 +474,7 @@ impl Transformer for NameScopeRewriter<'_> {
                             let cell = cell_name(name);
                             *stmt = py_stmt!("del {cell:id}.cell_contents", cell = cell.as_str());
                         }
-                        (_, SemanticBindingKind::Global) => {
-                            *stmt =
-                                py_stmt!("__dp_delitem(globals(), {name:literal})", name = name);
-                        }
+                        (_, SemanticBindingKind::Global) => {}
                         (_, SemanticBindingKind::Nonlocal) => {
                             let cell = cell_name(name);
                             *stmt = py_stmt!("del {cell:id}.cell_contents", cell = cell.as_str());
@@ -579,7 +576,7 @@ impl Transformer for NameScopeRewriter<'_> {
                                         )
                                     }
                                     (_, SemanticBindingKind::Global) => py_stmt!(
-                                        "__dp_store_global(globals(), {name:literal}, {value:expr})",
+                                        "{name:id} = {value:expr}",
                                         name = exc_name.as_str(),
                                         value = py_expr!("{temp:id}", temp = temp_name.as_str()),
                                     ),
@@ -602,10 +599,7 @@ impl Transformer for NameScopeRewriter<'_> {
                                     }
                                     (SemanticScopeKind::Class, SemanticBindingKind::Global)
                                     | (_, SemanticBindingKind::Global) => {
-                                        py_stmt!(
-                                            "__dp_delitem(globals(), {name:literal})",
-                                            name = exc_name.as_str()
-                                        )
+                                        py_stmt!("del {name:id}", name = exc_name.as_str(),)
                                     }
                                     (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal)
                                     | (_, SemanticBindingKind::Nonlocal) => {

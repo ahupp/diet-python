@@ -189,7 +189,7 @@ del obj.x, obj[i], x
 #     block _dp_bb_0_1:
 #         __dp_delattr(obj, "x")
 #         __dp_delitem(obj, i)
-#         __dp_delitem(globals(), "x")
+#         x = __dp_DELETED
 #         return __dp_NONE
 
 # assert_no_msg

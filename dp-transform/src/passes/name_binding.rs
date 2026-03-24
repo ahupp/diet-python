@@ -1,9 +1,9 @@
 use crate::block_py::intrinsics::{LOAD_GLOBAL_INTRINSIC, STORE_GLOBAL_INTRINSIC};
 use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta, BindingTarget,
-    BlockPyAssign, BlockPyBindingKind, BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyIf,
-    BlockPyModule, BlockPyModuleMap, BlockPyStmt, CoreBlockPyCall, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreStringLiteral, IntrinsicCall,
+    BlockPyAssign, BlockPyBindingKind, BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyModule,
+    BlockPyModuleMap, BlockPyStmt, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
+    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreStringLiteral, IntrinsicCall,
 };
 use crate::passes::CoreBlockPyPass;
 use ruff_python_ast::{self as ast, ExprName};
@@ -64,6 +64,26 @@ fn rewrite_global_binding_assign(
     ))
 }
 
+fn rewrite_global_binding_delete_by_name(
+    bind_name: &str,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+) -> BlockPyStmt<CoreBlockPyExpr> {
+    BlockPyStmt::Expr(core_positional_call_expr_with_meta(
+        "__dp_delitem",
+        node_index.clone(),
+        range,
+        vec![
+            globals_expr(node_index.clone(), range),
+            core_string_expr(bind_name.to_string(), node_index, range),
+        ],
+    ))
+}
+
+fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
+    matches!(expr, CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_DELETED")
+}
+
 struct NameBindingMapper<'a> {
     semantic: &'a BlockPyCallableSemanticInfo,
 }
@@ -111,6 +131,13 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
             .binding_target_for_name(assign.target.id.as_str())
             == BindingTarget::ModuleGlobal
         {
+            if is_deleted_sentinel_expr(&assign.value) {
+                return rewrite_global_binding_delete_by_name(
+                    assign.target.id.as_str(),
+                    assign.target.node_index.clone(),
+                    assign.target.range,
+                );
+            }
             rewrite_global_binding_assign(BlockPyAssign {
                 target: assign.target,
                 value: self.map_expr(assign.value),
