@@ -39,23 +39,23 @@ def test_semantic_blockpy_still_contains_yield() -> None:
 
 @PASS_SHAPE_XFAIL
 def test_core_blockpy_still_contains_await() -> None:
-    assert debug_pass_shape("core_blockpy")["contains_await"]
+    assert debug_pass_shape("core_blockpy_with_await_and_yield")["contains_await"]
 
 
 @PASS_SHAPE_XFAIL
 def test_core_blockpy_still_contains_yield() -> None:
-    assert debug_pass_shape("core_blockpy")["contains_yield"]
+    assert debug_pass_shape("core_blockpy_with_await_and_yield")["contains_yield"]
 
 
 def test_core_blockpy_replaces_add_with_dp_add() -> None:
-    assert debug_pass_shape("core_blockpy")["contains_dp_add"]
+    assert debug_pass_shape("core_blockpy_with_await_and_yield")["contains_dp_add"]
 
 
 @PASS_SHAPE_XFAIL
-def test_core_blockpy_without_await_removes_await() -> None:
-    assert not debug_pass_shape("core_blockpy_without_await")["contains_await"]
+def test_core_blockpy_with_yield_removes_await() -> None:
+    assert not debug_pass_shape("core_blockpy_with_yield")["contains_await"]
 
 
 @PASS_SHAPE_XFAIL
-def test_core_blockpy_without_await_or_yield_removes_yield() -> None:
-    assert not debug_pass_shape("core_blockpy_without_await_or_yield")["contains_yield"]
+def test_core_blockpy_removes_yield() -> None:
+    assert not debug_pass_shape("core_blockpy")["contains_yield"]

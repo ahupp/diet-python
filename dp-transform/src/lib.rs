@@ -308,7 +308,7 @@ pub fn transform_str_to_bb_ir_with_options(
     options.lower_attributes = true;
 
     Ok(transform_str_to_ruff_with_options(source, options)?
-        .get_pass::<BlockPyModule<BbBlockPyPass>>("bb")
+        .get_pass::<BlockPyModule<BbBlockPyPass>>("bb_blockpy")
         .cloned())
 }
 

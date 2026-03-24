@@ -114,12 +114,12 @@ mod tests {
             self.pass_text("semantic_blockpy")
         }
 
-        fn core_blockpy_text(&self) -> String {
-            self.pass_text("core_blockpy")
+        fn core_blockpy_with_await_and_yield_text(&self) -> String {
+            self.pass_text("core_blockpy_with_await_and_yield")
         }
 
-        fn core_blockpy_without_await_text(&self) -> String {
-            self.pass_text("core_blockpy_without_await")
+        fn core_blockpy_with_yield_text(&self) -> String {
+            self.pass_text("core_blockpy_with_yield")
         }
 
         fn pass_text(&self, name: &str) -> String {
@@ -130,7 +130,7 @@ mod tests {
 
         fn bb_module(&self) -> &BlockPyModule<BbBlockPyPass> {
             self.result
-                .get_pass::<BlockPyModule<BbBlockPyPass>>("bb")
+                .get_pass::<BlockPyModule<BbBlockPyPass>>("bb_blockpy")
                 .expect("bb module should be available")
         }
 
@@ -227,7 +227,7 @@ def fmt(value):
         let blockpy = lowered.blockpy_text();
         assert!(blockpy.contains("f\"{value=}\""), "{blockpy}");
 
-        let core_blockpy = lowered.core_blockpy_text();
+        let core_blockpy = lowered.core_blockpy_with_await_and_yield_text();
         assert!(core_blockpy.contains("\"value=\""), "{core_blockpy}");
         assert!(core_blockpy.contains("__dp_repr(value)"), "{core_blockpy}");
         assert!(
@@ -261,7 +261,7 @@ def fmt(value):
         let blockpy = lowered.blockpy_text();
         assert!(blockpy.contains("t\"{value}\""), "{blockpy}");
 
-        let core_blockpy = lowered.core_blockpy_text();
+        let core_blockpy = lowered.core_blockpy_with_await_and_yield_text();
         assert!(
             core_blockpy
                 .contains("__dp_templatelib_Interpolation(value, \"value\", __dp_NONE, \"\")"),
@@ -456,7 +456,7 @@ def delegator():
         let lowered = TrackedLowering::new(source);
         let core_module = lowered
             .result
-            .get_pass::<BlockPyModule<CoreBlockPyPass>>("core_blockpy_without_await_or_yield")
+            .get_pass::<BlockPyModule<CoreBlockPyPass>>("core_blockpy")
             .expect("expected core no-yield pass");
         let resume_function = core_module
             .callable_defs
@@ -678,7 +678,7 @@ async def agen():
             "{semantic_blockpy_rendered}"
         );
 
-        let blockpy_rendered = lowered.core_blockpy_without_await_text();
+        let blockpy_rendered = lowered.core_blockpy_with_yield_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
             "{blockpy_rendered}"
@@ -713,7 +713,7 @@ async def run():
             "{semantic_blockpy_rendered}"
         );
 
-        let blockpy_rendered = lowered.core_blockpy_without_await_text();
+        let blockpy_rendered = lowered.core_blockpy_with_yield_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
             "{blockpy_rendered}"
@@ -748,7 +748,7 @@ async def agen(cm):
             "{semantic_blockpy_rendered}"
         );
 
-        let blockpy_rendered = lowered.core_blockpy_without_await_text();
+        let blockpy_rendered = lowered.core_blockpy_with_yield_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
             "{blockpy_rendered}"
@@ -787,7 +787,7 @@ async def run(cm):
             "{semantic_blockpy_rendered}"
         );
 
-        let blockpy_rendered = lowered.core_blockpy_without_await_text();
+        let blockpy_rendered = lowered.core_blockpy_with_yield_text();
         assert!(
             blockpy_rendered.contains("__dp_await_iter"),
             "{blockpy_rendered}"

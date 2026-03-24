@@ -413,12 +413,12 @@ mod tests {
             .expect("semantic_blockpy pass should be tracked")
     }
 
-    fn wrapped_core_blockpy_without_await_or_yield(source: &str) -> BlockPyModule<CoreBlockPyPass> {
+    fn wrapped_core_blockpy(source: &str) -> BlockPyModule<CoreBlockPyPass> {
         transform_str_to_ruff_with_options(source, Options::for_test())
             .unwrap()
-            .get_pass::<BlockPyModule<CoreBlockPyPass>>("core_blockpy_without_await_or_yield")
+            .get_pass::<BlockPyModule<CoreBlockPyPass>>("core_blockpy")
             .cloned()
-            .expect("core_blockpy_without_await_or_yield pass should be tracked")
+            .expect("core_blockpy pass should be tracked")
     }
 
     fn function_by_name<'a, P: BlockPyPass>(
@@ -490,7 +490,7 @@ async def f(xs):
 
     #[test]
     fn lowers_generator_yield_to_explicit_blockpy_dispatch() {
-        let blockpy = wrapped_core_blockpy_without_await_or_yield(
+        let blockpy = wrapped_core_blockpy(
             r#"
 def gen(n):
     yield n
@@ -1205,7 +1205,7 @@ y = 3
 
     #[test]
     fn lowers_generator_yield_from_to_explicit_blockpy_dispatch() {
-        let blockpy = wrapped_core_blockpy_without_await_or_yield(
+        let blockpy = wrapped_core_blockpy(
             r#"
 def gen(it):
     yield from it
@@ -1225,7 +1225,7 @@ def gen(it):
 
     #[test]
     fn lowers_async_generator_yield_to_explicit_blockpy_dispatch() {
-        let blockpy = wrapped_core_blockpy_without_await_or_yield(
+        let blockpy = wrapped_core_blockpy(
             r#"
 async def agen(n):
     yield n
@@ -1249,7 +1249,7 @@ async def agen(n):
 
     #[test]
     fn lowers_coroutine_completion_outside_user_exception_region() {
-        let blockpy = wrapped_core_blockpy_without_await_or_yield(
+        let blockpy = wrapped_core_blockpy(
             r#"
 async def outer(inner):
     try:

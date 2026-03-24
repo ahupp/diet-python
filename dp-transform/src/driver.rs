@@ -154,7 +154,7 @@ pub(crate) fn rewrite_module_with_tracker(
             ```
     */
     let core_blockpy: BlockPyModule<CoreBlockPyPassWithAwaitAndYield> = pass_tracker
-        .run_renderable_pass("core_blockpy", || {
+        .run_renderable_pass("core_blockpy_with_await_and_yield", || {
             semantic_blockpy.map_callable_defs(simplify_blockpy_callable_def_exprs)
         });
 
@@ -162,7 +162,7 @@ pub(crate) fn rewrite_module_with_tracker(
       Rewrite `await foo` to  `yield from __dp_await_iter(foo)`
     */
     let core_blockpy_without_await: BlockPyModule<CoreBlockPyPassWithYield> = pass_tracker
-        .run_renderable_pass("core_blockpy_without_await", || {
+        .run_renderable_pass("core_blockpy_with_yield", || {
             lower_awaits_in_core_blockpy_module(core_blockpy)
         });
 
@@ -173,12 +173,15 @@ pub(crate) fn rewrite_module_with_tracker(
 
     */
     let core_blockpy_without_await_or_yield: BlockPyModule<CoreBlockPyPass> = pass_tracker
-        .run_renderable_pass("core_blockpy_without_await_or_yield", || {
+        .run_renderable_pass("core_blockpy", || {
             passes::lower_yield_in_lowered_core_blockpy_module_bundle(core_blockpy_without_await)
         });
-    let bb_module: BlockPyModule<BbBlockPyPass> = pass_tracker.run_renderable_pass("bb", || {
-        passes::lower_core_blockpy_module_bundle_to_bb_module(core_blockpy_without_await_or_yield)
-    });
+    let bb_module: BlockPyModule<BbBlockPyPass> =
+        pass_tracker.run_renderable_pass("bb_blockpy", || {
+            passes::lower_core_blockpy_module_bundle_to_bb_module(
+                core_blockpy_without_await_or_yield,
+            )
+        });
     let bb_prepared: BlockPyModule<PreparedBbBlockPyPass> =
         pass_tracker.run_renderable_pass("bb_prepared", || {
             passes::lower_try_jump_exception_flow(&bb_module)
