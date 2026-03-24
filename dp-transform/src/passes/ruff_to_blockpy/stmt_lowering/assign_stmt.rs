@@ -359,7 +359,6 @@ pub(crate) fn build_for_target_assign_body<F>(
     target: &Expr,
     tmp_expr: Expr,
     tmp_name: &str,
-    cell_slots: &std::collections::HashSet<String>,
     next_temp: &mut F,
 ) -> Vec<Stmt>
 where
@@ -367,7 +366,6 @@ where
 {
     let mut out = Vec::new();
     rewrite_assignment_target(target.clone(), tmp_expr, &mut out, next_temp);
-    out.extend(sync_target_cells_stmts_shared(target, cell_slots));
     out.push(py_stmt!("{tmp:id} = None", tmp = tmp_name));
     out
 }

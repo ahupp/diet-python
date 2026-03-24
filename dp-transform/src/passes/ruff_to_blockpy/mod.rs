@@ -12,9 +12,7 @@ use crate::block_py::exception::{
     rewrite_region_returns_to_finally_blockpy,
 };
 use crate::block_py::param_specs::ParamSpec;
-use crate::block_py::state::{
-    collect_state_vars, sync_target_cells_stmts as sync_target_cells_stmts_shared,
-};
+use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     assert_blockpy_block_normalized, move_entry_block_to_front, BlockPyBindingKind,
     BlockPyCallableFacts, BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm,

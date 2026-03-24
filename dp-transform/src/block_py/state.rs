@@ -2,9 +2,7 @@ use super::dataflow::{
     analyze_blockpy_use_def, assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term,
 };
 use super::{BlockPyTerm, CfgBlock, Expr, IntoBlockPyStmt};
-use crate::passes::ast_symbol_analysis::{assigned_names_in_stmt, collect_assigned_names};
-use crate::passes::ast_to_ast::scope_helpers::cell_name;
-use crate::py_stmt;
+use crate::passes::ast_symbol_analysis::assigned_names_in_stmt;
 use ruff_python_ast::{self as ast, Stmt};
 use std::collections::HashSet;
 
@@ -83,26 +81,4 @@ pub(crate) fn collect_cell_slots(stmts: &[Stmt]) -> HashSet<String> {
         }
     }
     slots
-}
-
-pub(crate) fn sync_target_cells_stmts(target: &Expr, cell_slots: &HashSet<String>) -> Vec<Stmt> {
-    let mut names: HashSet<String> = HashSet::new();
-    collect_assigned_names(target, &mut names);
-    let mut names = names.into_iter().collect::<Vec<_>>();
-    names.sort();
-
-    names
-        .into_iter()
-        .filter_map(|name| {
-            let cell = cell_name(name.as_str());
-            if !cell_slots.contains(cell.as_str()) {
-                return None;
-            }
-            Some(py_stmt!(
-                "__dp_store_cell({cell:id}, {value:id})",
-                cell = cell.as_str(),
-                value = name.as_str(),
-            ))
-        })
-        .collect()
 }

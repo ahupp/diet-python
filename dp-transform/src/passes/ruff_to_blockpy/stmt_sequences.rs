@@ -353,7 +353,6 @@ pub(crate) fn lower_stmt_sequence_with_state(
                     for_stmt.target.as_ref(),
                     tmp_expr,
                     tmp_name.as_str(),
-                    cell_slots,
                     &mut |prefix| name_gen.next_tmp_name(prefix).to_string(),
                 );
                 let label = lower_for_stmt_sequence_head(
