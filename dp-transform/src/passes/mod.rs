@@ -569,6 +569,43 @@ y = x
     }
 
     #[test]
+    fn top_level_global_named_expr_moves_to_name_binding_pass() {
+        let source = r#"
+def f():
+    return 1
+
+x = (y := f())
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let core_rendered = lowered.pass_text("core_blockpy");
+        assert!(
+            !core_rendered.contains("__dp_store_global"),
+            "{core_rendered}"
+        );
+        assert!(
+            !core_rendered.contains("__dp_load_global"),
+            "{core_rendered}"
+        );
+        assert!(core_rendered.contains("y = f()"), "{core_rendered}");
+        assert!(core_rendered.contains("x = y"), "{core_rendered}");
+
+        let name_binding_rendered = lowered.name_binding_text();
+        assert!(
+            name_binding_rendered.contains(
+                "__dp_store_global(__dp_globals(), \"y\", __dp_load_global(__dp_globals(), \"f\")())"
+            ),
+            "{name_binding_rendered}"
+        );
+        assert!(
+            name_binding_rendered.contains(
+                "__dp_store_global(__dp_globals(), \"x\", __dp_load_global(__dp_globals(), \"y\"))"
+            ),
+            "{name_binding_rendered}"
+        );
+    }
+
+    #[test]
     fn rewritten_ruff_ast_can_keep_assert_while_stmt_sequence_still_lowers_it() {
         let source = r#"
 def check():

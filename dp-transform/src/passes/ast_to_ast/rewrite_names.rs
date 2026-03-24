@@ -293,6 +293,7 @@ impl<'a> NameScopeRewriter<'a> {
             .scope
             .binding_in_scope(id.as_str(), SemanticBindingUse::Modify)
         {
+            SemanticBindingKind::Global if !self.is_class_scope() => None,
             SemanticBindingKind::Global => Some(py_expr!(
                 "__dp_store_global(globals(), {name:literal}, {value:expr})",
                 name = id.as_str(),

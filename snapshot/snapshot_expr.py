@@ -142,7 +142,8 @@ x = (y := f())
 # function _dp_module_init():
 #     function_id: 0
 #     block _dp_bb_0_1:
-#         x = __dp_store_global(globals(), "y", f())
+#         y = f()
+#         x = y
 #         return __dp_NONE
 
 # lambda_simple
