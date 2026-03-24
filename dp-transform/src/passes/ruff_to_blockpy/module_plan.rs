@@ -531,12 +531,46 @@ fn build_lowered_function_instantiation_expr(
     rewrite_stmt::decorator::rewrite_exprs(decorator_exprs, base_function_expr)
 }
 
-fn build_lowered_function_binding_stmt(bind_name: &str, value: Expr) -> Vec<Stmt> {
-    vec![py_stmt!(
-        "{name:id} = {value:expr}",
-        name = bind_name,
-        value = value
-    )]
+fn build_binding_stmt(target: BindingTarget, bind_name: &str, value: Expr) -> Stmt {
+    match target {
+        BindingTarget::Local => {
+            py_stmt!("{name:id} = {value:expr}", name = bind_name, value = value,)
+        }
+        BindingTarget::ModuleGlobal => {
+            panic!("module-global binding should be lowered in the name_binding pass")
+        }
+        BindingTarget::ClassNamespace => py_stmt!(
+            "__dp_setitem(_dp_class_ns, {name:literal}, {value:expr})",
+            name = bind_name,
+            value = value,
+        ),
+    }
+}
+
+fn build_lowered_function_binding_stmt(
+    bind_name: &str,
+    value: Expr,
+    target: BindingTarget,
+) -> Vec<Stmt> {
+    match target {
+        BindingTarget::Local => {
+            vec![py_stmt!(
+                "{name:id} = {value:expr}",
+                name = bind_name,
+                value = value
+            )]
+        }
+        BindingTarget::ModuleGlobal => {
+            vec![py_stmt!(
+                "{name:id} = {value:expr}",
+                name = bind_name,
+                value = value
+            )]
+        }
+        BindingTarget::ClassNamespace => {
+            vec![build_binding_stmt(target, bind_name, value)]
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -563,6 +597,7 @@ fn rewrite_function_def_stmt_via_blockpy(
     );
     lowered_plan.closure_layout = recompute_semantic_blockpy_closure_layout(&lowered_plan);
     let bind_name = lowered_plan.names.bind_name.clone();
+    let binding_target = parent_semantic.binding_target_for_name(bind_name.as_str());
     let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let decorated = build_lowered_function_instantiation_expr(
         lowered_plan.function_id,
@@ -572,7 +607,8 @@ fn rewrite_function_def_stmt_via_blockpy(
         py_expr!("None"),
         lowered_plan.kind,
     );
-    let binding_stmt = build_lowered_function_binding_stmt(bind_name.as_str(), decorated);
+    let binding_stmt =
+        build_lowered_function_binding_stmt(bind_name.as_str(), decorated, binding_target);
     callable_defs.push(lowered_plan);
     if bind_name.starts_with("_dp_class_ns_") || bind_name.starts_with("_dp_define_class_") {
         let mut replacement = function_hoisted;
