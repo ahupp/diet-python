@@ -4,7 +4,7 @@ use crate::block_py::state::collect_cell_slots;
 use crate::block_py::{BindingTarget, BlockPyBindingKind, BlockPyCellBindingKind};
 use crate::block_py::{
     BlockPyCallableFacts, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyModule, FunctionName,
+    BlockPyFunctionKind, BlockPyModule, FunctionName, FunctionNameGen, ModuleNameGen,
 };
 use crate::passes::annotation_export::{
     build_lowered_annotation_helper_binding, rewrite_annotation_helper_defs_as_exec_calls,
@@ -31,10 +31,7 @@ use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, NodeIndex, Stmt};
 use std::collections::{HashMap, HashSet};
 
-use super::{
-    build_blockpy_callable_def_from_runtime_input, rewrite_deleted_name_loads,
-    take_next_function_id, NameGen,
-};
+use super::{build_blockpy_callable_def_from_runtime_input, rewrite_deleted_name_loads};
 
 struct FunctionScopeFrame {
     name: String,
@@ -47,7 +44,7 @@ struct BlockPyModuleRewriter<'a> {
     context: &'a Context,
     semantic_state: &'a SemanticAstState,
     function_identity_by_node: HashMap<NodeIndex, FunctionIdentity>,
-    next_function_id: usize,
+    module_name_gen: ModuleNameGen,
     function_scope_stack: Vec<FunctionScopeFrame>,
     callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>>,
 }
@@ -257,7 +254,7 @@ fn try_lower_function_to_blockpy_bundle(
     func: &ast::StmtFunctionDef,
     parent_name: Option<&str>,
     callable_semantic: &BlockPyCallableSemanticInfo,
-    name_gen: &NameGen,
+    name_gen: FunctionNameGen,
 ) -> BlockPyFunction<RuffBlockPyPass> {
     let (_, lowered_input_body) = split_docstring(suite_ref(&func.body));
     let lowered_input_body = lowered_input_body.to_vec();
@@ -588,7 +585,7 @@ mod tests {
         rewrite_ast_to_lowered_blockpy_module_plan_with_module, BlockPyModuleRewriter,
         FunctionScopeFrame, LoweredFunctionCaptureValue,
     };
-    use crate::block_py::BlockPyModule;
+    use crate::block_py::{BlockPyModule, ModuleNameGen};
     use crate::passes::ast_to_ast::body::suite_mut;
     use crate::passes::ast_to_ast::context::Context;
     use crate::passes::ast_to_ast::semantic::SemanticAstState;
@@ -598,7 +595,7 @@ mod tests {
     use crate::transformer::{walk_stmt, Transformer};
     use ruff_python_ast::{NodeIndex, Stmt};
     use ruff_python_parser::parse_module;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     fn lower_test_module_plan(
         context: &Context,
@@ -660,7 +657,7 @@ mod tests {
             context: &context,
             semantic_state: &semantic_state,
             function_identity_by_node,
-            next_function_id: 0,
+            module_name_gen: ModuleNameGen::new(0),
             function_scope_stack: vec![FunctionScopeFrame {
                 name: "outer".to_string(),
                 parent_name: None,
@@ -1018,7 +1015,7 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
         context,
         semantic_state,
         function_identity_by_node,
-        next_function_id: 0,
+        module_name_gen: ModuleNameGen::new(0),
         function_scope_stack: Vec::new(),
         callable_defs: Vec::new(),
     };
@@ -1096,17 +1093,17 @@ fn rewrite_function_def_stmt_via_blockpy(
     current_parent: Option<&str>,
     callable_semantic: &BlockPyCallableSemanticInfo,
     function_hoisted: Vec<Stmt>,
-    next_function_id: &mut usize,
+    module_name_gen: &mut ModuleNameGen,
     callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
 ) -> Vec<Stmt> {
-    let name_gen = NameGen::new(take_next_function_id(next_function_id));
+    let name_gen = module_name_gen.next_function_name_gen();
     let mut lowered_plan = try_lower_function_to_blockpy_bundle(
         context,
         function_identity_by_node,
         func,
         current_parent,
         callable_semantic,
-        &name_gen,
+        name_gen,
     );
     let param_names = lowered_plan.params.names();
     let param_name_set: HashSet<String> = param_names.iter().cloned().collect();
@@ -1227,14 +1224,14 @@ impl BlockPyModuleRewriter<'_> {
             state.hoisted_to_parent.is_empty(),
             "root _dp_module_init should not produce hoisted statements"
         );
-        let name_gen = NameGen::new(take_next_function_id(&mut self.next_function_id));
+        let name_gen = self.module_name_gen.next_function_name_gen();
         let lowered_plan = try_lower_function_to_blockpy_bundle(
             self.context,
             &self.function_identity_by_node,
             func,
             None,
             &state.callable_semantic,
-            &name_gen,
+            name_gen,
         );
         self.callable_defs.push(lowered_plan);
     }
@@ -1259,7 +1256,7 @@ impl BlockPyModuleRewriter<'_> {
             state.parent_name.as_deref(),
             &state.callable_semantic,
             state.hoisted_to_parent,
-            &mut self.next_function_id,
+            &mut self.module_name_gen,
             &mut self.callable_defs,
         )
     }

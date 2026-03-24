@@ -1150,6 +1150,11 @@ mod tests {
         ParamSpec::default()
     }
 
+    fn test_name_gen() -> crate::block_py::FunctionNameGen {
+        let mut module_name_gen = crate::block_py::ModuleNameGen::new(0);
+        module_name_gen.next_function_name_gen()
+    }
+
     fn function_by_bind_name<'a, P>(
         module: &'a BlockPyModule<P>,
         bind_name: &str,
@@ -1279,7 +1284,7 @@ async def no_lying():
         let rendered = blockpy_module_to_string(&BlockPyModule {
             callable_defs: vec![BlockPyFunction::<RuffBlockPyPass> {
                 function_id: crate::block_py::FunctionId(0),
-                name_gen: crate::block_py::NameGen::new(crate::block_py::FunctionId(0)),
+                name_gen: test_name_gen(),
                 names: crate::block_py::FunctionName::new("gen", "gen", "gen", "gen"),
                 kind: BlockPyFunctionKind::Function,
                 params: empty_param_spec(),
@@ -1323,7 +1328,7 @@ async def no_lying():
     fn renders_followup_blocks_under_their_owning_entry_block() {
         let function: BlockPyFunction<RuffBlockPyPass> = BlockPyFunction {
             function_id: crate::block_py::FunctionId(0),
-            name_gen: crate::block_py::NameGen::new(crate::block_py::FunctionId(0)),
+            name_gen: test_name_gen(),
             names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
             kind: BlockPyFunctionKind::Function,
             params: empty_param_spec(),
@@ -1401,7 +1406,7 @@ def choose(a, b):
     fn sorts_rendered_root_and_child_blocks_by_label() {
         let function: BlockPyFunction<RuffBlockPyPass> = BlockPyFunction {
             function_id: crate::block_py::FunctionId(0),
-            name_gen: crate::block_py::NameGen::new(crate::block_py::FunctionId(0)),
+            name_gen: test_name_gen(),
             names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
             kind: BlockPyFunctionKind::Function,
             params: empty_param_spec(),
@@ -1504,7 +1509,7 @@ def choose(a, b):
         let rendered = blockpy_module_to_string(&BlockPyModule {
             callable_defs: vec![BlockPyFunction::<BbBlockPyPass> {
                 function_id: crate::block_py::FunctionId(0),
-                name_gen: crate::block_py::NameGen::new(crate::block_py::FunctionId(0)),
+                name_gen: test_name_gen(),
                 names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
                 kind: BlockPyFunctionKind::Function,
                 params: empty_param_spec(),

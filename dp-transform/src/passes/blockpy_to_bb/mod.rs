@@ -11,7 +11,7 @@ use crate::block_py::{
     BbBlock, BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm, CfgBlock,
     CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral, IntrinsicCall,
+    CoreBlockPyLiteral, IntrinsicCall, ModuleNameGen,
 };
 use crate::passes::{BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithYield};
 use ruff_python_ast::{self as ast};
@@ -27,13 +27,14 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
 ) -> BlockPyModule<CoreBlockPyPass> {
     let module =
         module.map_callable_defs(make_eval_order_explicit_in_core_callable_def_without_await);
-    let mut next_hidden_function_id = module
+    let next_hidden_function_id = module
         .callable_defs
         .iter()
         .map(|callable| callable.function_id.0)
         .max()
         .map(|value| value + 1)
         .unwrap_or(0);
+    let mut module_name_gen = ModuleNameGen::new(next_hidden_function_id);
     let mut callable_defs = Vec::new();
     for callable in module.callable_defs {
         match callable.kind {
@@ -49,9 +50,10 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
             BlockPyFunctionKind::Generator
             | BlockPyFunctionKind::Coroutine
             | BlockPyFunctionKind::AsyncGenerator => {
-                let resume_function_id = crate::block_py::FunctionId(next_hidden_function_id);
-                next_hidden_function_id += 1;
-                callable_defs.extend(lower_generator_like_function(callable, resume_function_id));
+                callable_defs.extend(lower_generator_like_function(
+                    callable,
+                    &mut module_name_gen,
+                ));
             }
         }
     }
@@ -67,6 +69,8 @@ pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
 pub(crate) fn lower_core_blockpy_function_to_bb_function(
     lowered: BlockPyFunction<CoreBlockPyPass>,
 ) -> BlockPyFunction<BbBlockPyPass> {
+    let block_params =
+        recompute_lowered_block_params(&lowered, should_include_closure_storage_aliases(&lowered));
     let BlockPyFunction {
         function_id,
         name_gen,
@@ -79,22 +83,6 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
         facts,
         semantic,
     } = lowered;
-    let lowered_view: BlockPyFunction<CoreBlockPyPass> = BlockPyFunction {
-        function_id,
-        name_gen: crate::block_py::NameGen::new(function_id),
-        names: names.clone(),
-        kind,
-        params: params.clone(),
-        blocks: blocks.clone(),
-        doc: doc.clone(),
-        closure_layout: closure_layout.clone(),
-        facts: facts.clone(),
-        semantic: semantic.clone(),
-    };
-    let block_params = recompute_lowered_block_params(
-        &lowered_view,
-        should_include_closure_storage_aliases(&lowered_view),
-    );
     BlockPyFunction {
         function_id,
         name_gen,

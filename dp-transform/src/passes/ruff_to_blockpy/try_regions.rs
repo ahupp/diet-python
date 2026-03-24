@@ -18,7 +18,7 @@ pub(crate) struct TryPlan {
 }
 
 pub(crate) fn build_try_plan(
-    name_gen: &NameGen,
+    name_gen: &FunctionNameGen,
     has_finally: bool,
     _needs_finally_return_flow: bool,
 ) -> TryPlan {

@@ -218,7 +218,7 @@ where
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_for_stmt_sequence_head<F>(
-    name_gen: &NameGen,
+    name_gen: &FunctionNameGen,
     for_stmt: ast::StmtFor,
     remaining_stmts: &[Stmt],
     targets: RegionTargets,
@@ -260,7 +260,7 @@ pub(crate) fn lower_stmt_sequence_with_state(
     blocks: &mut Vec<BlockPyBlock>,
     cell_slots: &HashSet<String>,
     outer_scope_names: &HashSet<String>,
-    name_gen: &NameGen,
+    name_gen: &FunctionNameGen,
 ) -> String {
     if stmts.is_empty() {
         return targets.normal_cont;

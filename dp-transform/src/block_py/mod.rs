@@ -18,7 +18,6 @@ use ruff_python_ast::{
     StringLiteralValue,
 };
 use std::borrow::Borrow;
-use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::ops::Deref;
@@ -27,9 +26,11 @@ pub(crate) mod cfg;
 pub(crate) mod dataflow;
 pub(crate) mod exception;
 pub mod intrinsics;
+mod name_gen;
 pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod state;
+pub use name_gen::{FunctionNameGen, ModuleNameGen};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BlockPyLabel(pub String);
@@ -45,39 +46,6 @@ impl FunctionId {
 
 fn is_internal_symbol(name: &str) -> bool {
     name.starts_with("_dp_") || name.starts_with("__dp_") || name == "__dp__"
-}
-
-#[derive(Debug)]
-pub struct NameGen {
-    function_id: FunctionId,
-    next_block_id: Cell<usize>,
-    next_tmp_id: Cell<usize>,
-}
-
-impl NameGen {
-    pub fn new(function_id: FunctionId) -> Self {
-        Self {
-            function_id,
-            next_block_id: Cell::new(0),
-            next_tmp_id: Cell::new(0),
-        }
-    }
-
-    pub fn function_id(&self) -> FunctionId {
-        self.function_id
-    }
-
-    pub fn next_block_name(&self) -> BlockPyLabel {
-        let current = self.next_block_id.get();
-        self.next_block_id.set(current + 1);
-        BlockPyLabel(format!("_dp_bb_{}_{}", self.function_id.0, current))
-    }
-
-    pub fn next_tmp_name(&self, prefix: &str) -> ast::name::Name {
-        let current = self.next_tmp_id.get();
-        self.next_tmp_id.set(current + 1);
-        ast::name::Name::new(format!("_dp_{prefix}_{}_{}", self.function_id.0, current))
-    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -667,7 +635,7 @@ impl BlockPyCallableSemanticInfo {
 #[derive(Debug)]
 pub struct BlockPyFunction<P: BlockPyPass> {
     pub function_id: FunctionId,
-    pub name_gen: NameGen,
+    pub name_gen: FunctionNameGen,
     pub names: FunctionName,
     pub kind: BlockPyFunctionKind,
     pub params: ParamSpec,
@@ -682,10 +650,9 @@ impl<P: BlockPyPass> Clone for BlockPyFunction<P> {
     fn clone(&self) -> Self {
         Self {
             function_id: self.function_id,
-            // Cloned BlockPyFunction values are used as read-only snapshots for
-            // rendering, pass tracking, and analysis. Reinitialize the allocator
-            // instead of duplicating live counter state.
-            name_gen: NameGen::new(self.function_id),
+            // Share the allocator state so cloned analysis/rendering snapshots
+            // cannot accidentally reissue duplicate generated names.
+            name_gen: self.name_gen.share(),
             names: self.names.clone(),
             kind: self.kind,
             params: self.params.clone(),
@@ -1654,6 +1621,11 @@ mod tests {
         name
     }
 
+    fn test_name_gen() -> FunctionNameGen {
+        let mut module_name_gen = ModuleNameGen::new(0);
+        module_name_gen.next_function_name_gen()
+    }
+
     #[test]
     fn module_visitor_walks_blockpy_in_evaluation_order() {
         #[derive(Default)]
@@ -1726,7 +1698,7 @@ mod tests {
         let module = BlockPyModule::<RuffBlockPyPass> {
             callable_defs: vec![BlockPyFunction {
                 function_id: FunctionId(0),
-                name_gen: NameGen::new(FunctionId(0)),
+                name_gen: test_name_gen(),
                 names: FunctionName::new("f", "f", "f", "f"),
                 kind: BlockPyFunctionKind::Function,
                 params: ParamSpec::default(),

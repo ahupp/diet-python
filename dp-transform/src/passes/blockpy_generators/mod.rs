@@ -8,7 +8,7 @@ use crate::block_py::{
     BlockPyCfgBlockBuilder, BlockPyCfgFragment, BlockPyFunction, BlockPyFunctionKind, BlockPyIf,
     BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit,
     ClosureLayout, ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, FunctionId, FunctionName,
+    CoreBlockPyExprWithYield, FunctionId, FunctionName, ModuleNameGen,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
@@ -1422,12 +1422,14 @@ fn lower_resume_blocks(
 
 pub(crate) fn lower_generator_like_function(
     callable: BlockPyFunction<CoreBlockPyPassWithYield>,
-    resume_function_id: FunctionId,
+    module_name_gen: &mut ModuleNameGen,
 ) -> Vec<BlockPyFunction<CoreBlockPyPass>> {
     assert!(
         is_generator_like(callable.kind),
         "generator lowering only applies to generator-like callables"
     );
+    let resume_name_gen = module_name_gen.next_function_name_gen();
+    let resume_function_id = resume_name_gen.function_id();
     let closure_layout = build_generator_closure_layout(&callable);
     let state_order = generator_state_order(&closure_layout, callable.kind);
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
@@ -1442,39 +1444,51 @@ pub(crate) fn lower_generator_like_function(
         callable.kind,
     );
 
+    let BlockPyFunction {
+        function_id,
+        name_gen,
+        names,
+        kind,
+        params,
+        doc,
+        facts,
+        semantic,
+        ..
+    } = callable;
+
     let visible_function = BlockPyFunction {
-        function_id: callable.function_id,
-        name_gen: crate::block_py::NameGen::new(callable.function_id),
-        names: callable.names.clone(),
-        kind: callable.kind,
-        params: callable.params.clone(),
+        function_id,
+        name_gen,
+        names: names.clone(),
+        kind,
+        params: params.clone(),
         blocks: attach_exception_edges_to_blocks(
             vec![factory_block.clone()],
             &HashMap::from([(factory_block.label.as_str().to_string(), None)]),
         ),
-        doc: callable.doc.clone(),
+        doc,
         closure_layout: Some(closure_layout.clone()),
-        facts: callable.facts.clone(),
-        semantic: callable.semantic.clone(),
+        facts: facts.clone(),
+        semantic: semantic.clone(),
     };
 
-    let resume_params = resume_param_spec(callable.kind);
+    let resume_params = resume_param_spec(kind);
     let resume_function = BlockPyFunction {
         function_id: resume_function_id,
-        name_gen: crate::block_py::NameGen::new(resume_function_id),
+        name_gen: resume_name_gen,
         names: FunctionName::new(
-            format!("{}_resume", callable.names.bind_name),
+            format!("{}_resume", names.bind_name),
             "_dp_resume",
-            callable.names.display_name.clone(),
-            callable.names.qualname.clone(),
+            names.display_name,
+            names.qualname,
         ),
         kind: BlockPyFunctionKind::Function,
         params: resume_params.clone(),
         blocks: resume_blocks.clone(),
         doc: None,
         closure_layout: Some(closure_layout.clone()),
-        facts: callable.facts,
-        semantic: callable.semantic,
+        facts,
+        semantic,
     };
 
     vec![visible_function, resume_function]

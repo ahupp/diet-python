@@ -153,12 +153,17 @@ mod tests {
     };
     use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
 
+    fn test_name_gen() -> crate::block_py::FunctionNameGen {
+        let mut module_name_gen = crate::block_py::ModuleNameGen::new(0);
+        module_name_gen.next_function_name_gen()
+    }
+
     #[test]
     fn lowers_await_to_yield_from_await_iter() {
         let module = BlockPyModule {
             callable_defs: vec![BlockPyFunction {
                 function_id: crate::block_py::FunctionId(0),
-                name_gen: crate::block_py::NameGen::new(crate::block_py::FunctionId(0)),
+                name_gen: test_name_gen(),
                 names: FunctionName::new("f", "f", "f", "f"),
                 kind: BlockPyFunctionKind::Coroutine,
                 params: Default::default(),

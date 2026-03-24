@@ -19,7 +19,7 @@ use crate::block_py::{
     assert_blockpy_block_normalized, move_entry_block_to_front, BlockPyBindingKind,
     BlockPyCallableFacts, BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm,
     BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyStmt, BlockPyTerm,
-    CfgBlock, ClosureLayout, FunctionId, FunctionName, NameGen,
+    CfgBlock, ClosureLayout, FunctionName, FunctionNameGen,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -115,12 +115,6 @@ pub(crate) fn attach_exception_edges_to_blocks<E>(
                 .map(BlockPyEdge::new),
         })
         .collect()
-}
-
-pub(crate) fn take_next_function_id(next_function_id: &mut usize) -> FunctionId {
-    let id = FunctionId(*next_function_id);
-    *next_function_id += 1;
-    id
 }
 
 pub(crate) fn lowered_exception_edges<S, T>(
@@ -311,7 +305,7 @@ fn build_semantic_blockpy_closure_layout(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_blockpy_callable_def_from_runtime_input(
     context: &Context,
-    name_gen: &NameGen,
+    name_gen: FunctionNameGen,
     names: FunctionName,
     params: ParamSpec,
     runtime_input_body: &[Stmt],
@@ -321,6 +315,7 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
     facts: &BlockPyCallableFacts,
     semantic: &BlockPyCallableSemanticInfo,
 ) -> BlockPyFunction<RuffBlockPyPass> {
+    let function_id = name_gen.function_id();
     let mut blocks = Vec::new();
     let entry_label = lower_stmt_sequence_with_state(
         context,
@@ -329,15 +324,15 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
         &mut blocks,
         &facts.cell_slots,
         &facts.outer_scope_names,
-        name_gen,
+        &name_gen,
     );
     move_entry_block_to_front(&mut blocks, entry_label.as_str());
     for block in &blocks {
         assert_blockpy_block_normalized(block);
     }
     let mut callable_def = BlockPyFunction {
-        function_id: name_gen.function_id(),
-        name_gen: NameGen::new(name_gen.function_id()),
+        function_id,
+        name_gen,
         names,
         kind: blockpy_kind,
         params,
@@ -438,7 +433,7 @@ mod tests {
     use super::*;
     use crate::block_py::{
         BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
-        BlockPyStmt, BlockPyTerm, CoreBlockPyExpr, FunctionId,
+        BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
     };
     use crate::passes::ast_to_ast::{context::Context, Options};
     use crate::passes::ruff_to_blockpy::stmt_sequences::{
@@ -448,6 +443,12 @@ mod tests {
     use crate::passes::ruff_to_blockpy::try_regions::build_try_plan;
     use crate::passes::{CoreBlockPyPass, RuffBlockPyPass};
     use crate::{transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options};
+
+    fn test_name_gen() -> FunctionNameGen {
+        let mut module_name_gen = crate::block_py::ModuleNameGen::new(0);
+        module_name_gen.next_function_name_gen()
+    }
+
     fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
         transform_str_to_blockpy_with_options(source, Options::for_test()).unwrap()
     }
@@ -824,7 +825,7 @@ def f(ctx, value):
         };
 
         let mut blocks = Vec::new();
-        let name_gen = NameGen::new(FunctionId(0));
+        let name_gen = test_name_gen();
         let mut saw_try_stmt = false;
         let mut saw_with_ok_assign = false;
         let entry = lower_with_stmt_sequence(
@@ -881,7 +882,7 @@ def f():
         };
 
         let mut blocks = Vec::new();
-        let name_gen = NameGen::new(FunctionId(0));
+        let name_gen = test_name_gen();
         let try_plan = build_try_plan(&name_gen, false, false);
         let entry = lower_try_stmt_sequence(
             try_stmt.clone(),
