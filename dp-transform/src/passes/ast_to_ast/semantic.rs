@@ -248,6 +248,10 @@ impl SemanticScope {
             .collect()
     }
 
+    pub(crate) fn has_local_def(&self, name: &str) -> bool {
+        self.data().local_defs.contains(name)
+    }
+
     pub(crate) fn child_scope_for_function(
         &self,
         func_def: &StmtFunctionDef,

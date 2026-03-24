@@ -260,7 +260,7 @@ fn build_semantic_blockpy_closure_layout(
                 if callable_def
                     .semantic
                     .resolved_load_binding_kind(name.as_str())
-                    == BlockPyBindingKind::Nonlocal
+                    == BlockPyBindingKind::Cell(crate::block_py::BlockPyCellBindingKind::Capture)
                 {
                     let capture_name = cell_name(name.as_str());
                     return !local_cell_slot_names.contains(capture_name.as_str())

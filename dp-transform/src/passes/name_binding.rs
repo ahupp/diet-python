@@ -1,6 +1,6 @@
 use crate::block_py::intrinsics::{
-    DEL_DEREF_QUIETLY_INTRINSIC, DEL_QUIETLY_INTRINSIC, LOAD_CELL_INTRINSIC, LOAD_GLOBAL_INTRINSIC,
-    STORE_CELL_INTRINSIC, STORE_GLOBAL_INTRINSIC,
+    Intrinsic, DEL_DEREF_QUIETLY_INTRINSIC, DEL_QUIETLY_INTRINSIC, LOAD_CELL_INTRINSIC,
+    LOAD_GLOBAL_INTRINSIC, STORE_CELL_INTRINSIC, STORE_GLOBAL_INTRINSIC,
 };
 use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta, BindingTarget,
@@ -65,7 +65,7 @@ fn cell_expr_for_name(
     )
 }
 
-fn rewrite_nonlocal_name_load(name: ExprName) -> CoreBlockPyExpr {
+fn rewrite_cell_name_load(name: ExprName) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
     let range = name.range;
     core_positional_intrinsic_expr_with_meta(
@@ -94,7 +94,7 @@ fn rewrite_global_binding_assign(
     ))
 }
 
-fn rewrite_nonlocal_binding_assign(
+fn rewrite_cell_binding_assign(
     assign: BlockPyAssign<CoreBlockPyExpr>,
 ) -> BlockPyStmt<CoreBlockPyExpr> {
     let node_index = assign.target.node_index.clone();
@@ -146,7 +146,39 @@ fn rewrite_deleted_name_load_expr(
     )
 }
 
+fn expr_meta(expr: &CoreBlockPyExpr) -> (ast::AtomicNodeIndex, ruff_text_size::TextRange) {
+    match expr {
+        CoreBlockPyExpr::Name(name) => (name.node_index.clone(), name.range),
+        CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(literal)) => {
+            (literal.node_index.clone(), literal.range)
+        }
+        CoreBlockPyExpr::Literal(CoreBlockPyLiteral::BytesLiteral(literal)) => {
+            (literal.node_index.clone(), literal.range)
+        }
+        CoreBlockPyExpr::Literal(CoreBlockPyLiteral::NumberLiteral(literal)) => {
+            (literal.node_index.clone(), literal.range)
+        }
+        CoreBlockPyExpr::Call(call) => (call.node_index.clone(), call.range),
+        CoreBlockPyExpr::Intrinsic(call) => (call.node_index.clone(), call.range),
+    }
+}
+
 fn rewrite_deleted_name_loads_in_expr(expr: &mut CoreBlockPyExpr, deleted_names: &HashSet<String>) {
+    if let Some(logical_name) = cell_load_logical_name(expr) {
+        if deleted_names.contains(logical_name.as_str()) {
+            let (node_index, range) = expr_meta(expr);
+            *expr = core_positional_call_expr_with_meta(
+                "__dp_load_deleted_name",
+                node_index.clone(),
+                range,
+                vec![
+                    core_string_expr(logical_name, node_index.clone(), range),
+                    expr.clone(),
+                ],
+            );
+            return;
+        }
+    }
     match expr {
         CoreBlockPyExpr::Name(name) if matches!(name.ctx, ast::ExprContext::Load) => {
             *expr = rewrite_deleted_name_load_expr(name.clone(), deleted_names);
@@ -230,7 +262,7 @@ fn rewrite_quiet_delete_marker(
     let node_index = name.node_index.clone();
     let range = name.range;
     match semantic.binding_kind(name.id.as_str()) {
-        Some(BlockPyBindingKind::Nonlocal) => {
+        Some(BlockPyBindingKind::Cell(_)) => {
             BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
                 &DEL_DEREF_QUIETLY_INTRINSIC,
                 node_index.clone(),
@@ -319,6 +351,56 @@ fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
 
 fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
     matches!(expr, CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_DELETED")
+}
+
+fn cell_load_logical_name(expr: &CoreBlockPyExpr) -> Option<String> {
+    let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+        intrinsic,
+        args,
+        keywords,
+        ..
+    }) = expr
+    else {
+        return None;
+    };
+    if intrinsic.name() != LOAD_CELL_INTRINSIC.name() || !keywords.is_empty() || args.len() != 1 {
+        return None;
+    }
+    let CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(name)) = &args[0] else {
+        return None;
+    };
+    name.id
+        .as_str()
+        .strip_prefix("_dp_cell_")
+        .map(str::to_string)
+}
+
+fn store_cell_deleted_logical_name(expr: &CoreBlockPyExpr) -> Option<String> {
+    let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+        intrinsic,
+        args,
+        keywords,
+        ..
+    }) = expr
+    else {
+        return None;
+    };
+    if intrinsic.name() != STORE_CELL_INTRINSIC.name() || !keywords.is_empty() || args.len() != 2 {
+        return None;
+    }
+    let CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(name)) = &args[0] else {
+        return None;
+    };
+    let CoreBlockPyCallArg::Positional(value_expr) = &args[1] else {
+        return None;
+    };
+    if !is_deleted_sentinel_expr(value_expr) {
+        return None;
+    }
+    name.id
+        .as_str()
+        .strip_prefix("_dp_cell_")
+        .map(str::to_string)
 }
 
 fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
@@ -413,10 +495,8 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
         if is_local_cell_init_assign(&assign) {
             return BlockPyStmt::Assign(assign);
         }
-        if self.semantic.binding_kind(assign.target.id.as_str())
-            == Some(BlockPyBindingKind::Nonlocal)
-        {
-            rewrite_nonlocal_binding_assign(BlockPyAssign {
+        if self.semantic.is_cell_binding(assign.target.id.as_str()) {
+            rewrite_cell_binding_assign(BlockPyAssign {
                 target: assign.target,
                 value: self.map_expr(assign.value),
             })
@@ -448,10 +528,12 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
         match expr {
             CoreBlockPyExpr::Name(name)
                 if !is_internal_symbol(name.id.as_str())
-                    && self.semantic.resolved_load_binding_kind(name.id.as_str())
-                        == BlockPyBindingKind::Nonlocal =>
+                    && matches!(
+                        self.semantic.resolved_load_binding_kind(name.id.as_str()),
+                        BlockPyBindingKind::Cell(_)
+                    ) =>
             {
-                rewrite_nonlocal_name_load(name)
+                rewrite_cell_name_load(name)
             }
             CoreBlockPyExpr::Name(name)
                 if !is_internal_symbol(name.id.as_str())
@@ -513,6 +595,11 @@ fn collect_deleted_names_in_stmt(stmt: &BlockPyStmt<CoreBlockPyExpr>, names: &mu
     match stmt {
         BlockPyStmt::Assign(assign) if is_deleted_sentinel_expr(&assign.value) => {
             names.insert(assign.target.id.to_string());
+        }
+        BlockPyStmt::Expr(expr) => {
+            if let Some(name) = store_cell_deleted_logical_name(expr) {
+                names.insert(name);
+            }
         }
         BlockPyStmt::If(if_stmt) => {
             collect_deleted_names_in_fragment(&if_stmt.body, names);

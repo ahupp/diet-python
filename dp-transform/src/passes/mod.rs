@@ -406,7 +406,7 @@ class Box:
     }
 
     #[test]
-    fn lowered_callable_records_semantic_local_cell_bindings() {
+    fn lowered_callable_records_semantic_cell_owner_binding() {
         let source = r#"
 def outer():
     def recurse():
@@ -417,10 +417,13 @@ def outer():
         let lowered = TrackedLowering::new(source);
         let blockpy_module = lowered.blockpy_module();
         let outer = callable_def_by_name(&blockpy_module, "outer");
-        assert!(
-            outer.semantic.local_cell_bindings.contains("recurse"),
+        assert_eq!(
+            outer.semantic.binding_kind("recurse"),
+            Some(crate::block_py::BlockPyBindingKind::Cell(
+                crate::block_py::BlockPyCellBindingKind::Owner
+            )),
             "{:?}",
-            outer.semantic.local_cell_bindings
+            outer.semantic.bindings
         );
     }
 

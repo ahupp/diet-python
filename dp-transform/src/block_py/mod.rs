@@ -87,12 +87,18 @@ pub enum BindingTarget {
     ClassNamespace,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum BlockPyCellBindingKind {
+    Owner,
+    Capture,
+}
+
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
 pub enum BlockPyBindingKind {
     #[default]
     Local,
-    Nonlocal,
     Global,
+    Cell(BlockPyCellBindingKind),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -608,7 +614,6 @@ pub enum BlockPyCallableScopeKind {
 #[derive(Debug, Clone, Default)]
 pub struct BlockPyCallableSemanticInfo {
     pub scope_kind: BlockPyCallableScopeKind,
-    pub local_cell_bindings: HashSet<String>,
     pub bindings: HashMap<String, BlockPyBindingKind>,
 }
 
@@ -623,6 +628,10 @@ impl BlockPyCallableSemanticInfo {
         }
         self.binding_kind(name)
             .unwrap_or(BlockPyBindingKind::Global)
+    }
+
+    pub fn is_cell_binding(&self, name: &str) -> bool {
+        matches!(self.binding_kind(name), Some(BlockPyBindingKind::Cell(_)))
     }
 
     pub fn binding_target_for_name(&self, name: &str) -> BindingTarget {
@@ -642,10 +651,15 @@ impl BlockPyCallableSemanticInfo {
         if !matches!(self.scope_kind, BlockPyCallableScopeKind::Function) {
             return HashSet::new();
         }
-        self.local_cell_bindings
+        self.bindings
             .iter()
-            .filter(|name| self.binding_kind(name.as_str()) != Some(BlockPyBindingKind::Nonlocal))
-            .map(|name| cell_name(name.as_str()))
+            .filter_map(|(name, binding)| {
+                matches!(
+                    binding,
+                    BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner)
+                )
+                .then(|| cell_name(name.as_str()))
+            })
             .collect()
     }
 }

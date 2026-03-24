@@ -157,6 +157,8 @@ def outer():
 
 # function outer.<locals>._dp_define_class_Inner(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
 #     function_id: 1
+#     local_cell_slots: [_dp_cell__dp_class_ns_fn, _dp_cell__dp_class_ns_outer, _dp_cell__dp_prepare_dict, _dp_cell__dp_class_ns, _dp_cell_x]
+#     cellvars: [_dp_class_ns_fn->_dp_cell__dp_class_ns_fn@param, _dp_class_ns_outer->_dp_cell__dp_class_ns_outer@param, _dp_prepare_dict->_dp_cell__dp_prepare_dict@param, _dp_class_ns->_dp_cell__dp_class_ns@deferred, x->_dp_cell_x@deferred]
 #     block _dp_bb_1_1:
 #         _dp_class_ns = _dp_class_ns_outer
 #         return __dp_create_class("Inner", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 6, ())

@@ -1,7 +1,7 @@
 use crate::block_py::dataflow::{analyze_blockpy_use_def, loaded_names_in_blockpy_block};
 use crate::block_py::param_specs::{collect_param_spec_and_defaults, param_defaults_to_expr};
 use crate::block_py::state::collect_cell_slots;
-use crate::block_py::{BindingTarget, BlockPyBindingKind};
+use crate::block_py::{BindingTarget, BlockPyBindingKind, BlockPyCellBindingKind};
 use crate::block_py::{
     BlockPyCallableFacts, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyFunction,
     BlockPyFunctionKind, BlockPyModule, FunctionName,
@@ -39,9 +39,7 @@ use super::{
 struct FunctionScopeFrame {
     name: String,
     parent_name: Option<String>,
-    cell_bindings: HashSet<String>,
     callable_semantic: BlockPyCallableSemanticInfo,
-    needs_cell_sync: bool,
     hoisted_to_parent: Vec<Stmt>,
 }
 
@@ -78,27 +76,32 @@ fn callable_semantic_info(
     let Some(function_scope) = function_scope else {
         return BlockPyCallableSemanticInfo::default();
     };
+    let local_cell_bindings = function_scope.local_cell_bindings();
     let mut bindings = function_scope
         .bindings()
         .into_iter()
         .map(|(name, binding)| {
-            let binding = match binding {
-                SemanticBindingKind::Local => BlockPyBindingKind::Local,
-                SemanticBindingKind::Nonlocal => BlockPyBindingKind::Nonlocal,
-                SemanticBindingKind::Global => BlockPyBindingKind::Global,
-            };
-            (name, binding)
+            (
+                name.clone(),
+                blockpy_binding_kind_for_name(
+                    name.as_str(),
+                    binding,
+                    &local_cell_bindings,
+                    function_scope.has_local_def(name.as_str()),
+                ),
+            )
         })
         .collect::<HashMap<_, _>>();
     let mut relevant_names = collect_bound_names(body);
     relevant_names.extend(collect_loaded_names(body));
     for name in relevant_names {
         bindings.entry(name.clone()).or_insert_with(|| {
-            match function_scope.resolved_load_binding(name.as_str()) {
-                SemanticBindingKind::Local => BlockPyBindingKind::Local,
-                SemanticBindingKind::Nonlocal => BlockPyBindingKind::Nonlocal,
-                SemanticBindingKind::Global => BlockPyBindingKind::Global,
-            }
+            blockpy_binding_kind_for_name(
+                name.as_str(),
+                function_scope.resolved_load_binding(name.as_str()),
+                &local_cell_bindings,
+                function_scope.has_local_def(name.as_str()),
+            )
         });
     }
     BlockPyCallableSemanticInfo {
@@ -107,8 +110,26 @@ fn callable_semantic_info(
             SemanticScopeKind::Class => BlockPyCallableScopeKind::Class,
             SemanticScopeKind::Module => BlockPyCallableScopeKind::Module,
         },
-        local_cell_bindings: function_scope.local_cell_bindings(),
         bindings,
+    }
+}
+
+fn blockpy_binding_kind_for_name(
+    name: &str,
+    binding: SemanticBindingKind,
+    local_cell_bindings: &HashSet<String>,
+    has_local_def: bool,
+) -> BlockPyBindingKind {
+    match binding {
+        SemanticBindingKind::Local if local_cell_bindings.contains(name) => {
+            BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner)
+        }
+        SemanticBindingKind::Local => BlockPyBindingKind::Local,
+        SemanticBindingKind::Nonlocal if has_local_def && local_cell_bindings.contains(name) => {
+            BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner)
+        }
+        SemanticBindingKind::Nonlocal => BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
+        SemanticBindingKind::Global => BlockPyBindingKind::Global,
     }
 }
 
@@ -514,7 +535,7 @@ fn classify_capture_items(
                     .expect("capture name should always parse as an expression"),
             });
         } else if callable_semantic.resolved_load_binding_kind(used_name.as_str())
-            == BlockPyBindingKind::Nonlocal
+            == BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
         {
             let capture_name = cell_name(used_name.as_str());
             if local_cell_slots.contains(capture_name.as_str())
@@ -617,7 +638,7 @@ mod tests {
     }
 
     #[test]
-    fn recursive_local_function_marks_nested_binding_for_cell_sync() {
+    fn recursive_local_function_bindings_are_cell_owned_in_parent_scope() {
         let source = concat!(
             "def outer():\n",
             "    def recurse():\n",
@@ -643,12 +664,10 @@ mod tests {
             function_scope_stack: vec![FunctionScopeFrame {
                 name: "outer".to_string(),
                 parent_name: None,
-                cell_bindings: outer_scope.local_cell_bindings(),
                 callable_semantic: callable_semantic_info(
                     Some(&outer_scope),
                     crate::passes::ast_to_ast::body::suite_ref(&outer.body),
                 ),
-                needs_cell_sync: false,
                 hoisted_to_parent: Vec::new(),
             }],
             callable_defs: Vec::new(),
@@ -661,7 +680,17 @@ mod tests {
             panic!("expected nested function def");
         };
         let nested_state = rewriter.walk_function_def_with_scope(nested_func);
-        assert!(nested_state.needs_cell_sync);
+        assert_eq!(
+            rewriter
+                .function_scope_stack
+                .last()
+                .expect("missing outer function frame")
+                .callable_semantic
+                .binding_kind("recurse"),
+            Some(crate::block_py::BlockPyBindingKind::Cell(
+                crate::block_py::BlockPyCellBindingKind::Owner
+            ))
+        );
         let replacement = rewriter.rewrite_visited_function_def(nested_func, nested_state);
         let rendered = replacement
             .iter()
@@ -669,7 +698,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(
-            rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
+            !rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
             "{rendered}"
         );
     }
@@ -789,7 +818,9 @@ mod tests {
 
         assert_eq!(
             semantic.binding_kind("factor"),
-            Some(crate::block_py::BlockPyBindingKind::Nonlocal)
+            Some(crate::block_py::BlockPyBindingKind::Cell(
+                crate::block_py::BlockPyCellBindingKind::Capture
+            ))
         );
         assert_eq!(
             semantic.binding_kind("x"),
@@ -810,7 +841,7 @@ mod tests {
     }
 
     #[test]
-    fn lowering_recursive_local_function_with_finally_preserves_cell_sync_stmt() {
+    fn lowering_recursive_local_function_with_finally_keeps_plain_binding_before_name_binding() {
         let source = concat!(
             "import sys\n",
             "def exercise():\n",
@@ -840,7 +871,11 @@ mod tests {
                 callable_defs: vec![exercise.clone()],
             });
         assert!(
-            rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
+            rendered.contains("recurse = __dp_make_function"),
+            "{rendered}"
+        );
+        assert!(
+            !rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
             "{rendered}"
         );
     }
@@ -872,9 +907,12 @@ mod tests {
             .find(|callable| callable.names.bind_name == "exercise")
             .expect("missing lowered exercise callable");
         assert!(
-            exercise.semantic.local_cell_bindings.contains("recurse"),
-            "semantic_local_cell_bindings={:?} facts_cell_slots={:?}",
-            exercise.semantic.local_cell_bindings,
+            exercise.semantic.binding_kind("recurse")
+                == Some(crate::block_py::BlockPyBindingKind::Cell(
+                    crate::block_py::BlockPyCellBindingKind::Owner
+                )),
+            "semantic_bindings={:?} facts_cell_slots={:?}",
+            exercise.semantic.bindings,
             exercise.facts.cell_slots,
         );
     }
@@ -1007,15 +1045,6 @@ fn build_binding_stmt(target: BindingTarget, bind_name: &str, value: Expr) -> St
     }
 }
 
-fn build_cell_sync_stmt(bind_name: &str) -> Stmt {
-    let cell = cell_name(bind_name);
-    py_stmt!(
-        "__dp_store_cell({cell:id}, {name:id})",
-        cell = cell.as_str(),
-        name = bind_name,
-    )
-}
-
 fn resolve_function_binding_target(
     binding_target: BindingTarget,
     bind_name: &str,
@@ -1035,16 +1064,14 @@ fn build_lowered_function_binding_stmt(
     bind_name: &str,
     value: Expr,
     target: BindingTarget,
-    needs_cell_sync: bool,
 ) -> Vec<Stmt> {
     match target {
         BindingTarget::Local => {
-            let assign_stmt = py_stmt!("{name:id} = {value:expr}", name = bind_name, value = value);
-            if needs_cell_sync {
-                vec![assign_stmt, build_cell_sync_stmt(bind_name)]
-            } else {
-                vec![assign_stmt]
-            }
+            vec![py_stmt!(
+                "{name:id} = {value:expr}",
+                name = bind_name,
+                value = value
+            )]
         }
         BindingTarget::ModuleGlobal => {
             vec![py_stmt!(
@@ -1068,7 +1095,6 @@ fn rewrite_function_def_stmt_via_blockpy(
     func: &mut ast::StmtFunctionDef,
     current_parent: Option<&str>,
     callable_semantic: &BlockPyCallableSemanticInfo,
-    needs_cell_sync: bool,
     function_hoisted: Vec<Stmt>,
     next_function_id: &mut usize,
     callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
@@ -1143,7 +1169,7 @@ fn rewrite_function_def_stmt_via_blockpy(
         instantiation_kind,
     );
     let mut binding_stmt =
-        build_lowered_function_binding_stmt(bind_name, decorated, binding_target, needs_cell_sync);
+        build_lowered_function_binding_stmt(bind_name, decorated, binding_target);
     if let Some((helper_stmt, _)) = annotate_helper {
         binding_stmt.insert(0, helper_stmt);
     }
@@ -1176,29 +1202,17 @@ impl BlockPyModuleRewriter<'_> {
         func: &mut ast::StmtFunctionDef,
     ) -> FunctionScopeFrame {
         let fn_name = func.name.id.to_string();
-        let bind_name = func.name.id.to_string();
         let function_scope = self.semantic_state.function_scope(func);
         let parent_name = self
             .function_scope_stack
             .last()
             .map(|frame| frame.name.clone());
-        let cell_bindings = function_scope
-            .as_ref()
-            .map(|scope| scope.local_cell_bindings())
-            .unwrap_or_default();
         let callable_semantic =
             callable_semantic_info(function_scope.as_ref(), suite_ref(&func.body));
-        let needs_cell_sync = self
-            .function_scope_stack
-            .last()
-            .map(|frame| frame.cell_bindings.contains(bind_name.as_str()))
-            .unwrap_or(false);
         self.function_scope_stack.push(FunctionScopeFrame {
             name: fn_name,
             parent_name,
-            cell_bindings,
             callable_semantic,
-            needs_cell_sync,
             hoisted_to_parent: Vec::new(),
         });
         self.visit_body(&mut func.body);
@@ -1244,7 +1258,6 @@ impl BlockPyModuleRewriter<'_> {
             func,
             state.parent_name.as_deref(),
             &state.callable_semantic,
-            state.needs_cell_sync,
             state.hoisted_to_parent,
             &mut self.next_function_id,
             &mut self.callable_defs,

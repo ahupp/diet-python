@@ -101,25 +101,6 @@ impl<'a> NameScopeRewriter<'a> {
         self.scope.local_cell_bindings()
     }
 
-    fn stmt_cell_sync_stmts(&self, stmt: &Stmt) -> Vec<Stmt> {
-        let bind_name = match stmt {
-            Stmt::FunctionDef(func_def) => Some(func_def.name.id.as_str()),
-            _ => None,
-        };
-        let Some(bind_name) = bind_name else {
-            return Vec::new();
-        };
-        if !self.cell_binding_names().contains(bind_name) {
-            return Vec::new();
-        }
-        let cell = cell_name(bind_name);
-        vec![py_stmt!(
-            "__dp_store_cell({cell:id}, {name:id})",
-            cell = cell.as_str(),
-            name = bind_name,
-        )]
-    }
-
     fn module_binds_name(&self, name: &str) -> bool {
         self.scope
             .any_parent_scope(|scope| {
@@ -417,9 +398,7 @@ impl Transformer for NameScopeRewriter<'_> {
         for stmt in std::mem::take(body) {
             for mut stmt in self.rewrite_stmt_list(stmt) {
                 self.visit_stmt(&mut stmt);
-                let sync_stmts = self.stmt_cell_sync_stmts(&stmt);
                 rewritten.push(stmt);
-                rewritten.extend(sync_stmts);
             }
         }
         *body = rewritten;
@@ -783,7 +762,7 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     #[test]
-    fn recursive_local_function_syncs_function_binding_into_cell() {
+    fn recursive_local_function_does_not_emit_early_function_binding_cell_sync() {
         let source = concat!(
             "def outer():\n",
             "    def recurse():\n",
@@ -800,7 +779,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(
-            rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
+            !rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
             "{rendered}"
         );
     }
