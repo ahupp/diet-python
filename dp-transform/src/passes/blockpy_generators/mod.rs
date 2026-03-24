@@ -187,8 +187,7 @@ fn build_generator_closure_layout(
     callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
 ) -> ClosureLayout {
     let param_names = callable.params.names();
-    let mut local_cell_slot_names = callable.semantic.local_cell_storage_names();
-    local_cell_slot_names.extend(callable.facts.cell_slots.iter().cloned());
+    let local_cell_slot_names = callable.semantic.local_cell_storage_names();
     let mut local_cell_slots = local_cell_slot_names.iter().cloned().collect::<Vec<_>>();
     local_cell_slots.sort();
     let mut capture_names = callable

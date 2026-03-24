@@ -2,8 +2,7 @@ use super::dataflow::{
     analyze_blockpy_use_def, assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term,
 };
 use super::{BlockPyTerm, CfgBlock, Expr, IntoBlockPyStmt};
-use crate::passes::ast_symbol_analysis::assigned_names_in_stmt;
-use ruff_python_ast::{self as ast, Stmt};
+use ruff_python_ast as ast;
 use std::collections::HashSet;
 
 pub(crate) fn collect_parameter_names(parameters: &ast::Parameters) -> Vec<String> {
@@ -68,17 +67,4 @@ where
         }
     }
     state
-}
-
-pub(crate) fn collect_cell_slots(stmts: &[Stmt]) -> HashSet<String> {
-    let mut slots = HashSet::new();
-    for stmt in stmts {
-        let mut names: HashSet<String> = assigned_names_in_stmt(stmt);
-        for name in names.drain() {
-            if name.starts_with("_dp_cell_") {
-                slots.insert(name);
-            }
-        }
-    }
-    slots
 }

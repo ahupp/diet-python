@@ -217,8 +217,7 @@ fn build_semantic_blockpy_closure_layout(
     injected_exception_names: &HashSet<String>,
 ) -> Option<ClosureLayout> {
     let param_names = callable_def.params.names();
-    let mut local_cell_slot_names = callable_def.semantic.local_cell_storage_names();
-    local_cell_slot_names.extend(callable_def.facts.cell_slots.iter().cloned());
+    let local_cell_slot_names = callable_def.semantic.local_cell_storage_names();
     let mut local_cell_slots = local_cell_slot_names.iter().cloned().collect::<Vec<_>>();
     local_cell_slots.sort();
     let param_name_set = param_names.iter().cloned().collect::<HashSet<_>>();
@@ -318,7 +317,6 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
         runtime_input_body,
         RegionTargets::new(end_label.to_string(), None),
         &mut blocks,
-        &facts.cell_slots,
         &name_gen,
     );
     move_entry_block_to_front(&mut blocks, entry_label.as_str());
@@ -829,7 +827,6 @@ def f(ctx, value):
             RegionTargets::new("cont".to_string(), None),
             Vec::new(),
             &mut blocks,
-            &HashSet::new(),
             &name_gen,
             false,
             &mut |_expanded: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {

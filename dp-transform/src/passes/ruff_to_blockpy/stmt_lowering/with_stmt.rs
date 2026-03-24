@@ -154,7 +154,6 @@ pub(crate) fn lower_with_stmt_sequence<F>(
     targets: RegionTargets,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
-    _cell_slots: &HashSet<String>,
     name_gen: &FunctionNameGen,
     _needs_finally_return_flow: bool,
     lower_sequence: &mut F,

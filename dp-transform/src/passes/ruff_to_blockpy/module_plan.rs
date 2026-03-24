@@ -1,5 +1,4 @@
 use crate::block_py::param_specs::{collect_param_spec_and_defaults, param_defaults_to_expr};
-use crate::block_py::state::collect_cell_slots;
 use crate::block_py::{BindingTarget, BlockPyBindingKind, BlockPyCellBindingKind};
 use crate::block_py::{
     BlockPyCallableFacts, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyFunction,
@@ -276,11 +275,9 @@ fn try_lower_function_to_blockpy_bundle(
         HashSet::new()
     };
     let deleted_names = collect_deleted_names(&runtime_input_body);
-    let cell_slots = collect_cell_slots(&runtime_input_body);
     let callable_facts = BlockPyCallableFacts {
         deleted_names,
         unbound_local_names,
-        cell_slots,
     };
 
     let end_label = name_gen.next_block_name();
@@ -1062,9 +1059,8 @@ mod tests {
                 == Some(crate::block_py::BlockPyBindingKind::Cell(
                     crate::block_py::BlockPyCellBindingKind::Owner
                 )),
-            "semantic_bindings={:?} facts_cell_slots={:?}",
+            "semantic_bindings={:?}",
             exercise.semantic.bindings,
-            exercise.facts.cell_slots,
         );
     }
 
