@@ -453,6 +453,28 @@ def outer():
     }
 
     #[test]
+    fn class_body_function_binding_moves_to_name_binding_pass() {
+        let source = r#"
+class Box:
+    def method(self):
+        return 1
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let core_rendered = lowered.pass_text("core_blockpy");
+        assert!(
+            !core_rendered.contains("__dp_setitem(_dp_class_ns, \"method\""),
+            "{core_rendered}"
+        );
+
+        let name_binding_rendered = lowered.name_binding_text();
+        assert!(
+            name_binding_rendered.contains("__dp_setitem(_dp_class_ns, \"method\""),
+            "{name_binding_rendered}"
+        );
+    }
+
+    #[test]
     fn lowered_callable_records_semantic_cell_owner_binding() {
         let source = r#"
 def outer():

@@ -1,6 +1,6 @@
 use crate::block_py::intrinsics::{
     Intrinsic, DEL_DEREF_QUIETLY_INTRINSIC, DEL_QUIETLY_INTRINSIC, LOAD_CELL_INTRINSIC,
-    LOAD_GLOBAL_INTRINSIC, STORE_CELL_INTRINSIC, STORE_GLOBAL_INTRINSIC,
+    LOAD_GLOBAL_INTRINSIC, SETITEM_INTRINSIC, STORE_CELL_INTRINSIC, STORE_GLOBAL_INTRINSIC,
 };
 use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta, BindingTarget,
@@ -105,6 +105,24 @@ fn rewrite_cell_binding_assign(
         range,
         vec![
             cell_expr_for_name(assign.target.id.as_str(), node_index, range),
+            assign.value,
+        ],
+    ))
+}
+
+fn rewrite_class_binding_assign(
+    assign: BlockPyAssign<CoreBlockPyExpr>,
+) -> BlockPyStmt<CoreBlockPyExpr> {
+    let node_index = assign.target.node_index.clone();
+    let range = assign.target.range;
+    let bind_name = assign.target.id.to_string();
+    BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
+        &SETITEM_INTRINSIC,
+        node_index.clone(),
+        range,
+        vec![
+            class_namespace_expr(node_index.clone(), range),
+            core_string_expr(bind_name, node_index, range),
             assign.value,
         ],
     ))
@@ -464,6 +482,37 @@ fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
     )
 }
 
+fn contains_make_function_call(expr: &CoreBlockPyExpr) -> bool {
+    match expr {
+        CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => false,
+        CoreBlockPyExpr::Call(call) => {
+            matches!(
+                call.func.as_ref(),
+                CoreBlockPyExpr::Name(func_name) if func_name.id.as_str() == "__dp_make_function"
+            ) || contains_make_function_call(call.func.as_ref())
+                || call.args.iter().any(|arg| match arg {
+                    CoreBlockPyCallArg::Positional(expr) | CoreBlockPyCallArg::Starred(expr) => {
+                        contains_make_function_call(expr)
+                    }
+                })
+                || call.keywords.iter().any(|keyword| match keyword {
+                    CoreBlockPyKeywordArg::Named { value, .. }
+                    | CoreBlockPyKeywordArg::Starred(value) => contains_make_function_call(value),
+                })
+        }
+        CoreBlockPyExpr::Intrinsic(call) => {
+            call.args.iter().any(|arg| match arg {
+                CoreBlockPyCallArg::Positional(expr) | CoreBlockPyCallArg::Starred(expr) => {
+                    contains_make_function_call(expr)
+                }
+            }) || call.keywords.iter().any(|keyword| match keyword {
+                CoreBlockPyKeywordArg::Named { value, .. }
+                | CoreBlockPyKeywordArg::Starred(value) => contains_make_function_call(value),
+            })
+        }
+    }
+}
+
 struct NameBindingMapper<'a> {
     semantic: &'a BlockPyCallableSemanticInfo,
 }
@@ -545,6 +594,16 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 );
             }
             rewrite_global_binding_assign(BlockPyAssign {
+                target: assign.target,
+                value: self.map_expr(assign.value),
+            })
+        } else if self
+            .semantic
+            .binding_target_for_name(assign.target.id.as_str())
+            == BindingTarget::ClassNamespace
+            && contains_make_function_call(&assign.value)
+        {
+            rewrite_class_binding_assign(BlockPyAssign {
                 target: assign.target,
                 value: self.map_expr(assign.value),
             })
