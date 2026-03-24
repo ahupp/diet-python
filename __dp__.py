@@ -1039,7 +1039,7 @@ def delitem(obj, key):
     del obj[key]
 
 
-def delitem_quietly(obj, key):
+def del_quietly(obj, key):
     # Used for `except ... as name` cleanup where CPython `del name` must be
     # silent if the binding was already removed in handler code.
     try:

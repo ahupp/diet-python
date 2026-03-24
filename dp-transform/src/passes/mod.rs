@@ -675,15 +675,12 @@ except Exception as exc:
             "{core_rendered}"
         );
         assert!(
-            !core_rendered.contains("__dp_delitem(__dp_globals(), \"exc\")"),
+            core_rendered
+                .contains("__dp_getattr(__dp__, \"del_quietly\")(__dp_globals(), \"exc\")"),
             "{core_rendered}"
         );
         assert!(
             core_rendered.contains("exc = _dp_exc_exc"),
-            "{core_rendered}"
-        );
-        assert!(
-            core_rendered.contains("exc = __dp_DELETED"),
             "{core_rendered}"
         );
 
@@ -694,7 +691,8 @@ except Exception as exc:
             "{name_binding_rendered}"
         );
         assert!(
-            name_binding_rendered.contains("__dp_delitem(__dp_globals(), \"exc\")"),
+            name_binding_rendered
+                .contains("__dp_getattr(__dp__, \"del_quietly\")(__dp_globals(), \"exc\")"),
             "{name_binding_rendered}"
         );
     }

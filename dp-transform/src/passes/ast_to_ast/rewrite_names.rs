@@ -593,13 +593,16 @@ impl Transformer for NameScopeRewriter<'_> {
                                 let delete_stmt = match (self.scope.kind(), binding) {
                                     (SemanticScopeKind::Class, SemanticBindingKind::Local) => {
                                         py_stmt!(
-                                            "__dp_delitem(_dp_class_ns, {name:literal})",
+                                            "__dp__.del_quietly(_dp_class_ns, {name:literal})",
                                             name = exc_name.as_str()
                                         )
                                     }
                                     (SemanticScopeKind::Class, SemanticBindingKind::Global)
                                     | (_, SemanticBindingKind::Global) => {
-                                        py_stmt!("del {name:id}", name = exc_name.as_str(),)
+                                        py_stmt!(
+                                            "__dp__.del_quietly(globals(), {name:literal})",
+                                            name = exc_name.as_str()
+                                        )
                                     }
                                     (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal)
                                     | (_, SemanticBindingKind::Nonlocal) => {
