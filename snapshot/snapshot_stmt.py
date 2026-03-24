@@ -290,7 +290,6 @@ else:
 #                         _dp_tmp_0_1 = None
 #                         jump _dp_bb_0_5
 #                         block _dp_bb_0_5:
-#                             __dp_store_global(globals(), "x", x)
 #                             body()
 #                             jump _dp_bb_0_1
 

@@ -362,7 +362,7 @@ impl<'a> NameScopeRewriter<'a> {
                             value = value
                         ))
                     }
-                    (_, SemanticBindingKind::Global) => Some(py_stmt!(
+                    (SemanticScopeKind::Class, SemanticBindingKind::Global) => Some(py_stmt!(
                         "__dp_store_global(globals(), {name:literal}, {value:expr})",
                         name = name.as_str(),
                         value = value
