@@ -1964,6 +1964,7 @@ def def_hidden_resume_fn(
 
 def make_function(
     function_id,
+    kind,
     captures,
     param_defaults,
     module_globals=None,
@@ -1973,13 +1974,16 @@ def make_function(
         raise RuntimeError(
             "JIT basic-block function instantiation requires a registered Rust constructor"
         )
-    return _jit_make_bb_function(
+    func = _jit_make_bb_function(
         function_id,
         captures,
         param_defaults,
         module_globals,
         annotate_fn,
     )
+    if kind == "coroutine":
+        return mark_coroutine_function(func)
+    return func
 
 
 def mark_coroutine_function(func):

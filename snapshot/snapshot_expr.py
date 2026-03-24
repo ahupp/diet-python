@@ -161,7 +161,7 @@ x = lambda y: y + 1
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
-#         _dp_lambda_1 = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
+#         _dp_lambda_1 = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         x = _dp_lambda_1
 #         return __dp_NONE
 
@@ -194,7 +194,7 @@ x = (i for i in it)
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
-#         _dp_genexpr_1 = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
+#         _dp_genexpr_1 = __dp_make_function(0, "generator", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         x = _dp_genexpr_1(__dp_iter(it))
 #         return __dp_NONE
 
@@ -301,7 +301,7 @@ x = [i for i in it]
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
-#         _dp_listcomp_3 = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
+#         _dp_listcomp_3 = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         x = _dp_listcomp_3(it)
 #         return __dp_NONE
 
@@ -336,7 +336,7 @@ x = {i for i in it}
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
-#         _dp_setcomp_3 = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
+#         _dp_setcomp_3 = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         x = _dp_setcomp_3(it)
 #         return __dp_NONE
 
@@ -374,7 +374,7 @@ x = {k: v for k, v in it}
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
-#         _dp_dictcomp_3 = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
+#         _dp_dictcomp_3 = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         x = _dp_dictcomp_3(it)
 #         return __dp_NONE
 

@@ -49,12 +49,6 @@ struct BlockPyModuleRewriter<'a> {
     callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>>,
 }
 
-#[derive(Clone, Copy)]
-enum LoweredFunctionInstantiationKind {
-    DirectFunction,
-    MarkCoroutineFunction,
-}
-
 #[derive(Clone)]
 struct LoweredFunctionCaptureValue {
     name: String,
@@ -575,30 +569,30 @@ fn classify_capture_items(
 }
 
 fn build_lowered_function_instantiation_expr(
-    function_id: usize,
+    function_id: crate::block_py::FunctionId,
     captures: &[LoweredFunctionCaptureValue],
     decorator_exprs: Vec<Expr>,
     param_defaults: &[Expr],
     annotate_fn_expr: Expr,
-    kind: LoweredFunctionInstantiationKind,
+    kind: BlockPyFunctionKind,
 ) -> Expr {
     let capture_expr = capture_items_to_expr(captures);
     let param_defaults_expr = param_defaults_to_expr(param_defaults);
-    let function_entry_expr = py_expr!(
-        "__dp_make_function({function_id:literal}, {closure:expr}, {param_defaults:expr}, {module_globals:expr}, {annotate_fn:expr})",
-        function_id = function_id,
+    let kind_name = match kind {
+        BlockPyFunctionKind::Function => "function",
+        BlockPyFunctionKind::Coroutine => "coroutine",
+        BlockPyFunctionKind::Generator => "generator",
+        BlockPyFunctionKind::AsyncGenerator => "async_generator",
+    };
+    let base_function_expr = py_expr!(
+        "__dp_make_function({function_id:literal}, {kind:literal}, {closure:expr}, {param_defaults:expr}, {module_globals:expr}, {annotate_fn:expr})",
+        function_id = function_id.0,
+        kind = kind_name,
         closure = capture_expr.clone(),
         param_defaults = param_defaults_expr.clone(),
         module_globals = py_expr!("__dp_globals()"),
         annotate_fn = annotate_fn_expr.clone(),
     );
-    let base_function_expr = match kind {
-        LoweredFunctionInstantiationKind::DirectFunction => function_entry_expr,
-        LoweredFunctionInstantiationKind::MarkCoroutineFunction => py_expr!(
-            "__dp_mark_coroutine_function({func:expr})",
-            func = function_entry_expr,
-        ),
-    };
     rewrite_stmt::decorator::rewrite_exprs(decorator_exprs, base_function_expr)
 }
 
@@ -680,7 +674,7 @@ fn rewrite_function_def_stmt_via_blockpy(
         .collect();
     let mut local_cell_slots = lowered_plan.semantic.local_cell_storage_names();
     local_cell_slots.extend(lowered_plan.facts.cell_slots.iter().cloned());
-    let function_id = lowered_plan.function_id.0;
+    let function_id = lowered_plan.function_id;
     let captures = classify_capture_items(
         &used_names,
         &defined_names,
@@ -693,22 +687,9 @@ fn rewrite_function_def_stmt_via_blockpy(
         .map(|capture| capture.name.clone())
         .collect();
     lowered_plan.closure_layout = recompute_semantic_blockpy_closure_layout(&lowered_plan);
-    let instantiation_kind = if lowered_plan.kind == BlockPyFunctionKind::Coroutine {
-        LoweredFunctionInstantiationKind::MarkCoroutineFunction
-    } else {
-        LoweredFunctionInstantiationKind::DirectFunction
-    };
-    let identity =
-        resolve_runtime_function_identity(func, function_identity_by_node, current_parent);
-    debug_assert_eq!(
-        parent_semantic.binding_target_for_name(identity.bind_name.as_str()),
-        identity.binding_target,
-        "function identity binding target disagrees with parent semantic binding for {}",
-        identity.bind_name
-    );
-    let binding_target = identity.binding_target;
-    let bind_name = identity.bind_name.as_str();
-    let annotate_helper = build_lowered_annotation_helper_binding(func, bind_name);
+    let bind_name = lowered_plan.names.bind_name.clone();
+    let binding_target = parent_semantic.binding_target_for_name(bind_name.as_str());
+    let annotate_helper = build_lowered_annotation_helper_binding(func, bind_name.as_str());
     let annotate_fn_expr = annotate_helper
         .as_ref()
         .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone())
@@ -720,17 +701,15 @@ fn rewrite_function_def_stmt_via_blockpy(
         rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
         &param_defaults,
         annotate_fn_expr,
-        instantiation_kind,
+        lowered_plan.kind,
     );
     let mut binding_stmt =
-        build_lowered_function_binding_stmt(bind_name, decorated, binding_target);
+        build_lowered_function_binding_stmt(bind_name.as_str(), decorated, binding_target);
     if let Some((helper_stmt, _)) = annotate_helper {
         binding_stmt.insert(0, helper_stmt);
     }
     callable_defs.push(lowered_plan);
-    if identity.bind_name.starts_with("_dp_class_ns_")
-        || identity.bind_name.starts_with("_dp_define_class_")
-    {
+    if bind_name.starts_with("_dp_class_ns_") || bind_name.starts_with("_dp_define_class_") {
         let mut replacement = function_hoisted;
         replacement.extend(binding_stmt);
         replacement
@@ -1259,7 +1238,7 @@ mod tests {
             });
         assert!(
             rendered.contains(
-                "__dp_make_function(0, __dp_tuple(__dp_tuple(\"_dp_cell_x\", _dp_cell_x))"
+                "__dp_make_function(0, \"function\", __dp_tuple(__dp_tuple(\"_dp_cell_x\", _dp_cell_x))"
             ),
             "{rendered}"
         );
