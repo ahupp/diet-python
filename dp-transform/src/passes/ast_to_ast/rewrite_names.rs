@@ -14,10 +14,7 @@ use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{
     passes::ast_to_ast::{
         ast_rewrite::Rewrite,
-        rewrite_class_def::class_body::{
-            class_body_load_cell, class_body_load_global, class_body_store_global,
-            class_body_store_target,
-        },
+        rewrite_class_def::class_body::{class_body_store_global, class_body_store_target},
         rewrite_import,
         scope_helpers::{cell_name, is_internal_symbol},
         util::is_noarg_call,
@@ -207,32 +204,6 @@ impl<'a> NameScopeRewriter<'a> {
         id.as_str() == name
     }
 
-    fn rewrite_name_load(&self, name: &ast::ExprName) -> Option<Expr> {
-        let id = name.id.as_str();
-        if is_internal_symbol(id) {
-            return None;
-        }
-
-        let binding = self.scope.binding_in_current_scope(id);
-        match (self.scope.kind(), binding) {
-            (SemanticScopeKind::Class, Some(SemanticBindingKind::Global)) => {
-                Some(class_body_load_global(id))
-            }
-            (SemanticScopeKind::Class, Some(SemanticBindingKind::Nonlocal)) => {
-                let cell = cell_name(id);
-                Some(class_body_load_cell(id, cell.as_str()))
-            }
-            (SemanticScopeKind::Class, Some(SemanticBindingKind::Local)) => {
-                Some(class_body_load_global(id))
-            }
-            (SemanticScopeKind::Class, None) => Some(class_body_load_global(id)),
-            (_, Some(SemanticBindingKind::Global)) => None,
-            (_, Some(SemanticBindingKind::Nonlocal)) => None,
-            (_, Some(SemanticBindingKind::Local)) => None,
-            (_, None) => None,
-        }
-    }
-
     fn rewrite_name_store(&self, name: &ast::ExprName) -> Option<Expr> {
         let id = name.id.as_str();
         if is_internal_symbol(id) {
@@ -288,33 +259,6 @@ impl<'a> NameScopeRewriter<'a> {
             SemanticBindingKind::Nonlocal => None,
             _ => None,
         }
-    }
-
-    fn is_class_lookup_call(expr: &Expr) -> bool {
-        let Expr::Call(ast::ExprCall { func, .. }) = expr else {
-            return false;
-        };
-        if matches!(
-            func.as_ref(),
-            Expr::Name(ast::ExprName { id, .. })
-                if matches!(
-                    id.as_str(),
-                    "__dp_class_lookup_cell" | "__dp_class_lookup_global"
-                )
-        ) {
-            return true;
-        }
-        let Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = func.as_ref() else {
-            return false;
-        };
-        let Expr::Name(ast::ExprName { id, .. }) = value.as_ref() else {
-            return false;
-        };
-        id.as_str() == "__dp__"
-            && matches!(
-                attr.id.as_str(),
-                "class_lookup_cell" | "class_lookup_global"
-            )
     }
 
     fn loop_target_sync_stmts(&self, target_names: &[String]) -> Vec<Stmt> {
@@ -660,9 +604,6 @@ impl Transformer for NameScopeRewriter<'_> {
                     }
                 }
                 if self.is_class_scope() {
-                    if Self::is_class_lookup_call(expr) {
-                        return;
-                    }
                     if is_noarg_call("locals", expr) && self.should_rewrite_locals_call() {
                         *expr = py_expr!(
                             "__dp_unsupported_implicit_locals({feature:literal})",
@@ -706,12 +647,6 @@ impl Transformer for NameScopeRewriter<'_> {
                     *expr = rewritten;
                     return;
                 }
-            }
-            Expr::Name(name) if matches!(name.ctx, ExprContext::Load) => {
-                if let Some(rewritten) = self.rewrite_name_load(name) {
-                    *expr = rewritten;
-                }
-                return;
             }
             Expr::Name(name) if matches!(name.ctx, ExprContext::Store | ExprContext::Del) => {
                 if let Some(rewritten) = self.rewrite_name_store(name) {

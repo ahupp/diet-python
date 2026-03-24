@@ -79,7 +79,7 @@ class Wrapper:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "Wrapper")
-#         _dp_fn___annotate___open = __dp_exec_function_def_source("def _dp_fn___annotate___open(_dp_format, _dp=__dp__, *, __dp__=__dp__, __dp_class_lookup_global=__dp_class_lookup_global, __dp_tuple=__dp_tuple, _dp_class_ns=_dp_class_ns):\n    if _dp.eq(_dp_format, 4):\n        return _dp.dict(__dp_tuple((\"mode\", '__dp_class_lookup_global(_dp_class_ns, \"str\", globals())'), (\"encoding\", '__dp_class_lookup_global(_dp_class_ns, \"str\", globals())')))\n    if _dp.gt(_dp_format, 2):\n        raise _dp.builtins.NotImplementedError\n    return _dp.dict(__dp_tuple((\"mode\", __dp_class_lookup_global(_dp_class_ns, \"str\", globals())), (\"encoding\", __dp_class_lookup_global(_dp_class_ns, \"str\", globals()))))", __dp_globals(), __dp_tuple(("_dp_class_ns", _dp_class_ns)), "_dp_fn___annotate___open")
+#         _dp_fn___annotate___open = __dp_exec_function_def_source('def _dp_fn___annotate___open(_dp_format, _dp=__dp__, *, __dp__=__dp__, __dp_tuple=__dp_tuple):\n    if _dp.eq(_dp_format, 4):\n        return _dp.dict(__dp_tuple(("mode", "str"), ("encoding", "str")))\n    if _dp.gt(_dp_format, 2):\n        raise _dp.builtins.NotImplementedError\n    return _dp.dict(__dp_tuple(("mode", str), ("encoding", str)))', __dp_globals(), __dp_tuple(), "_dp_fn___annotate___open")
 #         __dp_setitem(_dp_class_ns, "open", __dp_make_function(0, __dp_tuple(), __dp_tuple("r", "utf8"), __dp_globals(), _dp_fn___annotate___open))
 #         return __dp_NONE
 
@@ -144,7 +144,6 @@ def outer():
 
 # function outer.<locals>._dp_class_ns_Inner(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 0
-#     entry_liveins: [_dp_class_ns, _dp_classcell_arg, _dp_cell_x]
 #     local_cell_slots: [_dp_cell__dp_class_ns, _dp_cell__dp_classcell_arg, _dp_classcell]
 #     freevars: [x->_dp_cell_x@inherited]
 #     cellvars: [_dp_class_ns->_dp_cell__dp_class_ns@param, _dp_classcell_arg->_dp_cell__dp_classcell_arg@param, _dp_classcell->_dp_classcell@deferred]
@@ -152,7 +151,7 @@ def outer():
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "outer.<locals>.Inner")
-#         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "y", __dp_class_lookup_cell(_dp_class_ns, "x", _dp_cell_x))
+#         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "y", x)
 #         return __dp_NONE
 
 # function outer.<locals>._dp_define_class_Inner(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):

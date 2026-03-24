@@ -66,10 +66,11 @@ pub(crate) fn rewrite_module_with_tracker(
         let mut rewrite_semantic_state = SemanticAstState::from_ruff(suite_mut(&mut module));
         wrap_module_init(&mut rewrite_semantic_state, suite_mut(&mut module));
 
-        // Replace global / nonlocal and class-body scoping with explicit loads/stores.
+        // Replace global / nonlocal and the early class-body write-side cases with
+        // explicit operations. Class-body load resolution now happens later in the
+        // name_binding pass using the carried semantic scope.
         //  - globals: __dp__.load/store_global(globals(), name)
         //  - nonlocal: create a cell in the outermost scope, and access with __dp__.load/store_cell(cell, value)
-        //  - class-body: class_body_load_cell/global(_dp_class_ns, name, cell / globals()) captures "try class, then outer"
         rewrite_names::rewrite_explicit_bindings(
             context,
             &rewrite_semantic_state,

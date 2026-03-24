@@ -406,6 +406,54 @@ class Box:
     }
 
     #[test]
+    fn class_body_local_load_moves_to_name_binding_pass() {
+        let source = r#"
+class Box:
+    y = 1
+    z = y
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let core_rendered = lowered.pass_text("core_blockpy");
+        assert!(
+            !core_rendered.contains("__dp_class_lookup_global"),
+            "{core_rendered}"
+        );
+
+        let name_binding_rendered = lowered.name_binding_text();
+        assert!(
+            name_binding_rendered
+                .contains("__dp_class_lookup_global(_dp_class_ns, \"y\", __dp_globals())"),
+            "{name_binding_rendered}"
+        );
+    }
+
+    #[test]
+    fn class_body_nonlocal_load_moves_to_name_binding_pass() {
+        let source = r#"
+def outer():
+    x = 1
+    class Box:
+        y = x
+    return Box
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let core_rendered = lowered.pass_text("core_blockpy");
+        assert!(
+            !core_rendered.contains("__dp_class_lookup_cell"),
+            "{core_rendered}"
+        );
+
+        let name_binding_rendered = lowered.name_binding_text();
+        assert!(
+            name_binding_rendered
+                .contains("__dp_class_lookup_cell(_dp_class_ns, \"x\", _dp_cell_x)"),
+            "{name_binding_rendered}"
+        );
+    }
+
+    #[test]
     fn lowered_callable_records_semantic_cell_owner_binding() {
         let source = r#"
 def outer():

@@ -13,21 +13,6 @@ use crate::passes::ast_to_ast::semantic::{
 use crate::transformer::{walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 
-pub fn class_body_load_cell(name: &str, cell: &str) -> Expr {
-    py_expr!(
-        "__dp_class_lookup_cell(_dp_class_ns, {name:literal}, {cell:id})",
-        name = name,
-        cell = cell,
-    )
-}
-
-pub fn class_body_load_global(name: &str) -> Expr {
-    py_expr!(
-        "__dp_class_lookup_global(_dp_class_ns, {name:literal}, globals())",
-        name = name,
-    )
-}
-
 pub(crate) fn class_body_store_target(name: &str, ctx: ExprContext) -> Expr {
     let mut expr = py_expr!("_dp_class_ns[{name:literal}]", name = name);
     if let Expr::Subscript(sub) = &mut expr {

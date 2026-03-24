@@ -4,10 +4,10 @@ use crate::block_py::intrinsics::{
 };
 use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta, BindingTarget,
-    BlockPyAssign, BlockPyBindingKind, BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyIf,
-    BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt, BlockPyTerm, CoreBlockPyCall,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-    CoreStringLiteral, IntrinsicCall,
+    BlockPyAssign, BlockPyBindingKind, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
+    BlockPyFunction, BlockPyIf, BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt,
+    BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral, CoreStringLiteral, IntrinsicCall,
 };
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::CoreBlockPyPass;
@@ -253,6 +253,38 @@ fn deleted_sentinel_expr(
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
     core_name_expr("__dp_DELETED", ast::ExprContext::Load, node_index, range)
+}
+
+fn rewrite_class_name_load_global(name: ExprName) -> CoreBlockPyExpr {
+    let node_index = name.node_index.clone();
+    let range = name.range;
+    let bind_name = name.id.to_string();
+    core_positional_call_expr_with_meta(
+        "__dp_class_lookup_global",
+        node_index.clone(),
+        range,
+        vec![
+            class_namespace_expr(node_index.clone(), range),
+            core_string_expr(bind_name, node_index.clone(), range),
+            globals_expr(node_index, range),
+        ],
+    )
+}
+
+fn rewrite_class_name_load_cell(name: ExprName) -> CoreBlockPyExpr {
+    let node_index = name.node_index.clone();
+    let range = name.range;
+    let bind_name = name.id.to_string();
+    core_positional_call_expr_with_meta(
+        "__dp_class_lookup_cell",
+        node_index.clone(),
+        range,
+        vec![
+            class_namespace_expr(node_index.clone(), range),
+            core_string_expr(bind_name, node_index.clone(), range),
+            cell_expr_for_name(name.id.as_str(), node_index, range),
+        ],
+    )
 }
 
 fn rewrite_quiet_delete_marker(
@@ -526,6 +558,15 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
 
     fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
         match expr {
+            CoreBlockPyExpr::Name(name)
+                if !is_internal_symbol(name.id.as_str())
+                    && self.semantic.scope_kind == BlockPyCallableScopeKind::Class =>
+            {
+                match self.semantic.resolved_load_binding_kind(name.id.as_str()) {
+                    BlockPyBindingKind::Cell(_) => rewrite_class_name_load_cell(name),
+                    _ => rewrite_class_name_load_global(name),
+                }
+            }
             CoreBlockPyExpr::Name(name)
                 if !is_internal_symbol(name.id.as_str())
                     && matches!(
