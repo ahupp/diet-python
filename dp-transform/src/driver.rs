@@ -5,7 +5,7 @@ use crate::passes::ast_to_ast::rewrite_class_def;
 use crate::passes::ast_to_ast::rewrite_expr::ScopedHelperExprPass;
 use crate::passes::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::passes::ast_to_ast::{
-    body::{body_from_suite, suite_mut, take_suite, Suite},
+    body::{body_from_suite, split_docstring, suite_mut, take_suite, Suite},
     rewrite_future_annotations, rewrite_names, rewrite_stmt,
     semantic::SemanticAstState,
 };
@@ -17,7 +17,7 @@ use crate::passes::{
     CoreBlockPyPassWithYield, PreparedBbBlockPyPass, RuffBlockPyPass,
 };
 use crate::PassTracker;
-use ruff_python_ast::{self as ast, Expr, Stmt};
+use ruff_python_ast::{self as ast, Stmt};
 
 pub(crate) fn rewrite_module_with_tracker(
     context: &Context,
@@ -195,30 +195,13 @@ pub(crate) fn rewrite_module_with_tracker(
     })
 }
 
-fn is_module_docstring(stmt: &Stmt) -> bool {
-    matches!(
-        stmt,
-        Stmt::Expr(ast::StmtExpr { value, .. }) if matches!(value.as_ref(), Expr::StringLiteral(_))
-    )
-}
-
 pub(crate) fn wrap_module_init(semantic_state: &mut SemanticAstState, module: &mut Suite) {
-    let mut prelude = Vec::new();
-    let mut init_body = Vec::new();
-    let mut seen_non_prelude = false;
-    let mut docstring_seen = false;
-
-    for stmt in std::mem::take(module) {
-        if !seen_non_prelude {
-            if !docstring_seen && is_module_docstring(&stmt) {
-                prelude.push(stmt);
-                docstring_seen = true;
-                continue;
-            }
-            docstring_seen = true;
-            seen_non_prelude = true;
-        }
-        init_body.push(stmt);
+    let (docstring, mut init_body) = split_docstring(module);
+    if let Some(Stmt::Expr(expr_stmt)) = docstring {
+        init_body.insert(
+            0,
+            crate::py_stmt!("__doc__ = {value:expr}", value = *expr_stmt.value),
+        );
     }
 
     if init_body.is_empty() {
@@ -234,6 +217,5 @@ def _dp_module_init():
     );
     semantic_state.synthesize_module_init_scope(&module_init);
 
-    prelude.push(Stmt::FunctionDef(module_init));
-    *module = prelude;
+    *module = vec![Stmt::FunctionDef(module_init)];
 }

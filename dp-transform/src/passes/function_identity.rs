@@ -42,7 +42,6 @@ pub(crate) fn display_name_for_function(raw_name: &str) -> &str {
 pub(crate) fn resolve_runtime_function_identity(
     func: &ast::StmtFunctionDef,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
-    current_parent: Option<&str>,
 ) -> FunctionIdentity {
     if is_module_init_temp_name(func.name.id.as_str()) {
         return FunctionIdentity {
@@ -54,13 +53,7 @@ pub(crate) fn resolve_runtime_function_identity(
     }
     let node_index = func.node_index.load();
     if let Some(identity) = function_identity_by_node.get(&node_index) {
-        let mut identity = identity.clone();
-        if current_parent.is_some_and(|parent| parent.starts_with("_dp_class_ns_"))
-            && !is_internal_symbol(func.name.id.as_str())
-        {
-            identity.binding_target = BindingTarget::ClassNamespace;
-        }
-        return identity;
+        return identity.clone();
     }
     let bind_name = func.name.id.to_string();
     let display_name = display_name_for_function(bind_name.as_str()).to_string();

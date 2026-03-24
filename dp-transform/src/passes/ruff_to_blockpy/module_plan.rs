@@ -8,7 +8,7 @@ use crate::block_py::{
 use crate::passes::ast_symbol_analysis::{
     collect_bound_names, collect_explicit_global_or_nonlocal_names, collect_loaded_names,
 };
-use crate::passes::ast_to_ast::body::{suite_mut, suite_ref, Suite};
+use crate::passes::ast_to_ast::body::{split_docstring, suite_mut, suite_ref, Suite};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::{make_dp_tuple, name_expr};
 use crate::passes::ast_to_ast::rewrite_stmt;
@@ -260,7 +260,6 @@ fn try_lower_function_to_blockpy_bundle(
     context: &Context,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &ast::StmtFunctionDef,
-    parent_name: Option<&str>,
     callable_semantic: &BlockPyCallableSemanticInfo,
     name_gen: FunctionNameGen,
 ) -> BlockPyFunction<RuffBlockPyPass> {
@@ -281,7 +280,7 @@ fn try_lower_function_to_blockpy_bundle(
     };
 
     let end_label = name_gen.next_block_name();
-    let identity = resolve_runtime_function_identity(func, function_identity_by_node, parent_name);
+    let identity = resolve_runtime_function_identity(func, function_identity_by_node);
     let doc = function_docstring_text(func);
     let fn_name = func.name.id.to_string();
     let blockpy_kind = function_kind(func);
@@ -327,21 +326,6 @@ fn function_docstring_text(func: &ast::StmtFunctionDef) -> Option<String> {
         return None;
     };
     Some(value.to_string())
-}
-
-fn split_docstring(body: &Suite) -> (Option<Stmt>, Vec<Stmt>) {
-    let mut rest = body.clone();
-    let Some(first) = rest.first() else {
-        return (None, rest);
-    };
-    if matches!(
-        first,
-        Stmt::Expr(ast::StmtExpr { value, .. }) if matches!(value.as_ref(), Expr::StringLiteral(_))
-    ) {
-        let first_stmt = rest.remove(0);
-        return (Some(first_stmt), rest);
-    }
-    (None, rest)
 }
 
 fn has_dead_stmt_suffixes(stmts: &[Stmt]) -> bool {
@@ -580,7 +564,6 @@ fn rewrite_function_def_stmt_via_blockpy(
     parent_semantic: &BlockPyCallableSemanticInfo,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &mut ast::StmtFunctionDef,
-    current_parent: Option<&str>,
     callable_semantic: &BlockPyCallableSemanticInfo,
     function_hoisted: Vec<Stmt>,
     module_name_gen: &mut ModuleNameGen,
@@ -591,7 +574,6 @@ fn rewrite_function_def_stmt_via_blockpy(
         context,
         function_identity_by_node,
         func,
-        current_parent,
         callable_semantic,
         name_gen,
     );
@@ -683,7 +665,6 @@ impl BlockPyModuleRewriter<'_> {
             self.context,
             &self.function_identity_by_node,
             func,
-            None,
             &state.callable_semantic,
             name_gen,
         );
@@ -707,7 +688,6 @@ impl BlockPyModuleRewriter<'_> {
             &parent_semantic,
             &self.function_identity_by_node,
             func,
-            state.parent_name.as_deref(),
             &state.callable_semantic,
             state.hoisted_to_parent,
             &mut self.module_name_gen,
