@@ -6,7 +6,7 @@ pub enum ScopeKind {
 }
 
 pub fn is_internal_symbol(name: &str) -> bool {
-    name.starts_with("_dp_") || name == "__dp__"
+    name.starts_with("_dp_") || name.starts_with("__dp_") || name == "__dp__"
 }
 
 pub fn cell_name(name: &str) -> String {

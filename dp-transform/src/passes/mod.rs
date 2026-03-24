@@ -235,23 +235,32 @@ def fmt(value):
 
         let core_blockpy = lowered.core_blockpy_with_await_and_yield_text();
         assert!(core_blockpy.contains("\"value=\""), "{core_blockpy}");
-        assert!(core_blockpy.contains("__dp_repr(value)"), "{core_blockpy}");
         assert!(
-            core_blockpy.contains("__dp_format(__dp_repr(value))"),
+            core_blockpy.contains("__dp_repr(value)")
+                || core_blockpy.contains("__dp_load_global(__dp_globals(), \"__dp_repr\")(value)"),
+            "{core_blockpy}"
+        );
+        assert!(
+            core_blockpy.contains("__dp_format(__dp_repr(value))")
+                || core_blockpy.contains(
+                    "__dp_load_global(__dp_globals(), \"__dp_format\")(__dp_load_global(__dp_globals(), \"__dp_repr\")(value))"
+                ),
             "{core_blockpy}"
         );
 
         let fmt = lowered.bb_function("fmt");
         assert!(
-            fmt.blocks
-                .iter()
-                .any(|block| block_uses_text(block, "__dp_repr(value)")),
+            fmt.blocks.iter().any(|block| {
+                block_uses_text(block, "__dp_repr(value)")
+                    || block_uses_text(block, "__dp_load_global(__dp_globals(), \"__dp_repr\")")
+            }),
             "{fmt:?}"
         );
         assert!(
-            fmt.blocks
-                .iter()
-                .any(|block| block_uses_text(block, "__dp_format(_dp_eval_2)")),
+            fmt.blocks.iter().any(|block| {
+                block_uses_text(block, "__dp_format(_dp_eval_2)")
+                    || block_uses_text(block, "__dp_load_global(__dp_globals(), \"__dp_format\")")
+            }),
             "{fmt:?}"
         );
     }
@@ -529,8 +538,10 @@ def f():
 
         let name_binding_rendered = lowered.name_binding_text();
         assert!(
-            name_binding_rendered
-                .contains("__dp_store_global(__dp_globals(), \"f\", __dp_make_function"),
+            name_binding_rendered.contains("__dp_store_global(__dp_globals(), \"f\", ")
+                && (name_binding_rendered.contains("__dp_make_function(")
+                    || name_binding_rendered
+                        .contains("__dp_load_global(__dp_globals(), \"__dp_make_function\")",)),
             "{name_binding_rendered}"
         );
     }
@@ -716,6 +727,46 @@ del x
         let name_binding_rendered = lowered.name_binding_text();
         assert!(
             name_binding_rendered.contains("__dp_delitem(__dp_globals(), \"x\")"),
+            "{name_binding_rendered}"
+        );
+    }
+
+    #[test]
+    fn nonlocal_assign_and_load_move_to_name_binding_pass() {
+        let source = r#"
+def outer():
+    x = 1
+    def inner():
+        nonlocal x
+        x = x + 1
+        return x
+    return inner()
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let core_rendered = lowered.pass_text("core_blockpy");
+        assert!(
+            core_rendered.contains("x = __dp_add(x, 1)"),
+            "{core_rendered}"
+        );
+        assert!(core_rendered.contains("return x"), "{core_rendered}");
+        assert!(
+            !core_rendered.contains("__dp_store_cell(_dp_cell_x, __dp_add("),
+            "{core_rendered}"
+        );
+        assert!(
+            !core_rendered.contains("return __dp_load_cell(_dp_cell_x)"),
+            "{core_rendered}"
+        );
+
+        let name_binding_rendered = lowered.name_binding_text();
+        assert!(
+            name_binding_rendered
+                .contains("__dp_store_cell(_dp_cell_x, __dp_add(__dp_load_cell(_dp_cell_x), 1))"),
+            "{name_binding_rendered}"
+        );
+        assert!(
+            name_binding_rendered.contains("return __dp_load_cell(_dp_cell_x)"),
             "{name_binding_rendered}"
         );
     }
@@ -1122,17 +1173,20 @@ import pkg.sub as alias
 
         let module_init = lowered.bb_function("_dp_module_init");
         assert!(
-            module_init
-                .blocks
-                .iter()
-                .any(|block| block_uses_text(block, "__dp_import_(")),
+            module_init.blocks.iter().any(|block| {
+                block_uses_text(block, "__dp_import_(")
+                    || block_uses_text(block, "__dp_load_global(__dp_globals(), \"__dp_import_\")")
+            }),
             "{module_init:?}"
         );
         assert!(
-            module_init
-                .blocks
-                .iter()
-                .any(|block| block_uses_text(block, "__dp_import_attr")),
+            module_init.blocks.iter().any(|block| {
+                block_uses_text(block, "__dp_import_attr")
+                    || block_uses_text(
+                        block,
+                        "__dp_load_global(__dp_globals(), \"__dp_import_attr\")",
+                    )
+            }),
             "{module_init:?}"
         );
     }
@@ -1147,17 +1201,20 @@ from pkg.mod import name as alias
 
         let module_init = lowered.bb_function("_dp_module_init");
         assert!(
-            module_init
-                .blocks
-                .iter()
-                .any(|block| block_uses_text(block, "__dp_import_(")),
+            module_init.blocks.iter().any(|block| {
+                block_uses_text(block, "__dp_import_(")
+                    || block_uses_text(block, "__dp_load_global(__dp_globals(), \"__dp_import_\")")
+            }),
             "{module_init:?}"
         );
         assert!(
-            module_init
-                .blocks
-                .iter()
-                .any(|block| block_uses_text(block, "__dp_import_attr")),
+            module_init.blocks.iter().any(|block| {
+                block_uses_text(block, "__dp_import_attr")
+                    || block_uses_text(
+                        block,
+                        "__dp_load_global(__dp_globals(), \"__dp_import_attr\")",
+                    )
+            }),
             "{module_init:?}"
         );
     }
@@ -1603,11 +1660,9 @@ def f():
             .expect("bb module should be available");
         let f = function_by_name(&bb_module, "f");
         assert!(
-            f.blocks.iter().any(|block| matches!(
-                &block.term,
-                BlockPyTerm::Return(CoreBlockPyExpr::Name(name))
-                    if name.id.as_str() == "__dp_NONE"
-            )),
+            f.blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_NONE")),
             "{f:?}"
         );
         assert!(

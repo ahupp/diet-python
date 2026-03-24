@@ -1,4 +1,4 @@
-use crate::block_py::dataflow::analyze_blockpy_use_def;
+use crate::block_py::dataflow::{analyze_blockpy_use_def, loaded_names_in_blockpy_block};
 use crate::block_py::param_specs::{collect_param_spec_and_defaults, param_defaults_to_expr};
 use crate::block_py::state::collect_cell_slots;
 use crate::block_py::{BindingTarget, BlockPyBindingKind};
@@ -10,7 +10,7 @@ use crate::passes::annotation_export::{
     build_lowered_annotation_helper_binding, rewrite_annotation_helper_defs_as_exec_calls,
 };
 use crate::passes::ast_symbol_analysis::{
-    collect_bound_names, collect_explicit_global_or_nonlocal_names,
+    collect_bound_names, collect_explicit_global_or_nonlocal_names, collect_loaded_names,
 };
 use crate::passes::ast_to_ast::body::{suite_mut, suite_ref, Suite};
 use crate::passes::ast_to_ast::context::Context;
@@ -25,6 +25,7 @@ use crate::passes::RuffBlockPyPass;
 use crate::passes::function_identity::{
     collect_function_identity_private, resolve_runtime_function_identity, FunctionIdentity,
 };
+use crate::passes::ruff_to_blockpy::recompute_semantic_blockpy_closure_layout;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, NodeIndex, Stmt};
@@ -70,10 +71,36 @@ struct YieldFamilyDetector {
     found: bool,
 }
 
-fn callable_semantic_info(function_scope: Option<&SemanticScope>) -> BlockPyCallableSemanticInfo {
+fn callable_semantic_info(
+    function_scope: Option<&SemanticScope>,
+    body: &[Stmt],
+) -> BlockPyCallableSemanticInfo {
     let Some(function_scope) = function_scope else {
         return BlockPyCallableSemanticInfo::default();
     };
+    let mut bindings = function_scope
+        .bindings()
+        .into_iter()
+        .map(|(name, binding)| {
+            let binding = match binding {
+                SemanticBindingKind::Local => BlockPyBindingKind::Local,
+                SemanticBindingKind::Nonlocal => BlockPyBindingKind::Nonlocal,
+                SemanticBindingKind::Global => BlockPyBindingKind::Global,
+            };
+            (name, binding)
+        })
+        .collect::<HashMap<_, _>>();
+    let mut relevant_names = collect_bound_names(body);
+    relevant_names.extend(collect_loaded_names(body));
+    for name in relevant_names {
+        bindings.entry(name.clone()).or_insert_with(|| {
+            match function_scope.resolved_load_binding(name.as_str()) {
+                SemanticBindingKind::Local => BlockPyBindingKind::Local,
+                SemanticBindingKind::Nonlocal => BlockPyBindingKind::Nonlocal,
+                SemanticBindingKind::Global => BlockPyBindingKind::Global,
+            }
+        });
+    }
     BlockPyCallableSemanticInfo {
         scope_kind: match function_scope.kind() {
             SemanticScopeKind::Function => BlockPyCallableScopeKind::Function,
@@ -81,18 +108,7 @@ fn callable_semantic_info(function_scope: Option<&SemanticScope>) -> BlockPyCall
             SemanticScopeKind::Module => BlockPyCallableScopeKind::Module,
         },
         local_cell_bindings: function_scope.local_cell_bindings(),
-        bindings: function_scope
-            .bindings()
-            .into_iter()
-            .map(|(name, binding)| {
-                let binding = match binding {
-                    SemanticBindingKind::Local => BlockPyBindingKind::Local,
-                    SemanticBindingKind::Nonlocal => BlockPyBindingKind::Nonlocal,
-                    SemanticBindingKind::Global => BlockPyBindingKind::Global,
-                };
-                (name, binding)
-            })
-            .collect(),
+        bindings,
     }
 }
 
@@ -245,6 +261,7 @@ fn try_lower_function_to_blockpy_bundle(
         unbound_local_names,
         outer_scope_names: outer_scope_names.clone(),
         cell_slots,
+        capture_storage_names: HashSet::new(),
     };
 
     let end_label = name_gen.next_block_name();
@@ -267,6 +284,7 @@ fn try_lower_function_to_blockpy_bundle(
         end_label,
         blockpy_kind,
         &callable_facts,
+        callable_semantic,
     );
     if !callable_facts.deleted_names.is_empty() {
         rewrite_deleted_name_loads(
@@ -281,8 +299,6 @@ fn try_lower_function_to_blockpy_bundle(
             &callable_facts.unbound_local_names,
         );
     }
-    callable_def.semantic = callable_semantic.clone();
-
     callable_def
 }
 
@@ -457,28 +473,58 @@ fn capture_items_to_expr(captures: &[LoweredFunctionCaptureValue]) -> Expr {
 }
 
 fn classify_capture_items(
-    entry_liveins: &[String],
+    used_names: &HashSet<String>,
+    defined_names: &HashSet<String>,
     param_names: &HashSet<String>,
     local_cell_slots: &HashSet<String>,
-    locally_assigned: &HashSet<String>,
+    callable_semantic: &BlockPyCallableSemanticInfo,
 ) -> Vec<LoweredFunctionCaptureValue> {
     let mut captures = Vec::new();
-    for entry_name in entry_liveins {
-        if param_names.contains(entry_name) {
+    let mut referenced_names = used_names
+        .iter()
+        .chain(defined_names.iter())
+        .cloned()
+        .collect::<Vec<_>>();
+    referenced_names.sort();
+    referenced_names.dedup();
+    for used_name in referenced_names {
+        if param_names.contains(used_name.as_str()) {
             continue;
         }
-        if entry_name == "_dp_classcell"
-            || (entry_name.starts_with("_dp_cell_") && !local_cell_slots.contains(entry_name))
-        {
+        if used_name == "_dp_classcell" {
+            if param_names.contains("_dp_classcell_arg")
+                || defined_names.contains(used_name.as_str())
+            {
+                continue;
+            }
+            if local_cell_slots.contains(cell_name("_dp_classcell").as_str()) {
+                continue;
+            }
             captures.push(LoweredFunctionCaptureValue {
-                name: entry_name.clone(),
-                value_expr: name_expr(entry_name.as_str())
+                name: used_name.clone(),
+                value_expr: name_expr(used_name.as_str())
                     .expect("capture name should always parse as an expression"),
             });
-        } else if !entry_name.starts_with("_dp_") && !locally_assigned.contains(entry_name) {
+        } else if used_name.starts_with("_dp_cell_")
+            && !local_cell_slots.contains(used_name.as_str())
+        {
             captures.push(LoweredFunctionCaptureValue {
-                name: entry_name.clone(),
-                value_expr: name_expr(entry_name.as_str())
+                name: used_name.clone(),
+                value_expr: name_expr(used_name.as_str())
+                    .expect("capture name should always parse as an expression"),
+            });
+        } else if callable_semantic.resolved_load_binding_kind(used_name.as_str())
+            == BlockPyBindingKind::Nonlocal
+        {
+            let capture_name = cell_name(used_name.as_str());
+            if local_cell_slots.contains(capture_name.as_str())
+                || defined_names.contains(capture_name.as_str())
+            {
+                continue;
+            }
+            captures.push(LoweredFunctionCaptureValue {
+                name: capture_name.clone(),
+                value_expr: name_expr(capture_name.as_str())
                     .expect("capture name should always parse as an expression"),
             });
         }
@@ -531,7 +577,7 @@ mod tests {
     use crate::transformer::{walk_stmt, Transformer};
     use ruff_python_ast::{NodeIndex, Stmt};
     use ruff_python_parser::parse_module;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     fn lower_test_module_plan(
         context: &Context,
@@ -598,7 +644,10 @@ mod tests {
                 name: "outer".to_string(),
                 parent_name: None,
                 cell_bindings: outer_scope.local_cell_bindings(),
-                callable_semantic: callable_semantic_info(Some(&outer_scope)),
+                callable_semantic: callable_semantic_info(
+                    Some(&outer_scope),
+                    crate::passes::ast_to_ast::body::suite_ref(&outer.body),
+                ),
                 needs_cell_sync: false,
                 hoisted_to_parent: Vec::new(),
             }],
@@ -642,7 +691,7 @@ mod tests {
                             .get(&func.node_index.load())
                             .expect("missing function identity");
                         let parent_scope = self.scope_stack.last().expect("missing parent scope");
-                        let parent_semantic = callable_semantic_info(Some(parent_scope));
+                        let parent_semantic = callable_semantic_info(Some(parent_scope), &[]);
                         assert_eq!(
                             parent_semantic.binding_target_for_name(identity.bind_name.as_str()),
                             identity.binding_target,
@@ -707,6 +756,60 @@ mod tests {
     }
 
     #[test]
+    fn callable_semantic_info_resolves_implicit_global_loads_in_body() {
+        let source = concat!(
+            "def outer(scale):\n",
+            "    factor = scale\n",
+            "    def inner(x):\n",
+            "        try:\n",
+            "            return x + factor\n",
+            "        except Exception as exc:\n",
+            "            return len(str(exc))\n",
+            "    return inner\n",
+        );
+        let mut module = parse_module(source).unwrap().into_syntax().body;
+        let semantic_state = SemanticAstState::from_ruff(&mut module);
+        let Stmt::FunctionDef(outer) = &module[0] else {
+            panic!("expected outer function");
+        };
+        let inner = crate::passes::ast_to_ast::body::suite_ref(&outer.body)
+            .iter()
+            .find_map(|stmt| match stmt {
+                Stmt::FunctionDef(func) if func.name.id.as_str() == "inner" => Some(func),
+                _ => None,
+            })
+            .expect("missing inner");
+        let inner_scope = semantic_state
+            .function_scope(inner)
+            .expect("missing inner scope");
+        let semantic = callable_semantic_info(
+            Some(&inner_scope),
+            crate::passes::ast_to_ast::body::suite_ref(&inner.body),
+        );
+
+        assert_eq!(
+            semantic.binding_kind("factor"),
+            Some(crate::block_py::BlockPyBindingKind::Nonlocal)
+        );
+        assert_eq!(
+            semantic.binding_kind("x"),
+            Some(crate::block_py::BlockPyBindingKind::Local)
+        );
+        assert_eq!(
+            semantic.binding_kind("Exception"),
+            Some(crate::block_py::BlockPyBindingKind::Global)
+        );
+        assert_eq!(
+            semantic.binding_kind("len"),
+            Some(crate::block_py::BlockPyBindingKind::Global)
+        );
+        assert_eq!(
+            semantic.binding_kind("str"),
+            Some(crate::block_py::BlockPyBindingKind::Global)
+        );
+    }
+
+    #[test]
     fn lowering_recursive_local_function_with_finally_preserves_cell_sync_stmt() {
         let source = concat!(
             "import sys\n",
@@ -739,6 +842,40 @@ mod tests {
         assert!(
             rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
             "{rendered}"
+        );
+    }
+
+    #[test]
+    fn lowering_recursive_local_function_treats_recurse_cell_as_local_state() {
+        let source = concat!(
+            "import sys\n",
+            "def exercise():\n",
+            "    original_limit = sys.getrecursionlimit()\n",
+            "    sys.setrecursionlimit(50)\n",
+            "    def recurse():\n",
+            "        return recurse()\n",
+            "    try:\n",
+            "        try:\n",
+            "            recurse()\n",
+            "        except RecursionError:\n",
+            "            return True\n",
+            "        return False\n",
+            "    finally:\n",
+            "        sys.setrecursionlimit(original_limit)\n",
+        );
+        let context = Context::new(Options::for_test(), source);
+        let module = parse_module(source).unwrap().into_syntax().body;
+        let blockpy = lower_test_module_plan(&context, module);
+        let exercise = blockpy
+            .callable_defs
+            .iter()
+            .find(|callable| callable.names.bind_name == "exercise")
+            .expect("missing lowered exercise callable");
+        assert!(
+            exercise.semantic.local_cell_bindings.contains("recurse"),
+            "semantic_local_cell_bindings={:?} facts_cell_slots={:?}",
+            exercise.semantic.local_cell_bindings,
+            exercise.facts.cell_slots,
         );
     }
 
@@ -778,6 +915,53 @@ mod tests {
         );
         assert!(
             !rendered.contains("(None, Return, _dp_try_abrupt_payload_"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn lowering_nonlocal_inner_captures_outer_cell() {
+        let source = concat!(
+            "def outer():\n",
+            "    x = 5\n",
+            "    def inner():\n",
+            "        nonlocal x\n",
+            "        x = 2\n",
+            "        return x\n",
+            "    return inner()\n",
+        );
+        let context = Context::new(Options::for_test(), source);
+        let module = parse_module(source).unwrap().into_syntax().body;
+        let blockpy = lower_test_module_plan(&context, module);
+        let inner = blockpy
+            .callable_defs
+            .iter()
+            .find(|callable| callable.names.bind_name == "inner")
+            .expect("missing lowered inner callable");
+        let outer = blockpy
+            .callable_defs
+            .iter()
+            .find(|callable| callable.names.bind_name == "outer")
+            .expect("missing lowered outer callable");
+        assert!(
+            inner
+                .closure_layout()
+                .as_ref()
+                .expect("inner should have closure layout")
+                .freevars
+                .iter()
+                .any(|slot| slot.storage_name == "_dp_cell_x"),
+            "{:?}",
+            inner.closure_layout()
+        );
+        let rendered =
+            crate::block_py::pretty::blockpy_module_to_string(&crate::block_py::BlockPyModule {
+                callable_defs: vec![outer.clone()],
+            });
+        assert!(
+            rendered.contains(
+                "__dp_make_function(0, __dp_tuple(__dp_tuple(\"_dp_cell_x\", _dp_cell_x))"
+            ),
             "{rendered}"
         );
     }
@@ -890,7 +1074,7 @@ fn rewrite_function_def_stmt_via_blockpy(
     callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
 ) -> Vec<Stmt> {
     let name_gen = NameGen::new(take_next_function_id(next_function_id));
-    let lowered_plan = try_lower_function_to_blockpy_bundle(
+    let mut lowered_plan = try_lower_function_to_blockpy_bundle(
         context,
         function_identity_by_node,
         func,
@@ -900,20 +1084,31 @@ fn rewrite_function_def_stmt_via_blockpy(
     );
     let param_names = lowered_plan.params.names();
     let param_name_set: HashSet<String> = param_names.iter().cloned().collect();
-    let entry_liveins = lowered_plan.entry_liveins();
-    let locally_assigned: HashSet<String> = lowered_plan
+    let used_names: HashSet<String> = lowered_plan
+        .blocks
+        .iter()
+        .flat_map(|block| loaded_names_in_blockpy_block(block).into_iter())
+        .collect();
+    let defined_names: HashSet<String> = lowered_plan
         .blocks
         .iter()
         .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
         .collect();
-    let local_cell_slots = lowered_plan.semantic.local_cell_storage_names();
+    let mut local_cell_slots = lowered_plan.semantic.local_cell_storage_names();
+    local_cell_slots.extend(lowered_plan.facts.cell_slots.iter().cloned());
     let function_id = lowered_plan.function_id.0;
     let captures = classify_capture_items(
-        &entry_liveins,
+        &used_names,
+        &defined_names,
         &param_name_set,
         &local_cell_slots,
-        &locally_assigned,
+        &lowered_plan.semantic,
     );
+    lowered_plan.facts.capture_storage_names = captures
+        .iter()
+        .map(|capture| capture.name.clone())
+        .collect();
+    lowered_plan.closure_layout = recompute_semantic_blockpy_closure_layout(&lowered_plan);
     let instantiation_kind = if lowered_plan.kind == BlockPyFunctionKind::Coroutine {
         LoweredFunctionInstantiationKind::MarkCoroutineFunction
     } else {
@@ -991,7 +1186,8 @@ impl BlockPyModuleRewriter<'_> {
             .as_ref()
             .map(|scope| scope.local_cell_bindings())
             .unwrap_or_default();
-        let callable_semantic = callable_semantic_info(function_scope.as_ref());
+        let callable_semantic =
+            callable_semantic_info(function_scope.as_ref(), suite_ref(&func.body));
         let needs_cell_sync = self
             .function_scope_stack
             .last()

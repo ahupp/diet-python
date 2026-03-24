@@ -4,6 +4,7 @@ use crate::block_py::dataflow::{
     merge_declared_block_params,
 };
 use crate::block_py::state::collect_state_vars;
+use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::ruff_to_blockpy;
 use crate::passes::{
     BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield,
@@ -43,7 +44,7 @@ impl FunctionId {
 }
 
 fn is_internal_symbol(name: &str) -> bool {
-    name.starts_with("_dp_") || name == "__dp__"
+    name.starts_with("_dp_") || name.starts_with("__dp_") || name == "__dp__"
 }
 
 #[derive(Debug)]
@@ -557,6 +558,7 @@ pub struct BlockPyCallableFacts {
     pub unbound_local_names: HashSet<String>,
     pub outer_scope_names: HashSet<String>,
     pub cell_slots: HashSet<String>,
+    pub capture_storage_names: HashSet<String>,
 }
 
 impl Default for BlockPyCallableFacts {
@@ -566,6 +568,7 @@ impl Default for BlockPyCallableFacts {
             unbound_local_names: HashSet::new(),
             outer_scope_names: HashSet::new(),
             cell_slots: HashSet::new(),
+            capture_storage_names: HashSet::new(),
         }
     }
 }
@@ -614,6 +617,14 @@ impl BlockPyCallableSemanticInfo {
         self.bindings.get(name).copied()
     }
 
+    pub fn resolved_load_binding_kind(&self, name: &str) -> BlockPyBindingKind {
+        if is_internal_symbol(name) {
+            return BlockPyBindingKind::Local;
+        }
+        self.binding_kind(name)
+            .unwrap_or(BlockPyBindingKind::Global)
+    }
+
     pub fn binding_target_for_name(&self, name: &str) -> BindingTarget {
         if is_internal_symbol(name) {
             return BindingTarget::Local;
@@ -633,7 +644,8 @@ impl BlockPyCallableSemanticInfo {
         }
         self.local_cell_bindings
             .iter()
-            .map(|name| format!("_dp_cell_{name}"))
+            .filter(|name| self.binding_kind(name.as_str()) != Some(BlockPyBindingKind::Nonlocal))
+            .map(|name| cell_name(name.as_str()))
             .collect()
     }
 }

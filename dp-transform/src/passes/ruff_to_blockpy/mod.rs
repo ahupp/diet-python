@@ -4,7 +4,8 @@ use crate::block_py::cfg::{
 };
 use crate::block_py::dataflow::{
     analyze_blockpy_use_def, compute_block_params_blockpy,
-    extend_state_order_with_declared_block_params, merge_declared_block_params,
+    extend_state_order_with_declared_block_params, loaded_names_in_blockpy_block,
+    merge_declared_block_params,
 };
 use crate::block_py::exception::{
     contains_return_stmt_in_body, contains_return_stmt_in_handlers,
@@ -15,14 +16,15 @@ use crate::block_py::state::{
     collect_state_vars, sync_target_cells_stmts as sync_target_cells_stmts_shared,
 };
 use crate::block_py::{
-    assert_blockpy_block_normalized, move_entry_block_to_front, BlockPyCallableFacts,
-    BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyStmt, BlockPyTerm, CfgBlock,
-    ClosureLayout, FunctionId, FunctionName, NameGen,
+    assert_blockpy_block_normalized, move_entry_block_to_front, BlockPyBindingKind,
+    BlockPyCallableFacts, BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm,
+    BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyStmt, BlockPyTerm,
+    CfgBlock, ClosureLayout, FunctionId, FunctionName, NameGen,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
+use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::RuffBlockPyPass;
 use crate::ruff_ast_to_string;
 use crate::template::is_simple;
@@ -222,27 +224,60 @@ fn build_semantic_blockpy_closure_layout(
     callable_def: &BlockPyFunction<RuffBlockPyPass>,
     injected_exception_names: &HashSet<String>,
 ) -> Option<ClosureLayout> {
-    let entry_liveins = callable_def.entry_liveins();
     let param_names = callable_def.params.names();
-    let local_cell_slot_names = callable_def.semantic.local_cell_storage_names();
+    let mut local_cell_slot_names = callable_def.semantic.local_cell_storage_names();
+    local_cell_slot_names.extend(callable_def.facts.cell_slots.iter().cloned());
     let mut local_cell_slots = local_cell_slot_names.iter().cloned().collect::<Vec<_>>();
     local_cell_slots.sort();
     let param_name_set = param_names.iter().cloned().collect::<HashSet<_>>();
-    let locally_assigned: HashSet<String> = callable_def
-        .blocks
-        .iter()
-        .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
-        .collect();
-    let mut capture_names = entry_liveins
-        .iter()
-        .filter(|name| !param_name_set.contains(name.as_str()))
-        .filter(|name| {
-            *name == "_dp_classcell"
-                || (name.starts_with("_dp_cell_") && !local_cell_slot_names.contains(name.as_str()))
-                || (!name.starts_with("_dp_") && !locally_assigned.contains(name.as_str()))
-        })
-        .cloned()
-        .collect::<Vec<_>>();
+    let mut capture_names = if callable_def.facts.capture_storage_names.is_empty() {
+        let used_names: HashSet<String> = callable_def
+            .blocks
+            .iter()
+            .flat_map(|block| loaded_names_in_blockpy_block(block).into_iter())
+            .collect();
+        let defined_names: HashSet<String> = callable_def
+            .blocks
+            .iter()
+            .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
+            .collect();
+        used_names
+            .iter()
+            .filter(|name| !param_name_set.contains(name.as_str()))
+            .filter(|name| {
+                if *name == "_dp_classcell" {
+                    if param_name_set.contains("_dp_classcell_arg")
+                        || defined_names.contains(name.as_str())
+                    {
+                        return false;
+                    }
+                    return true;
+                }
+                if name.starts_with("_dp_cell_") {
+                    return !local_cell_slot_names.contains(name.as_str())
+                        && !defined_names.contains(name.as_str());
+                }
+                if callable_def
+                    .semantic
+                    .resolved_load_binding_kind(name.as_str())
+                    == BlockPyBindingKind::Nonlocal
+                {
+                    let capture_name = cell_name(name.as_str());
+                    return !local_cell_slot_names.contains(capture_name.as_str())
+                        && !defined_names.contains(capture_name.as_str());
+                }
+                false
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        callable_def
+            .facts
+            .capture_storage_names
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+    };
     capture_names.sort();
     capture_names.dedup();
     if capture_names.is_empty()
@@ -252,7 +287,12 @@ fn build_semantic_blockpy_closure_layout(
         return None;
     }
 
-    let mut state_vars = entry_liveins.to_vec();
+    let mut state_vars = collect_state_vars(&param_names, &callable_def.blocks);
+    for capture_name in &capture_names {
+        if !state_vars.iter().any(|existing| existing == capture_name) {
+            state_vars.push(capture_name.clone());
+        }
+    }
     for slot in local_cell_slots {
         let logical_name = slot.strip_prefix("_dp_cell_").unwrap_or(&slot).to_string();
         if !state_vars.iter().any(|existing| existing == &logical_name) {
@@ -279,6 +319,7 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
     end_label: BlockPyLabel,
     blockpy_kind: BlockPyFunctionKind,
     facts: &BlockPyCallableFacts,
+    semantic: &BlockPyCallableSemanticInfo,
 ) -> BlockPyFunction<RuffBlockPyPass> {
     let mut blocks = Vec::new();
     let entry_label = lower_stmt_sequence_with_state(
@@ -304,7 +345,7 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
         doc,
         closure_layout: None,
         facts: facts.clone(),
-        semantic: BlockPyCallableSemanticInfo::default(),
+        semantic: semantic.clone(),
     };
     let needs_end_block = entry_label == end_label.as_str()
         || callable_def
@@ -331,6 +372,12 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
     callable_def.closure_layout =
         build_semantic_blockpy_closure_layout(&callable_def, &HashSet::new());
     callable_def
+}
+
+pub(crate) fn recompute_semantic_blockpy_closure_layout(
+    callable_def: &BlockPyFunction<RuffBlockPyPass>,
+) -> Option<ClosureLayout> {
+    build_semantic_blockpy_closure_layout(callable_def, &HashSet::new())
 }
 
 #[derive(Clone)]

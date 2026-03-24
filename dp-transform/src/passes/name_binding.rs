@@ -1,6 +1,6 @@
 use crate::block_py::intrinsics::{
-    DEL_DEREF_QUIETLY_INTRINSIC, DEL_QUIETLY_INTRINSIC, LOAD_GLOBAL_INTRINSIC,
-    STORE_GLOBAL_INTRINSIC,
+    DEL_DEREF_QUIETLY_INTRINSIC, DEL_QUIETLY_INTRINSIC, LOAD_CELL_INTRINSIC, LOAD_GLOBAL_INTRINSIC,
+    STORE_CELL_INTRINSIC, STORE_GLOBAL_INTRINSIC,
 };
 use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta, BindingTarget,
@@ -15,7 +15,7 @@ use ruff_python_ast::{self as ast, ExprName};
 use std::collections::HashSet;
 
 fn is_internal_symbol(name: &str) -> bool {
-    name.starts_with("_dp_") || name == "__dp__"
+    name.starts_with("_dp_") || name.starts_with("__dp_") || name == "__dp__"
 }
 
 fn core_string_expr(
@@ -52,6 +52,30 @@ fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
     )
 }
 
+fn cell_expr_for_name(
+    name: &str,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+) -> CoreBlockPyExpr {
+    core_name_expr(
+        cell_name(name).as_str(),
+        ast::ExprContext::Load,
+        node_index,
+        range,
+    )
+}
+
+fn rewrite_nonlocal_name_load(name: ExprName) -> CoreBlockPyExpr {
+    let node_index = name.node_index.clone();
+    let range = name.range;
+    core_positional_intrinsic_expr_with_meta(
+        &LOAD_CELL_INTRINSIC,
+        node_index.clone(),
+        range,
+        vec![cell_expr_for_name(name.id.as_str(), node_index, range)],
+    )
+}
+
 fn rewrite_global_binding_assign(
     assign: BlockPyAssign<CoreBlockPyExpr>,
 ) -> BlockPyStmt<CoreBlockPyExpr> {
@@ -65,6 +89,22 @@ fn rewrite_global_binding_assign(
         vec![
             globals_expr(node_index.clone(), range),
             core_string_expr(bind_name, node_index, range),
+            assign.value,
+        ],
+    ))
+}
+
+fn rewrite_nonlocal_binding_assign(
+    assign: BlockPyAssign<CoreBlockPyExpr>,
+) -> BlockPyStmt<CoreBlockPyExpr> {
+    let node_index = assign.target.node_index.clone();
+    let range = assign.target.range;
+    BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
+        &STORE_CELL_INTRINSIC,
+        node_index.clone(),
+        range,
+        vec![
+            cell_expr_for_name(assign.target.id.as_str(), node_index, range),
             assign.value,
         ],
     ))
@@ -195,12 +235,7 @@ fn rewrite_quiet_delete_marker(
                 &DEL_DEREF_QUIETLY_INTRINSIC,
                 node_index.clone(),
                 range,
-                vec![core_name_expr(
-                    cell_name(name.id.as_str()).as_str(),
-                    ast::ExprContext::Load,
-                    node_index,
-                    range,
-                )],
+                vec![cell_expr_for_name(name.id.as_str(), node_index, range)],
             ))
         }
         _ => match semantic.binding_target_for_name(name.id.as_str()) {
@@ -286,6 +321,35 @@ fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
     matches!(expr, CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_DELETED")
 }
 
+fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
+    let Some(logical_name) = assign.target.id.as_str().strip_prefix("_dp_cell_") else {
+        return false;
+    };
+    let CoreBlockPyExpr::Call(CoreBlockPyCall {
+        func,
+        args,
+        keywords,
+        ..
+    }) = &assign.value
+    else {
+        return false;
+    };
+    if !keywords.is_empty() || args.len() != 1 {
+        return false;
+    }
+    if !matches!(
+        func.as_ref(),
+        CoreBlockPyExpr::Name(func_name) if func_name.id.as_str() == "__dp_make_cell"
+    ) {
+        return false;
+    }
+    matches!(
+        &args[0],
+        CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(name))
+            if name.id.as_str() == logical_name
+    )
+}
+
 struct NameBindingMapper<'a> {
     semantic: &'a BlockPyCallableSemanticInfo,
 }
@@ -346,7 +410,17 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
     }
 
     fn map_assign(&self, assign: BlockPyAssign<CoreBlockPyExpr>) -> BlockPyStmt<CoreBlockPyExpr> {
-        if self
+        if is_local_cell_init_assign(&assign) {
+            return BlockPyStmt::Assign(assign);
+        }
+        if self.semantic.binding_kind(assign.target.id.as_str())
+            == Some(BlockPyBindingKind::Nonlocal)
+        {
+            rewrite_nonlocal_binding_assign(BlockPyAssign {
+                target: assign.target,
+                value: self.map_expr(assign.value),
+            })
+        } else if self
             .semantic
             .binding_target_for_name(assign.target.id.as_str())
             == BindingTarget::ModuleGlobal
@@ -374,8 +448,15 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
         match expr {
             CoreBlockPyExpr::Name(name)
                 if !is_internal_symbol(name.id.as_str())
-                    && self.semantic.binding_kind(name.id.as_str())
-                        == Some(BlockPyBindingKind::Global) =>
+                    && self.semantic.resolved_load_binding_kind(name.id.as_str())
+                        == BlockPyBindingKind::Nonlocal =>
+            {
+                rewrite_nonlocal_name_load(name)
+            }
+            CoreBlockPyExpr::Name(name)
+                if !is_internal_symbol(name.id.as_str())
+                    && self.semantic.resolved_load_binding_kind(name.id.as_str())
+                        == BlockPyBindingKind::Global =>
             {
                 rewrite_global_name_load(name)
             }
@@ -394,8 +475,8 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                         func.as_ref(),
                         CoreBlockPyExpr::Name(name)
                             if name.id.as_str() == "globals"
-                                && self.semantic.binding_kind("globals")
-                                    == Some(BlockPyBindingKind::Global)
+                                && self.semantic.resolved_load_binding_kind("globals")
+                                    == BlockPyBindingKind::Global
                     )
                 {
                     return globals_expr(node_index, range);

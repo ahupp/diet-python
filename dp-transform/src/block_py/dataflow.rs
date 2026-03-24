@@ -200,6 +200,25 @@ where
     (uses, defs)
 }
 
+pub(crate) fn loaded_names_in_blockpy_block<S, E>(
+    block: &CfgBlock<S, BlockPyTerm<E>>,
+) -> HashSet<String>
+where
+    S: IntoBlockPyStmt<E>,
+    E: Clone + Into<Expr>,
+{
+    let mut names = HashSet::new();
+    if let Some(exc_param) = block.exception_param() {
+        names.insert(exc_param.to_string());
+    }
+    for stmt in &block.body {
+        let stmt = stmt.clone().into_stmt();
+        names.extend(load_names_in_blockpy_stmt(&stmt));
+    }
+    names.extend(load_names_in_blockpy_term(&block.term));
+    names
+}
+
 fn extend_successor_live_in<S, T>(
     out: &mut HashSet<String>,
     blocks: &[CfgBlock<S, T>],

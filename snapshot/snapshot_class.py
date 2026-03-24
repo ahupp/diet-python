@@ -145,9 +145,9 @@ def outer():
 # function outer.<locals>._dp_class_ns_Inner(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 0
 #     entry_liveins: [_dp_class_ns, _dp_classcell_arg, _dp_cell_x]
-#     local_cell_slots: [_dp_cell__dp_class_ns, _dp_cell__dp_classcell_arg]
+#     local_cell_slots: [_dp_cell__dp_class_ns, _dp_cell__dp_classcell_arg, _dp_classcell]
 #     freevars: [x->_dp_cell_x@inherited]
-#     cellvars: [_dp_class_ns->_dp_cell__dp_class_ns@param, _dp_classcell_arg->_dp_cell__dp_classcell_arg@param]
+#     cellvars: [_dp_class_ns->_dp_cell__dp_class_ns@param, _dp_classcell_arg->_dp_cell__dp_classcell_arg@param, _dp_classcell->_dp_classcell@deferred]
 #     block _dp_bb_0_1:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
@@ -163,9 +163,11 @@ def outer():
 
 # function outer():
 #     function_id: 2
+#     local_cell_slots: [_dp_cell_Inner, _dp_cell_x, _dp_cell__dp_class_ns_Inner, _dp_cell__dp_define_class_Inner]
+#     cellvars: [Inner->_dp_cell_Inner@deferred, x->_dp_cell_x@deferred, _dp_class_ns_Inner->_dp_cell__dp_class_ns_Inner@deferred, _dp_define_class_Inner->_dp_cell__dp_define_class_Inner@deferred]
 #     block _dp_bb_2_1:
 #         _dp_cell_x = __dp_make_cell()
-#         __dp_store_cell(_dp_cell_x, "outer")
+#         x = "outer"
 #         _dp_class_ns_Inner = __dp_make_function(0, __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_globals(), None)
 #         _dp_define_class_Inner = __dp_make_function(1, __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
 #         Inner = _dp_define_class_Inner(_dp_class_ns_Inner, globals())

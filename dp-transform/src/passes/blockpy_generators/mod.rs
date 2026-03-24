@@ -1,14 +1,14 @@
 use crate::block_py::cfg::linearize_structured_ifs;
-use crate::block_py::dataflow::analyze_blockpy_use_def;
+use crate::block_py::dataflow::{analyze_blockpy_use_def, loaded_names_in_blockpy_block};
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     core_positional_call_expr_with_meta, is_resume_abi_param_name, resume_abi_params, BlockParam,
-    BlockParamRole, BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder,
-    BlockPyCfgFragment, BlockPyFunction, BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm,
-    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout,
-    ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
-    FunctionId, FunctionName,
+    BlockParamRole, BlockPyAssign, BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable,
+    BlockPyCfgBlockBuilder, BlockPyCfgFragment, BlockPyFunction, BlockPyFunctionKind, BlockPyIf,
+    BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit,
+    ClosureLayout, ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, FunctionId, FunctionName,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
@@ -74,9 +74,9 @@ pub(crate) fn build_blockpy_closure_layout(
             });
             continue;
         }
-        if name == "_dp_classcell"
-            || capture_names.contains(name.as_str())
+        if capture_names.contains(name.as_str())
             || capture_names.contains(logical_name.as_str())
+            || capture_names.contains(storage_name.as_str())
         {
             freevars.push(ClosureSlot {
                 logical_name,
@@ -187,31 +187,67 @@ fn injected_exception_names(
 fn build_generator_closure_layout(
     callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
 ) -> ClosureLayout {
-    let entry_liveins = callable.entry_liveins();
     let param_names = callable.params.names();
-    let local_cell_slot_names = callable.semantic.local_cell_storage_names();
+    let mut local_cell_slot_names = callable.semantic.local_cell_storage_names();
+    local_cell_slot_names.extend(callable.facts.cell_slots.iter().cloned());
     let mut local_cell_slots = local_cell_slot_names.iter().cloned().collect::<Vec<_>>();
     local_cell_slots.sort();
     let param_name_set = param_names.iter().cloned().collect::<HashSet<_>>();
-    let locally_assigned: HashSet<String> = callable
-        .blocks
-        .iter()
-        .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
-        .collect();
-    let mut capture_names = entry_liveins
-        .iter()
-        .filter(|name| !param_name_set.contains(name.as_str()))
-        .filter(|name| {
-            *name == "_dp_classcell"
-                || (name.starts_with("_dp_cell_") && !local_cell_slot_names.contains(name.as_str()))
-                || (!name.starts_with("_dp_") && !locally_assigned.contains(name.as_str()))
-        })
-        .cloned()
-        .collect::<Vec<_>>();
+    let mut capture_names = if callable.facts.capture_storage_names.is_empty() {
+        let used_names: HashSet<String> = callable
+            .blocks
+            .iter()
+            .flat_map(|block| loaded_names_in_blockpy_block(block).into_iter())
+            .collect();
+        let defined_names: HashSet<String> = callable
+            .blocks
+            .iter()
+            .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
+            .collect();
+        used_names
+            .iter()
+            .filter(|name| !param_name_set.contains(name.as_str()))
+            .filter(|name| {
+                if *name == "_dp_classcell" {
+                    if param_name_set.contains("_dp_classcell_arg")
+                        || defined_names.contains(name.as_str())
+                    {
+                        return false;
+                    }
+                    return true;
+                }
+                if name.starts_with("_dp_cell_") {
+                    return !local_cell_slot_names.contains(name.as_str())
+                        && !defined_names.contains(name.as_str());
+                }
+                if callable.semantic.resolved_load_binding_kind(name.as_str())
+                    == BlockPyBindingKind::Nonlocal
+                {
+                    let capture_name = cell_name(name.as_str());
+                    return !local_cell_slot_names.contains(capture_name.as_str())
+                        && !defined_names.contains(capture_name.as_str());
+                }
+                false
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        callable
+            .facts
+            .capture_storage_names
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+    };
     capture_names.sort();
     capture_names.dedup();
 
     let mut state_vars = collect_state_vars(&param_names, &callable.blocks);
+    for capture_name in &capture_names {
+        if !state_vars.iter().any(|existing| existing == capture_name) {
+            state_vars.push(capture_name.clone());
+        }
+    }
     for block in &callable.blocks {
         if let Some(exc_param) = block.exception_param() {
             if !state_vars.iter().any(|existing| existing == exc_param) {

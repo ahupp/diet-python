@@ -27,6 +27,44 @@ pub(crate) fn load_names_in_expr(expr: &Expr) -> HashSet<String> {
 }
 
 #[derive(Default)]
+struct CurrentScopeLoadNameCollector {
+    names: HashSet<String>,
+}
+
+impl Transformer for CurrentScopeLoadNameCollector {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+            other => walk_stmt(self, other),
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::Name(name) => {
+                if matches!(name.ctx, ast::ExprContext::Load) {
+                    self.names.insert(name.id.to_string());
+                }
+                walk_expr(self, expr);
+            }
+            Expr::Lambda(_)
+            | Expr::Generator(_)
+            | Expr::ListComp(_)
+            | Expr::SetComp(_)
+            | Expr::DictComp(_) => {}
+            other => walk_expr(self, other),
+        }
+    }
+}
+
+pub(crate) fn collect_loaded_names(stmts: &[Stmt]) -> HashSet<String> {
+    let mut body = stmts.to_vec();
+    let mut collector = CurrentScopeLoadNameCollector::default();
+    collector.visit_body(&mut body);
+    collector.names
+}
+
+#[derive(Default)]
 struct BoundNameCollector {
     names: HashSet<String>,
 }
@@ -303,5 +341,26 @@ mod tests {
         assert!(names.contains("module_name"), "{names:?}");
         assert!(names.contains("captured"), "{names:?}");
         assert!(!names.contains("nested"), "{names:?}");
+    }
+
+    #[test]
+    fn collect_loaded_names_stays_in_current_scope() {
+        let stmts = vec![
+            py_stmt!("x = seen + global_name"),
+            py_stmt!("if flag:\n    used = value"),
+            py_stmt!("def inner():\n    return nested"),
+            py_stmt!("class Thing:\n    member = other"),
+            py_stmt!("items = [item + outer for item in source]"),
+            py_stmt!("fn = lambda arg: arg + captured"),
+        ];
+
+        let names = collect_loaded_names(&stmts);
+
+        for expected in ["seen", "global_name", "flag", "value"] {
+            assert!(names.contains(expected), "missing {expected} in {names:?}");
+        }
+        for skipped in ["nested", "other", "item", "outer", "source", "captured"] {
+            assert!(!names.contains(skipped), "{names:?}");
+        }
     }
 }

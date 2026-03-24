@@ -990,16 +990,17 @@ def outer():
 
 # function outer.<locals>.inner():
 #     function_id: 0
-#     entry_liveins: [_dp_cell_x]
 #     freevars: [x->_dp_cell_x@inherited]
 #     block _dp_bb_0_1:
-#         return __dp_load_cell(_dp_cell_x)
+#         return x
 
 # function outer():
 #     function_id: 1
+#     local_cell_slots: [_dp_cell_x, _dp_cell_inner]
+#     cellvars: [x->_dp_cell_x@deferred, inner->_dp_cell_inner@deferred]
 #     block _dp_bb_1_1:
 #         _dp_cell_x = __dp_make_cell()
-#         __dp_store_cell(_dp_cell_x, 5)
+#         x = 5
 #         inner = __dp_make_function(0, __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_globals(), None)
 #         return inner()
 
@@ -1058,17 +1059,18 @@ def outer():
 
 # function outer.<locals>.inner():
 #     function_id: 0
-#     entry_liveins: [_dp_cell_x]
 #     freevars: [x->_dp_cell_x@inherited]
 #     block _dp_bb_0_1:
-#         __dp_store_cell(_dp_cell_x, 2)
-#         return __dp_load_cell(_dp_cell_x)
+#         x = 2
+#         return x
 
 # function outer():
 #     function_id: 1
+#     local_cell_slots: [_dp_cell_x, _dp_cell_inner]
+#     cellvars: [x->_dp_cell_x@deferred, inner->_dp_cell_inner@deferred]
 #     block _dp_bb_1_1:
 #         _dp_cell_x = __dp_make_cell()
-#         __dp_store_cell(_dp_cell_x, 5)
+#         x = 5
 #         inner = __dp_make_function(0, __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_globals(), None)
 #         return inner()
 

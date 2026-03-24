@@ -205,6 +205,35 @@ impl SemanticScope {
         self.data().bindings.get(name).copied()
     }
 
+    pub(crate) fn resolved_load_binding(&self, name: &str) -> SemanticBindingKind {
+        if let Some(binding) = self.binding_in_current_scope(name) {
+            return binding;
+        }
+        if is_internal_symbol(name) {
+            return SemanticBindingKind::Local;
+        }
+        let mut current = self.data().parent;
+        while let Some(scope_id) = current {
+            let scope = self.state.inner.snapshot.scope(scope_id);
+            match scope.kind {
+                SemanticScopeKind::Function => {
+                    if scope.local_defs.contains(name)
+                        || matches!(
+                            scope.bindings.get(name),
+                            Some(SemanticBindingKind::Nonlocal)
+                        )
+                    {
+                        return SemanticBindingKind::Nonlocal;
+                    }
+                }
+                SemanticScopeKind::Module => return SemanticBindingKind::Global,
+                SemanticScopeKind::Class => {}
+            }
+            current = scope.parent;
+        }
+        SemanticBindingKind::Global
+    }
+
     pub(crate) fn bindings(&self) -> HashMap<String, SemanticBindingKind> {
         self.data().bindings.clone()
     }
