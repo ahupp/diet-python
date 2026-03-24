@@ -503,16 +503,37 @@ fn build_lowered_function_instantiation_expr(
 #[cfg(test)]
 mod tests {
     use super::{
-        capture_items_to_expr, BlockPyModuleRewriter, FunctionScopeFrame,
-        LoweredFunctionCaptureValue,
+        capture_items_to_expr, rewrite_ast_to_lowered_blockpy_module_plan_with_module,
+        BlockPyModuleRewriter, FunctionScopeFrame, LoweredFunctionCaptureValue,
     };
+    use crate::block_py::BlockPyModule;
     use crate::passes::ast_to_ast::body::suite_mut;
     use crate::passes::ast_to_ast::context::Context;
     use crate::passes::ast_to_ast::semantic::SemanticAstState;
     use crate::passes::ast_to_ast::Options;
     use crate::passes::function_identity::collect_function_identity_private;
+    use crate::passes::RuffBlockPyPass;
     use ruff_python_ast::Stmt;
     use ruff_python_parser::parse_module;
+
+    fn lower_test_module_plan(
+        context: &Context,
+        mut module: Vec<Stmt>,
+    ) -> BlockPyModule<RuffBlockPyPass> {
+        crate::passes::ast_to_ast::simplify::flatten(&mut module);
+        let mut semantic_state = SemanticAstState::from_ruff(&mut module);
+        if !module.iter().any(
+            |stmt| matches!(stmt, Stmt::FunctionDef(func) if func.name.id.as_str() == "_dp_module_init"),
+        ) {
+            crate::driver::wrap_module_init(&mut semantic_state, &mut module);
+        }
+        rewrite_ast_to_lowered_blockpy_module_plan_with_module(
+            context,
+            &mut module,
+            &semantic_state,
+            &semantic_state,
+        )
+    }
 
     #[test]
     fn capture_items_render_as_name_value_pairs() {
@@ -607,7 +628,7 @@ mod tests {
         );
         let context = Context::new(Options::for_test(), source);
         let module = parse_module(source).unwrap().into_syntax().body;
-        let blockpy = super::rewrite_ast_to_lowered_blockpy_module_plan(&context, module);
+        let blockpy = lower_test_module_plan(&context, module);
         let exercise = blockpy
             .callable_defs
             .iter()
@@ -643,7 +664,7 @@ mod tests {
         );
         let context = Context::new(Options::for_test(), source);
         let module = parse_module(source).unwrap().into_syntax().body;
-        let blockpy = super::rewrite_ast_to_lowered_blockpy_module_plan(&context, module);
+        let blockpy = lower_test_module_plan(&context, module);
         let exercise = blockpy
             .callable_defs
             .iter()
@@ -662,27 +683,6 @@ mod tests {
             "{rendered}"
         );
     }
-}
-
-pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan(
-    context: &Context,
-    module: Suite,
-) -> BlockPyModule<RuffBlockPyPass> {
-    let mut module = module;
-    crate::passes::ast_to_ast::simplify::flatten(&mut module);
-    let mut semantic_state = SemanticAstState::from_ruff(&mut module);
-    if !module
-        .iter()
-        .any(|stmt| matches!(stmt, Stmt::FunctionDef(func) if func.name.id.as_str() == "_dp_module_init"))
-    {
-        crate::driver::wrap_module_init(&mut semantic_state, &mut module);
-    }
-    rewrite_ast_to_lowered_blockpy_module_plan_with_module(
-        context,
-        &mut module,
-        &semantic_state,
-        &semantic_state,
-    )
 }
 
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
