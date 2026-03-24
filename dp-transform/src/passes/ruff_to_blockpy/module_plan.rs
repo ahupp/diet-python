@@ -812,11 +812,9 @@ fn build_binding_stmt(target: BindingTarget, bind_name: &str, value: Expr) -> St
         BindingTarget::Local => {
             py_stmt!("{name:id} = {value:expr}", name = bind_name, value = value,)
         }
-        BindingTarget::ModuleGlobal => py_stmt!(
-            "__dp_store_global(globals(), {name:literal}, {value:expr})",
-            name = bind_name,
-            value = value,
-        ),
+        BindingTarget::ModuleGlobal => {
+            panic!("module-global binding should be lowered in the name_binding pass")
+        }
         BindingTarget::ClassNamespace => py_stmt!(
             "__dp_setitem(_dp_class_ns, {name:literal}, {value:expr})",
             name = bind_name,
