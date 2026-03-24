@@ -622,13 +622,30 @@ fn rewrite_function_def_stmt_via_blockpy(
 
 impl BlockPyModuleRewriter<'_> {
     fn root_module_init_stmt<'a>(module: &'a mut Suite) -> &'a mut ast::StmtFunctionDef {
-        module
+        assert_eq!(
+            module
+                .iter()
+                .filter(|stmt| matches!(stmt, Stmt::FunctionDef(_)))
+                .count(),
+            1,
+            "expected root suite with exactly one function",
+        );
+        let func = module
             .iter_mut()
             .find_map(|stmt| match stmt {
-                Stmt::FunctionDef(func) if func.name.id.as_str() == "_dp_module_init" => Some(func),
+                Stmt::FunctionDef(func) => Some(func),
                 _ => None,
             })
-            .expect("missing _dp_module_init root function")
+            .expect("expected root suite with exactly one function");
+        assert!(
+            func.parameters.posonlyargs.is_empty()
+                && func.parameters.args.is_empty()
+                && func.parameters.vararg.is_none()
+                && func.parameters.kwonlyargs.is_empty()
+                && func.parameters.kwarg.is_none(),
+            "expected root function with no parameters",
+        );
+        func
     }
 
     fn walk_function_def_with_scope(
