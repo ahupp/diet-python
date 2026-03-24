@@ -263,7 +263,7 @@ fn try_lower_function_to_blockpy_bundle(
     callable_semantic: &BlockPyCallableSemanticInfo,
     name_gen: FunctionNameGen,
 ) -> BlockPyFunction<RuffBlockPyPass> {
-    let (_, lowered_input_body) = split_docstring(suite_ref(&func.body));
+    let (docstring, lowered_input_body) = split_docstring(suite_ref(&func.body));
     let lowered_input_body = lowered_input_body.to_vec();
     let (param_spec, _param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let param_names = param_spec.names();
@@ -281,7 +281,13 @@ fn try_lower_function_to_blockpy_bundle(
 
     let end_label = name_gen.next_block_name();
     let identity = resolve_runtime_function_identity(func, function_identity_by_node);
-    let doc = function_docstring_text(func);
+    let doc = match docstring {
+        Some(Stmt::Expr(expr_stmt)) => match *expr_stmt.value {
+            Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => Some(value.to_string()),
+            _ => None,
+        },
+        _ => None,
+    };
     let fn_name = func.name.id.to_string();
     let blockpy_kind = function_kind(func);
     let mut callable_def = build_blockpy_callable_def_from_runtime_input(
@@ -315,17 +321,6 @@ fn try_lower_function_to_blockpy_bundle(
         );
     }
     callable_def
-}
-
-fn function_docstring_text(func: &ast::StmtFunctionDef) -> Option<String> {
-    let (docstring, _) = split_docstring(suite_ref(&func.body));
-    let Some(Stmt::Expr(expr_stmt)) = docstring else {
-        return None;
-    };
-    let Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) = *expr_stmt.value else {
-        return None;
-    };
-    Some(value.to_string())
 }
 
 fn has_dead_stmt_suffixes(stmts: &[Stmt]) -> bool {
