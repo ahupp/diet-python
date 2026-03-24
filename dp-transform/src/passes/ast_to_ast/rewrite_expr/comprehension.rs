@@ -271,8 +271,8 @@ fn lower_function(
         }
     }
 
-    if !global_targets.is_empty() || !class_targets.is_empty() {
-        let mut rewriter = super::NamedExprRewriter::new(&global_targets, &class_targets);
+    if !class_targets.is_empty() {
+        let mut rewriter = super::NamedExprRewriter::new(&class_targets);
         rewriter.visit_expr(&mut elt_or_key);
         if let Some(value_expr) = value.as_mut() {
             rewriter.visit_expr(value_expr);
@@ -432,6 +432,19 @@ for {target:expr} in {iter:expr}:
     }
 
     let mut func_body: Vec<Stmt> = Vec::new();
+    if !global_targets.is_empty() {
+        let mut names = global_targets.into_iter().collect::<Vec<_>>();
+        names.sort();
+        let names = names
+            .into_iter()
+            .map(|name| ast::Identifier::new(name, TextRange::default()))
+            .collect();
+        func_body.push(Stmt::Global(ast::StmtGlobal {
+            names,
+            range: TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        }));
+    }
     if !nonlocal_targets.is_empty() {
         let mut names = nonlocal_targets.into_iter().collect::<Vec<_>>();
         names.sort();

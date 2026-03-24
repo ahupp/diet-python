@@ -606,6 +606,38 @@ x = (y := f())
     }
 
     #[test]
+    fn top_level_comprehension_named_expr_uses_global_decl_then_name_binding_pass() {
+        let source = r#"
+x = [y := i for i in [1, 2]]
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let ast_rendered = lowered.pass_text("ast-to-ast");
+        assert!(ast_rendered.contains("global y"), "{ast_rendered}");
+        assert!(
+            !ast_rendered.contains("__dp_store_global"),
+            "{ast_rendered}"
+        );
+
+        let core_rendered = lowered.pass_text("core_blockpy");
+        assert!(
+            !core_rendered.contains("__dp_store_global"),
+            "{core_rendered}"
+        );
+        assert!(core_rendered.contains("y = i"), "{core_rendered}");
+
+        let name_binding_rendered = lowered.name_binding_text();
+        assert!(
+            name_binding_rendered.contains("__dp_store_global(__dp_globals(), \"y\", i)"),
+            "{name_binding_rendered}"
+        );
+        assert!(
+            name_binding_rendered.contains("__dp_store_global(__dp_globals(), \"x\", _dp_listcomp"),
+            "{name_binding_rendered}"
+        );
+    }
+
+    #[test]
     fn rewritten_ruff_ast_can_keep_assert_while_stmt_sequence_still_lowers_it() {
         let source = r#"
 def check():

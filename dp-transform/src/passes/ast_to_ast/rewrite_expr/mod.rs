@@ -493,8 +493,8 @@ fn lower_generator_expr(
         }
     }
 
-    if !global_targets.is_empty() || !class_targets.is_empty() {
-        let mut rewriter = NamedExprRewriter::new(&global_targets, &class_targets);
+    if !class_targets.is_empty() {
+        let mut rewriter = NamedExprRewriter::new(&class_targets);
         rewriter.visit_expr(&mut elt);
         for gen in &mut generators {
             rewriter.visit_expr(&mut gen.iter);
@@ -627,6 +627,19 @@ for {target:expr} in {iter:expr}:
     }
 
     let mut func_body: Vec<Stmt> = Vec::new();
+    if !global_targets.is_empty() {
+        let mut names = global_targets.into_iter().collect::<Vec<_>>();
+        names.sort();
+        let names = names
+            .into_iter()
+            .map(|name| Identifier::new(name, TextRange::default()))
+            .collect();
+        func_body.push(Stmt::Global(ast::StmtGlobal {
+            names,
+            range: TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        }));
+    }
     if !nonlocal_targets.is_empty() {
         let mut names = nonlocal_targets.into_iter().collect::<Vec<_>>();
         names.sort();
@@ -828,16 +841,12 @@ impl Transformer for NamedExprTargetCollector {
 }
 
 struct NamedExprRewriter<'a> {
-    global_targets: &'a HashSet<String>,
     class_targets: &'a HashSet<String>,
 }
 
 impl<'a> NamedExprRewriter<'a> {
-    fn new(global_targets: &'a HashSet<String>, class_targets: &'a HashSet<String>) -> Self {
-        Self {
-            global_targets,
-            class_targets,
-        }
+    fn new(class_targets: &'a HashSet<String>) -> Self {
+        Self { class_targets }
     }
 }
 
@@ -847,15 +856,6 @@ impl Transformer for NamedExprRewriter<'_> {
             Expr::Named(ast::ExprNamed { target, value, .. }) => {
                 if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
                     let name = id.as_str();
-                    if self.global_targets.contains(name) {
-                        self.visit_expr(value.as_mut());
-                        *expr = py_expr!(
-                            "__dp_store_global(globals(), {name:literal}, {value:expr})",
-                            name = name,
-                            value = value.as_ref().clone(),
-                        );
-                        return;
-                    }
                     if self.class_targets.contains(name) {
                         self.visit_expr(value.as_mut());
                         *expr = py_expr!(
