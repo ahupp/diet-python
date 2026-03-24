@@ -570,13 +570,11 @@ mod tests {
             .iter_mut()
             .find(|stmt| matches!(stmt, Stmt::FunctionDef(_)))
             .expect("missing nested function");
-        let nested_state = rewriter
-            .walk_function_def_with_scope(nested_stmt)
-            .expect("expected nested function state");
-        assert!(nested_state.needs_cell_sync);
         let Stmt::FunctionDef(nested_func) = nested_stmt else {
             panic!("expected nested function def");
         };
+        let nested_state = rewriter.walk_function_def_with_scope(nested_func);
+        assert!(nested_state.needs_cell_sync);
         let replacement = rewriter.rewrite_visited_function_def(nested_func, nested_state);
         let rendered = replacement
             .iter()
@@ -868,10 +866,10 @@ impl BlockPyModuleRewriter<'_> {
             .expect("missing _dp_module_init root function")
     }
 
-    fn walk_function_def_with_scope(&mut self, stmt: &mut Stmt) -> Option<FunctionScopeFrame> {
-        let Stmt::FunctionDef(func) = stmt else {
-            return None;
-        };
+    fn walk_function_def_with_scope(
+        &mut self,
+        func: &mut ast::StmtFunctionDef,
+    ) -> FunctionScopeFrame {
         let fn_name = func.name.id.to_string();
         let bind_name = func.name.id.to_string();
         let function_scope = self.semantic_state.function_scope(func);
@@ -897,23 +895,18 @@ impl BlockPyModuleRewriter<'_> {
             needs_cell_sync,
             hoisted_to_parent: Vec::new(),
         });
-        walk_stmt(self, stmt);
-        self.function_scope_stack.pop()
+        self.visit_body(&mut func.body);
+        self.function_scope_stack
+            .pop()
+            .expect("function scope stack should pop after walking function def")
     }
 
     fn lower_root_function_def(&mut self, func: &mut ast::StmtFunctionDef) {
-        let mut root_stmt = Stmt::FunctionDef(func.clone());
-        let state = self
-            .walk_function_def_with_scope(&mut root_stmt)
-            .expect("expected root function scope");
-        let Stmt::FunctionDef(lowered_root) = root_stmt else {
-            panic!("root function rewrite should remain a function");
-        };
+        let state = self.walk_function_def_with_scope(func);
         assert!(
             state.hoisted_to_parent.is_empty(),
             "root _dp_module_init should not produce hoisted statements"
         );
-        *func = lowered_root;
         let name_gen = NameGen::new(take_next_function_id(&mut self.next_function_id));
         let lowered_plan = try_lower_function_to_blockpy_bundle(
             self.context,
@@ -956,17 +949,10 @@ impl Transformer for BlockPyModuleRewriter<'_> {
         let mut rewritten = Vec::with_capacity(body.len());
         for stmt in std::mem::take(body) {
             let mut stmt = stmt;
-            if matches!(stmt, Stmt::FunctionDef(_)) {
-                let Some(state) = self.walk_function_def_with_scope(&mut stmt) else {
-                    rewritten.push(stmt);
-                    continue;
-                };
-                if let Stmt::FunctionDef(func) = &mut stmt {
-                    let replacement = self.rewrite_visited_function_def(func, state);
-                    rewritten.extend(replacement);
-                    continue;
-                }
-                rewritten.push(stmt);
+            if let Stmt::FunctionDef(func) = &mut stmt {
+                let state = self.walk_function_def_with_scope(func);
+                let replacement = self.rewrite_visited_function_def(func, state);
+                rewritten.extend(replacement);
                 continue;
             }
 
