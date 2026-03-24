@@ -245,10 +245,7 @@ impl<'a> NameScopeRewriter<'a> {
                 Some(class_body_load_global(id))
             }
             (SemanticScopeKind::Class, None) => Some(class_body_load_global(id)),
-            (_, Some(SemanticBindingKind::Global)) => Some(py_expr!(
-                "__dp_load_global(globals(), {name:literal})",
-                name = id
-            )),
+            (_, Some(SemanticBindingKind::Global)) => None,
             (_, Some(SemanticBindingKind::Nonlocal)) => {
                 let cell = cell_name(id);
                 Some(py_expr!("__dp_load_cell({cell:id})", cell = cell.as_str()))
@@ -524,13 +521,7 @@ impl Transformer for NameScopeRewriter<'_> {
                                 value = value.clone()
                             );
                         }
-                        (_, SemanticBindingKind::Global) => {
-                            *stmt = py_stmt!(
-                                "__dp_store_global(globals(), {name:literal}, {value:expr})",
-                                name = id.as_str(),
-                                value = value.clone()
-                            );
-                        }
+                        (_, SemanticBindingKind::Global) => {}
                         (_, SemanticBindingKind::Nonlocal) => {
                             let cell = cell_name(id.as_str());
                             *stmt = py_stmt!(

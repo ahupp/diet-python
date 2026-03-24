@@ -7,7 +7,7 @@ import a
 # function _dp_module_init():
 #     function_id: 0
 #     block _dp_bb_0_1:
-#         __dp_store_global(globals(), "a", __dp_import_("a", __spec__))
+#         a = __dp_import_("a", __spec__)
 #         return __dp_NONE
 
 # import_dotted_alias
@@ -19,7 +19,7 @@ import a.b as c
 # function _dp_module_init():
 #     function_id: 0
 #     block _dp_bb_0_1:
-#         __dp_store_global(globals(), "c", __dp_import_attr(__dp_import_("a.b", __spec__), "b"))
+#         c = __dp_import_attr(__dp_import_("a.b", __spec__), "b")
 #         return __dp_NONE
 
 # import_from_alias
@@ -32,7 +32,7 @@ from pkg.mod import name as alias
 #     function_id: 0
 #     block _dp_bb_0_1:
 #         _dp_import_1 = __dp_import_("pkg.mod", __spec__, ["name"])
-#         __dp_store_global(globals(), "alias", __dp_import_attr(_dp_import_1, "name"))
+#         alias = __dp_import_attr(_dp_import_1, "name")
 #         return __dp_NONE
 
 # decorator_function
@@ -90,8 +90,8 @@ a, b = it
 #     function_id: 0
 #     block _dp_bb_0_1:
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, True))
-#         __dp_store_global(globals(), "a", __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 0))
-#         __dp_store_global(globals(), "b", __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 1))
+#         a = __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 0)
+#         b = __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 1)
 #         _dp_tmp_1 = __dp_DELETED
 #         return __dp_NONE
 
@@ -105,8 +105,8 @@ a, *b = it
 #     function_id: 0
 #     block _dp_bb_0_1:
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, False))
-#         __dp_store_global(globals(), "a", __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 0))
-#         __dp_store_global(globals(), "b", __dp_list(__dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 1)))
+#         a = __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 0)
+#         b = __dp_list(__dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 1))
 #         _dp_tmp_1 = __dp_DELETED
 #         return __dp_NONE
 
@@ -120,8 +120,8 @@ a = b = f()
 #     function_id: 0
 #     block _dp_bb_0_1:
 #         _dp_tmp_1 = f()
-#         __dp_store_global(globals(), "a", _dp_tmp_1)
-#         __dp_store_global(globals(), "b", _dp_tmp_1)
+#         a = _dp_tmp_1
+#         b = _dp_tmp_1
 #         return __dp_NONE
 
 # ann_assign_simple
@@ -150,7 +150,7 @@ x: int = 1
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
-#         __dp_store_global(globals(), "x", 1)
+#         x = 1
 #         __annotate__ = __dp_make_function(0, __dp_tuple(), __dp_tuple(__dp__), __dp_globals(), None)
 #         return __dp_NONE
 
@@ -487,11 +487,11 @@ zs = {k: v for k, v in items}
 #     function_id: 3
 #     block _dp_bb_3_1:
 #         _dp_listcomp_3 = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
-#         __dp_store_global(globals(), "xs", _dp_listcomp_3(it))
+#         xs = _dp_listcomp_3(it)
 #         _dp_setcomp_6 = __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
-#         __dp_store_global(globals(), "ys", _dp_setcomp_6(it))
+#         ys = _dp_setcomp_6(it)
 #         _dp_dictcomp_9 = __dp_make_function(2, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
-#         __dp_store_global(globals(), "zs", _dp_dictcomp_9(items))
+#         zs = _dp_dictcomp_9(items)
 #         return __dp_NONE
 
 # comprehension_in_function

@@ -69,6 +69,12 @@ define_intrinsic!(SetAttrIntrinsic, SETATTR_INTRINSIC, "__dp_setattr", 3);
 define_intrinsic!(GetItemIntrinsic, GETITEM_INTRINSIC, "__dp_getitem", 2);
 define_intrinsic!(SetItemIntrinsic, SETITEM_INTRINSIC, "__dp_setitem", 3);
 define_intrinsic!(
+    LoadGlobalIntrinsic,
+    LOAD_GLOBAL_INTRINSIC,
+    "__dp_load_global",
+    2
+);
+define_intrinsic!(
     StoreGlobalIntrinsic,
     STORE_GLOBAL_INTRINSIC,
     "__dp_store_global",
