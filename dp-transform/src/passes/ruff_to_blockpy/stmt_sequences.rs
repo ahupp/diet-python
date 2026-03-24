@@ -1,7 +1,6 @@
 use super::stmt_lowering::lower_stmt_into_with_expr;
 use super::*;
 use crate::block_py::{BlockPyRaise, BlockPyStmt, BlockPyTerm, Expr};
-use crate::passes::annotation_export::build_exec_function_def_binding_stmts;
 use crate::passes::ast_to_ast::body::suite_ref;
 use crate::passes::ast_to_ast::context::Context;
 
@@ -40,7 +39,6 @@ pub(crate) fn drive_stmt_sequence_until_control(
     stmts: &[Stmt],
     mut linear: Vec<Stmt>,
     cell_slots: &HashSet<String>,
-    outer_scope_names: &HashSet<String>,
 ) -> StmtSequenceDriveResult {
     let mut index = 0;
     while index < stmts.len() {
@@ -57,12 +55,11 @@ pub(crate) fn drive_stmt_sequence_until_control(
                 };
             }
             StmtSequenceHeadPlan::FunctionDef(func_def) => {
-                linear.extend(build_exec_function_def_binding_stmts(
-                    &func_def,
-                    cell_slots,
-                    outer_scope_names,
-                ));
-                index += 1;
+                let _ = cell_slots;
+                panic!(
+                    "raw nested FunctionDef {} reached Ruff-to-BlockPy after exec-source fallback removal",
+                    func_def.name.id
+                );
             }
             StmtSequenceHeadPlan::Delete(delete_stmt) => {
                 linear.extend(rewrite_delete_to_deleted_sentinel(&delete_stmt));
@@ -259,7 +256,6 @@ pub(crate) fn lower_stmt_sequence_with_state(
     targets: RegionTargets,
     blocks: &mut Vec<BlockPyBlock>,
     cell_slots: &HashSet<String>,
-    outer_scope_names: &HashSet<String>,
     name_gen: &FunctionNameGen,
 ) -> String {
     if stmts.is_empty() {
@@ -270,29 +266,24 @@ pub(crate) fn lower_stmt_sequence_with_state(
     let mut index = 0;
     while index < stmts.len() {
         let plan;
-        (linear, index, plan) = match drive_stmt_sequence_until_control(
-            context,
-            &stmts[index..],
-            linear,
-            cell_slots,
-            outer_scope_names,
-        ) {
-            StmtSequenceDriveResult::Exhausted { linear } => {
-                let label = name_gen.next_block_name();
-                return emit_sequence_jump_block(
-                    blocks,
-                    label,
+        (linear, index, plan) =
+            match drive_stmt_sequence_until_control(context, &stmts[index..], linear, cell_slots) {
+                StmtSequenceDriveResult::Exhausted { linear } => {
+                    let label = name_gen.next_block_name();
+                    return emit_sequence_jump_block(
+                        blocks,
+                        label,
+                        linear,
+                        targets.normal_cont.clone(),
+                        targets.active_exc.as_deref(),
+                    );
+                }
+                StmtSequenceDriveResult::Break {
                     linear,
-                    targets.normal_cont.clone(),
-                    targets.active_exc.as_deref(),
-                );
-            }
-            StmtSequenceDriveResult::Break {
-                linear,
-                index: break_index,
-                plan,
-            } => (linear, index + break_index, plan),
-        };
+                    index: break_index,
+                    plan,
+                } => (linear, index + break_index, plan),
+            };
 
         match plan {
             plan @ (StmtSequenceHeadPlan::Raise(_)
@@ -316,7 +307,6 @@ pub(crate) fn lower_stmt_sequence_with_state(
                             nested_targets,
                             blocks,
                             cell_slots,
-                            outer_scope_names,
                             name_gen,
                         );
                         label
@@ -346,7 +336,6 @@ pub(crate) fn lower_stmt_sequence_with_state(
                             nested_targets,
                             blocks,
                             cell_slots,
-                            outer_scope_names,
                             name_gen,
                         );
                         label
@@ -386,7 +375,6 @@ pub(crate) fn lower_stmt_sequence_with_state(
                             nested_targets,
                             blocks,
                             cell_slots,
-                            outer_scope_names,
                             name_gen,
                         );
                         label
@@ -411,7 +399,6 @@ pub(crate) fn lower_stmt_sequence_with_state(
                                 nested_targets,
                                 blocks,
                                 cell_slots,
-                                outer_scope_names,
                                 name_gen,
                             );
                             label
@@ -440,7 +427,6 @@ pub(crate) fn lower_stmt_sequence_with_state(
                                 nested_targets,
                                 blocks,
                                 cell_slots,
-                                outer_scope_names,
                                 name_gen,
                             );
                             label
@@ -471,7 +457,6 @@ pub(crate) fn lower_stmt_sequence_with_state(
                             nested_targets,
                             blocks,
                             cell_slots,
-                            outer_scope_names,
                             name_gen,
                         )
                     },

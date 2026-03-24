@@ -530,7 +530,6 @@ pub struct CoreBlockPyYieldFrom<E> {
 pub struct BlockPyCallableFacts {
     pub deleted_names: HashSet<String>,
     pub unbound_local_names: HashSet<String>,
-    pub outer_scope_names: HashSet<String>,
     pub cell_slots: HashSet<String>,
     pub capture_storage_names: HashSet<String>,
 }
@@ -540,7 +539,6 @@ impl Default for BlockPyCallableFacts {
         Self {
             deleted_names: HashSet::new(),
             unbound_local_names: HashSet::new(),
-            outer_scope_names: HashSet::new(),
             cell_slots: HashSet::new(),
             capture_storage_names: HashSet::new(),
         }

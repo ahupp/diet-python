@@ -79,8 +79,7 @@ class Wrapper:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "Wrapper")
-#         _dp_fn___annotate___open = __dp_exec_function_def_source('def _dp_fn___annotate___open(_dp_format, _dp=__dp__, *, __dp__=__dp__, __dp_tuple=__dp_tuple):\n    if _dp.eq(_dp_format, 4):\n        return _dp.dict(__dp_tuple(("mode", "str"), ("encoding", "str")))\n    if _dp.gt(_dp_format, 2):\n        raise _dp.builtins.NotImplementedError\n    return _dp.dict(__dp_tuple(("mode", str), ("encoding", str)))', __dp_globals(), __dp_tuple(), "_dp_fn___annotate___open")
-#         __dp_setitem(_dp_class_ns, "open", __dp_make_function(0, "function", __dp_tuple(), __dp_tuple("r", "utf8"), __dp_globals(), _dp_fn___annotate___open))
+#         __dp_setitem(_dp_class_ns, "open", __dp_make_function(0, "function", __dp_tuple(), __dp_tuple("r", "utf8"), __dp_globals(), None))
 #         return __dp_NONE
 
 # function _dp_define_class_Wrapper(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):

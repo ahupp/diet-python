@@ -6,9 +6,6 @@ use crate::block_py::{
     BlockPyCallableFacts, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyFunction,
     BlockPyFunctionKind, BlockPyModule, FunctionName, FunctionNameGen, ModuleNameGen,
 };
-use crate::passes::annotation_export::{
-    build_lowered_annotation_helper_binding, rewrite_annotation_helper_defs_as_exec_calls,
-};
 use crate::passes::ast_symbol_analysis::{
     collect_bound_names, collect_explicit_global_or_nonlocal_names, collect_loaded_names,
 };
@@ -279,12 +276,6 @@ fn try_lower_function_to_blockpy_bundle(
     let (param_spec, _param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let param_names = param_spec.names();
     let runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
-    let mut outer_scope_names = collect_bound_names(&runtime_input_body);
-    outer_scope_names.extend(param_names.iter().cloned());
-    let runtime_input_body =
-        rewrite_annotation_helper_defs_as_exec_calls(runtime_input_body, &outer_scope_names);
-    let mut outer_scope_names = collect_bound_names(&runtime_input_body);
-    outer_scope_names.extend(param_names.iter().cloned());
     let unbound_local_names = if has_dead_stmt_suffixes(&lowered_input_body) {
         always_unbound_local_names(&lowered_input_body, &runtime_input_body, &param_names)
     } else {
@@ -295,7 +286,6 @@ fn try_lower_function_to_blockpy_bundle(
     let callable_facts = BlockPyCallableFacts {
         deleted_names,
         unbound_local_names,
-        outer_scope_names: outer_scope_names.clone(),
         cell_slots,
         capture_storage_names: HashSet::new(),
     };
@@ -674,7 +664,7 @@ fn rewrite_function_def_stmt_via_blockpy(
         .collect();
     let mut local_cell_slots = lowered_plan.semantic.local_cell_storage_names();
     local_cell_slots.extend(lowered_plan.facts.cell_slots.iter().cloned());
-    let function_id = lowered_plan.function_id;
+
     let captures = classify_capture_items(
         &used_names,
         &defined_names,
@@ -689,25 +679,17 @@ fn rewrite_function_def_stmt_via_blockpy(
     lowered_plan.closure_layout = recompute_semantic_blockpy_closure_layout(&lowered_plan);
     let bind_name = lowered_plan.names.bind_name.clone();
     let binding_target = parent_semantic.binding_target_for_name(bind_name.as_str());
-    let annotate_helper = build_lowered_annotation_helper_binding(func, bind_name.as_str());
-    let annotate_fn_expr = annotate_helper
-        .as_ref()
-        .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone())
-        .unwrap_or_else(|| py_expr!("None"));
     let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let decorated = build_lowered_function_instantiation_expr(
-        function_id,
+        lowered_plan.function_id,
         &captures,
         rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
         &param_defaults,
-        annotate_fn_expr,
+        py_expr!("None"),
         lowered_plan.kind,
     );
-    let mut binding_stmt =
+    let binding_stmt =
         build_lowered_function_binding_stmt(bind_name.as_str(), decorated, binding_target);
-    if let Some((helper_stmt, _)) = annotate_helper {
-        binding_stmt.insert(0, helper_stmt);
-    }
     callable_defs.push(lowered_plan);
     if bind_name.starts_with("_dp_class_ns_") || bind_name.starts_with("_dp_define_class_") {
         let mut replacement = function_hoisted;

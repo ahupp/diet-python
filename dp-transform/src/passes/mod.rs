@@ -1,4 +1,3 @@
-mod annotation_export;
 pub(crate) mod ast_symbol_analysis;
 pub(crate) mod ast_to_ast;
 pub(crate) mod blockpy_expr_simplify;

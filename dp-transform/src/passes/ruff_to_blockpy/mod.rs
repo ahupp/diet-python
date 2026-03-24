@@ -323,7 +323,6 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
         RegionTargets::new(end_label.to_string(), None),
         &mut blocks,
         &facts.cell_slots,
-        &facts.outer_scope_names,
         &name_gen,
     );
     move_entry_block_to_front(&mut blocks, entry_label.as_str());
