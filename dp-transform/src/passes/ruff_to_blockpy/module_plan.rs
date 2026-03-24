@@ -66,6 +66,30 @@ struct YieldFamilyDetector {
     found: bool,
 }
 
+pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
+    context: &Context,
+    module: &mut Suite,
+    semantic_state: &SemanticAstState,
+    function_identity_state: &SemanticAstState,
+) -> BlockPyModule<RuffBlockPyPass> {
+    crate::passes::ast_to_ast::simplify::flatten(module);
+    let function_identity_by_node =
+        collect_function_identity_private(module, function_identity_state);
+    let mut rewriter = BlockPyModuleRewriter {
+        context,
+        semantic_state,
+        function_identity_by_node,
+        module_name_gen: ModuleNameGen::new(0),
+        function_scope_stack: Vec::new(),
+        callable_defs: Vec::new(),
+    };
+    let module_init = BlockPyModuleRewriter::root_module_init_stmt(module);
+    rewriter.lower_root_function_def(module_init);
+    BlockPyModule {
+        callable_defs: rewriter.callable_defs,
+    }
+}
+
 fn callable_semantic_info(
     function_scope: Option<&SemanticScope>,
     body: &[Stmt],
@@ -578,6 +602,246 @@ fn build_lowered_function_instantiation_expr(
     rewrite_stmt::decorator::rewrite_exprs(decorator_exprs, base_function_expr)
 }
 
+fn build_binding_stmt(target: BindingTarget, bind_name: &str, value: Expr) -> Stmt {
+    match target {
+        BindingTarget::Local => {
+            py_stmt!("{name:id} = {value:expr}", name = bind_name, value = value,)
+        }
+        BindingTarget::ModuleGlobal => {
+            panic!("module-global binding should be lowered in the name_binding pass")
+        }
+        BindingTarget::ClassNamespace => py_stmt!(
+            "__dp_setitem(_dp_class_ns, {name:literal}, {value:expr})",
+            name = bind_name,
+            value = value,
+        ),
+    }
+}
+
+fn build_lowered_function_binding_stmt(
+    bind_name: &str,
+    value: Expr,
+    target: BindingTarget,
+) -> Vec<Stmt> {
+    match target {
+        BindingTarget::Local => {
+            vec![py_stmt!(
+                "{name:id} = {value:expr}",
+                name = bind_name,
+                value = value
+            )]
+        }
+        BindingTarget::ModuleGlobal => {
+            vec![py_stmt!(
+                "{name:id} = {value:expr}",
+                name = bind_name,
+                value = value
+            )]
+        }
+        BindingTarget::ClassNamespace => {
+            vec![build_binding_stmt(target, bind_name, value)]
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rewrite_function_def_stmt_via_blockpy(
+    context: &Context,
+    parent_hoisted: &mut Vec<Stmt>,
+    parent_semantic: &BlockPyCallableSemanticInfo,
+    function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
+    func: &mut ast::StmtFunctionDef,
+    current_parent: Option<&str>,
+    callable_semantic: &BlockPyCallableSemanticInfo,
+    function_hoisted: Vec<Stmt>,
+    module_name_gen: &mut ModuleNameGen,
+    callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
+) -> Vec<Stmt> {
+    let name_gen = module_name_gen.next_function_name_gen();
+    let mut lowered_plan = try_lower_function_to_blockpy_bundle(
+        context,
+        function_identity_by_node,
+        func,
+        current_parent,
+        callable_semantic,
+        name_gen,
+    );
+    let param_names = lowered_plan.params.names();
+    let param_name_set: HashSet<String> = param_names.iter().cloned().collect();
+    let used_names: HashSet<String> = lowered_plan
+        .blocks
+        .iter()
+        .flat_map(|block| loaded_names_in_blockpy_block(block).into_iter())
+        .collect();
+    let defined_names: HashSet<String> = lowered_plan
+        .blocks
+        .iter()
+        .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
+        .collect();
+    let mut local_cell_slots = lowered_plan.semantic.local_cell_storage_names();
+    local_cell_slots.extend(lowered_plan.facts.cell_slots.iter().cloned());
+    let function_id = lowered_plan.function_id.0;
+    let captures = classify_capture_items(
+        &used_names,
+        &defined_names,
+        &param_name_set,
+        &local_cell_slots,
+        &lowered_plan.semantic,
+    );
+    lowered_plan.facts.capture_storage_names = captures
+        .iter()
+        .map(|capture| capture.name.clone())
+        .collect();
+    lowered_plan.closure_layout = recompute_semantic_blockpy_closure_layout(&lowered_plan);
+    let instantiation_kind = if lowered_plan.kind == BlockPyFunctionKind::Coroutine {
+        LoweredFunctionInstantiationKind::MarkCoroutineFunction
+    } else {
+        LoweredFunctionInstantiationKind::DirectFunction
+    };
+    let identity =
+        resolve_runtime_function_identity(func, function_identity_by_node, current_parent);
+    debug_assert_eq!(
+        parent_semantic.binding_target_for_name(identity.bind_name.as_str()),
+        identity.binding_target,
+        "function identity binding target disagrees with parent semantic binding for {}",
+        identity.bind_name
+    );
+    let binding_target = identity.binding_target;
+    let bind_name = identity.bind_name.as_str();
+    let annotate_helper = build_lowered_annotation_helper_binding(func, bind_name);
+    let annotate_fn_expr = annotate_helper
+        .as_ref()
+        .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone())
+        .unwrap_or_else(|| py_expr!("None"));
+    let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
+    let decorated = build_lowered_function_instantiation_expr(
+        function_id,
+        &captures,
+        rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
+        &param_defaults,
+        annotate_fn_expr,
+        instantiation_kind,
+    );
+    let mut binding_stmt =
+        build_lowered_function_binding_stmt(bind_name, decorated, binding_target);
+    if let Some((helper_stmt, _)) = annotate_helper {
+        binding_stmt.insert(0, helper_stmt);
+    }
+    callable_defs.push(lowered_plan);
+    if identity.bind_name.starts_with("_dp_class_ns_")
+        || identity.bind_name.starts_with("_dp_define_class_")
+    {
+        let mut replacement = function_hoisted;
+        replacement.extend(binding_stmt);
+        replacement
+    } else {
+        parent_hoisted.extend(function_hoisted);
+        binding_stmt
+    }
+}
+
+impl BlockPyModuleRewriter<'_> {
+    fn root_module_init_stmt<'a>(module: &'a mut Suite) -> &'a mut ast::StmtFunctionDef {
+        module
+            .iter_mut()
+            .find_map(|stmt| match stmt {
+                Stmt::FunctionDef(func) if func.name.id.as_str() == "_dp_module_init" => Some(func),
+                _ => None,
+            })
+            .expect("missing _dp_module_init root function")
+    }
+
+    fn walk_function_def_with_scope(
+        &mut self,
+        func: &mut ast::StmtFunctionDef,
+    ) -> FunctionScopeFrame {
+        let fn_name = func.name.id.to_string();
+        let function_scope = self.semantic_state.function_scope(func);
+        let parent_name = self
+            .function_scope_stack
+            .last()
+            .map(|frame| frame.name.clone());
+        let callable_semantic =
+            callable_semantic_info(function_scope.as_ref(), suite_ref(&func.body));
+        self.function_scope_stack.push(FunctionScopeFrame {
+            name: fn_name,
+            parent_name,
+            callable_semantic,
+            hoisted_to_parent: Vec::new(),
+        });
+        self.visit_body(&mut func.body);
+        self.function_scope_stack
+            .pop()
+            .expect("function scope stack should pop after walking function def")
+    }
+
+    fn lower_root_function_def(&mut self, func: &mut ast::StmtFunctionDef) {
+        let state = self.walk_function_def_with_scope(func);
+        assert!(
+            state.hoisted_to_parent.is_empty(),
+            "root _dp_module_init should not produce hoisted statements"
+        );
+        let name_gen = self.module_name_gen.next_function_name_gen();
+        let lowered_plan = try_lower_function_to_blockpy_bundle(
+            self.context,
+            &self.function_identity_by_node,
+            func,
+            None,
+            &state.callable_semantic,
+            name_gen,
+        );
+        self.callable_defs.push(lowered_plan);
+    }
+
+    fn rewrite_visited_function_def(
+        &mut self,
+        func: &mut ast::StmtFunctionDef,
+        state: FunctionScopeFrame,
+    ) -> Vec<Stmt> {
+        let parent_frame = self
+            .function_scope_stack
+            .last_mut()
+            .expect("nested function rewrite should always have a parent hoist buffer");
+        let parent_semantic = parent_frame.callable_semantic.clone();
+        let parent_hoisted = &mut parent_frame.hoisted_to_parent;
+        rewrite_function_def_stmt_via_blockpy(
+            self.context,
+            parent_hoisted,
+            &parent_semantic,
+            &self.function_identity_by_node,
+            func,
+            state.parent_name.as_deref(),
+            &state.callable_semantic,
+            state.hoisted_to_parent,
+            &mut self.module_name_gen,
+            &mut self.callable_defs,
+        )
+    }
+}
+
+impl Transformer for BlockPyModuleRewriter<'_> {
+    fn visit_body(&mut self, body: &mut Suite) {
+        let mut rewritten = Vec::with_capacity(body.len());
+        for stmt in std::mem::take(body) {
+            let mut stmt = stmt;
+            if let Stmt::FunctionDef(func) = &mut stmt {
+                let state = self.walk_function_def_with_scope(func);
+                let replacement = self.rewrite_visited_function_def(func, state);
+                rewritten.extend(replacement);
+                continue;
+            }
+
+            self.visit_stmt(&mut stmt);
+            rewritten.push(stmt);
+        }
+        *body = rewritten;
+    }
+
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        walk_stmt(self, stmt);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -999,288 +1263,5 @@ mod tests {
             ),
             "{rendered}"
         );
-    }
-}
-
-pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
-    context: &Context,
-    module: &mut Suite,
-    semantic_state: &SemanticAstState,
-    function_identity_state: &SemanticAstState,
-) -> BlockPyModule<RuffBlockPyPass> {
-    crate::passes::ast_to_ast::simplify::flatten(module);
-    let function_identity_by_node =
-        collect_function_identity_private(module, function_identity_state);
-    let mut rewriter = BlockPyModuleRewriter {
-        context,
-        semantic_state,
-        function_identity_by_node,
-        module_name_gen: ModuleNameGen::new(0),
-        function_scope_stack: Vec::new(),
-        callable_defs: Vec::new(),
-    };
-    let module_init = BlockPyModuleRewriter::root_module_init_stmt(module);
-    rewriter.lower_root_function_def(module_init);
-    BlockPyModule {
-        callable_defs: rewriter.callable_defs,
-    }
-}
-
-fn build_binding_stmt(target: BindingTarget, bind_name: &str, value: Expr) -> Stmt {
-    match target {
-        BindingTarget::Local => {
-            py_stmt!("{name:id} = {value:expr}", name = bind_name, value = value,)
-        }
-        BindingTarget::ModuleGlobal => {
-            panic!("module-global binding should be lowered in the name_binding pass")
-        }
-        BindingTarget::ClassNamespace => py_stmt!(
-            "__dp_setitem(_dp_class_ns, {name:literal}, {value:expr})",
-            name = bind_name,
-            value = value,
-        ),
-    }
-}
-
-fn resolve_function_binding_target(
-    binding_target: BindingTarget,
-    bind_name: &str,
-    qualname: &str,
-) -> BindingTarget {
-    if binding_target == BindingTarget::Local
-        && qualname == bind_name
-        && !is_internal_symbol(bind_name)
-    {
-        BindingTarget::ModuleGlobal
-    } else {
-        binding_target
-    }
-}
-
-fn build_lowered_function_binding_stmt(
-    bind_name: &str,
-    value: Expr,
-    target: BindingTarget,
-) -> Vec<Stmt> {
-    match target {
-        BindingTarget::Local => {
-            vec![py_stmt!(
-                "{name:id} = {value:expr}",
-                name = bind_name,
-                value = value
-            )]
-        }
-        BindingTarget::ModuleGlobal => {
-            vec![py_stmt!(
-                "{name:id} = {value:expr}",
-                name = bind_name,
-                value = value
-            )]
-        }
-        BindingTarget::ClassNamespace => {
-            vec![build_binding_stmt(target, bind_name, value)]
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn rewrite_function_def_stmt_via_blockpy(
-    context: &Context,
-    parent_hoisted: &mut Vec<Stmt>,
-    parent_semantic: &BlockPyCallableSemanticInfo,
-    function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
-    func: &mut ast::StmtFunctionDef,
-    current_parent: Option<&str>,
-    callable_semantic: &BlockPyCallableSemanticInfo,
-    function_hoisted: Vec<Stmt>,
-    module_name_gen: &mut ModuleNameGen,
-    callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
-) -> Vec<Stmt> {
-    let name_gen = module_name_gen.next_function_name_gen();
-    let mut lowered_plan = try_lower_function_to_blockpy_bundle(
-        context,
-        function_identity_by_node,
-        func,
-        current_parent,
-        callable_semantic,
-        name_gen,
-    );
-    let param_names = lowered_plan.params.names();
-    let param_name_set: HashSet<String> = param_names.iter().cloned().collect();
-    let used_names: HashSet<String> = lowered_plan
-        .blocks
-        .iter()
-        .flat_map(|block| loaded_names_in_blockpy_block(block).into_iter())
-        .collect();
-    let defined_names: HashSet<String> = lowered_plan
-        .blocks
-        .iter()
-        .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
-        .collect();
-    let mut local_cell_slots = lowered_plan.semantic.local_cell_storage_names();
-    local_cell_slots.extend(lowered_plan.facts.cell_slots.iter().cloned());
-    let function_id = lowered_plan.function_id.0;
-    let captures = classify_capture_items(
-        &used_names,
-        &defined_names,
-        &param_name_set,
-        &local_cell_slots,
-        &lowered_plan.semantic,
-    );
-    lowered_plan.facts.capture_storage_names = captures
-        .iter()
-        .map(|capture| capture.name.clone())
-        .collect();
-    lowered_plan.closure_layout = recompute_semantic_blockpy_closure_layout(&lowered_plan);
-    let instantiation_kind = if lowered_plan.kind == BlockPyFunctionKind::Coroutine {
-        LoweredFunctionInstantiationKind::MarkCoroutineFunction
-    } else {
-        LoweredFunctionInstantiationKind::DirectFunction
-    };
-    let identity =
-        resolve_runtime_function_identity(func, function_identity_by_node, current_parent);
-    debug_assert_eq!(
-        parent_semantic.binding_target_for_name(identity.bind_name.as_str()),
-        identity.binding_target,
-        "function identity binding target disagrees with parent semantic binding for {}",
-        identity.bind_name
-    );
-    let binding_target = resolve_function_binding_target(
-        identity.binding_target,
-        identity.bind_name.as_str(),
-        identity.qualname.as_str(),
-    );
-    let bind_name = identity.bind_name.as_str();
-    let annotate_helper = build_lowered_annotation_helper_binding(func, bind_name);
-    let annotate_fn_expr = annotate_helper
-        .as_ref()
-        .map(|(_, annotate_fn_expr)| annotate_fn_expr.clone())
-        .unwrap_or_else(|| py_expr!("None"));
-    let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
-    let decorated = build_lowered_function_instantiation_expr(
-        function_id,
-        &captures,
-        rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
-        &param_defaults,
-        annotate_fn_expr,
-        instantiation_kind,
-    );
-    let mut binding_stmt =
-        build_lowered_function_binding_stmt(bind_name, decorated, binding_target);
-    if let Some((helper_stmt, _)) = annotate_helper {
-        binding_stmt.insert(0, helper_stmt);
-    }
-    callable_defs.push(lowered_plan);
-    if identity.bind_name.starts_with("_dp_class_ns_")
-        || identity.bind_name.starts_with("_dp_define_class_")
-    {
-        let mut replacement = function_hoisted;
-        replacement.extend(binding_stmt);
-        replacement
-    } else {
-        parent_hoisted.extend(function_hoisted);
-        binding_stmt
-    }
-}
-
-impl BlockPyModuleRewriter<'_> {
-    fn root_module_init_stmt<'a>(module: &'a mut Suite) -> &'a mut ast::StmtFunctionDef {
-        module
-            .iter_mut()
-            .find_map(|stmt| match stmt {
-                Stmt::FunctionDef(func) if func.name.id.as_str() == "_dp_module_init" => Some(func),
-                _ => None,
-            })
-            .expect("missing _dp_module_init root function")
-    }
-
-    fn walk_function_def_with_scope(
-        &mut self,
-        func: &mut ast::StmtFunctionDef,
-    ) -> FunctionScopeFrame {
-        let fn_name = func.name.id.to_string();
-        let function_scope = self.semantic_state.function_scope(func);
-        let parent_name = self
-            .function_scope_stack
-            .last()
-            .map(|frame| frame.name.clone());
-        let callable_semantic =
-            callable_semantic_info(function_scope.as_ref(), suite_ref(&func.body));
-        self.function_scope_stack.push(FunctionScopeFrame {
-            name: fn_name,
-            parent_name,
-            callable_semantic,
-            hoisted_to_parent: Vec::new(),
-        });
-        self.visit_body(&mut func.body);
-        self.function_scope_stack
-            .pop()
-            .expect("function scope stack should pop after walking function def")
-    }
-
-    fn lower_root_function_def(&mut self, func: &mut ast::StmtFunctionDef) {
-        let state = self.walk_function_def_with_scope(func);
-        assert!(
-            state.hoisted_to_parent.is_empty(),
-            "root _dp_module_init should not produce hoisted statements"
-        );
-        let name_gen = self.module_name_gen.next_function_name_gen();
-        let lowered_plan = try_lower_function_to_blockpy_bundle(
-            self.context,
-            &self.function_identity_by_node,
-            func,
-            None,
-            &state.callable_semantic,
-            name_gen,
-        );
-        self.callable_defs.push(lowered_plan);
-    }
-
-    fn rewrite_visited_function_def(
-        &mut self,
-        func: &mut ast::StmtFunctionDef,
-        state: FunctionScopeFrame,
-    ) -> Vec<Stmt> {
-        let parent_frame = self
-            .function_scope_stack
-            .last_mut()
-            .expect("nested function rewrite should always have a parent hoist buffer");
-        let parent_semantic = parent_frame.callable_semantic.clone();
-        let parent_hoisted = &mut parent_frame.hoisted_to_parent;
-        rewrite_function_def_stmt_via_blockpy(
-            self.context,
-            parent_hoisted,
-            &parent_semantic,
-            &self.function_identity_by_node,
-            func,
-            state.parent_name.as_deref(),
-            &state.callable_semantic,
-            state.hoisted_to_parent,
-            &mut self.module_name_gen,
-            &mut self.callable_defs,
-        )
-    }
-}
-
-impl Transformer for BlockPyModuleRewriter<'_> {
-    fn visit_body(&mut self, body: &mut Suite) {
-        let mut rewritten = Vec::with_capacity(body.len());
-        for stmt in std::mem::take(body) {
-            let mut stmt = stmt;
-            if let Stmt::FunctionDef(func) = &mut stmt {
-                let state = self.walk_function_def_with_scope(func);
-                let replacement = self.rewrite_visited_function_def(func, state);
-                rewritten.extend(replacement);
-                continue;
-            }
-
-            self.visit_stmt(&mut stmt);
-            rewritten.push(stmt);
-        }
-        *body = rewritten;
-    }
-
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        walk_stmt(self, stmt);
     }
 }

@@ -39,22 +39,6 @@ pub(crate) fn display_name_for_function(raw_name: &str) -> &str {
     }
 }
 
-pub(crate) fn default_binding_target_for_parent(
-    current_parent: Option<&str>,
-    bind_name: &str,
-) -> BindingTarget {
-    match current_parent {
-        Some(parent) if parent.starts_with("_dp_class_ns_") => {
-            if is_internal_symbol(bind_name) {
-                BindingTarget::Local
-            } else {
-                BindingTarget::ClassNamespace
-            }
-        }
-        _ => BindingTarget::Local,
-    }
-}
-
 pub(crate) fn resolve_runtime_function_identity(
     func: &ast::StmtFunctionDef,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
@@ -84,7 +68,7 @@ pub(crate) fn resolve_runtime_function_identity(
         bind_name: bind_name.clone(),
         display_name,
         qualname: bind_name.clone(),
-        binding_target: default_binding_target_for_parent(current_parent, bind_name.as_str()),
+        binding_target: BindingTarget::Local,
     }
 }
 
