@@ -18,7 +18,7 @@ use ruff_python_ast::{
 };
 use std::borrow::Borrow;
 use std::cell::Cell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::ops::Deref;
 
@@ -40,6 +40,10 @@ impl FunctionId {
     pub fn plan_qualname(self, qualname: &str) -> String {
         format!("{qualname}::__dp_fn_{}", self.0)
     }
+}
+
+fn is_internal_symbol(name: &str) -> bool {
+    name.starts_with("_dp_") || name == "__dp__"
 }
 
 #[derive(Debug)]
@@ -80,6 +84,14 @@ pub enum BindingTarget {
     Local,
     ModuleGlobal,
     ClassNamespace,
+}
+
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
+pub enum BlockPyBindingKind {
+    #[default]
+    Local,
+    Nonlocal,
+    Global,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -594,9 +606,27 @@ pub enum BlockPyCallableScopeKind {
 pub struct BlockPyCallableSemanticInfo {
     pub scope_kind: BlockPyCallableScopeKind,
     pub local_cell_bindings: HashSet<String>,
+    pub bindings: HashMap<String, BlockPyBindingKind>,
 }
 
 impl BlockPyCallableSemanticInfo {
+    pub fn binding_kind(&self, name: &str) -> Option<BlockPyBindingKind> {
+        self.bindings.get(name).copied()
+    }
+
+    pub fn binding_target_for_name(&self, name: &str) -> BindingTarget {
+        if is_internal_symbol(name) {
+            return BindingTarget::Local;
+        }
+        match (self.scope_kind, self.binding_kind(name)) {
+            (BlockPyCallableScopeKind::Class, Some(BlockPyBindingKind::Local)) => {
+                BindingTarget::ClassNamespace
+            }
+            (_, Some(BlockPyBindingKind::Global)) => BindingTarget::ModuleGlobal,
+            _ => BindingTarget::Local,
+        }
+    }
+
     pub fn local_cell_storage_names(&self) -> HashSet<String> {
         if !matches!(self.scope_kind, BlockPyCallableScopeKind::Function) {
             return HashSet::new();

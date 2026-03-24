@@ -1,7 +1,7 @@
 use crate::block_py::dataflow::analyze_blockpy_use_def;
 use crate::block_py::param_specs::{collect_param_spec_and_defaults, param_defaults_to_expr};
 use crate::block_py::state::collect_cell_slots;
-use crate::block_py::BindingTarget;
+use crate::block_py::{BindingTarget, BlockPyBindingKind};
 use crate::block_py::{
     BlockPyCallableFacts, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyFunction,
     BlockPyFunctionKind, BlockPyModule, FunctionName,
@@ -17,7 +17,9 @@ use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::{make_dp_tuple, name_expr};
 use crate::passes::ast_to_ast::rewrite_stmt;
 use crate::passes::ast_to_ast::scope_helpers::{cell_name, is_internal_symbol};
-use crate::passes::ast_to_ast::semantic::{SemanticAstState, SemanticScope, SemanticScopeKind};
+use crate::passes::ast_to_ast::semantic::{
+    SemanticAstState, SemanticBindingKind, SemanticScope, SemanticScopeKind,
+};
 use crate::passes::RuffBlockPyPass;
 
 use crate::passes::function_identity::{
@@ -79,6 +81,18 @@ fn callable_semantic_info(function_scope: Option<&SemanticScope>) -> BlockPyCall
             SemanticScopeKind::Module => BlockPyCallableScopeKind::Module,
         },
         local_cell_bindings: function_scope.local_cell_bindings(),
+        bindings: function_scope
+            .bindings()
+            .into_iter()
+            .map(|(name, binding)| {
+                let binding = match binding {
+                    SemanticBindingKind::Local => BlockPyBindingKind::Local,
+                    SemanticBindingKind::Nonlocal => BlockPyBindingKind::Nonlocal,
+                    SemanticBindingKind::Global => BlockPyBindingKind::Global,
+                };
+                (name, binding)
+            })
+            .collect(),
     }
 }
 
@@ -503,18 +517,21 @@ fn build_lowered_function_instantiation_expr(
 #[cfg(test)]
 mod tests {
     use super::{
-        capture_items_to_expr, rewrite_ast_to_lowered_blockpy_module_plan_with_module,
-        BlockPyModuleRewriter, FunctionScopeFrame, LoweredFunctionCaptureValue,
+        callable_semantic_info, capture_items_to_expr,
+        rewrite_ast_to_lowered_blockpy_module_plan_with_module, BlockPyModuleRewriter,
+        FunctionScopeFrame, LoweredFunctionCaptureValue,
     };
     use crate::block_py::BlockPyModule;
     use crate::passes::ast_to_ast::body::suite_mut;
     use crate::passes::ast_to_ast::context::Context;
     use crate::passes::ast_to_ast::semantic::SemanticAstState;
     use crate::passes::ast_to_ast::Options;
-    use crate::passes::function_identity::collect_function_identity_private;
+    use crate::passes::function_identity::{collect_function_identity_private, FunctionIdentity};
     use crate::passes::RuffBlockPyPass;
-    use ruff_python_ast::Stmt;
+    use crate::transformer::{walk_stmt, Transformer};
+    use ruff_python_ast::{NodeIndex, Stmt};
     use ruff_python_parser::parse_module;
+    use std::collections::HashMap;
 
     fn lower_test_module_plan(
         context: &Context,
@@ -581,7 +598,7 @@ mod tests {
                 name: "outer".to_string(),
                 parent_name: None,
                 cell_bindings: outer_scope.local_cell_bindings(),
-                callable_semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
+                callable_semantic: callable_semantic_info(Some(&outer_scope)),
                 needs_cell_sync: false,
                 hoisted_to_parent: Vec::new(),
             }],
@@ -606,6 +623,87 @@ mod tests {
             rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
             "{rendered}"
         );
+    }
+
+    #[test]
+    fn callable_semantic_bindings_match_function_identity_targets() {
+        struct Checker<'a> {
+            semantic_state: &'a SemanticAstState,
+            identity_by_node: &'a HashMap<NodeIndex, FunctionIdentity>,
+            scope_stack: Vec<crate::passes::ast_to_ast::semantic::SemanticScope>,
+        }
+
+        impl Transformer for Checker<'_> {
+            fn visit_stmt(&mut self, stmt: &mut Stmt) {
+                match stmt {
+                    Stmt::FunctionDef(func) => {
+                        let identity = self
+                            .identity_by_node
+                            .get(&func.node_index.load())
+                            .expect("missing function identity");
+                        let parent_scope = self.scope_stack.last().expect("missing parent scope");
+                        let parent_semantic = callable_semantic_info(Some(parent_scope));
+                        assert_eq!(
+                            parent_semantic.binding_target_for_name(identity.bind_name.as_str()),
+                            identity.binding_target,
+                            "{}",
+                            identity.bind_name
+                        );
+                        if let Some(function_scope) = self.semantic_state.function_scope(func) {
+                            self.scope_stack.push(function_scope);
+                            walk_stmt(self, stmt);
+                            self.scope_stack.pop();
+                            return;
+                        }
+                        walk_stmt(self, stmt);
+                    }
+                    Stmt::ClassDef(class_def) => {
+                        let parent_scope = self
+                            .scope_stack
+                            .last()
+                            .expect("missing parent scope")
+                            .clone();
+                        if let Some(class_scope) = parent_scope.child_scope_for_class(class_def) {
+                            self.scope_stack.push(class_scope);
+                            walk_stmt(self, stmt);
+                            self.scope_stack.pop();
+                            return;
+                        }
+                        walk_stmt(self, stmt);
+                    }
+                    _ => walk_stmt(self, stmt),
+                }
+            }
+        }
+
+        let source = concat!(
+            "def outer():\n",
+            "    def local():\n",
+            "        return 1\n",
+            "    global exported\n",
+            "    def exported():\n",
+            "        return 2\n",
+            "    class C:\n",
+            "        def method(self):\n",
+            "            return local()\n",
+            "    return local, exported, C\n",
+        );
+        let mut module = parse_module(source).unwrap().into_syntax().body;
+        let mut semantic_state = SemanticAstState::from_ruff(&mut module);
+        crate::driver::wrap_module_init(&mut semantic_state, &mut module);
+        let identity_by_node = collect_function_identity_private(&mut module, &semantic_state);
+        let Stmt::FunctionDef(module_init) = &mut module[0] else {
+            panic!("expected _dp_module_init");
+        };
+        let module_init_scope = semantic_state
+            .function_scope(module_init)
+            .expect("missing module init scope");
+        let mut checker = Checker {
+            semantic_state: &semantic_state,
+            identity_by_node: &identity_by_node,
+            scope_stack: vec![module_init_scope],
+        };
+        checker.visit_body(&mut module_init.body);
     }
 
     #[test]
@@ -766,7 +864,14 @@ fn build_lowered_function_binding_stmt(
                 vec![assign_stmt]
             }
         }
-        BindingTarget::ModuleGlobal | BindingTarget::ClassNamespace => {
+        BindingTarget::ModuleGlobal => {
+            vec![py_stmt!(
+                "{name:id} = {value:expr}",
+                name = bind_name,
+                value = value
+            )]
+        }
+        BindingTarget::ClassNamespace => {
             vec![build_binding_stmt(target, bind_name, value)]
         }
     }
@@ -776,6 +881,7 @@ fn build_lowered_function_binding_stmt(
 fn rewrite_function_def_stmt_via_blockpy(
     context: &Context,
     parent_hoisted: &mut Vec<Stmt>,
+    parent_semantic: &BlockPyCallableSemanticInfo,
     function_identity_by_node: &HashMap<NodeIndex, FunctionIdentity>,
     func: &mut ast::StmtFunctionDef,
     current_parent: Option<&str>,
@@ -817,6 +923,12 @@ fn rewrite_function_def_stmt_via_blockpy(
     };
     let identity =
         resolve_runtime_function_identity(func, function_identity_by_node, current_parent);
+    debug_assert_eq!(
+        parent_semantic.binding_target_for_name(identity.bind_name.as_str()),
+        identity.binding_target,
+        "function identity binding target disagrees with parent semantic binding for {}",
+        identity.bind_name
+    );
     let binding_target = resolve_function_binding_target(
         identity.binding_target,
         identity.bind_name.as_str(),
@@ -924,14 +1036,16 @@ impl BlockPyModuleRewriter<'_> {
         func: &mut ast::StmtFunctionDef,
         state: FunctionScopeFrame,
     ) -> Vec<Stmt> {
-        let parent_hoisted = self
+        let parent_frame = self
             .function_scope_stack
             .last_mut()
-            .map(|parent_frame| &mut parent_frame.hoisted_to_parent)
             .expect("nested function rewrite should always have a parent hoist buffer");
+        let parent_semantic = parent_frame.callable_semantic.clone();
+        let parent_hoisted = &mut parent_frame.hoisted_to_parent;
         rewrite_function_def_stmt_via_blockpy(
             self.context,
             parent_hoisted,
+            &parent_semantic,
             &self.function_identity_by_node,
             func,
             state.parent_name.as_deref(),

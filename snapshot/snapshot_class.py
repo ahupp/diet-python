@@ -174,7 +174,7 @@ def outer():
 # function _dp_module_init():
 #     function_id: 3
 #     block _dp_bb_3_1:
-#         __dp_store_global(globals(), "outer", __dp_make_function(2, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
+#         outer = __dp_make_function(2, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return __dp_NONE
 
 # class_super_empty_classcell
@@ -327,5 +327,5 @@ def foo():
 # function _dp_module_init():
 #     function_id: 5
 #     block _dp_bb_5_1:
-#         __dp_store_global(globals(), "foo", __dp_make_function(4, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
+#         foo = __dp_make_function(4, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return __dp_NONE

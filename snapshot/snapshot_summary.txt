@@ -56,7 +56,7 @@ snapshot_stmt::function_local_ann_assign: blockpy=2, clif=2
 snapshot_stmt::comprehension_global: blockpy=16, clif=16
 snapshot_stmt::comprehension_in_function: blockpy=8, clif=8
 snapshot_stmt::comprehension_in_class_body: blockpy=8, clif=8
-snapshot_stmt::with_multi: blockpy=26, clif=32
+snapshot_stmt::with_multi: blockpy=26, clif=31
 snapshot_stmt::async_for: blockpy=6, clif=25
 snapshot_stmt::async_with: blockpy=16, clif=81
 snapshot_stmt::match_simple: blockpy=3, clif=3

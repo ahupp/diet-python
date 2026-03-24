@@ -205,6 +205,10 @@ impl SemanticScope {
         self.data().bindings.get(name).copied()
     }
 
+    pub(crate) fn bindings(&self) -> HashMap<String, SemanticBindingKind> {
+        self.data().bindings.clone()
+    }
+
     pub(crate) fn local_binding_names(&self) -> HashSet<String> {
         self.data()
             .bindings

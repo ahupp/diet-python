@@ -7,6 +7,7 @@ pub mod blockpy_to_bb;
 pub(crate) mod core_await_lower;
 pub(crate) mod core_eval_order;
 mod function_identity;
+mod name_binding;
 pub mod ruff_to_blockpy;
 mod summarize_pass_shape;
 mod trace;
@@ -71,6 +72,7 @@ pub(crate) use blockpy_to_bb::{
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
 
 pub use ast_to_ast::rewrite_stmt::single_assigment::SingleNamedAssignmentPass;
+pub(crate) use name_binding::lower_name_binding_in_core_blockpy_module;
 pub(crate) use summarize_pass_shape::summarize_tracked_pass_shape;
 
 #[cfg(test)]
@@ -120,6 +122,10 @@ mod tests {
 
         fn core_blockpy_with_yield_text(&self) -> String {
             self.pass_text("core_blockpy_with_yield")
+        }
+
+        fn name_binding_text(&self) -> String {
+            self.pass_text("name_binding")
         }
 
         fn pass_text(&self, name: &str) -> String {
@@ -501,6 +507,32 @@ def documented():
             .as_ref()
             .expect("callable definition should retain doc metadata");
         assert_eq!(doc, "hello doc");
+    }
+
+    #[test]
+    fn top_level_function_global_binding_moves_to_name_binding_pass() {
+        let source = r#"
+def f():
+    return 1
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let core_rendered = lowered.pass_text("core_blockpy");
+        assert!(
+            !core_rendered.contains("__dp_store_global"),
+            "{core_rendered}"
+        );
+        assert!(
+            core_rendered.contains("f = __dp_make_function"),
+            "{core_rendered}"
+        );
+
+        let name_binding_rendered = lowered.name_binding_text();
+        assert!(
+            name_binding_rendered
+                .contains("__dp_store_global(globals(), \"f\", __dp_make_function"),
+            "{name_binding_rendered}"
+        );
     }
 
     #[test]

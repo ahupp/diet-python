@@ -176,11 +176,13 @@ pub(crate) fn rewrite_module_with_tracker(
         .run_renderable_pass("core_blockpy", || {
             passes::lower_yield_in_lowered_core_blockpy_module_bundle(core_blockpy_without_await)
         });
-    let bb_module: BlockPyModule<BbBlockPyPass> =
-        pass_tracker.run_renderable_pass("bb_blockpy", || {
-            passes::lower_core_blockpy_module_bundle_to_bb_module(
-                core_blockpy_without_await_or_yield,
-            )
+    let name_binding: BlockPyModule<CoreBlockPyPass> = pass_tracker
+        .run_renderable_pass("name_binding", || {
+            passes::lower_name_binding_in_core_blockpy_module(core_blockpy_without_await_or_yield)
+        });
+    let bb_module: BlockPyModule<BbBlockPyPass> = pass_tracker
+        .run_renderable_pass("bb_blockpy", || {
+            passes::lower_core_blockpy_module_bundle_to_bb_module(name_binding)
         });
     let bb_prepared: BlockPyModule<PreparedBbBlockPyPass> =
         pass_tracker.run_renderable_pass("bb_prepared", || {

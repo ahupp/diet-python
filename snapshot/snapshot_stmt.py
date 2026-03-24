@@ -53,7 +53,7 @@ def f():
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
-#         __dp_store_global(globals(), "f", dec(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)))
+#         f = dec(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return __dp_NONE
 
 # assign_attr
@@ -151,7 +151,7 @@ x: int = 1
 #     function_id: 1
 #     block _dp_bb_1_1:
 #         __dp_store_global(globals(), "x", 1)
-#         __dp_store_global(globals(), "__annotate__", __dp_make_function(0, __dp_tuple(), __dp_tuple(__dp__), __dp_globals(), None))
+#         __annotate__ = __dp_make_function(0, __dp_tuple(), __dp_tuple(__dp__), __dp_globals(), None)
 #         return __dp_NONE
 
 # ann_assign_attr
@@ -403,7 +403,7 @@ def inner():
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
-#         __dp_store_global(globals(), "inner", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
+#         inner = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return __dp_NONE
 
 # comprehension_global
@@ -539,7 +539,7 @@ def f():
 # function _dp_module_init():
 #     function_id: 2
 #     block _dp_bb_2_1:
-#         __dp_store_global(globals(), "f", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
+#         f = __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return __dp_NONE
 
 # comprehension_in_class_body
@@ -751,7 +751,7 @@ async def run():
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
-#         __dp_store_global(globals(), "run", __dp_mark_coroutine_function(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)))
+#         run = __dp_mark_coroutine_function(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return __dp_NONE
 
 # async_with
@@ -836,7 +836,7 @@ async def run():
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
-#         __dp_store_global(globals(), "run", __dp_mark_coroutine_function(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)))
+#         run = __dp_mark_coroutine_function(__dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
 #         return __dp_NONE
 
 # match_simple
@@ -881,7 +881,7 @@ def gen():
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
-#         __dp_store_global(globals(), "gen", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
+#         gen = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return __dp_NONE
 
 # yield_from
@@ -902,7 +902,7 @@ def gen():
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
-#         __dp_store_global(globals(), "gen", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
+#         gen = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return __dp_NONE
 
 # with_exit_suppresses_exception
@@ -1007,7 +1007,7 @@ def outer():
 # function _dp_module_init():
 #     function_id: 2
 #     block _dp_bb_2_1:
-#         __dp_store_global(globals(), "outer", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
+#         outer = __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return __dp_NONE
 
 # bb_if_else_function
@@ -1038,7 +1038,7 @@ def choose(a, b):
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
-#         __dp_store_global(globals(), "choose", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
+#         choose = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return __dp_NONE
 
 # closure_cell_nonlocal
@@ -1076,7 +1076,7 @@ def outer():
 # function _dp_module_init():
 #     function_id: 2
 #     block _dp_bb_2_1:
-#         __dp_store_global(globals(), "outer", __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
+#         outer = __dp_make_function(1, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return __dp_NONE
 
 # plain try / catch
@@ -1175,5 +1175,5 @@ def complicated(a):
 # function _dp_module_init():
 #     function_id: 1
 #     block _dp_bb_1_1:
-#         __dp_store_global(globals(), "complicated", __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None))
+#         complicated = __dp_make_function(0, __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return __dp_NONE
