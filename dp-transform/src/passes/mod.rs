@@ -675,8 +675,7 @@ except Exception as exc:
             "{core_rendered}"
         );
         assert!(
-            core_rendered
-                .contains("__dp_getattr(__dp__, \"del_quietly\")(__dp_globals(), \"exc\")"),
+            core_rendered.contains("_dp_del_quietly(exc)"),
             "{core_rendered}"
         );
         assert!(
@@ -691,8 +690,7 @@ except Exception as exc:
             "{name_binding_rendered}"
         );
         assert!(
-            name_binding_rendered
-                .contains("__dp_getattr(__dp__, \"del_quietly\")(__dp_globals(), \"exc\")"),
+            name_binding_rendered.contains("__dp_del_quietly(__dp_globals(), \"exc\")"),
             "{name_binding_rendered}"
         );
     }

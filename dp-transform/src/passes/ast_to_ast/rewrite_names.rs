@@ -590,42 +590,10 @@ impl Transformer for NameScopeRewriter<'_> {
                                     }
                                     _ => py_stmt!("pass"),
                                 };
-                                let delete_stmt = match (self.scope.kind(), binding) {
-                                    (SemanticScopeKind::Class, SemanticBindingKind::Local) => {
-                                        py_stmt!(
-                                            "__dp__.del_quietly(_dp_class_ns, {name:literal})",
-                                            name = exc_name.as_str()
-                                        )
-                                    }
-                                    (SemanticScopeKind::Class, SemanticBindingKind::Global)
-                                    | (_, SemanticBindingKind::Global) => {
-                                        py_stmt!(
-                                            "__dp__.del_quietly(globals(), {name:literal})",
-                                            name = exc_name.as_str()
-                                        )
-                                    }
-                                    (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal)
-                                    | (_, SemanticBindingKind::Nonlocal) => {
-                                        let cell = cell_name(exc_name.as_str());
-                                        py_stmt!(
-                                            "del {cell:id}.cell_contents",
-                                            cell = cell.as_str()
-                                        )
-                                    }
-                                    _ => py_stmt!("pass"),
-                                };
                                 let original_body = take_suite(&mut handler.body);
-                                let wrapped = py_stmt!(
-                                    r#"
-try:
-    {body:stmt}
-finally:
-    {delete:stmt}
-"#,
-                                    body = original_body,
-                                    delete = delete_stmt,
-                                );
-                                *suite_mut(&mut handler.body) = vec![store_stmt, wrapped];
+                                let mut rewritten_body = vec![store_stmt];
+                                rewritten_body.extend(original_body);
+                                *suite_mut(&mut handler.body) = rewritten_body;
                             }
                         }
                     }

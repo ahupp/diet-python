@@ -1048,6 +1048,13 @@ def del_quietly(obj, key):
         pass
 
 
+def del_deref_quietly(cell):
+    try:
+        del cell.cell_contents
+    except ValueError:
+        pass
+
+
 # TODO: very questionable
 def float_from_literal(literal):
     # Preserve CPython's literal parsing for values that Rust rounds differently.

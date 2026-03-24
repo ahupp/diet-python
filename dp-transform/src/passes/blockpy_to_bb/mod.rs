@@ -172,7 +172,9 @@ fn lower_blockpy_blocks_to_bb_blocks(
     bb_blocks
 }
 
-pub(super) fn populate_exception_edge_args<T>(blocks: &mut [CfgBlock<BbStmt, T>]) {
+pub(super) fn populate_exception_edge_args(
+    blocks: &mut [CfgBlock<BbStmt, BlockPyTerm<CoreBlockPyExpr>>],
+) {
     let label_to_index = blocks
         .iter()
         .enumerate()
@@ -197,10 +199,23 @@ pub(super) fn populate_exception_edge_args<T>(blocks: &mut [CfgBlock<BbStmt, T>]
         let exc_name = blocks[target_index]
             .exception_param()
             .map(ToString::to_string);
+        let current_exception_aliases = match &blocks[target_index].term {
+            BlockPyTerm::Jump(edge) => edge
+                .args
+                .iter()
+                .filter_map(|arg| match arg {
+                    BlockArg::Name(name) if name.starts_with("_dp_try_exc_") => Some(name.as_str()),
+                    _ => None,
+                })
+                .collect::<HashSet<_>>(),
+            _ => HashSet::new(),
+        };
         let args = target_params
             .into_iter()
             .map(|target_param| {
                 if exc_name.as_deref() == Some(target_param.as_str()) {
+                    BlockArg::CurrentException
+                } else if current_exception_aliases.contains(target_param.as_str()) {
                     BlockArg::CurrentException
                 } else if source_params.iter().any(|param| param == &target_param)
                     || source_has_owner
@@ -439,6 +454,7 @@ fn bb_stmt_from_blockpy_stmt(stmt: BlockPyStmt<CoreBlockPyExpr>) -> BbStmt {
 
 #[cfg(test)]
 mod tests {
+    use super::populate_exception_edge_args;
     use crate::block_py::{
         BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt, BlockPyStmtFragment,
         BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
@@ -640,6 +656,75 @@ mod tests {
                     CoreBlockPyLiteral::StringLiteral(value)
                 ))
             ] if name.id.as_str() == "_dp_try_exc_0" && value.value == "value"
+        ));
+    }
+
+    #[test]
+    fn exception_edges_seed_hidden_try_exception_locals_from_current_exception() {
+        let mut blocks = vec![
+            crate::block_py::CfgBlock {
+                label: BlockPyLabel::from("source"),
+                body: Vec::new(),
+                term: BlockPyTerm::<CoreBlockPyExpr>::Return(
+                    <CoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+                ),
+                params: vec![crate::block_py::BlockParam {
+                    name: "_dp_outer_exc".to_string(),
+                    role: crate::block_py::BlockParamRole::Exception,
+                }],
+                exc_edge: Some(crate::block_py::BlockPyEdge::new(BlockPyLabel::from(
+                    "target",
+                ))),
+            },
+            crate::block_py::CfgBlock {
+                label: BlockPyLabel::from("target"),
+                body: Vec::new(),
+                term: BlockPyTerm::<CoreBlockPyExpr>::Jump(
+                    crate::block_py::BlockPyEdge::with_args(
+                        BlockPyLabel::from("after"),
+                        vec![
+                            crate::block_py::BlockArg::AbruptKind(
+                                crate::block_py::AbruptKind::Exception,
+                            ),
+                            crate::block_py::BlockArg::Name("_dp_try_exc_payload".to_string()),
+                        ],
+                    ),
+                ),
+                params: vec![
+                    crate::block_py::BlockParam {
+                        name: "_dp_inner_exc".to_string(),
+                        role: crate::block_py::BlockParamRole::Exception,
+                    },
+                    crate::block_py::BlockParam {
+                        name: "_dp_try_exc_payload".to_string(),
+                        role: crate::block_py::BlockParamRole::Local,
+                    },
+                ],
+                exc_edge: None,
+            },
+            crate::block_py::CfgBlock {
+                label: BlockPyLabel::from("after"),
+                body: Vec::new(),
+                term: BlockPyTerm::<CoreBlockPyExpr>::Return(
+                    <CoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+                ),
+                params: Vec::new(),
+                exc_edge: None,
+            },
+        ];
+
+        populate_exception_edge_args(&mut blocks);
+
+        let edge = blocks[0]
+            .exc_edge
+            .as_ref()
+            .expect("source block must keep exception edge");
+        assert!(matches!(
+            edge.args.as_slice(),
+            [
+                crate::block_py::BlockArg::CurrentException,
+                crate::block_py::BlockArg::CurrentException
+            ]
         ));
     }
 }

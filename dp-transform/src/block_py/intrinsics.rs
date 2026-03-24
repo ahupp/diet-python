@@ -80,6 +80,18 @@ define_intrinsic!(
     "__dp_store_global",
     3
 );
+define_intrinsic!(
+    DelQuietlyIntrinsic,
+    DEL_QUIETLY_INTRINSIC,
+    "__dp_del_quietly",
+    2
+);
+define_intrinsic!(
+    DelDerefQuietlyIntrinsic,
+    DEL_DEREF_QUIETLY_INTRINSIC,
+    "__dp_del_deref_quietly",
+    1
+);
 define_intrinsic!(SubIntrinsic, SUB_INTRINSIC, "__dp_sub", 2);
 define_intrinsic!(MulIntrinsic, MUL_INTRINSIC, "__dp_mul", 2);
 define_intrinsic!(MatMulIntrinsic, MATMUL_INTRINSIC, "__dp_matmul", 2);
@@ -137,6 +149,10 @@ pub fn intrinsic_by_name_and_arity(name: &str, arity: usize) -> Option<&'static 
         "__dp_setattr" => &SETATTR_INTRINSIC,
         "__dp_getitem" => &GETITEM_INTRINSIC,
         "__dp_setitem" => &SETITEM_INTRINSIC,
+        "__dp_load_global" => &LOAD_GLOBAL_INTRINSIC,
+        "__dp_store_global" => &STORE_GLOBAL_INTRINSIC,
+        "__dp_del_quietly" => &DEL_QUIETLY_INTRINSIC,
+        "__dp_del_deref_quietly" => &DEL_DEREF_QUIETLY_INTRINSIC,
         "__dp_sub" => &SUB_INTRINSIC,
         "__dp_mul" => &MUL_INTRINSIC,
         "__dp_matmul" => &MATMUL_INTRINSIC,

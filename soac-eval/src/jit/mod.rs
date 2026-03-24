@@ -2348,6 +2348,7 @@ fn emit_direct_simple_expr(
 fn emit_prepare_target_args(
     fb: &mut FunctionBuilder<'_>,
     target_params: &[String],
+    full_target_params: Option<&[String]>,
     explicit_args: Option<&[DirectSimpleBlockArgPlan]>,
     local_names: &[String],
     local_values: &[ir::Value],
@@ -2358,13 +2359,26 @@ fn emit_prepare_target_args(
 ) -> Option<Vec<ir::BlockArg>> {
     let mut args = Vec::with_capacity(target_params.len());
     let mut forwarded_local_indices = HashMap::new();
-    let explicit_start = explicit_args
-        .map(|args| target_params.len().saturating_sub(args.len()))
-        .unwrap_or(target_params.len());
-    for (index, name) in target_params.iter().enumerate() {
-        if let Some(explicit_arg) = explicit_args
-            .and_then(|args| (index >= explicit_start).then(|| &args[index - explicit_start]))
-        {
+    let explicit_arg_offsets = match (full_target_params, explicit_args) {
+        (Some(full_target_params), Some(explicit_args)) => {
+            let explicit_start = full_target_params.len().saturating_sub(explicit_args.len());
+            Some(
+                full_target_params[explicit_start..]
+                    .iter()
+                    .enumerate()
+                    .map(|(offset, name)| (name.as_str(), offset))
+                    .collect::<HashMap<_, _>>(),
+            )
+        }
+        _ => None,
+    };
+    for name in target_params {
+        if let Some(explicit_arg) = explicit_args.and_then(|args| {
+            explicit_arg_offsets
+                .as_ref()
+                .and_then(|offsets| offsets.get(name.as_str()).copied())
+                .and_then(|offset| args.get(offset))
+        }) {
             let value = match explicit_arg {
                 DirectSimpleBlockArgPlan::Name(source_name) => {
                     if let Some(value_index) = local_names
@@ -3385,6 +3399,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 emit_prepare_target_args(
                                     &mut fb,
                                     target_params,
+                                    Some(full_target_params),
                                     Some(target_args),
                                     &local_names,
                                     &local_values,
@@ -3449,6 +3464,7 @@ fn build_cranelift_run_bb_specialized_function(
                                     &mut fb,
                                     then_params,
                                     None,
+                                    None,
                                     &local_names,
                                     &local_values,
                                     &emit_ctx,
@@ -3479,6 +3495,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 emit_prepare_target_args(
                                     &mut fb,
                                     else_params,
+                                    None,
                                     None,
                                     &local_names,
                                     &local_values,
@@ -3561,6 +3578,7 @@ fn build_cranelift_run_bb_specialized_function(
                                     &mut fb,
                                     target_params,
                                     None,
+                                    None,
                                     &local_names,
                                     &local_values,
                                     &emit_ctx,
@@ -3592,6 +3610,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 emit_prepare_target_args(
                                     &mut fb,
                                     default_params,
+                                    None,
                                     None,
                                     &local_names,
                                     &local_values,

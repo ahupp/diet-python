@@ -7,6 +7,28 @@ fn body_to_vec(body: Suite) -> Vec<Stmt> {
     body
 }
 
+fn quiet_delete_marker(name: &str) -> Stmt {
+    py_stmt!("_dp_del_quietly({name:id})", name = name)
+}
+
+fn except_cleanup_name(name: &str) -> &str {
+    name.strip_prefix("_dp_exc_").unwrap_or(name)
+}
+
+fn wrap_handler_body_with_cleanup(name: &str, body: Vec<Stmt>) -> Vec<Stmt> {
+    let cleanup_name = except_cleanup_name(name);
+    vec![py_stmt!(
+        r#"
+try:
+    {body:stmt}
+finally:
+    {delete:stmt}
+"#,
+        body = body,
+        delete = quiet_delete_marker(cleanup_name),
+    )]
+}
+
 fn has_non_default_handler(stmt: &ast::StmtTry) -> bool {
     stmt.handlers.iter().any(|handler| {
         matches!(
@@ -62,10 +84,10 @@ pub(crate) fn rewrite_try_stmt(stmt: ast::StmtTry) -> Rewrite {
             let (exc_target, body) = if let Some(ast::Identifier { id, .. }) = &name {
                 let target = id.as_str();
                 let exc_target = py_stmt!("{target:id} = _dp_match", target = target);
-                // TODO: Re-evaluate whether exception-name binding cleanup should live here
-                // or stay in the earlier explicit-binding rewrite. For now, rely on the
-                // upstream rewrite_names pass to own any required cleanup scaffolding.
-                (exc_target, body_to_vec(take_suite(&mut h_body)))
+                (
+                    exc_target,
+                    wrap_handler_body_with_cleanup(target, body_to_vec(take_suite(&mut h_body))),
+                )
             } else {
                 (py_stmt!("pass"), body_to_vec(take_suite(&mut h_body)))
             };
@@ -159,10 +181,10 @@ finally:
         let (exc_target, body) = if let Some(ast::Identifier { id, .. }) = &name {
             let target = id.as_str();
             let exc_target = py_stmt!("{target:id} = __dp_current_exception()", target = target,);
-            // TODO: Re-evaluate whether exception-name binding cleanup should live here
-            // or stay in the earlier explicit-binding rewrite. For now, rely on the
-            // upstream rewrite_names pass to own any required cleanup scaffolding.
-            (exc_target, body_to_vec(take_suite(&mut body)))
+            (
+                exc_target,
+                wrap_handler_body_with_cleanup(target, body_to_vec(take_suite(&mut body))),
+            )
         } else {
             (py_stmt!("pass"), body_to_vec(take_suite(&mut body)))
         };
@@ -324,6 +346,7 @@ except ValueError as exc:
 
         assert!(rendered.contains("__dp_exception_matches"), "{rendered}");
         assert!(rendered.contains("__dp_current_exception()"), "{rendered}");
+        assert!(rendered.contains("_dp_del_quietly(exc)"), "{rendered}");
     }
 
     #[test]
@@ -345,5 +368,6 @@ except* ValueError as exc:
         let rendered = crate::ruff_ast_to_string(simplified.as_slice());
 
         assert!(rendered.contains("__dp_exceptiongroup_split"), "{rendered}");
+        assert!(rendered.contains("_dp_del_quietly(exc)"), "{rendered}");
     }
 }
