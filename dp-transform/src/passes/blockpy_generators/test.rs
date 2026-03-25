@@ -160,7 +160,7 @@ fn manual_sync_storage_by_logical_name_excludes_runtime_names_on_standard_bindin
 
     assert_eq!(
         closure_bindings.manual_sync_storage_by_logical_name(),
-        std::collections::HashMap::from([("total".to_string(), "_dp_cell_total".to_string()),]),
+        std::collections::HashMap::new(),
     );
 }
 
@@ -392,7 +392,7 @@ fn resume_semantic_marks_generator_state_as_cell_captures() {
 }
 
 #[test]
-fn resume_semantic_overlay_marks_dp_pc_for_standard_name_binding() {
+fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_binding() {
     let layout = ClosureLayout {
         freevars: vec![ClosureSlot {
             logical_name: "captured".to_string(),
@@ -438,8 +438,16 @@ fn resume_semantic_overlay_marks_dp_pc_for_standard_name_binding() {
     augment_resume_semantic_for_standard_name_binding(&mut semantic, &closure_bindings);
 
     assert_eq!(
+        semantic.binding_kind("total"),
+        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+    );
+    assert_eq!(
         semantic.binding_kind("_dp_pc"),
         Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+    );
+    assert_eq!(
+        semantic.resolved_load_binding_kind("total"),
+        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
     assert_eq!(
         semantic.resolved_load_binding_kind("_dp_pc"),

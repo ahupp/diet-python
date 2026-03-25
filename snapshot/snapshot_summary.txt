@@ -67,4 +67,4 @@ snapshot_stmt::closure_cell_simple: blockpy=3, clif=3
 snapshot_stmt::bb_if_else_function: blockpy=4, clif=4
 snapshot_stmt::closure_cell_nonlocal: blockpy=3, clif=3
 snapshot_stmt::plain try / catch: blockpy=5, clif=5
-snapshot_stmt::complicated generator: blockpy=10, clif=18
+snapshot_stmt::complicated generator: blockpy=10, clif=17

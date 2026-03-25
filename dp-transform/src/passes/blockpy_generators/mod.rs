@@ -13,7 +13,7 @@ use crate::block_py::{
     ModuleNameGen,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
-use crate::passes::ast_to_ast::scope_helpers::cell_name;
+use crate::passes::ast_to_ast::scope_helpers::{cell_name, is_internal_symbol};
 use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block_without_await;
 use crate::passes::ruff_to_blockpy::{
     attach_exception_edges_to_blocks, lowered_exception_edges, recompute_lowered_block_params,
@@ -290,7 +290,10 @@ impl ResumeClosureBindings {
 }
 
 fn resume_state_uses_standard_name_binding(name: &str) -> bool {
-    matches!(name, "_dp_pc" | "_dp_yieldfrom")
+    if name.starts_with("_dp_cell_") {
+        return false;
+    }
+    !is_internal_symbol(name) || matches!(name, "_dp_pc" | "_dp_yieldfrom")
 }
 
 fn augment_resume_semantic_for_standard_name_binding(
@@ -302,7 +305,7 @@ fn augment_resume_semantic_for_standard_name_binding(
             semantic.insert_binding(
                 name.clone(),
                 BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
-                true,
+                is_internal_symbol(name.as_str()),
             );
         }
     }
