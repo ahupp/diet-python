@@ -44,6 +44,7 @@ struct SemanticScopeData {
     kind: SemanticScopeKind,
     bindings: HashMap<String, SemanticBindingKind>,
     local_defs: HashSet<String>,
+    type_param_names: HashSet<String>,
     local_cell_bindings: HashSet<String>,
     parent: Option<SemanticScopeId>,
     qualname: String,
@@ -252,6 +253,10 @@ impl SemanticScope {
         self.data().local_defs.contains(name)
     }
 
+    pub(crate) fn type_param_names(&self) -> HashSet<String> {
+        self.data().type_param_names.clone()
+    }
+
     pub(crate) fn child_scope_for_function(
         &self,
         func_def: &StmtFunctionDef,
@@ -336,6 +341,7 @@ fn child_qualname(parent: &SemanticScopeData, name: &str) -> String {
 #[derive(Default)]
 struct RuffScopeBindingCollector {
     bound_names: HashSet<String>,
+    type_param_names: HashSet<String>,
     explicit_globals: Vec<(String, TextRange)>,
     explicit_nonlocals: Vec<(String, TextRange)>,
     load_names: HashSet<String>,
@@ -471,6 +477,7 @@ impl Transformer for RuffScopeBindingCollector {
             | ast::TypeParam::TypeVarTuple(ast::TypeParamTypeVarTuple { name, .. })
             | ast::TypeParam::ParamSpec(ast::TypeParamParamSpec { name, .. }) => {
                 self.bound_names.insert(name.id.to_string());
+                self.type_param_names.insert(name.id.to_string());
             }
         }
         crate::transformer::walk_type_param(self, type_param);
@@ -504,8 +511,14 @@ fn import_binding_name(alias: &ast::Alias) -> &str {
     )
 }
 
-fn collect_scope_bindings(body: &mut Suite) -> RuffScopeBindingCollector {
+fn collect_scope_bindings(
+    body: &mut Suite,
+    type_params: Option<&mut ast::TypeParams>,
+) -> RuffScopeBindingCollector {
     let mut collector = RuffScopeBindingCollector::default();
+    if let Some(type_params) = type_params {
+        collector.visit_type_params(type_params);
+    }
     collector.visit_body(body);
     collector
 }
@@ -550,6 +563,7 @@ fn set_semantic_binding(
 struct ScopePreparation {
     bindings: HashMap<String, SemanticBindingKind>,
     local_defs: HashSet<String>,
+    type_param_names: HashSet<String>,
 }
 
 struct RuffSemanticSnapshotBuilder {
@@ -581,6 +595,7 @@ impl RuffSemanticSnapshotBuilder {
                     kind: SemanticScopeKind::Module,
                     bindings: HashMap::new(),
                     local_defs: HashSet::new(),
+                    type_param_names: HashSet::new(),
                     local_cell_bindings: HashSet::new(),
                     parent: None,
                     qualname: String::new(),
@@ -594,11 +609,12 @@ impl RuffSemanticSnapshotBuilder {
             next_node_index: 1,
         };
 
-        let module_preparation = builder.prepare_current_scope(module_for_build, &[]);
+        let module_preparation = builder.prepare_current_scope(module_for_build, None, &[]);
         {
             let module_scope = builder.snapshot.scope_mut(SemanticScopeId(0));
             module_scope.bindings = module_preparation.bindings;
             module_scope.local_defs = module_preparation.local_defs;
+            module_scope.type_param_names = module_preparation.type_param_names;
         }
         builder.visit_body(module_for_build);
         builder.propagate_nonlocal_roots();
@@ -634,9 +650,10 @@ impl RuffSemanticSnapshotBuilder {
     fn prepare_current_scope(
         &mut self,
         body: &mut Suite,
+        type_params: Option<&mut ast::TypeParams>,
         parameters: &[(String, TextRange)],
     ) -> ScopePreparation {
-        let collector = collect_scope_bindings(body);
+        let collector = collect_scope_bindings(body, type_params);
         let explicit_globals = collector
             .explicit_globals
             .iter()
@@ -737,6 +754,7 @@ impl RuffSemanticSnapshotBuilder {
         ScopePreparation {
             bindings,
             local_defs,
+            type_param_names: collector.type_param_names,
         }
     }
 
@@ -769,6 +787,7 @@ impl RuffSemanticSnapshotBuilder {
             kind,
             bindings: preparation.bindings,
             local_defs: preparation.local_defs,
+            type_param_names: preparation.type_param_names,
             local_cell_bindings: HashSet::new(),
             parent: Some(parent_id),
             qualname,
@@ -881,7 +900,11 @@ impl Transformer for RuffSemanticSnapshotBuilder {
                 self.semantic
                     .push_scope(RuffScopeKind::Function(leaked_func));
                 let parameters = parameter_refs(&func_def.parameters);
-                let preparation = self.prepare_current_scope(&mut func_def.body, &parameters);
+                let preparation = self.prepare_current_scope(
+                    &mut func_def.body,
+                    func_def.type_params.as_deref_mut(),
+                    &parameters,
+                );
                 let scope_id = self.push_snapshot_scope(
                     SemanticScopeKind::Function,
                     func_def.name.id.as_str(),
@@ -898,7 +921,11 @@ impl Transformer for RuffSemanticSnapshotBuilder {
                 let node_index = self.ensure_node_index(class_def);
                 let leaked_class = Box::leak(Box::new(class_def.clone()));
                 self.semantic.push_scope(RuffScopeKind::Class(leaked_class));
-                let preparation = self.prepare_current_scope(&mut class_def.body, &[]);
+                let preparation = self.prepare_current_scope(
+                    &mut class_def.body,
+                    class_def.type_params.as_deref_mut(),
+                    &[],
+                );
                 let scope_id = self.push_snapshot_scope(
                     SemanticScopeKind::Class,
                     class_def.name.id.as_str(),
@@ -1020,6 +1047,7 @@ impl SemanticAstState {
                 kind: SemanticScopeKind::Function,
                 bindings: translated_bindings,
                 local_defs: HashSet::new(),
+                type_param_names: HashSet::new(),
                 local_cell_bindings: HashSet::new(),
                 parent: Some(module_scope.scope_id),
                 qualname: "_dp_module_init".to_string(),
@@ -1397,6 +1425,8 @@ def _dp_module_init():
             class_scope.binding_in_scope("P", SemanticBindingUse::Load),
             SemanticBindingKind::Local
         );
+        assert!(class_scope.type_param_names().contains("T"));
+        assert!(class_scope.type_param_names().contains("P"));
     }
 
     #[test]
@@ -1416,6 +1446,8 @@ def _dp_module_init():
             func_scope.binding_in_scope("P", SemanticBindingUse::Load),
             SemanticBindingKind::Local
         );
+        assert!(func_scope.type_param_names().contains("T"));
+        assert!(func_scope.type_param_names().contains("P"));
     }
 
     #[test]
