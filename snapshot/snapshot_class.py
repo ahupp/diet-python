@@ -38,7 +38,7 @@ class C:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
-#         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "x", 1)
+#         _dp_store_binding("x", 1)
 #         m = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         __annotate_func__ = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(__dp__), __dp_globals(), None)
 #         return __dp_NONE
@@ -150,7 +150,7 @@ def outer():
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "outer.<locals>.Inner")
-#         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "y", x)
+#         _dp_store_binding("y", x)
 #         return __dp_NONE
 
 # function outer.<locals>._dp_define_class_Inner(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):

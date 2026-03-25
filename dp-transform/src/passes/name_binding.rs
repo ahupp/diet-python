@@ -567,10 +567,84 @@ impl NameBindingMapper<'_> {
     }
 }
 
+fn store_binding_marker(expr: CoreBlockPyExpr) -> Option<(String, CoreBlockPyExpr)> {
+    let CoreBlockPyExpr::Call(CoreBlockPyCall {
+        func,
+        mut args,
+        keywords,
+        ..
+    }) = expr
+    else {
+        return None;
+    };
+    if !keywords.is_empty() || args.len() != 2 {
+        return None;
+    }
+    let CoreBlockPyExpr::Name(func_name) = func.as_ref() else {
+        return None;
+    };
+    if func_name.id.as_str() != "_dp_store_binding" {
+        return None;
+    }
+    let name_arg = args.remove(0);
+    let value_arg = args.remove(0);
+    let CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Literal(
+        CoreBlockPyLiteral::StringLiteral(name),
+    )) = name_arg
+    else {
+        return None;
+    };
+    let CoreBlockPyCallArg::Positional(value) = value_arg else {
+        return None;
+    };
+    Some((name.value, value))
+}
+
+fn rewrite_binding_assign_by_name(
+    name: String,
+    value: CoreBlockPyExpr,
+    semantic: &BlockPyCallableSemanticInfo,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+) -> BlockPyStmt<CoreBlockPyExpr> {
+    let assign = BlockPyAssign {
+        target: ast::ExprName {
+            id: name.clone().into(),
+            ctx: ast::ExprContext::Store,
+            node_index: node_index.clone(),
+            range,
+        },
+        value,
+    };
+    if semantic.is_cell_binding(name.as_str()) {
+        return rewrite_cell_binding_assign(assign);
+    }
+    match semantic.binding_target_for_name(name.as_str(), BlockPyBindingPurpose::Store) {
+        BindingTarget::ModuleGlobal => {
+            if is_deleted_sentinel_expr(&assign.value) {
+                return rewrite_global_binding_delete_by_name(name.as_str(), node_index, range);
+            }
+            rewrite_global_binding_assign(assign)
+        }
+        BindingTarget::ClassNamespace => rewrite_class_namespace_binding_assign(assign),
+        BindingTarget::Local => BlockPyStmt::Assign(assign),
+    }
+}
+
 impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_> {
     fn map_stmt(&self, stmt: BlockPyStmt<CoreBlockPyExpr>) -> BlockPyStmt<CoreBlockPyExpr> {
         match stmt {
             BlockPyStmt::Expr(expr) => {
+                let (node_index, range) = expr_meta(&expr);
+                if let Some((name, value)) = store_binding_marker(expr.clone()) {
+                    return rewrite_binding_assign_by_name(
+                        name,
+                        self.map_expr(value),
+                        self.semantic,
+                        node_index,
+                        range,
+                    );
+                }
                 if let Some(name) = quiet_delete_marker_target(&expr) {
                     return rewrite_quiet_delete_marker(name, self.semantic);
                 }
@@ -625,41 +699,13 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
         if is_local_cell_init_assign(&assign) {
             return BlockPyStmt::Assign(assign);
         }
-        if self.semantic.is_cell_binding(assign.target.id.as_str()) {
-            rewrite_cell_binding_assign(BlockPyAssign {
-                target: assign.target,
-                value: self.map_expr(assign.value),
-            })
-        } else {
-            let binding_target = self
-                .semantic
-                .binding_target_for_name(assign.target.id.as_str(), BlockPyBindingPurpose::Store);
-            match binding_target {
-                BindingTarget::ModuleGlobal => {
-                    if is_deleted_sentinel_expr(&assign.value) {
-                        return rewrite_global_binding_delete_by_name(
-                            assign.target.id.as_str(),
-                            assign.target.node_index.clone(),
-                            assign.target.range,
-                        );
-                    }
-                    rewrite_global_binding_assign(BlockPyAssign {
-                        target: assign.target,
-                        value: self.map_expr(assign.value),
-                    })
-                }
-                BindingTarget::ClassNamespace => {
-                    rewrite_class_namespace_binding_assign(BlockPyAssign {
-                        target: assign.target,
-                        value: self.map_expr(assign.value),
-                    })
-                }
-                BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
-                    target: assign.target,
-                    value: self.map_expr(assign.value),
-                }),
-            }
-        }
+        rewrite_binding_assign_by_name(
+            assign.target.id.to_string(),
+            self.map_expr(assign.value),
+            self.semantic,
+            assign.target.node_index,
+            assign.target.range,
+        )
     }
 
     fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {

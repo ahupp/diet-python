@@ -119,6 +119,7 @@ fn callable_semantic_info(
         SemanticScopeKind::Module => BlockPyCallableScopeKind::Module,
     };
     let local_cell_bindings = function_scope.local_cell_bindings();
+    let type_param_names = function_scope.type_param_names();
     let mut bindings = function_scope
         .bindings()
         .into_iter()
@@ -130,6 +131,8 @@ fn callable_semantic_info(
                     binding,
                     &local_cell_bindings,
                     function_scope.has_local_def(name.as_str()),
+                    scope_kind,
+                    &type_param_names,
                 ),
             )
         })
@@ -143,10 +146,11 @@ fn callable_semantic_info(
                 function_scope.resolved_load_binding(name.as_str()),
                 &local_cell_bindings,
                 function_scope.has_local_def(name.as_str()),
+                scope_kind,
+                &type_param_names,
             )
         });
     }
-    let type_param_names = function_scope.type_param_names();
     let effective_load_bindings = bindings
         .iter()
         .map(|(name, binding)| {
@@ -266,7 +270,15 @@ fn blockpy_binding_kind_for_name(
     binding: SemanticBindingKind,
     local_cell_bindings: &HashSet<String>,
     has_local_def: bool,
+    scope_kind: BlockPyCallableScopeKind,
+    type_param_names: &HashSet<String>,
 ) -> BlockPyBindingKind {
+    if scope_kind == BlockPyCallableScopeKind::Class
+        && has_local_def
+        && !type_param_names.contains(name)
+    {
+        return BlockPyBindingKind::Local;
+    }
     match binding {
         SemanticBindingKind::Local if local_cell_bindings.contains(name) => {
             BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner)
@@ -814,8 +826,9 @@ mod tests {
         FunctionScopeFrame,
     };
     use crate::block_py::{
-        BindingTarget, BlockPyBindingPurpose, BlockPyClassBodyFallback, BlockPyEffectiveBinding,
-        BlockPyModule, ClosureInit, ClosureLayout, ClosureSlot, ModuleNameGen,
+        BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyClassBodyFallback,
+        BlockPyEffectiveBinding, BlockPyModule, ClosureInit, ClosureLayout, ClosureSlot,
+        ModuleNameGen,
     };
     use crate::passes::ast_to_ast::body::suite_mut;
     use crate::passes::ast_to_ast::context::Context;
@@ -1000,6 +1013,40 @@ mod tests {
             Some(BlockPyEffectiveBinding::ClassBody(
                 BlockPyClassBodyFallback::Global
             ))
+        );
+    }
+
+    #[test]
+    fn callable_semantic_info_keeps_class_attrs_out_of_cell_bindings() {
+        let source = concat!(
+            "def outer():\n",
+            "    x = \"outer\"\n",
+            "    class Inner:\n",
+            "        x = \"class\"\n",
+            "        def read():\n",
+            "            return x\n",
+            "    return Inner\n",
+        );
+        let blockpy_module = transform_str_to_ruff_with_options(source, Options::for_test())
+            .unwrap()
+            .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+            .cloned()
+            .expect("semantic_blockpy pass should be tracked");
+        let class_helper = blockpy_module
+            .callable_defs
+            .iter()
+            .find(|func| func.names.bind_name == "_dp_class_ns_Inner")
+            .expect("missing class helper");
+
+        assert_eq!(
+            class_helper.semantic.binding_kind("x"),
+            Some(BlockPyBindingKind::Local),
+        );
+        assert_eq!(
+            class_helper
+                .semantic
+                .binding_target_for_name("x", BlockPyBindingPurpose::Store),
+            BindingTarget::ClassNamespace,
         );
     }
 

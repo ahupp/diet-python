@@ -346,7 +346,7 @@ impl Transformer for NameScopeRewriter<'_> {
                     match (self.scope.kind(), binding) {
                         (SemanticScopeKind::Class, SemanticBindingKind::Local) => {
                             *stmt = py_stmt!(
-                                "_dp_class_ns[{name:literal}] = {value:expr}",
+                                "_dp_store_binding({name:literal}, {value:expr})",
                                 name = id.as_str(),
                                 value = value.clone()
                             );
