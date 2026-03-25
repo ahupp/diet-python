@@ -1,4 +1,4 @@
-use super::{build_blockpy_closure_layout, closure_value_name_for_state, resume_closure_names};
+use super::{build_blockpy_closure_layout, resume_closure_bindings};
 use crate::block_py::{
     BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
     BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyTerm,
@@ -56,16 +56,15 @@ fn build_closure_backed_generator_factory_block(
         body.extend(lowered.body);
     }
 
-    let closure_names = resume_closure_names(layout, resume_state_order);
+    let closure_bindings = resume_closure_bindings(layout, resume_state_order);
+    let closure_names = closure_bindings
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect::<Vec<_>>();
     let closure_values = blockpy_make_dp_tuple(
-        closure_names
+        closure_bindings
             .iter()
-            .map(|state_name| {
-                py_expr!(
-                    "{name:id}",
-                    name = closure_value_name_for_state(layout, state_name.as_str()).as_str()
-                )
-            })
+            .map(|(_, value_name)| py_expr!("{name:id}", name = value_name.as_str()))
             .collect(),
     );
 
@@ -225,7 +224,7 @@ fn builds_closure_backed_generator_factory_block() {
 }
 
 #[test]
-fn resume_closure_names_include_storage_aliases_for_cell_backed_state() {
+fn resume_closure_bindings_include_storage_aliases_for_cell_backed_state() {
     let layout = ClosureLayout {
         freevars: vec![ClosureSlot {
             logical_name: "captured".to_string(),
@@ -245,7 +244,7 @@ fn resume_closure_names_include_storage_aliases_for_cell_backed_state() {
     };
 
     assert_eq!(
-        resume_closure_names(
+        resume_closure_bindings(
             &layout,
             &[
                 "_dp_self".to_string(),
@@ -257,11 +256,14 @@ fn resume_closure_names_include_storage_aliases_for_cell_backed_state() {
             ],
         ),
         vec![
-            "_dp_cell_captured".to_string(),
-            "total".to_string(),
-            "_dp_pc".to_string(),
-            "_dp_cell_total".to_string(),
-            "_dp_cell__dp_pc".to_string(),
+            (
+                "_dp_cell_captured".to_string(),
+                "_dp_cell_captured".to_string()
+            ),
+            ("total".to_string(), "_dp_cell_total".to_string()),
+            ("_dp_pc".to_string(), "_dp_cell__dp_pc".to_string()),
+            ("_dp_cell_total".to_string(), "_dp_cell_total".to_string()),
+            ("_dp_cell__dp_pc".to_string(), "_dp_cell__dp_pc".to_string()),
         ]
     );
 }

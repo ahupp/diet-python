@@ -264,24 +264,10 @@ fn generator_state_order(layout: &ClosureLayout, kind: BlockPyFunctionKind) -> V
     order
 }
 
-fn closure_value_name_for_state(layout: &ClosureLayout, state_name: &str) -> String {
-    if let Some(slot) = layout
-        .freevars
-        .iter()
-        .chain(layout.cellvars.iter())
-        .chain(layout.runtime_cells.iter())
-        .find(|slot| slot.logical_name == state_name || slot.storage_name == state_name)
-    {
-        match slot.init {
-            ClosureInit::InheritedCapture => slot.storage_name.clone(),
-            _ => slot.storage_name.clone(),
-        }
-    } else {
-        state_name.to_string()
-    }
-}
-
-fn resume_closure_names(layout: &ClosureLayout, resume_state_order: &[String]) -> Vec<String> {
+fn resume_closure_bindings(
+    layout: &ClosureLayout,
+    resume_state_order: &[String],
+) -> Vec<(String, String)> {
     let mut names = resume_state_order
         .iter()
         .filter(|name| !is_resume_abi_param_name(name.as_str()))
@@ -294,6 +280,19 @@ fn resume_closure_names(layout: &ClosureLayout, resume_state_order: &[String]) -
         }
     }
     names
+        .into_iter()
+        .map(|name| {
+            let value_name = layout
+                .freevars
+                .iter()
+                .chain(layout.cellvars.iter())
+                .chain(layout.runtime_cells.iter())
+                .find(|slot| slot.logical_name == name || slot.storage_name == name)
+                .map(|slot| slot.storage_name.clone())
+                .unwrap_or_else(|| name.clone());
+            (name, value_name)
+        })
+        .collect()
 }
 
 fn generator_cell_storage_by_logical_name(layout: &ClosureLayout) -> HashMap<String, String> {
@@ -401,14 +400,14 @@ fn build_factory_block(
         }));
     }
 
-    let closure_names = resume_closure_names(layout, resume_state_order);
-    let closure_values = closure_names
+    let closure_bindings = resume_closure_bindings(layout, resume_state_order);
+    let closure_names = closure_bindings
         .iter()
-        .map(|state_name| {
-            Expr::from(core_name(
-                closure_value_name_for_state(layout, state_name.as_str()).as_str(),
-            ))
-        })
+        .map(|(name, _)| name.clone())
+        .collect::<Vec<_>>();
+    let closure_values = closure_bindings
+        .iter()
+        .map(|(_, value_name)| Expr::from(core_name(value_name.as_str())))
         .collect::<Vec<_>>();
 
     let resume_entry = core_expr_without_yield(py_expr!(
