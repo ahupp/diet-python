@@ -2,18 +2,14 @@ use crate::block_py::{
     BbStmt, BlockPyModule, BlockPyRaise, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
     CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBytesLiteral, IntrinsicCall,
 };
-use crate::passes::trace::{instrument_bb_module_for_trace, parse_trace_env};
 use crate::passes::PreparedBbBlockPyPass;
 use ruff_python_ast::{self as ast, ExprName};
 use ruff_text_size::TextRange;
 
-pub fn normalize_bb_module_for_codegen(
+pub fn normalize_bb_module_strings(
     module: &BlockPyModule<PreparedBbBlockPyPass>,
 ) -> BlockPyModule<PreparedBbBlockPyPass> {
     let mut normalized = module.clone();
-    if let Some(config) = parse_trace_env() {
-        instrument_bb_module_for_trace(&mut normalized, &config);
-    }
     let mut rewriter = CodegenExprNormalizer;
     for function in &mut normalized.callable_defs {
         for block in &mut function.blocks {

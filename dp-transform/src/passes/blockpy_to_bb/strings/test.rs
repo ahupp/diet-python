@@ -1,4 +1,4 @@
-use super::normalize_bb_module_for_codegen;
+use super::normalize_bb_module_strings;
 use crate::{
     block_py::{BbStmt, BlockPyTerm, CoreBlockPyExpr},
     passes::lower_try_jump_exception_flow,
@@ -116,7 +116,7 @@ def f():
         .expect("transform should succeed")
         .expect("bb module should be available");
     let prepared = lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
-    let normalized = normalize_bb_module_for_codegen(&prepared);
+    let normalized = normalize_bb_module_strings(&prepared);
 
     let mut probe = ExprShapeProbe::new();
     for function in normalized.callable_defs {
@@ -157,7 +157,7 @@ def f(obj, mapping, key, value):
         .expect("transform should succeed")
         .expect("bb module should be available");
     let prepared = lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
-    let normalized = normalize_bb_module_for_codegen(&prepared);
+    let normalized = normalize_bb_module_strings(&prepared);
 
     let mut text = String::new();
     for function in normalized.callable_defs {

@@ -165,8 +165,16 @@ pub(crate) fn rewrite_module_with_tracker(
             passes::lower_try_jump_exception_flow(&bb_module)
                 .expect("bb_prepared pass should succeed for valid BB lowering")
         });
+    let bb_traced: BlockPyModule<PreparedBbBlockPyPass> =
+        pass_tracker.run_renderable_pass("bb_trace", || {
+            let mut traced = bb_prepared.clone();
+            if let Some(config) = passes::parse_trace_env() {
+                passes::instrument_bb_module_for_trace(&mut traced, &config);
+            }
+            traced
+        });
     pass_tracker.run_renderable_pass("bb_codegen", || {
-        passes::normalize_bb_module_for_codegen(&bb_prepared)
+        passes::normalize_bb_module_strings(&bb_traced)
     })
 }
 

@@ -1,5 +1,5 @@
 use super::{instrument_bb_module_for_trace, parse_trace_config, TraceConfig};
-use crate::passes::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
+use crate::passes::{lower_try_jump_exception_flow, normalize_bb_module_strings};
 use crate::{transform_str_to_bb_ir_with_options, Options};
 
 #[test]
@@ -36,7 +36,7 @@ fn instruments_matching_function_blocks() {
         .expect("transform should succeed")
         .expect("bb module should be available");
     let prepared = lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
-    let mut normalized = normalize_bb_module_for_codegen(&prepared);
+    let mut normalized = normalize_bb_module_strings(&prepared);
     instrument_bb_module_for_trace(
         &mut normalized,
         &TraceConfig {

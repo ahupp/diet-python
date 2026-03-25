@@ -1,5 +1,5 @@
-mod codegen_normalize;
 mod exception_pass;
+mod strings;
 
 use super::blockpy_generators::lower_generator_like_function;
 use super::core_eval_order::make_eval_order_explicit_in_core_callable_def_without_await;
@@ -19,8 +19,8 @@ use ruff_text_size::TextRange;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-pub use codegen_normalize::normalize_bb_module_for_codegen;
 pub use exception_pass::lower_try_jump_exception_flow;
+pub use strings::normalize_bb_module_strings;
 
 pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
     module: BlockPyModule<CoreBlockPyPassWithYield>,
