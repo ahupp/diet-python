@@ -4,7 +4,8 @@ use crate::block_py::intrinsics::{
 };
 use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta, BindingTarget,
-    BlockPyAssign, BlockPyBindingKind, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
+    BlockPyAssign, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
+    BlockPyCallableSemanticInfo, BlockPyClassBodyFallback, BlockPyEffectiveBinding,
     BlockPyFunction, BlockPyIf, BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt,
     BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
     CoreBlockPyLiteral, CoreStringLiteral, IntrinsicCall,
@@ -562,9 +563,18 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 if !is_internal_symbol(name.id.as_str())
                     && self.semantic.scope_kind == BlockPyCallableScopeKind::Class =>
             {
-                match self.semantic.resolved_load_binding_kind(name.id.as_str()) {
-                    BlockPyBindingKind::Cell(_) => rewrite_class_name_load_cell(name),
-                    _ => rewrite_class_name_load_global(name),
+                match self
+                    .semantic
+                    .effective_binding(name.id.as_str(), BlockPyBindingPurpose::Load)
+                {
+                    Some(BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Cell)) => {
+                        rewrite_class_name_load_cell(name)
+                    }
+                    Some(BlockPyEffectiveBinding::Cell(_)) => rewrite_cell_name_load(name),
+                    Some(BlockPyEffectiveBinding::Global) => rewrite_global_name_load(name),
+                    Some(BlockPyEffectiveBinding::Local) => CoreBlockPyExpr::Name(name),
+                    Some(BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global))
+                    | None => rewrite_class_name_load_global(name),
                 }
             }
             CoreBlockPyExpr::Name(name)
