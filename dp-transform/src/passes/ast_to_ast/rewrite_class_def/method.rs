@@ -39,7 +39,7 @@ impl Transformer for MethodRewriteSuperClasscell {
                 if is_noarg_call("super", expr) {
                     *expr = match &self.first_arg {
                         Some(arg) => py_expr!(
-                            "__dp_call_super(super, _dp_classcell, {arg:id})",
+                            "__dp_call_super(super, __dp_cell_ref(\"__class__\"), {arg:id})",
                             arg = arg.as_str()
                         ),
                         None => py_expr!("__dp_call_super_noargs(super)"),

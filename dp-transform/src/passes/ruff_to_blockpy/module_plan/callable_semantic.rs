@@ -205,25 +205,48 @@ pub(super) fn callable_semantic_info(
         }
         None => FunctionName::default(),
     };
+    let raw_cell_storage_names = function_scope.cell_storage_names();
     let mut info = BlockPyCallableSemanticInfo {
         names,
         scope_kind,
         bindings,
         local_defs,
-        cell_storage_names: function_scope.cell_storage_names(),
+        cell_storage_names: raw_cell_storage_names.clone(),
+        cell_capture_source_names: raw_cell_storage_names,
+        owned_cell_source_names: HashSet::new(),
         semantic_internal_names: HashSet::new(),
         type_param_names,
         effective_load_bindings,
         effective_store_bindings,
     };
-    if callable_owns_synthetic_classcell(func) && !info.bindings.contains_key("__class__") {
-        info.local_defs.insert("__class__".to_string());
-        info.insert_binding(
-            "__class__",
-            BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner),
-            false,
-            Some("_dp_classcell".to_string()),
-        );
+    let capture_names = info
+        .bindings
+        .iter()
+        .filter_map(|(name, binding)| {
+            matches!(
+                binding,
+                BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+            )
+            .then(|| name.clone())
+        })
+        .collect::<Vec<_>>();
+    for name in capture_names {
+        info.cell_storage_names.insert(name.clone(), name);
+    }
+    if callable_owns_synthetic_classcell(func) {
+        info.cell_capture_source_names
+            .insert("__class__".to_string(), "_dp_classcell".to_string());
+        info.owned_cell_source_names
+            .insert("_dp_classcell".to_string());
+        if !info.bindings.contains_key("__class__") {
+            info.local_defs.insert("__class__".to_string());
+            info.insert_binding(
+                "__class__",
+                BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner),
+                false,
+                Some("_dp_classcell".to_string()),
+            );
+        }
     }
     info
 }

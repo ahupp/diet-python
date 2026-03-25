@@ -248,7 +248,7 @@ fn build_generator_closure_layout(
 
 fn persistent_generator_state_order(layout: &ClosureLayout) -> Vec<String> {
     let mut order = Vec::new();
-    order.extend(layout.freevars.iter().map(|slot| slot.storage_name.clone()));
+    order.extend(layout.freevars.iter().map(|slot| slot.logical_name.clone()));
     order.extend(layout.cellvars.iter().map(|slot| slot.logical_name.clone()));
     order.extend(
         layout
@@ -297,7 +297,7 @@ fn resume_closure_value_name(layout: &ClosureLayout, name: &str) -> String {
         .chain(layout.cellvars.iter())
         .chain(layout.runtime_cells.iter())
         .find(|slot| slot.logical_name == name || slot.storage_name == name)
-        .map(|slot| slot.storage_name.clone())
+        .map(|slot| slot.logical_name.clone())
         .unwrap_or_else(|| name.to_string())
 }
 

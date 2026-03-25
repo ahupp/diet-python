@@ -627,6 +627,8 @@ pub struct BlockPyCallableSemanticInfo {
     pub bindings: HashMap<String, BlockPyBindingKind>,
     pub local_defs: HashSet<String>,
     pub cell_storage_names: HashMap<String, String>,
+    pub cell_capture_source_names: HashMap<String, String>,
+    pub owned_cell_source_names: HashSet<String>,
     pub semantic_internal_names: HashSet<String>,
     pub type_param_names: HashSet<String>,
     pub effective_load_bindings: HashMap<String, BlockPyEffectiveBinding>,
@@ -712,6 +714,8 @@ impl BlockPyCallableSemanticInfo {
         self.bindings.insert(name.clone(), binding);
         if let Some(cell_storage_name) = cell_storage_name {
             self.cell_storage_names
+                .insert(name.clone(), cell_storage_name.clone());
+            self.cell_capture_source_names
                 .insert(name.clone(), cell_storage_name);
         }
         if honor_internal_name {
@@ -764,6 +768,30 @@ impl BlockPyCallableSemanticInfo {
             .unwrap_or_else(|| cell_name(name))
     }
 
+    pub fn cell_capture_source_name(&self, name: &str) -> String {
+        self.cell_capture_source_names
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| cell_name(name))
+    }
+
+    pub fn cell_ref_source_name(&self, name: &str) -> String {
+        if self.is_cell_binding(name) {
+            self.cell_storage_name(name)
+        } else {
+            self.cell_capture_source_name(name)
+        }
+    }
+
+    pub fn logical_name_for_cell_capture_source(&self, storage_name: &str) -> Option<String> {
+        self.cell_capture_source_names
+            .iter()
+            .find_map(|(logical_name, current_storage_name)| {
+                (current_storage_name == storage_name).then(|| logical_name.clone())
+            })
+            .or_else(|| self.logical_name_for_cell_storage(storage_name))
+    }
+
     pub fn binding_target_for_name(
         &self,
         name: &str,
@@ -790,11 +818,9 @@ impl BlockPyCallableSemanticInfo {
         }
     }
 
-    pub fn local_cell_storage_names(&self) -> HashSet<String> {
-        if !matches!(self.scope_kind, BlockPyCallableScopeKind::Function) {
-            return HashSet::new();
-        }
-        self.bindings
+    pub fn owned_cell_storage_names(&self) -> HashSet<String> {
+        let mut names = self
+            .bindings
             .iter()
             .filter_map(|(name, binding)| {
                 matches!(
@@ -803,7 +829,16 @@ impl BlockPyCallableSemanticInfo {
                 )
                 .then(|| self.cell_storage_name(name.as_str()))
             })
-            .collect()
+            .collect::<HashSet<_>>();
+        names.extend(self.owned_cell_source_names.iter().cloned());
+        names
+    }
+
+    pub fn local_cell_storage_names(&self) -> HashSet<String> {
+        if !matches!(self.scope_kind, BlockPyCallableScopeKind::Function) {
+            return HashSet::new();
+        }
+        self.owned_cell_storage_names()
     }
 
     pub fn logical_name_for_cell_storage(&self, storage_name: &str) -> Option<String> {

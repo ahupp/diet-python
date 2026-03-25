@@ -25,6 +25,7 @@ use crate::passes::ast_to_ast::expr_utils::make_tuple;
 use crate::passes::RuffBlockPyPass;
 use crate::ruff_ast_to_string;
 use crate::template::is_simple;
+use crate::transformer::{walk_expr, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
@@ -209,9 +210,101 @@ fn build_semantic_blockpy_closure_layout(
     callable_def: &BlockPyFunction<RuffBlockPyPass>,
     injected_exception_names: &HashSet<String>,
 ) -> Option<ClosureLayout> {
+    #[derive(Default)]
+    struct CellRefLogicalNameCollector {
+        names: HashSet<String>,
+    }
+
+    impl Transformer for CellRefLogicalNameCollector {
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            if let Expr::Call(call) = expr {
+                if let Expr::Name(name) = call.func.as_ref() {
+                    if name.id.as_str() == "__dp_cell_ref" {
+                        if let Some(ast::Expr::StringLiteral(literal)) = call.arguments.args.first()
+                        {
+                            self.names.insert(literal.value.to_str().to_string());
+                        }
+                    }
+                }
+            }
+            walk_expr(self, expr);
+        }
+    }
+
+    fn collect_cell_ref_logical_names_in_stmt(stmt: &BlockPyStmt, out: &mut HashSet<String>) {
+        match stmt {
+            BlockPyStmt::Assign(assign) => {
+                let mut collector = CellRefLogicalNameCollector::default();
+                let mut expr = assign.value.clone();
+                collector.visit_expr(&mut expr);
+                out.extend(collector.names);
+            }
+            BlockPyStmt::Expr(expr) => {
+                let mut collector = CellRefLogicalNameCollector::default();
+                let mut expr = expr.clone();
+                collector.visit_expr(&mut expr);
+                out.extend(collector.names);
+            }
+            BlockPyStmt::Delete(_) => {}
+            BlockPyStmt::If(if_stmt) => {
+                let mut collector = CellRefLogicalNameCollector::default();
+                let mut test = if_stmt.test.clone();
+                collector.visit_expr(&mut test);
+                out.extend(collector.names);
+                collect_cell_ref_logical_names_in_fragment(&if_stmt.body, out);
+                collect_cell_ref_logical_names_in_fragment(&if_stmt.orelse, out);
+            }
+        }
+    }
+
+    fn collect_cell_ref_logical_names_in_term(term: &BlockPyTerm, out: &mut HashSet<String>) {
+        match term {
+            BlockPyTerm::Jump(_) => {}
+            BlockPyTerm::IfTerm(if_term) => {
+                let mut collector = CellRefLogicalNameCollector::default();
+                let mut test = if_term.test.clone();
+                collector.visit_expr(&mut test);
+                out.extend(collector.names);
+            }
+            BlockPyTerm::BranchTable(branch) => {
+                let mut collector = CellRefLogicalNameCollector::default();
+                let mut index = branch.index.clone();
+                collector.visit_expr(&mut index);
+                out.extend(collector.names);
+            }
+            BlockPyTerm::Raise(raise) => {
+                let Some(exc) = raise.exc.as_ref() else {
+                    return;
+                };
+                let mut collector = CellRefLogicalNameCollector::default();
+                let mut exc = exc.clone();
+                collector.visit_expr(&mut exc);
+                out.extend(collector.names);
+            }
+            BlockPyTerm::Return(expr) => {
+                let mut collector = CellRefLogicalNameCollector::default();
+                let mut expr = expr.clone();
+                collector.visit_expr(&mut expr);
+                out.extend(collector.names);
+            }
+        }
+    }
+
+    fn collect_cell_ref_logical_names_in_fragment(
+        fragment: &crate::block_py::BlockPyStmtFragment,
+        out: &mut HashSet<String>,
+    ) {
+        for stmt in &fragment.body {
+            collect_cell_ref_logical_names_in_stmt(stmt, out);
+        }
+        if let Some(term) = fragment.term.as_ref() {
+            collect_cell_ref_logical_names_in_term(term, out);
+        }
+    }
+
     let param_names = callable_def.params.names();
-    let local_cell_slot_names = callable_def.semantic.local_cell_storage_names();
-    let mut local_cell_slots = local_cell_slot_names.iter().cloned().collect::<Vec<_>>();
+    let owned_cell_slot_names = callable_def.semantic.owned_cell_storage_names();
+    let mut local_cell_slots = owned_cell_slot_names.iter().cloned().collect::<Vec<_>>();
     local_cell_slots.sort();
     let param_name_set = param_names.iter().cloned().collect::<HashSet<_>>();
     let used_names: HashSet<String> = callable_def
@@ -233,10 +326,18 @@ fn build_semantic_blockpy_closure_layout(
             _ => None,
         })
         .collect();
+    let mut cell_ref_logical_names = HashSet::new();
+    for block in &callable_def.blocks {
+        for stmt in &block.body {
+            collect_cell_ref_logical_names_in_stmt(stmt, &mut cell_ref_logical_names);
+        }
+        collect_cell_ref_logical_names_in_term(&block.term, &mut cell_ref_logical_names);
+    }
     let mut referenced_names = used_names
         .iter()
         .chain(defined_names.iter())
         .chain(deleted_names.iter())
+        .chain(cell_ref_logical_names.iter())
         .cloned()
         .collect::<Vec<_>>();
     referenced_names.sort();
@@ -245,31 +346,26 @@ fn build_semantic_blockpy_closure_layout(
         .iter()
         .filter(|name| !param_name_set.contains(name.as_str()))
         .filter(|name| {
-            if *name == "_dp_classcell" {
-                if param_name_set.contains("_dp_classcell_arg")
-                    || defined_names.contains(name.as_str())
-                {
-                    return false;
-                }
-                return true;
-            }
-            if name.starts_with("_dp_cell_") {
-                return !local_cell_slot_names.contains(name.as_str())
-                    && !defined_names.contains(name.as_str());
-            }
-            if callable_def
+            callable_def
                 .semantic
                 .resolved_load_binding_kind(name.as_str())
                 == BlockPyBindingKind::Cell(crate::block_py::BlockPyCellBindingKind::Capture)
-            {
-                let capture_name = callable_def.semantic.cell_storage_name(name.as_str());
-                return !local_cell_slot_names.contains(capture_name.as_str())
-                    && !defined_names.contains(capture_name.as_str());
-            }
-            false
         })
         .cloned()
         .collect::<Vec<_>>();
+    capture_names.extend(
+        cell_ref_logical_names
+            .iter()
+            .filter(|logical_name| {
+                !owned_cell_slot_names.contains(
+                    callable_def
+                        .semantic
+                        .cell_capture_source_name(logical_name.as_str())
+                        .as_str(),
+                ) && !param_name_set.contains(logical_name.as_str())
+            })
+            .cloned(),
+    );
     capture_names.sort();
     capture_names.dedup();
     if capture_names.is_empty()
@@ -286,7 +382,10 @@ fn build_semantic_blockpy_closure_layout(
         }
     }
     for slot in local_cell_slots {
-        let logical_name = slot.strip_prefix("_dp_cell_").unwrap_or(&slot).to_string();
+        let logical_name = callable_def
+            .semantic
+            .logical_name_for_cell_storage(slot.as_str())
+            .unwrap_or(slot);
         if !state_vars.iter().any(|existing| existing == &logical_name) {
             state_vars.push(logical_name);
         }

@@ -165,7 +165,7 @@ fn renders_public_closure_metadata_in_function_header() {
             closure_layout: Some(ClosureLayout {
                 freevars: vec![ClosureSlot {
                     logical_name: "factor".to_string(),
-                    storage_name: "_dp_cell_factor".to_string(),
+                    storage_name: "factor".to_string(),
                     init: ClosureInit::InheritedCapture,
                 }],
                 cellvars: vec![ClosureSlot {
@@ -184,7 +184,7 @@ fn renders_public_closure_metadata_in_function_header() {
     });
 
     assert!(rendered.contains(
-            "function gen():\n    function_id: 0\n    local_cell_slots: [_dp_cell_total, _dp_cell__dp_pc]\n    freevars: [factor->_dp_cell_factor@inherited]\n    cellvars: [total->_dp_cell_total@deferred]\n    runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted]"
+            "function gen():\n    function_id: 0\n    local_cell_slots: [_dp_cell_total, _dp_cell__dp_pc]\n    freevars: [factor->factor@inherited]\n    cellvars: [total->_dp_cell_total@deferred]\n    runtime_cells: [_dp_pc->_dp_cell__dp_pc@pc_unstarted]"
         ));
     assert!(!rendered.contains("entry:"));
 }

@@ -13,7 +13,6 @@ use crate::block_py::{
     CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
     IntrinsicCall,
 };
-use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::CoreBlockPyPass;
 use ruff_python_ast::{self as ast, ExprName};
 use std::collections::HashSet;
@@ -94,16 +93,13 @@ fn rewrite_cell_name_load(
 }
 
 fn rewrite_cell_ref_expr(
-    name: &str,
+    logical_name: &str,
     semantic: &BlockPyCallableSemanticInfo,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    let logical_name = semantic
-        .logical_name_for_cell_storage(name)
-        .unwrap_or_else(|| name.to_string());
     core_name_expr(
-        semantic.cell_storage_name(logical_name.as_str()).as_str(),
+        semantic.cell_ref_source_name(logical_name).as_str(),
         ast::ExprContext::Load,
         node_index,
         range,
@@ -325,16 +321,34 @@ fn rewrite_deleted_name_loads_in_expr(
                 );
             }
         }
-        CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, .. }) => {
-            for arg in args {
-                rewrite_deleted_name_loads_in_expr(
-                    arg,
-                    semantic,
-                    deleted_names,
-                    always_unbound_names,
-                );
+        CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+            intrinsic, args, ..
+        }) => match intrinsic.name() {
+            name if name == LOAD_CELL_INTRINSIC.name()
+                || name == DEL_DEREF_INTRINSIC.name()
+                || name == DEL_DEREF_QUIETLY_INTRINSIC.name()
+                || name == CELL_REF_INTRINSIC.name() => {}
+            name if name == STORE_CELL_INTRINSIC.name() => {
+                if let Some(value_expr) = args.get_mut(1) {
+                    rewrite_deleted_name_loads_in_expr(
+                        value_expr,
+                        semantic,
+                        deleted_names,
+                        always_unbound_names,
+                    );
+                }
             }
-        }
+            _ => {
+                for arg in args {
+                    rewrite_deleted_name_loads_in_expr(
+                        arg,
+                        semantic,
+                        deleted_names,
+                        always_unbound_names,
+                    );
+                }
+            }
+        },
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
     }
 }
@@ -391,7 +405,10 @@ fn rewrite_class_name_load_global(name: ExprName) -> CoreBlockPyExpr {
     )
 }
 
-fn rewrite_class_name_load_cell(name: ExprName) -> CoreBlockPyExpr {
+fn rewrite_class_name_load_cell(
+    name: ExprName,
+    semantic: &BlockPyCallableSemanticInfo,
+) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
     let range = name.range;
     let bind_name = name.id.to_string();
@@ -402,12 +419,7 @@ fn rewrite_class_name_load_cell(name: ExprName) -> CoreBlockPyExpr {
         vec![
             class_namespace_expr(node_index.clone(), range),
             core_string_expr(bind_name, node_index.clone(), range),
-            core_name_expr(
-                cell_name(name.id.as_str()).as_str(),
-                ast::ExprContext::Load,
-                node_index,
-                range,
-            ),
+            cell_expr_for_name(name.id.as_str(), semantic, node_index, range),
         ],
     )
 }
@@ -872,7 +884,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                     .effective_binding(name.id.as_str(), BlockPyBindingPurpose::Load)
                 {
                     Some(BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Cell)) => {
-                        rewrite_class_name_load_cell(name)
+                        rewrite_class_name_load_cell(name, self.semantic)
                     }
                     Some(BlockPyEffectiveBinding::Cell(_)) => {
                         rewrite_cell_name_load(name, self.semantic)

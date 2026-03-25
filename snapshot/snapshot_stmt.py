@@ -573,6 +573,8 @@ class C:
 
 # function _dp_class_ns_C(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 1
+#     local_cell_slots: [_dp_cell__dp_class_ns, _dp_cell__dp_classcell_arg, _dp_classcell, _dp_cell__dp_listcomp_3, _dp_cell_xs]
+#     cellvars: [_dp_class_ns->_dp_cell__dp_class_ns@param, _dp_classcell_arg->_dp_cell__dp_classcell_arg@param, __class__->_dp_classcell@deferred, _dp_listcomp_3->_dp_cell__dp_listcomp_3@deferred, xs->_dp_cell_xs@deferred]
 #     block _dp_bb_1_1:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
@@ -986,17 +988,17 @@ def outer():
 
 # function outer.<locals>.inner():
 #     function_id: 0
-#     freevars: [x->_dp_cell_x@inherited]
+#     freevars: [x->x@inherited]
 #     block _dp_bb_0_1:
 #         return x
 
 # function outer():
 #     function_id: 1
-#     local_cell_slots: [_dp_cell_x, _dp_cell_inner]
-#     cellvars: [x->_dp_cell_x@deferred, inner->_dp_cell_inner@deferred]
+#     local_cell_slots: [_dp_cell_inner, _dp_cell_x]
+#     cellvars: [inner->_dp_cell_inner@deferred, x->_dp_cell_x@deferred]
 #     block _dp_bb_1_1:
 #         x = 5
-#         inner = __dp_make_function(0, "function", __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_globals(), None)
+#         inner = __dp_make_function(0, "function", __dp_tuple(__dp_tuple("x", __dp_cell_ref("x"))), __dp_tuple(), __dp_globals(), None)
 #         return inner()
 
 # function _dp_module_init():
@@ -1054,18 +1056,18 @@ def outer():
 
 # function outer.<locals>.inner():
 #     function_id: 0
-#     freevars: [x->_dp_cell_x@inherited]
+#     freevars: [x->x@inherited]
 #     block _dp_bb_0_1:
 #         x = 2
 #         return x
 
 # function outer():
 #     function_id: 1
-#     local_cell_slots: [_dp_cell_x, _dp_cell_inner]
-#     cellvars: [x->_dp_cell_x@deferred, inner->_dp_cell_inner@deferred]
+#     local_cell_slots: [_dp_cell_inner, _dp_cell_x]
+#     cellvars: [inner->_dp_cell_inner@deferred, x->_dp_cell_x@deferred]
 #     block _dp_bb_1_1:
 #         x = 5
-#         inner = __dp_make_function(0, "function", __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_globals(), None)
+#         inner = __dp_make_function(0, "function", __dp_tuple(__dp_tuple("x", __dp_cell_ref("x"))), __dp_tuple(), __dp_globals(), None)
 #         return inner()
 
 # function _dp_module_init():

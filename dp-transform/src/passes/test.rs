@@ -367,7 +367,7 @@ def outer():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("__dp_class_lookup_cell(_dp_class_ns, \"x\", _dp_cell_x)"),
+        name_binding_rendered.contains("__dp_class_lookup_cell(_dp_class_ns, \"x\", x)"),
         "{name_binding_rendered}"
     );
 }
@@ -419,7 +419,7 @@ def outer():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("__dp_store_cell(_dp_cell_x, 1)"),
+        name_binding_rendered.contains("__dp_store_cell(x, 1)"),
         "{name_binding_rendered}"
     );
 }
@@ -488,7 +488,7 @@ def outer():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("__dp_del_deref(_dp_cell_x)"),
+        name_binding_rendered.contains("__dp_del_deref(x)"),
         "{name_binding_rendered}"
     );
 }
@@ -514,7 +514,7 @@ fn method_dunder_class_load_moves_to_name_binding_pass() {
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("return __dp_load_cell(_dp_classcell)"),
+        name_binding_rendered.contains("return __dp_load_cell(__class__)"),
         "{name_binding_rendered}"
     );
 }
@@ -536,14 +536,191 @@ fn nested_method_dunder_class_capture_uses_classcell_storage() {
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("return __dp_load_cell(_dp_classcell)"),
+        name_binding_rendered.contains("return __dp_load_cell(__class__)"),
         "{name_binding_rendered}"
     );
     assert!(
         name_binding_rendered.contains("__dp_make_function(")
-            && name_binding_rendered.contains("\"_dp_classcell\", _dp_classcell"),
+            && name_binding_rendered.contains("\"__class__\", __class__"),
         "{name_binding_rendered}"
     );
+}
+
+#[test]
+fn method_super_uses_cell_ref_marker_for_classcell() {
+    let source = concat!(
+        "class C:\n",
+        "    def f(self):\n",
+        "        return super().f()\n",
+    );
+
+    let lowered = TrackedLowering::new(source);
+    let core_rendered = lowered.pass_text("core_blockpy");
+    assert!(
+        core_rendered.contains("_dp_eval_1 = __dp_cell_ref(\"__class__\")"),
+        "{core_rendered}"
+    );
+    assert!(
+        core_rendered.contains("_dp_eval_2 = __dp_call_super(super, _dp_eval_1, self)"),
+        "{core_rendered}"
+    );
+    assert!(
+        !core_rendered.contains("__dp_call_super(super, _dp_classcell"),
+        "{core_rendered}"
+    );
+
+    let name_binding_rendered = lowered.name_binding_text();
+    assert!(
+        name_binding_rendered.contains("_dp_eval_1 = __class__"),
+        "{name_binding_rendered}"
+    );
+    assert!(
+        name_binding_rendered.contains(
+            "_dp_eval_2 = __dp_call_super(__dp_load_global(__dp_globals(), \"super\"), _dp_eval_1, self)"
+        ),
+        "{name_binding_rendered}"
+    );
+}
+
+#[test]
+fn nested_method_dunder_class_capture_does_not_leak_classcell_to_enclosing_scopes() {
+    let source = concat!(
+        "def exercise():\n",
+        "    class C:\n",
+        "        def f(self):\n",
+        "            def g():\n",
+        "                return __class__\n",
+        "            return g()\n",
+        "    return C().f(), C\n",
+    );
+
+    let options = Options::for_test();
+    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+        .expect("transform should succeed")
+        .expect("bb module should be available");
+    let module_init = function_by_name(&bb_module, "_dp_module_init");
+    assert!(
+        module_init
+            .closure_layout()
+            .as_ref()
+            .is_none_or(|layout| layout.freevars.is_empty()),
+        "{module_init:?}"
+    );
+    let exercise = function_by_name(&bb_module, "exercise");
+    assert!(
+        exercise
+            .closure_layout()
+            .as_ref()
+            .is_none_or(|layout| layout.freevars.is_empty()),
+        "{exercise:?}"
+    );
+    let class_ns = function_by_name(&bb_module, "_dp_class_ns_C");
+    assert!(
+        class_ns
+            .closure_layout()
+            .as_ref()
+            .is_none_or(|layout| layout.freevars.is_empty()),
+        "{class_ns:?}"
+    );
+    let method = function_by_name(&bb_module, "f");
+    let class_slot = slot_by_name(
+        &method
+            .closure_layout()
+            .as_ref()
+            .expect("method should have closure layout")
+            .freevars,
+        "__class__",
+    );
+    assert_eq!(class_slot.storage_name, "__class__");
+}
+
+#[test]
+fn nested_class_closure_capture_does_not_turn_owner_cell_into_outer_freevar() {
+    let source = concat!(
+        "class Outer:\n",
+        "    def run(self):\n",
+        "        counter = 0\n",
+        "        class Inner:\n",
+        "            def bump(self):\n",
+        "                nonlocal counter\n",
+        "                counter += 1\n",
+        "        Inner().bump()\n",
+        "        return counter\n",
+    );
+
+    let options = Options::for_test();
+    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+        .expect("transform should succeed")
+        .expect("bb module should be available");
+    let run = function_by_name(&bb_module, "run");
+    assert!(
+        run.closure_layout()
+            .as_ref()
+            .is_none_or(|layout| layout.freevars.is_empty()),
+        "{run:?}"
+    );
+    let class_ns = function_by_name(&bb_module, "_dp_class_ns_Inner");
+    let counter_slot = slot_by_name(
+        &class_ns
+            .closure_layout()
+            .as_ref()
+            .expect("class helper should have closure layout")
+            .freevars,
+        "counter",
+    );
+    assert_eq!(counter_slot.storage_name, "_dp_cell_counter");
+}
+
+#[test]
+fn class_global_dunder_class_does_not_leak_synthetic_classcell_outward() {
+    let source = concat!(
+        "def exercise():\n",
+        "    class X:\n",
+        "        global __class__\n",
+        "        __class__ = 42\n",
+        "        def f(self):\n",
+        "            return __class__\n",
+        "    return X().f(), X\n",
+    );
+
+    let options = Options::for_test();
+    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+        .expect("transform should succeed")
+        .expect("bb module should be available");
+    let module_init = function_by_name(&bb_module, "_dp_module_init");
+    assert!(
+        module_init
+            .closure_layout()
+            .as_ref()
+            .is_none_or(|layout| layout.freevars.is_empty()),
+        "{module_init:?}"
+    );
+    let exercise = function_by_name(&bb_module, "exercise");
+    assert!(
+        exercise
+            .closure_layout()
+            .as_ref()
+            .is_none_or(|layout| layout.freevars.is_empty()),
+        "{exercise:?}"
+    );
+    let class_ns = function_by_name(&bb_module, "_dp_class_ns_X");
+    assert!(
+        class_ns
+            .closure_layout()
+            .as_ref()
+            .is_none_or(|layout| layout.freevars.is_empty()),
+        "{class_ns:?}"
+    );
+    let method = function_by_name(&bb_module, "f");
+    let class_slot = slot_by_name(
+        &method
+            .closure_layout()
+            .as_ref()
+            .expect("method should have closure layout")
+            .freevars,
+        "__class__",
+    );
+    assert_eq!(class_slot.storage_name, "__class__");
 }
 
 #[test]
@@ -607,11 +784,11 @@ def outer():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("__dp_store_cell(_dp_cell_x, __dp_current_exception())"),
+        name_binding_rendered.contains("__dp_store_cell(x, __dp_current_exception())"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("__dp_del_deref_quietly(_dp_cell_x)"),
+        name_binding_rendered.contains("__dp_del_deref_quietly(x)"),
         "{name_binding_rendered}"
     );
 }
@@ -693,7 +870,7 @@ def outer():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("__dp_store_cell(_dp_cell_x, 1)"),
+        name_binding_rendered.contains("__dp_store_cell(x, 1)"),
         "{name_binding_rendered}"
     );
 }
@@ -744,7 +921,7 @@ def outer():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("__dp_store_cell(_dp_cell_x, _dp_tmp"),
+        name_binding_rendered.contains("__dp_store_cell(x, _dp_tmp"),
         "{name_binding_rendered}"
     );
 }
@@ -805,8 +982,7 @@ def outer():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered
-            .contains("__dp_store_cell(_dp_cell_value, __dp_contextmanager_enter("),
+        name_binding_rendered.contains("__dp_store_cell(value, __dp_contextmanager_enter("),
         "{name_binding_rendered}"
     );
 }
@@ -1424,7 +1600,7 @@ def outer():
     let lowered = TrackedLowering::new(source);
     let blockpy_rendered = lowered.blockpy_text();
     assert!(
-        blockpy_rendered.contains("freevars: [x->_dp_cell_x@inherited]"),
+        blockpy_rendered.contains("freevars: [x->x@inherited]"),
         "{blockpy_rendered}"
     );
 }
@@ -1459,12 +1635,11 @@ def outer():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered
-            .contains("__dp_store_cell(_dp_cell_x, __dp_add(__dp_load_cell(_dp_cell_x), 1))"),
+        name_binding_rendered.contains("__dp_store_cell(x, __dp_add(__dp_load_cell(x), 1))"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("return __dp_load_cell(_dp_cell_x)"),
+        name_binding_rendered.contains("return __dp_load_cell(x)"),
         "{name_binding_rendered}"
     );
 }
@@ -2028,7 +2203,7 @@ def outer(scale):
         .expect("sync generator should record closure layout");
 
     let factor = slot_by_name(&layout.freevars, "factor");
-    assert_eq!(factor.storage_name, "_dp_cell_factor");
+    assert_eq!(factor.storage_name, "factor");
     assert_eq!(factor.init, ClosureInit::InheritedCapture);
 
     let a = slot_by_name(&layout.cellvars, "a");
@@ -2112,7 +2287,7 @@ def outer(scale):
         .expect("closure-backed coroutine should record closure layout");
 
     let factor = slot_by_name(&layout.freevars, "factor");
-    assert_eq!(factor.storage_name, "_dp_cell_factor");
+    assert_eq!(factor.storage_name, "factor");
     assert_eq!(factor.init, ClosureInit::InheritedCapture);
 
     let total = slot_by_name(&layout.cellvars, "total");
@@ -2147,7 +2322,7 @@ def outer(scale):
         .expect("closure-backed async generator should record closure layout");
 
     let factor = slot_by_name(&layout.freevars, "factor");
-    assert_eq!(factor.storage_name, "_dp_cell_factor");
+    assert_eq!(factor.storage_name, "factor");
     assert_eq!(factor.init, ClosureInit::InheritedCapture);
 
     let total = slot_by_name(&layout.cellvars, "total");

@@ -1,6 +1,6 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use dp_transform::block_py::BlockPyFunction;
+use dp_transform::block_py::{BlockPyFunction, ClosureInit, ClosureLayout, ClosureSlot};
 use dp_transform::passes::PreparedBbBlockPyPass;
 use dp_transform::{Options, transform_str_to_ruff_with_options};
 use log::{info, trace};
@@ -402,6 +402,62 @@ fn py_param_specs(
     Ok(PyTuple::new(py, params)?.unbind())
 }
 
+fn closure_init_name(init: &ClosureInit) -> &'static str {
+    match init {
+        ClosureInit::InheritedCapture => "InheritedCapture",
+        ClosureInit::Parameter => "Parameter",
+        ClosureInit::DeletedSentinel => "DeletedSentinel",
+        ClosureInit::RuntimePcUnstarted => "RuntimePcUnstarted",
+        ClosureInit::RuntimeNone => "RuntimeNone",
+        ClosureInit::Deferred => "Deferred",
+    }
+}
+
+fn py_closure_slot<'py>(py: Python<'py>, slot: &ClosureSlot) -> PyResult<Bound<'py, PyTuple>> {
+    PyTuple::new(
+        py,
+        [
+            slot.logical_name.as_str().into_pyobject(py)?.as_any(),
+            slot.storage_name.as_str().into_pyobject(py)?.as_any(),
+            closure_init_name(&slot.init).into_pyobject(py)?.as_any(),
+        ],
+    )
+}
+
+fn py_closure_layout<'py>(
+    py: Python<'py>,
+    closure_layout: &ClosureLayout,
+) -> PyResult<Bound<'py, PyTuple>> {
+    let freevars = PyTuple::new(
+        py,
+        closure_layout
+            .freevars
+            .iter()
+            .map(|slot| py_closure_slot(py, slot))
+            .collect::<PyResult<Vec<_>>>()?,
+    )?;
+    let cellvars = PyTuple::new(
+        py,
+        closure_layout
+            .cellvars
+            .iter()
+            .map(|slot| py_closure_slot(py, slot))
+            .collect::<PyResult<Vec<_>>>()?,
+    )?;
+    let runtime_cells = PyTuple::new(
+        py,
+        closure_layout
+            .runtime_cells
+            .iter()
+            .map(|slot| py_closure_slot(py, slot))
+            .collect::<PyResult<Vec<_>>>()?,
+    )?;
+    PyTuple::new(
+        py,
+        [freevars.as_any(), cellvars.as_any(), runtime_cells.as_any()],
+    )
+}
+
 fn instantiate_bb_function(
     py: Python<'_>,
     dp: &Bound<'_, PyModule>,
@@ -423,6 +479,11 @@ fn instantiate_bb_function(
         .getattr("_bb_capture_values")?
         .call1((captures,))?
         .unbind();
+    let closure_layout = function
+        .closure_layout()
+        .as_ref()
+        .map(|layout| py_closure_layout(py, layout))
+        .transpose()?;
     let raw_entry = make_lazy_clif_entry(
         py,
         dp,
@@ -441,7 +502,7 @@ fn instantiate_bb_function(
         Some(params.bind(py).as_any()),
         Some(param_defaults),
         Some(closure_values.bind(py)),
-        None,
+        closure_layout.as_ref().map(|value| value.as_any()),
         &deleted_value,
         0,
         None,

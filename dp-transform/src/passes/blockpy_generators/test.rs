@@ -145,7 +145,7 @@ fn resume_closure_bindings_keep_internal_eval_state_on_runtime_binding_path() {
     let closure_bindings = resume_closure_bindings(
         &layout,
         &[
-            "_dp_cell_captured".to_string(),
+            "captured".to_string(),
             "total".to_string(),
             "_dp_eval_1".to_string(),
             "_dp_eval_2".to_string(),
@@ -158,22 +158,13 @@ fn resume_closure_bindings_keep_internal_eval_state_on_runtime_binding_path() {
     assert_eq!(
         closure_bindings.runtime_state_bindings,
         vec![
-            (
-                "_dp_cell_captured".to_string(),
-                "_dp_cell_captured".to_string()
-            ),
-            ("total".to_string(), "_dp_cell_total".to_string()),
-            ("_dp_eval_1".to_string(), "_dp_cell__dp_eval_1".to_string()),
-            ("_dp_eval_2".to_string(), "_dp_cell__dp_eval_2".to_string()),
-            (
-                "_dp_yieldfrom".to_string(),
-                "_dp_cell__dp_yieldfrom".to_string()
-            ),
-            ("_dp_pc".to_string(), "_dp_cell__dp_pc".to_string()),
-            (
-                "_dp_try_exc_0".to_string(),
-                "_dp_cell__dp_try_exc_0".to_string()
-            ),
+            ("captured".to_string(), "captured".to_string()),
+            ("total".to_string(), "total".to_string()),
+            ("_dp_eval_1".to_string(), "_dp_eval_1".to_string()),
+            ("_dp_eval_2".to_string(), "_dp_eval_2".to_string()),
+            ("_dp_yieldfrom".to_string(), "_dp_yieldfrom".to_string()),
+            ("_dp_pc".to_string(), "_dp_pc".to_string()),
+            ("_dp_try_exc_0".to_string(), "_dp_try_exc_0".to_string()),
         ]
     );
 }
@@ -201,7 +192,7 @@ fn persistent_generator_state_order_omits_resume_abi_params() {
     assert_eq!(
         persistent_generator_state_order(&layout),
         vec![
-            "_dp_cell_captured".to_string(),
+            "captured".to_string(),
             "total".to_string(),
             "_dp_pc".to_string(),
         ]
@@ -367,7 +358,7 @@ fn resume_closure_bindings_include_storage_aliases_for_cell_backed_state() {
     let closure_bindings = resume_closure_bindings(
         &layout,
         &[
-            "_dp_cell_captured".to_string(),
+            "captured".to_string(),
             "total".to_string(),
             "_dp_pc".to_string(),
         ],
@@ -376,18 +367,15 @@ fn resume_closure_bindings_include_storage_aliases_for_cell_backed_state() {
     assert_eq!(
         closure_bindings.runtime_state_bindings,
         vec![
-            (
-                "_dp_cell_captured".to_string(),
-                "_dp_cell_captured".to_string()
-            ),
-            ("total".to_string(), "_dp_cell_total".to_string()),
-            ("_dp_pc".to_string(), "_dp_cell__dp_pc".to_string()),
+            ("captured".to_string(), "captured".to_string()),
+            ("total".to_string(), "total".to_string()),
+            ("_dp_pc".to_string(), "_dp_pc".to_string()),
         ]
     );
 }
 
 #[test]
-fn resume_closure_bindings_include_logical_aliases_for_shared_storage() {
+fn resume_closure_bindings_use_logical_names_for_shared_storage() {
     let layout = ClosureLayout {
         freevars: vec![ClosureSlot {
             logical_name: "j".to_string(),
@@ -402,21 +390,14 @@ fn resume_closure_bindings_include_logical_aliases_for_shared_storage() {
         }],
     };
 
-    let closure_bindings = resume_closure_bindings(
-        &layout,
-        &[
-            "_dp_cell_j".to_string(),
-            "j".to_string(),
-            "_dp_pc".to_string(),
-        ],
-    );
+    let closure_bindings =
+        resume_closure_bindings(&layout, &["j".to_string(), "_dp_pc".to_string()]);
 
     assert_eq!(
         closure_bindings.runtime_state_bindings,
         vec![
-            ("_dp_cell_j".to_string(), "_dp_cell_j".to_string()),
-            ("j".to_string(), "_dp_cell_j".to_string()),
-            ("_dp_pc".to_string(), "_dp_cell__dp_pc".to_string()),
+            ("j".to_string(), "j".to_string()),
+            ("_dp_pc".to_string(), "_dp_pc".to_string()),
         ]
     );
 }

@@ -86,6 +86,7 @@ struct BindingMetadata {
     kind: BindingKind,
     state_order: Vec<String>,
     state_index_by_name: HashMap<String, usize>,
+    ambient_closure_values: HashMap<String, *mut ffi::PyObject>,
     params: Vec<BindingParam>,
     positional_param_indices: Vec<usize>,
     param_lookup: HashMap<String, usize>,
@@ -128,6 +129,9 @@ unsafe fn free_binding_metadata(binding: BindingMetadata) {
         decref_if_non_null(param.default_value);
     }
     for value in binding.closure_state_values {
+        decref_if_non_null(value);
+    }
+    for value in binding.ambient_closure_values.into_values() {
         decref_if_non_null(value);
     }
     decref_if_non_null(binding.deleted_obj);
@@ -266,6 +270,7 @@ unsafe fn parse_binding_metadata(
 
     ffi::Py_INCREF(deleted_obj);
     let mut closure_state_values = vec![ptr::null_mut(); state_len];
+    let mut ambient_closure_values = HashMap::new();
     if !closure_values_obj.is_null() {
         if ffi::PyDict_Check(closure_values_obj) == 0 {
             return set_type_error("CLIF vectorcall closure_values must be a dict");
@@ -278,6 +283,20 @@ unsafe fn parse_binding_metadata(
                 ffi::Py_INCREF(value);
                 closure_state_values[index] = value;
             }
+        }
+        let mut position: ffi::Py_ssize_t = 0;
+        let mut key = ptr::null_mut();
+        let mut value = ptr::null_mut();
+        while ffi::PyDict_Next(closure_values_obj, &mut position, &mut key, &mut value) != 0 {
+            if key.is_null() || value.is_null() {
+                continue;
+            }
+            let name = py_string(key)?;
+            if state_index_by_name.contains_key(name.as_str()) {
+                continue;
+            }
+            ffi::Py_INCREF(value);
+            ambient_closure_values.insert(name, value);
         }
     }
 
@@ -394,6 +413,7 @@ unsafe fn parse_binding_metadata(
         kind,
         state_order,
         state_index_by_name,
+        ambient_closure_values,
         params,
         positional_param_indices,
         param_lookup,
@@ -489,20 +509,45 @@ unsafe fn parse_closure_layout(
 unsafe fn build_ambient_args_tuple(
     plan: &ClifPlan,
     binding: &BindingMetadata,
+    closure_layout: Option<&ClosureLayout>,
 ) -> Result<*mut ffi::PyObject, ()> {
+    fn lookup_binding_value(binding: &BindingMetadata, name: &str) -> Option<*mut ffi::PyObject> {
+        binding
+            .state_index_by_name
+            .get(name)
+            .copied()
+            .and_then(|state_index| {
+                let value = binding.closure_state_values[state_index];
+                (!value.is_null()).then_some(value)
+            })
+            .or_else(|| binding.ambient_closure_values.get(name).copied())
+    }
+
     let result = ffi::PyTuple_New(plan.ambient_param_names.len() as ffi::Py_ssize_t);
     if result.is_null() {
         return Err(());
     }
     for (index, name) in plan.ambient_param_names.iter().enumerate() {
-        let Some(state_index) = binding.state_index_by_name.get(name).copied() else {
+        let value = lookup_binding_value(binding, name.as_str()).or_else(|| {
+            closure_layout.and_then(|layout| {
+                layout.slots.iter().find_map(|slot| {
+                    if !matches!(slot.init, ClosureInit::InheritedCapture) {
+                        None
+                    } else if slot.storage_name == *name {
+                        lookup_binding_value(binding, slot.logical_name.as_str())
+                    } else {
+                        None
+                    }
+                })
+            })
+        });
+        let Some(value) = value else {
             ffi::Py_DECREF(result);
             let msg =
                 format!("missing ambient closure state {name:?} while registering CLIF vectorcall");
             let _ = set_runtime_error::<*mut ffi::PyObject>(&msg);
             return Err(());
         };
-        let value = binding.closure_state_values[state_index];
         if value.is_null() {
             ffi::Py_DECREF(result);
             let msg = format!(
@@ -606,7 +651,8 @@ unsafe fn make_clif_function_data(
             return Err(());
         }
     };
-    let ambient_args_obj = match build_ambient_args_tuple(&plan, &binding) {
+    let ambient_args_obj = match build_ambient_args_tuple(&plan, &binding, closure_layout.as_ref())
+    {
         Ok(value) => value,
         Err(()) => {
             ffi::Py_DECREF(true_obj);

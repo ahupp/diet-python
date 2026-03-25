@@ -186,14 +186,20 @@ fn capture_items_to_expr(captures: &[(String, Expr)]) -> Expr {
     )
 }
 
-fn closure_freevar_capture_items(closure_layout: Option<&ClosureLayout>) -> Vec<(String, Expr)> {
+fn closure_freevar_capture_items(
+    closure_layout: Option<&ClosureLayout>,
+    _semantic: &BlockPyCallableSemanticInfo,
+) -> Vec<(String, Expr)> {
     closure_layout
         .into_iter()
         .flat_map(|layout| layout.freevars.iter())
         .map(|slot| {
             (
-                slot.storage_name.clone(),
-                py_expr!("{name:id}", name = slot.storage_name.as_str()),
+                slot.logical_name.clone(),
+                py_expr!(
+                    "__dp_cell_ref({name:literal})",
+                    name = slot.logical_name.as_str()
+                ),
             )
         })
         .collect()
@@ -202,12 +208,13 @@ fn closure_freevar_capture_items(closure_layout: Option<&ClosureLayout>) -> Vec<
 fn build_lowered_function_instantiation_expr(
     function_id: crate::block_py::FunctionId,
     closure_layout: Option<&ClosureLayout>,
+    semantic: &BlockPyCallableSemanticInfo,
     decorator_exprs: Vec<Expr>,
     param_defaults: &[Expr],
     annotate_fn_expr: Expr,
     kind: BlockPyFunctionKind,
 ) -> Expr {
-    let captures = closure_freevar_capture_items(closure_layout);
+    let captures = closure_freevar_capture_items(closure_layout, semantic);
     let capture_expr = capture_items_to_expr(&captures);
     let param_defaults_expr = param_defaults_to_expr(param_defaults);
     let kind_name = match kind {
@@ -247,6 +254,7 @@ fn rewrite_function_def_stmt_via_blockpy(
     let decorated = build_lowered_function_instantiation_expr(
         lowered_plan.function_id,
         lowered_plan.closure_layout.as_ref(),
+        &lowered_plan.semantic,
         rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
         &param_defaults,
         py_expr!("None"),

@@ -32,26 +32,110 @@ fn lower_test_module_plan(
 
 #[test]
 fn capture_items_render_as_name_value_pairs() {
-    let captures = closure_freevar_capture_items(Some(&ClosureLayout {
-        freevars: vec![
-            ClosureSlot {
-                logical_name: "x".to_string(),
-                storage_name: "x".to_string(),
-                init: ClosureInit::InheritedCapture,
-            },
-            ClosureSlot {
-                logical_name: "y".to_string(),
-                storage_name: "z".to_string(),
-                init: ClosureInit::InheritedCapture,
-            },
-        ],
-        cellvars: vec![],
-        runtime_cells: vec![],
-    }));
+    let mut semantic = crate::block_py::BlockPyCallableSemanticInfo::default();
+    semantic
+        .cell_capture_source_names
+        .insert("x".to_string(), "_dp_cell_x".to_string());
+    semantic
+        .cell_capture_source_names
+        .insert("y".to_string(), "_dp_classcell".to_string());
+    let captures = closure_freevar_capture_items(
+        Some(&ClosureLayout {
+            freevars: vec![
+                ClosureSlot {
+                    logical_name: "x".to_string(),
+                    storage_name: "x".to_string(),
+                    init: ClosureInit::InheritedCapture,
+                },
+                ClosureSlot {
+                    logical_name: "y".to_string(),
+                    storage_name: "y".to_string(),
+                    init: ClosureInit::InheritedCapture,
+                },
+            ],
+            cellvars: vec![],
+            runtime_cells: vec![],
+        }),
+        &semantic,
+    );
     let expr = capture_items_to_expr(&captures);
     assert_eq!(
         crate::ruff_ast_to_string(&expr).trim(),
-        "__dp_tuple(__dp_tuple(\"x\", x), __dp_tuple(\"z\", z))"
+        "__dp_tuple(__dp_tuple(\"x\", __dp_cell_ref(\"x\")), __dp_tuple(\"y\", __dp_cell_ref(\"y\")))"
+    );
+}
+
+#[test]
+fn callable_semantic_info_uses_logical_storage_for_cell_captures() {
+    let source = concat!(
+        "def outer():\n",
+        "    x = 1\n",
+        "    def inner():\n",
+        "        return x\n",
+        "    return inner\n",
+    );
+    let blockpy_module = transform_str_to_ruff_with_options(source, Options::for_test())
+        .unwrap()
+        .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .cloned()
+        .expect("semantic_blockpy pass should be tracked");
+    let inner = blockpy_module
+        .callable_defs
+        .iter()
+        .find(|func| func.names.bind_name == "inner")
+        .expect("missing inner callable");
+
+    assert_eq!(
+        inner.semantic.binding_kind("x"),
+        Some(BlockPyBindingKind::Cell(
+            crate::block_py::BlockPyCellBindingKind::Capture
+        ))
+    );
+    assert_eq!(inner.semantic.cell_storage_name("x"), "x");
+    assert_eq!(inner.semantic.cell_capture_source_name("x"), "_dp_cell_x");
+    assert_eq!(
+        inner
+            .semantic
+            .logical_name_for_cell_capture_source("_dp_cell_x"),
+        Some("x".to_string())
+    );
+}
+
+#[test]
+fn callable_semantic_info_maps_classcell_capture_source_back_to_dunder_class() {
+    let source = concat!(
+        "class C:\n",
+        "    def f(self):\n",
+        "        def g():\n",
+        "            return __class__\n",
+        "        return g\n",
+    );
+    let blockpy_module = transform_str_to_ruff_with_options(source, Options::for_test())
+        .unwrap()
+        .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .cloned()
+        .expect("semantic_blockpy pass should be tracked");
+    let f = blockpy_module
+        .callable_defs
+        .iter()
+        .find(|func| func.names.bind_name == "f")
+        .expect("missing method callable");
+
+    assert_eq!(
+        f.semantic.binding_kind("__class__"),
+        Some(BlockPyBindingKind::Cell(
+            crate::block_py::BlockPyCellBindingKind::Capture
+        ))
+    );
+    assert_eq!(f.semantic.cell_storage_name("__class__"), "__class__");
+    assert_eq!(
+        f.semantic.cell_capture_source_name("__class__"),
+        "_dp_classcell"
+    );
+    assert_eq!(
+        f.semantic
+            .logical_name_for_cell_capture_source("_dp_classcell"),
+        Some("__class__".to_string())
     );
 }
 
@@ -489,7 +573,7 @@ fn lowering_nonlocal_inner_captures_outer_cell() {
             .expect("inner should have closure layout")
             .freevars
             .iter()
-            .any(|slot| slot.storage_name == "_dp_cell_x"),
+            .any(|slot| slot.storage_name == "x"),
         "{:?}",
         inner.closure_layout()
     );
@@ -499,7 +583,7 @@ fn lowering_nonlocal_inner_captures_outer_cell() {
         });
     assert!(
             rendered.contains(
-                "__dp_make_function(0, \"function\", __dp_tuple(__dp_tuple(\"_dp_cell_x\", _dp_cell_x))"
+                "__dp_make_function(0, \"function\", __dp_tuple(__dp_tuple(\"x\", __dp_cell_ref(\"x\")))"
             ),
             "{rendered}"
         );
