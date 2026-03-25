@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use ruff_python_ast::name::Name;
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 
 use super::{
@@ -255,15 +254,7 @@ impl Transformer for NameScopeRewriter<'_> {
                 self.visit_body(suite_mut(&mut with_stmt.body));
             }
             Stmt::Global(_) => return,
-            Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
-                for name in names {
-                    if name.id.as_str() == "__class__" {
-                        continue;
-                    }
-                    let cell = cell_name(name.id.as_str());
-                    name.id = Name::new(cell);
-                }
-            }
+            Stmt::Nonlocal(_) => return,
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
                 assert!(targets.len() == 1);
                 self.visit_expr(value.as_mut());
