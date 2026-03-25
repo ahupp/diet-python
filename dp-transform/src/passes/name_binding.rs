@@ -8,8 +8,9 @@ use crate::block_py::{
     BlockPyAssign, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
     BlockPyCallableSemanticInfo, BlockPyClassBodyFallback, BlockPyEffectiveBinding,
     BlockPyFunction, BlockPyFunctionKind, BlockPyIf, BlockPyModule, BlockPyModuleMap, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreStringLiteral, IntrinsicCall,
+    BlockPyStmt, BlockPyTerm, ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg,
+    CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreNumberLiteral,
+    CoreNumberLiteralValue, CoreStringLiteral, IntrinsicCall,
 };
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::CoreBlockPyPass;
@@ -530,33 +531,97 @@ fn build_local_cell_init_assign(
     })
 }
 
+fn closure_slot_init_expr(slot: &ClosureSlot) -> CoreBlockPyExpr {
+    let node_index = compat_node_index();
+    let range = compat_range();
+    match slot.init {
+        ClosureInit::InheritedCapture => {
+            panic!("inherited captures do not allocate new cells in outer callables")
+        }
+        ClosureInit::Parameter => core_name_expr(
+            slot.logical_name.as_str(),
+            ast::ExprContext::Load,
+            node_index,
+            range,
+        ),
+        ClosureInit::DeletedSentinel => deleted_sentinel_expr(node_index, range),
+        ClosureInit::RuntimePcUnstarted => {
+            CoreBlockPyExpr::Literal(CoreBlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+                node_index,
+                range,
+                value: CoreNumberLiteralValue::Int(ast::Int::ONE),
+            }))
+        }
+        ClosureInit::RuntimeNone | ClosureInit::Deferred => {
+            core_name_expr("__dp_NONE", ast::ExprContext::Load, node_index, range)
+        }
+    }
+}
+
+fn build_closure_slot_cell_init_assign(slot: &ClosureSlot) -> BlockPyStmt<CoreBlockPyExpr> {
+    let node_index = compat_node_index();
+    let range = compat_range();
+    BlockPyStmt::Assign(BlockPyAssign {
+        target: ast::ExprName {
+            id: slot.storage_name.as_str().into(),
+            ctx: ast::ExprContext::Store,
+            node_index: node_index.clone(),
+            range,
+        },
+        value: core_positional_intrinsic_expr_with_meta(
+            &MAKE_CELL_INTRINSIC,
+            node_index,
+            range,
+            vec![closure_slot_init_expr(slot)],
+        ),
+    })
+}
+
 fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPass>) {
-    if callable.kind != BlockPyFunctionKind::Function || callable.names.fn_name == "_dp_resume" {
+    if callable.names.fn_name == "_dp_resume" {
         return;
     }
-    let mut storage_names = callable
-        .semantic
-        .local_cell_storage_names()
-        .into_iter()
-        .collect::<Vec<_>>();
-    if storage_names.is_empty() {
-        return;
-    }
-    storage_names.sort();
-    let param_names = callable.params.names().into_iter().collect::<HashSet<_>>();
-    let init_stmts = storage_names
-        .into_iter()
-        .map(|storage_name| {
-            let logical_name = storage_name
-                .strip_prefix("_dp_cell_")
-                .expect("owned local cell storage should have _dp_cell_ prefix");
-            build_local_cell_init_assign(
-                storage_name.as_str(),
-                logical_name,
-                param_names.contains(logical_name),
-            )
-        })
-        .collect::<Vec<_>>();
+    let init_stmts = match callable.kind {
+        BlockPyFunctionKind::Function => {
+            let mut storage_names = callable
+                .semantic
+                .local_cell_storage_names()
+                .into_iter()
+                .collect::<Vec<_>>();
+            if storage_names.is_empty() {
+                return;
+            }
+            storage_names.sort();
+            let param_names = callable.params.names().into_iter().collect::<HashSet<_>>();
+            storage_names
+                .into_iter()
+                .map(|storage_name| {
+                    let logical_name = storage_name
+                        .strip_prefix("_dp_cell_")
+                        .expect("owned local cell storage should have _dp_cell_ prefix");
+                    build_local_cell_init_assign(
+                        storage_name.as_str(),
+                        logical_name,
+                        param_names.contains(logical_name),
+                    )
+                })
+                .collect::<Vec<_>>()
+        }
+        BlockPyFunctionKind::Generator
+        | BlockPyFunctionKind::Coroutine
+        | BlockPyFunctionKind::AsyncGenerator => {
+            let layout = callable
+                .closure_layout
+                .as_ref()
+                .expect("generator-like visible function should have closure layout");
+            layout
+                .cellvars
+                .iter()
+                .chain(layout.runtime_cells.iter())
+                .map(build_closure_slot_cell_init_assign)
+                .collect::<Vec<_>>()
+        }
+    };
     callable
         .blocks
         .first_mut()

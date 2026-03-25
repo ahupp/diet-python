@@ -1,15 +1,14 @@
 use crate::block_py::cfg::linearize_structured_ifs;
-use crate::block_py::intrinsics::MAKE_CELL_INTRINSIC;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
-    core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta,
-    is_resume_abi_param_name, resume_abi_params, BlockParam, BlockParamRole, BlockPyAssign,
-    BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable, BlockPyCallableSemanticInfo,
-    BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit,
-    ClosureLayout, ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, FunctionId, FunctionName, ModuleNameGen,
+    core_positional_call_expr_with_meta, is_resume_abi_param_name, resume_abi_params, BlockParam,
+    BlockParamRole, BlockPyAssign, BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable,
+    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyExpr,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId, FunctionName,
+    ModuleNameGen,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::{cell_name, is_internal_symbol};
@@ -143,27 +142,6 @@ fn core_call(func_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
         Default::default(),
         args,
     )
-}
-
-fn core_make_cell(init: CoreBlockPyExpr) -> CoreBlockPyExpr {
-    core_positional_intrinsic_expr_with_meta(
-        &MAKE_CELL_INTRINSIC,
-        ast::AtomicNodeIndex::default(),
-        Default::default(),
-        vec![init],
-    )
-}
-
-fn runtime_init_expr(slot: &ClosureSlot) -> CoreBlockPyExpr {
-    match slot.init {
-        ClosureInit::InheritedCapture => {
-            panic!("inherited captures do not allocate new cells in outer factories")
-        }
-        ClosureInit::Parameter => core_name(slot.logical_name.as_str()),
-        ClosureInit::DeletedSentinel => core_expr_without_yield(py_expr!("__dp_DELETED")),
-        ClosureInit::RuntimePcUnstarted => core_literal_int(1),
-        ClosureInit::RuntimeNone | ClosureInit::Deferred => core_none(),
-    }
 }
 
 fn is_generator_like(kind: BlockPyFunctionKind) -> bool {
@@ -349,17 +327,9 @@ fn build_factory_block(
     visible_function_id: FunctionId,
     resume_function_id: FunctionId,
     closure_bindings: &ResumeClosureBindings,
-    layout: &ClosureLayout,
     kind: BlockPyFunctionKind,
 ) -> BlockPyBlock<CoreBlockPyExpr> {
     let mut block = BlockPyCfgBlockBuilder::new(BlockPyLabel::from("_dp_factory_entry"));
-
-    for slot in layout.cellvars.iter().chain(layout.runtime_cells.iter()) {
-        block.push_stmt(BlockPyStmt::Assign(BlockPyAssign {
-            target: expr_name(slot.storage_name.as_str()),
-            value: core_make_cell(runtime_init_expr(slot)),
-        }));
-    }
 
     let all_bindings = closure_bindings.all_bindings().cloned().collect::<Vec<_>>();
     let closure_names = all_bindings
@@ -1399,7 +1369,6 @@ pub(crate) fn lower_generator_like_function(
         callable.function_id,
         resume_function_id,
         &closure_bindings,
-        &closure_layout,
         callable.kind,
     );
 

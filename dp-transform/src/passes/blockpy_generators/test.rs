@@ -8,8 +8,7 @@ use crate::block_py::{
     ClosureInit, ClosureLayout, ClosureSlot, FunctionId, FunctionName,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
-use crate::passes::ruff_to_blockpy::lower_stmts_to_blockpy_stmts;
-use crate::{py_expr, py_stmt};
+use crate::py_expr;
 use ruff_python_ast::Expr;
 use std::collections::HashSet;
 
@@ -21,21 +20,6 @@ fn blockpy_make_dp_tuple(items: Vec<Expr>) -> Expr {
     Expr::Call(call)
 }
 
-fn closure_backed_generator_init_expr(slot: &ClosureSlot) -> Expr {
-    match slot.init {
-        ClosureInit::InheritedCapture => {
-            panic!("inherited captures do not allocate new cells in outer factories")
-        }
-        ClosureInit::Parameter => {
-            py_expr!("{name:id}", name = slot.logical_name.as_str())
-        }
-        ClosureInit::DeletedSentinel => py_expr!("__dp_DELETED"),
-        ClosureInit::RuntimePcUnstarted => py_expr!("1"),
-        ClosureInit::RuntimeNone => py_expr!("None"),
-        ClosureInit::Deferred => py_expr!("None"),
-    }
-}
-
 fn build_closure_backed_generator_factory_block(
     factory_label: &str,
     visible_function_id: FunctionId,
@@ -45,20 +29,6 @@ fn build_closure_backed_generator_factory_block(
     is_coroutine: bool,
     is_async_generator: bool,
 ) -> crate::block_py::BlockPyBlock<Expr> {
-    let mut body = Vec::new();
-
-    for slot in layout.cellvars.iter().chain(layout.runtime_cells.iter()) {
-        let stmt = py_stmt!(
-            "{cell:id} = __dp_make_cell({init:expr})",
-            cell = slot.storage_name.as_str(),
-            init = closure_backed_generator_init_expr(slot),
-        );
-        let lowered = lower_stmts_to_blockpy_stmts::<Expr>(&[stmt])
-            .unwrap_or_else(|err| panic!("failed to lower generator factory cell init: {err}"));
-        assert!(lowered.term.is_none());
-        body.extend(lowered.body);
-    }
-
     let closure_bindings = resume_closure_bindings(layout, resume_state_order);
     let closure_names = closure_bindings
         .runtime_state_bindings
@@ -114,7 +84,6 @@ fn build_closure_backed_generator_factory_block(
     };
 
     let mut block = BlockPyCfgBlockBuilder::new(factory_label.into());
-    block.extend(body);
     block.set_term(BlockPyTerm::Return(return_value.into()));
     block.finish(None)
 }
@@ -308,6 +277,7 @@ fn builds_closure_backed_generator_factory_block() {
     );
 
     assert_eq!(block.label.as_str(), "_dp_bb_demo_factory");
+    assert!(block.body.is_empty(), "{block:?}");
     assert!(matches!(block.term, BlockPyTerm::Return(_)));
 }
 

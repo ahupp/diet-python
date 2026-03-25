@@ -1025,6 +1025,44 @@ def gen():
 }
 
 #[test]
+fn generator_factory_owned_cell_init_moves_to_name_binding_pass() {
+    let source = r#"
+def gen():
+    total = 0
+    yield total
+"#;
+
+    let lowered = TrackedLowering::new(source);
+    let core_rendered = lowered.pass_text("core_blockpy");
+    assert!(
+        !core_rendered.contains("_dp_cell_total = __dp_make_cell"),
+        "{core_rendered}"
+    );
+    assert!(
+        !core_rendered.contains("_dp_cell__dp_pc = __dp_make_cell"),
+        "{core_rendered}"
+    );
+    assert!(
+        !core_rendered.contains("_dp_cell__dp_yieldfrom = __dp_make_cell"),
+        "{core_rendered}"
+    );
+
+    let name_binding_rendered = lowered.name_binding_text();
+    assert!(
+        name_binding_rendered.contains("_dp_cell_total = __dp_make_cell(__dp_NONE)"),
+        "{name_binding_rendered}"
+    );
+    assert!(
+        name_binding_rendered.contains("_dp_cell__dp_pc = __dp_make_cell(1)"),
+        "{name_binding_rendered}"
+    );
+    assert!(
+        name_binding_rendered.contains("_dp_cell__dp_yieldfrom = __dp_make_cell(__dp_NONE)"),
+        "{name_binding_rendered}"
+    );
+}
+
+#[test]
 fn generator_resume_try_exception_state_moves_to_name_binding_pass() {
     let source = r#"
 def gen():
