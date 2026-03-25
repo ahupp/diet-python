@@ -840,10 +840,6 @@ def delegator():
             .any(|slot| slot.logical_name == "child"),
         "{layout:?}"
     );
-    assert!(
-        !delegator.entry_liveins().iter().any(|name| name == "child"),
-        "{delegator:?}"
-    );
 }
 
 #[test]

@@ -1,11 +1,5 @@
 use self::param_specs::ParamSpec;
-use crate::block_py::dataflow::{
-    compute_block_params_blockpy, extend_state_order_with_declared_block_params,
-    merge_declared_block_params,
-};
-use crate::block_py::state::collect_state_vars;
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
-use crate::passes::ruff_to_blockpy;
 use crate::passes::{
     BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield,
     PreparedBbBlockPyPass, RuffBlockPyPass,
@@ -849,97 +843,6 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
             facts: self.facts,
             semantic: self.semantic,
         }
-    }
-}
-
-pub fn lowered_entry_liveins<S, E>(
-    params: &ParamSpec,
-    blocks: &[CfgBlock<S, BlockPyTerm<E>>],
-) -> Vec<String>
-where
-    S: IntoBlockPyStmt<E>,
-    E: Clone + Into<Expr> + fmt::Debug,
-{
-    if blocks.is_empty() {
-        return Vec::new();
-    }
-    let lowered_blocks = blocks
-        .iter()
-        .map(|block| CfgBlock {
-            label: block.label.clone(),
-            body: block
-                .body
-                .iter()
-                .map(|stmt| stmt.clone().into_stmt())
-                .collect(),
-            term: block.term.clone(),
-            params: block.params.clone(),
-            exc_edge: block.exc_edge.clone(),
-        })
-        .collect::<Vec<_>>();
-    let param_names = params.names();
-    let mut state_vars = collect_state_vars(&param_names, &lowered_blocks);
-    extend_state_order_with_declared_block_params(&lowered_blocks, &mut state_vars);
-    let mut block_params = compute_block_params_blockpy(
-        &lowered_blocks,
-        &state_vars,
-        &ruff_to_blockpy::lowered_exception_edges(&lowered_blocks)
-            .into_iter()
-            .filter_map(|(source, target)| target.map(|target| (source, vec![target])))
-            .collect(),
-    );
-    merge_declared_block_params(&lowered_blocks, &mut block_params);
-    block_params
-        .get(lowered_blocks[0].label.as_str())
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|name| !is_resume_abi_param_name(name))
-        .collect()
-}
-
-macro_rules! impl_non_bb_entry_liveins {
-    ($($pass:ty),* $(,)?) => {
-        $(
-            impl BlockPyFunction<$pass> {
-                pub fn entry_liveins(&self) -> Vec<String> {
-                    lowered_entry_liveins(&self.params, &self.blocks)
-                }
-            }
-        )*
-    };
-}
-
-impl_non_bb_entry_liveins!(
-    RuffBlockPyPass,
-    CoreBlockPyPassWithAwaitAndYield,
-    CoreBlockPyPassWithYield,
-    CoreBlockPyPass,
-);
-
-impl BlockPyFunction<BbBlockPyPass> {
-    pub fn entry_liveins(&self) -> Vec<String> {
-        if self.blocks.is_empty() {
-            return Vec::new();
-        }
-        self.entry_block()
-            .param_names()
-            .filter(|name| !is_resume_abi_param_name(name))
-            .map(ToString::to_string)
-            .collect()
-    }
-}
-
-impl BlockPyFunction<PreparedBbBlockPyPass> {
-    pub fn entry_liveins(&self) -> Vec<String> {
-        if self.blocks.is_empty() {
-            return Vec::new();
-        }
-        self.entry_block()
-            .param_names()
-            .filter(|name| !is_resume_abi_param_name(name))
-            .map(ToString::to_string)
-            .collect()
     }
 }
 

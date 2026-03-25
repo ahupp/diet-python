@@ -152,7 +152,6 @@ fn bb_module_to_json(module: &BlockPyModule<BbBlockPyPass>) -> Value {
                 "kind": bb_function_kind_to_json(function.lowered_kind()),
                 "entry": function.entry_block().label_str(),
                 "paramNames": function.params.names(),
-                "entryLiveins": function.entry_liveins(),
                 "localCellSlots": function.local_cell_slots(),
                 "blocks": blocks,
             })

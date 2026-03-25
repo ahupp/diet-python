@@ -1,8 +1,8 @@
 use super::{
-    lowered_entry_liveins, AbruptKind, BbStmt, BlockArg, BlockPyCfgFragment, BlockPyEdge,
-    BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass,
-    BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyExpr, CoreBlockPyLiteral, Expr,
-    IntoBlockPyStmt, PassBlock, PassExpr,
+    AbruptKind, BbStmt, BlockArg, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
+    BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyExpr, CoreBlockPyLiteral, Expr, IntoBlockPyStmt,
+    PassBlock, PassExpr,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
@@ -19,10 +19,6 @@ enum IfBranchKind {
 }
 
 pub trait BlockPyPrettyPrinter: BlockPyPass {
-    fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String>
-    where
-        Self: Sized;
-
     fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String>
     where
         Self: Sized;
@@ -32,10 +28,6 @@ macro_rules! impl_default_blockpy_pretty_printer {
     ($($pass:ty),* $(,)?) => {
         $(
             impl BlockPyPrettyPrinter for $pass {
-                fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
-                    lowered_entry_liveins(&function.params, &function.blocks)
-                }
-
                 fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
                     render_blockpy_block_metadata(block)
                 }
@@ -52,15 +44,6 @@ impl_default_blockpy_pretty_printer!(
 );
 
 impl BlockPyPrettyPrinter for BbBlockPyPass {
-    fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
-        function
-            .entry_block()
-            .param_names()
-            .filter(|name| !super::is_resume_abi_param_name(name))
-            .map(ToString::to_string)
-            .collect()
-    }
-
     fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
         let mut lines = Vec::new();
         if !block.params.is_empty() {
@@ -84,15 +67,6 @@ impl BlockPyPrettyPrinter for BbBlockPyPass {
 }
 
 impl BlockPyPrettyPrinter for PreparedBbBlockPyPass {
-    fn entry_liveins(function: &BlockPyFunction<Self>) -> Vec<String> {
-        function
-            .entry_block()
-            .param_names()
-            .filter(|name| !super::is_resume_abi_param_name(name))
-            .map(ToString::to_string)
-            .collect()
-    }
-
     fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
         let mut lines = Vec::new();
         if !block.params.is_empty() {
@@ -168,7 +142,6 @@ impl BlockPyFormatter {
         P: BlockPyPrettyPrinter,
     {
         let params = format_parameters(&function.params);
-        let parameter_names = function.params.names();
         let referenced_labels = collect_referenced_labels_from_blocks::<P>(&function.blocks);
         let render_layout = BlockRenderLayout::new(function);
         self.line(format!(
@@ -180,10 +153,6 @@ impl BlockPyFormatter {
             this.line(format!("function_id: {}", function.function_id.0));
             if function.names.display_name != function.names.bind_name {
                 this.line(format!("display_name: {}", function.names.display_name));
-            }
-            let entry_liveins = P::entry_liveins(function);
-            if !entry_liveins.is_empty() && entry_liveins != parameter_names {
-                this.line(format!("entry_liveins: [{}]", entry_liveins.join(", ")));
             }
             let local_cell_slots = function.local_cell_slots();
             if !local_cell_slots.is_empty() {

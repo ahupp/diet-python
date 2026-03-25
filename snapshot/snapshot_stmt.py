@@ -324,7 +324,6 @@ with cm as x:
 
 # function _dp_module_init():
 #     function_id: 0
-#     entry_liveins: [_dp_try_exc_0_3, _dp_try_exc_0_0, _dp_try_abrupt_kind_0_1]
 #     block _dp_bb_0_4:
 #         _dp_with_exit_1 = __dp_contextmanager_get_exit(cm)
 #         x = __dp_contextmanager_enter(cm)
@@ -605,7 +604,6 @@ with a as x, b as y:
 
 # function _dp_module_init():
 #     function_id: 0
-#     entry_liveins: [_dp_try_exc_0_3, _dp_try_exc_0_0, _dp_try_exc_0_7, _dp_try_exc_0_4, _dp_try_abrupt_kind_0_1, _dp_try_abrupt_kind_0_5]
 #     block _dp_bb_0_4:
 #         _dp_with_exit_4 = __dp_contextmanager_get_exit(a)
 #         x = __dp_contextmanager_enter(a)
@@ -765,7 +763,6 @@ async def run():
 
 # coroutine run():
 #     function_id: 0
-#     entry_liveins: [_dp_try_exc_0_3, _dp_try_exc_0_0, _dp_try_abrupt_kind_0_1]
 #     block _dp_bb_0_4:
 #         _dp_with_exit_1 = __dp_asynccontextmanager_get_aexit(cm)
 #         x = await __dp_asynccontextmanager_aenter(cm)
@@ -913,7 +910,6 @@ with Suppress():
 
 # function _dp_module_init():
 #     function_id: 0
-#     entry_liveins: [_dp_try_exc_0_3, _dp_try_exc_0_0, _dp_try_abrupt_kind_0_1]
 #     block _dp_bb_0_4:
 #         _dp_tmp_4 = Suppress()
 #         _dp_with_exit_1 = __dp_contextmanager_get_exit(_dp_tmp_4)
@@ -996,7 +992,6 @@ def outer():
 
 # function outer():
 #     function_id: 1
-#     entry_liveins: [_dp_cell_x]
 #     local_cell_slots: [_dp_cell_x, _dp_cell_inner]
 #     cellvars: [x->_dp_cell_x@deferred, inner->_dp_cell_inner@deferred]
 #     block _dp_bb_1_1:
@@ -1066,7 +1061,6 @@ def outer():
 
 # function outer():
 #     function_id: 1
-#     entry_liveins: [_dp_cell_x]
 #     local_cell_slots: [_dp_cell_x, _dp_cell_inner]
 #     cellvars: [x->_dp_cell_x@deferred, inner->_dp_cell_inner@deferred]
 #     block _dp_bb_1_1:
@@ -1091,7 +1085,6 @@ except Exception:
 
 # function _dp_module_init():
 #     function_id: 0
-#     entry_liveins: [_dp_try_exc_0_0]
 #     block _dp_bb_0_1:
 #         jump _dp_bb_0_5
 #         block _dp_bb_0_5:
@@ -1133,7 +1126,6 @@ def complicated(a):
 
 # generator complicated(a):
 #     function_id: 0
-#     entry_liveins: [a, _dp_try_exc_0_2]
 #     block _dp_bb_0_3:
 #         _dp_iter_0_0 = __dp_iter(a)
 #         jump _dp_bb_0_1

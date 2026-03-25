@@ -69,7 +69,6 @@ class Wrapper:
 
 # function Wrapper.open(self, mode, *, encoding):
 #     function_id: 0
-#     entry_liveins: [mode, encoding]
 #     block _dp_bb_0_1:
 #         return open(mode, encoding=encoding)
 
@@ -163,7 +162,6 @@ def outer():
 
 # function outer():
 #     function_id: 2
-#     entry_liveins: [_dp_cell_x]
 #     local_cell_slots: [_dp_cell_Inner, _dp_cell_x, _dp_cell__dp_class_ns_Inner, _dp_cell__dp_define_class_Inner]
 #     cellvars: [Inner->_dp_cell_Inner@deferred, x->_dp_cell_x@deferred, _dp_class_ns_Inner->_dp_cell__dp_class_ns_Inner@deferred, _dp_define_class_Inner->_dp_cell__dp_define_class_Inner@deferred]
 #     block _dp_bb_2_1:
@@ -193,7 +191,6 @@ class X:
 
 # function X.f(x):
 #     function_id: 0
-#     entry_liveins: [x, _dp_classcell]
 #     local_cell_slots: [_dp_cell_x]
 #     freevars: [_dp_classcell->_dp_classcell@inherited]
 #     cellvars: [x->_dp_cell_x@param]
