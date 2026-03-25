@@ -9,8 +9,8 @@ use crate::block_py::{
     BlockPyCallableSemanticInfo, BlockPyClassBodyFallback, BlockPyEffectiveBinding,
     BlockPyFunction, BlockPyFunctionKind, BlockPyIf, BlockPyModule, BlockPyModuleMap, BlockPyRaise,
     BlockPyStmt, BlockPyTerm, ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreNumberLiteral,
-    CoreNumberLiteralValue, CoreStringLiteral, IntrinsicCall,
+    CoreBlockPyExpr, CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
+    CoreStringLiteral, IntrinsicCall,
 };
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::CoreBlockPyPass;
@@ -263,36 +263,18 @@ fn rewrite_deleted_name_loads_in_expr(expr: &mut CoreBlockPyExpr, deleted_names:
         }) => {
             rewrite_deleted_name_loads_in_expr(func.as_mut(), deleted_names);
             for arg in args {
-                match arg {
-                    CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
-                        rewrite_deleted_name_loads_in_expr(value, deleted_names);
-                    }
-                }
+                rewrite_deleted_name_loads_in_expr(arg.expr_mut(), deleted_names);
             }
             for keyword in keywords {
-                match keyword {
-                    CoreBlockPyKeywordArg::Named { value, .. }
-                    | CoreBlockPyKeywordArg::Starred(value) => {
-                        rewrite_deleted_name_loads_in_expr(value, deleted_names);
-                    }
-                }
+                rewrite_deleted_name_loads_in_expr(keyword.expr_mut(), deleted_names);
             }
         }
         CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, keywords, .. }) => {
             for arg in args {
-                match arg {
-                    CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
-                        rewrite_deleted_name_loads_in_expr(value, deleted_names);
-                    }
-                }
+                rewrite_deleted_name_loads_in_expr(arg.expr_mut(), deleted_names);
             }
             for keyword in keywords {
-                match keyword {
-                    CoreBlockPyKeywordArg::Named { value, .. }
-                    | CoreBlockPyKeywordArg::Starred(value) => {
-                        rewrite_deleted_name_loads_in_expr(value, deleted_names);
-                    }
-                }
+                rewrite_deleted_name_loads_in_expr(keyword.expr_mut(), deleted_names);
             }
         }
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
@@ -685,41 +667,7 @@ struct NameBindingMapper<'a> {
     semantic: &'a BlockPyCallableSemanticInfo,
 }
 
-impl NameBindingMapper<'_> {
-    fn rewrite_args(
-        &self,
-        args: Vec<CoreBlockPyCallArg<CoreBlockPyExpr>>,
-    ) -> Vec<CoreBlockPyCallArg<CoreBlockPyExpr>> {
-        args.into_iter()
-            .map(|arg| match arg {
-                CoreBlockPyCallArg::Positional(value) => {
-                    CoreBlockPyCallArg::Positional(self.map_expr(value))
-                }
-                CoreBlockPyCallArg::Starred(value) => {
-                    CoreBlockPyCallArg::Starred(self.map_expr(value))
-                }
-            })
-            .collect()
-    }
-
-    fn rewrite_keywords(
-        &self,
-        keywords: Vec<CoreBlockPyKeywordArg<CoreBlockPyExpr>>,
-    ) -> Vec<CoreBlockPyKeywordArg<CoreBlockPyExpr>> {
-        keywords
-            .into_iter()
-            .map(|keyword| match keyword {
-                CoreBlockPyKeywordArg::Named { arg, value } => CoreBlockPyKeywordArg::Named {
-                    arg,
-                    value: self.map_expr(value),
-                },
-                CoreBlockPyKeywordArg::Starred(value) => {
-                    CoreBlockPyKeywordArg::Starred(self.map_expr(value))
-                }
-            })
-            .collect()
-    }
-}
+impl NameBindingMapper<'_> {}
 
 fn rewrite_binding_assign_by_name(
     name: String,
@@ -873,16 +821,16 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                     node_index,
                     range,
                     func: Box::new(self.map_expr(*func)),
-                    args: self.rewrite_args(args),
-                    keywords: self.rewrite_keywords(keywords),
+                    args: self.map_call_args(args),
+                    keywords: self.map_keyword_args(keywords),
                 })
             }
             CoreBlockPyExpr::Intrinsic(call) => CoreBlockPyExpr::Intrinsic(IntrinsicCall {
                 intrinsic: call.intrinsic,
                 node_index: call.node_index,
                 range: call.range,
-                args: self.rewrite_args(call.args),
-                keywords: self.rewrite_keywords(call.keywords),
+                args: self.map_call_args(call.args),
+                keywords: self.map_keyword_args(call.keywords),
             }),
         }
     }

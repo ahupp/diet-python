@@ -52,6 +52,40 @@ fn core_blockpy_expr_wraps_and_rewrites_expr() {
     assert_eq!(name.id.as_str(), "y");
 }
 
+#[test]
+fn call_and_keyword_arg_expr_helpers_preserve_shape() {
+    let mut positional = CoreBlockPyCallArg::Positional(py_expr!("x"));
+    *positional.expr_mut() = py_expr!("y");
+    assert!(matches!(
+        positional,
+        CoreBlockPyCallArg::Positional(Expr::Name(name)) if name.id.as_str() == "y"
+    ));
+
+    let starred = CoreBlockPyCallArg::Starred(py_expr!("z")).map_expr(|expr| {
+        let Expr::Name(name) = expr else {
+            panic!("expected name expr");
+        };
+        Expr::Name(name)
+    });
+    assert!(matches!(starred, CoreBlockPyCallArg::Starred(_)));
+
+    let keyword = CoreBlockPyKeywordArg::Named {
+        arg: ast::Identifier::new("value", ruff_text_size::TextRange::default()),
+        value: py_expr!("a"),
+    }
+    .try_map_expr(|expr| -> Result<Expr, &'static str> {
+        let Expr::Name(name) = expr else {
+            return Err("expected name expr");
+        };
+        Ok(Expr::Name(name))
+    })
+    .expect("keyword arg mapping should succeed");
+    assert!(matches!(
+        keyword,
+        CoreBlockPyKeywordArg::Named { arg, value: Expr::Name(_), .. } if arg.as_str() == "value"
+    ));
+}
+
 fn name_expr(name: &str) -> ast::ExprName {
     let Expr::Name(name) = py_expr!("{name:id}", name = name) else {
         unreachable!();

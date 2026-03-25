@@ -81,18 +81,10 @@ fn rewrite_call_parts(
     keywords: &mut [CoreBlockPyKeywordArg<CoreBlockPyExpr>],
 ) {
     for arg in args {
-        match arg {
-            CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
-                rewriter.rewrite_expr(value);
-            }
-        }
+        rewriter.rewrite_expr(arg.expr_mut());
     }
     for keyword in keywords {
-        match keyword {
-            CoreBlockPyKeywordArg::Named { value, .. } | CoreBlockPyKeywordArg::Starred(value) => {
-                rewriter.rewrite_expr(value)
-            }
-        }
+        rewriter.rewrite_expr(keyword.expr_mut());
     }
 }
 

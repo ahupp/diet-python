@@ -10,8 +10,8 @@ use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
     BbBlock, BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm, CfgBlock,
-    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral, IntrinsicCall, ModuleNameGen,
+    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, IntrinsicCall,
+    ModuleNameGen,
 };
 use crate::passes::{BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithYield};
 use ruff_python_ast::{self as ast};
@@ -276,36 +276,18 @@ fn rewrite_current_exception_in_blockpy_expr(expr: &mut CoreBlockPyExpr, exc_nam
         CoreBlockPyExpr::Call(call) => {
             rewrite_current_exception_in_blockpy_expr(call.func.as_mut(), exc_name);
             for arg in &mut call.args {
-                match arg {
-                    CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
-                        rewrite_current_exception_in_blockpy_expr(value, exc_name);
-                    }
-                }
+                rewrite_current_exception_in_blockpy_expr(arg.expr_mut(), exc_name);
             }
             for keyword in &mut call.keywords {
-                match keyword {
-                    CoreBlockPyKeywordArg::Named { value, .. }
-                    | CoreBlockPyKeywordArg::Starred(value) => {
-                        rewrite_current_exception_in_blockpy_expr(value, exc_name);
-                    }
-                }
+                rewrite_current_exception_in_blockpy_expr(keyword.expr_mut(), exc_name);
             }
         }
         CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, keywords, .. }) => {
             for arg in args {
-                match arg {
-                    CoreBlockPyCallArg::Positional(value) | CoreBlockPyCallArg::Starred(value) => {
-                        rewrite_current_exception_in_blockpy_expr(value, exc_name);
-                    }
-                }
+                rewrite_current_exception_in_blockpy_expr(arg.expr_mut(), exc_name);
             }
             for keyword in keywords {
-                match keyword {
-                    CoreBlockPyKeywordArg::Named { value, .. }
-                    | CoreBlockPyKeywordArg::Starred(value) => {
-                        rewrite_current_exception_in_blockpy_expr(value, exc_name);
-                    }
-                }
+                rewrite_current_exception_in_blockpy_expr(keyword.expr_mut(), exc_name);
             }
         }
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}

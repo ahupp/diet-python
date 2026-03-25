@@ -16,6 +16,7 @@ mod name_gen;
 pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod state;
+pub(crate) use convert::{map_call_args_with, map_keyword_args_with};
 pub use convert::{BlockPyModuleMap, BlockPyModuleTryMap};
 pub use name_gen::{FunctionNameGen, ModuleNameGen};
 
@@ -498,10 +499,77 @@ pub enum CoreBlockPyCallArg<E = CoreBlockPyExprWithAwaitAndYield> {
     Starred(E),
 }
 
+impl<E> CoreBlockPyCallArg<E> {
+    pub fn expr(&self) -> &E {
+        match self {
+            Self::Positional(expr) | Self::Starred(expr) => expr,
+        }
+    }
+
+    pub fn expr_mut(&mut self) -> &mut E {
+        match self {
+            Self::Positional(expr) | Self::Starred(expr) => expr,
+        }
+    }
+
+    pub fn map_expr<T>(self, f: impl FnOnce(E) -> T) -> CoreBlockPyCallArg<T> {
+        match self {
+            Self::Positional(expr) => CoreBlockPyCallArg::Positional(f(expr)),
+            Self::Starred(expr) => CoreBlockPyCallArg::Starred(f(expr)),
+        }
+    }
+
+    pub fn try_map_expr<T, Error>(
+        self,
+        f: impl FnOnce(E) -> Result<T, Error>,
+    ) -> Result<CoreBlockPyCallArg<T>, Error> {
+        match self {
+            Self::Positional(expr) => f(expr).map(CoreBlockPyCallArg::Positional),
+            Self::Starred(expr) => f(expr).map(CoreBlockPyCallArg::Starred),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum CoreBlockPyKeywordArg<E = CoreBlockPyExprWithAwaitAndYield> {
     Named { arg: ast::Identifier, value: E },
     Starred(E),
+}
+
+impl<E> CoreBlockPyKeywordArg<E> {
+    pub fn expr(&self) -> &E {
+        match self {
+            Self::Named { value, .. } | Self::Starred(value) => value,
+        }
+    }
+
+    pub fn expr_mut(&mut self) -> &mut E {
+        match self {
+            Self::Named { value, .. } | Self::Starred(value) => value,
+        }
+    }
+
+    pub fn map_expr<T>(self, f: impl FnOnce(E) -> T) -> CoreBlockPyKeywordArg<T> {
+        match self {
+            Self::Named { arg, value } => CoreBlockPyKeywordArg::Named {
+                arg,
+                value: f(value),
+            },
+            Self::Starred(value) => CoreBlockPyKeywordArg::Starred(f(value)),
+        }
+    }
+
+    pub fn try_map_expr<T, Error>(
+        self,
+        f: impl FnOnce(E) -> Result<T, Error>,
+    ) -> Result<CoreBlockPyKeywordArg<T>, Error> {
+        match self {
+            Self::Named { arg, value } => {
+                f(value).map(|value| CoreBlockPyKeywordArg::Named { arg, value })
+            }
+            Self::Starred(value) => f(value).map(CoreBlockPyKeywordArg::Starred),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

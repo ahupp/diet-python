@@ -1,5 +1,7 @@
 use super::*;
-use crate::block_py::{BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyExprWithAwaitAndYield};
+use crate::block_py::{
+    BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield,
+};
 
 fn test_name(id: &str) -> ast::ExprName {
     let ast::Expr::Name(expr) = crate::py_expr!("{id:id}", id = id) else {

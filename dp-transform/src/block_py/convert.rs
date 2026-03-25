@@ -7,6 +7,44 @@ use ruff_python_ast::{
     StringLiteralValue,
 };
 
+pub(crate) fn map_call_args_with<EIn, EOut>(
+    args: Vec<CoreBlockPyCallArg<EIn>>,
+    mut map_expr: impl FnMut(EIn) -> EOut,
+) -> Vec<CoreBlockPyCallArg<EOut>> {
+    args.into_iter()
+        .map(|arg| arg.map_expr(&mut map_expr))
+        .collect()
+}
+
+pub(crate) fn map_keyword_args_with<EIn, EOut>(
+    keywords: Vec<CoreBlockPyKeywordArg<EIn>>,
+    mut map_expr: impl FnMut(EIn) -> EOut,
+) -> Vec<CoreBlockPyKeywordArg<EOut>> {
+    keywords
+        .into_iter()
+        .map(|keyword| keyword.map_expr(&mut map_expr))
+        .collect()
+}
+
+pub(crate) fn try_map_call_args_with<EIn, EOut, Error>(
+    args: Vec<CoreBlockPyCallArg<EIn>>,
+    mut map_expr: impl FnMut(EIn) -> Result<EOut, Error>,
+) -> Result<Vec<CoreBlockPyCallArg<EOut>>, Error> {
+    args.into_iter()
+        .map(|arg| arg.try_map_expr(&mut map_expr))
+        .collect()
+}
+
+pub(crate) fn try_map_keyword_args_with<EIn, EOut, Error>(
+    keywords: Vec<CoreBlockPyKeywordArg<EIn>>,
+    mut map_expr: impl FnMut(EIn) -> Result<EOut, Error>,
+) -> Result<Vec<CoreBlockPyKeywordArg<EOut>>, Error> {
+    keywords
+        .into_iter()
+        .map(|keyword| keyword.try_map_expr(&mut map_expr))
+        .collect()
+}
+
 pub trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
@@ -111,6 +149,20 @@ where
             }),
             BlockPyTerm::Return(value) => BlockPyTerm::Return(self.map_expr(value)),
         }
+    }
+
+    fn map_call_args(
+        &self,
+        args: Vec<CoreBlockPyCallArg<PassExpr<PIn>>>,
+    ) -> Vec<CoreBlockPyCallArg<PassExpr<POut>>> {
+        map_call_args_with(args, |expr| self.map_expr(expr))
+    }
+
+    fn map_keyword_args(
+        &self,
+        keywords: Vec<CoreBlockPyKeywordArg<PassExpr<PIn>>>,
+    ) -> Vec<CoreBlockPyKeywordArg<PassExpr<POut>>> {
+        map_keyword_args_with(keywords, |expr| self.map_expr(expr))
     }
 
     fn map_expr(&self, expr: PassExpr<PIn>) -> PassExpr<POut>;
@@ -243,6 +295,20 @@ where
             })),
             BlockPyTerm::Return(value) => Ok(BlockPyTerm::Return(self.try_map_expr(value)?)),
         }
+    }
+
+    fn try_map_call_args(
+        &self,
+        args: Vec<CoreBlockPyCallArg<PassExpr<PIn>>>,
+    ) -> Result<Vec<CoreBlockPyCallArg<PassExpr<POut>>>, Self::Error> {
+        try_map_call_args_with(args, |expr| self.try_map_expr(expr))
+    }
+
+    fn try_map_keyword_args(
+        &self,
+        keywords: Vec<CoreBlockPyKeywordArg<PassExpr<PIn>>>,
+    ) -> Result<Vec<CoreBlockPyKeywordArg<PassExpr<POut>>>, Self::Error> {
+        try_map_keyword_args_with(keywords, |expr| self.try_map_expr(expr))
     }
 
     fn try_map_expr(&self, expr: PassExpr<PIn>) -> Result<PassExpr<POut>, Self::Error>;
@@ -481,58 +547,16 @@ impl TryFrom<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithYield {
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(Self::try_from(*call.func)?),
-                args: call
-                    .args
-                    .into_iter()
-                    .map(|arg| match arg {
-                        CoreBlockPyCallArg::Positional(expr) => {
-                            Self::try_from(expr).map(CoreBlockPyCallArg::Positional)
-                        }
-                        CoreBlockPyCallArg::Starred(expr) => {
-                            Self::try_from(expr).map(CoreBlockPyCallArg::Starred)
-                        }
-                    })
-                    .collect::<Result<_, _>>()?,
-                keywords: call
-                    .keywords
-                    .into_iter()
-                    .map(|keyword| match keyword {
-                        CoreBlockPyKeywordArg::Named { arg, value } => Self::try_from(value)
-                            .map(|value| CoreBlockPyKeywordArg::Named { arg, value }),
-                        CoreBlockPyKeywordArg::Starred(value) => {
-                            Self::try_from(value).map(CoreBlockPyKeywordArg::Starred)
-                        }
-                    })
-                    .collect::<Result<_, _>>()?,
+                args: try_map_call_args_with(call.args, Self::try_from)?,
+                keywords: try_map_keyword_args_with(call.keywords, Self::try_from)?,
             })),
             CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) => {
                 Ok(Self::Intrinsic(IntrinsicCall {
                     intrinsic: call.intrinsic,
                     node_index: call.node_index,
                     range: call.range,
-                    args: call
-                        .args
-                        .into_iter()
-                        .map(|arg| match arg {
-                            CoreBlockPyCallArg::Positional(expr) => {
-                                Self::try_from(expr).map(CoreBlockPyCallArg::Positional)
-                            }
-                            CoreBlockPyCallArg::Starred(expr) => {
-                                Self::try_from(expr).map(CoreBlockPyCallArg::Starred)
-                            }
-                        })
-                        .collect::<Result<_, _>>()?,
-                    keywords: call
-                        .keywords
-                        .into_iter()
-                        .map(|keyword| match keyword {
-                            CoreBlockPyKeywordArg::Named { arg, value } => Self::try_from(value)
-                                .map(|value| CoreBlockPyKeywordArg::Named { arg, value }),
-                            CoreBlockPyKeywordArg::Starred(value) => {
-                                Self::try_from(value).map(CoreBlockPyKeywordArg::Starred)
-                            }
-                        })
-                        .collect::<Result<_, _>>()?,
+                    args: try_map_call_args_with(call.args, Self::try_from)?,
+                    keywords: try_map_keyword_args_with(call.keywords, Self::try_from)?,
                 }))
             }
             CoreBlockPyExprWithAwaitAndYield::Yield(yield_expr) => {
@@ -645,65 +669,15 @@ impl From<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(Self::from(*call.func)),
-                args: call
-                    .args
-                    .into_iter()
-                    .map(|arg| match arg {
-                        CoreBlockPyCallArg::Positional(expr) => {
-                            CoreBlockPyCallArg::Positional(Self::from(expr))
-                        }
-                        CoreBlockPyCallArg::Starred(expr) => {
-                            CoreBlockPyCallArg::Starred(Self::from(expr))
-                        }
-                    })
-                    .collect(),
-                keywords: call
-                    .keywords
-                    .into_iter()
-                    .map(|keyword| match keyword {
-                        CoreBlockPyKeywordArg::Named { arg, value } => {
-                            CoreBlockPyKeywordArg::Named {
-                                arg,
-                                value: Self::from(value),
-                            }
-                        }
-                        CoreBlockPyKeywordArg::Starred(value) => {
-                            CoreBlockPyKeywordArg::Starred(Self::from(value))
-                        }
-                    })
-                    .collect(),
+                args: map_call_args_with(call.args, Self::from),
+                keywords: map_keyword_args_with(call.keywords, Self::from),
             }),
             CoreBlockPyExprWithYield::Intrinsic(call) => Self::Intrinsic(IntrinsicCall {
                 intrinsic: call.intrinsic,
                 node_index: call.node_index,
                 range: call.range,
-                args: call
-                    .args
-                    .into_iter()
-                    .map(|arg| match arg {
-                        CoreBlockPyCallArg::Positional(expr) => {
-                            CoreBlockPyCallArg::Positional(Self::from(expr))
-                        }
-                        CoreBlockPyCallArg::Starred(expr) => {
-                            CoreBlockPyCallArg::Starred(Self::from(expr))
-                        }
-                    })
-                    .collect(),
-                keywords: call
-                    .keywords
-                    .into_iter()
-                    .map(|keyword| match keyword {
-                        CoreBlockPyKeywordArg::Named { arg, value } => {
-                            CoreBlockPyKeywordArg::Named {
-                                arg,
-                                value: Self::from(value),
-                            }
-                        }
-                        CoreBlockPyKeywordArg::Starred(value) => {
-                            CoreBlockPyKeywordArg::Starred(Self::from(value))
-                        }
-                    })
-                    .collect(),
+                args: map_call_args_with(call.args, Self::from),
+                keywords: map_keyword_args_with(call.keywords, Self::from),
             }),
             CoreBlockPyExprWithYield::Yield(yield_expr) => Self::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,
@@ -732,57 +706,15 @@ impl TryFrom<CoreBlockPyExprWithYield> for CoreBlockPyExpr {
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(Self::try_from(*call.func)?),
-                args: call
-                    .args
-                    .into_iter()
-                    .map(|arg| match arg {
-                        CoreBlockPyCallArg::Positional(expr) => {
-                            Self::try_from(expr).map(CoreBlockPyCallArg::Positional)
-                        }
-                        CoreBlockPyCallArg::Starred(expr) => {
-                            Self::try_from(expr).map(CoreBlockPyCallArg::Starred)
-                        }
-                    })
-                    .collect::<Result<_, _>>()?,
-                keywords: call
-                    .keywords
-                    .into_iter()
-                    .map(|keyword| match keyword {
-                        CoreBlockPyKeywordArg::Named { arg, value } => Self::try_from(value)
-                            .map(|value| CoreBlockPyKeywordArg::Named { arg, value }),
-                        CoreBlockPyKeywordArg::Starred(value) => {
-                            Self::try_from(value).map(CoreBlockPyKeywordArg::Starred)
-                        }
-                    })
-                    .collect::<Result<_, _>>()?,
+                args: try_map_call_args_with(call.args, Self::try_from)?,
+                keywords: try_map_keyword_args_with(call.keywords, Self::try_from)?,
             })),
             CoreBlockPyExprWithYield::Intrinsic(call) => Ok(Self::Intrinsic(IntrinsicCall {
                 intrinsic: call.intrinsic,
                 node_index: call.node_index,
                 range: call.range,
-                args: call
-                    .args
-                    .into_iter()
-                    .map(|arg| match arg {
-                        CoreBlockPyCallArg::Positional(expr) => {
-                            Self::try_from(expr).map(CoreBlockPyCallArg::Positional)
-                        }
-                        CoreBlockPyCallArg::Starred(expr) => {
-                            Self::try_from(expr).map(CoreBlockPyCallArg::Starred)
-                        }
-                    })
-                    .collect::<Result<_, _>>()?,
-                keywords: call
-                    .keywords
-                    .into_iter()
-                    .map(|keyword| match keyword {
-                        CoreBlockPyKeywordArg::Named { arg, value } => Self::try_from(value)
-                            .map(|value| CoreBlockPyKeywordArg::Named { arg, value }),
-                        CoreBlockPyKeywordArg::Starred(value) => {
-                            Self::try_from(value).map(CoreBlockPyKeywordArg::Starred)
-                        }
-                    })
-                    .collect::<Result<_, _>>()?,
+                args: try_map_call_args_with(call.args, Self::try_from)?,
+                keywords: try_map_keyword_args_with(call.keywords, Self::try_from)?,
             })),
             CoreBlockPyExprWithYield::Yield(_) | CoreBlockPyExprWithYield::YieldFrom(_) => {
                 Err(value)
@@ -869,65 +801,15 @@ impl From<CoreBlockPyExpr> for CoreBlockPyExprWithYield {
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(Self::from(*call.func)),
-                args: call
-                    .args
-                    .into_iter()
-                    .map(|arg| match arg {
-                        CoreBlockPyCallArg::Positional(expr) => {
-                            CoreBlockPyCallArg::Positional(Self::from(expr))
-                        }
-                        CoreBlockPyCallArg::Starred(expr) => {
-                            CoreBlockPyCallArg::Starred(Self::from(expr))
-                        }
-                    })
-                    .collect(),
-                keywords: call
-                    .keywords
-                    .into_iter()
-                    .map(|keyword| match keyword {
-                        CoreBlockPyKeywordArg::Named { arg, value } => {
-                            CoreBlockPyKeywordArg::Named {
-                                arg,
-                                value: Self::from(value),
-                            }
-                        }
-                        CoreBlockPyKeywordArg::Starred(value) => {
-                            CoreBlockPyKeywordArg::Starred(Self::from(value))
-                        }
-                    })
-                    .collect(),
+                args: map_call_args_with(call.args, Self::from),
+                keywords: map_keyword_args_with(call.keywords, Self::from),
             }),
             CoreBlockPyExpr::Intrinsic(call) => Self::Intrinsic(IntrinsicCall {
                 intrinsic: call.intrinsic,
                 node_index: call.node_index,
                 range: call.range,
-                args: call
-                    .args
-                    .into_iter()
-                    .map(|arg| match arg {
-                        CoreBlockPyCallArg::Positional(expr) => {
-                            CoreBlockPyCallArg::Positional(Self::from(expr))
-                        }
-                        CoreBlockPyCallArg::Starred(expr) => {
-                            CoreBlockPyCallArg::Starred(Self::from(expr))
-                        }
-                    })
-                    .collect(),
-                keywords: call
-                    .keywords
-                    .into_iter()
-                    .map(|keyword| match keyword {
-                        CoreBlockPyKeywordArg::Named { arg, value } => {
-                            CoreBlockPyKeywordArg::Named {
-                                arg,
-                                value: Self::from(value),
-                            }
-                        }
-                        CoreBlockPyKeywordArg::Starred(value) => {
-                            CoreBlockPyKeywordArg::Starred(Self::from(value))
-                        }
-                    })
-                    .collect(),
+                args: map_call_args_with(call.args, Self::from),
+                keywords: map_keyword_args_with(call.keywords, Self::from),
             }),
         }
     }
