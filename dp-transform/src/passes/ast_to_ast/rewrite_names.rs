@@ -231,34 +231,33 @@ impl<'a> NameScopeRewriter<'a> {
             return None;
         };
 
+        self.visit_expr(value.as_mut());
+
         let name = id.as_str();
         if is_internal_symbol(name) {
             return None;
         }
 
-        self.visit_expr(value.as_mut());
-
         match self
             .scope
             .binding_in_scope(id.as_str(), SemanticBindingUse::Modify)
         {
-            SemanticBindingKind::Global if !self.is_class_scope() => None,
-            SemanticBindingKind::Global => Some(py_expr!(
-                "__dp_store_global(globals(), {name:literal}, {value:expr})",
-                name = id.as_str(),
-                value = value.as_ref().clone()
-            )),
-            SemanticBindingKind::Nonlocal if self.is_class_scope() => {
-                let cell = cell_name(id.as_str());
-                Some(py_expr!(
-                    "__dp_store_cell({cell:id}, {value:expr})",
-                    cell = cell.as_str(),
-                    value = value.as_ref().clone()
-                ))
-            }
+            SemanticBindingKind::Global => None,
             SemanticBindingKind::Nonlocal => None,
             _ => None,
         }
+    }
+
+    fn named_expr_preserves_target_name(&self, named: &ast::ExprNamed) -> bool {
+        let Expr::Name(ast::ExprName { id, .. }) = named.target.as_ref() else {
+            return false;
+        };
+        !is_internal_symbol(id.as_str())
+            && matches!(
+                self.scope
+                    .binding_in_scope(id.as_str(), SemanticBindingUse::Modify),
+                SemanticBindingKind::Global | SemanticBindingKind::Nonlocal
+            )
     }
 
     fn loop_target_sync_stmts(&self, target_names: &[String]) -> Vec<Stmt> {
@@ -632,8 +631,12 @@ impl Transformer for NameScopeRewriter<'_> {
                 }
             }
             Expr::Named(named) => {
+                let preserve_target_name = self.named_expr_preserves_target_name(named);
                 if let Some(rewritten) = self.rewrite_named_expr_any(named) {
                     *expr = rewritten;
+                    return;
+                }
+                if preserve_target_name {
                     return;
                 }
             }
