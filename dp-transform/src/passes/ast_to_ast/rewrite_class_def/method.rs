@@ -2,7 +2,7 @@ use ruff_python_ast::{self as ast, Expr, Stmt};
 
 use crate::passes::ast_to_ast::body::suite_mut;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
-use crate::{passes::ast_to_ast::util::is_noarg_call, py_expr, py_stmt};
+use crate::{passes::ast_to_ast::util::is_noarg_call, py_expr};
 
 struct MethodRewriteSuperClasscell {
     first_arg: Option<String>,
