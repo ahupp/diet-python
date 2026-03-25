@@ -274,6 +274,58 @@ fn semantic_state_implicit_nonlocal_reads_mark_root_binding() {
 }
 
 #[test]
+fn semantic_state_marks_method_dunder_class_as_nonlocal_cell_capture() {
+    let mut body = parse_module_body(concat!(
+        "class C:\n",
+        "    def f(self):\n",
+        "        return __class__\n",
+    ));
+    let semantic_state = SemanticAstState::from_ruff(&mut body);
+    let class_def = find_class(&body, "C");
+    let method_def = find_function(suite_ref(&class_def.body), "f");
+    let method_scope = function_scope(&semantic_state, method_def);
+
+    assert_eq!(
+        method_scope.binding_in_scope("__class__", SemanticBindingUse::Load),
+        SemanticBindingKind::Nonlocal
+    );
+    assert_eq!(
+        method_scope.cell_storage_name("__class__").as_deref(),
+        Some("_dp_classcell")
+    );
+}
+
+#[test]
+fn semantic_state_propagates_method_dunder_class_binding_to_nested_functions() {
+    let mut body = parse_module_body(concat!(
+        "class C:\n",
+        "    def f(self):\n",
+        "        def g():\n",
+        "            return __class__\n",
+        "        return g\n",
+    ));
+    let semantic_state = SemanticAstState::from_ruff(&mut body);
+    let class_def = find_class(&body, "C");
+    let method_def = find_function(suite_ref(&class_def.body), "f");
+    let method_scope = function_scope(&semantic_state, method_def);
+    let nested_def = find_function(suite_ref(&method_def.body), "g");
+    let nested_scope = function_scope(&semantic_state, nested_def);
+
+    assert_eq!(
+        method_scope.binding_in_scope("__class__", SemanticBindingUse::Load),
+        SemanticBindingKind::Nonlocal
+    );
+    assert_eq!(
+        nested_scope.binding_in_scope("__class__", SemanticBindingUse::Load),
+        SemanticBindingKind::Nonlocal
+    );
+    assert_eq!(
+        nested_scope.cell_storage_name("__class__").as_deref(),
+        Some("_dp_classcell")
+    );
+}
+
+#[test]
 fn semantic_state_recursive_local_function_is_tracked_as_cell_binding() {
     let mut body = parse_module_body(concat!(
         "def outer():\n",

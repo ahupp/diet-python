@@ -24,13 +24,19 @@ use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 
 fn generator_storage_name(name: &str) -> String {
-    if name == "_dp_classcell" || name.starts_with("_dp_cell_") {
+    if name == "__class__" || name == "_dp_classcell" {
+        return "_dp_classcell".to_string();
+    }
+    if name.starts_with("_dp_cell_") {
         return name.to_string();
     }
     cell_name(name)
 }
 
 fn logical_name_for_generator_state(name: &str) -> String {
+    if name == "_dp_classcell" {
+        return "__class__".to_string();
+    }
     name.strip_prefix("_dp_cell_").unwrap_or(name).to_string()
 }
 

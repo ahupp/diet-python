@@ -1,12 +1,11 @@
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
-use crate::passes::ast_to_ast::body::suite_mut;
+use crate::passes::ast_to_ast::body::{suite_mut, Suite};
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{passes::ast_to_ast::util::is_noarg_call, py_expr};
 
 struct MethodRewriteSuperClasscell {
     first_arg: Option<String>,
-    needs_class_cell: bool,
 }
 
 impl Transformer for MethodRewriteSuperClasscell {
@@ -14,36 +13,17 @@ impl Transformer for MethodRewriteSuperClasscell {
         match stmt {
             Stmt::FunctionDef(_) => return,
             Stmt::Delete(ast::StmtDelete { targets, .. }) => {
-                let mut modified = false;
-                for target in targets.iter_mut() {
-                    if matches!(
+                if targets.iter().any(|target| {
+                    matches!(
                         target,
                         Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__class__"
-                    ) {
-                        *target = py_expr!("_dp_classcell.cell_contents");
-                        modified = true;
-                    }
-                }
-                if modified {
-                    self.needs_class_cell = true;
+                    )
+                }) {
                     return;
                 }
             }
             Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
-                let mut removed = false;
-                names.retain(|name| {
-                    let keep = name.id.as_str() != "__class__";
-                    removed |= !keep;
-                    keep
-                });
-                if removed {
-                    self.needs_class_cell = true;
-                    if names.is_empty() {
-                        *stmt = Stmt::Pass(ast::StmtPass {
-                            node_index: Default::default(),
-                            range: Default::default(),
-                        });
-                    }
+                if names.iter().any(|name| name.id.as_str() == "__class__") {
                     return;
                 }
             }
@@ -57,7 +37,6 @@ impl Transformer for MethodRewriteSuperClasscell {
         match expr {
             Expr::Call(_) => {
                 if is_noarg_call("super", expr) {
-                    self.needs_class_cell = true;
                     *expr = match &self.first_arg {
                         Some(arg) => py_expr!(
                             "__dp_call_super(super, _dp_classcell, {arg:id})",
@@ -67,14 +46,9 @@ impl Transformer for MethodRewriteSuperClasscell {
                     };
                     return;
                 }
-                if is_dp_call(expr, "call_super") || is_dp_call(expr, "call_super_noargs") {
-                    self.needs_class_cell = true;
-                }
             }
             Expr::Name(ast::ExprName { id, .. }) => {
                 if id.as_str() == "__class__" {
-                    self.needs_class_cell = true;
-                    *expr = py_expr!("_dp_classcell.cell_contents");
                     return;
                 }
             }
@@ -144,12 +118,68 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef) -> bool {
                 .map(|a| a.parameter.name.to_string())
         });
 
-    let mut transformer = MethodRewriteSuperClasscell {
-        first_arg,
-        needs_class_cell: false,
-    };
+    let mut transformer = MethodRewriteSuperClasscell { first_arg };
     for stmt in suite_mut(&mut func_def.body).iter_mut() {
         (&mut transformer).visit_stmt(stmt);
     }
-    transformer.needs_class_cell
+    function_uses_class_cell(suite_mut(&mut func_def.body))
+}
+
+#[derive(Default)]
+struct FunctionUsesClassCellDetector {
+    uses_class_cell: bool,
+}
+
+impl Transformer for FunctionUsesClassCellDetector {
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        match stmt {
+            Stmt::Delete(ast::StmtDelete { targets, .. }) => {
+                if targets.iter().any(|target| {
+                    matches!(
+                        target,
+                        Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__class__"
+                    )
+                }) {
+                    self.uses_class_cell = true;
+                    return;
+                }
+            }
+            Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
+                if names.iter().any(|name| name.id.as_str() == "__class__") {
+                    self.uses_class_cell = true;
+                    return;
+                }
+            }
+            _ => {}
+        }
+        walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        match expr {
+            Expr::Call(_) => {
+                if is_noarg_call("super", expr)
+                    || is_dp_call(expr, "call_super")
+                    || is_dp_call(expr, "call_super_noargs")
+                {
+                    self.uses_class_cell = true;
+                    return;
+                }
+            }
+            Expr::Name(ast::ExprName { id, .. }) => {
+                if id.as_str() == "__class__" {
+                    self.uses_class_cell = true;
+                    return;
+                }
+            }
+            _ => {}
+        }
+        walk_expr(self, expr);
+    }
+}
+
+fn function_uses_class_cell(body: &mut Suite) -> bool {
+    let mut detector = FunctionUsesClassCellDetector::default();
+    detector.visit_body(body);
+    detector.uses_class_cell
 }

@@ -494,6 +494,59 @@ def outer():
 }
 
 #[test]
+fn method_dunder_class_load_moves_to_name_binding_pass() {
+    let source = concat!(
+        "class C:\n",
+        "    def f(self):\n",
+        "        return __class__\n",
+    );
+
+    let lowered = TrackedLowering::new(source);
+    let core_rendered = lowered.pass_text("core_blockpy");
+    assert!(
+        core_rendered.contains("return __class__"),
+        "{core_rendered}"
+    );
+    assert!(
+        !core_rendered.contains("_dp_classcell.cell_contents"),
+        "{core_rendered}"
+    );
+
+    let name_binding_rendered = lowered.name_binding_text();
+    assert!(
+        name_binding_rendered.contains("return __dp_load_cell(_dp_classcell)"),
+        "{name_binding_rendered}"
+    );
+}
+
+#[test]
+fn nested_method_dunder_class_capture_uses_classcell_storage() {
+    let source = concat!(
+        "class C:\n",
+        "    def f(self):\n",
+        "        def g():\n",
+        "            return __class__\n",
+        "        return g()\n",
+    );
+
+    let lowered = TrackedLowering::new(source);
+    let name_binding_rendered = lowered.name_binding_text();
+    assert!(
+        name_binding_rendered.contains("function C.f.<locals>.g():"),
+        "{name_binding_rendered}"
+    );
+    assert!(
+        name_binding_rendered.contains("return __dp_load_cell(_dp_classcell)"),
+        "{name_binding_rendered}"
+    );
+    assert!(
+        name_binding_rendered.contains("__dp_make_function(")
+            && name_binding_rendered.contains("\"_dp_classcell\", _dp_classcell"),
+        "{name_binding_rendered}"
+    );
+}
+
+#[test]
 fn class_body_except_name_global_binding_moves_to_name_binding_pass() {
     let source = r#"
 class Box:

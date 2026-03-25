@@ -22,7 +22,6 @@ use crate::block_py::{
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
-use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::RuffBlockPyPass;
 use crate::ruff_ast_to_string;
 use crate::template::is_simple;
@@ -263,7 +262,7 @@ fn build_semantic_blockpy_closure_layout(
                 .resolved_load_binding_kind(name.as_str())
                 == BlockPyBindingKind::Cell(crate::block_py::BlockPyCellBindingKind::Capture)
             {
-                let capture_name = cell_name(name.as_str());
+                let capture_name = callable_def.semantic.cell_storage_name(name.as_str());
                 return !local_cell_slot_names.contains(capture_name.as_str())
                     && !defined_names.contains(capture_name.as_str());
             }

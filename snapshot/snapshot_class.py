@@ -144,7 +144,7 @@ def outer():
 #     function_id: 0
 #     local_cell_slots: [_dp_cell__dp_class_ns, _dp_cell__dp_classcell_arg, _dp_classcell, _dp_cell_y]
 #     freevars: [x->_dp_cell_x@inherited]
-#     cellvars: [_dp_class_ns->_dp_cell__dp_class_ns@param, _dp_classcell_arg->_dp_cell__dp_classcell_arg@param, _dp_classcell->_dp_classcell@deferred, y->_dp_cell_y@deferred]
+#     cellvars: [_dp_class_ns->_dp_cell__dp_class_ns@param, _dp_classcell_arg->_dp_cell__dp_classcell_arg@param, __class__->_dp_classcell@deferred, y->_dp_cell_y@deferred]
 #     block _dp_bb_0_1:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
@@ -192,10 +192,10 @@ class X:
 # function X.f(x):
 #     function_id: 0
 #     local_cell_slots: [_dp_cell_x]
-#     freevars: [_dp_classcell->_dp_classcell@inherited]
+#     freevars: [__class__->_dp_classcell@inherited]
 #     cellvars: [x->_dp_cell_x@param]
 #     block _dp_bb_0_1:
-#         __dp_delattr(_dp_classcell, "cell_contents")
+#         del __class__
 #         __dp_call_super(super, _dp_classcell, x)
 #         return __dp_NONE
 

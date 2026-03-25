@@ -801,7 +801,7 @@ impl BlockPyCallableSemanticInfo {
                     binding,
                     BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner)
                 )
-                .then(|| cell_name(name.as_str()))
+                .then(|| self.cell_storage_name(name.as_str()))
             })
             .collect()
     }

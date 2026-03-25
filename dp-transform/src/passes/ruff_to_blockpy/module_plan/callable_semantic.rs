@@ -189,7 +189,7 @@ pub(super) fn callable_semantic_info(
         scope_kind,
         bindings,
         local_defs,
-        cell_storage_names: HashMap::new(),
+        cell_storage_names: function_scope.cell_storage_names(),
         semantic_internal_names: HashSet::new(),
         type_param_names,
         effective_load_bindings,

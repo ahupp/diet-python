@@ -14,6 +14,7 @@ use ruff_text_size::{Ranged, TextRange};
 
 use crate::passes::ast_to_ast::body::Suite;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
+use crate::passes::ast_to_ast::util::is_noarg_call;
 use crate::transformer::Transformer;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,6 +47,7 @@ struct SemanticScopeData {
     local_defs: HashSet<String>,
     type_param_names: HashSet<String>,
     local_cell_bindings: HashSet<String>,
+    cell_storage_names: HashMap<String, String>,
     parent: Option<SemanticScopeId>,
     qualname: String,
     reuses_child_scopes: bool,
@@ -298,6 +300,15 @@ impl SemanticScope {
         self.data().qualname.as_str()
     }
 
+    #[cfg(test)]
+    pub(crate) fn cell_storage_name(&self, name: &str) -> Option<String> {
+        self.data().cell_storage_names.get(name).cloned()
+    }
+
+    pub(crate) fn cell_storage_names(&self) -> HashMap<String, String> {
+        self.data().cell_storage_names.clone()
+    }
+
     pub(crate) fn child_function_qualname(&self, name: &str) -> String {
         child_qualname(self.data(), name)
     }
@@ -321,6 +332,62 @@ struct RuffScopeBindingCollector {
     explicit_globals: Vec<(String, TextRange)>,
     explicit_nonlocals: Vec<(String, TextRange)>,
     load_names: HashSet<String>,
+}
+
+#[derive(Default)]
+struct ImplicitClassCellUseDetector {
+    uses_class_cell: bool,
+}
+
+impl Transformer for ImplicitClassCellUseDetector {
+    fn visit_stmt(&mut self, stmt: &mut ast::Stmt) {
+        match stmt {
+            ast::Stmt::Delete(ast::StmtDelete { targets, .. }) => {
+                if targets.iter().any(|target| {
+                    matches!(
+                        target,
+                        ast::Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__class__"
+                    )
+                }) {
+                    self.uses_class_cell = true;
+                    return;
+                }
+            }
+            ast::Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
+                if names.iter().any(|name| name.id.as_str() == "__class__") {
+                    self.uses_class_cell = true;
+                    return;
+                }
+            }
+            _ => {}
+        }
+        crate::transformer::walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &mut ast::Expr) {
+        match expr {
+            ast::Expr::Name(ast::ExprName {
+                id,
+                ctx: ExprContext::Load,
+                ..
+            }) if id.as_str() == "__class__" => {
+                self.uses_class_cell = true;
+                return;
+            }
+            ast::Expr::Call(_) if is_noarg_call("super", expr) => {
+                self.uses_class_cell = true;
+                return;
+            }
+            _ => {}
+        }
+        crate::transformer::walk_expr(self, expr);
+    }
+}
+
+fn uses_implicit_class_cell(body: &mut Suite) -> bool {
+    let mut detector = ImplicitClassCellUseDetector::default();
+    detector.visit_body(body);
+    detector.uses_class_cell
 }
 
 impl Transformer for RuffScopeBindingCollector {
@@ -431,7 +498,7 @@ impl Transformer for RuffScopeBindingCollector {
             }
             ast::Expr::Name(name) if matches!(name.ctx, ExprContext::Load) => {
                 let id = name.id.as_str();
-                if id != "__class__" && !is_internal_symbol(id) {
+                if !is_internal_symbol(id) {
                     self.load_names.insert(id.to_string());
                 }
                 return;
@@ -540,6 +607,7 @@ struct ScopePreparation {
     bindings: HashMap<String, SemanticBindingKind>,
     local_defs: HashSet<String>,
     type_param_names: HashSet<String>,
+    cell_storage_names: HashMap<String, String>,
 }
 
 struct RuffSemanticSnapshotBuilder {
@@ -573,6 +641,7 @@ impl RuffSemanticSnapshotBuilder {
                     local_defs: HashSet::new(),
                     type_param_names: HashSet::new(),
                     local_cell_bindings: HashSet::new(),
+                    cell_storage_names: HashMap::new(),
                     parent: None,
                     qualname: String::new(),
                     reuses_child_scopes: false,
@@ -591,6 +660,7 @@ impl RuffSemanticSnapshotBuilder {
             module_scope.bindings = module_preparation.bindings;
             module_scope.local_defs = module_preparation.local_defs;
             module_scope.type_param_names = module_preparation.type_param_names;
+            module_scope.cell_storage_names = module_preparation.cell_storage_names;
         }
         builder.visit_body(module_for_build);
         builder.propagate_nonlocal_roots();
@@ -630,6 +700,7 @@ impl RuffSemanticSnapshotBuilder {
         parameters: &[(String, TextRange)],
     ) -> ScopePreparation {
         let collector = collect_scope_bindings(body, type_params);
+        let uses_class_cell = uses_implicit_class_cell(body);
         let explicit_globals = collector
             .explicit_globals
             .iter()
@@ -696,6 +767,7 @@ impl RuffSemanticSnapshotBuilder {
 
         let mut bindings = HashMap::new();
         let mut local_defs = HashSet::new();
+        let mut cell_storage_names = HashMap::new();
         for name in &explicit_globals {
             set_semantic_binding(&mut bindings, name, SemanticBindingKind::Global);
         }
@@ -718,8 +790,12 @@ impl RuffSemanticSnapshotBuilder {
             if bindings.contains_key(name.as_str()) {
                 continue;
             }
-            if self.resolves_to_enclosing_function(name.as_str()) {
+            if let Some(storage_name) = self.enclosing_function_capture_storage_name(name.as_str())
+            {
                 set_semantic_binding(&mut bindings, name.as_str(), SemanticBindingKind::Nonlocal);
+                if let Some(storage_name) = storage_name {
+                    cell_storage_names.insert(name.clone(), storage_name);
+                }
                 self.implicit_nonlocals_by_scope
                     .entry(self.current_ids().0)
                     .or_default()
@@ -727,26 +803,58 @@ impl RuffSemanticSnapshotBuilder {
             }
         }
 
+        if self.current_scope_is_function()
+            && uses_class_cell
+            && !bindings.contains_key("__class__")
+        {
+            set_semantic_binding(&mut bindings, "__class__", SemanticBindingKind::Nonlocal);
+            cell_storage_names.insert("__class__".to_string(), "_dp_classcell".to_string());
+        } else if self.current_scope_is_function()
+            && uses_class_cell
+            && matches!(
+                bindings.get("__class__"),
+                Some(SemanticBindingKind::Nonlocal)
+            )
+        {
+            cell_storage_names.insert("__class__".to_string(), "_dp_classcell".to_string());
+        }
+
         ScopePreparation {
             bindings,
             local_defs,
             type_param_names: collector.type_param_names,
+            cell_storage_names,
         }
     }
 
-    fn resolves_to_enclosing_function(&self, name: &str) -> bool {
-        self.semantic
-            .scopes
-            .ancestor_ids(self.semantic.scope_id)
-            .find_map(|scope_id| match self.semantic.scopes[scope_id].kind {
-                RuffScopeKind::Function(_) => self.semantic.scopes[scope_id]
-                    .get(name)
-                    .map(|binding_id| !self.semantic.binding(binding_id).is_global()),
-                RuffScopeKind::Module => Some(false),
-                RuffScopeKind::Class(_) => None,
-                _ => None,
-            })
-            .unwrap_or(false)
+    fn current_scope_is_function(&self) -> bool {
+        matches!(
+            self.semantic.current_scope().kind,
+            RuffScopeKind::Function(_)
+        )
+    }
+
+    fn enclosing_function_capture_storage_name(&self, name: &str) -> Option<Option<String>> {
+        let mut current = Some(self.current_ids().0);
+        while let Some(scope_id) = current {
+            let scope = self.snapshot.scope(scope_id);
+            match scope.kind {
+                SemanticScopeKind::Function => {
+                    if scope.local_defs.contains(name)
+                        || matches!(
+                            scope.bindings.get(name),
+                            Some(SemanticBindingKind::Nonlocal)
+                        )
+                    {
+                        return Some(scope.cell_storage_names.get(name).cloned());
+                    }
+                }
+                SemanticScopeKind::Module => return None,
+                SemanticScopeKind::Class => {}
+            }
+            current = scope.parent;
+        }
+        None
     }
 
     fn push_snapshot_scope(
@@ -765,6 +873,7 @@ impl RuffSemanticSnapshotBuilder {
             local_defs: preparation.local_defs,
             type_param_names: preparation.type_param_names,
             local_cell_bindings: HashSet::new(),
+            cell_storage_names: preparation.cell_storage_names,
             parent: Some(parent_id),
             qualname,
             reuses_child_scopes: false,
@@ -1025,6 +1134,7 @@ impl SemanticAstState {
                 local_defs: HashSet::new(),
                 type_param_names: HashSet::new(),
                 local_cell_bindings: HashSet::new(),
+                cell_storage_names: HashMap::new(),
                 parent: Some(module_scope.scope_id),
                 qualname: "_dp_module_init".to_string(),
                 reuses_child_scopes: true,
