@@ -1,6 +1,6 @@
 use std::mem::take;
 
-use ruff_python_ast::{Expr, ExprContext, Stmt};
+use ruff_python_ast::Stmt;
 
 use crate::passes::ast_to_ast::body::{suite_mut, Suite};
 use crate::passes::ast_to_ast::context::Context;
@@ -9,22 +9,6 @@ use crate::passes::ast_to_ast::rewrite_stmt;
 use crate::passes::ast_to_ast::semantic::{SemanticAstState, SemanticScope, SemanticScopeKind};
 use crate::transformer::{walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
-
-pub(crate) fn class_body_store_target(name: &str, ctx: ExprContext) -> Expr {
-    let mut expr = py_expr!("_dp_class_ns[{name:literal}]", name = name);
-    if let Expr::Subscript(sub) = &mut expr {
-        sub.ctx = ctx;
-    }
-    expr
-}
-
-pub(crate) fn class_body_store_global(name: &str, ctx: ExprContext) -> Expr {
-    let mut expr = py_expr!("globals()[{name:literal}]", name = name);
-    if let Expr::Subscript(sub) = &mut expr {
-        sub.ctx = ctx;
-    }
-    expr
-}
 
 pub fn rewrite_class_body_scopes(
     context: &Context,

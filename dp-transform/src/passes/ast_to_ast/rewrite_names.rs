@@ -14,7 +14,6 @@ use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{
     passes::ast_to_ast::{
         ast_rewrite::Rewrite,
-        rewrite_class_def::class_body::{class_body_store_global, class_body_store_target},
         rewrite_import,
         scope_helpers::{cell_name, is_internal_symbol},
         util::is_noarg_call,
@@ -202,27 +201,6 @@ impl<'a> NameScopeRewriter<'a> {
             return false;
         };
         id.as_str() == name
-    }
-
-    fn rewrite_name_store(&self, name: &ast::ExprName) -> Option<Expr> {
-        let id = name.id.as_str();
-        if is_internal_symbol(id) {
-            return None;
-        }
-
-        match (
-            self.scope.kind(),
-            self.scope.binding_in_scope(id, SemanticBindingUse::Load),
-        ) {
-            (SemanticScopeKind::Class, SemanticBindingKind::Global) => {
-                Some(class_body_store_global(id, name.ctx))
-            }
-            (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal) => None,
-            (SemanticScopeKind::Class, SemanticBindingKind::Local) => {
-                Some(class_body_store_target(id, name.ctx))
-            }
-            (_, _) => None,
-        }
     }
 
     fn visit_target_expr_preserving_names(&mut self, expr: &mut Expr) {
@@ -525,9 +503,6 @@ impl Transformer for NameScopeRewriter<'_> {
                 return;
             }
             Expr::Name(name) if matches!(name.ctx, ExprContext::Store | ExprContext::Del) => {
-                if let Some(rewritten) = self.rewrite_name_store(name) {
-                    *expr = rewritten;
-                }
                 return;
             }
             _ => {}
