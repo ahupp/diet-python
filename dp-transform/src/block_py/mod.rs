@@ -1112,8 +1112,53 @@ pub enum BbStmt {
     Delete(BlockPyDelete),
 }
 
+impl From<BlockPyAssign<CoreBlockPyExpr>> for BbStmt {
+    fn from(value: BlockPyAssign<CoreBlockPyExpr>) -> Self {
+        Self::Assign(value)
+    }
+}
+
+impl From<CoreBlockPyExpr> for BbStmt {
+    fn from(value: CoreBlockPyExpr) -> Self {
+        Self::Expr(value)
+    }
+}
+
+impl From<BlockPyDelete> for BbStmt {
+    fn from(value: BlockPyDelete) -> Self {
+        Self::Delete(value)
+    }
+}
+
+impl From<BlockPyStmt<CoreBlockPyExpr>> for BbStmt {
+    fn from(value: BlockPyStmt<CoreBlockPyExpr>) -> Self {
+        match value {
+            BlockPyStmt::Assign(assign) => Self::Assign(assign),
+            BlockPyStmt::Expr(expr) => Self::Expr(expr),
+            BlockPyStmt::Delete(delete) => Self::Delete(delete),
+            BlockPyStmt::If(_) => panic!("structured BlockPy If reached BbStmt conversion"),
+        }
+    }
+}
+
+impl IntoBlockPyStmt<CoreBlockPyExpr> for BbStmt {
+    fn into_stmt(self) -> BlockPyStmt<CoreBlockPyExpr> {
+        match self {
+            BbStmt::Assign(assign) => BlockPyStmt::Assign(assign),
+            BbStmt::Expr(expr) => BlockPyStmt::Expr(expr),
+            BbStmt::Delete(delete) => BlockPyStmt::Delete(delete),
+        }
+    }
+}
+
 impl BlockPyNormalizedStmt for BbStmt {
     fn assert_blockpy_normalized(&self) {}
+}
+
+impl<E: Clone + fmt::Debug> IntoBlockPyStmt<E> for BlockPyStmt<E> {
+    fn into_stmt(self) -> BlockPyStmt<E> {
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
