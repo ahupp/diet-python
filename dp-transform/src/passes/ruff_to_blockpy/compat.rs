@@ -48,24 +48,6 @@ pub(crate) fn compat_block_from_blockpy_with_exc_target(
     with_exc_meta(block.finish(None), exc_target)
 }
 
-pub(crate) fn compat_if_jump_block(
-    label: BlockPyLabel,
-    body: Vec<Stmt>,
-    test: Expr,
-    then_label: String,
-    else_label: String,
-) -> LoweredBlockPyBlock {
-    compat_block_from_blockpy(
-        label.clone(),
-        body,
-        BlockPyTerm::IfTerm(BlockPyIfTerm {
-            test: test.into(),
-            then_label: BlockPyLabel::from(then_label),
-            else_label: BlockPyLabel::from(else_label),
-        }),
-    )
-}
-
 fn compat_block_builder_with_expr_setup(
     context: &Context,
     body: Vec<Stmt>,
@@ -76,19 +58,6 @@ fn compat_block_builder_with_expr_setup(
         lower_nested_stmt_into_with_expr(context, stmt, &mut out, None, &mut next_label_id)?;
     }
     Ok(out)
-}
-
-pub(crate) fn compat_if_jump_block_with_expr_setup(
-    context: &Context,
-    label: BlockPyLabel,
-    body: Vec<Stmt>,
-    test: Expr,
-    then_label: String,
-    else_label: String,
-) -> Result<LoweredBlockPyBlock, String> {
-    compat_if_jump_block_with_expr_setup_and_exc_target(
-        context, label, body, test, then_label, else_label, None,
-    )
 }
 
 pub(crate) fn compat_if_jump_block_with_expr_setup_and_exc_target(
@@ -121,18 +90,6 @@ pub(crate) fn compat_if_jump_block_with_expr_setup_and_exc_target(
         else_label: BlockPyLabel::from(else_label),
     }));
     Ok(with_exc_meta(block.finish(None), exc_target))
-}
-
-pub(crate) fn compat_jump_block_from_blockpy(
-    label: BlockPyLabel,
-    body: Vec<Stmt>,
-    target_label: String,
-) -> LoweredBlockPyBlock {
-    compat_block_from_blockpy(
-        label,
-        body,
-        BlockPyTerm::Jump(BlockPyLabel::from(target_label).into()),
-    )
 }
 
 pub(crate) fn set_region_exc_param(

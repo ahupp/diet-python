@@ -13,7 +13,6 @@ use crate::passes::RuffBlockPyPass;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
-use std::collections::HashMap;
 
 use super::build_blockpy_callable_def_from_runtime_input;
 mod callable_semantic;
@@ -234,7 +233,6 @@ fn build_lowered_function_instantiation_expr(
 fn rewrite_function_def_stmt_via_blockpy(
     context: &Context,
     parent_hoisted: &mut Vec<Stmt>,
-    parent_semantic: &BlockPyCallableSemanticInfo,
     func: &mut ast::StmtFunctionDef,
     callable_semantic: &BlockPyCallableSemanticInfo,
     function_hoisted: Vec<Stmt>,
@@ -345,12 +343,10 @@ impl BlockPyModuleRewriter<'_> {
             .function_scope_stack
             .last_mut()
             .expect("nested function rewrite should always have a parent hoist buffer");
-        let parent_semantic = parent_frame.callable_semantic.clone();
         let parent_hoisted = &mut parent_frame.hoisted_to_parent;
         rewrite_function_def_stmt_via_blockpy(
             self.context,
             parent_hoisted,
-            &parent_semantic,
             func,
             &state.callable_semantic,
             state.hoisted_to_parent,

@@ -198,10 +198,6 @@ pub fn lower_string_templates_in_expr(expr: &mut Expr) {
     StringTemplateLowerer.visit_expr(expr);
 }
 
-pub fn lower_string_templates_in_parameters(parameters: &mut ast::Parameters) {
-    StringTemplateLowerer.visit_parameters(parameters);
-}
-
 fn rewrite_string_literal(lit: &ast::StringLiteral) -> Expr {
     py_expr!("{literal:literal}", literal = lit.value.as_ref())
 }

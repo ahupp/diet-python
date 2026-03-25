@@ -2,28 +2,7 @@ use super::dataflow::{
     analyze_blockpy_use_def, assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term,
 };
 use super::{BlockPyTerm, CfgBlock, Expr, IntoBlockPyStmt};
-use ruff_python_ast as ast;
 use std::collections::HashSet;
-
-pub(crate) fn collect_parameter_names(parameters: &ast::Parameters) -> Vec<String> {
-    let mut names = Vec::new();
-    for param in &parameters.posonlyargs {
-        names.push(param.parameter.name.id.to_string());
-    }
-    for param in &parameters.args {
-        names.push(param.parameter.name.id.to_string());
-    }
-    if let Some(vararg) = &parameters.vararg {
-        names.push(vararg.name.id.to_string());
-    }
-    for param in &parameters.kwonlyargs {
-        names.push(param.parameter.name.id.to_string());
-    }
-    if let Some(kwarg) = &parameters.kwarg {
-        names.push(kwarg.name.id.to_string());
-    }
-    names
-}
 
 pub(crate) fn collect_state_vars<S, E>(
     param_names: &[String],

@@ -140,8 +140,7 @@ mod type_alias_stmt;
 mod unreduced;
 mod with_stmt;
 
-pub(crate) use assign_stmt::{build_for_target_assign_body, rewrite_assign_stmt};
-pub(crate) use delete_stmt::rewrite_delete_stmt;
+pub(crate) use assign_stmt::build_for_target_assign_body;
 pub(crate) use try_stmt::{lower_star_try_stmt_sequence, lower_try_stmt_sequence};
 pub(crate) use with_stmt::lower_with_stmt_sequence;
 
@@ -265,6 +264,7 @@ fn simplify_if_test_for_blockpy(_context: &Context, mut if_stmt: ast::StmtIf) ->
     Stmt::If(if_stmt)
 }
 
+#[cfg(test)]
 pub(crate) fn lower_stmt_into(
     context: &Context,
     stmt: &Stmt,

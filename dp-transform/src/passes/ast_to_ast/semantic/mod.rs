@@ -23,10 +23,10 @@ pub(crate) enum SemanticBindingKind {
     Global,
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SemanticBindingUse {
     Load,
-    Modify,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -183,6 +183,7 @@ impl SemanticScope {
         self.data().kind
     }
 
+    #[cfg(test)]
     pub(crate) fn binding_in_scope(
         &self,
         name: &str,
@@ -192,12 +193,6 @@ impl SemanticScope {
             Some(binding) => binding,
             None => match use_kind {
                 SemanticBindingUse::Load => SemanticBindingKind::Local,
-                SemanticBindingUse::Modify => {
-                    panic!(
-                        "Name not found in semantic scope: {name} {:?}",
-                        self.scope_id
-                    )
-                }
             },
         }
     }
@@ -239,6 +234,7 @@ impl SemanticScope {
         self.data().bindings.clone()
     }
 
+    #[cfg(test)]
     pub(crate) fn local_binding_names(&self) -> HashSet<String> {
         self.data()
             .bindings
@@ -296,30 +292,6 @@ impl SemanticScope {
 
     pub(crate) fn local_cell_bindings(&self) -> HashSet<String> {
         self.data().local_cell_bindings.clone()
-    }
-
-    pub(crate) fn has_binding(&self, name: &str) -> bool {
-        self.data().bindings.contains_key(name)
-    }
-
-    pub(crate) fn parent_scope(&self) -> Option<SemanticScope> {
-        self.data()
-            .parent
-            .map(|scope_id| self.state.scope(scope_id))
-    }
-
-    pub(crate) fn any_parent_scope<T>(
-        &self,
-        mut func: impl FnMut(&SemanticScope) -> Option<T>,
-    ) -> Option<T> {
-        let mut current = Some(self.clone());
-        while let Some(scope) = current {
-            if let Some(ret) = func(&scope) {
-                return Some(ret);
-            }
-            current = scope.parent_scope();
-        }
-        None
     }
 
     pub(crate) fn qualname(&self) -> &str {

@@ -138,11 +138,6 @@ static DP_JIT_LOAD_NAME_IMPORT: ImportSpec = ImportSpec::new(
     &[SigType::Pointer, SigType::Pointer, SigType::I64],
     &[SigType::Pointer],
 );
-static DP_JIT_LOAD_LOCAL_RAW_BY_NAME_IMPORT: ImportSpec = ImportSpec::new(
-    "dp_jit_load_local_raw_by_name",
-    &[SigType::Pointer, SigType::Pointer, SigType::I64],
-    &[SigType::Pointer],
-);
 static DP_JIT_PYOBJECT_GETATTR_IMPORT: ImportSpec = ImportSpec::new(
     "dp_jit_pyobject_getattr",
     &[SigType::Pointer, SigType::Pointer],
@@ -514,7 +509,6 @@ struct DirectSimpleEmitCtx {
     make_int_ref: ir::FuncRef,
     consts: DirectSimpleEmitConsts,
     load_name_ref: ir::FuncRef,
-    load_local_raw_by_name_ref: ir::FuncRef,
     pyobject_getattr_ref: ir::FuncRef,
     pyobject_setattr_ref: ir::FuncRef,
     pyobject_getitem_ref: ir::FuncRef,
@@ -777,31 +771,6 @@ impl DirectSimpleIntrinsicEmitState<'_, '_, '_, '_> {
         let call_inst = self.fb.ins().call(func_ref, &values);
         self.release_arg_values(&arg_values);
         emit_owned_bool_from_i32_result(self.fb, self.fb.inst_results(call_inst)[0], self.ctx)
-    }
-
-    fn emit_decode_literal_bytes(&mut self, bytes: &[u8]) -> ir::Value {
-        let data = intern_bytes_literal(self.literal_pool, bytes);
-        let data_ptr_val = self.fb.ins().iconst(self.ctx.consts.ptr_ty, data.0 as i64);
-        let data_len_val = self.fb.ins().iconst(self.ctx.consts.i64_ty, data.1);
-        let value_inst = self.fb.ins().call(
-            self.ctx.decode_literal_bytes_ref,
-            &[data_ptr_val, data_len_val],
-        );
-        self.finish_owned_result(self.fb.inst_results(value_inst)[0])
-    }
-
-    fn emit_pack_tuple(&mut self, args: &[&DirectSimpleExprPlan]) -> ir::Value {
-        let arg_values = self.emit_arg_values(args);
-        let tuple_value = emit_pack_current_values_tuple(
-            self.fb,
-            &arg_values
-                .iter()
-                .map(|(value, _)| *value)
-                .collect::<Vec<_>>(),
-            self.ctx,
-        );
-        self.release_arg_values(&arg_values);
-        tuple_value
     }
 }
 
@@ -3037,11 +3006,6 @@ fn build_cranelift_run_bb_specialized_function(
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_MAKE_FLOAT_IMPORT);
         let load_name_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_LOAD_NAME_IMPORT);
-        let load_local_raw_by_name_ref = func_imports.get_or_panic(
-            jit_module,
-            &mut fb.func,
-            &DP_JIT_LOAD_LOCAL_RAW_BY_NAME_IMPORT,
-        );
         let pyobject_getattr_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_GETATTR_IMPORT);
         let pyobject_setattr_ref =
@@ -3203,7 +3167,6 @@ fn build_cranelift_run_bb_specialized_function(
                     block_const,
                 },
                 load_name_ref,
-                load_local_raw_by_name_ref,
                 pyobject_getattr_ref,
                 pyobject_setattr_ref,
                 pyobject_getitem_ref,

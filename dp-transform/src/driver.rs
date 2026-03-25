@@ -25,7 +25,7 @@ pub(crate) fn rewrite_module_with_tracker(
     pass_tracker: &mut PassTracker,
 ) -> BlockPyModule<PreparedBbBlockPyPass> {
     let mut semantic_state: Option<SemanticAstState> = None;
-    let mut ast_module = pass_tracker.run_renderable_pass("ast-to-ast", || {
+    let ast_module = pass_tracker.run_renderable_pass("ast-to-ast", || {
         let mut module = std::mem::take(module);
 
         // The transform now has a single lowering strategy: basic-block form.

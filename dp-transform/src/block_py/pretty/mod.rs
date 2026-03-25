@@ -1,8 +1,7 @@
 use super::{
-    AbruptKind, BbStmt, BlockArg, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyExpr, CoreBlockPyLiteral, Expr, IntoBlockPyStmt,
-    PassBlock, PassExpr,
+    AbruptKind, BlockArg, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise, BlockPyStmt,
+    BlockPyTerm, CfgBlock, Expr, IntoBlockPyStmt, PassBlock, PassExpr,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
@@ -11,6 +10,9 @@ use crate::passes::{
 };
 use crate::ruff_ast_to_string;
 use std::collections::{HashMap, HashSet};
+
+#[cfg(test)]
+use super::{BbStmt, CoreBlockPyExpr, CoreBlockPyLiteral};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum IfBranchKind {
@@ -473,7 +475,7 @@ where
         .join(" ")
 }
 
-#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn bb_expr_text(expr: &CoreBlockPyExpr) -> String {
     match expr {
         CoreBlockPyExpr::Name(name) => name.id.to_string(),
@@ -526,7 +528,7 @@ pub(crate) fn bb_expr_text(expr: &CoreBlockPyExpr) -> String {
     }
 }
 
-#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn bb_stmt_text(stmt: &BbStmt) -> String {
     match stmt {
         BbStmt::Assign(assign) => {
@@ -537,41 +539,7 @@ pub(crate) fn bb_stmt_text(stmt: &BbStmt) -> String {
     }
 }
 
-#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
-pub(crate) fn bb_raise_text(raise_stmt: &BlockPyRaise<CoreBlockPyExpr>) -> String {
-    let exc = raise_stmt
-        .exc
-        .as_ref()
-        .map(bb_expr_text)
-        .unwrap_or_else(|| "None".to_string());
-    format!("raise exc={exc}")
-}
-
-#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
-pub(crate) fn bb_term_text(term: &BlockPyTerm<CoreBlockPyExpr>) -> String {
-    match term {
-        BlockPyTerm::Jump(edge) => format!("jump {}", render_edge(edge)),
-        BlockPyTerm::IfTerm(if_term) => {
-            let test = bb_expr_text(&if_term.test);
-            format!(
-                "if {test} then {} else {}",
-                if_term.then_label, if_term.else_label
-            )
-        }
-        BlockPyTerm::BranchTable(branch) => {
-            let index = bb_expr_text(&branch.index);
-            format!(
-                "br_table index={index} targets=[{}] default={}",
-                join_labels(&branch.targets),
-                branch.default_label
-            )
-        }
-        BlockPyTerm::Raise(raise_stmt) => bb_raise_text(raise_stmt),
-        BlockPyTerm::Return(value) => format!("return {}", bb_expr_text(value)),
-    }
-}
-
-#[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn bb_stmts_text(stmts: &[BbStmt]) -> String {
     let mut out = String::new();
     for stmt in stmts {

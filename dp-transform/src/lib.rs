@@ -136,6 +136,7 @@ impl PassTracker {
         Self { passes: Vec::new() }
     }
 
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn run_pass<T: Clone + Any>(&mut self, name: &str, build: impl FnOnce() -> T) -> T {
         self.run_pass_with_renderer(name, build, None)

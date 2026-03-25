@@ -385,13 +385,6 @@ pub(crate) fn emit_finally_abrupt_dispatch_blocks(
     ));
 }
 
-pub(crate) fn collect_region_label_names(blocks: &[BlockPyBlock]) -> Vec<String> {
-    blocks
-        .iter()
-        .map(|block| block.label.as_str().to_string())
-        .collect()
-}
-
 pub(crate) fn emit_try_jump_entry(
     blocks: &mut Vec<BlockPyBlock>,
     label: BlockPyLabel,

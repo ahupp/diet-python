@@ -1,4 +1,5 @@
 use super::*;
+use crate::passes::ast_to_ast::body::suite_ref;
 use crate::py_stmt;
 
 #[test]

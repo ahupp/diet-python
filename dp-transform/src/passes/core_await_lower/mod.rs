@@ -5,15 +5,6 @@ use crate::block_py::{
     CoreBlockPyYieldFrom, IntrinsicCall,
 };
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
-use crate::py_expr;
-use ruff_python_ast::{self as ast, Expr};
-
-fn expr_name(id: &str) -> ast::ExprName {
-    let Expr::Name(expr) = py_expr!("{id:id}", id = id) else {
-        unreachable!();
-    };
-    expr
-}
 
 fn lower_core_expr_awaits(expr: CoreBlockPyExprWithAwaitAndYield) -> CoreBlockPyExprWithYield {
     match expr {

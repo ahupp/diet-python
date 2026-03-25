@@ -87,6 +87,7 @@ fn contains_return_stmt(stmt: &Stmt) -> bool {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn is_dp_lookup_call(func: &Expr, attr_name: &str) -> bool {
     if matches!(
         func,
@@ -123,6 +124,7 @@ pub(crate) fn is_dp_lookup_call(func: &Expr, attr_name: &str) -> bool {
     false
 }
 
+#[cfg(test)]
 fn expr_static_str(expr: &Expr) -> Option<String> {
     match expr {
         Expr::StringLiteral(value) => Some(value.value.to_str().to_string()),

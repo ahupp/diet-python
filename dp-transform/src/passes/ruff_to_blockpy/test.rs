@@ -1,8 +1,5 @@
 use super::*;
 
-use stmt_lowering::lower_stmt_into;
-
-use super::*;
 use crate::block_py::{
     BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
     BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
@@ -15,6 +12,7 @@ use crate::passes::ruff_to_blockpy::stmt_sequences::{
 use crate::passes::ruff_to_blockpy::try_regions::build_try_plan;
 use crate::passes::{CoreBlockPyPass, RuffBlockPyPass};
 use crate::{transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options};
+use stmt_lowering::lower_stmt_into;
 
 fn test_name_gen() -> FunctionNameGen {
     let mut module_name_gen = crate::block_py::ModuleNameGen::new(0);
