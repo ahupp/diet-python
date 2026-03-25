@@ -155,6 +155,7 @@ fn manual_sync_storage_by_logical_name_excludes_runtime_names_on_standard_bindin
             "total".to_string(),
             "_dp_yieldfrom".to_string(),
             "_dp_pc".to_string(),
+            "_dp_try_exc_0".to_string(),
         ],
     );
 
@@ -399,11 +400,18 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
             storage_name: "_dp_cell_captured".to_string(),
             init: ClosureInit::InheritedCapture,
         }],
-        cellvars: vec![ClosureSlot {
-            logical_name: "total".to_string(),
-            storage_name: "_dp_cell_total".to_string(),
-            init: ClosureInit::Deferred,
-        }],
+        cellvars: vec![
+            ClosureSlot {
+                logical_name: "total".to_string(),
+                storage_name: "_dp_cell_total".to_string(),
+                init: ClosureInit::Deferred,
+            },
+            ClosureSlot {
+                logical_name: "_dp_try_exc_0".to_string(),
+                storage_name: "_dp_cell__dp_try_exc_0".to_string(),
+                init: ClosureInit::DeletedSentinel,
+            },
+        ],
         runtime_cells: vec![
             ClosureSlot {
                 logical_name: "_dp_yieldfrom".to_string(),
@@ -427,6 +435,7 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
             "total".to_string(),
             "_dp_yieldfrom".to_string(),
             "_dp_pc".to_string(),
+            "_dp_try_exc_0".to_string(),
         ],
     );
     let mut semantic = BlockPyCallableSemanticInfo {
@@ -459,6 +468,14 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
     );
     assert_eq!(
         semantic.resolved_load_binding_kind("_dp_yieldfrom"),
+        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+    );
+    assert_eq!(
+        semantic.binding_kind("_dp_try_exc_0"),
+        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+    );
+    assert_eq!(
+        semantic.resolved_load_binding_kind("_dp_try_exc_0"),
         BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
 }

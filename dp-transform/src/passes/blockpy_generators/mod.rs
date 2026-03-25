@@ -293,7 +293,9 @@ fn resume_state_uses_standard_name_binding(name: &str) -> bool {
     if name.starts_with("_dp_cell_") {
         return false;
     }
-    !is_internal_symbol(name) || matches!(name, "_dp_pc" | "_dp_yieldfrom")
+    !is_internal_symbol(name)
+        || matches!(name, "_dp_pc" | "_dp_yieldfrom")
+        || name.starts_with("_dp_try_exc_")
 }
 
 fn augment_resume_semantic_for_standard_name_binding(

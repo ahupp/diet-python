@@ -1,8 +1,8 @@
 use crate::block_py::{
-    BbBlock, BbStmt, BlockPyCallableScopeKind, BlockPyFunction, BlockPyFunctionKind, BlockPyModule,
-    BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
+    BbBlock, BbStmt, BlockPyCallableScopeKind, BlockPyCellBindingKind, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
 };
-use crate::block_py::{ClosureInit, ClosureSlot};
+use crate::block_py::{BlockPyBindingKind, ClosureInit, ClosureSlot};
 use crate::passes::{BbBlockPyPass, CoreBlockPyPass, RuffBlockPyPass};
 use crate::LoweringResult;
 use crate::{
@@ -1006,6 +1006,44 @@ def gen():
             .iter()
             .any(|block| block_uses_text(block, "__dp_store_cell(_dp_cell_total,")),
         "{resume:?}"
+    );
+}
+
+#[test]
+fn generator_resume_try_exception_state_moves_to_name_binding_pass() {
+    let source = r#"
+def gen():
+    try:
+        yield 1
+    except ValueError:
+        return 2
+"#;
+
+    let lowered = TrackedLowering::new(source);
+    let name_binding_rendered = lowered.name_binding_text();
+    assert!(
+        name_binding_rendered.contains("_dp_try_exc_")
+            && name_binding_rendered.contains("_dp_cell__dp_try_exc_"),
+        "{name_binding_rendered}"
+    );
+
+    let resume = lowered.bb_function("gen");
+    let try_exc_slot = resume
+        .closure_layout()
+        .as_ref()
+        .and_then(|layout| {
+            layout
+                .cellvars
+                .iter()
+                .find(|slot| slot.logical_name.starts_with("_dp_try_exc_"))
+        })
+        .expect("resume closure layout should contain try-exception state cell");
+    assert_eq!(try_exc_slot.init, ClosureInit::DeletedSentinel);
+    assert_eq!(
+        resume
+            .semantic
+            .binding_kind(try_exc_slot.logical_name.as_str()),
+        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
     );
 }
 
