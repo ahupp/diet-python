@@ -467,22 +467,21 @@ impl Transformer for NameScopeRewriter<'_> {
                                 let temp_name = format!("_dp_exc_{exc_name}");
                                 name.id = Name::new(temp_name.as_str());
                                 let store_stmt = match (self.scope.kind(), binding) {
-                                    (SemanticScopeKind::Class, SemanticBindingKind::Local) => py_stmt!(
-                                        "_dp_class_ns[{name:literal}] = {value:expr}",
-                                        name = exc_name.as_str(),
-                                        value = py_expr!("{temp:id}", temp = temp_name.as_str()),
-                                    ),
-                                    (SemanticScopeKind::Class, SemanticBindingKind::Global) => py_stmt!(
-                                        "__dp_store_global(globals(), {name:literal}, {value:expr})",
-                                        name = exc_name.as_str(),
-                                        value = py_expr!("{temp:id}", temp = temp_name.as_str()),
-                                    ),
-                                    (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal) => {
-                                        let cell = cell_name(exc_name.as_str());
+                                    (SemanticScopeKind::Class, SemanticBindingKind::Local) => {
                                         py_stmt!(
-                                            "__dp_store_cell({cell:id}, {value:expr})",
-                                            cell = cell.as_str(),
-                                            value = py_expr!("{temp:id}", temp = temp_name.as_str()),
+                                            "_dp_class_ns[{name:literal}] = {value:expr}",
+                                            name = exc_name.as_str(),
+                                            value =
+                                                py_expr!("{temp:id}", temp = temp_name.as_str()),
+                                        )
+                                    }
+                                    (SemanticScopeKind::Class, SemanticBindingKind::Global)
+                                    | (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal) => {
+                                        py_stmt!(
+                                            "{name:id} = {value:expr}",
+                                            name = exc_name.as_str(),
+                                            value =
+                                                py_expr!("{temp:id}", temp = temp_name.as_str()),
                                         )
                                     }
                                     (_, SemanticBindingKind::Global) => py_stmt!(

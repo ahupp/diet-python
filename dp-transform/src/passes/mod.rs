@@ -530,6 +530,73 @@ class Box:
     }
 
     #[test]
+    fn class_body_except_name_global_binding_moves_to_name_binding_pass() {
+        let source = r#"
+class Box:
+    global caught
+    try:
+        raise Exception("boom")
+    except Exception as caught:
+        seen = caught
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let core_rendered = lowered.pass_text("core_blockpy");
+        assert!(
+            !core_rendered.contains("__dp_store_global(__dp_globals(), \"caught\""),
+            "{core_rendered}"
+        );
+        assert!(
+            core_rendered.contains("caught = _dp_exc_caught"),
+            "{core_rendered}"
+        );
+
+        let name_binding_rendered = lowered.name_binding_text();
+        assert!(
+            name_binding_rendered
+                .contains("__dp_store_global(__dp_globals(), \"caught\", _dp_exc_caught)"),
+            "{name_binding_rendered}"
+        );
+        assert!(
+            name_binding_rendered.contains("__dp_del_quietly(__dp_globals(), \"caught\")"),
+            "{name_binding_rendered}"
+        );
+    }
+
+    #[test]
+    fn class_body_except_name_nonlocal_binding_moves_to_name_binding_pass() {
+        let source = r#"
+def outer():
+    x = "outer"
+    class Box:
+        nonlocal x
+        try:
+            raise Exception("boom")
+        except Exception as x:
+            pass
+    return x
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let core_rendered = lowered.pass_text("core_blockpy");
+        assert!(
+            !core_rendered.contains("__dp_store_cell(_dp_cell_x, _dp_exc_x)"),
+            "{core_rendered}"
+        );
+        assert!(core_rendered.contains("x = _dp_exc_x"), "{core_rendered}");
+
+        let name_binding_rendered = lowered.name_binding_text();
+        assert!(
+            name_binding_rendered.contains("__dp_store_cell(_dp_cell_x, _dp_exc_x)"),
+            "{name_binding_rendered}"
+        );
+        assert!(
+            name_binding_rendered.contains("__dp_del_deref_quietly(_dp_cell_x)"),
+            "{name_binding_rendered}"
+        );
+    }
+
+    #[test]
     fn nested_class_binding_moves_to_name_binding_pass() {
         let source = r#"
 class A:
