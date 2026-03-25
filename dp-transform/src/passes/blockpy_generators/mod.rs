@@ -276,6 +276,14 @@ impl ResumeClosureBindings {
             .iter()
             .chain(self.compatibility_alias_bindings.iter())
     }
+
+    fn runtime_storage_by_logical_name(&self) -> HashMap<String, String> {
+        self.runtime_state_bindings
+            .iter()
+            .filter(|(name, value_name)| name != value_name)
+            .map(|(name, value_name)| (name.clone(), value_name.clone()))
+            .collect()
+    }
 }
 
 fn resume_closure_value_name(layout: &ClosureLayout, name: &str) -> String {
@@ -321,17 +329,6 @@ fn resume_closure_bindings(
         runtime_state_bindings,
         compatibility_alias_bindings,
     }
-}
-
-fn generator_cell_storage_by_logical_name(layout: &ClosureLayout) -> HashMap<String, String> {
-    layout
-        .freevars
-        .iter()
-        .chain(layout.cellvars.iter())
-        .chain(layout.runtime_cells.iter())
-        .filter(|slot| slot.storage_name != slot.logical_name)
-        .map(|slot| (slot.logical_name.clone(), slot.storage_name.clone()))
-        .collect()
 }
 
 fn sync_resume_state_fragment(
@@ -386,9 +383,9 @@ fn sync_resume_state_body(
 
 fn sync_resume_state_blocks(
     blocks: Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>,
-    layout: &ClosureLayout,
+    closure_bindings: &ResumeClosureBindings,
 ) -> Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>> {
-    let storage_by_logical_name = generator_cell_storage_by_logical_name(layout);
+    let storage_by_logical_name = closure_bindings.runtime_storage_by_logical_name();
     if storage_by_logical_name.is_empty() {
         return blocks;
     }
@@ -415,7 +412,7 @@ fn generator_resume_declared_params(params: &[BlockParam]) -> Vec<BlockParam> {
 fn build_factory_block(
     visible_function_id: FunctionId,
     resume_function_id: FunctionId,
-    resume_state_order: &[String],
+    closure_bindings: &ResumeClosureBindings,
     layout: &ClosureLayout,
     kind: BlockPyFunctionKind,
 ) -> BlockPyBlock<CoreBlockPyExpr> {
@@ -428,7 +425,6 @@ fn build_factory_block(
         }));
     }
 
-    let closure_bindings = resume_closure_bindings(layout, resume_state_order);
     let all_bindings = closure_bindings.all_bindings().cloned().collect::<Vec<_>>();
     let closure_names = all_bindings
         .iter()
@@ -1431,14 +1427,15 @@ pub(crate) fn lower_generator_like_function(
     let resume_function_id = resume_name_gen.function_id();
     let closure_layout = build_generator_closure_layout(&callable);
     let state_order = generator_state_order(&closure_layout, callable.kind);
+    let closure_bindings = resume_closure_bindings(&closure_layout, &state_order);
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
         lower_resume_blocks(&callable);
-    let resume_blocks = sync_resume_state_blocks(resume_blocks, &closure_layout);
+    let resume_blocks = sync_resume_state_blocks(resume_blocks, &closure_bindings);
 
     let factory_block = build_factory_block(
         callable.function_id,
         resume_function_id,
-        &state_order,
+        &closure_bindings,
         &closure_layout,
         callable.kind,
     );

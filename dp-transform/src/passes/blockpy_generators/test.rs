@@ -116,6 +116,47 @@ fn build_closure_backed_generator_factory_block(
 }
 
 #[test]
+fn runtime_storage_by_logical_name_ignores_alias_only_bindings() {
+    let layout = ClosureLayout {
+        freevars: vec![ClosureSlot {
+            logical_name: "captured".to_string(),
+            storage_name: "_dp_cell_captured".to_string(),
+            init: ClosureInit::InheritedCapture,
+        }],
+        cellvars: vec![ClosureSlot {
+            logical_name: "total".to_string(),
+            storage_name: "_dp_cell_total".to_string(),
+            init: ClosureInit::Deferred,
+        }],
+        runtime_cells: vec![ClosureSlot {
+            logical_name: "_dp_pc".to_string(),
+            storage_name: "_dp_cell__dp_pc".to_string(),
+            init: ClosureInit::RuntimePcUnstarted,
+        }],
+    };
+
+    let closure_bindings = resume_closure_bindings(
+        &layout,
+        &[
+            "_dp_self".to_string(),
+            "_dp_send_value".to_string(),
+            "_dp_resume_exc".to_string(),
+            "_dp_cell_captured".to_string(),
+            "total".to_string(),
+            "_dp_pc".to_string(),
+        ],
+    );
+
+    assert_eq!(
+        closure_bindings.runtime_storage_by_logical_name(),
+        std::collections::HashMap::from([
+            ("total".to_string(), "_dp_cell_total".to_string()),
+            ("_dp_pc".to_string(), "_dp_cell__dp_pc".to_string()),
+        ]),
+    );
+}
+
+#[test]
 fn build_blockpy_closure_layout_classifies_capture_local_and_runtime_cells() {
     let layout = build_blockpy_closure_layout(
         &["arg".to_string()],
