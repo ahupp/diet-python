@@ -239,6 +239,40 @@ fn stmt_conversion_to_no_await_rejects_await() {
 }
 
 #[test]
+fn try_module_map_propagates_nested_expr_conversion_errors() {
+    let module = BlockPyModule::<CoreBlockPyPassWithAwaitAndYield> {
+        callable_defs: vec![BlockPyFunction {
+            function_id: FunctionId(0),
+            name_gen: test_name_gen(),
+            names: FunctionName::new("f", "f", "f", "f"),
+            kind: BlockPyFunctionKind::Function,
+            params: ParamSpec::default(),
+            blocks: vec![CfgBlock {
+                label: BlockPyLabel::from("start"),
+                body: vec![BlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Await(
+                    CoreBlockPyAwait {
+                        node_index: ast::AtomicNodeIndex::default(),
+                        range: ruff_text_size::TextRange::default(),
+                        value: Box::new(CoreBlockPyExprWithAwaitAndYield::Name(name_expr("x"))),
+                    },
+                ))],
+                term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Name(name_expr(
+                    "__dp_NONE",
+                ))),
+                params: Vec::new(),
+                exc_edge: None,
+            }],
+            doc: None,
+            closure_layout: None,
+            facts: BlockPyCallableFacts::default(),
+            semantic: BlockPyCallableSemanticInfo::default(),
+        }],
+    };
+
+    assert!(module.try_map_module(&ElideAwaitExprTryMap).is_err());
+}
+
+#[test]
 fn term_conversion_to_no_yield_rejects_nested_yield() {
     let term = BlockPyTerm::Return(CoreBlockPyExprWithYield::Call(CoreBlockPyCall {
         node_index: ast::AtomicNodeIndex::default(),

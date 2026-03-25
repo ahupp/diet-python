@@ -1505,16 +1505,7 @@ where
         match term {
             BlockPyTerm::Jump(edge) => BlockPyTerm::Jump(BlockPyEdge {
                 target: edge.target,
-                args: edge
-                    .args
-                    .into_iter()
-                    .map(|arg| match arg {
-                        BlockArg::Name(name) => BlockArg::Name(name),
-                        BlockArg::None => BlockArg::None,
-                        BlockArg::CurrentException => BlockArg::CurrentException,
-                        BlockArg::AbruptKind(kind) => BlockArg::AbruptKind(kind),
-                    })
-                    .collect(),
+                args: edge.args,
             }),
             BlockPyTerm::IfTerm(if_term) => BlockPyTerm::IfTerm(BlockPyIfTerm {
                 test: self.map_expr(if_term.test),
@@ -1534,6 +1525,138 @@ where
     }
 
     fn map_expr(&self, expr: PassExpr<PIn>) -> PassExpr<POut>;
+}
+
+pub trait BlockPyModuleTryMap<PIn, POut>
+where
+    PIn: BlockPyPass,
+    POut: BlockPyPass,
+    BlockPyStmt<POut::Expr>: Into<POut::Stmt>,
+{
+    type Error;
+
+    fn try_map_module(
+        &self,
+        module: BlockPyModule<PIn>,
+    ) -> Result<BlockPyModule<POut>, Self::Error> {
+        Ok(BlockPyModule {
+            callable_defs: module
+                .callable_defs
+                .into_iter()
+                .map(|function| self.try_map_fn(function))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+
+    fn try_map_fn(&self, func: BlockPyFunction<PIn>) -> Result<BlockPyFunction<POut>, Self::Error> {
+        Ok(BlockPyFunction {
+            function_id: func.function_id,
+            name_gen: func.name_gen,
+            names: func.names,
+            kind: func.kind,
+            params: func.params,
+            blocks: func
+                .blocks
+                .into_iter()
+                .map(|block| self.try_map_block(block))
+                .collect::<Result<_, _>>()?,
+            doc: func.doc,
+            closure_layout: func.closure_layout,
+            facts: func.facts,
+            semantic: func.semantic,
+        })
+    }
+
+    fn try_map_block(&self, block: PassBlock<PIn>) -> Result<PassBlock<POut>, Self::Error> {
+        Ok(CfgBlock {
+            label: block.label,
+            body: block
+                .body
+                .into_iter()
+                .map(|stmt| self.try_map_stmt(stmt.into_stmt()).map(Into::into))
+                .collect::<Result<_, _>>()?,
+            term: self.try_map_term(block.term)?,
+            params: block.params,
+            exc_edge: block.exc_edge,
+        })
+    }
+
+    fn try_map_fragment(
+        &self,
+        fragment: BlockPyCfgFragment<BlockPyStmt<PassExpr<PIn>>, BlockPyTerm<PassExpr<PIn>>>,
+    ) -> Result<
+        BlockPyCfgFragment<BlockPyStmt<PassExpr<POut>>, BlockPyTerm<PassExpr<POut>>>,
+        Self::Error,
+    > {
+        Ok(BlockPyCfgFragment {
+            body: fragment
+                .body
+                .into_iter()
+                .map(|stmt| self.try_map_stmt(stmt))
+                .collect::<Result<_, _>>()?,
+            term: fragment
+                .term
+                .map(|term| self.try_map_term(term))
+                .transpose()?,
+        })
+    }
+
+    fn try_map_stmt(
+        &self,
+        stmt: BlockPyStmt<PassExpr<PIn>>,
+    ) -> Result<BlockPyStmt<PassExpr<POut>>, Self::Error> {
+        match stmt {
+            BlockPyStmt::Assign(assign) => self.try_map_assign(assign),
+            BlockPyStmt::Expr(expr) => Ok(BlockPyStmt::Expr(self.try_map_expr(expr)?)),
+            BlockPyStmt::Delete(delete) => Ok(BlockPyStmt::Delete(delete)),
+            BlockPyStmt::If(if_stmt) => Ok(BlockPyStmt::If(BlockPyIf {
+                test: self.try_map_expr(if_stmt.test)?,
+                body: self.try_map_fragment(if_stmt.body)?,
+                orelse: self.try_map_fragment(if_stmt.orelse)?,
+            })),
+        }
+    }
+
+    fn try_map_assign(
+        &self,
+        assign: BlockPyAssign<PassExpr<PIn>>,
+    ) -> Result<BlockPyStmt<PassExpr<POut>>, Self::Error> {
+        Ok(BlockPyStmt::Assign(BlockPyAssign {
+            target: assign.target,
+            value: self.try_map_expr(assign.value)?,
+        }))
+    }
+
+    fn try_map_term(
+        &self,
+        term: BlockPyTerm<PassExpr<PIn>>,
+    ) -> Result<BlockPyTerm<PassExpr<POut>>, Self::Error> {
+        match term {
+            BlockPyTerm::Jump(edge) => Ok(BlockPyTerm::Jump(BlockPyEdge {
+                target: edge.target,
+                args: edge.args,
+            })),
+            BlockPyTerm::IfTerm(if_term) => Ok(BlockPyTerm::IfTerm(BlockPyIfTerm {
+                test: self.try_map_expr(if_term.test)?,
+                then_label: if_term.then_label,
+                else_label: if_term.else_label,
+            })),
+            BlockPyTerm::BranchTable(branch) => Ok(BlockPyTerm::BranchTable(BlockPyBranchTable {
+                index: self.try_map_expr(branch.index)?,
+                targets: branch.targets,
+                default_label: branch.default_label,
+            })),
+            BlockPyTerm::Raise(raise_stmt) => Ok(BlockPyTerm::Raise(BlockPyRaise {
+                exc: raise_stmt
+                    .exc
+                    .map(|exc| self.try_map_expr(exc))
+                    .transpose()?,
+            })),
+            BlockPyTerm::Return(value) => Ok(BlockPyTerm::Return(self.try_map_expr(value)?)),
+        }
+    }
+
+    fn try_map_expr(&self, expr: PassExpr<PIn>) -> Result<PassExpr<POut>, Self::Error>;
 }
 
 impl<E> BlockPyJumpTerm<BlockPyLabel> for BlockPyTerm<E> {
@@ -1602,6 +1725,15 @@ where
         BlockPyStmt<POut::Expr>: Into<POut::Stmt>,
     {
         mapper.map_module(self)
+    }
+
+    pub fn try_map_module<POut, M>(self, mapper: &M) -> Result<BlockPyModule<POut>, M::Error>
+    where
+        POut: BlockPyPass,
+        BlockPyStmt<POut::Expr>: Into<POut::Stmt>,
+        M: BlockPyModuleTryMap<PIn, POut>,
+    {
+        mapper.try_map_module(self)
     }
 }
 
@@ -1895,25 +2027,28 @@ impl TryFrom<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithYield {
     }
 }
 
+struct ElideAwaitExprTryMap;
+
+impl BlockPyModuleTryMap<CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield>
+    for ElideAwaitExprTryMap
+{
+    type Error = CoreBlockPyExprWithAwaitAndYield;
+
+    fn try_map_expr(
+        &self,
+        expr: CoreBlockPyExprWithAwaitAndYield,
+    ) -> Result<CoreBlockPyExprWithYield, Self::Error> {
+        expr.try_into()
+    }
+}
+
 impl TryFrom<BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>>
     for BlockPyStmt<CoreBlockPyExprWithYield>
 {
     type Error = CoreBlockPyExprWithAwaitAndYield;
 
     fn try_from(value: BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>) -> Result<Self, Self::Error> {
-        match value {
-            BlockPyStmt::Assign(assign) => Ok(BlockPyStmt::Assign(BlockPyAssign {
-                target: assign.target,
-                value: assign.value.try_into()?,
-            })),
-            BlockPyStmt::Expr(expr) => Ok(BlockPyStmt::Expr(expr.try_into()?)),
-            BlockPyStmt::Delete(delete) => Ok(BlockPyStmt::Delete(delete)),
-            BlockPyStmt::If(if_stmt) => Ok(BlockPyStmt::If(BlockPyIf {
-                test: if_stmt.test.try_into()?,
-                body: if_stmt.body.try_into()?,
-                orelse: if_stmt.orelse.try_into()?,
-            })),
-        }
+        ElideAwaitExprTryMap.try_map_stmt(value)
     }
 }
 
@@ -1923,26 +2058,7 @@ impl TryFrom<BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>>
     type Error = CoreBlockPyExprWithAwaitAndYield;
 
     fn try_from(value: BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>) -> Result<Self, Self::Error> {
-        match value {
-            BlockPyTerm::Jump(target) => Ok(BlockPyTerm::Jump(BlockPyEdge {
-                target: target.target,
-                args: target.args,
-            })),
-            BlockPyTerm::IfTerm(if_term) => Ok(BlockPyTerm::IfTerm(BlockPyIfTerm {
-                test: if_term.test.try_into()?,
-                then_label: if_term.then_label,
-                else_label: if_term.else_label,
-            })),
-            BlockPyTerm::BranchTable(branch) => Ok(BlockPyTerm::BranchTable(BlockPyBranchTable {
-                index: branch.index.try_into()?,
-                targets: branch.targets,
-                default_label: branch.default_label,
-            })),
-            BlockPyTerm::Raise(raise_stmt) => Ok(BlockPyTerm::Raise(BlockPyRaise {
-                exc: raise_stmt.exc.map(TryInto::try_into).transpose()?,
-            })),
-            BlockPyTerm::Return(value) => Ok(BlockPyTerm::Return(value.try_into()?)),
-        }
+        ElideAwaitExprTryMap.try_map_term(value)
     }
 }
 
@@ -1966,14 +2082,7 @@ impl
             BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
         >,
     ) -> Result<Self, Self::Error> {
-        Ok(BlockPyCfgFragment::with_term(
-            value
-                .body
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()?,
-            value.term.map(TryInto::try_into).transpose()?,
-        ))
+        ElideAwaitExprTryMap.try_map_fragment(value)
     }
 }
 
@@ -1993,17 +2102,7 @@ impl
             BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
         >,
     ) -> Result<Self, Self::Error> {
-        Ok(CfgBlock {
-            label: value.label,
-            body: value
-                .body
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()?,
-            term: value.term.try_into()?,
-            params: value.params,
-            exc_edge: value.exc_edge,
-        })
+        ElideAwaitExprTryMap.try_map_block(value)
     }
 }
 
@@ -2162,23 +2261,21 @@ impl TryFrom<CoreBlockPyExprWithYield> for CoreBlockPyExpr {
     }
 }
 
+struct ElideYieldExprTryMap;
+
+impl BlockPyModuleTryMap<CoreBlockPyPassWithYield, CoreBlockPyPass> for ElideYieldExprTryMap {
+    type Error = CoreBlockPyExprWithYield;
+
+    fn try_map_expr(&self, expr: CoreBlockPyExprWithYield) -> Result<CoreBlockPyExpr, Self::Error> {
+        expr.try_into()
+    }
+}
+
 impl TryFrom<BlockPyStmt<CoreBlockPyExprWithYield>> for BlockPyStmt<CoreBlockPyExpr> {
     type Error = CoreBlockPyExprWithYield;
 
     fn try_from(value: BlockPyStmt<CoreBlockPyExprWithYield>) -> Result<Self, Self::Error> {
-        match value {
-            BlockPyStmt::Assign(assign) => Ok(BlockPyStmt::Assign(BlockPyAssign {
-                target: assign.target,
-                value: assign.value.try_into()?,
-            })),
-            BlockPyStmt::Expr(expr) => Ok(BlockPyStmt::Expr(expr.try_into()?)),
-            BlockPyStmt::Delete(delete) => Ok(BlockPyStmt::Delete(delete)),
-            BlockPyStmt::If(if_stmt) => Ok(BlockPyStmt::If(BlockPyIf {
-                test: if_stmt.test.try_into()?,
-                body: if_stmt.body.try_into()?,
-                orelse: if_stmt.orelse.try_into()?,
-            })),
-        }
+        ElideYieldExprTryMap.try_map_stmt(value)
     }
 }
 
@@ -2186,26 +2283,7 @@ impl TryFrom<BlockPyTerm<CoreBlockPyExprWithYield>> for BlockPyTerm<CoreBlockPyE
     type Error = CoreBlockPyExprWithYield;
 
     fn try_from(value: BlockPyTerm<CoreBlockPyExprWithYield>) -> Result<Self, Self::Error> {
-        match value {
-            BlockPyTerm::Jump(target) => Ok(BlockPyTerm::Jump(BlockPyEdge {
-                target: target.target,
-                args: target.args,
-            })),
-            BlockPyTerm::IfTerm(if_term) => Ok(BlockPyTerm::IfTerm(BlockPyIfTerm {
-                test: if_term.test.try_into()?,
-                then_label: if_term.then_label,
-                else_label: if_term.else_label,
-            })),
-            BlockPyTerm::BranchTable(branch) => Ok(BlockPyTerm::BranchTable(BlockPyBranchTable {
-                index: branch.index.try_into()?,
-                targets: branch.targets,
-                default_label: branch.default_label,
-            })),
-            BlockPyTerm::Raise(raise_stmt) => Ok(BlockPyTerm::Raise(BlockPyRaise {
-                exc: raise_stmt.exc.map(TryInto::try_into).transpose()?,
-            })),
-            BlockPyTerm::Return(value) => Ok(BlockPyTerm::Return(value.try_into()?)),
-        }
+        ElideYieldExprTryMap.try_map_term(value)
     }
 }
 
@@ -2225,14 +2303,7 @@ impl
             BlockPyTerm<CoreBlockPyExprWithYield>,
         >,
     ) -> Result<Self, Self::Error> {
-        Ok(BlockPyCfgFragment::with_term(
-            value
-                .body
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()?,
-            value.term.map(TryInto::try_into).transpose()?,
-        ))
+        ElideYieldExprTryMap.try_map_fragment(value)
     }
 }
 
@@ -2247,17 +2318,7 @@ impl TryFrom<CfgBlock<BlockPyStmt<CoreBlockPyExprWithYield>, BlockPyTerm<CoreBlo
             BlockPyTerm<CoreBlockPyExprWithYield>,
         >,
     ) -> Result<Self, Self::Error> {
-        Ok(CfgBlock {
-            label: value.label,
-            body: value
-                .body
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()?,
-            term: value.term.try_into()?,
-            params: value.params,
-            exc_edge: value.exc_edge,
-        })
+        ElideYieldExprTryMap.try_map_block(value)
     }
 }
 
@@ -2265,33 +2326,7 @@ impl TryFrom<BlockPyFunction<CoreBlockPyPassWithYield>> for BlockPyFunction<Core
     type Error = CoreBlockPyExprWithYield;
 
     fn try_from(value: BlockPyFunction<CoreBlockPyPassWithYield>) -> Result<Self, Self::Error> {
-        let BlockPyFunction {
-            function_id,
-            name_gen,
-            names,
-            kind,
-            params,
-            blocks,
-            doc,
-            closure_layout,
-            facts,
-            semantic,
-        } = value;
-        Ok(BlockPyFunction {
-            function_id,
-            name_gen,
-            names,
-            kind,
-            params,
-            blocks: blocks
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<_, _>>()?,
-            doc,
-            closure_layout,
-            facts,
-            semantic,
-        })
+        ElideYieldExprTryMap.try_map_fn(value)
     }
 }
 
