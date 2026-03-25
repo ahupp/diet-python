@@ -4,7 +4,7 @@
 Python is a surprisingly complicated language, and to run it fast it first needs
 to be made into a smaller language.  There are a few phases here:
 
-python -> python:  
+python -> python:
   * Strip annotated assignments ("x : int = 1"), and emit as `__annotate__` / `__annotate_func__`.
   * Rewrite "private" names in classes like `__foo` -> `_{classname}_foo`.
   * `assert` -> `if __debug__`
@@ -81,14 +81,14 @@ $ ./rust-clif-dist/rustc-clif --out-dir=clif-out/ --crate-type=rlib fastadd.rs -
   - Test files: 401 passed / 492 total (483 run; 81 failed; 1 env_changed; 31 skipped; 9 resource_denied).
   - Test cases: 39,237 passed / 39,820 total (583 failed; 1,835 skipped).
 
-Then 
+Then
 • Test File Counts
 
   - Passing: 388/492
   - Run: 483/492
   - Failed: 95
   - Skipped files: 44
-  
+
   Individual Test Cases
 
   - Run: 39,320
@@ -176,7 +176,7 @@ Dropping to basic block format:
       - have many different layers of the system aware of annotations and annotationlib
       - special cases that match on specific internal variable names
       - many different sites aware of scoping rules
-  * 
+  *
 
 
 # Optimizations
@@ -190,6 +190,7 @@ Dropping to basic block format:
     * Call fastpath knowing exact sig of target
     * Unboxing
 
+ * Can we skip deleted checks on this value?
 
  * Minimize refcounting
  * Code size/locality
