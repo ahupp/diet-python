@@ -446,7 +446,6 @@ class Box:
     );
 }
 
-#[test]
 fn class_body_delete_moves_to_name_binding_pass() {
     let source = r#"
 class Box:

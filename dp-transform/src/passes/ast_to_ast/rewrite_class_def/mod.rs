@@ -2,7 +2,7 @@ pub mod class_body;
 pub mod method;
 pub mod private;
 
-use crate::passes::ast_to_ast::body::empty_suite;
+use crate::passes::ast_to_ast::body::{empty_suite, split_docstring};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
 use crate::{py_expr, py_stmt, py_stmt_typed};
@@ -34,34 +34,17 @@ fn class_def_to_create_class_fn<'a>(
     let class_name = name.id.to_string();
     let class_firstlineno = context.line_number_at(class_def.range.start().to_usize());
 
-    fn first_non_empty_stmt(body: &[Stmt]) -> Option<&Stmt> {
-        body.first()
-    }
-
-    fn class_doc_expr(stmt: &Stmt) -> Option<Expr> {
-        match stmt {
-            Stmt::Expr(ast::StmtExpr { value, .. }) => {
-                if let Expr::StringLiteral(_) = value.as_ref() {
-                    Some((**value).clone())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
-    if let Some(first_stmt) = first_non_empty_stmt(&body) {
-        if let Some(doc_expr) = class_doc_expr(first_stmt) {
-            body.insert(
-                0,
-                py_stmt!(
-                    "_dp_class_ns[{name:literal}] = {value:expr}",
-                    name = "__doc__",
-                    value = doc_expr
-                ),
-            );
-        }
+    let (docstring, stripped_body) = split_docstring(&body);
+    body = stripped_body;
+    if let Some(docstring) = docstring {
+        body.insert(
+            0,
+            py_stmt!(
+                "_dp_class_ns[{name:literal}] = {value:literal}",
+                name = "__doc__",
+                value = docstring
+            ),
+        );
     }
 
     let mut orig_bases_expr: Option<Expr> = None;
