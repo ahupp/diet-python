@@ -8,6 +8,10 @@ name = "dp_transform"
 path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "regen_snapshots"
+path = "src/bin/regen_snapshots/mod.rs"
+
 [dependencies]
 ruff_python_parser = { workspace = true }
 ruff_python_ast = { workspace = true }

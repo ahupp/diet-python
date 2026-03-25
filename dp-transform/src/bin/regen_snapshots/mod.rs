@@ -475,5 +475,4 @@ fn main() -> Result<(), String> {
 }
 
 #[cfg(test)]
-#[path = "regen_snapshots/test.rs"]
 mod test;
