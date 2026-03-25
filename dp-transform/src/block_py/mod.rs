@@ -631,15 +631,17 @@ impl BlockPyCallableSemanticInfo {
         matches!(self.binding_kind(name), Some(BlockPyBindingKind::Cell(_)))
     }
 
-    pub fn binding_target_for_name(&self, name: &str) -> BindingTarget {
+    pub fn binding_target_for_name(
+        &self,
+        name: &str,
+        purpose: BlockPyBindingPurpose,
+    ) -> BindingTarget {
         if is_internal_symbol(name) {
             return BindingTarget::Local;
         }
-        match (self.scope_kind, self.binding_kind(name)) {
-            (BlockPyCallableScopeKind::Class, Some(BlockPyBindingKind::Local)) => {
-                BindingTarget::ClassNamespace
-            }
-            (_, Some(BlockPyBindingKind::Global)) => BindingTarget::ModuleGlobal,
+        match self.effective_binding(name, purpose) {
+            Some(BlockPyEffectiveBinding::Global) => BindingTarget::ModuleGlobal,
+            Some(BlockPyEffectiveBinding::ClassBody(_)) => BindingTarget::ClassNamespace,
             _ => BindingTarget::Local,
         }
     }

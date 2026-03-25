@@ -303,7 +303,8 @@ fn rewrite_quiet_delete_marker(
                 vec![cell_expr_for_name(name.id.as_str(), node_index, range)],
             ))
         }
-        _ => match semantic.binding_target_for_name(name.id.as_str()) {
+        _ => match semantic.binding_target_for_name(name.id.as_str(), BlockPyBindingPurpose::Store)
+        {
             BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
                 target: ast::ExprName {
                     id: name.id,
@@ -535,7 +536,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
             })
         } else if self
             .semantic
-            .binding_target_for_name(assign.target.id.as_str())
+            .binding_target_for_name(assign.target.id.as_str(), BlockPyBindingPurpose::Store)
             == BindingTarget::ModuleGlobal
         {
             if is_deleted_sentinel_expr(&assign.value) {

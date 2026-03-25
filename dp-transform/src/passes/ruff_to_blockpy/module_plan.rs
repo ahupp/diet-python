@@ -696,7 +696,8 @@ fn rewrite_function_def_stmt_via_blockpy(
         try_lower_function_to_blockpy_bundle(context, func, callable_semantic, name_gen);
     lowered_plan.closure_layout = recompute_semantic_blockpy_closure_layout(&lowered_plan);
     let bind_name = lowered_plan.names.bind_name.clone();
-    let binding_target = parent_semantic.binding_target_for_name(bind_name.as_str());
+    let binding_target =
+        parent_semantic.binding_target_for_name(bind_name.as_str(), BlockPyBindingPurpose::Store);
     let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let decorated = build_lowered_function_instantiation_expr(
         lowered_plan.function_id,
@@ -839,8 +840,8 @@ mod tests {
         FunctionScopeFrame,
     };
     use crate::block_py::{
-        BlockPyBindingPurpose, BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyModule,
-        ClosureInit, ClosureLayout, ClosureSlot, ModuleNameGen,
+        BindingTarget, BlockPyBindingPurpose, BlockPyClassBodyFallback, BlockPyEffectiveBinding,
+        BlockPyModule, ClosureInit, ClosureLayout, ClosureSlot, ModuleNameGen,
     };
     use crate::passes::ast_to_ast::body::suite_mut;
     use crate::passes::ast_to_ast::context::Context;
@@ -1001,10 +1002,22 @@ mod tests {
         assert_eq!(
             class_helper
                 .semantic
+                .binding_target_for_name("T", BlockPyBindingPurpose::Store),
+            BindingTarget::Local,
+        );
+        assert_eq!(
+            class_helper
+                .semantic
                 .effective_binding("T", BlockPyBindingPurpose::Load),
             Some(BlockPyEffectiveBinding::ClassBody(
                 BlockPyClassBodyFallback::Global
             )),
+        );
+        assert_eq!(
+            class_helper
+                .semantic
+                .binding_target_for_name("value", BlockPyBindingPurpose::Store),
+            BindingTarget::ClassNamespace,
         );
         assert_eq!(
             class_helper
