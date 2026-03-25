@@ -587,13 +587,20 @@ pub enum BlockPyEffectiveBinding {
     ClassBody(BlockPyClassBodyFallback),
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum BlockPyBindingPurpose {
+    Load,
+    Store,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BlockPyCallableSemanticInfo {
     pub names: FunctionName,
     pub scope_kind: BlockPyCallableScopeKind,
     pub bindings: HashMap<String, BlockPyBindingKind>,
     pub type_param_names: HashSet<String>,
-    pub effective_bindings: HashMap<String, BlockPyEffectiveBinding>,
+    pub effective_load_bindings: HashMap<String, BlockPyEffectiveBinding>,
+    pub effective_store_bindings: HashMap<String, BlockPyEffectiveBinding>,
 }
 
 impl BlockPyCallableSemanticInfo {
@@ -601,8 +608,15 @@ impl BlockPyCallableSemanticInfo {
         self.bindings.get(name).copied()
     }
 
-    pub fn effective_binding(&self, name: &str) -> Option<BlockPyEffectiveBinding> {
-        self.effective_bindings.get(name).copied()
+    pub fn effective_binding(
+        &self,
+        name: &str,
+        purpose: BlockPyBindingPurpose,
+    ) -> Option<BlockPyEffectiveBinding> {
+        match purpose {
+            BlockPyBindingPurpose::Load => self.effective_load_bindings.get(name).copied(),
+            BlockPyBindingPurpose::Store => self.effective_store_bindings.get(name).copied(),
+        }
     }
 
     pub fn resolved_load_binding_kind(&self, name: &str) -> BlockPyBindingKind {

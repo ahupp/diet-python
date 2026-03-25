@@ -1,7 +1,7 @@
 use crate::block_py::param_specs::{collect_param_spec_and_defaults, param_defaults_to_expr};
 use crate::block_py::{
-    BindingTarget, BlockPyBindingKind, BlockPyCellBindingKind, BlockPyClassBodyFallback,
-    BlockPyEffectiveBinding,
+    BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCellBindingKind,
+    BlockPyClassBodyFallback, BlockPyEffectiveBinding,
 };
 use crate::block_py::{
     BlockPyCallableFacts, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyFunction,
@@ -147,7 +147,7 @@ fn callable_semantic_info(
         });
     }
     let type_param_names = function_scope.type_param_names();
-    let effective_bindings = bindings
+    let effective_load_bindings = bindings
         .iter()
         .map(|(name, binding)| {
             (
@@ -157,6 +157,22 @@ fn callable_semantic_info(
                     *binding,
                     scope_kind,
                     &type_param_names,
+                    BlockPyBindingPurpose::Load,
+                ),
+            )
+        })
+        .collect();
+    let effective_store_bindings = bindings
+        .iter()
+        .map(|(name, binding)| {
+            (
+                name.clone(),
+                blockpy_effective_binding_for_name(
+                    name.as_str(),
+                    *binding,
+                    scope_kind,
+                    &type_param_names,
+                    BlockPyBindingPurpose::Store,
                 ),
             )
         })
@@ -197,7 +213,8 @@ fn callable_semantic_info(
         scope_kind,
         bindings,
         type_param_names,
-        effective_bindings,
+        effective_load_bindings,
+        effective_store_bindings,
     }
 }
 
@@ -206,27 +223,41 @@ fn blockpy_effective_binding_for_name(
     binding: BlockPyBindingKind,
     scope_kind: BlockPyCallableScopeKind,
     type_param_names: &HashSet<String>,
+    purpose: BlockPyBindingPurpose,
 ) -> BlockPyEffectiveBinding {
     if is_internal_symbol(name) {
         return BlockPyEffectiveBinding::Local;
     }
-    if scope_kind == BlockPyCallableScopeKind::Class && type_param_names.contains(name) {
-        return match binding {
-            BlockPyBindingKind::Local => BlockPyEffectiveBinding::Local,
-            BlockPyBindingKind::Global => BlockPyEffectiveBinding::Global,
-            BlockPyBindingKind::Cell(kind) => BlockPyEffectiveBinding::Cell(kind),
-        };
-    }
-    match (scope_kind, binding) {
-        (_, BlockPyBindingKind::Global) => BlockPyEffectiveBinding::Global,
-        (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Local) => {
-            BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global)
+    match purpose {
+        BlockPyBindingPurpose::Load => match (scope_kind, binding) {
+            (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Cell(_)) => {
+                BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Cell)
+            }
+            (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Local)
+            | (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Global) => {
+                BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global)
+            }
+            (_, BlockPyBindingKind::Global) => BlockPyEffectiveBinding::Global,
+            (_, BlockPyBindingKind::Cell(kind)) => BlockPyEffectiveBinding::Cell(kind),
+            (_, BlockPyBindingKind::Local) => BlockPyEffectiveBinding::Local,
+        },
+        BlockPyBindingPurpose::Store => {
+            if scope_kind == BlockPyCallableScopeKind::Class && type_param_names.contains(name) {
+                return match binding {
+                    BlockPyBindingKind::Local => BlockPyEffectiveBinding::Local,
+                    BlockPyBindingKind::Global => BlockPyEffectiveBinding::Global,
+                    BlockPyBindingKind::Cell(kind) => BlockPyEffectiveBinding::Cell(kind),
+                };
+            }
+            match (scope_kind, binding) {
+                (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Local) => {
+                    BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global)
+                }
+                (_, BlockPyBindingKind::Global) => BlockPyEffectiveBinding::Global,
+                (_, BlockPyBindingKind::Cell(kind)) => BlockPyEffectiveBinding::Cell(kind),
+                (_, BlockPyBindingKind::Local) => BlockPyEffectiveBinding::Local,
+            }
         }
-        (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Cell(_)) => {
-            BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Cell)
-        }
-        (_, BlockPyBindingKind::Cell(kind)) => BlockPyEffectiveBinding::Cell(kind),
-        (_, BlockPyBindingKind::Local) => BlockPyEffectiveBinding::Local,
     }
 }
 
@@ -808,8 +839,8 @@ mod tests {
         FunctionScopeFrame,
     };
     use crate::block_py::{
-        BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyModule, ClosureInit,
-        ClosureLayout, ClosureSlot, ModuleNameGen,
+        BlockPyBindingPurpose, BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyModule,
+        ClosureInit, ClosureLayout, ClosureSlot, ModuleNameGen,
     };
     use crate::passes::ast_to_ast::body::suite_mut;
     use crate::passes::ast_to_ast::context::Context;
@@ -962,11 +993,23 @@ mod tests {
 
         assert!(class_helper.semantic.type_param_names.contains("T"));
         assert_eq!(
-            class_helper.semantic.effective_binding("T"),
-            Some(BlockPyEffectiveBinding::Local)
+            class_helper
+                .semantic
+                .effective_binding("T", BlockPyBindingPurpose::Store),
+            Some(BlockPyEffectiveBinding::Local),
         );
         assert_eq!(
-            class_helper.semantic.effective_binding("value"),
+            class_helper
+                .semantic
+                .effective_binding("T", BlockPyBindingPurpose::Load),
+            Some(BlockPyEffectiveBinding::ClassBody(
+                BlockPyClassBodyFallback::Global
+            )),
+        );
+        assert_eq!(
+            class_helper
+                .semantic
+                .effective_binding("value", BlockPyBindingPurpose::Store),
             Some(BlockPyEffectiveBinding::ClassBody(
                 BlockPyClassBodyFallback::Global
             ))
@@ -994,7 +1037,9 @@ mod tests {
             .expect("missing class helper");
 
         assert_eq!(
-            class_helper.semantic.effective_binding("x"),
+            class_helper
+                .semantic
+                .effective_binding("x", BlockPyBindingPurpose::Load),
             Some(BlockPyEffectiveBinding::ClassBody(
                 BlockPyClassBodyFallback::Cell
             ))
