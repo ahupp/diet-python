@@ -92,7 +92,7 @@ a, b = it
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, True))
 #         a = __dp_getitem(_dp_tmp_1, 0)
 #         b = __dp_getitem(_dp_tmp_1, 1)
-#         _dp_tmp_1 = __dp_DELETED
+#         del _dp_tmp_1
 #         return __dp_NONE
 
 # assign_star_unpack
@@ -107,7 +107,7 @@ a, *b = it
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, False))
 #         a = __dp_getitem(_dp_tmp_1, 0)
 #         b = __dp_list(__dp_getitem(_dp_tmp_1, 1))
-#         _dp_tmp_1 = __dp_DELETED
+#         del _dp_tmp_1
 #         return __dp_NONE
 
 # assign_multi_targets
@@ -189,7 +189,7 @@ del obj.x, obj[i], x
 #     block _dp_bb_0_1:
 #         __dp_delattr(obj, "x")
 #         __dp_delitem(obj, i)
-#         x = __dp_DELETED
+#         del x
 #         return __dp_NONE
 
 # assert_no_msg

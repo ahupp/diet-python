@@ -1377,7 +1377,6 @@ pub(crate) fn lower_generator_like_function(
         kind,
         params,
         doc,
-        facts,
         semantic,
         ..
     } = callable;
@@ -1394,7 +1393,6 @@ pub(crate) fn lower_generator_like_function(
         ),
         doc,
         closure_layout: Some(closure_layout.clone()),
-        facts: facts.clone(),
         semantic: semantic.clone(),
     };
 
@@ -1414,7 +1412,6 @@ pub(crate) fn lower_generator_like_function(
         blocks: resume_blocks.clone(),
         doc: None,
         closure_layout: Some(closure_layout.clone()),
-        facts,
         semantic: resume_semantic,
     };
 

@@ -15,9 +15,9 @@ use crate::block_py::param_specs::ParamSpec;
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     assert_blockpy_block_normalized, move_entry_block_to_front, BlockPyBindingKind,
-    BlockPyCallableFacts, BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm,
-    BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyStmt, BlockPyTerm,
-    CfgBlock, ClosureLayout, FunctionName, FunctionNameGen,
+    BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyStmt, BlockPyTerm, CfgBlock,
+    ClosureLayout, FunctionName, FunctionNameGen,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -30,13 +30,11 @@ use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
 mod compat;
-mod deleted_name_loads;
 pub(crate) mod expr_lowering;
 mod module_plan;
 mod stmt_lowering;
 mod stmt_sequences;
 mod try_regions;
-pub(crate) use deleted_name_loads::rewrite_deleted_name_loads;
 
 pub(crate) use super::blockpy_generators::build_blockpy_closure_layout;
 pub(crate) use module_plan::rewrite_ast_to_lowered_blockpy_module_plan_with_module;
@@ -68,7 +66,6 @@ pub(crate) enum StmtSequenceHeadPlan {
     Expanded(Vec<Stmt>),
     FunctionDef(ast::StmtFunctionDef),
     Raise(ast::StmtRaise),
-    Delete(ast::StmtDelete),
     Return(Option<Expr>),
     If(ast::StmtIf),
     While(ast::StmtWhile),
@@ -228,9 +225,19 @@ fn build_semantic_blockpy_closure_layout(
         .iter()
         .flat_map(|block| analyze_blockpy_use_def(block).1.into_iter())
         .collect();
+    let deleted_names: HashSet<String> = callable_def
+        .blocks
+        .iter()
+        .flat_map(|block| block.body.iter())
+        .filter_map(|stmt| match stmt {
+            BlockPyStmt::Delete(delete) => Some(delete.target.id.to_string()),
+            _ => None,
+        })
+        .collect();
     let mut referenced_names = used_names
         .iter()
         .chain(defined_names.iter())
+        .chain(deleted_names.iter())
         .cloned()
         .collect::<Vec<_>>();
     referenced_names.sort();
@@ -304,7 +311,6 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
     doc: Option<String>,
     end_label: BlockPyLabel,
     blockpy_kind: BlockPyFunctionKind,
-    facts: &BlockPyCallableFacts,
     semantic: &BlockPyCallableSemanticInfo,
 ) -> BlockPyFunction<RuffBlockPyPass> {
     let function_id = name_gen.function_id();
@@ -329,7 +335,6 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
         blocks,
         doc,
         closure_layout: None,
-        facts: facts.clone(),
         semantic: semantic.clone(),
     };
     let needs_end_block = entry_label == end_label.as_str()

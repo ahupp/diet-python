@@ -446,6 +446,7 @@ class Box:
     );
 }
 
+#[test]
 fn class_body_delete_moves_to_name_binding_pass() {
     let source = r#"
 class Box:
@@ -455,14 +456,12 @@ class Box:
 
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
-    assert!(
-        core_rendered.contains("x = __dp_DELETED"),
-        "{core_rendered}"
-    );
+    assert!(core_rendered.contains("del x"), "{core_rendered}");
     assert!(
         !core_rendered.contains("__dp_delitem(_dp_class_ns, \"x\")"),
         "{core_rendered}"
     );
+    assert!(!core_rendered.contains("__dp_DELETED"), "{core_rendered}");
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
@@ -483,11 +482,9 @@ def outer():
 
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
-    assert!(
-        core_rendered.contains("x = __dp_DELETED"),
-        "{core_rendered}"
-    );
+    assert!(core_rendered.contains("del x"), "{core_rendered}");
     assert!(!core_rendered.contains("cell_contents"), "{core_rendered}");
+    assert!(!core_rendered.contains("__dp_DELETED"), "{core_rendered}");
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
@@ -1324,15 +1321,58 @@ del x
         !core_rendered.contains("__dp_delitem(__dp_globals(), \"x\")"),
         "{core_rendered}"
     );
-    assert!(
-        core_rendered.contains("x = __dp_DELETED"),
-        "{core_rendered}"
-    );
+    assert!(core_rendered.contains("del x"), "{core_rendered}");
+    assert!(!core_rendered.contains("__dp_DELETED"), "{core_rendered}");
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered.contains("__dp_delitem(__dp_globals(), \"x\")"),
         "{name_binding_rendered}"
+    );
+}
+
+#[test]
+fn dead_tail_local_binding_load_moves_to_name_binding_pass() {
+    let source = r#"
+def f():
+    print(x)
+    return
+    x = 1
+"#;
+
+    let lowered = TrackedLowering::new(source);
+    let core_rendered = lowered.pass_text("core_blockpy");
+    assert!(
+        !core_rendered.contains("__dp_load_deleted_name"),
+        "{core_rendered}"
+    );
+    assert!(!core_rendered.contains("x = 1"), "{core_rendered}");
+
+    let name_binding_rendered = lowered.name_binding_text();
+    assert!(
+        name_binding_rendered.contains("__dp_load_deleted_name(\"x\", __dp_DELETED)"),
+        "{name_binding_rendered}"
+    );
+}
+
+#[test]
+fn nonlocal_delete_preserves_closure_capture_before_name_binding() {
+    let source = r#"
+def outer():
+    x = 1
+    def inner():
+        nonlocal x
+        del x
+        return "ok"
+    inner()
+    return "done"
+"#;
+
+    let lowered = TrackedLowering::new(source);
+    let blockpy_rendered = lowered.blockpy_text();
+    assert!(
+        blockpy_rendered.contains("freevars: [x->_dp_cell_x@inherited]"),
+        "{blockpy_rendered}"
     );
 }
 

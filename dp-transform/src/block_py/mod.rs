@@ -582,21 +582,6 @@ pub struct CoreBlockPyYieldFrom<E> {
     pub value: Box<E>,
 }
 
-#[derive(Debug, Clone)]
-pub struct BlockPyCallableFacts {
-    pub deleted_names: HashSet<String>,
-    pub unbound_local_names: HashSet<String>,
-}
-
-impl Default for BlockPyCallableFacts {
-    fn default() -> Self {
-        Self {
-            deleted_names: HashSet::new(),
-            unbound_local_names: HashSet::new(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct FunctionName {
     pub bind_name: String,
@@ -654,6 +639,7 @@ pub struct BlockPyCallableSemanticInfo {
     pub names: FunctionName,
     pub scope_kind: BlockPyCallableScopeKind,
     pub bindings: HashMap<String, BlockPyBindingKind>,
+    pub local_defs: HashSet<String>,
     pub cell_storage_names: HashMap<String, String>,
     pub semantic_internal_names: HashSet<String>,
     pub type_param_names: HashSet<String>,
@@ -712,6 +698,10 @@ impl BlockPyCallableSemanticInfo {
 
     pub fn binding_kind(&self, name: &str) -> Option<BlockPyBindingKind> {
         self.bindings.get(name).copied()
+    }
+
+    pub fn has_local_def(&self, name: &str) -> bool {
+        self.local_defs.contains(name)
     }
 
     pub fn effective_binding(
@@ -829,6 +819,17 @@ impl BlockPyCallableSemanticInfo {
             })
             .collect()
     }
+
+    pub fn logical_name_for_cell_storage(&self, storage_name: &str) -> Option<String> {
+        if let Some(logical_name) = storage_name.strip_prefix("_dp_cell_") {
+            return Some(logical_name.to_string());
+        }
+        self.cell_storage_names
+            .iter()
+            .find_map(|(logical_name, current_storage_name)| {
+                (current_storage_name == storage_name).then(|| logical_name.clone())
+            })
+    }
 }
 
 #[derive(Debug)]
@@ -841,7 +842,6 @@ pub struct BlockPyFunction<P: BlockPyPass> {
     pub blocks: Vec<CfgBlock<P::Stmt, BlockPyTerm<P::Expr>>>,
     pub doc: Option<String>,
     pub closure_layout: Option<ClosureLayout>,
-    pub facts: BlockPyCallableFacts,
     pub semantic: BlockPyCallableSemanticInfo,
 }
 
@@ -858,7 +858,6 @@ impl<P: BlockPyPass> Clone for BlockPyFunction<P> {
             blocks: self.blocks.clone(),
             doc: self.doc.clone(),
             closure_layout: self.closure_layout.clone(),
-            facts: self.facts.clone(),
             semantic: self.semantic.clone(),
         }
     }
@@ -902,7 +901,6 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
             blocks: self.blocks.into_iter().map(&mut f).collect(),
             doc: self.doc,
             closure_layout: self.closure_layout,
-            facts: self.facts,
             semantic: self.semantic,
         }
     }

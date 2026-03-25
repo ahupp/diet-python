@@ -89,7 +89,6 @@ where
                 .collect(),
             doc: func.doc,
             closure_layout: func.closure_layout,
-            facts: func.facts,
             semantic: func.semantic,
         }
     }
@@ -217,7 +216,6 @@ where
                 .collect::<Result<_, _>>()?,
             doc: func.doc,
             closure_layout: func.closure_layout,
-            facts: func.facts,
             semantic: func.semantic,
         })
     }

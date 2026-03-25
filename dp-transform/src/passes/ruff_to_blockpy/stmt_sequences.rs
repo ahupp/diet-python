@@ -59,10 +59,6 @@ pub(crate) fn drive_stmt_sequence_until_control(
                     func_def.name.id
                 );
             }
-            StmtSequenceHeadPlan::Delete(delete_stmt) => {
-                linear.extend(rewrite_delete_to_deleted_sentinel(&delete_stmt));
-                index += 1;
-            }
             plan => {
                 return StmtSequenceDriveResult::Break {
                     linear,
@@ -82,39 +78,6 @@ fn compat_blockpy_raise_from_stmt(raise_stmt: ast::StmtRaise) -> BlockPyRaise {
     );
     BlockPyRaise {
         exc: raise_stmt.exc.map(|expr| (*expr).into()),
-    }
-}
-
-fn rewrite_delete_to_deleted_sentinel(delete_stmt: &ast::StmtDelete) -> Vec<Stmt> {
-    let mut out = Vec::new();
-    for target in &delete_stmt.targets {
-        rewrite_delete_target_to_deleted_sentinel(target, &mut out);
-    }
-    out
-}
-
-fn rewrite_delete_target_to_deleted_sentinel(target: &Expr, out: &mut Vec<Stmt>) {
-    match target {
-        Expr::Name(name) => {
-            out.push(py_stmt!(
-                "{name:id} = __dp_DELETED",
-                name = name.id.as_str(),
-            ));
-        }
-        Expr::Tuple(tuple) => {
-            for elt in &tuple.elts {
-                rewrite_delete_target_to_deleted_sentinel(elt, out);
-            }
-        }
-        Expr::List(list) => {
-            for elt in &list.elts {
-                rewrite_delete_target_to_deleted_sentinel(elt, out);
-            }
-        }
-        Expr::Starred(starred) => {
-            rewrite_delete_target_to_deleted_sentinel(starred.value.as_ref(), out);
-        }
-        _ => out.push(py_stmt!("del {target:expr}", target = target.clone())),
     }
 }
 
@@ -426,10 +389,8 @@ pub(crate) fn lower_stmt_sequence_with_state(
                 };
                 return label;
             }
-            StmtSequenceHeadPlan::Linear(_)
-            | StmtSequenceHeadPlan::FunctionDef(_)
-            | StmtSequenceHeadPlan::Delete(_) => {
-                unreachable!("sequence driver should consume linear/functiondef/delete heads")
+            StmtSequenceHeadPlan::Linear(_) | StmtSequenceHeadPlan::FunctionDef(_) => {
+                unreachable!("sequence driver should consume linear/functiondef heads")
             }
             StmtSequenceHeadPlan::Expanded(expanded_stmts) => {
                 let jump_label = (!linear.is_empty()).then(|| name_gen.next_block_name());

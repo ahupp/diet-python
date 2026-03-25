@@ -204,6 +204,7 @@ fn plan_simplified_stmt_head_for_blockpy(
         Stmt::Expr(_)
         | Stmt::Pass(_)
         | Stmt::Assign(_)
+        | Stmt::Delete(_)
         | Stmt::Global(_)
         | Stmt::Nonlocal(_)
         | Stmt::AugAssign(_)
@@ -211,7 +212,6 @@ fn plan_simplified_stmt_head_for_blockpy(
         | Stmt::ImportFrom(_) => StmtSequenceHeadPlan::Linear(simplified),
         Stmt::FunctionDef(func_def) => StmtSequenceHeadPlan::FunctionDef(func_def),
         Stmt::Raise(raise_stmt) => StmtSequenceHeadPlan::Raise(raise_stmt),
-        Stmt::Delete(delete_stmt) => StmtSequenceHeadPlan::Delete(delete_stmt),
         Stmt::Return(ret) => {
             StmtSequenceHeadPlan::Return(ret.value.as_ref().map(|expr| *expr.clone()))
         }

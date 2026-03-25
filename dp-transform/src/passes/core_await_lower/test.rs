@@ -31,7 +31,6 @@ fn lowers_await_to_yield_from_await_iter() {
             })],
             doc: None,
             closure_layout: None,
-            facts: crate::block_py::BlockPyCallableFacts::default(),
             semantic: BlockPyCallableSemanticInfo::default(),
         }],
     };

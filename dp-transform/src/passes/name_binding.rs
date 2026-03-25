@@ -183,7 +183,15 @@ fn rewrite_binding_delete(
         ));
     }
     match semantic.binding_target_for_name(bind_name.as_str(), BlockPyBindingPurpose::Store) {
-        BindingTarget::Local => BlockPyStmt::Delete(crate::block_py::BlockPyDelete { target }),
+        BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
+            target: ast::ExprName {
+                id: target.id,
+                ctx: ast::ExprContext::Store,
+                node_index: node_index.clone(),
+                range,
+            },
+            value: deleted_sentinel_expr(node_index, range),
+        }),
         BindingTarget::ModuleGlobal => {
             rewrite_global_binding_delete_by_name(bind_name.as_str(), node_index, range)
         }
@@ -202,8 +210,11 @@ fn rewrite_binding_delete(
 fn rewrite_deleted_name_load_expr(
     name: ExprName,
     deleted_names: &HashSet<String>,
+    always_unbound_names: &HashSet<String>,
 ) -> CoreBlockPyExpr {
-    if !deleted_names.contains(name.id.as_str()) {
+    let always_unbound = always_unbound_names.contains(name.id.as_str());
+    let deleted = deleted_names.contains(name.id.as_str());
+    if !always_unbound && !deleted {
         return CoreBlockPyExpr::Name(name);
     }
     let node_index = name.node_index.clone();
@@ -214,7 +225,11 @@ fn rewrite_deleted_name_load_expr(
         range,
         vec![
             core_string_expr(name.id.to_string(), node_index.clone(), range),
-            CoreBlockPyExpr::Name(name),
+            if always_unbound {
+                deleted_sentinel_expr(node_index, range)
+            } else {
+                CoreBlockPyExpr::Name(name)
+            },
         ],
     )
 }
@@ -236,9 +251,16 @@ fn expr_meta(expr: &CoreBlockPyExpr) -> (ast::AtomicNodeIndex, ruff_text_size::T
     }
 }
 
-fn rewrite_deleted_name_loads_in_expr(expr: &mut CoreBlockPyExpr, deleted_names: &HashSet<String>) {
-    if let Some(logical_name) = cell_load_logical_name(expr) {
-        if deleted_names.contains(logical_name.as_str()) {
+fn rewrite_deleted_name_loads_in_expr(
+    expr: &mut CoreBlockPyExpr,
+    semantic: &BlockPyCallableSemanticInfo,
+    deleted_names: &HashSet<String>,
+    always_unbound_names: &HashSet<String>,
+) {
+    if let Some(logical_name) = cell_load_logical_name(expr, semantic) {
+        if deleted_names.contains(logical_name.as_str())
+            || always_unbound_names.contains(logical_name.as_str())
+        {
             let (node_index, range) = expr_meta(expr);
             *expr = core_positional_call_expr_with_meta(
                 "__dp_load_deleted_name",
@@ -254,7 +276,8 @@ fn rewrite_deleted_name_loads_in_expr(expr: &mut CoreBlockPyExpr, deleted_names:
     }
     match expr {
         CoreBlockPyExpr::Name(name) if matches!(name.ctx, ast::ExprContext::Load) => {
-            *expr = rewrite_deleted_name_load_expr(name.clone(), deleted_names);
+            *expr =
+                rewrite_deleted_name_load_expr(name.clone(), deleted_names, always_unbound_names);
         }
         CoreBlockPyExpr::Call(CoreBlockPyCall {
             func,
@@ -262,17 +285,37 @@ fn rewrite_deleted_name_loads_in_expr(expr: &mut CoreBlockPyExpr, deleted_names:
             keywords,
             ..
         }) => {
-            rewrite_deleted_name_loads_in_expr(func.as_mut(), deleted_names);
+            rewrite_deleted_name_loads_in_expr(
+                func.as_mut(),
+                semantic,
+                deleted_names,
+                always_unbound_names,
+            );
             for arg in args {
-                rewrite_deleted_name_loads_in_expr(arg.expr_mut(), deleted_names);
+                rewrite_deleted_name_loads_in_expr(
+                    arg.expr_mut(),
+                    semantic,
+                    deleted_names,
+                    always_unbound_names,
+                );
             }
             for keyword in keywords {
-                rewrite_deleted_name_loads_in_expr(keyword.expr_mut(), deleted_names);
+                rewrite_deleted_name_loads_in_expr(
+                    keyword.expr_mut(),
+                    semantic,
+                    deleted_names,
+                    always_unbound_names,
+                );
             }
         }
         CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, .. }) => {
             for arg in args {
-                rewrite_deleted_name_loads_in_expr(arg, deleted_names);
+                rewrite_deleted_name_loads_in_expr(
+                    arg,
+                    semantic,
+                    deleted_names,
+                    always_unbound_names,
+                );
             }
         }
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
@@ -456,7 +499,10 @@ fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
     matches!(expr, CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_DELETED")
 }
 
-fn cell_load_logical_name(expr: &CoreBlockPyExpr) -> Option<String> {
+fn cell_load_logical_name(
+    expr: &CoreBlockPyExpr,
+    semantic: &BlockPyCallableSemanticInfo,
+) -> Option<String> {
     let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
         intrinsic, args, ..
     }) = expr
@@ -469,10 +515,7 @@ fn cell_load_logical_name(expr: &CoreBlockPyExpr) -> Option<String> {
     let CoreBlockPyExpr::Name(name) = &args[0] else {
         return None;
     };
-    name.id
-        .as_str()
-        .strip_prefix("_dp_cell_")
-        .map(str::to_string)
+    semantic.logical_name_for_cell_storage(name.id.as_str())
 }
 
 fn build_local_cell_init_assign(
@@ -604,7 +647,10 @@ fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPa
         .splice(0..0, init_stmts);
 }
 
-fn store_cell_deleted_logical_name(expr: &CoreBlockPyExpr) -> Option<String> {
+fn store_cell_deleted_logical_name(
+    expr: &CoreBlockPyExpr,
+    semantic: &BlockPyCallableSemanticInfo,
+) -> Option<String> {
     let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
         intrinsic, args, ..
     }) = expr
@@ -621,10 +667,48 @@ fn store_cell_deleted_logical_name(expr: &CoreBlockPyExpr) -> Option<String> {
     if !is_deleted_sentinel_expr(value_expr) {
         return None;
     }
-    name.id
-        .as_str()
-        .strip_prefix("_dp_cell_")
-        .map(str::to_string)
+    semantic.logical_name_for_cell_storage(name.id.as_str())
+}
+
+fn del_deref_logical_name(
+    expr: &CoreBlockPyExpr,
+    semantic: &BlockPyCallableSemanticInfo,
+) -> Option<String> {
+    let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+        intrinsic, args, ..
+    }) = expr
+    else {
+        return None;
+    };
+    if intrinsic.name() != DEL_DEREF_INTRINSIC.name() || args.len() != 1 {
+        return None;
+    }
+    let CoreBlockPyExpr::Name(name) = &args[0] else {
+        return None;
+    };
+    semantic.logical_name_for_cell_storage(name.id.as_str())
+}
+
+fn store_cell_runtime_logical_name(
+    expr: &CoreBlockPyExpr,
+    semantic: &BlockPyCallableSemanticInfo,
+) -> Option<String> {
+    let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+        intrinsic, args, ..
+    }) = expr
+    else {
+        return None;
+    };
+    if intrinsic.name() != STORE_CELL_INTRINSIC.name() || args.len() != 2 {
+        return None;
+    }
+    let CoreBlockPyExpr::Name(name) = &args[0] else {
+        return None;
+    };
+    if is_deleted_sentinel_expr(&args[1]) {
+        return None;
+    }
+    semantic.logical_name_for_cell_storage(name.id.as_str())
 }
 
 fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
@@ -823,26 +907,37 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
 
 fn collect_deleted_names_in_fragment(
     fragment: &crate::block_py::BlockPyStmtFragment<CoreBlockPyExpr>,
+    semantic: &BlockPyCallableSemanticInfo,
     names: &mut HashSet<String>,
 ) {
     for stmt in &fragment.body {
-        collect_deleted_names_in_stmt(stmt, names);
+        collect_deleted_names_in_stmt(stmt, semantic, names);
     }
 }
 
-fn collect_deleted_names_in_stmt(stmt: &BlockPyStmt<CoreBlockPyExpr>, names: &mut HashSet<String>) {
+fn collect_deleted_names_in_stmt(
+    stmt: &BlockPyStmt<CoreBlockPyExpr>,
+    semantic: &BlockPyCallableSemanticInfo,
+    names: &mut HashSet<String>,
+) {
     match stmt {
-        BlockPyStmt::Assign(assign) if is_deleted_sentinel_expr(&assign.value) => {
+        BlockPyStmt::Assign(assign)
+            if semantic.has_local_def(assign.target.id.as_str())
+                && is_deleted_sentinel_expr(&assign.value) =>
+        {
             names.insert(assign.target.id.to_string());
         }
         BlockPyStmt::Expr(expr) => {
-            if let Some(name) = store_cell_deleted_logical_name(expr) {
+            if let Some(name) = store_cell_deleted_logical_name(expr, semantic) {
+                names.insert(name);
+            }
+            if let Some(name) = del_deref_logical_name(expr, semantic) {
                 names.insert(name);
             }
         }
         BlockPyStmt::If(if_stmt) => {
-            collect_deleted_names_in_fragment(&if_stmt.body, names);
-            collect_deleted_names_in_fragment(&if_stmt.orelse, names);
+            collect_deleted_names_in_fragment(&if_stmt.body, semantic, names);
+            collect_deleted_names_in_fragment(&if_stmt.orelse, semantic, names);
         }
         _ => {}
     }
@@ -850,52 +945,92 @@ fn collect_deleted_names_in_stmt(stmt: &BlockPyStmt<CoreBlockPyExpr>, names: &mu
 
 fn rewrite_deleted_name_loads_in_fragment(
     fragment: &mut crate::block_py::BlockPyStmtFragment<CoreBlockPyExpr>,
+    semantic: &BlockPyCallableSemanticInfo,
     deleted_names: &HashSet<String>,
+    always_unbound_names: &HashSet<String>,
 ) {
     for stmt in &mut fragment.body {
-        rewrite_deleted_name_loads_in_stmt(stmt, deleted_names);
+        rewrite_deleted_name_loads_in_stmt(stmt, semantic, deleted_names, always_unbound_names);
     }
     if let Some(term) = &mut fragment.term {
-        rewrite_deleted_name_loads_in_term(term, deleted_names);
+        rewrite_deleted_name_loads_in_term(term, semantic, deleted_names, always_unbound_names);
     }
 }
 
 fn rewrite_deleted_name_loads_in_stmt(
     stmt: &mut BlockPyStmt<CoreBlockPyExpr>,
+    semantic: &BlockPyCallableSemanticInfo,
     deleted_names: &HashSet<String>,
+    always_unbound_names: &HashSet<String>,
 ) {
     match stmt {
         BlockPyStmt::Assign(assign) => {
-            rewrite_deleted_name_loads_in_expr(&mut assign.value, deleted_names);
+            rewrite_deleted_name_loads_in_expr(
+                &mut assign.value,
+                semantic,
+                deleted_names,
+                always_unbound_names,
+            );
         }
-        BlockPyStmt::Expr(expr) => rewrite_deleted_name_loads_in_expr(expr, deleted_names),
+        BlockPyStmt::Expr(expr) => {
+            rewrite_deleted_name_loads_in_expr(expr, semantic, deleted_names, always_unbound_names)
+        }
         BlockPyStmt::Delete(_) => {}
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
-            rewrite_deleted_name_loads_in_expr(test, deleted_names);
-            rewrite_deleted_name_loads_in_fragment(body, deleted_names);
-            rewrite_deleted_name_loads_in_fragment(orelse, deleted_names);
+            rewrite_deleted_name_loads_in_expr(test, semantic, deleted_names, always_unbound_names);
+            rewrite_deleted_name_loads_in_fragment(
+                body,
+                semantic,
+                deleted_names,
+                always_unbound_names,
+            );
+            rewrite_deleted_name_loads_in_fragment(
+                orelse,
+                semantic,
+                deleted_names,
+                always_unbound_names,
+            );
         }
     }
 }
 
 fn rewrite_deleted_name_loads_in_term(
     term: &mut BlockPyTerm<CoreBlockPyExpr>,
+    semantic: &BlockPyCallableSemanticInfo,
     deleted_names: &HashSet<String>,
+    always_unbound_names: &HashSet<String>,
 ) {
     match term {
         BlockPyTerm::Jump(_) => {}
         BlockPyTerm::IfTerm(if_term) => {
-            rewrite_deleted_name_loads_in_expr(&mut if_term.test, deleted_names);
+            rewrite_deleted_name_loads_in_expr(
+                &mut if_term.test,
+                semantic,
+                deleted_names,
+                always_unbound_names,
+            );
         }
         BlockPyTerm::BranchTable(branch) => {
-            rewrite_deleted_name_loads_in_expr(&mut branch.index, deleted_names);
+            rewrite_deleted_name_loads_in_expr(
+                &mut branch.index,
+                semantic,
+                deleted_names,
+                always_unbound_names,
+            );
         }
         BlockPyTerm::Raise(BlockPyRaise { exc }) => {
             if let Some(exc) = exc {
-                rewrite_deleted_name_loads_in_expr(exc, deleted_names);
+                rewrite_deleted_name_loads_in_expr(
+                    exc,
+                    semantic,
+                    deleted_names,
+                    always_unbound_names,
+                );
             }
         }
-        BlockPyTerm::Return(value) => rewrite_deleted_name_loads_in_expr(value, deleted_names),
+        BlockPyTerm::Return(value) => {
+            rewrite_deleted_name_loads_in_expr(value, semantic, deleted_names, always_unbound_names)
+        }
     }
 }
 
@@ -904,14 +1039,88 @@ fn collect_deleted_names_in_blocks(
         BlockPyStmt<CoreBlockPyExpr>,
         crate::block_py::BlockPyTerm<CoreBlockPyExpr>,
     >],
+    semantic: &BlockPyCallableSemanticInfo,
 ) -> HashSet<String> {
     let mut names = HashSet::new();
     for block in blocks {
         for stmt in &block.body {
-            collect_deleted_names_in_stmt(stmt, &mut names);
+            collect_deleted_names_in_stmt(stmt, semantic, &mut names);
         }
     }
     names
+}
+
+fn collect_runtime_bound_local_names_in_fragment(
+    fragment: &crate::block_py::BlockPyStmtFragment<CoreBlockPyExpr>,
+    semantic: &BlockPyCallableSemanticInfo,
+    names: &mut HashSet<String>,
+) {
+    for stmt in &fragment.body {
+        collect_runtime_bound_local_names_in_stmt(stmt, semantic, names);
+    }
+}
+
+fn collect_runtime_bound_local_names_in_stmt(
+    stmt: &BlockPyStmt<CoreBlockPyExpr>,
+    semantic: &BlockPyCallableSemanticInfo,
+    names: &mut HashSet<String>,
+) {
+    match stmt {
+        BlockPyStmt::Assign(assign)
+            if semantic.has_local_def(assign.target.id.as_str())
+                && !is_deleted_sentinel_expr(&assign.value) =>
+        {
+            names.insert(assign.target.id.to_string());
+        }
+        BlockPyStmt::Expr(expr) => {
+            if let Some(name) = store_cell_runtime_logical_name(expr, semantic) {
+                names.insert(name);
+            }
+        }
+        BlockPyStmt::If(if_stmt) => {
+            collect_runtime_bound_local_names_in_fragment(&if_stmt.body, semantic, names);
+            collect_runtime_bound_local_names_in_fragment(&if_stmt.orelse, semantic, names);
+        }
+        _ => {}
+    }
+}
+
+fn collect_runtime_bound_local_names(
+    blocks: &[crate::block_py::CfgBlock<
+        BlockPyStmt<CoreBlockPyExpr>,
+        crate::block_py::BlockPyTerm<CoreBlockPyExpr>,
+    >],
+    semantic: &BlockPyCallableSemanticInfo,
+) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for block in blocks {
+        for stmt in &block.body {
+            collect_runtime_bound_local_names_in_stmt(stmt, semantic, &mut names);
+        }
+    }
+    names
+}
+
+fn collect_always_unbound_local_names(
+    callable: &BlockPyFunction<CoreBlockPyPass>,
+) -> HashSet<String> {
+    let semantic = &callable.semantic;
+    let param_names = callable.params.names().into_iter().collect::<HashSet<_>>();
+    let runtime_bound_names = collect_runtime_bound_local_names(&callable.blocks, semantic);
+    semantic
+        .local_defs
+        .iter()
+        .filter(|name| !param_names.contains(*name))
+        .filter(|name| !is_internal_symbol(name.as_str()))
+        .filter(|name| !runtime_bound_names.contains(*name))
+        .filter(|name| {
+            matches!(
+                semantic.effective_binding(name.as_str(), BlockPyBindingPurpose::Load),
+                Some(BlockPyEffectiveBinding::Local | BlockPyEffectiveBinding::Cell(_))
+            )
+        })
+        .cloned()
+        .collect()
 }
 
 fn lower_name_binding_callable(
@@ -923,13 +1132,24 @@ fn lower_name_binding_callable(
     }
     .map_fn(callable);
     prepend_owned_cell_init_preamble(&mut lowered);
-    let deleted_names = collect_deleted_names_in_blocks(&lowered.blocks);
-    if !deleted_names.is_empty() {
+    let deleted_names = collect_deleted_names_in_blocks(&lowered.blocks, &semantic);
+    let always_unbound_names = collect_always_unbound_local_names(&lowered);
+    if !deleted_names.is_empty() || !always_unbound_names.is_empty() {
         for block in &mut lowered.blocks {
             for stmt in &mut block.body {
-                rewrite_deleted_name_loads_in_stmt(stmt, &deleted_names);
+                rewrite_deleted_name_loads_in_stmt(
+                    stmt,
+                    &semantic,
+                    &deleted_names,
+                    &always_unbound_names,
+                );
             }
-            rewrite_deleted_name_loads_in_term(&mut block.term, &deleted_names);
+            rewrite_deleted_name_loads_in_term(
+                &mut block.term,
+                &semantic,
+                &deleted_names,
+                &always_unbound_names,
+            );
         }
     }
     lowered

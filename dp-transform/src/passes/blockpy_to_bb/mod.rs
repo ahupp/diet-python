@@ -80,7 +80,6 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
         blocks,
         doc,
         closure_layout,
-        facts,
         semantic,
     } = lowered;
     BlockPyFunction {
@@ -92,7 +91,6 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
         blocks: lower_blockpy_blocks_to_bb_blocks(&blocks, &block_params),
         doc,
         closure_layout,
-        facts,
         semantic,
     }
 }

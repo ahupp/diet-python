@@ -4,18 +4,14 @@ use crate::block_py::{
     BlockPyCellBindingKind,
 };
 use crate::block_py::{
-    BlockPyCallableFacts, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyModule, ClosureLayout, FunctionName, FunctionNameGen,
-    ModuleNameGen,
+    BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyModule, ClosureLayout, FunctionName, FunctionNameGen, ModuleNameGen,
 };
-use crate::passes::ast_symbol_analysis::{
-    collect_bound_names, collect_explicit_global_or_nonlocal_names, collect_loaded_names,
-};
+use crate::passes::ast_symbol_analysis::{collect_bound_names, collect_loaded_names};
 use crate::passes::ast_to_ast::body::{split_docstring, suite_mut, suite_ref, Suite};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::{make_dp_tuple, name_expr};
 use crate::passes::ast_to_ast::rewrite_stmt;
-use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ast_to_ast::semantic::{
     SemanticAstState, SemanticBindingKind, SemanticScope, SemanticScopeKind,
 };
@@ -29,7 +25,7 @@ use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
 
-use super::{build_blockpy_callable_def_from_runtime_input, rewrite_deleted_name_loads};
+use super::build_blockpy_callable_def_from_runtime_input;
 
 struct FunctionScopeFrame {
     scope: Option<SemanticScope>,
@@ -119,6 +115,7 @@ fn callable_semantic_info(
         SemanticScopeKind::Module => BlockPyCallableScopeKind::Module,
     };
     let local_cell_bindings = function_scope.local_cell_bindings();
+    let local_defs = function_scope.local_def_names();
     let type_param_names = function_scope.type_param_names();
     let mut bindings = function_scope
         .bindings()
@@ -218,6 +215,7 @@ fn callable_semantic_info(
         names,
         scope_kind,
         bindings,
+        local_defs,
         cell_storage_names: HashMap::new(),
         semantic_internal_names: HashSet::new(),
         type_param_names,
@@ -288,89 +286,6 @@ fn function_kind(func: &ast::StmtFunctionDef) -> BlockPyFunctionKind {
     }
 }
 
-fn collect_deleted_names(stmts: &[Stmt]) -> HashSet<String> {
-    let mut names = HashSet::new();
-    for stmt in stmts {
-        collect_deleted_names_in_stmt(stmt, &mut names);
-    }
-    names
-}
-
-fn collect_deleted_names_in_stmt(stmt: &Stmt, names: &mut HashSet<String>) {
-    match stmt {
-        Stmt::Delete(delete_stmt) => {
-            for target in &delete_stmt.targets {
-                collect_deleted_names_in_target(target, names);
-            }
-        }
-        Stmt::If(if_stmt) => {
-            for stmt in suite_ref(&if_stmt.body) {
-                collect_deleted_names_in_stmt(stmt, names);
-            }
-            for clause in &if_stmt.elif_else_clauses {
-                for stmt in suite_ref(&clause.body) {
-                    collect_deleted_names_in_stmt(stmt, names);
-                }
-            }
-        }
-        Stmt::While(while_stmt) => {
-            for stmt in suite_ref(&while_stmt.body) {
-                collect_deleted_names_in_stmt(stmt, names);
-            }
-            for stmt in suite_ref(&while_stmt.orelse) {
-                collect_deleted_names_in_stmt(stmt, names);
-            }
-        }
-        Stmt::For(for_stmt) => {
-            for stmt in suite_ref(&for_stmt.body) {
-                collect_deleted_names_in_stmt(stmt, names);
-            }
-            for stmt in suite_ref(&for_stmt.orelse) {
-                collect_deleted_names_in_stmt(stmt, names);
-            }
-        }
-        Stmt::Try(try_stmt) => {
-            for stmt in suite_ref(&try_stmt.body) {
-                collect_deleted_names_in_stmt(stmt, names);
-            }
-            for handler in &try_stmt.handlers {
-                let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                for stmt in suite_ref(&handler.body) {
-                    collect_deleted_names_in_stmt(stmt, names);
-                }
-            }
-            for stmt in suite_ref(&try_stmt.orelse) {
-                collect_deleted_names_in_stmt(stmt, names);
-            }
-            for stmt in suite_ref(&try_stmt.finalbody) {
-                collect_deleted_names_in_stmt(stmt, names);
-            }
-        }
-        Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
-        _ => {}
-    }
-}
-
-fn collect_deleted_names_in_target(target: &Expr, names: &mut HashSet<String>) {
-    match target {
-        Expr::Name(name) => {
-            names.insert(name.id.to_string());
-        }
-        Expr::Tuple(tuple) => {
-            for elt in &tuple.elts {
-                collect_deleted_names_in_target(elt, names);
-            }
-        }
-        Expr::List(list) => {
-            for elt in &list.elts {
-                collect_deleted_names_in_target(elt, names);
-            }
-        }
-        Expr::Starred(starred) => collect_deleted_names_in_target(starred.value.as_ref(), names),
-        _ => {}
-    }
-}
-
 fn try_lower_function_to_blockpy_bundle(
     context: &Context,
     func: &ast::StmtFunctionDef,
@@ -380,23 +295,12 @@ fn try_lower_function_to_blockpy_bundle(
     let (docstring, lowered_input_body) = split_docstring(suite_ref(&func.body));
     let lowered_input_body = lowered_input_body.to_vec();
     let (param_spec, _param_defaults) = collect_param_spec_and_defaults(&func.parameters);
-    let param_names = param_spec.names();
     let runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
-    let unbound_local_names = if has_dead_stmt_suffixes(&lowered_input_body) {
-        always_unbound_local_names(&lowered_input_body, &runtime_input_body, &param_names)
-    } else {
-        HashSet::new()
-    };
-    let deleted_names = collect_deleted_names(&runtime_input_body);
-    let callable_facts = BlockPyCallableFacts {
-        deleted_names,
-        unbound_local_names,
-    };
 
     let end_label = name_gen.next_block_name();
     let doc = docstring;
     let blockpy_kind = function_kind(func);
-    let mut callable_def = build_blockpy_callable_def_from_runtime_input(
+    build_blockpy_callable_def_from_runtime_input(
         context,
         name_gen,
         callable_semantic.names.clone(),
@@ -405,72 +309,8 @@ fn try_lower_function_to_blockpy_bundle(
         doc,
         end_label,
         blockpy_kind,
-        &callable_facts,
         callable_semantic,
-    );
-    if !callable_facts.deleted_names.is_empty() {
-        rewrite_deleted_name_loads(
-            &mut callable_def.blocks,
-            &callable_facts.deleted_names,
-            &callable_facts.unbound_local_names,
-        );
-    } else if !callable_facts.unbound_local_names.is_empty() {
-        rewrite_deleted_name_loads(
-            &mut callable_def.blocks,
-            &HashSet::new(),
-            &callable_facts.unbound_local_names,
-        );
-    }
-    callable_def
-}
-
-fn has_dead_stmt_suffixes(stmts: &[Stmt]) -> bool {
-    let mut terminated = false;
-    for stmt in stmts {
-        if terminated {
-            return true;
-        }
-        if has_dead_stmt_suffixes_in_stmt(stmt) {
-            return true;
-        }
-        if matches!(
-            stmt,
-            Stmt::Return(_) | Stmt::Raise(_) | Stmt::Break(_) | Stmt::Continue(_)
-        ) {
-            terminated = true;
-        }
-    }
-    false
-}
-
-fn has_dead_stmt_suffixes_in_stmt(stmt: &Stmt) -> bool {
-    match stmt {
-        Stmt::If(if_stmt) => {
-            has_dead_stmt_suffixes(suite_ref(&if_stmt.body))
-                || if_stmt
-                    .elif_else_clauses
-                    .iter()
-                    .any(|clause| has_dead_stmt_suffixes(suite_ref(&clause.body)))
-        }
-        Stmt::While(while_stmt) => {
-            has_dead_stmt_suffixes(suite_ref(&while_stmt.body))
-                || has_dead_stmt_suffixes(suite_ref(&while_stmt.orelse))
-        }
-        Stmt::For(for_stmt) => {
-            has_dead_stmt_suffixes(suite_ref(&for_stmt.body))
-                || has_dead_stmt_suffixes(suite_ref(&for_stmt.orelse))
-        }
-        Stmt::Try(try_stmt) => {
-            has_dead_stmt_suffixes(suite_ref(&try_stmt.body))
-                || try_stmt.handlers.iter().any(|handler| {
-                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                    has_dead_stmt_suffixes(suite_ref(&handler.body))
-                })
-                || has_dead_stmt_suffixes(suite_ref(&try_stmt.orelse))
-                || has_dead_stmt_suffixes(suite_ref(&try_stmt.finalbody))
-        }
-        _ => false,
-    }
+    )
 }
 
 fn prune_dead_stmt_suffixes(stmts: &[Stmt]) -> Vec<Stmt> {
@@ -522,34 +362,6 @@ fn prune_dead_stmt_suffixes_in_stmt(stmt: &mut Stmt) {
         }
         _ => {}
     }
-}
-
-fn always_unbound_local_names(
-    lowered_input_body: &[Stmt],
-    runtime_body: &[Stmt],
-    param_names: &[String],
-) -> HashSet<String> {
-    let original_bound_names = collect_bound_names(lowered_input_body);
-    let runtime_bound_names = collect_bound_names(runtime_body);
-    let explicit_global_or_nonlocal = collect_explicit_global_or_nonlocal_names(lowered_input_body);
-    original_bound_names
-        .into_iter()
-        .filter_map(|name| {
-            if param_names.iter().any(|param| param == &name) {
-                return None;
-            }
-            if is_internal_symbol(name.as_str()) {
-                return None;
-            }
-            if runtime_bound_names.contains(name.as_str()) {
-                return None;
-            }
-            if explicit_global_or_nonlocal.contains(name.as_str()) {
-                return None;
-            }
-            Some(name)
-        })
-        .collect()
 }
 
 // Function-definition rewriting stays in one tree pass, but the instantiation

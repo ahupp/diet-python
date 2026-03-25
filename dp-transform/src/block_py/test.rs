@@ -217,7 +217,6 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             ],
             doc: None,
             closure_layout: None,
-            facts: BlockPyCallableFacts::default(),
             semantic: BlockPyCallableSemanticInfo::default(),
         }],
     };
@@ -314,7 +313,6 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
             }],
             doc: None,
             closure_layout: None,
-            facts: BlockPyCallableFacts::default(),
             semantic: BlockPyCallableSemanticInfo::default(),
         }],
     };

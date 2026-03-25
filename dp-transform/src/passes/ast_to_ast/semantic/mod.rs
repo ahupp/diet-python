@@ -249,6 +249,10 @@ impl SemanticScope {
             .collect()
     }
 
+    pub(crate) fn local_def_names(&self) -> HashSet<String> {
+        self.data().local_defs.clone()
+    }
+
     pub(crate) fn has_local_def(&self, name: &str) -> bool {
         self.data().local_defs.contains(name)
     }
