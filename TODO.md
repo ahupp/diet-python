@@ -37,6 +37,16 @@
     - The key question is whether the setup-emitting behavior for boolop / compare / if-expr / named-expr / await / yield shapes can be preserved while letting a `Transformer` own the generic recursive descent.
     - A good first pass is to separate “plain recursive descent over child `Expr` nodes” from the setup-emitting special cases, then check if the former can move behind a reusable `Transformer` implementation.
   - Allow fallback to bytecode for arbitrary functions, use this for __annotate__
+- Figure out how to make classcell work with the rest of name binding.
+  - Planning note:
+    - `__class__` / classcell handling is still outside the normal semantic binding pipeline, with dedicated rewrites in the class method rewrite path instead of flowing through `BlockPyCallableSemanticInfo` and `name_binding`.
+    - The likely end state is to model `__class__` as a synthetic cell capture for methods that need it, keep `__classcell__` as the class-creation protocol surface, and let `name_binding` lower `__class__` loads/stores/deletes through the same cell machinery as other captures.
+    - A good first pass is to identify the minimal semantic facts needed for “method needs class cell”, then thread a synthetic binding for `__class__` through callable semantic info before shrinking the remaining special cases.
+- Should there be a `py_stmt` -> `BlockPyCfgFragment` path to ease building generators?
+  - Planning note:
+    - `blockpy_generators` still hand-constructs a large amount of BlockPy stmt/term/control-flow scaffolding, which makes generator lowering harder to read and keeps a lot of structural knowledge local to that pass.
+    - A helper path from `py_stmt!`-style snippets into `BlockPyCfgFragment` could make generator construction less manual, especially for small setup/cleanup fragments and repeated control-flow shapes.
+    - The main design question is whether that path would preserve the current guarantees around evaluation order, hidden temps, and explicit block structure, or whether it would just hide logic that should instead be expressed by more explicit BlockPy builders.
 - Handle integer literals larger than can fit in an `i64`.
   - Planning note:
     - The current direct-simple JIT literal planning in `soac-eval/src/jit/planning.rs` only lowers integer literals that fit in `i64`, so larger Python ints fall out of that fast path.
