@@ -279,6 +279,15 @@ impl Transformer for NameScopeRewriter<'_> {
                 self.visit_body(suite_mut(&mut for_stmt.body));
                 self.visit_body(suite_mut(&mut for_stmt.orelse));
             }
+            Stmt::With(with_stmt) => {
+                for item in &mut with_stmt.items {
+                    self.visit_expr(&mut item.context_expr);
+                    if let Some(optional_vars) = item.optional_vars.as_mut() {
+                        self.visit_target_expr_preserving_names(optional_vars.as_mut());
+                    }
+                }
+                self.visit_body(suite_mut(&mut with_stmt.body));
+            }
             Stmt::Delete(delete) => {
                 assert!(delete.targets.len() == 1);
 

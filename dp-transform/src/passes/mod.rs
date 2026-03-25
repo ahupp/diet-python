@@ -752,6 +752,69 @@ def outer():
     }
 
     #[test]
+    fn class_body_local_with_target_moves_to_name_binding_pass() {
+        let source = r#"
+from contextlib import nullcontext
+
+class Box:
+    with nullcontext(1) as value:
+        seen = value
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let core_rendered = lowered.pass_text("core_blockpy");
+        assert!(
+            core_rendered.contains("value = __dp_contextmanager_enter("),
+            "{core_rendered}"
+        );
+        assert!(
+            !core_rendered
+                .contains("__dp_setitem(_dp_class_ns, \"value\", __dp_contextmanager_enter("),
+            "{core_rendered}"
+        );
+
+        let name_binding_rendered = lowered.name_binding_text();
+        assert!(
+            name_binding_rendered
+                .contains("__dp_setitem(_dp_class_ns, \"value\", __dp_contextmanager_enter("),
+            "{name_binding_rendered}"
+        );
+    }
+
+    #[test]
+    fn class_body_nonlocal_with_target_moves_to_name_binding_pass() {
+        let source = r#"
+from contextlib import nullcontext
+
+def outer():
+    value = "outer"
+    class Box:
+        nonlocal value
+        with nullcontext(1) as value:
+            pass
+    return value
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let core_rendered = lowered.pass_text("core_blockpy");
+        assert!(
+            !core_rendered.contains("__dp_store_cell(_dp_cell_value, __dp_contextmanager_enter("),
+            "{core_rendered}"
+        );
+        assert!(
+            core_rendered.contains("value = __dp_contextmanager_enter("),
+            "{core_rendered}"
+        );
+
+        let name_binding_rendered = lowered.name_binding_text();
+        assert!(
+            name_binding_rendered
+                .contains("__dp_store_cell(_dp_cell_value, __dp_contextmanager_enter("),
+            "{name_binding_rendered}"
+        );
+    }
+
+    #[test]
     fn nested_class_binding_moves_to_name_binding_pass() {
         let source = r#"
 class A:
