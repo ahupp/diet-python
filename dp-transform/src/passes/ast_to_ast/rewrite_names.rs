@@ -5,15 +5,13 @@ use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 use super::{
     body::{suite_mut, Suite},
     context::Context,
-    semantic::{SemanticAstState, SemanticBindingKind, SemanticScope, SemanticScopeKind},
+    semantic::{SemanticAstState, SemanticScope, SemanticScopeKind},
 };
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{
-    passes::ast_to_ast::{
-        ast_rewrite::Rewrite, rewrite_import, scope_helpers::cell_name, util::is_noarg_call,
-    },
+    passes::ast_to_ast::{ast_rewrite::Rewrite, rewrite_import, scope_helpers::cell_name},
     passes::ruff_to_blockpy,
-    py_expr, py_stmt,
+    py_stmt,
 };
 
 pub fn rewrite_explicit_bindings(
@@ -82,112 +80,6 @@ impl<'a> NameScopeRewriter<'a> {
 
     fn cell_binding_names(&self) -> HashSet<String> {
         self.scope.local_cell_bindings()
-    }
-
-    fn module_binds_name(&self, name: &str) -> bool {
-        self.scope
-            .any_parent_scope(|scope| {
-                if matches!(scope.kind(), SemanticScopeKind::Module) {
-                    return Some(scope.has_binding(name));
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(false)
-    }
-
-    fn should_rewrite_locals_call(&self) -> bool {
-        if let Some(binding) = self.scope.binding_in_current_scope("locals") {
-            match binding {
-                SemanticBindingKind::Local | SemanticBindingKind::Nonlocal => return false,
-                SemanticBindingKind::Global => {
-                    if self.module_binds_name("locals") {
-                        return false;
-                    }
-                }
-            }
-        }
-        true
-    }
-
-    fn should_rewrite_vars_call(&self) -> bool {
-        if let Some(binding) = self.scope.binding_in_current_scope("vars") {
-            match binding {
-                SemanticBindingKind::Local | SemanticBindingKind::Nonlocal => return false,
-                SemanticBindingKind::Global => {
-                    if self.module_binds_name("vars") {
-                        return false;
-                    }
-                }
-            }
-        }
-        true
-    }
-
-    fn should_rewrite_globals_call(&self) -> bool {
-        if let Some(binding) = self.scope.binding_in_current_scope("globals") {
-            match binding {
-                SemanticBindingKind::Local | SemanticBindingKind::Nonlocal => return false,
-                SemanticBindingKind::Global => {
-                    if self.module_binds_name("globals") {
-                        return false;
-                    }
-                }
-            }
-        }
-        true
-    }
-
-    fn should_rewrite_exec_call(&self) -> bool {
-        if let Some(binding) = self.scope.binding_in_current_scope("exec") {
-            match binding {
-                SemanticBindingKind::Local | SemanticBindingKind::Nonlocal => return false,
-                SemanticBindingKind::Global => {
-                    if self.module_binds_name("exec") {
-                        return false;
-                    }
-                }
-            }
-        }
-        true
-    }
-
-    fn should_rewrite_eval_call(&self) -> bool {
-        if let Some(binding) = self.scope.binding_in_current_scope("eval") {
-            match binding {
-                SemanticBindingKind::Local | SemanticBindingKind::Nonlocal => return false,
-                SemanticBindingKind::Global => {
-                    if self.module_binds_name("eval") {
-                        return false;
-                    }
-                }
-            }
-        }
-        true
-    }
-
-    fn should_rewrite_dir_call(&self) -> bool {
-        if let Some(binding) = self.scope.binding_in_current_scope("dir") {
-            match binding {
-                SemanticBindingKind::Local | SemanticBindingKind::Nonlocal => return false,
-                SemanticBindingKind::Global => {
-                    if self.module_binds_name("dir") {
-                        return false;
-                    }
-                }
-            }
-        }
-        true
-    }
-
-    fn is_name_call(name: &str, expr: &Expr) -> bool {
-        let Expr::Call(ast::ExprCall { func, .. }) = expr else {
-            return false;
-        };
-        let Expr::Name(ast::ExprName { id, .. }) = func.as_ref() else {
-            return false;
-        };
-        id.as_str() == name
     }
 
     fn visit_target_expr_preserving_names(&mut self, expr: &mut Expr) {
@@ -329,56 +221,6 @@ impl Transformer for NameScopeRewriter<'_> {
             }
         }
         match expr {
-            Expr::Call(ast::ExprCall { .. }) => {
-                if Self::is_name_call("exec", expr) && self.should_rewrite_exec_call() {
-                    if let Expr::Call(ast::ExprCall { func, .. }) = expr {
-                        *func = Box::new(py_expr!("__dp_exec_"));
-                    }
-                }
-                if Self::is_name_call("eval", expr) && self.should_rewrite_eval_call() {
-                    if let Expr::Call(ast::ExprCall { func, .. }) = expr {
-                        *func = Box::new(py_expr!("__dp_eval_"));
-                    }
-                }
-                if self.is_class_scope() {
-                    if is_noarg_call("locals", expr) && self.should_rewrite_locals_call() {
-                        *expr = py_expr!(
-                            "__dp_unsupported_implicit_locals({feature:literal})",
-                            feature = "locals()",
-                        );
-                        return;
-                    }
-                    if is_noarg_call("vars", expr) && self.should_rewrite_vars_call() {
-                        *expr = py_expr!("_dp_class_ns");
-                        return;
-                    }
-                    if is_noarg_call("globals", expr) {
-                        *expr = py_expr!("__dp_globals()");
-                        return;
-                    }
-                } else if is_noarg_call("locals", expr) && self.should_rewrite_locals_call() {
-                    *expr = py_expr!(
-                        "__dp_unsupported_implicit_locals({feature:literal})",
-                        feature = "locals()",
-                    );
-                    return;
-                } else if is_noarg_call("vars", expr) && self.should_rewrite_vars_call() {
-                    *expr = py_expr!(
-                        "__dp_unsupported_implicit_locals({feature:literal})",
-                        feature = "vars()",
-                    );
-                    return;
-                } else if is_noarg_call("dir", expr) && self.should_rewrite_dir_call() {
-                    *expr = py_expr!(
-                        "__dp_unsupported_implicit_locals({feature:literal})",
-                        feature = "dir()",
-                    );
-                    return;
-                } else if is_noarg_call("globals", expr) && self.should_rewrite_globals_call() {
-                    *expr = py_expr!("__dp_globals()");
-                    return;
-                }
-            }
             Expr::Named(named) => {
                 self.visit_expr(named.value.as_mut());
                 return;

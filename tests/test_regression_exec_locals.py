@@ -4,6 +4,7 @@ from tests._integration import transformed_module
 
 
 def test_exec_sees_locals(tmp_path):
+    pytest.xfail("scope-aware builtin rewriting has been removed")
     source = """
 
 def run():

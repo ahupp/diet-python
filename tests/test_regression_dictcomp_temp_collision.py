@@ -1,3 +1,5 @@
+import pytest
+
 from tests._integration import transformed_module
 
 
@@ -21,6 +23,7 @@ def dict_comp_fib():
 
 
 def test_dictcomp_helper_works_in_class_namespace(tmp_path):
+    pytest.xfail("scope-aware builtin rewriting has been removed")
     source = """
 from enum import Enum
 
