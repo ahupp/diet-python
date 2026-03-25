@@ -478,6 +478,36 @@ class Box:
     }
 
     #[test]
+    fn nested_class_binding_moves_to_name_binding_pass() {
+        let source = r#"
+class A:
+    class B:
+        pass
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let core_rendered = lowered.pass_text("core_blockpy");
+        assert!(
+            core_rendered.contains("B = _dp_define_class_B(_dp_class_ns_B, _dp_class_ns)"),
+            "{core_rendered}"
+        );
+        assert!(
+            !core_rendered.contains(
+                "__dp_setitem(__dp_load_deleted_name(\"_dp_class_ns\", _dp_class_ns), \"B\","
+            ),
+            "{core_rendered}"
+        );
+
+        let name_binding_rendered = lowered.name_binding_text();
+        assert!(
+            name_binding_rendered.contains(
+                "__dp_setitem(_dp_class_ns, \"B\", _dp_define_class_B(_dp_class_ns_B, _dp_class_ns))"
+            ),
+            "{name_binding_rendered}"
+        );
+    }
+
+    #[test]
     fn lowered_callable_records_semantic_cell_owner_binding() {
         let source = r#"
 def outer():

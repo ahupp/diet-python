@@ -6,10 +6,7 @@ use crate::passes::ast_to_ast::body::{suite_mut, Suite};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def::{class_def_to_create_class_fn, method};
 use crate::passes::ast_to_ast::rewrite_stmt;
-use crate::passes::ast_to_ast::scope_helpers::cell_name;
-use crate::passes::ast_to_ast::semantic::{
-    SemanticAstState, SemanticBindingKind, SemanticBindingUse, SemanticScope, SemanticScopeKind,
-};
+use crate::passes::ast_to_ast::semantic::{SemanticAstState, SemanticScope, SemanticScopeKind};
 use crate::transformer::{walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
 
@@ -36,49 +33,6 @@ pub fn rewrite_class_body_scopes(
 ) {
     let scope = semantic_state.module_scope();
     ClassBodyScopeRewriter::new(context, scope, semantic_state).visit_body(body);
-}
-
-fn class_binding_stmt(scope: &SemanticScope, name: &str, value: Expr) -> Stmt {
-    match scope.kind() {
-        SemanticScopeKind::Class => match scope.binding_in_scope(name, SemanticBindingUse::Load) {
-            SemanticBindingKind::Global => py_stmt!(
-                "__dp_store_global(globals(), {name:literal}, {value:expr})",
-                name = name,
-                value = value
-            ),
-            SemanticBindingKind::Local | SemanticBindingKind::Nonlocal => {
-                let target = class_body_store_target(name, ExprContext::Store);
-                py_stmt!(
-                    "{target:expr} = {value:expr}",
-                    target = target,
-                    value = value
-                )
-            }
-        },
-        SemanticScopeKind::Function => {
-            match scope.binding_in_scope(name, SemanticBindingUse::Load) {
-                SemanticBindingKind::Global => py_stmt!(
-                    "__dp_store_global(globals(), {name:literal}, {value:expr})",
-                    name = name,
-                    value = value
-                ),
-                SemanticBindingKind::Nonlocal => {
-                    let cell = cell_name(name);
-                    py_stmt!(
-                        "__dp_store_cell({cell:id}, {value:expr})",
-                        cell = cell.as_str(),
-                        value = value
-                    )
-                }
-                SemanticBindingKind::Local => {
-                    py_stmt!("{name:id} = {value:expr}", name = name, value = value)
-                }
-            }
-        }
-        SemanticScopeKind::Module => {
-            py_stmt!("{name:id} = {value:expr}", name = name, value = value)
-        }
-    }
 }
 
 struct ClassBodyScopeRewriter<'a> {
@@ -190,10 +144,10 @@ impl<'a> ClassBodyScopeRewriter<'a> {
             ),
         );
 
-        children.push(class_binding_stmt(
-            &self.scope,
-            class_def.name.id.as_str(),
-            decorated_class,
+        children.push(py_stmt!(
+            "{name:id} = {value:expr}",
+            name = class_def.name.id.as_str(),
+            value = decorated_class
         ));
         children
     }

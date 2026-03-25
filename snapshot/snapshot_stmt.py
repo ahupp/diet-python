@@ -593,7 +593,7 @@ class C:
 #     block _dp_bb_3_1:
 #         _dp_class_ns_C = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         _dp_define_class_C = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
-#         __dp_store_global(globals(), "C", _dp_define_class_C(_dp_class_ns_C, globals()))
+#         C = _dp_define_class_C(_dp_class_ns_C, globals())
 #         return __dp_NONE
 
 # with_multi

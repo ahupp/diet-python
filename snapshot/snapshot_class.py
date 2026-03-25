@@ -54,7 +54,7 @@ class C:
 #     block _dp_bb_4_1:
 #         _dp_class_ns_C = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         _dp_define_class_C = __dp_make_function(3, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
-#         __dp_store_global(globals(), "C", _dp_define_class_C(_dp_class_ns_C, globals()))
+#         C = _dp_define_class_C(_dp_class_ns_C, globals())
 #         return __dp_NONE
 
 # class_method_named_open_calls_builtin
@@ -93,7 +93,7 @@ class Wrapper:
 #     block _dp_bb_3_1:
 #         _dp_class_ns_Wrapper = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         _dp_define_class_Wrapper = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
-#         __dp_store_global(globals(), "Wrapper", _dp_define_class_Wrapper(_dp_class_ns_Wrapper, globals()))
+#         Wrapper = _dp_define_class_Wrapper(_dp_class_ns_Wrapper, globals())
 #         return __dp_NONE
 
 # class_with_base
@@ -124,7 +124,7 @@ class D(Base):
 #     block _dp_bb_2_1:
 #         _dp_class_ns_D = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         _dp_define_class_D = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
-#         __dp_store_global(globals(), "D", _dp_define_class_D(_dp_class_ns_D, globals()))
+#         D = _dp_define_class_D(_dp_class_ns_D, globals())
 #         return __dp_NONE
 
 # class_scope_inner_capture
@@ -222,7 +222,7 @@ class X:
 #     block _dp_bb_3_1:
 #         _dp_class_ns_X = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         _dp_define_class_X = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
-#         __dp_store_global(globals(), "X", _dp_define_class_X(_dp_class_ns_X, globals()))
+#         X = _dp_define_class_X(_dp_class_ns_X, globals())
 #         return __dp_NONE
 
 # nested classes
@@ -257,7 +257,7 @@ class A:
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "A")
 #         _dp_class_ns_B = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         _dp_define_class_B = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
-#         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "B", _dp_define_class_B(_dp_class_ns_B, _dp_class_ns))
+#         B = _dp_define_class_B(_dp_class_ns_B, _dp_class_ns)
 #         return __dp_NONE
 
 # function _dp_define_class_A(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
@@ -271,7 +271,7 @@ class A:
 #     block _dp_bb_4_1:
 #         _dp_class_ns_A = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         _dp_define_class_A = __dp_make_function(3, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
-#         __dp_store_global(globals(), "A", _dp_define_class_A(_dp_class_ns_A, globals()))
+#         A = _dp_define_class_A(_dp_class_ns_A, globals())
 #         return __dp_NONE
 
 # nested classes with weird scoping
@@ -309,7 +309,7 @@ def foo():
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "foo.<locals>.A")
 #         _dp_class_ns_B = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         _dp_define_class_B = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
-#         __dp_store_global(globals(), "B", _dp_define_class_B(_dp_class_ns_B, _dp_class_ns))
+#         B = _dp_define_class_B(_dp_class_ns_B, _dp_class_ns)
 #         return __dp_NONE
 
 # function foo.<locals>._dp_define_class_A(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
