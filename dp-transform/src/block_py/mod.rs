@@ -1926,20 +1926,7 @@ impl TryFrom<BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>>
         match value {
             BlockPyTerm::Jump(target) => Ok(BlockPyTerm::Jump(BlockPyEdge {
                 target: target.target,
-                args: target
-                    .args
-                    .into_iter()
-                    .map(
-                        |arg| -> Result<BlockArg, CoreBlockPyExprWithAwaitAndYield> {
-                            match arg {
-                                BlockArg::Name(name) => Ok(BlockArg::Name(name)),
-                                BlockArg::None => Ok(BlockArg::None),
-                                BlockArg::CurrentException => Ok(BlockArg::CurrentException),
-                                BlockArg::AbruptKind(kind) => Ok(BlockArg::AbruptKind(kind)),
-                            }
-                        },
-                    )
-                    .collect::<Result<Vec<_>, _>>()?,
+                args: target.args,
             })),
             BlockPyTerm::IfTerm(if_term) => Ok(BlockPyTerm::IfTerm(BlockPyIfTerm {
                 test: if_term.test.try_into()?,
@@ -2202,18 +2189,7 @@ impl TryFrom<BlockPyTerm<CoreBlockPyExprWithYield>> for BlockPyTerm<CoreBlockPyE
         match value {
             BlockPyTerm::Jump(target) => Ok(BlockPyTerm::Jump(BlockPyEdge {
                 target: target.target,
-                args: target
-                    .args
-                    .into_iter()
-                    .map(|arg| -> Result<BlockArg, CoreBlockPyExprWithYield> {
-                        match arg {
-                            BlockArg::Name(name) => Ok(BlockArg::Name(name)),
-                            BlockArg::None => Ok(BlockArg::None),
-                            BlockArg::CurrentException => Ok(BlockArg::CurrentException),
-                            BlockArg::AbruptKind(kind) => Ok(BlockArg::AbruptKind(kind)),
-                        }
-                    })
-                    .collect::<Result<Vec<_>, _>>()?,
+                args: target.args,
             })),
             BlockPyTerm::IfTerm(if_term) => Ok(BlockPyTerm::IfTerm(BlockPyIfTerm {
                 test: if_term.test.try_into()?,
