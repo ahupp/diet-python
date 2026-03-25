@@ -1,7 +1,7 @@
 use crate::block_py::intrinsics::{
-    Intrinsic, DEL_DEREF_INTRINSIC, DEL_DEREF_QUIETLY_INTRINSIC, DEL_QUIETLY_INTRINSIC,
-    LOAD_CELL_INTRINSIC, LOAD_GLOBAL_INTRINSIC, MAKE_CELL_INTRINSIC, STORE_CELL_INTRINSIC,
-    STORE_GLOBAL_INTRINSIC,
+    Intrinsic, CELL_REF_INTRINSIC, DEL_DEREF_INTRINSIC, DEL_DEREF_QUIETLY_INTRINSIC,
+    DEL_QUIETLY_INTRINSIC, LOAD_CELL_INTRINSIC, LOAD_GLOBAL_INTRINSIC, MAKE_CELL_INTRINSIC,
+    STORE_CELL_INTRINSIC, STORE_GLOBAL_INTRINSIC,
 };
 use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta,
@@ -90,6 +90,23 @@ fn rewrite_cell_name_load(
             node_index,
             range,
         )],
+    )
+}
+
+fn rewrite_cell_ref_expr(
+    name: &str,
+    semantic: &BlockPyCallableSemanticInfo,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+) -> CoreBlockPyExpr {
+    let logical_name = semantic
+        .logical_name_for_cell_storage(name)
+        .unwrap_or_else(|| name.to_string());
+    core_name_expr(
+        semantic.cell_storage_name(logical_name.as_str()).as_str(),
+        ast::ExprContext::Load,
+        node_index,
+        range,
     )
 }
 
@@ -499,6 +516,22 @@ fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
     matches!(expr, CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_DELETED")
 }
 
+fn cell_ref_marker_target(expr: &CoreBlockPyExpr) -> Option<String> {
+    let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+        intrinsic, args, ..
+    }) = expr
+    else {
+        return None;
+    };
+    if intrinsic.name() != CELL_REF_INTRINSIC.name() || args.len() != 1 {
+        return None;
+    }
+    let CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(literal)) = &args[0] else {
+        return None;
+    };
+    Some(literal.value.clone())
+}
+
 fn cell_load_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
@@ -868,6 +901,15 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
             }
             CoreBlockPyExpr::Name(name) => CoreBlockPyExpr::Name(name),
             CoreBlockPyExpr::Literal(literal) => CoreBlockPyExpr::Literal(literal),
+            expr if cell_ref_marker_target(&expr).is_some() => {
+                let target_name = cell_ref_marker_target(&expr)
+                    .expect("cell-ref marker target should exist after guard");
+                let (node_index, range) = match &expr {
+                    CoreBlockPyExpr::Intrinsic(call) => (call.node_index.clone(), call.range),
+                    _ => unreachable!("cell-ref marker should be intrinsic"),
+                };
+                rewrite_cell_ref_expr(target_name.as_str(), self.semantic, node_index, range)
+            }
             CoreBlockPyExpr::Call(CoreBlockPyCall {
                 node_index,
                 range,

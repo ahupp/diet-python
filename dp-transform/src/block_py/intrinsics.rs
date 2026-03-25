@@ -82,6 +82,7 @@ define_intrinsic!(
 );
 define_intrinsic!(LoadCellIntrinsic, LOAD_CELL_INTRINSIC, "__dp_load_cell", 1);
 define_intrinsic!(MakeCellIntrinsic, MAKE_CELL_INTRINSIC, "__dp_make_cell", 1);
+define_intrinsic!(CellRefIntrinsic, CELL_REF_INTRINSIC, "__dp_cell_ref", 1);
 define_intrinsic!(
     StoreCellIntrinsic,
     STORE_CELL_INTRINSIC,
@@ -162,6 +163,7 @@ pub fn intrinsic_by_name_and_arity(name: &str, arity: usize) -> Option<&'static 
         "__dp_store_global" => &STORE_GLOBAL_INTRINSIC,
         "__dp_load_cell" => &LOAD_CELL_INTRINSIC,
         "__dp_make_cell" => &MAKE_CELL_INTRINSIC,
+        "__dp_cell_ref" => &CELL_REF_INTRINSIC,
         "__dp_store_cell" => &STORE_CELL_INTRINSIC,
         "__dp_del_quietly" => &DEL_QUIETLY_INTRINSIC,
         "__dp_del_deref_quietly" => &DEL_DEREF_QUIETLY_INTRINSIC,

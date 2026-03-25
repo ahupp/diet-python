@@ -24,7 +24,6 @@ pub type MakeIntFn = unsafe extern "C" fn(i64) -> ObjPtr;
 pub type MakeFloatFn = unsafe extern "C" fn(f64) -> ObjPtr;
 pub type MakeBytesFn = unsafe extern "C" fn(*const u8, i64) -> ObjPtr;
 pub type LoadNameFn = unsafe extern "C" fn(ObjPtr, *const u8, i64) -> ObjPtr;
-pub type LoadLocalRawByNameFn = unsafe extern "C" fn(ObjPtr, *const u8, i64) -> ObjPtr;
 pub type PyObjectGetAttrFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
 pub type PyObjectSetAttrFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
 pub type PyObjectGetItemFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
@@ -54,7 +53,6 @@ pub struct SpecializedJitHooks {
     pub make_float: MakeFloatFn,
     pub make_bytes: MakeBytesFn,
     pub load_name: LoadNameFn,
-    pub load_local_raw_by_name: LoadLocalRawByNameFn,
     pub pyobject_getattr: PyObjectGetAttrFn,
     pub pyobject_setattr: PyObjectSetAttrFn,
     pub pyobject_getitem: PyObjectGetItemFn,
@@ -83,7 +81,6 @@ static mut DP_JIT_MAKE_INT_FN: Option<MakeIntFn> = None;
 static mut DP_JIT_MAKE_FLOAT_FN: Option<MakeFloatFn> = None;
 static mut DP_JIT_MAKE_BYTES_FN: Option<MakeBytesFn> = None;
 static mut DP_JIT_LOAD_NAME_FN: Option<LoadNameFn> = None;
-static mut DP_JIT_LOAD_LOCAL_RAW_BY_NAME_FN: Option<LoadLocalRawByNameFn> = None;
 static mut DP_JIT_PYOBJECT_GETATTR_FN: Option<PyObjectGetAttrFn> = None;
 static mut DP_JIT_PYOBJECT_SETATTR_FN: Option<PyObjectSetAttrFn> = None;
 static mut DP_JIT_PYOBJECT_GETITEM_FN: Option<PyObjectGetItemFn> = None;
@@ -112,7 +109,6 @@ pub unsafe fn install_specialized_hooks(hooks: &SpecializedJitHooks) {
     DP_JIT_MAKE_FLOAT_FN = Some(hooks.make_float);
     DP_JIT_MAKE_BYTES_FN = Some(hooks.make_bytes);
     DP_JIT_LOAD_NAME_FN = Some(hooks.load_name);
-    DP_JIT_LOAD_LOCAL_RAW_BY_NAME_FN = Some(hooks.load_local_raw_by_name);
     DP_JIT_PYOBJECT_GETATTR_FN = Some(hooks.pyobject_getattr);
     DP_JIT_PYOBJECT_SETATTR_FN = Some(hooks.pyobject_setattr);
     DP_JIT_PYOBJECT_GETITEM_FN = Some(hooks.pyobject_getitem);
@@ -256,59 +252,6 @@ unsafe extern "C" fn load_name_hook(
     );
     ffi::Py_DECREF(load_global);
     ffi::Py_DECREF(globals_obj as *mut ffi::PyObject);
-    ffi::Py_DECREF(name_obj);
-    result as ObjPtr
-}
-
-unsafe extern "C" fn load_local_raw_by_name_hook(
-    owner: ObjPtr,
-    name_ptr: *const u8,
-    name_len: i64,
-) -> ObjPtr {
-    if owner.is_null() || name_ptr.is_null() || name_len < 0 {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"invalid arguments to dp_jit_load_local_raw_by_name\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-    let name_obj = ffi::PyUnicode_DecodeUTF8(
-        name_ptr as *const i8,
-        name_len as ffi::Py_ssize_t,
-        b"strict\0".as_ptr() as *const i8,
-    );
-    if name_obj.is_null() {
-        return ptr::null_mut();
-    }
-    let builtins_dict = ffi::PyEval_GetBuiltins();
-    if builtins_dict.is_null() {
-        ffi::Py_DECREF(name_obj);
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"PyEval_GetBuiltins returned null\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-    let load_local_raw = ffi::PyDict_GetItemString(
-        builtins_dict as *mut ffi::PyObject,
-        b"__dp_load_local_raw\0".as_ptr() as *const i8,
-    );
-    if load_local_raw.is_null() {
-        ffi::Py_DECREF(name_obj);
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"missing builtins.__dp_load_local_raw\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-    ffi::Py_INCREF(load_local_raw);
-    let result = ffi::PyObject_CallFunctionObjArgs(
-        load_local_raw,
-        owner as *mut ffi::PyObject,
-        name_obj,
-        ptr::null_mut::<ffi::PyObject>(),
-    );
-    ffi::Py_DECREF(load_local_raw);
     ffi::Py_DECREF(name_obj);
     result as ObjPtr
 }
@@ -543,7 +486,6 @@ pub fn default_specialized_hooks() -> SpecializedJitHooks {
         make_float: make_float_hook,
         make_bytes: make_bytes_hook,
         load_name: load_name_hook,
-        load_local_raw_by_name: load_local_raw_by_name_hook,
         pyobject_getattr: pyobject_getattr_hook,
         pyobject_setattr: pyobject_setattr_hook,
         pyobject_getitem: pyobject_getitem_hook,
@@ -654,17 +596,6 @@ pub unsafe extern "C" fn dp_jit_load_name(
 ) -> ObjPtr {
     if let Some(func) = DP_JIT_LOAD_NAME_FN {
         return func(block, name_ptr, name_len);
-    }
-    ptr::null_mut()
-}
-
-pub unsafe extern "C" fn dp_jit_load_local_raw_by_name(
-    frame_obj: ObjPtr,
-    name_ptr: *const u8,
-    name_len: i64,
-) -> ObjPtr {
-    if let Some(func) = DP_JIT_LOAD_LOCAL_RAW_BY_NAME_FN {
-        return func(frame_obj, name_ptr, name_len);
     }
     ptr::null_mut()
 }
@@ -985,10 +916,6 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol("dp_jit_make_float", dp_jit_make_float as *const u8);
     builder.symbol("dp_jit_make_bytes", dp_jit_make_bytes as *const u8);
     builder.symbol("dp_jit_load_name", dp_jit_load_name as *const u8);
-    builder.symbol(
-        "dp_jit_load_local_raw_by_name",
-        dp_jit_load_local_raw_by_name as *const u8,
-    );
     builder.symbol(
         "dp_jit_pyobject_getattr",
         dp_jit_pyobject_getattr as *const u8,

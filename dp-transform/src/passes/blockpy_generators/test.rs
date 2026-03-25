@@ -47,7 +47,9 @@ fn build_closure_backed_generator_factory_block(
         closure_bindings
             .runtime_state_bindings
             .iter()
-            .map(|(_, value_name)| py_expr!("{name:id}", name = value_name.as_str()))
+            .map(|(_, value_name)| {
+                py_expr!("__dp_cell_ref({name:literal})", name = value_name.as_str())
+            })
             .collect(),
     );
 

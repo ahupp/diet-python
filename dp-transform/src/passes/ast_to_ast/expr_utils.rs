@@ -1,6 +1,5 @@
 use crate::py_expr;
 use ruff_python_ast::Expr;
-use ruff_python_parser::parse_expression;
 
 pub(crate) fn make_tuple(items: Vec<Expr>) -> Expr {
     let Expr::Call(mut call) = py_expr!("__dp_tuple()") else {
@@ -58,10 +57,4 @@ pub(crate) fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
         operand = operand,
         func = func_name
     )
-}
-
-pub(crate) fn name_expr(name: &str) -> Option<Expr> {
-    parse_expression(name)
-        .ok()
-        .map(|expr| *expr.into_syntax().body)
 }

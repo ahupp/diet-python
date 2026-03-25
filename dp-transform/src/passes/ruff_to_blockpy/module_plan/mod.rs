@@ -5,7 +5,7 @@ use crate::block_py::{
 };
 use crate::passes::ast_to_ast::body::{split_docstring, suite_mut, suite_ref, Suite};
 use crate::passes::ast_to_ast::context::Context;
-use crate::passes::ast_to_ast::expr_utils::{make_dp_tuple, name_expr};
+use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::rewrite_stmt;
 use crate::passes::ast_to_ast::semantic::{SemanticAstState, SemanticScope};
 use crate::passes::ruff_to_blockpy::recompute_semantic_blockpy_closure_layout;
@@ -193,8 +193,7 @@ fn closure_freevar_capture_items(closure_layout: Option<&ClosureLayout>) -> Vec<
         .map(|slot| {
             (
                 slot.storage_name.clone(),
-                name_expr(slot.storage_name.as_str())
-                    .expect("capture storage name should always parse as an expression"),
+                py_expr!("{name:id}", name = slot.storage_name.as_str()),
             )
         })
         .collect()

@@ -1,14 +1,15 @@
 use crate::block_py::cfg::linearize_structured_ifs;
+use crate::block_py::intrinsics::CELL_REF_INTRINSIC;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
-    core_positional_call_expr_with_meta, resume_abi_params, BlockParam, BlockParamRole,
-    BlockPyAssign, BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable,
-    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyExpr,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId, FunctionName,
-    ModuleNameGen,
+    core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta,
+    resume_abi_params, BlockParam, BlockParamRole, BlockPyAssign, BlockPyBindingKind, BlockPyBlock,
+    BlockPyBranchTable, BlockPyCallableSemanticInfo, BlockPyCellBindingKind,
+    BlockPyCfgBlockBuilder, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot,
+    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId,
+    FunctionName, ModuleNameGen,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
@@ -127,6 +128,16 @@ fn core_literal_int(value: usize) -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("{value:literal}", value = value))
 }
 
+fn core_string(value: &str) -> CoreBlockPyExpr {
+    CoreBlockPyExpr::Literal(crate::block_py::CoreBlockPyLiteral::StringLiteral(
+        crate::block_py::CoreStringLiteral {
+            node_index: ast::AtomicNodeIndex::default(),
+            range: Default::default(),
+            value: value.to_string(),
+        },
+    ))
+}
+
 fn core_none() -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("None"))
 }
@@ -137,6 +148,15 @@ fn core_call(func_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
         ast::AtomicNodeIndex::default(),
         Default::default(),
         args,
+    )
+}
+
+fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
+    core_positional_intrinsic_expr_with_meta(
+        &CELL_REF_INTRINSIC,
+        ast::AtomicNodeIndex::default(),
+        Default::default(),
+        vec![core_string(logical_name)],
     )
 }
 
@@ -332,7 +352,7 @@ fn build_factory_block(
         .collect::<Vec<_>>();
     let closure_values = all_bindings
         .iter()
-        .map(|(_, value_name)| Expr::from(core_name(value_name.as_str())))
+        .map(|(_, value_name)| Expr::from(core_cell_ref(value_name.as_str())))
         .collect::<Vec<_>>();
 
     let resume_entry = core_expr_without_yield(py_expr!(
