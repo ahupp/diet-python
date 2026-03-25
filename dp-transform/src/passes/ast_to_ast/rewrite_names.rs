@@ -31,13 +31,6 @@ pub fn rewrite_explicit_bindings(
     rewriter.visit_body(body);
 }
 
-fn is_annotation_function_name(name: &str) -> bool {
-    name == "__annotate__"
-        || name == "__annotate_func__"
-        || name.starts_with("_dp_fn___annotate___")
-        || name.starts_with("_dp_fn___annotate_func___")
-}
-
 struct NameScopeRewriter<'a> {
     context: &'a Context,
     scope: SemanticScope,
@@ -385,9 +378,6 @@ impl Transformer for NameScopeRewriter<'_> {
                 self.visit_parameters(&mut func_def.parameters);
                 if let Some(returns) = func_def.returns.as_mut() {
                     self.visit_annotation(returns);
-                }
-                if is_annotation_function_name(func_def.name.id.as_str()) {
-                    return;
                 }
 
                 let child_scope = self
