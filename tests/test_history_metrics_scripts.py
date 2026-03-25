@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -17,6 +18,135 @@ def load_module(path: Path, module_name: str):
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
+
+
+@contextmanager
+def argv_context(argv: list[str]):
+    original_argv = sys.argv[:]
+    sys.argv = argv
+    try:
+        yield
+    finally:
+        sys.argv = original_argv
+
+
+def test_collect_history_parse_args_defaults_to_current_workspace_ancestors():
+    module = load_module(REPO_ROOT / "scripts" / "collect_warloc_history.py", "collect_warloc_history_parse_args")
+    with argv_context(["collect_warloc_history.py", "out.jsonl"]):
+        args = module.parse_args()
+    assert args.output == "out.jsonl"
+    assert args.revset == "..@"
+
+
+def test_git_non_vendor_history_uses_path_limited_git_rev_list(monkeypatch):
+    module = load_module(REPO_ROOT / "scripts" / "collect_warloc_history.py", "collect_warloc_history_git_history")
+    observed: dict[str, object] = {}
+
+    def fake_run(cmd, *, cwd, capture_output=False):
+        observed["cmd"] = cmd
+        observed["cwd"] = cwd
+        observed["capture_output"] = capture_output
+
+        class Result:
+            stdout = "abc123\nfed456\n"
+
+        return Result()
+
+    monkeypatch.setattr(module, "run", fake_run)
+
+    assert module.git_non_vendor_history("base123") == ["abc123", "fed456"]
+    assert observed["cmd"] == ["git", "rev-list", "--reverse", "base123", "--", ".", ":(exclude)vendor"]
+    assert observed["cwd"] == REPO_ROOT
+    assert observed["capture_output"] is True
+
+
+def test_list_commits_default_revset_uses_current_line_non_vendor_history(monkeypatch):
+    module = load_module(REPO_ROOT / "scripts" / "collect_warloc_history.py", "collect_warloc_history_default_list")
+    base_commit = module.CommitMetadata(
+        commit_id="base123",
+        change_id="basechange",
+        timestamp="2026-03-25T00:00:00+00:00",
+        description="base",
+    )
+    git_commit = module.CommitMetadata(
+        commit_id="git123",
+        change_id="gitchange",
+        timestamp="2026-03-25T01:00:00+00:00",
+        description="git",
+    )
+    local_commit = module.CommitMetadata(
+        commit_id="local123",
+        change_id="localchange",
+        timestamp="2026-03-25T02:00:00+00:00",
+        description="local",
+    )
+    observed: dict[str, object] = {}
+
+    def fake_current_line_git_base_commit():
+        observed["base_called"] = True
+        return base_commit
+
+    def fake_git_non_vendor_history(head_revision):
+        observed["git_head_revision"] = head_revision
+        return ["git123"]
+
+    def fake_commit_metadata_for_revision(revision):
+        observed.setdefault("git_revisions", []).append(revision)
+        assert revision == "git123"
+        return git_commit
+
+    def fake_list_jj_commits(revset, *, allow_empty=False):
+        observed["local_revset"] = revset
+        observed["local_allow_empty"] = allow_empty
+        assert revset == "base123::@ ~ base123"
+        assert allow_empty is True
+        return [local_commit]
+
+    def fake_filter_commits_to_non_vendor_changes(commits, *, allow_empty=False):
+        observed["filtered_commits"] = commits
+        observed["filtered_allow_empty"] = allow_empty
+        return commits
+
+    monkeypatch.setattr(module, "current_line_git_base_commit", fake_current_line_git_base_commit)
+    monkeypatch.setattr(module, "git_non_vendor_history", fake_git_non_vendor_history)
+    monkeypatch.setattr(module, "commit_metadata_for_revision", fake_commit_metadata_for_revision)
+    monkeypatch.setattr(module, "list_jj_commits", fake_list_jj_commits)
+    monkeypatch.setattr(module, "filter_commits_to_non_vendor_changes", fake_filter_commits_to_non_vendor_changes)
+
+    assert module.list_commits(module.DEFAULT_REVSET) == [git_commit, local_commit]
+    assert observed["base_called"] is True
+    assert observed["git_head_revision"] == "base123"
+    assert observed["git_revisions"] == ["git123"]
+    assert observed["filtered_commits"] == [local_commit]
+    assert observed["filtered_allow_empty"] is True
+
+
+def test_list_commits_non_default_revset_filters_non_vendor_changes(monkeypatch):
+    module = load_module(REPO_ROOT / "scripts" / "collect_warloc_history.py", "collect_warloc_history_custom_revset")
+    commits = [
+        module.CommitMetadata("commit1", "change1", "2026-03-25T00:00:00+00:00", "one"),
+        module.CommitMetadata("commit2", "change2", "2026-03-25T01:00:00+00:00", "two"),
+    ]
+    observed: dict[str, object] = {}
+
+    def fake_list_jj_commits(revset, *, allow_empty=False):
+        observed["revset"] = revset
+        observed["allow_empty"] = allow_empty
+        return commits
+
+    def fake_filter_commits_to_non_vendor_changes(input_commits, *, allow_empty=False):
+        observed["input_commits"] = input_commits
+        observed["filter_allow_empty"] = allow_empty
+        return [commits[1]]
+
+    monkeypatch.setattr(module, "list_jj_commits", fake_list_jj_commits)
+    monkeypatch.setattr(module, "filter_commits_to_non_vendor_changes", fake_filter_commits_to_non_vendor_changes)
+
+    assert module.list_commits("custom") == [commits[1]]
+    assert observed["revset"] == "custom"
+    assert observed["allow_empty"] is False
+    assert observed["input_commits"] == commits
+    assert observed["filter_allow_empty"] is False
 
 
 def test_parse_lines_changed_from_stat_handles_missing_sides():
@@ -77,6 +207,28 @@ def test_warloc_total_from_by_file_jsonl_ignores_vendor_files():
         "test_lines": 2,
         "blank_lines": 3,
         "comment_lines": 4,
+    }
+
+
+def test_warloc_total_from_by_file_jsonl_handles_summary_only_output():
+    module = load_module(REPO_ROOT / "scripts" / "collect_warloc_history.py", "collect_warloc_history_warloc_summary_only")
+    output = json.dumps(
+        {
+            "scope": "total",
+            "file_count": 0,
+            "code_lines": 0,
+            "test_lines": 0,
+            "blank_lines": 0,
+            "comment_lines": 0,
+        }
+    )
+    assert module.warloc_total_from_by_file_jsonl(output) == {
+        "scope": "total",
+        "file_count": 0,
+        "code_lines": 0,
+        "test_lines": 0,
+        "blank_lines": 0,
+        "comment_lines": 0,
     }
 
 
