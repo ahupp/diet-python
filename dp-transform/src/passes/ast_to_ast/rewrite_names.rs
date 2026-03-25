@@ -4,7 +4,7 @@ use ruff_python_ast::name::Name;
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 
 use super::{
-    body::{suite_mut, take_suite, Suite},
+    body::{suite_mut, Suite},
     context::Context,
     semantic::{
         SemanticAstState, SemanticBindingKind, SemanticBindingUse, SemanticScope, SemanticScopeKind,
@@ -308,65 +308,6 @@ impl Transformer for NameScopeRewriter<'_> {
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
                 assert!(targets.len() == 1);
                 self.visit_expr(value.as_mut());
-            }
-            Stmt::Try(try_stmt) => {
-                self.visit_body(suite_mut(&mut try_stmt.body));
-                for handler in &mut try_stmt.handlers {
-                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                    if let Some(type_) = handler.type_.as_mut() {
-                        self.visit_expr(type_);
-                    }
-                    if let Some(name) = handler.name.as_mut() {
-                        let exc_name = name.id.as_str().to_string();
-                        if exc_name != "__class__" && !is_internal_symbol(&exc_name) {
-                            let binding = self
-                                .scope
-                                .binding_in_scope(exc_name.as_str(), SemanticBindingUse::Load);
-                            let needs_rewrite = matches!(
-                                (self.scope.kind(), binding),
-                                (SemanticScopeKind::Class, SemanticBindingKind::Local)
-                                    | (SemanticScopeKind::Class, SemanticBindingKind::Global)
-                                    | (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal)
-                                    | (_, SemanticBindingKind::Global)
-                                    | (_, SemanticBindingKind::Nonlocal)
-                            );
-                            if needs_rewrite {
-                                let temp_name = format!("_dp_exc_{exc_name}");
-                                name.id = Name::new(temp_name.as_str());
-                                let store_stmt = match (self.scope.kind(), binding) {
-                                    (SemanticScopeKind::Class, SemanticBindingKind::Local)
-                                    | (SemanticScopeKind::Class, SemanticBindingKind::Global)
-                                    | (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal) => {
-                                        py_stmt!(
-                                            "{name:id} = {value:expr}",
-                                            name = exc_name.as_str(),
-                                            value =
-                                                py_expr!("{temp:id}", temp = temp_name.as_str()),
-                                        )
-                                    }
-                                    (_, SemanticBindingKind::Global) => py_stmt!(
-                                        "{name:id} = {value:expr}",
-                                        name = exc_name.as_str(),
-                                        value = py_expr!("{temp:id}", temp = temp_name.as_str()),
-                                    ),
-                                    (_, SemanticBindingKind::Nonlocal) => py_stmt!(
-                                        "{name:id} = {value:expr}",
-                                        name = exc_name.as_str(),
-                                        value = py_expr!("{temp:id}", temp = temp_name.as_str()),
-                                    ),
-                                    _ => py_stmt!("pass"),
-                                };
-                                let original_body = take_suite(&mut handler.body);
-                                let mut rewritten_body = vec![store_stmt];
-                                rewritten_body.extend(original_body);
-                                *suite_mut(&mut handler.body) = rewritten_body;
-                            }
-                        }
-                    }
-                    self.visit_body(suite_mut(&mut handler.body));
-                }
-                self.visit_body(suite_mut(&mut try_stmt.orelse));
-                self.visit_body(suite_mut(&mut try_stmt.finalbody));
             }
             Stmt::FunctionDef(func_def) => {
                 for decorator in &mut func_def.decorator_list {

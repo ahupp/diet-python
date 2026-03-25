@@ -569,14 +569,15 @@ class Box:
             "{core_rendered}"
         );
         assert!(
-            core_rendered.contains("caught = _dp_exc_caught"),
+            core_rendered.contains("caught = __dp_current_exception()"),
             "{core_rendered}"
         );
 
         let name_binding_rendered = lowered.name_binding_text();
         assert!(
-            name_binding_rendered
-                .contains("__dp_store_global(__dp_globals(), \"caught\", _dp_exc_caught)"),
+            name_binding_rendered.contains(
+                "__dp_store_global(__dp_globals(), \"caught\", __dp_current_exception())"
+            ),
             "{name_binding_rendered}"
         );
         assert!(
@@ -602,14 +603,17 @@ def outer():
         let lowered = TrackedLowering::new(source);
         let core_rendered = lowered.pass_text("core_blockpy");
         assert!(
-            !core_rendered.contains("__dp_store_cell(_dp_cell_x, _dp_exc_x)"),
+            !core_rendered.contains("__dp_store_cell(_dp_cell_x, __dp_current_exception())"),
             "{core_rendered}"
         );
-        assert!(core_rendered.contains("x = _dp_exc_x"), "{core_rendered}");
+        assert!(
+            core_rendered.contains("x = __dp_current_exception()"),
+            "{core_rendered}"
+        );
 
         let name_binding_rendered = lowered.name_binding_text();
         assert!(
-            name_binding_rendered.contains("__dp_store_cell(_dp_cell_x, _dp_exc_x)"),
+            name_binding_rendered.contains("__dp_store_cell(_dp_cell_x, __dp_current_exception())"),
             "{name_binding_rendered}"
         );
         assert!(
@@ -631,18 +635,19 @@ class Box:
         let lowered = TrackedLowering::new(source);
         let core_rendered = lowered.pass_text("core_blockpy");
         assert!(
-            !core_rendered.contains("__dp_setitem(_dp_class_ns, \"caught\", _dp_exc_caught)"),
+            !core_rendered
+                .contains("__dp_setitem(_dp_class_ns, \"caught\", __dp_current_exception())"),
             "{core_rendered}"
         );
         assert!(
-            core_rendered.contains("caught = _dp_exc_caught"),
+            core_rendered.contains("caught = __dp_current_exception()"),
             "{core_rendered}"
         );
 
         let name_binding_rendered = lowered.name_binding_text();
         assert!(
             name_binding_rendered
-                .contains("__dp_setitem(_dp_class_ns, \"caught\", _dp_exc_caught)"),
+                .contains("__dp_setitem(_dp_class_ns, \"caught\", __dp_current_exception())"),
             "{name_binding_rendered}"
         );
         assert!(
@@ -1132,14 +1137,14 @@ except Exception as exc:
             "{core_rendered}"
         );
         assert!(
-            core_rendered.contains("exc = _dp_exc_exc"),
+            core_rendered.contains("exc = __dp_current_exception()"),
             "{core_rendered}"
         );
 
         let name_binding_rendered = lowered.name_binding_text();
         assert!(
             name_binding_rendered
-                .contains("__dp_store_global(__dp_globals(), \"exc\", _dp_exc_exc)"),
+                .contains("__dp_store_global(__dp_globals(), \"exc\", __dp_current_exception())"),
             "{name_binding_rendered}"
         );
         assert!(

@@ -11,12 +11,7 @@ fn quiet_delete_marker(name: &str) -> Stmt {
     py_stmt!("_dp_del_quietly({name:id})", name = name)
 }
 
-fn except_cleanup_name(name: &str) -> &str {
-    name.strip_prefix("_dp_exc_").unwrap_or(name)
-}
-
 fn wrap_handler_body_with_cleanup(name: &str, body: Vec<Stmt>) -> Vec<Stmt> {
-    let cleanup_name = except_cleanup_name(name);
     vec![py_stmt!(
         r#"
 try:
@@ -25,7 +20,7 @@ finally:
     {delete:stmt}
 "#,
         body = body,
-        delete = quiet_delete_marker(cleanup_name),
+        delete = quiet_delete_marker(name),
     )]
 }
 
