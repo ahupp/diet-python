@@ -182,6 +182,7 @@ def test_collect_daily_tokens_uses_repo_local_session_deltas(tmp_path: Path):
     sessions_dir.mkdir(parents=True)
     session_path = sessions_dir / "rollout-example.jsonl"
     repo_root = str(REPO_ROOT)
+    diet_root = str(REPO_ROOT.parent / "diet-python")
     other_root = "/tmp/other-repo"
     session_path.write_text(
         "\n".join(
@@ -210,6 +211,42 @@ def test_collect_daily_tokens_uses_repo_local_session_deltas(tmp_path: Path):
                         "payload": {
                             "type": "token_count",
                             "info": {"total_token_usage": {"input_tokens": 160, "output_tokens": 40}},
+                        },
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    diet_session_path = sessions_dir / "rollout-diet-python.jsonl"
+    diet_session_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-25T17:00:00Z",
+                        "type": "session_meta",
+                        "payload": {"cwd": diet_root},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-25T17:02:00Z",
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {"total_token_usage": {"input_tokens": 20, "output_tokens": 5}},
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-03-25T17:03:00Z",
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {"total_token_usage": {"input_tokens": 35, "output_tokens": 9}},
                         },
                     }
                 ),
@@ -248,13 +285,13 @@ def test_collect_daily_tokens_uses_repo_local_session_deltas(tmp_path: Path):
     totals = module.collect_daily_tokens(
         codex_root=tmp_path,
         timezone=module.ZoneInfo("America/Los_Angeles"),
-        repo_cwd_prefix=repo_root,
+        repo_cwd_prefixes=[repo_root, diet_root],
     )
     assert totals == [
         {
             "date": "2026-03-25",
-            "input_tokens": 160,
-            "output_tokens": 40,
+            "input_tokens": 195,
+            "output_tokens": 49,
         }
     ]
 
@@ -269,7 +306,7 @@ def test_write_static_report_emits_html_and_svgs(tmp_path: Path):
         timezone_name="America/Los_Angeles",
         history_path=REPO_ROOT / "logs" / "warloc_history.jsonl",
         codex_root=Path.home() / ".codex",
-        repo_cwd_prefix=str(REPO_ROOT),
+        repo_cwd_prefixes=[str(REPO_ROOT), str(REPO_ROOT.parent / "diet-python")],
         daily_rollup=[
             {
                 "date": "2026-03-25",
@@ -293,6 +330,8 @@ def test_write_static_report_emits_html_and_svgs(tmp_path: Path):
     assert 'src="history_metrics_smoke_churn.svg"' in html
     assert 'src="history_metrics_smoke_tokens.svg"' in html
     assert "123" in html
+    assert str(REPO_ROOT) in html
+    assert str(REPO_ROOT.parent / "diet-python") in html
     assert (tmp_path / "history_metrics_smoke_loc.svg").read_text(encoding="utf-8").startswith("<svg")
     assert (tmp_path / "history_metrics_smoke_churn.svg").read_text(encoding="utf-8").startswith("<svg")
     assert (tmp_path / "history_metrics_smoke_tokens.svg").read_text(encoding="utf-8").startswith("<svg")

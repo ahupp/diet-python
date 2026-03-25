@@ -14,6 +14,10 @@ from zoneinfo import ZoneInfo
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CODEX_ROOT = Path.home() / ".codex"
+DEFAULT_CODEX_CWD_PREFIXES = [
+    str(REPO_ROOT),
+    str(REPO_ROOT.parent / "diet-python"),
+]
 DEFAULT_TIMEZONE = "America/Los_Angeles"
 DEFAULT_HTML_OUTPUT = REPO_ROOT / "web" / "history_metrics.html"
 DEFAULT_HTML_TEMPLATE = REPO_ROOT / "web" / "history_metrics_template.html"
@@ -78,10 +82,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--codex-cwd-prefix",
-        default=str(REPO_ROOT),
-        help="Only count Codex sessions whose cwd starts with this path",
+        action="append",
+        dest="codex_cwd_prefixes",
+        help="Only count Codex sessions whose cwd starts with this path; repeat to add multiple prefixes",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.codex_cwd_prefixes is None:
+        args.codex_cwd_prefixes = list(DEFAULT_CODEX_CWD_PREFIXES)
+    return args
 
 
 def parse_timestamp(value: str) -> datetime:
@@ -134,8 +142,29 @@ def build_daily_rollup(commit_records: list[dict[str, Any]], timezone: ZoneInfo)
     return [per_day[date] for date in sorted(per_day)]
 
 
-def iter_token_events(session_path: Path, repo_cwd_prefix: str) -> list[tuple[str, int, int]]:
-    cwd_matches = repo_cwd_prefix == ""
+def normalize_cwd_prefixes(cwd_prefixes: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for prefix in cwd_prefixes:
+        normalized_prefix = str(Path(prefix).expanduser().resolve())
+        if normalized_prefix in seen:
+            continue
+        seen.add(normalized_prefix)
+        normalized.append(normalized_prefix)
+    return normalized
+
+
+def session_cwd_matches_prefixes(session_cwd: str, repo_cwd_prefixes: list[str]) -> bool:
+    if not repo_cwd_prefixes:
+        return True
+    for prefix in repo_cwd_prefixes:
+        if session_cwd == prefix or session_cwd.startswith(f"{prefix}/"):
+            return True
+    return False
+
+
+def iter_token_events(session_path: Path, repo_cwd_prefixes: list[str]) -> list[tuple[str, int, int]]:
+    cwd_matches = not repo_cwd_prefixes
     previous_input = 0
     previous_output = 0
     token_events: list[tuple[str, int, int]] = []
@@ -153,7 +182,9 @@ def iter_token_events(session_path: Path, repo_cwd_prefix: str) -> list[tuple[st
                 if not isinstance(session_meta, dict):
                     continue
                 session_cwd = session_meta.get("cwd")
-                cwd_matches = isinstance(session_cwd, str) and session_cwd.startswith(repo_cwd_prefix)
+                cwd_matches = isinstance(session_cwd, str) and session_cwd_matches_prefixes(
+                    session_cwd, repo_cwd_prefixes
+                )
                 continue
             if not cwd_matches or record_type != "event_msg":
                 continue
@@ -179,14 +210,15 @@ def iter_token_events(session_path: Path, repo_cwd_prefix: str) -> list[tuple[st
     return token_events
 
 
-def collect_daily_tokens(codex_root: Path, timezone: ZoneInfo, repo_cwd_prefix: str) -> list[dict[str, Any]]:
+def collect_daily_tokens(codex_root: Path, timezone: ZoneInfo, repo_cwd_prefixes: list[str]) -> list[dict[str, Any]]:
     sessions_root = codex_root / "sessions"
     if not sessions_root.is_dir():
         return []
 
+    normalized_prefixes = normalize_cwd_prefixes(repo_cwd_prefixes)
     totals: dict[str, DailyTokenTotals] = {}
     for session_path in sorted(sessions_root.rglob("*.jsonl")):
-        for timestamp, delta_input, delta_output in iter_token_events(session_path, repo_cwd_prefix):
+        for timestamp, delta_input, delta_output in iter_token_events(session_path, normalized_prefixes):
             date = local_day(timestamp, timezone)
             current = totals.get(date)
             if current is None:
@@ -393,7 +425,7 @@ def build_summary_replacements(
     timezone_name: str,
     history_path: Path,
     codex_root: Path,
-    repo_cwd_prefix: str,
+    repo_cwd_prefixes: list[str],
     daily_rollup: list[dict[str, Any]],
     daily_tokens: list[dict[str, Any]],
     loc_chart_name: str,
@@ -404,12 +436,13 @@ def build_summary_replacements(
     total_churn = sum(int(item["daily_churn"]) for item in daily_rollup)
     total_input_tokens = sum(int(item["input_tokens"]) for item in daily_tokens)
     total_output_tokens = sum(int(item["output_tokens"]) for item in daily_tokens)
+    token_scope = ", ".join(repo_cwd_prefixes)
     return {
         "__GENERATED_AT__": escape(generated_at),
         "__TIMEZONE__": escape(timezone_name),
         "__HISTORY_JSONL__": escape(str(history_path)),
         "__CODEX_ROOT__": escape(str(codex_root)),
-        "__CODEX_CWD_PREFIX__": escape(repo_cwd_prefix),
+        "__CODEX_CWD_PREFIXES__": escape(token_scope),
         "__SUMMARY_CODE__": format_number(int(latest_rollup["code_lines"])) if latest_rollup else "-",
         "__SUMMARY_CODE_NOTE__": escape(f"As of {latest_rollup['date']}") if latest_rollup else "No daily LOC records.",
         "__SUMMARY_TESTS__": format_number(int(latest_rollup["tests_python_total_lines"])) if latest_rollup else "-",
@@ -439,7 +472,7 @@ def write_static_report(
     timezone_name: str,
     history_path: Path,
     codex_root: Path,
-    repo_cwd_prefix: str,
+    repo_cwd_prefixes: list[str],
     daily_rollup: list[dict[str, Any]],
     daily_tokens: list[dict[str, Any]],
 ) -> None:
@@ -511,7 +544,7 @@ def write_static_report(
                 timezone_name=timezone_name,
                 history_path=history_path,
                 codex_root=codex_root,
-                repo_cwd_prefix=repo_cwd_prefix,
+                repo_cwd_prefixes=repo_cwd_prefixes,
                 daily_rollup=daily_rollup,
                 daily_tokens=daily_tokens,
                 loc_chart_name=loc_chart_path.name,
@@ -532,9 +565,10 @@ def main() -> int:
     template_path = Path(args.html_template).resolve()
     codex_root = Path(args.codex_root).expanduser().resolve()
     timezone = ZoneInfo(args.timezone)
+    codex_cwd_prefixes = normalize_cwd_prefixes(args.codex_cwd_prefixes)
     commit_records = load_jsonl(history_path)
     daily_rollup = build_daily_rollup(commit_records, timezone)
-    daily_tokens = collect_daily_tokens(codex_root, timezone, args.codex_cwd_prefix)
+    daily_tokens = collect_daily_tokens(codex_root, timezone, codex_cwd_prefixes)
     generated_at = datetime.now().astimezone().isoformat()
     write_jsonl(daily_output_path, daily_rollup)
     write_static_report(
@@ -544,7 +578,7 @@ def main() -> int:
         timezone_name=args.timezone,
         history_path=history_path,
         codex_root=codex_root,
-        repo_cwd_prefix=args.codex_cwd_prefix,
+        repo_cwd_prefixes=codex_cwd_prefixes,
         daily_rollup=daily_rollup,
         daily_tokens=daily_tokens,
     )
