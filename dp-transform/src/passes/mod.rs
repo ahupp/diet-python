@@ -536,7 +536,7 @@ class Box:
         let lowered = TrackedLowering::new(source);
         let core_rendered = lowered.pass_text("core_blockpy");
         assert!(
-            core_rendered.contains("_dp_del_binding(x)"),
+            core_rendered.contains("x = __dp_DELETED"),
             "{core_rendered}"
         );
         assert!(
@@ -547,6 +547,31 @@ class Box:
         let name_binding_rendered = lowered.name_binding_text();
         assert!(
             name_binding_rendered.contains("__dp_delitem(_dp_class_ns, \"x\")"),
+            "{name_binding_rendered}"
+        );
+    }
+
+    #[test]
+    fn class_body_nonlocal_delete_moves_to_name_binding_pass() {
+        let source = r#"
+def outer():
+    x = 1
+    class Box:
+        nonlocal x
+        del x
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let core_rendered = lowered.pass_text("core_blockpy");
+        assert!(
+            core_rendered.contains("x = __dp_DELETED"),
+            "{core_rendered}"
+        );
+        assert!(!core_rendered.contains("cell_contents"), "{core_rendered}");
+
+        let name_binding_rendered = lowered.name_binding_text();
+        assert!(
+            name_binding_rendered.contains("__dp_del_deref(_dp_cell_x)"),
             "{name_binding_rendered}"
         );
     }

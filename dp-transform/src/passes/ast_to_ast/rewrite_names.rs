@@ -6,17 +6,12 @@ use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 use super::{
     body::{suite_mut, Suite},
     context::Context,
-    semantic::{
-        SemanticAstState, SemanticBindingKind, SemanticBindingUse, SemanticScope, SemanticScopeKind,
-    },
+    semantic::{SemanticAstState, SemanticBindingKind, SemanticScope, SemanticScopeKind},
 };
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{
     passes::ast_to_ast::{
-        ast_rewrite::Rewrite,
-        rewrite_import,
-        scope_helpers::{cell_name, is_internal_symbol},
-        util::is_noarg_call,
+        ast_rewrite::Rewrite, rewrite_import, scope_helpers::cell_name, util::is_noarg_call,
     },
     passes::ruff_to_blockpy,
     py_expr, py_stmt,
@@ -258,42 +253,6 @@ impl Transformer for NameScopeRewriter<'_> {
                     }
                 }
                 self.visit_body(suite_mut(&mut with_stmt.body));
-            }
-            Stmt::Delete(delete) => {
-                assert!(delete.targets.len() == 1);
-
-                let target = &mut delete.targets[0];
-                if let Expr::Name(ast::ExprName { id, .. }) = &target {
-                    let name = id.as_str();
-                    if name == "__class__" {
-                        return;
-                    }
-                    if is_internal_symbol(name) {
-                        return;
-                    }
-
-                    match (
-                        self.scope.kind(),
-                        self.scope.binding_in_scope(name, SemanticBindingUse::Load),
-                    ) {
-                        (SemanticScopeKind::Class, SemanticBindingKind::Local) => {
-                            *stmt = py_stmt!("_dp_del_binding({name:id})", name = name);
-                        }
-                        (SemanticScopeKind::Class, SemanticBindingKind::Global) => {
-                            *stmt = py_stmt!("_dp_del_binding({name:id})", name = name);
-                        }
-                        (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal) => {
-                            let cell = cell_name(name);
-                            *stmt = py_stmt!("del {cell:id}.cell_contents", cell = cell.as_str());
-                        }
-                        (_, SemanticBindingKind::Global) => {}
-                        (_, SemanticBindingKind::Nonlocal) => {
-                            let cell = cell_name(name);
-                            *stmt = py_stmt!("del {cell:id}.cell_contents", cell = cell.as_str());
-                        }
-                        _ => {}
-                    }
-                }
             }
             Stmt::Global(_) => return,
             Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
