@@ -928,6 +928,47 @@ def gen():
 }
 
 #[test]
+fn generator_resume_yieldfrom_moves_to_name_binding_pass() {
+    let source = r#"
+def child():
+    yield "start"
+
+def delegator():
+    result = yield from child()
+    return ("done", result)
+"#;
+
+    let lowered = TrackedLowering::new(source);
+    let name_binding_rendered = lowered.name_binding_text();
+    assert!(
+        name_binding_rendered.contains("__dp_load_cell(_dp_cell__dp_yieldfrom)"),
+        "{name_binding_rendered}"
+    );
+    assert!(
+        name_binding_rendered.contains("__dp_store_cell(_dp_cell__dp_yieldfrom,")
+            && (name_binding_rendered.contains("__dp_NONE")
+                || name_binding_rendered.contains("child()")),
+        "{name_binding_rendered}"
+    );
+
+    let resume = lowered.bb_function("delegator");
+    assert!(
+        resume
+            .blocks
+            .iter()
+            .any(|block| block_uses_text(block, "__dp_load_cell(_dp_cell__dp_yieldfrom)")),
+        "{resume:?}"
+    );
+    assert!(
+        resume
+            .blocks
+            .iter()
+            .any(|block| block_uses_text(block, "__dp_store_cell(_dp_cell__dp_yieldfrom,")),
+        "{resume:?}"
+    );
+}
+
+#[test]
 fn blockpy_callable_def_retains_docstring_metadata() {
     let source = r#"
 def documented():

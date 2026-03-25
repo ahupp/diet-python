@@ -119,7 +119,7 @@ fn build_closure_backed_generator_factory_block(
 }
 
 #[test]
-fn manual_sync_storage_by_logical_name_excludes_dp_pc_and_alias_only_bindings() {
+fn manual_sync_storage_by_logical_name_excludes_runtime_names_on_standard_binding_path() {
     let layout = ClosureLayout {
         freevars: vec![ClosureSlot {
             logical_name: "captured".to_string(),
@@ -131,11 +131,18 @@ fn manual_sync_storage_by_logical_name_excludes_dp_pc_and_alias_only_bindings() 
             storage_name: "_dp_cell_total".to_string(),
             init: ClosureInit::Deferred,
         }],
-        runtime_cells: vec![ClosureSlot {
-            logical_name: "_dp_pc".to_string(),
-            storage_name: "_dp_cell__dp_pc".to_string(),
-            init: ClosureInit::RuntimePcUnstarted,
-        }],
+        runtime_cells: vec![
+            ClosureSlot {
+                logical_name: "_dp_yieldfrom".to_string(),
+                storage_name: "_dp_cell__dp_yieldfrom".to_string(),
+                init: ClosureInit::RuntimeNone,
+            },
+            ClosureSlot {
+                logical_name: "_dp_pc".to_string(),
+                storage_name: "_dp_cell__dp_pc".to_string(),
+                init: ClosureInit::RuntimePcUnstarted,
+            },
+        ],
     };
 
     let closure_bindings = resume_closure_bindings(
@@ -146,6 +153,7 @@ fn manual_sync_storage_by_logical_name_excludes_dp_pc_and_alias_only_bindings() 
             "_dp_resume_exc".to_string(),
             "_dp_cell_captured".to_string(),
             "total".to_string(),
+            "_dp_yieldfrom".to_string(),
             "_dp_pc".to_string(),
         ],
     );
@@ -437,5 +445,12 @@ fn resume_semantic_overlay_marks_dp_pc_for_standard_name_binding() {
         semantic.resolved_load_binding_kind("_dp_pc"),
         BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
-    assert_eq!(semantic.binding_kind("_dp_yieldfrom"), None);
+    assert_eq!(
+        semantic.binding_kind("_dp_yieldfrom"),
+        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+    );
+    assert_eq!(
+        semantic.resolved_load_binding_kind("_dp_yieldfrom"),
+        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+    );
 }

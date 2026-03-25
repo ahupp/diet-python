@@ -290,7 +290,7 @@ impl ResumeClosureBindings {
 }
 
 fn resume_state_uses_standard_name_binding(name: &str) -> bool {
-    matches!(name, "_dp_pc")
+    matches!(name, "_dp_pc" | "_dp_yieldfrom")
 }
 
 fn augment_resume_semantic_for_standard_name_binding(

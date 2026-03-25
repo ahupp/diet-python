@@ -58,7 +58,7 @@ snapshot_stmt::comprehension_in_function: blockpy=8, clif=8
 snapshot_stmt::comprehension_in_class_body: blockpy=8, clif=8
 snapshot_stmt::with_multi: blockpy=26, clif=31
 snapshot_stmt::async_for: blockpy=6, clif=25
-snapshot_stmt::async_with: blockpy=16, clif=79
+snapshot_stmt::async_with: blockpy=16, clif=77
 snapshot_stmt::match_simple: blockpy=3, clif=3
 snapshot_stmt::generator_yield: blockpy=2, clif=9
 snapshot_stmt::yield_from: blockpy=2, clif=21
@@ -67,4 +67,4 @@ snapshot_stmt::closure_cell_simple: blockpy=3, clif=3
 snapshot_stmt::bb_if_else_function: blockpy=4, clif=4
 snapshot_stmt::closure_cell_nonlocal: blockpy=3, clif=3
 snapshot_stmt::plain try / catch: blockpy=5, clif=5
-snapshot_stmt::complicated generator: blockpy=10, clif=19
+snapshot_stmt::complicated generator: blockpy=10, clif=18
