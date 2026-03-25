@@ -53,24 +53,6 @@ impl<E: Clone + fmt::Debug> IntoBlockPyStmt<E> for BlockPyStmt<E> {
     }
 }
 
-impl From<BlockPyLabel> for BlockPyEdge {
-    fn from(value: BlockPyLabel) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<&str> for BlockPyEdge {
-    fn from(value: &str) -> Self {
-        Self::new(BlockPyLabel::from(value))
-    }
-}
-
-impl From<String> for BlockPyEdge {
-    fn from(value: String) -> Self {
-        Self::new(BlockPyLabel::from(value))
-    }
-}
-
 pub trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
@@ -1012,17 +994,5 @@ impl CoreBlockPyExprWithAwaitAndYield {
         let mut expr = self.to_expr();
         f(&mut expr);
         *self = expr.into();
-    }
-}
-
-impl From<String> for BlockPyLabel {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
-}
-
-impl From<&str> for BlockPyLabel {
-    fn from(value: &str) -> Self {
-        Self(value.to_string())
     }
 }
