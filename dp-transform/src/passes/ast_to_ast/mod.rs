@@ -6,7 +6,6 @@ pub(crate) mod rewrite_class_def;
 pub(crate) mod rewrite_expr;
 pub(crate) mod rewrite_future_annotations;
 pub(crate) mod rewrite_import;
-pub(crate) mod rewrite_names;
 pub(crate) mod rewrite_stmt;
 pub(crate) mod scope_helpers;
 pub(crate) mod semantic;

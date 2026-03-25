@@ -51,8 +51,7 @@ pub(crate) use compat::{
 use stmt_lowering::lower_stmt_into;
 pub(crate) use stmt_lowering::{
     build_for_target_assign_body, lower_star_try_stmt_sequence, lower_try_stmt_sequence,
-    lower_with_stmt_sequence, rewrite_assign_stmt, rewrite_augassign_stmt, rewrite_delete_stmt,
-    rewrite_type_alias_stmt,
+    lower_with_stmt_sequence, rewrite_assign_stmt, rewrite_delete_stmt,
 };
 pub(crate) use stmt_sequences::{
     lower_expanded_stmt_sequence, lower_stmt_sequence_with_state, lower_stmts_to_blockpy_stmts,

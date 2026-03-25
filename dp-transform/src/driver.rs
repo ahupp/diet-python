@@ -6,7 +6,7 @@ use crate::passes::ast_to_ast::rewrite_expr::ScopedHelperExprPass;
 use crate::passes::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::passes::ast_to_ast::{
     body::{body_from_suite, split_docstring, suite_mut, take_suite, Suite},
-    rewrite_future_annotations, rewrite_names, rewrite_stmt,
+    rewrite_future_annotations, rewrite_stmt,
     semantic::SemanticAstState,
 };
 use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
@@ -64,17 +64,6 @@ pub(crate) fn rewrite_module_with_tracker(
 
         let mut rewrite_semantic_state = SemanticAstState::from_ruff(suite_mut(&mut module));
         wrap_module_init(&mut rewrite_semantic_state, suite_mut(&mut module));
-
-        // Replace global / nonlocal and the early class-body write-side cases with
-        // explicit operations. Class-body load resolution now happens later in the
-        // name_binding pass using the carried semantic scope.
-        //  - globals: __dp__.load/store_global(globals(), name)
-        //  - nonlocal: create a cell in the outermost scope, and access with __dp__.load/store_cell(cell, value)
-        rewrite_names::rewrite_explicit_bindings(
-            context,
-            &rewrite_semantic_state,
-            suite_mut(&mut module),
-        );
 
         rewrite_class_def::class_body::rewrite_class_body_scopes(
             context,
