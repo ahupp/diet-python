@@ -1313,12 +1313,10 @@ fn lower_resume_blocks(
             exc_edge: None,
         })
         .collect::<Vec<_>>();
-    let resume_entry_target = callable.entry_block().label_str().to_string();
+    let resume_entry_target = callable.entry_block().label.clone();
 
     let mut state = ResumeLoweringState::new(callable.kind);
-    state
-        .resume_targets
-        .push((1, BlockPyLabel::from(resume_entry_target.as_str())));
+    state.resume_targets.push((1, resume_entry_target));
 
     let mut queue = linear_blocks
         .into_iter()
