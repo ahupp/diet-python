@@ -1026,6 +1026,15 @@ def gen():
             && name_binding_rendered.contains("_dp_cell__dp_try_exc_"),
         "{name_binding_rendered}"
     );
+    assert!(
+        name_binding_rendered.contains("__dp_store_cell(_dp_cell__dp_eval_1,")
+            && name_binding_rendered.contains("__dp_store_cell(_dp_cell__dp_eval_2,"),
+        "{name_binding_rendered}"
+    );
+    assert!(
+        !name_binding_rendered.contains("del _dp_eval_"),
+        "{name_binding_rendered}"
+    );
 
     let resume = lowered.bb_function("gen");
     let try_exc_slot = resume

@@ -6,11 +6,10 @@ use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta,
     is_resume_abi_param_name, resume_abi_params, BlockParam, BlockParamRole, BlockPyAssign,
     BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable, BlockPyCallableSemanticInfo,
-    BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyCfgFragment, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyExpr,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId, FunctionName,
-    ModuleNameGen,
+    BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit,
+    ClosureLayout, ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, FunctionId, FunctionName, ModuleNameGen,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::{cell_name, is_internal_symbol};
@@ -277,25 +276,10 @@ impl ResumeClosureBindings {
             .iter()
             .chain(self.compatibility_alias_bindings.iter())
     }
-
-    fn manual_sync_storage_by_logical_name(&self) -> HashMap<String, String> {
-        self.runtime_state_bindings
-            .iter()
-            .filter(|(name, value_name)| {
-                name != value_name && !resume_state_uses_standard_name_binding(name.as_str())
-            })
-            .map(|(name, value_name)| (name.clone(), value_name.clone()))
-            .collect()
-    }
 }
 
 fn resume_state_uses_standard_name_binding(name: &str) -> bool {
-    if name.starts_with("_dp_cell_") {
-        return false;
-    }
-    !is_internal_symbol(name)
-        || matches!(name, "_dp_pc" | "_dp_yieldfrom")
-        || name.starts_with("_dp_try_exc_")
+    !name.starts_with("_dp_cell_")
 }
 
 fn augment_resume_semantic_for_standard_name_binding(
@@ -356,76 +340,6 @@ fn resume_closure_bindings(
         runtime_state_bindings,
         compatibility_alias_bindings,
     }
-}
-
-fn sync_resume_state_fragment(
-    fragment: BlockPyCfgFragment<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>,
-    storage_by_logical_name: &HashMap<String, String>,
-) -> BlockPyCfgFragment<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>> {
-    BlockPyCfgFragment {
-        body: sync_resume_state_body(fragment.body, storage_by_logical_name),
-        term: fragment.term,
-    }
-}
-
-fn sync_resume_state_stmt(
-    stmt: BlockPyStmt<CoreBlockPyExpr>,
-    storage_by_logical_name: &HashMap<String, String>,
-) -> Vec<BlockPyStmt<CoreBlockPyExpr>> {
-    match stmt {
-        BlockPyStmt::Assign(assign) => {
-            let target_name = assign.target.id.to_string();
-            let mut synced = vec![BlockPyStmt::Assign(assign)];
-            if let Some(storage_name) = storage_by_logical_name.get(target_name.as_str()) {
-                synced.push(BlockPyStmt::Expr(core_call(
-                    "__dp_store_cell",
-                    vec![
-                        core_name(storage_name.as_str()),
-                        core_name(target_name.as_str()),
-                    ],
-                )));
-            }
-            synced
-        }
-        BlockPyStmt::If(if_stmt) => vec![BlockPyStmt::If(BlockPyIf {
-            test: if_stmt.test,
-            body: sync_resume_state_fragment(if_stmt.body, storage_by_logical_name),
-            orelse: sync_resume_state_fragment(if_stmt.orelse, storage_by_logical_name),
-        })],
-        BlockPyStmt::Delete(delete) => vec![BlockPyStmt::Delete(delete)],
-        BlockPyStmt::Expr(expr) => vec![BlockPyStmt::Expr(expr)],
-    }
-}
-
-fn sync_resume_state_body(
-    body: Vec<BlockPyStmt<CoreBlockPyExpr>>,
-    storage_by_logical_name: &HashMap<String, String>,
-) -> Vec<BlockPyStmt<CoreBlockPyExpr>> {
-    let mut synced = Vec::new();
-    for stmt in body {
-        synced.extend(sync_resume_state_stmt(stmt, storage_by_logical_name));
-    }
-    synced
-}
-
-fn sync_resume_state_blocks(
-    blocks: Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>,
-    closure_bindings: &ResumeClosureBindings,
-) -> Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>> {
-    let storage_by_logical_name = closure_bindings.manual_sync_storage_by_logical_name();
-    if storage_by_logical_name.is_empty() {
-        return blocks;
-    }
-    blocks
-        .into_iter()
-        .map(|block| CfgBlock {
-            label: block.label,
-            body: sync_resume_state_body(block.body, &storage_by_logical_name),
-            term: block.term,
-            params: block.params,
-            exc_edge: block.exc_edge,
-        })
-        .collect()
 }
 
 fn generator_resume_declared_params(params: &[BlockParam]) -> Vec<BlockParam> {
@@ -1457,7 +1371,6 @@ pub(crate) fn lower_generator_like_function(
     let closure_bindings = resume_closure_bindings(&closure_layout, &state_order);
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
         lower_resume_blocks(&callable);
-    let resume_blocks = sync_resume_state_blocks(resume_blocks, &closure_bindings);
 
     let factory_block = build_factory_block(
         callable.function_id,

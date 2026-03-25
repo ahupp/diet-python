@@ -150,6 +150,38 @@ fn rewrite_global_binding_delete_by_name(
     ))
 }
 
+fn rewrite_binding_delete(
+    target: ExprName,
+    semantic: &BlockPyCallableSemanticInfo,
+) -> BlockPyStmt<CoreBlockPyExpr> {
+    let node_index = target.node_index.clone();
+    let range = target.range;
+    let bind_name = target.id.to_string();
+    if semantic.is_cell_binding(bind_name.as_str()) {
+        return BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
+            &DEL_DEREF_INTRINSIC,
+            node_index.clone(),
+            range,
+            vec![cell_expr_for_name(bind_name.as_str(), node_index, range)],
+        ));
+    }
+    match semantic.binding_target_for_name(bind_name.as_str(), BlockPyBindingPurpose::Store) {
+        BindingTarget::Local => BlockPyStmt::Delete(crate::block_py::BlockPyDelete { target }),
+        BindingTarget::ModuleGlobal => {
+            rewrite_global_binding_delete_by_name(bind_name.as_str(), node_index, range)
+        }
+        BindingTarget::ClassNamespace => BlockPyStmt::Expr(core_positional_call_expr_with_meta(
+            "__dp_delitem",
+            node_index.clone(),
+            range,
+            vec![
+                class_namespace_expr(node_index.clone(), range),
+                core_string_expr(bind_name, node_index, range),
+            ],
+        )),
+    }
+}
+
 fn rewrite_deleted_name_load_expr(
     name: ExprName,
     deleted_names: &HashSet<String>,
@@ -664,7 +696,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 BlockPyStmt::Expr(self.map_expr(expr))
             }
             BlockPyStmt::Assign(assign) => self.map_assign(assign),
-            BlockPyStmt::Delete(delete) => BlockPyStmt::Delete(delete),
+            BlockPyStmt::Delete(delete) => rewrite_binding_delete(delete.target, self.semantic),
             BlockPyStmt::If(if_stmt) => BlockPyStmt::If(crate::block_py::BlockPyIf {
                 test: self.map_expr(if_stmt.test),
                 body: self.map_fragment(if_stmt.body),
