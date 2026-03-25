@@ -890,6 +890,44 @@ def delegator():
 }
 
 #[test]
+fn generator_resume_pc_moves_to_name_binding_pass() {
+    let source = r#"
+def gen():
+    yield 1
+    yield 2
+"#;
+
+    let lowered = TrackedLowering::new(source);
+    let name_binding_rendered = lowered.name_binding_text();
+    assert!(
+        name_binding_rendered.contains("__dp_load_cell(_dp_cell__dp_pc)"),
+        "{name_binding_rendered}"
+    );
+    assert!(
+        name_binding_rendered.contains("__dp_store_cell(_dp_cell__dp_pc, 2)")
+            || name_binding_rendered.contains("__dp_store_cell(_dp_cell__dp_pc, 3)")
+            || name_binding_rendered.contains("__dp_store_cell(_dp_cell__dp_pc, 0)"),
+        "{name_binding_rendered}"
+    );
+
+    let resume = lowered.bb_function("gen");
+    assert!(
+        resume
+            .blocks
+            .iter()
+            .any(|block| block_uses_text(block, "__dp_load_cell(_dp_cell__dp_pc)")),
+        "{resume:?}"
+    );
+    assert!(
+        resume
+            .blocks
+            .iter()
+            .any(|block| block_uses_text(block, "__dp_store_cell(_dp_cell__dp_pc,")),
+        "{resume:?}"
+    );
+}
+
+#[test]
 fn blockpy_callable_def_retains_docstring_metadata() {
     let source = r#"
 def documented():

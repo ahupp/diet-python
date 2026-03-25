@@ -1,4 +1,7 @@
-use super::{build_blockpy_closure_layout, resume_closure_bindings};
+use super::{
+    augment_resume_semantic_for_standard_name_binding, build_blockpy_closure_layout,
+    resume_closure_bindings,
+};
 use crate::block_py::{
     BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
     BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyTerm,
@@ -116,7 +119,7 @@ fn build_closure_backed_generator_factory_block(
 }
 
 #[test]
-fn runtime_storage_by_logical_name_ignores_alias_only_bindings() {
+fn manual_sync_storage_by_logical_name_excludes_dp_pc_and_alias_only_bindings() {
     let layout = ClosureLayout {
         freevars: vec![ClosureSlot {
             logical_name: "captured".to_string(),
@@ -148,11 +151,8 @@ fn runtime_storage_by_logical_name_ignores_alias_only_bindings() {
     );
 
     assert_eq!(
-        closure_bindings.runtime_storage_by_logical_name(),
-        std::collections::HashMap::from([
-            ("total".to_string(), "_dp_cell_total".to_string()),
-            ("_dp_pc".to_string(), "_dp_cell__dp_pc".to_string()),
-        ]),
+        closure_bindings.manual_sync_storage_by_logical_name(),
+        std::collections::HashMap::from([("total".to_string(), "_dp_cell_total".to_string()),]),
     );
 }
 
@@ -381,4 +381,61 @@ fn resume_semantic_marks_generator_state_as_cell_captures() {
         semantic.resolved_load_binding_kind("_dp_self"),
         BlockPyBindingKind::Local
     );
+}
+
+#[test]
+fn resume_semantic_overlay_marks_dp_pc_for_standard_name_binding() {
+    let layout = ClosureLayout {
+        freevars: vec![ClosureSlot {
+            logical_name: "captured".to_string(),
+            storage_name: "_dp_cell_captured".to_string(),
+            init: ClosureInit::InheritedCapture,
+        }],
+        cellvars: vec![ClosureSlot {
+            logical_name: "total".to_string(),
+            storage_name: "_dp_cell_total".to_string(),
+            init: ClosureInit::Deferred,
+        }],
+        runtime_cells: vec![
+            ClosureSlot {
+                logical_name: "_dp_yieldfrom".to_string(),
+                storage_name: "_dp_cell__dp_yieldfrom".to_string(),
+                init: ClosureInit::RuntimeNone,
+            },
+            ClosureSlot {
+                logical_name: "_dp_pc".to_string(),
+                storage_name: "_dp_cell__dp_pc".to_string(),
+                init: ClosureInit::RuntimePcUnstarted,
+            },
+        ],
+    };
+    let closure_bindings = resume_closure_bindings(
+        &layout,
+        &[
+            "_dp_self".to_string(),
+            "_dp_send_value".to_string(),
+            "_dp_resume_exc".to_string(),
+            "_dp_cell_captured".to_string(),
+            "total".to_string(),
+            "_dp_yieldfrom".to_string(),
+            "_dp_pc".to_string(),
+        ],
+    );
+    let mut semantic = BlockPyCallableSemanticInfo {
+        names: FunctionName::new("gen_resume", "_dp_resume", "gen", "gen"),
+        scope_kind: BlockPyCallableScopeKind::Function,
+        ..Default::default()
+    };
+
+    augment_resume_semantic_for_standard_name_binding(&mut semantic, &closure_bindings);
+
+    assert_eq!(
+        semantic.binding_kind("_dp_pc"),
+        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+    );
+    assert_eq!(
+        semantic.resolved_load_binding_kind("_dp_pc"),
+        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+    );
+    assert_eq!(semantic.binding_kind("_dp_yieldfrom"), None);
 }

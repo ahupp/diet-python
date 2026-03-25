@@ -649,6 +649,10 @@ pub(crate) fn derive_effective_binding_for_name(
 }
 
 impl BlockPyCallableSemanticInfo {
+    pub fn honors_internal_binding(&self, name: &str) -> bool {
+        !is_internal_symbol(name) || self.semantic_internal_names.contains(name)
+    }
+
     pub fn binding_kind(&self, name: &str) -> Option<BlockPyBindingKind> {
         self.bindings.get(name).copied()
     }
@@ -701,7 +705,7 @@ impl BlockPyCallableSemanticInfo {
 
     pub fn resolved_load_binding_kind(&self, name: &str) -> BlockPyBindingKind {
         if let Some(binding) = self.binding_kind(name) {
-            if !is_internal_symbol(name) || self.semantic_internal_names.contains(name) {
+            if self.honors_internal_binding(name) {
                 return binding;
             }
         }
@@ -721,7 +725,7 @@ impl BlockPyCallableSemanticInfo {
         purpose: BlockPyBindingPurpose,
     ) -> BindingTarget {
         if let Some(binding) = self.effective_binding(name, purpose) {
-            if !is_internal_symbol(name) || self.semantic_internal_names.contains(name) {
+            if self.honors_internal_binding(name) {
                 return match binding {
                     BlockPyEffectiveBinding::Global => BindingTarget::ModuleGlobal,
                     BlockPyEffectiveBinding::ClassBody(_) => BindingTarget::ClassNamespace,

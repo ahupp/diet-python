@@ -20,6 +20,10 @@ fn is_internal_symbol(name: &str) -> bool {
     name.starts_with("_dp_") || name.starts_with("__dp_") || name == "__dp__"
 }
 
+fn should_late_bind_name(name: &str, semantic: &BlockPyCallableSemanticInfo) -> bool {
+    !is_internal_symbol(name) || semantic.honors_internal_binding(name)
+}
+
 fn core_string_expr(
     value: String,
     node_index: ast::AtomicNodeIndex,
@@ -685,7 +689,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
     fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
         match expr {
             CoreBlockPyExpr::Name(name)
-                if !is_internal_symbol(name.id.as_str())
+                if should_late_bind_name(name.id.as_str(), self.semantic)
                     && self.semantic.scope_kind == BlockPyCallableScopeKind::Class =>
             {
                 match self
@@ -703,7 +707,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 }
             }
             CoreBlockPyExpr::Name(name)
-                if !is_internal_symbol(name.id.as_str())
+                if should_late_bind_name(name.id.as_str(), self.semantic)
                     && matches!(
                         self.semantic.resolved_load_binding_kind(name.id.as_str()),
                         BlockPyBindingKind::Cell(_)
@@ -712,7 +716,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 rewrite_cell_name_load(name)
             }
             CoreBlockPyExpr::Name(name)
-                if !is_internal_symbol(name.id.as_str())
+                if should_late_bind_name(name.id.as_str(), self.semantic)
                     && self.semantic.resolved_load_binding_kind(name.id.as_str())
                         == BlockPyBindingKind::Global =>
             {

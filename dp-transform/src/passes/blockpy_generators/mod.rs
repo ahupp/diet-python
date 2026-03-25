@@ -5,7 +5,8 @@ use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta,
     is_resume_abi_param_name, resume_abi_params, BlockParam, BlockParamRole, BlockPyAssign,
-    BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyCfgFragment, BlockPyFunction,
+    BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable, BlockPyCallableSemanticInfo,
+    BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyCfgFragment, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
     BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyExpr,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId, FunctionName,
@@ -277,12 +278,33 @@ impl ResumeClosureBindings {
             .chain(self.compatibility_alias_bindings.iter())
     }
 
-    fn runtime_storage_by_logical_name(&self) -> HashMap<String, String> {
+    fn manual_sync_storage_by_logical_name(&self) -> HashMap<String, String> {
         self.runtime_state_bindings
             .iter()
-            .filter(|(name, value_name)| name != value_name)
+            .filter(|(name, value_name)| {
+                name != value_name && !resume_state_uses_standard_name_binding(name.as_str())
+            })
             .map(|(name, value_name)| (name.clone(), value_name.clone()))
             .collect()
+    }
+}
+
+fn resume_state_uses_standard_name_binding(name: &str) -> bool {
+    matches!(name, "_dp_pc")
+}
+
+fn augment_resume_semantic_for_standard_name_binding(
+    semantic: &mut BlockPyCallableSemanticInfo,
+    closure_bindings: &ResumeClosureBindings,
+) {
+    for (name, _) in &closure_bindings.runtime_state_bindings {
+        if resume_state_uses_standard_name_binding(name.as_str()) {
+            semantic.insert_binding(
+                name.clone(),
+                BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
+                true,
+            );
+        }
     }
 }
 
@@ -385,7 +407,7 @@ fn sync_resume_state_blocks(
     blocks: Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>,
     closure_bindings: &ResumeClosureBindings,
 ) -> Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>> {
-    let storage_by_logical_name = closure_bindings.runtime_storage_by_logical_name();
+    let storage_by_logical_name = closure_bindings.manual_sync_storage_by_logical_name();
     if storage_by_logical_name.is_empty() {
         return blocks;
     }
@@ -1440,6 +1462,9 @@ pub(crate) fn lower_generator_like_function(
         callable.kind,
     );
 
+    let mut resume_semantic = callable.semantic.clone();
+    augment_resume_semantic_for_standard_name_binding(&mut resume_semantic, &closure_bindings);
+
     let BlockPyFunction {
         function_id,
         name_gen,
@@ -1485,7 +1510,7 @@ pub(crate) fn lower_generator_like_function(
         doc: None,
         closure_layout: Some(closure_layout.clone()),
         facts,
-        semantic,
+        semantic: resume_semantic,
     };
 
     vec![visible_function, resume_function]
