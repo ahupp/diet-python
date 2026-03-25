@@ -48,11 +48,6 @@ pub(crate) fn build_blockpy_closure_layout(
     capture_names: &[String],
     injected_exception_names: &HashSet<String>,
 ) -> ClosureLayout {
-    let ordered_state = state_vars
-        .iter()
-        .filter(|name| !is_resume_abi_param_name(name.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
     let capture_names = capture_names.iter().cloned().collect::<HashSet<_>>();
     let mut seen_storage_names = HashSet::new();
 
@@ -60,7 +55,7 @@ pub(crate) fn build_blockpy_closure_layout(
     let mut cellvars = Vec::new();
     let mut runtime_cells = Vec::new();
 
-    for name in ordered_state {
+    for name in state_vars {
         let logical_name = logical_name_for_generator_state(name.as_str());
         let storage_name = generator_storage_name(name.as_str());
         if !seen_storage_names.insert(storage_name.clone()) {

@@ -176,7 +176,6 @@ fn build_blockpy_closure_layout_classifies_capture_local_and_runtime_cells() {
     let layout = build_blockpy_closure_layout(
         &["arg".to_string()],
         &[
-            "_dp_self".to_string(),
             "arg".to_string(),
             "captured".to_string(),
             "_dp_yieldfrom".to_string(),
