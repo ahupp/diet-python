@@ -138,7 +138,7 @@ fn callable_semantic_info(
             )
         });
     }
-    let (bind_name, display_name, qualname) = match func {
+    let names = match func {
         Some(func) => {
             let raw_bind_name = func.name.id.to_string();
             let bind_name = if is_module_init_name(raw_bind_name.as_str()) {
@@ -165,14 +165,12 @@ fn callable_semantic_info(
                     display_name.as_str(),
                 )
             };
-            (bind_name, display_name, qualname)
+            FunctionName::new(bind_name, raw_bind_name, display_name, qualname)
         }
-        None => (String::new(), String::new(), String::new()),
+        None => FunctionName::default(),
     };
     BlockPyCallableSemanticInfo {
-        bind_name,
-        display_name,
-        qualname,
+        names,
         scope_kind: match function_scope.kind() {
             SemanticScopeKind::Function => BlockPyCallableScopeKind::Function,
             SemanticScopeKind::Class => BlockPyCallableScopeKind::Class,
@@ -343,17 +341,11 @@ fn try_lower_function_to_blockpy_bundle(
 
     let end_label = name_gen.next_block_name();
     let doc = docstring;
-    let fn_name = func.name.id.to_string();
     let blockpy_kind = function_kind(func);
     let mut callable_def = build_blockpy_callable_def_from_runtime_input(
         context,
         name_gen,
-        FunctionName::new(
-            callable_semantic.bind_name.clone(),
-            fn_name,
-            callable_semantic.display_name.clone(),
-            callable_semantic.qualname.clone(),
-        ),
+        callable_semantic.names.clone(),
         param_spec,
         &runtime_input_body,
         doc,
@@ -896,9 +888,9 @@ mod tests {
             .iter()
             .find(|func| func.names.bind_name == "_dp_class_ns_Box")
             .expect("missing class helper");
-        assert_eq!(class_helper.semantic.bind_name, "_dp_class_ns_Box");
-        assert_eq!(class_helper.semantic.display_name, "_dp_class_ns_Box");
-        assert_eq!(class_helper.semantic.qualname, "_dp_class_ns_Box");
+        assert_eq!(class_helper.semantic.names.bind_name, "_dp_class_ns_Box");
+        assert_eq!(class_helper.semantic.names.display_name, "_dp_class_ns_Box");
+        assert_eq!(class_helper.semantic.names.qualname, "_dp_class_ns_Box");
     }
 
     #[test]

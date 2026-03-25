@@ -541,7 +541,7 @@ impl Default for BlockPyCallableFacts {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct FunctionName {
     pub bind_name: String,
     pub fn_name: String,
@@ -575,9 +575,7 @@ pub enum BlockPyCallableScopeKind {
 
 #[derive(Debug, Clone, Default)]
 pub struct BlockPyCallableSemanticInfo {
-    pub bind_name: String,
-    pub display_name: String,
-    pub qualname: String,
+    pub names: FunctionName,
     pub scope_kind: BlockPyCallableScopeKind,
     pub bindings: HashMap<String, BlockPyBindingKind>,
 }
