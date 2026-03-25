@@ -619,6 +619,39 @@ def outer():
     }
 
     #[test]
+    fn class_body_except_name_local_binding_moves_to_name_binding_pass() {
+        let source = r#"
+class Box:
+    try:
+        raise Exception("boom")
+    except Exception as caught:
+        seen = str(caught)
+"#;
+
+        let lowered = TrackedLowering::new(source);
+        let core_rendered = lowered.pass_text("core_blockpy");
+        assert!(
+            !core_rendered.contains("__dp_setitem(_dp_class_ns, \"caught\", _dp_exc_caught)"),
+            "{core_rendered}"
+        );
+        assert!(
+            core_rendered.contains("caught = _dp_exc_caught"),
+            "{core_rendered}"
+        );
+
+        let name_binding_rendered = lowered.name_binding_text();
+        assert!(
+            name_binding_rendered
+                .contains("__dp_setitem(_dp_class_ns, \"caught\", _dp_exc_caught)"),
+            "{name_binding_rendered}"
+        );
+        assert!(
+            name_binding_rendered.contains("__dp_del_quietly(_dp_class_ns, \"caught\")"),
+            "{name_binding_rendered}"
+        );
+    }
+
+    #[test]
     fn class_body_global_named_expr_moves_to_name_binding_pass() {
         let source = r#"
 class Box:
