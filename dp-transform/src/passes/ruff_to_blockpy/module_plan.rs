@@ -342,13 +342,7 @@ fn try_lower_function_to_blockpy_bundle(
     };
 
     let end_label = name_gen.next_block_name();
-    let doc = match docstring {
-        Some(Stmt::Expr(expr_stmt)) => match *expr_stmt.value {
-            Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => Some(value.to_string()),
-            _ => None,
-        },
-        _ => None,
-    };
+    let doc = docstring;
     let fn_name = func.name.id.to_string();
     let blockpy_kind = function_kind(func);
     let mut callable_def = build_blockpy_callable_def_from_runtime_input(

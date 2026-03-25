@@ -188,10 +188,10 @@ pub(crate) fn rewrite_module_with_tracker(
 
 pub(crate) fn wrap_module_init(semantic_state: &mut SemanticAstState, module: &mut Suite) {
     let (docstring, mut init_body) = split_docstring(module);
-    if let Some(Stmt::Expr(expr_stmt)) = docstring {
+    if let Some(docstring) = docstring {
         init_body.insert(
             0,
-            crate::py_stmt!("__doc__ = {value:expr}", value = *expr_stmt.value),
+            crate::py_stmt!("__doc__ = {value:literal}", value = docstring),
         );
     }
 

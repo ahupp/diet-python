@@ -35,17 +35,19 @@ pub fn stmt_ref(body: &Body, index: usize) -> &Stmt {
     &body[index]
 }
 
-pub fn split_docstring(body: &Suite) -> (Option<Stmt>, Vec<Stmt>) {
+pub fn split_docstring(body: &Suite) -> (Option<String>, Vec<Stmt>) {
     let mut rest = body.clone();
-    let Some(first) = rest.first() else {
+    let Some(docstring) = rest.first().and_then(|first| match first {
+        Stmt::Expr(ast::StmtExpr { value, .. }) => match value.as_ref() {
+            ast::Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) => {
+                Some(value.to_string())
+            }
+            _ => None,
+        },
+        _ => None,
+    }) else {
         return (None, rest);
     };
-    if matches!(
-        first,
-        Stmt::Expr(ast::StmtExpr { value, .. }) if matches!(value.as_ref(), ast::Expr::StringLiteral(_))
-    ) {
-        let first_stmt = rest.remove(0);
-        return (Some(first_stmt), rest);
-    }
-    (None, rest)
+    rest.remove(0);
+    (Some(docstring), rest)
 }
