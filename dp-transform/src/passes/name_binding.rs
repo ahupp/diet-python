@@ -578,9 +578,6 @@ fn build_closure_slot_cell_init_assign(slot: &ClosureSlot) -> BlockPyStmt<CoreBl
 }
 
 fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPass>) {
-    if callable.names.fn_name == "_dp_resume" {
-        return;
-    }
     let init_stmts = match callable.kind {
         BlockPyFunctionKind::Function => {
             let mut storage_names = callable
