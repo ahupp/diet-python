@@ -18,6 +18,9 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DIET_PYTHON_RUNTIME = "__dp__.py"
 PROJECT_TESTS_DIR = "tests"
+VENDOR_DIR = "vendor"
+NON_VENDOR_FILESET = "~vendor"
+WARLOC_COUNT_KEYS = ("file_count", "code_lines", "test_lines", "blank_lines", "comment_lines")
 JJ_STAT_SUMMARY_RE = re.compile(
     r"^\d+\s+files?\s+changed"
     r"(?:,\s+(?P<insertions>\d+)\s+insertions?\(\+\))?"
@@ -172,22 +175,53 @@ def restore_workspace_from_commit(workspace_root: Path, commit_id: str) -> None:
     )
 
 
+def is_vendor_path(path: str) -> bool:
+    normalized = path.removeprefix("./")
+    return normalized == VENDOR_DIR or normalized.startswith(f"{VENDOR_DIR}/")
+
+
+def warloc_total_from_by_file_jsonl(output: str) -> dict[str, Any]:
+    totals: dict[str, Any] = {"scope": "total"}
+    for key in WARLOC_COUNT_KEYS:
+        totals[key] = 0
+
+    saw_file_record = False
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        payload = json.loads(line)
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"expected JSON object from `cargo warloc --jsonl --by-file`, got {type(payload)!r}")
+        scope = payload.get("scope")
+        if scope == "total":
+            continue
+        if scope != "file":
+            raise RuntimeError(f"expected file-scoped JSON object from `cargo warloc --jsonl --by-file`, got {payload!r}")
+        saw_file_record = True
+        file_path = payload.get("file")
+        if not isinstance(file_path, str):
+            raise RuntimeError(f"expected string file path from `cargo warloc --jsonl --by-file`, got {file_path!r}")
+        if is_vendor_path(file_path):
+            continue
+        for key in WARLOC_COUNT_KEYS:
+            value = payload.get(key)
+            if not isinstance(value, int):
+                raise RuntimeError(f"expected integer {key} from `cargo warloc --jsonl --by-file`, got {value!r}")
+            totals[key] += value
+
+    if not saw_file_record:
+        raise RuntimeError("expected at least one file-scoped JSONL line from `cargo warloc --jsonl --by-file`")
+    return totals
+
+
 def run_warloc(workspace_root: Path) -> dict[str, Any]:
     proc = run(
-        ["cargo", "warloc", "--jsonl"],
+        ["cargo", "warloc", "--jsonl", "--by-file"],
         cwd=workspace_root,
         capture_output=True,
     )
-    lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-    if len(lines) != 1:
-        raise RuntimeError(
-            "expected exactly one non-empty JSONL line from `cargo warloc --jsonl`, "
-            f"got {len(lines)} lines"
-        )
-    payload = json.loads(lines[0])
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"expected JSON object from `cargo warloc --jsonl`, got {type(payload)!r}")
-    return payload
+    return warloc_total_from_by_file_jsonl(proc.stdout)
 
 
 def count_lines(path: Path) -> int:
@@ -219,7 +253,7 @@ def parse_lines_changed_from_stat(stat_output: str) -> int:
 
 def lines_changed_for_commit(commit_id: str) -> int:
     proc = run(
-        jj_cmd("show", "-r", commit_id, "--stat", ignore_working_copy=True),
+        jj_cmd("diff", "-r", commit_id, "--stat", NON_VENDOR_FILESET, ignore_working_copy=True),
         cwd=REPO_ROOT,
         capture_output=True,
     )

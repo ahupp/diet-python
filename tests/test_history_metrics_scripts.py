@@ -32,6 +32,54 @@ def test_parse_lines_changed_from_stat_handles_missing_sides():
     assert module.parse_lines_changed_from_stat("1 file changed, 4 deletions(-)") == 4
 
 
+def test_warloc_total_from_by_file_jsonl_ignores_vendor_files():
+    module = load_module(REPO_ROOT / "scripts" / "collect_warloc_history.py", "collect_warloc_history_warloc")
+    output = "\n".join(
+        [
+            json.dumps(
+                {
+                    "scope": "file",
+                    "file": "./dp-transform/src/lib.rs",
+                    "file_count": 1,
+                    "code_lines": 10,
+                    "test_lines": 2,
+                    "blank_lines": 3,
+                    "comment_lines": 4,
+                }
+            ),
+            json.dumps(
+                {
+                    "scope": "file",
+                    "file": "./vendor/ruff/src/lib.rs",
+                    "file_count": 1,
+                    "code_lines": 500,
+                    "test_lines": 600,
+                    "blank_lines": 700,
+                    "comment_lines": 800,
+                }
+            ),
+            json.dumps(
+                {
+                    "scope": "total",
+                    "file_count": 2,
+                    "code_lines": 510,
+                    "test_lines": 602,
+                    "blank_lines": 703,
+                    "comment_lines": 804,
+                }
+            ),
+        ]
+    )
+    assert module.warloc_total_from_by_file_jsonl(output) == {
+        "scope": "total",
+        "file_count": 1,
+        "code_lines": 10,
+        "test_lines": 2,
+        "blank_lines": 3,
+        "comment_lines": 4,
+    }
+
+
 def test_restore_workspace_from_commit_uses_jj_restore(monkeypatch, tmp_path: Path):
     module = load_module(REPO_ROOT / "scripts" / "collect_warloc_history.py", "collect_warloc_history_restore")
     observed: dict[str, object] = {}
@@ -56,6 +104,36 @@ def test_restore_workspace_from_commit_uses_jj_restore(monkeypatch, tmp_path: Pa
     assert observed["ignore_working_copy"] is False
     assert observed["cmd"] == ["jj", "restore", "--from", "abc123"]
     assert observed["cwd"] == tmp_path
+    assert observed["capture_output"] is True
+
+
+def test_lines_changed_for_commit_uses_non_vendor_fileset(monkeypatch):
+    module = load_module(REPO_ROOT / "scripts" / "collect_warloc_history.py", "collect_warloc_history_lines_changed")
+    observed: dict[str, object] = {}
+
+    def fake_jj_cmd(*args, ignore_working_copy=False):
+        observed["args"] = args
+        observed["ignore_working_copy"] = ignore_working_copy
+        return ["jj", *args]
+
+    def fake_run(cmd, *, cwd, capture_output=False):
+        observed["cmd"] = cmd
+        observed["cwd"] = cwd
+        observed["capture_output"] = capture_output
+
+        class Result:
+            stdout = "0 files changed, 0 insertions(+), 0 deletions(-)\n"
+
+        return Result()
+
+    monkeypatch.setattr(module, "jj_cmd", fake_jj_cmd)
+    monkeypatch.setattr(module, "run", fake_run)
+
+    assert module.lines_changed_for_commit("abc123") == 0
+    assert observed["args"] == ("diff", "-r", "abc123", "--stat", "~vendor")
+    assert observed["ignore_working_copy"] is True
+    assert observed["cmd"] == ["jj", "diff", "-r", "abc123", "--stat", "~vendor"]
+    assert observed["cwd"] == REPO_ROOT
     assert observed["capture_output"] is True
 
 
