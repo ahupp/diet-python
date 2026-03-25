@@ -440,14 +440,6 @@ impl Transformer for NameScopeRewriter<'_> {
                             );
                         }
                         (_, SemanticBindingKind::Global) => {}
-                        (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal) => {
-                            let cell = cell_name(id.as_str());
-                            *stmt = py_stmt!(
-                                "__dp_store_cell({cell:id}, {value:expr})",
-                                cell = cell.as_str(),
-                                value = value.clone()
-                            );
-                        }
                         (_, _) => {}
                     }
                 }
