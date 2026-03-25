@@ -153,7 +153,7 @@ def f():
     let split_tail = lowered_function
         .blocks
         .iter()
-        .find(|block| block.label.contains("__excchk_"))
+        .find(|block| block.label.as_str().contains("__excchk_"))
         .expect("must contain split tail block");
     assert!(
         split_tail.body.len() <= 1,
@@ -222,7 +222,7 @@ def f():
     let next = lowered_function
         .blocks
         .iter()
-        .find(|block| block.label.contains("__excchk_"))
+        .find(|block| block.label.as_str().contains("__excchk_"))
         .expect("must contain split successor");
     assert_eq!(
         next.body.len(),

@@ -195,24 +195,42 @@ fn validate_function_labels(
                 labels,
                 target.as_str(),
                 qualname,
-                &block.label,
+                block.label.as_str(),
                 "jump target",
             )?,
             BlockPyTerm::IfTerm(if_term) => {
                 let then_label = &if_term.then_label;
                 let else_label = &if_term.else_label;
-                ensure_known_label(labels, then_label, qualname, &block.label, "then target")?;
-                ensure_known_label(labels, else_label, qualname, &block.label, "else target")?;
+                ensure_known_label(
+                    labels,
+                    then_label.as_str(),
+                    qualname,
+                    block.label.as_str(),
+                    "then target",
+                )?;
+                ensure_known_label(
+                    labels,
+                    else_label.as_str(),
+                    qualname,
+                    block.label.as_str(),
+                    "else target",
+                )?;
             }
             BlockPyTerm::BranchTable(branch) => {
                 for target in &branch.targets {
-                    ensure_known_label(labels, target, qualname, &block.label, "br_table target")?;
+                    ensure_known_label(
+                        labels,
+                        target.as_str(),
+                        qualname,
+                        block.label.as_str(),
+                        "br_table target",
+                    )?;
                 }
                 ensure_known_label(
                     labels,
-                    &branch.default_label,
+                    branch.default_label.as_str(),
                     qualname,
-                    &block.label,
+                    block.label.as_str(),
                     "br_table default target",
                 )?;
             }

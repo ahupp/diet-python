@@ -11,10 +11,8 @@ use ruff_python_ast::{
     self as ast, BytesLiteral, BytesLiteralFlags, ExprName, StringLiteral, StringLiteralFlags,
     StringLiteralValue,
 };
-use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::ops::Deref;
 
 pub(crate) mod cfg;
 pub(crate) mod dataflow;
@@ -2436,26 +2434,6 @@ impl From<&str> for BlockPyLabel {
 impl BlockPyLabel {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
-    }
-}
-
-impl Borrow<str> for BlockPyLabel {
-    fn borrow(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl AsRef<str> for BlockPyLabel {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl Deref for BlockPyLabel {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_str()
     }
 }
 

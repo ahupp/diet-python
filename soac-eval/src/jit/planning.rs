@@ -205,23 +205,23 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
     fn validate_cfg_targets(&self) {
         for block in &self.function.blocks {
             if let Some(exc_edge) = &block.exc_edge {
-                self.require_known_target(block, exc_edge.target.as_str(), "exception target");
+                self.require_known_target(block, &exc_edge.target, "exception target");
             }
             match &block.term {
                 BlockPyTerm::Jump(target_label) => {
-                    self.require_known_target(block, target_label.as_str(), "jump target");
+                    self.require_known_target(block, &target_label.target, "jump target");
                 }
                 BlockPyTerm::IfTerm(if_term) => {
-                    self.require_known_target(block, if_term.then_label.as_str(), "then target");
-                    self.require_known_target(block, if_term.else_label.as_str(), "else target");
+                    self.require_known_target(block, &if_term.then_label, "then target");
+                    self.require_known_target(block, &if_term.else_label, "else target");
                 }
                 BlockPyTerm::BranchTable(branch) => {
                     for target_label in &branch.targets {
-                        self.require_known_target(block, target_label.as_str(), "br_table target");
+                        self.require_known_target(block, target_label, "br_table target");
                     }
                     self.require_known_target(
                         block,
-                        branch.default_label.as_str(),
+                        &branch.default_label,
                         "br_table default target",
                     );
                 }
@@ -230,7 +230,12 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
         }
     }
 
-    fn require_known_target(&self, source_block: &PreparedBbBlock, target: &str, edge_kind: &str) {
+    fn require_known_target(
+        &self,
+        source_block: &PreparedBbBlock,
+        target: &BlockPyLabel,
+        edge_kind: &str,
+    ) {
         if !self.label_to_index.contains_key(target) {
             panic!(
                 "unknown {edge_kind} {} in {}:{}",
@@ -239,7 +244,7 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
         }
     }
 
-    fn index_of_target(&self, target: &str) -> usize {
+    fn index_of_target(&self, target: &BlockPyLabel) -> usize {
         self.label_to_index
             .get(target)
             .copied()
@@ -262,7 +267,7 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
         block
             .exc_edge
             .as_ref()
-            .map(|edge| self.index_of_target(edge.target.as_str()))
+            .map(|edge| self.index_of_target(&edge.target))
     }
 
     fn exc_dispatch_plan(
@@ -490,8 +495,8 @@ fn direct_simple_brif_plan_from_block(
     let BlockPyTerm::IfTerm(if_term) = &block.term else {
         return None;
     };
-    let then_index = function.index_of_target(if_term.then_label.as_str());
-    let else_index = function.index_of_target(if_term.else_label.as_str());
+    let then_index = function.index_of_target(&if_term.then_label);
+    let else_index = function.index_of_target(&if_term.else_label);
     let source_params = function.jit_param_names_for_block(block);
     if !source_params.is_empty()
         || function.jit_param_names_for_index(then_index) != source_params
@@ -583,7 +588,7 @@ fn direct_simple_block_plan_from_block(
     }
     let term = match &block.term {
         BlockPyTerm::Jump(target_label) => {
-            let target_index = function.index_of_target(target_label.as_str());
+            let target_index = function.index_of_target(&target_label.target);
             let target_params = function.jit_param_names_for_index(target_index);
             let full_target_params = function.function.blocks[target_index].param_name_vec();
             let target_args = target_label
@@ -611,9 +616,9 @@ fn direct_simple_block_plan_from_block(
                     function.function.names.qualname, block.label, if_term.test
                 )
             });
-            let then_index = function.index_of_target(if_term.then_label.as_str());
+            let then_index = function.index_of_target(&if_term.then_label);
             let then_params = function.jit_param_names_for_index(then_index);
-            let else_index = function.index_of_target(if_term.else_label.as_str());
+            let else_index = function.index_of_target(&if_term.else_label);
             let else_params = function.jit_param_names_for_index(else_index);
             DirectSimpleTermPlan::BrIf {
                 test: test_expr,
@@ -632,11 +637,11 @@ fn direct_simple_block_plan_from_block(
             });
             let mut target_plans = Vec::with_capacity(branch.targets.len());
             for target_label in &branch.targets {
-                let target_index = function.index_of_target(target_label.as_str());
+                let target_index = function.index_of_target(target_label);
                 let target_params = function.jit_param_names_for_index(target_index);
                 target_plans.push((target_index, target_params));
             }
-            let default_index = function.index_of_target(branch.default_label.as_str());
+            let default_index = function.index_of_target(&branch.default_label);
             let default_params = function.jit_param_names_for_index(default_index);
             DirectSimpleTermPlan::BrTable {
                 index: index_expr,
@@ -686,7 +691,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPla
             if block.body.is_empty() {
                 match &block.term {
                     BlockPyTerm::Jump(target_label) => {
-                        let target_index = function.index_of_target(target_label.as_str());
+                        let target_index = function.index_of_target(&target_label.target);
                         let source_params = function.jit_param_names_for_block(block);
                         let target_params = function.jit_param_names_for_index(target_index);
                         if target_label.args.is_empty()

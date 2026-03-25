@@ -231,14 +231,14 @@ fn sanitize_clif_testcase_name(name: &str) -> String {
 }
 
 fn clif_target_comment(
-    label: &str,
+    label: &crate::block_py::BlockPyLabel,
     label_to_index: &HashMap<crate::block_py::BlockPyLabel, usize>,
     label_to_params: &HashMap<crate::block_py::BlockPyLabel, Vec<String>>,
 ) -> String {
     let target = label_to_index
         .get(label)
         .map(|index| format!("block{index}"))
-        .unwrap_or_else(|| format!("%{label}"));
+        .unwrap_or_else(|| format!("%{}", label.as_str()));
     let args = label_to_params.get(label).cloned().unwrap_or_default();
     if args.is_empty() {
         target
@@ -262,31 +262,27 @@ fn clif_term_comment(
         BlockPyTerm::Jump(label) => {
             format!(
                 "jump {}",
-                clif_target_comment(label.as_str(), label_to_index, label_to_params)
+                clif_target_comment(&label.target, label_to_index, label_to_params)
             )
         }
         BlockPyTerm::IfTerm(if_term) => format!(
             "brif {}, {}, {}",
             blockpy_pretty::bb_expr_text(&if_term.test),
-            clif_target_comment(if_term.then_label.as_str(), label_to_index, label_to_params),
-            clif_target_comment(if_term.else_label.as_str(), label_to_index, label_to_params),
+            clif_target_comment(&if_term.then_label, label_to_index, label_to_params),
+            clif_target_comment(&if_term.else_label, label_to_index, label_to_params),
         ),
         BlockPyTerm::BranchTable(branch) => {
             let targets = branch
                 .targets
                 .iter()
-                .map(|label| clif_target_comment(label.as_str(), label_to_index, label_to_params))
+                .map(|label| clif_target_comment(label, label_to_index, label_to_params))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(
                 "br_table {}, [{}], {}",
                 blockpy_pretty::bb_expr_text(&branch.index),
                 targets,
-                clif_target_comment(
-                    branch.default_label.as_str(),
-                    label_to_index,
-                    label_to_params,
-                ),
+                clif_target_comment(&branch.default_label, label_to_index, label_to_params),
             )
         }
         BlockPyTerm::Raise(raise_stmt) => blockpy_pretty::bb_raise_text(raise_stmt),
@@ -296,7 +292,7 @@ fn clif_term_comment(
 
 fn clif_target_args_for_block(
     builder: &mut FunctionBuilder<'_>,
-    target_label: &str,
+    target_label: &crate::block_py::BlockPyLabel,
     current_values: &HashMap<String, ir::Value>,
     label_to_params: &HashMap<crate::block_py::BlockPyLabel, Vec<String>>,
 ) -> Vec<ir::BlockArg> {
@@ -342,7 +338,7 @@ fn render_cranelift_function_from_bb(
 
     for (index, block) in function.blocks.iter().enumerate() {
         let clif_block = *label_to_block
-            .get(block.label.as_str())
+            .get(&block.label)
             .expect("block label must exist");
         if index == 0 {
             builder.append_block_params_for_function_params(clif_block);
@@ -359,7 +355,7 @@ fn render_cranelift_function_from_bb(
 
     for block in &function.blocks {
         let clif_block = *label_to_block
-            .get(block.label.as_str())
+            .get(&block.label)
             .expect("block label must exist");
         builder.switch_to_block(clif_block);
 
@@ -379,11 +375,11 @@ fn render_cranelift_function_from_bb(
         match &block.term {
             BlockPyTerm::Jump(target_label) => {
                 let target = *label_to_block
-                    .get(target_label.as_str())
-                    .ok_or_else(|| format!("missing jump target: {}", target_label.as_str()))?;
+                    .get(&target_label.target)
+                    .ok_or_else(|| format!("missing jump target: {}", target_label.target))?;
                 let args = clif_target_args_for_block(
                     &mut builder,
-                    target_label.as_str(),
+                    &target_label.target,
                     &current_values,
                     &label_to_params,
                 );
@@ -393,22 +389,22 @@ fn render_cranelift_function_from_bb(
                 let then_label = &if_term.then_label;
                 let else_label = &if_term.else_label;
                 let then_block = *label_to_block
-                    .get(then_label.as_str())
+                    .get(then_label)
                     .ok_or_else(|| format!("missing brif then target: {then_label}"))?;
                 let else_block = *label_to_block
-                    .get(else_label.as_str())
+                    .get(else_label)
                     .ok_or_else(|| format!("missing brif else target: {else_label}"))?;
                 let cond_source = builder.ins().iconst(types::I64, 1);
                 let cond = builder.ins().icmp_imm(IntCC::NotEqual, cond_source, 0);
                 let then_args = clif_target_args_for_block(
                     &mut builder,
-                    then_label.as_str(),
+                    then_label,
                     &current_values,
                     &label_to_params,
                 );
                 let else_args = clif_target_args_for_block(
                     &mut builder,
-                    else_label.as_str(),
+                    else_label,
                     &current_values,
                     &label_to_params,
                 );
@@ -421,11 +417,11 @@ fn render_cranelift_function_from_bb(
                 // Web-view CLIF uses a valid fallback jump to keep the rendered IR
                 // parseable/printable while preserving branch targets in comments.
                 let default_block = *label_to_block
-                    .get(default_label.as_str())
+                    .get(default_label)
                     .ok_or_else(|| format!("missing br_table default target: {default_label}"))?;
                 let args = clif_target_args_for_block(
                     &mut builder,
-                    default_label.as_str(),
+                    default_label,
                     &current_values,
                     &label_to_params,
                 );
