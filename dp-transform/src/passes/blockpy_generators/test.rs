@@ -1,6 +1,6 @@
 use super::{
     augment_resume_semantic_for_standard_name_binding, build_blockpy_closure_layout,
-    resume_closure_bindings,
+    persistent_generator_state_order, resume_closure_bindings,
 };
 use crate::block_py::{
     BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
@@ -135,9 +135,6 @@ fn resume_closure_bindings_keep_internal_eval_state_on_runtime_binding_path() {
     let closure_bindings = resume_closure_bindings(
         &layout,
         &[
-            "_dp_self".to_string(),
-            "_dp_send_value".to_string(),
-            "_dp_resume_exc".to_string(),
             "_dp_cell_captured".to_string(),
             "total".to_string(),
             "_dp_eval_1".to_string(),
@@ -167,6 +164,36 @@ fn resume_closure_bindings_keep_internal_eval_state_on_runtime_binding_path() {
                 "_dp_try_exc_0".to_string(),
                 "_dp_cell__dp_try_exc_0".to_string()
             ),
+        ]
+    );
+}
+
+#[test]
+fn persistent_generator_state_order_omits_resume_abi_params() {
+    let layout = ClosureLayout {
+        freevars: vec![ClosureSlot {
+            logical_name: "captured".to_string(),
+            storage_name: "_dp_cell_captured".to_string(),
+            init: ClosureInit::InheritedCapture,
+        }],
+        cellvars: vec![ClosureSlot {
+            logical_name: "total".to_string(),
+            storage_name: "_dp_cell_total".to_string(),
+            init: ClosureInit::Deferred,
+        }],
+        runtime_cells: vec![ClosureSlot {
+            logical_name: "_dp_pc".to_string(),
+            storage_name: "_dp_cell__dp_pc".to_string(),
+            init: ClosureInit::RuntimePcUnstarted,
+        }],
+    };
+
+    assert_eq!(
+        persistent_generator_state_order(&layout),
+        vec![
+            "_dp_cell_captured".to_string(),
+            "total".to_string(),
+            "_dp_pc".to_string(),
         ]
     );
 }
@@ -263,9 +290,6 @@ fn builds_closure_backed_generator_factory_block() {
         FunctionId(1),
         FunctionId(0),
         &[
-            "_dp_self".to_string(),
-            "_dp_send_value".to_string(),
-            "_dp_resume_exc".to_string(),
             "_dp_cell_captured".to_string(),
             "_dp_cell_x".to_string(),
             "_dp_cell__dp_pc".to_string(),
@@ -303,9 +327,6 @@ fn resume_closure_bindings_include_storage_aliases_for_cell_backed_state() {
     let closure_bindings = resume_closure_bindings(
         &layout,
         &[
-            "_dp_self".to_string(),
-            "_dp_send_value".to_string(),
-            "_dp_resume_exc".to_string(),
             "_dp_cell_captured".to_string(),
             "total".to_string(),
             "_dp_pc".to_string(),
@@ -344,12 +365,9 @@ fn resume_closure_bindings_include_logical_aliases_for_shared_storage() {
     let closure_bindings = resume_closure_bindings(
         &layout,
         &[
-            "_dp_send_value".to_string(),
-            "_dp_resume_exc".to_string(),
             "_dp_cell_j".to_string(),
             "j".to_string(),
             "_dp_pc".to_string(),
-            "_dp_self".to_string(),
         ],
     );
 
@@ -476,9 +494,6 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
     let closure_bindings = resume_closure_bindings(
         &layout,
         &[
-            "_dp_self".to_string(),
-            "_dp_send_value".to_string(),
-            "_dp_resume_exc".to_string(),
             "_dp_cell_captured".to_string(),
             "total".to_string(),
             "_dp_eval_1".to_string(),

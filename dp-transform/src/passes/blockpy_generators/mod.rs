@@ -2,8 +2,8 @@ use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
-    core_positional_call_expr_with_meta, is_resume_abi_param_name, resume_abi_params, BlockParam,
-    BlockParamRole, BlockPyAssign, BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable,
+    core_positional_call_expr_with_meta, resume_abi_params, BlockParam, BlockParamRole,
+    BlockPyAssign, BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable,
     BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
     CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyExpr,
@@ -221,11 +221,8 @@ fn build_generator_closure_layout(
     )
 }
 
-fn generator_state_order(layout: &ClosureLayout, kind: BlockPyFunctionKind) -> Vec<String> {
-    let mut order = resume_abi_params(kind)
-        .iter()
-        .map(|param| param.name().to_string())
-        .collect::<Vec<_>>();
+fn persistent_generator_state_order(layout: &ClosureLayout) -> Vec<String> {
+    let mut order = Vec::new();
     order.extend(layout.freevars.iter().map(|slot| slot.storage_name.clone()));
     order.extend(layout.cellvars.iter().map(|slot| slot.logical_name.clone()));
     order.extend(
@@ -290,14 +287,11 @@ fn is_resume_closure_state_name(layout: &ClosureLayout, name: &str) -> bool {
 
 fn resume_closure_bindings(
     layout: &ClosureLayout,
-    resume_entry_params: &[String],
+    persistent_state_names: &[String],
 ) -> ResumeClosureBindings {
-    let runtime_state_bindings = resume_entry_params
+    let runtime_state_bindings = persistent_state_names
         .iter()
-        .filter(|name| {
-            !is_resume_abi_param_name(name.as_str())
-                && is_resume_closure_state_name(layout, name.as_str())
-        })
+        .filter(|name| is_resume_closure_state_name(layout, name.as_str()))
         .map(|name| {
             (
                 name.clone(),
@@ -1217,7 +1211,7 @@ fn emit_yield_from_site(
 
 fn lower_resume_blocks(
     callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
-    state_order: &[String],
+    persistent_state_order: &[String],
 ) -> (
     Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>,
     HashMap<String, Option<String>>,
@@ -1284,7 +1278,7 @@ fn lower_resume_blocks(
             targets,
             default_label: state.exhausted_label.clone(),
         }),
-        params: state_order
+        params: persistent_state_order
             .iter()
             .map(|name| BlockParam {
                 name: name.clone(),
@@ -1325,10 +1319,10 @@ fn lower_resume_blocks(
 
 fn ordered_resume_binding_names(
     callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
-    state_order: &[String],
+    persistent_state_order: &[String],
 ) -> Vec<String> {
     let mut seen = HashSet::new();
-    state_order
+    persistent_state_order
         .iter()
         .cloned()
         .chain(
@@ -1354,10 +1348,10 @@ pub(crate) fn lower_generator_like_function(
     let resume_name_gen = module_name_gen.next_function_name_gen();
     let resume_function_id = resume_name_gen.function_id();
     let closure_layout = build_generator_closure_layout(&callable);
-    let state_order = generator_state_order(&closure_layout, callable.kind);
-    let resume_binding_names = ordered_resume_binding_names(&callable, &state_order);
+    let persistent_state_order = persistent_generator_state_order(&closure_layout);
+    let resume_binding_names = ordered_resume_binding_names(&callable, &persistent_state_order);
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
-        lower_resume_blocks(&callable, &state_order);
+        lower_resume_blocks(&callable, &persistent_state_order);
     let closure_bindings = resume_closure_bindings(&closure_layout, &resume_binding_names);
 
     let factory_block = build_factory_block(

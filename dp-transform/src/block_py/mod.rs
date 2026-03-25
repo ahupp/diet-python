@@ -138,16 +138,6 @@ impl ResumeAbiParam {
             ResumeAbiParam::TransportSent => "_dp_transport_sent",
         }
     }
-
-    pub(crate) fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "_dp_self" => Some(ResumeAbiParam::SelfValue),
-            "_dp_send_value" => Some(ResumeAbiParam::SendValue),
-            "_dp_resume_exc" => Some(ResumeAbiParam::ResumeExc),
-            "_dp_transport_sent" => Some(ResumeAbiParam::TransportSent),
-            _ => None,
-        }
-    }
 }
 
 const GENERATOR_RESUME_ABI_PARAMS: [ResumeAbiParam; 3] = [
@@ -171,10 +161,6 @@ pub(crate) fn resume_abi_params(kind: BlockPyFunctionKind) -> &'static [ResumeAb
         }
         BlockPyFunctionKind::AsyncGenerator => &ASYNC_GENERATOR_RESUME_ABI_PARAMS,
     }
-}
-
-pub(crate) fn is_resume_abi_param_name(name: &str) -> bool {
-    ResumeAbiParam::from_name(name).is_some()
 }
 
 #[derive(Debug, Clone)]
