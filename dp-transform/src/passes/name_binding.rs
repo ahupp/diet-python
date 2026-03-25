@@ -60,25 +60,34 @@ fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
 
 fn cell_expr_for_name(
     name: &str,
+    semantic: &BlockPyCallableSemanticInfo,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
     core_name_expr(
-        cell_name(name).as_str(),
+        semantic.cell_operand_name(name).as_str(),
         ast::ExprContext::Load,
         node_index,
         range,
     )
 }
 
-fn rewrite_cell_name_load(name: ExprName) -> CoreBlockPyExpr {
+fn rewrite_cell_name_load(
+    name: ExprName,
+    semantic: &BlockPyCallableSemanticInfo,
+) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
     let range = name.range;
     core_positional_intrinsic_expr_with_meta(
         &LOAD_CELL_INTRINSIC,
         node_index.clone(),
         range,
-        vec![cell_expr_for_name(name.id.as_str(), node_index, range)],
+        vec![cell_expr_for_name(
+            name.id.as_str(),
+            semantic,
+            node_index,
+            range,
+        )],
     )
 }
 
@@ -120,6 +129,7 @@ fn rewrite_class_namespace_binding_assign(
 
 fn rewrite_cell_binding_assign(
     assign: BlockPyAssign<CoreBlockPyExpr>,
+    semantic: &BlockPyCallableSemanticInfo,
 ) -> BlockPyStmt<CoreBlockPyExpr> {
     let node_index = assign.target.node_index.clone();
     let range = assign.target.range;
@@ -128,7 +138,7 @@ fn rewrite_cell_binding_assign(
         node_index.clone(),
         range,
         vec![
-            cell_expr_for_name(assign.target.id.as_str(), node_index, range),
+            cell_expr_for_name(assign.target.id.as_str(), semantic, node_index, range),
             assign.value,
         ],
     ))
@@ -162,7 +172,12 @@ fn rewrite_binding_delete(
             &DEL_DEREF_INTRINSIC,
             node_index.clone(),
             range,
-            vec![cell_expr_for_name(bind_name.as_str(), node_index, range)],
+            vec![cell_expr_for_name(
+                bind_name.as_str(),
+                semantic,
+                node_index,
+                range,
+            )],
         ));
     }
     match semantic.binding_target_for_name(bind_name.as_str(), BlockPyBindingPurpose::Store) {
@@ -346,7 +361,12 @@ fn rewrite_class_name_load_cell(name: ExprName) -> CoreBlockPyExpr {
         vec![
             class_namespace_expr(node_index.clone(), range),
             core_string_expr(bind_name, node_index.clone(), range),
-            cell_expr_for_name(name.id.as_str(), node_index, range),
+            core_name_expr(
+                cell_name(name.id.as_str()).as_str(),
+                ast::ExprContext::Load,
+                node_index,
+                range,
+            ),
         ],
     )
 }
@@ -363,7 +383,12 @@ fn rewrite_quiet_delete_marker(
                 &DEL_DEREF_QUIETLY_INTRINSIC,
                 node_index.clone(),
                 range,
-                vec![cell_expr_for_name(name.id.as_str(), node_index, range)],
+                vec![cell_expr_for_name(
+                    name.id.as_str(),
+                    semantic,
+                    node_index,
+                    range,
+                )],
             ))
         }
         _ => match semantic.binding_target_for_name(name.id.as_str(), BlockPyBindingPurpose::Store)
@@ -656,10 +681,15 @@ fn rewrite_binding_assign_by_name(
                 &DEL_DEREF_INTRINSIC,
                 node_index.clone(),
                 range,
-                vec![cell_expr_for_name(name.as_str(), node_index, range)],
+                vec![cell_expr_for_name(
+                    name.as_str(),
+                    semantic,
+                    node_index,
+                    range,
+                )],
             ));
         }
-        return rewrite_cell_binding_assign(assign);
+        return rewrite_cell_binding_assign(assign, semantic);
     }
     match semantic.binding_target_for_name(name.as_str(), BlockPyBindingPurpose::Store) {
         BindingTarget::ModuleGlobal => {
@@ -731,7 +761,9 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                     Some(BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Cell)) => {
                         rewrite_class_name_load_cell(name)
                     }
-                    Some(BlockPyEffectiveBinding::Cell(_)) => rewrite_cell_name_load(name),
+                    Some(BlockPyEffectiveBinding::Cell(_)) => {
+                        rewrite_cell_name_load(name, self.semantic)
+                    }
                     Some(BlockPyEffectiveBinding::Global) => rewrite_global_name_load(name),
                     Some(BlockPyEffectiveBinding::Local) => CoreBlockPyExpr::Name(name),
                     Some(BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global))
@@ -745,7 +777,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                         BlockPyBindingKind::Cell(_)
                     ) =>
             {
-                rewrite_cell_name_load(name)
+                rewrite_cell_name_load(name, self.semantic)
             }
             CoreBlockPyExpr::Name(name)
                 if should_late_bind_name(name.id.as_str(), self.semantic)

@@ -218,6 +218,7 @@ fn callable_semantic_info(
         names,
         scope_kind,
         bindings,
+        cell_operand_names: HashMap::new(),
         semantic_internal_names: HashSet::new(),
         type_param_names,
         effective_load_bindings,

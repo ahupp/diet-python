@@ -900,29 +900,34 @@ def gen():
     let lowered = TrackedLowering::new(source);
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("__dp_load_cell(_dp_cell__dp_pc)"),
+        name_binding_rendered.contains("__dp_load_cell(_dp_pc)"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("__dp_store_cell(_dp_cell__dp_pc, 2)")
-            || name_binding_rendered.contains("__dp_store_cell(_dp_cell__dp_pc, 3)")
-            || name_binding_rendered.contains("__dp_store_cell(_dp_cell__dp_pc, 0)"),
+        name_binding_rendered.contains("__dp_store_cell(_dp_pc, 2)")
+            || name_binding_rendered.contains("__dp_store_cell(_dp_pc, 3)")
+            || name_binding_rendered.contains("__dp_store_cell(_dp_pc, 0)"),
         "{name_binding_rendered}"
     );
 
     let resume = lowered.bb_function("gen");
+    let entry_params = resume.entry_block().param_name_vec();
     assert!(
-        resume
-            .blocks
-            .iter()
-            .any(|block| block_uses_text(block, "__dp_load_cell(_dp_cell__dp_pc)")),
+        entry_params.iter().any(|name| name == "_dp_pc"),
         "{resume:?}"
     );
     assert!(
         resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_store_cell(_dp_cell__dp_pc,")),
+            .any(|block| block_uses_text(block, "__dp_load_cell(_dp_pc)")),
+        "{resume:?}"
+    );
+    assert!(
+        resume
+            .blocks
+            .iter()
+            .any(|block| block_uses_text(block, "__dp_store_cell(_dp_pc,")),
         "{resume:?}"
     );
 }
@@ -941,29 +946,35 @@ def delegator():
     let lowered = TrackedLowering::new(source);
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("__dp_load_cell(_dp_cell__dp_yieldfrom)"),
+        name_binding_rendered.contains("__dp_load_cell(_dp_yieldfrom)"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("__dp_store_cell(_dp_cell__dp_yieldfrom,")
+        name_binding_rendered.contains("__dp_store_cell(_dp_yieldfrom,")
             && (name_binding_rendered.contains("__dp_NONE")
                 || name_binding_rendered.contains("child()")),
         "{name_binding_rendered}"
     );
 
     let resume = lowered.bb_function("delegator");
+    let entry_params = resume.entry_block().param_name_vec();
     assert!(
-        resume
-            .blocks
-            .iter()
-            .any(|block| block_uses_text(block, "__dp_load_cell(_dp_cell__dp_yieldfrom)")),
+        entry_params.iter().any(|name| name == "_dp_pc")
+            && entry_params.iter().any(|name| name == "_dp_yieldfrom"),
         "{resume:?}"
     );
     assert!(
         resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_store_cell(_dp_cell__dp_yieldfrom,")),
+            .any(|block| block_uses_text(block, "__dp_load_cell(_dp_yieldfrom)")),
+        "{resume:?}"
+    );
+    assert!(
+        resume
+            .blocks
+            .iter()
+            .any(|block| block_uses_text(block, "__dp_store_cell(_dp_yieldfrom,")),
         "{resume:?}"
     );
 }
@@ -981,30 +992,34 @@ def gen():
     let lowered = TrackedLowering::new(source);
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("__dp_load_cell(_dp_cell_total)"),
+        name_binding_rendered.contains("__dp_load_cell(total)"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("__dp_store_cell(_dp_cell_total, 0)")
-            || name_binding_rendered.contains(
-                "__dp_store_cell(_dp_cell_total, __dp_add(__dp_load_cell(_dp_cell_total), 1))"
-            ),
+        name_binding_rendered.contains("__dp_store_cell(total, 0)")
+            || name_binding_rendered
+                .contains("__dp_store_cell(total, __dp_add(__dp_load_cell(total), 1))"),
         "{name_binding_rendered}"
     );
 
     let resume = lowered.bb_function("gen");
+    let entry_params = resume.entry_block().param_name_vec();
     assert!(
-        resume
-            .blocks
-            .iter()
-            .any(|block| block_uses_text(block, "__dp_load_cell(_dp_cell_total)")),
+        entry_params.iter().any(|name| name == "total"),
         "{resume:?}"
     );
     assert!(
         resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_store_cell(_dp_cell_total,")),
+            .any(|block| block_uses_text(block, "__dp_load_cell(total)")),
+        "{resume:?}"
+    );
+    assert!(
+        resume
+            .blocks
+            .iter()
+            .any(|block| block_uses_text(block, "__dp_store_cell(total,")),
         "{resume:?}"
     );
 }
@@ -1027,8 +1042,8 @@ def gen():
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("__dp_store_cell(_dp_cell__dp_eval_1,")
-            && name_binding_rendered.contains("__dp_store_cell(_dp_cell__dp_eval_2,"),
+        name_binding_rendered.contains("__dp_store_cell(_dp_eval_1,")
+            && name_binding_rendered.contains("__dp_store_cell(_dp_eval_2,"),
         "{name_binding_rendered}"
     );
     assert!(

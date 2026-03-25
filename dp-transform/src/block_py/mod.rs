@@ -598,6 +598,7 @@ pub struct BlockPyCallableSemanticInfo {
     pub names: FunctionName,
     pub scope_kind: BlockPyCallableScopeKind,
     pub bindings: HashMap<String, BlockPyBindingKind>,
+    pub cell_operand_names: HashMap<String, String>,
     pub semantic_internal_names: HashSet<String>,
     pub type_param_names: HashSet<String>,
     pub effective_load_bindings: HashMap<String, BlockPyEffectiveBinding>,
@@ -673,9 +674,14 @@ impl BlockPyCallableSemanticInfo {
         name: impl Into<String>,
         binding: BlockPyBindingKind,
         honor_internal_name: bool,
+        cell_operand_name: Option<String>,
     ) {
         let name = name.into();
         self.bindings.insert(name.clone(), binding);
+        if let Some(cell_operand_name) = cell_operand_name {
+            self.cell_operand_names
+                .insert(name.clone(), cell_operand_name);
+        }
         if honor_internal_name {
             self.semantic_internal_names.insert(name.clone());
         }
@@ -717,6 +723,13 @@ impl BlockPyCallableSemanticInfo {
 
     pub fn is_cell_binding(&self, name: &str) -> bool {
         matches!(self.binding_kind(name), Some(BlockPyBindingKind::Cell(_)))
+    }
+
+    pub fn cell_operand_name(&self, name: &str) -> String {
+        self.cell_operand_names
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| cell_name(name))
     }
 
     pub fn binding_target_for_name(

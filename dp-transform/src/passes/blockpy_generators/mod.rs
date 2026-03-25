@@ -267,14 +267,11 @@ fn generator_state_order(layout: &ClosureLayout, kind: BlockPyFunctionKind) -> V
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ResumeClosureBindings {
     runtime_state_bindings: Vec<(String, String)>,
-    compatibility_alias_bindings: Vec<(String, String)>,
 }
 
 impl ResumeClosureBindings {
     fn all_bindings(&self) -> impl Iterator<Item = &(String, String)> {
-        self.runtime_state_bindings
-            .iter()
-            .chain(self.compatibility_alias_bindings.iter())
+        self.runtime_state_bindings.iter()
     }
 }
 
@@ -292,6 +289,7 @@ fn augment_resume_semantic_for_standard_name_binding(
                 name.clone(),
                 BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
                 is_internal_symbol(name.as_str()),
+                Some(name.clone()),
             );
         }
     }
@@ -308,13 +306,25 @@ fn resume_closure_value_name(layout: &ClosureLayout, name: &str) -> String {
         .unwrap_or_else(|| name.to_string())
 }
 
+fn is_resume_closure_state_name(layout: &ClosureLayout, name: &str) -> bool {
+    layout
+        .freevars
+        .iter()
+        .chain(layout.cellvars.iter())
+        .chain(layout.runtime_cells.iter())
+        .any(|slot| slot.logical_name == name || slot.storage_name == name)
+}
+
 fn resume_closure_bindings(
     layout: &ClosureLayout,
-    resume_state_order: &[String],
+    resume_entry_params: &[String],
 ) -> ResumeClosureBindings {
-    let runtime_state_bindings = resume_state_order
+    let runtime_state_bindings = resume_entry_params
         .iter()
-        .filter(|name| !is_resume_abi_param_name(name.as_str()))
+        .filter(|name| {
+            !is_resume_abi_param_name(name.as_str())
+                && is_resume_closure_state_name(layout, name.as_str())
+        })
         .map(|name| {
             (
                 name.clone(),
@@ -322,23 +332,8 @@ fn resume_closure_bindings(
             )
         })
         .collect::<Vec<_>>();
-    let mut seen = runtime_state_bindings
-        .iter()
-        .map(|(name, _)| name.clone())
-        .collect::<HashSet<_>>();
-    let compatibility_alias_bindings = layout
-        .cellvars
-        .iter()
-        .chain(layout.runtime_cells.iter())
-        .filter_map(|slot| {
-            (slot.storage_name != slot.logical_name && seen.insert(slot.storage_name.clone()))
-                .then(|| (slot.storage_name.clone(), slot.storage_name.clone()))
-        })
-        .collect::<Vec<_>>();
-
     ResumeClosureBindings {
         runtime_state_bindings,
-        compatibility_alias_bindings,
     }
 }
 
@@ -1257,6 +1252,7 @@ fn emit_yield_from_site(
 
 fn lower_resume_blocks(
     callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
+    state_order: &[String],
 ) -> (
     Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>,
     HashMap<String, Option<String>>,
@@ -1323,7 +1319,13 @@ fn lower_resume_blocks(
             targets,
             default_label: state.exhausted_label.clone(),
         }),
-        params: Vec::new(),
+        params: state_order
+            .iter()
+            .map(|name| BlockParam {
+                name: name.clone(),
+                role: BlockParamRole::Local,
+            })
+            .collect(),
         exc_edge: None,
     }];
     blocks.append(&mut state.blocks);
@@ -1356,6 +1358,26 @@ fn lower_resume_blocks(
     )
 }
 
+fn ordered_resume_binding_names(
+    callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
+    state_order: &[String],
+) -> Vec<String> {
+    let mut seen = HashSet::new();
+    state_order
+        .iter()
+        .cloned()
+        .chain(
+            recompute_lowered_block_params(
+                callable,
+                should_include_closure_storage_aliases(callable),
+            )
+            .into_values()
+            .flatten(),
+        )
+        .filter(|name| seen.insert(name.clone()))
+        .collect()
+}
+
 pub(crate) fn lower_generator_like_function(
     callable: BlockPyFunction<CoreBlockPyPassWithYield>,
     module_name_gen: &mut ModuleNameGen,
@@ -1368,9 +1390,10 @@ pub(crate) fn lower_generator_like_function(
     let resume_function_id = resume_name_gen.function_id();
     let closure_layout = build_generator_closure_layout(&callable);
     let state_order = generator_state_order(&closure_layout, callable.kind);
-    let closure_bindings = resume_closure_bindings(&closure_layout, &state_order);
+    let resume_binding_names = ordered_resume_binding_names(&callable, &state_order);
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
-        lower_resume_blocks(&callable);
+        lower_resume_blocks(&callable, &state_order);
+    let closure_bindings = resume_closure_bindings(&closure_layout, &resume_binding_names);
 
     let factory_block = build_factory_block(
         callable.function_id,

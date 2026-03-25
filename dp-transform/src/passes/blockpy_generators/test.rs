@@ -60,13 +60,14 @@ fn build_closure_backed_generator_factory_block(
     }
 
     let closure_bindings = resume_closure_bindings(layout, resume_state_order);
-    let all_bindings = closure_bindings.all_bindings().cloned().collect::<Vec<_>>();
-    let closure_names = all_bindings
+    let closure_names = closure_bindings
+        .runtime_state_bindings
         .iter()
         .map(|(name, _)| name.clone())
         .collect::<Vec<_>>();
     let closure_values = blockpy_make_dp_tuple(
-        all_bindings
+        closure_bindings
+            .runtime_state_bindings
             .iter()
             .map(|(_, value_name)| py_expr!("{name:id}", name = value_name.as_str()))
             .collect(),
@@ -197,29 +198,6 @@ fn resume_closure_bindings_keep_internal_eval_state_on_runtime_binding_path() {
                 "_dp_try_exc_0".to_string(),
                 "_dp_cell__dp_try_exc_0".to_string()
             ),
-        ]
-    );
-    assert_eq!(
-        closure_bindings.compatibility_alias_bindings,
-        vec![
-            ("_dp_cell_total".to_string(), "_dp_cell_total".to_string()),
-            (
-                "_dp_cell__dp_eval_1".to_string(),
-                "_dp_cell__dp_eval_1".to_string()
-            ),
-            (
-                "_dp_cell__dp_eval_2".to_string(),
-                "_dp_cell__dp_eval_2".to_string()
-            ),
-            (
-                "_dp_cell__dp_try_exc_0".to_string(),
-                "_dp_cell__dp_try_exc_0".to_string()
-            ),
-            (
-                "_dp_cell__dp_yieldfrom".to_string(),
-                "_dp_cell__dp_yieldfrom".to_string()
-            ),
-            ("_dp_cell__dp_pc".to_string(), "_dp_cell__dp_pc".to_string()),
         ]
     );
 }
@@ -376,11 +354,42 @@ fn resume_closure_bindings_include_storage_aliases_for_cell_backed_state() {
             ("_dp_pc".to_string(), "_dp_cell__dp_pc".to_string()),
         ]
     );
+}
+
+#[test]
+fn resume_closure_bindings_include_logical_aliases_for_shared_storage() {
+    let layout = ClosureLayout {
+        freevars: vec![ClosureSlot {
+            logical_name: "j".to_string(),
+            storage_name: "_dp_cell_j".to_string(),
+            init: ClosureInit::InheritedCapture,
+        }],
+        cellvars: vec![],
+        runtime_cells: vec![ClosureSlot {
+            logical_name: "_dp_pc".to_string(),
+            storage_name: "_dp_cell__dp_pc".to_string(),
+            init: ClosureInit::RuntimePcUnstarted,
+        }],
+    };
+
+    let closure_bindings = resume_closure_bindings(
+        &layout,
+        &[
+            "_dp_send_value".to_string(),
+            "_dp_resume_exc".to_string(),
+            "_dp_cell_j".to_string(),
+            "j".to_string(),
+            "_dp_pc".to_string(),
+            "_dp_self".to_string(),
+        ],
+    );
+
     assert_eq!(
-        closure_bindings.compatibility_alias_bindings,
+        closure_bindings.runtime_state_bindings,
         vec![
-            ("_dp_cell_total".to_string(), "_dp_cell_total".to_string()),
-            ("_dp_cell__dp_pc".to_string(), "_dp_cell__dp_pc".to_string()),
+            ("_dp_cell_j".to_string(), "_dp_cell_j".to_string()),
+            ("j".to_string(), "_dp_cell_j".to_string()),
+            ("_dp_pc".to_string(), "_dp_cell__dp_pc".to_string()),
         ]
     );
 }
@@ -419,6 +428,7 @@ fn resume_semantic_marks_generator_state_as_cell_captures() {
             slot.logical_name.clone(),
             BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
             is_internal_symbol(slot.logical_name.as_str()),
+            None,
         );
     }
 
@@ -529,6 +539,7 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
         semantic.resolved_load_binding_kind("total"),
         BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
+    assert_eq!(semantic.cell_operand_name("total"), "total");
     assert_eq!(
         semantic.binding_kind("_dp_eval_1"),
         Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
@@ -537,6 +548,7 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
         semantic.resolved_load_binding_kind("_dp_eval_1"),
         BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
+    assert_eq!(semantic.cell_operand_name("_dp_eval_1"), "_dp_eval_1");
     assert_eq!(
         semantic.binding_kind("_dp_eval_2"),
         Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
@@ -545,10 +557,12 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
         semantic.resolved_load_binding_kind("_dp_eval_2"),
         BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
+    assert_eq!(semantic.cell_operand_name("_dp_eval_2"), "_dp_eval_2");
     assert_eq!(
         semantic.resolved_load_binding_kind("_dp_pc"),
         BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
+    assert_eq!(semantic.cell_operand_name("_dp_pc"), "_dp_pc");
     assert_eq!(
         semantic.binding_kind("_dp_yieldfrom"),
         Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
@@ -557,6 +571,7 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
         semantic.resolved_load_binding_kind("_dp_yieldfrom"),
         BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
+    assert_eq!(semantic.cell_operand_name("_dp_yieldfrom"), "_dp_yieldfrom");
     assert_eq!(
         semantic.binding_kind("_dp_try_exc_0"),
         Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
@@ -565,4 +580,5 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
         semantic.resolved_load_binding_kind("_dp_try_exc_0"),
         BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
+    assert_eq!(semantic.cell_operand_name("_dp_try_exc_0"), "_dp_try_exc_0");
 }

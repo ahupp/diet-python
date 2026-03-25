@@ -785,7 +785,12 @@ unsafe fn fill_state_tuple_from_values(
         } else if !binding.closure_state_values[index].is_null() {
             let borrowed = binding.closure_state_values[index];
             let name = binding.state_order[index].as_str();
-            if name == "_dp_classcell" || name.starts_with("_dp_cell_") {
+            if matches!(
+                binding.kind,
+                BindingKind::GeneratorResume | BindingKind::AsyncGeneratorResume
+            ) || name == "_dp_classcell"
+                || name.starts_with("_dp_cell_")
+            {
                 ffi::Py_INCREF(borrowed);
                 borrowed
             } else {
@@ -1157,6 +1162,16 @@ unsafe fn build_resume_state_tuple(
                 }
             }
             _ => {
+                if matches!(
+                    binding.kind,
+                    BindingKind::GeneratorResume | BindingKind::AsyncGeneratorResume
+                ) {
+                    let closure_value = binding.closure_state_values[index];
+                    if !closure_value.is_null() {
+                        state_value_from_borrowed(&mut state_values, index, closure_value);
+                        continue;
+                    }
+                }
                 if !frame_dict.is_null() {
                     let c_name = match CString::new(name.as_str()) {
                         Ok(value) => value,
