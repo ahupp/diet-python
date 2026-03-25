@@ -47,6 +47,11 @@
     - `blockpy_generators` still hand-constructs a large amount of BlockPy stmt/term/control-flow scaffolding, which makes generator lowering harder to read and keeps a lot of structural knowledge local to that pass.
     - A helper path from `py_stmt!`-style snippets into `BlockPyCfgFragment` could make generator construction less manual, especially for small setup/cleanup fragments and repeated control-flow shapes.
     - The main design question is whether that path would preserve the current guarantees around evaluation order, hidden temps, and explicit block structure, or whether it would just hide logic that should instead be expressed by more explicit BlockPy builders.
+- Should we linearize in the BlockPy pass so the whole block structure is uniform?
+  - Planning note:
+    - BlockPy still carries structured non-terminal `If` for a long stretch of the pipeline, and only later linearizes it into true block terminators.
+    - The likely simplification is to move `linearize_structured_ifs` earlier so downstream passes only need to reason about one CFG/block shape instead of both structured fragments and linearized blocks.
+    - A good first pass is to identify which post-BlockPy passes still recurse through structured `BlockPyStmt::If`, then check whether running linearization immediately after semantic/core BlockPy lowering would shrink those passes instead of complicating exception-edge or block-param handling.
 - Handle integer literals larger than can fit in an `i64`.
   - Planning note:
     - The current direct-simple JIT literal planning in `soac-eval/src/jit/planning.rs` only lowers integer literals that fit in `i64`, so larger Python ints fall out of that fast path.
