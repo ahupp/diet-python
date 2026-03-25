@@ -132,7 +132,7 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
     assert_eq!(call.intrinsic.name(), "__dp_iadd");
     assert!(matches!(
         &call.args[1],
-        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Name(_))
+        CoreBlockPyExprWithAwaitAndYield::Name(_)
     ));
     assert!(matches!(lowered.body[2], BlockPyStmt::Delete(_)));
 }

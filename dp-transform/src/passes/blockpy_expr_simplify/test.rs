@@ -62,9 +62,7 @@ fn expr_simplify_recurses_bottom_up_for_operator_family() {
         panic!("expected intrinsic-shaped core expr");
     };
     assert_eq!(outer.intrinsic.name(), "__dp_neg");
-    let [CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Intrinsic(inner))] =
-        &outer.args[..]
-    else {
+    let [CoreBlockPyExprWithAwaitAndYield::Intrinsic(inner)] = &outer.args[..] else {
         panic!("expected __dp_neg to receive one lowered intrinsic arg");
     };
     assert_eq!(inner.intrinsic.name(), "__dp_add");

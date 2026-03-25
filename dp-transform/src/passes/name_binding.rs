@@ -4,13 +4,14 @@ use crate::block_py::intrinsics::{
     STORE_GLOBAL_INTRINSIC,
 };
 use crate::block_py::{
-    core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta, BindingTarget,
-    BlockPyAssign, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
-    BlockPyCallableSemanticInfo, BlockPyClassBodyFallback, BlockPyEffectiveBinding,
-    BlockPyFunction, BlockPyFunctionKind, BlockPyIf, BlockPyModule, BlockPyModuleMap, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm, ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
-    CoreStringLiteral, IntrinsicCall,
+    core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta,
+    map_intrinsic_args_with, BindingTarget, BlockPyAssign, BlockPyBindingKind,
+    BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
+    BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyIf, BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
+    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
+    IntrinsicCall,
 };
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::CoreBlockPyPass;
@@ -269,12 +270,9 @@ fn rewrite_deleted_name_loads_in_expr(expr: &mut CoreBlockPyExpr, deleted_names:
                 rewrite_deleted_name_loads_in_expr(keyword.expr_mut(), deleted_names);
             }
         }
-        CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, keywords, .. }) => {
+        CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, .. }) => {
             for arg in args {
-                rewrite_deleted_name_loads_in_expr(arg.expr_mut(), deleted_names);
-            }
-            for keyword in keywords {
-                rewrite_deleted_name_loads_in_expr(keyword.expr_mut(), deleted_names);
+                rewrite_deleted_name_loads_in_expr(arg, deleted_names);
             }
         }
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
@@ -460,18 +458,15 @@ fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
 
 fn cell_load_logical_name(expr: &CoreBlockPyExpr) -> Option<String> {
     let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-        intrinsic,
-        args,
-        keywords,
-        ..
+        intrinsic, args, ..
     }) = expr
     else {
         return None;
     };
-    if intrinsic.name() != LOAD_CELL_INTRINSIC.name() || !keywords.is_empty() || args.len() != 1 {
+    if intrinsic.name() != LOAD_CELL_INTRINSIC.name() || args.len() != 1 {
         return None;
     }
-    let CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(name)) = &args[0] else {
+    let CoreBlockPyExpr::Name(name) = &args[0] else {
         return None;
     };
     name.id
@@ -611,23 +606,18 @@ fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPa
 
 fn store_cell_deleted_logical_name(expr: &CoreBlockPyExpr) -> Option<String> {
     let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-        intrinsic,
-        args,
-        keywords,
-        ..
+        intrinsic, args, ..
     }) = expr
     else {
         return None;
     };
-    if intrinsic.name() != STORE_CELL_INTRINSIC.name() || !keywords.is_empty() || args.len() != 2 {
+    if intrinsic.name() != STORE_CELL_INTRINSIC.name() || args.len() != 2 {
         return None;
     }
-    let CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(name)) = &args[0] else {
+    let CoreBlockPyExpr::Name(name) = &args[0] else {
         return None;
     };
-    let CoreBlockPyCallArg::Positional(value_expr) = &args[1] else {
-        return None;
-    };
+    let value_expr = &args[1];
     if !is_deleted_sentinel_expr(value_expr) {
         return None;
     }
@@ -642,15 +632,12 @@ fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
         return false;
     };
     let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-        intrinsic,
-        args,
-        keywords,
-        ..
+        intrinsic, args, ..
     }) = &assign.value
     else {
         return false;
     };
-    if !keywords.is_empty() || args.len() != 1 {
+    if args.len() != 1 {
         return false;
     }
     if intrinsic.name() != MAKE_CELL_INTRINSIC.name() {
@@ -658,8 +645,7 @@ fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
     }
     matches!(
         &args[0],
-        CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(name))
-            if name.id.as_str() == logical_name
+        CoreBlockPyExpr::Name(name) if name.id.as_str() == logical_name
     )
 }
 
@@ -829,8 +815,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 intrinsic: call.intrinsic,
                 node_index: call.node_index,
                 range: call.range,
-                args: self.map_call_args(call.args),
-                keywords: self.map_keyword_args(call.keywords),
+                args: map_intrinsic_args_with(call.args, |expr| self.map_expr(expr)),
             }),
         }
     }

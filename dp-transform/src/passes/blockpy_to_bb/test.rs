@@ -157,13 +157,9 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
             node_index: ast::AtomicNodeIndex::default(),
             range: TextRange::default(),
             args: vec![
-                CoreBlockPyCallArg::Positional(core_call_expr(
-                    "__dp_current_exception",
-                    Vec::new(),
-                )),
-                CoreBlockPyCallArg::Positional(core_string_expr("value")),
+                core_call_expr("__dp_current_exception", Vec::new()),
+                core_string_expr("value"),
             ],
-            keywords: Vec::new(),
         })),
         params: vec![crate::block_py::BlockParam {
             name: "_dp_try_exc_0".to_string(),
@@ -191,10 +187,8 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     assert!(matches!(
         call.args.as_slice(),
         [
-            CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(name)),
-            CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Literal(
-                CoreBlockPyLiteral::StringLiteral(value)
-            ))
+            CoreBlockPyExpr::Name(name),
+            CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(value))
         ] if name.id.as_str() == "_dp_try_exc_0" && value.value == "value"
     ));
 }

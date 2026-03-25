@@ -1,7 +1,8 @@
 use crate::block_py::{
-    core_positional_call_expr_with_meta, map_call_args_with, map_keyword_args_with, BlockPyModule,
-    BlockPyModuleMap, CoreBlockPyAwait, CoreBlockPyCall, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, CoreBlockPyYield, CoreBlockPyYieldFrom, IntrinsicCall,
+    core_positional_call_expr_with_meta, map_call_args_with, map_intrinsic_args_with,
+    map_keyword_args_with, BlockPyModule, BlockPyModuleMap, CoreBlockPyAwait, CoreBlockPyCall,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
+    CoreBlockPyYieldFrom, IntrinsicCall,
 };
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
 use crate::py_expr;
@@ -34,8 +35,7 @@ fn lower_core_expr_awaits(expr: CoreBlockPyExprWithAwaitAndYield) -> CoreBlockPy
                 intrinsic: call.intrinsic,
                 node_index: call.node_index,
                 range: call.range,
-                args: map_call_args_with(call.args, lower_core_expr_awaits),
-                keywords: map_keyword_args_with(call.keywords, lower_core_expr_awaits),
+                args: map_intrinsic_args_with(call.args, lower_core_expr_awaits),
             })
         }
         CoreBlockPyExprWithAwaitAndYield::Await(CoreBlockPyAwait {

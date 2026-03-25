@@ -282,12 +282,9 @@ fn rewrite_current_exception_in_blockpy_expr(expr: &mut CoreBlockPyExpr, exc_nam
                 rewrite_current_exception_in_blockpy_expr(keyword.expr_mut(), exc_name);
             }
         }
-        CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, keywords, .. }) => {
+        CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, .. }) => {
             for arg in args {
-                rewrite_current_exception_in_blockpy_expr(arg.expr_mut(), exc_name);
-            }
-            for keyword in keywords {
-                rewrite_current_exception_in_blockpy_expr(keyword.expr_mut(), exc_name);
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name);
             }
         }
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
@@ -328,12 +325,9 @@ fn is_dp_lookup_call_expr(func: &CoreBlockPyExpr, attr_name: &str) -> bool {
             ) && is_dp_getattr_lookup_args(&call.args, attr_name)
         }
         CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-            intrinsic,
-            args,
-            keywords,
-            ..
-        }) if keywords.is_empty() && args.len() == 2 && intrinsic.name() == "__dp_getattr" => {
-            is_dp_getattr_lookup_args(args, attr_name)
+            intrinsic, args, ..
+        }) if args.len() == 2 && intrinsic.name() == "__dp_getattr" => {
+            is_dp_getattr_intrinsic_args(args, attr_name)
         }
         _ => false,
     }
@@ -351,6 +345,13 @@ fn is_dp_getattr_lookup_args(
         CoreBlockPyCallArg::Positional(value) => value,
         CoreBlockPyCallArg::Starred(_) => return false,
     }) == Some(attr_name.to_string())
+}
+
+fn is_dp_getattr_intrinsic_args(args: &[CoreBlockPyExpr], attr_name: &str) -> bool {
+    matches!(
+        &args[0],
+        CoreBlockPyExpr::Name(base) if base.id.as_str() == "__dp__"
+    ) && expr_static_str(&args[1]) == Some(attr_name.to_string())
 }
 
 fn expr_static_str(expr: &CoreBlockPyExpr) -> Option<String> {

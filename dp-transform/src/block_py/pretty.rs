@@ -519,22 +519,7 @@ pub(crate) fn bb_expr_text(expr: &CoreBlockPyExpr) -> String {
         CoreBlockPyExpr::Intrinsic(call) => {
             let mut parts = Vec::new();
             for arg in &call.args {
-                parts.push(match arg {
-                    super::CoreBlockPyCallArg::Positional(value) => bb_expr_text(value),
-                    super::CoreBlockPyCallArg::Starred(value) => {
-                        format!("*{}", bb_expr_text(value))
-                    }
-                });
-            }
-            for keyword in &call.keywords {
-                parts.push(match keyword {
-                    super::CoreBlockPyKeywordArg::Named { arg, value } => {
-                        format!("{}={}", arg.id, bb_expr_text(value))
-                    }
-                    super::CoreBlockPyKeywordArg::Starred(value) => {
-                        format!("**{}", bb_expr_text(value))
-                    }
-                });
+                parts.push(bb_expr_text(arg));
             }
             format!("{}({})", call.intrinsic.name(), parts.join(", "))
         }

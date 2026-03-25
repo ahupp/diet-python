@@ -45,6 +45,20 @@ pub(crate) fn try_map_keyword_args_with<EIn, EOut, Error>(
         .collect()
 }
 
+pub(crate) fn map_intrinsic_args_with<EIn, EOut>(
+    args: Vec<EIn>,
+    map_expr: impl FnMut(EIn) -> EOut,
+) -> Vec<EOut> {
+    args.into_iter().map(map_expr).collect()
+}
+
+pub(crate) fn try_map_intrinsic_args_with<EIn, EOut, Error>(
+    args: Vec<EIn>,
+    map_expr: impl FnMut(EIn) -> Result<EOut, Error>,
+) -> Result<Vec<EOut>, Error> {
+    args.into_iter().map(map_expr).collect()
+}
+
 pub trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
@@ -351,8 +365,8 @@ impl From<CoreBlockPyExprWithAwaitAndYield> for Expr {
                 Expr::Name(intrinsic_name_expr(node.intrinsic)),
                 node.node_index,
                 node.range,
-                node.args,
-                node.keywords,
+                positional_call_args(node.args),
+                Vec::new(),
             ),
             CoreBlockPyExprWithAwaitAndYield::Await(node) => Expr::Await(ast::ExprAwait {
                 node_index: node.node_index,
@@ -391,8 +405,8 @@ impl From<CoreBlockPyExprWithYield> for Expr {
                 Expr::Name(intrinsic_name_expr(node.intrinsic)),
                 node.node_index,
                 node.range,
-                node.args,
-                node.keywords,
+                positional_call_args(node.args),
+                Vec::new(),
             ),
             CoreBlockPyExprWithYield::Yield(node) => Expr::Yield(ast::ExprYield {
                 node_index: node.node_index,
@@ -424,8 +438,8 @@ impl From<CoreBlockPyExpr> for Expr {
                 Expr::Name(intrinsic_name_expr(node.intrinsic)),
                 node.node_index,
                 node.range,
-                node.args,
-                node.keywords,
+                positional_call_args(node.args),
+                Vec::new(),
             ),
             CoreBlockPyExpr::Name(node) => Expr::Name(node),
         }
@@ -493,6 +507,12 @@ fn call_args_to_ast<E: Into<Expr>>(args: Vec<CoreBlockPyCallArg<E>>) -> Box<[Exp
         .into_boxed_slice()
 }
 
+fn positional_call_args<E>(args: Vec<E>) -> Vec<CoreBlockPyCallArg<E>> {
+    args.into_iter()
+        .map(CoreBlockPyCallArg::Positional)
+        .collect()
+}
+
 fn call_keywords_to_ast<E: Into<Expr>>(
     keywords: Vec<CoreBlockPyKeywordArg<E>>,
 ) -> Box<[ast::Keyword]> {
@@ -555,8 +575,7 @@ impl TryFrom<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithYield {
                     intrinsic: call.intrinsic,
                     node_index: call.node_index,
                     range: call.range,
-                    args: try_map_call_args_with(call.args, Self::try_from)?,
-                    keywords: try_map_keyword_args_with(call.keywords, Self::try_from)?,
+                    args: try_map_intrinsic_args_with(call.args, Self::try_from)?,
                 }))
             }
             CoreBlockPyExprWithAwaitAndYield::Yield(yield_expr) => {
@@ -676,8 +695,7 @@ impl From<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
                 intrinsic: call.intrinsic,
                 node_index: call.node_index,
                 range: call.range,
-                args: map_call_args_with(call.args, Self::from),
-                keywords: map_keyword_args_with(call.keywords, Self::from),
+                args: map_intrinsic_args_with(call.args, Self::from),
             }),
             CoreBlockPyExprWithYield::Yield(yield_expr) => Self::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,
@@ -713,8 +731,7 @@ impl TryFrom<CoreBlockPyExprWithYield> for CoreBlockPyExpr {
                 intrinsic: call.intrinsic,
                 node_index: call.node_index,
                 range: call.range,
-                args: try_map_call_args_with(call.args, Self::try_from)?,
-                keywords: try_map_keyword_args_with(call.keywords, Self::try_from)?,
+                args: try_map_intrinsic_args_with(call.args, Self::try_from)?,
             })),
             CoreBlockPyExprWithYield::Yield(_) | CoreBlockPyExprWithYield::YieldFrom(_) => {
                 Err(value)
@@ -808,8 +825,7 @@ impl From<CoreBlockPyExpr> for CoreBlockPyExprWithYield {
                 intrinsic: call.intrinsic,
                 node_index: call.node_index,
                 range: call.range,
-                args: map_call_args_with(call.args, Self::from),
-                keywords: map_keyword_args_with(call.keywords, Self::from),
+                args: map_intrinsic_args_with(call.args, Self::from),
             }),
         }
     }

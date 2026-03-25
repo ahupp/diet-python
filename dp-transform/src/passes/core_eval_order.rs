@@ -1,9 +1,10 @@
 use crate::block_py::BlockPyAssign;
 use crate::block_py::{
-    map_call_args_with, map_keyword_args_with, BlockPyBranchTable, BlockPyCfgFragment,
-    BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyCall, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, CoreBlockPyYield, CoreBlockPyYieldFrom, IntrinsicCall,
+    map_call_args_with, map_intrinsic_args_with, map_keyword_args_with, BlockPyBranchTable,
+    BlockPyCfgFragment, BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise,
+    BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyCall,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
+    CoreBlockPyYieldFrom, IntrinsicCall,
 };
 use crate::namegen::fresh_name;
 use crate::passes::CoreBlockPyPassWithYield;
@@ -34,13 +35,7 @@ fn expr_contains_suspend(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
                     .any(|keyword| expr_contains_suspend(keyword.expr()))
         }
         CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) => {
-            call.args
-                .iter()
-                .any(|arg| expr_contains_suspend(arg.expr()))
-                || call
-                    .keywords
-                    .iter()
-                    .any(|keyword| expr_contains_suspend(keyword.expr()))
+            call.args.iter().any(expr_contains_suspend)
         }
         CoreBlockPyExprWithAwaitAndYield::Await(_) => true,
         CoreBlockPyExprWithAwaitAndYield::Yield(_) => true,
@@ -95,10 +90,7 @@ fn make_eval_order_explicit_in_core_expr(
                 intrinsic: call.intrinsic,
                 node_index: call.node_index,
                 range: call.range,
-                args: map_call_args_with(call.args, |value| {
-                    hoist_core_expr_if_contains_suspend(value, out, cleanup)
-                }),
-                keywords: map_keyword_args_with(call.keywords, |value| {
+                args: map_intrinsic_args_with(call.args, |value| {
                     hoist_core_expr_if_contains_suspend(value, out, cleanup)
                 }),
             })
@@ -286,13 +278,7 @@ fn expr_contains_yield(expr: &CoreBlockPyExprWithYield) -> bool {
                     .iter()
                     .any(|keyword| expr_contains_yield(keyword.expr()))
         }
-        CoreBlockPyExprWithYield::Intrinsic(call) => {
-            call.args.iter().any(|arg| expr_contains_yield(arg.expr()))
-                || call
-                    .keywords
-                    .iter()
-                    .any(|keyword| expr_contains_yield(keyword.expr()))
-        }
+        CoreBlockPyExprWithYield::Intrinsic(call) => call.args.iter().any(expr_contains_yield),
         CoreBlockPyExprWithYield::Yield(_) => true,
         CoreBlockPyExprWithYield::YieldFrom(_) => true,
     }
@@ -342,10 +328,7 @@ fn make_eval_order_explicit_in_core_expr_without_await(
                 intrinsic: call.intrinsic,
                 node_index: call.node_index,
                 range: call.range,
-                args: map_call_args_with(call.args, |value| {
-                    hoist_core_expr_without_await_to_atom(value, out, cleanup)
-                }),
-                keywords: map_keyword_args_with(call.keywords, |value| {
+                args: map_intrinsic_args_with(call.args, |value| {
                     hoist_core_expr_without_await_to_atom(value, out, cleanup)
                 }),
             })

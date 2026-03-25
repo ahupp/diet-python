@@ -76,20 +76,7 @@ fn probe_bb_exprs(probe: &mut ExprShapeProbe, expr: &crate::block_py::CoreBlockP
         }
         crate::block_py::CoreBlockPyExpr::Intrinsic(call) => {
             for arg in &call.args {
-                match arg {
-                    crate::block_py::CoreBlockPyCallArg::Positional(value)
-                    | crate::block_py::CoreBlockPyCallArg::Starred(value) => {
-                        probe_bb_exprs(probe, value);
-                    }
-                }
-            }
-            for kw in &call.keywords {
-                match kw {
-                    crate::block_py::CoreBlockPyKeywordArg::Named { value, .. }
-                    | crate::block_py::CoreBlockPyKeywordArg::Starred(value) => {
-                        probe_bb_exprs(probe, value);
-                    }
-                }
+                probe_bb_exprs(probe, arg);
             }
         }
     }

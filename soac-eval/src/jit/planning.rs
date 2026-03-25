@@ -400,31 +400,9 @@ fn direct_simple_expr_from(expr: &CoreBlockPyExpr) -> Option<DirectSimpleExprPla
             })
         }
         CoreBlockPyExpr::Intrinsic(call) => {
-            let mut parts = Vec::with_capacity(call.args.len() + call.keywords.len());
+            let mut parts = Vec::with_capacity(call.args.len());
             for arg in &call.args {
-                match arg {
-                    CoreBlockPyCallArg::Positional(arg) => {
-                        parts.push(DirectSimpleCallPart::Pos(direct_simple_expr_from(arg)?));
-                    }
-                    CoreBlockPyCallArg::Starred(arg) => {
-                        parts.push(DirectSimpleCallPart::Star(direct_simple_expr_from(arg)?));
-                    }
-                }
-            }
-            for keyword in &call.keywords {
-                match keyword {
-                    CoreBlockPyKeywordArg::Named { arg: name, value } => {
-                        parts.push(DirectSimpleCallPart::Kw {
-                            name: name.to_string(),
-                            value: direct_simple_expr_from(value)?,
-                        });
-                    }
-                    CoreBlockPyKeywordArg::Starred(value) => {
-                        parts.push(DirectSimpleCallPart::KwStar(direct_simple_expr_from(
-                            value,
-                        )?));
-                    }
-                }
+                parts.push(DirectSimpleCallPart::Pos(direct_simple_expr_from(arg)?));
             }
             Some(DirectSimpleExprPlan::Intrinsic {
                 intrinsic: call.intrinsic,

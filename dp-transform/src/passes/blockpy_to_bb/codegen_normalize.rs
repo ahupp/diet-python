@@ -60,8 +60,10 @@ impl CodegenExprNormalizer {
                 self.rewrite_expr(call.func.as_mut());
                 rewrite_call_parts(self, &mut call.args, &mut call.keywords);
             }
-            CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, keywords, .. }) => {
-                rewrite_call_parts(self, args, keywords);
+            CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, .. }) => {
+                for arg in args {
+                    self.rewrite_expr(arg);
+                }
             }
             CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
         }

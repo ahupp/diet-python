@@ -16,7 +16,7 @@ mod name_gen;
 pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod state;
-pub(crate) use convert::{map_call_args_with, map_keyword_args_with};
+pub(crate) use convert::{map_call_args_with, map_intrinsic_args_with, map_keyword_args_with};
 pub use convert::{BlockPyModuleMap, BlockPyModuleTryMap};
 pub use name_gen::{FunctionNameGen, ModuleNameGen};
 
@@ -352,8 +352,7 @@ pub struct IntrinsicCall<E> {
     pub intrinsic: &'static dyn intrinsics::Intrinsic,
     pub node_index: ast::AtomicNodeIndex,
     pub range: ruff_text_size::TextRange,
-    pub args: Vec<CoreBlockPyCallArg<E>>,
-    pub keywords: Vec<CoreBlockPyKeywordArg<E>>,
+    pub args: Vec<E>,
 }
 
 pub(crate) trait CoreCallLikeExpr: Sized {
@@ -447,15 +446,13 @@ pub(crate) fn core_intrinsic_expr_with_meta<E: CoreCallLikeExpr>(
     intrinsic: &'static dyn intrinsics::Intrinsic,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
-    args: Vec<CoreBlockPyCallArg<E>>,
-    keywords: Vec<CoreBlockPyKeywordArg<E>>,
+    args: Vec<E>,
 ) -> E {
     E::from_intrinsic(IntrinsicCall {
         intrinsic,
         node_index,
         range,
         args,
-        keywords,
     })
 }
 
@@ -465,15 +462,7 @@ pub(crate) fn core_positional_intrinsic_expr_with_meta<E: CoreCallLikeExpr>(
     range: ruff_text_size::TextRange,
     args: Vec<E>,
 ) -> E {
-    core_intrinsic_expr_with_meta(
-        intrinsic,
-        node_index,
-        range,
-        args.into_iter()
-            .map(CoreBlockPyCallArg::Positional)
-            .collect(),
-        Vec::new(),
-    )
+    core_intrinsic_expr_with_meta(intrinsic, node_index, range, args)
 }
 
 pub(crate) fn core_positional_call_expr_with_meta<E: CoreCallLikeExpr>(
