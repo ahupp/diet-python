@@ -6,9 +6,9 @@ use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta, BindingTarget,
     BlockPyAssign, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
     BlockPyCallableSemanticInfo, BlockPyClassBodyFallback, BlockPyEffectiveBinding,
-    BlockPyFunction, BlockPyIf, BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral, CoreStringLiteral, IntrinsicCall,
+    BlockPyFunction, BlockPyFunctionKind, BlockPyIf, BlockPyModule, BlockPyModuleMap, BlockPyRaise,
+    BlockPyStmt, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
+    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreStringLiteral, IntrinsicCall,
 };
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::CoreBlockPyPass;
@@ -260,6 +260,14 @@ fn core_name_expr(
     })
 }
 
+fn compat_node_index() -> ast::AtomicNodeIndex {
+    ast::AtomicNodeIndex::default()
+}
+
+fn compat_range() -> ruff_text_size::TextRange {
+    ruff_text_size::TextRange::default()
+}
+
 fn class_namespace_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
@@ -425,6 +433,68 @@ fn cell_load_logical_name(expr: &CoreBlockPyExpr) -> Option<String> {
         .as_str()
         .strip_prefix("_dp_cell_")
         .map(str::to_string)
+}
+
+fn build_local_cell_init_assign(
+    storage_name: &str,
+    logical_name: &str,
+    is_parameter: bool,
+) -> BlockPyStmt<CoreBlockPyExpr> {
+    let node_index = compat_node_index();
+    let range = compat_range();
+    let mut args = Vec::new();
+    if is_parameter {
+        args.push(core_name_expr(
+            logical_name,
+            ast::ExprContext::Load,
+            node_index.clone(),
+            range,
+        ));
+    }
+    BlockPyStmt::Assign(BlockPyAssign {
+        target: ast::ExprName {
+            id: storage_name.into(),
+            ctx: ast::ExprContext::Store,
+            node_index: node_index.clone(),
+            range,
+        },
+        value: core_positional_call_expr_with_meta("__dp_make_cell", node_index, range, args),
+    })
+}
+
+fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPass>) {
+    if callable.kind != BlockPyFunctionKind::Function || callable.names.fn_name == "_dp_resume" {
+        return;
+    }
+    let mut storage_names = callable
+        .semantic
+        .local_cell_storage_names()
+        .into_iter()
+        .collect::<Vec<_>>();
+    if storage_names.is_empty() {
+        return;
+    }
+    storage_names.sort();
+    let param_names = callable.params.names().into_iter().collect::<HashSet<_>>();
+    let init_stmts = storage_names
+        .into_iter()
+        .map(|storage_name| {
+            let logical_name = storage_name
+                .strip_prefix("_dp_cell_")
+                .expect("owned local cell storage should have _dp_cell_ prefix");
+            build_local_cell_init_assign(
+                storage_name.as_str(),
+                logical_name,
+                param_names.contains(logical_name),
+            )
+        })
+        .collect::<Vec<_>>();
+    callable
+        .blocks
+        .first_mut()
+        .expect("BlockPyFunction should have at least one block")
+        .body
+        .splice(0..0, init_stmts);
 }
 
 fn store_cell_deleted_logical_name(expr: &CoreBlockPyExpr) -> Option<String> {
@@ -785,6 +855,7 @@ fn lower_name_binding_callable(
         semantic: &semantic,
     }
     .map_fn(callable);
+    prepend_owned_cell_init_preamble(&mut lowered);
     let deleted_names = collect_deleted_names_in_blocks(&lowered.blocks);
     if !deleted_names.is_empty() {
         for block in &mut lowered.blocks {

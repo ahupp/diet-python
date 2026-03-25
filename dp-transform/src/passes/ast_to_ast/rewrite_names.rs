@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use ruff_python_ast::{self as ast, Expr, ExprContext, Stmt};
 
 use super::{
@@ -9,9 +7,8 @@ use super::{
 };
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{
-    passes::ast_to_ast::{ast_rewrite::Rewrite, rewrite_import, scope_helpers::cell_name},
+    passes::ast_to_ast::{ast_rewrite::Rewrite, rewrite_import},
     passes::ruff_to_blockpy,
-    py_stmt,
 };
 
 pub fn rewrite_explicit_bindings(
@@ -37,51 +34,6 @@ impl<'a> NameScopeRewriter<'a> {
         matches!(self.scope.kind(), SemanticScopeKind::Class)
     }
 
-    fn cell_init_needed(&self) -> bool {
-        !self.cell_binding_names().is_empty()
-    }
-
-    fn insert_preamble(&self, body: &mut Suite, param_names: &HashSet<String>) {
-        let mut stmts = Vec::new();
-
-        if self.cell_init_needed() {
-            // TODO: do we need to mut the underlying Scope?
-            let mut names = self.cell_binding_names().into_iter().collect::<Vec<_>>();
-            names.sort();
-            for name in names {
-                let cell = cell_name(&name);
-                if param_names.contains(&name) {
-                    stmts.push(py_stmt!(
-                        "{cell:id} = __dp_make_cell({name:id})",
-                        cell = cell.as_str(),
-                        name = name.as_str(),
-                    ));
-                } else {
-                    stmts.push(py_stmt!(
-                        "{cell:id} = __dp_make_cell()",
-                        cell = cell.as_str()
-                    ));
-                }
-            }
-        }
-        if stmts.is_empty() {
-            return;
-        }
-        let insert_at = match body.first() {
-            Some(Stmt::Expr(ast::StmtExpr { value, .. }))
-                if matches!(value.as_ref(), Expr::StringLiteral(_)) =>
-            {
-                1
-            }
-            _ => 0,
-        };
-        body.splice(insert_at..insert_at, stmts);
-    }
-
-    fn cell_binding_names(&self) -> HashSet<String> {
-        self.scope.local_cell_bindings()
-    }
-
     fn visit_target_expr_preserving_names(&mut self, expr: &mut Expr) {
         if matches!(
             expr,
@@ -94,26 +46,6 @@ impl<'a> NameScopeRewriter<'a> {
         }
         walk_expr(self, expr);
     }
-}
-
-fn collect_parameter_names(parameters: &ast::Parameters) -> HashSet<String> {
-    let mut names = HashSet::new();
-    for param in parameters.posonlyargs.iter() {
-        names.insert(param.parameter.name.to_string());
-    }
-    for param in parameters.args.iter() {
-        names.insert(param.parameter.name.to_string());
-    }
-    for param in parameters.kwonlyargs.iter() {
-        names.insert(param.parameter.name.to_string());
-    }
-    if let Some(param) = &parameters.vararg {
-        names.insert(param.name.to_string());
-    }
-    if let Some(param) = &parameters.kwarg {
-        names.insert(param.name.to_string());
-    }
-    names
 }
 
 impl Transformer for NameScopeRewriter<'_> {
@@ -170,8 +102,6 @@ impl Transformer for NameScopeRewriter<'_> {
 
                 let mut child_rewriter = NameScopeRewriter::new(self.context, child_scope);
                 child_rewriter.visit_body(suite_mut(&mut func_def.body));
-                let param_names = collect_parameter_names(&func_def.parameters);
-                child_rewriter.insert_preamble(suite_mut(&mut func_def.body), &param_names);
             }
             Stmt::ClassDef(class_def) => {
                 for decorator in &mut class_def.decorator_list {

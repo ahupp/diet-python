@@ -996,10 +996,10 @@ def outer():
 
 # function outer():
 #     function_id: 1
+#     entry_liveins: [_dp_cell_x]
 #     local_cell_slots: [_dp_cell_x, _dp_cell_inner]
 #     cellvars: [x->_dp_cell_x@deferred, inner->_dp_cell_inner@deferred]
 #     block _dp_bb_1_1:
-#         _dp_cell_x = __dp_make_cell()
 #         x = 5
 #         inner = __dp_make_function(0, "function", __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_globals(), None)
 #         return inner()
@@ -1066,10 +1066,10 @@ def outer():
 
 # function outer():
 #     function_id: 1
+#     entry_liveins: [_dp_cell_x]
 #     local_cell_slots: [_dp_cell_x, _dp_cell_inner]
 #     cellvars: [x->_dp_cell_x@deferred, inner->_dp_cell_inner@deferred]
 #     block _dp_bb_1_1:
-#         _dp_cell_x = __dp_make_cell()
 #         x = 5
 #         inner = __dp_make_function(0, "function", __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_globals(), None)
 #         return inner()

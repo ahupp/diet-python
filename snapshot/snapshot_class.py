@@ -163,10 +163,10 @@ def outer():
 
 # function outer():
 #     function_id: 2
+#     entry_liveins: [_dp_cell_x]
 #     local_cell_slots: [_dp_cell_Inner, _dp_cell_x, _dp_cell__dp_class_ns_Inner, _dp_cell__dp_define_class_Inner]
 #     cellvars: [Inner->_dp_cell_Inner@deferred, x->_dp_cell_x@deferred, _dp_class_ns_Inner->_dp_cell__dp_class_ns_Inner@deferred, _dp_define_class_Inner->_dp_cell__dp_define_class_Inner@deferred]
 #     block _dp_bb_2_1:
-#         _dp_cell_x = __dp_make_cell()
 #         x = "outer"
 #         _dp_class_ns_Inner = __dp_make_function(0, "function", __dp_tuple(__dp_tuple("_dp_cell_x", _dp_cell_x)), __dp_tuple(), __dp_globals(), None)
 #         _dp_define_class_Inner = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
