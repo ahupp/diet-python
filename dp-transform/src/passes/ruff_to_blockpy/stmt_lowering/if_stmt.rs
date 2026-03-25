@@ -1,6 +1,6 @@
 use super::*;
 use crate::passes::ast_to_ast::ast_rewrite::Rewrite;
-use crate::passes::ast_to_ast::body::{body_from_suite, suite_ref, take_suite, Suite};
+use crate::passes::ast_to_ast::body::{suite_ref, Suite};
 use ruff_text_size::TextRange;
 
 pub(crate) fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
@@ -27,7 +27,7 @@ pub(crate) fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
                 if let Some(body) = else_body.take() {
                     nested_if.elif_else_clauses.push(ast::ElifElseClause {
                         test: None,
-                        body: body_from_suite(body),
+                        body,
                         range: TextRange::default(),
                         node_index: ast::AtomicNodeIndex::default(),
                     });
@@ -37,7 +37,7 @@ pub(crate) fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
             }
             None => {
                 let mut body = clause.body;
-                else_body = Some(take_suite(&mut body));
+                else_body = Some(std::mem::take(&mut body));
             }
         }
     }
@@ -47,7 +47,7 @@ pub(crate) fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
             range: TextRange::default(),
             node_index: ast::AtomicNodeIndex::default(),
             test: None,
-            body: body_from_suite(body),
+            body,
         }];
     } else {
         if_stmt.elif_else_clauses = Vec::new();

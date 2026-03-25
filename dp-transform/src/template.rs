@@ -98,7 +98,7 @@ macro_rules! py_stmt_typed {
     }};
 }
 
-use crate::passes::ast_to_ast::body::{body_from_suite, take_suite, Body, Suite};
+use crate::passes::ast_to_ast::body::Suite;
 use crate::transformer::{walk_expr, walk_keyword, walk_parameter, walk_stmt, Transformer};
 use crate::{namegen::fresh_name, passes::ast_to_ast::simplify::flatten};
 use regex::Regex;
@@ -175,8 +175,8 @@ pub fn expect_stmt<T: StmtTryFrom>(stmt: Stmt, template: &'static str) -> T {
     }
 }
 
-fn body_from_stmts(stmts: Vec<Stmt>) -> Body {
-    body_from_suite(stmts)
+fn body_from_stmts(stmts: Vec<Stmt>) -> Suite {
+    stmts
 }
 
 pub(crate) fn is_simple(expr: &Expr) -> bool {
@@ -281,7 +281,7 @@ impl_into_placeholder_for_stmt!(
     ast::StmtIpyEscapeCommand,
 );
 
-impl IntoPlaceholder for &Body {
+impl IntoPlaceholder for &Suite {
     fn into_placeholder(self) -> Result<PlaceholderValue, Value> {
         Ok(PlaceholderValue::Stmt(self.to_vec()))
     }
@@ -420,7 +420,7 @@ impl SyntaxTemplate {
         };
 
         Self {
-            stmts: take_suite(&mut module.body),
+            stmts: std::mem::take(&mut module.body),
         }
     }
 
@@ -843,10 +843,7 @@ fn parse_dynamic_expr(src: &str, name: &str) -> Expr {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        passes::ast_to_ast::{body::body_from_suite, simplify::flatten},
-        test_util::assert_ast_eq,
-    };
+    use crate::{passes::ast_to_ast::simplify::flatten, test_util::assert_ast_eq};
     use ruff_python_ast::{
         self as ast,
         comparable::{ComparableExpr, ComparableStmt},
@@ -995,7 +992,7 @@ b = 2
 ",
             expr = expr,
         );
-        let mut body = body_from_suite(vec![actual]);
+        let mut body = vec![actual];
         flatten(crate::passes::ast_to_ast::body::suite_mut(&mut body));
         assert_ast_eq(
             body.first()

@@ -1,6 +1,5 @@
 use super::assign_stmt::rewrite_assignment_target;
 use super::*;
-use crate::passes::ast_to_ast::body::take_suite;
 
 impl StmtLowerer for ast::StmtWith {
     fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
@@ -37,7 +36,7 @@ fn maybe_placeholder(expr: Expr) -> (Vec<Stmt>, Expr, bool) {
 pub(super) fn desugar_structured_with_stmt_for_blockpy(with_stmt: ast::StmtWith) -> Vec<Stmt> {
     if with_stmt.items.is_empty() {
         let mut body = with_stmt.body;
-        return take_suite(&mut body);
+        return std::mem::take(&mut body);
     }
 
     let ast::StmtWith {
@@ -48,7 +47,7 @@ pub(super) fn desugar_structured_with_stmt_for_blockpy(with_stmt: ast::StmtWith)
     } = with_stmt;
 
     let mut body = body;
-    let mut lowered_body: Vec<Stmt> = take_suite(&mut body);
+    let mut lowered_body: Vec<Stmt> = std::mem::take(&mut body);
 
     for ast::WithItem {
         context_expr,
@@ -170,7 +169,7 @@ where
         return lower_expanded_stmt_sequence(
             {
                 let mut body = with_stmt.body;
-                take_suite(&mut body)
+                std::mem::take(&mut body)
             },
             remaining_stmts,
             targets,

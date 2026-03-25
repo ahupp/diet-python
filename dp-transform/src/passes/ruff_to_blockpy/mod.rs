@@ -564,7 +564,7 @@ def gen():
         let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
-        let stmt = crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0);
+        let stmt = &func.body[0];
 
         assert!(matches!(
             plan_stmt_sequence_head(&test_context(), stmt),
@@ -586,7 +586,7 @@ def gen():
         let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
-        let stmt = crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0);
+        let stmt = &func.body[0];
 
         assert!(matches!(
             plan_stmt_sequence_head(&test_context(), stmt),
@@ -608,7 +608,7 @@ def f():
         let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
-        let stmt = crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0);
+        let stmt = &func.body[0];
 
         assert!(matches!(
             plan_stmt_sequence_head(&test_context(), stmt),
@@ -630,7 +630,7 @@ def gen(n):
         let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
-        let stmt = crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0);
+        let stmt = &func.body[0];
 
         assert!(matches!(
             plan_stmt_sequence_head(&test_context(), stmt),
@@ -652,7 +652,7 @@ def f():
         let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
-        let stmt = crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0);
+        let stmt = &func.body[0];
 
         assert!(matches!(
             plan_stmt_sequence_head(&test_context(), stmt),
@@ -676,7 +676,7 @@ def f():
         let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
-        let stmt = crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0);
+        let stmt = &func.body[0];
 
         let StmtSequenceHeadPlan::Expanded(body) = plan_stmt_sequence_head(&test_context(), stmt)
         else {
@@ -704,7 +704,7 @@ def f():
         let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
-        let stmt = crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0);
+        let stmt = &func.body[0];
 
         let StmtSequenceHeadPlan::Expanded(body) = plan_stmt_sequence_head(&test_context(), stmt)
         else {
@@ -763,8 +763,7 @@ def f(xs):
         let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
-        let ast::Stmt::For(for_stmt) = crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0)
-        else {
+        let ast::Stmt::For(for_stmt) = &func.body[0] else {
             panic!("expected for stmt");
         };
 
@@ -811,8 +810,7 @@ def f(ctx, value):
         let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
-        let ast::Stmt::With(with_stmt) = crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0)
-        else {
+        let ast::Stmt::With(with_stmt) = &func.body[0] else {
             panic!("expected with stmt");
         };
 
@@ -867,8 +865,7 @@ def f():
         let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
-        let ast::Stmt::Try(try_stmt) = crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0)
-        else {
+        let ast::Stmt::Try(try_stmt) = &func.body[0] else {
             panic!("expected try stmt");
         };
 
@@ -1350,14 +1347,8 @@ def f(x):
         let context = test_context();
         let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
         let mut next_label_id = 0usize;
-        lower_stmt_into(
-            &context,
-            crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0),
-            &mut out,
-            None,
-            &mut next_label_id,
-        )
-        .expect("assert lowering should succeed");
+        lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
+            .expect("assert lowering should succeed");
         let fragment = out.finish();
         assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::If(_)]));
     }
@@ -1378,7 +1369,7 @@ def f():
         let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
-        lower_stmt_for_panic_test(crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0));
+        lower_stmt_for_panic_test(&func.body[0]);
     }
 
     #[test]
@@ -1398,14 +1389,8 @@ def f(x):
         let context = test_context();
         let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
         let mut next_label_id = 0usize;
-        lower_stmt_into(
-            &context,
-            crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0),
-            &mut out,
-            None,
-            &mut next_label_id,
-        )
-        .expect("augassign lowering should succeed");
+        lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
+            .expect("augassign lowering should succeed");
         let fragment = out.finish();
         assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::Assign(_)]));
     }
@@ -1425,7 +1410,7 @@ def f(x):
         let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
-        lower_stmt_for_panic_test(crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0));
+        lower_stmt_for_panic_test(&func.body[0]);
     }
 
     #[test]
@@ -1469,14 +1454,8 @@ def f(x):
         let context = test_context();
         let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
         let mut next_label_id = 0usize;
-        lower_stmt_into(
-            &context,
-            crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0),
-            &mut out,
-            None,
-            &mut next_label_id,
-        )
-        .expect("match lowering should succeed");
+        lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
+            .expect("match lowering should succeed");
         let fragment = out.finish();
         assert!(!fragment.body.is_empty() || fragment.term.is_some());
     }
@@ -1498,14 +1477,8 @@ def f():
         let context = test_context();
         let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
         let mut next_label_id = 0usize;
-        lower_stmt_into(
-            &context,
-            crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0),
-            &mut out,
-            None,
-            &mut next_label_id,
-        )
-        .expect("import lowering should succeed");
+        lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
+            .expect("import lowering should succeed");
         let fragment = out.finish();
         assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::Assign(_)]));
     }
@@ -1527,14 +1500,8 @@ def f():
         let context = test_context();
         let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
         let mut next_label_id = 0usize;
-        lower_stmt_into(
-            &context,
-            crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0),
-            &mut out,
-            None,
-            &mut next_label_id,
-        )
-        .expect("import-from lowering should succeed");
+        lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
+            .expect("import-from lowering should succeed");
         let fragment = out.finish();
         assert!(!fragment.body.is_empty());
     }
@@ -1569,7 +1536,7 @@ def f():
         let ast::Stmt::FunctionDef(func) = &module[0] else {
             panic!("expected function def");
         };
-        lower_stmt_for_panic_test(crate::passes::ast_to_ast::body::stmt_ref(&func.body, 0));
+        lower_stmt_for_panic_test(&func.body[0]);
     }
 
     #[test]

@@ -5,7 +5,7 @@ use crate::passes::ast_to_ast::rewrite_class_def;
 use crate::passes::ast_to_ast::rewrite_expr::ScopedHelperExprPass;
 use crate::passes::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::passes::ast_to_ast::{
-    body::{body_from_suite, split_docstring, suite_mut, take_suite, Suite},
+    body::{split_docstring, suite_mut, Suite},
     rewrite_future_annotations, rewrite_stmt,
     semantic::SemanticAstState,
 };
@@ -26,7 +26,7 @@ pub(crate) fn rewrite_module_with_tracker(
 ) -> BlockPyModule<PreparedBbBlockPyPass> {
     let mut semantic_state: Option<SemanticAstState> = None;
     let mut ast_module = pass_tracker.run_renderable_pass("ast-to-ast", || {
-        let mut module = body_from_suite(std::mem::take(module));
+        let mut module = std::mem::take(module);
 
         // The transform now has a single lowering strategy: basic-block form.
         lower_surrogate_string_literals(context, suite_mut(&mut module));
@@ -81,7 +81,7 @@ pub(crate) fn rewrite_module_with_tracker(
         semantic_state = Some(rewrite_semantic_state);
         module
     });
-    *module = take_suite(&mut ast_module);
+    *module = ast_module;
     let semantic_state = semantic_state.expect("semantic AST state should be available");
 
     /*

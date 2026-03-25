@@ -1,5 +1,5 @@
 use super::*;
-use crate::passes::ast_to_ast::body::{take_suite, Suite};
+use crate::passes::ast_to_ast::body::Suite;
 use log::{log_enabled, trace, Level};
 use ruff_python_ast::{self as ast, name::Name, Expr, Pattern, Stmt};
 use ruff_python_parser::parse_expression;
@@ -494,7 +494,7 @@ pub(crate) fn rewrite_match_stmt(context: &Context, match_stmt: ast::StmtMatch) 
             mut body,
             ..
         } = case;
-        let body = body_to_vec(take_suite(&mut body));
+        let body = body_to_vec(std::mem::take(&mut body));
         use PatternTest::*;
         match test_for_pattern(&pattern, subject_tmp.clone()) {
             Wildcard { assigns } => {

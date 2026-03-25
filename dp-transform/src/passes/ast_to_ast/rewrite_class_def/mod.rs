@@ -2,7 +2,7 @@ pub mod class_body;
 pub mod method;
 pub mod private;
 
-use crate::passes::ast_to_ast::body::empty_body;
+use crate::passes::ast_to_ast::body::empty_suite;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
 use crate::{py_expr, py_stmt, py_stmt_typed};
@@ -29,7 +29,7 @@ fn class_def_to_create_class_fn<'a>(
 
     let type_params = take(type_params);
     let arguments = take(arguments);
-    let mut body = std::mem::replace(body, empty_body().into());
+    let mut body = std::mem::replace(body, empty_suite());
 
     let class_name = name.id.to_string();
     let class_firstlineno = context.line_number_at(class_def.range.start().to_usize());

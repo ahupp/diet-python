@@ -1,6 +1,6 @@
 use super::*;
 use crate::passes::ast_to_ast::ast_rewrite::Rewrite;
-use crate::passes::ast_to_ast::body::{suite_ref, take_suite, Suite};
+use crate::passes::ast_to_ast::body::{suite_ref, Suite};
 use crate::{py_expr, py_stmt};
 
 fn body_to_vec(body: Suite) -> Vec<Stmt> {
@@ -55,9 +55,9 @@ pub(crate) fn rewrite_try_stmt(stmt: ast::StmtTry) -> Rewrite {
             is_star: _,
             ..
         } = stmt;
-        let body = body_to_vec(take_suite(&mut body));
-        let orelse = body_to_vec(take_suite(&mut orelse));
-        let finalbody = body_to_vec(take_suite(&mut finalbody));
+        let body = body_to_vec(std::mem::take(&mut body));
+        let orelse = body_to_vec(std::mem::take(&mut orelse));
+        let finalbody = body_to_vec(std::mem::take(&mut finalbody));
 
         let mut handler_body: Vec<Stmt> = Vec::new();
         handler_body.push(py_stmt!("_dp_exc = __dp_current_exception()"));
@@ -81,10 +81,13 @@ pub(crate) fn rewrite_try_stmt(stmt: ast::StmtTry) -> Rewrite {
                 let exc_target = py_stmt!("{target:id} = _dp_match", target = target);
                 (
                     exc_target,
-                    wrap_handler_body_with_cleanup(target, body_to_vec(take_suite(&mut h_body))),
+                    wrap_handler_body_with_cleanup(
+                        target,
+                        body_to_vec(std::mem::take(&mut h_body)),
+                    ),
                 )
             } else {
-                (py_stmt!("pass"), body_to_vec(take_suite(&mut h_body)))
+                (py_stmt!("pass"), body_to_vec(std::mem::take(&mut h_body)))
             };
 
             handler_body.push(py_stmt!(
@@ -144,9 +147,9 @@ finally:
         is_star: _,
         ..
     } = stmt;
-    let body = body_to_vec(take_suite(&mut body));
-    let orelse = body_to_vec(take_suite(&mut orelse));
-    let finalbody = body_to_vec(take_suite(&mut finalbody));
+    let body = body_to_vec(std::mem::take(&mut body));
+    let orelse = body_to_vec(std::mem::take(&mut orelse));
+    let finalbody = body_to_vec(std::mem::take(&mut finalbody));
 
     let handler_chain = handlers.into_iter().rev().fold(base, |acc, handler| {
         let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
@@ -178,10 +181,10 @@ finally:
             let exc_target = py_stmt!("{target:id} = __dp_current_exception()", target = target,);
             (
                 exc_target,
-                wrap_handler_body_with_cleanup(target, body_to_vec(take_suite(&mut body))),
+                wrap_handler_body_with_cleanup(target, body_to_vec(std::mem::take(&mut body))),
             )
         } else {
-            (py_stmt!("pass"), body_to_vec(take_suite(&mut body)))
+            (py_stmt!("pass"), body_to_vec(std::mem::take(&mut body)))
         };
 
         py_stmt!(

@@ -393,7 +393,6 @@ fn apply_expr_range(expr: &mut Expr, range: TextRange) {
 #[cfg(test)]
 mod tests {
     use super::{rewrite_with_pass, ExprRewritePass, LoweredExpr};
-    use crate::passes::ast_to_ast::body::take_suite;
     use crate::passes::ast_to_ast::{context::Context, Options};
     use crate::py_expr;
     use ruff_python_ast::Expr;
@@ -418,7 +417,7 @@ mod tests {
 def f():
     return x
 "#;
-        let mut module = take_suite(&mut parse_module(source).unwrap().into_syntax().body);
+        let mut module = parse_module(source).unwrap().into_syntax().body;
         let context = Context::new(Options::for_test(), source);
 
         rewrite_with_pass(&context, None, Some(&RenameXExprPass), &mut module);

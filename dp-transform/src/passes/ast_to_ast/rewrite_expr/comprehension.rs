@@ -463,7 +463,7 @@ for {target:expr} in {iter:expr}:
     func_body.extend(body);
     func_body.push(py_stmt!("return {result:expr}", result = result_expr));
 
-    func_def.body = body_from_suite(func_body);
+    func_def.body = func_body;
 
     let mut prefix: Vec<Stmt> = Vec::new();
     for name in dummy_targets {
@@ -600,4 +600,3 @@ fn expr_requires_async(expr: &Expr) -> bool {
     finder.visit_expr(&mut cloned);
     finder.found
 }
-use crate::passes::ast_to_ast::body::body_from_suite;
