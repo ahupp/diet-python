@@ -81,6 +81,11 @@
     - Many lowering paths still stamp emitted exprs/stmts/terms with `default()` node/range metadata, so provenance becomes inconsistent once code is synthesized across multiple transform boundaries.
     - The desired end state is to have one explicit story for where each emitted instruction’s source range comes from: original source span, enclosing source span, or a clearly-marked synthetic span.
     - A good first pass is to inventory the current `compat_*`, `Default::default()`, and synthetic-meta call sites, group them by kind of emission, and choose one boundary where source provenance becomes mandatory and validated for every emitted instruction.
+- Clean up the conversions and related glue in `block_py/mod.rs`.
+  - Planning note:
+    - `block_py/mod.rs` still carries a large amount of conversion glue between neighboring IR/pass shapes, including expression/statement/container conversions that make the file harder to navigate than the core BlockPy model itself.
+    - The desired end state is for `block_py/mod.rs` to mainly define the shared IR types and only the most fundamental traits/helpers, with conversion-heavy code moved closer to the pass boundary that owns it or folded into a smaller explicit conversion module.
+    - A good first pass is to inventory the `From`/`Into`/helper conversion blocks there, group them by source/target boundary, and then peel off one coherent cluster at a time so the file stops being the catch-all for unrelated stage transitions.
 ## Completed
 
 - Move completed TODO entries here and include a short description of the work done.
