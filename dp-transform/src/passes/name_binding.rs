@@ -65,7 +65,7 @@ fn cell_expr_for_name(
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
     core_name_expr(
-        semantic.cell_operand_name(name).as_str(),
+        semantic.cell_storage_name(name).as_str(),
         ast::ExprContext::Load,
         node_index,
         range,

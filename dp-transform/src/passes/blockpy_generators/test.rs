@@ -539,7 +539,7 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
         semantic.resolved_load_binding_kind("total"),
         BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
-    assert_eq!(semantic.cell_operand_name("total"), "total");
+    assert_eq!(semantic.cell_storage_name("total"), "total");
     assert_eq!(
         semantic.binding_kind("_dp_eval_1"),
         Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
@@ -548,7 +548,7 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
         semantic.resolved_load_binding_kind("_dp_eval_1"),
         BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
-    assert_eq!(semantic.cell_operand_name("_dp_eval_1"), "_dp_eval_1");
+    assert_eq!(semantic.cell_storage_name("_dp_eval_1"), "_dp_eval_1");
     assert_eq!(
         semantic.binding_kind("_dp_eval_2"),
         Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
@@ -557,12 +557,12 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
         semantic.resolved_load_binding_kind("_dp_eval_2"),
         BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
-    assert_eq!(semantic.cell_operand_name("_dp_eval_2"), "_dp_eval_2");
+    assert_eq!(semantic.cell_storage_name("_dp_eval_2"), "_dp_eval_2");
     assert_eq!(
         semantic.resolved_load_binding_kind("_dp_pc"),
         BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
-    assert_eq!(semantic.cell_operand_name("_dp_pc"), "_dp_pc");
+    assert_eq!(semantic.cell_storage_name("_dp_pc"), "_dp_pc");
     assert_eq!(
         semantic.binding_kind("_dp_yieldfrom"),
         Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
@@ -571,7 +571,7 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
         semantic.resolved_load_binding_kind("_dp_yieldfrom"),
         BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
-    assert_eq!(semantic.cell_operand_name("_dp_yieldfrom"), "_dp_yieldfrom");
+    assert_eq!(semantic.cell_storage_name("_dp_yieldfrom"), "_dp_yieldfrom");
     assert_eq!(
         semantic.binding_kind("_dp_try_exc_0"),
         Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
@@ -580,5 +580,5 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
         semantic.resolved_load_binding_kind("_dp_try_exc_0"),
         BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
     );
-    assert_eq!(semantic.cell_operand_name("_dp_try_exc_0"), "_dp_try_exc_0");
+    assert_eq!(semantic.cell_storage_name("_dp_try_exc_0"), "_dp_try_exc_0");
 }
