@@ -62,6 +62,11 @@
     - Several later stages still implicitly decide concrete storage/layout details such as which values live in cells, the ordering of closure slots, and stack/local slot numbering.
     - A dedicated pass for those decisions would make the backend-facing layout explicit, instead of spreading that knowledge across generator lowering, closure construction, and codegen-adjacent logic.
     - A good first pass is to identify which existing decisions are semantic versus purely physical layout, then choose one IR boundary where storage class, closure slot index, and stack/local offsets become fixed and immutable.
+- Story for constants (`None`, strings, etc.).
+  - Planning note:
+    - The pipeline still has multiple places that decide how constants are represented, including literal expr forms, `_dp_` builtins, and backend/runtime materialization paths.
+    - The desired end state is to have one clear story for when constants remain abstract IR literals versus when they become fixed runtime objects or named runtime helpers.
+    - A good first pass is to inventory the current handling of `None`/`True`/`False`/ellipsis, strings/bytes, tuples of constants, and large literals, then choose one pass boundary where constant representation becomes final for all backends.
 - Handle integer literals larger than can fit in an `i64`.
   - Planning note:
     - The current direct-simple JIT literal planning in `soac-eval/src/jit/planning.rs` only lowers integer literals that fit in `i64`, so larger Python ints fall out of that fast path.
