@@ -15,9 +15,17 @@
   --bg-2: #132438;
   --card: rgba(11, 18, 28, 0.82);
   --line: rgba(186, 208, 233, 0.14);
+  --line-strong: rgba(186, 208, 233, 0.26);
   --ink-0: #edf3fb;
   --ink-1: #a4b7cc;
   --ink-2: #6e8398;
+  --code: #7fd4ff;
+  --tests: #ffd166;
+  --churn: #ff8c69;
+  --tokens-in: #5bd6a0;
+  --tokens-out: #ff6f91;
+  --brush-fill: rgba(127, 212, 255, 0.16);
+  --brush-stroke: rgba(127, 212, 255, 0.9);
 }
 
 * {
@@ -43,7 +51,8 @@ body {
 
 .hero,
 .summary-card,
-.chart-card {
+.chart-card,
+.zoom-card {
   border: 1px solid var(--line);
   border-radius: 20px;
   background: var(--card);
@@ -155,6 +164,44 @@ h1 {
   color: var(--ink-2);
 }
 
+.zoom-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+}
+
+.zoom-copy {
+  margin: 0;
+  color: var(--ink-1);
+  line-height: 1.5;
+}
+
+.zoom-label {
+  margin-top: 6px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.9rem;
+  color: var(--ink-0);
+}
+
+.zoom-reset {
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: rgba(15, 26, 38, 0.95);
+  color: var(--ink-0);
+  font: inherit;
+  font-weight: 700;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+
+.zoom-reset[disabled] {
+  opacity: 0.42;
+  cursor: default;
+}
+
 .chart-stack {
   display: flex;
   flex-direction: column;
@@ -182,12 +229,19 @@ h1 {
   line-height: 1.45;
 }
 
-.chart-image {
+.chart-host {
   width: 100%;
-  display: block;
+  min-height: 360px;
   border-radius: 18px;
   border: 1px solid rgba(186, 208, 233, 0.14);
   background: rgba(7, 13, 20, 0.4);
+  overflow: hidden;
+}
+
+.chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 code {
@@ -201,6 +255,11 @@ code {
 
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .zoom-card {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
@@ -224,8 +283,8 @@ code {
       <p class="eyebrow">Repository History</p>
       <h1>Code growth, test growth, churn, and Codex usage.</h1>
       <p>
-        This static report is emitted by <code>scripts/build_history_metrics_rollup.py</code>.
-        The charts below are plain SVG assets with no client-side JavaScript.
+        This report is emitted as one static HTML file with embedded rollup data.
+        Drag across any chart to select a date window and all three charts will zoom to that span.
       </p>
     </div>
     <div class="meta-panel">
@@ -273,13 +332,21 @@ code {
     </article>
   </section>
 
+  <section class="zoom-card">
+    <div>
+      <p class="zoom-copy">Brush any chart to zoom the full stack. The selection is shared across LOC, churn, and token usage.</p>
+      <div class="zoom-label" id="zoom-label">Viewing all available days</div>
+    </div>
+    <button class="zoom-reset" id="zoom-reset" type="button" disabled>Reset Zoom</button>
+  </section>
+
   <section class="chart-stack">
     <article class="chart-card">
       <div class="chart-head">
         <h2 class="chart-title">End-of-Day LOC</h2>
         <p class="chart-copy">Blue is repository code LOC with top-level <code>__dp__.py</code> folded in. Gold is total Python LOC under <code>tests/</code>.</p>
       </div>
-      <img class="chart-image" src="__LOC_CHART__" alt="End-of-day code and test LOC chart" />
+      <div class="chart-host" id="loc-chart"></div>
     </article>
 
     <article class="chart-card">
@@ -287,7 +354,7 @@ code {
         <h2 class="chart-title">Daily Churn</h2>
         <p class="chart-copy">Each bar is the sum of insertions and deletions from <code>jj show --stat</code> across commits that landed on that day.</p>
       </div>
-      <img class="chart-image" src="__CHURN_CHART__" alt="Daily churn chart" />
+      <div class="chart-host" id="churn-chart"></div>
     </article>
 
     <article class="chart-card">
@@ -295,9 +362,560 @@ code {
         <h2 class="chart-title">Daily Codex Token Usage</h2>
         <p class="chart-copy">Green shows aggregated input tokens and pink shows aggregated output tokens from repo-local sessions rooted at <code>__CODEX_CWD_PREFIXES__</code>.</p>
       </div>
-      <img class="chart-image" src="__TOKENS_CHART__" alt="Daily Codex token usage chart" />
+      <div class="chart-host" id="tokens-chart"></div>
     </article>
   </section>
 </div>
+
+<script id="history-metrics-data" type="application/json">__REPORT_DATA_JSON__</script>
+<script>
+const CHART_DIMENSIONS = {
+  width: 1200,
+  height: 360,
+  marginLeft: 78,
+  marginRight: 24,
+  marginTop: 28,
+  marginBottom: 52,
+};
+
+CHART_DIMENSIONS.plotWidth =
+  CHART_DIMENSIONS.width - CHART_DIMENSIONS.marginLeft - CHART_DIMENSIONS.marginRight;
+CHART_DIMENSIONS.plotHeight =
+  CHART_DIMENSIONS.height - CHART_DIMENSIONS.marginTop - CHART_DIMENSIONS.marginBottom;
+
+const COLORS = {
+  code: "#7fd4ff",
+  tests: "#ffd166",
+  churn: "#ff8c69",
+  tokensIn: "#5bd6a0",
+  tokensOut: "#ff6f91",
+};
+
+const reportData = JSON.parse(document.getElementById("history-metrics-data").textContent);
+const dailyRollup = Array.isArray(reportData.dailyRollup) ? reportData.dailyRollup : [];
+const dailyTokens = Array.isArray(reportData.dailyTokens) ? reportData.dailyTokens : [];
+const allDates = Array.from(
+  new Set(
+    dailyRollup.map((entry) => entry.date).concat(dailyTokens.map((entry) => entry.date))
+  )
+).sort();
+
+const rollupByDate = new Map(dailyRollup.map((entry) => [entry.date, entry]));
+const tokensByDate = new Map(dailyTokens.map((entry) => [entry.date, entry]));
+
+let viewStart = 0;
+let viewEnd = Math.max(0, allDates.length - 1);
+
+const zoomLabel = document.getElementById("zoom-label");
+const zoomReset = document.getElementById("zoom-reset");
+zoomReset.addEventListener("click", () => {
+  if (!allDates.length) {
+    return;
+  }
+  viewStart = 0;
+  viewEnd = allDates.length - 1;
+  renderAllCharts();
+});
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (match) => {
+    switch (match) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return match;
+    }
+  });
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat("en-US").format(Math.round(value));
+}
+
+function xForIndex(index, count) {
+  if (count <= 1) {
+    return CHART_DIMENSIONS.marginLeft + CHART_DIMENSIONS.plotWidth / 2;
+  }
+  return (
+    CHART_DIMENSIONS.marginLeft +
+    (CHART_DIMENSIONS.plotWidth * index) / (count - 1)
+  );
+}
+
+function yForValue(value, domainMax) {
+  return (
+    CHART_DIMENSIONS.marginTop +
+    CHART_DIMENSIONS.plotHeight -
+    (value / domainMax) * CHART_DIMENSIONS.plotHeight
+  );
+}
+
+function labelStride(count) {
+  return Math.max(1, Math.ceil(count / 6));
+}
+
+function visibleDates() {
+  if (!allDates.length) {
+    return [];
+  }
+  return allDates.slice(viewStart, viewEnd + 1);
+}
+
+function currentWindowLabel() {
+  if (!allDates.length) {
+    return "No data available";
+  }
+  if (viewStart === 0 && viewEnd === allDates.length - 1) {
+    return "Viewing all available days";
+  }
+  return "Viewing " + allDates[viewStart] + " to " + allDates[viewEnd];
+}
+
+function renderLegend(entries) {
+  const parts = [];
+  let x = CHART_DIMENSIONS.width - 220;
+  let y = 22;
+  entries.forEach((entry, index) => {
+    const entryY = y + index * 20;
+    parts.push(
+      '<circle cx="' + x + '" cy="' + entryY + '" r="5" fill="' + entry.color + '" />'
+    );
+    parts.push(
+      '<text x="' +
+        (x + 14) +
+        '" y="' +
+        (entryY + 4) +
+        '" fill="#a4b7cc" font-size="13" font-family="Manrope, Segoe UI, sans-serif">' +
+        escapeHtml(entry.name) +
+        "</text>"
+    );
+  });
+  return parts.join("");
+}
+
+function renderYAxis(domainMax) {
+  const parts = [];
+  for (let tick = 0; tick < 5; tick += 1) {
+    const value = (domainMax * tick) / 4;
+    const y = yForValue(value, domainMax);
+    parts.push(
+      '<line x1="' +
+        CHART_DIMENSIONS.marginLeft +
+        '" x2="' +
+        (CHART_DIMENSIONS.width - CHART_DIMENSIONS.marginRight) +
+        '" y1="' +
+        y.toFixed(1) +
+        '" y2="' +
+        y.toFixed(1) +
+        '" stroke="rgba(186, 208, 233, 0.14)" stroke-width="1" />'
+    );
+    parts.push(
+      '<text x="' +
+        (CHART_DIMENSIONS.marginLeft - 10) +
+        '" y="' +
+        (y + 4).toFixed(1) +
+        '" text-anchor="end" fill="#6e8398" font-size="11" font-family="IBM Plex Mono, monospace">' +
+        escapeHtml(formatNumber(value)) +
+        "</text>"
+    );
+  }
+  parts.push(
+    '<line x1="' +
+      CHART_DIMENSIONS.marginLeft +
+      '" x2="' +
+      (CHART_DIMENSIONS.width - CHART_DIMENSIONS.marginRight) +
+      '" y1="' +
+      (CHART_DIMENSIONS.height - CHART_DIMENSIONS.marginBottom) +
+      '" y2="' +
+      (CHART_DIMENSIONS.height - CHART_DIMENSIONS.marginBottom) +
+      '" stroke="rgba(186, 208, 233, 0.24)" stroke-width="1" />'
+  );
+  return parts.join("");
+}
+
+function renderXAxis(dates) {
+  const parts = [];
+  const stride = labelStride(dates.length);
+  dates.forEach((date, index) => {
+    if (index % stride !== 0 && index !== dates.length - 1) {
+      return;
+    }
+    const x = xForIndex(index, dates.length);
+    const anchor = index === dates.length - 1 ? "end" : "middle";
+    parts.push(
+      '<text x="' +
+        x.toFixed(1) +
+        '" y="' +
+        (CHART_DIMENSIONS.height - 18) +
+        '" text-anchor="' +
+        anchor +
+        '" fill="#6e8398" font-size="11" font-family="IBM Plex Mono, monospace">' +
+        escapeHtml(date) +
+        "</text>"
+    );
+  });
+  return parts.join("");
+}
+
+function lineSegments(dates, values, domainMax) {
+  const segments = [];
+  let current = [];
+  dates.forEach((date, index) => {
+    const value = values.get(date);
+    if (value == null) {
+      if (current.length) {
+        segments.push(current);
+        current = [];
+      }
+      return;
+    }
+    current.push({
+      x: xForIndex(index, dates.length),
+      y: yForValue(value, domainMax),
+      value,
+    });
+  });
+  if (current.length) {
+    segments.push(current);
+  }
+  return segments;
+}
+
+function renderEmptyChart(host, message) {
+  host.innerHTML =
+    '<svg class="chart-svg" viewBox="0 0 ' +
+    CHART_DIMENSIONS.width +
+    " " +
+    CHART_DIMENSIONS.height +
+    '" aria-hidden="true">' +
+    '<rect x="0" y="0" width="' +
+    CHART_DIMENSIONS.width +
+    '" height="' +
+    CHART_DIMENSIONS.height +
+    '" rx="18" fill="#09131d" />' +
+    '<text x="' +
+    (CHART_DIMENSIONS.width / 2).toFixed(1) +
+    '" y="' +
+    (CHART_DIMENSIONS.height / 2).toFixed(1) +
+    '" text-anchor="middle" fill="#a4b7cc" font-size="16" font-family="Manrope, Segoe UI, sans-serif">' +
+    escapeHtml(message) +
+    "</text></svg>";
+}
+
+function attachBrush(host, visibleCount) {
+  const surface = host.querySelector(".brush-surface");
+  const selection = host.querySelector(".brush-selection");
+  if (!surface || !selection || visibleCount <= 1) {
+    return;
+  }
+
+  const indexFromClientX = (clientX) => {
+    const bounds = surface.getBoundingClientRect();
+    const clampedX = Math.max(0, Math.min(bounds.width, clientX - bounds.left));
+    const ratio = bounds.width <= 0 ? 0 : clampedX / bounds.width;
+    return Math.round(ratio * (visibleCount - 1));
+  };
+
+  const selectionBounds = (startIndex, endIndex) => {
+    const leftIndex = Math.min(startIndex, endIndex);
+    const rightIndex = Math.max(startIndex, endIndex);
+    const left = xForIndex(leftIndex, visibleCount);
+    const right = xForIndex(rightIndex, visibleCount);
+    return {
+      x: Math.min(left, right),
+      width: Math.max(6, Math.abs(right - left)),
+    };
+  };
+
+  let dragStartIndex = null;
+
+  const onPointerMove = (event) => {
+    if (dragStartIndex == null) {
+      return;
+    }
+    const currentIndex = indexFromClientX(event.clientX);
+    const bounds = selectionBounds(dragStartIndex, currentIndex);
+    selection.setAttribute("x", bounds.x.toFixed(1));
+    selection.setAttribute("width", bounds.width.toFixed(1));
+    selection.style.display = "block";
+  };
+
+  const finishDrag = (event) => {
+    if (dragStartIndex == null) {
+      return;
+    }
+    const startIndex = dragStartIndex;
+    dragStartIndex = null;
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", finishDrag);
+    window.removeEventListener("pointercancel", finishDrag);
+    const endIndex = indexFromClientX(event.clientX);
+    selection.style.display = "none";
+    if (startIndex === endIndex) {
+      return;
+    }
+    const nextStart = viewStart + Math.min(startIndex, endIndex);
+    const nextEnd = viewStart + Math.max(startIndex, endIndex);
+    if (nextStart === viewStart && nextEnd === viewEnd) {
+      return;
+    }
+    viewStart = nextStart;
+    viewEnd = nextEnd;
+    renderAllCharts();
+  };
+
+  surface.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    dragStartIndex = indexFromClientX(event.clientX);
+    const bounds = selectionBounds(dragStartIndex, dragStartIndex);
+    selection.setAttribute("x", bounds.x.toFixed(1));
+    selection.setAttribute("width", bounds.width.toFixed(1));
+    selection.style.display = "block";
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", finishDrag);
+    window.addEventListener("pointercancel", finishDrag);
+  });
+}
+
+function renderLineChart(hostId, series) {
+  const host = document.getElementById(hostId);
+  const dates = visibleDates();
+  if (!dates.length) {
+    renderEmptyChart(host, "No data available.");
+    return;
+  }
+
+  const allValues = [];
+  series.forEach((entry) => {
+    dates.forEach((date) => {
+      const value = entry.values.get(date);
+      if (value != null) {
+        allValues.push(value);
+      }
+    });
+  });
+  if (!allValues.length) {
+    renderEmptyChart(host, "No data available in the selected window.");
+    return;
+  }
+
+  const domainMax = Math.max(1, Math.max(...allValues) * 1.08);
+  const plotClipId = hostId + "-plot-clip";
+  const dataParts = [];
+
+  series.forEach((entry) => {
+    lineSegments(dates, entry.values, domainMax).forEach((segment) => {
+      const polylinePoints = segment
+        .map((point) => point.x.toFixed(1) + "," + point.y.toFixed(1))
+        .join(" ");
+      dataParts.push(
+        '<polyline points="' +
+          polylinePoints +
+          '" fill="none" stroke="' +
+          entry.color +
+          '" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />'
+      );
+      segment.forEach((point) => {
+        dataParts.push(
+          '<circle cx="' +
+            point.x.toFixed(1) +
+            '" cy="' +
+            point.y.toFixed(1) +
+            '" r="3.5" fill="' +
+            entry.color +
+            '" />'
+        );
+      });
+    });
+  });
+
+  host.innerHTML =
+    '<svg class="chart-svg" viewBox="0 0 ' +
+    CHART_DIMENSIONS.width +
+    " " +
+    CHART_DIMENSIONS.height +
+    '">' +
+    '<defs><clipPath id="' +
+    plotClipId +
+    '"><rect x="' +
+    CHART_DIMENSIONS.marginLeft +
+    '" y="' +
+    CHART_DIMENSIONS.marginTop +
+    '" width="' +
+    CHART_DIMENSIONS.plotWidth +
+    '" height="' +
+    CHART_DIMENSIONS.plotHeight +
+    '" rx="12" /></clipPath></defs>' +
+    '<rect x="0" y="0" width="' +
+    CHART_DIMENSIONS.width +
+    '" height="' +
+    CHART_DIMENSIONS.height +
+    '" rx="18" fill="#09131d" />' +
+    renderLegend(series) +
+    renderYAxis(domainMax) +
+    renderXAxis(dates) +
+    '<g clip-path="url(#' +
+    plotClipId +
+    ')">' +
+    dataParts.join("") +
+    "</g>" +
+    '<rect x="' +
+    CHART_DIMENSIONS.marginLeft +
+    '" y="' +
+    CHART_DIMENSIONS.marginTop +
+    '" width="' +
+    CHART_DIMENSIONS.plotWidth +
+    '" height="' +
+    CHART_DIMENSIONS.plotHeight +
+    '" fill="transparent" stroke="rgba(186, 208, 233, 0.12)" stroke-width="1" rx="12" />' +
+    '<rect class="brush-selection" x="' +
+    CHART_DIMENSIONS.marginLeft +
+    '" y="' +
+    CHART_DIMENSIONS.marginTop +
+    '" width="0" height="' +
+    CHART_DIMENSIONS.plotHeight +
+    '" fill="var(--brush-fill)" stroke="var(--brush-stroke)" stroke-width="1" rx="10" style="display:none" />' +
+    '<rect class="brush-surface" x="' +
+    CHART_DIMENSIONS.marginLeft +
+    '" y="' +
+    CHART_DIMENSIONS.marginTop +
+    '" width="' +
+    CHART_DIMENSIONS.plotWidth +
+    '" height="' +
+    CHART_DIMENSIONS.plotHeight +
+    '" fill="transparent" style="cursor:crosshair" />' +
+    "</svg>";
+
+  attachBrush(host, dates.length);
+}
+
+function renderBarChart(hostId, values, color, legendName) {
+  const host = document.getElementById(hostId);
+  const dates = visibleDates();
+  if (!dates.length) {
+    renderEmptyChart(host, "No data available.");
+    return;
+  }
+
+  const visibleValues = dates.map((date) => values.get(date) || 0);
+  const domainMax = Math.max(1, Math.max(...visibleValues) * 1.08);
+  const barWidth = CHART_DIMENSIONS.plotWidth / Math.max(visibleValues.length, 1);
+  const barParts = visibleValues.map((value, index) => {
+    const x = CHART_DIMENSIONS.marginLeft + index * barWidth + barWidth * 0.16;
+    const y = yForValue(value, domainMax);
+    const height = Math.max(
+      0,
+      CHART_DIMENSIONS.height - CHART_DIMENSIONS.marginBottom - y
+    );
+    return (
+      '<rect x="' +
+      x.toFixed(1) +
+      '" y="' +
+      y.toFixed(1) +
+      '" width="' +
+      Math.max(2, barWidth * 0.68).toFixed(1) +
+      '" height="' +
+      height.toFixed(1) +
+      '" rx="4" fill="' +
+      color +
+      '" opacity="0.82" />'
+    );
+  });
+
+  host.innerHTML =
+    '<svg class="chart-svg" viewBox="0 0 ' +
+    CHART_DIMENSIONS.width +
+    " " +
+    CHART_DIMENSIONS.height +
+    '">' +
+    '<rect x="0" y="0" width="' +
+    CHART_DIMENSIONS.width +
+    '" height="' +
+    CHART_DIMENSIONS.height +
+    '" rx="18" fill="#09131d" />' +
+    renderLegend([{ name: legendName, color }]) +
+    renderYAxis(domainMax) +
+    renderXAxis(dates) +
+    barParts.join("") +
+    '<rect x="' +
+    CHART_DIMENSIONS.marginLeft +
+    '" y="' +
+    CHART_DIMENSIONS.marginTop +
+    '" width="' +
+    CHART_DIMENSIONS.plotWidth +
+    '" height="' +
+    CHART_DIMENSIONS.plotHeight +
+    '" fill="transparent" stroke="rgba(186, 208, 233, 0.12)" stroke-width="1" rx="12" />' +
+    '<rect class="brush-selection" x="' +
+    CHART_DIMENSIONS.marginLeft +
+    '" y="' +
+    CHART_DIMENSIONS.marginTop +
+    '" width="0" height="' +
+    CHART_DIMENSIONS.plotHeight +
+    '" fill="var(--brush-fill)" stroke="var(--brush-stroke)" stroke-width="1" rx="10" style="display:none" />' +
+    '<rect class="brush-surface" x="' +
+    CHART_DIMENSIONS.marginLeft +
+    '" y="' +
+    CHART_DIMENSIONS.marginTop +
+    '" width="' +
+    CHART_DIMENSIONS.plotWidth +
+    '" height="' +
+    CHART_DIMENSIONS.plotHeight +
+    '" fill="transparent" style="cursor:crosshair" />' +
+    "</svg>";
+
+  attachBrush(host, dates.length);
+}
+
+function renderAllCharts() {
+  zoomLabel.textContent = currentWindowLabel();
+  zoomReset.disabled = !allDates.length || (viewStart === 0 && viewEnd === allDates.length - 1);
+
+  renderLineChart("loc-chart", [
+    {
+      name: "Code LOC",
+      color: COLORS.code,
+      values: new Map(dailyRollup.map((entry) => [entry.date, Number(entry.code_lines)])),
+    },
+    {
+      name: "Test LOC",
+      color: COLORS.tests,
+      values: new Map(
+        dailyRollup.map((entry) => [entry.date, Number(entry.tests_python_total_lines)])
+      ),
+    },
+  ]);
+
+  renderBarChart(
+    "churn-chart",
+    new Map(dailyRollup.map((entry) => [entry.date, Number(entry.daily_churn)])),
+    COLORS.churn,
+    "Lines changed"
+  );
+
+  renderLineChart("tokens-chart", [
+    {
+      name: "Input tokens",
+      color: COLORS.tokensIn,
+      values: new Map(dailyTokens.map((entry) => [entry.date, Number(entry.input_tokens)])),
+    },
+    {
+      name: "Output tokens",
+      color: COLORS.tokensOut,
+      values: new Map(dailyTokens.map((entry) => [entry.date, Number(entry.output_tokens)])),
+    },
+  ]);
+}
+
+renderAllCharts();
+</script>
 </body>
 </html>

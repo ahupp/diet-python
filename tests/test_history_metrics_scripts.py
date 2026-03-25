@@ -448,7 +448,7 @@ def test_collect_daily_tokens_uses_repo_local_session_deltas(tmp_path: Path):
     ]
 
 
-def test_write_static_report_emits_html_and_svgs(tmp_path: Path):
+def test_write_static_report_emits_interactive_html(tmp_path: Path):
     module = load_module(REPO_ROOT / "scripts" / "build_history_metrics_rollup.py", "build_history_metrics_rollup_static")
     html_output = tmp_path / "history_metrics_smoke.html"
     module.write_static_report(
@@ -477,13 +477,21 @@ def test_write_static_report_emits_html_and_svgs(tmp_path: Path):
     )
 
     html = html_output.read_text(encoding="utf-8")
-    assert "<script" not in html
-    assert 'src="history_metrics_smoke_loc.svg"' in html
-    assert 'src="history_metrics_smoke_churn.svg"' in html
-    assert 'src="history_metrics_smoke_tokens.svg"' in html
+    assert '<script id="history-metrics-data" type="application/json">' in html
+    assert 'id="loc-chart"' in html
+    assert 'id="churn-chart"' in html
+    assert 'id="tokens-chart"' in html
+    assert 'id="zoom-reset"' in html
+    assert "Brush any chart to zoom the full stack." in html
+    assert 'renderAllCharts();' in html
     assert "123" in html
+    assert "2026-03-25" in html
+    assert "300" in html
     assert str(REPO_ROOT) in html
     assert str(REPO_ROOT.parent / "diet-python") in html
-    assert (tmp_path / "history_metrics_smoke_loc.svg").read_text(encoding="utf-8").startswith("<svg")
-    assert (tmp_path / "history_metrics_smoke_churn.svg").read_text(encoding="utf-8").startswith("<svg")
-    assert (tmp_path / "history_metrics_smoke_tokens.svg").read_text(encoding="utf-8").startswith("<svg")
+    assert "history_metrics_smoke_loc.svg" not in html
+    assert "history_metrics_smoke_churn.svg" not in html
+    assert "history_metrics_smoke_tokens.svg" not in html
+    assert not (tmp_path / "history_metrics_smoke_loc.svg").exists()
+    assert not (tmp_path / "history_metrics_smoke_churn.svg").exists()
+    assert not (tmp_path / "history_metrics_smoke_tokens.svg").exists()

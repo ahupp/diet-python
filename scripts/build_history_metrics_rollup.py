@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 from dataclasses import dataclass
 from datetime import datetime
 from html import escape
@@ -21,19 +20,6 @@ DEFAULT_CODEX_CWD_PREFIXES = [
 DEFAULT_TIMEZONE = "America/Los_Angeles"
 DEFAULT_HTML_OUTPUT = REPO_ROOT / "web" / "history_metrics.html"
 DEFAULT_HTML_TEMPLATE = REPO_ROOT / "web" / "history_metrics_template.html"
-SVG_WIDTH = 1200
-SVG_HEIGHT = 360
-SVG_MARGIN_LEFT = 78
-SVG_MARGIN_RIGHT = 24
-SVG_MARGIN_TOP = 78
-SVG_MARGIN_BOTTOM = 52
-SVG_PLOT_WIDTH = SVG_WIDTH - SVG_MARGIN_LEFT - SVG_MARGIN_RIGHT
-SVG_PLOT_HEIGHT = SVG_HEIGHT - SVG_MARGIN_TOP - SVG_MARGIN_BOTTOM
-COLOR_CODE = "#7fd4ff"
-COLOR_TESTS = "#ffd166"
-COLOR_CHURN = "#ff8c69"
-COLOR_TOKENS_IN = "#5bd6a0"
-COLOR_TOKENS_OUT = "#ff6f91"
 
 
 @dataclass(frozen=True)
@@ -47,7 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Read per-commit history metrics JSONL, build a daily rollup, and emit "
-            "a static HTML report plus SVG chart assets."
+            "a self-contained HTML report with embedded data."
         )
     )
     parser.add_argument(
@@ -247,178 +233,6 @@ def format_number(value: int) -> str:
     return f"{value:,}"
 
 
-def x_for_index(index: int, count: int) -> float:
-    if count <= 1:
-        return SVG_MARGIN_LEFT + SVG_PLOT_WIDTH / 2
-    return SVG_MARGIN_LEFT + (SVG_PLOT_WIDTH * index) / (count - 1)
-
-
-def y_for_value(value: float, domain_max: float) -> float:
-    return SVG_MARGIN_TOP + SVG_PLOT_HEIGHT - (value / domain_max) * SVG_PLOT_HEIGHT
-
-
-def label_stride(count: int) -> int:
-    return max(1, math.ceil(count / 6))
-
-
-def svg_style() -> str:
-    return """
-<style>
-.frame { fill: #09131d; }
-.title { fill: #edf3fb; font: 800 24px Manrope, 'Segoe UI', sans-serif; }
-.subtitle { fill: #a4b7cc; font: 14px Manrope, 'Segoe UI', sans-serif; }
-.legend { fill: #a4b7cc; font: 13px Manrope, 'Segoe UI', sans-serif; }
-.grid-line { stroke: rgba(186, 208, 233, 0.14); stroke-width: 1; }
-.domain { stroke: rgba(186, 208, 233, 0.24); stroke-width: 1; }
-.axis-label { fill: #6e8398; font: 11px 'IBM Plex Mono', monospace; }
-.empty { fill: #a4b7cc; font: 15px Manrope, 'Segoe UI', sans-serif; }
-</style>
-""".strip()
-
-
-def render_empty_chart_svg(title: str, subtitle: str, message: str) -> str:
-    return "\n".join(
-        [
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{SVG_WIDTH}" height="{SVG_HEIGHT}" viewBox="0 0 {SVG_WIDTH} {SVG_HEIGHT}">',
-            svg_style(),
-            f'<rect class="frame" x="0" y="0" width="{SVG_WIDTH}" height="{SVG_HEIGHT}" rx="18" />',
-            f'<text class="title" x="28" y="34">{escape(title)}</text>',
-            f'<text class="subtitle" x="28" y="58">{escape(subtitle)}</text>',
-            f'<text class="empty" x="{SVG_WIDTH / 2:.1f}" y="{SVG_HEIGHT / 2:.1f}" text-anchor="middle">{escape(message)}</text>',
-            "</svg>",
-        ]
-    )
-
-
-def render_legend(entries: list[tuple[str, str]]) -> list[str]:
-    legend_parts: list[str] = []
-    x = SVG_WIDTH - 230
-    y = 30
-    for index, (label, color) in enumerate(entries):
-        entry_y = y + index * 20
-        legend_parts.append(f'<circle cx="{x}" cy="{entry_y}" r="5" fill="{color}" />')
-        legend_parts.append(f'<text class="legend" x="{x + 14}" y="{entry_y + 4}">{escape(label)}</text>')
-    return legend_parts
-
-
-def render_line_chart_svg(
-    *,
-    title: str,
-    subtitle: str,
-    labels: list[str],
-    series: list[dict[str, Any]],
-) -> str:
-    if not labels or not series or all(not entry["values"] for entry in series):
-        return render_empty_chart_svg(title, subtitle, "No data available.")
-
-    all_values = [value for entry in series for value in entry["values"]]
-    y_max = max(all_values) if all_values else 0
-    domain_max = 1.0 if y_max <= 0 else y_max * 1.08
-    parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{SVG_WIDTH}" height="{SVG_HEIGHT}" viewBox="0 0 {SVG_WIDTH} {SVG_HEIGHT}">',
-        svg_style(),
-        f'<rect class="frame" x="0" y="0" width="{SVG_WIDTH}" height="{SVG_HEIGHT}" rx="18" />',
-        f'<text class="title" x="28" y="34">{escape(title)}</text>',
-        f'<text class="subtitle" x="28" y="58">{escape(subtitle)}</text>',
-    ]
-    parts.extend(render_legend([(entry["name"], entry["color"]) for entry in series]))
-
-    for tick in range(5):
-        value = domain_max * tick / 4
-        y = y_for_value(value, domain_max)
-        parts.append(
-            f'<line class="grid-line" x1="{SVG_MARGIN_LEFT}" x2="{SVG_WIDTH - SVG_MARGIN_RIGHT}" y1="{y:.1f}" y2="{y:.1f}" />'
-        )
-        parts.append(
-            f'<text class="axis-label" x="{SVG_MARGIN_LEFT - 10}" y="{y + 4:.1f}" text-anchor="end">{escape(format_number(round(value)))}</text>'
-        )
-
-    parts.append(
-        f'<line class="domain" x1="{SVG_MARGIN_LEFT}" x2="{SVG_WIDTH - SVG_MARGIN_RIGHT}" y1="{SVG_HEIGHT - SVG_MARGIN_BOTTOM}" y2="{SVG_HEIGHT - SVG_MARGIN_BOTTOM}" />'
-    )
-
-    stride = label_stride(len(labels))
-    for index, label in enumerate(labels):
-        if index % stride != 0 and index != len(labels) - 1:
-            continue
-        x = x_for_index(index, len(labels))
-        anchor = "end" if index == len(labels) - 1 else "middle"
-        parts.append(
-            f'<text class="axis-label" x="{x:.1f}" y="{SVG_HEIGHT - 18}" text-anchor="{anchor}">{escape(label)}</text>'
-        )
-
-    baseline = SVG_HEIGHT - SVG_MARGIN_BOTTOM
-    for entry in series:
-        points = " ".join(
-            f"{x_for_index(index, len(labels)):.1f},{y_for_value(value, domain_max):.1f}"
-            for index, value in enumerate(entry["values"])
-        )
-        if not points:
-            continue
-        first_x = x_for_index(0, len(labels))
-        last_x = x_for_index(len(labels) - 1, len(labels))
-        area_points = f"{first_x:.1f},{baseline} {points} {last_x:.1f},{baseline}"
-        parts.append(f'<polygon points="{area_points}" fill="{entry["color"]}" opacity="0.1" />')
-        parts.append(
-            f'<polyline points="{points}" fill="none" stroke="{entry["color"]}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />'
-        )
-
-    parts.append("</svg>")
-    return "\n".join(parts)
-
-
-def render_bar_chart_svg(*, title: str, subtitle: str, labels: list[str], values: list[int], color: str) -> str:
-    if not labels or not values:
-        return render_empty_chart_svg(title, subtitle, "No data available.")
-
-    y_max = max(values) if values else 0
-    domain_max = 1.0 if y_max <= 0 else y_max * 1.08
-    bar_width = SVG_PLOT_WIDTH / max(len(values), 1)
-    parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{SVG_WIDTH}" height="{SVG_HEIGHT}" viewBox="0 0 {SVG_WIDTH} {SVG_HEIGHT}">',
-        svg_style(),
-        f'<rect class="frame" x="0" y="0" width="{SVG_WIDTH}" height="{SVG_HEIGHT}" rx="18" />',
-        f'<text class="title" x="28" y="34">{escape(title)}</text>',
-        f'<text class="subtitle" x="28" y="58">{escape(subtitle)}</text>',
-    ]
-    parts.extend(render_legend([("Lines changed", color)]))
-
-    for tick in range(5):
-        value = domain_max * tick / 4
-        y = y_for_value(value, domain_max)
-        parts.append(
-            f'<line class="grid-line" x1="{SVG_MARGIN_LEFT}" x2="{SVG_WIDTH - SVG_MARGIN_RIGHT}" y1="{y:.1f}" y2="{y:.1f}" />'
-        )
-        parts.append(
-            f'<text class="axis-label" x="{SVG_MARGIN_LEFT - 10}" y="{y + 4:.1f}" text-anchor="end">{escape(format_number(round(value)))}</text>'
-        )
-
-    parts.append(
-        f'<line class="domain" x1="{SVG_MARGIN_LEFT}" x2="{SVG_WIDTH - SVG_MARGIN_RIGHT}" y1="{SVG_HEIGHT - SVG_MARGIN_BOTTOM}" y2="{SVG_HEIGHT - SVG_MARGIN_BOTTOM}" />'
-    )
-
-    stride = label_stride(len(labels))
-    for index, label in enumerate(labels):
-        if index % stride != 0 and index != len(labels) - 1:
-            continue
-        x = SVG_MARGIN_LEFT + index * bar_width + bar_width / 2
-        anchor = "end" if index == len(labels) - 1 else "middle"
-        parts.append(
-            f'<text class="axis-label" x="{x:.1f}" y="{SVG_HEIGHT - 18}" text-anchor="{anchor}">{escape(label)}</text>'
-        )
-
-    baseline = SVG_HEIGHT - SVG_MARGIN_BOTTOM
-    for index, value in enumerate(values):
-        x = SVG_MARGIN_LEFT + index * bar_width + bar_width * 0.16
-        y = y_for_value(value, domain_max)
-        parts.append(
-            f'<rect x="{x:.1f}" y="{y:.1f}" width="{max(2.0, bar_width * 0.68):.1f}" height="{max(0.0, baseline - y):.1f}" rx="4" fill="{color}" opacity="0.82" />'
-        )
-
-    parts.append("</svg>")
-    return "\n".join(parts)
-
-
 def build_summary_replacements(
     *,
     generated_at: str,
@@ -428,15 +242,19 @@ def build_summary_replacements(
     repo_cwd_prefixes: list[str],
     daily_rollup: list[dict[str, Any]],
     daily_tokens: list[dict[str, Any]],
-    loc_chart_name: str,
-    churn_chart_name: str,
-    tokens_chart_name: str,
 ) -> dict[str, str]:
     latest_rollup = daily_rollup[-1] if daily_rollup else None
     total_churn = sum(int(item["daily_churn"]) for item in daily_rollup)
     total_input_tokens = sum(int(item["input_tokens"]) for item in daily_tokens)
     total_output_tokens = sum(int(item["output_tokens"]) for item in daily_tokens)
     token_scope = ", ".join(repo_cwd_prefixes)
+    report_data_json = json.dumps(
+        {
+            "dailyRollup": daily_rollup,
+            "dailyTokens": daily_tokens,
+        },
+        sort_keys=True,
+    ).replace("<", "\\u003c")
     return {
         "__GENERATED_AT__": escape(generated_at),
         "__TIMEZONE__": escape(timezone_name),
@@ -451,9 +269,7 @@ def build_summary_replacements(
         "__SUMMARY_CHURN_NOTE__": escape(f"{len(daily_rollup)} daily buckets in {timezone_name}") if daily_rollup else "No daily churn records.",
         "__SUMMARY_TOKENS__": f"{format_number(total_input_tokens)} / {format_number(total_output_tokens)}",
         "__SUMMARY_TOKENS_NOTE__": "Input / output tokens" if daily_tokens else "No token usage records.",
-        "__LOC_CHART__": escape(loc_chart_name),
-        "__CHURN_CHART__": escape(churn_chart_name),
-        "__TOKENS_CHART__": escape(tokens_chart_name),
+        "__REPORT_DATA_JSON__": report_data_json,
     }
 
 
@@ -477,64 +293,6 @@ def write_static_report(
     daily_tokens: list[dict[str, Any]],
 ) -> None:
     html_output_path.parent.mkdir(parents=True, exist_ok=True)
-    loc_chart_path = html_output_path.with_name(f"{html_output_path.stem}_loc.svg")
-    churn_chart_path = html_output_path.with_name(f"{html_output_path.stem}_churn.svg")
-    tokens_chart_path = html_output_path.with_name(f"{html_output_path.stem}_tokens.svg")
-
-    loc_chart_path.write_text(
-        render_line_chart_svg(
-            title="End-of-Day LOC",
-            subtitle="Repository code LOC plus top-level __dp__.py, and total Python LOC under tests/.",
-            labels=[entry["date"] for entry in daily_rollup],
-            series=[
-                {
-                    "name": "Code LOC",
-                    "color": COLOR_CODE,
-                    "values": [int(entry["code_lines"]) for entry in daily_rollup],
-                },
-                {
-                    "name": "Test LOC",
-                    "color": COLOR_TESTS,
-                    "values": [int(entry["tests_python_total_lines"]) for entry in daily_rollup],
-                },
-            ],
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    churn_chart_path.write_text(
-        render_bar_chart_svg(
-            title="Daily Churn",
-            subtitle="Sum of insertions and deletions across commits that landed on each day.",
-            labels=[entry["date"] for entry in daily_rollup],
-            values=[int(entry["daily_churn"]) for entry in daily_rollup],
-            color=COLOR_CHURN,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    tokens_chart_path.write_text(
-        render_line_chart_svg(
-            title="Daily Codex Token Usage",
-            subtitle="Repo-local Codex input and output token totals aggregated by day.",
-            labels=[entry["date"] for entry in daily_tokens],
-            series=[
-                {
-                    "name": "Input tokens",
-                    "color": COLOR_TOKENS_IN,
-                    "values": [int(entry["input_tokens"]) for entry in daily_tokens],
-                },
-                {
-                    "name": "Output tokens",
-                    "color": COLOR_TOKENS_OUT,
-                    "values": [int(entry["output_tokens"]) for entry in daily_tokens],
-                },
-            ],
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
     template_text = template_path.read_text(encoding="utf-8")
     html_output_path.write_text(
         render_html_from_template(
@@ -547,9 +305,6 @@ def write_static_report(
                 repo_cwd_prefixes=repo_cwd_prefixes,
                 daily_rollup=daily_rollup,
                 daily_tokens=daily_tokens,
-                loc_chart_name=loc_chart_path.name,
-                churn_chart_name=churn_chart_path.name,
-                tokens_chart_name=tokens_chart_path.name,
             ),
         )
         + "\n",
