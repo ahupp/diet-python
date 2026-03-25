@@ -512,10 +512,7 @@ class Box:
 
         let lowered = TrackedLowering::new(source);
         let core_rendered = lowered.pass_text("core_blockpy");
-        assert!(
-            core_rendered.contains("_dp_store_binding(\"x\", 1)"),
-            "{core_rendered}"
-        );
+        assert!(core_rendered.contains("x = 1"), "{core_rendered}");
         assert!(
             !core_rendered.contains("__dp_setitem(_dp_class_ns, \"x\", 1)"),
             "{core_rendered}"

@@ -567,39 +567,6 @@ impl NameBindingMapper<'_> {
     }
 }
 
-fn store_binding_marker(expr: CoreBlockPyExpr) -> Option<(String, CoreBlockPyExpr)> {
-    let CoreBlockPyExpr::Call(CoreBlockPyCall {
-        func,
-        mut args,
-        keywords,
-        ..
-    }) = expr
-    else {
-        return None;
-    };
-    if !keywords.is_empty() || args.len() != 2 {
-        return None;
-    }
-    let CoreBlockPyExpr::Name(func_name) = func.as_ref() else {
-        return None;
-    };
-    if func_name.id.as_str() != "_dp_store_binding" {
-        return None;
-    }
-    let name_arg = args.remove(0);
-    let value_arg = args.remove(0);
-    let CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Literal(
-        CoreBlockPyLiteral::StringLiteral(name),
-    )) = name_arg
-    else {
-        return None;
-    };
-    let CoreBlockPyCallArg::Positional(value) = value_arg else {
-        return None;
-    };
-    Some((name.value, value))
-}
-
 fn rewrite_binding_assign_by_name(
     name: String,
     value: CoreBlockPyExpr,
@@ -635,16 +602,6 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
     fn map_stmt(&self, stmt: BlockPyStmt<CoreBlockPyExpr>) -> BlockPyStmt<CoreBlockPyExpr> {
         match stmt {
             BlockPyStmt::Expr(expr) => {
-                let (node_index, range) = expr_meta(&expr);
-                if let Some((name, value)) = store_binding_marker(expr.clone()) {
-                    return rewrite_binding_assign_by_name(
-                        name,
-                        self.map_expr(value),
-                        self.semantic,
-                        node_index,
-                        range,
-                    );
-                }
                 if let Some(name) = quiet_delete_marker_target(&expr) {
                     return rewrite_quiet_delete_marker(name, self.semantic);
                 }

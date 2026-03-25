@@ -38,7 +38,7 @@ class C:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
-#         _dp_store_binding("x", 1)
+#         x = 1
 #         m = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         __annotate_func__ = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(__dp__), __dp_globals(), None)
 #         return __dp_NONE
@@ -143,14 +143,14 @@ def outer():
 
 # function outer.<locals>._dp_class_ns_Inner(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 0
-#     local_cell_slots: [_dp_cell__dp_class_ns, _dp_cell__dp_classcell_arg, _dp_classcell]
+#     local_cell_slots: [_dp_cell__dp_class_ns, _dp_cell__dp_classcell_arg, _dp_classcell, _dp_cell_y]
 #     freevars: [x->_dp_cell_x@inherited]
-#     cellvars: [_dp_class_ns->_dp_cell__dp_class_ns@param, _dp_classcell_arg->_dp_cell__dp_classcell_arg@param, _dp_classcell->_dp_classcell@deferred]
+#     cellvars: [_dp_class_ns->_dp_cell__dp_class_ns@param, _dp_classcell_arg->_dp_cell__dp_classcell_arg@param, _dp_classcell->_dp_classcell@deferred, y->_dp_cell_y@deferred]
 #     block _dp_bb_0_1:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "outer.<locals>.Inner")
-#         _dp_store_binding("y", x)
+#         y = x
 #         return __dp_NONE
 
 # function outer.<locals>._dp_define_class_Inner(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):

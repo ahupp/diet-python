@@ -327,34 +327,7 @@ impl Transformer for NameScopeRewriter<'_> {
             }
             Stmt::Assign(ast::StmtAssign { targets, value, .. }) => {
                 assert!(targets.len() == 1);
-
-                let mut target = targets[0].clone();
-                if let Expr::Name(ast::ExprName { ctx, .. }) = &mut target {
-                    *ctx = ExprContext::Store;
-                }
-
                 self.visit_expr(value.as_mut());
-
-                if let Expr::Name(ast::ExprName { id, .. }) = &target {
-                    if is_internal_symbol(id.as_str()) {
-                        return;
-                    }
-                    let binding = self
-                        .scope
-                        .binding_in_scope(id.as_str(), SemanticBindingUse::Load);
-
-                    match (self.scope.kind(), binding) {
-                        (SemanticScopeKind::Class, SemanticBindingKind::Local) => {
-                            *stmt = py_stmt!(
-                                "_dp_store_binding({name:literal}, {value:expr})",
-                                name = id.as_str(),
-                                value = value.clone()
-                            );
-                        }
-                        (_, SemanticBindingKind::Global) => {}
-                        (_, _) => {}
-                    }
-                }
             }
             Stmt::Try(try_stmt) => {
                 self.visit_body(suite_mut(&mut try_stmt.body));
