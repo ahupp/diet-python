@@ -401,6 +401,49 @@ fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
     }
 }
 
+fn delete_binding_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
+    let CoreBlockPyExpr::Call(CoreBlockPyCall {
+        func,
+        args,
+        keywords,
+        ..
+    }) = expr
+    else {
+        return None;
+    };
+    if !keywords.is_empty() || args.len() != 1 {
+        return None;
+    }
+    let CoreBlockPyExpr::Name(func_name) = func.as_ref() else {
+        return None;
+    };
+    if func_name.id.as_str() != "_dp_del_binding" {
+        return None;
+    }
+    match &args[0] {
+        CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(name)) => Some(name.clone()),
+        CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Call(CoreBlockPyCall {
+            func,
+            args,
+            keywords,
+            ..
+        })) if keywords.is_empty()
+            && args.len() == 2
+            && matches!(
+                func.as_ref(),
+                CoreBlockPyExpr::Name(func_name)
+                    if func_name.id.as_str() == "__dp_load_deleted_name"
+            ) =>
+        {
+            match &args[1] {
+                CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(name)) => Some(name.clone()),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
     matches!(expr, CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_DELETED")
 }
@@ -530,6 +573,41 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
             BlockPyStmt::Expr(expr) => {
                 if let Some(name) = quiet_delete_marker_target(&expr) {
                     return rewrite_quiet_delete_marker(name, self.semantic);
+                }
+                if let Some(name) = delete_binding_marker_target(&expr) {
+                    let node_index = name.node_index.clone();
+                    let range = name.range;
+                    return match self
+                        .semantic
+                        .binding_target_for_name(name.id.as_str(), BlockPyBindingPurpose::Store)
+                    {
+                        BindingTarget::Local => {
+                            BlockPyStmt::Delete(crate::block_py::BlockPyDelete {
+                                target: ast::ExprName {
+                                    id: name.id,
+                                    ctx: ast::ExprContext::Del,
+                                    node_index,
+                                    range,
+                                },
+                            })
+                        }
+                        BindingTarget::ModuleGlobal => rewrite_global_binding_delete_by_name(
+                            name.id.as_str(),
+                            node_index,
+                            range,
+                        ),
+                        BindingTarget::ClassNamespace => {
+                            BlockPyStmt::Expr(core_positional_call_expr_with_meta(
+                                "__dp_delitem",
+                                node_index.clone(),
+                                range,
+                                vec![
+                                    class_namespace_expr(node_index.clone(), range),
+                                    core_string_expr(name.id.to_string(), node_index, range),
+                                ],
+                            ))
+                        }
+                    };
                 }
                 BlockPyStmt::Expr(self.map_expr(expr))
             }

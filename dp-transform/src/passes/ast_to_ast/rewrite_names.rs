@@ -383,12 +383,10 @@ impl Transformer for NameScopeRewriter<'_> {
                         self.scope.binding_in_scope(name, SemanticBindingUse::Load),
                     ) {
                         (SemanticScopeKind::Class, SemanticBindingKind::Local) => {
-                            *stmt =
-                                py_stmt!("__dp_delitem(_dp_class_ns, {name:literal})", name = name);
+                            *stmt = py_stmt!("_dp_del_binding({name:id})", name = name);
                         }
                         (SemanticScopeKind::Class, SemanticBindingKind::Global) => {
-                            *stmt =
-                                py_stmt!("__dp_delitem(globals(), {name:literal})", name = name);
+                            *stmt = py_stmt!("_dp_del_binding({name:id})", name = name);
                         }
                         (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal) => {
                             let cell = cell_name(name);
