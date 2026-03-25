@@ -52,6 +52,11 @@
     - BlockPy still carries structured non-terminal `If` for a long stretch of the pipeline, and only later linearizes it into true block terminators.
     - The likely simplification is to move `linearize_structured_ifs` earlier so downstream passes only need to reason about one CFG/block shape instead of both structured fragments and linearized blocks.
     - A good first pass is to identify which post-BlockPy passes still recurse through structured `BlockPyStmt::If`, then check whether running linearization immediately after semantic/core BlockPy lowering would shrink those passes instead of complicating exception-edge or block-param handling.
+- Merge simplify into the BlockPy pass and run it bottom-up so it is one-shot.
+  - Planning note:
+    - `blockpy_expr_simplify` is currently a separate pass boundary after semantic BlockPy construction, even though conceptually it is just finishing the lowering of expressions into core BlockPy form.
+    - The likely simplification is to fold that work into the BlockPy lowering pass itself and run expression reduction bottom-up, so expressions only cross one lowering seam instead of first building semantic BlockPy exprs and then revisiting them.
+    - A good first pass is to list which invariants `blockpy_expr_simplify` currently enforces for later passes, then check whether those can be guaranteed directly during semantic BlockPy construction without losing the current clear boundary for invalid leaked expr shapes.
 - Handle integer literals larger than can fit in an `i64`.
   - Planning note:
     - The current direct-simple JIT literal planning in `soac-eval/src/jit/planning.rs` only lowers integer literals that fit in `i64`, so larger Python ints fall out of that fast path.
