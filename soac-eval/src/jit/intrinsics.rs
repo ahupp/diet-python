@@ -360,6 +360,23 @@ impl JitIntrinsic for blockpy_intrinsics::SetAttrIntrinsic {
     }
 }
 
+impl JitIntrinsic for blockpy_intrinsics::MakeCellIntrinsic {
+    fn emit_direct_simple(
+        &self,
+        state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_, '_>,
+        parts: &[DirectSimpleCallPart],
+    ) -> ir::Value {
+        let args = state.positional_args_for_intrinsic(self, parts);
+        let arg_values = state.emit_arg_values(&args);
+        let call_inst = state
+            .fb
+            .ins()
+            .call(state.ctx.make_cell_ref, &[arg_values[0].0]);
+        state.release_arg_values(&arg_values);
+        state.finish_owned_result(state.fb.inst_results(call_inst)[0])
+    }
+}
+
 impl JitIntrinsic for blockpy_intrinsics::GetItemIntrinsic {
     fn emit_direct_simple(
         &self,
@@ -489,6 +506,7 @@ pub(super) fn jit_intrinsic_by_intrinsic(
         "__dp_add" => Some(&blockpy_intrinsics::ADD_INTRINSIC),
         "__dp_getattr" => Some(&blockpy_intrinsics::GETATTR_INTRINSIC),
         "__dp_setattr" => Some(&blockpy_intrinsics::SETATTR_INTRINSIC),
+        "__dp_make_cell" => Some(&blockpy_intrinsics::MAKE_CELL_INTRINSIC),
         "__dp_getitem" => Some(&blockpy_intrinsics::GETITEM_INTRINSIC),
         "__dp_setitem" => Some(&blockpy_intrinsics::SETITEM_INTRINSIC),
         "__dp_sub" => Some(&blockpy_intrinsics::SUB_INTRINSIC),

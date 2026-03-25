@@ -1972,7 +1972,7 @@ fn emit_direct_simple_expr(
                     }
                     let is_direct_cell_call = matches!(
                         (func_name.as_str(), args.len()),
-                        ("__dp_make_cell", 0 | 1)
+                        ("__dp_make_cell", 1)
                             | ("__dp_load_cell", 1)
                             | ("__dp_store_cell", 2)
                             | ("__dp_store_cell_if_not_deleted", 2)
@@ -1999,7 +1999,6 @@ fn emit_direct_simple_expr(
                             arg_values.push((value, borrowed_arg));
                         }
                         let call_inst = match (func_name.as_str(), args.len()) {
-                            ("__dp_make_cell", 0) => fb.ins().call(make_cell_ref, &[null_ptr]),
                             ("__dp_make_cell", 1) => {
                                 fb.ins().call(make_cell_ref, &[arg_values[0].0])
                             }

@@ -1,13 +1,15 @@
 use crate::block_py::cfg::linearize_structured_ifs;
+use crate::block_py::intrinsics::MAKE_CELL_INTRINSIC;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
-    core_positional_call_expr_with_meta, is_resume_abi_param_name, resume_abi_params, BlockParam,
-    BlockParamRole, BlockPyAssign, BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder,
-    BlockPyCfgFragment, BlockPyFunction, BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm,
-    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout,
-    ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
-    FunctionId, FunctionName, ModuleNameGen,
+    core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta,
+    is_resume_abi_param_name, resume_abi_params, BlockParam, BlockParamRole, BlockPyAssign,
+    BlockPyBlock, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyCfgFragment, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
+    BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyExpr,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId, FunctionName,
+    ModuleNameGen,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
@@ -140,6 +142,15 @@ fn core_call(func_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
         ast::AtomicNodeIndex::default(),
         Default::default(),
         args,
+    )
+}
+
+fn core_make_cell(init: CoreBlockPyExpr) -> CoreBlockPyExpr {
+    core_positional_intrinsic_expr_with_meta(
+        &MAKE_CELL_INTRINSIC,
+        ast::AtomicNodeIndex::default(),
+        Default::default(),
+        vec![init],
     )
 }
 
@@ -386,7 +397,7 @@ fn build_factory_block(
     for slot in layout.cellvars.iter().chain(layout.runtime_cells.iter()) {
         block.push_stmt(BlockPyStmt::Assign(BlockPyAssign {
             target: expr_name(slot.storage_name.as_str()),
-            value: core_call("__dp_make_cell", vec![runtime_init_expr(slot)]),
+            value: core_make_cell(runtime_init_expr(slot)),
         }));
     }
 

@@ -1070,11 +1070,16 @@ def class_lookup_cell(class_ns, name, cell):
     except KeyError:
         pass
     try:
-        return load_cell(cell)
+        value = load_cell(cell)
     except UnboundLocalError as exc:
         raise NameError(
             f"cannot access free variable {name!r} where it is not associated with a value in enclosing scope"
         ) from exc
+    if value is DELETED:
+        raise NameError(
+            f"cannot access free variable {name!r} where it is not associated with a value in enclosing scope"
+        )
+    return value
 
 
 def class_lookup_global(class_ns, name, globals_dict):
@@ -1170,7 +1175,7 @@ def unpack(iterable, spec):
     return tuple(result)
 
 
-def make_cell(value=_MISSING):
+def make_cell(value):
     cell = _types.CellType()
     if value is not _MISSING:
         cell.cell_contents = value
@@ -1493,7 +1498,7 @@ def _normalize_exec_closure(closure):
         try:
             contents = cell.cell_contents
         except ValueError:
-            inner = make_cell()
+            inner = make_cell(_MISSING)
             cell.cell_contents = inner
             mutated.append((cell, inner))
             continue
@@ -2104,7 +2109,7 @@ def create_class(
 
     class_cell = ns.get("__classcell__", None)
     if requires_class_cell and class_cell is None:
-        class_cell = make_cell()
+        class_cell = make_cell(_MISSING)
         ns["__classcell__"] = class_cell
 
     namespace_fn(ns, class_cell)

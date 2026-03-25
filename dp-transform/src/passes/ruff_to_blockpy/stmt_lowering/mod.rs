@@ -140,12 +140,9 @@ mod type_alias_stmt;
 mod unreduced;
 mod with_stmt;
 
-pub(crate) use assign_stmt::{
-    build_for_target_assign_body, rewrite_assign_stmt, rewrite_augassign_stmt,
-};
+pub(crate) use assign_stmt::{build_for_target_assign_body, rewrite_assign_stmt};
 pub(crate) use delete_stmt::rewrite_delete_stmt;
 pub(crate) use try_stmt::{lower_star_try_stmt_sequence, lower_try_stmt_sequence};
-pub(crate) use type_alias_stmt::rewrite_type_alias_stmt;
 pub(crate) use with_stmt::lower_with_stmt_sequence;
 
 fn simplify_stmt_ast_once_for_blockpy(context: &Context, stmt: Stmt) -> Vec<Stmt> {

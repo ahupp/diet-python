@@ -1,6 +1,7 @@
 use crate::block_py::intrinsics::{
     Intrinsic, DEL_DEREF_INTRINSIC, DEL_DEREF_QUIETLY_INTRINSIC, DEL_QUIETLY_INTRINSIC,
-    LOAD_CELL_INTRINSIC, LOAD_GLOBAL_INTRINSIC, STORE_CELL_INTRINSIC, STORE_GLOBAL_INTRINSIC,
+    LOAD_CELL_INTRINSIC, LOAD_GLOBAL_INTRINSIC, MAKE_CELL_INTRINSIC, STORE_CELL_INTRINSIC,
+    STORE_GLOBAL_INTRINSIC,
 };
 use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta, BindingTarget,
@@ -442,15 +443,16 @@ fn build_local_cell_init_assign(
 ) -> BlockPyStmt<CoreBlockPyExpr> {
     let node_index = compat_node_index();
     let range = compat_range();
-    let mut args = Vec::new();
-    if is_parameter {
-        args.push(core_name_expr(
+    let init_expr = if is_parameter {
+        core_name_expr(
             logical_name,
             ast::ExprContext::Load,
             node_index.clone(),
             range,
-        ));
-    }
+        )
+    } else {
+        deleted_sentinel_expr(node_index.clone(), range)
+    };
     BlockPyStmt::Assign(BlockPyAssign {
         target: ast::ExprName {
             id: storage_name.into(),
@@ -458,7 +460,12 @@ fn build_local_cell_init_assign(
             node_index: node_index.clone(),
             range,
         },
-        value: core_positional_call_expr_with_meta("__dp_make_cell", node_index, range, args),
+        value: core_positional_intrinsic_expr_with_meta(
+            &MAKE_CELL_INTRINSIC,
+            node_index,
+            range,
+            vec![init_expr],
+        ),
     })
 }
 
@@ -529,8 +536,8 @@ fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
     let Some(logical_name) = assign.target.id.as_str().strip_prefix("_dp_cell_") else {
         return false;
     };
-    let CoreBlockPyExpr::Call(CoreBlockPyCall {
-        func,
+    let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+        intrinsic,
         args,
         keywords,
         ..
@@ -541,10 +548,7 @@ fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
     if !keywords.is_empty() || args.len() != 1 {
         return false;
     }
-    if !matches!(
-        func.as_ref(),
-        CoreBlockPyExpr::Name(func_name) if func_name.id.as_str() == "__dp_make_cell"
-    ) {
+    if intrinsic.name() != MAKE_CELL_INTRINSIC.name() {
         return false;
     }
     matches!(

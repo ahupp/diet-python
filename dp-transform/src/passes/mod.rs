@@ -77,7 +77,7 @@ pub(crate) use summarize_pass_shape::summarize_tracked_pass_shape;
 mod tests {
     use crate::block_py::{
         BbBlock, BbStmt, BlockPyCallableScopeKind, BlockPyFunction, BlockPyFunctionKind,
-        BlockPyModule, BlockPyTerm, CoreBlockPyExpr,
+        BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
     };
     use crate::block_py::{ClosureInit, ClosureSlot};
     use crate::passes::{BbBlockPyPass, CoreBlockPyPass, RuffBlockPyPass};
@@ -1270,8 +1270,24 @@ def outer(x):
             "{name_binding_rendered}"
         );
         assert!(
-            name_binding_rendered.contains("_dp_cell_y = __dp_make_cell()"),
+            name_binding_rendered.contains("_dp_cell_y = __dp_make_cell(__dp_DELETED)"),
             "{name_binding_rendered}"
+        );
+        let name_binding_module = lowered
+            .result
+            .get_pass::<BlockPyModule<CoreBlockPyPass>>("name_binding")
+            .expect("name_binding pass should be available");
+        let outer = name_binding_module
+            .callable_defs
+            .iter()
+            .find(|func| func.names.bind_name == "outer")
+            .expect("outer function should be present");
+        let Some(BlockPyStmt::Assign(assign)) = outer.entry_block().body.first() else {
+            panic!("expected first entry stmt to be an assignment");
+        };
+        assert!(
+            matches!(&assign.value, CoreBlockPyExpr::Intrinsic(call) if call.intrinsic.name() == "__dp_make_cell"),
+            "{assign:?}"
         );
     }
 
