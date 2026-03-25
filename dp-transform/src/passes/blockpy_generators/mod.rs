@@ -264,35 +264,63 @@ fn generator_state_order(layout: &ClosureLayout, kind: BlockPyFunctionKind) -> V
     order
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResumeClosureBindings {
+    runtime_state_bindings: Vec<(String, String)>,
+    compatibility_alias_bindings: Vec<(String, String)>,
+}
+
+impl ResumeClosureBindings {
+    fn all_bindings(&self) -> impl Iterator<Item = &(String, String)> {
+        self.runtime_state_bindings
+            .iter()
+            .chain(self.compatibility_alias_bindings.iter())
+    }
+}
+
+fn resume_closure_value_name(layout: &ClosureLayout, name: &str) -> String {
+    layout
+        .freevars
+        .iter()
+        .chain(layout.cellvars.iter())
+        .chain(layout.runtime_cells.iter())
+        .find(|slot| slot.logical_name == name || slot.storage_name == name)
+        .map(|slot| slot.storage_name.clone())
+        .unwrap_or_else(|| name.to_string())
+}
+
 fn resume_closure_bindings(
     layout: &ClosureLayout,
     resume_state_order: &[String],
-) -> Vec<(String, String)> {
-    let mut names = resume_state_order
+) -> ResumeClosureBindings {
+    let runtime_state_bindings = resume_state_order
         .iter()
         .filter(|name| !is_resume_abi_param_name(name.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
-    let mut seen = names.iter().cloned().collect::<HashSet<_>>();
-    for slot in layout.cellvars.iter().chain(layout.runtime_cells.iter()) {
-        if slot.storage_name != slot.logical_name && seen.insert(slot.storage_name.clone()) {
-            names.push(slot.storage_name.clone());
-        }
-    }
-    names
-        .into_iter()
         .map(|name| {
-            let value_name = layout
-                .freevars
-                .iter()
-                .chain(layout.cellvars.iter())
-                .chain(layout.runtime_cells.iter())
-                .find(|slot| slot.logical_name == name || slot.storage_name == name)
-                .map(|slot| slot.storage_name.clone())
-                .unwrap_or_else(|| name.clone());
-            (name, value_name)
+            (
+                name.clone(),
+                resume_closure_value_name(layout, name.as_str()),
+            )
         })
-        .collect()
+        .collect::<Vec<_>>();
+    let mut seen = runtime_state_bindings
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect::<HashSet<_>>();
+    let compatibility_alias_bindings = layout
+        .cellvars
+        .iter()
+        .chain(layout.runtime_cells.iter())
+        .filter_map(|slot| {
+            (slot.storage_name != slot.logical_name && seen.insert(slot.storage_name.clone()))
+                .then(|| (slot.storage_name.clone(), slot.storage_name.clone()))
+        })
+        .collect::<Vec<_>>();
+
+    ResumeClosureBindings {
+        runtime_state_bindings,
+        compatibility_alias_bindings,
+    }
 }
 
 fn generator_cell_storage_by_logical_name(layout: &ClosureLayout) -> HashMap<String, String> {
@@ -401,11 +429,12 @@ fn build_factory_block(
     }
 
     let closure_bindings = resume_closure_bindings(layout, resume_state_order);
-    let closure_names = closure_bindings
+    let all_bindings = closure_bindings.all_bindings().cloned().collect::<Vec<_>>();
+    let closure_names = all_bindings
         .iter()
         .map(|(name, _)| name.clone())
         .collect::<Vec<_>>();
-    let closure_values = closure_bindings
+    let closure_values = all_bindings
         .iter()
         .map(|(_, value_name)| Expr::from(core_name(value_name.as_str())))
         .collect::<Vec<_>>();

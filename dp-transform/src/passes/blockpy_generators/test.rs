@@ -57,12 +57,13 @@ fn build_closure_backed_generator_factory_block(
     }
 
     let closure_bindings = resume_closure_bindings(layout, resume_state_order);
-    let closure_names = closure_bindings
+    let all_bindings = closure_bindings.all_bindings().cloned().collect::<Vec<_>>();
+    let closure_names = all_bindings
         .iter()
         .map(|(name, _)| name.clone())
         .collect::<Vec<_>>();
     let closure_values = blockpy_make_dp_tuple(
-        closure_bindings
+        all_bindings
             .iter()
             .map(|(_, value_name)| py_expr!("{name:id}", name = value_name.as_str()))
             .collect(),
@@ -243,18 +244,20 @@ fn resume_closure_bindings_include_storage_aliases_for_cell_backed_state() {
         }],
     };
 
+    let closure_bindings = resume_closure_bindings(
+        &layout,
+        &[
+            "_dp_self".to_string(),
+            "_dp_send_value".to_string(),
+            "_dp_resume_exc".to_string(),
+            "_dp_cell_captured".to_string(),
+            "total".to_string(),
+            "_dp_pc".to_string(),
+        ],
+    );
+
     assert_eq!(
-        resume_closure_bindings(
-            &layout,
-            &[
-                "_dp_self".to_string(),
-                "_dp_send_value".to_string(),
-                "_dp_resume_exc".to_string(),
-                "_dp_cell_captured".to_string(),
-                "total".to_string(),
-                "_dp_pc".to_string(),
-            ],
-        ),
+        closure_bindings.runtime_state_bindings,
         vec![
             (
                 "_dp_cell_captured".to_string(),
@@ -262,6 +265,11 @@ fn resume_closure_bindings_include_storage_aliases_for_cell_backed_state() {
             ),
             ("total".to_string(), "_dp_cell_total".to_string()),
             ("_dp_pc".to_string(), "_dp_cell__dp_pc".to_string()),
+        ]
+    );
+    assert_eq!(
+        closure_bindings.compatibility_alias_bindings,
+        vec![
             ("_dp_cell_total".to_string(), "_dp_cell_total".to_string()),
             ("_dp_cell__dp_pc".to_string(), "_dp_cell__dp_pc".to_string()),
         ]
