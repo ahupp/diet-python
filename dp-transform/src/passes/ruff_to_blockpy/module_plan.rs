@@ -1,7 +1,7 @@
 use crate::block_py::param_specs::{collect_param_spec_and_defaults, param_defaults_to_expr};
 use crate::block_py::{
-    BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCellBindingKind,
-    BlockPyClassBodyFallback, BlockPyEffectiveBinding,
+    derive_effective_binding_for_name, BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose,
+    BlockPyCellBindingKind,
 };
 use crate::block_py::{
     BlockPyCallableFacts, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyFunction,
@@ -156,12 +156,13 @@ fn callable_semantic_info(
         .map(|(name, binding)| {
             (
                 name.clone(),
-                blockpy_effective_binding_for_name(
+                derive_effective_binding_for_name(
                     name.as_str(),
                     *binding,
                     scope_kind,
                     &type_param_names,
                     BlockPyBindingPurpose::Load,
+                    false,
                 ),
             )
         })
@@ -171,12 +172,13 @@ fn callable_semantic_info(
         .map(|(name, binding)| {
             (
                 name.clone(),
-                blockpy_effective_binding_for_name(
+                derive_effective_binding_for_name(
                     name.as_str(),
                     *binding,
                     scope_kind,
                     &type_param_names,
                     BlockPyBindingPurpose::Store,
+                    false,
                 ),
             )
         })
@@ -216,52 +218,10 @@ fn callable_semantic_info(
         names,
         scope_kind,
         bindings,
+        semantic_internal_names: HashSet::new(),
         type_param_names,
         effective_load_bindings,
         effective_store_bindings,
-    }
-}
-
-fn blockpy_effective_binding_for_name(
-    name: &str,
-    binding: BlockPyBindingKind,
-    scope_kind: BlockPyCallableScopeKind,
-    type_param_names: &HashSet<String>,
-    purpose: BlockPyBindingPurpose,
-) -> BlockPyEffectiveBinding {
-    if is_internal_symbol(name) {
-        return BlockPyEffectiveBinding::Local;
-    }
-    match purpose {
-        BlockPyBindingPurpose::Load => match (scope_kind, binding) {
-            (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Cell(_)) => {
-                BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Cell)
-            }
-            (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Local)
-            | (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Global) => {
-                BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global)
-            }
-            (_, BlockPyBindingKind::Global) => BlockPyEffectiveBinding::Global,
-            (_, BlockPyBindingKind::Cell(kind)) => BlockPyEffectiveBinding::Cell(kind),
-            (_, BlockPyBindingKind::Local) => BlockPyEffectiveBinding::Local,
-        },
-        BlockPyBindingPurpose::Store => {
-            if scope_kind == BlockPyCallableScopeKind::Class && type_param_names.contains(name) {
-                return match binding {
-                    BlockPyBindingKind::Local => BlockPyEffectiveBinding::Local,
-                    BlockPyBindingKind::Global => BlockPyEffectiveBinding::Global,
-                    BlockPyBindingKind::Cell(kind) => BlockPyEffectiveBinding::Cell(kind),
-                };
-            }
-            match (scope_kind, binding) {
-                (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Local) => {
-                    BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global)
-                }
-                (_, BlockPyBindingKind::Global) => BlockPyEffectiveBinding::Global,
-                (_, BlockPyBindingKind::Cell(kind)) => BlockPyEffectiveBinding::Cell(kind),
-                (_, BlockPyBindingKind::Local) => BlockPyEffectiveBinding::Local,
-            }
-        }
     }
 }
 

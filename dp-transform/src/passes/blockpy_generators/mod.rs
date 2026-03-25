@@ -1444,15 +1444,16 @@ pub(crate) fn lower_generator_like_function(
     };
 
     let resume_params = resume_param_spec(kind);
+    let resume_names = FunctionName::new(
+        format!("{}_resume", names.bind_name),
+        "_dp_resume",
+        names.display_name.clone(),
+        names.qualname.clone(),
+    );
     let resume_function = BlockPyFunction {
         function_id: resume_function_id,
         name_gen: resume_name_gen,
-        names: FunctionName::new(
-            format!("{}_resume", names.bind_name),
-            "_dp_resume",
-            names.display_name,
-            names.qualname,
-        ),
+        names: resume_names,
         kind: BlockPyFunctionKind::Function,
         params: resume_params.clone(),
         blocks: resume_blocks.clone(),

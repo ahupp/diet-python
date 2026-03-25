@@ -598,9 +598,54 @@ pub struct BlockPyCallableSemanticInfo {
     pub names: FunctionName,
     pub scope_kind: BlockPyCallableScopeKind,
     pub bindings: HashMap<String, BlockPyBindingKind>,
+    pub semantic_internal_names: HashSet<String>,
     pub type_param_names: HashSet<String>,
     pub effective_load_bindings: HashMap<String, BlockPyEffectiveBinding>,
     pub effective_store_bindings: HashMap<String, BlockPyEffectiveBinding>,
+}
+
+pub(crate) fn derive_effective_binding_for_name(
+    name: &str,
+    binding: BlockPyBindingKind,
+    scope_kind: BlockPyCallableScopeKind,
+    type_param_names: &HashSet<String>,
+    purpose: BlockPyBindingPurpose,
+    honor_internal_name: bool,
+) -> BlockPyEffectiveBinding {
+    if is_internal_symbol(name) && !honor_internal_name {
+        return BlockPyEffectiveBinding::Local;
+    }
+    match purpose {
+        BlockPyBindingPurpose::Load => match (scope_kind, binding) {
+            (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Cell(_)) => {
+                BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Cell)
+            }
+            (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Local)
+            | (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Global) => {
+                BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global)
+            }
+            (_, BlockPyBindingKind::Global) => BlockPyEffectiveBinding::Global,
+            (_, BlockPyBindingKind::Cell(kind)) => BlockPyEffectiveBinding::Cell(kind),
+            (_, BlockPyBindingKind::Local) => BlockPyEffectiveBinding::Local,
+        },
+        BlockPyBindingPurpose::Store => {
+            if scope_kind == BlockPyCallableScopeKind::Class && type_param_names.contains(name) {
+                return match binding {
+                    BlockPyBindingKind::Local => BlockPyEffectiveBinding::Local,
+                    BlockPyBindingKind::Global => BlockPyEffectiveBinding::Global,
+                    BlockPyBindingKind::Cell(kind) => BlockPyEffectiveBinding::Cell(kind),
+                };
+            }
+            match (scope_kind, binding) {
+                (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Local) => {
+                    BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global)
+                }
+                (_, BlockPyBindingKind::Global) => BlockPyEffectiveBinding::Global,
+                (_, BlockPyBindingKind::Cell(kind)) => BlockPyEffectiveBinding::Cell(kind),
+                (_, BlockPyBindingKind::Local) => BlockPyEffectiveBinding::Local,
+            }
+        }
+    }
 }
 
 impl BlockPyCallableSemanticInfo {
@@ -619,12 +664,51 @@ impl BlockPyCallableSemanticInfo {
         }
     }
 
+    pub fn insert_binding(
+        &mut self,
+        name: impl Into<String>,
+        binding: BlockPyBindingKind,
+        honor_internal_name: bool,
+    ) {
+        let name = name.into();
+        self.bindings.insert(name.clone(), binding);
+        if honor_internal_name {
+            self.semantic_internal_names.insert(name.clone());
+        }
+        self.effective_load_bindings.insert(
+            name.clone(),
+            derive_effective_binding_for_name(
+                name.as_str(),
+                binding,
+                self.scope_kind,
+                &self.type_param_names,
+                BlockPyBindingPurpose::Load,
+                honor_internal_name,
+            ),
+        );
+        self.effective_store_bindings.insert(
+            name.clone(),
+            derive_effective_binding_for_name(
+                name.as_str(),
+                binding,
+                self.scope_kind,
+                &self.type_param_names,
+                BlockPyBindingPurpose::Store,
+                honor_internal_name,
+            ),
+        );
+    }
+
     pub fn resolved_load_binding_kind(&self, name: &str) -> BlockPyBindingKind {
+        if let Some(binding) = self.binding_kind(name) {
+            if !is_internal_symbol(name) || self.semantic_internal_names.contains(name) {
+                return binding;
+            }
+        }
         if is_internal_symbol(name) {
             return BlockPyBindingKind::Local;
         }
-        self.binding_kind(name)
-            .unwrap_or(BlockPyBindingKind::Global)
+        BlockPyBindingKind::Global
     }
 
     pub fn is_cell_binding(&self, name: &str) -> bool {
@@ -636,6 +720,17 @@ impl BlockPyCallableSemanticInfo {
         name: &str,
         purpose: BlockPyBindingPurpose,
     ) -> BindingTarget {
+        if let Some(binding) = self.effective_binding(name, purpose) {
+            if !is_internal_symbol(name) || self.semantic_internal_names.contains(name) {
+                return match binding {
+                    BlockPyEffectiveBinding::Global => BindingTarget::ModuleGlobal,
+                    BlockPyEffectiveBinding::ClassBody(_) => BindingTarget::ClassNamespace,
+                    BlockPyEffectiveBinding::Local | BlockPyEffectiveBinding::Cell(_) => {
+                        BindingTarget::Local
+                    }
+                };
+            }
+        }
         if is_internal_symbol(name) {
             return BindingTarget::Local;
         }

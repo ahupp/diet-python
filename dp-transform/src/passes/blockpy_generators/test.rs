@@ -1,7 +1,10 @@
 use super::{build_blockpy_closure_layout, closure_value_name_for_state, resume_closure_names};
 use crate::block_py::{
-    BlockPyCfgBlockBuilder, BlockPyTerm, ClosureInit, ClosureLayout, ClosureSlot, FunctionId,
+    BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
+    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyTerm,
+    ClosureInit, ClosureLayout, ClosureSlot, FunctionId, FunctionName,
 };
+use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::lower_stmts_to_blockpy_stmts;
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::Expr;
@@ -260,5 +263,71 @@ fn resume_closure_names_include_storage_aliases_for_cell_backed_state() {
             "_dp_cell_total".to_string(),
             "_dp_cell__dp_pc".to_string(),
         ]
+    );
+}
+
+#[test]
+fn resume_semantic_marks_generator_state_as_cell_captures() {
+    let layout = ClosureLayout {
+        freevars: vec![ClosureSlot {
+            logical_name: "captured".to_string(),
+            storage_name: "_dp_cell_captured".to_string(),
+            init: ClosureInit::InheritedCapture,
+        }],
+        cellvars: vec![ClosureSlot {
+            logical_name: "total".to_string(),
+            storage_name: "_dp_cell_total".to_string(),
+            init: ClosureInit::Deferred,
+        }],
+        runtime_cells: vec![ClosureSlot {
+            logical_name: "_dp_pc".to_string(),
+            storage_name: "_dp_cell__dp_pc".to_string(),
+            init: ClosureInit::RuntimePcUnstarted,
+        }],
+    };
+    let mut semantic = BlockPyCallableSemanticInfo {
+        names: FunctionName::new("gen_resume", "_dp_resume", "gen", "gen"),
+        scope_kind: BlockPyCallableScopeKind::Function,
+        ..Default::default()
+    };
+    for slot in layout
+        .freevars
+        .iter()
+        .chain(layout.cellvars.iter())
+        .chain(layout.runtime_cells.iter())
+    {
+        semantic.insert_binding(
+            slot.logical_name.clone(),
+            BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
+            is_internal_symbol(slot.logical_name.as_str()),
+        );
+    }
+
+    assert_eq!(semantic.names.bind_name, "gen_resume");
+    assert_eq!(
+        semantic.binding_kind("captured"),
+        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+    );
+    assert_eq!(
+        semantic.binding_kind("total"),
+        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+    );
+    assert_eq!(
+        semantic.binding_kind("_dp_pc"),
+        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+    );
+    assert_eq!(
+        semantic.resolved_load_binding_kind("_dp_pc"),
+        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+    );
+    assert_eq!(
+        semantic.effective_binding("_dp_pc", BlockPyBindingPurpose::Load),
+        Some(crate::block_py::BlockPyEffectiveBinding::Cell(
+            BlockPyCellBindingKind::Capture
+        ))
+    );
+    assert_eq!(
+        semantic.resolved_load_binding_kind("_dp_self"),
+        BlockPyBindingKind::Local
     );
 }
