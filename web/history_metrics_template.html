@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>diet-python history metrics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root {
+  color-scheme: dark;
+  --bg-0: #081017;
+  --bg-1: #0f1a26;
+  --bg-2: #132438;
+  --card: rgba(11, 18, 28, 0.82);
+  --line: rgba(186, 208, 233, 0.14);
+  --ink-0: #edf3fb;
+  --ink-1: #a4b7cc;
+  --ink-2: #6e8398;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Manrope", "Segoe UI", sans-serif;
+  color: var(--ink-0);
+  background:
+    radial-gradient(circle at 16% 12%, rgba(127, 212, 255, 0.12) 0%, transparent 30%),
+    radial-gradient(circle at 84% 22%, rgba(255, 140, 105, 0.14) 0%, transparent 28%),
+    linear-gradient(170deg, var(--bg-0), var(--bg-1) 54%, var(--bg-2));
+}
+
+.app {
+  width: min(1280px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 22px 0 40px;
+}
+
+.hero,
+.summary-card,
+.chart-card {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--card);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(10px);
+}
+
+.hero {
+  padding: 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--ink-1);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  line-height: 0.96;
+  letter-spacing: -0.04em;
+}
+
+.hero p {
+  margin: 14px 0 0;
+  max-width: 64ch;
+  color: var(--ink-1);
+  line-height: 1.55;
+}
+
+.meta-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 18px;
+  background: linear-gradient(160deg, rgba(12, 20, 31, 0.96), rgba(17, 29, 45, 0.88));
+  border: 1px solid var(--line);
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.meta-item {
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(7, 13, 20, 0.56);
+}
+
+.meta-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+.meta-value {
+  display: block;
+  font-size: 0.92rem;
+  color: var(--ink-0);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.summary-card {
+  padding: 16px;
+}
+
+.summary-card h2 {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink-1);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.metric {
+  font-size: clamp(1.45rem, 2.2vw, 2.2rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.metric-note {
+  margin-top: 8px;
+  font-size: 0.86rem;
+  color: var(--ink-2);
+}
+
+.chart-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.chart-card {
+  padding: 18px;
+}
+
+.chart-head {
+  margin-bottom: 14px;
+}
+
+.chart-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.chart-copy {
+  margin: 6px 0 0;
+  color: var(--ink-1);
+  line-height: 1.45;
+}
+
+.chart-image {
+  width: 100%;
+  display: block;
+  border-radius: 18px;
+  border: 1px solid rgba(186, 208, 233, 0.14);
+  background: rgba(7, 13, 20, 0.4);
+}
+
+code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+@media (max-width: 960px) {
+  .hero {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .app {
+    width: min(100vw - 20px, 1280px);
+    padding-top: 14px;
+  }
+
+  .summary-grid,
+  .meta-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="hero">
+    <div>
+      <p class="eyebrow">Repository History</p>
+      <h1>Code growth, test growth, churn, and Codex usage.</h1>
+      <p>
+        This static report is emitted by <code>scripts/build_history_metrics_rollup.py</code>.
+        The charts below are plain SVG assets with no client-side JavaScript.
+      </p>
+    </div>
+    <div class="meta-panel">
+      <div class="meta-grid">
+        <div class="meta-item">
+          <span class="meta-label">Generated</span>
+          <span class="meta-value">__GENERATED_AT__</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Timezone</span>
+          <span class="meta-value">__TIMEZONE__</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">History Source</span>
+          <span class="meta-value">__HISTORY_JSONL__</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Codex Source</span>
+          <span class="meta-value">__CODEX_ROOT__</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="summary-grid">
+    <article class="summary-card">
+      <h2>Latest Code LOC</h2>
+      <div class="metric">__SUMMARY_CODE__</div>
+      <div class="metric-note">__SUMMARY_CODE_NOTE__</div>
+    </article>
+    <article class="summary-card">
+      <h2>Latest Test LOC</h2>
+      <div class="metric">__SUMMARY_TESTS__</div>
+      <div class="metric-note">__SUMMARY_TESTS_NOTE__</div>
+    </article>
+    <article class="summary-card">
+      <h2>Total Daily Churn</h2>
+      <div class="metric">__SUMMARY_CHURN__</div>
+      <div class="metric-note">__SUMMARY_CHURN_NOTE__</div>
+    </article>
+    <article class="summary-card">
+      <h2>Codex Tokens</h2>
+      <div class="metric">__SUMMARY_TOKENS__</div>
+      <div class="metric-note">__SUMMARY_TOKENS_NOTE__</div>
+    </article>
+  </section>
+
+  <section class="chart-stack">
+    <article class="chart-card">
+      <div class="chart-head">
+        <h2 class="chart-title">End-of-Day LOC</h2>
+        <p class="chart-copy">Blue is repository code LOC with top-level <code>__dp__.py</code> folded in. Gold is total Python LOC under <code>tests/</code>.</p>
+      </div>
+      <img class="chart-image" src="__LOC_CHART__" alt="End-of-day code and test LOC chart" />
+    </article>
+
+    <article class="chart-card">
+      <div class="chart-head">
+        <h2 class="chart-title">Daily Churn</h2>
+        <p class="chart-copy">Each bar is the sum of insertions and deletions from <code>jj show --stat</code> across commits that landed on that day.</p>
+      </div>
+      <img class="chart-image" src="__CHURN_CHART__" alt="Daily churn chart" />
+    </article>
+
+    <article class="chart-card">
+      <div class="chart-head">
+        <h2 class="chart-title">Daily Codex Token Usage</h2>
+        <p class="chart-copy">Green shows aggregated input tokens and pink shows aggregated output tokens from repo-local sessions rooted at <code>__CODEX_CWD_PREFIX__</code>.</p>
+      </div>
+      <img class="chart-image" src="__TOKENS_CHART__" alt="Daily Codex token usage chart" />
+    </article>
+  </section>
+</div>
+</body>
+</html>

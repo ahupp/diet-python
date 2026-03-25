@@ -152,3 +152,42 @@ def test_collect_daily_tokens_uses_repo_local_session_deltas(tmp_path: Path):
             "output_tokens": 40,
         }
     ]
+
+
+def test_write_static_report_emits_html_and_svgs(tmp_path: Path):
+    module = load_module(REPO_ROOT / "scripts" / "build_history_metrics_rollup.py", "build_history_metrics_rollup_static")
+    html_output = tmp_path / "history_metrics_smoke.html"
+    module.write_static_report(
+        html_output_path=html_output,
+        template_path=REPO_ROOT / "web" / "history_metrics_template.html",
+        generated_at="2026-03-25T10:00:00-07:00",
+        timezone_name="America/Los_Angeles",
+        history_path=REPO_ROOT / "logs" / "warloc_history.jsonl",
+        codex_root=Path.home() / ".codex",
+        repo_cwd_prefix=str(REPO_ROOT),
+        daily_rollup=[
+            {
+                "date": "2026-03-25",
+                "code_lines": 123,
+                "tests_python_total_lines": 45,
+                "daily_churn": 12,
+            }
+        ],
+        daily_tokens=[
+            {
+                "date": "2026-03-25",
+                "input_tokens": 300,
+                "output_tokens": 40,
+            }
+        ],
+    )
+
+    html = html_output.read_text(encoding="utf-8")
+    assert "<script" not in html
+    assert 'src="history_metrics_smoke_loc.svg"' in html
+    assert 'src="history_metrics_smoke_churn.svg"' in html
+    assert 'src="history_metrics_smoke_tokens.svg"' in html
+    assert "123" in html
+    assert (tmp_path / "history_metrics_smoke_loc.svg").read_text(encoding="utf-8").startswith("<svg")
+    assert (tmp_path / "history_metrics_smoke_churn.svg").read_text(encoding="utf-8").startswith("<svg")
+    assert (tmp_path / "history_metrics_smoke_tokens.svg").read_text(encoding="utf-8").startswith("<svg")
