@@ -57,6 +57,11 @@
     - `blockpy_expr_simplify` is currently a separate pass boundary after semantic BlockPy construction, even though conceptually it is just finishing the lowering of expressions into core BlockPy form.
     - The likely simplification is to fold that work into the BlockPy lowering pass itself and run expression reduction bottom-up, so expressions only cross one lowering seam instead of first building semantic BlockPy exprs and then revisiting them.
     - A good first pass is to list which invariants `blockpy_expr_simplify` currently enforces for later passes, then check whether those can be guaranteed directly during semantic BlockPy construction without losing the current clear boundary for invalid leaked expr shapes.
+- Add a pass for specific storage decisions, closure slot offsets, and stack offsets.
+  - Planning note:
+    - Several later stages still implicitly decide concrete storage/layout details such as which values live in cells, the ordering of closure slots, and stack/local slot numbering.
+    - A dedicated pass for those decisions would make the backend-facing layout explicit, instead of spreading that knowledge across generator lowering, closure construction, and codegen-adjacent logic.
+    - A good first pass is to identify which existing decisions are semantic versus purely physical layout, then choose one IR boundary where storage class, closure slot index, and stack/local offsets become fixed and immutable.
 - Handle integer literals larger than can fit in an `i64`.
   - Planning note:
     - The current direct-simple JIT literal planning in `soac-eval/src/jit/planning.rs` only lowers integer literals that fit in `i64`, so larger Python ints fall out of that fast path.
