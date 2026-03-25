@@ -71,6 +71,16 @@
   - Planning note:
     - The current direct-simple JIT literal planning in `soac-eval/src/jit/planning.rs` only lowers integer literals that fit in `i64`, so larger Python ints fall out of that fast path.
     - A good first pass is to decide whether large ints should be materialized through a general Python-object literal helper at planning/codegen time, or whether they should be excluded from the direct-simple subset in a more explicit way.
+- Give intrinsics typed expr builders instead of raw `Vec` arg construction.
+  - Planning note:
+    - Call sites like `core_positional_intrinsic_expr_with_meta(&MAKE_CELL_INTRINSIC, ..., vec![init])` still encode intrinsic arity and argument ordering implicitly in the call site.
+    - The desired end state is for each intrinsic type itself, e.g. `MakeCellIntrinsic`, to expose typed constructors like `expr_with_range(range, arg0)` and `expr_without_range(arg0)` so arity mismatches become type errors instead of runtime/assertion bugs.
+    - A good first pass is to define a trait implemented by the intrinsic singleton types, add the fixed-arity constructors for a few common intrinsics, and then remove the matching raw-`Vec` helper calls so the old untyped path does not remain as a compatibility layer.
+- Make a plan for accurate source-region tracking on emitted instructions.
+  - Planning note:
+    - Many lowering paths still stamp emitted exprs/stmts/terms with `default()` node/range metadata, so provenance becomes inconsistent once code is synthesized across multiple transform boundaries.
+    - The desired end state is to have one explicit story for where each emitted instruction’s source range comes from: original source span, enclosing source span, or a clearly-marked synthetic span.
+    - A good first pass is to inventory the current `compat_*`, `Default::default()`, and synthetic-meta call sites, group them by kind of emission, and choose one boundary where source provenance becomes mandatory and validated for every emitted instruction.
 ## Completed
 
 - Move completed TODO entries here and include a short description of the work done.
