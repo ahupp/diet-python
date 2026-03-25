@@ -225,73 +225,17 @@ impl<'a> NameScopeRewriter<'a> {
         }
     }
 
-    fn rewrite_named_expr_any(&mut self, named: &mut ast::ExprNamed) -> Option<Expr> {
-        let ast::ExprNamed { target, value, .. } = named;
-        let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() else {
-            return None;
-        };
-
-        self.visit_expr(value.as_mut());
-
-        let name = id.as_str();
-        if is_internal_symbol(name) {
-            return None;
-        }
-
-        match self
-            .scope
-            .binding_in_scope(id.as_str(), SemanticBindingUse::Modify)
-        {
-            SemanticBindingKind::Global => None,
-            SemanticBindingKind::Nonlocal => None,
-            _ => None,
-        }
-    }
-
-    fn named_expr_preserves_target_name(&self, named: &ast::ExprNamed) -> bool {
-        let Expr::Name(ast::ExprName { id, .. }) = named.target.as_ref() else {
-            return false;
-        };
-        !is_internal_symbol(id.as_str())
-            && matches!(
-                self.scope
-                    .binding_in_scope(id.as_str(), SemanticBindingUse::Modify),
-                SemanticBindingKind::Global | SemanticBindingKind::Nonlocal
-            )
-    }
-
-    fn loop_target_sync_stmts(&self, target_names: &[String]) -> Vec<Stmt> {
-        let mut names = target_names.to_vec();
-        names.sort();
-        names.dedup();
-        names
-            .into_iter()
-            .filter_map(|name| {
-                if name == "__class__" || is_internal_symbol(name.as_str()) {
-                    return None;
-                }
-                let value = py_expr!("{name:id}", name = name.as_str());
-                let binding = self
-                    .scope
-                    .binding_in_scope(name.as_str(), SemanticBindingUse::Load);
-                match (self.scope.kind(), binding) {
-                    (SemanticScopeKind::Class, SemanticBindingKind::Nonlocal) => {
-                        let cell = cell_name(name.as_str());
-                        Some(py_stmt!(
-                            "__dp_store_cell({cell:id}, {value:expr})",
-                            cell = cell.as_str(),
-                            value = value
-                        ))
-                    }
-                    (SemanticScopeKind::Class, SemanticBindingKind::Global) => Some(py_stmt!(
-                        "__dp_store_global(globals(), {name:literal}, {value:expr})",
-                        name = name.as_str(),
-                        value = value
-                    )),
-                    _ => None,
-                }
+    fn visit_target_expr_preserving_names(&mut self, expr: &mut Expr) {
+        if matches!(
+            expr,
+            Expr::Name(ast::ExprName {
+                ctx: ExprContext::Store | ExprContext::Del,
+                ..
             })
-            .collect()
+        ) {
+            return;
+        }
+        walk_expr(self, expr);
     }
 }
 
@@ -315,26 +259,6 @@ fn collect_parameter_names(parameters: &ast::Parameters) -> HashSet<String> {
     names
 }
 
-fn collect_assigned_names(target: &Expr, names: &mut HashSet<String>) {
-    match target {
-        Expr::Name(name) => {
-            names.insert(name.id.to_string());
-        }
-        Expr::Tuple(tuple) => {
-            for elt in &tuple.elts {
-                collect_assigned_names(elt, names);
-            }
-        }
-        Expr::List(list) => {
-            for elt in &list.elts {
-                collect_assigned_names(elt, names);
-            }
-        }
-        Expr::Starred(starred) => collect_assigned_names(starred.value.as_ref(), names),
-        _ => {}
-    }
-}
-
 impl Transformer for NameScopeRewriter<'_> {
     fn visit_body(&mut self, body: &mut Suite) {
         let mut rewritten = Vec::with_capacity(body.len());
@@ -350,19 +274,10 @@ impl Transformer for NameScopeRewriter<'_> {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::For(for_stmt) => {
-                let mut target_names = HashSet::new();
-                collect_assigned_names(for_stmt.target.as_ref(), &mut target_names);
-                let target_names = target_names.into_iter().collect::<Vec<_>>();
-
                 self.visit_expr(for_stmt.iter.as_mut());
-                self.visit_expr(for_stmt.target.as_mut());
+                self.visit_target_expr_preserving_names(for_stmt.target.as_mut());
                 self.visit_body(suite_mut(&mut for_stmt.body));
                 self.visit_body(suite_mut(&mut for_stmt.orelse));
-
-                let sync_stmts = self.loop_target_sync_stmts(&target_names);
-                if !sync_stmts.is_empty() {
-                    suite_mut(&mut for_stmt.body).splice(0..0, sync_stmts);
-                }
             }
             Stmt::Delete(delete) => {
                 assert!(delete.targets.len() == 1);
@@ -631,14 +546,8 @@ impl Transformer for NameScopeRewriter<'_> {
                 }
             }
             Expr::Named(named) => {
-                let preserve_target_name = self.named_expr_preserves_target_name(named);
-                if let Some(rewritten) = self.rewrite_named_expr_any(named) {
-                    *expr = rewritten;
-                    return;
-                }
-                if preserve_target_name {
-                    return;
-                }
+                self.visit_expr(named.value.as_mut());
+                return;
             }
             Expr::Name(name) if matches!(name.ctx, ExprContext::Store | ExprContext::Del) => {
                 if let Some(rewritten) = self.rewrite_name_store(name) {
