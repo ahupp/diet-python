@@ -8,11 +8,6 @@ use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
-#[cfg(test)]
-use crate::block_py::{
-    BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind, FunctionName,
-};
-
 fn expr_name(id: &str) -> ast::ExprName {
     let Expr::Name(expr) = py_expr!("{id:id}", id = id) else {
         unreachable!();
@@ -146,62 +141,4 @@ pub(crate) fn lower_awaits_in_core_blockpy_module(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::block_py::{
-        BlockPyLabel, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyExprWithAwaitAndYield,
-    };
-    use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
-
-    fn test_name_gen() -> crate::block_py::FunctionNameGen {
-        let mut module_name_gen = crate::block_py::ModuleNameGen::new(0);
-        module_name_gen.next_function_name_gen()
-    }
-
-    #[test]
-    fn lowers_await_to_yield_from_await_iter() {
-        let module = BlockPyModule {
-            callable_defs: vec![BlockPyFunction {
-                function_id: crate::block_py::FunctionId(0),
-                name_gen: test_name_gen(),
-                names: FunctionName::new("f", "f", "f", "f"),
-                kind: BlockPyFunctionKind::Coroutine,
-                params: Default::default(),
-                blocks: vec![make_eval_order_explicit_in_core_block(CfgBlock {
-                    label: BlockPyLabel("start".to_string()),
-                    body: Vec::new(),
-                    term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(
-                        crate::py_expr!("await foo()"),
-                    )),
-                    params: Vec::new(),
-                    exc_edge: None,
-                })],
-                doc: None,
-                closure_layout: None,
-                facts: crate::block_py::BlockPyCallableFacts::default(),
-                semantic: BlockPyCallableSemanticInfo::default(),
-            }],
-        };
-
-        let lowered = lower_awaits_in_core_blockpy_module(module);
-        let block = &lowered.callable_defs[0].blocks[0];
-        assert_eq!(block.body.len(), 1);
-        let BlockPyStmt::Assign(await_assign) = &block.body[0] else {
-            panic!("expected lowered await assignment");
-        };
-        let BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(return_name)) = &block.term else {
-            panic!("expected return of lowered await temp");
-        };
-        assert_eq!(return_name.id, await_assign.target.id);
-        let CoreBlockPyExprWithYield::YieldFrom(yield_from) = &await_assign.value else {
-            panic!("expected lowered await yield from");
-        };
-        let CoreBlockPyExprWithYield::Call(call) = yield_from.value.as_ref() else {
-            panic!("expected __dp_await_iter call");
-        };
-        let CoreBlockPyExprWithYield::Name(name) = call.func.as_ref() else {
-            panic!("expected await helper name");
-        };
-        assert_eq!(name.id.as_str(), "__dp_await_iter");
-    }
-}
+mod test;
