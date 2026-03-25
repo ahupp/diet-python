@@ -1,7 +1,7 @@
 use crate::block_py::param_specs::{collect_param_spec_and_defaults, param_defaults_to_expr};
 use crate::block_py::{
-    BindingTarget, BlockPyBindingPurpose, BlockPyCallableSemanticInfo, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyModule, ClosureLayout, FunctionNameGen, ModuleNameGen,
+    BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind, BlockPyModule,
+    ClosureLayout, FunctionNameGen, ModuleNameGen,
 };
 use crate::passes::ast_to_ast::body::{split_docstring, suite_mut, suite_ref, Suite};
 use crate::passes::ast_to_ast::context::Context;
@@ -230,22 +230,6 @@ fn build_lowered_function_instantiation_expr(
     rewrite_stmt::decorator::rewrite_exprs(decorator_exprs, base_function_expr)
 }
 
-fn build_lowered_function_binding_stmt(
-    bind_name: &str,
-    value: Expr,
-    target: BindingTarget,
-) -> Vec<Stmt> {
-    match target {
-        BindingTarget::Local | BindingTarget::ModuleGlobal | BindingTarget::ClassNamespace => {
-            vec![py_stmt!(
-                "{name:id} = {value:expr}",
-                name = bind_name,
-                value = value
-            )]
-        }
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn rewrite_function_def_stmt_via_blockpy(
     context: &Context,
@@ -262,8 +246,6 @@ fn rewrite_function_def_stmt_via_blockpy(
         try_lower_function_to_blockpy_bundle(context, func, callable_semantic, name_gen);
     lowered_plan.closure_layout = recompute_semantic_blockpy_closure_layout(&lowered_plan);
     let bind_name = lowered_plan.names.bind_name.clone();
-    let binding_target =
-        parent_semantic.binding_target_for_name(bind_name.as_str(), BlockPyBindingPurpose::Store);
     let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let decorated = build_lowered_function_instantiation_expr(
         lowered_plan.function_id,
@@ -273,8 +255,11 @@ fn rewrite_function_def_stmt_via_blockpy(
         py_expr!("None"),
         lowered_plan.kind,
     );
-    let binding_stmt =
-        build_lowered_function_binding_stmt(bind_name.as_str(), decorated, binding_target);
+    let binding_stmt = vec![py_stmt!(
+        "{name:id} = {value:expr}",
+        name = bind_name.as_str(),
+        value = decorated
+    )];
     callable_defs.push(lowered_plan);
     if bind_name.starts_with("_dp_class_ns_") || bind_name.starts_with("_dp_define_class_") {
         let mut replacement = function_hoisted;
