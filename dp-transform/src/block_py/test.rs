@@ -1,4 +1,5 @@
 use super::*;
+use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield, RuffBlockPyPass};
 use crate::py_expr;
 
 #[test]
@@ -240,6 +241,21 @@ fn stmt_conversion_to_no_await_rejects_await() {
 
 #[test]
 fn try_module_map_propagates_nested_expr_conversion_errors() {
+    struct RejectAwaitMapper;
+
+    impl BlockPyModuleTryMap<CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield>
+        for RejectAwaitMapper
+    {
+        type Error = CoreBlockPyExprWithAwaitAndYield;
+
+        fn try_map_expr(
+            &self,
+            expr: CoreBlockPyExprWithAwaitAndYield,
+        ) -> Result<CoreBlockPyExprWithYield, Self::Error> {
+            expr.try_into()
+        }
+    }
+
     let module = BlockPyModule::<CoreBlockPyPassWithAwaitAndYield> {
         callable_defs: vec![BlockPyFunction {
             function_id: FunctionId(0),
@@ -269,7 +285,7 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
         }],
     };
 
-    assert!(module.try_map_module(&ElideAwaitExprTryMap).is_err());
+    assert!(module.try_map_module(&RejectAwaitMapper).is_err());
 }
 
 #[test]
