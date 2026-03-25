@@ -649,20 +649,13 @@ fn rewrite_function_def_stmt_via_blockpy(
 impl BlockPyModuleRewriter<'_> {
     fn root_module_init_stmt<'a>(module: &'a mut Suite) -> &'a mut ast::StmtFunctionDef {
         assert_eq!(
-            module
-                .iter()
-                .filter(|stmt| matches!(stmt, Stmt::FunctionDef(_)))
-                .count(),
+            module.len(),
             1,
-            "expected root suite with exactly one function",
+            "expected root suite with exactly one statement",
         );
-        let func = module
-            .iter_mut()
-            .find_map(|stmt| match stmt {
-                Stmt::FunctionDef(func) => Some(func),
-                _ => None,
-            })
-            .expect("expected root suite with exactly one function");
+        let Stmt::FunctionDef(func) = &mut module[0] else {
+            panic!("expected root suite with exactly one function");
+        };
         assert!(
             func.parameters.posonlyargs.is_empty()
                 && func.parameters.args.is_empty()

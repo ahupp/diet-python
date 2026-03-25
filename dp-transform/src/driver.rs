@@ -81,10 +81,14 @@ pub(crate) fn rewrite_module_with_tracker(
             &mut rewrite_semantic_state,
             suite_mut(&mut module),
         );
-        suite_mut(&mut module).splice(
-            0..0,
-            rewrite_future_annotations::invalid_future_feature_syntax_error_stmts(&future_imports),
-        );
+        let invalid_future_stmts =
+            rewrite_future_annotations::invalid_future_feature_syntax_error_stmts(&future_imports);
+        if !invalid_future_stmts.is_empty() {
+            let [Stmt::FunctionDef(module_init)] = suite_mut(&mut module).as_mut_slice() else {
+                panic!("expected wrapped module root before inserting invalid future error stubs");
+            };
+            suite_mut(&mut module_init.body).splice(0..0, invalid_future_stmts);
+        }
         semantic_state = Some(rewrite_semantic_state);
         module
     });
