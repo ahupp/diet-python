@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360">
+<style>
+.frame { fill: #09131d; }
+.title { fill: #edf3fb; font: 800 24px Manrope, 'Segoe UI', sans-serif; }
+.subtitle { fill: #a4b7cc; font: 14px Manrope, 'Segoe UI', sans-serif; }
+.legend { fill: #a4b7cc; font: 13px Manrope, 'Segoe UI', sans-serif; }
+.grid-line { stroke: rgba(186, 208, 233, 0.14); stroke-width: 1; }
+.domain { stroke: rgba(186, 208, 233, 0.24); stroke-width: 1; }
+.axis-label { fill: #6e8398; font: 11px 'IBM Plex Mono', monospace; }
+.empty { fill: #a4b7cc; font: 15px Manrope, 'Segoe UI', sans-serif; }
+</style>
+<rect class="frame" x="0" y="0" width="1200" height="360" rx="18" />
+<text class="title" x="28" y="34">Daily Codex Token Usage</text>
+<text class="subtitle" x="28" y="58">Repo-local Codex input and output token totals aggregated by day.</text>
+<circle cx="970" cy="30" r="5" fill="#5bd6a0" />
+<text class="legend" x="984" y="34">Input tokens</text>
+<circle cx="970" cy="50" r="5" fill="#ff6f91" />
+<text class="legend" x="984" y="54">Output tokens</text>
+<line class="grid-line" x1="78" x2="1176" y1="308.0" y2="308.0" />
+<text class="axis-label" x="68" y="312.0" text-anchor="end">0</text>
+<line class="grid-line" x1="78" x2="1176" y1="250.5" y2="250.5" />
+<text class="axis-label" x="68" y="254.5" text-anchor="end">25,289,198</text>
+<line class="grid-line" x1="78" x2="1176" y1="193.0" y2="193.0" />
+<text class="axis-label" x="68" y="197.0" text-anchor="end">50,578,397</text>
+<line class="grid-line" x1="78" x2="1176" y1="135.5" y2="135.5" />
+<text class="axis-label" x="68" y="139.5" text-anchor="end">75,867,595</text>
+<line class="grid-line" x1="78" x2="1176" y1="78.0" y2="78.0" />
+<text class="axis-label" x="68" y="82.0" text-anchor="end">101,156,794</text>
+<line class="domain" x1="78" x2="1176" y1="308" y2="308" />
+<text class="axis-label" x="78.0" y="342" text-anchor="middle">2026-03-06</text>
+<text class="axis-label" x="352.5" y="342" text-anchor="middle">2026-03-10</text>
+<text class="axis-label" x="627.0" y="342" text-anchor="middle">2026-03-13</text>
+<text class="axis-label" x="901.5" y="342" text-anchor="middle">2026-03-21</text>
+<text class="axis-label" x="1176.0" y="342" text-anchor="end">2026-03-25</text>
+<polygon points="78.0,308 78.0,271.4 215.2,303.6 352.5,206.3 489.8,307.9 627.0,303.3 764.2,307.9 901.5,265.7 1038.8,95.0 1176.0,267.4 1176.0,308" fill="#5bd6a0" opacity="0.1" />
+<polyline points="78.0,271.4 215.2,303.6 352.5,206.3 489.8,307.9 627.0,303.3 764.2,307.9 901.5,265.7 1038.8,95.0 1176.0,267.4" fill="none" stroke="#5bd6a0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+<polygon points="78.0,308 78.0,307.8 215.2,308.0 352.5,307.7 489.8,308.0 627.0,308.0 764.2,308.0 901.5,307.8 1038.8,307.3 1176.0,307.8 1176.0,308" fill="#ff6f91" opacity="0.1" />
+<polyline points="78.0,307.8 215.2,308.0 352.5,307.7 489.8,308.0 627.0,308.0 764.2,308.0 901.5,307.8 1038.8,307.3 1176.0,307.8" fill="none" stroke="#ff6f91" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

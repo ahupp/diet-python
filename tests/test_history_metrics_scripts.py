@@ -32,6 +32,33 @@ def test_parse_lines_changed_from_stat_handles_missing_sides():
     assert module.parse_lines_changed_from_stat("1 file changed, 4 deletions(-)") == 4
 
 
+def test_restore_workspace_from_commit_uses_jj_restore(monkeypatch, tmp_path: Path):
+    module = load_module(REPO_ROOT / "scripts" / "collect_warloc_history.py", "collect_warloc_history_restore")
+    observed: dict[str, object] = {}
+
+    def fake_jj_cmd(*args, ignore_working_copy=False):
+        observed["args"] = args
+        observed["ignore_working_copy"] = ignore_working_copy
+        return ["jj", *args]
+
+    def fake_run(cmd, *, cwd, capture_output=False):
+        observed["cmd"] = cmd
+        observed["cwd"] = cwd
+        observed["capture_output"] = capture_output
+        return object()
+
+    monkeypatch.setattr(module, "jj_cmd", fake_jj_cmd)
+    monkeypatch.setattr(module, "run", fake_run)
+
+    module.restore_workspace_from_commit(tmp_path, "abc123")
+
+    assert observed["args"] == ("restore", "--from", "abc123")
+    assert observed["ignore_working_copy"] is False
+    assert observed["cmd"] == ["jj", "restore", "--from", "abc123"]
+    assert observed["cwd"] == tmp_path
+    assert observed["capture_output"] is True
+
+
 def test_build_daily_rollup_uses_end_of_day_snapshot():
     module = load_module(REPO_ROOT / "scripts" / "build_history_metrics_rollup.py", "build_history_metrics_rollup")
     timezone = module.ZoneInfo("America/Los_Angeles")

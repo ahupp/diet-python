@@ -132,6 +132,8 @@ def create_workspace() -> tuple[str, Path, Path]:
             workspace_name,
             "--sparse-patterns",
             "full",
+            "--revision",
+            "root()",
             str(workspace_root),
             ignore_working_copy=True,
         ),
@@ -162,9 +164,9 @@ def update_stale_workspace(workspace_root: Path) -> None:
     )
 
 
-def edit_workspace_to_commit(workspace_root: Path, commit_id: str) -> None:
+def restore_workspace_from_commit(workspace_root: Path, commit_id: str) -> None:
     run(
-        jj_cmd("edit", commit_id),
+        jj_cmd("restore", "--from", commit_id),
         cwd=workspace_root,
         capture_output=True,
     )
@@ -270,7 +272,7 @@ def collect_history(output_path: Path, revset: str) -> None:
                     f"[{index}/{total}] {commit.commit_id[:12]} {commit.change_id}",
                     file=sys.stderr,
                 )
-                edit_workspace_to_commit(workspace_root, commit.commit_id)
+                restore_workspace_from_commit(workspace_root, commit.commit_id)
                 merged = collect_commit_record(commit, workspace_root)
                 fh.write(json.dumps(merged, sort_keys=True))
                 fh.write("\n")

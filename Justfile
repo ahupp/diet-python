@@ -242,6 +242,13 @@ build-web-inspector:
   set -e
   exit "$STATUS"
 
+history-metrics-report history_jsonl="logs/warloc_history.jsonl" daily_jsonl="logs/warloc_history_daily.jsonl" html_output="web/history_metrics.html" revset="..": ensure-cpython
+  #!/usr/bin/env bash
+  cd "$REPO_ROOT"
+  mkdir -p "$(dirname "{{history_jsonl}}")" "$(dirname "{{daily_jsonl}}")" "$(dirname "{{html_output}}")"
+  "$CPYTHON_BIN" scripts/collect_warloc_history.py "{{history_jsonl}}" --revset "{{revset}}"
+  "$CPYTHON_BIN" scripts/build_history_metrics_rollup.py "{{history_jsonl}}" "{{daily_jsonl}}" --html-output "{{html_output}}"
+
 run-web-inspector: build-web-inspector (build-extension "debug") ensure-venv
   #!/usr/bin/env bash
   echo "[2/3] Starting web server in $WEB_DIR on $URL ..."
