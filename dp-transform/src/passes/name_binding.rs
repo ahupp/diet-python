@@ -95,6 +95,24 @@ fn rewrite_global_binding_assign(
     ))
 }
 
+fn rewrite_class_namespace_binding_assign(
+    assign: BlockPyAssign<CoreBlockPyExpr>,
+) -> BlockPyStmt<CoreBlockPyExpr> {
+    let node_index = assign.target.node_index.clone();
+    let range = assign.target.range;
+    let bind_name = assign.target.id.to_string();
+    BlockPyStmt::Expr(core_positional_call_expr_with_meta(
+        "__dp_setitem",
+        node_index.clone(),
+        range,
+        vec![
+            class_namespace_expr(node_index.clone(), range),
+            core_string_expr(bind_name, node_index, range),
+            assign.value,
+        ],
+    ))
+}
+
 fn rewrite_cell_binding_assign(
     assign: BlockPyAssign<CoreBlockPyExpr>,
 ) -> BlockPyStmt<CoreBlockPyExpr> {
@@ -534,27 +552,35 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 target: assign.target,
                 value: self.map_expr(assign.value),
             })
-        } else if self
-            .semantic
-            .binding_target_for_name(assign.target.id.as_str(), BlockPyBindingPurpose::Store)
-            == BindingTarget::ModuleGlobal
-        {
-            if is_deleted_sentinel_expr(&assign.value) {
-                return rewrite_global_binding_delete_by_name(
-                    assign.target.id.as_str(),
-                    assign.target.node_index.clone(),
-                    assign.target.range,
-                );
-            }
-            rewrite_global_binding_assign(BlockPyAssign {
-                target: assign.target,
-                value: self.map_expr(assign.value),
-            })
         } else {
-            BlockPyStmt::Assign(BlockPyAssign {
-                target: assign.target,
-                value: self.map_expr(assign.value),
-            })
+            let binding_target = self
+                .semantic
+                .binding_target_for_name(assign.target.id.as_str(), BlockPyBindingPurpose::Store);
+            match binding_target {
+                BindingTarget::ModuleGlobal => {
+                    if is_deleted_sentinel_expr(&assign.value) {
+                        return rewrite_global_binding_delete_by_name(
+                            assign.target.id.as_str(),
+                            assign.target.node_index.clone(),
+                            assign.target.range,
+                        );
+                    }
+                    rewrite_global_binding_assign(BlockPyAssign {
+                        target: assign.target,
+                        value: self.map_expr(assign.value),
+                    })
+                }
+                BindingTarget::ClassNamespace => {
+                    rewrite_class_namespace_binding_assign(BlockPyAssign {
+                        target: assign.target,
+                        value: self.map_expr(assign.value),
+                    })
+                }
+                BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
+                    target: assign.target,
+                    value: self.map_expr(assign.value),
+                }),
+            }
         }
     }
 

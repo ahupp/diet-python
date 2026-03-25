@@ -638,44 +638,18 @@ fn build_lowered_function_instantiation_expr(
     rewrite_stmt::decorator::rewrite_exprs(decorator_exprs, base_function_expr)
 }
 
-fn build_binding_stmt(target: BindingTarget, bind_name: &str, value: Expr) -> Stmt {
-    match target {
-        BindingTarget::Local => {
-            py_stmt!("{name:id} = {value:expr}", name = bind_name, value = value,)
-        }
-        BindingTarget::ModuleGlobal => {
-            panic!("module-global binding should be lowered in the name_binding pass")
-        }
-        BindingTarget::ClassNamespace => py_stmt!(
-            "__dp_setitem(_dp_class_ns, {name:literal}, {value:expr})",
-            name = bind_name,
-            value = value,
-        ),
-    }
-}
-
 fn build_lowered_function_binding_stmt(
     bind_name: &str,
     value: Expr,
     target: BindingTarget,
 ) -> Vec<Stmt> {
     match target {
-        BindingTarget::Local => {
+        BindingTarget::Local | BindingTarget::ModuleGlobal | BindingTarget::ClassNamespace => {
             vec![py_stmt!(
                 "{name:id} = {value:expr}",
                 name = bind_name,
                 value = value
             )]
-        }
-        BindingTarget::ModuleGlobal => {
-            vec![py_stmt!(
-                "{name:id} = {value:expr}",
-                name = bind_name,
-                value = value
-            )]
-        }
-        BindingTarget::ClassNamespace => {
-            vec![build_binding_stmt(target, bind_name, value)]
         }
     }
 }
