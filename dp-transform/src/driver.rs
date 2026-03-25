@@ -53,15 +53,6 @@ pub(crate) fn rewrite_module_with_tracker(
             suite_mut(&mut module),
         );
 
-        // Lower multi-target assignment / delete shapes to the single-name forms
-        // that the later BlockPy lowering expects.
-        rewrite_with_pass(
-            context,
-            Some(&passes::SingleNamedAssignmentPass),
-            None,
-            suite_mut(&mut module),
-        );
-
         let mut rewrite_semantic_state = SemanticAstState::from_ruff(suite_mut(&mut module));
         wrap_module_init(&mut rewrite_semantic_state, suite_mut(&mut module));
 

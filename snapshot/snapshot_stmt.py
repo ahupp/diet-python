@@ -90,8 +90,8 @@ a, b = it
 #     function_id: 0
 #     block _dp_bb_0_1:
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, True))
-#         a = __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 0)
-#         b = __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 1)
+#         a = __dp_getitem(_dp_tmp_1, 0)
+#         b = __dp_getitem(_dp_tmp_1, 1)
 #         _dp_tmp_1 = __dp_DELETED
 #         return __dp_NONE
 
@@ -105,8 +105,8 @@ a, *b = it
 #     function_id: 0
 #     block _dp_bb_0_1:
 #         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, False))
-#         a = __dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 0)
-#         b = __dp_list(__dp_getitem(__dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1), 1))
+#         a = __dp_getitem(_dp_tmp_1, 0)
+#         b = __dp_list(__dp_getitem(_dp_tmp_1, 1))
 #         _dp_tmp_1 = __dp_DELETED
 #         return __dp_NONE
 

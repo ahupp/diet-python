@@ -14,13 +14,19 @@ impl Transformer for MethodRewriteSuperClasscell {
         match stmt {
             Stmt::FunctionDef(_) => return,
             Stmt::Delete(ast::StmtDelete { targets, .. }) => {
-                assert!(targets.len() == 1);
-                if let Expr::Name(ast::ExprName { id, .. }) = &targets[0] {
-                    if id.as_str() == "__class__" {
-                        *stmt = py_stmt!("del _dp_classcell.cell_contents");
-                        self.needs_class_cell = true;
-                        return;
+                let mut modified = false;
+                for target in targets.iter_mut() {
+                    if matches!(
+                        target,
+                        Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__class__"
+                    ) {
+                        *target = py_expr!("_dp_classcell.cell_contents");
+                        modified = true;
                     }
+                }
+                if modified {
+                    self.needs_class_cell = true;
+                    return;
                 }
             }
             Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {

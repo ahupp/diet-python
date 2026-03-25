@@ -1697,30 +1697,6 @@ def bump(x):
 }
 
 #[test]
-fn single_named_assignment_leaves_annassign_for_later_passes() {
-    let source = r#"
-def f():
-    x: int = 1
-"#;
-
-    let mut module = ruff_python_parser::parse_module(source)
-        .expect("parse should succeed")
-        .into_syntax();
-    let context = crate::passes::ast_to_ast::context::Context::new(Options::for_test(), source);
-
-    crate::passes::ast_to_ast::ast_rewrite::rewrite_with_pass(
-        &context,
-        Some(&crate::passes::SingleNamedAssignmentPass),
-        None,
-        crate::passes::ast_to_ast::body::suite_mut(&mut module.body),
-    );
-
-    let rendered =
-        crate::ruff_ast_to_string(crate::passes::ast_to_ast::body::suite_ref(&module.body));
-    assert!(rendered.contains("x: int = 1"), "{rendered}");
-}
-
-#[test]
 fn closure_backed_generator_records_explicit_closure_layout() {
     let source = r#"
 def outer(scale):

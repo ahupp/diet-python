@@ -69,7 +69,6 @@ pub(crate) use blockpy_to_bb::{
 };
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_for_codegen};
 
-pub use ast_to_ast::rewrite_stmt::single_assigment::SingleNamedAssignmentPass;
 pub(crate) use name_binding::lower_name_binding_in_core_blockpy_module;
 pub(crate) use summarize_pass_shape::summarize_tracked_pass_shape;
 
