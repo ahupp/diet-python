@@ -464,6 +464,17 @@ impl Transformer for RuffScopeBindingCollector {
         }
         crate::transformer::walk_expr(self, expr);
     }
+
+    fn visit_type_param(&mut self, type_param: &mut ast::TypeParam) {
+        match type_param {
+            ast::TypeParam::TypeVar(ast::TypeParamTypeVar { name, .. })
+            | ast::TypeParam::TypeVarTuple(ast::TypeParamTypeVarTuple { name, .. })
+            | ast::TypeParam::ParamSpec(ast::TypeParamParamSpec { name, .. }) => {
+                self.bound_names.insert(name.id.to_string());
+            }
+        }
+        crate::transformer::walk_type_param(self, type_param);
+    }
 }
 
 fn collect_bound_target_names(expr: &ast::Expr, names: &mut HashSet<String>) {
@@ -1361,6 +1372,48 @@ def _dp_module_init():
         assert_eq!(class_scope.kind(), SemanticScopeKind::Class);
         assert_eq!(
             class_scope.binding_in_scope("y", SemanticBindingUse::Load),
+            SemanticBindingKind::Local
+        );
+    }
+
+    #[test]
+    fn semantic_state_class_type_params_are_local_bindings() {
+        let mut body = parse_module_body(concat!(
+            "class Box[T, **P]:\n",
+            "    value = T\n",
+            "    params = P\n",
+        ));
+        let semantic_state = SemanticAstState::from_ruff(&mut body);
+        let class_scope = semantic_state
+            .module_scope()
+            .child_scope_for_class(find_class(&body, "Box"))
+            .expect("missing class scope");
+
+        assert_eq!(
+            class_scope.binding_in_scope("T", SemanticBindingUse::Load),
+            SemanticBindingKind::Local
+        );
+        assert_eq!(
+            class_scope.binding_in_scope("P", SemanticBindingUse::Load),
+            SemanticBindingKind::Local
+        );
+    }
+
+    #[test]
+    fn semantic_state_function_type_params_are_local_bindings() {
+        let mut body = parse_module_body(concat!(
+            "def f[T, **P](x: T, *args: P.args, **kwargs: P.kwargs) -> T:\n",
+            "    return x\n",
+        ));
+        let semantic_state = SemanticAstState::from_ruff(&mut body);
+        let func_scope = function_scope(&semantic_state, find_function(&body, "f"));
+
+        assert_eq!(
+            func_scope.binding_in_scope("T", SemanticBindingUse::Load),
+            SemanticBindingKind::Local
+        );
+        assert_eq!(
+            func_scope.binding_in_scope("P", SemanticBindingUse::Load),
             SemanticBindingKind::Local
         );
     }
