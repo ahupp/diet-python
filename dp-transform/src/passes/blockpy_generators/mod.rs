@@ -11,7 +11,7 @@ use crate::block_py::{
     ModuleNameGen,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
-use crate::passes::ast_to_ast::scope_helpers::{cell_name, is_internal_symbol};
+use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block_without_await;
 use crate::passes::ruff_to_blockpy::{
     attach_exception_edges_to_blocks, lowered_exception_edges, recompute_lowered_block_params,
@@ -23,21 +23,15 @@ use ruff_python_ast::{self as ast, Expr, ExprName};
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 
-fn generator_storage_name(name: &str) -> String {
-    if name == "__class__" || name == "_dp_classcell" {
-        return "_dp_classcell".to_string();
-    }
-    if name.starts_with("_dp_cell_") {
-        return name.to_string();
-    }
-    cell_name(name)
+fn generator_state_logical_name(semantic: &BlockPyCallableSemanticInfo, name: &str) -> String {
+    semantic
+        .logical_name_for_cell_storage(name)
+        .unwrap_or_else(|| name.to_string())
 }
 
-fn logical_name_for_generator_state(name: &str) -> String {
-    if name == "_dp_classcell" {
-        return "__class__".to_string();
-    }
-    name.strip_prefix("_dp_cell_").unwrap_or(name).to_string()
+fn generator_state_storage_name(semantic: &BlockPyCallableSemanticInfo, name: &str) -> String {
+    let logical_name = generator_state_logical_name(semantic, name);
+    semantic.cell_storage_name(logical_name.as_str())
 }
 
 fn runtime_init(name: &str) -> Option<ClosureInit> {
@@ -49,6 +43,7 @@ fn runtime_init(name: &str) -> Option<ClosureInit> {
 }
 
 pub(crate) fn build_blockpy_closure_layout(
+    semantic: &BlockPyCallableSemanticInfo,
     param_names: &[String],
     state_vars: &[String],
     capture_names: &[String],
@@ -62,8 +57,8 @@ pub(crate) fn build_blockpy_closure_layout(
     let mut runtime_cells = Vec::new();
 
     for name in state_vars {
-        let logical_name = logical_name_for_generator_state(name.as_str());
-        let storage_name = generator_storage_name(name.as_str());
+        let logical_name = generator_state_logical_name(semantic, name.as_str());
+        let storage_name = generator_state_storage_name(semantic, name.as_str());
         if !seen_storage_names.insert(storage_name.clone()) {
             continue;
         }
@@ -208,7 +203,10 @@ fn build_generator_closure_layout(
         }
     }
     for slot in local_cell_slots {
-        let logical_name = slot.strip_prefix("_dp_cell_").unwrap_or(&slot).to_string();
+        let logical_name = callable
+            .semantic
+            .logical_name_for_cell_storage(slot.as_str())
+            .unwrap_or_else(|| slot.clone());
         if !state_vars.iter().any(|existing| existing == &logical_name) {
             state_vars.push(logical_name);
         }
@@ -220,6 +218,7 @@ fn build_generator_closure_layout(
     }
 
     build_blockpy_closure_layout(
+        &callable.semantic,
         &param_names,
         &state_vars,
         &capture_names,

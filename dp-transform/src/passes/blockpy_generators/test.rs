@@ -12,6 +12,14 @@ use crate::py_expr;
 use ruff_python_ast::Expr;
 use std::collections::HashSet;
 
+fn generator_test_semantic() -> BlockPyCallableSemanticInfo {
+    BlockPyCallableSemanticInfo {
+        names: FunctionName::new("gen", "gen", "gen", "gen"),
+        scope_kind: BlockPyCallableScopeKind::Function,
+        ..Default::default()
+    }
+}
+
 fn blockpy_make_dp_tuple(items: Vec<Expr>) -> Expr {
     let Expr::Call(mut call) = py_expr!("__dp_tuple()") else {
         panic!("expected call expression for __dp_tuple");
@@ -200,7 +208,9 @@ fn persistent_generator_state_order_omits_resume_abi_params() {
 
 #[test]
 fn build_blockpy_closure_layout_classifies_capture_local_and_runtime_cells() {
+    let semantic = generator_test_semantic();
     let layout = build_blockpy_closure_layout(
+        &semantic,
         &["arg".to_string()],
         &[
             "arg".to_string(),
@@ -262,6 +272,34 @@ fn build_blockpy_closure_layout_classifies_capture_local_and_runtime_cells() {
                 &ClosureInit::RuntimePcUnstarted
             ),
         ]
+    );
+}
+
+#[test]
+fn build_blockpy_closure_layout_uses_semantic_classcell_storage_mapping() {
+    let mut semantic = generator_test_semantic();
+    semantic.insert_binding(
+        "__class__",
+        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner),
+        false,
+        Some("_dp_classcell".to_string()),
+    );
+
+    let layout = build_blockpy_closure_layout(
+        &semantic,
+        &[],
+        &["__class__".to_string()],
+        &[],
+        &HashSet::new(),
+    );
+
+    assert_eq!(
+        layout
+            .cellvars
+            .iter()
+            .map(|slot| (slot.logical_name.as_str(), slot.storage_name.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("__class__", "_dp_classcell")]
     );
 }
 

@@ -293,6 +293,7 @@ fn build_semantic_blockpy_closure_layout(
     }
 
     Some(build_blockpy_closure_layout(
+        &callable_def.semantic,
         &param_names,
         &state_vars,
         &capture_names,

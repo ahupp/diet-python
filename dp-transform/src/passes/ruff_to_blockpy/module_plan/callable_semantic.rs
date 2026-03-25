@@ -72,6 +72,27 @@ fn blockpy_binding_kind_for_name(
     }
 }
 
+fn parameters_contain_name(parameters: &ast::Parameters, expected: &str) -> bool {
+    parameters
+        .posonlyargs
+        .iter()
+        .chain(parameters.args.iter())
+        .chain(parameters.kwonlyargs.iter())
+        .any(|param| param.parameter.name.id.as_str() == expected)
+        || parameters
+            .vararg
+            .as_ref()
+            .is_some_and(|param| param.name.id.as_str() == expected)
+        || parameters
+            .kwarg
+            .as_ref()
+            .is_some_and(|param| param.name.id.as_str() == expected)
+}
+
+fn callable_owns_synthetic_classcell(func: Option<&ast::StmtFunctionDef>) -> bool {
+    func.is_some_and(|func| parameters_contain_name(func.parameters.as_ref(), "_dp_classcell_arg"))
+}
+
 pub(super) fn callable_semantic_info(
     semantic_state: &SemanticAstState,
     parent_scope: Option<&SemanticScope>,
@@ -184,7 +205,7 @@ pub(super) fn callable_semantic_info(
         }
         None => FunctionName::default(),
     };
-    BlockPyCallableSemanticInfo {
+    let mut info = BlockPyCallableSemanticInfo {
         names,
         scope_kind,
         bindings,
@@ -194,5 +215,15 @@ pub(super) fn callable_semantic_info(
         type_param_names,
         effective_load_bindings,
         effective_store_bindings,
+    };
+    if callable_owns_synthetic_classcell(func) && !info.bindings.contains_key("__class__") {
+        info.local_defs.insert("__class__".to_string());
+        info.insert_binding(
+            "__class__",
+            BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner),
+            false,
+            Some("_dp_classcell".to_string()),
+        );
     }
+    info
 }

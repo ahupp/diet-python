@@ -139,6 +139,33 @@ fn callable_semantic_info_tracks_bind_and_qualname_for_class_helper_override() {
 }
 
 #[test]
+fn callable_semantic_info_marks_class_helper_as_owning_classcell() {
+    let source = "class Box:\n    pass\n";
+    let blockpy_module = transform_str_to_ruff_with_options(source, Options::for_test())
+        .unwrap()
+        .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .cloned()
+        .expect("semantic_blockpy pass should be tracked");
+    let class_helper = blockpy_module
+        .callable_defs
+        .iter()
+        .find(|func| func.names.bind_name == "_dp_class_ns_Box")
+        .expect("missing class helper");
+
+    assert_eq!(
+        class_helper.semantic.binding_kind("__class__"),
+        Some(BlockPyBindingKind::Cell(
+            crate::block_py::BlockPyCellBindingKind::Owner
+        ))
+    );
+    assert!(class_helper.semantic.has_local_def("__class__"));
+    assert_eq!(
+        class_helper.semantic.cell_storage_name("__class__"),
+        "_dp_classcell"
+    );
+}
+
+#[test]
 fn callable_semantic_info_distinguishes_class_type_params_from_class_body_locals() {
     let source = "class Box[T]:\n    value = T\n";
     let blockpy_module = transform_str_to_ruff_with_options(source, Options::for_test())
