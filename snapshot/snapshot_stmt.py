@@ -362,7 +362,7 @@ with cm as x:
 #     block _dp_bb_0_10:
 #         exc_param: _dp_try_exc_0_0
 #         params: [_dp_try_exc_0_0:Exception]
-#         raise
+#         raise _dp_try_exc_0_0
 #     block _dp_bb_0_5__exception:
 #         exc_param: _dp_try_exc_0_3
 #         params: [_dp_try_exc_0_3:Exception]
@@ -370,7 +370,7 @@ with cm as x:
 #     block _dp_bb_0_8:
 #         exc_param: _dp_try_exc_0_0
 #         params: [_dp_try_exc_0_0:Exception]
-#         if_term __dp_exception_matches(__dp_current_exception(), BaseException):
+#         if_term __dp_exception_matches(_dp_try_exc_0_0, BaseException):
 #             then:
 #                 jump _dp_bb_0_9
 #             else:
@@ -379,7 +379,7 @@ with cm as x:
 #         exc_param: _dp_try_exc_0_0
 #         params: [_dp_try_exc_0_0:Exception]
 #         _dp_with_ok_2 = False
-#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
+#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info_from_exception(_dp_try_exc_0_0))
 #         jump _dp_bb_0_5__normal
 
 # function_local_ann_assign
@@ -675,7 +675,7 @@ with a as x, b as y:
 #     block _dp_bb_0_10:
 #         exc_param: _dp_try_exc_0_0
 #         params: [_dp_try_exc_0_0:Exception]
-#         raise
+#         raise _dp_try_exc_0_0
 #     block _dp_bb_0_15__exception:
 #         exc_param: _dp_try_exc_0_7
 #         params: [_dp_try_exc_0_7:Exception]
@@ -683,7 +683,7 @@ with a as x, b as y:
 #     block _dp_bb_0_18:
 #         exc_param: _dp_try_exc_0_4
 #         params: [_dp_try_exc_0_4:Exception]
-#         if_term __dp_exception_matches(__dp_current_exception(), BaseException):
+#         if_term __dp_exception_matches(_dp_try_exc_0_4, BaseException):
 #             then:
 #                 jump _dp_bb_0_19
 #             else:
@@ -692,12 +692,12 @@ with a as x, b as y:
 #         exc_param: _dp_try_exc_0_4
 #         params: [_dp_try_exc_0_4:Exception]
 #         _dp_with_ok_2 = False
-#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
+#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info_from_exception(_dp_try_exc_0_4))
 #         jump _dp_bb_0_15__normal
 #     block _dp_bb_0_20:
 #         exc_param: _dp_try_exc_0_4
 #         params: [_dp_try_exc_0_4:Exception]
-#         raise
+#         raise _dp_try_exc_0_4
 #     block _dp_bb_0_5__exception:
 #         exc_param: _dp_try_exc_0_3
 #         params: [_dp_try_exc_0_3:Exception]
@@ -705,7 +705,7 @@ with a as x, b as y:
 #     block _dp_bb_0_8:
 #         exc_param: _dp_try_exc_0_0
 #         params: [_dp_try_exc_0_0:Exception]
-#         if_term __dp_exception_matches(__dp_current_exception(), BaseException):
+#         if_term __dp_exception_matches(_dp_try_exc_0_0, BaseException):
 #             then:
 #                 jump _dp_bb_0_9
 #             else:
@@ -714,7 +714,7 @@ with a as x, b as y:
 #         exc_param: _dp_try_exc_0_0
 #         params: [_dp_try_exc_0_0:Exception]
 #         _dp_with_ok_5 = False
-#         __dp_contextmanager_exit(_dp_with_exit_4, __dp_exc_info())
+#         __dp_contextmanager_exit(_dp_with_exit_4, __dp_exc_info_from_exception(_dp_try_exc_0_0))
 #         jump _dp_bb_0_5__normal
 
 # async_for
@@ -927,7 +927,7 @@ with Suppress():
 #     block _dp_bb_0_10:
 #         exc_param: _dp_try_exc_0_0
 #         params: [_dp_try_exc_0_0:Exception]
-#         raise
+#         raise _dp_try_exc_0_0
 #     block _dp_bb_0_2:
 #         return _dp_try_abrupt_payload_0_2
 #     block _dp_bb_0_3:
@@ -960,7 +960,7 @@ with Suppress():
 #     block _dp_bb_0_8:
 #         exc_param: _dp_try_exc_0_0
 #         params: [_dp_try_exc_0_0:Exception]
-#         if_term __dp_exception_matches(__dp_current_exception(), BaseException):
+#         if_term __dp_exception_matches(_dp_try_exc_0_0, BaseException):
 #             then:
 #                 jump _dp_bb_0_9
 #             else:
@@ -969,7 +969,7 @@ with Suppress():
 #         exc_param: _dp_try_exc_0_0
 #         params: [_dp_try_exc_0_0:Exception]
 #         _dp_with_ok_2 = False
-#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info())
+#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info_from_exception(_dp_try_exc_0_0))
 #         jump _dp_bb_0_5__normal
 
 # closure_cell_simple
@@ -1095,7 +1095,7 @@ except Exception:
 #     block _dp_bb_0_2:
 #         exc_param: _dp_try_exc_0_0
 #         params: [_dp_try_exc_0_0:Exception]
-#         if_term __dp_exception_matches(__dp_current_exception(), Exception):
+#         if_term __dp_exception_matches(_dp_try_exc_0_0, Exception):
 #             then:
 #                 jump _dp_bb_0_3
 #             else:
@@ -1108,7 +1108,7 @@ except Exception:
 #     block _dp_bb_0_4:
 #         exc_param: _dp_try_exc_0_0
 #         params: [_dp_try_exc_0_0:Exception]
-#         raise
+#         raise _dp_try_exc_0_0
 
 # complicated generator
 

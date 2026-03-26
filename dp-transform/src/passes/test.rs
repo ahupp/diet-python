@@ -735,14 +735,18 @@ class Box:
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let core_rendered = lowered.pass_text("core_blockpy");
+    let semantic_rendered = lowered.pass_text("semantic_blockpy");
     assert!(
-        !core_rendered.contains("__dp_store_global(__dp_globals(), \"caught\""),
-        "{core_rendered}"
+        !semantic_rendered.contains("__dp_store_global(__dp_globals(), \"caught\""),
+        "{semantic_rendered}"
     );
     assert!(
-        core_rendered.contains("caught = __dp_current_exception()"),
-        "{core_rendered}"
+        !semantic_rendered.contains("__dp_current_exception()"),
+        "{semantic_rendered}"
+    );
+    assert!(
+        semantic_rendered.contains("caught = _dp_try_exc_"),
+        "{semantic_rendered}"
     );
 
     let name_binding_rendered = lowered.name_binding_text();
@@ -772,14 +776,18 @@ def outer():
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let core_rendered = lowered.pass_text("core_blockpy");
+    let semantic_rendered = lowered.pass_text("semantic_blockpy");
     assert!(
-        !core_rendered.contains("__dp_store_cell(_dp_cell_x, __dp_current_exception())"),
-        "{core_rendered}"
+        !semantic_rendered.contains("__dp_store_cell(_dp_cell_x, __dp_current_exception())"),
+        "{semantic_rendered}"
     );
     assert!(
-        core_rendered.contains("x = __dp_current_exception()"),
-        "{core_rendered}"
+        !semantic_rendered.contains("__dp_current_exception()"),
+        "{semantic_rendered}"
+    );
+    assert!(
+        semantic_rendered.contains("x = _dp_try_exc_"),
+        "{semantic_rendered}"
     );
 
     let name_binding_rendered = lowered.name_binding_text();
@@ -804,14 +812,19 @@ class Box:
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let core_rendered = lowered.pass_text("core_blockpy");
+    let semantic_rendered = lowered.pass_text("semantic_blockpy");
     assert!(
-        !core_rendered.contains("__dp_setitem(_dp_class_ns, \"caught\", __dp_current_exception())"),
-        "{core_rendered}"
+        !semantic_rendered
+            .contains("__dp_setitem(_dp_class_ns, \"caught\", __dp_current_exception())"),
+        "{semantic_rendered}"
     );
     assert!(
-        core_rendered.contains("caught = __dp_current_exception()"),
-        "{core_rendered}"
+        !semantic_rendered.contains("__dp_current_exception()"),
+        "{semantic_rendered}"
+    );
+    assert!(
+        semantic_rendered.contains("caught = _dp_try_exc_"),
+        "{semantic_rendered}"
     );
 
     let name_binding_rendered = lowered.name_binding_text();
@@ -1510,18 +1523,22 @@ except Exception as exc:
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let core_rendered = lowered.pass_text("core_blockpy");
+    let semantic_rendered = lowered.pass_text("semantic_blockpy");
     assert!(
-        !core_rendered.contains("__dp_store_global(__dp_globals(), \"exc\""),
-        "{core_rendered}"
+        !semantic_rendered.contains("__dp_store_global(__dp_globals(), \"exc\""),
+        "{semantic_rendered}"
     );
     assert!(
-        core_rendered.contains("_dp_del_quietly(exc)"),
-        "{core_rendered}"
+        semantic_rendered.contains("_dp_del_quietly(exc)"),
+        "{semantic_rendered}"
     );
     assert!(
-        core_rendered.contains("exc = __dp_current_exception()"),
-        "{core_rendered}"
+        !semantic_rendered.contains("__dp_current_exception()"),
+        "{semantic_rendered}"
+    );
+    assert!(
+        semantic_rendered.contains("exc = _dp_try_exc_"),
+        "{semantic_rendered}"
     );
 
     let name_binding_rendered = lowered.name_binding_text();

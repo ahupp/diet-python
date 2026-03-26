@@ -449,6 +449,9 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
         .filter_map(|block| block.exc_edge.as_ref().map(|edge| edge.target.to_string()))
         .collect::<Vec<_>>();
     prune_unreachable_blockpy_blocks(entry_label.as_str(), &extra_roots, &mut callable_def.blocks);
+    if matches!(callable_def.kind, BlockPyFunctionKind::Function) {
+        rewrite_current_exception_placeholders_in_lowered_blocks(&mut callable_def.blocks);
+    }
     callable_def.closure_layout =
         build_semantic_blockpy_closure_layout(&callable_def, &HashSet::new());
     callable_def
@@ -458,6 +461,118 @@ pub(crate) fn recompute_semantic_blockpy_closure_layout(
     callable_def: &BlockPyFunction<RuffBlockPyPass>,
 ) -> Option<ClosureLayout> {
     build_semantic_blockpy_closure_layout(callable_def, &HashSet::new())
+}
+
+struct CurrentExceptionPlaceholderRewriter<'a> {
+    exc_name: &'a str,
+}
+
+impl Transformer for CurrentExceptionPlaceholderRewriter<'_> {
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        if is_current_exception_placeholder_expr(expr) {
+            *expr = current_exception_name_expr(self.exc_name);
+            return;
+        }
+        if is_exc_info_placeholder_expr(expr) {
+            *expr = current_exception_info_expr(self.exc_name);
+            return;
+        }
+        walk_expr(self, expr);
+    }
+}
+
+fn rewrite_current_exception_placeholders_in_lowered_blocks(
+    blocks: &mut [crate::block_py::CfgBlock<BlockPyStmt, BlockPyTerm>],
+) {
+    for block in blocks {
+        let Some(exc_name) = block.exception_param().map(ToString::to_string) else {
+            continue;
+        };
+        for stmt in &mut block.body {
+            rewrite_current_exception_placeholders_in_stmt(stmt, exc_name.as_str());
+        }
+        rewrite_current_exception_placeholders_in_term(&mut block.term, exc_name.as_str());
+    }
+}
+
+fn rewrite_current_exception_placeholders_in_stmt(stmt: &mut BlockPyStmt, exc_name: &str) {
+    match stmt {
+        BlockPyStmt::Assign(assign) => {
+            rewrite_current_exception_placeholders_in_expr(&mut assign.value, exc_name);
+        }
+        BlockPyStmt::Expr(expr) => {
+            rewrite_current_exception_placeholders_in_expr(expr, exc_name);
+        }
+        BlockPyStmt::Delete(_) => {}
+        BlockPyStmt::If(if_stmt) => {
+            rewrite_current_exception_placeholders_in_expr(&mut if_stmt.test, exc_name);
+            for stmt in &mut if_stmt.body.body {
+                rewrite_current_exception_placeholders_in_stmt(stmt, exc_name);
+            }
+            if let Some(term) = if_stmt.body.term.as_mut() {
+                rewrite_current_exception_placeholders_in_term(term, exc_name);
+            }
+            for stmt in &mut if_stmt.orelse.body {
+                rewrite_current_exception_placeholders_in_stmt(stmt, exc_name);
+            }
+            if let Some(term) = if_stmt.orelse.term.as_mut() {
+                rewrite_current_exception_placeholders_in_term(term, exc_name);
+            }
+        }
+    }
+}
+
+fn rewrite_current_exception_placeholders_in_term(term: &mut BlockPyTerm, exc_name: &str) {
+    match term {
+        BlockPyTerm::Jump(_) => {}
+        BlockPyTerm::IfTerm(if_term) => {
+            rewrite_current_exception_placeholders_in_expr(&mut if_term.test, exc_name);
+        }
+        BlockPyTerm::BranchTable(branch) => {
+            rewrite_current_exception_placeholders_in_expr(&mut branch.index, exc_name);
+        }
+        BlockPyTerm::Raise(raise_stmt) => {
+            if let Some(exc) = raise_stmt.exc.as_mut() {
+                rewrite_current_exception_placeholders_in_expr(exc, exc_name);
+            } else {
+                raise_stmt.exc = Some(current_exception_name_expr(exc_name));
+            }
+        }
+        BlockPyTerm::Return(value) => {
+            rewrite_current_exception_placeholders_in_expr(value, exc_name);
+        }
+    }
+}
+
+fn rewrite_current_exception_placeholders_in_expr(expr: &mut Expr, exc_name: &str) {
+    let mut rewriter = CurrentExceptionPlaceholderRewriter { exc_name };
+    rewriter.visit_expr(expr);
+}
+
+fn is_current_exception_placeholder_expr(expr: &Expr) -> bool {
+    let Expr::Call(call) = expr else {
+        return false;
+    };
+    call.arguments.args.is_empty()
+        && call.arguments.keywords.is_empty()
+        && matches!(call.func.as_ref(), Expr::Name(name) if name.id.as_str() == "__dp_current_exception")
+}
+
+fn is_exc_info_placeholder_expr(expr: &Expr) -> bool {
+    let Expr::Call(call) = expr else {
+        return false;
+    };
+    call.arguments.args.is_empty()
+        && call.arguments.keywords.is_empty()
+        && matches!(call.func.as_ref(), Expr::Name(name) if name.id.as_str() == "__dp_exc_info")
+}
+
+fn current_exception_name_expr(exc_name: &str) -> Expr {
+    py_expr!("{name:id}", name = exc_name)
+}
+
+fn current_exception_info_expr(exc_name: &str) -> Expr {
+    py_expr!("__dp_exc_info_from_exception({name:id})", name = exc_name)
 }
 
 #[derive(Clone)]
