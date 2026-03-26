@@ -14,7 +14,7 @@ pub(crate) fn lower_structured_core_blocks_to_bb_blocks<N>(
         BlockPyTerm<CoreBlockPyExpr<N>>,
     >],
     block_params: &HashMap<String, Vec<String>>,
-) -> Vec<crate::block_py::CfgBlock<BbStmt<N>, BlockPyTerm<CoreBlockPyExpr<N>>>>
+) -> Vec<crate::block_py::CfgBlock<BbStmt<CoreBlockPyExpr<N>, N>, BlockPyTerm<CoreBlockPyExpr<N>>>>
 where
     N: BlockPyNameLike,
 {
@@ -85,7 +85,10 @@ pub(crate) fn lower_structured_located_blocks_to_bb_blocks(
 }
 
 pub(crate) fn populate_exception_edge_args<N>(
-    blocks: &mut [crate::block_py::CfgBlock<BbStmt<N>, BlockPyTerm<CoreBlockPyExpr<N>>>],
+    blocks: &mut [crate::block_py::CfgBlock<
+        BbStmt<CoreBlockPyExpr<N>, N>,
+        BlockPyTerm<CoreBlockPyExpr<N>>,
+    >],
 ) {
     let label_to_index = blocks
         .iter()

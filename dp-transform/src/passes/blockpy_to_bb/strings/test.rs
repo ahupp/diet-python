@@ -102,7 +102,10 @@ fn probe_bb_term_exprs<N: BlockPyNameLike>(
     }
 }
 
-fn probe_bb_stmt_exprs<N: BlockPyNameLike>(probe: &mut ExprShapeProbe, stmt: &BbStmt<N>) {
+fn probe_bb_stmt_exprs<N: BlockPyNameLike>(
+    probe: &mut ExprShapeProbe,
+    stmt: &BbStmt<CoreBlockPyExpr<N>, N>,
+) {
     match stmt {
         BbStmt::Assign(assign) => probe_bb_exprs(probe, &assign.value),
         BbStmt::Expr(expr) => probe_bb_exprs(probe, expr),

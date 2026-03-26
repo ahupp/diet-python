@@ -1270,32 +1270,32 @@ impl<E: std::fmt::Debug, N: std::fmt::Debug> BlockPyNormalizedStmt for BlockPySt
 }
 
 #[derive(Debug, Clone)]
-pub enum BbStmt<N = LocatedName> {
-    Assign(BlockPyAssign<CoreBlockPyExpr<N>, N>),
-    Expr(CoreBlockPyExpr<N>),
+pub enum BbStmt<E = CoreBlockPyExpr<LocatedName>, N = LocatedName> {
+    Assign(BlockPyAssign<E, N>),
+    Expr(E),
     Delete(BlockPyDelete<N>),
 }
 
-impl<N> From<BlockPyAssign<CoreBlockPyExpr<N>, N>> for BbStmt<N> {
-    fn from(value: BlockPyAssign<CoreBlockPyExpr<N>, N>) -> Self {
+impl<E, N> From<BlockPyAssign<E, N>> for BbStmt<E, N> {
+    fn from(value: BlockPyAssign<E, N>) -> Self {
         Self::Assign(value)
     }
 }
 
-impl<N> From<CoreBlockPyExpr<N>> for BbStmt<N> {
+impl<N> From<CoreBlockPyExpr<N>> for BbStmt<CoreBlockPyExpr<N>, N> {
     fn from(value: CoreBlockPyExpr<N>) -> Self {
         Self::Expr(value)
     }
 }
 
-impl<N> From<BlockPyDelete<N>> for BbStmt<N> {
+impl<E, N> From<BlockPyDelete<N>> for BbStmt<E, N> {
     fn from(value: BlockPyDelete<N>) -> Self {
         Self::Delete(value)
     }
 }
 
-impl<N> From<BlockPyStmt<CoreBlockPyExpr<N>, N>> for BbStmt<N> {
-    fn from(value: BlockPyStmt<CoreBlockPyExpr<N>, N>) -> Self {
+impl<E, N> From<BlockPyStmt<E, N>> for BbStmt<E, N> {
+    fn from(value: BlockPyStmt<E, N>) -> Self {
         match value {
             BlockPyStmt::Assign(assign) => Self::Assign(assign),
             BlockPyStmt::Expr(expr) => Self::Expr(expr),
@@ -1305,8 +1305,8 @@ impl<N> From<BlockPyStmt<CoreBlockPyExpr<N>, N>> for BbStmt<N> {
     }
 }
 
-impl<N: Clone + fmt::Debug> IntoBlockPyStmt<CoreBlockPyExpr<N>, N> for BbStmt<N> {
-    fn into_stmt(self) -> BlockPyStmt<CoreBlockPyExpr<N>, N> {
+impl<E: Clone + fmt::Debug, N: Clone + fmt::Debug> IntoBlockPyStmt<E, N> for BbStmt<E, N> {
+    fn into_stmt(self) -> BlockPyStmt<E, N> {
         match self {
             BbStmt::Assign(assign) => BlockPyStmt::Assign(assign),
             BbStmt::Expr(expr) => BlockPyStmt::Expr(expr),
@@ -1315,7 +1315,7 @@ impl<N: Clone + fmt::Debug> IntoBlockPyStmt<CoreBlockPyExpr<N>, N> for BbStmt<N>
     }
 }
 
-impl<N> BlockPyNormalizedStmt for BbStmt<N> {
+impl<E, N> BlockPyNormalizedStmt for BbStmt<E, N> {
     fn assert_blockpy_normalized(&self) {}
 }
 

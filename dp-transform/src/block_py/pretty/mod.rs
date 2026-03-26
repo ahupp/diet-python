@@ -536,7 +536,7 @@ pub(crate) fn bb_expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> Str
 }
 
 #[cfg(test)]
-pub(crate) fn bb_stmt_text<N: BlockPyNameLike>(stmt: &BbStmt<N>) -> String {
+pub(crate) fn bb_stmt_text<N: BlockPyNameLike>(stmt: &BbStmt<CoreBlockPyExpr<N>, N>) -> String {
     match stmt {
         BbStmt::Assign(assign) => {
             format!(
@@ -551,7 +551,7 @@ pub(crate) fn bb_stmt_text<N: BlockPyNameLike>(stmt: &BbStmt<N>) -> String {
 }
 
 #[cfg(test)]
-pub(crate) fn bb_stmts_text<N: BlockPyNameLike>(stmts: &[BbStmt<N>]) -> String {
+pub(crate) fn bb_stmts_text<N: BlockPyNameLike>(stmts: &[BbStmt<CoreBlockPyExpr<N>, N>]) -> String {
     let mut out = String::new();
     for stmt in stmts {
         out.push_str(&bb_stmt_text(stmt));
