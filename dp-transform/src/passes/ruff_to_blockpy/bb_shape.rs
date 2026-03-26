@@ -1,20 +1,23 @@
 use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
-    BbBlock, BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyIfTerm, BlockPyStmt,
-    BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, IntrinsicCall,
-    LocatedCoreBlockPyExpr, LocatedName,
+    BbBlock, BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyIfTerm,
+    BlockPyNameLike, BlockPyStmt, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr,
+    CoreBlockPyLiteral, IntrinsicCall, LocatedCoreBlockPyExpr, LocatedName,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 use std::collections::{HashMap, HashSet};
 
-pub(crate) fn lower_structured_located_blocks_to_bb_blocks(
+pub(crate) fn lower_structured_core_blocks_to_bb_blocks<N>(
     blocks: &[crate::block_py::CfgBlock<
-        BlockPyStmt<CoreBlockPyExpr<LocatedName>, LocatedName>,
-        BlockPyTerm<LocatedCoreBlockPyExpr>,
+        BlockPyStmt<CoreBlockPyExpr<N>, N>,
+        BlockPyTerm<CoreBlockPyExpr<N>>,
     >],
     block_params: &HashMap<String, Vec<String>>,
-) -> Vec<BbBlock> {
+) -> Vec<crate::block_py::CfgBlock<BbStmt<N>, BlockPyTerm<CoreBlockPyExpr<N>>>>
+where
+    N: BlockPyNameLike,
+{
     let exception_edges = lowered_exception_edges(blocks);
     let (linear_blocks, linear_block_params, linear_exception_edges) =
         linearize_structured_ifs(blocks, block_params, &exception_edges);
@@ -58,7 +61,7 @@ pub(crate) fn lower_structured_located_blocks_to_bb_blocks(
                 })
                 .collect::<Vec<_>>();
             params.extend(block.bb_params().cloned());
-            BbBlock {
+            crate::block_py::CfgBlock {
                 label: block.label.clone(),
                 body: ops,
                 term: normalized_term,
@@ -71,8 +74,18 @@ pub(crate) fn lower_structured_located_blocks_to_bb_blocks(
     bb_blocks
 }
 
-pub(crate) fn populate_exception_edge_args(
-    blocks: &mut [crate::block_py::CfgBlock<BbStmt, BlockPyTerm<LocatedCoreBlockPyExpr>>],
+pub(crate) fn lower_structured_located_blocks_to_bb_blocks(
+    blocks: &[crate::block_py::CfgBlock<
+        BlockPyStmt<CoreBlockPyExpr<LocatedName>, LocatedName>,
+        BlockPyTerm<LocatedCoreBlockPyExpr>,
+    >],
+    block_params: &HashMap<String, Vec<String>>,
+) -> Vec<BbBlock> {
+    lower_structured_core_blocks_to_bb_blocks(blocks, block_params)
+}
+
+pub(crate) fn populate_exception_edge_args<N>(
+    blocks: &mut [crate::block_py::CfgBlock<BbStmt<N>, BlockPyTerm<CoreBlockPyExpr<N>>>],
 ) {
     let label_to_index = blocks
         .iter()
@@ -143,10 +156,12 @@ pub(crate) fn lowered_exception_edges<S, T>(
         .collect()
 }
 
-fn rewrite_current_exception_in_blockpy_stmt(
-    stmt: &mut BlockPyStmt<LocatedCoreBlockPyExpr, LocatedName>,
+fn rewrite_current_exception_in_blockpy_stmt<N>(
+    stmt: &mut BlockPyStmt<CoreBlockPyExpr<N>, N>,
     exc_name: &str,
-) {
+) where
+    N: BlockPyNameLike,
+{
     match stmt {
         BlockPyStmt::Assign(assign) => {
             rewrite_current_exception_in_blockpy_expr(&mut assign.value, exc_name);
@@ -173,10 +188,12 @@ fn rewrite_current_exception_in_blockpy_stmt(
     }
 }
 
-fn rewrite_current_exception_in_blockpy_term(
-    term: &mut BlockPyTerm<LocatedCoreBlockPyExpr>,
+fn rewrite_current_exception_in_blockpy_term<N>(
+    term: &mut BlockPyTerm<CoreBlockPyExpr<N>>,
     exc_name: &str,
-) {
+) where
+    N: BlockPyNameLike,
+{
     match term {
         BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
             rewrite_current_exception_in_blockpy_expr(test, exc_name);
@@ -188,7 +205,7 @@ fn rewrite_current_exception_in_blockpy_term(
             if let Some(exc) = raise_stmt.exc.as_mut() {
                 rewrite_current_exception_in_blockpy_expr(exc, exc_name);
             } else {
-                raise_stmt.exc = Some(current_exception_name_expr(exc_name).into());
+                raise_stmt.exc = Some(current_exception_name_expr(exc_name));
             }
         }
         BlockPyTerm::Return(value) => rewrite_current_exception_in_blockpy_expr(value, exc_name),
@@ -196,7 +213,10 @@ fn rewrite_current_exception_in_blockpy_term(
     }
 }
 
-fn rewrite_current_exception_in_blockpy_expr(expr: &mut LocatedCoreBlockPyExpr, exc_name: &str) {
+fn rewrite_current_exception_in_blockpy_expr<N>(expr: &mut CoreBlockPyExpr<N>, exc_name: &str)
+where
+    N: BlockPyNameLike,
+{
     match expr {
         CoreBlockPyExpr::Call(call) => {
             rewrite_current_exception_in_blockpy_expr(call.func.as_mut(), exc_name);
@@ -222,7 +242,10 @@ fn rewrite_current_exception_in_blockpy_expr(expr: &mut LocatedCoreBlockPyExpr, 
     }
 }
 
-fn is_current_exception_call(expr: &LocatedCoreBlockPyExpr) -> bool {
+fn is_current_exception_call<N>(expr: &CoreBlockPyExpr<N>) -> bool
+where
+    N: BlockPyNameLike,
+{
     let CoreBlockPyExpr::Call(call) = expr else {
         return false;
     };
@@ -231,7 +254,10 @@ fn is_current_exception_call(expr: &LocatedCoreBlockPyExpr) -> bool {
         && is_dp_lookup_call_expr(call.func.as_ref(), "current_exception")
 }
 
-fn is_exc_info_call(expr: &LocatedCoreBlockPyExpr) -> bool {
+fn is_exc_info_call<N>(expr: &CoreBlockPyExpr<N>) -> bool
+where
+    N: BlockPyNameLike,
+{
     let CoreBlockPyExpr::Call(call) = expr else {
         return false;
     };
@@ -240,13 +266,16 @@ fn is_exc_info_call(expr: &LocatedCoreBlockPyExpr) -> bool {
         && is_dp_lookup_call_expr(call.func.as_ref(), "exc_info")
 }
 
-fn is_dp_lookup_call_expr(func: &LocatedCoreBlockPyExpr, attr_name: &str) -> bool {
+fn is_dp_lookup_call_expr<N>(func: &CoreBlockPyExpr<N>, attr_name: &str) -> bool
+where
+    N: BlockPyNameLike,
+{
     match func {
-        CoreBlockPyExpr::Name(name) => name.id.as_str() == format!("__dp_{attr_name}"),
+        CoreBlockPyExpr::Name(name) => name.id_str() == format!("__dp_{attr_name}"),
         CoreBlockPyExpr::Call(call) if call.keywords.is_empty() && call.args.len() == 2 => {
             matches!(
                 call.func.as_ref(),
-                CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_getattr"
+                CoreBlockPyExpr::Name(name) if name.id_str() == "__dp_getattr"
             ) && is_dp_getattr_lookup_args(&call.args, attr_name)
         }
         CoreBlockPyExpr::Intrinsic(IntrinsicCall {
@@ -258,28 +287,37 @@ fn is_dp_lookup_call_expr(func: &LocatedCoreBlockPyExpr, attr_name: &str) -> boo
     }
 }
 
-fn is_dp_getattr_lookup_args(
-    args: &[CoreBlockPyCallArg<LocatedCoreBlockPyExpr>],
+fn is_dp_getattr_lookup_args<N>(
+    args: &[CoreBlockPyCallArg<CoreBlockPyExpr<N>>],
     attr_name: &str,
-) -> bool {
+) -> bool
+where
+    N: BlockPyNameLike,
+{
     matches!(
         &args[0],
         CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(base))
-            if base.id.as_str() == "__dp__"
+            if base.id_str() == "__dp__"
     ) && expr_static_str(match &args[1] {
         CoreBlockPyCallArg::Positional(value) => value,
         CoreBlockPyCallArg::Starred(_) => return false,
     }) == Some(attr_name.to_string())
 }
 
-fn is_dp_getattr_intrinsic_args(args: &[LocatedCoreBlockPyExpr], attr_name: &str) -> bool {
+fn is_dp_getattr_intrinsic_args<N>(args: &[CoreBlockPyExpr<N>], attr_name: &str) -> bool
+where
+    N: BlockPyNameLike,
+{
     matches!(
         &args[0],
-        CoreBlockPyExpr::Name(base) if base.id.as_str() == "__dp__"
+        CoreBlockPyExpr::Name(base) if base.id_str() == "__dp__"
     ) && expr_static_str(&args[1]) == Some(attr_name.to_string())
 }
 
-fn expr_static_str(expr: &LocatedCoreBlockPyExpr) -> Option<String> {
+fn expr_static_str<N>(expr: &CoreBlockPyExpr<N>) -> Option<String>
+where
+    N: BlockPyNameLike,
+{
     match expr {
         CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(value)) => {
             Some(value.value.clone())
@@ -294,7 +332,7 @@ fn expr_static_str(expr: &LocatedCoreBlockPyExpr) -> Option<String> {
                     call.func.as_ref(),
                     CoreBlockPyExpr::Name(name)
                         if matches!(
-                            name.id.as_str(),
+                            name.id_str(),
                             "__dp_decode_literal_bytes" | "__dp_decode_literal_source_bytes"
                         )
                 ) =>
@@ -310,31 +348,31 @@ fn expr_static_str(expr: &LocatedCoreBlockPyExpr) -> Option<String> {
     }
 }
 
-fn current_exception_name_expr(exc_name: &str) -> LocatedCoreBlockPyExpr {
-    CoreBlockPyExpr::Name(
-        ast::ExprName {
-            id: exc_name.into(),
+fn current_exception_name_expr<N>(exc_name: &str) -> CoreBlockPyExpr<N>
+where
+    N: BlockPyNameLike,
+{
+    CoreBlockPyExpr::Name(N::from(ast::ExprName {
+        id: exc_name.into(),
+        ctx: ast::ExprContext::Load,
+        range: compat_range(),
+        node_index: compat_node_index(),
+    }))
+}
+
+fn current_exception_info_expr<N>(exc_name: &str) -> CoreBlockPyExpr<N>
+where
+    N: BlockPyNameLike,
+{
+    CoreBlockPyExpr::Call(crate::block_py::CoreBlockPyCall {
+        node_index: compat_node_index(),
+        range: compat_range(),
+        func: Box::new(CoreBlockPyExpr::Name(N::from(ast::ExprName {
+            id: "__dp_exc_info_from_exception".into(),
             ctx: ast::ExprContext::Load,
             range: compat_range(),
             node_index: compat_node_index(),
-        }
-        .into(),
-    )
-}
-
-fn current_exception_info_expr(exc_name: &str) -> LocatedCoreBlockPyExpr {
-    LocatedCoreBlockPyExpr::Call(crate::block_py::CoreBlockPyCall {
-        node_index: compat_node_index(),
-        range: compat_range(),
-        func: Box::new(CoreBlockPyExpr::Name(
-            ast::ExprName {
-                id: "__dp_exc_info_from_exception".into(),
-                ctx: ast::ExprContext::Load,
-                range: compat_range(),
-                node_index: compat_node_index(),
-            }
-            .into(),
-        )),
+        }))),
         args: vec![CoreBlockPyCallArg::Positional(current_exception_name_expr(
             exc_name,
         ))],
@@ -348,4 +386,72 @@ fn compat_node_index() -> ast::AtomicNodeIndex {
 
 fn compat_range() -> TextRange {
     TextRange::default()
+}
+
+#[cfg(test)]
+mod test {
+    use super::lower_structured_core_blocks_to_bb_blocks;
+    use crate::block_py::{
+        BlockParam, BlockParamRole, BlockPyAssign, BlockPyIf, BlockPyIfTerm, BlockPyLabel,
+        BlockPyStmt, BlockPyStmtFragment, BlockPyTerm, CfgBlock, CoreBlockPyCall,
+        CoreBlockPyCallArg, CoreBlockPyExpr,
+    };
+    use ruff_python_ast::{self as ast};
+    use ruff_text_size::TextRange;
+    use std::collections::HashMap;
+
+    fn expr_name(name: &str, ctx: ast::ExprContext) -> ast::ExprName {
+        ast::ExprName {
+            id: name.into(),
+            ctx,
+            range: TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        }
+    }
+
+    fn core_name_expr(name: &str) -> CoreBlockPyExpr {
+        CoreBlockPyExpr::Name(expr_name(name, ast::ExprContext::Load))
+    }
+
+    #[test]
+    fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
+        let blocks = vec![CfgBlock {
+            label: BlockPyLabel::from("start"),
+            body: vec![BlockPyStmt::If(BlockPyIf {
+                test: CoreBlockPyExpr::Call(CoreBlockPyCall {
+                    node_index: ast::AtomicNodeIndex::default(),
+                    range: TextRange::default(),
+                    func: Box::new(core_name_expr("__dp_current_exception")),
+                    args: Vec::<CoreBlockPyCallArg<CoreBlockPyExpr>>::new(),
+                    keywords: Vec::new(),
+                }),
+                body: BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Assign(BlockPyAssign {
+                    target: expr_name("x", ast::ExprContext::Store),
+                    value: core_name_expr("a"),
+                })]),
+                orelse: BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Assign(BlockPyAssign {
+                    target: expr_name("x", ast::ExprContext::Store),
+                    value: core_name_expr("b"),
+                })]),
+            })],
+            term: BlockPyTerm::Return(core_name_expr("__dp_NONE")),
+            params: vec![BlockParam {
+                name: "_dp_try_exc_0".to_string(),
+                role: BlockParamRole::Exception,
+            }],
+            exc_edge: None,
+        }];
+
+        let lowered = lower_structured_core_blocks_to_bb_blocks(&blocks, &HashMap::new());
+
+        assert_eq!(lowered.len(), 3, "{lowered:?}");
+        let BlockPyTerm::IfTerm(BlockPyIfTerm {
+            test: CoreBlockPyExpr::Name(name),
+            ..
+        }) = &lowered[0].term
+        else {
+            panic!("expected rewritten current-exception test");
+        };
+        assert_eq!(name.id.as_str(), "_dp_try_exc_0");
+    }
 }

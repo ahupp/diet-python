@@ -1315,7 +1315,7 @@ impl<N: Clone + fmt::Debug> IntoBlockPyStmt<CoreBlockPyExpr<N>, N> for BbStmt<N>
     }
 }
 
-impl BlockPyNormalizedStmt for BbStmt {
+impl<N> BlockPyNormalizedStmt for BbStmt<N> {
     fn assert_blockpy_normalized(&self) {}
 }
 
