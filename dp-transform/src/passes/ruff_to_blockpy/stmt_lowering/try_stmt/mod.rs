@@ -286,18 +286,9 @@ where
         else_body,
         try_body,
         except_body,
+        targets.loop_labels.clone(),
         targets.active_exc.clone(),
-        &mut |stmts, cont_label, active_exc_target, blocks| {
-            lower_sequence(
-                stmts,
-                RegionTargets {
-                    normal_cont: cont_label,
-                    loop_labels: targets.loop_labels.clone(),
-                    active_exc: active_exc_target,
-                },
-                blocks,
-            )
-        },
+        lower_sequence,
     );
 
     finalize_try_regions(

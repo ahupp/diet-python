@@ -105,18 +105,22 @@ pub(crate) fn lower_try_regions<F>(
     else_body: Vec<Stmt>,
     try_body: Vec<Stmt>,
     except_body: Option<Vec<Stmt>>,
+    loop_labels: Option<LoopLabels>,
     active_exc_target: Option<String>,
-    lower_region: &mut F,
+    lower_sequence: &mut F,
 ) -> LoweredTryRegions
 where
-    F: FnMut(&[Stmt], String, Option<String>, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
 {
     let finally_label = if let Some(finally_body) = finally_body {
         let finally_region_start = blocks.len();
-        let finally_label = lower_region(
+        let finally_label = lower_sequence(
             &finally_body,
-            try_plan.finally_cont_label(rest_entry),
-            active_exc_target.clone(),
+            RegionTargets {
+                normal_cont: try_plan.finally_cont_label(rest_entry),
+                loop_labels: loop_labels.clone(),
+                active_exc: active_exc_target.clone(),
+            },
             blocks,
         );
         let finally_region_end = blocks.len();
@@ -234,10 +238,13 @@ where
     let else_entry = if else_body.is_empty() {
         cleanup_target.clone()
     } else {
-        lower_region(
+        lower_sequence(
             &else_body,
-            cleanup_target.clone(),
-            cleanup_exc_target.clone(),
+            RegionTargets {
+                normal_cont: cleanup_target.clone(),
+                loop_labels: loop_labels.clone(),
+                active_exc: cleanup_exc_target.clone(),
+            },
             blocks,
         )
     };
@@ -246,7 +253,15 @@ where
     let except_region_range;
     let except_label = if let Some(except_body) = except_body {
         let except_region_start = blocks.len();
-        let except_label = lower_region(&except_body, cleanup_target, cleanup_exc_target, blocks);
+        let except_label = lower_sequence(
+            &except_body,
+            RegionTargets {
+                normal_cont: cleanup_target,
+                loop_labels: loop_labels.clone(),
+                active_exc: cleanup_exc_target,
+            },
+            blocks,
+        );
         let except_region_end = blocks.len();
         except_region_range = Some(except_region_start..except_region_end);
         except_label
@@ -258,7 +273,15 @@ where
     };
 
     let body_region_start = blocks.len();
-    let body_label = lower_region(&try_body, else_entry, Some(except_label.clone()), blocks);
+    let body_label = lower_sequence(
+        &try_body,
+        RegionTargets {
+            normal_cont: else_entry,
+            loop_labels,
+            active_exc: Some(except_label.clone()),
+        },
+        blocks,
+    );
     let body_region_end = blocks.len();
 
     LoweredTryRegions {
