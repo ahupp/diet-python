@@ -7,7 +7,6 @@ use crate::block_py::{
     BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyClassBodyFallback,
     BlockPyEffectiveBinding, BlockPyModule, ClosureInit, ClosureLayout, ClosureSlot, ModuleNameGen,
 };
-use crate::passes::ast_to_ast::body::suite_mut;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::semantic::SemanticAstState;
 use crate::passes::ast_to_ast::Options;
@@ -167,13 +166,14 @@ fn recursive_local_function_bindings_are_cell_owned_in_parent_scope() {
                 None,
                 Some(&outer_scope),
                 Some(outer),
-                crate::passes::ast_to_ast::body::suite_ref(&outer.body),
+                &outer.body,
             ),
             hoisted_to_parent: Vec::new(),
         }],
         callable_defs: Vec::new(),
     };
-    let nested_stmt = suite_mut(&mut outer.body)
+    let nested_stmt = &mut outer
+        .body
         .iter_mut()
         .find(|stmt| matches!(stmt, Stmt::FunctionDef(_)))
         .expect("missing nested function");
@@ -381,7 +381,8 @@ fn callable_semantic_info_resolves_implicit_global_loads_in_body() {
     let Stmt::FunctionDef(outer) = &module[0] else {
         panic!("expected outer function");
     };
-    let inner = crate::passes::ast_to_ast::body::suite_ref(&outer.body)
+    let inner = &outer
+        .body
         .iter()
         .find_map(|stmt| match stmt {
             Stmt::FunctionDef(func) if func.name.id.as_str() == "inner" => Some(func),
@@ -399,7 +400,7 @@ fn callable_semantic_info_resolves_implicit_global_loads_in_body() {
         Some(&outer_scope),
         Some(&inner_scope),
         Some(inner),
-        crate::passes::ast_to_ast::body::suite_ref(&inner.body),
+        &inner.body,
     );
 
     assert_eq!(

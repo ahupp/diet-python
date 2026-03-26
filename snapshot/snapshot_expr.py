@@ -68,13 +68,33 @@ x = a and b or c
 #     function_id: 0
 #     block _dp_bb_0_1:
 #         _dp_target_2 = a
-#         if _dp_target_2:
-#             _dp_target_2 = b
-#         _dp_target_1 = _dp_target_2
-#         if not _dp_target_1:
-#             _dp_target_1 = c
-#         x = _dp_target_1
-#         return __dp_NONE
+#         if_term _dp_target_2:
+#             then:
+#                 block _dp_bb_0_1_if_then_0:
+#                     params: [_dp_target_2:Local]
+#                     _dp_target_2 = b
+#                     jump _dp_bb_0_1_if_join_2
+#             else:
+#                 block _dp_bb_0_1_if_else_1:
+#                     params: [_dp_target_2:Local]
+#                     jump _dp_bb_0_1_if_join_2
+#         block _dp_bb_0_1_if_join_2:
+#             params: [_dp_target_2:Local]
+#             _dp_target_1 = _dp_target_2
+#             if_term not _dp_target_1:
+#                 then:
+#                     block _dp_bb_0_1_if_join_2_if_then_3:
+#                         params: [_dp_target_2:Local, _dp_target_1:Local]
+#                         _dp_target_1 = c
+#                         jump _dp_bb_0_1_if_join_2_if_join_5
+#                 else:
+#                     block _dp_bb_0_1_if_join_2_if_else_4:
+#                         params: [_dp_target_2:Local, _dp_target_1:Local]
+#                         jump _dp_bb_0_1_if_join_2_if_join_5
+#             block _dp_bb_0_1_if_join_2_if_join_5:
+#                 params: [_dp_target_2:Local, _dp_target_1:Local]
+#                 x = _dp_target_1
+#                 return __dp_NONE
 
 # compare_lt
 
@@ -100,10 +120,20 @@ x = a < b < c
 #         _dp_compare_1 = a
 #         _dp_compare_3 = b
 #         _dp_target_2 = __dp_lt(_dp_compare_1, _dp_compare_3)
-#         if _dp_target_2:
-#             _dp_target_2 = __dp_lt(_dp_compare_3, c)
-#         x = _dp_target_2
-#         return __dp_NONE
+#         if_term _dp_target_2:
+#             then:
+#                 block _dp_bb_0_1_if_then_0:
+#                     params: [_dp_compare_1:Local, _dp_compare_3:Local, _dp_target_2:Local]
+#                     _dp_target_2 = __dp_lt(_dp_compare_3, c)
+#                     jump _dp_bb_0_1_if_join_2
+#             else:
+#                 block _dp_bb_0_1_if_else_1:
+#                     params: [_dp_compare_1:Local, _dp_compare_3:Local, _dp_target_2:Local]
+#                     jump _dp_bb_0_1_if_join_2
+#         block _dp_bb_0_1_if_join_2:
+#             params: [_dp_compare_1:Local, _dp_compare_3:Local, _dp_target_2:Local]
+#             x = _dp_target_2
+#             return __dp_NONE
 
 # compare_not_in
 
@@ -126,12 +156,19 @@ x = a if cond else b
 # function _dp_module_init():
 #     function_id: 0
 #     block _dp_bb_0_1:
-#         if cond:
-#             _dp_tmp_1 = a
-#         else:
-#             _dp_tmp_1 = b
-#         x = _dp_tmp_1
-#         return __dp_NONE
+#         if_term cond:
+#             then:
+#                 block _dp_bb_0_1_if_then_0:
+#                     _dp_tmp_1 = a
+#                     jump _dp_bb_0_1_if_join_2
+#             else:
+#                 block _dp_bb_0_1_if_else_1:
+#                     _dp_tmp_1 = b
+#                     jump _dp_bb_0_1_if_join_2
+#         block _dp_bb_0_1_if_join_2:
+#             params: [_dp_tmp_1:Local]
+#             x = _dp_tmp_1
+#             return __dp_NONE
 
 # named_expr
 
@@ -156,6 +193,7 @@ x = lambda y: y + 1
 #     function_id: 0
 #     display_name: <lambda>
 #     block _dp_bb_0_1:
+#         params: [y:Local]
 #         return y + 1
 
 # function _dp_module_init():
@@ -175,11 +213,14 @@ x = (i for i in it)
 #     function_id: 0
 #     display_name: <genexpr>
 #     block _dp_bb_0_2:
+#         params: [_dp_iter_2:Local]
 #         _dp_iter_3 = _dp_iter_2
 #         jump _dp_bb_0_1
 #         block _dp_bb_0_1:
+#             params: [_dp_iter_3:Local]
 #             jump _dp_bb_0_3
 #             block _dp_bb_0_3:
+#                 params: [_dp_iter_3:Local]
 #                 _dp_tmp_4 = __dp_next_or_sentinel(_dp_iter_3)
 #                 if_term __dp_is_(_dp_tmp_4, __dp__.ITER_COMPLETE):
 #                     then:
@@ -187,6 +228,7 @@ x = (i for i in it)
 #                             return __dp_NONE
 #                     else:
 #                         block _dp_bb_0_5:
+#                             params: [_dp_iter_3:Local, _dp_tmp_4:Local]
 #                             i = _dp_tmp_4
 #                             yield i
 #                             jump _dp_bb_0_1
@@ -280,21 +322,26 @@ x = [i for i in it]
 #     function_id: 0
 #     display_name: <listcomp>
 #     block _dp_bb_0_3:
+#         params: [_dp_iter_2:Local]
 #         _dp_tmp_1 = []
 #         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
 #         jump _dp_bb_0_1
 #         block _dp_bb_0_1:
+#             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local]
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
 #             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
 #                     block _dp_bb_0_4:
+#                         params: [_dp_tmp_1:Local]
 #                         return _dp_tmp_1
 #                 else:
 #                     block _dp_bb_0_2:
+#                         params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, _dp_tmp_0_1:Local]
 #                         i = _dp_tmp_0_1
 #                         _dp_tmp_0_1 = None
 #                         jump _dp_bb_0_5
 #                         block _dp_bb_0_5:
+#                             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, i:Local]
 #                             _dp_tmp_1.append(i)
 #                             jump _dp_bb_0_1
 
@@ -315,21 +362,26 @@ x = {i for i in it}
 #     function_id: 0
 #     display_name: <setcomp>
 #     block _dp_bb_0_3:
+#         params: [_dp_iter_2:Local]
 #         _dp_tmp_1 = set()
 #         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
 #         jump _dp_bb_0_1
 #         block _dp_bb_0_1:
+#             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local]
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
 #             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
 #                     block _dp_bb_0_4:
+#                         params: [_dp_tmp_1:Local]
 #                         return _dp_tmp_1
 #                 else:
 #                     block _dp_bb_0_2:
+#                         params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, _dp_tmp_0_1:Local]
 #                         i = _dp_tmp_0_1
 #                         _dp_tmp_0_1 = None
 #                         jump _dp_bb_0_5
 #                         block _dp_bb_0_5:
+#                             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, i:Local]
 #                             _dp_tmp_1.add(i)
 #                             jump _dp_bb_0_1
 
@@ -350,17 +402,21 @@ x = {k: v for k, v in it}
 #     function_id: 0
 #     display_name: <dictcomp>
 #     block _dp_bb_0_3:
+#         params: [_dp_iter_2:Local]
 #         _dp_tmp_1 = {}
 #         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
 #         jump _dp_bb_0_1
 #         block _dp_bb_0_1:
+#             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local]
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
 #             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
 #                     block _dp_bb_0_4:
+#                         params: [_dp_tmp_1:Local]
 #                         return _dp_tmp_1
 #                 else:
 #                     block _dp_bb_0_2:
+#                         params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, _dp_tmp_0_1:Local]
 #                         _dp_tmp_0_2 = __dp_unpack(_dp_tmp_0_1, __dp_tuple(True, True))
 #                         k = __dp_getitem(_dp_tmp_0_2, 0)
 #                         v = __dp_getitem(_dp_tmp_0_2, 1)
@@ -368,6 +424,7 @@ x = {k: v for k, v in it}
 #                         _dp_tmp_0_1 = None
 #                         jump _dp_bb_0_5
 #                         block _dp_bb_0_5:
+#                             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, k:Local, v:Local]
 #                             __dp_setitem(_dp_tmp_1, k, v)
 #                             jump _dp_bb_0_1
 

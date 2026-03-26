@@ -1,6 +1,6 @@
 use super::*;
 use crate::passes::ast_to_ast::ast_rewrite::Rewrite;
-use crate::passes::ast_to_ast::body::{suite_ref, Suite};
+use crate::passes::ast_to_ast::body::Suite;
 use ruff_text_size::TextRange;
 
 pub(crate) fn expand_if_chain(mut if_stmt: ast::StmtIf) -> Rewrite {
@@ -75,7 +75,7 @@ impl StmtLowerer for ast::StmtIf {
             [Stmt::If(simplified_if)] => {
                 let body = lower_nested_body_to_stmts_with_expr(
                     context,
-                    suite_ref(&simplified_if.body),
+                    &simplified_if.body,
                     loop_ctx,
                     next_label_id,
                 )?;
@@ -138,12 +138,9 @@ where
             BlockPyStmt<E>,
             BlockPyTerm<E>,
         >::from_stmts(Vec::new())),
-        [clause] if clause.test.is_none() => lower_nested_body_to_stmts_with_expr(
-            context,
-            suite_ref(&clause.body),
-            loop_ctx,
-            next_label_id,
-        ),
+        [clause] if clause.test.is_none() => {
+            lower_nested_body_to_stmts_with_expr(context, &clause.body, loop_ctx, next_label_id)
+        }
         _ => Err(format!(
             "`elif` chain reached Ruff AST -> BlockPy conversion\nstmt:\n{}",
             ruff_ast_to_string(stmt).trim_end()

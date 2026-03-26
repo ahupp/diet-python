@@ -1,7 +1,6 @@
 use super::{
     SemanticAstState, SemanticBindingKind, SemanticBindingUse, SemanticScope, SemanticScopeKind,
 };
-use crate::passes::ast_to_ast::body::suite_ref;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def::class_body::rewrite_class_body_scopes;
 use crate::passes::ast_to_ast::Options;
@@ -42,28 +41,28 @@ fn find_class_recursive<'a>(body: &'a [Stmt], name: &str) -> Option<&'a ast::Stm
                 return Some(class_def);
             }
             Stmt::If(if_stmt) => {
-                if let Some(found) = find_class_recursive(suite_ref(&if_stmt.body), name) {
+                if let Some(found) = find_class_recursive(&if_stmt.body, name) {
                     return Some(found);
                 }
                 for clause in &if_stmt.elif_else_clauses {
-                    if let Some(found) = find_class_recursive(suite_ref(&clause.body), name) {
+                    if let Some(found) = find_class_recursive(&clause.body, name) {
                         return Some(found);
                     }
                 }
             }
             Stmt::For(for_stmt) => {
-                if let Some(found) = find_class_recursive(suite_ref(&for_stmt.body), name) {
+                if let Some(found) = find_class_recursive(&for_stmt.body, name) {
                     return Some(found);
                 }
-                if let Some(found) = find_class_recursive(suite_ref(&for_stmt.orelse), name) {
+                if let Some(found) = find_class_recursive(&for_stmt.orelse, name) {
                     return Some(found);
                 }
             }
             Stmt::While(while_stmt) => {
-                if let Some(found) = find_class_recursive(suite_ref(&while_stmt.body), name) {
+                if let Some(found) = find_class_recursive(&while_stmt.body, name) {
                     return Some(found);
                 }
-                if let Some(found) = find_class_recursive(suite_ref(&while_stmt.orelse), name) {
+                if let Some(found) = find_class_recursive(&while_stmt.orelse, name) {
                     return Some(found);
                 }
             }
@@ -206,11 +205,10 @@ fn semantic_state_nested_global_function_def_qualifies_globally() {
     ));
     let semantic_state = SemanticAstState::from_ruff(&mut body);
     let build_qualnames = find_function(&body, "build_qualnames");
-    let global_function = find_function(suite_ref(&build_qualnames.body), "global_function");
-    let inner_function = find_function(suite_ref(&global_function.body), "inner_function");
+    let global_function = find_function(&build_qualnames.body, "global_function");
+    let inner_function = find_function(&global_function.body, "inner_function");
     let inner_scope = function_scope(&semantic_state, inner_function);
-    let inner_global_function =
-        find_function(suite_ref(&inner_function.body), "inner_global_function");
+    let inner_global_function = find_function(&inner_function.body, "inner_global_function");
     let inner_global_scope = function_scope(&semantic_state, inner_global_function);
 
     assert_eq!(
@@ -282,7 +280,7 @@ fn semantic_state_marks_method_dunder_class_as_nonlocal_cell_capture() {
     ));
     let semantic_state = SemanticAstState::from_ruff(&mut body);
     let class_def = find_class(&body, "C");
-    let method_def = find_function(suite_ref(&class_def.body), "f");
+    let method_def = find_function(&class_def.body, "f");
     let method_scope = function_scope(&semantic_state, method_def);
 
     assert_eq!(
@@ -306,9 +304,9 @@ fn semantic_state_propagates_method_dunder_class_binding_to_nested_functions() {
     ));
     let semantic_state = SemanticAstState::from_ruff(&mut body);
     let class_def = find_class(&body, "C");
-    let method_def = find_function(suite_ref(&class_def.body), "f");
+    let method_def = find_function(&class_def.body, "f");
     let method_scope = function_scope(&semantic_state, method_def);
-    let nested_def = find_function(suite_ref(&method_def.body), "g");
+    let nested_def = find_function(&method_def.body, "g");
     let nested_scope = function_scope(&semantic_state, nested_def);
 
     assert_eq!(

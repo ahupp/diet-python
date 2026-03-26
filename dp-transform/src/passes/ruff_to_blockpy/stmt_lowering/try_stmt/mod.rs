@@ -1,6 +1,6 @@
 use super::*;
 use crate::passes::ast_to_ast::ast_rewrite::Rewrite;
-use crate::passes::ast_to_ast::body::{suite_ref, Suite};
+use crate::passes::ast_to_ast::body::Suite;
 use crate::{py_expr, py_stmt};
 
 fn body_to_vec(body: Suite) -> Vec<Stmt> {
@@ -268,12 +268,12 @@ where
 {
     let rest_entry = lower_sequence(remaining_stmts, targets.clone(), blocks);
 
-    let else_body = suite_ref(&try_stmt.orelse).to_vec();
-    let try_body = suite_ref(&try_stmt.body).to_vec();
+    let else_body = try_stmt.orelse.to_vec();
+    let try_body = try_stmt.body.to_vec();
     let except_body =
         (!try_stmt.handlers.is_empty()).then(|| prepare_except_body(&try_stmt.handlers));
-    let finally_body = if !suite_ref(&try_stmt.finalbody).is_empty() {
-        Some(prepare_finally_body(suite_ref(&try_stmt.finalbody)))
+    let finally_body = if !try_stmt.finalbody.is_empty() {
+        Some(prepare_finally_body(&try_stmt.finalbody))
     } else {
         None
     };

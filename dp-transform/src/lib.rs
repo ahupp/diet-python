@@ -1,5 +1,5 @@
 use crate::block_py::pretty::BlockPyPrettyPrint;
-use crate::passes::ast_to_ast::body::{suite_mut, suite_ref, Suite};
+use crate::passes::ast_to_ast::body::Suite;
 use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass, RuffBlockPyPass};
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
@@ -219,11 +219,11 @@ impl LoweringResult {
     }
 
     pub fn to_string(&self) -> String {
-        ruff_ast_to_string(suite_ref(&self.module.body))
+        ruff_ast_to_string(&self.module.body)
     }
 
     pub fn module_docstring(&self) -> Option<String> {
-        let stmt = suite_ref(&self.module.body).first()?;
+        let stmt = &self.module.body.first()?;
         let Stmt::Expr(ast::StmtExpr { value, .. }) = stmt else {
             return None;
         };
@@ -234,7 +234,7 @@ impl LoweringResult {
     }
 
     pub fn invalid_future_feature(&self) -> Option<String> {
-        let body = suite_ref(&self.module.body);
+        let body = &self.module.body;
         let [Stmt::Global(global_stmt), Stmt::Nonlocal(nonlocal_stmt), ..] = &body[..] else {
             return None;
         };
@@ -281,8 +281,7 @@ pub fn transform_str_to_ruff_with_options(
     let mut pass_tracker = PassTracker::new();
 
     let rewrite_start = timing_start();
-    let bb_codegen_module =
-        rewrite_module_with_tracker(&ctx, suite_mut(&mut module.body), &mut pass_tracker);
+    let bb_codegen_module = rewrite_module_with_tracker(&ctx, &mut module.body, &mut pass_tracker);
 
     let rewrite_time = timing_elapsed(rewrite_start);
 

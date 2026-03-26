@@ -5,19 +5,19 @@ use crate::block_py::intrinsics::{
 };
 use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta,
-    map_intrinsic_args_with, BindingTarget, BlockPyAssign, BlockPyBindingKind,
+    map_intrinsic_args_with, BbStmt, BindingTarget, BlockPyAssign, BlockPyBindingKind,
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
     BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyIf, BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
-    IntrinsicCall, LocatedName, NameLocation,
+    BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt, BlockPyTerm, ClosureInit,
+    ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
+    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, IntrinsicCall, LocatedName,
+    NameLocation,
 };
 use crate::passes::ruff_to_blockpy::{
-    lower_structured_located_blocks_to_bb_blocks, recompute_lowered_block_params,
-    should_include_closure_storage_aliases,
+    populate_exception_edge_args, recompute_lowered_block_params,
+    rewrite_current_exception_in_core_blocks, should_include_closure_storage_aliases,
 };
-use crate::passes::{BbBlockPyPass, CoreBlockPyPass, LocatedCoreBlockPyPass};
+use crate::passes::{BbBlockPyPass, CoreBlockPyPass};
 use ruff_python_ast::{self as ast, ExprName};
 use std::collections::{HashMap, HashSet};
 
@@ -696,7 +696,7 @@ fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPa
         .first_mut()
         .expect("BlockPyFunction should have at least one block")
         .body
-        .splice(0..0, init_stmts);
+        .splice(0..0, init_stmts.into_iter().map(Into::into));
 }
 
 fn store_cell_deleted_logical_name(
@@ -859,11 +859,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
             }
             BlockPyStmt::Assign(assign) => self.map_assign(assign),
             BlockPyStmt::Delete(delete) => rewrite_binding_delete(delete.target, self.semantic),
-            BlockPyStmt::If(if_stmt) => BlockPyStmt::If(crate::block_py::BlockPyIf {
-                test: self.map_expr(if_stmt.test),
-                body: self.map_fragment(if_stmt.body),
-                orelse: self.map_fragment(if_stmt.orelse),
-            }),
+            BlockPyStmt::If(_) => unreachable!("structured if should not reach name_binding"),
         }
     }
 
@@ -966,29 +962,19 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
     }
 }
 
-fn collect_deleted_names_in_fragment(
-    fragment: &crate::block_py::BlockPyStmtFragment<CoreBlockPyExpr>,
-    semantic: &BlockPyCallableSemanticInfo,
-    names: &mut HashSet<String>,
-) {
-    for stmt in &fragment.body {
-        collect_deleted_names_in_stmt(stmt, semantic, names);
-    }
-}
-
 fn collect_deleted_names_in_stmt(
-    stmt: &BlockPyStmt<CoreBlockPyExpr>,
+    stmt: &BbStmt<CoreBlockPyExpr, ExprName>,
     semantic: &BlockPyCallableSemanticInfo,
     names: &mut HashSet<String>,
 ) {
     match stmt {
-        BlockPyStmt::Assign(assign)
+        BbStmt::Assign(assign)
             if semantic.has_local_def(assign.target.id.as_str())
                 && is_deleted_sentinel_expr(&assign.value) =>
         {
             names.insert(assign.target.id.to_string());
         }
-        BlockPyStmt::Expr(expr) => {
+        BbStmt::Expr(expr) => {
             if let Some(name) = store_cell_deleted_logical_name(expr, semantic) {
                 names.insert(name);
             }
@@ -996,36 +982,19 @@ fn collect_deleted_names_in_stmt(
                 names.insert(name);
             }
         }
-        BlockPyStmt::If(if_stmt) => {
-            collect_deleted_names_in_fragment(&if_stmt.body, semantic, names);
-            collect_deleted_names_in_fragment(&if_stmt.orelse, semantic, names);
-        }
+        BbStmt::Delete(_) => {}
         _ => {}
     }
 }
 
-fn rewrite_deleted_name_loads_in_fragment(
-    fragment: &mut crate::block_py::BlockPyStmtFragment<CoreBlockPyExpr>,
-    semantic: &BlockPyCallableSemanticInfo,
-    deleted_names: &HashSet<String>,
-    always_unbound_names: &HashSet<String>,
-) {
-    for stmt in &mut fragment.body {
-        rewrite_deleted_name_loads_in_stmt(stmt, semantic, deleted_names, always_unbound_names);
-    }
-    if let Some(term) = &mut fragment.term {
-        rewrite_deleted_name_loads_in_term(term, semantic, deleted_names, always_unbound_names);
-    }
-}
-
 fn rewrite_deleted_name_loads_in_stmt(
-    stmt: &mut BlockPyStmt<CoreBlockPyExpr>,
+    stmt: &mut BbStmt<CoreBlockPyExpr, ExprName>,
     semantic: &BlockPyCallableSemanticInfo,
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
 ) {
     match stmt {
-        BlockPyStmt::Assign(assign) => {
+        BbStmt::Assign(assign) => {
             rewrite_deleted_name_loads_in_expr(
                 &mut assign.value,
                 semantic,
@@ -1033,25 +1002,10 @@ fn rewrite_deleted_name_loads_in_stmt(
                 always_unbound_names,
             );
         }
-        BlockPyStmt::Expr(expr) => {
+        BbStmt::Expr(expr) => {
             rewrite_deleted_name_loads_in_expr(expr, semantic, deleted_names, always_unbound_names)
         }
-        BlockPyStmt::Delete(_) => {}
-        BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
-            rewrite_deleted_name_loads_in_expr(test, semantic, deleted_names, always_unbound_names);
-            rewrite_deleted_name_loads_in_fragment(
-                body,
-                semantic,
-                deleted_names,
-                always_unbound_names,
-            );
-            rewrite_deleted_name_loads_in_fragment(
-                orelse,
-                semantic,
-                deleted_names,
-                always_unbound_names,
-            );
-        }
+        BbStmt::Delete(_) => {}
     }
 }
 
@@ -1097,7 +1051,7 @@ fn rewrite_deleted_name_loads_in_term(
 
 fn collect_deleted_names_in_blocks(
     blocks: &[crate::block_py::CfgBlock<
-        BlockPyStmt<CoreBlockPyExpr>,
+        <CoreBlockPyPass as crate::block_py::BlockPyPass>::Stmt,
         crate::block_py::BlockPyTerm<CoreBlockPyExpr>,
     >],
     semantic: &BlockPyCallableSemanticInfo,
@@ -1111,44 +1065,31 @@ fn collect_deleted_names_in_blocks(
     names
 }
 
-fn collect_runtime_bound_local_names_in_fragment(
-    fragment: &crate::block_py::BlockPyStmtFragment<CoreBlockPyExpr>,
-    semantic: &BlockPyCallableSemanticInfo,
-    names: &mut HashSet<String>,
-) {
-    for stmt in &fragment.body {
-        collect_runtime_bound_local_names_in_stmt(stmt, semantic, names);
-    }
-}
-
 fn collect_runtime_bound_local_names_in_stmt(
-    stmt: &BlockPyStmt<CoreBlockPyExpr>,
+    stmt: &BbStmt<CoreBlockPyExpr, ExprName>,
     semantic: &BlockPyCallableSemanticInfo,
     names: &mut HashSet<String>,
 ) {
     match stmt {
-        BlockPyStmt::Assign(assign)
+        BbStmt::Assign(assign)
             if semantic.has_local_def(assign.target.id.as_str())
                 && !is_deleted_sentinel_expr(&assign.value) =>
         {
             names.insert(assign.target.id.to_string());
         }
-        BlockPyStmt::Expr(expr) => {
+        BbStmt::Expr(expr) => {
             if let Some(name) = store_cell_runtime_logical_name(expr, semantic) {
                 names.insert(name);
             }
         }
-        BlockPyStmt::If(if_stmt) => {
-            collect_runtime_bound_local_names_in_fragment(&if_stmt.body, semantic, names);
-            collect_runtime_bound_local_names_in_fragment(&if_stmt.orelse, semantic, names);
-        }
+        BbStmt::Delete(_) => {}
         _ => {}
     }
 }
 
 fn collect_runtime_bound_local_names(
     blocks: &[crate::block_py::CfgBlock<
-        BlockPyStmt<CoreBlockPyExpr>,
+        <CoreBlockPyPass as crate::block_py::BlockPyPass>::Stmt,
         crate::block_py::BlockPyTerm<CoreBlockPyExpr>,
     >],
     semantic: &BlockPyCallableSemanticInfo,
@@ -1213,35 +1154,18 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
 }
 
 fn collect_remaining_names_in_stmt(
-    stmt: &BlockPyStmt<CoreBlockPyExpr>,
+    stmt: &BbStmt<CoreBlockPyExpr, ExprName>,
     names: &mut HashSet<String>,
 ) {
     match stmt {
-        BlockPyStmt::Assign(assign) => {
+        BbStmt::Assign(assign) => {
             names.insert(assign.target.id.to_string());
             collect_remaining_names_in_expr(&assign.value, names);
         }
-        BlockPyStmt::Expr(expr) => collect_remaining_names_in_expr(expr, names),
-        BlockPyStmt::Delete(delete) => {
+        BbStmt::Expr(expr) => collect_remaining_names_in_expr(expr, names),
+        BbStmt::Delete(delete) => {
             names.insert(delete.target.id.to_string());
         }
-        BlockPyStmt::If(if_stmt) => {
-            collect_remaining_names_in_expr(&if_stmt.test, names);
-            collect_remaining_names_in_fragment(&if_stmt.body, names);
-            collect_remaining_names_in_fragment(&if_stmt.orelse, names);
-        }
-    }
-}
-
-fn collect_remaining_names_in_fragment(
-    fragment: &crate::block_py::BlockPyStmtFragment<CoreBlockPyExpr>,
-    names: &mut HashSet<String>,
-) {
-    for stmt in &fragment.body {
-        collect_remaining_names_in_stmt(stmt, names);
-    }
-    if let Some(term) = &fragment.term {
-        collect_remaining_names_in_term(term, names);
     }
 }
 
@@ -1361,7 +1285,7 @@ impl NameLocator<'_> {
     }
 }
 
-impl BlockPyModuleMap<CoreBlockPyPass, LocatedCoreBlockPyPass> for NameLocator<'_> {
+impl BlockPyModuleMap<CoreBlockPyPass, BbBlockPyPass> for NameLocator<'_> {
     fn map_name(&self, name: ExprName) -> LocatedName {
         self.locate_name(name)
     }
@@ -1395,7 +1319,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, LocatedCoreBlockPyPass> for NameLocator<'
 
 fn locate_names_in_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
-) -> BlockPyFunction<LocatedCoreBlockPyPass> {
+) -> BlockPyFunction<BbBlockPyPass> {
     let semantic = callable.semantic.clone();
     let local_slots = collect_local_slot_locations(&callable);
     let cell_slots = collect_cell_slot_locations(&callable);
@@ -1407,9 +1331,10 @@ fn locate_names_in_callable(
     .map_fn(callable)
 }
 
-fn lower_located_callable_to_bb(
-    callable: BlockPyFunction<LocatedCoreBlockPyPass>,
+fn refresh_bb_callable_block_params(
+    mut callable: BlockPyFunction<BbBlockPyPass>,
 ) -> BlockPyFunction<BbBlockPyPass> {
+    rewrite_current_exception_in_core_blocks(&mut callable.blocks);
     let block_params = recompute_lowered_block_params(
         &callable,
         should_include_closure_storage_aliases(&callable),
@@ -1425,13 +1350,42 @@ fn lower_located_callable_to_bb(
         closure_layout,
         semantic,
     } = callable;
+    let mut blocks = blocks
+        .into_iter()
+        .map(|block| {
+            let existing_param_names = block
+                .param_names()
+                .map(ToString::to_string)
+                .collect::<HashSet<_>>();
+            let mut params = block_params
+                .get(block.label.as_str())
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|param| !existing_param_names.contains(param))
+                .map(|name| crate::block_py::BlockParam {
+                    name,
+                    role: crate::block_py::BlockParamRole::Local,
+                })
+                .collect::<Vec<_>>();
+            params.extend(block.bb_params().cloned());
+            crate::block_py::CfgBlock {
+                label: block.label,
+                body: block.body,
+                term: block.term,
+                params,
+                exc_edge: block.exc_edge,
+            }
+        })
+        .collect::<Vec<_>>();
+    populate_exception_edge_args(&mut blocks);
     BlockPyFunction {
         function_id,
         name_gen,
         names,
         kind,
         params,
-        blocks: lower_structured_located_blocks_to_bb_blocks(&blocks, &block_params),
+        blocks,
         doc,
         closure_layout,
         semantic,
@@ -1467,7 +1421,7 @@ fn lower_name_binding_callable(
             );
         }
     }
-    lower_located_callable_to_bb(locate_names_in_callable(lowered))
+    refresh_bb_callable_block_params(locate_names_in_callable(lowered))
 }
 
 pub(crate) fn lower_name_binding_in_core_blockpy_module(

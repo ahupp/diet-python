@@ -1,21 +1,19 @@
 use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
-    BbBlock, BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyIfTerm,
-    BlockPyNameLike, BlockPyStmt, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyLiteral, IntrinsicCall, LocatedCoreBlockPyExpr, LocatedName,
+    BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike,
+    BlockPyStmt, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
+    IntrinsicCall,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 use std::collections::{HashMap, HashSet};
 
-pub(crate) fn lower_structured_core_blocks_to_bb_blocks<N>(
-    blocks: &[crate::block_py::CfgBlock<
-        BlockPyStmt<CoreBlockPyExpr<N>, N>,
-        BlockPyTerm<CoreBlockPyExpr<N>>,
-    >],
+pub(crate) fn lower_structured_blocks_to_bb_blocks<E, N>(
+    blocks: &[crate::block_py::CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>],
     block_params: &HashMap<String, Vec<String>>,
-) -> Vec<crate::block_py::CfgBlock<BbStmt<CoreBlockPyExpr<N>, N>, BlockPyTerm<CoreBlockPyExpr<N>>>>
+) -> Vec<crate::block_py::CfgBlock<BbStmt<E, N>, BlockPyTerm<E>>>
 where
+    E: Clone + Into<crate::block_py::Expr>,
     N: BlockPyNameLike,
 {
     let exception_edges = lowered_exception_edges(blocks);
@@ -24,24 +22,15 @@ where
     let mut bb_blocks = linear_blocks
         .iter()
         .map(|block| {
-            let current_exception_name = block.exception_param();
-            let mut normalized_body = block.body.clone();
-            if let Some(exc_name) = current_exception_name {
-                for stmt in &mut normalized_body {
-                    rewrite_current_exception_in_blockpy_stmt(stmt, exc_name);
-                }
-            }
-            let mut normalized_term = block.term.clone();
-            if let Some(exc_name) = current_exception_name {
-                rewrite_current_exception_in_blockpy_term(&mut normalized_term, exc_name);
-            }
             let exc_edge = linear_exception_edges
                 .get(block.label.as_str())
                 .cloned()
                 .flatten()
                 .map(crate::block_py::BlockPyLabel::from)
                 .map(BlockPyEdge::new);
-            let ops = normalized_body
+            let ops = block
+                .body
+                .clone()
                 .into_iter()
                 .map(BbStmt::from)
                 .collect::<Vec<_>>();
@@ -64,7 +53,7 @@ where
             crate::block_py::CfgBlock {
                 label: block.label.clone(),
                 body: ops,
-                term: normalized_term,
+                term: block.term.clone(),
                 params,
                 exc_edge,
             }
@@ -74,21 +63,42 @@ where
     bb_blocks
 }
 
-pub(crate) fn lower_structured_located_blocks_to_bb_blocks(
-    blocks: &[crate::block_py::CfgBlock<
-        BlockPyStmt<CoreBlockPyExpr<LocatedName>, LocatedName>,
-        BlockPyTerm<LocatedCoreBlockPyExpr>,
-    >],
-    block_params: &HashMap<String, Vec<String>>,
-) -> Vec<BbBlock> {
-    lower_structured_core_blocks_to_bb_blocks(blocks, block_params)
-}
-
-pub(crate) fn populate_exception_edge_args<N>(
+pub(crate) fn rewrite_current_exception_in_core_blocks<N>(
     blocks: &mut [crate::block_py::CfgBlock<
         BbStmt<CoreBlockPyExpr<N>, N>,
         BlockPyTerm<CoreBlockPyExpr<N>>,
     >],
+) where
+    N: BlockPyNameLike,
+{
+    for block in blocks {
+        let Some(exc_name) = block.exception_param().map(ToString::to_string) else {
+            continue;
+        };
+        for stmt in &mut block.body {
+            rewrite_current_exception_in_bb_stmt(stmt, exc_name.as_str());
+        }
+        rewrite_current_exception_in_blockpy_term(&mut block.term, exc_name.as_str());
+    }
+}
+
+fn rewrite_current_exception_in_bb_stmt<N>(stmt: &mut BbStmt<CoreBlockPyExpr<N>, N>, exc_name: &str)
+where
+    N: BlockPyNameLike,
+{
+    match stmt {
+        BbStmt::Assign(assign) => {
+            rewrite_current_exception_in_blockpy_expr(&mut assign.value, exc_name);
+        }
+        BbStmt::Expr(expr) => {
+            rewrite_current_exception_in_blockpy_expr(expr, exc_name);
+        }
+        BbStmt::Delete(_) => {}
+    }
+}
+
+pub(crate) fn populate_exception_edge_args<E, N>(
+    blocks: &mut [crate::block_py::CfgBlock<BbStmt<E, N>, BlockPyTerm<E>>],
 ) {
     let label_to_index = blocks
         .iter()
@@ -157,38 +167,6 @@ pub(crate) fn lowered_exception_edges<S, T>(
             )
         })
         .collect()
-}
-
-fn rewrite_current_exception_in_blockpy_stmt<N>(
-    stmt: &mut BlockPyStmt<CoreBlockPyExpr<N>, N>,
-    exc_name: &str,
-) where
-    N: BlockPyNameLike,
-{
-    match stmt {
-        BlockPyStmt::Assign(assign) => {
-            rewrite_current_exception_in_blockpy_expr(&mut assign.value, exc_name);
-        }
-        BlockPyStmt::Expr(expr) => {
-            rewrite_current_exception_in_blockpy_expr(expr, exc_name);
-        }
-        BlockPyStmt::Delete(_) => {}
-        BlockPyStmt::If(if_stmt) => {
-            rewrite_current_exception_in_blockpy_expr(&mut if_stmt.test, exc_name);
-            for stmt in &mut if_stmt.body.body {
-                rewrite_current_exception_in_blockpy_stmt(stmt, exc_name);
-            }
-            if let Some(term) = if_stmt.body.term.as_mut() {
-                rewrite_current_exception_in_blockpy_term(term, exc_name);
-            }
-            for stmt in &mut if_stmt.orelse.body {
-                rewrite_current_exception_in_blockpy_stmt(stmt, exc_name);
-            }
-            if let Some(term) = if_stmt.orelse.term.as_mut() {
-                rewrite_current_exception_in_blockpy_term(term, exc_name);
-            }
-        }
-    }
 }
 
 fn rewrite_current_exception_in_blockpy_term<N>(
@@ -392,69 +370,6 @@ fn compat_range() -> TextRange {
 }
 
 #[cfg(test)]
-mod test {
-    use super::lower_structured_core_blocks_to_bb_blocks;
-    use crate::block_py::{
-        BlockParam, BlockParamRole, BlockPyAssign, BlockPyIf, BlockPyIfTerm, BlockPyLabel,
-        BlockPyStmt, BlockPyStmtFragment, BlockPyTerm, CfgBlock, CoreBlockPyCall,
-        CoreBlockPyCallArg, CoreBlockPyExpr,
-    };
-    use ruff_python_ast::{self as ast};
-    use ruff_text_size::TextRange;
-    use std::collections::HashMap;
-
-    fn expr_name(name: &str, ctx: ast::ExprContext) -> ast::ExprName {
-        ast::ExprName {
-            id: name.into(),
-            ctx,
-            range: TextRange::default(),
-            node_index: ast::AtomicNodeIndex::default(),
-        }
-    }
-
-    fn core_name_expr(name: &str) -> CoreBlockPyExpr {
-        CoreBlockPyExpr::Name(expr_name(name, ast::ExprContext::Load))
-    }
-
-    #[test]
-    fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
-        let blocks = vec![CfgBlock {
-            label: BlockPyLabel::from("start"),
-            body: vec![BlockPyStmt::If(BlockPyIf {
-                test: CoreBlockPyExpr::Call(CoreBlockPyCall {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    func: Box::new(core_name_expr("__dp_current_exception")),
-                    args: Vec::<CoreBlockPyCallArg<CoreBlockPyExpr>>::new(),
-                    keywords: Vec::new(),
-                }),
-                body: BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Assign(BlockPyAssign {
-                    target: expr_name("x", ast::ExprContext::Store),
-                    value: core_name_expr("a"),
-                })]),
-                orelse: BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Assign(BlockPyAssign {
-                    target: expr_name("x", ast::ExprContext::Store),
-                    value: core_name_expr("b"),
-                })]),
-            })],
-            term: BlockPyTerm::Return(core_name_expr("__dp_NONE")),
-            params: vec![BlockParam {
-                name: "_dp_try_exc_0".to_string(),
-                role: BlockParamRole::Exception,
-            }],
-            exc_edge: None,
-        }];
-
-        let lowered = lower_structured_core_blocks_to_bb_blocks(&blocks, &HashMap::new());
-
-        assert_eq!(lowered.len(), 3, "{lowered:?}");
-        let BlockPyTerm::IfTerm(BlockPyIfTerm {
-            test: CoreBlockPyExpr::Name(name),
-            ..
-        }) = &lowered[0].term
-        else {
-            panic!("expected rewritten current-exception test");
-        };
-        assert_eq!(name.id.as_str(), "_dp_try_exc_0");
-    }
-}
+pub(crate) use tests::lower_structured_located_blocks_to_bb_blocks;
+#[cfg(test)]
+mod tests;

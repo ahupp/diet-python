@@ -1,7 +1,7 @@
 use crate::block_py::{BlockPyModule, BlockPyModuleVisitor, BlockPyPass, PassExpr};
 use crate::passes::{
     BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield,
-    LocatedCoreBlockPyPass, PreparedBbBlockPyPass, RuffBlockPyPass,
+    PreparedBbBlockPyPass, RuffBlockPyPass,
 };
 use crate::transformer::Transformer;
 use ruff_python_ast::{self as ast, Expr};
@@ -80,9 +80,6 @@ pub(crate) fn summarize_tracked_pass_shape(
         return Some(summarize_blockpy_module(module));
     }
     if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyPass>>(name) {
-        return Some(summarize_blockpy_module(module));
-    }
-    if let Some(module) = result.get_pass::<BlockPyModule<LocatedCoreBlockPyPass>>(name) {
         return Some(summarize_blockpy_module(module));
     }
     if let Some(module) = result.get_pass::<BlockPyModule<BbBlockPyPass>>(name) {

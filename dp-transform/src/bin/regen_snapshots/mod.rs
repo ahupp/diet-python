@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use dp_transform::block_py::{
-    BlockPyCfgFragment, BlockPyModule, BlockPyStmt, BlockPyTerm, CfgBlock,
+    BlockPyCfgFragment, BlockPyModule, BlockPyStmt, BlockPyTerm, CfgBlock, Expr, IntoBlockPyStmt,
 };
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
 use dp_transform::passes::{PreparedBbBlockPyPass, RuffBlockPyPass};
@@ -145,7 +145,10 @@ fn count_blockpy_blocks(module: &BlockPyModule<RuffBlockPyPass>) -> usize {
         .sum()
 }
 
-fn count_blockpy_blocks_in_list(blocks: &[CfgBlock<BlockPyStmt, BlockPyTerm>]) -> usize {
+fn count_blockpy_blocks_in_list<S>(blocks: &[CfgBlock<S, BlockPyTerm>]) -> usize
+where
+    S: IntoBlockPyStmt<Expr, ruff_python_ast::ExprName>,
+{
     blocks
         .iter()
         .map(|block| {
@@ -155,10 +158,13 @@ fn count_blockpy_blocks_in_list(blocks: &[CfgBlock<BlockPyStmt, BlockPyTerm>]) -
         .sum()
 }
 
-fn count_blockpy_blocks_in_stmts(stmts: &[BlockPyStmt]) -> usize {
+fn count_blockpy_blocks_in_stmts<S>(stmts: &[S]) -> usize
+where
+    S: IntoBlockPyStmt<Expr, ruff_python_ast::ExprName>,
+{
     stmts
         .iter()
-        .map(|stmt| match stmt {
+        .map(|stmt| match stmt.clone().into_stmt() {
             BlockPyStmt::If(if_stmt) => {
                 count_blockpy_blocks_in_stmt_fragment(&if_stmt.body)
                     + count_blockpy_blocks_in_stmt_fragment(&if_stmt.orelse)

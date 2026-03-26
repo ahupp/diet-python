@@ -4,7 +4,7 @@ use log::{log_enabled, trace, Level};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_text_size::{Ranged, TextRange};
 
-use crate::passes::ast_to_ast::body::{suite_mut, Suite};
+use crate::passes::ast_to_ast::body::Suite;
 use crate::passes::ast_to_ast::scope_helpers::ScopeKind;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{
@@ -158,11 +158,11 @@ impl<'a> RewriteLoop<'a> {
                     self.visit_annotation(returns);
                 }
 
-                let (globals, nonlocals) = collect_declared_bindings(suite_mut(&mut func_def.body));
+                let (globals, nonlocals) = collect_declared_bindings(&mut func_def.body);
                 let mut frame = ScopeFrame::new(ScopeKind::Function, globals, nonlocals);
                 frame.in_async_function = func_def.is_async;
                 self.context.push_scope(frame);
-                self.visit_body(suite_mut(&mut func_def.body));
+                self.visit_body(&mut func_def.body);
                 self.context.pop_scope();
             }
             Stmt::ClassDef(class_def) => {
@@ -181,7 +181,7 @@ impl<'a> RewriteLoop<'a> {
                     HashSet::new(),
                     HashSet::new(),
                 ));
-                self.visit_body(suite_mut(&mut class_def.body));
+                self.visit_body(&mut class_def.body);
                 self.context.pop_scope();
             }
             Stmt::While(while_stmt) => {
@@ -189,8 +189,8 @@ impl<'a> RewriteLoop<'a> {
                 // Keep the raw test expression intact until that phase so any
                 // expression lowering needed for the test is emitted in the loop's
                 // dedicated test block and therefore re-evaluates on each iteration.
-                self.visit_body(suite_mut(&mut while_stmt.body));
-                self.visit_body(suite_mut(&mut while_stmt.orelse));
+                self.visit_body(&mut while_stmt.body);
+                self.visit_body(&mut while_stmt.orelse);
             }
             _ => walk_stmt(self, &mut stmt),
         }

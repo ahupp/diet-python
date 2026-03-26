@@ -1,5 +1,4 @@
 use super::lower_surrogate_string_literals;
-use crate::passes::ast_to_ast::body::{suite_mut, suite_ref};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_expr::string::lower_string_templates_in_expr;
 use crate::passes::ast_to_ast::Options;
@@ -10,12 +9,12 @@ use ruff_python_parser::parse_module;
 fn lower_module(source: &str) -> ast::ModModule {
     let mut module = parse_module(source).unwrap().into_syntax();
     let context = Context::new(Options::for_test(), source);
-    lower_surrogate_string_literals(&context, suite_mut(&mut module.body));
+    lower_surrogate_string_literals(&context, &mut module.body);
     module
 }
 
 fn first_assign_value(module: &ast::ModModule) -> &Expr {
-    let Stmt::Assign(assign) = &suite_ref(&module.body)[0] else {
+    let Stmt::Assign(assign) = &&module.body[0] else {
         panic!("expected first statement to be an assignment");
     };
     assign.value.as_ref()
@@ -44,7 +43,7 @@ fn lower_surrogate_string_literals_merges_implicit_bytes_literals() {
 #[test]
 fn lower_surrogate_string_literals_still_decodes_surrogate_escapes_after_merge() {
     let module = lower_module("x = \"\\udca7\" \"b\"\n");
-    let rendered = ruff_ast_to_string(suite_ref(&module.body));
+    let rendered = ruff_ast_to_string(&module.body);
     assert!(
         rendered.contains("__dp_decode_literal_source_bytes"),
         "{rendered}"
@@ -54,11 +53,11 @@ fn lower_surrogate_string_literals_still_decodes_surrogate_escapes_after_merge()
 #[test]
 fn lower_surrogate_string_literals_keeps_fstring_debug_output_correct() {
     let mut module = lower_module("x = f\"{value=}\"\n");
-    let Stmt::Assign(assign) = &mut suite_mut(&mut module.body)[0] else {
+    let Stmt::Assign(assign) = &mut &mut module.body[0] else {
         panic!("expected first statement to be an assignment");
     };
     lower_string_templates_in_expr(assign.value.as_mut());
-    let rendered = ruff_ast_to_string(suite_ref(&module.body));
+    let rendered = ruff_ast_to_string(&module.body);
     assert!(rendered.contains("value="), "{rendered}");
     assert!(rendered.contains("__dp_repr(value)"), "{rendered}");
 }
@@ -66,11 +65,11 @@ fn lower_surrogate_string_literals_keeps_fstring_debug_output_correct() {
 #[test]
 fn lower_surrogate_string_literals_keeps_tstring_expr_text_available() {
     let mut module = lower_module("x = t\"{value}\"\n");
-    let Stmt::Assign(assign) = &mut suite_mut(&mut module.body)[0] else {
+    let Stmt::Assign(assign) = &mut &mut module.body[0] else {
         panic!("expected first statement to be an assignment");
     };
     lower_string_templates_in_expr(assign.value.as_mut());
-    let rendered = ruff_ast_to_string(suite_ref(&module.body));
+    let rendered = ruff_ast_to_string(&module.body);
     assert!(
         rendered.contains("__dp_templatelib_Interpolation(value, \"value\""),
         "{rendered}"
@@ -80,11 +79,11 @@ fn lower_surrogate_string_literals_keeps_tstring_expr_text_available() {
 #[test]
 fn lower_surrogate_string_literals_materializes_fstring_literal_surrogates() {
     let mut module = lower_module("x = f\"\\udca7\"\n");
-    let Stmt::Assign(assign) = &mut suite_mut(&mut module.body)[0] else {
+    let Stmt::Assign(assign) = &mut &mut module.body[0] else {
         panic!("expected first statement to be an assignment");
     };
     lower_string_templates_in_expr(assign.value.as_mut());
-    let rendered = ruff_ast_to_string(suite_ref(&module.body));
+    let rendered = ruff_ast_to_string(&module.body);
     assert!(
         rendered.contains("__dp_decode_literal_source_bytes"),
         "{rendered}"

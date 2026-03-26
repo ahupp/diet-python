@@ -1,6 +1,15 @@
 use super::*;
-use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield, RuffBlockPyPass};
+use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
 use crate::py_expr;
+
+#[derive(Debug, Clone)]
+struct StructuredExprPass;
+
+impl BlockPyPass for StructuredExprPass {
+    type Name = ast::ExprName;
+    type Expr = Expr;
+    type Stmt = BlockPyStmt<Self::Expr>;
+}
 
 #[test]
 fn block_builder_sets_explicit_term() {
@@ -105,18 +114,18 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
         trace: Vec<String>,
     }
 
-    impl BlockPyModuleVisitor<RuffBlockPyPass> for TraceVisitor {
-        fn visit_module(&mut self, module: &BlockPyModule<RuffBlockPyPass>) {
+    impl BlockPyModuleVisitor<StructuredExprPass> for TraceVisitor {
+        fn visit_module(&mut self, module: &BlockPyModule<StructuredExprPass>) {
             self.trace.push("module".to_string());
             walk_module(self, module);
         }
 
-        fn visit_fn(&mut self, func: &BlockPyFunction<RuffBlockPyPass>) {
+        fn visit_fn(&mut self, func: &BlockPyFunction<StructuredExprPass>) {
             self.trace.push(format!("fn:{}", func.names.bind_name));
             walk_fn(self, func);
         }
 
-        fn visit_block(&mut self, block: &PassBlock<RuffBlockPyPass>) {
+        fn visit_block(&mut self, block: &PassBlock<StructuredExprPass>) {
             self.trace.push(format!("block:{}", block.label));
             walk_block(self, block);
         }
@@ -124,15 +133,15 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
         fn visit_fragment(
             &mut self,
             fragment: &BlockPyCfgFragment<
-                <RuffBlockPyPass as BlockPyPass>::Stmt,
-                BlockPyTerm<PassExpr<RuffBlockPyPass>>,
+                <StructuredExprPass as BlockPyPass>::Stmt,
+                BlockPyTerm<PassExpr<StructuredExprPass>>,
             >,
         ) {
             self.trace.push("fragment".to_string());
             walk_fragment(self, fragment);
         }
 
-        fn visit_stmt(&mut self, stmt: &BlockPyStmt<PassExpr<RuffBlockPyPass>>) {
+        fn visit_stmt(&mut self, stmt: &BlockPyStmt<PassExpr<StructuredExprPass>>) {
             let kind = match stmt {
                 BlockPyStmt::Assign(_) => "assign",
                 BlockPyStmt::Expr(_) => "expr",
@@ -143,7 +152,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             walk_stmt(self, stmt);
         }
 
-        fn visit_term(&mut self, term: &BlockPyTerm<PassExpr<RuffBlockPyPass>>) {
+        fn visit_term(&mut self, term: &BlockPyTerm<PassExpr<StructuredExprPass>>) {
             let kind = match term {
                 BlockPyTerm::Jump(_) => "jump",
                 BlockPyTerm::IfTerm(_) => "if",
@@ -159,7 +168,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             self.trace.push(format!("label:{}", label.as_str()));
         }
 
-        fn visit_expr(&mut self, expr: &PassExpr<RuffBlockPyPass>) {
+        fn visit_expr(&mut self, expr: &PassExpr<StructuredExprPass>) {
             let Expr::Name(name) = expr else {
                 panic!("expected name expr in visitor trace test");
             };
@@ -167,7 +176,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
         }
     }
 
-    let module = BlockPyModule::<RuffBlockPyPass> {
+    let module = BlockPyModule::<StructuredExprPass> {
         callable_defs: vec![BlockPyFunction {
             function_id: FunctionId(0),
             name_gen: test_name_gen(),
@@ -298,7 +307,7 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
             params: ParamSpec::default(),
             blocks: vec![CfgBlock {
                 label: BlockPyLabel::from("start"),
-                body: vec![BlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Await(
+                body: vec![BbStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Await(
                     CoreBlockPyAwait {
                         node_index: ast::AtomicNodeIndex::default(),
                         range: ruff_text_size::TextRange::default(),

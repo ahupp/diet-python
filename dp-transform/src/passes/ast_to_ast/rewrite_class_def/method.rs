@@ -1,6 +1,6 @@
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
-use crate::passes::ast_to_ast::body::{suite_mut, Suite};
+use crate::passes::ast_to_ast::body::Suite;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{passes::ast_to_ast::util::is_noarg_call, py_expr};
 
@@ -84,7 +84,7 @@ pub fn rewrite_explicit_super_classcell(class_def: &mut ast::StmtClassDef) -> bo
     let mut rewriter = MethodExplicitSuperRewriter {
         needs_class_cell: false,
     };
-    (&mut rewriter).visit_body(suite_mut(&mut class_def.body));
+    (&mut rewriter).visit_body(&mut class_def.body);
     rewriter.needs_class_cell
 }
 
@@ -119,10 +119,10 @@ fn rewrite_method(func_def: &mut ast::StmtFunctionDef) -> bool {
         });
 
     let mut transformer = MethodRewriteSuperClasscell { first_arg };
-    for stmt in suite_mut(&mut func_def.body).iter_mut() {
+    for stmt in &mut func_def.body.iter_mut() {
         (&mut transformer).visit_stmt(stmt);
     }
-    function_uses_class_cell(suite_mut(&mut func_def.body))
+    function_uses_class_cell(&mut func_def.body)
 }
 
 #[derive(Default)]

@@ -701,16 +701,20 @@ impl
 impl
     TryFrom<
         CfgBlock<
-            BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+            BbStmt<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>,
             BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
         >,
-    > for CfgBlock<BlockPyStmt<CoreBlockPyExprWithYield>, BlockPyTerm<CoreBlockPyExprWithYield>>
+    >
+    for CfgBlock<
+        BbStmt<CoreBlockPyExprWithYield, ast::ExprName>,
+        BlockPyTerm<CoreBlockPyExprWithYield>,
+    >
 {
     type Error = CoreBlockPyExprWithAwaitAndYield;
 
     fn try_from(
         value: CfgBlock<
-            BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+            BbStmt<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>,
             BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
         >,
     ) -> Result<Self, Self::Error> {
@@ -825,14 +829,19 @@ impl
     }
 }
 
-impl TryFrom<CfgBlock<BlockPyStmt<CoreBlockPyExprWithYield>, BlockPyTerm<CoreBlockPyExprWithYield>>>
-    for CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>
+impl
+    TryFrom<
+        CfgBlock<
+            BbStmt<CoreBlockPyExprWithYield, ast::ExprName>,
+            BlockPyTerm<CoreBlockPyExprWithYield>,
+        >,
+    > for CfgBlock<BbStmt<CoreBlockPyExpr, ast::ExprName>, BlockPyTerm<CoreBlockPyExpr>>
 {
     type Error = CoreBlockPyExprWithYield;
 
     fn try_from(
         value: CfgBlock<
-            BlockPyStmt<CoreBlockPyExprWithYield>,
+            BbStmt<CoreBlockPyExprWithYield, ast::ExprName>,
             BlockPyTerm<CoreBlockPyExprWithYield>,
         >,
     ) -> Result<Self, Self::Error> {

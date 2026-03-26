@@ -2,7 +2,6 @@ use super::{
     AbruptKind, BlockArg, BlockPyAssign, BlockPyEdge, BlockPyLabel, BlockPyStmt, BlockPyTerm,
     CfgBlock,
 };
-use crate::passes::ast_to_ast::body::suite_ref;
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr, ExprName, Stmt};
 
@@ -53,7 +52,7 @@ pub(crate) fn contains_return_stmt_in_body(stmts: &[Stmt]) -> bool {
 pub(crate) fn contains_return_stmt_in_handlers(handlers: &[ast::ExceptHandler]) -> bool {
     handlers.iter().any(|handler| {
         let ast::ExceptHandler::ExceptHandler(handler) = handler;
-        contains_return_stmt_in_body(suite_ref(&handler.body))
+        contains_return_stmt_in_body(&handler.body)
     })
 }
 
@@ -61,27 +60,25 @@ fn contains_return_stmt(stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Return(_) => true,
         Stmt::If(stmt) => {
-            contains_return_stmt_in_body(suite_ref(&stmt.body))
+            contains_return_stmt_in_body(&stmt.body)
                 || stmt
                     .elif_else_clauses
                     .iter()
-                    .any(|clause| contains_return_stmt_in_body(suite_ref(&clause.body)))
+                    .any(|clause| contains_return_stmt_in_body(&clause.body))
         }
         Stmt::While(stmt) => {
-            contains_return_stmt_in_body(suite_ref(&stmt.body))
-                || contains_return_stmt_in_body(suite_ref(&stmt.orelse))
+            contains_return_stmt_in_body(&stmt.body) || contains_return_stmt_in_body(&stmt.orelse)
         }
         Stmt::For(stmt) => {
-            contains_return_stmt_in_body(suite_ref(&stmt.body))
-                || contains_return_stmt_in_body(suite_ref(&stmt.orelse))
+            contains_return_stmt_in_body(&stmt.body) || contains_return_stmt_in_body(&stmt.orelse)
         }
         Stmt::Try(stmt) => {
-            contains_return_stmt_in_body(suite_ref(&stmt.body))
+            contains_return_stmt_in_body(&stmt.body)
                 || contains_return_stmt_in_handlers(&stmt.handlers)
-                || contains_return_stmt_in_body(suite_ref(&stmt.orelse))
-                || contains_return_stmt_in_body(suite_ref(&stmt.finalbody))
+                || contains_return_stmt_in_body(&stmt.orelse)
+                || contains_return_stmt_in_body(&stmt.finalbody)
         }
-        Stmt::With(stmt) => contains_return_stmt_in_body(suite_ref(&stmt.body)),
+        Stmt::With(stmt) => contains_return_stmt_in_body(&stmt.body),
         Stmt::FunctionDef(_) | Stmt::ClassDef(_) => false,
         _ => false,
     }

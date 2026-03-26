@@ -2,14 +2,6 @@ use ruff_python_ast::{self as ast, Stmt};
 
 pub type Suite = ast::Suite;
 
-pub fn suite_ref(body: &Suite) -> &Suite {
-    body
-}
-
-pub fn suite_mut(body: &mut Suite) -> &mut Suite {
-    body
-}
-
 pub fn empty_suite() -> Suite {
     vec![]
 }

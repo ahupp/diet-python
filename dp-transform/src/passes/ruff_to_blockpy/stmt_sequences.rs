@@ -1,7 +1,6 @@
 use super::stmt_lowering::lower_stmt_into_with_expr;
 use super::*;
 use crate::block_py::{BlockPyRaise, BlockPyStmt, BlockPyTerm, Expr};
-use crate::passes::ast_to_ast::body::suite_ref;
 use crate::passes::ast_to_ast::context::Context;
 
 pub(crate) fn lower_stmts_to_blockpy_stmts_with_context<E>(
@@ -277,8 +276,7 @@ pub(crate) fn lower_stmt_sequence_with_state(
                 unreachable!("common head helper must lower supported head");
             }
             StmtSequenceHeadPlan::With(with_stmt) => {
-                let needs_finally_return_flow =
-                    contains_return_stmt_in_body(suite_ref(&with_stmt.body));
+                let needs_finally_return_flow = contains_return_stmt_in_body(&with_stmt.body);
                 let entry = lower_with_stmt_sequence(
                     with_stmt,
                     &stmts[index + 1..],
@@ -359,11 +357,11 @@ pub(crate) fn lower_stmt_sequence_with_state(
                         },
                     )
                 } else {
-                    let has_finally = !suite_ref(&try_stmt.finalbody).is_empty();
+                    let has_finally = !&try_stmt.finalbody.is_empty();
                     let needs_finally_return_flow = has_finally
-                        && (contains_return_stmt_in_body(suite_ref(&try_stmt.body))
+                        && (contains_return_stmt_in_body(&try_stmt.body)
                             || contains_return_stmt_in_handlers(&try_stmt.handlers)
-                            || contains_return_stmt_in_body(suite_ref(&try_stmt.orelse)));
+                            || contains_return_stmt_in_body(&try_stmt.orelse));
                     let try_plan = build_try_plan(name_gen, has_finally, needs_finally_return_flow);
                     let label = name_gen.next_block_name();
                     let entry = lower_try_stmt_sequence(
@@ -518,7 +516,7 @@ pub(crate) fn lower_if_stmt_sequence_from_stmt<F>(
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
 {
-    let then_body = suite_ref(&if_stmt.body).to_vec();
+    let then_body = &if_stmt.body.to_vec();
     let else_body = extract_if_else_body(&if_stmt);
     let rest_entry = lower_region(remaining_stmts, targets.clone(), blocks);
     lower_if_stmt_sequence(
@@ -542,7 +540,7 @@ fn extract_if_else_body(if_stmt: &ast::StmtIf) -> Vec<Stmt> {
     if_stmt
         .elif_else_clauses
         .first()
-        .map(|clause| suite_ref(&clause.body).to_vec())
+        .map(|clause| clause.body.to_vec())
         .unwrap_or_default()
 }
 
@@ -607,8 +605,8 @@ pub(crate) fn lower_while_stmt_sequence_from_stmt<F>(
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
 {
-    let body = suite_ref(&while_stmt.body).to_vec();
-    let else_body = suite_ref(&while_stmt.orelse).to_vec();
+    let body = &while_stmt.body.to_vec();
+    let else_body = &while_stmt.orelse.to_vec();
     lower_while_stmt_sequence(
         context,
         blocks,
@@ -687,7 +685,7 @@ pub(crate) fn lower_for_stmt_sequence<F>(
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
 {
-    let else_body = suite_ref(&for_stmt.orelse).to_vec();
+    let else_body = &for_stmt.orelse.to_vec();
     let (rest_entry, exhausted_entry) = lower_for_stmt_exit_entries(
         blocks,
         &else_body,
@@ -696,7 +694,7 @@ where
         lower_region,
     );
 
-    let body = suite_ref(&for_stmt.body).to_vec();
+    let body = &for_stmt.body.to_vec();
     let body_entry = lower_for_stmt_body_entry(
         blocks,
         loop_continue_label.clone(),

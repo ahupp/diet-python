@@ -4,6 +4,15 @@ use crate::block_py::{ClosureInit, ClosureLayout, ClosureSlot};
 use crate::passes::{BbBlockPyPass, RuffBlockPyPass};
 use ruff_python_parser::parse_expression;
 
+#[derive(Debug, Clone)]
+struct StructuredExprPass;
+
+impl BlockPyPass for StructuredExprPass {
+    type Name = ruff_python_ast::ExprName;
+    type Expr = Expr;
+    type Stmt = BlockPyStmt<Self::Expr>;
+}
+
 fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
     crate::transform_str_to_blockpy_with_options(source, crate::Options::for_test())
         .expect("expected lowered semantic BlockPy module")
@@ -211,21 +220,21 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
             },
             CfgBlock {
                 label: "then".into(),
-                body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()"))],
+                body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()")).into()],
                 term: BlockPyTerm::Jump("after".into()),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: "else".into(),
-                body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()"))],
+                body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()")).into()],
                 term: BlockPyTerm::Jump("after".into()),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: "after".into(),
-                body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()"))],
+                body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()")).into()],
                 term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
@@ -330,7 +339,7 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
 
 #[test]
 fn collects_referenced_labels_from_nested_if_fragments_via_visitor() {
-    let referenced = collect_referenced_labels_from_blocks::<RuffBlockPyPass>(&[CfgBlock {
+    let referenced = collect_referenced_labels_from_blocks::<StructuredExprPass>(&[CfgBlock {
         label: "start".into(),
         body: vec![BlockPyStmt::If(crate::block_py::BlockPyIf {
             test: parse_blockpy_expr("cond"),

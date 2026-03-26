@@ -2,7 +2,7 @@ use std::mem::take;
 
 use ruff_python_ast::Stmt;
 
-use crate::passes::ast_to_ast::body::{suite_mut, Suite};
+use crate::passes::ast_to_ast::body::Suite;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def::{class_def_to_create_class_fn, method};
 use crate::passes::ast_to_ast::rewrite_stmt;
@@ -62,7 +62,7 @@ impl<'a> Transformer for ClassBodyScopeRewriter<'a> {
                     .child_scope_for_function(func_def)
                     .expect("no child scope for function");
                 ClassBodyScopeRewriter::new(self.context, func_scope, self.semantic_state)
-                    .visit_body(suite_mut(&mut func_def.body));
+                    .visit_body(&mut func_def.body);
             }
             _ => walk_stmt(self, stmt),
         }
@@ -87,7 +87,7 @@ impl<'a> ClassBodyScopeRewriter<'a> {
 
         let mut class_rewriter =
             ClassBodyScopeRewriter::new(self.context, class_scope.clone(), self.semantic_state);
-        class_rewriter.visit_body(suite_mut(&mut class_def.body));
+        class_rewriter.visit_body(&mut class_def.body);
         let mut hoisted = class_rewriter.take_hoisted();
 
         let (class_ns_def, define_class_fn) = class_def_to_create_class_fn(

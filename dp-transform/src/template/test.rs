@@ -148,7 +148,7 @@ fn wraps_expr_in_stmt() {
         expr = expr,
     );
     let mut body = vec![actual];
-    flatten(crate::passes::ast_to_ast::body::suite_mut(&mut body));
+    flatten(&mut body);
     assert_ast_eq(
         body.first()
             .expect("expected single statement after flatten")
@@ -180,7 +180,7 @@ def {func:id}({param:id}):
             body: mut fn_body,
             ..
         }) => {
-            flatten(crate::passes::ast_to_ast::body::suite_mut(&mut fn_body));
+            flatten(&mut fn_body);
             assert_eq!(name.id.as_str(), "foo");
             assert_eq!(parameters.args[0].parameter.name.id.as_str(), "arg");
             assert_eq!(

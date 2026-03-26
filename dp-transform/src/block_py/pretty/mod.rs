@@ -6,7 +6,7 @@ use super::{
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
     BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield,
-    LocatedCoreBlockPyPass, PreparedBbBlockPyPass, RuffBlockPyPass,
+    PreparedBbBlockPyPass, RuffBlockPyPass,
 };
 use crate::ruff_ast_to_string;
 use std::collections::{HashMap, HashSet};
@@ -43,7 +43,6 @@ impl_default_blockpy_pretty_printer!(
     CoreBlockPyPassWithAwaitAndYield,
     CoreBlockPyPassWithYield,
     CoreBlockPyPass,
-    LocatedCoreBlockPyPass,
 );
 
 impl BlockPyPrettyPrinter for BbBlockPyPass {

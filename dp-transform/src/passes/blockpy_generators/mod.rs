@@ -1,19 +1,17 @@
-use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::intrinsics::CELL_REF_INTRINSIC;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta,
-    resume_abi_params, BlockParam, BlockParamRole, BlockPyAssign, BlockPyBindingKind, BlockPyBlock,
-    BlockPyBranchTable, BlockPyCallableSemanticInfo, BlockPyCellBindingKind,
+    resume_abi_params, BbStmt, BlockParam, BlockParamRole, BlockPyAssign, BlockPyBindingKind,
+    BlockPyBlock, BlockPyBranchTable, BlockPyCallableSemanticInfo, BlockPyCellBindingKind,
     BlockPyCfgBlockBuilder, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel,
     BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot,
     CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId,
-    FunctionName, ModuleNameGen,
+    FunctionName, IntoBlockPyStmt, ModuleNameGen,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
-use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block_without_await;
 use crate::passes::ruff_to_blockpy::{
     attach_exception_edges_to_blocks, lowered_exception_edges, recompute_lowered_block_params,
     should_include_closure_storage_aliases,
@@ -173,11 +171,8 @@ fn is_async_generator(kind: BlockPyFunctionKind) -> bool {
     matches!(kind, BlockPyFunctionKind::AsyncGenerator)
 }
 
-fn injected_exception_names(
-    blocks: &[CfgBlock<
-        BlockPyStmt<CoreBlockPyExprWithYield>,
-        BlockPyTerm<CoreBlockPyExprWithYield>,
-    >],
+fn injected_exception_names<S>(
+    blocks: &[CfgBlock<S, BlockPyTerm<CoreBlockPyExprWithYield>>],
 ) -> HashSet<String> {
     let mut names = HashSet::new();
     for block in blocks {
@@ -410,6 +405,21 @@ fn build_factory_block(
 
     block.set_term(BlockPyTerm::Return(factory_value));
     block.finish(None)
+}
+
+fn flatten_core_blocks(
+    blocks: Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>,
+) -> Vec<CfgBlock<BbStmt<CoreBlockPyExpr, ExprName>, BlockPyTerm<CoreBlockPyExpr>>> {
+    blocks
+        .into_iter()
+        .map(|block| CfgBlock {
+            label: block.label,
+            body: block.body.into_iter().map(BbStmt::from).collect(),
+            term: block.term,
+            params: block.params,
+            exc_edge: block.exc_edge,
+        })
+        .collect()
 }
 
 fn resume_param_spec(kind: BlockPyFunctionKind) -> ParamSpec {
@@ -1242,17 +1252,18 @@ fn lower_resume_blocks(
     HashMap<String, Option<String>>,
     String,
 ) {
-    let block_params =
-        recompute_lowered_block_params(callable, should_include_closure_storage_aliases(callable));
-    let exception_edges = lowered_exception_edges(&callable.blocks);
-    let (linear_blocks, _linear_params, linear_exception_edges) =
-        linearize_structured_ifs(&callable.blocks, &block_params, &exception_edges);
-    let linear_blocks = linear_blocks
-        .into_iter()
-        .map(make_eval_order_explicit_in_core_block_without_await)
+    let linear_exception_edges = lowered_exception_edges(&callable.blocks);
+    let linear_blocks = callable
+        .blocks
+        .iter()
+        .cloned()
         .map(|block| BlockPyBlock {
             label: block.label,
-            body: block.body,
+            body: block
+                .body
+                .into_iter()
+                .map(|stmt| stmt.into_stmt())
+                .collect(),
             term: block.term,
             params: block.params,
             exc_edge: None,
@@ -1406,10 +1417,10 @@ pub(crate) fn lower_generator_like_function(
         names: names.clone(),
         kind,
         params: params.clone(),
-        blocks: attach_exception_edges_to_blocks(
+        blocks: flatten_core_blocks(attach_exception_edges_to_blocks(
             vec![factory_block.clone()],
             &HashMap::from([(factory_block.label.as_str().to_string(), None)]),
-        ),
+        )),
         doc,
         closure_layout: Some(closure_layout.clone()),
         semantic: semantic.clone(),
@@ -1428,7 +1439,7 @@ pub(crate) fn lower_generator_like_function(
         names: resume_names,
         kind: BlockPyFunctionKind::Function,
         params: resume_params.clone(),
-        blocks: resume_blocks.clone(),
+        blocks: flatten_core_blocks(resume_blocks.clone()),
         doc: None,
         closure_layout: Some(closure_layout.clone()),
         semantic: resume_semantic,

@@ -5,7 +5,7 @@ use crate::passes::ast_to_ast::rewrite_class_def;
 use crate::passes::ast_to_ast::rewrite_expr::ScopedHelperExprPass;
 use crate::passes::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::passes::ast_to_ast::{
-    body::{split_docstring, suite_mut, Suite},
+    body::{split_docstring, Suite},
     rewrite_future_annotations, rewrite_stmt,
     semantic::SemanticAstState,
 };
@@ -29,45 +29,44 @@ pub(crate) fn rewrite_module_with_tracker(
         let mut module = std::mem::take(module);
 
         // The transform now has a single lowering strategy: basic-block form.
-        lower_surrogate_string_literals(context, suite_mut(&mut module));
+        lower_surrogate_string_literals(context, &mut module);
 
-        let future_imports = rewrite_future_annotations::rewrite(context, suite_mut(&mut module));
+        let future_imports = rewrite_future_annotations::rewrite(context, &mut module);
 
         // Rewrite names like "__foo" in class bodies to "_<class_name>__foo"
-        rewrite_class_def::private::rewrite_private_names(context, suite_mut(&mut module));
+        rewrite_class_def::private::rewrite_private_names(context, &mut module);
 
         // Replace annotated assignments ("x: int = 1") with regular assignments,
         // and either drop the annotations (in functions) or generate an
         // __annotate__ function (in modules and classes)
-        rewrite_stmt::annotation::rewrite_ann_assign_to_dunder_annotate(
-            context,
-            suite_mut(&mut module),
-        );
+        rewrite_stmt::annotation::rewrite_ann_assign_to_dunder_annotate(context, &mut module);
 
         // Lower helper-scoped expressions that synthesize nested defs for Python
         // scoping semantics before the more direct BlockPy expr lowering boundary.
-        rewrite_with_pass(
-            context,
-            None,
-            Some(&ScopedHelperExprPass),
-            suite_mut(&mut module),
-        );
+        rewrite_with_pass(context, None, Some(&ScopedHelperExprPass), &mut module);
 
-        let mut rewrite_semantic_state = SemanticAstState::from_ruff(suite_mut(&mut module));
-        wrap_module_init(&mut rewrite_semantic_state, suite_mut(&mut module));
+        let mut rewrite_semantic_state = SemanticAstState::from_ruff(&mut module);
+
+        /*
+
+        Wrap the module body in a synthesized `_dp_module_init` function.  It is assigned the same scope table as the
+        module body so everythign remains e.g globals instead of locals.  This (combined with the similar but much
+        more complicated) class rewrite below, lets us only deal with functions throughout the rest of the pipeline.
+         */
+        wrap_module_init(&mut rewrite_semantic_state, &mut module);
 
         rewrite_class_def::class_body::rewrite_class_body_scopes(
             context,
             &mut rewrite_semantic_state,
-            suite_mut(&mut module),
+            &mut module,
         );
         let invalid_future_stmts =
             rewrite_future_annotations::invalid_future_feature_syntax_error_stmts(&future_imports);
         if !invalid_future_stmts.is_empty() {
-            let [Stmt::FunctionDef(module_init)] = suite_mut(&mut module).as_mut_slice() else {
+            let [Stmt::FunctionDef(module_init)] = &mut module.as_mut_slice() else {
                 panic!("expected wrapped module root before inserting invalid future error stubs");
             };
-            suite_mut(&mut module_init.body).splice(0..0, invalid_future_stmts);
+            &mut module_init.body.splice(0..0, invalid_future_stmts);
         }
         semantic_state = Some(rewrite_semantic_state);
         module

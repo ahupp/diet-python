@@ -3,7 +3,7 @@ use crate::block_py::{
     BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind, BlockPyModule,
     ClosureLayout, FunctionNameGen, ModuleNameGen,
 };
-use crate::passes::ast_to_ast::body::{split_docstring, suite_mut, suite_ref, Suite};
+use crate::passes::ast_to_ast::body::{split_docstring, Suite};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::rewrite_stmt;
@@ -82,7 +82,7 @@ impl Transformer for YieldFamilyDetector {
 
 fn function_kind(func: &ast::StmtFunctionDef) -> BlockPyFunctionKind {
     let mut detector = YieldFamilyDetector::default();
-    let mut body = suite_ref(&func.body).to_vec();
+    let mut body = func.body.to_vec();
     detector.visit_body(&mut body);
     match (func.is_async, detector.found) {
         (false, false) => BlockPyFunctionKind::Function,
@@ -98,7 +98,7 @@ fn try_lower_function_to_blockpy_bundle(
     callable_semantic: &BlockPyCallableSemanticInfo,
     name_gen: FunctionNameGen,
 ) -> BlockPyFunction<RuffBlockPyPass> {
-    let (docstring, lowered_input_body) = split_docstring(suite_ref(&func.body));
+    let (docstring, lowered_input_body) = split_docstring(&func.body);
     let lowered_input_body = lowered_input_body.to_vec();
     let (param_spec, _param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
@@ -139,32 +139,27 @@ fn prune_dead_stmt_suffixes(stmts: &[Stmt]) -> Vec<Stmt> {
 fn prune_dead_stmt_suffixes_in_stmt(stmt: &mut Stmt) {
     match stmt {
         Stmt::If(if_stmt) => {
-            *suite_mut(&mut if_stmt.body) = prune_dead_stmt_suffixes(suite_ref(&if_stmt.body));
+            *&mut if_stmt.body = prune_dead_stmt_suffixes(&if_stmt.body);
             for clause in &mut if_stmt.elif_else_clauses {
-                *suite_mut(&mut clause.body) = prune_dead_stmt_suffixes(suite_ref(&clause.body));
+                *&mut clause.body = prune_dead_stmt_suffixes(&clause.body);
             }
         }
         Stmt::While(while_stmt) => {
-            *suite_mut(&mut while_stmt.body) =
-                prune_dead_stmt_suffixes(suite_ref(&while_stmt.body));
-            *suite_mut(&mut while_stmt.orelse) =
-                prune_dead_stmt_suffixes(suite_ref(&while_stmt.orelse));
+            *&mut while_stmt.body = prune_dead_stmt_suffixes(&while_stmt.body);
+            *&mut while_stmt.orelse = prune_dead_stmt_suffixes(&while_stmt.orelse);
         }
         Stmt::For(for_stmt) => {
-            *suite_mut(&mut for_stmt.body) = prune_dead_stmt_suffixes(suite_ref(&for_stmt.body));
-            *suite_mut(&mut for_stmt.orelse) =
-                prune_dead_stmt_suffixes(suite_ref(&for_stmt.orelse));
+            *&mut for_stmt.body = prune_dead_stmt_suffixes(&for_stmt.body);
+            *&mut for_stmt.orelse = prune_dead_stmt_suffixes(&for_stmt.orelse);
         }
         Stmt::Try(try_stmt) => {
-            *suite_mut(&mut try_stmt.body) = prune_dead_stmt_suffixes(suite_ref(&try_stmt.body));
+            *&mut try_stmt.body = prune_dead_stmt_suffixes(&try_stmt.body);
             for handler in &mut try_stmt.handlers {
                 let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                *suite_mut(&mut handler.body) = prune_dead_stmt_suffixes(suite_ref(&handler.body));
+                *&mut handler.body = prune_dead_stmt_suffixes(&handler.body);
             }
-            *suite_mut(&mut try_stmt.orelse) =
-                prune_dead_stmt_suffixes(suite_ref(&try_stmt.orelse));
-            *suite_mut(&mut try_stmt.finalbody) =
-                prune_dead_stmt_suffixes(suite_ref(&try_stmt.finalbody));
+            *&mut try_stmt.orelse = prune_dead_stmt_suffixes(&try_stmt.orelse);
+            *&mut try_stmt.finalbody = prune_dead_stmt_suffixes(&try_stmt.finalbody);
         }
         _ => {}
     }
@@ -312,7 +307,7 @@ impl BlockPyModuleRewriter<'_> {
             parent_scope.as_ref(),
             function_scope.as_ref(),
             Some(func),
-            suite_ref(&func.body),
+            &func.body,
         );
         self.function_scope_stack.push(FunctionScopeFrame {
             scope: function_scope.clone(),

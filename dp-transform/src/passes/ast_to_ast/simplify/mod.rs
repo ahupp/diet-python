@@ -1,5 +1,5 @@
 use crate::{
-    passes::ast_to_ast::body::{suite_mut, Suite},
+    passes::ast_to_ast::body::Suite,
     passes::ast_to_ast::context::Context,
     passes::ast_to_ast::rewrite_expr::string,
     transformer::{walk_expr, Transformer},
@@ -54,11 +54,11 @@ impl Transformer for Flattener {
                 elif_else_clauses,
                 ..
             }) => {
-                self.visit_body(suite_mut(body));
-                remove_placeholder_pass(suite_mut(body));
+                self.visit_body(body);
+                remove_placeholder_pass(body);
                 for clause in elif_else_clauses.iter_mut() {
-                    self.visit_body(suite_mut(&mut clause.body));
-                    remove_placeholder_pass(suite_mut(&mut clause.body));
+                    self.visit_body(&mut clause.body);
+                    remove_placeholder_pass(&mut clause.body);
                 }
             }
             Stmt::For(ast::StmtFor {
@@ -66,20 +66,20 @@ impl Transformer for Flattener {
                 orelse,
                 ..
             }) => {
-                self.visit_body(suite_mut(inner));
-                remove_placeholder_pass(suite_mut(inner));
-                self.visit_body(suite_mut(orelse));
-                remove_placeholder_pass(suite_mut(orelse));
+                self.visit_body(inner);
+                remove_placeholder_pass(inner);
+                self.visit_body(orelse);
+                remove_placeholder_pass(orelse);
             }
             Stmt::While(ast::StmtWhile {
                 body: inner,
                 orelse,
                 ..
             }) => {
-                self.visit_body(suite_mut(inner));
-                remove_placeholder_pass(suite_mut(inner));
-                self.visit_body(suite_mut(orelse));
-                remove_placeholder_pass(suite_mut(orelse));
+                self.visit_body(inner);
+                remove_placeholder_pass(inner);
+                self.visit_body(orelse);
+                remove_placeholder_pass(orelse);
             }
             Stmt::Try(ast::StmtTry {
                 body: inner,
@@ -88,24 +88,24 @@ impl Transformer for Flattener {
                 finalbody,
                 ..
             }) => {
-                self.visit_body(suite_mut(inner));
-                remove_placeholder_pass(suite_mut(inner));
+                self.visit_body(inner);
+                remove_placeholder_pass(inner);
                 for handler in handlers.iter_mut() {
                     let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
                         body,
                         ..
                     }) = handler;
-                    self.visit_body(suite_mut(body));
-                    remove_placeholder_pass(suite_mut(body));
+                    self.visit_body(body);
+                    remove_placeholder_pass(body);
                 }
-                self.visit_body(suite_mut(orelse));
-                remove_placeholder_pass(suite_mut(orelse));
-                self.visit_body(suite_mut(finalbody));
-                remove_placeholder_pass(suite_mut(finalbody));
+                self.visit_body(orelse);
+                remove_placeholder_pass(orelse);
+                self.visit_body(finalbody);
+                remove_placeholder_pass(finalbody);
             }
             Stmt::FunctionDef(ast::StmtFunctionDef { body: inner, .. }) => {
-                self.visit_body(suite_mut(inner));
-                remove_placeholder_pass(suite_mut(inner));
+                self.visit_body(inner);
+                remove_placeholder_pass(inner);
             }
             _ => {}
         }

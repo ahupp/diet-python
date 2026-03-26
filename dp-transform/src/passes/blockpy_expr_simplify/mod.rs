@@ -3,14 +3,17 @@ use super::core_eval_order::make_eval_order_explicit_in_core_block;
 use crate::block_py::{
     core_call_expr_with_meta, core_positional_call_expr_with_meta,
     core_positional_intrinsic_expr_with_meta, intrinsics, BlockPyAssign, BlockPyBranchTable,
-    BlockPyCfgFragment, BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise,
-    BlockPyStmt, BlockPyStmtFragment, BlockPyStmtFragmentBuilder, BlockPyTerm, CfgBlock,
-    CoreBlockPyAwait, CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg,
+    BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
+    BlockPyStmtFragment, BlockPyStmtFragmentBuilder, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
+    CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg,
     CoreBlockPyLiteral, CoreBlockPyYield, CoreBlockPyYieldFrom, CoreBytesLiteral,
-    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
+    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, IntoBlockPyStmt,
 };
 use crate::passes::ast_to_ast::expr_utils::{make_binop, make_tuple, make_unaryop};
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
+use crate::passes::ruff_to_blockpy::{
+    lower_structured_blocks_to_bb_blocks, recompute_lowered_block_params_for_blocks,
+};
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, RuffBlockPyPass};
 use crate::py_expr;
 use crate::transformer::{walk_expr, Transformer};
@@ -608,12 +611,15 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: BlockPyTerm<Exp
     }
 }
 
-fn lower_semantic_block(
-    block: CfgBlock<BlockPyStmt<Expr>, BlockPyTerm<Expr>>,
+fn lower_semantic_block<S>(
+    block: CfgBlock<S, BlockPyTerm<Expr>>,
 ) -> CfgBlock<
     BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
     BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
-> {
+>
+where
+    S: IntoBlockPyStmt<Expr, ast::ExprName>,
+{
     let CfgBlock {
         label,
         body,
@@ -621,10 +627,12 @@ fn lower_semantic_block(
         params,
         exc_edge,
     } = block;
-    let fragment = lower_semantic_stmt_fragment(BlockPyCfgFragment {
-        body,
-        term: Some(term),
-    });
+    let mut builder = CoreStmtBuilder::new();
+    for stmt in body {
+        lower_semantic_stmt_into(&mut builder, stmt.into_stmt());
+    }
+    lower_semantic_term_into(&mut builder, term);
+    let fragment = builder.finish();
     CfgBlock {
         label,
         body: fragment.body,
@@ -650,17 +658,20 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
         closure_layout,
         semantic,
     } = callable_def;
+    let param_names = params.names();
+    let structured_blocks = blocks
+        .into_iter()
+        .map(lower_semantic_block)
+        .map(make_eval_order_explicit_in_core_block)
+        .collect::<Vec<_>>();
+    let block_params = recompute_lowered_block_params_for_blocks(&param_names, &structured_blocks);
     BlockPyFunction {
         function_id,
         name_gen,
         names,
         kind,
         params,
-        blocks: blocks
-            .into_iter()
-            .map(lower_semantic_block)
-            .map(make_eval_order_explicit_in_core_block)
-            .collect(),
+        blocks: lower_structured_blocks_to_bb_blocks(&structured_blocks, &block_params),
         doc,
         closure_layout,
         semantic,

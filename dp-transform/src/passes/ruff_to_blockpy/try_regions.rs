@@ -4,7 +4,7 @@ use crate::block_py::{
     AbruptKind, BlockArg, BlockParamRole, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyEdge,
     BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
 };
-use crate::passes::ast_to_ast::body::{suite_ref, Suite};
+use crate::passes::ast_to_ast::body::Suite;
 
 #[derive(Debug, Clone)]
 pub(crate) struct TryPlan {
@@ -83,7 +83,7 @@ pub(crate) fn prepare_except_body(handlers: &[ast::ExceptHandler]) -> Vec<Stmt> 
         .first()
         .map(|handler| {
             let ast::ExceptHandler::ExceptHandler(handler) = handler;
-            suite_ref(&handler.body).to_vec()
+            handler.body.to_vec()
         })
         .unwrap_or_else(|| vec![py_stmt!("raise")])
 }

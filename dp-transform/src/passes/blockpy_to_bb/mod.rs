@@ -28,11 +28,11 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
             BlockPyFunctionKind::Function => {
                 let qualname = callable.names.qualname.clone();
                 callable_defs.push(callable.try_into().unwrap_or_else(|_| {
-                    panic!(
-                        "core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for {}",
-                        qualname
-                    )
-                }));
+                        panic!(
+                            "core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for {}",
+                            qualname
+                        )
+                    }));
             }
             BlockPyFunctionKind::Generator
             | BlockPyFunctionKind::Coroutine

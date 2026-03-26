@@ -4,9 +4,12 @@ use crate::block_py::{
     BlockPyCfgFragment, BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise,
     BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyCall,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
-    CoreBlockPyYieldFrom, IntrinsicCall,
+    CoreBlockPyYieldFrom, IntoBlockPyStmt, IntrinsicCall,
 };
 use crate::namegen::fresh_name;
+use crate::passes::ruff_to_blockpy::{
+    lower_structured_blocks_to_bb_blocks, recompute_lowered_block_params_for_blocks,
+};
 use crate::passes::CoreBlockPyPassWithYield;
 use crate::py_expr;
 use ruff_python_ast as ast;
@@ -489,7 +492,45 @@ pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
 pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
     callable_def: BlockPyFunction<CoreBlockPyPassWithYield>,
 ) -> BlockPyFunction<CoreBlockPyPassWithYield> {
-    callable_def.map_blocks(make_eval_order_explicit_in_core_block_without_await)
+    let BlockPyFunction {
+        function_id,
+        name_gen,
+        names,
+        kind,
+        params,
+        blocks,
+        doc,
+        closure_layout,
+        semantic,
+    } = callable_def;
+    let param_names = params.names();
+    let structured_blocks = blocks
+        .into_iter()
+        .map(|block| CfgBlock {
+            label: block.label,
+            body: block
+                .body
+                .into_iter()
+                .map(|stmt| stmt.into_stmt())
+                .collect(),
+            term: block.term,
+            params: block.params,
+            exc_edge: block.exc_edge,
+        })
+        .map(make_eval_order_explicit_in_core_block_without_await)
+        .collect::<Vec<_>>();
+    let block_params = recompute_lowered_block_params_for_blocks(&param_names, &structured_blocks);
+    BlockPyFunction {
+        function_id,
+        name_gen,
+        names,
+        kind,
+        params,
+        blocks: lower_structured_blocks_to_bb_blocks(&structured_blocks, &block_params),
+        doc,
+        closure_layout,
+        semantic,
+    }
 }
 
 #[cfg(test)]

@@ -18,7 +18,7 @@ fn stmt_if_simplify_ast_expands_elif_chain_before_blockpy_lowering() {
     assert_eq!(simplified_if.elif_else_clauses.len(), 1);
     let clause = &simplified_if.elif_else_clauses[0];
     assert!(clause.test.is_none());
-    assert!(matches!(suite_ref(&clause.body)[0], Stmt::If(_)));
+    assert!(matches!(&clause.body[0], Stmt::If(_)));
 }
 
 #[test]

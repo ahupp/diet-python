@@ -1,5 +1,4 @@
 use super::*;
-use crate::passes::ast_to_ast::body::suite_ref;
 use crate::py_stmt;
 
 #[test]
@@ -42,7 +41,7 @@ fn collect_explicit_global_or_nonlocal_names_skips_nested_defs() {
             unreachable!();
         };
 
-    let names = collect_explicit_global_or_nonlocal_names(suite_ref(&outer.body));
+    let names = collect_explicit_global_or_nonlocal_names(&outer.body);
 
     assert!(names.contains("module_name"), "{names:?}");
     assert!(names.contains("captured"), "{names:?}");

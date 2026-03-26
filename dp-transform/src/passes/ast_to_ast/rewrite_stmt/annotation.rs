@@ -2,7 +2,7 @@ use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_source_file::LineEnding;
 
-use crate::passes::ast_to_ast::body::{suite_mut, Suite};
+use crate::passes::ast_to_ast::body::Suite;
 use crate::transformer::{walk_stmt, Transformer};
 use crate::{
     passes::ast_to_ast::{context::Context, expr_utils::make_tuple},
@@ -44,16 +44,16 @@ impl Transformer for AnnotationStripper {
     fn visit_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::FunctionDef(func_def) => {
-                AnnotationStripper::strip(suite_mut(&mut func_def.body));
+                AnnotationStripper::strip(&mut func_def.body);
                 // drop the collected annotations
             }
             Stmt::ClassDef(class_def) => {
-                let entries = AnnotationStripper::strip(suite_mut(&mut class_def.body));
+                let entries = AnnotationStripper::strip(&mut class_def.body);
                 if !entries.is_empty() {
                     // CPython stores class annotation thunks under __annotate_func__,
                     // and exposes __annotate__ via type-level descriptor logic.
                     let ds = build_annotate_fn(entries, "__annotate_func__");
-                    suite_mut(&mut class_def.body).push(ds);
+                    &mut class_def.body.push(ds);
                 }
             }
             Stmt::AnnAssign(ast::StmtAnnAssign {
