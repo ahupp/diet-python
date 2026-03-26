@@ -479,12 +479,6 @@ builtins.__dp_store_local = __dp_store_local
 builtins.__dp_del_local = __dp_del_local
 
 
-def raise_uncaught_generator_exception(exc):
-    if isinstance(exc, StopIteration):
-        raise RuntimeError("generator raised StopIteration") from exc
-    raise exc
-
-
 class _DpAsyncGenComplete(Exception):
     pass
 
@@ -1191,17 +1185,6 @@ def load_cell(cell):
         raise UnboundLocalError("local variable referenced before assignment") from exc
 
 
-class LocalsProxy:
-    def __init__(self, frame):
-        self.frame = frame
-
-    def __getitem__(self, name):
-        return self.frame.f_locals[name]
-
-    def __setitem__(self, name, value):
-        self.frame.f_locals[name] = value
-
-
 def _normalize_mapping(values):
     result = {}
     cell_overrides = {}
@@ -1230,9 +1213,6 @@ def _normalize_mapping(values):
         result[name] = value
     return result
 
-
-def normalize_mapping(values):
-    return _normalize_mapping(values)
 
 def _lookup_normalized_name(mapping, name, *, hide_internal=False):
     if hide_internal and isinstance(name, str) and name.startswith("_dp_"):
@@ -1468,90 +1448,6 @@ def globals():
 builtins.__dp_globals = globals
 
 
-def unsupported_implicit_locals(feature):
-    raise builtins.NotImplementedError(
-        f"{feature} is unsupported in transformed code; pass explicit globals/locals instead"
-    )
-
-
-def eval_(source, globals=None, locals=None):
-    if isinstance(globals, GlobalsProxy):
-        globals = globals._globals
-    if globals is None:
-        if locals is None:
-            return unsupported_implicit_locals("eval()")
-        globals = sys._getframe(1).f_globals
-    if locals is None:
-        return builtins.eval(source, globals)
-    return builtins.eval(source, globals, locals)
-
-
-def _normalize_exec_closure(closure):
-    mutated = []
-    try:
-        iterator = iter(closure)
-    except TypeError:
-        return mutated
-    for cell in iterator:
-        if not isinstance(cell, _types.CellType):
-            continue
-        try:
-            contents = cell.cell_contents
-        except ValueError:
-            inner = make_cell(_MISSING)
-            cell.cell_contents = inner
-            mutated.append((cell, inner))
-            continue
-        if isinstance(contents, _types.CellType):
-            continue
-        inner = make_cell(contents)
-        cell.cell_contents = inner
-        mutated.append((cell, inner))
-    return mutated
-
-
-def _restore_exec_closure(mutated):
-    for cell, inner in mutated:
-        try:
-            cell.cell_contents = inner.cell_contents
-        except ValueError:
-            try:
-                del cell.cell_contents
-            except ValueError:
-                pass
-
-
-def exec_(source, globals=None, locals=None, *, closure=None):
-    mutated = []
-    if closure is not None:
-        mutated = _normalize_exec_closure(closure)
-    if globals is None:
-        try:
-            if locals is None:
-                return unsupported_implicit_locals("exec()")
-            globals = sys._getframe(1).f_globals
-            if closure is None:
-                return builtins.exec(source, globals, locals)
-            return builtins.exec(source, globals, locals, closure=closure)
-        finally:
-            _restore_exec_closure(mutated)
-    if isinstance(globals, GlobalsProxy):
-        globals = globals._globals
-    if locals is None:
-        try:
-            if closure is None:
-                return builtins.exec(source, globals)
-            return builtins.exec(source, globals, closure=closure)
-        finally:
-            _restore_exec_closure(mutated)
-    try:
-        if closure is None:
-            return builtins.exec(source, globals, locals)
-        return builtins.exec(source, globals, locals, closure=closure)
-    finally:
-        _restore_exec_closure(mutated)
-
-
 def store_cell(cell, value):
     cell.cell_contents = value
     return value
@@ -1634,36 +1530,6 @@ def match_class_attr_value(cls, subject, idx, total):
 
     name = match_args[idx]
     return getattr(subject, name)
-
-
-def update_fn(func, qualname, name, doc=None, annotate_fn=None):
-    try:
-        func.__qualname__ = qualname
-    except (AttributeError, TypeError):
-        pass
-    try:
-        func.__name__ = name
-    except (AttributeError, TypeError):
-        pass
-    if isinstance(func, _types.FunctionType):
-        try:
-            func.__code__ = func.__code__.replace(
-                co_name=name,
-                co_qualname=qualname,
-            )
-        except (AttributeError, ValueError):
-            pass
-    if doc is not None:
-        try:
-            func.__doc__ = doc
-        except (AttributeError, TypeError):
-            pass
-    if annotate_fn is not None:
-        try:
-            func.__annotate__ = annotate_fn
-        except (AttributeError, TypeError):
-            pass
-    return func
 
 
 def _bb_param_kind(kind_name):
@@ -1817,13 +1683,6 @@ def _bb_entry_template_code(async_entry):
     return _DP_ENTRY_TEMPLATE_CODE
 
 
-def _bb_make_state_frame(state_order, state_args):
-    _dp_frame = dict(())
-    for _dp_state_name, _dp_state_value in zip(state_order, state_args):
-        _dp_frame[_dp_state_name] = _dp_state_value
-    return _dp_frame
-
-
 def _bb_rebind_function_globals(func, module_globals):
     if module_globals is None:
         return func
@@ -1919,32 +1778,6 @@ def _bb_eager_compile_clif_entry(entry, module_name, plan_qualname):
             "failed to eagerly compile CLIF entry for "
             f"{module_name}.{plan_qualname}: {exc}"
         ) from exc
-
-def _bb_validate_function_id(function_id):
-    if not isinstance(function_id, int) or isinstance(function_id, bool):
-        raise TypeError(
-            f"basic-block function id must be an int, got {type(function_id)!r}"
-        )
-    if function_id < 0:
-        raise ValueError(f"basic-block function id must be non-negative, got {function_id}")
-
-
-def _bb_plan_name(qualname, function_id):
-    _bb_validate_function_id(function_id)
-    return f"{qualname}::__dp_fn_{function_id}"
-
-
-def _bb_validate_entry_ref(entry_ref):
-    if callable(entry_ref):
-        return
-    if isinstance(entry_ref, str) and entry_ref:
-        return
-    if isinstance(entry_ref, str):
-        raise TypeError("basic-block entry reference must not be empty")
-    raise TypeError(
-        f"basic-block entry reference must be callable or str, got {type(entry_ref)!r}"
-    )
-
 
 def def_hidden_resume_fn(
     function_id,
@@ -2087,12 +1920,6 @@ def decode_literal_source_bytes(src_bytes):
 
 builtins.__dp_decode_literal_bytes = decode_literal_bytes
 builtins.__dp_decode_literal_source_bytes = decode_literal_source_bytes
-
-
-def exec_function_def_source(source, globals_dict, captures, name):
-    namespace = dict(captures)
-    builtins.exec(source, globals_dict, namespace)
-    return namespace[name]
 
 
 def create_class(
