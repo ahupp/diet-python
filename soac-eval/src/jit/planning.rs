@@ -1,7 +1,7 @@
 use dp_transform::block_py::{
     AbruptKind, BbStmt, BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyNameLike,
     BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-    CoreNumberLiteralValue, LocatedCoreBlockPyExpr, PreparedBbBlock, intrinsics,
+    CoreNumberLiteralValue, LocatedCoreBlockPyExpr, LocatedName, PreparedBbBlock, intrinsics,
 };
 use dp_transform::passes::PreparedBbBlockPyPass;
 use std::collections::{HashMap, HashSet};
@@ -49,7 +49,7 @@ pub enum BlockFastPath {
 
 #[derive(Clone, Debug)]
 pub enum DirectSimpleExprPlan {
-    Name(String),
+    Name(LocatedName),
     Int(i64),
     Float(f64),
     Bytes(Vec<u8>),
@@ -84,7 +84,7 @@ pub enum DirectSimpleBlockArgPlan {
 
 #[derive(Clone, Debug)]
 pub struct DirectSimpleAssignPlan {
-    pub target: String,
+    pub target: LocatedName,
     pub value: DirectSimpleExprPlan,
 }
 
@@ -146,7 +146,7 @@ pub struct DirectSimpleDeletePlan {
 
 #[derive(Clone, Debug)]
 pub enum DirectSimpleDeleteTargetPlan {
-    LocalName(String),
+    LocalName(LocatedName),
 }
 
 #[derive(Clone, Debug)]
@@ -353,11 +353,9 @@ fn bb_function_registry() -> &'static Mutex<FunctionRegistry> {
     BB_FUNCTION_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn direct_simple_expr_from<N: BlockPyNameLike>(
-    expr: &CoreBlockPyExpr<N>,
-) -> Option<DirectSimpleExprPlan> {
+fn direct_simple_expr_from(expr: &LocatedCoreBlockPyExpr) -> Option<DirectSimpleExprPlan> {
     match expr {
-        CoreBlockPyExpr::Name(name) => Some(DirectSimpleExprPlan::Name(name.id_str().to_string())),
+        CoreBlockPyExpr::Name(name) => Some(DirectSimpleExprPlan::Name(name.clone())),
         CoreBlockPyExpr::Literal(literal) => match literal {
             CoreBlockPyLiteral::NumberLiteral(number) => match &number.value {
                 CoreNumberLiteralValue::Int(value) => value.as_i64().map(DirectSimpleExprPlan::Int),
@@ -450,7 +448,7 @@ fn direct_simple_plan_from_block(block: &PreparedBbBlock) -> Option<DirectSimple
             known_names.push(assign.target.id.to_string());
         }
         assigns.push(DirectSimpleAssignPlan {
-            target: assign.target.id.to_string(),
+            target: assign.target.clone(),
             value,
         });
     }
@@ -493,8 +491,8 @@ fn direct_simple_brif_plan_from_block(
     })
 }
 
-fn direct_simple_delete_plan_from_targets<N: BlockPyNameLike>(
-    targets: &[N],
+fn direct_simple_delete_plan_from_targets(
+    targets: &[LocatedName],
     known_names: &mut Vec<String>,
 ) -> Option<DirectSimpleDeletePlan> {
     let mut plan_targets = Vec::with_capacity(targets.len());
@@ -503,7 +501,7 @@ fn direct_simple_delete_plan_from_targets<N: BlockPyNameLike>(
         if !known_names.iter().any(|known| known == &target_name) {
             return None;
         }
-        plan_targets.push(DirectSimpleDeleteTargetPlan::LocalName(target_name.clone()));
+        plan_targets.push(DirectSimpleDeleteTargetPlan::LocalName(target.clone()));
         known_names.retain(|known| known != &target_name);
     }
     Some(DirectSimpleDeletePlan {
@@ -512,7 +510,7 @@ fn direct_simple_delete_plan_from_targets<N: BlockPyNameLike>(
 }
 
 fn direct_simple_op_from_bb_stmt(
-    op: &BbStmt,
+    op: &BbStmt<LocatedCoreBlockPyExpr, LocatedName>,
     known_names: &mut Vec<String>,
 ) -> Option<DirectSimpleOpPlan> {
     match op {
@@ -527,7 +525,7 @@ fn direct_simple_op_from_bb_stmt(
                 known_names.push(target_name.clone());
             }
             Some(DirectSimpleOpPlan::Assign(DirectSimpleAssignPlan {
-                target: target_name,
+                target: assign.target.clone(),
                 value,
             }))
         }

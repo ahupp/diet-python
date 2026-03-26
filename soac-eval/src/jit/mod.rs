@@ -8,8 +8,11 @@ use cranelift_control::ControlPlane;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
-use dp_transform::block_py::{BlockPyModule, intrinsics as blockpy_intrinsics};
+use dp_transform::block_py::{
+    BlockPyModule, LocatedName, NameLocation, intrinsics as blockpy_intrinsics,
+};
 use dp_transform::passes::PreparedBbBlockPyPass;
+use ruff_python_ast as ast;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::ptr;
@@ -347,8 +350,10 @@ fn direct_simple_expr_is_borrowable(
 ) -> bool {
     match expr {
         DirectSimpleExprPlan::Name(name) => {
-            local_names.iter().any(|candidate| candidate == name)
-                || function_state_slots.has_name(name)
+            local_names
+                .iter()
+                .any(|candidate| candidate == name.id.as_str())
+                || function_state_slots.has_name(name.id.as_str())
         }
         DirectSimpleExprPlan::Int(_)
         | DirectSimpleExprPlan::Float(_)
@@ -381,7 +386,7 @@ fn direct_simple_call_positional_args<'a>(
                 return None;
             };
             (
-                DirectSimpleCallCallee::Name(func_name.as_str()),
+                DirectSimpleCallCallee::Name(func_name.id.as_str()),
                 parts.as_slice(),
             )
         }
@@ -451,7 +456,9 @@ fn direct_simple_expr_as_frame_locals_setitem<'a>(
         return None;
     }
     if let DirectSimpleExprPlan::Name(alias_name) = args[0] {
-        if !aliases.contains(alias_name) && !direct_simple_expr_is_frame_locals_fetch(args[0]) {
+        if !aliases.contains(alias_name.id.as_str())
+            && !direct_simple_expr_is_frame_locals_fetch(args[0])
+        {
             return None;
         }
     } else if !direct_simple_expr_is_frame_locals_fetch(args[0]) {
@@ -466,7 +473,7 @@ fn direct_simple_expr_is_frame_locals_alias(
     aliases: &HashSet<String>,
 ) -> bool {
     direct_simple_expr_is_frame_locals_fetch(expr)
-        || matches!(expr, DirectSimpleExprPlan::Name(name) if aliases.contains(name))
+        || matches!(expr, DirectSimpleExprPlan::Name(name) if aliases.contains(name.id.as_str()))
 }
 
 fn update_frame_locals_aliases_for_assignment(
@@ -487,6 +494,16 @@ fn intern_bytes_literal(literal_pool: &mut Vec<Box<[u8]>>, bytes: &[u8]) -> (*co
     let len = boxed.len() as i64;
     literal_pool.push(boxed);
     (ptr, len)
+}
+
+fn compat_global_name(id: &str) -> LocatedName {
+    LocatedName {
+        id: id.into(),
+        ctx: ast::ExprContext::Load,
+        range: Default::default(),
+        node_index: Default::default(),
+        location: NameLocation::Global,
+    }
 }
 
 struct DirectSimpleEmitConsts {
@@ -1123,7 +1140,10 @@ fn emit_direct_simple_expr(
 
     match expr {
         DirectSimpleExprPlan::Name(name) => {
-            if let Some(slot_index) = local_names.iter().position(|candidate| candidate == name) {
+            if let Some(slot_index) = local_names
+                .iter()
+                .position(|candidate| candidate == name.id.as_str())
+            {
                 let slot_value = local_values[slot_index];
                 if !borrowed {
                     fb.ins().call(incref_ref, &[slot_value]);
@@ -1133,19 +1153,35 @@ fn emit_direct_simple_expr(
             if let Some(slot_value) = load_function_state_value(
                 fb,
                 &ctx.function_state_slots,
-                name,
+                name.id.as_str(),
                 ptr_ty,
                 borrowed,
                 incref_ref,
             ) {
                 return slot_value;
             }
+            match name.location {
+                NameLocation::Global => {}
+                NameLocation::Local { slot } => {
+                    panic!(
+                        "missing located local {} in direct JIT state (slot {slot})",
+                        name.id
+                    );
+                }
+                NameLocation::ClosureCell { slot } => {
+                    panic!(
+                        "missing located closure cell {} in direct JIT state (slot {slot})",
+                        name.id
+                    );
+                }
+            }
             assert!(
                 !borrowed,
                 "global name lookup must produce owned references"
             );
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
-            let (name_ptr, name_len) = intern_bytes_literal(literal_pool, name.as_bytes());
+            let (name_ptr, name_len) =
+                intern_bytes_literal(literal_pool, name.id.as_str().as_bytes());
             let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
             let name_len_val = fb.ins().iconst(i64_ty, name_len);
             let value_inst = fb
@@ -1252,7 +1288,9 @@ fn emit_direct_simple_expr(
                 return jit_intrinsic.emit_direct_simple(&mut intrinsic_state, parts);
             }
             let fallback = DirectSimpleExprPlan::Call {
-                func: Box::new(DirectSimpleExprPlan::Name(intrinsic.name().to_string())),
+                func: Box::new(DirectSimpleExprPlan::Name(compat_global_name(
+                    intrinsic.name(),
+                ))),
                 parts: parts.clone(),
             };
             emit_direct_simple_expr(
@@ -1292,7 +1330,7 @@ fn emit_direct_simple_expr(
             if let DirectSimpleExprPlan::Name(func_name) = func.as_ref() {
                 if !has_unpack
                     && simple_keywords.is_empty()
-                    && func_name == "__dp_decode_literal_bytes"
+                    && func_name.id.as_str() == "__dp_decode_literal_bytes"
                     && simple_args.len() == 1
                 {
                     if let DirectSimpleExprPlan::Bytes(bytes) = simple_args[0] {
@@ -1321,7 +1359,7 @@ fn emit_direct_simple_expr(
                 }
                 if !has_unpack
                     && simple_keywords.is_empty()
-                    && func_name == "str"
+                    && func_name.id.as_str() == "str"
                     && simple_args.len() == 1
                 {
                     if let DirectSimpleExprPlan::Bytes(bytes) = simple_args[0] {
@@ -1351,7 +1389,8 @@ fn emit_direct_simple_expr(
                 if !has_unpack
                     && simple_keywords.is_empty()
                     && simple_args.is_empty()
-                    && (func_name == "globals" || func_name == "__dp_globals")
+                    && (func_name.id.as_str() == "globals"
+                        || func_name.id.as_str() == "__dp_globals")
                 {
                     fb.ins().call(incref_ref, &[block_const]);
                     return block_const;
@@ -1799,7 +1838,7 @@ fn emit_direct_simple_expr(
             }
             if let DirectSimpleExprPlan::Name(func_name) = func.as_ref() {
                 if keywords.is_empty()
-                    && func_name == "__dp_decode_literal_bytes"
+                    && func_name.id.as_str() == "__dp_decode_literal_bytes"
                     && args.len() == 1
                 {
                     if let DirectSimpleExprPlan::Bytes(bytes) = &args[0] {
@@ -1826,7 +1865,7 @@ fn emit_direct_simple_expr(
                         return fb.block_params(value_ok_block)[0];
                     }
                 }
-                if keywords.is_empty() && func_name == "str" && args.len() == 1 {
+                if keywords.is_empty() && func_name.id.as_str() == "str" && args.len() == 1 {
                     if let DirectSimpleExprPlan::Bytes(bytes) = &args[0] {
                         let (data_ptr, data_len) =
                             intern_bytes_literal(literal_pool, bytes.as_slice());
@@ -1853,13 +1892,14 @@ fn emit_direct_simple_expr(
                 }
                 if keywords.is_empty()
                     && args.is_empty()
-                    && (func_name == "globals" || func_name == "__dp_globals")
+                    && (func_name.id.as_str() == "globals"
+                        || func_name.id.as_str() == "__dp_globals")
                 {
                     fb.ins().call(incref_ref, &[block_const]);
                     return block_const;
                 }
                 if keywords.is_empty() {
-                    if func_name == "__dp_tuple" {
+                    if func_name.id.as_str() == "__dp_tuple" {
                         let mut arg_values: Vec<ir::Value> = Vec::with_capacity(args.len());
                         let mut borrowed_args: Vec<bool> = Vec::with_capacity(args.len());
                         for arg in &args {
@@ -1893,7 +1933,7 @@ fn emit_direct_simple_expr(
                         }
                         return tuple_value;
                     }
-                    if func_name == "__dp_load_deleted_name" && args.len() == 2 {
+                    if func_name.id.as_str() == "__dp_load_deleted_name" && args.len() == 2 {
                         if let Some(name) = direct_simple_expr_const_string(args[0]) {
                             let (name_ptr, name_len) =
                                 intern_bytes_literal(literal_pool, name.as_bytes());
@@ -1940,7 +1980,7 @@ fn emit_direct_simple_expr(
                         }
                     }
                     let is_direct_cell_call = matches!(
-                        (func_name.as_str(), args.len()),
+                        (func_name.id.as_str(), args.len()),
                         ("__dp_make_cell", 1)
                             | ("__dp_load_cell", 1)
                             | ("__dp_store_cell", 2)
@@ -1967,7 +2007,7 @@ fn emit_direct_simple_expr(
                             );
                             arg_values.push((value, borrowed_arg));
                         }
-                        let call_inst = match (func_name.as_str(), args.len()) {
+                        let call_inst = match (func_name.id.as_str(), args.len()) {
                             ("__dp_make_cell", 1) => {
                                 fb.ins().call(make_cell_ref, &[arg_values[0].0])
                             }
@@ -2614,7 +2654,7 @@ fn emit_direct_simple_ops(
                     fb,
                     local_names,
                     local_values,
-                    assign.target.as_str(),
+                    assign.target.id.as_str(),
                     value,
                     function_state_slots,
                     emit_ctx.consts.ptr_ty,
@@ -2623,7 +2663,7 @@ fn emit_direct_simple_ops(
                 );
                 update_frame_locals_aliases_for_assignment(
                     &mut frame_locals_aliases,
-                    assign.target.as_str(),
+                    assign.target.id.as_str(),
                     &assign.value,
                 );
             }
@@ -2668,14 +2708,14 @@ fn emit_direct_simple_ops(
                         fb,
                         local_names,
                         local_values,
-                        name.as_str(),
+                        name.id.as_str(),
                         function_state_slots,
                         emit_ctx.consts.deleted_const,
                         emit_ctx.consts.ptr_ty,
                         emit_ctx.incref_ref,
                         emit_ctx.decref_ref,
                     )?;
-                    frame_locals_aliases.remove(name.as_str());
+                    frame_locals_aliases.remove(name.id.as_str());
                 }
             }
         }
@@ -3281,7 +3321,7 @@ fn build_cranelift_run_bb_specialized_function(
                             &mut fb,
                             &mut local_names,
                             &mut local_values,
-                            assign.target.as_str(),
+                            assign.target.id.as_str(),
                             value,
                             &function_state_slots,
                             ptr_ty,
@@ -3290,7 +3330,7 @@ fn build_cranelift_run_bb_specialized_function(
                         );
                         update_frame_locals_aliases_for_assignment(
                             &mut frame_locals_aliases,
-                            assign.target.as_str(),
+                            assign.target.id.as_str(),
                             &assign.value,
                         );
                     }

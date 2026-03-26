@@ -2,7 +2,30 @@ use super::*;
 
 mod tests {
     use super::*;
-    use dp_transform::block_py::{BlockPyRaise, BlockPyTerm, LocatedCoreBlockPyExpr};
+    use dp_transform::block_py::{
+        BlockPyRaise, BlockPyTerm, LocatedCoreBlockPyExpr, LocatedName, NameLocation,
+    };
+    use ruff_python_ast as ast;
+
+    fn test_name(name: &str) -> LocatedName {
+        LocatedName {
+            id: name.into(),
+            ctx: ast::ExprContext::Load,
+            range: Default::default(),
+            node_index: Default::default(),
+            location: NameLocation::Local { slot: 0 },
+        }
+    }
+
+    fn test_global_name(name: &str) -> LocatedName {
+        LocatedName {
+            id: name.into(),
+            ctx: ast::ExprContext::Load,
+            range: Default::default(),
+            node_index: Default::default(),
+            location: NameLocation::Global,
+        }
+    }
 
     fn test_term() -> BlockPyTerm<LocatedCoreBlockPyExpr> {
         BlockPyTerm::Raise(BlockPyRaise { exc: None })
@@ -214,11 +237,11 @@ mod tests {
                     plan: DirectSimpleBlockPlan {
                         params: vec![],
                         ops: vec![DirectSimpleOpPlan::Assign(DirectSimpleAssignPlan {
-                            target: "x".into(),
+                            target: test_name("x"),
                             value: DirectSimpleExprPlan::Int(7),
                         })],
                         term: DirectSimpleTermPlan::Ret {
-                            value: DirectSimpleExprPlan::Name("x".into()),
+                            value: DirectSimpleExprPlan::Name(test_name("x")),
                         },
                     },
                 },
@@ -239,6 +262,46 @@ mod tests {
         assert!(
             rendered.contains("store.i64") || rendered.contains("stack_store"),
             "assignment-backed JIT plans should update mirrored function-state slots:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_global_names_use_global_lookup_hook() {
+        let blocks = [1usize as ObjPtr];
+        let plan = ClifPlan {
+            ambient_param_names: vec![],
+            slot_names: vec![],
+            blocks: vec![ClifBlockPlan {
+                label: "b0".into(),
+                param_names: vec![],
+                runtime_param_names: vec![],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleRet {
+                    plan: DirectSimpleRetPlan {
+                        params: vec![],
+                        assigns: vec![],
+                        ret: DirectSimpleExprPlan::Name(test_global_name("x")),
+                    },
+                },
+            }],
+        };
+        let rendered = unsafe {
+            render_cranelift_run_bb_specialized_with_cfg(
+                &blocks,
+                &plan,
+                11usize as ObjPtr,
+                12usize as ObjPtr,
+                13usize as ObjPtr,
+                14usize as ObjPtr,
+            )
+        }
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
+        assert!(
+            rendered.contains("call dp_jit_load_name"),
+            "global located names should use the global lookup hook:\n{rendered}"
         );
     }
 }
