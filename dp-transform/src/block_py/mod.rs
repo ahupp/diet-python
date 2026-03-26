@@ -283,11 +283,11 @@ pub enum CoreBlockPyExprWithYield {
 }
 
 #[derive(Debug, Clone)]
-pub enum CoreBlockPyExpr {
-    Name(ast::ExprName),
+pub enum CoreBlockPyExpr<N = ast::ExprName> {
+    Name(N),
     Literal(CoreBlockPyLiteral),
-    Call(CoreBlockPyCall<CoreBlockPyExpr>),
-    Intrinsic(IntrinsicCall<CoreBlockPyExpr>),
+    Call(CoreBlockPyCall<CoreBlockPyExpr<N>>),
+    Intrinsic(IntrinsicCall<CoreBlockPyExpr<N>>),
 }
 
 #[derive(Debug, Clone)]
@@ -936,6 +936,7 @@ pub trait IntoBlockPyStmt<E>: Clone + fmt::Debug {
 }
 
 pub trait BlockPyPass: Clone + fmt::Debug {
+    type Name: Clone + fmt::Debug;
     type Expr: Clone + fmt::Debug + Into<Expr>;
     type Stmt: BlockPyNormalizedStmt + IntoBlockPyStmt<Self::Expr>;
 }

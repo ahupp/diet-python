@@ -14,11 +14,13 @@ use crate::block_py::{
     BlockPyPass, BlockPyStmt, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, Expr,
 };
+use ruff_python_ast as ast;
 
 #[derive(Debug, Clone)]
 pub struct RuffBlockPyPass;
 
 impl BlockPyPass for RuffBlockPyPass {
+    type Name = ast::ExprName;
     type Expr = Expr;
     type Stmt = BlockPyStmt<Self::Expr>;
 }
@@ -27,6 +29,7 @@ impl BlockPyPass for RuffBlockPyPass {
 pub struct CoreBlockPyPassWithAwaitAndYield;
 
 impl BlockPyPass for CoreBlockPyPassWithAwaitAndYield {
+    type Name = ast::ExprName;
     type Expr = CoreBlockPyExprWithAwaitAndYield;
     type Stmt = BlockPyStmt<Self::Expr>;
 }
@@ -35,6 +38,7 @@ impl BlockPyPass for CoreBlockPyPassWithAwaitAndYield {
 pub struct CoreBlockPyPassWithYield;
 
 impl BlockPyPass for CoreBlockPyPassWithYield {
+    type Name = ast::ExprName;
     type Expr = CoreBlockPyExprWithYield;
     type Stmt = BlockPyStmt<Self::Expr>;
 }
@@ -43,7 +47,8 @@ impl BlockPyPass for CoreBlockPyPassWithYield {
 pub struct CoreBlockPyPass;
 
 impl BlockPyPass for CoreBlockPyPass {
-    type Expr = CoreBlockPyExpr;
+    type Name = ast::ExprName;
+    type Expr = CoreBlockPyExpr<Self::Name>;
     type Stmt = BlockPyStmt<Self::Expr>;
 }
 
@@ -51,7 +56,8 @@ impl BlockPyPass for CoreBlockPyPass {
 pub struct BbBlockPyPass;
 
 impl BlockPyPass for BbBlockPyPass {
-    type Expr = CoreBlockPyExpr;
+    type Name = ast::ExprName;
+    type Expr = CoreBlockPyExpr<Self::Name>;
     type Stmt = crate::block_py::BbStmt;
 }
 
@@ -59,7 +65,8 @@ impl BlockPyPass for BbBlockPyPass {
 pub struct PreparedBbBlockPyPass;
 
 impl BlockPyPass for PreparedBbBlockPyPass {
-    type Expr = CoreBlockPyExpr;
+    type Name = ast::ExprName;
+    type Expr = CoreBlockPyExpr<Self::Name>;
     type Stmt = crate::block_py::BbStmt;
 }
 
