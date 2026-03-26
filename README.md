@@ -156,7 +156,17 @@ Use C API for operators:
   - stock is 38.56x faster
   - JIT is 2.59% of stock throughput
 
+2026-03-25:  whole lot of cleanup, no perf work
 
+• Current cold comparison from logs/benchmark-pystone-compare-20260325.log:
+
+  - jit transformed: 30,536 loops/s
+  - stock cpython: 906,698 loops/s
+
+  Relative:
+
+  - Stock is 29.69x faster
+  - JIT transformed is 3.37% of stock throughput
 
 
 # Design

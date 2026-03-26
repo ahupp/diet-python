@@ -390,34 +390,6 @@ def _current_yieldfrom(owner):
     return value
 
 
-def __dp_load_local(gen, name):
-    frame = _resolve_local_frame(gen)
-    if isinstance(frame, dict):
-        try:
-            value = frame[name]
-        except KeyError as exc:
-            if name.startswith("_dp_yield_from_iter_"):
-                # Yield-from lowering tracks the active delegated iterator in
-                # `gi_yieldfrom`. If temp names differ across transformed resume
-                # blocks, fall back to the canonical generator slot.
-                return load_deleted_name(
-                    name,
-                    getattr(gen, "gi_yieldfrom", DELETED),
-                )
-            raise UnboundLocalError(
-                f"cannot access local variable {name!r} where it is not associated with a value"
-            ) from exc
-        return load_deleted_name(name, value)
-    value = _resume_closure_value(gen, name)
-    if value is _MISSING:
-        if name.startswith("_dp_yield_from_iter_"):
-            return load_deleted_name(name, getattr(gen, "gi_yieldfrom", DELETED))
-        raise UnboundLocalError(
-            f"cannot access local variable {name!r} where it is not associated with a value"
-        )
-    return load_deleted_name(name, value)
-
-
 def __dp_load_local_raw(gen, name):
     frame = _resolve_local_frame(gen)
     if isinstance(frame, dict):
@@ -432,51 +404,7 @@ def __dp_load_local_raw(gen, name):
     return value
 
 
-def __dp_store_local(gen, name, value):
-    frame = _resolve_local_frame(gen)
-    if isinstance(frame, dict):
-        frame[name] = value
-        return value
-    target_name = (
-        name
-        if name == "_dp_classcell" or name.startswith("_dp_cell_")
-        else f"_dp_cell_{name}"
-    )
-    resume = getattr(gen, "_dp_resume", None)
-    closure = getattr(resume, "__closure__", None)
-    code = getattr(resume, "__code__", None)
-    if closure is None or code is None:
-        raise UnboundLocalError(
-            f"cannot access local variable {name!r} where it is not associated with a value"
-        )
-    for freevar, cell in zip(code.co_freevars, closure):
-        if freevar != target_name and freevar != name:
-            continue
-        stored = cell.cell_contents
-        if isinstance(stored, _types.CellType):
-            stored.cell_contents = value
-            return value
-        cell.cell_contents = value
-        return value
-    raise UnboundLocalError(
-        f"cannot access local variable {name!r} where it is not associated with a value"
-    )
-    return value
-
-
-def __dp_del_local(gen, name):
-    frame = _resolve_local_frame(gen)
-    if isinstance(frame, dict):
-        frame[name] = DELETED
-        return DELETED
-    __dp_store_local(gen, name, DELETED)
-    return DELETED
-
-
-builtins.__dp_load_local = __dp_load_local
 builtins.__dp_load_local_raw = __dp_load_local_raw
-builtins.__dp_store_local = __dp_store_local
-builtins.__dp_del_local = __dp_del_local
 
 
 class _DpAsyncGenComplete(Exception):
@@ -556,10 +484,6 @@ _jit_make_bb_hidden_resume = None
 _jit_make_bb_generator = None
 _register_clif_vectorcall = None
 _jit_compile_clif_wrapper = None
-
-_BIND_KIND_FUNCTION = 0
-_BIND_KIND_GENERATOR_RESUME = 1
-_BIND_KIND_ASYNC_GENERATOR_RESUME = 2
 
 
 class _DpGenerator:
@@ -885,7 +809,9 @@ class _DpAsyncGenSend:
 
     def _dp_step(self, transport_sent):
         step_send_value = (
-            transport_sent if _current_yieldfrom(self._dp_gen) is not None else self._dp_value
+            transport_sent
+            if _current_yieldfrom(self._dp_gen) is not None
+            else self._dp_value
         )
         try:
             result = self._dp_gen._dp_resume(
@@ -921,7 +847,9 @@ class _DpAsyncGenSend:
             and self._dp_resume_exc is NO_DEFAULT
             and _current_yieldfrom(self._dp_gen) is None
         ):
-            raise TypeError("can't send non-None value to a just-started async generator")
+            raise TypeError(
+                "can't send non-None value to a just-started async generator"
+            )
         return self._dp_step(value)
 
     def throw(self, typ, val=None, tb=None):
@@ -1419,6 +1347,7 @@ class GlobalsProxy(_NormalizedMappingProxy):
     def __delitem__(self, name):
         del self._globals[name]
 
+
 def frame_locals(frame):
     if frame is not None:
         locals_map = frame.f_locals
@@ -1580,7 +1509,9 @@ def _bb_capture_values(captures):
         raise RuntimeError(f"bb captures must be a tuple, got {type(captures)!r}")
     closure_values = {}
     for item in captures:
-        if not (isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], str)):
+        if not (
+            isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], str)
+        ):
             raise RuntimeError(f"invalid bb capture payload: {item!r}")
         closure_values[item[0]] = item[1]
     return closure_values
@@ -1659,7 +1590,7 @@ def _bb_entry_template_code(async_entry):
                 "    **kwargs,\n"
                 "):\n"
                 "    raise RuntimeError(\n"
-                "        \"CLIF coroutine entry executed without vectorcall interception\"\n"
+                '        "CLIF coroutine entry executed without vectorcall interception"\n'
                 "    )\n",
                 {},
                 ns,
@@ -1674,7 +1605,7 @@ def _bb_entry_template_code(async_entry):
             "    **kwargs,\n"
             "):\n"
             "    raise RuntimeError(\n"
-            "        \"CLIF entry executed without vectorcall interception\"\n"
+            '        "CLIF entry executed without vectorcall interception"\n'
             "    )\n",
             {},
             ns,
@@ -1702,82 +1633,6 @@ def _bb_rebind_function_globals(func, module_globals):
     rebound.__dict__.update(func.__dict__)
     return rebound
 
-
-def _bb_enable_lazy_clif_vectorcall(
-    entry,
-    module_name,
-    function_id,
-    plan_name,
-    state_order,
-    params,
-    param_defaults,
-    closure_values,
-    closure_layout,
-    deleted_value,
-    bind_kind,
-    materialize_result=None,
-):
-    if _register_clif_vectorcall is None:
-        raise RuntimeError(
-            "JIT basic-block vectorcall registration helper is unavailable for "
-            f"{module_name}.{plan_name}"
-        )
-    try:
-        _register_clif_vectorcall(
-            entry,
-            module_name,
-            function_id,
-            (
-                state_order,
-                params,
-                param_defaults,
-                closure_values,
-                closure_layout,
-                deleted_value,
-                bind_kind,
-                materialize_result,
-            ),
-        )
-    except NotImplementedError:
-        raise
-    except Exception as exc:
-        raise RuntimeError(
-            "failed to register lazy CLIF vectorcall for "
-            f"{module_name}.{plan_name}: {exc}"
-        ) from exc
-    if _bb_should_eager_compile_clif_entry():
-        _bb_eager_compile_clif_entry(entry, module_name, plan_name)
-
-
-def _bb_jit_compile_mode():
-    mode = os.environ.get("DIET_PYTHON_JIT_COMPILE_MODE", "lazy")
-    normalized = mode.strip().lower()
-    if normalized in {"", "lazy", "on-demand", "ondemand"}:
-        return "lazy"
-    if normalized == "eager":
-        return "eager"
-    return "lazy"
-
-
-def _bb_should_eager_compile_clif_entry():
-    return _bb_jit_compile_mode() == "eager"
-
-
-def _bb_eager_compile_clif_entry(entry, module_name, plan_qualname):
-    if _jit_compile_clif_wrapper is None:
-        raise RuntimeError(
-            "JIT eager CLIF compile helper is unavailable for "
-            f"{module_name}.{plan_qualname}"
-        )
-    try:
-        _jit_compile_clif_wrapper(entry)
-    except NotImplementedError:
-        raise
-    except Exception as exc:
-        raise RuntimeError(
-            "failed to eagerly compile CLIF entry for "
-            f"{module_name}.{plan_qualname}: {exc}"
-        ) from exc
 
 def def_hidden_resume_fn(
     function_id,
@@ -1879,6 +1734,7 @@ def _dp_make_async_gen_code(name, qualname):
     code = _DP_ASYNC_GEN_CODE_TEMPLATE
     return code.replace(co_name=name, co_qualname=qualname)
 
+
 def make_closure_generator(function_id, resume, module_globals=None):
     if _jit_make_bb_generator is None:
         raise RuntimeError(
@@ -1897,7 +1753,6 @@ def make_closure_async_generator(function_id, resume, module_globals=None):
             "JIT basic-block async generator construction requires a registered Rust constructor"
         )
     return _jit_make_bb_generator(function_id, resume, module_globals, async_gen=True)
-
 
 
 def decode_literal_bytes(value):
@@ -2138,7 +1993,6 @@ def _call_exception_class(exc_type):
     return inst
 
 
-
 def import_(name, spec, fromlist=None, level=0):
     if fromlist is None:
         fromlist = []
@@ -2231,7 +2085,11 @@ def _has_special_method(obj, name: str) -> bool:
 
 
 def _missing_context_protocol_message(
-    obj, protocol: str, missing_method: str, alt_method_names: tuple[str, str], hint: str
+    obj,
+    protocol: str,
+    missing_method: str,
+    alt_method_names: tuple[str, str],
+    hint: str,
 ):
     cls = type(obj)
     module = getattr(cls, "__module__", None)
