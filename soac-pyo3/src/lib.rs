@@ -471,10 +471,10 @@ fn instantiate_bb_function(
     let plan_name = ensure_bb_plan(module_name, function, "function instantiation")?;
     let params = py_param_specs(py, function)?;
     let state_order = PyTuple::new(py, entry_state_order(function))?.unbind();
-    let signature_info = dp
+    let signature = dp
         .getattr("_build_bb_signature")?
-        .call1((params.bind(py), param_defaults))?;
-    let signature = signature_info.cast::<PyTuple>()?.get_item(0)?.unbind();
+        .call1((params.bind(py), param_defaults))?
+        .unbind();
     let closure_values = dp
         .getattr("_bb_capture_values")?
         .call1((captures,))?

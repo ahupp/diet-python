@@ -1477,14 +1477,12 @@ def _bb_param_kind(kind_name):
 
 def _build_bb_signature(params, param_defaults):
     sig_params = []
-    state_order = []
     defaults_iter = iter(param_defaults)
     for param in params:
         if len(param) != 3:
             raise RuntimeError(f"invalid bb param spec: {param!r}")
         name, kind_name, has_default = param
         kind = _bb_param_kind(kind_name)
-        state_order.append(name)
         param_default = _inspect._empty
         if has_default:
             try:
@@ -1501,7 +1499,7 @@ def _build_bb_signature(params, param_defaults):
     else:
         raise RuntimeError("bb param defaults payload is longer than the param spec")
 
-    return (_inspect.Signature(sig_params), tuple(state_order))
+    return _inspect.Signature(sig_params)
 
 
 def _bb_capture_values(captures):
