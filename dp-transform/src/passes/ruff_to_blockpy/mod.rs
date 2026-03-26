@@ -29,6 +29,7 @@ use crate::transformer::{walk_expr, Transformer};
 use crate::{py_expr, py_stmt};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
+mod bb_shape;
 mod compat;
 pub(crate) mod expr_lowering;
 mod module_plan;
@@ -37,6 +38,10 @@ mod stmt_sequences;
 mod try_regions;
 
 pub(crate) use super::blockpy_generators::build_blockpy_closure_layout;
+pub(crate) use bb_shape::{
+    lower_structured_located_blocks_to_bb_blocks, lowered_exception_edges,
+    populate_exception_edge_args,
+};
 pub(crate) use module_plan::rewrite_ast_to_lowered_blockpy_module_plan_with_module;
 
 pub(crate) use compat::{
@@ -105,20 +110,6 @@ pub(crate) fn attach_exception_edges_to_blocks<E>(
                 .flatten()
                 .map(BlockPyLabel::from)
                 .map(BlockPyEdge::new),
-        })
-        .collect()
-}
-
-pub(crate) fn lowered_exception_edges<S, T>(
-    blocks: &[CfgBlock<S, T>],
-) -> HashMap<String, Option<String>> {
-    blocks
-        .iter()
-        .map(|block| {
-            (
-                block.label.as_str().to_string(),
-                block.exc_edge.as_ref().map(|edge| edge.target.to_string()),
-            )
         })
         .collect()
 }

@@ -135,7 +135,7 @@ pub(crate) fn rewrite_module_with_tracker(
         });
 
     /*
-      Rewrite `await foo` to  `yield from __dp_await_iter(foo)`
+      A very simple pass to rewrite `await foo` into  `yield from __dp_await_iter(foo)`
     */
     let core_blockpy_without_await: BlockPyModule<CoreBlockPyPassWithYield> = pass_tracker
         .run_renderable_pass("core_blockpy_with_yield", || {
