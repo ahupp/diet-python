@@ -304,16 +304,8 @@ where
         blocks,
         label,
         linear,
-        lowered_try.body_label,
-        lowered_try.except_label,
         try_plan,
-        lowered_try.body_region_range,
-        lowered_try.else_region_range,
-        lowered_try.except_region_range,
-        lowered_try.finally_region_range,
-        lowered_try.finally_label,
-        lowered_try.finally_normal_entry,
-        lowered_try.finally_exception_entry,
+        lowered_try,
         targets.active_exc,
     )
 }

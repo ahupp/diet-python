@@ -90,14 +90,11 @@ pub(crate) fn prepare_except_body(handlers: &[ast::ExceptHandler]) -> Vec<Stmt> 
 
 pub(crate) struct LoweredTryRegions {
     pub body_label: String,
-    pub except_label: String,
     pub body_region_range: std::ops::Range<usize>,
     pub else_region_range: std::ops::Range<usize>,
     pub except_region_range: Option<std::ops::Range<usize>>,
     pub finally_region_range: Option<std::ops::Range<usize>>,
     pub finally_label: Option<String>,
-    pub finally_normal_entry: Option<String>,
-    pub finally_exception_entry: Option<String>,
 }
 
 pub(crate) fn lower_try_regions<F>(
@@ -266,54 +263,38 @@ where
 
     LoweredTryRegions {
         body_label,
-        except_label,
         body_region_range: body_region_start..body_region_end,
         else_region_range: else_region_start..else_region_end,
         except_region_range,
         finally_region_range: finally_label.as_ref().map(|(_, range, _, _)| range.clone()),
-        finally_normal_entry: finally_label
-            .as_ref()
-            .and_then(|(_, _, normal_entry, _)| normal_entry.clone()),
-        finally_exception_entry: finally_label
-            .as_ref()
-            .and_then(|(_, _, _, exception_entry)| exception_entry.clone()),
         finally_label: finally_label.map(|(label, _, _, _)| label),
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn finalize_try_regions(
     blocks: &mut Vec<BlockPyBlock>,
     label: BlockPyLabel,
     linear: Vec<Stmt>,
-    body_label: String,
-    except_label: String,
     try_plan: TryPlan,
-    body_region_range: std::ops::Range<usize>,
-    else_region_range: std::ops::Range<usize>,
-    except_region_range: Option<std::ops::Range<usize>>,
-    _finally_region_range: Option<std::ops::Range<usize>>,
-    finally_label: Option<String>,
-    _finally_normal_entry: Option<String>,
-    _finally_exception_entry: Option<String>,
+    lowered_try: LoweredTryRegions,
     active_exc_target: Option<String>,
 ) -> String {
-    if let Some(finally_target) = finally_label.as_ref() {
+    if let Some(finally_target) = lowered_try.finally_label.as_ref() {
         let payload_name = try_plan
             .finally_abrupt_payload_name
             .as_deref()
             .expect("finally region must have abrupt payload slot");
         rewrite_region_returns_to_finally_blockpy(
-            &mut blocks[body_region_range.clone()],
+            &mut blocks[lowered_try.body_region_range.clone()],
             finally_target.as_str(),
             payload_name,
         );
         rewrite_region_returns_to_finally_blockpy(
-            &mut blocks[else_region_range.clone()],
+            &mut blocks[lowered_try.else_region_range.clone()],
             finally_target.as_str(),
             payload_name,
         );
-        if let Some(except_region_range) = except_region_range.as_ref() {
+        if let Some(except_region_range) = lowered_try.except_region_range.as_ref() {
             rewrite_region_returns_to_finally_blockpy(
                 &mut blocks[except_region_range.clone()],
                 finally_target.as_str(),
@@ -322,7 +303,7 @@ pub(crate) fn finalize_try_regions(
         }
     }
 
-    if let Some(except_region_range) = except_region_range.as_ref() {
+    if let Some(except_region_range) = lowered_try.except_region_range.as_ref() {
         set_region_exc_param(
             blocks,
             except_region_range,
@@ -330,7 +311,7 @@ pub(crate) fn finalize_try_regions(
         );
     }
     if let (Some(finally_region_range), Some(finally_exc_name)) = (
-        _finally_region_range.as_ref(),
+        lowered_try.finally_region_range.as_ref(),
         try_plan.finally_exc_name.as_ref(),
     ) {
         set_region_exc_param(blocks, finally_region_range, finally_exc_name.as_str());
@@ -339,8 +320,7 @@ pub(crate) fn finalize_try_regions(
         blocks,
         label,
         linear,
-        body_label,
-        except_label,
+        lowered_try.body_label,
         active_exc_target,
     )
 }
@@ -390,7 +370,6 @@ pub(crate) fn emit_try_jump_entry(
     label: BlockPyLabel,
     linear: Vec<Stmt>,
     body_label: String,
-    _except_label: String,
     active_exc_target: Option<String>,
 ) -> String {
     blocks.push(compat_block_from_blockpy_with_exc_target(
