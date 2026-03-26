@@ -2,7 +2,7 @@ use super::populate_exception_edge_args;
 use crate::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt, BlockPyStmtFragment,
     BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
-    CoreStringLiteral, IntrinsicCall,
+    CoreStringLiteral, IntrinsicCall, LocatedCoreBlockPyExpr, LocatedName,
 };
 use crate::passes::blockpy_to_bb::lower_blockpy_blocks_to_bb_blocks;
 use ruff_python_ast::{self as ast};
@@ -11,36 +11,36 @@ use std::collections::HashMap;
 
 #[test]
 fn linearizes_structured_if_stmt_into_explicit_blocks() {
-    let block = BlockPyBlock {
+    let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
         label: BlockPyLabel::from("start"),
         body: vec![
             BlockPyStmt::Assign(BlockPyAssign {
-                target: ast::ExprName {
+                target: LocatedName::from(ast::ExprName {
                     id: "x".into(),
                     ctx: ast::ExprContext::Store,
                     range: TextRange::default(),
                     node_index: ast::AtomicNodeIndex::default(),
-                },
+                }),
                 value: core_name_expr("a"),
             }),
             BlockPyStmt::If(BlockPyIf {
                 test: core_name_expr("cond"),
                 body: BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Assign(BlockPyAssign {
-                    target: ast::ExprName {
+                    target: LocatedName::from(ast::ExprName {
                         id: "x".into(),
                         ctx: ast::ExprContext::Store,
                         range: TextRange::default(),
                         node_index: ast::AtomicNodeIndex::default(),
-                    },
+                    }),
                     value: core_name_expr("b"),
                 })]),
                 orelse: BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Assign(BlockPyAssign {
-                    target: ast::ExprName {
+                    target: LocatedName::from(ast::ExprName {
                         id: "x".into(),
                         ctx: ast::ExprContext::Store,
                         range: TextRange::default(),
                         node_index: ast::AtomicNodeIndex::default(),
-                    },
+                    }),
                     value: core_name_expr("c"),
                 })]),
             }),
@@ -66,20 +66,17 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
     assert!(matches!(blocks[0].term, BlockPyTerm::IfTerm(_)));
 }
 
-fn core_name_expr(name: &str) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Name(
-        ast::ExprName {
-            id: name.into(),
-            ctx: ast::ExprContext::Load,
-            range: TextRange::default(),
-            node_index: ast::AtomicNodeIndex::default(),
-        }
-        .into(),
-    )
+fn core_name_expr(name: &str) -> LocatedCoreBlockPyExpr {
+    LocatedCoreBlockPyExpr::Name(LocatedName::from(ast::ExprName {
+        id: name.into(),
+        ctx: ast::ExprContext::Load,
+        range: TextRange::default(),
+        node_index: ast::AtomicNodeIndex::default(),
+    }))
 }
 
-fn core_call_expr(name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Call(CoreBlockPyCall {
+fn core_call_expr(name: &str, args: Vec<LocatedCoreBlockPyExpr>) -> LocatedCoreBlockPyExpr {
+    LocatedCoreBlockPyExpr::Call(CoreBlockPyCall {
         node_index: ast::AtomicNodeIndex::default(),
         range: TextRange::default(),
         func: Box::new(core_name_expr(name)),
@@ -91,8 +88,8 @@ fn core_call_expr(name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
     })
 }
 
-fn core_string_expr(value: &str) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
+fn core_string_expr(value: &str) -> LocatedCoreBlockPyExpr {
+    LocatedCoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
         node_index: ast::AtomicNodeIndex::default(),
         range: TextRange::default(),
         value: value.to_string(),
@@ -101,7 +98,7 @@ fn core_string_expr(value: &str) -> CoreBlockPyExpr {
 
 #[test]
 fn rewrites_current_exception_placeholders_in_final_core_blocks() {
-    let block = BlockPyBlock {
+    let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
         label: BlockPyLabel::from("start"),
         body: vec![BlockPyStmt::Expr(core_call_expr(
             "__dp_current_exception",
@@ -152,7 +149,7 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
 
 #[test]
 fn rewrites_current_exception_inside_intrinsic_helper_args() {
-    let block = BlockPyBlock {
+    let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
         label: BlockPyLabel::from("start"),
         body: Vec::new(),
         term: BlockPyTerm::Return(CoreBlockPyExpr::Intrinsic(IntrinsicCall {
@@ -202,8 +199,8 @@ fn exception_edges_seed_hidden_try_exception_locals_from_current_exception() {
         crate::block_py::CfgBlock {
             label: BlockPyLabel::from("source"),
             body: Vec::new(),
-            term: BlockPyTerm::<CoreBlockPyExpr>::Return(
-                <CoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+            term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
+                <LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
             ),
             params: vec![crate::block_py::BlockParam {
                 name: "_dp_outer_exc".to_string(),
@@ -216,13 +213,17 @@ fn exception_edges_seed_hidden_try_exception_locals_from_current_exception() {
         crate::block_py::CfgBlock {
             label: BlockPyLabel::from("target"),
             body: Vec::new(),
-            term: BlockPyTerm::<CoreBlockPyExpr>::Jump(crate::block_py::BlockPyEdge::with_args(
-                BlockPyLabel::from("after"),
-                vec![
-                    crate::block_py::BlockArg::AbruptKind(crate::block_py::AbruptKind::Exception),
-                    crate::block_py::BlockArg::Name("_dp_try_exc_payload".to_string()),
-                ],
-            )),
+            term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Jump(
+                crate::block_py::BlockPyEdge::with_args(
+                    BlockPyLabel::from("after"),
+                    vec![
+                        crate::block_py::BlockArg::AbruptKind(
+                            crate::block_py::AbruptKind::Exception,
+                        ),
+                        crate::block_py::BlockArg::Name("_dp_try_exc_payload".to_string()),
+                    ],
+                ),
+            ),
             params: vec![
                 crate::block_py::BlockParam {
                     name: "_dp_inner_exc".to_string(),
@@ -238,8 +239,8 @@ fn exception_edges_seed_hidden_try_exception_locals_from_current_exception() {
         crate::block_py::CfgBlock {
             label: BlockPyLabel::from("after"),
             body: Vec::new(),
-            term: BlockPyTerm::<CoreBlockPyExpr>::Return(
-                <CoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+            term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
+                <LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
             ),
             params: Vec::new(),
             exc_edge: None,

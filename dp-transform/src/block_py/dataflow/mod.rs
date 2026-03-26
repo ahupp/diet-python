@@ -1,20 +1,22 @@
 use super::{
     BlockArg, BlockPyAssign, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyIf,
-    BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, IntoBlockPyStmt,
+    BlockPyIfTerm, BlockPyNameLike, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock,
+    IntoBlockPyStmt,
 };
 use crate::passes::ast_symbol_analysis::{collect_assigned_names, load_names_in_expr};
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::Expr;
 use std::collections::{HashMap, HashSet};
 
-pub(crate) fn compute_block_params_blockpy<S, E>(
+pub(crate) fn compute_block_params_blockpy<S, E, N>(
     blocks: &[CfgBlock<S, BlockPyTerm<E>>],
     state_order: &[String],
     extra_successors: &HashMap<String, Vec<String>>,
 ) -> HashMap<String, Vec<String>>
 where
-    S: IntoBlockPyStmt<E>,
+    S: IntoBlockPyStmt<E, N>,
     E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
 {
     let label_to_index: HashMap<&str, usize> = blocks
         .iter()
@@ -163,12 +165,13 @@ pub(crate) fn extend_state_order_with_declared_block_params<S, T>(
     }
 }
 
-pub(crate) fn analyze_blockpy_use_def<S, E>(
+pub(crate) fn analyze_blockpy_use_def<S, E, N>(
     block: &CfgBlock<S, BlockPyTerm<E>>,
 ) -> (HashSet<String>, HashSet<String>)
 where
-    S: IntoBlockPyStmt<E>,
+    S: IntoBlockPyStmt<E, N>,
     E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
 {
     let mut uses = HashSet::new();
     let mut defs = HashSet::new();
@@ -200,12 +203,13 @@ where
     (uses, defs)
 }
 
-pub(crate) fn loaded_names_in_blockpy_block<S, E>(
+pub(crate) fn loaded_names_in_blockpy_block<S, E, N>(
     block: &CfgBlock<S, BlockPyTerm<E>>,
 ) -> HashSet<String>
 where
-    S: IntoBlockPyStmt<E>,
+    S: IntoBlockPyStmt<E, N>,
     E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
 {
     let mut names = HashSet::new();
     if let Some(exc_param) = block.exception_param() {
@@ -269,15 +273,16 @@ where
     load_names_in_expr(&expr.clone().into())
 }
 
-fn load_names_in_blockpy_stmt<E>(stmt: &BlockPyStmt<E>) -> HashSet<String>
+fn load_names_in_blockpy_stmt<E, N>(stmt: &BlockPyStmt<E, N>) -> HashSet<String>
 where
     E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
 {
     match stmt {
         BlockPyStmt::Assign(BlockPyAssign { value, .. }) => load_names_in_blockpy_expr(value),
         BlockPyStmt::Expr(expr) => load_names_in_blockpy_expr(expr),
         BlockPyStmt::Delete(BlockPyDelete { target }) => {
-            load_names_in_expr(&Expr::Name(target.clone()))
+            load_names_in_expr(&Expr::Name(target.clone().into()))
         }
         BlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
             let mut names = load_names_in_blockpy_expr(test);
@@ -306,13 +311,14 @@ where
     }
 }
 
-pub(super) fn assigned_names_in_blockpy_stmt<E>(stmt: &BlockPyStmt<E>) -> HashSet<String>
+pub(super) fn assigned_names_in_blockpy_stmt<E, N>(stmt: &BlockPyStmt<E, N>) -> HashSet<String>
 where
     E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
 {
     match stmt {
         BlockPyStmt::Assign(BlockPyAssign { target, value }) => {
-            let mut names = HashSet::from([target.id.to_string()]);
+            let mut names = HashSet::from([target.id_str().to_string()]);
             collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
             names
         }
@@ -332,9 +338,10 @@ where
     }
 }
 
-pub(super) fn assigned_names_in_blockpy_stmts<E>(stmts: &[BlockPyStmt<E>]) -> HashSet<String>
+pub(super) fn assigned_names_in_blockpy_stmts<E, N>(stmts: &[BlockPyStmt<E, N>]) -> HashSet<String>
 where
     E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
 {
     let mut out = HashSet::new();
     for stmt in stmts {
@@ -374,11 +381,12 @@ where
     }
 }
 
-pub(super) fn assigned_names_in_blockpy_fragment<E>(
-    fragment: &BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
+pub(super) fn assigned_names_in_blockpy_fragment<E, N>(
+    fragment: &BlockPyCfgFragment<BlockPyStmt<E, N>, BlockPyTerm<E>>,
 ) -> HashSet<String>
 where
     E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
 {
     let mut out = assigned_names_in_blockpy_stmts(&fragment.body);
     if let Some(term) = &fragment.term {
@@ -387,9 +395,10 @@ where
     out
 }
 
-fn load_names_in_blockpy_stmt_list<E>(stmts: &[BlockPyStmt<E>]) -> HashSet<String>
+fn load_names_in_blockpy_stmt_list<E, N>(stmts: &[BlockPyStmt<E, N>]) -> HashSet<String>
 where
     E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
 {
     let mut out = HashSet::new();
     for stmt in stmts {
@@ -398,11 +407,12 @@ where
     out
 }
 
-fn load_names_in_blockpy_stmt_fragment<E>(
-    fragment: &BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
+fn load_names_in_blockpy_stmt_fragment<E, N>(
+    fragment: &BlockPyCfgFragment<BlockPyStmt<E, N>, BlockPyTerm<E>>,
 ) -> HashSet<String>
 where
     E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
 {
     let mut out = load_names_in_blockpy_stmt_list(&fragment.body);
     if let Some(term) = &fragment.term {

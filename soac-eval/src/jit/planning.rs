@@ -1,7 +1,7 @@
 use dp_transform::block_py::{
-    AbruptKind, BbStmt, BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyTerm,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-    CoreNumberLiteralValue, PreparedBbBlock, intrinsics,
+    AbruptKind, BbStmt, BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyNameLike,
+    BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    CoreNumberLiteralValue, LocatedCoreBlockPyExpr, PreparedBbBlock, intrinsics,
 };
 use dp_transform::passes::PreparedBbBlockPyPass;
 use std::collections::{HashMap, HashSet};
@@ -19,7 +19,7 @@ pub struct ClifBlockPlan {
     pub label: String,
     pub param_names: Vec<String>,
     pub runtime_param_names: Vec<String>,
-    pub term: BlockPyTerm<CoreBlockPyExpr>,
+    pub term: BlockPyTerm<LocatedCoreBlockPyExpr>,
     pub exc_target: Option<usize>,
     pub exc_dispatch: Option<BlockExcDispatchPlan>,
     pub fast_path: BlockFastPath,
@@ -353,9 +353,11 @@ fn bb_function_registry() -> &'static Mutex<FunctionRegistry> {
     BB_FUNCTION_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn direct_simple_expr_from(expr: &CoreBlockPyExpr) -> Option<DirectSimpleExprPlan> {
+fn direct_simple_expr_from<N: BlockPyNameLike>(
+    expr: &CoreBlockPyExpr<N>,
+) -> Option<DirectSimpleExprPlan> {
     match expr {
-        CoreBlockPyExpr::Name(name) => Some(DirectSimpleExprPlan::Name(name.id.to_string())),
+        CoreBlockPyExpr::Name(name) => Some(DirectSimpleExprPlan::Name(name.id_str().to_string())),
         CoreBlockPyExpr::Literal(literal) => match literal {
             CoreBlockPyLiteral::NumberLiteral(number) => match &number.value {
                 CoreNumberLiteralValue::Int(value) => value.as_i64().map(DirectSimpleExprPlan::Int),
@@ -491,13 +493,13 @@ fn direct_simple_brif_plan_from_block(
     })
 }
 
-fn direct_simple_delete_plan_from_targets(
-    targets: &[ruff_python_ast::ExprName],
+fn direct_simple_delete_plan_from_targets<N: BlockPyNameLike>(
+    targets: &[N],
     known_names: &mut Vec<String>,
 ) -> Option<DirectSimpleDeletePlan> {
     let mut plan_targets = Vec::with_capacity(targets.len());
     for target in targets {
-        let target_name = target.id.to_string();
+        let target_name = target.id_str().to_string();
         if !known_names.iter().any(|known| known == &target_name) {
             return None;
         }

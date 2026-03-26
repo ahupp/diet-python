@@ -1,5 +1,5 @@
 use super::lower_try_jump_exception_flow;
-use crate::block_py::{BbBlock, BlockPyEdge, BlockPyLabel, BlockPyTerm, CoreBlockPyExpr};
+use crate::block_py::{BbBlock, BlockPyEdge, BlockPyLabel, BlockPyTerm, LocatedCoreBlockPyExpr};
 use crate::{transform_str_to_bb_ir_with_options, Options};
 
 #[test]
@@ -23,8 +23,8 @@ def f(x):
         function.blocks.push(BbBlock {
             label: body_label.clone(),
             body: vec![],
-            term: BlockPyTerm::<CoreBlockPyExpr>::Return(
-                <CoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+            term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
+                <LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
             ),
             params: vec![crate::block_py::BlockParam {
                 name: "_dp_try_exc_manual".to_string(),
@@ -35,8 +35,8 @@ def f(x):
         function.blocks.push(BbBlock {
             label: except_label.clone(),
             body: vec![],
-            term: BlockPyTerm::<CoreBlockPyExpr>::Return(
-                <CoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+            term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
+                <LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
             ),
             params: Vec::new(),
             exc_edge: None,
@@ -118,8 +118,8 @@ def f():
     function.blocks.push(BbBlock {
         label: except_label.clone(),
         body: vec![],
-        term: BlockPyTerm::<CoreBlockPyExpr>::Return(
-            <CoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+        term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
+            <LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
         ),
         params: Vec::new(),
         exc_edge: None,
@@ -188,8 +188,8 @@ def f():
     function.blocks.push(BbBlock {
         label: except_label.clone(),
         body: vec![],
-        term: BlockPyTerm::<CoreBlockPyExpr>::Return(
-            <CoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+        term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
+            <LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
         ),
         params: Vec::new(),
         exc_edge: None,

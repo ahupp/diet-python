@@ -11,9 +11,11 @@ use crate::block_py::{
     BbBlock, BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyModule, BlockPyStmt, BlockPyTerm, CfgBlock,
     CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, IntrinsicCall,
-    ModuleNameGen,
+    LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen,
 };
-use crate::passes::{BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithYield};
+use crate::passes::{
+    BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithYield, LocatedCoreBlockPyPass,
+};
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 use std::collections::HashMap;
@@ -61,13 +63,13 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
 }
 
 pub(crate) fn lower_core_blockpy_module_bundle_to_bb_module(
-    module: BlockPyModule<CoreBlockPyPass>,
+    module: BlockPyModule<LocatedCoreBlockPyPass>,
 ) -> BlockPyModule<BbBlockPyPass> {
     module.map_callable_defs(lower_core_blockpy_function_to_bb_function)
 }
 
 pub(crate) fn lower_core_blockpy_function_to_bb_function(
-    lowered: BlockPyFunction<CoreBlockPyPass>,
+    lowered: BlockPyFunction<LocatedCoreBlockPyPass>,
 ) -> BlockPyFunction<BbBlockPyPass> {
     let block_params =
         recompute_lowered_block_params(&lowered, should_include_closure_storage_aliases(&lowered));
@@ -97,8 +99,8 @@ pub(crate) fn lower_core_blockpy_function_to_bb_function(
 
 fn lower_blockpy_blocks_to_bb_blocks(
     blocks: &[crate::block_py::CfgBlock<
-        BlockPyStmt<CoreBlockPyExpr>,
-        BlockPyTerm<CoreBlockPyExpr>,
+        BlockPyStmt<CoreBlockPyExpr<LocatedName>, LocatedName>,
+        BlockPyTerm<LocatedCoreBlockPyExpr>,
     >],
     block_params: &HashMap<String, Vec<String>>,
 ) -> Vec<BbBlock> {
@@ -159,7 +161,7 @@ fn lower_blockpy_blocks_to_bb_blocks(
 }
 
 pub(super) fn populate_exception_edge_args(
-    blocks: &mut [CfgBlock<BbStmt, BlockPyTerm<CoreBlockPyExpr>>],
+    blocks: &mut [CfgBlock<BbStmt, BlockPyTerm<LocatedCoreBlockPyExpr>>],
 ) {
     let label_to_index = blocks
         .iter()
@@ -217,7 +219,7 @@ pub(super) fn populate_exception_edge_args(
 }
 
 fn rewrite_current_exception_in_blockpy_stmt(
-    stmt: &mut BlockPyStmt<CoreBlockPyExpr>,
+    stmt: &mut BlockPyStmt<LocatedCoreBlockPyExpr, LocatedName>,
     exc_name: &str,
 ) {
     match stmt {
@@ -247,7 +249,7 @@ fn rewrite_current_exception_in_blockpy_stmt(
 }
 
 fn rewrite_current_exception_in_blockpy_term(
-    term: &mut BlockPyTerm<CoreBlockPyExpr>,
+    term: &mut BlockPyTerm<LocatedCoreBlockPyExpr>,
     exc_name: &str,
 ) {
     match term {
@@ -269,7 +271,7 @@ fn rewrite_current_exception_in_blockpy_term(
     }
 }
 
-fn rewrite_current_exception_in_blockpy_expr(expr: &mut CoreBlockPyExpr, exc_name: &str) {
+fn rewrite_current_exception_in_blockpy_expr(expr: &mut LocatedCoreBlockPyExpr, exc_name: &str) {
     match expr {
         CoreBlockPyExpr::Call(call) => {
             rewrite_current_exception_in_blockpy_expr(call.func.as_mut(), exc_name);
@@ -295,7 +297,7 @@ fn rewrite_current_exception_in_blockpy_expr(expr: &mut CoreBlockPyExpr, exc_nam
     }
 }
 
-fn is_current_exception_call(expr: &CoreBlockPyExpr) -> bool {
+fn is_current_exception_call(expr: &LocatedCoreBlockPyExpr) -> bool {
     let CoreBlockPyExpr::Call(call) = expr else {
         return false;
     };
@@ -304,7 +306,7 @@ fn is_current_exception_call(expr: &CoreBlockPyExpr) -> bool {
         && is_dp_lookup_call_expr(call.func.as_ref(), "current_exception")
 }
 
-fn is_exc_info_call(expr: &CoreBlockPyExpr) -> bool {
+fn is_exc_info_call(expr: &LocatedCoreBlockPyExpr) -> bool {
     let CoreBlockPyExpr::Call(call) = expr else {
         return false;
     };
@@ -313,7 +315,7 @@ fn is_exc_info_call(expr: &CoreBlockPyExpr) -> bool {
         && is_dp_lookup_call_expr(call.func.as_ref(), "exc_info")
 }
 
-fn is_dp_lookup_call_expr(func: &CoreBlockPyExpr, attr_name: &str) -> bool {
+fn is_dp_lookup_call_expr(func: &LocatedCoreBlockPyExpr, attr_name: &str) -> bool {
     match func {
         CoreBlockPyExpr::Name(name) => name.id.as_str() == format!("__dp_{attr_name}"),
         CoreBlockPyExpr::Call(call) if call.keywords.is_empty() && call.args.len() == 2 => {
@@ -332,7 +334,7 @@ fn is_dp_lookup_call_expr(func: &CoreBlockPyExpr, attr_name: &str) -> bool {
 }
 
 fn is_dp_getattr_lookup_args(
-    args: &[CoreBlockPyCallArg<CoreBlockPyExpr>],
+    args: &[CoreBlockPyCallArg<LocatedCoreBlockPyExpr>],
     attr_name: &str,
 ) -> bool {
     matches!(
@@ -345,14 +347,14 @@ fn is_dp_getattr_lookup_args(
     }) == Some(attr_name.to_string())
 }
 
-fn is_dp_getattr_intrinsic_args(args: &[CoreBlockPyExpr], attr_name: &str) -> bool {
+fn is_dp_getattr_intrinsic_args(args: &[LocatedCoreBlockPyExpr], attr_name: &str) -> bool {
     matches!(
         &args[0],
         CoreBlockPyExpr::Name(base) if base.id.as_str() == "__dp__"
     ) && expr_static_str(&args[1]) == Some(attr_name.to_string())
 }
 
-fn expr_static_str(expr: &CoreBlockPyExpr) -> Option<String> {
+fn expr_static_str(expr: &LocatedCoreBlockPyExpr) -> Option<String> {
     match expr {
         CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(value)) => {
             Some(value.value.clone())
@@ -383,7 +385,7 @@ fn expr_static_str(expr: &CoreBlockPyExpr) -> Option<String> {
     }
 }
 
-fn current_exception_name_expr(exc_name: &str) -> CoreBlockPyExpr {
+fn current_exception_name_expr(exc_name: &str) -> LocatedCoreBlockPyExpr {
     CoreBlockPyExpr::Name(
         ast::ExprName {
             id: exc_name.into(),
@@ -395,8 +397,8 @@ fn current_exception_name_expr(exc_name: &str) -> CoreBlockPyExpr {
     )
 }
 
-fn current_exception_info_expr(exc_name: &str) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Call(CoreBlockPyCall {
+fn current_exception_info_expr(exc_name: &str) -> LocatedCoreBlockPyExpr {
+    LocatedCoreBlockPyExpr::Call(CoreBlockPyCall {
         node_index: compat_node_index(),
         range: compat_range(),
         func: Box::new(CoreBlockPyExpr::Name(
@@ -423,7 +425,7 @@ fn compat_range() -> TextRange {
     TextRange::default()
 }
 
-fn bb_stmt_from_blockpy_stmt(stmt: BlockPyStmt<CoreBlockPyExpr>) -> BbStmt {
+fn bb_stmt_from_blockpy_stmt(stmt: BlockPyStmt<LocatedCoreBlockPyExpr, LocatedName>) -> BbStmt {
     stmt.into()
 }
 

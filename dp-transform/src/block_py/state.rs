@@ -1,16 +1,17 @@
 use super::dataflow::{
     analyze_blockpy_use_def, assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term,
 };
-use super::{BlockPyTerm, CfgBlock, Expr, IntoBlockPyStmt};
+use super::{BlockPyNameLike, BlockPyTerm, CfgBlock, Expr, IntoBlockPyStmt};
 use std::collections::HashSet;
 
-pub(crate) fn collect_state_vars<S, E>(
+pub(crate) fn collect_state_vars<S, E, N>(
     param_names: &[String],
     blocks: &[CfgBlock<S, BlockPyTerm<E>>],
 ) -> Vec<String>
 where
-    S: IntoBlockPyStmt<E>,
+    S: IntoBlockPyStmt<E, N>,
     E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
 {
     let mut defs_anywhere = HashSet::new();
     for block in blocks {

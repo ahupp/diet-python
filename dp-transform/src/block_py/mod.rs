@@ -50,14 +50,33 @@ fn is_internal_symbol(name: &str) -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NameLocation {
-    Unresolved,
     Local { slot: u32 },
-    Global { slot: u32 },
+    Global,
     ClosureCell { slot: u32 },
 }
 
+pub trait BlockPyNameLike: Clone + fmt::Debug + From<ast::ExprName> + Into<ast::ExprName> {
+    fn id_str(&self) -> &str;
+    fn range(&self) -> ruff_text_size::TextRange;
+    fn node_index(&self) -> ast::AtomicNodeIndex;
+}
+
+impl BlockPyNameLike for ast::ExprName {
+    fn id_str(&self) -> &str {
+        self.id.as_str()
+    }
+
+    fn range(&self) -> ruff_text_size::TextRange {
+        self.range
+    }
+
+    fn node_index(&self) -> ast::AtomicNodeIndex {
+        self.node_index.clone()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct BlockPyName {
+pub struct LocatedName {
     pub id: ruff_python_ast::name::Name,
     pub ctx: ast::ExprContext,
     pub range: ruff_text_size::TextRange,
@@ -65,27 +84,41 @@ pub struct BlockPyName {
     pub location: NameLocation,
 }
 
-impl BlockPyName {
+impl LocatedName {
     pub fn with_location(mut self, location: NameLocation) -> Self {
         self.location = location;
         self
     }
 }
 
-impl From<ast::ExprName> for BlockPyName {
+impl BlockPyNameLike for LocatedName {
+    fn id_str(&self) -> &str {
+        self.id.as_str()
+    }
+
+    fn range(&self) -> ruff_text_size::TextRange {
+        self.range
+    }
+
+    fn node_index(&self) -> ast::AtomicNodeIndex {
+        self.node_index.clone()
+    }
+}
+
+impl From<ast::ExprName> for LocatedName {
     fn from(value: ast::ExprName) -> Self {
         Self {
             id: value.id,
             ctx: value.ctx,
             range: value.range,
             node_index: value.node_index,
-            location: NameLocation::Unresolved,
+            location: NameLocation::Global,
         }
     }
 }
 
-impl From<BlockPyName> for ast::ExprName {
-    fn from(value: BlockPyName) -> Self {
+impl From<LocatedName> for ast::ExprName {
+    fn from(value: LocatedName) -> Self {
         Self {
             id: value.id,
             ctx: value.ctx,
@@ -330,12 +363,14 @@ pub enum CoreBlockPyExprWithYield {
 }
 
 #[derive(Debug, Clone)]
-pub enum CoreBlockPyExpr<N = BlockPyName> {
+pub enum CoreBlockPyExpr<N = ast::ExprName> {
     Name(N),
     Literal(CoreBlockPyLiteral),
     Call(CoreBlockPyCall<CoreBlockPyExpr<N>>),
     Intrinsic(IntrinsicCall<CoreBlockPyExpr<N>>),
 }
+
+pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 
 #[derive(Debug, Clone)]
 pub enum CoreBlockPyLiteral {
@@ -978,24 +1013,27 @@ pub trait BlockPyNormalizedStmt {
     fn assert_blockpy_normalized(&self);
 }
 
-pub trait IntoBlockPyStmt<E>: Clone + fmt::Debug {
-    fn into_stmt(self) -> BlockPyStmt<E>;
+pub trait IntoBlockPyStmt<E, N>: Clone + fmt::Debug {
+    fn into_stmt(self) -> BlockPyStmt<E, N>;
 }
 
 pub trait BlockPyPass: Clone + fmt::Debug {
-    type Name: Clone + fmt::Debug;
+    type Name: BlockPyNameLike;
     type Expr: Clone + fmt::Debug + Into<Expr>;
-    type Stmt: BlockPyNormalizedStmt + IntoBlockPyStmt<Self::Expr>;
+    type Stmt: BlockPyNormalizedStmt + IntoBlockPyStmt<Self::Expr, Self::Name>;
 }
 
 pub type PassExpr<P> = <P as BlockPyPass>::Expr;
+pub type PassName<P> = <P as BlockPyPass>::Name;
+pub type StructuredPassStmt<P> = BlockPyStmt<PassExpr<P>, PassName<P>>;
 pub type PassBlock<P> = CfgBlock<<P as BlockPyPass>::Stmt, BlockPyTerm<PassExpr<P>>>;
 pub type BbBlock = PassBlock<BbBlockPyPass>;
 pub type PreparedBbBlock = PassBlock<PreparedBbBlockPyPass>;
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
-pub type BlockPyBlock<E = Expr> = BlockPyCfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>;
-pub type BlockPyStructuredIf<E = Expr> = BlockPyIf<E, BlockPyStmt<E>, BlockPyTerm<E>>;
+pub type BlockPyBlock<E = Expr, N = ExprName> = BlockPyCfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>;
+pub type BlockPyStructuredIf<E = Expr, N = ExprName> =
+    BlockPyIf<E, BlockPyStmt<E, N>, BlockPyTerm<E>>;
 
 pub trait BlockPyJumpTerm<L> {
     fn jump_term(target: L) -> Self;
@@ -1029,7 +1067,8 @@ pub struct BlockPyCfgFragment<S, T> {
     pub term: Option<T>,
 }
 
-pub type BlockPyStmtFragment<E = Expr> = BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>;
+pub type BlockPyStmtFragment<E = Expr, N = ExprName> =
+    BlockPyCfgFragment<BlockPyStmt<E, N>, BlockPyTerm<E>>;
 
 impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragment<S, T> {
     pub fn assert_normalized(&self) {
@@ -1066,8 +1105,8 @@ pub struct BlockPyCfgFragmentBuilder<S, T> {
     term: Option<T>,
 }
 
-pub type BlockPyStmtFragmentBuilder<E = Expr> =
-    BlockPyCfgFragmentBuilder<BlockPyStmt<E>, BlockPyTerm<E>>;
+pub type BlockPyStmtFragmentBuilder<E = Expr, N = ExprName> =
+    BlockPyCfgFragmentBuilder<BlockPyStmt<E, N>, BlockPyTerm<E>>;
 
 impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
     pub fn new() -> Self {
@@ -1121,7 +1160,8 @@ pub struct BlockPyCfgBlockBuilder<S, T> {
     fragment: BlockPyCfgFragmentBuilder<S, T>,
 }
 
-pub type BlockPyBlockBuilder<E = Expr> = BlockPyCfgBlockBuilder<BlockPyStmt<E>, BlockPyTerm<E>>;
+pub type BlockPyBlockBuilder<E = Expr, N = ExprName> =
+    BlockPyCfgBlockBuilder<BlockPyStmt<E, N>, BlockPyTerm<E>>;
 
 impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
     BlockPyCfgBlockBuilder<S, T>
@@ -1207,14 +1247,14 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
 }
 
 #[derive(Debug, Clone)]
-pub enum BlockPyStmt<E = Expr> {
-    Assign(BlockPyAssign<E>),
+pub enum BlockPyStmt<E = Expr, N = ExprName> {
+    Assign(BlockPyAssign<E, N>),
     Expr(E),
-    Delete(BlockPyDelete),
-    If(BlockPyStructuredIf<E>),
+    Delete(BlockPyDelete<N>),
+    If(BlockPyStructuredIf<E, N>),
 }
 
-impl<E: std::fmt::Debug> BlockPyStmt<E> {
+impl<E: std::fmt::Debug, N: std::fmt::Debug> BlockPyStmt<E, N> {
     pub fn assert_normalized(&self) {
         if let Self::If(if_stmt) = self {
             if_stmt.body.assert_normalized();
@@ -1223,39 +1263,39 @@ impl<E: std::fmt::Debug> BlockPyStmt<E> {
     }
 }
 
-impl<E: std::fmt::Debug> BlockPyNormalizedStmt for BlockPyStmt<E> {
+impl<E: std::fmt::Debug, N: std::fmt::Debug> BlockPyNormalizedStmt for BlockPyStmt<E, N> {
     fn assert_blockpy_normalized(&self) {
         self.assert_normalized();
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum BbStmt {
-    Assign(BlockPyAssign<CoreBlockPyExpr>),
-    Expr(CoreBlockPyExpr),
-    Delete(BlockPyDelete),
+pub enum BbStmt<N = LocatedName> {
+    Assign(BlockPyAssign<CoreBlockPyExpr<N>, N>),
+    Expr(CoreBlockPyExpr<N>),
+    Delete(BlockPyDelete<N>),
 }
 
-impl From<BlockPyAssign<CoreBlockPyExpr>> for BbStmt {
-    fn from(value: BlockPyAssign<CoreBlockPyExpr>) -> Self {
+impl<N> From<BlockPyAssign<CoreBlockPyExpr<N>, N>> for BbStmt<N> {
+    fn from(value: BlockPyAssign<CoreBlockPyExpr<N>, N>) -> Self {
         Self::Assign(value)
     }
 }
 
-impl From<CoreBlockPyExpr> for BbStmt {
-    fn from(value: CoreBlockPyExpr) -> Self {
+impl<N> From<CoreBlockPyExpr<N>> for BbStmt<N> {
+    fn from(value: CoreBlockPyExpr<N>) -> Self {
         Self::Expr(value)
     }
 }
 
-impl From<BlockPyDelete> for BbStmt {
-    fn from(value: BlockPyDelete) -> Self {
+impl<N> From<BlockPyDelete<N>> for BbStmt<N> {
+    fn from(value: BlockPyDelete<N>) -> Self {
         Self::Delete(value)
     }
 }
 
-impl From<BlockPyStmt<CoreBlockPyExpr>> for BbStmt {
-    fn from(value: BlockPyStmt<CoreBlockPyExpr>) -> Self {
+impl<N> From<BlockPyStmt<CoreBlockPyExpr<N>, N>> for BbStmt<N> {
+    fn from(value: BlockPyStmt<CoreBlockPyExpr<N>, N>) -> Self {
         match value {
             BlockPyStmt::Assign(assign) => Self::Assign(assign),
             BlockPyStmt::Expr(expr) => Self::Expr(expr),
@@ -1265,8 +1305,8 @@ impl From<BlockPyStmt<CoreBlockPyExpr>> for BbStmt {
     }
 }
 
-impl IntoBlockPyStmt<CoreBlockPyExpr> for BbStmt {
-    fn into_stmt(self) -> BlockPyStmt<CoreBlockPyExpr> {
+impl<N: Clone + fmt::Debug> IntoBlockPyStmt<CoreBlockPyExpr<N>, N> for BbStmt<N> {
+    fn into_stmt(self) -> BlockPyStmt<CoreBlockPyExpr<N>, N> {
         match self {
             BbStmt::Assign(assign) => BlockPyStmt::Assign(assign),
             BbStmt::Expr(expr) => BlockPyStmt::Expr(expr),
@@ -1279,8 +1319,8 @@ impl BlockPyNormalizedStmt for BbStmt {
     fn assert_blockpy_normalized(&self) {}
 }
 
-impl<E: Clone + fmt::Debug> IntoBlockPyStmt<E> for BlockPyStmt<E> {
-    fn into_stmt(self) -> BlockPyStmt<E> {
+impl<E: Clone + fmt::Debug, N: Clone + fmt::Debug> IntoBlockPyStmt<E, N> for BlockPyStmt<E, N> {
+    fn into_stmt(self) -> BlockPyStmt<E, N> {
         self
     }
 }
@@ -1295,14 +1335,14 @@ pub enum BlockPyTerm<E = Expr> {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyAssign<E = Expr> {
-    pub target: ExprName,
+pub struct BlockPyAssign<E = Expr, N = ExprName> {
+    pub target: N,
     pub value: E,
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyDelete {
-    pub target: ExprName,
+pub struct BlockPyDelete<N = ExprName> {
+    pub target: N,
 }
 
 #[derive(Debug, Clone)]
@@ -1421,12 +1461,12 @@ where
 
     fn visit_fragment(
         &mut self,
-        fragment: &BlockPyCfgFragment<BlockPyStmt<PassExpr<P>>, BlockPyTerm<PassExpr<P>>>,
+        fragment: &BlockPyCfgFragment<StructuredPassStmt<P>, BlockPyTerm<PassExpr<P>>>,
     ) {
         walk_fragment(self, fragment);
     }
 
-    fn visit_stmt(&mut self, stmt: &BlockPyStmt<PassExpr<P>>) {
+    fn visit_stmt(&mut self, stmt: &StructuredPassStmt<P>) {
         walk_stmt(self, stmt);
     }
 
@@ -1478,7 +1518,7 @@ where
 
 pub fn walk_fragment<V, P>(
     visitor: &mut V,
-    fragment: &BlockPyCfgFragment<BlockPyStmt<PassExpr<P>>, BlockPyTerm<PassExpr<P>>>,
+    fragment: &BlockPyCfgFragment<StructuredPassStmt<P>, BlockPyTerm<PassExpr<P>>>,
 ) where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
@@ -1491,7 +1531,7 @@ pub fn walk_fragment<V, P>(
     }
 }
 
-pub fn walk_stmt<V, P>(visitor: &mut V, stmt: &BlockPyStmt<PassExpr<P>>)
+pub fn walk_stmt<V, P>(visitor: &mut V, stmt: &StructuredPassStmt<P>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
@@ -1583,13 +1623,13 @@ impl ImplicitNoneExpr for CoreBlockPyExprWithYield {
     }
 }
 
-impl ImplicitNoneExpr for CoreBlockPyExpr {
+impl<N: BlockPyNameLike> ImplicitNoneExpr for CoreBlockPyExpr<N> {
     fn implicit_none_expr() -> Self {
         Self::Name(implicit_none_name().into())
     }
 
     fn is_implicit_none_expr(expr: &Self) -> bool {
-        matches!(expr, CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_NONE")
+        matches!(expr, CoreBlockPyExpr::Name(name) if name.id_str() == "__dp_NONE")
     }
 }
 

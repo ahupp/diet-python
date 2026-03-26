@@ -1,10 +1,11 @@
 use crate::block_py::{
-    core_positional_call_expr_with_meta, BlockPyModule, BlockPyPass, BlockPyStmt, CoreBlockPyExpr,
-    CoreBlockPyLiteral, CoreStringLiteral,
+    core_positional_call_expr_with_meta, BlockPyFunction, BlockPyModule, BlockPyStmt,
+    CoreBlockPyLiteral, CoreStringLiteral, LocatedCoreBlockPyExpr, LocatedName, NameLocation,
 };
 use crate::passes::PreparedBbBlockPyPass;
-use ruff_python_ast::{self as ast, ExprName};
+use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
+use std::collections::HashMap;
 use std::env;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,13 +39,10 @@ pub(crate) fn parse_trace_config(raw: &str) -> Option<TraceConfig> {
     })
 }
 
-fn instrument_cfg_module_for_trace<P: BlockPyPass>(
-    module: &mut BlockPyModule<P>,
+pub(crate) fn instrument_bb_module_for_trace(
+    module: &mut BlockPyModule<PreparedBbBlockPyPass>,
     config: &TraceConfig,
-    make_trace_stmt: impl Fn(&str, &str, &[String]) -> BlockPyStmt<P::Expr>,
-) where
-    BlockPyStmt<P::Expr>: Into<P::Stmt>,
-{
+) {
     for function in &mut module.callable_defs {
         if let Some(filter) = config.qualname_filter.as_ref() {
             if function.names.qualname != *filter {
@@ -52,44 +50,30 @@ fn instrument_cfg_module_for_trace<P: BlockPyPass>(
             }
         }
         let qualname = function.names.qualname.clone();
+        let locator = PreparedTraceNameLocator::new(function);
         for block in &mut function.blocks {
             let block_params = block.param_name_vec();
-            let trace_stmt = make_trace_stmt(
-                qualname.as_str(),
-                block.label.as_str(),
-                if config.include_params {
-                    block_params.as_slice()
-                } else {
-                    &[]
-                },
-            );
-            block.body.insert(0, trace_stmt.into());
+            let trace_expr = if config.include_params && !block_params.is_empty() {
+                helper_call_expr(
+                    "__dp_bb_trace_enter",
+                    vec![
+                        string_literal_expr(qualname.as_str()),
+                        string_literal_expr(block.label.as_str()),
+                        param_pairs_expr(&locator, block_params.as_slice()),
+                    ],
+                )
+            } else {
+                helper_call_expr(
+                    "__dp_bb_trace_enter",
+                    vec![
+                        string_literal_expr(qualname.as_str()),
+                        string_literal_expr(block.label.as_str()),
+                    ],
+                )
+            };
+            block.body.insert(0, BlockPyStmt::Expr(trace_expr).into());
         }
     }
-}
-
-pub(crate) fn instrument_bb_module_for_trace(
-    module: &mut BlockPyModule<PreparedBbBlockPyPass>,
-    config: &TraceConfig,
-) {
-    instrument_cfg_module_for_trace(module, config, |qualname, label, params| {
-        let trace_expr = if !params.is_empty() {
-            helper_call_expr(
-                "__dp_bb_trace_enter",
-                vec![
-                    string_literal_expr(qualname),
-                    string_literal_expr(label),
-                    param_pairs_expr(params),
-                ],
-            )
-        } else {
-            helper_call_expr(
-                "__dp_bb_trace_enter",
-                vec![string_literal_expr(qualname), string_literal_expr(label)],
-            )
-        };
-        BlockPyStmt::Expr(trace_expr)
-    });
 }
 
 fn compat_node_index() -> ast::AtomicNodeIndex {
@@ -100,39 +84,109 @@ fn compat_range() -> TextRange {
     TextRange::default()
 }
 
-fn load_name(id: &str) -> ExprName {
-    ExprName {
-        id: id.into(),
-        ctx: ast::ExprContext::Load,
-        range: compat_range(),
-        node_index: compat_node_index(),
+struct PreparedTraceNameLocator {
+    param_slots: HashMap<String, u32>,
+    existing_locations: HashMap<String, NameLocation>,
+    cell_slots: HashMap<String, u32>,
+}
+
+impl PreparedTraceNameLocator {
+    fn new(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> Self {
+        let param_slots = function
+            .params
+            .names()
+            .into_iter()
+            .enumerate()
+            .map(|(slot, name)| (name, slot as u32))
+            .collect::<HashMap<_, _>>();
+        let mut existing_locations = HashMap::new();
+        for block in &function.blocks {
+            for stmt in &block.body {
+                match stmt {
+                    crate::block_py::BbStmt::Assign(assign) => {
+                        existing_locations
+                            .entry(assign.target.id.to_string())
+                            .or_insert(assign.target.location);
+                    }
+                    crate::block_py::BbStmt::Expr(_) | crate::block_py::BbStmt::Delete(_) => {}
+                }
+            }
+        }
+        let cell_slots = function
+            .closure_layout
+            .as_ref()
+            .map(|layout| {
+                let mut slots = HashMap::new();
+                for (slot, closure_slot) in layout
+                    .freevars
+                    .iter()
+                    .chain(layout.cellvars.iter())
+                    .chain(layout.runtime_cells.iter())
+                    .enumerate()
+                {
+                    slots.insert(closure_slot.storage_name.clone(), slot as u32);
+                    slots.insert(closure_slot.logical_name.clone(), slot as u32);
+                }
+                slots
+            })
+            .unwrap_or_default();
+        Self {
+            param_slots,
+            existing_locations,
+            cell_slots,
+        }
+    }
+
+    fn load_name(&self, id: &str) -> LocatedName {
+        let location = if let Some(slot) = self.param_slots.get(id).copied() {
+            NameLocation::Local { slot }
+        } else if let Some(location) = self.existing_locations.get(id).copied() {
+            location
+        } else if let Some(slot) = self.cell_slots.get(id).copied() {
+            NameLocation::ClosureCell { slot }
+        } else {
+            NameLocation::Global
+        };
+        LocatedName {
+            id: id.into(),
+            ctx: ast::ExprContext::Load,
+            range: compat_range(),
+            node_index: compat_node_index(),
+            location,
+        }
     }
 }
 
-fn string_literal_expr(value: &str) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
+fn string_literal_expr(value: &str) -> LocatedCoreBlockPyExpr {
+    LocatedCoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
         range: compat_range(),
         node_index: compat_node_index(),
         value: value.to_string(),
     }))
 }
 
-fn helper_call_expr(helper_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
+fn helper_call_expr(
+    helper_name: &str,
+    args: Vec<LocatedCoreBlockPyExpr>,
+) -> LocatedCoreBlockPyExpr {
     core_positional_call_expr_with_meta(helper_name, compat_node_index(), compat_range(), args)
 }
 
-fn tuple_expr(values: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
+fn tuple_expr(values: Vec<LocatedCoreBlockPyExpr>) -> LocatedCoreBlockPyExpr {
     helper_call_expr("__dp_tuple", values)
 }
 
-fn param_pairs_expr(params: &[String]) -> CoreBlockPyExpr {
+fn param_pairs_expr(
+    locator: &PreparedTraceNameLocator,
+    params: &[String],
+) -> LocatedCoreBlockPyExpr {
     tuple_expr(
         params
             .iter()
             .map(|param| {
                 tuple_expr(vec![
                     string_literal_expr(param),
-                    CoreBlockPyExpr::Name(load_name(param).into()),
+                    LocatedCoreBlockPyExpr::Name(locator.load_name(param)),
                 ])
             })
             .collect(),

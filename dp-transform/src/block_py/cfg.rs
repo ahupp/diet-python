@@ -1,6 +1,6 @@
 use super::{
-    BlockParam, BlockParamRole, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel, BlockPyStmt,
-    BlockPyTerm, CfgBlock, ImplicitNoneExpr,
+    BlockParam, BlockParamRole, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike,
+    BlockPyStmt, BlockPyTerm, CfgBlock, ImplicitNoneExpr,
 };
 use crate::block_py::dataflow::{
     assigned_names_in_blockpy_fragment, assigned_names_in_blockpy_stmts,
@@ -8,7 +8,7 @@ use crate::block_py::dataflow::{
 use ruff_python_ast::Expr;
 use std::collections::{HashMap, HashSet};
 
-fn blockpy_successors<E>(block: &CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>) -> Vec<String> {
+fn blockpy_successors<E, N>(block: &CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>) -> Vec<String> {
     match &block.term {
         BlockPyTerm::Jump(target) => vec![target.as_str().to_string()],
         BlockPyTerm::IfTerm(if_term) => vec![
@@ -50,19 +50,21 @@ fn extend_ordered_state(base: &[String], assigned: HashSet<String>) -> Vec<Strin
     out
 }
 
-fn conservative_state_after_prefix<E>(base: &[String], body: &[BlockPyStmt<E>]) -> Vec<String>
+fn conservative_state_after_prefix<E, N>(base: &[String], body: &[BlockPyStmt<E, N>]) -> Vec<String>
 where
     E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
 {
     extend_ordered_state(base, assigned_names_in_blockpy_stmts(body))
 }
 
-fn conservative_state_after_if_branches<E>(
+fn conservative_state_after_if_branches<E, N>(
     base: &[String],
-    if_stmt: &super::BlockPyStructuredIf<E>,
+    if_stmt: &super::BlockPyStructuredIf<E, N>,
 ) -> Vec<String>
 where
     E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
 {
     let mut assigned = assigned_names_in_blockpy_fragment(&if_stmt.body);
     assigned.extend(assigned_names_in_blockpy_fragment(&if_stmt.orelse));
@@ -86,19 +88,22 @@ fn params_for_linearized_names(
         .collect()
 }
 
-fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
+fn linearize_blockpy_if_sequence<E, N>(
     label: BlockPyLabel,
-    body: Vec<BlockPyStmt<E>>,
+    body: Vec<BlockPyStmt<E, N>>,
     final_term: BlockPyTerm<E>,
     exc_edge: Option<super::BlockPyEdge>,
     block_params: Vec<String>,
     declared_params: Vec<BlockParam>,
     exc_target: Option<String>,
     next_label_id: &mut usize,
-    out_blocks: &mut Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>>,
+    out_blocks: &mut Vec<CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>>,
     out_block_params: &mut HashMap<String, Vec<String>>,
     out_exception_edges: &mut HashMap<String, Option<String>>,
-) {
+) where
+    E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
+{
     let Some(if_index) = body
         .iter()
         .position(|stmt| matches!(stmt, BlockPyStmt::If(_)))
@@ -197,19 +202,22 @@ fn linearize_blockpy_if_sequence<E: Clone + Into<Expr>>(
     }
 }
 
-fn linearize_blockpy_fragment<E: Clone + Into<Expr>>(
+fn linearize_blockpy_fragment<E, N>(
     label: BlockPyLabel,
-    fragment: BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
+    fragment: BlockPyCfgFragment<BlockPyStmt<E, N>, BlockPyTerm<E>>,
     fallthrough_term: BlockPyTerm<E>,
     exc_edge: Option<super::BlockPyEdge>,
     block_params: Vec<String>,
     declared_params: Vec<BlockParam>,
     exc_target: Option<String>,
     next_label_id: &mut usize,
-    out_blocks: &mut Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>>,
+    out_blocks: &mut Vec<CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>>,
     out_block_params: &mut HashMap<String, Vec<String>>,
     out_exception_edges: &mut HashMap<String, Option<String>>,
-) {
+) where
+    E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
+{
     linearize_blockpy_if_sequence(
         label,
         fragment.body,
@@ -225,15 +233,19 @@ fn linearize_blockpy_fragment<E: Clone + Into<Expr>>(
     );
 }
 
-pub(crate) fn linearize_structured_ifs<E: Clone + Into<Expr>>(
-    blocks: &[CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>],
+pub(crate) fn linearize_structured_ifs<E, N>(
+    blocks: &[CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>],
     block_params: &HashMap<String, Vec<String>>,
     exception_edges: &HashMap<String, Option<String>>,
 ) -> (
-    Vec<CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>>,
+    Vec<CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>>,
     HashMap<String, Vec<String>>,
     HashMap<String, Option<String>>,
-) {
+)
+where
+    E: Clone + Into<Expr>,
+    N: BlockPyNameLike,
+{
     let mut out_blocks = Vec::new();
     let mut out_block_params = HashMap::new();
     let mut out_exception_edges = HashMap::new();
@@ -269,10 +281,11 @@ pub(crate) fn linearize_structured_ifs<E: Clone + Into<Expr>>(
     (out_blocks, out_block_params, out_exception_edges)
 }
 
-pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E>(
-    blocks: &mut [CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>],
+pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E, N>(
+    blocks: &mut [CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>],
 ) where
     E: Clone + ImplicitNoneExpr,
+    N: BlockPyNameLike,
 {
     let trivial_ret_none_terms: HashMap<String, BlockPyTerm<E>> = blocks
         .iter()

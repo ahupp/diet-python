@@ -1,12 +1,12 @@
 use super::{
     AbruptKind, BlockArg, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm, CfgBlock, Expr, IntoBlockPyStmt, PassBlock, PassExpr,
+    BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyNameLike, BlockPyPass, BlockPyRaise,
+    BlockPyStmt, BlockPyTerm, CfgBlock, Expr, IntoBlockPyStmt, PassBlock, PassExpr,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
     BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield,
-    PreparedBbBlockPyPass, RuffBlockPyPass,
+    LocatedCoreBlockPyPass, PreparedBbBlockPyPass, RuffBlockPyPass,
 };
 use crate::ruff_ast_to_string;
 use std::collections::{HashMap, HashSet};
@@ -43,6 +43,7 @@ impl_default_blockpy_pretty_printer!(
     CoreBlockPyPassWithAwaitAndYield,
     CoreBlockPyPassWithYield,
     CoreBlockPyPass,
+    LocatedCoreBlockPyPass,
 );
 
 impl BlockPyPrettyPrinter for BbBlockPyPass {
@@ -259,10 +260,11 @@ impl BlockPyFormatter {
         );
     }
 
-    fn write_stmt_list<S, E>(&mut self, stmts: &[S], referenced_labels: &HashSet<BlockPyLabel>)
+    fn write_stmt_list<S, E, N>(&mut self, stmts: &[S], referenced_labels: &HashSet<BlockPyLabel>)
     where
-        S: IntoBlockPyStmt<E>,
+        S: IntoBlockPyStmt<E, N>,
         E: Clone + Into<Expr> + std::fmt::Debug,
+        N: BlockPyNameLike,
     {
         for stmt in stmts {
             let stmt = stmt.clone().into_stmt();
@@ -270,12 +272,13 @@ impl BlockPyFormatter {
         }
     }
 
-    fn write_stmt_fragment<E>(
+    fn write_stmt_fragment<E, N>(
         &mut self,
-        fragment: &BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
+        fragment: &BlockPyCfgFragment<BlockPyStmt<E, N>, BlockPyTerm<E>>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         E: Clone + Into<Expr> + std::fmt::Debug,
+        N: BlockPyNameLike,
     {
         if fragment.body.is_empty() && fragment.term.is_none() {
             self.line("pass");
@@ -287,18 +290,22 @@ impl BlockPyFormatter {
         }
     }
 
-    fn write_stmt<E>(&mut self, stmt: &BlockPyStmt<E>, referenced_labels: &HashSet<BlockPyLabel>)
-    where
+    fn write_stmt<E, N>(
+        &mut self,
+        stmt: &BlockPyStmt<E, N>,
+        referenced_labels: &HashSet<BlockPyLabel>,
+    ) where
         E: Clone + Into<Expr> + std::fmt::Debug,
+        N: BlockPyNameLike,
     {
         match stmt {
             BlockPyStmt::Assign(assign) => self.line(format!(
                 "{} = {}",
-                assign.target.id,
+                assign.target.id_str(),
                 render_inline_expr(&assign.value)
             )),
             BlockPyStmt::Expr(expr) => self.line(render_inline_expr(expr)),
-            BlockPyStmt::Delete(delete) => self.line(format!("del {}", delete.target.id)),
+            BlockPyStmt::Delete(delete) => self.line(format!("del {}", delete.target.id_str())),
             BlockPyStmt::If(if_stmt) => {
                 self.line(format!("if {}:", render_inline_expr(&if_stmt.test)));
                 self.with_indent(|this| this.write_stmt_fragment(&if_stmt.body, referenced_labels));
@@ -476,9 +483,9 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn bb_expr_text(expr: &CoreBlockPyExpr) -> String {
+pub(crate) fn bb_expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> String {
     match expr {
-        CoreBlockPyExpr::Name(name) => name.id.to_string(),
+        CoreBlockPyExpr::Name(name) => name.id_str().to_string(),
         CoreBlockPyExpr::Literal(literal) => match literal {
             CoreBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value),
             CoreBlockPyLiteral::BytesLiteral(literal) => {
@@ -529,18 +536,22 @@ pub(crate) fn bb_expr_text(expr: &CoreBlockPyExpr) -> String {
 }
 
 #[cfg(test)]
-pub(crate) fn bb_stmt_text(stmt: &BbStmt) -> String {
+pub(crate) fn bb_stmt_text<N: BlockPyNameLike>(stmt: &BbStmt<N>) -> String {
     match stmt {
         BbStmt::Assign(assign) => {
-            format!("{} = {}", assign.target.id, bb_expr_text(&assign.value))
+            format!(
+                "{} = {}",
+                assign.target.id_str(),
+                bb_expr_text(&assign.value)
+            )
         }
         BbStmt::Expr(expr) => bb_expr_text(expr),
-        BbStmt::Delete(delete) => format!("del {}", delete.target.id),
+        BbStmt::Delete(delete) => format!("del {}", delete.target.id_str()),
     }
 }
 
 #[cfg(test)]
-pub(crate) fn bb_stmts_text(stmts: &[BbStmt]) -> String {
+pub(crate) fn bb_stmts_text<N: BlockPyNameLike>(stmts: &[BbStmt<N>]) -> String {
     let mut out = String::new();
     for stmt in stmts {
         out.push_str(&bb_stmt_text(stmt));
@@ -618,9 +629,10 @@ fn render_block_arg(arg: &BlockArg) -> String {
     }
 }
 
-fn render_blockpy_block_metadata<S, T, E>(block: &CfgBlock<S, T>) -> Vec<String>
+fn render_blockpy_block_metadata<S, T, E, N>(block: &CfgBlock<S, T>) -> Vec<String>
 where
-    S: IntoBlockPyStmt<E>,
+    S: IntoBlockPyStmt<E, N>,
+    N: BlockPyNameLike,
 {
     let mut lines = Vec::new();
     if let Some(exc_param) = block.exception_param() {
@@ -831,14 +843,15 @@ where
     successors
 }
 
-fn collect_top_level_successors_from_stmts<S, E>(
+fn collect_top_level_successors_from_stmts<S, E, N>(
     stmts: &[S],
     label_to_index: &HashMap<String, usize>,
     seen: &mut HashSet<usize>,
     out: &mut Vec<usize>,
 ) where
-    S: IntoBlockPyStmt<E>,
+    S: IntoBlockPyStmt<E, N>,
     E: Clone + Into<Expr> + std::fmt::Debug,
+    N: BlockPyNameLike,
 {
     for stmt in stmts {
         match stmt.clone().into_stmt() {

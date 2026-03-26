@@ -63,7 +63,7 @@ pub trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    BlockPyStmt<POut::Expr>: Into<POut::Stmt>,
+    BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
     fn map_module(&self, module: BlockPyModule<PIn>) -> BlockPyModule<POut> {
         BlockPyModule {
@@ -109,8 +109,12 @@ where
 
     fn map_fragment(
         &self,
-        fragment: BlockPyCfgFragment<BlockPyStmt<PassExpr<PIn>>, BlockPyTerm<PassExpr<PIn>>>,
-    ) -> BlockPyCfgFragment<BlockPyStmt<PassExpr<POut>>, BlockPyTerm<PassExpr<POut>>> {
+        fragment: BlockPyCfgFragment<
+            BlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+            BlockPyTerm<PassExpr<PIn>>,
+        >,
+    ) -> BlockPyCfgFragment<BlockPyStmt<PassExpr<POut>, PassName<POut>>, BlockPyTerm<PassExpr<POut>>>
+    {
         BlockPyCfgFragment {
             body: fragment
                 .body
@@ -121,11 +125,14 @@ where
         }
     }
 
-    fn map_stmt(&self, stmt: BlockPyStmt<PassExpr<PIn>>) -> BlockPyStmt<PassExpr<POut>> {
+    fn map_stmt(
+        &self,
+        stmt: BlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+    ) -> BlockPyStmt<PassExpr<POut>, PassName<POut>> {
         match stmt {
             BlockPyStmt::Assign(assign) => self.map_assign(assign),
             BlockPyStmt::Expr(expr) => BlockPyStmt::Expr(self.map_expr(expr)),
-            BlockPyStmt::Delete(delete) => BlockPyStmt::Delete(delete),
+            BlockPyStmt::Delete(delete) => BlockPyStmt::Delete(self.map_delete(delete)),
             BlockPyStmt::If(if_stmt) => BlockPyStmt::If(BlockPyIf {
                 test: self.map_expr(if_stmt.test),
                 body: self.map_fragment(if_stmt.body),
@@ -134,11 +141,20 @@ where
         }
     }
 
-    fn map_assign(&self, assign: BlockPyAssign<PassExpr<PIn>>) -> BlockPyStmt<PassExpr<POut>> {
+    fn map_assign(
+        &self,
+        assign: BlockPyAssign<PassExpr<PIn>, PassName<PIn>>,
+    ) -> BlockPyStmt<PassExpr<POut>, PassName<POut>> {
         BlockPyStmt::Assign(BlockPyAssign {
-            target: assign.target,
+            target: self.map_name(assign.target),
             value: self.map_expr(assign.value),
         })
+    }
+
+    fn map_delete(&self, delete: BlockPyDelete<PassName<PIn>>) -> BlockPyDelete<PassName<POut>> {
+        BlockPyDelete {
+            target: self.map_name(delete.target),
+        }
     }
 
     fn map_term(&self, term: BlockPyTerm<PassExpr<PIn>>) -> BlockPyTerm<PassExpr<POut>> {
@@ -178,6 +194,11 @@ where
         map_keyword_args_with(keywords, |expr| self.map_expr(expr))
     }
 
+    fn map_name(&self, name: PassName<PIn>) -> PassName<POut> {
+        let name: ast::ExprName = name.into();
+        name.into()
+    }
+
     fn map_expr(&self, expr: PassExpr<PIn>) -> PassExpr<POut>;
 }
 
@@ -185,7 +206,7 @@ pub trait BlockPyModuleTryMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    BlockPyStmt<POut::Expr>: Into<POut::Stmt>,
+    BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
     type Error;
 
@@ -236,9 +257,15 @@ where
 
     fn try_map_fragment(
         &self,
-        fragment: BlockPyCfgFragment<BlockPyStmt<PassExpr<PIn>>, BlockPyTerm<PassExpr<PIn>>>,
+        fragment: BlockPyCfgFragment<
+            BlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+            BlockPyTerm<PassExpr<PIn>>,
+        >,
     ) -> Result<
-        BlockPyCfgFragment<BlockPyStmt<PassExpr<POut>>, BlockPyTerm<PassExpr<POut>>>,
+        BlockPyCfgFragment<
+            BlockPyStmt<PassExpr<POut>, PassName<POut>>,
+            BlockPyTerm<PassExpr<POut>>,
+        >,
         Self::Error,
     > {
         Ok(BlockPyCfgFragment {
@@ -256,12 +283,12 @@ where
 
     fn try_map_stmt(
         &self,
-        stmt: BlockPyStmt<PassExpr<PIn>>,
-    ) -> Result<BlockPyStmt<PassExpr<POut>>, Self::Error> {
+        stmt: BlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+    ) -> Result<BlockPyStmt<PassExpr<POut>, PassName<POut>>, Self::Error> {
         match stmt {
             BlockPyStmt::Assign(assign) => self.try_map_assign(assign),
             BlockPyStmt::Expr(expr) => Ok(BlockPyStmt::Expr(self.try_map_expr(expr)?)),
-            BlockPyStmt::Delete(delete) => Ok(BlockPyStmt::Delete(delete)),
+            BlockPyStmt::Delete(delete) => Ok(BlockPyStmt::Delete(self.try_map_delete(delete)?)),
             BlockPyStmt::If(if_stmt) => Ok(BlockPyStmt::If(BlockPyIf {
                 test: self.try_map_expr(if_stmt.test)?,
                 body: self.try_map_fragment(if_stmt.body)?,
@@ -272,12 +299,21 @@ where
 
     fn try_map_assign(
         &self,
-        assign: BlockPyAssign<PassExpr<PIn>>,
-    ) -> Result<BlockPyStmt<PassExpr<POut>>, Self::Error> {
+        assign: BlockPyAssign<PassExpr<PIn>, PassName<PIn>>,
+    ) -> Result<BlockPyStmt<PassExpr<POut>, PassName<POut>>, Self::Error> {
         Ok(BlockPyStmt::Assign(BlockPyAssign {
-            target: assign.target,
+            target: self.try_map_name(assign.target)?,
             value: self.try_map_expr(assign.value)?,
         }))
+    }
+
+    fn try_map_delete(
+        &self,
+        delete: BlockPyDelete<PassName<PIn>>,
+    ) -> Result<BlockPyDelete<PassName<POut>>, Self::Error> {
+        Ok(BlockPyDelete {
+            target: self.try_map_name(delete.target)?,
+        })
     }
 
     fn try_map_term(
@@ -323,6 +359,11 @@ where
         try_map_keyword_args_with(keywords, |expr| self.try_map_expr(expr))
     }
 
+    fn try_map_name(&self, name: PassName<PIn>) -> Result<PassName<POut>, Self::Error> {
+        let name: ast::ExprName = name.into();
+        Ok(name.into())
+    }
+
     fn try_map_expr(&self, expr: PassExpr<PIn>) -> Result<PassExpr<POut>, Self::Error>;
 }
 
@@ -333,7 +374,7 @@ where
     pub fn map_module<POut>(self, mapper: &impl BlockPyModuleMap<PIn, POut>) -> BlockPyModule<POut>
     where
         POut: BlockPyPass,
-        BlockPyStmt<POut::Expr>: Into<POut::Stmt>,
+        BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
     {
         mapper.map_module(self)
     }
@@ -341,7 +382,7 @@ where
     pub fn try_map_module<POut, M>(self, mapper: &M) -> Result<BlockPyModule<POut>, M::Error>
     where
         POut: BlockPyPass,
-        BlockPyStmt<POut::Expr>: Into<POut::Stmt>,
+        BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
         M: BlockPyModuleTryMap<PIn, POut>,
     {
         mapper.try_map_module(self)
@@ -421,8 +462,8 @@ impl From<CoreBlockPyExprWithYield> for Expr {
     }
 }
 
-impl From<CoreBlockPyExpr> for Expr {
-    fn from(value: CoreBlockPyExpr) -> Self {
+impl<N: Into<ast::ExprName>> From<CoreBlockPyExpr<N>> for Expr {
+    fn from(value: CoreBlockPyExpr<N>) -> Self {
         match value {
             CoreBlockPyExpr::Literal(literal) => core_literal_to_expr(literal),
             CoreBlockPyExpr::Call(node) => call_like_to_ast(

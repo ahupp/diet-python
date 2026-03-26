@@ -1,6 +1,6 @@
 use super::normalize_bb_module_strings;
 use crate::{
-    block_py::{BbStmt, BlockPyTerm, CoreBlockPyExpr},
+    block_py::{BbStmt, BlockPyNameLike, BlockPyTerm, CoreBlockPyExpr},
     passes::lower_try_jump_exception_flow,
     transform_str_to_bb_ir_with_options, Options,
 };
@@ -24,7 +24,10 @@ impl ExprShapeProbe {
     }
 }
 
-fn probe_bb_exprs(probe: &mut ExprShapeProbe, expr: &crate::block_py::CoreBlockPyExpr) {
+fn probe_bb_exprs<N: BlockPyNameLike>(
+    probe: &mut ExprShapeProbe,
+    expr: &crate::block_py::CoreBlockPyExpr<N>,
+) {
     match expr {
         crate::block_py::CoreBlockPyExpr::Name(_) => {}
         crate::block_py::CoreBlockPyExpr::Literal(literal) => match literal {
@@ -38,7 +41,7 @@ fn probe_bb_exprs(probe: &mut ExprShapeProbe, expr: &crate::block_py::CoreBlockP
         },
         crate::block_py::CoreBlockPyExpr::Call(call) => {
             if let crate::block_py::CoreBlockPyExpr::Name(name) = call.func.as_ref() {
-                if name.id.as_str() == "str"
+                if name.id_str() == "str"
                     && call.args.len() == 1
                     && call.keywords.is_empty()
                     && matches!(
@@ -52,7 +55,7 @@ fn probe_bb_exprs(probe: &mut ExprShapeProbe, expr: &crate::block_py::CoreBlockP
                 {
                     probe.saw_str_bytes_call.set(true);
                 }
-                if name.id.as_str() == "__dp_decode_literal_bytes" {
+                if name.id_str() == "__dp_decode_literal_bytes" {
                     probe.saw_decode_literal_call.set(true);
                 }
             }
@@ -82,7 +85,10 @@ fn probe_bb_exprs(probe: &mut ExprShapeProbe, expr: &crate::block_py::CoreBlockP
     }
 }
 
-fn probe_bb_term_exprs(probe: &mut ExprShapeProbe, term: &BlockPyTerm<CoreBlockPyExpr>) {
+fn probe_bb_term_exprs<N: BlockPyNameLike>(
+    probe: &mut ExprShapeProbe,
+    term: &BlockPyTerm<CoreBlockPyExpr<N>>,
+) {
     match term {
         BlockPyTerm::Jump(_) => {}
         BlockPyTerm::IfTerm(if_term) => probe_bb_exprs(probe, &if_term.test),
@@ -96,7 +102,7 @@ fn probe_bb_term_exprs(probe: &mut ExprShapeProbe, term: &BlockPyTerm<CoreBlockP
     }
 }
 
-fn probe_bb_stmt_exprs(probe: &mut ExprShapeProbe, stmt: &BbStmt) {
+fn probe_bb_stmt_exprs<N: BlockPyNameLike>(probe: &mut ExprShapeProbe, stmt: &BbStmt<N>) {
     match stmt {
         BbStmt::Assign(assign) => probe_bb_exprs(probe, &assign.value),
         BbStmt::Expr(expr) => probe_bb_exprs(probe, expr),

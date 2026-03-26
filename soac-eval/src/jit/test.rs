@@ -2,9 +2,9 @@ use super::*;
 
 mod tests {
     use super::*;
-    use dp_transform::block_py::{BlockPyRaise, BlockPyTerm, CoreBlockPyExpr};
+    use dp_transform::block_py::{BlockPyRaise, BlockPyTerm, LocatedCoreBlockPyExpr};
 
-    fn test_term() -> BlockPyTerm<CoreBlockPyExpr> {
+    fn test_term() -> BlockPyTerm<LocatedCoreBlockPyExpr> {
         BlockPyTerm::Raise(BlockPyRaise { exc: None })
     }
 

@@ -1,9 +1,9 @@
 use crate::block_py::{
     BbBlock, BbStmt, BlockPyCallableScopeKind, BlockPyCellBindingKind, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
+    BlockPyFunctionKind, BlockPyModule, BlockPyNameLike, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
 };
 use crate::block_py::{BlockPyBindingKind, ClosureInit, ClosureSlot};
-use crate::passes::{BbBlockPyPass, CoreBlockPyPass, RuffBlockPyPass};
+use crate::passes::{BbBlockPyPass, CoreBlockPyPass, LocatedCoreBlockPyPass, RuffBlockPyPass};
 use crate::LoweringResult;
 use crate::{
     py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
@@ -92,7 +92,7 @@ fn slot_by_name<'a>(slots: &'a [ClosureSlot], logical_name: &str) -> &'a Closure
         .unwrap_or_else(|| panic!("missing closure slot {logical_name}; got {slots:?}"))
 }
 
-fn expr_text(expr: &CoreBlockPyExpr) -> String {
+fn expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> String {
     crate::block_py::pretty::bb_expr_text(expr)
 }
 
@@ -1676,7 +1676,7 @@ def outer(x):
     );
     let name_binding_module = lowered
         .result
-        .get_pass::<BlockPyModule<CoreBlockPyPass>>("name_binding")
+        .get_pass::<BlockPyModule<LocatedCoreBlockPyPass>>("name_binding")
         .expect("name_binding pass should be available");
     let outer = name_binding_module
         .callable_defs

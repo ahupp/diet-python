@@ -8,14 +8,14 @@ use crate::block_py::{
     map_intrinsic_args_with, BindingTarget, BlockPyAssign, BlockPyBindingKind,
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
     BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyIf, BlockPyModule, BlockPyModuleMap, BlockPyName, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm, ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
+    BlockPyIf, BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
     CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
-    IntrinsicCall,
+    IntrinsicCall, LocatedName, NameLocation,
 };
-use crate::passes::CoreBlockPyPass;
+use crate::passes::{CoreBlockPyPass, LocatedCoreBlockPyPass};
 use ruff_python_ast::{self as ast, ExprName};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 fn is_internal_symbol(name: &str) -> bool {
     name.starts_with("_dp_") || name.starts_with("__dp_") || name == "__dp__"
@@ -44,7 +44,7 @@ fn globals_expr(
     core_positional_call_expr_with_meta("__dp_globals", node_index, range, Vec::new())
 }
 
-fn rewrite_global_name_load(name: BlockPyName) -> CoreBlockPyExpr {
+fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
     let range = name.range;
     let bind_name = name.id.to_string();
@@ -74,7 +74,7 @@ fn cell_expr_for_name(
 }
 
 fn rewrite_cell_name_load(
-    name: BlockPyName,
+    name: ExprName,
     semantic: &BlockPyCallableSemanticInfo,
 ) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
@@ -221,7 +221,7 @@ fn rewrite_binding_delete(
 }
 
 fn rewrite_deleted_name_load_expr(
-    name: BlockPyName,
+    name: ExprName,
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
 ) -> CoreBlockPyExpr {
@@ -392,7 +392,7 @@ fn deleted_sentinel_expr(
     core_name_expr("__dp_DELETED", ast::ExprContext::Load, node_index, range)
 }
 
-fn rewrite_class_name_load_global(name: BlockPyName) -> CoreBlockPyExpr {
+fn rewrite_class_name_load_global(name: ExprName) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
     let range = name.range;
     let bind_name = name.id.to_string();
@@ -409,7 +409,7 @@ fn rewrite_class_name_load_global(name: BlockPyName) -> CoreBlockPyExpr {
 }
 
 fn rewrite_class_name_load_cell(
-    name: BlockPyName,
+    name: ExprName,
     semantic: &BlockPyCallableSemanticInfo,
 ) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
@@ -428,7 +428,7 @@ fn rewrite_class_name_load_cell(
 }
 
 fn rewrite_quiet_delete_marker(
-    name: BlockPyName,
+    name: ExprName,
     semantic: &BlockPyCallableSemanticInfo,
 ) -> BlockPyStmt<CoreBlockPyExpr> {
     let node_index = name.node_index.clone();
@@ -484,7 +484,7 @@ fn rewrite_quiet_delete_marker(
     }
 }
 
-fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<BlockPyName> {
+fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
     let CoreBlockPyExpr::Call(CoreBlockPyCall {
         func,
         args,
@@ -1180,9 +1180,232 @@ fn collect_always_unbound_local_names(
         .collect()
 }
 
+fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<String>) {
+    match expr {
+        CoreBlockPyExpr::Name(name) => {
+            names.insert(name.id.to_string());
+        }
+        CoreBlockPyExpr::Literal(_) => {}
+        CoreBlockPyExpr::Call(CoreBlockPyCall {
+            func,
+            args,
+            keywords,
+            ..
+        }) => {
+            collect_remaining_names_in_expr(func, names);
+            for arg in args {
+                collect_remaining_names_in_expr(arg.expr(), names);
+            }
+            for keyword in keywords {
+                collect_remaining_names_in_expr(keyword.expr(), names);
+            }
+        }
+        CoreBlockPyExpr::Intrinsic(call) => {
+            for arg in &call.args {
+                collect_remaining_names_in_expr(arg, names);
+            }
+        }
+    }
+}
+
+fn collect_remaining_names_in_stmt(
+    stmt: &BlockPyStmt<CoreBlockPyExpr>,
+    names: &mut HashSet<String>,
+) {
+    match stmt {
+        BlockPyStmt::Assign(assign) => {
+            names.insert(assign.target.id.to_string());
+            collect_remaining_names_in_expr(&assign.value, names);
+        }
+        BlockPyStmt::Expr(expr) => collect_remaining_names_in_expr(expr, names),
+        BlockPyStmt::Delete(delete) => {
+            names.insert(delete.target.id.to_string());
+        }
+        BlockPyStmt::If(if_stmt) => {
+            collect_remaining_names_in_expr(&if_stmt.test, names);
+            collect_remaining_names_in_fragment(&if_stmt.body, names);
+            collect_remaining_names_in_fragment(&if_stmt.orelse, names);
+        }
+    }
+}
+
+fn collect_remaining_names_in_fragment(
+    fragment: &crate::block_py::BlockPyStmtFragment<CoreBlockPyExpr>,
+    names: &mut HashSet<String>,
+) {
+    for stmt in &fragment.body {
+        collect_remaining_names_in_stmt(stmt, names);
+    }
+    if let Some(term) = &fragment.term {
+        collect_remaining_names_in_term(term, names);
+    }
+}
+
+fn collect_remaining_names_in_term(
+    term: &BlockPyTerm<CoreBlockPyExpr>,
+    names: &mut HashSet<String>,
+) {
+    match term {
+        BlockPyTerm::Jump(edge) => {
+            for arg in &edge.args {
+                if let crate::block_py::BlockArg::Name(name) = arg {
+                    names.insert(name.clone());
+                }
+            }
+        }
+        BlockPyTerm::IfTerm(if_term) => collect_remaining_names_in_expr(&if_term.test, names),
+        BlockPyTerm::BranchTable(branch) => collect_remaining_names_in_expr(&branch.index, names),
+        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
+            if let Some(exc) = exc {
+                collect_remaining_names_in_expr(exc, names);
+            }
+        }
+        BlockPyTerm::Return(value) => collect_remaining_names_in_expr(value, names),
+    }
+}
+
+fn resolve_cell_storage_name(semantic: &BlockPyCallableSemanticInfo, name: &str) -> Option<String> {
+    semantic
+        .logical_name_for_cell_capture_source(name)
+        .map(|logical_name| semantic.cell_storage_name(logical_name.as_str()))
+}
+
+fn collect_cell_slot_locations(
+    callable: &BlockPyFunction<CoreBlockPyPass>,
+) -> HashMap<String, u32> {
+    let mut slots = HashMap::new();
+    if let Some(layout) = callable.closure_layout.as_ref() {
+        for (slot, closure_slot) in layout
+            .freevars
+            .iter()
+            .chain(layout.cellvars.iter())
+            .chain(layout.runtime_cells.iter())
+            .enumerate()
+        {
+            slots.insert(closure_slot.storage_name.clone(), slot as u32);
+            slots.insert(closure_slot.logical_name.clone(), slot as u32);
+        }
+    }
+    slots
+}
+
+fn is_remaining_local_name(name: &str, semantic: &BlockPyCallableSemanticInfo) -> bool {
+    if resolve_cell_storage_name(semantic, name).is_some() {
+        return false;
+    }
+    match semantic.binding_kind(name) {
+        Some(BlockPyBindingKind::Local) => semantic.honors_internal_binding(name),
+        Some(BlockPyBindingKind::Cell(_)) | Some(BlockPyBindingKind::Global) => false,
+        None => semantic.has_local_def(name),
+    }
+}
+
+fn collect_local_slot_locations(
+    callable: &BlockPyFunction<CoreBlockPyPass>,
+) -> HashMap<String, u32> {
+    let mut slots = HashMap::new();
+    for (slot, param_name) in callable.params.names().into_iter().enumerate() {
+        slots.insert(param_name, slot as u32);
+    }
+
+    let mut remaining = HashSet::new();
+    for block in &callable.blocks {
+        for stmt in &block.body {
+            collect_remaining_names_in_stmt(stmt, &mut remaining);
+        }
+        collect_remaining_names_in_term(&block.term, &mut remaining);
+    }
+
+    let mut non_param_locals = remaining
+        .into_iter()
+        .filter(|name| !slots.contains_key(name))
+        .filter(|name| is_remaining_local_name(name, &callable.semantic))
+        .collect::<Vec<_>>();
+    non_param_locals.sort();
+
+    let next_slot = slots.len() as u32;
+    for (offset, name) in non_param_locals.into_iter().enumerate() {
+        slots.insert(name, next_slot + offset as u32);
+    }
+    slots
+}
+
+struct NameLocator<'a> {
+    semantic: &'a BlockPyCallableSemanticInfo,
+    local_slots: HashMap<String, u32>,
+    cell_slots: HashMap<String, u32>,
+}
+
+impl NameLocator<'_> {
+    fn locate_name(&self, name: ExprName) -> LocatedName {
+        let name_text = name.id.to_string();
+        let location = if let Some(storage_name) =
+            resolve_cell_storage_name(self.semantic, name_text.as_str())
+        {
+            let slot = self.cell_slots.get(storage_name.as_str()).copied().unwrap_or_else(|| {
+                panic!(
+                    "missing closure slot for storage name {storage_name} while locating {name_text}"
+                )
+            });
+            NameLocation::ClosureCell { slot }
+        } else if let Some(slot) = self.local_slots.get(name_text.as_str()).copied() {
+            NameLocation::Local { slot }
+        } else {
+            NameLocation::Global
+        };
+        LocatedName::from(name).with_location(location)
+    }
+}
+
+impl BlockPyModuleMap<CoreBlockPyPass, LocatedCoreBlockPyPass> for NameLocator<'_> {
+    fn map_name(&self, name: ExprName) -> LocatedName {
+        self.locate_name(name)
+    }
+
+    fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr<LocatedName> {
+        match expr {
+            CoreBlockPyExpr::Name(name) => CoreBlockPyExpr::Name(self.locate_name(name)),
+            CoreBlockPyExpr::Literal(literal) => CoreBlockPyExpr::Literal(literal),
+            CoreBlockPyExpr::Call(CoreBlockPyCall {
+                node_index,
+                range,
+                func,
+                args,
+                keywords,
+            }) => CoreBlockPyExpr::Call(CoreBlockPyCall {
+                node_index,
+                range,
+                func: Box::new(self.map_expr(*func)),
+                args: self.map_call_args(args),
+                keywords: self.map_keyword_args(keywords),
+            }),
+            CoreBlockPyExpr::Intrinsic(call) => CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+                intrinsic: call.intrinsic,
+                node_index: call.node_index,
+                range: call.range,
+                args: map_intrinsic_args_with(call.args, |expr| self.map_expr(expr)),
+            }),
+        }
+    }
+}
+
+fn locate_names_in_callable(
+    callable: BlockPyFunction<CoreBlockPyPass>,
+) -> BlockPyFunction<LocatedCoreBlockPyPass> {
+    let semantic = callable.semantic.clone();
+    let local_slots = collect_local_slot_locations(&callable);
+    let cell_slots = collect_cell_slot_locations(&callable);
+    NameLocator {
+        semantic: &semantic,
+        local_slots,
+        cell_slots,
+    }
+    .map_fn(callable)
+}
+
 fn lower_name_binding_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
-) -> BlockPyFunction<CoreBlockPyPass> {
+) -> BlockPyFunction<LocatedCoreBlockPyPass> {
     let semantic = callable.semantic.clone();
     let mut lowered = NameBindingMapper {
         semantic: &semantic,
@@ -1209,11 +1432,11 @@ fn lower_name_binding_callable(
             );
         }
     }
-    lowered
+    locate_names_in_callable(lowered)
 }
 
 pub(crate) fn lower_name_binding_in_core_blockpy_module(
     module: BlockPyModule<CoreBlockPyPass>,
-) -> BlockPyModule<CoreBlockPyPass> {
+) -> BlockPyModule<LocatedCoreBlockPyPass> {
     module.map_callable_defs(lower_name_binding_callable)
 }

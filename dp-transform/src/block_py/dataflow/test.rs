@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 #[test]
 fn assigned_names_in_blockpy_stmt_collects_nested_fragments() {
-    let stmt = BlockPyStmt::If(BlockPyIf {
+    let stmt: BlockPyStmt = BlockPyStmt::If(BlockPyIf {
         test: py_expr!("(test_name := source_test)"),
         body: BlockPyCfgFragment::with_term(
             vec![BlockPyStmt::Expr(py_expr!("(body_name := source_body)"))],

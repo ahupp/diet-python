@@ -397,7 +397,7 @@ fn renders_bb_block_metadata_with_shared_layout() {
                     label: "except".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(
-                        <CoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(
+                        <crate::block_py::LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(
                         ),
                     ),
                     params: vec![BlockParam {

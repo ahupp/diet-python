@@ -1,9 +1,10 @@
 use crate::block_py::{
     BbStmt, BlockPyModule, BlockPyRaise, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBytesLiteral, IntrinsicCall,
+    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBytesLiteral, IntrinsicCall,
+    LocatedCoreBlockPyExpr, LocatedName, NameLocation,
 };
 use crate::passes::PreparedBbBlockPyPass;
-use ruff_python_ast::{self as ast, ExprName};
+use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 
 pub fn normalize_bb_module_strings(
@@ -28,7 +29,7 @@ pub fn normalize_bb_module_strings(
 
 fn rewrite_term_exprs(
     rewriter: &mut CodegenExprNormalizer,
-    term: &mut BlockPyTerm<CoreBlockPyExpr>,
+    term: &mut BlockPyTerm<LocatedCoreBlockPyExpr>,
 ) {
     match term {
         BlockPyTerm::Jump(_) => {}
@@ -43,29 +44,29 @@ fn rewrite_term_exprs(
     }
 }
 
-fn rewrite_bb_expr(rewriter: &mut CodegenExprNormalizer, expr: &mut CoreBlockPyExpr) {
+fn rewrite_bb_expr(rewriter: &mut CodegenExprNormalizer, expr: &mut LocatedCoreBlockPyExpr) {
     rewriter.rewrite_expr(expr);
 }
 
 struct CodegenExprNormalizer;
 
 impl CodegenExprNormalizer {
-    fn rewrite_expr(&mut self, expr: &mut CoreBlockPyExpr) {
+    fn rewrite_expr(&mut self, expr: &mut LocatedCoreBlockPyExpr) {
         match expr {
-            CoreBlockPyExpr::Call(call) => {
+            LocatedCoreBlockPyExpr::Call(call) => {
                 self.rewrite_expr(call.func.as_mut());
                 rewrite_call_parts(self, &mut call.args, &mut call.keywords);
             }
-            CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, .. }) => {
+            LocatedCoreBlockPyExpr::Intrinsic(IntrinsicCall { args, .. }) => {
                 for arg in args {
                     self.rewrite_expr(arg);
                 }
             }
-            CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
+            LocatedCoreBlockPyExpr::Name(_) | LocatedCoreBlockPyExpr::Literal(_) => {}
         }
 
         match expr {
-            CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(node)) => {
+            LocatedCoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(node)) => {
                 *expr = str_bytes_call_expr(node.value.as_bytes());
             }
             _ => {}
@@ -75,8 +76,8 @@ impl CodegenExprNormalizer {
 
 fn rewrite_call_parts(
     rewriter: &mut CodegenExprNormalizer,
-    args: &mut [CoreBlockPyCallArg<CoreBlockPyExpr>],
-    keywords: &mut [CoreBlockPyKeywordArg<CoreBlockPyExpr>],
+    args: &mut [CoreBlockPyCallArg<LocatedCoreBlockPyExpr>],
+    keywords: &mut [CoreBlockPyKeywordArg<LocatedCoreBlockPyExpr>],
 ) {
     for arg in args {
         rewriter.rewrite_expr(arg.expr_mut());
@@ -94,17 +95,18 @@ fn compat_range() -> TextRange {
     TextRange::default()
 }
 
-fn load_name(id: &str) -> ExprName {
-    ExprName {
+fn load_name(id: &str) -> LocatedName {
+    LocatedName {
         id: id.into(),
         ctx: ast::ExprContext::Load,
         range: compat_range(),
         node_index: compat_node_index(),
+        location: NameLocation::Global,
     }
 }
 
-fn bytes_literal_expr(bytes: &[u8]) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Literal(CoreBlockPyLiteral::BytesLiteral(CoreBytesLiteral {
+fn bytes_literal_expr(bytes: &[u8]) -> LocatedCoreBlockPyExpr {
+    LocatedCoreBlockPyExpr::Literal(CoreBlockPyLiteral::BytesLiteral(CoreBytesLiteral {
         range: compat_range(),
         node_index: compat_node_index(),
         value: bytes.to_vec(),
@@ -113,26 +115,29 @@ fn bytes_literal_expr(bytes: &[u8]) -> CoreBlockPyExpr {
 
 fn helper_call_expr_with_meta(
     helper_name: &str,
-    args: Vec<CoreBlockPyExpr>,
+    args: Vec<LocatedCoreBlockPyExpr>,
     (node_index, range): (ast::AtomicNodeIndex, TextRange),
-) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Call(CoreBlockPyCall {
+) -> LocatedCoreBlockPyExpr {
+    LocatedCoreBlockPyExpr::Call(CoreBlockPyCall {
         node_index,
         range,
-        func: Box::new(CoreBlockPyExpr::Name(load_name(helper_name).into())),
+        func: Box::new(LocatedCoreBlockPyExpr::Name(load_name(helper_name))),
         args: args
             .into_iter()
             .map(CoreBlockPyCallArg::Positional)
             .collect(),
-        keywords: Vec::<CoreBlockPyKeywordArg<CoreBlockPyExpr>>::new(),
+        keywords: Vec::<CoreBlockPyKeywordArg<LocatedCoreBlockPyExpr>>::new(),
     })
 }
 
-fn helper_call_expr(helper_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
+fn helper_call_expr(
+    helper_name: &str,
+    args: Vec<LocatedCoreBlockPyExpr>,
+) -> LocatedCoreBlockPyExpr {
     helper_call_expr_with_meta(helper_name, args, (compat_node_index(), compat_range()))
 }
 
-fn str_bytes_call_expr(bytes: &[u8]) -> CoreBlockPyExpr {
+fn str_bytes_call_expr(bytes: &[u8]) -> LocatedCoreBlockPyExpr {
     helper_call_expr("str", vec![bytes_literal_expr(bytes)])
 }
 
