@@ -8,8 +8,8 @@ use crate::block_py::{
     map_intrinsic_args_with, BindingTarget, BlockPyAssign, BlockPyBindingKind,
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
     BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyIf, BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
+    BlockPyIf, BlockPyModule, BlockPyModuleMap, BlockPyName, BlockPyRaise, BlockPyStmt,
+    BlockPyTerm, ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
     CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
     IntrinsicCall,
 };
@@ -44,7 +44,7 @@ fn globals_expr(
     core_positional_call_expr_with_meta("__dp_globals", node_index, range, Vec::new())
 }
 
-fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
+fn rewrite_global_name_load(name: BlockPyName) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
     let range = name.range;
     let bind_name = name.id.to_string();
@@ -74,7 +74,7 @@ fn cell_expr_for_name(
 }
 
 fn rewrite_cell_name_load(
-    name: ExprName,
+    name: BlockPyName,
     semantic: &BlockPyCallableSemanticInfo,
 ) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
@@ -221,7 +221,7 @@ fn rewrite_binding_delete(
 }
 
 fn rewrite_deleted_name_load_expr(
-    name: ExprName,
+    name: BlockPyName,
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
 ) -> CoreBlockPyExpr {
@@ -359,12 +359,15 @@ fn core_name_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Name(ast::ExprName {
-        id: id.into(),
-        ctx,
-        node_index,
-        range,
-    })
+    CoreBlockPyExpr::Name(
+        ast::ExprName {
+            id: id.into(),
+            ctx,
+            node_index,
+            range,
+        }
+        .into(),
+    )
 }
 
 fn compat_node_index() -> ast::AtomicNodeIndex {
@@ -389,7 +392,7 @@ fn deleted_sentinel_expr(
     core_name_expr("__dp_DELETED", ast::ExprContext::Load, node_index, range)
 }
 
-fn rewrite_class_name_load_global(name: ExprName) -> CoreBlockPyExpr {
+fn rewrite_class_name_load_global(name: BlockPyName) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
     let range = name.range;
     let bind_name = name.id.to_string();
@@ -406,7 +409,7 @@ fn rewrite_class_name_load_global(name: ExprName) -> CoreBlockPyExpr {
 }
 
 fn rewrite_class_name_load_cell(
-    name: ExprName,
+    name: BlockPyName,
     semantic: &BlockPyCallableSemanticInfo,
 ) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
@@ -425,7 +428,7 @@ fn rewrite_class_name_load_cell(
 }
 
 fn rewrite_quiet_delete_marker(
-    name: ExprName,
+    name: BlockPyName,
     semantic: &BlockPyCallableSemanticInfo,
 ) -> BlockPyStmt<CoreBlockPyExpr> {
     let node_index = name.node_index.clone();
@@ -481,7 +484,7 @@ fn rewrite_quiet_delete_marker(
     }
 }
 
-fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
+fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<BlockPyName> {
     let CoreBlockPyExpr::Call(CoreBlockPyCall {
         func,
         args,

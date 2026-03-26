@@ -384,24 +384,30 @@ fn expr_static_str(expr: &CoreBlockPyExpr) -> Option<String> {
 }
 
 fn current_exception_name_expr(exc_name: &str) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Name(ast::ExprName {
-        id: exc_name.into(),
-        ctx: ast::ExprContext::Load,
-        range: compat_range(),
-        node_index: compat_node_index(),
-    })
+    CoreBlockPyExpr::Name(
+        ast::ExprName {
+            id: exc_name.into(),
+            ctx: ast::ExprContext::Load,
+            range: compat_range(),
+            node_index: compat_node_index(),
+        }
+        .into(),
+    )
 }
 
 fn current_exception_info_expr(exc_name: &str) -> CoreBlockPyExpr {
     CoreBlockPyExpr::Call(CoreBlockPyCall {
         node_index: compat_node_index(),
         range: compat_range(),
-        func: Box::new(CoreBlockPyExpr::Name(ast::ExprName {
-            id: "__dp_exc_info_from_exception".into(),
-            ctx: ast::ExprContext::Load,
-            range: compat_range(),
-            node_index: compat_node_index(),
-        })),
+        func: Box::new(CoreBlockPyExpr::Name(
+            ast::ExprName {
+                id: "__dp_exc_info_from_exception".into(),
+                ctx: ast::ExprContext::Load,
+                range: compat_range(),
+                node_index: compat_node_index(),
+            }
+            .into(),
+        )),
         args: vec![CoreBlockPyCallArg::Positional(current_exception_name_expr(
             exc_name,
         ))],

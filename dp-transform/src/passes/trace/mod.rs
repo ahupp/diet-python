@@ -132,7 +132,7 @@ fn param_pairs_expr(params: &[String]) -> CoreBlockPyExpr {
             .map(|param| {
                 tuple_expr(vec![
                     string_literal_expr(param),
-                    CoreBlockPyExpr::Name(load_name(param)),
+                    CoreBlockPyExpr::Name(load_name(param).into()),
                 ])
             })
             .collect(),

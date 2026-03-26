@@ -119,7 +119,7 @@ fn helper_call_expr_with_meta(
     CoreBlockPyExpr::Call(CoreBlockPyCall {
         node_index,
         range,
-        func: Box::new(CoreBlockPyExpr::Name(load_name(helper_name))),
+        func: Box::new(CoreBlockPyExpr::Name(load_name(helper_name).into())),
         args: args
             .into_iter()
             .map(CoreBlockPyCallArg::Positional)

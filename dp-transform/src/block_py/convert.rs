@@ -439,7 +439,7 @@ impl From<CoreBlockPyExpr> for Expr {
                 positional_call_args(node.args),
                 Vec::new(),
             ),
-            CoreBlockPyExpr::Name(node) => Expr::Name(node),
+            CoreBlockPyExpr::Name(node) => Expr::Name(node.into()),
         }
     }
 }
@@ -716,7 +716,7 @@ impl TryFrom<CoreBlockPyExprWithYield> for CoreBlockPyExpr {
 
     fn try_from(value: CoreBlockPyExprWithYield) -> Result<Self, Self::Error> {
         match value {
-            CoreBlockPyExprWithYield::Name(node) => Ok(Self::Name(node)),
+            CoreBlockPyExprWithYield::Name(node) => Ok(Self::Name(node.into())),
             CoreBlockPyExprWithYield::Literal(literal) => Ok(Self::Literal(literal)),
             CoreBlockPyExprWithYield::Call(call) => Ok(Self::Call(CoreBlockPyCall {
                 node_index: call.node_index,
@@ -810,7 +810,7 @@ impl TryFrom<BlockPyFunction<CoreBlockPyPassWithYield>> for BlockPyFunction<Core
 impl From<CoreBlockPyExpr> for CoreBlockPyExprWithYield {
     fn from(value: CoreBlockPyExpr) -> Self {
         match value {
-            CoreBlockPyExpr::Name(node) => Self::Name(node),
+            CoreBlockPyExpr::Name(node) => Self::Name(node.into()),
             CoreBlockPyExpr::Literal(literal) => Self::Literal(literal),
             CoreBlockPyExpr::Call(call) => Self::Call(CoreBlockPyCall {
                 node_index: call.node_index,

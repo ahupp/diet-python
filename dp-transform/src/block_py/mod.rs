@@ -48,6 +48,53 @@ fn is_internal_symbol(name: &str) -> bool {
     name.starts_with("_dp_") || name.starts_with("__dp_") || name == "__dp__"
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NameLocation {
+    Unresolved,
+    Local { slot: u32 },
+    Global { slot: u32 },
+    ClosureCell { slot: u32 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BlockPyName {
+    pub id: ruff_python_ast::name::Name,
+    pub ctx: ast::ExprContext,
+    pub range: ruff_text_size::TextRange,
+    pub node_index: ast::AtomicNodeIndex,
+    pub location: NameLocation,
+}
+
+impl BlockPyName {
+    pub fn with_location(mut self, location: NameLocation) -> Self {
+        self.location = location;
+        self
+    }
+}
+
+impl From<ast::ExprName> for BlockPyName {
+    fn from(value: ast::ExprName) -> Self {
+        Self {
+            id: value.id,
+            ctx: value.ctx,
+            range: value.range,
+            node_index: value.node_index,
+            location: NameLocation::Unresolved,
+        }
+    }
+}
+
+impl From<BlockPyName> for ast::ExprName {
+    fn from(value: BlockPyName) -> Self {
+        Self {
+            id: value.id,
+            ctx: value.ctx,
+            range: value.range,
+            node_index: value.node_index,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum BindingTarget {
     Local,
@@ -283,7 +330,7 @@ pub enum CoreBlockPyExprWithYield {
 }
 
 #[derive(Debug, Clone)]
-pub enum CoreBlockPyExpr<N = ast::ExprName> {
+pub enum CoreBlockPyExpr<N = BlockPyName> {
     Name(N),
     Literal(CoreBlockPyLiteral),
     Call(CoreBlockPyCall<CoreBlockPyExpr<N>>),
@@ -377,9 +424,9 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
     }
 }
 
-impl CoreCallLikeExpr for CoreBlockPyExpr {
+impl<N: From<ast::ExprName>> CoreCallLikeExpr for CoreBlockPyExpr<N> {
     fn from_name(name: ast::ExprName) -> Self {
-        Self::Name(name)
+        Self::Name(name.into())
     }
 
     fn from_call(call: CoreBlockPyCall<Self>) -> Self {
@@ -1538,7 +1585,7 @@ impl ImplicitNoneExpr for CoreBlockPyExprWithYield {
 
 impl ImplicitNoneExpr for CoreBlockPyExpr {
     fn implicit_none_expr() -> Self {
-        Self::Name(implicit_none_name())
+        Self::Name(implicit_none_name().into())
     }
 
     fn is_implicit_none_expr(expr: &Self) -> bool {

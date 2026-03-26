@@ -67,12 +67,15 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
 }
 
 fn core_name_expr(name: &str) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Name(ast::ExprName {
-        id: name.into(),
-        ctx: ast::ExprContext::Load,
-        range: TextRange::default(),
-        node_index: ast::AtomicNodeIndex::default(),
-    })
+    CoreBlockPyExpr::Name(
+        ast::ExprName {
+            id: name.into(),
+            ctx: ast::ExprContext::Load,
+            range: TextRange::default(),
+            node_index: ast::AtomicNodeIndex::default(),
+        }
+        .into(),
+    )
 }
 
 fn core_call_expr(name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
