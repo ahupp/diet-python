@@ -13,7 +13,11 @@ use crate::block_py::{
     CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
     IntrinsicCall, LocatedName, NameLocation,
 };
-use crate::passes::{CoreBlockPyPass, LocatedCoreBlockPyPass};
+use crate::passes::ruff_to_blockpy::{
+    lower_structured_located_blocks_to_bb_blocks, recompute_lowered_block_params,
+    should_include_closure_storage_aliases,
+};
+use crate::passes::{BbBlockPyPass, CoreBlockPyPass, LocatedCoreBlockPyPass};
 use ruff_python_ast::{self as ast, ExprName};
 use std::collections::{HashMap, HashSet};
 
@@ -1403,9 +1407,40 @@ fn locate_names_in_callable(
     .map_fn(callable)
 }
 
+fn lower_located_callable_to_bb(
+    callable: BlockPyFunction<LocatedCoreBlockPyPass>,
+) -> BlockPyFunction<BbBlockPyPass> {
+    let block_params = recompute_lowered_block_params(
+        &callable,
+        should_include_closure_storage_aliases(&callable),
+    );
+    let BlockPyFunction {
+        function_id,
+        name_gen,
+        names,
+        kind,
+        params,
+        blocks,
+        doc,
+        closure_layout,
+        semantic,
+    } = callable;
+    BlockPyFunction {
+        function_id,
+        name_gen,
+        names,
+        kind,
+        params,
+        blocks: lower_structured_located_blocks_to_bb_blocks(&blocks, &block_params),
+        doc,
+        closure_layout,
+        semantic,
+    }
+}
+
 fn lower_name_binding_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
-) -> BlockPyFunction<LocatedCoreBlockPyPass> {
+) -> BlockPyFunction<BbBlockPyPass> {
     let semantic = callable.semantic.clone();
     let mut lowered = NameBindingMapper {
         semantic: &semantic,
@@ -1432,11 +1467,11 @@ fn lower_name_binding_callable(
             );
         }
     }
-    locate_names_in_callable(lowered)
+    lower_located_callable_to_bb(locate_names_in_callable(lowered))
 }
 
 pub(crate) fn lower_name_binding_in_core_blockpy_module(
     module: BlockPyModule<CoreBlockPyPass>,
-) -> BlockPyModule<LocatedCoreBlockPyPass> {
+) -> BlockPyModule<BbBlockPyPass> {
     module.map_callable_defs(lower_name_binding_callable)
 }

@@ -1,7 +1,7 @@
 use crate::block_py::{
     BbStmt, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyTerm, PreparedBbBlock,
 };
-use crate::passes::blockpy_to_bb::populate_exception_edge_args;
+use crate::passes::ruff_to_blockpy::populate_exception_edge_args;
 use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass};
 use std::collections::HashSet;
 

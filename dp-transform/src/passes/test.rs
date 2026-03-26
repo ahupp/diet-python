@@ -1,9 +1,9 @@
 use crate::block_py::{
     BbBlock, BbStmt, BlockPyCallableScopeKind, BlockPyCellBindingKind, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyModule, BlockPyNameLike, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
+    BlockPyFunctionKind, BlockPyModule, BlockPyNameLike, BlockPyTerm, CoreBlockPyExpr,
 };
 use crate::block_py::{BlockPyBindingKind, ClosureInit, ClosureSlot};
-use crate::passes::{BbBlockPyPass, CoreBlockPyPass, LocatedCoreBlockPyPass, RuffBlockPyPass};
+use crate::passes::{BbBlockPyPass, CoreBlockPyPass, RuffBlockPyPass};
 use crate::LoweringResult;
 use crate::{
     py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
@@ -57,7 +57,7 @@ impl TrackedLowering {
 
     fn bb_module(&self) -> &BlockPyModule<BbBlockPyPass> {
         self.result
-            .get_pass::<BlockPyModule<BbBlockPyPass>>("bb_blockpy")
+            .get_pass::<BlockPyModule<BbBlockPyPass>>("name_binding")
             .expect("bb module should be available")
     }
 
@@ -748,7 +748,7 @@ class Box:
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered
-            .contains("__dp_store_global(__dp_globals(), \"caught\", __dp_current_exception())"),
+            .contains("__dp_store_global(__dp_globals(), \"caught\", _dp_try_exc_"),
         "{name_binding_rendered}"
     );
     assert!(
@@ -784,7 +784,7 @@ def outer():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("__dp_store_cell(x, __dp_current_exception())"),
+        name_binding_rendered.contains("__dp_store_cell(x, _dp_try_exc_"),
         "{name_binding_rendered}"
     );
     assert!(
@@ -816,8 +816,7 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered
-            .contains("__dp_setitem(_dp_class_ns, \"caught\", __dp_current_exception())"),
+        name_binding_rendered.contains("__dp_setitem(_dp_class_ns, \"caught\", _dp_try_exc_"),
         "{name_binding_rendered}"
     );
     assert!(
@@ -1527,8 +1526,7 @@ except Exception as exc:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered
-            .contains("__dp_store_global(__dp_globals(), \"exc\", __dp_current_exception())"),
+        name_binding_rendered.contains("__dp_store_global(__dp_globals(), \"exc\", _dp_try_exc_"),
         "{name_binding_rendered}"
     );
     assert!(
@@ -1676,14 +1674,14 @@ def outer(x):
     );
     let name_binding_module = lowered
         .result
-        .get_pass::<BlockPyModule<LocatedCoreBlockPyPass>>("name_binding")
+        .get_pass::<BlockPyModule<BbBlockPyPass>>("name_binding")
         .expect("name_binding pass should be available");
     let outer = name_binding_module
         .callable_defs
         .iter()
         .find(|func| func.names.bind_name == "outer")
         .expect("outer function should be present");
-    let Some(BlockPyStmt::Assign(assign)) = outer.entry_block().body.first() else {
+    let Some(BbStmt::Assign(assign)) = outer.entry_block().body.first() else {
         panic!("expected first entry stmt to be an assignment");
     };
     assert!(

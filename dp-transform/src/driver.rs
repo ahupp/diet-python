@@ -14,7 +14,7 @@ use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
 use crate::passes::ruff_to_blockpy::rewrite_ast_to_lowered_blockpy_module_plan_with_module;
 use crate::passes::{
     self, BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield,
-    CoreBlockPyPassWithYield, LocatedCoreBlockPyPass, PreparedBbBlockPyPass, RuffBlockPyPass,
+    CoreBlockPyPassWithYield, PreparedBbBlockPyPass, RuffBlockPyPass,
 };
 use crate::PassTracker;
 use ruff_python_ast::{self as ast, Stmt};
@@ -152,17 +152,13 @@ pub(crate) fn rewrite_module_with_tracker(
         .run_renderable_pass("core_blockpy", || {
             passes::lower_yield_in_lowered_core_blockpy_module_bundle(core_blockpy_without_await)
         });
-    let name_binding: BlockPyModule<LocatedCoreBlockPyPass> = pass_tracker
+    let name_binding: BlockPyModule<BbBlockPyPass> = pass_tracker
         .run_renderable_pass("name_binding", || {
             passes::lower_name_binding_in_core_blockpy_module(core_blockpy_without_await_or_yield)
         });
-    let bb_module: BlockPyModule<BbBlockPyPass> = pass_tracker
-        .run_renderable_pass("bb_blockpy", || {
-            passes::lower_core_blockpy_module_bundle_to_bb_module(name_binding)
-        });
     let bb_prepared: BlockPyModule<PreparedBbBlockPyPass> =
         pass_tracker.run_renderable_pass("bb_prepared", || {
-            passes::lower_try_jump_exception_flow(&bb_module)
+            passes::lower_try_jump_exception_flow(&name_binding)
                 .expect("bb_prepared pass should succeed for valid BB lowering")
         });
     let bb_traced: BlockPyModule<PreparedBbBlockPyPass> =

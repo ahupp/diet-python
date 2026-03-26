@@ -1,10 +1,11 @@
-use super::populate_exception_edge_args;
 use crate::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt, BlockPyStmtFragment,
     BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
     CoreStringLiteral, IntrinsicCall, LocatedCoreBlockPyExpr, LocatedName,
 };
-use crate::passes::blockpy_to_bb::lower_blockpy_blocks_to_bb_blocks;
+use crate::passes::ruff_to_blockpy::{
+    lower_structured_located_blocks_to_bb_blocks, populate_exception_edge_args,
+};
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 use std::collections::HashMap;
@@ -51,7 +52,7 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
         exc_edge: None,
     };
 
-    let blocks = lower_blockpy_blocks_to_bb_blocks(
+    let blocks = lower_structured_located_blocks_to_bb_blocks(
         &[crate::block_py::CfgBlock {
             label: block.label,
             body: block.body,
@@ -112,7 +113,7 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
         exc_edge: None,
     };
 
-    let lowered = lower_blockpy_blocks_to_bb_blocks(
+    let lowered = lower_structured_located_blocks_to_bb_blocks(
         &[crate::block_py::CfgBlock {
             label: block.label,
             body: block.body,
@@ -168,7 +169,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         exc_edge: None,
     };
 
-    let lowered = lower_blockpy_blocks_to_bb_blocks(
+    let lowered = lower_structured_located_blocks_to_bb_blocks(
         &[crate::block_py::CfgBlock {
             label: block.label,
             body: block.body,
