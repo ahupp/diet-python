@@ -55,7 +55,9 @@ fn probe_bb_exprs<N: BlockPyNameLike>(
                 {
                     probe.saw_str_bytes_call.set(true);
                 }
-                if name.id_str() == "__dp_decode_literal_bytes" {
+                if name.id_str() == "__dp_decode_literal_bytes"
+                    || name.id_str() == "__dp_decode_literal_source_bytes"
+                {
                     probe.saw_decode_literal_call.set(true);
                 }
             }
@@ -125,7 +127,7 @@ def f():
         .expect("transform should succeed")
         .expect("bb module should be available");
     let prepared = lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
-    let normalized = normalize_bb_module_strings(&prepared);
+    let normalized = normalize_bb_module_strings(&prepared, source);
 
     let mut probe = ExprShapeProbe::new();
     for function in normalized.callable_defs {
@@ -166,7 +168,7 @@ def f(obj, mapping, key, value):
         .expect("transform should succeed")
         .expect("bb module should be available");
     let prepared = lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
-    let normalized = normalize_bb_module_strings(&prepared);
+    let normalized = normalize_bb_module_strings(&prepared, source);
 
     let mut text = String::new();
     for function in normalized.callable_defs {
@@ -183,4 +185,34 @@ def f(obj, mapping, key, value):
     assert!(!text.contains("PyObject_SetAttr"), "{text}");
     assert!(!text.contains("PyObject_GetItem"), "{text}");
     assert!(!text.contains("PyObject_SetItem"), "{text}");
+}
+
+#[test]
+fn lowers_surrogate_escaped_string_literals_for_codegen() {
+    let source = "def f():\n    return \"\\udca7\" \"b\"\n";
+    let options = Options::for_test();
+    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+        .expect("transform should succeed")
+        .expect("bb module should be available");
+    let prepared = lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
+    let normalized = normalize_bb_module_strings(&prepared, source);
+
+    let mut probe = ExprShapeProbe::new();
+    for function in normalized.callable_defs {
+        for block in &function.blocks {
+            for op in &block.body {
+                probe_bb_stmt_exprs(&mut probe, &op);
+            }
+            probe_bb_term_exprs(&mut probe, &block.term);
+        }
+    }
+
+    assert!(
+        probe.saw_decode_literal_call.get(),
+        "expected surrogate decode call"
+    );
+    assert!(
+        !probe.saw_string_literal.get(),
+        "string literal should have been lowered"
+    );
 }

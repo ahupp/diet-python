@@ -3,7 +3,6 @@ use crate::passes::ast_to_ast::ast_rewrite::rewrite_with_pass;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def;
 use crate::passes::ast_to_ast::rewrite_expr::ScopedHelperExprPass;
-use crate::passes::ast_to_ast::simplify::lower_surrogate_string_literals;
 use crate::passes::ast_to_ast::{
     body::{split_docstring, Suite},
     rewrite_future_annotations, rewrite_stmt,
@@ -29,8 +28,6 @@ pub(crate) fn rewrite_module_with_tracker(
         let mut module = std::mem::take(module);
 
         // The transform now has a single lowering strategy: basic-block form.
-        lower_surrogate_string_literals(context, &mut module);
-
         let future_imports = rewrite_future_annotations::rewrite(context, &mut module);
 
         // Rewrite names like "__foo" in class bodies to "_<class_name>__foo"
@@ -169,7 +166,7 @@ pub(crate) fn rewrite_module_with_tracker(
             traced
         });
     pass_tracker.run_renderable_pass("bb_codegen", || {
-        passes::normalize_bb_module_strings(&bb_traced)
+        passes::normalize_bb_module_strings(&bb_traced, &context.source)
     })
 }
 

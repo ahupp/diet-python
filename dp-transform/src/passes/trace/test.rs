@@ -36,7 +36,7 @@ fn instruments_matching_function_blocks() {
         .expect("transform should succeed")
         .expect("bb module should be available");
     let prepared = lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
-    let mut normalized = normalize_bb_module_strings(&prepared);
+    let mut normalized = normalize_bb_module_strings(&prepared, source);
     instrument_bb_module_for_trace(
         &mut normalized,
         &TraceConfig {
