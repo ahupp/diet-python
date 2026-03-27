@@ -280,16 +280,17 @@ run-web-inspector: build-web-inspector (build-extension "debug") ensure-venv
     wait "$SERVER_PID"
   fi
 
+  OPEN_URL="${URL}/?v=$(date +%s)"
   echo "[3/3] Opening browser..."
   if command -v open >/dev/null 2>&1; then
-    open "$URL" >/dev/null 2>&1 || true
+    open "$OPEN_URL" >/dev/null 2>&1 || true
   elif command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "$URL" >/dev/null 2>&1 || true
+    xdg-open "$OPEN_URL" >/dev/null 2>&1 || true
   else
-    echo "No browser opener found. Open this URL manually: $URL"
+    echo "No browser opener found. Open this URL manually: $OPEN_URL"
   fi
 
-  echo "Serving $URL (pid=$SERVER_PID). Press Ctrl+C to stop."
+  echo "Serving $URL (opened $OPEN_URL, pid=$SERVER_PID). Press Ctrl+C to stop."
   wait "$SERVER_PID"
 
 perf-pystone-jit-warm loops="500000" output_prefix="logs/pystone_jit_perf_warm": ensure-cpython

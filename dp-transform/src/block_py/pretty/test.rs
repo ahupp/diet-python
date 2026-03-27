@@ -93,7 +93,8 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
     assert!(rendered.contains("function _dp_module_init():"));
     assert!(!rendered.contains("module_init: _dp_module_init"));
     assert!(
-        rendered.contains(format!("block {}:", classify.entry_block().label_str()).as_str()),
+        rendered.contains(format!("block {}:", classify.entry_block().label_str()).as_str())
+            || rendered.contains(format!("block {}(", classify.entry_block().label_str()).as_str()),
         "{rendered}"
     );
     assert!(rendered.contains("if_term a:"));
@@ -193,7 +194,10 @@ async def no_lying():
         .into_iter()
         .map(|label| label.to_string())
         .filter(|label| !inlined_labels.contains(label))
-        .filter(|label| !rendered.contains(format!("block {label}:").as_str()))
+        .filter(|label| {
+            !rendered.contains(format!("block {label}:").as_str())
+                && !rendered.contains(format!("block {label}(").as_str())
+        })
         .collect::<Vec<_>>();
 
     assert!(missing_labels.is_empty(), "{rendered}");
@@ -467,8 +471,10 @@ fn renders_bb_block_metadata_with_shared_layout() {
 
     assert!(rendered.contains("function f():"), "{rendered}");
     assert!(rendered.contains("function_id: 0"), "{rendered}");
-    assert!(rendered.contains("block bb0:"), "{rendered}");
-    assert!(rendered.contains("params: [err, x]"), "{rendered}");
+    assert!(
+        rendered.contains("block bb0(err: Exception, x: Local):"),
+        "{rendered}"
+    );
     assert!(rendered.contains("exc_target: bb1"), "{rendered}");
     assert!(rendered.contains("exc_name: err"), "{rendered}");
     assert!(rendered.contains("jump bb1"), "{rendered}");

@@ -117,7 +117,7 @@ body {
 
 .workspace {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 33.3333%) minmax(0, 66.6667%);
   gap: 14px;
   min-height: 0;
   flex: 1;
@@ -359,6 +359,10 @@ select {
 }
 
 @media (max-width: 1200px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .node {
     min-width: 0;
   }
@@ -370,7 +374,7 @@ select {
   <div class="header">
     <div>
       <div class="title">diet-python transform pipeline inspector</div>
-      <div class="subtitle">Two-pass window over the tracked lowering pipeline. Use Left/Right arrow to shift.</div>
+      <div class="subtitle">Input source stays pinned on the left. Use Left/Right arrow to shift the preview on the right.</div>
     </div>
     <div class="nav-controls">
       <button class="nav-button" id="prevPass" type="button" aria-label="Previous pass">←</button>
@@ -383,14 +387,14 @@ select {
   </div>
 
   <div class="workspace">
-    <section class="panel">
+    <section class="panel source-panel">
       <div class="panel-head">
         <div class="panel-title" id="leftTitle">input source</div>
       </div>
       <div class="panel-body" id="leftPane"></div>
     </section>
 
-    <section class="panel">
+    <section class="panel preview-panel">
       <div class="panel-head">
         <div class="panel-title" id="rightTitle">ast-to-ast</div>
       </div>
@@ -617,12 +621,11 @@ function renderStep(container, step) {
 }
 
 function renderPassWindow() {
-  const leftStep = state.steps[state.pairStart] || null;
   const rightStep = currentRightStep();
 
-  leftTitleEl.textContent = leftStep?.label || "input source";
+  leftTitleEl.textContent = "input source";
   rightTitleEl.textContent = rightStep?.label || "no later pass";
-  renderStep(leftPaneEl, leftStep);
+  renderSourceEditor(leftPaneEl);
   renderStep(rightPaneEl, rightStep);
 
   prevPassEl.disabled = state.pairStart === 0;

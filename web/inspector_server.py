@@ -67,6 +67,13 @@ class InspectorHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, directory=None, **kwargs):
         super().__init__(*args, directory=str(WEB_DIR), **kwargs)
 
+    def end_headers(self):
+        # Avoid stale inspector UI/assets when the local server is restarted.
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
+
     def do_POST(self):
         if self.path == "/api/inspect_pipeline":
             self._handle_inspect_pipeline()

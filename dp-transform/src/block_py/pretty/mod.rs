@@ -1,7 +1,7 @@
 use super::{
-    AbruptKind, BlockArg, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyNameLike, BlockPyPass, BlockPyRaise,
-    BlockPyTerm, CfgBlock, Expr, IntoStructuredBlockPyStmt, PassBlock, PassExpr,
+    AbruptKind, BlockArg, BlockParamRole, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyNameLike, BlockPyPass,
+    BlockPyRaise, BlockPyTerm, CfgBlock, Expr, IntoStructuredBlockPyStmt, PassBlock, PassExpr,
     StructuredBlockPyStmt,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
@@ -49,16 +49,6 @@ impl_default_blockpy_pretty_printer!(
 impl BlockPyPrettyPrinter for ResolvedStorageBlockPyPass {
     fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
         let mut lines = Vec::new();
-        if !block.params.is_empty() {
-            lines.push(format!(
-                "params: [{}]",
-                block
-                    .param_names()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-        }
         if let Some(exc_edge) = &block.exc_edge {
             lines.push(format!("exc_target: {}", exc_edge.target));
         }
@@ -216,7 +206,7 @@ impl BlockPyFormatter {
         P: BlockPyPrettyPrinter,
     {
         let block = &function.blocks[block_index];
-        self.line(format!("block {}:", block.label));
+        self.line(render_block_header(block));
         self.with_indent(|this| {
             for line in P::block_metadata_lines(block) {
                 this.line(line);
@@ -650,18 +640,29 @@ where
     if let Some(exc_param) = block.exception_param() {
         lines.push(format!("exc_param: {exc_param}"));
     }
-    if !block.params.is_empty() {
-        lines.push(format!(
-            "params: [{}]",
-            block
-                .params
-                .iter()
-                .map(|param| format!("{}:{:?}", param.name, param.role))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
     lines
+}
+
+fn render_block_header<S, T>(block: &CfgBlock<S, T>) -> String {
+    let params = block
+        .params
+        .iter()
+        .map(|param| format!("{}: {}", param.name, render_block_param_role(param.role)))
+        .collect::<Vec<_>>();
+    if params.is_empty() {
+        format!("block {}:", block.label)
+    } else {
+        format!("block {}({}):", block.label, params.join(", "))
+    }
+}
+
+fn render_block_param_role(role: BlockParamRole) -> &'static str {
+    match role {
+        BlockParamRole::Local => "Local",
+        BlockParamRole::Exception => "Exception",
+        BlockParamRole::AbruptKind => "AbruptKind",
+        BlockParamRole::AbruptPayload => "AbruptPayload",
+    }
 }
 
 #[derive(Debug)]
