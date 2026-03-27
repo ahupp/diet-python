@@ -542,6 +542,7 @@ struct DirectSimpleEmitConsts {
 }
 
 struct DirectSimpleEmitCtx {
+    entry_args_layout: EntryArgsLayout,
     incref_ref: ir::FuncRef,
     decref_ref: ir::FuncRef,
     py_call_positional_three_ref: ir::FuncRef,
@@ -1167,25 +1168,30 @@ fn emit_direct_simple_expr(
 
     match expr {
         DirectSimpleExprPlan::Name(name) => {
-            if let Some(slot_index) = local_names
-                .iter()
-                .position(|candidate| candidate == name.id.as_str())
-            {
-                let slot_value = local_values[slot_index];
-                if !borrowed {
-                    fb.ins().call(incref_ref, &[slot_value]);
+            let may_read_from_state =
+                !matches!(name.location, NameLocation::CapturedCellSource { .. })
+                    || matches!(ctx.entry_args_layout, EntryArgsLayout::StateTuple);
+            if may_read_from_state {
+                if let Some(slot_index) = local_names
+                    .iter()
+                    .position(|candidate| candidate == name.id.as_str())
+                {
+                    let slot_value = local_values[slot_index];
+                    if !borrowed {
+                        fb.ins().call(incref_ref, &[slot_value]);
+                    }
+                    return slot_value;
                 }
-                return slot_value;
-            }
-            if let Some(slot_value) = load_function_state_value(
-                fb,
-                &ctx.function_state_slots,
-                name.id.as_str(),
-                ptr_ty,
-                borrowed,
-                incref_ref,
-            ) {
-                return slot_value;
+                if let Some(slot_value) = load_function_state_value(
+                    fb,
+                    &ctx.function_state_slots,
+                    name.id.as_str(),
+                    ptr_ty,
+                    borrowed,
+                    incref_ref,
+                ) {
+                    return slot_value;
+                }
             }
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
             match name.location {
@@ -2127,7 +2133,15 @@ fn emit_direct_simple_expr(
                             let cell_in_locals = local_names
                                 .iter()
                                 .any(|candidate| candidate == cell_name_text);
-                            if cell_in_locals || ctx.function_state_slots.has_name(cell_name_text) {
+                            let may_read_from_state =
+                                !matches!(
+                                    cell_name.location,
+                                    NameLocation::CapturedCellSource { .. }
+                                ) || matches!(ctx.entry_args_layout, EntryArgsLayout::StateTuple);
+                            if may_read_from_state
+                                && (cell_in_locals
+                                    || ctx.function_state_slots.has_name(cell_name_text))
+                            {
                                 return emit_direct_simple_expr(
                                     fb,
                                     cell_expr,
@@ -3298,28 +3312,32 @@ fn build_cranelift_run_bb_specialized_function(
         function_state_slots.initialize_all_to_value(&mut fb, entry_deleted_const, incref_ref);
 
         let null_ptr = fb.ins().iconst(ptr_ty, 0);
-        for (param_index, param_name) in plan.ambient_param_names.iter().enumerate() {
-            let index_val = fb.ins().iconst(i64_ty, param_index as i64);
-            let item_inst = fb.ins().call(get_arg_item_ref, &[ambient_args, index_val]);
-            let item_val = fb.inst_results(item_inst)[0];
-            let is_null = fb
-                .ins()
-                .icmp(ir::condcodes::IntCC::Equal, item_val, null_ptr);
-            let ok_block = fb.create_block();
-            fb.append_block_param(ok_block, ptr_ty);
-            fb.ins().brif(
-                is_null,
-                step_null_block,
-                &[ir::BlockArg::Value(entry_args)],
-                ok_block,
-                &[ir::BlockArg::Value(item_val)],
-            );
-            fb.switch_to_block(ok_block);
-            let value = fb.block_params(ok_block)[0];
-            function_state_slots
-                .replace_cloned_value(&mut fb, param_name, value, ptr_ty, incref_ref, decref_ref)
-                .expect("ambient slot missing from function state slots");
-            fb.ins().call(decref_ref, &[value]);
+        if matches!(entry_args_layout, EntryArgsLayout::StateTuple) {
+            for (param_index, param_name) in plan.ambient_param_names.iter().enumerate() {
+                let index_val = fb.ins().iconst(i64_ty, param_index as i64);
+                let item_inst = fb.ins().call(get_arg_item_ref, &[ambient_args, index_val]);
+                let item_val = fb.inst_results(item_inst)[0];
+                let is_null = fb
+                    .ins()
+                    .icmp(ir::condcodes::IntCC::Equal, item_val, null_ptr);
+                let ok_block = fb.create_block();
+                fb.append_block_param(ok_block, ptr_ty);
+                fb.ins().brif(
+                    is_null,
+                    step_null_block,
+                    &[ir::BlockArg::Value(entry_args)],
+                    ok_block,
+                    &[ir::BlockArg::Value(item_val)],
+                );
+                fb.switch_to_block(ok_block);
+                let value = fb.block_params(ok_block)[0];
+                function_state_slots
+                    .replace_cloned_value(
+                        &mut fb, param_name, value, ptr_ty, incref_ref, decref_ref,
+                    )
+                    .expect("ambient slot missing from function state slots");
+                fb.ins().call(decref_ref, &[value]);
+            }
         }
         match entry_args_layout {
             EntryArgsLayout::ParamTuple => {
@@ -3436,6 +3454,7 @@ fn build_cranelift_run_bb_specialized_function(
                 exception_dispatch_blocks[index].unwrap_or(cleanup_null_blocks[index]);
             let fast_step_null_args = Vec::new();
             let emit_ctx = DirectSimpleEmitCtx {
+                entry_args_layout,
                 incref_ref,
                 decref_ref,
                 py_call_positional_three_ref,

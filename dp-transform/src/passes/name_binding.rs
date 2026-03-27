@@ -7,11 +7,11 @@ use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta,
     map_intrinsic_args_with, BbStmt, BindingTarget, BlockPyAssign, BlockPyBindingKind,
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
-    BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt, BlockPyTerm, ClosureInit,
-    ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
-    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, IntrinsicCall, LocatedName,
-    NameLocation,
+    BlockPyCellBindingKind, BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
+    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
+    IntrinsicCall, LocatedName, NameLocation,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, recompute_lowered_block_params,
@@ -1208,6 +1208,11 @@ fn resolve_captured_cell_source_storage_name(
     name: &str,
 ) -> Option<String> {
     let logical_name = semantic.logical_name_for_cell_capture_source(name)?;
+    if semantic.binding_kind(logical_name.as_str())
+        != Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+    {
+        return None;
+    }
     let capture_source_name = semantic.cell_capture_source_name(logical_name.as_str());
     let storage_name = semantic.cell_storage_name(logical_name.as_str());
     (capture_source_name == name && capture_source_name != storage_name).then_some(storage_name)
@@ -1230,6 +1235,24 @@ fn collect_cell_slot_locations(
         }
     }
     slots
+}
+
+fn collect_inherited_capture_names(callable: &BlockPyFunction<CoreBlockPyPass>) -> HashSet<String> {
+    let mut names = HashSet::new();
+    if let Some(layout) = callable.closure_layout.as_ref() {
+        for slot in layout
+            .freevars
+            .iter()
+            .chain(layout.cellvars.iter())
+            .chain(layout.runtime_cells.iter())
+        {
+            if matches!(slot.init, ClosureInit::InheritedCapture) {
+                names.insert(slot.logical_name.clone());
+                names.insert(slot.storage_name.clone());
+            }
+        }
+    }
+    names
 }
 
 fn is_remaining_local_name(name: &str, semantic: &BlockPyCallableSemanticInfo) -> bool {
@@ -1277,6 +1300,7 @@ struct NameLocator<'a> {
     semantic: &'a BlockPyCallableSemanticInfo,
     local_slots: HashMap<String, u32>,
     cell_slots: HashMap<String, u32>,
+    inherited_capture_names: HashSet<String>,
 }
 
 impl NameLocator<'_> {
@@ -1307,6 +1331,27 @@ impl NameLocator<'_> {
         };
         LocatedName::from(name).with_location(location)
     }
+
+    fn mark_raw_cell_name(&self, name: LocatedName) -> LocatedName {
+        match name.location {
+            NameLocation::ClosureCell { slot }
+                if self.inherited_capture_names.contains(name.id.as_str()) =>
+            {
+                name.with_location(NameLocation::CapturedCellSource { slot })
+            }
+            _ => name,
+        }
+    }
+
+    fn mark_raw_cell_expr(
+        &self,
+        expr: CoreBlockPyExpr<LocatedName>,
+    ) -> CoreBlockPyExpr<LocatedName> {
+        match expr {
+            CoreBlockPyExpr::Name(name) => CoreBlockPyExpr::Name(self.mark_raw_cell_name(name)),
+            other => other,
+        }
+    }
 }
 
 impl BlockPyModuleMap<CoreBlockPyPass, BbBlockPyPass> for NameLocator<'_> {
@@ -1324,19 +1369,50 @@ impl BlockPyModuleMap<CoreBlockPyPass, BbBlockPyPass> for NameLocator<'_> {
                 func,
                 args,
                 keywords,
-            }) => CoreBlockPyExpr::Call(CoreBlockPyCall {
-                node_index,
-                range,
-                func: Box::new(self.map_expr(*func)),
-                args: self.map_call_args(args),
-                keywords: self.map_keyword_args(keywords),
-            }),
-            CoreBlockPyExpr::Intrinsic(call) => CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-                intrinsic: call.intrinsic,
-                node_index: call.node_index,
-                range: call.range,
-                args: map_intrinsic_args_with(call.args, |expr| self.map_expr(expr)),
-            }),
+            }) => {
+                let func = Box::new(self.map_expr(*func));
+                let mut args = self.map_call_args(args);
+                if matches!(
+                    func.as_ref(),
+                    CoreBlockPyExpr::Name(func_name)
+                        if func_name.id.as_str() == "__dp_class_lookup_cell"
+                ) && args.len() == 3
+                {
+                    if let Some(CoreBlockPyCallArg::Positional(expr)) = args.get_mut(2) {
+                        *expr = self.mark_raw_cell_expr(expr.clone());
+                    }
+                }
+                CoreBlockPyExpr::Call(CoreBlockPyCall {
+                    node_index,
+                    range,
+                    func,
+                    args,
+                    keywords: self.map_keyword_args(keywords),
+                })
+            }
+            CoreBlockPyExpr::Intrinsic(call) => {
+                let intrinsic = call.intrinsic;
+                let mut args = map_intrinsic_args_with(call.args, |expr| self.map_expr(expr));
+                let marks_first_arg_as_raw_cell = matches!(
+                    intrinsic.name(),
+                    name if name == CELL_REF_INTRINSIC.name()
+                        || name == LOAD_CELL_INTRINSIC.name()
+                        || name == STORE_CELL_INTRINSIC.name()
+                        || name == DEL_DEREF_INTRINSIC.name()
+                        || name == DEL_DEREF_QUIETLY_INTRINSIC.name()
+                );
+                if marks_first_arg_as_raw_cell {
+                    if let Some(first) = args.get_mut(0) {
+                        *first = self.mark_raw_cell_expr(first.clone());
+                    }
+                }
+                CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+                    intrinsic,
+                    node_index: call.node_index,
+                    range: call.range,
+                    args,
+                })
+            }
         }
     }
 }
@@ -1347,10 +1423,12 @@ fn locate_names_in_callable(
     let semantic = callable.semantic.clone();
     let local_slots = collect_local_slot_locations(&callable);
     let cell_slots = collect_cell_slot_locations(&callable);
+    let inherited_capture_names = collect_inherited_capture_names(&callable);
     NameLocator {
         semantic: &semantic,
         local_slots,
         cell_slots,
+        inherited_capture_names,
     }
     .map_fn(callable)
 }

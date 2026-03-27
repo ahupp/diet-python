@@ -337,6 +337,100 @@ unsafe extern "C" fn function_closure_cell_hook(callable: ObjPtr, slot: i64) -> 
         Ok(Some(closure))
     }
 
+    unsafe fn code_freevars_for_owner(owner: ObjPtr) -> Result<Option<*mut ffi::PyObject>, ()> {
+        let code = ffi::PyObject_GetAttrString(
+            owner as *mut ffi::PyObject,
+            b"__code__\0".as_ptr() as *const i8,
+        );
+        if code.is_null() {
+            if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
+                ffi::PyErr_Clear();
+                return Ok(None);
+            }
+            return Err(());
+        }
+        let freevars = ffi::PyObject_GetAttrString(code, b"co_freevars\0".as_ptr() as *const i8);
+        ffi::Py_DECREF(code);
+        if freevars.is_null() {
+            if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
+                ffi::PyErr_Clear();
+                return Ok(None);
+            }
+            return Err(());
+        }
+        if freevars == ffi::Py_None() {
+            ffi::Py_DECREF(freevars);
+            return Ok(None);
+        }
+        if ffi::PyTuple_Check(freevars) == 0 {
+            ffi::Py_DECREF(freevars);
+            return Ok(None);
+        }
+        Ok(Some(freevars))
+    }
+
+    unsafe fn closure_slot_index_for_owner(
+        owner: ObjPtr,
+        slot: i64,
+    ) -> Result<Option<ffi::Py_ssize_t>, ()> {
+        let slot_names = ffi::PyObject_GetAttrString(
+            owner as *mut ffi::PyObject,
+            b"__dp_closure_slot_names__\0".as_ptr() as *const i8,
+        );
+        if slot_names.is_null() {
+            if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
+                ffi::PyErr_Clear();
+                return Ok(None);
+            }
+            return Err(());
+        }
+        if ffi::PyTuple_Check(slot_names) == 0 {
+            ffi::Py_DECREF(slot_names);
+            return Ok(None);
+        }
+        let slot_count = ffi::PyTuple_GET_SIZE(slot_names);
+        if slot < 0 || slot >= slot_count as i64 {
+            ffi::Py_DECREF(slot_names);
+            ffi::PyErr_SetString(
+                ffi::PyExc_IndexError,
+                b"closure slot out of range\0".as_ptr() as *const i8,
+            );
+            return Err(());
+        }
+        let target_name = ffi::PyTuple_GetItem(slot_names, slot as ffi::Py_ssize_t);
+        if target_name.is_null() {
+            ffi::Py_DECREF(slot_names);
+            return Err(());
+        }
+        let Some(freevars) = code_freevars_for_owner(owner)? else {
+            ffi::Py_DECREF(slot_names);
+            return Ok(None);
+        };
+        let freevar_count = ffi::PyTuple_GET_SIZE(freevars);
+        let mut resolved_index = None;
+        for freevar_index in 0..freevar_count {
+            let freevar_name = ffi::PyTuple_GetItem(freevars, freevar_index);
+            if freevar_name.is_null() {
+                ffi::Py_DECREF(freevars);
+                ffi::Py_DECREF(slot_names);
+                return Err(());
+            }
+            let is_match = ffi::PyObject_RichCompareBool(target_name, freevar_name, ffi::Py_EQ);
+            if is_match < 0 {
+                ffi::Py_DECREF(freevars);
+                ffi::Py_DECREF(slot_names);
+                return Err(());
+            }
+            if is_match != 0 {
+                resolved_index = Some(freevar_index);
+                break;
+            }
+        }
+        ffi::Py_DECREF(freevars);
+        ffi::Py_DECREF(slot_names);
+        Ok(resolved_index)
+    }
+
     if slot < 0 {
         ffi::PyErr_SetString(
             ffi::PyExc_RuntimeError,
@@ -348,11 +442,8 @@ unsafe extern "C" fn function_closure_cell_hook(callable: ObjPtr, slot: i64) -> 
     if function.is_null() {
         return ptr::null_mut();
     }
-    let closure = match closure_tuple_for_owner(function) {
-        Ok(Some(closure)) => {
-            ffi::Py_DECREF(function as *mut ffi::PyObject);
-            closure
-        }
+    let (closure_owner, closure) = match closure_tuple_for_owner(function) {
+        Ok(Some(closure)) => (function, closure),
         Ok(None) => {
             let public = ffi::PyObject_GetAttrString(
                 function as *mut ffi::PyObject,
@@ -370,10 +461,7 @@ unsafe extern "C" fn function_closure_cell_hook(callable: ObjPtr, slot: i64) -> 
                 return ptr::null_mut();
             }
             match closure_tuple_for_owner(public as ObjPtr) {
-                Ok(Some(closure)) => {
-                    ffi::Py_DECREF(public);
-                    closure
-                }
+                Ok(Some(closure)) => (public as ObjPtr, closure),
                 Ok(None) => {
                     ffi::Py_DECREF(public);
                     ffi::PyErr_SetString(
@@ -388,24 +476,39 @@ unsafe extern "C" fn function_closure_cell_hook(callable: ObjPtr, slot: i64) -> 
                 }
             }
         }
-        Err(()) => return ptr::null_mut(),
+        Err(()) => {
+            ffi::Py_DECREF(function as *mut ffi::PyObject);
+            return ptr::null_mut();
+        }
+    };
+    let resolved_slot = match closure_slot_index_for_owner(closure_owner, slot) {
+        Ok(Some(index)) => index,
+        Ok(None) => slot as ffi::Py_ssize_t,
+        Err(()) => {
+            ffi::Py_DECREF(closure);
+            ffi::Py_DECREF(closure_owner as *mut ffi::PyObject);
+            return ptr::null_mut();
+        }
     };
     let closure_len = ffi::PyTuple_GET_SIZE(closure);
-    if slot >= closure_len as i64 {
+    if resolved_slot < 0 || resolved_slot >= closure_len {
         ffi::Py_DECREF(closure);
+        ffi::Py_DECREF(closure_owner as *mut ffi::PyObject);
         ffi::PyErr_SetString(
             ffi::PyExc_IndexError,
             b"closure slot out of range\0".as_ptr() as *const i8,
         );
         return ptr::null_mut();
     }
-    let cell = ffi::PyTuple_GetItem(closure, slot as ffi::Py_ssize_t);
+    let cell = ffi::PyTuple_GetItem(closure, resolved_slot);
     if cell.is_null() {
         ffi::Py_DECREF(closure);
+        ffi::Py_DECREF(closure_owner as *mut ffi::PyObject);
         return ptr::null_mut();
     }
     ffi::Py_INCREF(cell);
     ffi::Py_DECREF(closure);
+    ffi::Py_DECREF(closure_owner as *mut ffi::PyObject);
     cell as ObjPtr
 }
 

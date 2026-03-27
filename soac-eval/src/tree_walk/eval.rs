@@ -382,7 +382,6 @@ unsafe fn parse_binding_metadata(
             if has_default < 0 {
                 return Err(());
             }
-            let name = name_string.as_str();
             if param_lookup
                 .insert(name_string.clone(), parsed_params.len())
                 .is_some()
