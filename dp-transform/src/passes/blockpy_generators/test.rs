@@ -52,14 +52,9 @@ fn build_closure_backed_generator_factory_block(
     );
 
     let resume_entry = py_expr!(
-            "__dp_def_hidden_resume_fn({function_id:literal}, {captures:expr}, __dp_globals(), async_gen={async_gen:expr})",
+            "__dp_make_function({function_id:literal}, \"function\", {captures:expr}, __dp_tuple(), __dp_globals(), None)",
             function_id = resume_function_id.0,
             captures = captures,
-            async_gen = if is_async_generator {
-                py_expr!("True")
-            } else {
-                py_expr!("False")
-            },
         );
 
     let generator_expr = if is_async_generator {

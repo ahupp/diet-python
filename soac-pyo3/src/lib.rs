@@ -754,48 +754,6 @@ fn build_module_init(
 }
 
 #[pyfunction]
-#[pyo3(signature = (function_id, captures, module_globals, async_gen=false))]
-fn make_bb_hidden_resume(
-    py: Python<'_>,
-    function_id: usize,
-    captures: Py<PyAny>,
-    module_globals: Py<PyAny>,
-    async_gen: bool,
-) -> PyResult<Py<PyAny>> {
-    let dp = import_dp_module(py)?;
-    let module_globals = module_globals.bind(py);
-    let operation = if async_gen {
-        "async generator resume"
-    } else {
-        "generator resume"
-    };
-    let module_name = resolve_module_name(&module_globals, operation)?;
-    let function = lookup_bb_function(&module_name, function_id, operation)?;
-    let hidden_name = format!("_dp_resume_{}", function.names.fn_name);
-    let (_raw_entry, entry, plan_name) = instantiate_closure_backed_entry(
-        py,
-        &dp,
-        module_name.as_str(),
-        &function,
-        captures.bind(py).as_any(),
-        &module_globals,
-        operation,
-        hidden_name.as_str(),
-        hidden_name.as_str(),
-    )?;
-    entry.setattr("__module__", module_name.as_str())?;
-    set_plan_metadata(
-        &entry,
-        module_name.as_str(),
-        function_id,
-        plan_name.as_str(),
-        &module_globals,
-        Some(function.entry_block().label_str()),
-    )?;
-    Ok(entry.unbind())
-}
-
-#[pyfunction]
 #[pyo3(signature = (function_id, resume, module_globals, async_gen=false))]
 fn make_bb_generator(
     py: Python<'_>,
@@ -873,7 +831,6 @@ fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(debug_pass_shape, module)?)?;
     module.add_function(wrap_pyfunction!(inspect_pipeline, module)?)?;
     module.add_function(wrap_pyfunction!(make_bb_function, module)?)?;
-    module.add_function(wrap_pyfunction!(make_bb_hidden_resume, module)?)?;
     module.add_function(wrap_pyfunction!(make_bb_generator, module)?)?;
     module.add_function(wrap_pyfunction!(jit_has_bb_plan, module)?)?;
     module.add_function(wrap_pyfunction!(jit_block_param_names, module)?)?;

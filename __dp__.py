@@ -484,7 +484,6 @@ def _attach_throw_context_from_state(state, exc):
 
 
 _jit_make_bb_function = None
-_jit_make_bb_hidden_resume = None
 _jit_make_bb_generator = None
 
 
@@ -1269,25 +1268,6 @@ def _dp_gen_code_template(_it):
 async def _dp_async_gen_code_template():
     if False:
         yield None
-
-def def_hidden_resume_fn(
-    function_id,
-    captures,
-    module_globals=None,
-    *,
-    async_gen=False,
-):
-    if _jit_make_bb_hidden_resume is None:
-        raise RuntimeError(
-            "JIT basic-block generator resume requires a registered Rust constructor"
-        )
-    return _jit_make_bb_hidden_resume(
-        function_id,
-        captures,
-        module_globals,
-        async_gen=async_gen,
-    )
-
 
 def make_function(
     function_id,

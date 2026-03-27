@@ -174,9 +174,6 @@ def install():
             hook_fn()
         transform = _get_pyo3_transform()
         _dp_module._jit_make_bb_function = getattr(transform, "make_bb_function", None)
-        _dp_module._jit_make_bb_hidden_resume = getattr(
-            transform, "make_bb_hidden_resume", None
-        )
         _dp_module._jit_make_bb_generator = getattr(transform, "make_bb_generator", None)
     except Exception:
         pass

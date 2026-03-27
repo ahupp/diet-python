@@ -410,14 +410,9 @@ fn build_factory_block(
         .collect::<Vec<_>>();
 
     let resume_entry = core_expr_without_yield(py_expr!(
-        "__dp_def_hidden_resume_fn({function_id:literal}, {captures:expr}, __dp_globals(), async_gen={async_gen:expr})",
+        "__dp_make_function({function_id:literal}, \"function\", {captures:expr}, __dp_tuple(), __dp_globals(), None)",
         function_id = resume_function_id.0,
         captures = make_dp_tuple(captures),
-        async_gen = if is_async_generator(kind) {
-            py_expr!("True")
-        } else {
-            py_expr!("False")
-        },
     ));
 
     let factory_value = match kind {
