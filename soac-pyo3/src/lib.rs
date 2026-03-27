@@ -888,17 +888,6 @@ fn jit_render_bb_with_cfg_plan(
 }
 
 #[pyfunction]
-fn register_clif_vectorcall(
-    py: Python<'_>,
-    func: Py<PyAny>,
-    module_name: String,
-    function_id: usize,
-) -> PyResult<()> {
-    let func = func.bind(py);
-    register_clif_vectorcall_raw(py, &func, &module_name, function_id)
-}
-
-#[pyfunction]
 fn jit_compile_clif_wrapper(py: Python<'_>, func: &Bound<'_, PyAny>) -> PyResult<()> {
     let module_name = func
         .getattr("__module__")
@@ -943,7 +932,6 @@ fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(jit_block_param_names, module)?)?;
     module.add_function(wrap_pyfunction!(jit_debug_plan, module)?)?;
     module.add_function(wrap_pyfunction!(jit_render_bb_with_cfg_plan, module)?)?;
-    module.add_function(wrap_pyfunction!(register_clif_vectorcall, module)?)?;
     module.add_function(wrap_pyfunction!(jit_compile_clif_wrapper, module)?)?;
     Ok(())
 }
