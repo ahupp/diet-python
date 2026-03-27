@@ -37,6 +37,16 @@ mod tests {
         }
     }
 
+    fn test_captured_cell_source_name(name: &str, slot: u32) -> LocatedName {
+        LocatedName {
+            id: name.into(),
+            ctx: ast::ExprContext::Load,
+            range: Default::default(),
+            node_index: Default::default(),
+            location: NameLocation::CapturedCellSource { slot },
+        }
+    }
+
     fn test_term() -> BlockPyTerm<LocatedCoreBlockPyExpr> {
         BlockPyTerm::Raise(BlockPyRaise { exc: None })
     }
@@ -419,6 +429,54 @@ mod tests {
         assert!(
             !rendered.contains("call dp_jit_load_cell"),
             "cell_ref intrinsic should return the cell object, not its contents:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_cell_ref_on_captured_source_unwraps_wrapper_cell_once() {
+        let blocks = [1usize as ObjPtr];
+        let plan = ClifPlan {
+            entry_param_names: vec![],
+            ambient_param_names: vec![],
+            slot_names: vec![],
+            blocks: vec![ClifBlockPlan {
+                label: "b0".into(),
+                param_names: vec![],
+                runtime_param_names: vec![],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleRet {
+                    plan: DirectSimpleRetPlan {
+                        params: vec![],
+                        assigns: vec![],
+                        ret: DirectSimpleExprPlan::Intrinsic {
+                            intrinsic: &blockpy_intrinsics::CELL_REF_INTRINSIC,
+                            parts: vec![DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Name(
+                                test_captured_cell_source_name("_dp_classcell", 2),
+                            ))],
+                        },
+                    },
+                },
+            }],
+        };
+        let rendered = unsafe {
+            render_cranelift_run_bb_specialized_with_cfg(
+                &blocks,
+                &plan,
+                EntryArgsLayout::ParamTuple,
+                11usize as ObjPtr,
+                12usize as ObjPtr,
+                13usize as ObjPtr,
+                14usize as ObjPtr,
+            )
+        }
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
+        assert!(
+            rendered.contains("call dp_jit_function_closure_cell")
+                && rendered.contains("call dp_jit_load_cell"),
+            "captured cell sources should unwrap the wrapper closure cell once:\n{rendered}"
         );
     }
 }

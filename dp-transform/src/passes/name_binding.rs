@@ -1203,6 +1203,16 @@ fn resolve_cell_storage_name(semantic: &BlockPyCallableSemanticInfo, name: &str)
         .map(|logical_name| semantic.cell_storage_name(logical_name.as_str()))
 }
 
+fn resolve_captured_cell_source_storage_name(
+    semantic: &BlockPyCallableSemanticInfo,
+    name: &str,
+) -> Option<String> {
+    let logical_name = semantic.logical_name_for_cell_capture_source(name)?;
+    let capture_source_name = semantic.cell_capture_source_name(logical_name.as_str());
+    let storage_name = semantic.cell_storage_name(logical_name.as_str());
+    (capture_source_name == name && capture_source_name != storage_name).then_some(storage_name)
+}
+
 fn collect_cell_slot_locations(
     callable: &BlockPyFunction<CoreBlockPyPass>,
 ) -> HashMap<String, u32> {
@@ -1273,6 +1283,15 @@ impl NameLocator<'_> {
     fn locate_name(&self, name: ExprName) -> LocatedName {
         let name_text = name.id.to_string();
         let location = if let Some(storage_name) =
+            resolve_captured_cell_source_storage_name(self.semantic, name_text.as_str())
+        {
+            let slot = self.cell_slots.get(storage_name.as_str()).copied().unwrap_or_else(|| {
+                panic!(
+                    "missing closure slot for captured cell source {name_text} via storage name {storage_name}"
+                )
+            });
+            NameLocation::CapturedCellSource { slot }
+        } else if let Some(storage_name) =
             resolve_cell_storage_name(self.semantic, name_text.as_str())
         {
             let slot = self.cell_slots.get(storage_name.as_str()).copied().unwrap_or_else(|| {

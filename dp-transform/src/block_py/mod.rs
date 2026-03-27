@@ -54,6 +54,7 @@ pub enum NameLocation {
     Local { slot: u32 },
     Global,
     ClosureCell { slot: u32 },
+    CapturedCellSource { slot: u32 },
 }
 
 pub trait BlockPyNameLike: Clone + fmt::Debug + From<ast::ExprName> + Into<ast::ExprName> {
