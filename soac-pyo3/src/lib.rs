@@ -898,48 +898,16 @@ fn jit_render_bb_with_cfg_plan(
     Ok(payload.unbind())
 }
 
-fn register_clif_vectorcall_impl(
-    py: Python<'_>,
-    func: &Bound<'_, PyAny>,
-    module_name: &str,
-    function_id: usize,
-    metadata: &Bound<'_, PyTuple>,
-) -> PyResult<()> {
-    if metadata.len() != 1 {
-        return Err(PyRuntimeError::new_err(
-            "register_clif_vectorcall metadata must be a 1-tuple",
-        ));
-    }
-    let deleted_obj = metadata.get_item(0)?.unbind();
-    let deleted_bound = deleted_obj.bind(py);
-    unsafe {
-        soac_eval::tree_walk::register_clif_vectorcall(
-            func.as_ptr(),
-            module_name,
-            function_id,
-            deleted_bound.as_ptr(),
-        )
-        .map_err(|_| {
-            if ffi::PyErr_Occurred().is_null() {
-                PyRuntimeError::new_err("failed to register CLIF vectorcall")
-            } else {
-                PyErr::fetch(py)
-            }
-        })
-    }
-}
-
 #[pyfunction]
 fn register_clif_vectorcall(
     py: Python<'_>,
     func: Py<PyAny>,
     module_name: String,
     function_id: usize,
-    metadata: Py<PyTuple>,
+    deleted_value: Py<PyAny>,
 ) -> PyResult<()> {
     let func = func.bind(py);
-    let metadata = metadata.bind(py);
-    register_clif_vectorcall_impl(py, &func, &module_name, function_id, &metadata)
+    register_clif_vectorcall_raw(py, &func, &module_name, function_id, deleted_value.bind(py))
 }
 
 #[pyfunction]
