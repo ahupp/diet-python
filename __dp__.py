@@ -1502,6 +1502,65 @@ def _build_bb_signature(params, param_defaults):
     return _inspect.Signature(sig_params)
 
 
+def _split_bb_defaults(params, param_defaults):
+    positional_defaults = []
+    kwdefaults = {}
+    defaults_iter = iter(param_defaults)
+    for param in params:
+        if len(param) != 3:
+            raise RuntimeError(f"invalid bb param spec: {param!r}")
+        name, kind_name, has_default = param
+        kind = _bb_param_kind(kind_name)
+        if not has_default:
+            continue
+        try:
+            value = next(defaults_iter)
+        except StopIteration as exc:
+            raise RuntimeError(
+                "bb param defaults payload is shorter than the param spec"
+            ) from exc
+        if kind in (
+            _inspect.Parameter.POSITIONAL_ONLY,
+            _inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        ):
+            positional_defaults.append(value)
+        elif kind is _inspect.Parameter.KEYWORD_ONLY:
+            kwdefaults[name] = value
+        else:
+            raise RuntimeError(
+                f"invalid default-bearing bb param kind: {kind_name!r}"
+            )
+    try:
+        next(defaults_iter)
+    except StopIteration:
+        pass
+    else:
+        raise RuntimeError("bb param defaults payload is longer than the param spec")
+    return (
+        tuple(positional_defaults) if positional_defaults else None,
+        kwdefaults or None,
+    )
+
+
+def _bb_apply_function_defaults(func, params, param_defaults):
+    defaults, kwdefaults = _split_bb_defaults(params, param_defaults)
+    func.__defaults__ = defaults
+    existing_kwdefaults = getattr(func, "__kwdefaults__", None)
+    if existing_kwdefaults:
+        merged_kwdefaults = dict(existing_kwdefaults)
+        if kwdefaults:
+            merged_kwdefaults.update(kwdefaults)
+        func.__kwdefaults__ = merged_kwdefaults
+    else:
+        func.__kwdefaults__ = kwdefaults
+    public_kwdefaults = getattr(func, "__kwdefaults__", None)
+    if isinstance(public_kwdefaults, dict):
+        entry = public_kwdefaults.get("__dp_entry")
+        if entry is not None:
+            entry.__dp_public_function__ = func
+    return func
+
+
 def _bb_capture_values(captures):
     if not isinstance(captures, tuple):
         raise RuntimeError(f"bb captures must be a tuple, got {type(captures)!r}")

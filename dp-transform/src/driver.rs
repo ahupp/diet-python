@@ -63,7 +63,7 @@ pub(crate) fn rewrite_module_with_tracker(
             let [Stmt::FunctionDef(module_init)] = &mut module.as_mut_slice() else {
                 panic!("expected wrapped module root before inserting invalid future error stubs");
             };
-            &mut module_init.body.splice(0..0, invalid_future_stmts);
+            module_init.body.splice(0..0, invalid_future_stmts);
         }
         semantic_state = Some(rewrite_semantic_state);
         module

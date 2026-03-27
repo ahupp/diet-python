@@ -513,6 +513,11 @@ fn instantiate_bb_function(
     let entry = dp
         .getattr("_bb_rebind_function_globals")?
         .call1((entry, module_globals))?;
+    let entry = dp.getattr("_bb_apply_function_defaults")?.call1((
+        entry,
+        params.bind(py),
+        param_defaults,
+    ))?;
     entry.setattr("__signature__", signature.bind(py))?;
     update_function_metadata(
         py,

@@ -53,7 +53,7 @@ impl Transformer for AnnotationStripper {
                     // CPython stores class annotation thunks under __annotate_func__,
                     // and exposes __annotate__ via type-level descriptor logic.
                     let ds = build_annotate_fn(entries, "__annotate_func__");
-                    &mut class_def.body.push(ds);
+                    class_def.body.push(ds);
                 }
             }
             Stmt::AnnAssign(ast::StmtAnnAssign {
