@@ -777,8 +777,9 @@ unsafe fn ensure_clif_vectorcall_compiled(
         );
     }
     if data.compiled_vectorcall_handle.is_null() {
+        let build_args = vectorcall_build_args_fn_for_kind(data.binding.kind);
         let (handle, entry) = match jit::compile_cranelift_vectorcall_trampoline(
-            build_bb_args_from_vectorcall,
+            build_args,
             run_clif_vectorcall_compiled,
             data as *mut ClifFunctionData as *mut c_void,
             data.compiled_handle,
@@ -1508,7 +1509,24 @@ unsafe fn build_resume_closure_from_state_tuple(
     resume_closure
 }
 
-unsafe extern "C" fn build_bb_args_from_vectorcall(
+type VectorcallBuildArgsFn = unsafe extern "C" fn(
+    *mut c_void,
+    *const *mut c_void,
+    usize,
+    *mut c_void,
+    *mut c_void,
+) -> *mut c_void;
+
+fn vectorcall_build_args_fn_for_kind(kind: BindingKind) -> VectorcallBuildArgsFn {
+    match kind {
+        BindingKind::Function => build_function_args_from_vectorcall,
+        BindingKind::GeneratorResume | BindingKind::AsyncGeneratorResume => {
+            build_resume_args_from_vectorcall
+        }
+    }
+}
+
+unsafe extern "C" fn build_function_args_from_vectorcall(
     callable: *mut c_void,
     args: *const *mut c_void,
     nargsf: usize,
@@ -1533,6 +1551,58 @@ unsafe extern "C" fn build_bb_args_from_vectorcall(
                 &data.binding,
             ) as *mut c_void,
             BindingKind::GeneratorResume | BindingKind::AsyncGeneratorResume => {
+                ffi::PyErr_SetString(
+                    ffi::PyExc_RuntimeError,
+                    b"function vectorcall binder received resume metadata\0".as_ptr() as *const i8,
+                );
+                ptr::null_mut()
+            }
+        }
+    })) {
+        Ok(value) => value,
+        Err(payload) => {
+            let message = format!(
+                "panic in build_function_args_from_vectorcall: {}",
+                panic_payload_to_string(payload)
+            );
+            if let Ok(c_msg) = CString::new(message) {
+                ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_msg.as_ptr());
+            } else {
+                ffi::PyErr_SetString(
+                    ffi::PyExc_RuntimeError,
+                    b"panic in build_function_args_from_vectorcall\0".as_ptr() as *const i8,
+                );
+            }
+            ptr::null_mut()
+        }
+    }
+}
+
+unsafe extern "C" fn build_resume_args_from_vectorcall(
+    callable: *mut c_void,
+    args: *const *mut c_void,
+    nargsf: usize,
+    kwnames: *mut c_void,
+    data_ptr: *mut c_void,
+) -> *mut c_void {
+    match panic::catch_unwind(AssertUnwindSafe(|| {
+        if callable.is_null() || data_ptr.is_null() {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid vectorcall build args input\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        let data = &mut *(data_ptr as *mut ClifFunctionData);
+        match data.binding.kind {
+            BindingKind::Function => {
+                ffi::PyErr_SetString(
+                    ffi::PyExc_RuntimeError,
+                    b"resume vectorcall binder received function metadata\0".as_ptr() as *const i8,
+                );
+                ptr::null_mut()
+            }
+            BindingKind::GeneratorResume | BindingKind::AsyncGeneratorResume => {
                 build_resume_state_tuple(
                     args as *const *mut ffi::PyObject,
                     nargsf,
@@ -1545,7 +1615,7 @@ unsafe extern "C" fn build_bb_args_from_vectorcall(
         Ok(value) => value,
         Err(payload) => {
             let message = format!(
-                "panic in build_bb_args_from_vectorcall: {}",
+                "panic in build_resume_args_from_vectorcall: {}",
                 panic_payload_to_string(payload)
             );
             if let Ok(c_msg) = CString::new(message) {
@@ -1553,7 +1623,7 @@ unsafe extern "C" fn build_bb_args_from_vectorcall(
             } else {
                 ffi::PyErr_SetString(
                     ffi::PyExc_RuntimeError,
-                    b"panic in build_bb_args_from_vectorcall\0".as_ptr() as *const i8,
+                    b"panic in build_resume_args_from_vectorcall\0".as_ptr() as *const i8,
                 );
             }
             ptr::null_mut()
@@ -1643,8 +1713,9 @@ unsafe extern "C" fn lazy_clif_vectorcall(
             Ok(value) => value,
             Err(()) => return ptr::null_mut(),
         };
+        let build_args = vectorcall_build_args_fn_for_kind(data.binding.kind);
         if !data.materialize_entry_obj.is_null() {
-            let bb_args = build_bb_args_from_vectorcall(
+            let bb_args = build_args(
                 callable as *mut c_void,
                 args as *const *mut c_void,
                 nargsf,
