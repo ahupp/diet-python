@@ -1,6 +1,6 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use dp_transform::block_py::{BlockPyFunction, ClosureInit, ClosureLayout, ClosureSlot, ParamKind};
+use dp_transform::block_py::{BlockPyFunction, ParamKind};
 use dp_transform::passes::PreparedBbBlockPyPass;
 use dp_transform::{Options, transform_str_to_ruff_with_options};
 use log::{info, trace};
@@ -151,11 +151,7 @@ fn register_clif_vectorcall_raw(
     state_order: &Bound<'_, PyAny>,
     params: Option<&Bound<'_, PyAny>>,
     param_defaults: Option<&Bound<'_, PyAny>>,
-    closure_values: Option<&Bound<'_, PyAny>>,
-    closure_layout: Option<&Bound<'_, PyAny>>,
     deleted_value: &Bound<'_, PyAny>,
-    bind_kind: i32,
-    materialize_result: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<()> {
     unsafe {
         soac_eval::tree_walk::register_clif_vectorcall(
@@ -165,11 +161,7 @@ fn register_clif_vectorcall_raw(
             state_order.as_ptr(),
             params.map_or(std::ptr::null_mut(), |value| value.as_ptr()),
             param_defaults.map_or(std::ptr::null_mut(), |value| value.as_ptr()),
-            closure_values.map_or(std::ptr::null_mut(), |value| value.as_ptr()),
-            closure_layout.map_or(std::ptr::null_mut(), |value| value.as_ptr()),
             deleted_value.as_ptr(),
-            bind_kind,
-            materialize_result.map_or(std::ptr::null_mut(), |value| value.as_ptr()),
         )
         .map_err(|_| {
             if ffi::PyErr_Occurred().is_null() {
@@ -232,11 +224,7 @@ fn register_lazy_clif_vectorcall(
     state_order: &Bound<'_, PyAny>,
     params: Option<&Bound<'_, PyAny>>,
     param_defaults: Option<&Bound<'_, PyAny>>,
-    closure_values: Option<&Bound<'_, PyAny>>,
-    closure_layout: Option<&Bound<'_, PyAny>>,
     deleted_value: &Bound<'_, PyAny>,
-    bind_kind: i32,
-    materialize_result: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<()> {
     match register_clif_vectorcall_raw(
         py,
@@ -246,11 +234,7 @@ fn register_lazy_clif_vectorcall(
         state_order,
         params,
         param_defaults,
-        closure_values,
-        closure_layout,
         deleted_value,
-        bind_kind,
-        materialize_result,
     ) {
         Ok(()) => maybe_eager_compile_clif_entry(py, func, module_name, plan_name),
         Err(err) if err.is_instance_of::<PyNotImplementedError>(py) => Err(err),
@@ -655,63 +639,6 @@ fn apply_function_defaults(
     Ok(())
 }
 
-fn closure_init_name(init: &ClosureInit) -> &'static str {
-    match init {
-        ClosureInit::InheritedCapture => "InheritedCapture",
-        ClosureInit::Parameter => "Parameter",
-        ClosureInit::DeletedSentinel => "DeletedSentinel",
-        ClosureInit::RuntimePcUnstarted => "RuntimePcUnstarted",
-        ClosureInit::RuntimeAbruptKindFallthrough => "RuntimeAbruptKindFallthrough",
-        ClosureInit::RuntimeNone => "RuntimeNone",
-        ClosureInit::Deferred => "Deferred",
-    }
-}
-
-fn py_closure_slot<'py>(py: Python<'py>, slot: &ClosureSlot) -> PyResult<Bound<'py, PyTuple>> {
-    PyTuple::new(
-        py,
-        [
-            slot.logical_name.as_str().into_pyobject(py)?.as_any(),
-            slot.storage_name.as_str().into_pyobject(py)?.as_any(),
-            closure_init_name(&slot.init).into_pyobject(py)?.as_any(),
-        ],
-    )
-}
-
-fn py_closure_layout<'py>(
-    py: Python<'py>,
-    closure_layout: &ClosureLayout,
-) -> PyResult<Bound<'py, PyTuple>> {
-    let freevars = PyTuple::new(
-        py,
-        closure_layout
-            .freevars
-            .iter()
-            .map(|slot| py_closure_slot(py, slot))
-            .collect::<PyResult<Vec<_>>>()?,
-    )?;
-    let cellvars = PyTuple::new(
-        py,
-        closure_layout
-            .cellvars
-            .iter()
-            .map(|slot| py_closure_slot(py, slot))
-            .collect::<PyResult<Vec<_>>>()?,
-    )?;
-    let runtime_cells = PyTuple::new(
-        py,
-        closure_layout
-            .runtime_cells
-            .iter()
-            .map(|slot| py_closure_slot(py, slot))
-            .collect::<PyResult<Vec<_>>>()?,
-    )?;
-    PyTuple::new(
-        py,
-        [freevars.as_any(), cellvars.as_any(), runtime_cells.as_any()],
-    )
-}
-
 fn instantiate_bb_function(
     py: Python<'_>,
     dp: &Bound<'_, PyModule>,
@@ -727,11 +654,6 @@ fn instantiate_bb_function(
     let state_order = PyTuple::new(py, entry_state_order(function))?.unbind();
     let signature = build_bb_signature(py, function, param_defaults)?;
     let (captured_names, closure_values) = build_capture_map(py, captures)?;
-    let closure_layout = function
-        .closure_layout()
-        .as_ref()
-        .map(|layout| py_closure_layout(py, layout))
-        .transpose()?;
     let raw_entry =
         make_lazy_clif_entry(py, dp, function.names.display_name.as_str(), module_globals)?;
     let deleted_value = dp.getattr("DELETED")?;
@@ -744,11 +666,7 @@ fn instantiate_bb_function(
         state_order.bind(py).as_any(),
         Some(params.bind(py).as_any()),
         Some(param_defaults),
-        Some(closure_values.as_any()),
-        closure_layout.as_ref().map(|value| value.as_any()),
         &deleted_value,
-        0,
-        None,
     )?;
     let entry = build_wrapped_entry(
         py,
@@ -939,11 +857,7 @@ fn make_bb_hidden_resume(
         state_order.bind(py).as_any(),
         Some(params.bind(py).as_any()),
         None,
-        Some(closure_map.as_any()),
-        None,
         &deleted_value,
-        if async_gen { 2 } else { 1 },
-        None,
     )?;
     let entry = build_wrapped_entry(
         py,
@@ -1042,26 +956,19 @@ fn register_clif_vectorcall_impl(
     function_id: usize,
     metadata: &Bound<'_, PyTuple>,
 ) -> PyResult<()> {
-    if metadata.len() != 8 {
+    if metadata.len() != 4 {
         return Err(PyRuntimeError::new_err(
-            "register_clif_vectorcall metadata must be an 8-tuple",
+            "register_clif_vectorcall metadata must be a 4-tuple",
         ));
     }
     let state_order_obj = metadata.get_item(0)?.unbind();
     let params_obj = metadata.get_item(1)?.unbind();
     let param_defaults_obj = metadata.get_item(2)?.unbind();
-    let closure_values_obj = metadata.get_item(3)?.unbind();
-    let closure_layout_obj = metadata.get_item(4)?.unbind();
-    let deleted_obj = metadata.get_item(5)?.unbind();
-    let bind_kind = metadata.get_item(6)?.extract::<i32>()?;
-    let materialize_entry_obj = metadata.get_item(7)?.unbind();
+    let deleted_obj = metadata.get_item(3)?.unbind();
     let state_order_bound = state_order_obj.bind(py);
     let params_bound = params_obj.bind(py);
     let param_defaults_bound = param_defaults_obj.bind(py);
-    let closure_values_bound = closure_values_obj.bind(py);
-    let closure_layout_bound = closure_layout_obj.bind(py);
     let deleted_bound = deleted_obj.bind(py);
-    let materialize_entry_bound = materialize_entry_obj.bind(py);
     unsafe {
         soac_eval::tree_walk::register_clif_vectorcall(
             func.as_ptr(),
@@ -1078,23 +985,7 @@ fn register_clif_vectorcall_impl(
             } else {
                 param_defaults_bound.as_ptr()
             },
-            if closure_values_bound.is_none() {
-                std::ptr::null_mut()
-            } else {
-                closure_values_bound.as_ptr()
-            },
-            if closure_layout_bound.is_none() {
-                std::ptr::null_mut()
-            } else {
-                closure_layout_bound.as_ptr()
-            },
             deleted_bound.as_ptr(),
-            bind_kind,
-            if materialize_entry_bound.is_none() {
-                std::ptr::null_mut()
-            } else {
-                materialize_entry_bound.as_ptr()
-            },
         )
         .map_err(|_| {
             if ffi::PyErr_Occurred().is_null() {

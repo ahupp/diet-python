@@ -12,7 +12,6 @@ use std::time::Instant;
 
 unsafe extern "C" {
     fn PyFunction_SetVectorcall(func: *mut ffi::PyFunctionObject, vectorcall: ffi::vectorcallfunc);
-    fn PyCell_New(obj: *mut ffi::PyObject) -> *mut ffi::PyObject;
 }
 
 fn panic_payload_to_string(payload: Box<dyn Any + Send>) -> String {
@@ -36,42 +35,12 @@ const CLIF_VECTORCALL_CAPSULE_NAME: &[u8] = b"soac.clif_vectorcall_data\0";
 const CLIF_VECTORCALL_ATTR: &[u8] = b"__dp_clif_vectorcall_data\0";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BindingKind {
-    Function,
-    GeneratorResume,
-    AsyncGeneratorResume,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BindingParamKind {
     PositionalOnly,
     PositionalOrKeyword,
     VarArgs,
     KeywordOnly,
     VarKeyword,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ClosureInit {
-    InheritedCapture,
-    Parameter,
-    DeletedSentinel,
-    RuntimePcUnstarted,
-    RuntimeAbruptKindFallthrough,
-    RuntimeNone,
-    Deferred,
-}
-
-#[derive(Debug)]
-struct ClosureSlot {
-    logical_name: String,
-    storage_name: String,
-    init: ClosureInit,
-}
-
-#[derive(Debug)]
-struct ClosureLayout {
-    slots: Vec<ClosureSlot>,
 }
 
 #[derive(Debug)]
@@ -83,16 +52,12 @@ struct BindingParam {
 
 #[derive(Debug)]
 struct BindingMetadata {
-    kind: BindingKind,
     state_order: Vec<String>,
-    state_index_by_name: HashMap<String, usize>,
-    ambient_closure_values: HashMap<String, *mut ffi::PyObject>,
     params: Vec<BindingParam>,
     positional_param_indices: Vec<usize>,
     param_lookup: HashMap<String, usize>,
     varargs_param: Option<usize>,
     varkw_param: Option<usize>,
-    closure_state_values: Vec<*mut ffi::PyObject>,
     deleted_obj: *mut ffi::PyObject,
 }
 
@@ -103,17 +68,9 @@ struct ClifFunctionData {
     true_obj: *mut ffi::PyObject,
     false_obj: *mut ffi::PyObject,
     binding: BindingMetadata,
-    closure_layout: Option<ClosureLayout>,
-    materialize_entry_obj: *mut ffi::PyObject,
-    ambient_args_obj: *mut ffi::PyObject,
     compiled_handle: *mut c_void,
     compiled_vectorcall_handle: *mut c_void,
     compiled_vectorcall_entry: Option<jit::VectorcallEntryFn>,
-}
-
-fn entry_args_layout_for_binding(kind: BindingKind) -> jit::EntryArgsLayout {
-    let _ = kind;
-    jit::EntryArgsLayout::DirectArgs
 }
 
 fn set_type_error<T>(msg: &str) -> Result<T, ()> {
@@ -130,13 +87,6 @@ unsafe fn decref_if_non_null(obj: *mut ffi::PyObject) {
 }
 
 unsafe fn free_binding_metadata(binding: BindingMetadata) {
-    let _ = binding.params;
-    for value in binding.closure_state_values {
-        decref_if_non_null(value);
-    }
-    for value in binding.ambient_closure_values.into_values() {
-        decref_if_non_null(value);
-    }
     decref_if_non_null(binding.deleted_obj);
 }
 
@@ -152,12 +102,6 @@ unsafe fn free_clif_function_data(ptr: *mut c_void) {
         unsafe { ffi::Py_DECREF(data.false_obj) };
     }
     unsafe { free_binding_metadata(data.binding) };
-    if !data.materialize_entry_obj.is_null() {
-        unsafe { ffi::Py_DECREF(data.materialize_entry_obj) };
-    }
-    if !data.ambient_args_obj.is_null() {
-        unsafe { ffi::Py_DECREF(data.ambient_args_obj) };
-    }
     unsafe { jit::free_cranelift_run_bb_specialized_cached(data.compiled_handle) };
     unsafe { jit::free_cranelift_vectorcall_trampoline(data.compiled_vectorcall_handle) };
 }
@@ -233,18 +177,8 @@ unsafe fn parse_binding_metadata(
     state_order_obj: *mut ffi::PyObject,
     params_obj: *mut ffi::PyObject,
     _param_defaults_obj: *mut ffi::PyObject,
-    closure_values_obj: *mut ffi::PyObject,
     deleted_obj: *mut ffi::PyObject,
-    bind_kind: i32,
 ) -> Result<BindingMetadata, ()> {
-    let kind = match bind_kind {
-        0 => BindingKind::Function,
-        1 => BindingKind::GeneratorResume,
-        2 => BindingKind::AsyncGeneratorResume,
-        _ => {
-            return set_type_error("invalid CLIF vectorcall bind kind");
-        }
-    };
     if !ffi::PyTuple_Check(state_order_obj).is_positive() {
         return set_type_error("CLIF vectorcall state_order must be a tuple");
     }
@@ -257,7 +191,6 @@ unsafe fn parse_binding_metadata(
         "failed to read CLIF vectorcall state_order",
     )?;
     let mut state_order = Vec::with_capacity(state_len);
-    let mut state_index_by_name = HashMap::with_capacity(state_len);
     for index in 0..state_len {
         let name_obj = tuple_get_item(
             state_order_obj,
@@ -265,44 +198,10 @@ unsafe fn parse_binding_metadata(
             "failed to read CLIF vectorcall state_order entry",
         )?;
         let name = py_string(name_obj)?;
-        if state_index_by_name.insert(name.clone(), index).is_some() {
-            return set_type_error("duplicate state_order entry in CLIF vectorcall metadata");
-        }
         state_order.push(name);
     }
 
     ffi::Py_INCREF(deleted_obj);
-    let mut closure_state_values = vec![ptr::null_mut(); state_len];
-    let mut ambient_closure_values = HashMap::new();
-    if !closure_values_obj.is_null() {
-        if ffi::PyDict_Check(closure_values_obj) == 0 {
-            return set_type_error("CLIF vectorcall closure_values must be a dict");
-        }
-        for (index, name) in state_order.iter().enumerate() {
-            let c_name = CString::new(name.as_str()).map_err(|_| ())?;
-            let value =
-                ffi::PyDict_GetItemString(closure_values_obj, c_name.as_ptr() as *const c_char);
-            if !value.is_null() {
-                ffi::Py_INCREF(value);
-                closure_state_values[index] = value;
-            }
-        }
-        let mut position: ffi::Py_ssize_t = 0;
-        let mut key = ptr::null_mut();
-        let mut value = ptr::null_mut();
-        while ffi::PyDict_Next(closure_values_obj, &mut position, &mut key, &mut value) != 0 {
-            if key.is_null() || value.is_null() {
-                continue;
-            }
-            let name = py_string(key)?;
-            if state_index_by_name.contains_key(name.as_str()) {
-                continue;
-            }
-            ffi::Py_INCREF(value);
-            ambient_closure_values.insert(name, value);
-        }
-    }
-
     let mut params = Vec::new();
     let mut positional_param_indices = Vec::new();
     let mut param_lookup = HashMap::new();
@@ -369,161 +268,14 @@ unsafe fn parse_binding_metadata(
     }
 
     Ok(BindingMetadata {
-        kind,
         state_order,
-        state_index_by_name,
-        ambient_closure_values,
         params,
         positional_param_indices,
         param_lookup,
         varargs_param,
         varkw_param,
-        closure_state_values,
         deleted_obj,
     })
-}
-
-unsafe fn parse_closure_layout(
-    closure_layout_obj: *mut ffi::PyObject,
-) -> Result<Option<ClosureLayout>, ()> {
-    if closure_layout_obj.is_null() {
-        return Ok(None);
-    }
-    if ffi::PyTuple_Check(closure_layout_obj) == 0 {
-        return set_type_error("CLIF vectorcall closure_layout must be a 3-tuple");
-    }
-    if tuple_size(
-        closure_layout_obj,
-        "failed to read CLIF vectorcall closure_layout",
-    )? != 3
-    {
-        return set_type_error("CLIF vectorcall closure_layout must be a 3-tuple");
-    }
-    let mut slots = Vec::new();
-    for section_index in 0..3 {
-        let section = tuple_get_item(
-            closure_layout_obj,
-            section_index,
-            "failed to read CLIF vectorcall closure_layout section",
-        )?;
-        if ffi::PyTuple_Check(section) == 0 {
-            return set_type_error("CLIF vectorcall closure_layout sections must be tuples");
-        }
-        let slot_count = tuple_size(
-            section,
-            "failed to read CLIF vectorcall closure_layout section size",
-        )?;
-        for slot_index in 0..slot_count {
-            let slot_obj = tuple_get_item(
-                section,
-                slot_index,
-                "failed to read CLIF vectorcall closure_layout slot",
-            )?;
-            if ffi::PyTuple_Check(slot_obj) == 0 {
-                return set_type_error("CLIF vectorcall closure_layout slots must be 3-tuples");
-            }
-            if tuple_size(
-                slot_obj,
-                "failed to read CLIF vectorcall closure_layout slot size",
-            )? != 3
-            {
-                return set_type_error("CLIF vectorcall closure_layout slots must be 3-tuples");
-            }
-            let logical_name = py_string(tuple_get_item(
-                slot_obj,
-                0,
-                "failed to read CLIF vectorcall closure logical name",
-            )?)?;
-            let storage_name = py_string(tuple_get_item(
-                slot_obj,
-                1,
-                "failed to read CLIF vectorcall closure storage name",
-            )?)?;
-            let init_name = py_string(tuple_get_item(
-                slot_obj,
-                2,
-                "failed to read CLIF vectorcall closure init kind",
-            )?)?;
-            let init = match init_name.as_str() {
-                "InheritedCapture" => ClosureInit::InheritedCapture,
-                "Parameter" => ClosureInit::Parameter,
-                "DeletedSentinel" => ClosureInit::DeletedSentinel,
-                "RuntimePcUnstarted" => ClosureInit::RuntimePcUnstarted,
-                "RuntimeAbruptKindFallthrough" => ClosureInit::RuntimeAbruptKindFallthrough,
-                "RuntimeNone" => ClosureInit::RuntimeNone,
-                "Deferred" => ClosureInit::Deferred,
-                _ => {
-                    return set_type_error("invalid generator closure init kind");
-                }
-            };
-            slots.push(ClosureSlot {
-                logical_name,
-                storage_name,
-                init,
-            });
-        }
-    }
-    Ok(Some(ClosureLayout { slots }))
-}
-
-unsafe fn build_ambient_args_tuple(
-    plan: &ClifPlan,
-    binding: &BindingMetadata,
-    closure_layout: Option<&ClosureLayout>,
-) -> Result<*mut ffi::PyObject, ()> {
-    fn lookup_binding_value(binding: &BindingMetadata, name: &str) -> Option<*mut ffi::PyObject> {
-        binding
-            .state_index_by_name
-            .get(name)
-            .copied()
-            .and_then(|state_index| {
-                let value = binding.closure_state_values[state_index];
-                (!value.is_null()).then_some(value)
-            })
-            .or_else(|| binding.ambient_closure_values.get(name).copied())
-    }
-
-    let result = ffi::PyTuple_New(plan.ambient_param_names.len() as ffi::Py_ssize_t);
-    if result.is_null() {
-        return Err(());
-    }
-    for (index, name) in plan.ambient_param_names.iter().enumerate() {
-        let value = lookup_binding_value(binding, name.as_str()).or_else(|| {
-            closure_layout.and_then(|layout| {
-                layout.slots.iter().find_map(|slot| {
-                    if !matches!(slot.init, ClosureInit::InheritedCapture) {
-                        None
-                    } else if slot.storage_name == *name {
-                        lookup_binding_value(binding, slot.logical_name.as_str())
-                    } else {
-                        None
-                    }
-                })
-            })
-        });
-        let Some(value) = value else {
-            ffi::Py_DECREF(result);
-            let msg =
-                format!("missing ambient closure state {name:?} while registering CLIF vectorcall");
-            let _ = set_runtime_error::<*mut ffi::PyObject>(&msg);
-            return Err(());
-        };
-        if value.is_null() {
-            ffi::Py_DECREF(result);
-            let msg = format!(
-                "ambient closure state {name:?} is unavailable while registering CLIF vectorcall"
-            );
-            let _ = set_runtime_error::<*mut ffi::PyObject>(&msg);
-            return Err(());
-        }
-        ffi::Py_INCREF(value);
-        if ffi::PyTuple_SetItem(result, index as ffi::Py_ssize_t, value) != 0 {
-            ffi::Py_DECREF(value);
-            ffi::Py_DECREF(result);
-            return Err(());
-        }
-    }
-    Ok(result)
 }
 
 unsafe fn make_clif_function_data(
@@ -532,11 +284,7 @@ unsafe fn make_clif_function_data(
     state_order_obj: *mut ffi::PyObject,
     params_obj: *mut ffi::PyObject,
     param_defaults_obj: *mut ffi::PyObject,
-    closure_values_obj: *mut ffi::PyObject,
-    closure_layout_obj: *mut ffi::PyObject,
     deleted_obj: *mut ffi::PyObject,
-    bind_kind: i32,
-    materialize_entry_obj: *mut ffi::PyObject,
 ) -> Result<*mut c_void, ()> {
     let plan = jit::lookup_clif_plan(module_name, function_id);
     let Some(plan) = plan else {
@@ -591,9 +339,7 @@ unsafe fn make_clif_function_data(
         state_order_obj,
         params_obj,
         param_defaults_obj,
-        closure_values_obj,
         deleted_obj,
-        bind_kind,
     ) {
         Ok(value) => value,
         Err(()) => {
@@ -602,16 +348,6 @@ unsafe fn make_clif_function_data(
             return Err(());
         }
     };
-    let closure_layout = match parse_closure_layout(closure_layout_obj) {
-        Ok(value) => value,
-        Err(()) => {
-            ffi::Py_DECREF(true_obj);
-            ffi::Py_DECREF(false_obj);
-            unsafe { free_binding_metadata(binding) };
-            return Err(());
-        }
-    };
-    let ambient_args_obj = ptr::null_mut();
 
     let clif_data = Box::new(ClifFunctionData {
         plan,
@@ -620,15 +356,6 @@ unsafe fn make_clif_function_data(
         true_obj,
         false_obj,
         binding,
-        closure_layout,
-        materialize_entry_obj: {
-            let ptr = materialize_entry_obj;
-            if !ptr.is_null() {
-                ffi::Py_INCREF(ptr);
-            }
-            ptr
-        },
-        ambient_args_obj,
         compiled_handle: ptr::null_mut(),
         compiled_vectorcall_handle: ptr::null_mut(),
         compiled_vectorcall_entry: None,
@@ -669,9 +396,6 @@ unsafe fn ensure_clif_vectorcall_compiled(
     callable: *mut ffi::PyObject,
     data: &mut ClifFunctionData,
 ) -> Result<(), ()> {
-    if !data.materialize_entry_obj.is_null() {
-        return Ok(());
-    }
     if data.compiled_handle.is_null() {
         let globals_obj = ffi::PyFunction_GetGlobals(callable);
         if globals_obj.is_null() {
@@ -683,7 +407,7 @@ unsafe fn ensure_clif_vectorcall_compiled(
         data.compiled_handle = match jit::compile_cranelift_run_bb_specialized_cached(
             block_ptrs.as_slice(),
             &data.plan,
-            entry_args_layout_for_binding(data.binding.kind),
+            jit::EntryArgsLayout::DirectArgs,
             globals_obj as *mut c_void,
             data.true_obj as *mut c_void,
             data.false_obj as *mut c_void,
@@ -747,15 +471,6 @@ unsafe fn cleanup_state_values(state_values: &mut [*mut ffi::PyObject]) {
             *value = ptr::null_mut();
         }
     }
-}
-
-unsafe fn state_value_from_borrowed(
-    state_values: &mut [*mut ffi::PyObject],
-    state_index: usize,
-    value: *mut ffi::PyObject,
-) {
-    ffi::Py_INCREF(value);
-    state_values[state_index] = value;
 }
 
 unsafe fn bound_arg_value_from_borrowed(
@@ -1002,67 +717,6 @@ unsafe fn build_function_bound_args(
     Ok(bound_args)
 }
 
-unsafe fn fill_state_tuple_from_values(
-    binding: &BindingMetadata,
-    mut state_values: Vec<*mut ffi::PyObject>,
-) -> *mut ffi::PyObject {
-    let result = ffi::PyTuple_New(binding.state_order.len() as ffi::Py_ssize_t);
-    if result.is_null() {
-        cleanup_state_values(&mut state_values);
-        return ptr::null_mut();
-    }
-    for index in 0..binding.state_order.len() {
-        let item = if !state_values[index].is_null() {
-            let owned = state_values[index];
-            state_values[index] = ptr::null_mut();
-            owned
-        } else if !binding.closure_state_values[index].is_null() {
-            let borrowed = binding.closure_state_values[index];
-            let name = binding.state_order[index].as_str();
-            if matches!(
-                binding.kind,
-                BindingKind::GeneratorResume | BindingKind::AsyncGeneratorResume
-            ) || name == "_dp_classcell"
-                || name.starts_with("_dp_cell_")
-            {
-                ffi::Py_INCREF(borrowed);
-                borrowed
-            } else {
-                let cell_contents = ffi::PyObject_GetAttrString(
-                    borrowed,
-                    b"cell_contents\0".as_ptr() as *const c_char,
-                );
-                if !cell_contents.is_null() {
-                    cell_contents
-                } else if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
-                    ffi::PyErr_Clear();
-                    ffi::Py_INCREF(borrowed);
-                    borrowed
-                } else if ffi::PyErr_ExceptionMatches(ffi::PyExc_ValueError) != 0 {
-                    ffi::PyErr_Clear();
-                    ffi::Py_INCREF(binding.deleted_obj);
-                    binding.deleted_obj
-                } else {
-                    ffi::Py_DECREF(result);
-                    cleanup_state_values(&mut state_values);
-                    return ptr::null_mut();
-                }
-            }
-        } else {
-            ffi::Py_INCREF(binding.deleted_obj);
-            binding.deleted_obj
-        };
-        if ffi::PyTuple_SetItem(result, index as ffi::Py_ssize_t, item) != 0 {
-            ffi::Py_DECREF(item);
-            ffi::Py_DECREF(result);
-            cleanup_state_values(&mut state_values);
-            return ptr::null_mut();
-        }
-    }
-    cleanup_state_values(&mut state_values);
-    result
-}
-
 unsafe fn write_owned_bound_args_to_buffer(
     mut bound_args: Vec<*mut ffi::PyObject>,
     out_args: *mut *mut ffi::PyObject,
@@ -1095,280 +749,6 @@ unsafe fn write_owned_bound_args_to_buffer(
     }
     cleanup_state_values(&mut bound_args);
     Ok(())
-}
-
-unsafe fn build_resume_state_tuple(
-    args: *const *mut ffi::PyObject,
-    nargsf: usize,
-    kwnames: *mut ffi::PyObject,
-    binding: &BindingMetadata,
-) -> *mut ffi::PyObject {
-    let expected = match binding.kind {
-        BindingKind::GeneratorResume => 3usize,
-        BindingKind::AsyncGeneratorResume => 4usize,
-        BindingKind::Function => unreachable!(),
-    };
-    let nargs = ffi::PyVectorcall_NARGS(nargsf) as usize;
-    let nkw = if kwnames.is_null() {
-        0usize
-    } else {
-        ffi::PyTuple_GET_SIZE(kwnames) as usize
-    };
-    if nkw != 0 {
-        let kind = if matches!(binding.kind, BindingKind::AsyncGeneratorResume) {
-            "async generator"
-        } else {
-            "generator"
-        };
-        return set_type_error::<*mut ffi::PyObject>(&format!(
-            "hidden {kind} resume entry does not accept keyword arguments"
-        ))
-        .err()
-        .map_or(ptr::null_mut(), |_| ptr::null_mut());
-    }
-    if nargs != expected {
-        let kind = if matches!(binding.kind, BindingKind::AsyncGeneratorResume) {
-            "async generator"
-        } else {
-            "generator"
-        };
-        return set_type_error::<*mut ffi::PyObject>(&format!(
-            "hidden {kind} resume entry expected {expected} arguments, got {nargs}"
-        ))
-        .err()
-        .map_or(ptr::null_mut(), |_| ptr::null_mut());
-    }
-    let gen_obj = *args.add(0);
-    let send_value = *args.add(1);
-    let resume_exc = *args.add(2);
-    let transport_sent = if expected == 4 {
-        *args.add(3)
-    } else {
-        ptr::null_mut()
-    };
-    if gen_obj.is_null()
-        || send_value.is_null()
-        || resume_exc.is_null()
-        || (expected == 4 && transport_sent.is_null())
-    {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"null vectorcall argument in generator resume entry\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-
-    let mut state_values = vec![ptr::null_mut(); binding.state_order.len()];
-    let frame_obj = ffi::PyObject_GetAttrString(gen_obj, b"gi_frame\0".as_ptr() as *const c_char);
-    let frame_dict = if frame_obj.is_null() {
-        if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
-            ffi::PyErr_Clear();
-            ptr::null_mut()
-        } else if !ffi::PyErr_Occurred().is_null() {
-            return ptr::null_mut();
-        } else {
-            ptr::null_mut()
-        }
-    } else if ffi::PyDict_Check(frame_obj) != 0 {
-        frame_obj
-    } else {
-        ffi::Py_DECREF(frame_obj);
-        ptr::null_mut()
-    };
-
-    for (index, name) in binding.state_order.iter().enumerate() {
-        match name.as_str() {
-            "_dp_self" | "_dp_state" => {
-                state_value_from_borrowed(&mut state_values, index, gen_obj);
-            }
-            "_dp_send_value" => {
-                state_value_from_borrowed(&mut state_values, index, send_value);
-            }
-            "_dp_resume_exc" => {
-                state_value_from_borrowed(&mut state_values, index, resume_exc);
-            }
-            "_dp_transport_sent" => {
-                if expected == 4 {
-                    state_value_from_borrowed(&mut state_values, index, transport_sent);
-                }
-            }
-            _ => {
-                if matches!(
-                    binding.kind,
-                    BindingKind::GeneratorResume | BindingKind::AsyncGeneratorResume
-                ) {
-                    let closure_value = binding.closure_state_values[index];
-                    if !closure_value.is_null() {
-                        state_value_from_borrowed(&mut state_values, index, closure_value);
-                        continue;
-                    }
-                }
-                if !frame_dict.is_null() {
-                    let c_name = match CString::new(name.as_str()) {
-                        Ok(value) => value,
-                        Err(_) => {
-                            ffi::Py_DECREF(frame_dict);
-                            cleanup_state_values(&mut state_values);
-                            return set_type_error::<*mut ffi::PyObject>(
-                                "invalid generator frame local name",
-                            )
-                            .err()
-                            .map_or(ptr::null_mut(), |_| ptr::null_mut());
-                        }
-                    };
-                    let value = ffi::PyDict_GetItemString(frame_dict, c_name.as_ptr());
-                    if !value.is_null() {
-                        state_value_from_borrowed(&mut state_values, index, value);
-                    }
-                }
-            }
-        }
-    }
-    if !frame_dict.is_null() {
-        ffi::Py_DECREF(frame_dict);
-    }
-    fill_state_tuple_from_values(binding, state_values)
-}
-
-unsafe fn state_tuple_item_by_name(
-    state_tuple: *mut ffi::PyObject,
-    binding: &BindingMetadata,
-    name: &str,
-) -> *mut ffi::PyObject {
-    let Some(index) = binding.state_index_by_name.get(name).copied() else {
-        return ptr::null_mut();
-    };
-    ffi::PyTuple_GET_ITEM(state_tuple, index as ffi::Py_ssize_t)
-}
-
-unsafe fn build_resume_closure_from_state_tuple(
-    state_tuple: *mut ffi::PyObject,
-    binding: &BindingMetadata,
-    closure_layout: &ClosureLayout,
-) -> *mut ffi::PyObject {
-    if ffi::PyTuple_Check(state_tuple) == 0 {
-        return set_type_error::<*mut ffi::PyObject>(
-            "generator materialization expected a state tuple",
-        )
-        .err()
-        .map_or(ptr::null_mut(), |_| ptr::null_mut());
-    }
-    let resume_closure = ffi::PyDict_New();
-    if resume_closure.is_null() {
-        return ptr::null_mut();
-    }
-    for slot in &closure_layout.slots {
-        let mut decref_value = false;
-        let value = match slot.init {
-            ClosureInit::InheritedCapture => {
-                let inherited =
-                    state_tuple_item_by_name(state_tuple, binding, slot.storage_name.as_str());
-                if !inherited.is_null() {
-                    inherited
-                } else {
-                    let fallback =
-                        state_tuple_item_by_name(state_tuple, binding, slot.logical_name.as_str());
-                    if fallback.is_null() {
-                        ffi::Py_DECREF(resume_closure);
-                        return set_runtime_error::<*mut ffi::PyObject>(&format!(
-                            "missing inherited generator closure state for {:?}",
-                            slot.storage_name
-                        ))
-                        .err()
-                        .map_or(ptr::null_mut(), |_| ptr::null_mut());
-                    }
-                    fallback
-                }
-            }
-            ClosureInit::RuntimePcUnstarted => {
-                let unstarted = ffi::PyLong_FromLong(1);
-                if unstarted.is_null() {
-                    ffi::Py_DECREF(resume_closure);
-                    return ptr::null_mut();
-                }
-                let cell = PyCell_New(unstarted);
-                ffi::Py_DECREF(unstarted);
-                if cell.is_null() {
-                    ffi::Py_DECREF(resume_closure);
-                    return ptr::null_mut();
-                }
-                decref_value = true;
-                cell
-            }
-            ClosureInit::RuntimeAbruptKindFallthrough => {
-                let fallthrough = ffi::PyLong_FromLong(0);
-                if fallthrough.is_null() {
-                    ffi::Py_DECREF(resume_closure);
-                    return ptr::null_mut();
-                }
-                let cell = PyCell_New(fallthrough);
-                ffi::Py_DECREF(fallthrough);
-                if cell.is_null() {
-                    ffi::Py_DECREF(resume_closure);
-                    return ptr::null_mut();
-                }
-                decref_value = true;
-                cell
-            }
-            ClosureInit::RuntimeNone => {
-                let none = ffi::Py_None();
-                ffi::Py_INCREF(none);
-                let cell = PyCell_New(none);
-                ffi::Py_DECREF(none);
-                if cell.is_null() {
-                    ffi::Py_DECREF(resume_closure);
-                    return ptr::null_mut();
-                }
-                decref_value = true;
-                cell
-            }
-            ClosureInit::Parameter | ClosureInit::DeletedSentinel | ClosureInit::Deferred => {
-                let state_value =
-                    state_tuple_item_by_name(state_tuple, binding, slot.logical_name.as_str());
-                if state_value.is_null() {
-                    ffi::Py_DECREF(resume_closure);
-                    return set_runtime_error::<*mut ffi::PyObject>(&format!(
-                        "missing generator state value for {:?} -> {:?}",
-                        slot.logical_name, slot.storage_name
-                    ))
-                    .err()
-                    .map_or(ptr::null_mut(), |_| ptr::null_mut());
-                }
-                let cell = PyCell_New(state_value);
-                if cell.is_null() {
-                    ffi::Py_DECREF(resume_closure);
-                    return ptr::null_mut();
-                }
-                decref_value = true;
-                cell
-            }
-        };
-        let storage_name = match CString::new(slot.storage_name.as_str()) {
-            Ok(value) => value,
-            Err(_) => {
-                if decref_value {
-                    ffi::Py_DECREF(value);
-                }
-                ffi::Py_DECREF(resume_closure);
-                return set_type_error::<*mut ffi::PyObject>(
-                    "invalid generator closure storage name",
-                )
-                .err()
-                .map_or(ptr::null_mut(), |_| ptr::null_mut());
-            }
-        };
-        if ffi::PyDict_SetItemString(resume_closure, storage_name.as_ptr(), value) != 0 {
-            if decref_value {
-                ffi::Py_DECREF(value);
-            }
-            ffi::Py_DECREF(resume_closure);
-            return ptr::null_mut();
-        }
-        if decref_value {
-            ffi::Py_DECREF(value);
-        }
-    }
-    resume_closure
 }
 
 unsafe extern "C" fn bind_direct_args_from_vectorcall(
@@ -1427,129 +807,6 @@ unsafe extern "C" fn bind_direct_args_from_vectorcall(
     }
 }
 
-unsafe extern "C" fn build_resume_args_from_vectorcall(
-    callable: *mut c_void,
-    args: *const *mut c_void,
-    nargsf: usize,
-    kwnames: *mut c_void,
-    data_ptr: *mut c_void,
-) -> *mut c_void {
-    match panic::catch_unwind(AssertUnwindSafe(|| {
-        if callable.is_null() || data_ptr.is_null() {
-            ffi::PyErr_SetString(
-                ffi::PyExc_RuntimeError,
-                b"invalid vectorcall build args input\0".as_ptr() as *const i8,
-            );
-            return ptr::null_mut();
-        }
-        let data = &mut *(data_ptr as *mut ClifFunctionData);
-        match data.binding.kind {
-            BindingKind::Function => {
-                ffi::PyErr_SetString(
-                    ffi::PyExc_RuntimeError,
-                    b"resume vectorcall binder received function metadata\0".as_ptr() as *const i8,
-                );
-                ptr::null_mut()
-            }
-            BindingKind::GeneratorResume | BindingKind::AsyncGeneratorResume => {
-                build_resume_state_tuple(
-                    args as *const *mut ffi::PyObject,
-                    nargsf,
-                    kwnames as *mut ffi::PyObject,
-                    &data.binding,
-                ) as *mut c_void
-            }
-        }
-    })) {
-        Ok(value) => value,
-        Err(payload) => {
-            let message = format!(
-                "panic in build_resume_args_from_vectorcall: {}",
-                panic_payload_to_string(payload)
-            );
-            if let Ok(c_msg) = CString::new(message) {
-                ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_msg.as_ptr());
-            } else {
-                ffi::PyErr_SetString(
-                    ffi::PyExc_RuntimeError,
-                    b"panic in build_resume_args_from_vectorcall\0".as_ptr() as *const i8,
-                );
-            }
-            ptr::null_mut()
-        }
-    }
-}
-
-unsafe extern "C" fn run_clif_vectorcall_compiled(
-    compiled_handle: *mut c_void,
-    callable: *mut c_void,
-    bb_args: *mut c_void,
-    data_ptr: *mut c_void,
-) -> *mut c_void {
-    if ffi::Py_EnterRecursiveCall(b" while calling a Python object\0".as_ptr() as *const i8) != 0 {
-        return ptr::null_mut();
-    }
-    struct RecursiveCallGuard;
-    impl Drop for RecursiveCallGuard {
-        fn drop(&mut self) {
-            unsafe { ffi::Py_LeaveRecursiveCall() };
-        }
-    }
-    let _recursive_call_guard = RecursiveCallGuard;
-    match panic::catch_unwind(AssertUnwindSafe(|| {
-        if compiled_handle.is_null()
-            || callable.is_null()
-            || bb_args.is_null()
-            || data_ptr.is_null()
-        {
-            ffi::PyErr_SetString(
-                ffi::PyExc_RuntimeError,
-                b"invalid CLIF vectorcall compiled input\0".as_ptr() as *const i8,
-            );
-            return ptr::null_mut();
-        }
-        let data = &mut *(data_ptr as *mut ClifFunctionData);
-        let hooks = jit::default_specialized_hooks();
-        match jit::run_cranelift_run_bb_specialized_cached(
-            compiled_handle,
-            callable,
-            bb_args,
-            data.ambient_args_obj as *mut c_void,
-            &hooks,
-        ) {
-            Ok(value) => value,
-            Err(err) => {
-                if let Ok(c_msg) = CString::new(err) {
-                    ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_msg.as_ptr());
-                } else {
-                    ffi::PyErr_SetString(
-                        ffi::PyExc_RuntimeError,
-                        b"failed to execute CLIF vectorcall entry\0".as_ptr() as *const i8,
-                    );
-                }
-                ptr::null_mut()
-            }
-        }
-    })) {
-        Ok(value) => value,
-        Err(payload) => {
-            let message = format!(
-                "panic in run_clif_vectorcall_compiled: {}",
-                panic_payload_to_string(payload)
-            );
-            if let Ok(c_msg) = CString::new(message) {
-                ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_msg.as_ptr());
-            } else {
-                ffi::PyErr_SetString(
-                    ffi::PyExc_RuntimeError,
-                    b"panic in run_clif_vectorcall_compiled\0".as_ptr() as *const i8,
-                );
-            }
-            ptr::null_mut()
-        }
-    }
-}
-
 unsafe extern "C" fn lazy_clif_vectorcall(
     callable: *mut ffi::PyObject,
     args: *const *mut ffi::PyObject,
@@ -1562,53 +819,6 @@ unsafe extern "C" fn lazy_clif_vectorcall(
             Ok(value) => value,
             Err(()) => return ptr::null_mut(),
         };
-        if !data.materialize_entry_obj.is_null() {
-            if matches!(data.binding.kind, BindingKind::Function) {
-                ffi::PyErr_SetString(
-                    ffi::PyExc_RuntimeError,
-                    b"ordinary CLIF function should not materialize a hidden entry\0".as_ptr()
-                        as *const i8,
-                );
-                return ptr::null_mut();
-            }
-            let bb_args = build_resume_args_from_vectorcall(
-                callable as *mut c_void,
-                args as *const *mut c_void,
-                nargsf,
-                kwnames as *mut c_void,
-                data as *mut ClifFunctionData as *mut c_void,
-            );
-            if bb_args.is_null() {
-                return ptr::null_mut();
-            }
-            let result = if let Some(closure_layout) = data.closure_layout.as_ref() {
-                let resume_closure = build_resume_closure_from_state_tuple(
-                    bb_args as *mut ffi::PyObject,
-                    &data.binding,
-                    closure_layout,
-                );
-                if resume_closure.is_null() {
-                    ffi::Py_DECREF(bb_args as *mut ffi::PyObject);
-                    return ptr::null_mut();
-                }
-                let result = ffi::PyObject_CallFunctionObjArgs(
-                    data.materialize_entry_obj,
-                    bb_args as *mut ffi::PyObject,
-                    resume_closure,
-                    ptr::null_mut::<ffi::PyObject>(),
-                );
-                ffi::Py_DECREF(resume_closure);
-                result
-            } else {
-                ffi::PyObject_CallFunctionObjArgs(
-                    data.materialize_entry_obj,
-                    bb_args as *mut ffi::PyObject,
-                    ptr::null_mut::<ffi::PyObject>(),
-                )
-            };
-            ffi::Py_DECREF(bb_args as *mut ffi::PyObject);
-            return result;
-        }
         if ensure_clif_vectorcall_compiled(py, callable, data).is_err() {
             return ptr::null_mut();
         }
@@ -1619,22 +829,20 @@ unsafe extern "C" fn lazy_clif_vectorcall(
             );
             return ptr::null_mut();
         };
-        if matches!(data.binding.kind, BindingKind::Function) {
-            if ffi::Py_EnterRecursiveCall(b" while calling a Python object\0".as_ptr() as *const i8)
-                != 0
-            {
-                return ptr::null_mut();
-            }
-            struct RecursiveCallGuard;
-            impl Drop for RecursiveCallGuard {
-                fn drop(&mut self) {
-                    unsafe { ffi::Py_LeaveRecursiveCall() };
-                }
-            }
-            let _recursive_call_guard = RecursiveCallGuard;
-            let hooks = jit::default_specialized_hooks();
-            unsafe { jit::install_specialized_hooks(&hooks) };
+        if ffi::Py_EnterRecursiveCall(b" while calling a Python object\0".as_ptr() as *const i8)
+            != 0
+        {
+            return ptr::null_mut();
         }
+        struct RecursiveCallGuard;
+        impl Drop for RecursiveCallGuard {
+            fn drop(&mut self) {
+                unsafe { ffi::Py_LeaveRecursiveCall() };
+            }
+        }
+        let _recursive_call_guard = RecursiveCallGuard;
+        let hooks = jit::default_specialized_hooks();
+        unsafe { jit::install_specialized_hooks(&hooks) };
         entry(
             callable as *mut c_void,
             args as *const *mut c_void,
@@ -1668,11 +876,7 @@ pub unsafe fn register_clif_vectorcall(
     state_order_obj: *mut ffi::PyObject,
     params_obj: *mut ffi::PyObject,
     param_defaults_obj: *mut ffi::PyObject,
-    closure_values_obj: *mut ffi::PyObject,
-    closure_layout_obj: *mut ffi::PyObject,
     deleted_obj: *mut ffi::PyObject,
-    bind_kind: i32,
-    materialize_entry_obj: *mut ffi::PyObject,
 ) -> Result<(), ()> {
     if ffi::PyFunction_Check(function) == 0 {
         ffi::PyErr_SetString(
@@ -1699,11 +903,7 @@ pub unsafe fn register_clif_vectorcall(
         state_order_obj,
         params_obj,
         param_defaults_obj,
-        closure_values_obj,
-        closure_layout_obj,
         deleted_obj,
-        bind_kind,
-        materialize_entry_obj,
     )?;
     let capsule = ffi::PyCapsule_New(
         data_ptr,
@@ -1745,8 +945,5 @@ pub unsafe fn compile_clif_vectorcall(function: *mut ffi::PyObject) -> Result<()
     }
     let py = Python::assume_attached();
     let data = clif_vectorcall_data(function)?;
-    if !data.materialize_entry_obj.is_null() {
-        return Ok(());
-    }
     ensure_clif_vectorcall_compiled(py, function, data)
 }
