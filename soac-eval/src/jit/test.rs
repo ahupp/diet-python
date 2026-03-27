@@ -35,6 +35,7 @@ mod tests {
     fn render_specialized_jit_clif_smoke() {
         let blocks = [1usize as ObjPtr, 2usize as ObjPtr, 3usize as ObjPtr];
         let plan = ClifPlan {
+            entry_param_names: vec![],
             ambient_param_names: vec![],
             slot_names: vec![],
             blocks: vec![
@@ -88,6 +89,7 @@ mod tests {
     fn render_specialized_jit_operator_calls_use_python_capi() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_param_names: vec![],
             ambient_param_names: vec![],
             slot_names: vec![],
             blocks: vec![ClifBlockPlan {
@@ -138,6 +140,7 @@ mod tests {
     fn render_specialized_jit_compare_calls_use_richcompare() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_param_names: vec![],
             ambient_param_names: vec![],
             slot_names: vec![],
             blocks: vec![ClifBlockPlan {
@@ -184,6 +187,7 @@ mod tests {
     fn render_specialized_jit_allocates_function_state_slots() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_param_names: vec![],
             ambient_param_names: vec![],
             slot_names: vec!["x".into(), "y".into()],
             blocks: vec![ClifBlockPlan {
@@ -224,6 +228,7 @@ mod tests {
     fn render_specialized_jit_assignments_sync_function_state_slots() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_param_names: vec![],
             ambient_param_names: vec![],
             slot_names: vec!["x".into()],
             blocks: vec![ClifBlockPlan {
@@ -269,6 +274,7 @@ mod tests {
     fn render_specialized_jit_global_names_use_global_lookup_hook() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_param_names: vec![],
             ambient_param_names: vec![],
             slot_names: vec![],
             blocks: vec![ClifBlockPlan {

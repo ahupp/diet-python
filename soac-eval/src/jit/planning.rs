@@ -9,6 +9,7 @@ use std::sync::{Mutex, OnceLock};
 
 #[derive(Clone, Debug)]
 pub struct ClifPlan {
+    pub entry_param_names: Vec<String>,
     pub ambient_param_names: Vec<String>,
     pub slot_names: Vec<String>,
     pub blocks: Vec<ClifBlockPlan>,
@@ -330,6 +331,12 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
         for name in &self.ambient_param_names {
             if seen.insert(name.clone()) {
                 slot_names.push(name.clone());
+            }
+        }
+
+        for name in self.function.params.names() {
+            if seen.insert(name.clone()) {
+                slot_names.push(name);
             }
         }
 
@@ -721,6 +728,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPla
         });
     }
     ClifPlan {
+        entry_param_names: function.function.params.names(),
         ambient_param_names: function.ambient_param_names.clone(),
         slot_names,
         blocks,

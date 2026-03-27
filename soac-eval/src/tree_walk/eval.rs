@@ -1563,6 +1563,7 @@ unsafe extern "C" fn build_bb_args_from_vectorcall(
 
 unsafe extern "C" fn run_clif_vectorcall_compiled(
     compiled_handle: *mut c_void,
+    callable: *mut c_void,
     bb_args: *mut c_void,
     data_ptr: *mut c_void,
 ) -> *mut c_void {
@@ -1577,7 +1578,11 @@ unsafe extern "C" fn run_clif_vectorcall_compiled(
     }
     let _recursive_call_guard = RecursiveCallGuard;
     match panic::catch_unwind(AssertUnwindSafe(|| {
-        if compiled_handle.is_null() || bb_args.is_null() || data_ptr.is_null() {
+        if compiled_handle.is_null()
+            || callable.is_null()
+            || bb_args.is_null()
+            || data_ptr.is_null()
+        {
             ffi::PyErr_SetString(
                 ffi::PyExc_RuntimeError,
                 b"invalid CLIF vectorcall compiled input\0".as_ptr() as *const i8,
@@ -1588,6 +1593,7 @@ unsafe extern "C" fn run_clif_vectorcall_compiled(
         let hooks = jit::default_specialized_hooks();
         match jit::run_cranelift_run_bb_specialized_cached(
             compiled_handle,
+            callable,
             bb_args,
             data.ambient_args_obj as *mut c_void,
             &hooks,

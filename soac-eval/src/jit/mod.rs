@@ -222,7 +222,12 @@ static DP_JIT_VECTORCALL_BUILD_BB_ARGS_IMPORT: ImportSpec = ImportSpec::new(
 );
 static DP_JIT_VECTORCALL_RUN_COMPILED_IMPORT: ImportSpec = ImportSpec::new(
     "dp_jit_vectorcall_run_compiled",
-    &[SigType::Pointer, SigType::Pointer, SigType::Pointer],
+    &[
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+    ],
     &[SigType::Pointer],
 );
 
@@ -334,7 +339,7 @@ pub struct RenderedSpecializedClif {
 struct CompiledSpecializedRunner {
     _jit_module: JITModule,
     _literal_pool: Vec<Box<[u8]>>,
-    entry: Option<extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr>,
+    entry: Option<extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr>,
 }
 
 pub type VectorcallEntryFn = unsafe extern "C" fn(ObjPtr, *const ObjPtr, usize, ObjPtr) -> ObjPtr;
@@ -2978,6 +2983,7 @@ fn build_cranelift_run_bb_specialized_function(
     let mut main_sig = jit_module.make_signature();
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
+    main_sig.params.push(ir::AbiParam::new(ptr_ty));
     main_sig.returns.push(ir::AbiParam::new(ptr_ty));
 
     let main_id = declare_local_fn(jit_module, "dp_jit_run_bb_specialized", &main_sig)?;
@@ -3015,8 +3021,9 @@ fn build_cranelift_run_bb_specialized_function(
         fb.append_block_param(raise_exc_direct_block, ptr_ty); // exc
 
         fb.switch_to_block(entry_block);
-        let entry_args = fb.block_params(entry_block)[0];
-        let ambient_args = fb.block_params(entry_block)[1];
+        let _callable = fb.block_params(entry_block)[0];
+        let entry_args = fb.block_params(entry_block)[1];
+        let ambient_args = fb.block_params(entry_block)[2];
         let mut func_imports = FuncBuildImports::new(&mut module_imports);
         let incref_ref = func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_INCREF_IMPORT);
         let decref_ref = func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_DECREF_IMPORT);
@@ -3746,7 +3753,10 @@ fn build_cranelift_run_bb_specialized_function(
                                 &[],
                                 decref_ref,
                             );
-                            fb.ins().jump(emit_ctx.consts.step_null_block, &[]);
+                            fb.ins().jump(
+                                emit_ctx.consts.step_null_block,
+                                &step_null_block_args(&emit_ctx),
+                            );
                         }
                     }
                     continue;
@@ -3999,7 +4009,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
 
 pub unsafe fn compile_cranelift_vectorcall_trampoline(
     build_bb_args_fn: unsafe extern "C" fn(ObjPtr, *const ObjPtr, usize, ObjPtr, ObjPtr) -> ObjPtr,
-    run_compiled_fn: unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr,
+    run_compiled_fn: unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr, ObjPtr) -> ObjPtr,
     data_ptr: ObjPtr,
     compiled_handle: ObjPtr,
 ) -> Result<(ObjPtr, VectorcallEntryFn), String> {
@@ -4091,9 +4101,10 @@ pub unsafe fn compile_cranelift_vectorcall_trampoline(
 
         fb.switch_to_block(build_ok);
         let built_args = fb.block_params(build_ok)[0];
-        let run_inst = fb
-            .ins()
-            .call(run_ref, &[compiled_const, built_args, data_const]);
+        let run_inst = fb.ins().call(
+            run_ref,
+            &[compiled_const, callable_val, built_args, data_const],
+        );
         let result = fb.inst_results(run_inst)[0];
         fb.ins().call(decref_ref, &[built_args]);
         fb.ins().return_(&[result]);
@@ -4122,12 +4133,16 @@ pub unsafe fn compile_cranelift_vectorcall_trampoline(
 
 pub unsafe fn run_cranelift_run_bb_specialized_cached(
     compiled_handle: ObjPtr,
+    callable: ObjPtr,
     args: ObjPtr,
     ambient_args: ObjPtr,
     hooks: &SpecializedJitHooks,
 ) -> Result<ObjPtr, String> {
     if compiled_handle.is_null() {
         return Err("invalid null compiled handle passed to specialized JIT run_bb".to_string());
+    }
+    if callable.is_null() {
+        return Err("invalid null callable passed to specialized JIT run_bb".to_string());
     }
     if args.is_null() {
         return Err("invalid null args passed to specialized JIT run_bb".to_string());
@@ -4140,7 +4155,7 @@ pub unsafe fn run_cranelift_run_bb_specialized_cached(
     let Some(entry) = compiled.entry else {
         return Err("invalid compiled handle without entrypoint".to_string());
     };
-    Ok(entry(args, ambient_args))
+    Ok(entry(callable, args, ambient_args))
 }
 
 pub unsafe fn free_cranelift_vectorcall_trampoline(compiled_handle: ObjPtr) {
@@ -4160,6 +4175,7 @@ pub unsafe fn free_cranelift_run_bb_specialized_cached(compiled_handle: ObjPtr) 
 pub unsafe fn run_cranelift_run_bb_specialized(
     blocks: &[ObjPtr],
     plan: &ClifPlan,
+    callable: ObjPtr,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
@@ -4172,6 +4188,9 @@ pub unsafe fn run_cranelift_run_bb_specialized(
 ) -> Result<ObjPtr, String> {
     if args.is_null() {
         return Err("invalid null args passed to specialized JIT run_bb".to_string());
+    }
+    if callable.is_null() {
+        return Err("invalid null callable passed to specialized JIT run_bb".to_string());
     }
     if globals_obj.is_null() {
         return Err("invalid null globals object passed to specialized JIT run_bb".to_string());
@@ -4207,8 +4226,8 @@ pub unsafe fn run_cranelift_run_bb_specialized(
         .finalize_definitions()
         .map_err(|err| format!("failed to finalize specialized jit run_bb function: {err}"))?;
     let code_ptr = jit_module.get_finalized_function(main_id);
-    let compiled: extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr = std::mem::transmute(code_ptr);
-    Ok(compiled(args, ambient_args))
+    let compiled: extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr = std::mem::transmute(code_ptr);
+    Ok(compiled(callable, args, ambient_args))
 }
 
 #[cfg(test)]
