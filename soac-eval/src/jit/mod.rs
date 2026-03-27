@@ -24,11 +24,12 @@ mod planning;
 mod specialized_helpers;
 
 pub use planning::{
-    BlockExcArgSource, BlockExcDispatchPlan, BlockFastPath, ClifBlockPlan,
-    ClifEntryParamDefaultSource, ClifPlan, DirectSimpleAssignPlan, DirectSimpleBlockArgPlan,
-    DirectSimpleBlockPlan, DirectSimpleBrIfPlan, DirectSimpleCallPart, DirectSimpleDeletePlan,
-    DirectSimpleDeleteTargetPlan, DirectSimpleExprPlan, DirectSimpleOpPlan, DirectSimpleRetPlan,
-    DirectSimpleTermPlan, lookup_blockpy_function, lookup_clif_plan, register_clif_module_plans,
+    BlockExcArgSource, BlockExcDispatchPlan, BlockFastPath, ClifBindingParam, ClifBindingParamKind,
+    ClifBlockPlan, ClifEntryParamDefaultSource, ClifPlan, DirectSimpleAssignPlan,
+    DirectSimpleBlockArgPlan, DirectSimpleBlockPlan, DirectSimpleBrIfPlan, DirectSimpleCallPart,
+    DirectSimpleDeletePlan, DirectSimpleDeleteTargetPlan, DirectSimpleExprPlan, DirectSimpleOpPlan,
+    DirectSimpleRetPlan, DirectSimpleTermPlan, lookup_blockpy_function, lookup_clif_plan,
+    register_clif_module_plans,
 };
 pub use specialized_helpers::ObjPtr;
 pub use specialized_helpers::SpecializedJitHooks;

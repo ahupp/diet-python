@@ -1,4 +1,4 @@
-use crate::jit::{self, ClifPlan};
+use crate::jit::{self, ClifBindingParam, ClifBindingParamKind, ClifPlan};
 use log::info;
 use pyo3::ffi;
 use pyo3::prelude::*;
@@ -34,26 +34,10 @@ fn set_runtime_error<T>(msg: &str) -> Result<T, ()> {
 const CLIF_VECTORCALL_CAPSULE_NAME: &[u8] = b"soac.clif_vectorcall_data\0";
 const CLIF_VECTORCALL_ATTR: &[u8] = b"__dp_clif_vectorcall_data\0";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BindingParamKind {
-    PositionalOnly,
-    PositionalOrKeyword,
-    VarArgs,
-    KeywordOnly,
-    VarKeyword,
-}
-
-#[derive(Debug)]
-struct BindingParam {
-    name: String,
-    kind: BindingParamKind,
-    has_default: bool,
-}
-
 #[derive(Debug)]
 struct BindingMetadata {
     callable_name: String,
-    params: Vec<BindingParam>,
+    params: Vec<ClifBindingParam>,
     positional_param_indices: Vec<usize>,
     param_lookup: HashMap<String, usize>,
     varargs_param: Option<usize>,
@@ -179,19 +163,8 @@ unsafe fn tuple_get_item(
     Ok(item)
 }
 
-fn parse_param_kind(kind_name: &str) -> Result<BindingParamKind, ()> {
-    match kind_name {
-        "Any" => Ok(BindingParamKind::PositionalOrKeyword),
-        "PosOnly" => Ok(BindingParamKind::PositionalOnly),
-        "VarArg" => Ok(BindingParamKind::VarArgs),
-        "KwOnly" => Ok(BindingParamKind::KeywordOnly),
-        "KwArg" => Ok(BindingParamKind::VarKeyword),
-        _ => set_type_error("invalid CLIF function binding param kind"),
-    }
-}
-
-unsafe fn parse_binding_metadata(
-    params_obj: *mut ffi::PyObject,
+unsafe fn build_binding_metadata(
+    plan: &ClifPlan,
     callable_name: String,
     deleted_obj: *mut ffi::PyObject,
 ) -> Result<BindingMetadata, ()> {
@@ -200,69 +173,27 @@ unsafe fn parse_binding_metadata(
     }
 
     ffi::Py_INCREF(deleted_obj);
-    let mut params = Vec::new();
+    let params = plan.entry_params.clone();
     let mut positional_param_indices = Vec::new();
     let mut param_lookup = HashMap::new();
     let mut varargs_param = None;
     let mut varkw_param = None;
-
-    if params_obj.is_null() || ffi::PyTuple_Check(params_obj) == 0 {
-        return set_type_error("CLIF binding params must be a tuple");
-    }
-    let param_count = tuple_size(params_obj, "failed to read CLIF binding params")?;
-    let mut parsed_params = Vec::with_capacity(param_count);
-    for index in 0..param_count {
-        let param_obj =
-            tuple_get_item(params_obj, index, "failed to read CLIF binding param entry")?;
-        if ffi::PyTuple_Check(param_obj) == 0 {
-            return set_type_error("CLIF binding param entry must be a tuple");
+    for (index, param) in params.iter().enumerate() {
+        if param_lookup.insert(param.name.clone(), index).is_some() {
+            return set_type_error("duplicate parameter name in CLIF plan metadata");
         }
-        let entry_len =
-            tuple_size(param_obj, "failed to read CLIF binding param")? as ffi::Py_ssize_t;
-        if entry_len != 3 {
-            return set_type_error("invalid CLIF binding param entry");
-        }
-        let name_obj = tuple_get_item(param_obj, 0, "failed to read CLIF binding param name")?;
-        let name_string = py_string(name_obj)?;
-        let kind_obj = tuple_get_item(param_obj, 1, "failed to read CLIF binding param kind")?;
-        let kind_name = py_string(kind_obj)?;
-        let param_kind = parse_param_kind(&kind_name)?;
-        let has_default_obj = tuple_get_item(
-            param_obj,
-            2,
-            "failed to read CLIF binding param default flag",
-        )?;
-        let has_default = ffi::PyObject_IsTrue(has_default_obj);
-        if has_default < 0 {
-            return Err(());
-        }
-        if param_lookup
-            .insert(name_string.clone(), parsed_params.len())
-            .is_some()
-        {
-            return set_type_error("duplicate parameter name in CLIF binding metadata");
-        }
-        match param_kind {
-            BindingParamKind::PositionalOnly | BindingParamKind::PositionalOrKeyword => {
-                positional_param_indices.push(parsed_params.len());
+        match param.kind {
+            ClifBindingParamKind::PositionalOnly | ClifBindingParamKind::PositionalOrKeyword => {
+                positional_param_indices.push(index);
             }
-            BindingParamKind::VarArgs => {
-                varargs_param = Some(parsed_params.len());
+            ClifBindingParamKind::VarArgs => {
+                varargs_param = Some(index);
             }
-            BindingParamKind::VarKeyword => {
-                varkw_param = Some(parsed_params.len());
+            ClifBindingParamKind::VarKeyword => {
+                varkw_param = Some(index);
             }
-            BindingParamKind::KeywordOnly => {}
+            ClifBindingParamKind::KeywordOnly => {}
         }
-        parsed_params.push((name_string, param_kind, has_default != 0));
-    }
-
-    for (name, kind, has_default) in parsed_params {
-        params.push(BindingParam {
-            name,
-            kind,
-            has_default,
-        });
     }
 
     Ok(BindingMetadata {
@@ -280,7 +211,6 @@ unsafe fn make_clif_function_data(
     function: *mut ffi::PyObject,
     module_name: &str,
     function_id: usize,
-    params_obj: *mut ffi::PyObject,
     deleted_obj: *mut ffi::PyObject,
 ) -> Result<*mut c_void, ()> {
     let plan = jit::lookup_clif_plan(module_name, function_id);
@@ -333,7 +263,7 @@ unsafe fn make_clif_function_data(
         return Err(());
     }
     let callable_name = py_attr_string(function, b"__qualname__\0", "<function>");
-    let binding = match parse_binding_metadata(params_obj, callable_name, deleted_obj) {
+    let binding = match build_binding_metadata(&plan, callable_name, deleted_obj) {
         Ok(value) => value,
         Err(()) => {
             ffi::Py_DECREF(true_obj);
@@ -603,7 +533,7 @@ unsafe fn build_function_bound_args(
         if let Some(&param_index) = binding.param_lookup.get(key_name.as_str()) {
             let param = &binding.params[param_index];
             match param.kind {
-                BindingParamKind::PositionalOnly | BindingParamKind::VarArgs => {
+                ClifBindingParamKind::PositionalOnly | ClifBindingParamKind::VarArgs => {
                     if !has_varkw {
                         cleanup_state_values(&mut bound_args);
                         let msg = format!(
@@ -618,7 +548,7 @@ unsafe fn build_function_bound_args(
                         return Err(());
                     }
                 }
-                BindingParamKind::PositionalOrKeyword | BindingParamKind::KeywordOnly => {
+                ClifBindingParamKind::PositionalOrKeyword | ClifBindingParamKind::KeywordOnly => {
                     if assigned[param_index] {
                         cleanup_state_values(&mut bound_args);
                         let msg = format!(
@@ -628,7 +558,7 @@ unsafe fn build_function_bound_args(
                         let _ = set_type_error::<()>(&msg);
                         return Err(());
                     }
-                    if param.kind == BindingParamKind::VarKeyword {
+                    if param.kind == ClifBindingParamKind::VarKeyword {
                         if ffi::PyDict_SetItem(varkw_dict, key, value) != 0 {
                             cleanup_state_values(&mut bound_args);
                             return Err(());
@@ -638,7 +568,7 @@ unsafe fn build_function_bound_args(
                         assigned[param_index] = true;
                     }
                 }
-                BindingParamKind::VarKeyword => {
+                ClifBindingParamKind::VarKeyword => {
                     if !varkw_dict.is_null() && ffi::PyDict_SetItem(varkw_dict, key, value) != 0 {
                         cleanup_state_values(&mut bound_args);
                         return Err(());
@@ -666,7 +596,7 @@ unsafe fn build_function_bound_args(
             continue;
         }
         match param.kind {
-            BindingParamKind::VarArgs | BindingParamKind::VarKeyword => {}
+            ClifBindingParamKind::VarArgs | ClifBindingParamKind::VarKeyword => {}
             _ => {
                 if param.has_default {
                     assigned[param_index] = true;
@@ -841,7 +771,6 @@ pub unsafe fn register_clif_vectorcall(
     function: *mut ffi::PyObject,
     module_name: &str,
     function_id: usize,
-    params_obj: *mut ffi::PyObject,
     deleted_obj: *mut ffi::PyObject,
 ) -> Result<(), ()> {
     if ffi::PyFunction_Check(function) == 0 {
@@ -863,8 +792,7 @@ pub unsafe fn register_clif_vectorcall(
         return Ok(());
     }
 
-    let data_ptr =
-        make_clif_function_data(function, module_name, function_id, params_obj, deleted_obj)?;
+    let data_ptr = make_clif_function_data(function, module_name, function_id, deleted_obj)?;
     let capsule = ffi::PyCapsule_New(
         data_ptr,
         CLIF_VECTORCALL_CAPSULE_NAME.as_ptr() as *const c_char,

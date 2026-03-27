@@ -55,6 +55,7 @@ mod tests {
     fn render_specialized_jit_clif_smoke() {
         let blocks = [1usize as ObjPtr, 2usize as ObjPtr, 3usize as ObjPtr];
         let plan = ClifPlan {
+            entry_params: vec![],
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
@@ -111,6 +112,7 @@ mod tests {
     fn render_specialized_jit_operator_calls_use_python_capi() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_params: vec![],
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
@@ -164,6 +166,7 @@ mod tests {
     fn render_specialized_jit_compare_calls_use_richcompare() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_params: vec![],
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
@@ -213,6 +216,7 @@ mod tests {
     fn render_specialized_jit_allocates_function_state_slots() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_params: vec![],
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
@@ -256,6 +260,7 @@ mod tests {
     fn render_specialized_jit_assignments_sync_function_state_slots() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_params: vec![],
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
@@ -304,6 +309,7 @@ mod tests {
     fn render_specialized_jit_global_names_use_global_lookup_hook() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_params: vec![],
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
@@ -348,6 +354,7 @@ mod tests {
     fn render_specialized_jit_closure_names_use_function_closure_cells() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_params: vec![],
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
@@ -392,6 +399,7 @@ mod tests {
     fn render_specialized_jit_cell_ref_intrinsic_uses_function_closure_cells() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_params: vec![],
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
@@ -444,6 +452,7 @@ mod tests {
     fn render_specialized_jit_cell_ref_on_captured_source_unwraps_wrapper_cell_once() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_params: vec![],
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
@@ -496,6 +505,18 @@ mod tests {
     fn render_specialized_jit_direct_entry_uses_live_positional_defaults() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_params: vec![
+                ClifBindingParam {
+                    name: "x".into(),
+                    kind: ClifBindingParamKind::PositionalOrKeyword,
+                    has_default: false,
+                },
+                ClifBindingParam {
+                    name: "y".into(),
+                    kind: ClifBindingParamKind::PositionalOrKeyword,
+                    has_default: true,
+                },
+            ],
             entry_param_names: vec!["x".into(), "y".into()],
             entry_param_default_sources: vec![
                 None,
@@ -542,6 +563,11 @@ mod tests {
     fn render_specialized_jit_direct_entry_uses_live_kwonly_defaults() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
+            entry_params: vec![ClifBindingParam {
+                name: "x".into(),
+                kind: ClifBindingParamKind::KeywordOnly,
+                has_default: true,
+            }],
             entry_param_names: vec!["x".into()],
             entry_param_default_sources: vec![Some(ClifEntryParamDefaultSource::KeywordOnly(
                 "x".into(),

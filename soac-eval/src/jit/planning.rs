@@ -10,12 +10,29 @@ use std::sync::{Mutex, OnceLock};
 
 #[derive(Clone, Debug)]
 pub struct ClifPlan {
+    pub entry_params: Vec<ClifBindingParam>,
     pub entry_param_names: Vec<String>,
     pub entry_param_default_sources: Vec<Option<ClifEntryParamDefaultSource>>,
     pub ambient_param_names: Vec<String>,
     pub owned_cell_slot_names: Vec<String>,
     pub slot_names: Vec<String>,
     pub blocks: Vec<ClifBlockPlan>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ClifBindingParam {
+    pub name: String,
+    pub kind: ClifBindingParamKind,
+    pub has_default: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClifBindingParamKind {
+    PositionalOnly,
+    PositionalOrKeyword,
+    VarArgs,
+    KeywordOnly,
+    VarKeyword,
 }
 
 #[derive(Clone, Debug)]
@@ -387,6 +404,25 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
                     }
                     ParamKind::VarArg | ParamKind::KwArg => None,
                 }
+            })
+            .collect()
+    }
+
+    fn entry_params(&self) -> Vec<ClifBindingParam> {
+        self.function
+            .params
+            .params
+            .iter()
+            .map(|param| ClifBindingParam {
+                name: param.name.clone(),
+                kind: match param.kind {
+                    ParamKind::PosOnly => ClifBindingParamKind::PositionalOnly,
+                    ParamKind::Any => ClifBindingParamKind::PositionalOrKeyword,
+                    ParamKind::VarArg => ClifBindingParamKind::VarArgs,
+                    ParamKind::KwOnly => ClifBindingParamKind::KeywordOnly,
+                    ParamKind::KwArg => ClifBindingParamKind::VarKeyword,
+                },
+                has_default: param.has_default,
             })
             .collect()
     }
@@ -783,6 +819,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPla
         });
     }
     ClifPlan {
+        entry_params: function.entry_params(),
         entry_param_names: function.function.params.names(),
         entry_param_default_sources: function.entry_param_default_sources(),
         ambient_param_names: function.ambient_param_names.clone(),
