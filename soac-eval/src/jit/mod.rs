@@ -141,6 +141,16 @@ static DP_JIT_LOAD_NAME_IMPORT: ImportSpec = ImportSpec::new(
     &[SigType::Pointer, SigType::Pointer, SigType::I64],
     &[SigType::Pointer],
 );
+static DP_JIT_FUNCTION_GLOBALS_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_function_globals",
+    &[SigType::Pointer],
+    &[SigType::Pointer],
+);
+static DP_JIT_FUNCTION_CLOSURE_CELL_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_function_closure_cell",
+    &[SigType::Pointer, SigType::I64],
+    &[SigType::Pointer],
+);
 static DP_JIT_PYOBJECT_GETATTR_IMPORT: ImportSpec = ImportSpec::new(
     "dp_jit_pyobject_getattr",
     &[SigType::Pointer, SigType::Pointer],
@@ -516,6 +526,7 @@ struct DirectSimpleEmitConsts {
     step_null_args: Vec<ir::Value>,
     ptr_ty: ir::Type,
     i64_ty: ir::Type,
+    callable_value: ir::Value,
     none_const: ir::Value,
     true_const: ir::Value,
     false_const: ir::Value,
@@ -531,6 +542,8 @@ struct DirectSimpleEmitCtx {
     make_int_ref: ir::FuncRef,
     consts: DirectSimpleEmitConsts,
     load_name_ref: ir::FuncRef,
+    function_globals_ref: ir::FuncRef,
+    function_closure_cell_ref: ir::FuncRef,
     pyobject_getattr_ref: ir::FuncRef,
     pyobject_setattr_ref: ir::FuncRef,
     pyobject_getitem_ref: ir::FuncRef,
@@ -1124,10 +1137,13 @@ fn emit_direct_simple_expr(
     let step_null_block = ctx.consts.step_null_block;
     let ptr_ty = ctx.consts.ptr_ty;
     let i64_ty = ctx.consts.i64_ty;
+    let callable_value = ctx.consts.callable_value;
     let deleted_const = ctx.consts.deleted_const;
     let empty_tuple_const = ctx.consts.empty_tuple_const;
     let block_const = ctx.consts.block_const;
     let load_name_ref = ctx.load_name_ref;
+    let function_globals_ref = ctx.function_globals_ref;
+    let function_closure_cell_ref = ctx.function_closure_cell_ref;
     let pyobject_getattr_ref = ctx.pyobject_getattr_ref;
     let pyobject_setitem_ref = ctx.pyobject_setitem_ref;
     let decode_literal_bytes_ref = ctx.decode_literal_bytes_ref;
@@ -1165,8 +1181,47 @@ fn emit_direct_simple_expr(
             ) {
                 return slot_value;
             }
+            let null_ptr = fb.ins().iconst(ptr_ty, 0);
             match name.location {
-                NameLocation::Global => {}
+                NameLocation::Global => {
+                    let globals_inst = fb.ins().call(function_globals_ref, &[callable_value]);
+                    let globals_value = fb.inst_results(globals_inst)[0];
+                    let globals_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, globals_value, null_ptr);
+                    let globals_ok_block = fb.create_block();
+                    fb.append_block_param(globals_ok_block, ptr_ty);
+                    fb.ins().brif(
+                        globals_is_null,
+                        step_null_block,
+                        &step_null_block_args(ctx),
+                        globals_ok_block,
+                        &[ir::BlockArg::Value(globals_value)],
+                    );
+                    fb.switch_to_block(globals_ok_block);
+                    let globals_obj = fb.block_params(globals_ok_block)[0];
+                    let (name_ptr, name_len) =
+                        intern_bytes_literal(literal_pool, name.id.as_str().as_bytes());
+                    let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
+                    let name_len_val = fb.ins().iconst(i64_ty, name_len);
+                    let value_inst = fb
+                        .ins()
+                        .call(load_name_ref, &[globals_obj, name_ptr_val, name_len_val]);
+                    let value = fb.inst_results(value_inst)[0];
+                    fb.ins().call(decref_ref, &[globals_obj]);
+                    let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
+                    let value_ok_block = fb.create_block();
+                    fb.append_block_param(value_ok_block, ptr_ty);
+                    fb.ins().brif(
+                        value_is_null,
+                        step_null_block,
+                        &step_null_block_args(ctx),
+                        value_ok_block,
+                        &[ir::BlockArg::Value(value)],
+                    );
+                    fb.switch_to_block(value_ok_block);
+                    return fb.block_params(value_ok_block)[0];
+                }
                 NameLocation::Local { slot } => {
                     panic!(
                         "missing located local {} in direct JIT state (slot {slot})",
@@ -1174,37 +1229,46 @@ fn emit_direct_simple_expr(
                     );
                 }
                 NameLocation::ClosureCell { slot } => {
-                    panic!(
-                        "missing located closure cell {} in direct JIT state (slot {slot})",
-                        name.id
+                    assert!(
+                        !borrowed,
+                        "closure cell loads must produce owned references"
                     );
+                    let slot_value = fb.ins().iconst(i64_ty, slot as i64);
+                    let cell_inst = fb
+                        .ins()
+                        .call(function_closure_cell_ref, &[callable_value, slot_value]);
+                    let cell_value = fb.inst_results(cell_inst)[0];
+                    let cell_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, cell_value, null_ptr);
+                    let cell_ok_block = fb.create_block();
+                    fb.append_block_param(cell_ok_block, ptr_ty);
+                    fb.ins().brif(
+                        cell_is_null,
+                        step_null_block,
+                        &step_null_block_args(ctx),
+                        cell_ok_block,
+                        &[ir::BlockArg::Value(cell_value)],
+                    );
+                    fb.switch_to_block(cell_ok_block);
+                    let cell_obj = fb.block_params(cell_ok_block)[0];
+                    let value_inst = fb.ins().call(load_cell_ref, &[cell_obj]);
+                    let value = fb.inst_results(value_inst)[0];
+                    fb.ins().call(decref_ref, &[cell_obj]);
+                    let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
+                    let value_ok_block = fb.create_block();
+                    fb.append_block_param(value_ok_block, ptr_ty);
+                    fb.ins().brif(
+                        value_is_null,
+                        step_null_block,
+                        &step_null_block_args(ctx),
+                        value_ok_block,
+                        &[ir::BlockArg::Value(value)],
+                    );
+                    fb.switch_to_block(value_ok_block);
+                    return fb.block_params(value_ok_block)[0];
                 }
             }
-            assert!(
-                !borrowed,
-                "global name lookup must produce owned references"
-            );
-            let null_ptr = fb.ins().iconst(ptr_ty, 0);
-            let (name_ptr, name_len) =
-                intern_bytes_literal(literal_pool, name.id.as_str().as_bytes());
-            let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
-            let name_len_val = fb.ins().iconst(i64_ty, name_len);
-            let value_inst = fb
-                .ins()
-                .call(load_name_ref, &[block_const, name_ptr_val, name_len_val]);
-            let value = fb.inst_results(value_inst)[0];
-            let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
-            let value_ok_block = fb.create_block();
-            fb.append_block_param(value_ok_block, ptr_ty);
-            fb.ins().brif(
-                value_is_null,
-                step_null_block,
-                &step_null_block_args(ctx),
-                value_ok_block,
-                &[ir::BlockArg::Value(value)],
-            );
-            fb.switch_to_block(value_ok_block);
-            fb.block_params(value_ok_block)[0]
         }
         DirectSimpleExprPlan::Int(value) => {
             assert!(
@@ -1900,8 +1964,22 @@ fn emit_direct_simple_expr(
                     && (func_name.id.as_str() == "globals"
                         || func_name.id.as_str() == "__dp_globals")
                 {
-                    fb.ins().call(incref_ref, &[block_const]);
-                    return block_const;
+                    let globals_inst = fb.ins().call(function_globals_ref, &[callable_value]);
+                    let globals_value = fb.inst_results(globals_inst)[0];
+                    let globals_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, globals_value, null_ptr);
+                    let globals_ok_block = fb.create_block();
+                    fb.append_block_param(globals_ok_block, ptr_ty);
+                    fb.ins().brif(
+                        globals_is_null,
+                        step_null_block,
+                        &step_null_block_args(ctx),
+                        globals_ok_block,
+                        &[ir::BlockArg::Value(globals_value)],
+                    );
+                    fb.switch_to_block(globals_ok_block);
+                    return fb.block_params(globals_ok_block)[0];
                 }
                 if keywords.is_empty() {
                     if func_name.id.as_str() == "__dp_tuple" {
@@ -3021,7 +3099,7 @@ fn build_cranelift_run_bb_specialized_function(
         fb.append_block_param(raise_exc_direct_block, ptr_ty); // exc
 
         fb.switch_to_block(entry_block);
-        let _callable = fb.block_params(entry_block)[0];
+        let callable = fb.block_params(entry_block)[0];
         let entry_args = fb.block_params(entry_block)[1];
         let ambient_args = fb.block_params(entry_block)[2];
         let mut func_imports = FuncBuildImports::new(&mut module_imports);
@@ -3053,6 +3131,13 @@ fn build_cranelift_run_bb_specialized_function(
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_MAKE_FLOAT_IMPORT);
         let load_name_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_LOAD_NAME_IMPORT);
+        let function_globals_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_FUNCTION_GLOBALS_IMPORT);
+        let function_closure_cell_ref = func_imports.get_or_panic(
+            jit_module,
+            &mut fb.func,
+            &DP_JIT_FUNCTION_CLOSURE_CELL_IMPORT,
+        );
         let pyobject_getattr_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_GETATTR_IMPORT);
         let pyobject_setattr_ref =
@@ -3206,6 +3291,7 @@ fn build_cranelift_run_bb_specialized_function(
                     step_null_args: fast_step_null_args,
                     ptr_ty,
                     i64_ty,
+                    callable_value: callable,
                     none_const,
                     true_const,
                     false_const,
@@ -3214,6 +3300,8 @@ fn build_cranelift_run_bb_specialized_function(
                     block_const,
                 },
                 load_name_ref,
+                function_globals_ref,
+                function_closure_cell_ref,
                 pyobject_getattr_ref,
                 pyobject_setattr_ref,
                 pyobject_getitem_ref,

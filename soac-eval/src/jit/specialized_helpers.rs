@@ -24,6 +24,8 @@ pub type MakeIntFn = unsafe extern "C" fn(i64) -> ObjPtr;
 pub type MakeFloatFn = unsafe extern "C" fn(f64) -> ObjPtr;
 pub type MakeBytesFn = unsafe extern "C" fn(*const u8, i64) -> ObjPtr;
 pub type LoadNameFn = unsafe extern "C" fn(ObjPtr, *const u8, i64) -> ObjPtr;
+pub type FunctionGlobalsFn = unsafe extern "C" fn(ObjPtr) -> ObjPtr;
+pub type FunctionClosureCellFn = unsafe extern "C" fn(ObjPtr, i64) -> ObjPtr;
 pub type PyObjectGetAttrFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
 pub type PyObjectSetAttrFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
 pub type PyObjectGetItemFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
@@ -53,6 +55,8 @@ pub struct SpecializedJitHooks {
     pub make_float: MakeFloatFn,
     pub make_bytes: MakeBytesFn,
     pub load_name: LoadNameFn,
+    pub function_globals: FunctionGlobalsFn,
+    pub function_closure_cell: FunctionClosureCellFn,
     pub pyobject_getattr: PyObjectGetAttrFn,
     pub pyobject_setattr: PyObjectSetAttrFn,
     pub pyobject_getitem: PyObjectGetItemFn,
@@ -81,6 +85,8 @@ static mut DP_JIT_MAKE_INT_FN: Option<MakeIntFn> = None;
 static mut DP_JIT_MAKE_FLOAT_FN: Option<MakeFloatFn> = None;
 static mut DP_JIT_MAKE_BYTES_FN: Option<MakeBytesFn> = None;
 static mut DP_JIT_LOAD_NAME_FN: Option<LoadNameFn> = None;
+static mut DP_JIT_FUNCTION_GLOBALS_FN: Option<FunctionGlobalsFn> = None;
+static mut DP_JIT_FUNCTION_CLOSURE_CELL_FN: Option<FunctionClosureCellFn> = None;
 static mut DP_JIT_PYOBJECT_GETATTR_FN: Option<PyObjectGetAttrFn> = None;
 static mut DP_JIT_PYOBJECT_SETATTR_FN: Option<PyObjectSetAttrFn> = None;
 static mut DP_JIT_PYOBJECT_GETITEM_FN: Option<PyObjectGetItemFn> = None;
@@ -109,6 +115,8 @@ pub unsafe fn install_specialized_hooks(hooks: &SpecializedJitHooks) {
     DP_JIT_MAKE_FLOAT_FN = Some(hooks.make_float);
     DP_JIT_MAKE_BYTES_FN = Some(hooks.make_bytes);
     DP_JIT_LOAD_NAME_FN = Some(hooks.load_name);
+    DP_JIT_FUNCTION_GLOBALS_FN = Some(hooks.function_globals);
+    DP_JIT_FUNCTION_CLOSURE_CELL_FN = Some(hooks.function_closure_cell);
     DP_JIT_PYOBJECT_GETATTR_FN = Some(hooks.pyobject_getattr);
     DP_JIT_PYOBJECT_SETATTR_FN = Some(hooks.pyobject_setattr);
     DP_JIT_PYOBJECT_GETITEM_FN = Some(hooks.pyobject_getitem);
@@ -254,6 +262,125 @@ unsafe extern "C" fn load_name_hook(
     ffi::Py_DECREF(globals_obj as *mut ffi::PyObject);
     ffi::Py_DECREF(name_obj);
     result as ObjPtr
+}
+
+unsafe fn resolve_function_object(callable: ObjPtr) -> ObjPtr {
+    if callable.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid null callable for JIT function lookup\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let function = ffi::PyObject_GetAttrString(
+        callable as *mut ffi::PyObject,
+        b"__func__\0".as_ptr() as *const i8,
+    );
+    if !function.is_null() {
+        return function as ObjPtr;
+    }
+    if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) == 0 {
+        return ptr::null_mut();
+    }
+    ffi::PyErr_Clear();
+    ffi::Py_INCREF(callable as *mut ffi::PyObject);
+    callable
+}
+
+unsafe extern "C" fn function_globals_hook(callable: ObjPtr) -> ObjPtr {
+    let function = resolve_function_object(callable);
+    if function.is_null() {
+        return ptr::null_mut();
+    }
+    if ffi::PyFunction_Check(function as *mut ffi::PyObject) == 0 {
+        ffi::Py_DECREF(function as *mut ffi::PyObject);
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"dp_jit_function_globals expected a Python function\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let globals = ffi::PyFunction_GetGlobals(function as *mut ffi::PyObject);
+    ffi::Py_DECREF(function as *mut ffi::PyObject);
+    if globals.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"PyFunction_GetGlobals returned null\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    ffi::Py_INCREF(globals);
+    globals as ObjPtr
+}
+
+unsafe extern "C" fn function_closure_cell_hook(callable: ObjPtr, slot: i64) -> ObjPtr {
+    if slot < 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"dp_jit_function_closure_cell requires a non-negative slot\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let function = resolve_function_object(callable);
+    if function.is_null() {
+        return ptr::null_mut();
+    }
+    let closure_owner = {
+        let public = ffi::PyObject_GetAttrString(
+            function as *mut ffi::PyObject,
+            b"__dp_public_function__\0".as_ptr() as *const i8,
+        );
+        if !public.is_null() {
+            ffi::Py_DECREF(function as *mut ffi::PyObject);
+            public as ObjPtr
+        } else if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
+            ffi::PyErr_Clear();
+            function
+        } else {
+            ffi::Py_DECREF(function as *mut ffi::PyObject);
+            return ptr::null_mut();
+        }
+    };
+    let closure = ffi::PyObject_GetAttrString(
+        closure_owner as *mut ffi::PyObject,
+        b"__closure__\0".as_ptr() as *const i8,
+    );
+    ffi::Py_DECREF(closure_owner as *mut ffi::PyObject);
+    if closure.is_null() {
+        if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
+            ffi::PyErr_Clear();
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"callable has no closure cells\0".as_ptr() as *const i8,
+            );
+        }
+        return ptr::null_mut();
+    }
+    if ffi::PyTuple_Check(closure) == 0 {
+        ffi::Py_DECREF(closure);
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"callable __closure__ must be a tuple\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let closure_len = ffi::PyTuple_GET_SIZE(closure);
+    if slot >= closure_len as i64 {
+        ffi::Py_DECREF(closure);
+        ffi::PyErr_SetString(
+            ffi::PyExc_IndexError,
+            b"closure slot out of range\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let cell = ffi::PyTuple_GetItem(closure, slot as ffi::Py_ssize_t);
+    if cell.is_null() {
+        ffi::Py_DECREF(closure);
+        return ptr::null_mut();
+    }
+    ffi::Py_INCREF(cell);
+    ffi::Py_DECREF(closure);
+    cell as ObjPtr
 }
 
 unsafe extern "C" fn pyobject_getattr_hook(obj: ObjPtr, attr: ObjPtr) -> ObjPtr {
@@ -486,6 +613,8 @@ pub fn default_specialized_hooks() -> SpecializedJitHooks {
         make_float: make_float_hook,
         make_bytes: make_bytes_hook,
         load_name: load_name_hook,
+        function_globals: function_globals_hook,
+        function_closure_cell: function_closure_cell_hook,
         pyobject_getattr: pyobject_getattr_hook,
         pyobject_setattr: pyobject_setattr_hook,
         pyobject_getitem: pyobject_getitem_hook,
@@ -596,6 +725,20 @@ pub unsafe extern "C" fn dp_jit_load_name(
 ) -> ObjPtr {
     if let Some(func) = DP_JIT_LOAD_NAME_FN {
         return func(block, name_ptr, name_len);
+    }
+    ptr::null_mut()
+}
+
+pub unsafe extern "C" fn dp_jit_function_globals(callable: ObjPtr) -> ObjPtr {
+    if let Some(func) = DP_JIT_FUNCTION_GLOBALS_FN {
+        return func(callable);
+    }
+    ptr::null_mut()
+}
+
+pub unsafe extern "C" fn dp_jit_function_closure_cell(callable: ObjPtr, slot: i64) -> ObjPtr {
+    if let Some(func) = DP_JIT_FUNCTION_CLOSURE_CELL_FN {
+        return func(callable, slot);
     }
     ptr::null_mut()
 }
@@ -916,6 +1059,14 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol("dp_jit_make_float", dp_jit_make_float as *const u8);
     builder.symbol("dp_jit_make_bytes", dp_jit_make_bytes as *const u8);
     builder.symbol("dp_jit_load_name", dp_jit_load_name as *const u8);
+    builder.symbol(
+        "dp_jit_function_globals",
+        dp_jit_function_globals as *const u8,
+    );
+    builder.symbol(
+        "dp_jit_function_closure_cell",
+        dp_jit_function_closure_cell as *const u8,
+    );
     builder.symbol(
         "dp_jit_pyobject_getattr",
         dp_jit_pyobject_getattr as *const u8,
