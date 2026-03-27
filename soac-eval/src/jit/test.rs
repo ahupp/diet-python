@@ -93,7 +93,7 @@ mod tests {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
-                EntryArgsLayout::ParamTuple,
+                EntryArgsLayout::DirectArgs,
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,
@@ -141,7 +141,7 @@ mod tests {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
-                EntryArgsLayout::ParamTuple,
+                EntryArgsLayout::DirectArgs,
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,
@@ -194,7 +194,7 @@ mod tests {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
-                EntryArgsLayout::ParamTuple,
+                EntryArgsLayout::DirectArgs,
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,
@@ -237,7 +237,7 @@ mod tests {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
-                EntryArgsLayout::ParamTuple,
+                EntryArgsLayout::DirectArgs,
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,
@@ -285,7 +285,7 @@ mod tests {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
-                EntryArgsLayout::ParamTuple,
+                EntryArgsLayout::DirectArgs,
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,
@@ -328,7 +328,7 @@ mod tests {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
-                EntryArgsLayout::ParamTuple,
+                EntryArgsLayout::DirectArgs,
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,
@@ -372,7 +372,7 @@ mod tests {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
-                EntryArgsLayout::ParamTuple,
+                EntryArgsLayout::DirectArgs,
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,
@@ -421,7 +421,7 @@ mod tests {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
-                EntryArgsLayout::ParamTuple,
+                EntryArgsLayout::DirectArgs,
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,
@@ -473,7 +473,7 @@ mod tests {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
-                EntryArgsLayout::ParamTuple,
+                EntryArgsLayout::DirectArgs,
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,

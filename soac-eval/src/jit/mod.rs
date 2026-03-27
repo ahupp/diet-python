@@ -50,7 +50,6 @@ struct GlobalIncrementalCacheStore<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EntryArgsLayout {
     StateTuple,
-    ParamTuple,
     DirectArgs,
 }
 
@@ -3233,7 +3232,7 @@ fn build_cranelift_run_bb_specialized_function(
     let mut main_sig = jit_module.make_signature();
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
     match entry_args_layout {
-        EntryArgsLayout::StateTuple | EntryArgsLayout::ParamTuple => {
+        EntryArgsLayout::StateTuple => {
             main_sig.params.push(ir::AbiParam::new(ptr_ty));
             main_sig.params.push(ir::AbiParam::new(ptr_ty));
         }
@@ -3283,20 +3282,16 @@ fn build_cranelift_run_bb_specialized_function(
         let entry_block_params = fb.block_params(entry_block).to_vec();
         let callable = entry_block_params[0];
         let entry_args = match entry_args_layout {
-            EntryArgsLayout::StateTuple | EntryArgsLayout::ParamTuple => {
-                Some(entry_block_params[1])
-            }
+            EntryArgsLayout::StateTuple => Some(entry_block_params[1]),
             EntryArgsLayout::DirectArgs => None,
         };
         let ambient_args = match entry_args_layout {
-            EntryArgsLayout::StateTuple | EntryArgsLayout::ParamTuple => {
-                Some(entry_block_params[2])
-            }
+            EntryArgsLayout::StateTuple => Some(entry_block_params[2]),
             EntryArgsLayout::DirectArgs => None,
         };
         let direct_entry_args = match entry_args_layout {
             EntryArgsLayout::DirectArgs => entry_block_params[1..].to_vec(),
-            EntryArgsLayout::StateTuple | EntryArgsLayout::ParamTuple => Vec::new(),
+            EntryArgsLayout::StateTuple => Vec::new(),
         };
         let mut func_imports = FuncBuildImports::new(&mut module_imports);
         let incref_ref = func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_INCREF_IMPORT);
@@ -3421,34 +3416,6 @@ fn build_cranelift_run_bb_specialized_function(
             }
         }
         match entry_args_layout {
-            EntryArgsLayout::ParamTuple => {
-                let entry_args = entry_args.expect("param tuple entry should carry entry args");
-                for (param_index, param_name) in plan.entry_param_names.iter().enumerate() {
-                    let index_val = fb.ins().iconst(i64_ty, param_index as i64);
-                    let item_inst = fb.ins().call(get_arg_item_ref, &[entry_args, index_val]);
-                    let item_val = fb.inst_results(item_inst)[0];
-                    let is_null = fb
-                        .ins()
-                        .icmp(ir::condcodes::IntCC::Equal, item_val, null_ptr);
-                    let ok_block = fb.create_block();
-                    fb.append_block_param(ok_block, ptr_ty);
-                    fb.ins().brif(
-                        is_null,
-                        entry_failure_block,
-                        &entry_failure_args,
-                        ok_block,
-                        &[ir::BlockArg::Value(item_val)],
-                    );
-                    fb.switch_to_block(ok_block);
-                    let value = fb.block_params(ok_block)[0];
-                    function_state_slots
-                        .replace_cloned_value(
-                            &mut fb, param_name, value, ptr_ty, incref_ref, decref_ref,
-                        )
-                        .expect("entry slot missing from function state slots");
-                    fb.ins().call(decref_ref, &[value]);
-                }
-            }
             EntryArgsLayout::StateTuple => {
                 let entry_args = entry_args.expect("state tuple entry should carry entry args");
                 for (param_index, param_name) in plan.blocks[0].param_names.iter().enumerate() {
@@ -4492,9 +4459,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
         .map_err(|err| format!("failed to finalize specialized jit run_bb function: {err}"))?;
     let code_ptr = compiled._jit_module.get_finalized_function(main_id);
     compiled.entry = Some(match entry_args_layout {
-        EntryArgsLayout::StateTuple | EntryArgsLayout::ParamTuple => {
-            CompiledRunnerEntry::Tuple(std::mem::transmute(code_ptr))
-        }
+        EntryArgsLayout::StateTuple => CompiledRunnerEntry::Tuple(std::mem::transmute(code_ptr)),
         EntryArgsLayout::DirectArgs => CompiledRunnerEntry::Direct {
             code_ptr,
             param_count: plan.entry_param_names.len(),

@@ -116,7 +116,7 @@ pub(crate) fn jit_render_bb_with_cfg_plan_impl(
         soac_eval::jit::render_cranelift_run_bb_specialized_with_cfg(
             resolved.block_ptrs.as_slice(),
             &resolved.plan,
-            soac_eval::jit::EntryArgsLayout::ParamTuple,
+            soac_eval::jit::EntryArgsLayout::DirectArgs,
             resolved.true_obj,
             resolved.false_obj,
             deleted_obj.as_ptr() as *mut c_void,
