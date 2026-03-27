@@ -48,6 +48,12 @@ struct GlobalIncrementalCacheStore<'a> {
     map: &'a Mutex<HashMap<Vec<u8>, Vec<u8>>>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EntryArgsLayout {
+    StateTuple,
+    ParamTuple,
+}
+
 #[derive(Clone, Copy, Debug)]
 enum SigType {
     Pointer,
@@ -3072,6 +3078,7 @@ fn build_cranelift_run_bb_specialized_function(
     jit_module: &mut JITModule,
     blocks: &[ObjPtr],
     plan: &ClifPlan,
+    entry_args_layout: EntryArgsLayout,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
@@ -3256,35 +3263,68 @@ fn build_cranelift_run_bb_specialized_function(
                 .expect("ambient slot missing from function state slots");
             fb.ins().call(decref_ref, &[value]);
         }
-        for (param_index, param_name) in plan.blocks[0].param_names.iter().enumerate() {
-            if plan
-                .ambient_param_names
-                .iter()
-                .any(|ambient| ambient == param_name)
-            {
-                continue;
+        match entry_args_layout {
+            EntryArgsLayout::ParamTuple => {
+                for (param_index, param_name) in plan.entry_param_names.iter().enumerate() {
+                    let index_val = fb.ins().iconst(i64_ty, param_index as i64);
+                    let item_inst = fb.ins().call(get_arg_item_ref, &[entry_args, index_val]);
+                    let item_val = fb.inst_results(item_inst)[0];
+                    let is_null = fb
+                        .ins()
+                        .icmp(ir::condcodes::IntCC::Equal, item_val, null_ptr);
+                    let ok_block = fb.create_block();
+                    fb.append_block_param(ok_block, ptr_ty);
+                    fb.ins().brif(
+                        is_null,
+                        step_null_block,
+                        &[ir::BlockArg::Value(entry_args)],
+                        ok_block,
+                        &[ir::BlockArg::Value(item_val)],
+                    );
+                    fb.switch_to_block(ok_block);
+                    let value = fb.block_params(ok_block)[0];
+                    function_state_slots
+                        .replace_cloned_value(
+                            &mut fb, param_name, value, ptr_ty, incref_ref, decref_ref,
+                        )
+                        .expect("entry slot missing from function state slots");
+                    fb.ins().call(decref_ref, &[value]);
+                }
             }
-            let index_val = fb.ins().iconst(i64_ty, param_index as i64);
-            let item_inst = fb.ins().call(get_arg_item_ref, &[entry_args, index_val]);
-            let item_val = fb.inst_results(item_inst)[0];
-            let is_null = fb
-                .ins()
-                .icmp(ir::condcodes::IntCC::Equal, item_val, null_ptr);
-            let ok_block = fb.create_block();
-            fb.append_block_param(ok_block, ptr_ty);
-            fb.ins().brif(
-                is_null,
-                step_null_block,
-                &[ir::BlockArg::Value(entry_args)],
-                ok_block,
-                &[ir::BlockArg::Value(item_val)],
-            );
-            fb.switch_to_block(ok_block);
-            let value = fb.block_params(ok_block)[0];
-            function_state_slots
-                .replace_cloned_value(&mut fb, param_name, value, ptr_ty, incref_ref, decref_ref)
-                .expect("entry slot missing from function state slots");
-            fb.ins().call(decref_ref, &[value]);
+            EntryArgsLayout::StateTuple => {
+                for (param_index, param_name) in plan.blocks[0].param_names.iter().enumerate() {
+                    if plan
+                        .ambient_param_names
+                        .iter()
+                        .any(|ambient| ambient == param_name)
+                    {
+                        continue;
+                    }
+                    let index_val = fb.ins().iconst(i64_ty, param_index as i64);
+                    let item_inst = fb.ins().call(get_arg_item_ref, &[entry_args, index_val]);
+                    let item_val = fb.inst_results(item_inst)[0];
+                    let is_null = fb
+                        .ins()
+                        .icmp(ir::condcodes::IntCC::Equal, item_val, null_ptr);
+                    let ok_block = fb.create_block();
+                    fb.append_block_param(ok_block, ptr_ty);
+                    fb.ins().brif(
+                        is_null,
+                        step_null_block,
+                        &[ir::BlockArg::Value(entry_args)],
+                        ok_block,
+                        &[ir::BlockArg::Value(item_val)],
+                    );
+                    fb.switch_to_block(ok_block);
+                    let value = fb.block_params(ok_block)[0];
+                    function_state_slots
+                        .replace_cloned_value(
+                            &mut fb, param_name, value, ptr_ty, incref_ref, decref_ref,
+                        )
+                        .expect("entry slot missing from function state slots");
+                    fb.ins().call(decref_ref, &[value]);
+                }
+            }
         }
         let mut entry_jump_args = Vec::with_capacity(runtime_block_param_names[0].len());
         for param_name in &runtime_block_param_names[0] {
@@ -4025,6 +4065,7 @@ fn build_cranelift_run_bb_specialized_function(
 pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     blocks: &[ObjPtr],
     plan: &ClifPlan,
+    entry_args_layout: EntryArgsLayout,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
     deleted_obj: ObjPtr,
@@ -4041,6 +4082,7 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
         &mut jit_module,
         blocks,
         plan,
+        entry_args_layout,
         ptr::null_mut(),
         true_obj,
         false_obj,
@@ -4105,6 +4147,7 @@ fn render_compiled_clif_and_vcode_disasm(
 pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     blocks: &[ObjPtr],
     plan: &ClifPlan,
+    entry_args_layout: EntryArgsLayout,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
@@ -4127,6 +4170,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
             &mut compiled._jit_module,
             blocks,
             plan,
+            entry_args_layout,
             globals_obj,
             true_obj,
             false_obj,
@@ -4319,6 +4363,7 @@ pub unsafe fn free_cranelift_run_bb_specialized_cached(compiled_handle: ObjPtr) 
 pub unsafe fn run_cranelift_run_bb_specialized(
     blocks: &[ObjPtr],
     plan: &ClifPlan,
+    entry_args_layout: EntryArgsLayout,
     callable: ObjPtr,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
@@ -4351,6 +4396,7 @@ pub unsafe fn run_cranelift_run_bb_specialized(
             &mut jit_module,
             blocks,
             plan,
+            entry_args_layout,
             globals_obj,
             true_obj,
             false_obj,

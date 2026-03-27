@@ -83,7 +83,6 @@ struct ClosureLayout {
 struct BindingParam {
     name: String,
     kind: BindingParamKind,
-    state_index: Option<usize>,
     default_source: Option<BindingParamDefaultSource>,
 }
 
@@ -115,6 +114,15 @@ struct ClifFunctionData {
     compiled_handle: *mut c_void,
     compiled_vectorcall_handle: *mut c_void,
     compiled_vectorcall_entry: Option<jit::VectorcallEntryFn>,
+}
+
+fn entry_args_layout_for_binding(kind: BindingKind) -> jit::EntryArgsLayout {
+    match kind {
+        BindingKind::Function => jit::EntryArgsLayout::ParamTuple,
+        BindingKind::GeneratorResume | BindingKind::AsyncGeneratorResume => {
+            jit::EntryArgsLayout::StateTuple
+        }
+    }
 }
 
 fn set_type_error<T>(msg: &str) -> Result<T, ()> {
@@ -375,7 +383,6 @@ unsafe fn parse_binding_metadata(
                 return Err(());
             }
             let name = name_string.as_str();
-            let state_index = state_index_by_name.get(name).copied();
             if param_lookup
                 .insert(name_string.clone(), parsed_params.len())
                 .is_some()
@@ -396,11 +403,11 @@ unsafe fn parse_binding_metadata(
                 }
                 BindingParamKind::KeywordOnly => {}
             }
-            parsed_params.push((name_string, param_kind, has_default != 0, state_index));
+            parsed_params.push((name_string, param_kind, has_default != 0));
         }
 
         let mut next_positional_default = 0usize;
-        for (name, kind, has_default, state_index) in parsed_params {
+        for (name, kind, has_default) in parsed_params {
             let default_source = if has_default {
                 match kind {
                     BindingParamKind::PositionalOnly | BindingParamKind::PositionalOrKeyword => {
@@ -419,7 +426,6 @@ unsafe fn parse_binding_metadata(
             params.push(BindingParam {
                 name,
                 kind,
-                state_index,
                 default_source,
             });
         }
@@ -754,6 +760,7 @@ unsafe fn ensure_clif_vectorcall_compiled(
         data.compiled_handle = match jit::compile_cranelift_run_bb_specialized_cached(
             block_ptrs.as_slice(),
             &data.plan,
+            entry_args_layout_for_binding(data.binding.kind),
             globals_obj as *mut c_void,
             data.true_obj as *mut c_void,
             data.false_obj as *mut c_void,
@@ -826,14 +833,6 @@ unsafe fn state_value_from_borrowed(
     value: *mut ffi::PyObject,
 ) {
     ffi::Py_INCREF(value);
-    state_values[state_index] = value;
-}
-
-unsafe fn state_value_from_owned(
-    state_values: &mut [*mut ffi::PyObject],
-    state_index: usize,
-    value: *mut ffi::PyObject,
-) {
     state_values[state_index] = value;
 }
 
@@ -1251,29 +1250,47 @@ unsafe fn fill_state_tuple_from_values(
     result
 }
 
-unsafe fn build_function_state_tuple(
+unsafe fn fill_owned_tuple_values(mut values: Vec<*mut ffi::PyObject>) -> *mut ffi::PyObject {
+    let result = ffi::PyTuple_New(values.len() as ffi::Py_ssize_t);
+    if result.is_null() {
+        cleanup_state_values(&mut values);
+        return ptr::null_mut();
+    }
+    for index in 0..values.len() {
+        let item = values[index];
+        if item.is_null() {
+            ffi::Py_DECREF(result);
+            cleanup_state_values(&mut values);
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"missing bound function argument in CLIF param tuple\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+        values[index] = ptr::null_mut();
+        if ffi::PyTuple_SetItem(result, index as ffi::Py_ssize_t, item) != 0 {
+            ffi::Py_DECREF(item);
+            ffi::Py_DECREF(result);
+            cleanup_state_values(&mut values);
+            return ptr::null_mut();
+        }
+    }
+    cleanup_state_values(&mut values);
+    result
+}
+
+unsafe fn build_function_param_tuple(
     callable: *mut ffi::PyObject,
     args: *const *mut ffi::PyObject,
     nargsf: usize,
     kwnames: *mut ffi::PyObject,
     binding: &BindingMetadata,
 ) -> *mut ffi::PyObject {
-    let mut bound_args = match build_function_bound_args(callable, args, nargsf, kwnames, binding) {
+    let bound_args = match build_function_bound_args(callable, args, nargsf, kwnames, binding) {
         Ok(value) => value,
         Err(()) => return ptr::null_mut(),
     };
-    let mut state_values = vec![ptr::null_mut(); binding.state_order.len()];
-    for (param_index, param) in binding.params.iter().enumerate() {
-        let Some(state_index) = param.state_index else {
-            continue;
-        };
-        let owned = std::mem::replace(&mut bound_args[param_index], ptr::null_mut());
-        if !owned.is_null() {
-            state_value_from_owned(&mut state_values, state_index, owned);
-        }
-    }
-    cleanup_state_values(&mut bound_args);
-    fill_state_tuple_from_values(binding, state_values)
+    fill_owned_tuple_values(bound_args)
 }
 
 unsafe fn build_resume_state_tuple(
@@ -1569,7 +1586,7 @@ unsafe extern "C" fn build_function_args_from_vectorcall(
         }
         let data = &mut *(data_ptr as *mut ClifFunctionData);
         match data.binding.kind {
-            BindingKind::Function => build_function_state_tuple(
+            BindingKind::Function => build_function_param_tuple(
                 callable as *mut ffi::PyObject,
                 args as *const *mut ffi::PyObject,
                 nargsf,
