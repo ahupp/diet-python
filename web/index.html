@@ -390,6 +390,10 @@ select {
     <section class="panel source-panel">
       <div class="panel-head">
         <div class="panel-title" id="leftTitle">input source</div>
+        <div class="select-wrap">
+          <label for="sourceSample">Sample</label>
+          <select id="sourceSample"></select>
+        </div>
       </div>
       <div class="panel-body" id="leftPane"></div>
     </section>
@@ -426,6 +430,7 @@ const leftPaneEl = document.getElementById("leftPane");
 const rightPaneEl = document.getElementById("rightPane");
 const leftTitleEl = document.getElementById("leftTitle");
 const rightTitleEl = document.getElementById("rightTitle");
+const sourceSampleEl = document.getElementById("sourceSample");
 const prevPassEl = document.getElementById("prevPass");
 const nextPassEl = document.getElementById("nextPass");
 const stepWindowEl = document.getElementById("stepWindow");
@@ -444,12 +449,104 @@ const state = {
   clifRequestSerial: 0,
 };
 
-const SAMPLE = `def classify(n):
+const CUSTOM_SAMPLE_KEY = "__custom__";
+
+const SOURCE_SAMPLES = [
+  {
+    key: "classify",
+    label: "classify",
+    source: `def classify(n):
     if n < 0:
         return "neg"
     if n == 0:
         return "zero"
-    return "pos"`;
+    return "pos"`,
+  },
+  {
+    key: "class_def",
+    label: "class definition",
+    source: `class Counter:
+    scale = 2
+
+    def __init__(self, start):
+        self.value = start
+        self.name = "counter"
+
+    def increment(self):
+        self.value += 1
+        return self.value
+
+    def scaled(self):
+        return self.value * self.scale`,
+  },
+  {
+    key: "closure",
+    label: "closure",
+    source: `def incrementer():
+    n = 1
+
+    def inner():
+        nonlocal n
+        n += 1
+        return n
+
+    return inner`,
+  },
+  {
+    key: "generator",
+    label: "generator",
+    source: `def seq(n):
+    for i in range(n):
+        yield i`,
+  },
+  {
+    key: "async",
+    label: "async functions",
+    source: `async def foo():
+    return 1
+
+async def bar():
+    return (await foo()) + 1`,
+  },
+  {
+    key: "async_generator",
+    label: "async generator",
+    source: `async def aseq(n):
+    for i in range(n):
+        yield i
+
+async def sum():
+    n = 0
+    async for i in aseq(5):
+        n += i
+    return n`,
+  },
+  {
+    key: "with_stmt",
+    label: "with statement",
+    source: `from contextlib import nullcontext
+
+def load_value():
+    with nullcontext(1) as value:
+        return value`,
+  },
+  {
+    key: "async_with_stmt",
+    label: "async with statement",
+    source: `class AsyncLock:
+    async def __aenter__(self):
+        return 1
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+async def use_lock():
+    async with AsyncLock() as value:
+        return value`,
+  },
+];
+
+const DEFAULT_SAMPLE = SOURCE_SAMPLES[0];
 
 function debounce(fn, delayMs) {
   let timer = null;
@@ -521,9 +618,37 @@ function makeSourceEditor() {
   textarea.value = state.source;
   textarea.addEventListener("input", () => {
     state.source = textarea.value;
+    syncSourceSampleSelection();
     debouncedInspect();
   });
   return textarea;
+}
+
+function sampleForKey(key) {
+  return SOURCE_SAMPLES.find((sample) => sample.key === key) || null;
+}
+
+function sampleKeyForSource(source) {
+  return SOURCE_SAMPLES.find((sample) => sample.source === source)?.key || CUSTOM_SAMPLE_KEY;
+}
+
+function renderSourceSampleSelector() {
+  sourceSampleEl.innerHTML = "";
+  for (const sample of SOURCE_SAMPLES) {
+    const option = document.createElement("option");
+    option.value = sample.key;
+    option.textContent = sample.label;
+    sourceSampleEl.appendChild(option);
+  }
+  const customOption = document.createElement("option");
+  customOption.value = CUSTOM_SAMPLE_KEY;
+  customOption.textContent = "custom";
+  sourceSampleEl.appendChild(customOption);
+  syncSourceSampleSelection();
+}
+
+function syncSourceSampleSelection() {
+  sourceSampleEl.value = sampleKeyForSource(state.source);
 }
 
 function clifFunctionKey(fn) {
@@ -626,6 +751,7 @@ function renderPassWindow() {
   leftTitleEl.textContent = "input source";
   rightTitleEl.textContent = rightStep?.label || "no later pass";
   renderSourceEditor(leftPaneEl);
+  syncSourceSampleSelection();
   renderStep(rightPaneEl, rightStep);
 
   prevPassEl.disabled = state.pairStart === 0;
@@ -788,11 +914,26 @@ const debouncedInspect = debounce(() => {
 async function run() {
   await init();
   const params = new URLSearchParams(window.location.search);
-  state.source = params.get("src") || SAMPLE;
+  state.source = params.get("src") || DEFAULT_SAMPLE.source;
   state.requestedRightStepKey = params.get("pass");
+  renderSourceSampleSelector();
 
   prevPassEl.addEventListener("click", () => shiftPassWindow(-1));
   nextPassEl.addEventListener("click", () => shiftPassWindow(1));
+  sourceSampleEl.addEventListener("change", () => {
+    if (sourceSampleEl.value === CUSTOM_SAMPLE_KEY) {
+      const textarea = leftPaneEl.querySelector("textarea");
+      textarea?.focus();
+      return;
+    }
+    const sample = sampleForKey(sourceSampleEl.value);
+    if (!sample) {
+      return;
+    }
+    state.source = sample.source;
+    renderSourceEditor(leftPaneEl);
+    void inspectNow();
+  });
   clifFunctionEl.addEventListener("change", () => {
     state.selectedFunctionKey = clifFunctionEl.value || null;
     void renderActualClif();
