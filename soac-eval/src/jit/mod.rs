@@ -2064,12 +2064,68 @@ fn emit_direct_simple_expr(
                     }
                     let is_direct_cell_call = matches!(
                         (func_name.id.as_str(), args.len()),
-                        ("__dp_make_cell", 1)
+                        ("__dp_cell_ref", 1)
+                            | ("__dp_make_cell", 1)
                             | ("__dp_load_cell", 1)
                             | ("__dp_store_cell", 2)
                             | ("__dp_store_cell_if_not_deleted", 2)
                     );
                     if is_direct_cell_call {
+                        if matches!((func_name.id.as_str(), args.len()), ("__dp_cell_ref", 1)) {
+                            let cell_expr = &args[0];
+                            let DirectSimpleExprPlan::Name(cell_name) = cell_expr else {
+                                panic!(
+                                    "__dp_cell_ref should lower to a located name arg, got {:?}",
+                                    cell_expr
+                                );
+                            };
+                            let cell_name_text = cell_name.id.as_str();
+                            let cell_in_locals = local_names
+                                .iter()
+                                .any(|candidate| candidate == cell_name_text);
+                            if cell_in_locals || ctx.function_state_slots.has_name(cell_name_text) {
+                                return emit_direct_simple_expr(
+                                    fb,
+                                    cell_expr,
+                                    local_names,
+                                    local_values,
+                                    ctx,
+                                    literal_pool,
+                                    borrowed,
+                                    jit_module,
+                                    func_imports,
+                                );
+                            }
+                            let NameLocation::ClosureCell { slot } = cell_name.location else {
+                                panic!(
+                                    "__dp_cell_ref should target a closure cell, got {} at {:?}",
+                                    cell_name.id, cell_name.location
+                                );
+                            };
+                            assert!(
+                                !borrowed,
+                                "__dp_cell_ref callable fallback should produce an owned cell object"
+                            );
+                            let slot_value = fb.ins().iconst(i64_ty, slot as i64);
+                            let cell_inst = fb
+                                .ins()
+                                .call(function_closure_cell_ref, &[callable_value, slot_value]);
+                            let cell_value = fb.inst_results(cell_inst)[0];
+                            let cell_is_null =
+                                fb.ins()
+                                    .icmp(ir::condcodes::IntCC::Equal, cell_value, null_ptr);
+                            let cell_ok_block = fb.create_block();
+                            fb.append_block_param(cell_ok_block, ptr_ty);
+                            fb.ins().brif(
+                                cell_is_null,
+                                step_null_block,
+                                &step_null_block_args(ctx),
+                                cell_ok_block,
+                                &[ir::BlockArg::Value(cell_value)],
+                            );
+                            fb.switch_to_block(cell_ok_block);
+                            return fb.block_params(cell_ok_block)[0];
+                        }
                         let mut arg_values: Vec<(ir::Value, bool)> = Vec::with_capacity(args.len());
                         for arg in &args {
                             let borrowed_arg = direct_simple_expr_is_borrowable(

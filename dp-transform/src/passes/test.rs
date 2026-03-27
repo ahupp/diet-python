@@ -541,7 +541,7 @@ fn nested_method_dunder_class_capture_uses_classcell_storage() {
     );
     assert!(
         name_binding_rendered.contains("__dp_make_function(")
-            && name_binding_rendered.contains("\"__class__\", __class__"),
+            && name_binding_rendered.contains("\"__class__\", __dp_cell_ref(_dp_classcell)"),
         "{name_binding_rendered}"
     );
 }
@@ -571,7 +571,7 @@ fn method_super_uses_cell_ref_marker_for_classcell() {
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("_dp_eval_1 = __class__"),
+        name_binding_rendered.contains("_dp_eval_1 = __dp_cell_ref(__class__)"),
         "{name_binding_rendered}"
     );
     assert!(

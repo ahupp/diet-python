@@ -102,11 +102,16 @@ fn rewrite_cell_ref_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    core_name_expr(
-        semantic.cell_ref_source_name(logical_name).as_str(),
-        ast::ExprContext::Load,
-        node_index,
+    core_positional_intrinsic_expr_with_meta(
+        &CELL_REF_INTRINSIC,
+        node_index.clone(),
         range,
+        vec![core_name_expr(
+            semantic.cell_ref_source_name(logical_name).as_str(),
+            ast::ExprContext::Load,
+            node_index,
+            range,
+        )],
     )
 }
 

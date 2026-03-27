@@ -363,4 +363,54 @@ mod tests {
             "closure located names should load through callable-rooted closure cells:\n{rendered}"
         );
     }
+
+    #[test]
+    fn render_specialized_jit_cell_ref_intrinsic_uses_function_closure_cells() {
+        let blocks = [1usize as ObjPtr];
+        let plan = ClifPlan {
+            entry_param_names: vec![],
+            ambient_param_names: vec![],
+            slot_names: vec![],
+            blocks: vec![ClifBlockPlan {
+                label: "b0".into(),
+                param_names: vec![],
+                runtime_param_names: vec![],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleRet {
+                    plan: DirectSimpleRetPlan {
+                        params: vec![],
+                        assigns: vec![],
+                        ret: DirectSimpleExprPlan::Intrinsic {
+                            intrinsic: &blockpy_intrinsics::CELL_REF_INTRINSIC,
+                            parts: vec![DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Name(
+                                test_closure_cell_name("x", 2),
+                            ))],
+                        },
+                    },
+                },
+            }],
+        };
+        let rendered = unsafe {
+            render_cranelift_run_bb_specialized_with_cfg(
+                &blocks,
+                &plan,
+                11usize as ObjPtr,
+                12usize as ObjPtr,
+                13usize as ObjPtr,
+                14usize as ObjPtr,
+            )
+        }
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
+        assert!(
+            rendered.contains("call dp_jit_function_closure_cell"),
+            "cell_ref intrinsic should use callable-rooted closure cells:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("call dp_jit_load_cell"),
+            "cell_ref intrinsic should return the cell object, not its contents:\n{rendered}"
+        );
+    }
 }

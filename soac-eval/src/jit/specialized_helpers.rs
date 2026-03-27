@@ -314,6 +314,29 @@ unsafe extern "C" fn function_globals_hook(callable: ObjPtr) -> ObjPtr {
 }
 
 unsafe extern "C" fn function_closure_cell_hook(callable: ObjPtr, slot: i64) -> ObjPtr {
+    unsafe fn closure_tuple_for_owner(owner: ObjPtr) -> Result<Option<*mut ffi::PyObject>, ()> {
+        let closure = ffi::PyObject_GetAttrString(
+            owner as *mut ffi::PyObject,
+            b"__closure__\0".as_ptr() as *const i8,
+        );
+        if closure.is_null() {
+            if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
+                ffi::PyErr_Clear();
+                return Ok(None);
+            }
+            return Err(());
+        }
+        if closure == ffi::Py_None() {
+            ffi::Py_DECREF(closure);
+            return Ok(None);
+        }
+        if ffi::PyTuple_Check(closure) == 0 {
+            ffi::Py_DECREF(closure);
+            return Ok(None);
+        }
+        Ok(Some(closure))
+    }
+
     if slot < 0 {
         ffi::PyErr_SetString(
             ffi::PyExc_RuntimeError,
@@ -325,45 +348,48 @@ unsafe extern "C" fn function_closure_cell_hook(callable: ObjPtr, slot: i64) -> 
     if function.is_null() {
         return ptr::null_mut();
     }
-    let closure_owner = {
-        let public = ffi::PyObject_GetAttrString(
-            function as *mut ffi::PyObject,
-            b"__dp_public_function__\0".as_ptr() as *const i8,
-        );
-        if !public.is_null() {
+    let closure = match closure_tuple_for_owner(function) {
+        Ok(Some(closure)) => {
             ffi::Py_DECREF(function as *mut ffi::PyObject);
-            public as ObjPtr
-        } else if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
-            ffi::PyErr_Clear();
-            function
-        } else {
-            ffi::Py_DECREF(function as *mut ffi::PyObject);
-            return ptr::null_mut();
+            closure
         }
-    };
-    let closure = ffi::PyObject_GetAttrString(
-        closure_owner as *mut ffi::PyObject,
-        b"__closure__\0".as_ptr() as *const i8,
-    );
-    ffi::Py_DECREF(closure_owner as *mut ffi::PyObject);
-    if closure.is_null() {
-        if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
-            ffi::PyErr_Clear();
-            ffi::PyErr_SetString(
-                ffi::PyExc_RuntimeError,
-                b"callable has no closure cells\0".as_ptr() as *const i8,
+        Ok(None) => {
+            let public = ffi::PyObject_GetAttrString(
+                function as *mut ffi::PyObject,
+                b"__dp_public_function__\0".as_ptr() as *const i8,
             );
+            ffi::Py_DECREF(function as *mut ffi::PyObject);
+            if public.is_null() {
+                if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
+                    ffi::PyErr_Clear();
+                    ffi::PyErr_SetString(
+                        ffi::PyExc_RuntimeError,
+                        b"callable has no closure cells\0".as_ptr() as *const i8,
+                    );
+                }
+                return ptr::null_mut();
+            }
+            match closure_tuple_for_owner(public as ObjPtr) {
+                Ok(Some(closure)) => {
+                    ffi::Py_DECREF(public);
+                    closure
+                }
+                Ok(None) => {
+                    ffi::Py_DECREF(public);
+                    ffi::PyErr_SetString(
+                        ffi::PyExc_RuntimeError,
+                        b"callable has no closure cells\0".as_ptr() as *const i8,
+                    );
+                    return ptr::null_mut();
+                }
+                Err(()) => {
+                    ffi::Py_DECREF(public);
+                    return ptr::null_mut();
+                }
+            }
         }
-        return ptr::null_mut();
-    }
-    if ffi::PyTuple_Check(closure) == 0 {
-        ffi::Py_DECREF(closure);
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"callable __closure__ must be a tuple\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
+        Err(()) => return ptr::null_mut(),
+    };
     let closure_len = ffi::PyTuple_GET_SIZE(closure);
     if slot >= closure_len as i64 {
         ffi::Py_DECREF(closure);
