@@ -487,6 +487,82 @@ fn split_param_defaults<'py>(
     Ok((positional_defaults, kwdefaults))
 }
 
+fn inspect_param_kind<'py>(
+    inspect_module: &Bound<'py, PyModule>,
+    kind: ParamKind,
+) -> PyResult<Bound<'py, PyAny>> {
+    let parameter = inspect_module.getattr("Parameter")?;
+    match kind {
+        ParamKind::PosOnly => parameter.getattr("POSITIONAL_ONLY"),
+        ParamKind::Any => parameter.getattr("POSITIONAL_OR_KEYWORD"),
+        ParamKind::VarArg => parameter.getattr("VAR_POSITIONAL"),
+        ParamKind::KwOnly => parameter.getattr("KEYWORD_ONLY"),
+        ParamKind::KwArg => parameter.getattr("VAR_KEYWORD"),
+    }
+}
+
+fn build_bb_signature<'py>(
+    py: Python<'py>,
+    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    param_defaults: &Bound<'py, PyAny>,
+) -> PyResult<Py<PyAny>> {
+    let inspect_module = PyModule::import(py, "inspect")?;
+    let parameter = inspect_module.getattr("Parameter")?;
+    let signature = inspect_module.getattr("Signature")?;
+    let empty_default = inspect_module.getattr("_empty")?;
+    let defaults = param_defaults.cast::<PyTuple>().map_err(|_| {
+        PyTypeError::new_err(format!(
+            "bb param defaults must be a tuple, got {:?}",
+            param_defaults.get_type()
+        ))
+    })?;
+    let mut default_index = 0usize;
+    let mut signature_params = Vec::with_capacity(function.params.params.len());
+    for param in &function.params.params {
+        let kind = inspect_param_kind(&inspect_module, param.kind)?;
+        let kwargs = PyDict::new(py);
+        kwargs.set_item("name", param.name.as_str())?;
+        kwargs.set_item("kind", &kind)?;
+        if param.has_default {
+            let value = defaults.get_item(default_index).map_err(|_| {
+                PyRuntimeError::new_err("bb param defaults payload is shorter than the param spec")
+            })?;
+            default_index += 1;
+            kwargs.set_item("default", &value)?;
+        } else {
+            kwargs.set_item("default", &empty_default)?;
+        }
+        signature_params.push(parameter.call((), Some(&kwargs))?.unbind());
+    }
+    if default_index != defaults.len() {
+        return Err(PyRuntimeError::new_err(
+            "bb param defaults payload is longer than the param spec",
+        ));
+    }
+    let signature_obj = signature.call1((PyTuple::new(py, signature_params)?,))?;
+    Ok(signature_obj.unbind())
+}
+
+fn build_generator_code<'py>(
+    py: Python<'py>,
+    dp: &Bound<'py, PyModule>,
+    async_gen: bool,
+    name: &str,
+    qualname: &str,
+) -> PyResult<Bound<'py, PyAny>> {
+    let template_name = if async_gen {
+        "_dp_async_gen_code_template"
+    } else {
+        "_dp_gen_code_template"
+    };
+    let template = dp.getattr(template_name)?;
+    let code = template.getattr("__code__")?;
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("co_name", name)?;
+    kwargs.set_item("co_qualname", qualname)?;
+    code.call_method("replace", (), Some(&kwargs))
+}
+
 fn build_wrapped_entry<'py>(
     py: Python<'py>,
     dp: &Bound<'py, PyModule>,
@@ -637,10 +713,7 @@ fn instantiate_bb_function(
     let plan_name = ensure_bb_plan(module_name, function, "function instantiation")?;
     let params = py_param_specs(py, function)?;
     let state_order = PyTuple::new(py, entry_state_order(function))?.unbind();
-    let signature = dp
-        .getattr("_build_bb_signature")?
-        .call1((params.bind(py), param_defaults))?
-        .unbind();
+    let signature = build_bb_signature(py, function, param_defaults)?;
     let (captured_names, closure_values) = build_capture_map(py, captures)?;
     let closure_layout = function
         .closure_layout()
@@ -900,13 +973,7 @@ fn make_bb_generator(
     let function = lookup_bb_function(&module_name, function_id, operation)?;
     let name = function.names.display_name.clone();
     let qualname = function.names.qualname.clone();
-    let code = if async_gen {
-        dp.getattr("_dp_make_async_gen_code")?
-            .call1((name.as_str(), qualname.as_str()))?
-    } else {
-        dp.getattr("_dp_make_gen_code")?
-            .call1((name.as_str(), qualname.as_str()))?
-    };
+    let code = build_generator_code(py, &dp, async_gen, name.as_str(), qualname.as_str())?;
     let kwargs = PyDict::new(py);
     kwargs.set_item("resume", resume.bind(py))?;
     kwargs.set_item("name", name.as_str())?;

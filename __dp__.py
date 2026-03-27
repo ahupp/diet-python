@@ -1,6 +1,5 @@
 # diet-python: disabled
 import collections.abc as _abc
-import inspect as _inspect
 import keyword as _keyword
 import operator as _operator
 import os
@@ -1460,49 +1459,6 @@ def match_class_attr_value(cls, subject, idx, total):
 
     name = match_args[idx]
     return getattr(subject, name)
-
-
-def _bb_param_kind(kind_name):
-    if kind_name == "KwArg":
-        return _inspect.Parameter.VAR_KEYWORD
-    if kind_name == "VarArg":
-        return _inspect.Parameter.VAR_POSITIONAL
-    if kind_name == "KwOnly":
-        return _inspect.Parameter.KEYWORD_ONLY
-    if kind_name == "PosOnly":
-        return _inspect.Parameter.POSITIONAL_ONLY
-    if kind_name == "Any":
-        return _inspect.Parameter.POSITIONAL_OR_KEYWORD
-    raise RuntimeError(f"invalid bb param kind: {kind_name!r}")
-
-
-def _build_bb_signature(params, param_defaults):
-    sig_params = []
-    defaults_iter = iter(param_defaults)
-    for param in params:
-        if len(param) != 3:
-            raise RuntimeError(f"invalid bb param spec: {param!r}")
-        name, kind_name, has_default = param
-        kind = _bb_param_kind(kind_name)
-        param_default = _inspect._empty
-        if has_default:
-            try:
-                param_default = next(defaults_iter)
-            except StopIteration as exc:
-                raise RuntimeError(
-                    "bb param defaults payload is shorter than the param spec"
-                ) from exc
-        sig_params.append(_inspect.Parameter(name, kind, default=param_default))
-    try:
-        next(defaults_iter)
-    except StopIteration:
-        pass
-    else:
-        raise RuntimeError("bb param defaults payload is longer than the param spec")
-
-    return _inspect.Signature(sig_params)
-
-
 _DP_CODE_WITH_FREEVARS_CACHE = {}
 
 
@@ -1557,6 +1513,16 @@ def code_with_freevars(names, is_async, is_generator):
 
 def _dp_entry_template(*args, **kwargs):
     raise RuntimeError("CLIF entry executed without vectorcall interception")
+
+
+def _dp_gen_code_template(_it):
+    while True:
+        yield next(_it)
+
+
+async def _dp_async_gen_code_template():
+    if False:
+        yield None
 
 def def_hidden_resume_fn(
     function_id,
@@ -1617,46 +1583,6 @@ def mark_coroutine_function(func):
         except Exception:
             pass
     return func
-
-
-_DP_GEN_CODE_TEMPLATE = None
-
-
-def _dp_make_gen_code(name, qualname):
-    global _DP_GEN_CODE_TEMPLATE
-    if _DP_GEN_CODE_TEMPLATE is None:
-        ns = {}
-        exec(
-            "def _dp_gen_code_template(_it):\n"
-            "    while True:\n"
-            "        yield next(_it)\n",
-            {},
-            ns,
-        )
-        _DP_GEN_CODE_TEMPLATE = ns["_dp_gen_code_template"].__code__
-
-    code = _DP_GEN_CODE_TEMPLATE
-    return code.replace(co_name=name, co_qualname=qualname)
-
-
-_DP_ASYNC_GEN_CODE_TEMPLATE = None
-
-
-def _dp_make_async_gen_code(name, qualname):
-    global _DP_ASYNC_GEN_CODE_TEMPLATE
-    if _DP_ASYNC_GEN_CODE_TEMPLATE is None:
-        ns = {}
-        exec(
-            "async def _dp_async_gen_code_template():\n"
-            "    if False:\n"
-            "        yield None\n",
-            {},
-            ns,
-        )
-        _DP_ASYNC_GEN_CODE_TEMPLATE = ns["_dp_async_gen_code_template"].__code__
-
-    code = _DP_ASYNC_GEN_CODE_TEMPLATE
-    return code.replace(co_name=name, co_qualname=qualname)
 
 
 def make_closure_generator(function_id, resume, module_globals=None):
