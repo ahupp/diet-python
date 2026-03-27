@@ -864,36 +864,6 @@ fn jit_render_bb_with_cfg_plan(
     Ok(payload.unbind())
 }
 
-#[pyfunction]
-fn jit_compile_clif_wrapper(py: Python<'_>, func: &Bound<'_, PyAny>) -> PyResult<()> {
-    let module_name = func
-        .getattr("__module__")
-        .ok()
-        .and_then(|value| value.extract::<String>().ok())
-        .unwrap_or_else(|| "<unknown-module>".to_string());
-    let qualname = func
-        .getattr("__qualname__")
-        .ok()
-        .and_then(|value| value.extract::<String>().ok())
-        .unwrap_or_else(|| "<unknown-qualname>".to_string());
-    let start = Instant::now();
-    unsafe {
-        soac_eval::tree_walk::compile_clif_vectorcall(func.as_ptr()).map_err(|_| {
-            if ffi::PyErr_Occurred().is_null() {
-                PyRuntimeError::new_err("failed to eagerly compile CLIF entry")
-            } else {
-                PyErr::fetch(py)
-            }
-        })?;
-    }
-    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-    info!(
-        "soac_jit_eager_compile module={} qualname={} elapsed_ms={elapsed_ms:.3}",
-        module_name, qualname
-    );
-    Ok(())
-}
-
 #[pymodule]
 fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     dp_transform::init_logging();
@@ -909,6 +879,5 @@ fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(jit_block_param_names, module)?)?;
     module.add_function(wrap_pyfunction!(jit_debug_plan, module)?)?;
     module.add_function(wrap_pyfunction!(jit_render_bb_with_cfg_plan, module)?)?;
-    module.add_function(wrap_pyfunction!(jit_compile_clif_wrapper, module)?)?;
     Ok(())
 }

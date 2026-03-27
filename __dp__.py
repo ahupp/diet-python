@@ -486,8 +486,6 @@ def _attach_throw_context_from_state(state, exc):
 _jit_make_bb_function = None
 _jit_make_bb_hidden_resume = None
 _jit_make_bb_generator = None
-_register_clif_vectorcall = None
-_jit_compile_clif_wrapper = None
 
 
 class _DpGenerator:
