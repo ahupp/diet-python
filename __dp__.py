@@ -1,6 +1,7 @@
 # diet-python: disabled
 import collections.abc as _abc
 import inspect as _inspect
+import keyword as _keyword
 import operator as _operator
 import os
 import reprlib
@@ -1574,6 +1575,58 @@ def _bb_capture_values(captures):
     return closure_values
 
 
+_DP_CODE_WITH_FREEVARS_CACHE = {}
+
+
+def code_with_freevars(names, is_async, is_generator):
+    names = tuple(names)
+    is_async = bool(is_async)
+    is_generator = bool(is_generator)
+    cache_key = (names, is_async, is_generator)
+    cached = _DP_CODE_WITH_FREEVARS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    for name in names:
+        if not isinstance(name, str):
+            raise TypeError(f"freevar names must be str, got {type(name)!r}")
+        if not name.isidentifier() or _keyword.iskeyword(name):
+            raise ValueError(f"invalid freevar name: {name!r}")
+    if len(set(names)) != len(names):
+        raise ValueError("freevar names must be unique")
+
+    outer_lines = ["def __dp_make_code():"]
+    for name in names:
+        outer_lines.append(f"    {name} = None")
+    if is_async:
+        outer_lines.append(
+            "    async def wrapped(*args, __dp_entry=None, **kwargs):"
+        )
+    else:
+        outer_lines.append("    def wrapped(*args, __dp_entry=None, **kwargs):")
+    if names:
+        outer_lines.append("        if False:")
+        for name in names:
+            outer_lines.append(f"            {name}")
+    if is_async and is_generator:
+        outer_lines.append(
+            "        async for __dp_item in __dp_entry(*args, **kwargs):"
+        )
+        outer_lines.append("            yield __dp_item")
+    elif is_async:
+        outer_lines.append("        return await __dp_entry(*args, **kwargs)")
+    elif is_generator:
+        outer_lines.append("        yield from __dp_entry(*args, **kwargs)")
+    else:
+        outer_lines.append("        return __dp_entry(*args, **kwargs)")
+    outer_lines.append("    return wrapped.__code__")
+
+    ns = {}
+    exec("\n".join(outer_lines), {}, ns)
+    code = ns["__dp_make_code"]()
+    _DP_CODE_WITH_FREEVARS_CACHE[cache_key] = code
+    return code
+
+
 def _bb_wrap_with_closure(entry, closure_values):
     if not closure_values:
         return entry
@@ -1589,46 +1642,25 @@ def _bb_wrap_with_named_closure(entry, captured_names, captured_values):
         return entry
     if getattr(entry, "__closure__", None):
         return entry
-
-    assign_lines = []
-    for idx, name in enumerate(captured_names):
-        assign_lines.append(f"    {name} = __dp_values[{idx}]")
-    assigns = "\n".join(assign_lines)
-
-    if not assigns:
-        assigns = "    pass"
-
-    closure_items = []
-    for name in captured_names:
-        closure_items.append(f"            {name!r}: {name},")
-    closure_map = "\n".join(closure_items)
-
-    # Build a wrapper whose closure freevar names match captured_names.
-    if _inspect.iscoroutinefunction(entry):
-        src = (
-            "def __dp_make(__dp_entry, __dp_values):\n"
-            f"{assigns}\n"
-            "    async def wrapped(*args, __dp_entry=__dp_entry, **kwargs):\n"
-            "        __dp_closure = {\n"
-            f"{closure_map}\n"
-            "        }\n"
-            "        return await __dp_entry(*args, **kwargs)\n"
-            "    return wrapped\n"
-        )
-    else:
-        src = (
-            "def __dp_make(__dp_entry, __dp_values):\n"
-            f"{assigns}\n"
-            "    def wrapped(*args, __dp_entry=__dp_entry, **kwargs):\n"
-            "        __dp_closure = {\n"
-            f"{closure_map}\n"
-            "        }\n"
-            "        return __dp_entry(*args, **kwargs)\n"
-            "    return wrapped\n"
-        )
-    ns = {}
-    exec(src, {}, ns)
-    return ns["__dp_make"](entry, captured_values)
+    code = code_with_freevars(
+        captured_names,
+        is_async=_inspect.iscoroutinefunction(entry)
+        or _inspect.isasyncgenfunction(entry),
+        is_generator=_inspect.isgeneratorfunction(entry)
+        or _inspect.isasyncgenfunction(entry),
+    )
+    captured_by_name = dict(zip(captured_names, captured_values))
+    closure = tuple(make_cell(captured_by_name[name]) for name in code.co_freevars)
+    wrapped = _types.FunctionType(
+        code,
+        entry.__globals__,
+        name=entry.__name__,
+        closure=closure,
+    )
+    wrapped.__kwdefaults__ = {"__dp_entry": entry}
+    wrapped.__qualname__ = getattr(entry, "__qualname__", wrapped.__qualname__)
+    entry.__dp_public_function__ = wrapped
+    return wrapped
 
 
 _DP_ENTRY_TEMPLATE_CODE = None
