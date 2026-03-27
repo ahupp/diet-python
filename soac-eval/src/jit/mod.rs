@@ -355,6 +355,22 @@ pub struct RenderedSpecializedClif {
     pub vcode_disasm: String,
 }
 
+#[derive(Debug, Clone)]
+struct ClifBlockDisplayAnnotation {
+    semantic_name: String,
+    param_names: Vec<String>,
+}
+
+type ClifBlockDisplayAnnotations = HashMap<String, ClifBlockDisplayAnnotation>;
+
+struct BuiltSpecializedFunction {
+    ctx: cranelift_codegen::Context,
+    main_id: cranelift_module::FuncId,
+    literal_pool: Vec<Box<[u8]>>,
+    import_id_to_symbol: HashMap<u32, &'static str>,
+    block_annotations: ClifBlockDisplayAnnotations,
+}
+
 struct CompiledSpecializedRunner {
     _jit_module: JITModule,
     _literal_pool: Vec<Box<[u8]>>,
@@ -3264,6 +3280,93 @@ fn rewrite_import_fn_aliases(
     out
 }
 
+fn register_block_display_annotation(
+    annotations: &mut ClifBlockDisplayAnnotations,
+    block: ir::Block,
+    semantic_name: impl Into<String>,
+    param_names: Vec<String>,
+) {
+    annotations.insert(
+        block.to_string(),
+        ClifBlockDisplayAnnotation {
+            semantic_name: semantic_name.into(),
+            param_names,
+        },
+    );
+}
+
+fn parse_block_header_for_display(line: &str) -> Option<(&str, Vec<&str>)> {
+    if line.trim_start().len() != line.len() || !line.starts_with("block") {
+        return None;
+    }
+    let bytes = line.as_bytes();
+    let mut token_end = "block".len();
+    while token_end < bytes.len() && bytes[token_end].is_ascii_digit() {
+        token_end += 1;
+    }
+    if token_end == "block".len() {
+        return None;
+    }
+    let token = &line[..token_end];
+    let mut cursor = token_end;
+    let mut param_types = Vec::new();
+    if cursor < bytes.len() && bytes[cursor] == b'(' {
+        let params_start = cursor + 1;
+        let params_end = params_start + line[params_start..].find(')')?;
+        let params_text = &line[params_start..params_end];
+        if !params_text.trim().is_empty() {
+            for param in params_text.split(", ") {
+                let (_, ty) = param.split_once(':')?;
+                param_types.push(ty.trim());
+            }
+        }
+        cursor = params_end + 1;
+    }
+    if !line[cursor..].trim_end().ends_with(':') {
+        return None;
+    }
+    Some((token, param_types))
+}
+
+fn rewrite_block_header_annotations(
+    clif: &str,
+    block_annotations: &ClifBlockDisplayAnnotations,
+) -> String {
+    let mut out = String::with_capacity(clif.len() + (block_annotations.len() * 48));
+    for chunk in clif.split_inclusive('\n') {
+        let line = chunk.strip_suffix('\n').unwrap_or(chunk);
+        out.push_str(line);
+        if let Some((token, param_types)) = parse_block_header_for_display(line) {
+            let annotation = block_annotations.get(token);
+            let semantic_name = annotation
+                .map(|annotation| annotation.semantic_name.as_str())
+                .unwrap_or(token);
+            let param_names = annotation.map(|annotation| annotation.param_names.as_slice());
+            out.push_str(" ; block ");
+            out.push_str(semantic_name);
+            out.push('(');
+            for (index, ty) in param_types.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                let fallback_name = format!("param{index}");
+                let param_name = param_names
+                    .and_then(|names| names.get(index))
+                    .map(String::as_str)
+                    .unwrap_or(fallback_name.as_str());
+                out.push_str(param_name);
+                out.push_str(": ");
+                out.push_str(ty);
+            }
+            out.push(')');
+        }
+        if chunk.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    out
+}
+
 pub fn run_cranelift_smoke(module: &BlockPyModule<CodegenBlockPyPass>) -> Result<(), String> {
     let function_count = module.callable_defs.len() as i64;
     let block_count = module
@@ -3323,15 +3426,7 @@ fn build_cranelift_run_bb_specialized_function(
     none_obj: ObjPtr,
     deleted_obj: ObjPtr,
     empty_tuple_obj: ObjPtr,
-) -> Result<
-    (
-        cranelift_codegen::Context,
-        cranelift_module::FuncId,
-        Vec<Box<[u8]>>,
-        HashMap<u32, &'static str>,
-    ),
-    String,
-> {
+) -> Result<BuiltSpecializedFunction, String> {
     let block_count = jit_data.blocks.len();
     if block_count == 0 {
         return Err(format!("specialized JIT run_bb plan has no blocks"));
@@ -3361,6 +3456,7 @@ fn build_cranelift_run_bb_specialized_function(
     let mut literal_pool: Vec<Box<[u8]>> = Vec::new();
     ctx.func.signature = main_sig;
     let mut builder_ctx = FunctionBuilderContext::new();
+    let mut block_annotations = ClifBlockDisplayAnnotations::new();
     {
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
         let entry_block = fb.create_block();
@@ -3383,6 +3479,50 @@ fn build_cranelift_run_bb_specialized_function(
         let step_null_block = fb.create_block();
         let raise_exc_direct_block = fb.create_block();
         let function_state_slots = FunctionStateSlots::new(&mut fb, &jit_data.slot_names);
+
+        register_block_display_annotation(
+            &mut block_annotations,
+            entry_block,
+            "jit_entry",
+            vec![
+                "callable".into(),
+                "entry_args".into(),
+                "ambient_args".into(),
+            ],
+        );
+        for (index, block) in exec_blocks.iter().enumerate() {
+            let param_names = if runtime_block_param_names[index].is_empty() {
+                plan.blocks[index].param_names.clone()
+            } else {
+                runtime_block_param_names[index].clone()
+            };
+            register_block_display_annotation(
+                &mut block_annotations,
+                *block,
+                plan.blocks[index].label.clone(),
+                param_names,
+            );
+        }
+        for (index, block) in cleanup_null_blocks.iter().enumerate() {
+            register_block_display_annotation(
+                &mut block_annotations,
+                *block,
+                format!("cleanup_null::{}", plan.blocks[index].label),
+                vec!["value".into()],
+            );
+        }
+        register_block_display_annotation(
+            &mut block_annotations,
+            step_null_block,
+            "step_null",
+            vec!["args".into()],
+        );
+        register_block_display_annotation(
+            &mut block_annotations,
+            raise_exc_direct_block,
+            "raise_exc_direct",
+            vec!["args".into(), "exc".into()],
+        );
 
         fb.append_block_params_for_function_params(entry_block);
         for (index, block) in exec_blocks.iter().enumerate() {
@@ -3635,6 +3775,12 @@ fn build_cranelift_run_bb_specialized_function(
         for (index, block_data) in jit_data.blocks.iter().enumerate() {
             if block_data.exc_dispatch.is_some() {
                 let dispatch_block = fb.create_block();
+                register_block_display_annotation(
+                    &mut block_annotations,
+                    dispatch_block,
+                    format!("exc_dispatch::{}", plan.blocks[index].label),
+                    Vec::new(),
+                );
                 exception_dispatch_blocks[index] = Some(dispatch_block);
             }
         }
@@ -3842,12 +3988,13 @@ fn build_cranelift_run_bb_specialized_function(
         fb.finalize();
     }
 
-    Ok((
+    Ok(BuiltSpecializedFunction {
         ctx,
         main_id,
         literal_pool,
-        module_imports.debug_symbols().clone(),
-    ))
+        import_id_to_symbol: module_imports.debug_symbols().clone(),
+        block_annotations,
+    })
 }
 
 unsafe fn render_cranelift_run_bb_specialized_data_with_cfg(
@@ -3865,7 +4012,7 @@ unsafe fn render_cranelift_run_bb_specialized_data_with_cfg(
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut jit_module = JITModule::new(builder);
-    let (ctx, _, _literal_pool, import_id_to_symbol) = build_cranelift_run_bb_specialized_function(
+    let built = build_cranelift_run_bb_specialized_function(
         &mut jit_module,
         blocks,
         jit_data,
@@ -3878,7 +4025,7 @@ unsafe fn render_cranelift_run_bb_specialized_data_with_cfg(
     )?;
     let mut out = String::new();
     out.push_str("; import fn aliases (Cranelift display id -> symbol)\n");
-    let mut symbols: Vec<&'static str> = import_id_to_symbol.values().copied().collect();
+    let mut symbols: Vec<&'static str> = built.import_id_to_symbol.values().copied().collect();
     symbols.sort_unstable();
     symbols.dedup();
     for symbol in symbols {
@@ -3887,8 +4034,12 @@ unsafe fn render_cranelift_run_bb_specialized_data_with_cfg(
         out.push('\n');
     }
     out.push('\n');
-    let (compiled_clif, cfg_dot, vcode_disasm) =
-        render_compiled_clif_and_vcode_disasm(&mut jit_module, ctx, &import_id_to_symbol)?;
+    let (compiled_clif, cfg_dot, vcode_disasm) = render_compiled_clif_and_vcode_disasm(
+        &mut jit_module,
+        built.ctx,
+        &built.import_id_to_symbol,
+        &built.block_annotations,
+    )?;
     out.push_str(&compiled_clif);
     Ok(RenderedSpecializedClif {
         clif: out,
@@ -3921,6 +4072,7 @@ fn render_compiled_clif_and_vcode_disasm(
     jit_module: &mut JITModule,
     mut ctx: cranelift_codegen::Context,
     import_id_to_symbol: &HashMap<u32, &'static str>,
+    block_annotations: &ClifBlockDisplayAnnotations,
 ) -> Result<(String, String, String), String> {
     let mut ctrl_plane = ControlPlane::default();
     ctx.optimize(jit_module.isa(), &mut ctrl_plane)
@@ -3930,9 +4082,11 @@ fn render_compiled_clif_and_vcode_disasm(
 
     let mut clif = String::new();
     clif.push_str("; ---- post-opt CLIF fed to Cranelift backend ----\n");
-    clif.push_str(&rewrite_import_fn_aliases(
-        ctx.func.display().to_string().as_str(),
-        import_id_to_symbol,
+    let clif_display =
+        rewrite_import_fn_aliases(ctx.func.display().to_string().as_str(), import_id_to_symbol);
+    clif.push_str(&rewrite_block_header_annotations(
+        &clif_display,
+        block_annotations,
     ));
 
     let compiled = jit_module
@@ -3997,18 +4151,19 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
         _literal_pool: Vec::new(),
         entry: None,
     });
-    let (mut ctx, main_id, literal_pool, _import_id_to_symbol) =
-        build_cranelift_run_bb_specialized_function(
-            &mut compiled._jit_module,
-            blocks,
-            &jit_data,
-            globals_obj,
-            true_obj,
-            false_obj,
-            none_obj,
-            deleted_obj,
-            empty_tuple_obj,
-        )?;
+    let built = build_cranelift_run_bb_specialized_function(
+        &mut compiled._jit_module,
+        blocks,
+        &jit_data,
+        globals_obj,
+        true_obj,
+        false_obj,
+        none_obj,
+        deleted_obj,
+        empty_tuple_obj,
+    )?;
+    let mut ctx = built.ctx;
+    let main_id = built.main_id;
     define_function_with_incremental_cache(
         &mut compiled._jit_module,
         main_id,
@@ -4025,7 +4180,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
         code_ptr,
         param_count: jit_data.entry_param_names.len(),
     });
-    compiled._literal_pool = literal_pool;
+    compiled._literal_pool = built.literal_pool;
     Ok(Box::into_raw(compiled) as ObjPtr)
 }
 

@@ -9,6 +9,7 @@ use ruff_python_codegen::{Generator, Indentation};
 pub use ruff_python_parser::ParseError;
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
+use serde_json::{json, Value};
 use std::any::Any;
 use std::sync::Once;
 use std::time::{Duration, Instant};
@@ -269,6 +270,54 @@ impl PassTracker for RecordingPassTracker {
         self.record_pass_timing(name, elapsed);
         value
     }
+}
+
+fn inspector_function_payload(
+    function: &crate::block_py::BlockPyFunction<CodegenBlockPyPass>,
+) -> Value {
+    json!({
+        "functionId": function.function_id.0,
+        "qualname": function.names.qualname,
+        "displayName": function.names.display_name,
+        "bindName": function.names.bind_name,
+        "kind": format!("{:?}", function.kind).to_lowercase(),
+        "entryLabel": function.entry_block().label_str(),
+    })
+}
+
+pub fn render_inspector_payload(source: &str, output: &LoweringResult) -> String {
+    let mut steps = vec![json!({
+        "key": "input_source",
+        "label": "input source",
+        "text": source,
+    })];
+    for name in output.pass_tracker.pass_names() {
+        let text = output
+            .pass_tracker
+            .render_pass_text(name)
+            .unwrap_or_else(|| format!("; no text renderer for pass {name}"));
+        steps.push(json!({
+            "key": name,
+            "label": name,
+            "text": text,
+        }));
+    }
+    let functions = output
+        .codegen_module
+        .as_ref()
+        .map(|module| {
+            module
+                .callable_defs
+                .iter()
+                .map(inspector_function_payload)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    json!({
+        "steps": steps,
+        "functions": functions,
+    })
+    .to_string()
 }
 
 fn lower_python_to_blockpy_with_tracker<P>(

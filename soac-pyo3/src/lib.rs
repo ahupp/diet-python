@@ -10,7 +10,7 @@ use pyo3::exceptions::{
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyFunction, PyModule, PyString, PyTuple};
-use serde_json::json;
+use pyo3::types::{PyAny, PyDict, PyFunction, PyModule, PyString, PyTuple};
 use std::time::Instant;
 
 mod eval;
@@ -103,25 +103,8 @@ fn transform_source_with_name(
 
 #[pyfunction]
 fn inspect_pipeline(source: &str, ensure: Option<bool>) -> PyResult<String> {
-    let _ = ensure;
-    let output = lower_python_to_blockpy_recorded(source).map_err(lowering_error_to_pyerr)?;
-    let mut steps = vec![json!({
-        "key": "input_source",
-        "label": "input source",
-        "text": source,
-    })];
-    for name in output.pass_tracker.pass_names() {
-        let text = output
-            .pass_tracker
-            .render_pass_text(name)
-            .unwrap_or_else(|| format!("; no text renderer for pass {name}"));
-        steps.push(json!({
-            "key": name,
-            "label": name,
-            "text": text,
-        }));
-    }
-    Ok(json!({ "steps": steps }).to_string())
+    let output = lower_source(source, ensure)?;
+    Ok(dp_transform::render_inspector_payload(source, &output))
 }
 
 fn import_dp_module<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyModule>> {

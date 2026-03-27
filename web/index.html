@@ -135,6 +135,11 @@ body {
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
 }
 
+.clif-panel {
+  grid-column: 1 / -1;
+  min-height: 360px;
+}
+
 .dominator-panel {
   grid-column: 1 / -1;
   min-height: 360px;
@@ -163,6 +168,21 @@ body {
   font-size: 0.88rem;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+
+.panel-head-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.panel-substatus {
+  font-size: 0.74rem;
+  color: var(--ink-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 textarea,
@@ -376,6 +396,22 @@ select {
       </div>
       <div class="panel-body" id="rightPane"></div>
     </section>
+
+    <section class="panel clif-panel">
+      <div class="panel-head">
+        <div class="panel-head-meta">
+          <div class="panel-title">Actual Generated CLIF</div>
+          <div class="panel-substatus" id="clifStatus">Select a lowered function to render the post-opt CLIF fed to Cranelift.</div>
+        </div>
+        <div class="select-wrap">
+          <label for="clifFunction">Function</label>
+          <select id="clifFunction"></select>
+        </div>
+      </div>
+      <div class="panel-body">
+        <pre id="clifPane">; Actual CLIF will appear here.</pre>
+      </div>
+    </section>
   </div>
 </div>
 
@@ -390,12 +426,18 @@ const prevPassEl = document.getElementById("prevPass");
 const nextPassEl = document.getElementById("nextPass");
 const stepWindowEl = document.getElementById("stepWindow");
 const statusEl = document.getElementById("status");
+const clifFunctionEl = document.getElementById("clifFunction");
+const clifStatusEl = document.getElementById("clifStatus");
+const clifPaneEl = document.getElementById("clifPane");
 
 const state = {
   source: "",
   steps: [],
   pairStart: 0,
   requestedRightStepKey: null,
+  functions: [],
+  selectedFunctionKey: null,
+  clifRequestSerial: 0,
 };
 
 const SAMPLE = `def classify(n):
@@ -480,6 +522,71 @@ function makeSourceEditor() {
   return textarea;
 }
 
+function clifFunctionKey(fn) {
+  return `${fn.functionId}:${fn.qualname}:${fn.entryLabel}`;
+}
+
+function selectedClifFunction() {
+  return state.functions.find((fn) => clifFunctionKey(fn) === state.selectedFunctionKey) || null;
+}
+
+function defaultClifFunction(functions) {
+  return functions.find((fn) => fn.qualname !== "_dp_module_init") || functions[0] || null;
+}
+
+function setClifStatus(message, isError = false) {
+  clifStatusEl.textContent = message;
+  clifStatusEl.style.color = isError ? "#ff8c69" : "var(--ink-1)";
+}
+
+function renderClifText(text) {
+  clifPaneEl.textContent = text;
+}
+
+function normalizeFunctions(payload) {
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+  return payload.filter((fn) =>
+    fn &&
+    Number.isInteger(fn.functionId) &&
+    typeof fn.qualname === "string" &&
+    typeof fn.displayName === "string" &&
+    typeof fn.bindName === "string" &&
+    typeof fn.kind === "string" &&
+    typeof fn.entryLabel === "string"
+  );
+}
+
+function renderClifSelector() {
+  const previousValue = state.selectedFunctionKey;
+  clifFunctionEl.innerHTML = "";
+  if (!state.functions.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No lowered functions";
+    clifFunctionEl.appendChild(option);
+    clifFunctionEl.disabled = true;
+    state.selectedFunctionKey = null;
+    return;
+  }
+
+  for (const fn of state.functions) {
+    const option = document.createElement("option");
+    option.value = clifFunctionKey(fn);
+    option.textContent = `${fn.qualname} [fn#${fn.functionId} | ${fn.kind}]`;
+    clifFunctionEl.appendChild(option);
+  }
+  clifFunctionEl.disabled = false;
+
+  const defaultFunction = defaultClifFunction(state.functions);
+  const defaultKey = defaultFunction ? clifFunctionKey(defaultFunction) : "";
+  state.selectedFunctionKey = state.functions.some((fn) => clifFunctionKey(fn) === previousValue)
+    ? previousValue
+    : defaultKey;
+  clifFunctionEl.value = state.selectedFunctionKey;
+}
+
 function renderSourceEditor(container) {
   const existing = container.querySelector("textarea");
   if (existing) {
@@ -544,6 +651,62 @@ async function inspectPipeline(source) {
   }
 }
 
+async function renderActualClif() {
+  const source = state.source;
+  const selected = selectedClifFunction();
+  if (!source.trim()) {
+    setClifStatus("Select a lowered function to render the post-opt CLIF fed to Cranelift.");
+    renderClifText("; Actual CLIF will appear here.");
+    return;
+  }
+  if (!selected) {
+    setClifStatus("No lowered BB functions are available for CLIF rendering.");
+    renderClifText("; No lowered functions available.");
+    return;
+  }
+
+  const requestSerial = ++state.clifRequestSerial;
+  setClifStatus(`Loading actual CLIF for ${selected.qualname}…`);
+  renderClifText("; loading actual CLIF...");
+  try {
+    const response = await fetch("/api/jit_clif", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        source,
+        functionId: selected.functionId,
+        qualname: selected.qualname,
+        entryLabel: selected.entryLabel,
+      }),
+    });
+    const payload = await response.json();
+    if (requestSerial !== state.clifRequestSerial) {
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(payload.error || "jit_clif request failed");
+    }
+    renderClifText(payload.clif || "; no CLIF returned");
+    setClifStatus(
+      payload.resolved_entry
+        ? `Actual post-opt CLIF | ${payload.resolved_entry}`
+        : `Actual post-opt CLIF | ${selected.qualname}`
+    );
+  } catch (error) {
+    if (requestSerial !== state.clifRequestSerial) {
+      return;
+    }
+    setClifStatus("Actual CLIF unavailable", true);
+    renderClifText(
+      `; Unable to load actual CLIF.\n` +
+      `; This view requires web/inspector_server.py and a function with a full JIT fast path.\n\n` +
+      String(error)
+    );
+  }
+}
+
 function shiftPassWindow(delta) {
   const next = clampPairStart(state.pairStart + delta);
   if (next === state.pairStart) {
@@ -567,7 +730,11 @@ async function inspectNow() {
     ];
     state.pairStart = 0;
     state.requestedRightStepKey = null;
+    state.functions = [];
+    state.selectedFunctionKey = null;
     renderPassWindow();
+    renderClifSelector();
+    await renderActualClif();
     updateQueryParams();
     setStatus("ready");
     return;
@@ -576,11 +743,14 @@ async function inspectNow() {
   try {
     const payload = await inspectPipeline(source);
     state.steps = Array.isArray(payload.steps) ? payload.steps : [];
+    state.functions = normalizeFunctions(payload.functions);
     const requestedPairStart = pairStartForRightStepKey(state.requestedRightStepKey);
     state.pairStart =
       requestedPairStart === null ? clampPairStart(state.pairStart) : requestedPairStart;
     state.requestedRightStepKey = currentRightStep()?.key || null;
     renderPassWindow();
+    renderClifSelector();
+    await renderActualClif();
     updateQueryParams();
     setStatus(`ok | ${Math.max(0, state.steps.length - 1)} tracked pass${state.steps.length === 2 ? "" : "es"}`);
   } catch (error) {
@@ -598,7 +768,11 @@ async function inspectNow() {
     ];
     state.pairStart = 0;
     state.requestedRightStepKey = null;
+    state.functions = [];
+    state.selectedFunctionKey = null;
     renderPassWindow();
+    renderClifSelector();
+    await renderActualClif();
     updateQueryParams();
     setStatus("transform error", true);
   }
@@ -616,6 +790,10 @@ async function run() {
 
   prevPassEl.addEventListener("click", () => shiftPassWindow(-1));
   nextPassEl.addEventListener("click", () => shiftPassWindow(1));
+  clifFunctionEl.addEventListener("change", () => {
+    state.selectedFunctionKey = clifFunctionEl.value || null;
+    void renderActualClif();
+  });
   window.addEventListener("keydown", (event) => {
     if (isEditableTarget(event.target)) {
       return;

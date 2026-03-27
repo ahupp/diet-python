@@ -166,6 +166,56 @@ mod tests {
     }
 
     #[test]
+    fn render_specialized_jit_clif_annotates_block_headers_with_named_typed_params() {
+        let blocks = [1usize as ObjPtr];
+        let plan = ClifPlan {
+            entry_param_names: vec![],
+            ambient_param_names: vec![],
+            slot_names: vec!["current".into(), "acc".into()],
+            blocks: vec![ClifBlockPlan {
+                label: "loop_body".into(),
+                param_names: vec!["current".into(), "acc".into()],
+                runtime_param_names: vec!["current".into(), "acc".into()],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleRet {
+                    plan: DirectSimpleRetPlan {
+                        params: vec!["current".into(), "acc".into()],
+                        assigns: vec![],
+                        ret: DirectSimpleExprPlan::Int(7),
+                    },
+                },
+            }],
+        };
+        let rendered = unsafe {
+            render_cranelift_run_bb_specialized_with_cfg(
+                &blocks,
+                &plan,
+                11usize as ObjPtr,
+                12usize as ObjPtr,
+                13usize as ObjPtr,
+                14usize as ObjPtr,
+            )
+        }
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
+        assert!(
+            rendered
+                .contains("; block jit_entry(callable: i64, entry_args: i64, ambient_args: i64)"),
+            "rendered CLIF should include named typed params on surviving post-opt block headers:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("; block loop_body()"),
+            "rendered CLIF should still surface the semantic name for optimized blocks:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("block0(v0: i64, v1: i64, v2: i64):"),
+            "rendered CLIF should keep the real Cranelift block header for round-tripping:\n{rendered}"
+        );
+    }
+
+    #[test]
     fn render_specialized_jit_operator_calls_use_python_capi() {
         let blocks = [1usize as ObjPtr];
         let jit_data = test_single_block_data(
