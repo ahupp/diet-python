@@ -11,7 +11,8 @@ def build():
 
 # diet-python: validate
 
-func = lambda: "global"
+def validate_module(module):
+    func = lambda: "global"
 
-result = build()
-assert result == [(0, "local")]
+    result = module.build()
+    assert result == [(0, "local")]

@@ -20,7 +20,7 @@ def check():
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-exc_type, exc = module.check()
-assert exc_type is StopIteration
-assert exc.args == ("spam",)
+def validate_module(module):
+    exc_type, exc = module.check()
+    assert exc_type is StopIteration
+    assert exc.args == ("spam",)

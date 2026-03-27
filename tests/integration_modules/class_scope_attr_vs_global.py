@@ -12,11 +12,9 @@ class C1:
 
 result = (C1.x, C1.read(), x)
 
-
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
 
-module = __import__("sys").modules[__name__]
-assert module.result == ("class", "global", "global")
+    assert module.result == ("class", "global", "global")

@@ -17,10 +17,9 @@ def exercise():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-value, global_value, cls = module.exercise()
-assert value is cls
-assert global_value == 42
-assert "__class__" not in module.__dict__
+    value, global_value, cls = module.exercise()
+    assert value is cls
+    assert global_value == 42
+    assert "__class__" not in module.__dict__

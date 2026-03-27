@@ -11,6 +11,7 @@ class Y(X):
 
 # diet-python: validate
 
-assert getattr(Meta, "__annotate__", None) is None
-assert getattr(X, "__annotate__", None) is None
-assert getattr(Y, "__annotate__", None) is None
+def validate_module(module):
+    assert getattr(module.Meta, "__annotate__", None) is None
+    assert getattr(module.X, "__annotate__", None) is None
+    assert getattr(module.Y, "__annotate__", None) is None

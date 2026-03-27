@@ -13,11 +13,10 @@ def build_example(**kwargs):
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-import pytest
+    import pytest
 
-module = __import__("sys").modules[__name__]
-instance = module.build_example(state="ready", count=3)
-assert instance.state == "ready"
-assert instance.count == 3
+    instance = module.build_example(state="ready", count=3)
+    assert instance.state == "ready"
+    assert instance.count == 3

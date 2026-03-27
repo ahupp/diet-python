@@ -14,8 +14,7 @@ RESULT = read_self()
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-assert isinstance(module.RESULT, bytes)
-assert len(module.RESULT) == 1
+    assert isinstance(module.RESULT, bytes)
+    assert len(module.RESULT) == 1

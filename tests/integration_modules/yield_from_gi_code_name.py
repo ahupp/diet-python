@@ -9,8 +9,7 @@ def get_name():
     gen.send(None)
     return gen.gi_yieldfrom.gi_code.co_name
 
-
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-assert module.get_name() == "a"
+def validate_module(module):
+    assert module.get_name() == "a"

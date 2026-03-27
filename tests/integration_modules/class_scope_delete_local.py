@@ -5,9 +5,7 @@ class Box:
 
 result = hasattr(Box, "x")
 
-
 # diet-python: validate
 
-
-module = __import__("sys").modules[__name__]
-assert module.result is False
+def validate_module(module):
+    assert module.result is False

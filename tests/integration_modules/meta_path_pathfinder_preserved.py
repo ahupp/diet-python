@@ -43,5 +43,5 @@ def import_with_filtered_meta_path() -> bool:
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-assert module.import_with_filtered_meta_path() is True
+def validate_module(module):
+    assert module.import_with_filtered_meta_path() is True

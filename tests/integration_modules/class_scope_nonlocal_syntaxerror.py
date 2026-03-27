@@ -9,12 +9,10 @@ def nonlocal_in_class_body_error():
 
 result = nonlocal_in_class_body_error()
 
-
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
 
-module = __import__("sys").modules[__name__]
-assert module.result is not None
-assert module.result
+    assert module.result is not None
+    assert module.result

@@ -25,5 +25,7 @@ add_result = lhs + 5
 eq_result = lhs == rhs
 
 # diet-python: validate
-assert add_result == ("add", 10, 5)
-assert eq_result == ("eq", 10, 3)
+
+def validate_module(module):
+    assert module.add_result == ("add", 10, 5)
+    assert module.eq_result == ("eq", 10, 3)

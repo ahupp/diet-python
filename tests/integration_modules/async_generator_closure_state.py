@@ -35,11 +35,10 @@ async def run_throw():
         assert gen.ag_frame is None
     return first, second
 
-
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
+    import asyncio
 
-module = __import__("sys").modules[__name__]
-assert asyncio.run(module.run_send()) == (11, 13)
-assert asyncio.run(module.run_throw()) == (11, 14)
+    assert asyncio.run(module.run_send()) == (11, 13)
+    assert asyncio.run(module.run_throw()) == (11, 14)

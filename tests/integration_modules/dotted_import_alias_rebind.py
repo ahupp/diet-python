@@ -28,13 +28,13 @@ def alias_rebind_attrs(tmp_path: Path) -> tuple[str, str]:
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-import tempfile
-from pathlib import Path
+def validate_module(module):
+    import tempfile
+    from pathlib import Path
 
 
-with tempfile.TemporaryDirectory() as tmp_dir:
-    tmp_path = Path(tmp_dir)
-    from_attr, direct_attr = module.alias_rebind_attrs(tmp_path)
-    assert from_attr == "rebound"
-    assert direct_attr == "rebound"
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        from_attr, direct_attr = module.alias_rebind_attrs(tmp_path)
+        assert from_attr == "rebound"
+        assert direct_attr == "rebound"

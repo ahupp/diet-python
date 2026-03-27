@@ -1,0 +1,14 @@
+
+def outer():
+    x = "outer"
+
+    class Inner:
+        y = x
+
+    return Inner.y
+
+
+# diet-python: validate
+
+def validate_module(module):
+    assert module.outer() == "outer"

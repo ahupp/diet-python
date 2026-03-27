@@ -18,7 +18,6 @@ class Derived(Base):
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-assert module.Derived.value.__doc__ == "base doc"
+    assert module.Derived.value.__doc__ == "base doc"

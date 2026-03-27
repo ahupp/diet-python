@@ -17,9 +17,8 @@ def exercise():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-exc_type, message = module.exercise()
-assert exc_type is RuntimeError
-assert "empty __class__ cell" in message
+    exc_type, message = module.exercise()
+    assert exc_type is RuntimeError
+    assert "empty __class__ cell" in message

@@ -32,23 +32,23 @@ def class_namespace_overrides_closure():
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-if __dp_integration_transformed__:
-    try:
-        module.function_locals()
-    except NotImplementedError:
-        pass
+def validate_module(module):
+    if __dp_integration_transformed__:
+        try:
+            module.function_locals()
+        except NotImplementedError:
+            pass
+        else:
+            raise AssertionError("expected locals() to be unsupported")
     else:
-        raise AssertionError("expected locals() to be unsupported")
-else:
-    func_locals = module.function_locals()
-    assert "h" in func_locals
-    assert "_dp_fn_h" not in func_locals
-    del func_locals["h"]
-    assert func_locals == {"x": 2, "y": 7, "w": 6}
+        func_locals = module.function_locals()
+        assert "h" in func_locals
+        assert "_dp_fn_h" not in func_locals
+        del func_locals["h"]
+        assert func_locals == {"x": 2, "y": 7, "w": 6}
 
-class_locals = set(module.class_locals())
-assert "x" not in class_locals
-assert "y" in class_locals
+    class_locals = set(module.class_locals())
+    assert "x" not in class_locals
+    assert "y" in class_locals
 
-assert module.class_namespace_overrides_closure() == 43
+    assert module.class_namespace_overrides_closure() == 43

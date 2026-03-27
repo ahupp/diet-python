@@ -14,7 +14,6 @@ def call_translate():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-assert module.call_translate() == "translated:after except"
+    assert module.call_translate() == "translated:after except"

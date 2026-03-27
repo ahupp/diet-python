@@ -11,9 +11,8 @@ else:
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-import pytest
+    import pytest
 
-module = __import__("sys").modules[__name__]
-assert module.ERROR == "Field names must not be keywords: 'for'"
+    assert module.ERROR == "Field names must not be keywords: 'for'"

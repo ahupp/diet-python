@@ -4,4 +4,6 @@ def f():
     return 1
 
 # diet-python: validate
-assert f() == 1
+
+def validate_module(module):
+    assert module.f() == 1

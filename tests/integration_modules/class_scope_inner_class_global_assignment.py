@@ -16,11 +16,9 @@ def outer_with_inner_class_global_assignment():
 
 result = (outer_with_inner_class_global_assignment(), x)
 
-
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
 
-module = __import__("sys").modules[__name__]
-assert module.result == (("outer", None, "class-attr"), "class-global")
+    assert module.result == (("outer", None, "class-attr"), "class-global")

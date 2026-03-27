@@ -10,16 +10,15 @@ class Field:
         self.init = init
         self.kw_only = kw_only
 
-
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-fields = [
-    module.Field(True, False),
-    module.Field(True, True),
-    module.Field(False, False),
-]
-assert module.fields_in_init_order(fields) == (
-    (fields[0],),
-    (fields[1],),
-)
+def validate_module(module):
+    fields = [
+        module.Field(True, False),
+        module.Field(True, True),
+        module.Field(False, False),
+    ]
+    assert module.fields_in_init_order(fields) == (
+        (fields[0],),
+        (fields[1],),
+    )

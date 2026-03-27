@@ -7,12 +7,11 @@ def trigger(name):
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-import pytest
-import re
+    import pytest
+    import re
 
-module = __import__("sys").modules[__name__]
-expected = f"module '{module.__name__}' has no attribute 'missing'"
-with pytest.raises(AttributeError, match=re.escape(expected)):
-    module.trigger("missing")
+    expected = f"module '{module.__name__}' has no attribute 'missing'"
+    with pytest.raises(AttributeError, match=re.escape(expected)):
+        module.trigger("missing")

@@ -6,7 +6,7 @@ RESULT = global_function()
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-qualname, name = module.RESULT
-assert qualname == "global_function.<locals>.<lambda>"
-assert name == "<lambda>"
+def validate_module(module):
+    qualname, name = module.RESULT
+    assert qualname == "global_function.<locals>.<lambda>"
+    assert name == "<lambda>"

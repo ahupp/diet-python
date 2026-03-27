@@ -10,9 +10,7 @@ def outer():
 
 result = outer()
 
-
 # diet-python: validate
 
-
-module = __import__("sys").modules[__name__]
-assert module.result == (1, 1)
+def validate_module(module):
+    assert module.result == (1, 1)

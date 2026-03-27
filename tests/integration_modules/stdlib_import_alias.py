@@ -6,9 +6,8 @@ VALUE = sys_alias.version
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-import pytest
+    import pytest
 
-module = __import__("sys").modules[__name__]
-assert module.VALUE == __import__("sys").version
+    assert module.VALUE == __import__("sys").version

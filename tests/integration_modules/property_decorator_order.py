@@ -12,9 +12,8 @@ class Example:
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-instance = module.Example()
-instance.value = 7
-assert instance.value == 7
+    instance = module.Example()
+    instance.value = 7
+    assert instance.value == 7

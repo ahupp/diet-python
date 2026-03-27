@@ -28,5 +28,5 @@ RESULT = run()
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-assert module.RESULT == 0
+def validate_module(module):
+    assert module.RESULT == 0

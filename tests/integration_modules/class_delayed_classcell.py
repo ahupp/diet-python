@@ -20,9 +20,8 @@ def exercise():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-value, cls, class_value = module.exercise()
-assert value is None
-assert class_value is cls
+    value, cls, class_value = module.exercise()
+    assert value is None
+    assert class_value is cls

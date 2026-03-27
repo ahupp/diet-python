@@ -7,6 +7,6 @@ def loop_compare(a, b):
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-assert module.loop_compare(1, 1) is True
-assert module.loop_compare(1, 2) is False
+def validate_module(module):
+    assert module.loop_compare(1, 1) is True
+    assert module.loop_compare(1, 2) is False

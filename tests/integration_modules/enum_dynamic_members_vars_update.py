@@ -22,10 +22,9 @@ class Foo(Enum):
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-foo = module.Foo
-assert list(foo) == [foo.FOO_CAT, foo.FOO_HORSE]
-assert foo.FOO_CAT.value == "aloof"
-assert foo.FOO_HORSE.upper() == "BIG"
+    foo = module.Foo
+    assert list(foo) == [foo.FOO_CAT, foo.FOO_HORSE]
+    assert foo.FOO_CAT.value == "aloof"
+    assert foo.FOO_HORSE.upper() == "BIG"

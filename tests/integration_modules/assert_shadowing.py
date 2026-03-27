@@ -15,9 +15,8 @@ def trigger():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-exc = module.trigger()
-assert isinstance(exc, AssertionError)
-assert str(exc) == "hello"
+    exc = module.trigger()
+    assert isinstance(exc, AssertionError)
+    assert str(exc) == "hello"

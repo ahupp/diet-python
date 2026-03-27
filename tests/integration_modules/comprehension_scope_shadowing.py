@@ -11,8 +11,7 @@ FUNCTION_MEMBERS = [Scope.Function for scope in Scope if scope is Scope.Function
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-assert module.HIGH_SCOPES == [module.Scope.Function]
-assert module.FUNCTION_MEMBERS == [module.Scope.Function]
+    assert module.HIGH_SCOPES == [module.Scope.Function]
+    assert module.FUNCTION_MEMBERS == [module.Scope.Function]

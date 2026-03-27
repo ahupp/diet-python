@@ -9,9 +9,8 @@ def make_name():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-qualname, inner_qualname = module.make_name()
-assert qualname == "Y"
-assert inner_qualname == "Y.Inner"
+    qualname, inner_qualname = module.make_name()
+    assert qualname == "Y"
+    assert inner_qualname == "Y.Inner"

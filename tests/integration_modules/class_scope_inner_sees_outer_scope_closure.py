@@ -13,9 +13,7 @@ def inner_sees_outer_scope_closure():
 
 result = inner_sees_outer_scope_closure()
 
-
 # diet-python: validate
 
-
-module = __import__("sys").modules[__name__]
-assert module.result == "outer"
+def validate_module(module):
+    assert module.result == "outer"

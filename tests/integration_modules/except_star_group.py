@@ -11,11 +11,10 @@ def handle():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-exc = module.handle()
-assert exc is not None
-assert isinstance(exc, ExceptionGroup)
-assert exc.exceptions
-assert isinstance(exc.exceptions[0], OSError)
+    exc = module.handle()
+    assert exc is not None
+    assert isinstance(exc, ExceptionGroup)
+    assert exc.exceptions
+    assert isinstance(exc.exceptions[0], OSError)

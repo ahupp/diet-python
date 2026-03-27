@@ -15,9 +15,8 @@ def pickle_cached_method():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-cached = module.pickle_cached_method()
-assert cached is not None
-assert cached.__qualname__ == "HasCache.cached_meth"
+    cached = module.pickle_cached_method()
+    assert cached is not None
+    assert cached.__qualname__ == "HasCache.cached_meth"

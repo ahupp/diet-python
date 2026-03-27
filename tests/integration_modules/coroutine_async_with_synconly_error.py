@@ -28,15 +28,16 @@ EXPECTED_MESSAGE = (
 
 # diet-python: validate
 
-if __dp_integration_transformed__:
-    coro = make_inner()
-    try:
-        coro.send(None)
-    except StopIteration as exc:
-        assert exc.value == EXPECTED_MESSAGE
+def validate_module(module):
+    if __dp_integration_transformed__:
+        coro = module.make_inner()
+        try:
+            coro.send(None)
+        except StopIteration as exc:
+            assert exc.value == module.EXPECTED_MESSAGE
+        else:
+            raise AssertionError('expected StopIteration')
     else:
-        raise AssertionError('expected StopIteration')
-else:
-    import asyncio
+        import asyncio
 
-    assert asyncio.run(make_inner()) == EXPECTED_MESSAGE
+        assert asyncio.run(module.make_inner()) == module.EXPECTED_MESSAGE

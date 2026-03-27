@@ -8,7 +8,6 @@ def parse_invalid_offset():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-assert module.parse_invalid_offset() == "Inconsistent use of : in -01:3030"
+    assert module.parse_invalid_offset() == "Inconsistent use of : in -01:3030"

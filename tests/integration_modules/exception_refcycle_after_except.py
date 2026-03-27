@@ -11,11 +11,10 @@ def run():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-import pytest
+    import pytest
 
-module = __import__("sys").modules[__name__]
-referrers = module.run()
+    referrers = module.run()
 
-assert referrers == []
+    assert referrers == []

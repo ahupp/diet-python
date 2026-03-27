@@ -12,10 +12,9 @@ class Example:
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-"""Property setters should round-trip values under the transform."""
-instance = module.Example()
-instance.value = 5
-assert instance.value == 5
+    """Property setters should round-trip values under the transform."""
+    instance = module.Example()
+    instance.value = 5
+    assert instance.value == 5

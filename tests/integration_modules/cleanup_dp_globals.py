@@ -3,7 +3,6 @@ def has_dp_name() -> bool:
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-assert module.has_dp_name() is False
+    assert module.has_dp_name() is False

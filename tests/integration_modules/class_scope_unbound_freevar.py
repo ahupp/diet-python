@@ -5,13 +5,11 @@ def outer():
     x = 1
     return C
 
-
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-import pytest
+    import pytest
 
-module = __import__("sys").modules[__name__]
-with pytest.raises(NameError, match="cannot access free variable"):
-    module.outer()
+    with pytest.raises(NameError, match="cannot access free variable"):
+        module.outer()

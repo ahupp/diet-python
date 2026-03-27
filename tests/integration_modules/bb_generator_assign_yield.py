@@ -2,12 +2,10 @@ def gen():
     value = yield "start"
     yield value
 
-
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-g = module.gen()
-assert next(g) == "start"
-assert g.send("x") == "x"
+    g = module.gen()
+    assert next(g) == "start"
+    assert g.send("x") == "x"

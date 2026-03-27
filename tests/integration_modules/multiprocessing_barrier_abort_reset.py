@@ -58,50 +58,49 @@ def run() -> bool:
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-import multiprocessing as mp
-import queue
-import threading
+    import multiprocessing as mp
+    import queue
+    import threading
 
-import pytest
-
-
-def _barrier_smoke(barrier, result_queue) -> None:
-    try:
-        barrier.wait()
-        result_queue.put("ok")
-    except BaseException as exc:
-        result_queue.put(repr(exc))
+    import pytest
 
 
-def _supports_multiprocessing_barrier() -> bool:
-    try:
-        ctx = mp.get_context("spawn")
-        barrier = ctx.Barrier(2, timeout=1.0)
-        result_queue = ctx.Queue()
-    except (OSError, PermissionError, RuntimeError):
-        return False
-    proc = ctx.Process(target=_barrier_smoke, args=(barrier, result_queue))
-    proc.start()
-    try:
-        barrier.wait()
-    except threading.BrokenBarrierError:
-        proc.terminate()
-        proc.join(1)
-        return False
-    proc.join(2)
-    if proc.is_alive():
-        proc.terminate()
-        proc.join(1)
-        return False
-    try:
-        result = result_queue.get_nowait()
-    except queue.Empty:
-        return False
-    return result == "ok"
+    def _barrier_smoke(barrier, result_queue) -> None:
+        try:
+            barrier.wait()
+            result_queue.put("ok")
+        except BaseException as exc:
+            result_queue.put(repr(exc))
 
-module = __import__("sys").modules[__name__]
-if not _supports_multiprocessing_barrier():
-    pytest.xfail("multiprocessing barrier not available in this environment")
-assert module.run() is True
+
+    def _supports_multiprocessing_barrier() -> bool:
+        try:
+            ctx = mp.get_context("spawn")
+            barrier = ctx.Barrier(2, timeout=1.0)
+            result_queue = ctx.Queue()
+        except (OSError, PermissionError, RuntimeError):
+            return False
+        proc = ctx.Process(target=_barrier_smoke, args=(barrier, result_queue))
+        proc.start()
+        try:
+            barrier.wait()
+        except threading.BrokenBarrierError:
+            proc.terminate()
+            proc.join(1)
+            return False
+        proc.join(2)
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(1)
+            return False
+        try:
+            result = result_queue.get_nowait()
+        except queue.Empty:
+            return False
+        return result == "ok"
+
+    if not _supports_multiprocessing_barrier():
+        pytest.xfail("multiprocessing barrier not available in this environment")
+    assert module.run() is True

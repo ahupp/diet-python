@@ -14,10 +14,9 @@ def build_enum():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-import pytest
+    import pytest
 
-module = __import__("sys").modules[__name__]
-with pytest.raises(TypeError, match="do not use `super\\(\\).__new__"):
-    module.build_enum()
+    with pytest.raises(TypeError, match="do not use `super\\(\\).__new__"):
+        module.build_enum()

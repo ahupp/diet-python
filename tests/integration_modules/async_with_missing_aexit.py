@@ -22,7 +22,7 @@ def get_result():
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-message = module.get_result()
-assert "asynchronous context manager" in message
-assert "__aexit__" in message
+def validate_module(module):
+    message = module.get_result()
+    assert "asynchronous context manager" in message
+    assert "__aexit__" in message

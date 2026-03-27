@@ -17,6 +17,6 @@ VALUE = INSTANCE.value
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-assert module.VALUE == "base"
-assert module.INSTANCE.child is True
+def validate_module(module):
+    assert module.VALUE == "base"
+    assert module.INSTANCE.child is True

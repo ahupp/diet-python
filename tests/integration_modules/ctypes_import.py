@@ -1,4 +1,6 @@
 import ctypes
 
 # diet-python: validate
-assert ctypes is not None
+
+def validate_module(module):
+    assert module.ctypes is not None

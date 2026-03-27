@@ -9,10 +9,8 @@ def run():
         exc = err
     return gc.get_referrers(exc)
 
-
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-assert module.run() == []
+    assert module.run() == []

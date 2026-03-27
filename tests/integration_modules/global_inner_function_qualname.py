@@ -21,7 +21,7 @@ RESULT = build_qualnames()
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-qualname, inner_qualname = module.RESULT
-assert qualname == "inner_global_function"
-assert inner_qualname == "inner_global_function.<locals>.inner_function2"
+def validate_module(module):
+    qualname, inner_qualname = module.RESULT
+    assert qualname == "inner_global_function"
+    assert inner_qualname == "inner_global_function.<locals>.inner_function2"

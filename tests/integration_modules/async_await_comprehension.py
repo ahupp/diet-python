@@ -8,7 +8,7 @@ async def gather_once() -> list[int]:
 
 # diet-python: validate
 
-import asyncio
+def validate_module(module):
+    import asyncio
 
-module = __import__("sys").modules[__name__]
-assert asyncio.run(module.gather_once()) == [1]
+    assert asyncio.run(module.gather_once()) == [1]

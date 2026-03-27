@@ -17,8 +17,9 @@ class CDLL:
 def make():
     return CDLL(use_errno=True, use_last_error=True)
 
-
 # diet-python: validate
-obj = make()
-assert obj._FuncPtr._flags_ == 1 | 4 | 8
-assert obj._FuncPtr._restype_ == 2
+
+def validate_module(module):
+    obj = module.make()
+    assert obj._FuncPtr._flags_ == 1 | 4 | 8
+    assert obj._FuncPtr._restype_ == 2

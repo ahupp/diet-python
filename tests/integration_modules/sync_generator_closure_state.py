@@ -57,20 +57,20 @@ def exercise_yield_from():
         next(gen_obj)
     return first, second, third
 
-
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
+def validate_module(module):
+    import pytest
 
-counter = module.make_counter(3)
-if type(counter).__name__ == "_DpClosureGenerator":
-    assert not hasattr(counter, "gi_frame")
-else:
-    assert hasattr(counter, "gi_frame")
-assert next(counter) == 4
-assert counter.send(5) == 9
-with pytest.raises(StopIteration):
-    next(counter)
+    counter = module.make_counter(3)
+    if type(counter).__name__ == "_DpClosureGenerator":
+        assert not hasattr(counter, "gi_frame")
+    else:
+        assert hasattr(counter, "gi_frame")
+    assert next(counter) == 4
+    assert counter.send(5) == 9
+    with pytest.raises(StopIteration):
+        next(counter)
 
-assert module.exercise_throw() == (3, 7)
-assert module.exercise_yield_from() == (4, 14, 114)
+    assert module.exercise_throw() == (3, 7)
+    assert module.exercise_yield_from() == (4, 14, 114)

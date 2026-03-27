@@ -10,9 +10,8 @@ class Example:
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-instance = module.Example()
-result = instance.date()
-assert isinstance(result, module.date)
+    instance = module.Example()
+    result = instance.date()
+    assert isinstance(result, module.date)

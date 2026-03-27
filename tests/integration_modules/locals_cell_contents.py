@@ -7,16 +7,15 @@ def outer():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-if __dp_integration_transformed__:
-    try:
-        module.outer()
-    except NotImplementedError:
-        pass
+    if __dp_integration_transformed__:
+        try:
+            module.outer()
+        except NotImplementedError:
+            pass
+        else:
+            raise AssertionError("expected locals() to be unsupported")
     else:
-        raise AssertionError("expected locals() to be unsupported")
-else:
-    result = module.outer()
-    assert result == {"x": 2, "y": 4, "z": 6}
+        result = module.outer()
+        assert result == {"x": 2, "y": 4, "z": 6}

@@ -7,8 +7,7 @@ def cleanup_global_exception_name():
         inside = ("exc" in globals(), exc.args[0])
     return inside, ("exc" in globals()), globals().get("exc", "<missing>")
 
-
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-assert module.cleanup_global_exception_name() == ((True, "boom"), False, "<missing>")
+def validate_module(module):
+    assert module.cleanup_global_exception_name() == ((True, "boom"), False, "<missing>")

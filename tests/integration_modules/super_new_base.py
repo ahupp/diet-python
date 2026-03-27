@@ -15,9 +15,8 @@ def build_child():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-instance = module.build_child()
-assert instance.a == 1
-assert instance.b == 1
+    instance = module.build_child()
+    assert instance.a == 1
+    assert instance.b == 1

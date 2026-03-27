@@ -11,7 +11,8 @@ class CDLL:
 def make():
     return CDLL()
 
-
 # diet-python: validate
-obj = make()
-assert obj._FuncPtr.x == 7
+
+def validate_module(module):
+    obj = module.make()
+    assert obj._FuncPtr.x == 7

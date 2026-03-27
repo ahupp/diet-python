@@ -26,7 +26,6 @@ def referrer_frames():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-assert module.referrer_frames() == []
+    assert module.referrer_frames() == []

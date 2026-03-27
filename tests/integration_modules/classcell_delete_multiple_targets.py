@@ -26,14 +26,14 @@ def exercise():
 
     return X().f()
 
-
 # diet-python: validate
 
-marker_exc, class_exc = exercise()
-marker_type, marker_message = marker_exc
-class_type, class_message = class_exc
+def validate_module(module):
+    marker_exc, class_exc = module.exercise()
+    marker_type, marker_message = marker_exc
+    class_type, class_message = class_exc
 
-assert marker_type is UnboundLocalError
-assert "marker" in marker_message
-assert class_type is RuntimeError
-assert "empty __class__ cell" in class_message
+    assert marker_type is UnboundLocalError
+    assert "marker" in marker_message
+    assert class_type is RuntimeError
+    assert "empty __class__ cell" in class_message

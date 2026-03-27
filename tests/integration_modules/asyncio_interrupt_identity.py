@@ -92,15 +92,16 @@ def run_interrupt_case(iterations=200_000):
         asyncio.events._set_event_loop_policy(None)
     raise AssertionError("expected exception")
 
-
 # diet-python: validate
-import asyncio
-import builtins
-import operator
 
-if __dp_integration_mode__ != "stock":
-    assert builtins.__dp__.is_ is operator.is_
-    assert builtins.__dp__.is_not is operator.is_not
+def validate_module(module):
+    import asyncio
+    import builtins
+    import operator
 
-exc = run_interrupt_case()
-assert isinstance(exc, asyncio.CancelledError), type(exc)
+    if __dp_integration_mode__ != "stock":
+        assert builtins.__dp__.is_ is operator.is_
+        assert builtins.__dp__.is_not is operator.is_not
+
+    exc = module.run_interrupt_case()
+    assert isinstance(exc, asyncio.CancelledError), type(exc)

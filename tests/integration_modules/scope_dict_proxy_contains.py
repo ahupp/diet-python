@@ -3,4 +3,5 @@ def has_name(name: str) -> bool:
 
 # diet-python: validate
 
-assert has_name("_dp_name") is False
+def validate_module(module):
+    assert module.has_name("_dp_name") is False

@@ -19,9 +19,8 @@ def exercise():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-exc_type, args = module.exercise()
-assert exc_type is KeyError
-assert args == ("a",)
+    exc_type, args = module.exercise()
+    assert exc_type is KeyError
+    assert args == ("a",)

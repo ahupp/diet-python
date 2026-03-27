@@ -11,9 +11,9 @@ class Example:
 
 # diet-python: validate
 
-import pytest
+def validate_module(module):
+    import pytest
 
-module = __import__("sys").modules[__name__]
-for item in [1]:
-    example = module.Example()
-    assert example[item] == item
+    for item in [1]:
+        example = module.Example()
+        assert example[item] == item

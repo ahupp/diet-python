@@ -15,12 +15,11 @@ def run():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-import pytest
+    import pytest
 
-module = __import__("sys").modules[__name__]
-enter_calls, exit_calls = module.run()
+    enter_calls, exit_calls = module.run()
 
-assert enter_calls == [module.mock.call()]
-assert exit_calls == [module.mock.call(None, None, None)]
+    assert enter_calls == [module.mock.call()]
+    assert exit_calls == [module.mock.call(None, None, None)]

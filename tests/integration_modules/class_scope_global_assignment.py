@@ -11,11 +11,9 @@ class C2:
 
 result = (x, getattr(C2, "x", None), C2.y)
 
-
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
 
-module = __import__("sys").modules[__name__]
-assert module.result == ("class-global", None, "class-attr")
+    assert module.result == ("class-global", None, "class-attr")

@@ -25,7 +25,7 @@ def get_error():
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-message = module.get_error()
-assert "__aenter__" in message
-assert "__await__" in message
+def validate_module(module):
+    message = module.get_error()
+    assert "__aenter__" in message
+    assert "__await__" in message

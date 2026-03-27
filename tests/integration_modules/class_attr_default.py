@@ -6,8 +6,7 @@ class Example:
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-instance = module.Example()
-assert instance.method() is module.Example.SENTINEL
+    instance = module.Example()
+    assert instance.method() is module.Example.SENTINEL

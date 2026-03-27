@@ -7,6 +7,6 @@ def make_alias():
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-alias = module.make_alias()
-assert alias.__name__ == "X"
+def validate_module(module):
+    alias = module.make_alias()
+    assert alias.__name__ == "X"

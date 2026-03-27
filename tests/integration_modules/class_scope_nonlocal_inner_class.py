@@ -17,11 +17,9 @@ def outer_with_nonlocal_and_inner_class():
 
 result = outer_with_nonlocal_and_inner_class()
 
-
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
 
-module = __import__("sys").modules[__name__]
-assert module.result == ("inner", "inner")
+    assert module.result == ("inner", "inner")

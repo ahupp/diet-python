@@ -4,5 +4,5 @@ def format_debug():
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-assert module.format_debug() == "value='A string'"
+def validate_module(module):
+    assert module.format_debug() == "value='A string'"

@@ -28,10 +28,9 @@ RESULT = CaptureResult("out", "err")
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-import pytest
+    import pytest
 
-module = __import__("sys").modules[__name__]
-assert module.RESULT.out == "out"
-assert module.RESULT.err == "err"
+    assert module.RESULT.out == "out"
+    assert module.RESULT.err == "err"

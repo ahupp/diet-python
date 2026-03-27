@@ -12,11 +12,9 @@ class C4:
 
 result = C4.outer()
 
-
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
 
-module = __import__("sys").modules[__name__]
-assert module.result == "inner"
+    assert module.result == "inner"

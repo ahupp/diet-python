@@ -7,10 +7,9 @@ def unpack_starred_list():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-a, b, c = module.unpack_starred_list()
-assert a == 1
-assert b == [2, 3]
-assert c == 4
+    a, b, c = module.unpack_starred_list()
+    assert a == 1
+    assert b == [2, 3]
+    assert c == 4

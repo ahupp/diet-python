@@ -7,8 +7,8 @@ else:  # pragma: no cover
 
 # diet-python: validate
 
-import pytest
+def validate_module(module):
+    import pytest
 
-module = __import__("sys").modules[__name__]
-assert module.RESULT[0] == "ok"
-assert module.RESULT[1] == (1, 2, 3)
+    assert module.RESULT[0] == "ok"
+    assert module.RESULT[1] == (1, 2, 3)

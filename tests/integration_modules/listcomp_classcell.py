@@ -10,9 +10,8 @@ def classcell_values():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-values, method_class, cls = module.classcell_values()
-assert values == [4, 4, 4, 4, 4]
-assert method_class is cls
+    values, method_class, cls = module.classcell_values()
+    assert values == [4, 4, 4, 4, 4]
+    assert method_class is cls

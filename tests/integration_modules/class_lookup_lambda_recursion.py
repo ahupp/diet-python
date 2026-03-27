@@ -6,7 +6,6 @@ RESULT = Example.value
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-assert module.RESULT == module.__name__
+    assert module.RESULT == module.__name__

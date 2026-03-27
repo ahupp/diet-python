@@ -8,6 +8,6 @@ def outer():
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-inner = module.outer()
-assert inner.__closure__ is not None
+def validate_module(module):
+    inner = module.outer()
+    assert inner.__closure__ is not None

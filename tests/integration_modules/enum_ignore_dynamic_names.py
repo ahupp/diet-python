@@ -12,9 +12,8 @@ class Period(Enum):
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-period = module.Period
-assert period.OneDay is period.day_1
-assert period.OneDay.value == 1
+    period = module.Period
+    assert period.OneDay is period.day_1
+    assert period.OneDay.value == 1

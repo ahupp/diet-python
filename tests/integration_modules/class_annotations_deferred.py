@@ -5,10 +5,9 @@ class ThemeSection:
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-import pytest
+    import pytest
 
-module = __import__("sys").modules[__name__]
-with pytest.raises(NameError):
-    _ = module.ThemeSection.__annotations__
+    with pytest.raises(NameError):
+        _ = module.ThemeSection.__annotations__

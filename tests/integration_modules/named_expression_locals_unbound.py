@@ -8,13 +8,13 @@ def named_expr_locals_state():
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-if __dp_integration_transformed__:
-    try:
-        module.named_expr_locals_state()
-    except NotImplementedError:
-        pass
+def validate_module(module):
+    if __dp_integration_transformed__:
+        try:
+            module.named_expr_locals_state()
+        except NotImplementedError:
+            pass
+        else:
+            raise AssertionError("expected locals() to be unsupported")
     else:
-        raise AssertionError("expected locals() to be unsupported")
-else:
-    assert module.named_expr_locals_state() == (False, [2], 2)
+        assert module.named_expr_locals_state() == (False, [2], 2)

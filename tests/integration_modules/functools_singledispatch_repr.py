@@ -16,12 +16,10 @@ def build_message():
         return str(exc)
     raise AssertionError("expected TypeError")
 
-
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-msg = module.build_message()
-assert "Invalid first argument to `register()`:" in msg
-assert "build_message.<locals>._" in msg
+    msg = module.build_message()
+    assert "Invalid first argument to `register()`:" in msg
+    assert "build_message.<locals>._" in msg

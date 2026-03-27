@@ -25,7 +25,6 @@ RESULT = write_and_read()
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-assert module.RESULT == "payload"
+    assert module.RESULT == "payload"

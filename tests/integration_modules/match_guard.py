@@ -7,8 +7,7 @@ def probe(value):
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-assert module.probe([1, 2, 3]) == "no next for list"
-assert module.probe(iter([1, 2, 3])) == "has next"
+    assert module.probe([1, 2, 3]) == "no next for list"
+    assert module.probe(iter([1, 2, 3])) == "has next"

@@ -9,6 +9,6 @@ def ascii_value():
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-assert module.repr_value() == "'\\udcba'"
-assert module.ascii_value() == "'\\udcba'"
+def validate_module(module):
+    assert module.repr_value() == "'\\udcba'"
+    assert module.ascii_value() == "'\\udcba'"

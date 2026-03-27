@@ -12,5 +12,5 @@ RESULT = exercise()
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-assert module.RESULT is True
+def validate_module(module):
+    assert module.RESULT is True

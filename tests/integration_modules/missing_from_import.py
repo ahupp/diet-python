@@ -16,12 +16,11 @@ else:
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-import pytest
+    import pytest
 
-module = __import__("sys").modules[__name__]
-assert module.RESULT == "fallback"
-assert module.ERROR_NAME == "missing_from_import_target"
-assert module.ERROR_PATH is not None
-assert module.ERROR_PATH.endswith("missing_from_import_target.py")
+    assert module.RESULT == "fallback"
+    assert module.ERROR_NAME == "missing_from_import_target"
+    assert module.ERROR_PATH is not None
+    assert module.ERROR_PATH.endswith("missing_from_import_target.py")

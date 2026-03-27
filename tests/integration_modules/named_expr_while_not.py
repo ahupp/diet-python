@@ -10,8 +10,8 @@ def walk_until_truthy(values):
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-seen, idx, value = module.walk_until_truthy([0, 1])
-assert seen == [0]
-assert idx == 1
-assert value == 1
+def validate_module(module):
+    seen, idx, value = module.walk_until_truthy([0, 1])
+    assert seen == [0]
+    assert idx == 1
+    assert value == 1

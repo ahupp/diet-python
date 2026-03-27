@@ -9,7 +9,7 @@ RESULT = Example().reveal()
 
 # diet-python: validate
 
-import pytest
+def validate_module(module):
+    import pytest
 
-module = __import__("sys").modules[__name__]
-assert module.RESULT == "payload"
+    assert module.RESULT == "payload"

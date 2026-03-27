@@ -18,7 +18,6 @@ def count_exception_referrer_frames():
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-module = __import__("sys").modules[__name__]
-assert module.count_exception_referrer_frames() == 0
+    assert module.count_exception_referrer_frames() == 0

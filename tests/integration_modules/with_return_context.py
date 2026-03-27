@@ -21,12 +21,11 @@ def run() -> tuple[bool, "Recording"]:
 
 # diet-python: validate
 
-from __future__ import annotations
+def validate_module(module):
 
-import pytest
+    import pytest
 
-module = __import__("sys").modules[__name__]
-exited, result = module.run()
+    exited, result = module.run()
 
-assert exited is True
-assert isinstance(result, module.Recording)
+    assert exited is True
+    assert isinstance(result, module.Recording)

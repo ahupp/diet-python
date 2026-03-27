@@ -12,5 +12,5 @@ def get_yieldfrom_name():
 
 # diet-python: validate
 
-module = __import__("sys").modules[__name__]
-assert module.get_yieldfrom_name() == "a"
+def validate_module(module):
+    assert module.get_yieldfrom_name() == "a"
