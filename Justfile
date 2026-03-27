@@ -106,6 +106,7 @@ update-venv: ensure-cpython
 
 build-extension build="debug": ensure-cpython
   #!/usr/bin/env bash
+  set -euo pipefail
   BUILD="{{build}}"
 
   if [[ "$BUILD" != "debug" && "$BUILD" != "release" ]]; then
@@ -127,6 +128,7 @@ build-extension build="debug": ensure-cpython
 
 build-all: (update-venv) ensure-cpython
   #!/usr/bin/env bash
+  set -euo pipefail
   cd "$REPO_ROOT"
   cargo build --quiet --workspace --tests
   just build-extension debug

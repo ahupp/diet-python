@@ -1428,7 +1428,7 @@ def f():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("__dp_store_global(__dp_globals(), \"f\", ")
+        name_binding_rendered.contains("__dp_store_global(__dp_globals(), \"f\",")
             && (name_binding_rendered.contains("__dp_make_function(")
                 || name_binding_rendered
                     .contains("__dp_load_global(__dp_globals(), \"__dp_make_function\")",)),
