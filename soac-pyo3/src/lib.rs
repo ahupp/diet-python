@@ -601,26 +601,17 @@ fn instantiate_bb_function(
     module_globals: &Bound<'_, PyAny>,
     annotate_fn: &Bound<'_, PyAny>,
 ) -> PyResult<Py<PyAny>> {
-    let plan_name = ensure_bb_plan(module_name, function, "function instantiation")?;
     let signature = build_bb_signature(py, function, param_defaults)?;
-    let (captured_names, closure_values) = build_capture_map(py, captures)?;
-    let raw_entry =
-        make_lazy_clif_entry(py, dp, function.names.display_name.as_str(), module_globals)?;
-    register_lazy_clif_vectorcall(
-        py,
-        &raw_entry,
-        module_name,
-        function.function_id.0,
-        plan_name.as_str(),
-    )?;
-    let entry = build_wrapped_entry(
+    let (raw_entry, entry, _plan_name) = instantiate_closure_backed_entry(
         py,
         dp,
-        &raw_entry,
+        module_name,
+        function,
+        captures,
         module_globals,
+        "function instantiation",
+        function.names.display_name.as_str(),
         function.names.qualname.as_str(),
-        &captured_names,
-        &closure_values,
     )?;
     let (positional_defaults, mut kwdefaults) = split_param_defaults(py, function, param_defaults)?;
     if !std::ptr::eq(entry.as_ptr(), raw_entry.as_ptr()) {
@@ -667,41 +658,37 @@ fn ensure_bb_plan(
     Ok(plan_name)
 }
 
-fn build_closure_map<'py>(
+fn instantiate_closure_backed_entry<'py>(
     py: Python<'py>,
-    closure_names: &Bound<'py, PyAny>,
-    closure_values: &Bound<'py, PyAny>,
-) -> PyResult<(Vec<String>, Bound<'py, PyDict>)> {
-    let closure_names = closure_names.cast::<PyTuple>().map_err(|_| {
-        PyTypeError::new_err(format!(
-            "generator resume closure_names must be a tuple, got {:?}",
-            closure_names.get_type()
-        ))
-    })?;
-    let closure_values = closure_values.cast::<PyTuple>().map_err(|_| {
-        PyTypeError::new_err(format!(
-            "generator resume closure_values must be a tuple, got {:?}",
-            closure_values.get_type()
-        ))
-    })?;
-    if closure_names.len() != closure_values.len() {
-        return Err(PyRuntimeError::new_err(format!(
-            "generator resume closure metadata length mismatch: {} names vs {} values",
-            closure_names.len(),
-            closure_values.len()
-        )));
-    }
-
-    let closure_map = PyDict::new(py);
-    let mut captured_names = Vec::with_capacity(closure_names.len());
-    for (name_obj, value_obj) in closure_names.iter().zip(closure_values.iter()) {
-        let name = name_obj.extract::<String>().map_err(|_| {
-            PyTypeError::new_err("generator resume closure_names entries must be strings")
-        })?;
-        closure_map.set_item(name.as_str(), value_obj)?;
-        captured_names.push(name);
-    }
-    Ok((captured_names, closure_map))
+    dp: &Bound<'py, PyModule>,
+    module_name: &str,
+    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    captures: &Bound<'py, PyAny>,
+    module_globals: &Bound<'py, PyAny>,
+    operation: &str,
+    entry_name: &str,
+    qualname: &str,
+) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>, String)> {
+    let plan_name = ensure_bb_plan(module_name, function, operation)?;
+    let (captured_names, closure_values) = build_capture_map(py, captures)?;
+    let raw_entry = make_lazy_clif_entry(py, dp, entry_name, module_globals)?;
+    register_lazy_clif_vectorcall(
+        py,
+        &raw_entry,
+        module_name,
+        function.function_id.0,
+        plan_name.as_str(),
+    )?;
+    let entry = build_wrapped_entry(
+        py,
+        dp,
+        &raw_entry,
+        module_globals,
+        qualname,
+        &captured_names,
+        &closure_values,
+    )?;
+    Ok((raw_entry, entry, plan_name))
 }
 
 #[pyfunction]
@@ -767,12 +754,11 @@ fn build_module_init(
 }
 
 #[pyfunction]
-#[pyo3(signature = (function_id, closure_names, closure_values, module_globals, async_gen=false))]
+#[pyo3(signature = (function_id, captures, module_globals, async_gen=false))]
 fn make_bb_hidden_resume(
     py: Python<'_>,
     function_id: usize,
-    closure_names: Py<PyAny>,
-    closure_values: Py<PyAny>,
+    captures: Py<PyAny>,
     module_globals: Py<PyAny>,
     async_gen: bool,
 ) -> PyResult<Py<PyAny>> {
@@ -785,26 +771,17 @@ fn make_bb_hidden_resume(
     };
     let module_name = resolve_module_name(&module_globals, operation)?;
     let function = lookup_bb_function(&module_name, function_id, operation)?;
-    let plan_name = ensure_bb_plan(&module_name, &function, operation)?;
-    let (captured_names, closure_map) =
-        build_closure_map(py, &closure_names.bind(py), &closure_values.bind(py))?;
     let hidden_name = format!("_dp_resume_{}", function.names.fn_name);
-    let raw_entry = make_lazy_clif_entry(py, &dp, hidden_name.as_str(), &module_globals)?;
-    register_lazy_clif_vectorcall(
-        py,
-        &raw_entry,
-        module_name.as_str(),
-        function_id,
-        plan_name.as_str(),
-    )?;
-    let entry = build_wrapped_entry(
+    let (_raw_entry, entry, plan_name) = instantiate_closure_backed_entry(
         py,
         &dp,
-        &raw_entry,
+        module_name.as_str(),
+        &function,
+        captures.bind(py).as_any(),
         &module_globals,
+        operation,
         hidden_name.as_str(),
-        &captured_names,
-        &closure_map,
+        hidden_name.as_str(),
     )?;
     entry.setattr("__module__", module_name.as_str())?;
     set_plan_metadata(

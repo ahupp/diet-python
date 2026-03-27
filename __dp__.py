@@ -1530,8 +1530,7 @@ async def _dp_async_gen_code_template():
 
 def def_hidden_resume_fn(
     function_id,
-    closure_names,
-    closure_values,
+    captures,
     module_globals=None,
     *,
     async_gen=False,
@@ -1542,8 +1541,7 @@ def def_hidden_resume_fn(
         )
     return _jit_make_bb_hidden_resume(
         function_id,
-        closure_names,
-        closure_values,
+        captures,
         module_globals,
         async_gen=async_gen,
     )

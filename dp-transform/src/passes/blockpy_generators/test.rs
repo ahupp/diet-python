@@ -38,31 +38,23 @@ fn build_closure_backed_generator_factory_block(
     is_async_generator: bool,
 ) -> crate::block_py::BlockPyBlock<Expr> {
     let closure_bindings = resume_closure_bindings(layout, resume_state_order);
-    let closure_names = closure_bindings
-        .runtime_state_bindings
-        .iter()
-        .map(|(name, _)| name.clone())
-        .collect::<Vec<_>>();
-    let closure_values = blockpy_make_dp_tuple(
+    let captures = blockpy_make_dp_tuple(
         closure_bindings
             .runtime_state_bindings
             .iter()
-            .map(|(_, value_name)| {
-                py_expr!("__dp_cell_ref({name:literal})", name = value_name.as_str())
+            .map(|(name, value_name)| {
+                blockpy_make_dp_tuple(vec![
+                    py_expr!("{value:literal}", value = name.as_str()),
+                    py_expr!("__dp_cell_ref({name:literal})", name = value_name.as_str()),
+                ])
             })
             .collect(),
     );
 
     let resume_entry = py_expr!(
-            "__dp_def_hidden_resume_fn({function_id:literal}, {closure_names:expr}, {closure_values:expr}, __dp_globals(), async_gen={async_gen:expr})",
+            "__dp_def_hidden_resume_fn({function_id:literal}, {captures:expr}, __dp_globals(), async_gen={async_gen:expr})",
             function_id = resume_function_id.0,
-            closure_names = blockpy_make_dp_tuple(
-                closure_names
-                    .iter()
-                    .map(|state_name| py_expr!("{value:literal}", value = state_name.as_str()))
-                    .collect(),
-            ),
-            closure_values = closure_values,
+            captures = captures,
             async_gen = if is_async_generator {
                 py_expr!("True")
             } else {

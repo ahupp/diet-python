@@ -399,25 +399,20 @@ fn build_factory_block(
     let mut block = BlockPyCfgBlockBuilder::new(BlockPyLabel::from("_dp_factory_entry"));
 
     let all_bindings = closure_bindings.all_bindings().cloned().collect::<Vec<_>>();
-    let closure_names = all_bindings
+    let captures = all_bindings
         .iter()
-        .map(|(name, _)| name.clone())
-        .collect::<Vec<_>>();
-    let closure_values = all_bindings
-        .iter()
-        .map(|(_, value_name)| Expr::from(core_cell_ref(value_name.as_str())))
+        .map(|(name, value_name)| {
+            make_dp_tuple(vec![
+                py_expr!("{value:literal}", value = name.as_str()),
+                Expr::from(core_cell_ref(value_name.as_str())),
+            ])
+        })
         .collect::<Vec<_>>();
 
     let resume_entry = core_expr_without_yield(py_expr!(
-        "__dp_def_hidden_resume_fn({function_id:literal}, {closure_names:expr}, {closure_values:expr}, __dp_globals(), async_gen={async_gen:expr})",
+        "__dp_def_hidden_resume_fn({function_id:literal}, {captures:expr}, __dp_globals(), async_gen={async_gen:expr})",
         function_id = resume_function_id.0,
-        closure_names = make_dp_tuple(
-            closure_names
-                .iter()
-                .map(|value| py_expr!("{value:literal}", value = value.as_str()))
-                .collect(),
-        ),
-        closure_values = make_dp_tuple(closure_values),
+        captures = make_dp_tuple(captures),
         async_gen = if is_async_generator(kind) {
             py_expr!("True")
         } else {
