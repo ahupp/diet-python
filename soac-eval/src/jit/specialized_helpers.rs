@@ -26,6 +26,8 @@ pub type MakeBytesFn = unsafe extern "C" fn(*const u8, i64) -> ObjPtr;
 pub type LoadNameFn = unsafe extern "C" fn(ObjPtr, *const u8, i64) -> ObjPtr;
 pub type FunctionGlobalsFn = unsafe extern "C" fn(ObjPtr) -> ObjPtr;
 pub type FunctionClosureCellFn = unsafe extern "C" fn(ObjPtr, i64) -> ObjPtr;
+pub type FunctionPositionalDefaultFn = unsafe extern "C" fn(ObjPtr, *const u8, i64, i64) -> ObjPtr;
+pub type FunctionKwonlyDefaultFn = unsafe extern "C" fn(ObjPtr, *const u8, i64) -> ObjPtr;
 pub type PyObjectGetAttrFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
 pub type PyObjectSetAttrFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
 pub type PyObjectGetItemFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
@@ -57,6 +59,8 @@ pub struct SpecializedJitHooks {
     pub load_name: LoadNameFn,
     pub function_globals: FunctionGlobalsFn,
     pub function_closure_cell: FunctionClosureCellFn,
+    pub function_positional_default: FunctionPositionalDefaultFn,
+    pub function_kwonly_default: FunctionKwonlyDefaultFn,
     pub pyobject_getattr: PyObjectGetAttrFn,
     pub pyobject_setattr: PyObjectSetAttrFn,
     pub pyobject_getitem: PyObjectGetItemFn,
@@ -87,6 +91,8 @@ static mut DP_JIT_MAKE_BYTES_FN: Option<MakeBytesFn> = None;
 static mut DP_JIT_LOAD_NAME_FN: Option<LoadNameFn> = None;
 static mut DP_JIT_FUNCTION_GLOBALS_FN: Option<FunctionGlobalsFn> = None;
 static mut DP_JIT_FUNCTION_CLOSURE_CELL_FN: Option<FunctionClosureCellFn> = None;
+static mut DP_JIT_FUNCTION_POSITIONAL_DEFAULT_FN: Option<FunctionPositionalDefaultFn> = None;
+static mut DP_JIT_FUNCTION_KWONLY_DEFAULT_FN: Option<FunctionKwonlyDefaultFn> = None;
 static mut DP_JIT_PYOBJECT_GETATTR_FN: Option<PyObjectGetAttrFn> = None;
 static mut DP_JIT_PYOBJECT_SETATTR_FN: Option<PyObjectSetAttrFn> = None;
 static mut DP_JIT_PYOBJECT_GETITEM_FN: Option<PyObjectGetItemFn> = None;
@@ -117,6 +123,8 @@ pub unsafe fn install_specialized_hooks(hooks: &SpecializedJitHooks) {
     DP_JIT_LOAD_NAME_FN = Some(hooks.load_name);
     DP_JIT_FUNCTION_GLOBALS_FN = Some(hooks.function_globals);
     DP_JIT_FUNCTION_CLOSURE_CELL_FN = Some(hooks.function_closure_cell);
+    DP_JIT_FUNCTION_POSITIONAL_DEFAULT_FN = Some(hooks.function_positional_default);
+    DP_JIT_FUNCTION_KWONLY_DEFAULT_FN = Some(hooks.function_kwonly_default);
     DP_JIT_PYOBJECT_GETATTR_FN = Some(hooks.pyobject_getattr);
     DP_JIT_PYOBJECT_SETATTR_FN = Some(hooks.pyobject_setattr);
     DP_JIT_PYOBJECT_GETITEM_FN = Some(hooks.pyobject_getitem);
@@ -287,6 +295,48 @@ unsafe fn resolve_function_object(callable: ObjPtr) -> ObjPtr {
     callable
 }
 
+unsafe fn resolve_function_defaults_owner(callable: ObjPtr) -> ObjPtr {
+    if callable.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid null callable for JIT function default lookup\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let public_function = ffi::PyObject_GetAttrString(
+        callable as *mut ffi::PyObject,
+        b"__dp_public_function__\0".as_ptr() as *const i8,
+    );
+    if !public_function.is_null() {
+        return public_function as ObjPtr;
+    }
+    if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) == 0 {
+        return ptr::null_mut();
+    }
+    ffi::PyErr_Clear();
+    resolve_function_object(callable)
+}
+
+unsafe fn raise_missing_function_default(name_ptr: *const u8, name_len: i64) {
+    if name_ptr.is_null() || name_len < 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_TypeError,
+            b"missing required argument\0".as_ptr() as *const i8,
+        );
+        return;
+    }
+    let name = String::from_utf8_lossy(std::slice::from_raw_parts(name_ptr, name_len as usize));
+    let message = format!("missing required argument {name:?}");
+    if let Ok(c_msg) = std::ffi::CString::new(message) {
+        ffi::PyErr_SetString(ffi::PyExc_TypeError, c_msg.as_ptr());
+    } else {
+        ffi::PyErr_SetString(
+            ffi::PyExc_TypeError,
+            b"missing required argument\0".as_ptr() as *const i8,
+        );
+    }
+}
+
 unsafe extern "C" fn function_globals_hook(callable: ObjPtr) -> ObjPtr {
     let function = resolve_function_object(callable);
     if function.is_null() {
@@ -311,6 +361,120 @@ unsafe extern "C" fn function_globals_hook(callable: ObjPtr) -> ObjPtr {
     }
     ffi::Py_INCREF(globals);
     globals as ObjPtr
+}
+
+unsafe extern "C" fn function_positional_default_hook(
+    callable: ObjPtr,
+    name_ptr: *const u8,
+    name_len: i64,
+    index: i64,
+) -> ObjPtr {
+    if name_ptr.is_null() || name_len < 0 || index < 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_function_positional_default\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let owner = resolve_function_defaults_owner(callable);
+    if owner.is_null() {
+        return ptr::null_mut();
+    }
+    let defaults = ffi::PyObject_GetAttrString(
+        owner as *mut ffi::PyObject,
+        b"__defaults__\0".as_ptr() as *const i8,
+    );
+    if defaults.is_null() {
+        ffi::Py_DECREF(owner as *mut ffi::PyObject);
+        if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
+            ffi::PyErr_Clear();
+            raise_missing_function_default(name_ptr, name_len);
+        }
+        return ptr::null_mut();
+    }
+    if defaults == ffi::Py_None() || ffi::PyTuple_Check(defaults) == 0 {
+        ffi::Py_DECREF(defaults);
+        ffi::Py_DECREF(owner as *mut ffi::PyObject);
+        raise_missing_function_default(name_ptr, name_len);
+        return ptr::null_mut();
+    }
+    let tuple_len = ffi::PyTuple_GET_SIZE(defaults);
+    if index >= tuple_len as i64 {
+        ffi::Py_DECREF(defaults);
+        ffi::Py_DECREF(owner as *mut ffi::PyObject);
+        raise_missing_function_default(name_ptr, name_len);
+        return ptr::null_mut();
+    }
+    let value = ffi::PyTuple_GetItem(defaults, index as ffi::Py_ssize_t);
+    if value.is_null() {
+        ffi::Py_DECREF(defaults);
+        ffi::Py_DECREF(owner as *mut ffi::PyObject);
+        return ptr::null_mut();
+    }
+    ffi::Py_INCREF(value);
+    ffi::Py_DECREF(defaults);
+    ffi::Py_DECREF(owner as *mut ffi::PyObject);
+    value as ObjPtr
+}
+
+unsafe extern "C" fn function_kwonly_default_hook(
+    callable: ObjPtr,
+    name_ptr: *const u8,
+    name_len: i64,
+) -> ObjPtr {
+    if name_ptr.is_null() || name_len < 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_function_kwonly_default\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let owner = resolve_function_defaults_owner(callable);
+    if owner.is_null() {
+        return ptr::null_mut();
+    }
+    let kwdefaults = ffi::PyObject_GetAttrString(
+        owner as *mut ffi::PyObject,
+        b"__kwdefaults__\0".as_ptr() as *const i8,
+    );
+    if kwdefaults.is_null() {
+        ffi::Py_DECREF(owner as *mut ffi::PyObject);
+        if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
+            ffi::PyErr_Clear();
+            raise_missing_function_default(name_ptr, name_len);
+        }
+        return ptr::null_mut();
+    }
+    if kwdefaults == ffi::Py_None() || ffi::PyDict_Check(kwdefaults) == 0 {
+        ffi::Py_DECREF(kwdefaults);
+        ffi::Py_DECREF(owner as *mut ffi::PyObject);
+        raise_missing_function_default(name_ptr, name_len);
+        return ptr::null_mut();
+    }
+    let key = match std::ffi::CString::new(std::slice::from_raw_parts(name_ptr, name_len as usize))
+    {
+        Ok(value) => value,
+        Err(_) => {
+            ffi::Py_DECREF(kwdefaults);
+            ffi::Py_DECREF(owner as *mut ffi::PyObject);
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"invalid kwonly default name\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
+        }
+    };
+    let value = ffi::PyDict_GetItemString(kwdefaults, key.as_ptr());
+    if value.is_null() {
+        ffi::Py_DECREF(kwdefaults);
+        ffi::Py_DECREF(owner as *mut ffi::PyObject);
+        raise_missing_function_default(name_ptr, name_len);
+        return ptr::null_mut();
+    }
+    ffi::Py_INCREF(value);
+    ffi::Py_DECREF(kwdefaults);
+    ffi::Py_DECREF(owner as *mut ffi::PyObject);
+    value as ObjPtr
 }
 
 unsafe extern "C" fn function_closure_cell_hook(callable: ObjPtr, slot: i64) -> ObjPtr {
@@ -744,6 +908,8 @@ pub fn default_specialized_hooks() -> SpecializedJitHooks {
         load_name: load_name_hook,
         function_globals: function_globals_hook,
         function_closure_cell: function_closure_cell_hook,
+        function_positional_default: function_positional_default_hook,
+        function_kwonly_default: function_kwonly_default_hook,
         pyobject_getattr: pyobject_getattr_hook,
         pyobject_setattr: pyobject_setattr_hook,
         pyobject_getitem: pyobject_getitem_hook,
@@ -868,6 +1034,29 @@ pub unsafe extern "C" fn dp_jit_function_globals(callable: ObjPtr) -> ObjPtr {
 pub unsafe extern "C" fn dp_jit_function_closure_cell(callable: ObjPtr, slot: i64) -> ObjPtr {
     if let Some(func) = DP_JIT_FUNCTION_CLOSURE_CELL_FN {
         return func(callable, slot);
+    }
+    ptr::null_mut()
+}
+
+pub unsafe extern "C" fn dp_jit_function_positional_default(
+    callable: ObjPtr,
+    name_ptr: *const u8,
+    name_len: i64,
+    index: i64,
+) -> ObjPtr {
+    if let Some(func) = DP_JIT_FUNCTION_POSITIONAL_DEFAULT_FN {
+        return func(callable, name_ptr, name_len, index);
+    }
+    ptr::null_mut()
+}
+
+pub unsafe extern "C" fn dp_jit_function_kwonly_default(
+    callable: ObjPtr,
+    name_ptr: *const u8,
+    name_len: i64,
+) -> ObjPtr {
+    if let Some(func) = DP_JIT_FUNCTION_KWONLY_DEFAULT_FN {
+        return func(callable, name_ptr, name_len);
     }
     ptr::null_mut()
 }
@@ -1195,6 +1384,14 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol(
         "dp_jit_function_closure_cell",
         dp_jit_function_closure_cell as *const u8,
+    );
+    builder.symbol(
+        "dp_jit_function_positional_default",
+        dp_jit_function_positional_default as *const u8,
+    );
+    builder.symbol(
+        "dp_jit_function_kwonly_default",
+        dp_jit_function_kwonly_default as *const u8,
     );
     builder.symbol(
         "dp_jit_pyobject_getattr",

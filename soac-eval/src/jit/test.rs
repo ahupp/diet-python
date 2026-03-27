@@ -56,6 +56,7 @@ mod tests {
         let blocks = [1usize as ObjPtr, 2usize as ObjPtr, 3usize as ObjPtr];
         let plan = ClifPlan {
             entry_param_names: vec![],
+            entry_param_default_sources: vec![],
             ambient_param_names: vec![],
             slot_names: vec![],
             blocks: vec![
@@ -111,6 +112,7 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
             entry_param_names: vec![],
+            entry_param_default_sources: vec![],
             ambient_param_names: vec![],
             slot_names: vec![],
             blocks: vec![ClifBlockPlan {
@@ -163,6 +165,7 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
             entry_param_names: vec![],
+            entry_param_default_sources: vec![],
             ambient_param_names: vec![],
             slot_names: vec![],
             blocks: vec![ClifBlockPlan {
@@ -211,6 +214,7 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
             entry_param_names: vec![],
+            entry_param_default_sources: vec![],
             ambient_param_names: vec![],
             slot_names: vec!["x".into(), "y".into()],
             blocks: vec![ClifBlockPlan {
@@ -253,6 +257,7 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
             entry_param_names: vec![],
+            entry_param_default_sources: vec![],
             ambient_param_names: vec![],
             slot_names: vec!["x".into()],
             blocks: vec![ClifBlockPlan {
@@ -300,6 +305,7 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
             entry_param_names: vec![],
+            entry_param_default_sources: vec![],
             ambient_param_names: vec![],
             slot_names: vec![],
             blocks: vec![ClifBlockPlan {
@@ -343,6 +349,7 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
             entry_param_names: vec![],
+            entry_param_default_sources: vec![],
             ambient_param_names: vec![],
             slot_names: vec![],
             blocks: vec![ClifBlockPlan {
@@ -386,6 +393,7 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
             entry_param_names: vec![],
+            entry_param_default_sources: vec![],
             ambient_param_names: vec![],
             slot_names: vec![],
             blocks: vec![ClifBlockPlan {
@@ -437,6 +445,7 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
             entry_param_names: vec![],
+            entry_param_default_sources: vec![],
             ambient_param_names: vec![],
             slot_names: vec![],
             blocks: vec![ClifBlockPlan {
@@ -477,6 +486,97 @@ mod tests {
             rendered.contains("call dp_jit_function_closure_cell")
                 && rendered.contains("call dp_jit_load_cell"),
             "captured cell sources should unwrap the wrapper closure cell once:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_direct_entry_uses_live_positional_defaults() {
+        let blocks = [1usize as ObjPtr];
+        let plan = ClifPlan {
+            entry_param_names: vec!["x".into(), "y".into()],
+            entry_param_default_sources: vec![
+                None,
+                Some(ClifEntryParamDefaultSource::Positional(0)),
+            ],
+            ambient_param_names: vec![],
+            slot_names: vec!["x".into(), "y".into()],
+            blocks: vec![ClifBlockPlan {
+                label: "b0".into(),
+                param_names: vec![],
+                runtime_param_names: vec![],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleRet {
+                    plan: DirectSimpleRetPlan {
+                        params: vec![],
+                        assigns: vec![],
+                        ret: DirectSimpleExprPlan::Name(test_name("y")),
+                    },
+                },
+            }],
+        };
+        let rendered = unsafe {
+            render_cranelift_run_bb_specialized_with_cfg(
+                &blocks,
+                &plan,
+                EntryArgsLayout::DirectArgs,
+                11usize as ObjPtr,
+                12usize as ObjPtr,
+                13usize as ObjPtr,
+                14usize as ObjPtr,
+            )
+        }
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
+        assert!(
+            rendered.contains("call dp_jit_function_positional_default"),
+            "direct entry lowering should source omitted positional defaults from the callable:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_direct_entry_uses_live_kwonly_defaults() {
+        let blocks = [1usize as ObjPtr];
+        let plan = ClifPlan {
+            entry_param_names: vec!["x".into()],
+            entry_param_default_sources: vec![Some(ClifEntryParamDefaultSource::KeywordOnly(
+                "x".into(),
+            ))],
+            ambient_param_names: vec![],
+            slot_names: vec!["x".into()],
+            blocks: vec![ClifBlockPlan {
+                label: "b0".into(),
+                param_names: vec![],
+                runtime_param_names: vec![],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleRet {
+                    plan: DirectSimpleRetPlan {
+                        params: vec![],
+                        assigns: vec![],
+                        ret: DirectSimpleExprPlan::Name(test_name("x")),
+                    },
+                },
+            }],
+        };
+        let rendered = unsafe {
+            render_cranelift_run_bb_specialized_with_cfg(
+                &blocks,
+                &plan,
+                EntryArgsLayout::DirectArgs,
+                11usize as ObjPtr,
+                12usize as ObjPtr,
+                13usize as ObjPtr,
+                14usize as ObjPtr,
+            )
+        }
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
+        assert!(
+            rendered.contains("call dp_jit_function_kwonly_default"),
+            "direct entry lowering should source omitted kwonly defaults from the callable:\n{rendered}"
         );
     }
 }

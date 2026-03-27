@@ -1,7 +1,8 @@
 use dp_transform::block_py::{
     AbruptKind, BbStmt, BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyNameLike,
     BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-    CoreNumberLiteralValue, LocatedCoreBlockPyExpr, LocatedName, PreparedBbBlock, intrinsics,
+    CoreNumberLiteralValue, LocatedCoreBlockPyExpr, LocatedName, ParamKind, PreparedBbBlock,
+    intrinsics,
 };
 use dp_transform::passes::PreparedBbBlockPyPass;
 use std::collections::{HashMap, HashSet};
@@ -10,9 +11,16 @@ use std::sync::{Mutex, OnceLock};
 #[derive(Clone, Debug)]
 pub struct ClifPlan {
     pub entry_param_names: Vec<String>,
+    pub entry_param_default_sources: Vec<Option<ClifEntryParamDefaultSource>>,
     pub ambient_param_names: Vec<String>,
     pub slot_names: Vec<String>,
     pub blocks: Vec<ClifBlockPlan>,
+}
+
+#[derive(Clone, Debug)]
+pub enum ClifEntryParamDefaultSource {
+    Positional(usize),
+    KeywordOnly(String),
 }
 
 #[derive(Clone, Debug)]
@@ -349,6 +357,31 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
         }
 
         slot_names
+    }
+
+    fn entry_param_default_sources(&self) -> Vec<Option<ClifEntryParamDefaultSource>> {
+        let mut next_positional_default = 0usize;
+        self.function
+            .params
+            .params
+            .iter()
+            .map(|param| {
+                if !param.has_default {
+                    return None;
+                }
+                match param.kind {
+                    ParamKind::PosOnly | ParamKind::Any => {
+                        let index = next_positional_default;
+                        next_positional_default += 1;
+                        Some(ClifEntryParamDefaultSource::Positional(index))
+                    }
+                    ParamKind::KwOnly => {
+                        Some(ClifEntryParamDefaultSource::KeywordOnly(param.name.clone()))
+                    }
+                    ParamKind::VarArg | ParamKind::KwArg => None,
+                }
+            })
+            .collect()
     }
 }
 
@@ -729,6 +762,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPla
     }
     ClifPlan {
         entry_param_names: function.function.params.names(),
+        entry_param_default_sources: function.entry_param_default_sources(),
         ambient_param_names: function.ambient_param_names.clone(),
         slot_names,
         blocks,

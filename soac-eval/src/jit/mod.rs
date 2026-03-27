@@ -24,11 +24,11 @@ mod planning;
 mod specialized_helpers;
 
 pub use planning::{
-    BlockExcArgSource, BlockExcDispatchPlan, BlockFastPath, ClifBlockPlan, ClifPlan,
-    DirectSimpleAssignPlan, DirectSimpleBlockArgPlan, DirectSimpleBlockPlan, DirectSimpleBrIfPlan,
-    DirectSimpleCallPart, DirectSimpleDeletePlan, DirectSimpleDeleteTargetPlan,
-    DirectSimpleExprPlan, DirectSimpleOpPlan, DirectSimpleRetPlan, DirectSimpleTermPlan,
-    lookup_blockpy_function, lookup_clif_plan, register_clif_module_plans,
+    BlockExcArgSource, BlockExcDispatchPlan, BlockFastPath, ClifBlockPlan,
+    ClifEntryParamDefaultSource, ClifPlan, DirectSimpleAssignPlan, DirectSimpleBlockArgPlan,
+    DirectSimpleBlockPlan, DirectSimpleBrIfPlan, DirectSimpleCallPart, DirectSimpleDeletePlan,
+    DirectSimpleDeleteTargetPlan, DirectSimpleExprPlan, DirectSimpleOpPlan, DirectSimpleRetPlan,
+    DirectSimpleTermPlan, lookup_blockpy_function, lookup_clif_plan, register_clif_module_plans,
 };
 pub use specialized_helpers::ObjPtr;
 pub use specialized_helpers::SpecializedJitHooks;
@@ -155,6 +155,21 @@ static DP_JIT_FUNCTION_GLOBALS_IMPORT: ImportSpec = ImportSpec::new(
 static DP_JIT_FUNCTION_CLOSURE_CELL_IMPORT: ImportSpec = ImportSpec::new(
     "dp_jit_function_closure_cell",
     &[SigType::Pointer, SigType::I64],
+    &[SigType::Pointer],
+);
+static DP_JIT_FUNCTION_POSITIONAL_DEFAULT_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_function_positional_default",
+    &[
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::I64,
+        SigType::I64,
+    ],
+    &[SigType::Pointer],
+);
+static DP_JIT_FUNCTION_KWONLY_DEFAULT_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_function_kwonly_default",
+    &[SigType::Pointer, SigType::Pointer, SigType::I64],
     &[SigType::Pointer],
 );
 static DP_JIT_PYOBJECT_GETATTR_IMPORT: ImportSpec = ImportSpec::new(
@@ -3319,6 +3334,16 @@ fn build_cranelift_run_bb_specialized_function(
             &mut fb.func,
             &DP_JIT_FUNCTION_CLOSURE_CELL_IMPORT,
         );
+        let function_positional_default_ref = func_imports.get_or_panic(
+            jit_module,
+            &mut fb.func,
+            &DP_JIT_FUNCTION_POSITIONAL_DEFAULT_IMPORT,
+        );
+        let function_kwonly_default_ref = func_imports.get_or_panic(
+            jit_module,
+            &mut fb.func,
+            &DP_JIT_FUNCTION_KWONLY_DEFAULT_IMPORT,
+        );
         let pyobject_getattr_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_GETATTR_IMPORT);
         let pyobject_setattr_ref =
@@ -3358,9 +3383,17 @@ fn build_cranelift_run_bb_specialized_function(
         function_state_slots.initialize_all_to_value(&mut fb, entry_deleted_const, incref_ref);
 
         let null_ptr = fb.ins().iconst(ptr_ty, 0);
+        let entry_failure_block = if matches!(entry_args_layout, EntryArgsLayout::DirectArgs) {
+            cleanup_null_blocks[0]
+        } else {
+            step_null_block
+        };
+        let entry_failure_args = match entry_args {
+            Some(value) => vec![ir::BlockArg::Value(value)],
+            None => Vec::new(),
+        };
         if matches!(entry_args_layout, EntryArgsLayout::StateTuple) {
             let ambient_args = ambient_args.expect("state tuple entry should carry ambient args");
-            let entry_args = entry_args.expect("state tuple entry should carry entry args");
             for (param_index, param_name) in plan.ambient_param_names.iter().enumerate() {
                 let index_val = fb.ins().iconst(i64_ty, param_index as i64);
                 let item_inst = fb.ins().call(get_arg_item_ref, &[ambient_args, index_val]);
@@ -3372,8 +3405,8 @@ fn build_cranelift_run_bb_specialized_function(
                 fb.append_block_param(ok_block, ptr_ty);
                 fb.ins().brif(
                     is_null,
-                    step_null_block,
-                    &[ir::BlockArg::Value(entry_args)],
+                    entry_failure_block,
+                    &entry_failure_args,
                     ok_block,
                     &[ir::BlockArg::Value(item_val)],
                 );
@@ -3401,8 +3434,8 @@ fn build_cranelift_run_bb_specialized_function(
                     fb.append_block_param(ok_block, ptr_ty);
                     fb.ins().brif(
                         is_null,
-                        step_null_block,
-                        &[ir::BlockArg::Value(entry_args)],
+                        entry_failure_block,
+                        &entry_failure_args,
                         ok_block,
                         &[ir::BlockArg::Value(item_val)],
                     );
@@ -3436,8 +3469,8 @@ fn build_cranelift_run_bb_specialized_function(
                     fb.append_block_param(ok_block, ptr_ty);
                     fb.ins().brif(
                         is_null,
-                        step_null_block,
-                        &[ir::BlockArg::Value(entry_args)],
+                        entry_failure_block,
+                        &entry_failure_args,
                         ok_block,
                         &[ir::BlockArg::Value(item_val)],
                     );
@@ -3457,14 +3490,139 @@ fn build_cranelift_run_bb_specialized_function(
                     plan.entry_param_names.len(),
                     "direct JIT entry arity does not match entry_param_names",
                 );
-                for (param_name, value) in
-                    plan.entry_param_names.iter().zip(direct_entry_args.iter())
+                assert_eq!(
+                    plan.entry_param_names.len(),
+                    plan.entry_param_default_sources.len(),
+                    "direct JIT entry default metadata does not match entry params",
+                );
+                for ((param_name, default_source), value) in plan
+                    .entry_param_names
+                    .iter()
+                    .zip(plan.entry_param_default_sources.iter())
+                    .zip(direct_entry_args.iter())
                 {
-                    function_state_slots
-                        .replace_cloned_value(
-                            &mut fb, param_name, *value, ptr_ty, incref_ref, decref_ref,
-                        )
-                        .expect("entry slot missing from function state slots");
+                    match default_source {
+                        Some(ClifEntryParamDefaultSource::Positional(default_index)) => {
+                            let arg_is_null =
+                                fb.ins().icmp(ir::condcodes::IntCC::Equal, *value, null_ptr);
+                            let use_default_block = fb.create_block();
+                            let use_arg_block = fb.create_block();
+                            let after_block = fb.create_block();
+                            fb.ins()
+                                .brif(arg_is_null, use_default_block, &[], use_arg_block, &[]);
+
+                            fb.switch_to_block(use_default_block);
+                            let (name_ptr, name_len) =
+                                intern_bytes_literal(&mut literal_pool, param_name.as_bytes());
+                            let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
+                            let name_len_val = fb.ins().iconst(i64_ty, name_len);
+                            let default_index_val = fb.ins().iconst(i64_ty, *default_index as i64);
+                            let default_inst = fb.ins().call(
+                                function_positional_default_ref,
+                                &[callable, name_ptr_val, name_len_val, default_index_val],
+                            );
+                            let default_value = fb.inst_results(default_inst)[0];
+                            let default_is_null =
+                                fb.ins()
+                                    .icmp(ir::condcodes::IntCC::Equal, default_value, null_ptr);
+                            let default_ok_block = fb.create_block();
+                            fb.append_block_param(default_ok_block, ptr_ty);
+                            fb.ins().brif(
+                                default_is_null,
+                                entry_failure_block,
+                                &entry_failure_args,
+                                default_ok_block,
+                                &[ir::BlockArg::Value(default_value)],
+                            );
+                            fb.switch_to_block(default_ok_block);
+                            let default_value = fb.block_params(default_ok_block)[0];
+                            function_state_slots
+                                .replace_cloned_value(
+                                    &mut fb,
+                                    param_name,
+                                    default_value,
+                                    ptr_ty,
+                                    incref_ref,
+                                    decref_ref,
+                                )
+                                .expect("entry slot missing from function state slots");
+                            fb.ins().call(decref_ref, &[default_value]);
+                            fb.ins().jump(after_block, &[]);
+
+                            fb.switch_to_block(use_arg_block);
+                            function_state_slots
+                                .replace_cloned_value(
+                                    &mut fb, param_name, *value, ptr_ty, incref_ref, decref_ref,
+                                )
+                                .expect("entry slot missing from function state slots");
+                            fb.ins().jump(after_block, &[]);
+
+                            fb.switch_to_block(after_block);
+                        }
+                        Some(ClifEntryParamDefaultSource::KeywordOnly(default_name)) => {
+                            let arg_is_null =
+                                fb.ins().icmp(ir::condcodes::IntCC::Equal, *value, null_ptr);
+                            let use_default_block = fb.create_block();
+                            let use_arg_block = fb.create_block();
+                            let after_block = fb.create_block();
+                            fb.ins()
+                                .brif(arg_is_null, use_default_block, &[], use_arg_block, &[]);
+
+                            fb.switch_to_block(use_default_block);
+                            let (name_ptr, name_len) =
+                                intern_bytes_literal(&mut literal_pool, default_name.as_bytes());
+                            let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
+                            let name_len_val = fb.ins().iconst(i64_ty, name_len);
+                            let default_inst = fb.ins().call(
+                                function_kwonly_default_ref,
+                                &[callable, name_ptr_val, name_len_val],
+                            );
+                            let default_value = fb.inst_results(default_inst)[0];
+                            let default_is_null =
+                                fb.ins()
+                                    .icmp(ir::condcodes::IntCC::Equal, default_value, null_ptr);
+                            let default_ok_block = fb.create_block();
+                            fb.append_block_param(default_ok_block, ptr_ty);
+                            fb.ins().brif(
+                                default_is_null,
+                                entry_failure_block,
+                                &entry_failure_args,
+                                default_ok_block,
+                                &[ir::BlockArg::Value(default_value)],
+                            );
+                            fb.switch_to_block(default_ok_block);
+                            let default_value = fb.block_params(default_ok_block)[0];
+                            function_state_slots
+                                .replace_cloned_value(
+                                    &mut fb,
+                                    param_name,
+                                    default_value,
+                                    ptr_ty,
+                                    incref_ref,
+                                    decref_ref,
+                                )
+                                .expect("entry slot missing from function state slots");
+                            fb.ins().call(decref_ref, &[default_value]);
+                            fb.ins().jump(after_block, &[]);
+
+                            fb.switch_to_block(use_arg_block);
+                            function_state_slots
+                                .replace_cloned_value(
+                                    &mut fb, param_name, *value, ptr_ty, incref_ref, decref_ref,
+                                )
+                                .expect("entry slot missing from function state slots");
+                            fb.ins().jump(after_block, &[]);
+
+                            fb.switch_to_block(after_block);
+                        }
+                        None => {
+                            function_state_slots
+                                .replace_cloned_value(
+                                    &mut fb, param_name, *value, ptr_ty, incref_ref, decref_ref,
+                                )
+                                .expect("entry slot missing from function state slots");
+                        }
+                    }
                 }
             }
         }
