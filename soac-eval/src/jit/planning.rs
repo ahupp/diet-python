@@ -1,8 +1,8 @@
 use dp_transform::block_py::{
-    AbruptKind, BbStmt, BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyNameLike,
-    BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
-    CoreNumberLiteralValue, LocatedCoreBlockPyExpr, LocatedName, ParamKind, PreparedBbBlock,
-    intrinsics,
+    AbruptKind, BbStmt, BlockArg, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel,
+    BlockPyModule, BlockPyNameLike, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr,
+    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreNumberLiteralValue, LocatedCoreBlockPyExpr,
+    LocatedName, ParamKind, PreparedBbBlock, intrinsics,
 };
 use dp_transform::passes::PreparedBbBlockPyPass;
 use std::collections::{HashMap, HashSet};
@@ -13,6 +13,7 @@ pub struct ClifPlan {
     pub entry_param_names: Vec<String>,
     pub entry_param_default_sources: Vec<Option<ClifEntryParamDefaultSource>>,
     pub ambient_param_names: Vec<String>,
+    pub owned_cell_slot_names: Vec<String>,
     pub slot_names: Vec<String>,
     pub blocks: Vec<ClifBlockPlan>,
 }
@@ -343,6 +344,12 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
         }
 
         for name in self.function.params.names() {
+            if seen.insert(name.clone()) {
+                slot_names.push(name);
+            }
+        }
+
+        for name in self.function.local_cell_slots() {
             if seen.insert(name.clone()) {
                 slot_names.push(name);
             }
@@ -699,6 +706,21 @@ fn direct_simple_block_plan_from_block(
 fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPlan {
     let function = ValidatedPreparedBbFunction::new(function);
     let slot_names = function.slot_names();
+    let owned_cell_slot_names = match function.function.kind {
+        BlockPyFunctionKind::Function => {
+            let mut names = function
+                .function
+                .semantic
+                .owned_cell_storage_names()
+                .into_iter()
+                .collect::<Vec<_>>();
+            names.sort();
+            names
+        }
+        BlockPyFunctionKind::Generator
+        | BlockPyFunctionKind::Coroutine
+        | BlockPyFunctionKind::AsyncGenerator => function.function.local_cell_slots(),
+    };
     let mut blocks = Vec::with_capacity(function.function.blocks.len());
     for block in &function.function.blocks {
         let exc_target = function.exc_target_index(block);
@@ -764,6 +786,7 @@ fn build_clif_plan(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> ClifPla
         entry_param_names: function.function.params.names(),
         entry_param_default_sources: function.entry_param_default_sources(),
         ambient_param_names: function.ambient_param_names.clone(),
+        owned_cell_slot_names,
         slot_names,
         blocks,
     }

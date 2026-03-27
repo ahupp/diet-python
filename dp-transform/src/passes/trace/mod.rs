@@ -5,7 +5,7 @@ use crate::block_py::{
 use crate::passes::PreparedBbBlockPyPass;
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,7 +87,8 @@ fn compat_range() -> TextRange {
 struct PreparedTraceNameLocator {
     param_slots: HashMap<String, u32>,
     existing_locations: HashMap<String, NameLocation>,
-    cell_slots: HashMap<String, u32>,
+    captured_cell_slots: HashMap<String, u32>,
+    owned_cell_slots: HashMap<String, u32>,
 }
 
 impl PreparedTraceNameLocator {
@@ -112,15 +113,26 @@ impl PreparedTraceNameLocator {
                 }
             }
         }
-        let cell_slots = function
+        let captured_cell_slots = function
+            .closure_layout
+            .as_ref()
+            .map(|layout| {
+                let mut slots = HashMap::new();
+                for (slot, closure_slot) in layout.freevars.iter().enumerate() {
+                    slots.insert(closure_slot.storage_name.clone(), slot as u32);
+                    slots.insert(closure_slot.logical_name.clone(), slot as u32);
+                }
+                slots
+            })
+            .unwrap_or_default();
+        let owned_cell_slots = function
             .closure_layout
             .as_ref()
             .map(|layout| {
                 let mut slots = HashMap::new();
                 for (slot, closure_slot) in layout
-                    .freevars
+                    .cellvars
                     .iter()
-                    .chain(layout.cellvars.iter())
                     .chain(layout.runtime_cells.iter())
                     .enumerate()
                 {
@@ -133,7 +145,8 @@ impl PreparedTraceNameLocator {
         Self {
             param_slots,
             existing_locations,
-            cell_slots,
+            captured_cell_slots,
+            owned_cell_slots,
         }
     }
 
@@ -142,8 +155,10 @@ impl PreparedTraceNameLocator {
             NameLocation::Local { slot }
         } else if let Some(location) = self.existing_locations.get(id).copied() {
             location
-        } else if let Some(slot) = self.cell_slots.get(id).copied() {
+        } else if let Some(slot) = self.captured_cell_slots.get(id).copied() {
             NameLocation::ClosureCell { slot }
+        } else if let Some(slot) = self.owned_cell_slots.get(id).copied() {
+            NameLocation::OwnedCell { slot }
         } else {
             NameLocation::Global
         };

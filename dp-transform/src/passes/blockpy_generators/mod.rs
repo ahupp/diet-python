@@ -36,6 +36,9 @@ fn generator_state_storage_name(semantic: &BlockPyCallableSemanticInfo, name: &s
 fn runtime_init(name: &str) -> Option<ClosureInit> {
     match name {
         "_dp_pc" => Some(ClosureInit::RuntimePcUnstarted),
+        name if name.starts_with("_dp_try_abrupt_kind_") => {
+            Some(ClosureInit::RuntimeAbruptKindFallthrough)
+        }
         "_dp_yieldfrom" => Some(ClosureInit::RuntimeNone),
         _ => None,
     }
@@ -324,11 +327,66 @@ fn resume_closure_bindings(
     }
 }
 
-fn generator_resume_declared_params(params: &[BlockParam]) -> Vec<BlockParam> {
+fn build_resume_closure_layout(
+    visible_layout: &ClosureLayout,
+    closure_bindings: &ResumeClosureBindings,
+) -> ClosureLayout {
+    let freevars = closure_bindings
+        .runtime_state_bindings
+        .iter()
+        .map(|(name, _)| {
+            let slot = visible_layout
+                .freevars
+                .iter()
+                .chain(visible_layout.cellvars.iter())
+                .chain(visible_layout.runtime_cells.iter())
+                .find(|slot| slot.logical_name == *name || slot.storage_name == *name)
+                .unwrap_or_else(|| {
+                    panic!("missing visible closure slot for resume state binding {name}")
+                });
+            ClosureSlot {
+                logical_name: slot.logical_name.clone(),
+                storage_name: slot.storage_name.clone(),
+                init: ClosureInit::InheritedCapture,
+            }
+        })
+        .collect();
+    ClosureLayout {
+        freevars,
+        cellvars: Vec::new(),
+        runtime_cells: Vec::new(),
+    }
+}
+
+fn generator_resume_declared_params(
+    kind: BlockPyFunctionKind,
+    params: &[BlockParam],
+) -> Vec<BlockParam> {
+    let kept_indices = generator_resume_declared_param_indices(kind, params);
     params
         .iter()
-        .filter(|param| !param.name.starts_with("_dp_cell_"))
-        .cloned()
+        .enumerate()
+        .filter(|(index, _)| kept_indices.contains(index))
+        .map(|(_, param)| param.clone())
+        .collect()
+}
+
+fn generator_resume_declared_param_indices(
+    kind: BlockPyFunctionKind,
+    params: &[BlockParam],
+) -> Vec<usize> {
+    let resume_abi_names = resume_abi_params(kind)
+        .iter()
+        .map(|param| param.name())
+        .collect::<HashSet<_>>();
+    params
+        .iter()
+        .enumerate()
+        .filter(|(_, param)| {
+            param.role == BlockParamRole::Exception
+                || resume_abi_names.contains(param.name.as_str())
+        })
+        .map(|(index, _)| index)
         .collect()
 }
 
@@ -642,18 +700,20 @@ struct ResumeLoweringState {
     next_resume_pc: usize,
     blocks: Vec<BlockPyBlock<CoreBlockPyExpr>>,
     exception_edges: HashMap<String, Option<String>>,
+    target_arg_indices: HashMap<String, Vec<usize>>,
     resume_targets: Vec<(usize, BlockPyLabel)>,
     exhausted_label: BlockPyLabel,
 }
 
 impl ResumeLoweringState {
-    fn new(kind: BlockPyFunctionKind) -> Self {
+    fn new(kind: BlockPyFunctionKind, target_arg_indices: HashMap<String, Vec<usize>>) -> Self {
         Self {
             kind,
             next_label_id: 0,
             next_resume_pc: 2,
             blocks: Vec::new(),
             exception_edges: HashMap::new(),
+            target_arg_indices,
             resume_targets: Vec::new(),
             exhausted_label: BlockPyLabel::from("_dp_resume_exhausted"),
         }
@@ -683,6 +743,22 @@ impl ResumeLoweringState {
         self.exception_edges
             .insert(block.label.as_str().to_string(), exc_target);
         self.blocks.push(block);
+    }
+
+    fn prune_term_target_args(&self, term: &mut BlockPyTerm<CoreBlockPyExpr>) {
+        let BlockPyTerm::Jump(edge) = term else {
+            return;
+        };
+        let Some(indices) = self.target_arg_indices.get(edge.target.as_str()) else {
+            return;
+        };
+        if edge.args.is_empty() {
+            return;
+        }
+        edge.args = indices
+            .iter()
+            .filter_map(|index| edge.args.get(*index).cloned())
+            .collect();
     }
 }
 
@@ -750,11 +826,13 @@ fn lower_resume_fragment(
             );
         }
         other => {
+            let mut lowered_term = lower_term_no_yield(other);
+            state.prune_term_target_args(&mut lowered_term);
             state.push_block(
                 BlockPyBlock {
                     label,
                     body: lowered_body,
-                    term: lower_term_no_yield(other),
+                    term: lowered_term,
                     params,
                     exc_edge: None,
                 },
@@ -1246,13 +1324,22 @@ fn emit_yield_from_site(
 
 fn lower_resume_blocks(
     callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
-    persistent_state_order: &[String],
 ) -> (
     Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>,
     HashMap<String, Option<String>>,
     String,
 ) {
     let linear_exception_edges = lowered_exception_edges(&callable.blocks);
+    let declared_param_indices_by_label = callable
+        .blocks
+        .iter()
+        .map(|block| {
+            (
+                block.label.as_str().to_string(),
+                generator_resume_declared_param_indices(callable.kind, &block.params),
+            )
+        })
+        .collect::<HashMap<_, _>>();
     let linear_blocks = callable
         .blocks
         .iter()
@@ -1271,7 +1358,7 @@ fn lower_resume_blocks(
         .collect::<Vec<_>>();
     let resume_entry_target = callable.entry_block().label.clone();
 
-    let mut state = ResumeLoweringState::new(callable.kind);
+    let mut state = ResumeLoweringState::new(callable.kind, declared_param_indices_by_label);
     state.resume_targets.push((1, resume_entry_target));
 
     let mut queue = linear_blocks
@@ -1281,7 +1368,7 @@ fn lower_resume_blocks(
                 block.label.clone(),
                 block.body,
                 block.term,
-                generator_resume_declared_params(&block.params),
+                generator_resume_declared_params(callable.kind, &block.params),
                 linear_exception_edges
                     .get(block.label.as_str())
                     .cloned()
@@ -1314,13 +1401,7 @@ fn lower_resume_blocks(
             targets,
             default_label: state.exhausted_label.clone(),
         }),
-        params: persistent_state_order
-            .iter()
-            .map(|name| BlockParam {
-                name: name.clone(),
-                role: BlockParamRole::Local,
-            })
-            .collect(),
+        params: Vec::new(),
         exc_edge: None,
     }];
     blocks.append(&mut state.blocks);
@@ -1387,8 +1468,9 @@ pub(crate) fn lower_generator_like_function(
     let persistent_state_order = persistent_generator_state_order(&closure_layout);
     let resume_binding_names = ordered_resume_binding_names(&callable, &persistent_state_order);
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
-        lower_resume_blocks(&callable, &persistent_state_order);
+        lower_resume_blocks(&callable);
     let closure_bindings = resume_closure_bindings(&closure_layout, &resume_binding_names);
+    let resume_closure_layout = build_resume_closure_layout(&closure_layout, &closure_bindings);
 
     let factory_block = build_factory_block(
         callable.function_id,
@@ -1441,7 +1523,7 @@ pub(crate) fn lower_generator_like_function(
         params: resume_params.clone(),
         blocks: flatten_core_blocks(resume_blocks.clone()),
         doc: None,
-        closure_layout: Some(closure_layout.clone()),
+        closure_layout: Some(resume_closure_layout),
         semantic: resume_semantic,
     };
 

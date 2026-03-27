@@ -352,7 +352,7 @@ def f(x):
     }
 
     #[test]
-    fn generator_throw_handler_plan_keeps_try_exception_param() {
+    fn generator_throw_handler_plan_keeps_try_exception_state_and_closure_exc_binding() {
         let source = r#"
 def exercise():
     outer_capture = 2
@@ -431,26 +431,26 @@ def exercise():
                 })
                 .collect::<Vec<_>>()
         );
+
+        let closure_layout = gen_function
+            .closure_layout()
+            .as_ref()
+            .expect("hidden resume should preserve closure layout");
         assert!(
-            plan.blocks.iter().enumerate().any(|(_, block)| {
-                block
-                    .param_names
-                    .iter()
-                    .any(|name| name.starts_with("_dp_try_exc_"))
-                    && block.param_names.iter().any(|name| name == "exc")
-            }),
-            "expected some lowered handler block to preserve the user-visible exception binding: {:?}",
-            plan.blocks
+            closure_layout
+                .freevars
                 .iter()
-                .enumerate()
-                .filter(|(_, block)| {
-                    block
-                        .param_names
-                        .iter()
-                        .any(|name| name.starts_with("_dp_try_exc_"))
-                })
-                .map(|(_, block)| (&block.label, &block.param_names))
-                .collect::<Vec<_>>()
+                .any(|slot| slot.logical_name == "exc"),
+            "expected hidden resume closure layout to preserve the user-visible exception binding as a freevar cell: {:?}",
+            closure_layout
+        );
+        assert!(
+            closure_layout
+                .freevars
+                .iter()
+                .any(|slot| slot.logical_name == "exc" && slot.storage_name.contains("exc")),
+            "expected hidden resume closure slot for exc to keep a stable cell storage name: {:?}",
+            closure_layout
         );
     }
 }

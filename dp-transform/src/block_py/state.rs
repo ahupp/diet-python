@@ -30,6 +30,7 @@ where
             let is_special_runtime_state = name == "_dp_self"
                 || name.starts_with("_dp_cell_")
                 || name.starts_with("_dp_try_exc_")
+                || name.starts_with("_dp_try_abrupt_")
                 || name == "_dp_classcell";
             let is_known_local = defs_anywhere.contains(name.as_str())
                 || param_names.iter().any(|param| param == &name);

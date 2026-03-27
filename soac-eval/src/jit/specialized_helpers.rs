@@ -6,6 +6,7 @@ use std::ptr;
 use std::sync::OnceLock;
 
 unsafe extern "C" {
+    static mut PyCell_Type: ffi::PyTypeObject;
     fn PyCell_New(obj: *mut ffi::PyObject) -> *mut ffi::PyObject;
     fn PyCell_Get(cell: *mut ffi::PyObject) -> *mut ffi::PyObject;
     fn PyCell_Set(cell: *mut ffi::PyObject, value: *mut ffi::PyObject) -> libc::c_int;
@@ -43,6 +44,36 @@ pub type TupleNewFn = unsafe extern "C" fn(i64) -> ObjPtr;
 pub type TupleSetItemFn = unsafe extern "C" fn(ObjPtr, i64, ObjPtr) -> i32;
 pub type IsTrueFn = unsafe extern "C" fn(ObjPtr) -> i32;
 pub type RaiseFromExcFn = unsafe extern "C" fn(ObjPtr) -> i32;
+
+unsafe fn is_cell_object(obj: *mut ffi::PyObject) -> bool {
+    !obj.is_null() && ffi::Py_TYPE(obj) == std::ptr::addr_of_mut!(PyCell_Type)
+}
+
+unsafe fn object_type_name(obj: *mut ffi::PyObject) -> String {
+    if obj.is_null() {
+        return "<null>".to_string();
+    }
+    let ty = ffi::Py_TYPE(obj);
+    if ty.is_null() || (*ty).tp_name.is_null() {
+        return "<unknown>".to_string();
+    }
+    std::ffi::CStr::from_ptr((*ty).tp_name)
+        .to_string_lossy()
+        .into_owned()
+}
+
+unsafe fn raise_expected_cell(where_name: &str, obj: *mut ffi::PyObject) {
+    let type_name = object_type_name(obj);
+    let message = format!("{where_name} expected cell object, got {type_name}");
+    if let Ok(c_message) = std::ffi::CString::new(message) {
+        ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_message.as_ptr());
+    } else {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"expected cell object\0".as_ptr() as *const i8,
+        );
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct SpecializedJitHooks {
@@ -645,9 +676,9 @@ unsafe extern "C" fn function_closure_cell_hook(callable: ObjPtr, slot: i64) -> 
             return ptr::null_mut();
         }
     };
-    let resolved_slot = match closure_slot_index_for_owner(closure_owner, slot) {
-        Ok(Some(index)) => index,
-        Ok(None) => slot as ffi::Py_ssize_t,
+    let (resolved_slot, wrapped_closure) = match closure_slot_index_for_owner(closure_owner, slot) {
+        Ok(Some(index)) => (index, true),
+        Ok(None) => (slot as ffi::Py_ssize_t, false),
         Err(()) => {
             ffi::Py_DECREF(closure);
             ffi::Py_DECREF(closure_owner as *mut ffi::PyObject);
@@ -668,6 +699,38 @@ unsafe extern "C" fn function_closure_cell_hook(callable: ObjPtr, slot: i64) -> 
     if cell.is_null() {
         ffi::Py_DECREF(closure);
         ffi::Py_DECREF(closure_owner as *mut ffi::PyObject);
+        return ptr::null_mut();
+    }
+    if wrapped_closure {
+        if !is_cell_object(cell) {
+            ffi::Py_DECREF(closure);
+            ffi::Py_DECREF(closure_owner as *mut ffi::PyObject);
+            raise_expected_cell("dp_jit_function_closure_cell", cell);
+            return ptr::null_mut();
+        }
+        let outer_cell = PyCell_Get(cell);
+        if outer_cell.is_null() && ffi::PyErr_Occurred().is_null() {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"wrapped closure cell unexpectedly empty\0".as_ptr() as *const i8,
+            );
+        }
+        ffi::Py_DECREF(closure);
+        ffi::Py_DECREF(closure_owner as *mut ffi::PyObject);
+        if outer_cell.is_null() {
+            return ptr::null_mut();
+        }
+        if is_cell_object(outer_cell) {
+            return outer_cell as ObjPtr;
+        }
+        ffi::Py_DECREF(outer_cell);
+        ffi::Py_INCREF(cell);
+        return cell as ObjPtr;
+    }
+    if !is_cell_object(cell) {
+        ffi::Py_DECREF(closure);
+        ffi::Py_DECREF(closure_owner as *mut ffi::PyObject);
+        raise_expected_cell("dp_jit_function_closure_cell", cell);
         return ptr::null_mut();
     }
     ffi::Py_INCREF(cell);
@@ -815,6 +878,10 @@ unsafe extern "C" fn make_cell_hook(value: ObjPtr) -> ObjPtr {
 }
 
 unsafe extern "C" fn load_cell_hook(cell: ObjPtr) -> ObjPtr {
+    if !is_cell_object(cell as *mut ffi::PyObject) {
+        raise_expected_cell("dp_jit_load_cell", cell as *mut ffi::PyObject);
+        return ptr::null_mut();
+    }
     let value = PyCell_Get(cell as *mut ffi::PyObject);
     if value.is_null() && ffi::PyErr_ExceptionMatches(ffi::PyExc_ValueError) != 0 {
         ffi::PyErr_Clear();
@@ -827,6 +894,10 @@ unsafe extern "C" fn load_cell_hook(cell: ObjPtr) -> ObjPtr {
 }
 
 unsafe extern "C" fn store_cell_hook(cell: ObjPtr, value: ObjPtr) -> ObjPtr {
+    if !is_cell_object(cell as *mut ffi::PyObject) {
+        raise_expected_cell("dp_jit_store_cell", cell as *mut ffi::PyObject);
+        return ptr::null_mut();
+    }
     if PyCell_Set(cell as *mut ffi::PyObject, value as *mut ffi::PyObject) < 0 {
         return ptr::null_mut();
     }
@@ -839,6 +910,13 @@ unsafe extern "C" fn store_cell_if_not_deleted_hook(
     value: ObjPtr,
     deleted: ObjPtr,
 ) -> ObjPtr {
+    if !is_cell_object(cell as *mut ffi::PyObject) {
+        raise_expected_cell(
+            "dp_jit_store_cell_if_not_deleted",
+            cell as *mut ffi::PyObject,
+        );
+        return ptr::null_mut();
+    }
     if value != deleted && PyCell_Set(cell as *mut ffi::PyObject, value as *mut ffi::PyObject) < 0 {
         return ptr::null_mut();
     }

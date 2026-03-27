@@ -57,6 +57,7 @@ enum ClosureInit {
     Parameter,
     DeletedSentinel,
     RuntimePcUnstarted,
+    RuntimeAbruptKindFallthrough,
     RuntimeNone,
     Deferred,
 }
@@ -111,12 +112,8 @@ struct ClifFunctionData {
 }
 
 fn entry_args_layout_for_binding(kind: BindingKind) -> jit::EntryArgsLayout {
-    match kind {
-        BindingKind::Function => jit::EntryArgsLayout::DirectArgs,
-        BindingKind::GeneratorResume | BindingKind::AsyncGeneratorResume => {
-            jit::EntryArgsLayout::StateTuple
-        }
-    }
+    let _ = kind;
+    jit::EntryArgsLayout::DirectArgs
 }
 
 fn set_type_error<T>(msg: &str) -> Result<T, ()> {
@@ -312,78 +309,63 @@ unsafe fn parse_binding_metadata(
     let mut varargs_param = None;
     let mut varkw_param = None;
 
-    if matches!(kind, BindingKind::Function) {
-        if params_obj.is_null() || ffi::PyTuple_Check(params_obj) == 0 {
-            return set_type_error("CLIF function binding params must be a tuple");
+    if params_obj.is_null() || ffi::PyTuple_Check(params_obj) == 0 {
+        return set_type_error("CLIF binding params must be a tuple");
+    }
+    let param_count = tuple_size(params_obj, "failed to read CLIF binding params")?;
+    let mut parsed_params = Vec::with_capacity(param_count);
+    for index in 0..param_count {
+        let param_obj =
+            tuple_get_item(params_obj, index, "failed to read CLIF binding param entry")?;
+        if ffi::PyTuple_Check(param_obj) == 0 {
+            return set_type_error("CLIF binding param entry must be a tuple");
         }
-        let param_count = tuple_size(params_obj, "failed to read CLIF function binding params")?;
-        let mut parsed_params = Vec::with_capacity(param_count);
-        for index in 0..param_count {
-            let param_obj = tuple_get_item(
-                params_obj,
-                index,
-                "failed to read CLIF function binding param entry",
-            )?;
-            if ffi::PyTuple_Check(param_obj) == 0 {
-                return set_type_error("CLIF function binding param entry must be a tuple");
-            }
-            let entry_len = tuple_size(param_obj, "failed to read CLIF function binding param")?
-                as ffi::Py_ssize_t;
-            if entry_len != 3 {
-                return set_type_error("invalid CLIF function binding param entry");
-            }
-            let name_obj = tuple_get_item(
-                param_obj,
-                0,
-                "failed to read CLIF function binding param name",
-            )?;
-            let name_string = py_string(name_obj)?;
-            let kind_obj = tuple_get_item(
-                param_obj,
-                1,
-                "failed to read CLIF function binding param kind",
-            )?;
-            let kind_name = py_string(kind_obj)?;
-            let param_kind = parse_param_kind(&kind_name)?;
-            let has_default_obj = tuple_get_item(
-                param_obj,
-                2,
-                "failed to read CLIF function binding param default flag",
-            )?;
-            let has_default = ffi::PyObject_IsTrue(has_default_obj);
-            if has_default < 0 {
-                return Err(());
-            }
-            if param_lookup
-                .insert(name_string.clone(), parsed_params.len())
-                .is_some()
-            {
-                return set_type_error(
-                    "duplicate parameter name in CLIF function binding metadata",
-                );
-            }
-            match param_kind {
-                BindingParamKind::PositionalOnly | BindingParamKind::PositionalOrKeyword => {
-                    positional_param_indices.push(parsed_params.len());
-                }
-                BindingParamKind::VarArgs => {
-                    varargs_param = Some(parsed_params.len());
-                }
-                BindingParamKind::VarKeyword => {
-                    varkw_param = Some(parsed_params.len());
-                }
-                BindingParamKind::KeywordOnly => {}
-            }
-            parsed_params.push((name_string, param_kind, has_default != 0));
+        let entry_len =
+            tuple_size(param_obj, "failed to read CLIF binding param")? as ffi::Py_ssize_t;
+        if entry_len != 3 {
+            return set_type_error("invalid CLIF binding param entry");
         }
+        let name_obj = tuple_get_item(param_obj, 0, "failed to read CLIF binding param name")?;
+        let name_string = py_string(name_obj)?;
+        let kind_obj = tuple_get_item(param_obj, 1, "failed to read CLIF binding param kind")?;
+        let kind_name = py_string(kind_obj)?;
+        let param_kind = parse_param_kind(&kind_name)?;
+        let has_default_obj = tuple_get_item(
+            param_obj,
+            2,
+            "failed to read CLIF binding param default flag",
+        )?;
+        let has_default = ffi::PyObject_IsTrue(has_default_obj);
+        if has_default < 0 {
+            return Err(());
+        }
+        if param_lookup
+            .insert(name_string.clone(), parsed_params.len())
+            .is_some()
+        {
+            return set_type_error("duplicate parameter name in CLIF binding metadata");
+        }
+        match param_kind {
+            BindingParamKind::PositionalOnly | BindingParamKind::PositionalOrKeyword => {
+                positional_param_indices.push(parsed_params.len());
+            }
+            BindingParamKind::VarArgs => {
+                varargs_param = Some(parsed_params.len());
+            }
+            BindingParamKind::VarKeyword => {
+                varkw_param = Some(parsed_params.len());
+            }
+            BindingParamKind::KeywordOnly => {}
+        }
+        parsed_params.push((name_string, param_kind, has_default != 0));
+    }
 
-        for (name, kind, has_default) in parsed_params {
-            params.push(BindingParam {
-                name,
-                kind,
-                has_default,
-            });
-        }
+    for (name, kind, has_default) in parsed_params {
+        params.push(BindingParam {
+            name,
+            kind,
+            has_default,
+        });
     }
 
     Ok(BindingMetadata {
@@ -467,6 +449,7 @@ unsafe fn parse_closure_layout(
                 "Parameter" => ClosureInit::Parameter,
                 "DeletedSentinel" => ClosureInit::DeletedSentinel,
                 "RuntimePcUnstarted" => ClosureInit::RuntimePcUnstarted,
+                "RuntimeAbruptKindFallthrough" => ClosureInit::RuntimeAbruptKindFallthrough,
                 "RuntimeNone" => ClosureInit::RuntimeNone,
                 "Deferred" => ClosureInit::Deferred,
                 _ => {
@@ -628,25 +611,7 @@ unsafe fn make_clif_function_data(
             return Err(());
         }
     };
-    let ambient_args_obj = if matches!(binding.kind, BindingKind::Function) {
-        ptr::null_mut()
-    } else {
-        match build_ambient_args_tuple(&plan, &binding, closure_layout.as_ref()) {
-            Ok(value) => value,
-            Err(()) => {
-                ffi::Py_DECREF(true_obj);
-                ffi::Py_DECREF(false_obj);
-                unsafe { free_binding_metadata(binding) };
-                return Err(());
-            }
-        }
-    };
-    if !matches!(binding.kind, BindingKind::Function) && ambient_args_obj.is_null() {
-        ffi::Py_DECREF(true_obj);
-        ffi::Py_DECREF(false_obj);
-        unsafe { free_binding_metadata(binding) };
-        return Err(());
-    }
+    let ambient_args_obj = ptr::null_mut();
 
     let clif_data = Box::new(ClifFunctionData {
         plan,
@@ -748,47 +713,23 @@ unsafe fn ensure_clif_vectorcall_compiled(
         );
     }
     if data.compiled_vectorcall_handle.is_null() {
-        let (handle, entry) = match data.binding.kind {
-            BindingKind::Function => match jit::compile_cranelift_vectorcall_direct_trampoline(
-                bind_function_direct_args_from_vectorcall,
-                data as *mut ClifFunctionData as *mut c_void,
-                data.compiled_handle,
-            ) {
-                Ok(value) => value,
-                Err(err) => {
-                    if let Ok(c_msg) = CString::new(err) {
-                        ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_msg.as_ptr());
-                    } else {
-                        ffi::PyErr_SetString(
-                            ffi::PyExc_RuntimeError,
-                            b"failed to compile direct CLIF vectorcall trampoline\0".as_ptr()
-                                as *const i8,
-                        );
-                    }
-                    return Err(());
+        let (handle, entry) = match jit::compile_cranelift_vectorcall_direct_trampoline(
+            bind_direct_args_from_vectorcall,
+            data as *mut ClifFunctionData as *mut c_void,
+            data.compiled_handle,
+        ) {
+            Ok(value) => value,
+            Err(err) => {
+                if let Ok(c_msg) = CString::new(err) {
+                    ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_msg.as_ptr());
+                } else {
+                    ffi::PyErr_SetString(
+                        ffi::PyExc_RuntimeError,
+                        b"failed to compile direct CLIF vectorcall trampoline\0".as_ptr()
+                            as *const i8,
+                    );
                 }
-            },
-            BindingKind::GeneratorResume | BindingKind::AsyncGeneratorResume => {
-                match jit::compile_cranelift_vectorcall_trampoline(
-                    build_resume_args_from_vectorcall,
-                    run_clif_vectorcall_compiled,
-                    data as *mut ClifFunctionData as *mut c_void,
-                    data.compiled_handle,
-                ) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        if let Ok(c_msg) = CString::new(err) {
-                            ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_msg.as_ptr());
-                        } else {
-                            ffi::PyErr_SetString(
-                                ffi::PyExc_RuntimeError,
-                                b"failed to compile CLIF vectorcall trampoline\0".as_ptr()
-                                    as *const i8,
-                            );
-                        }
-                        return Err(());
-                    }
-                }
+                return Err(());
             }
         };
         data.compiled_vectorcall_handle = handle;
@@ -1354,6 +1295,21 @@ unsafe fn build_resume_closure_from_state_tuple(
                 decref_value = true;
                 cell
             }
+            ClosureInit::RuntimeAbruptKindFallthrough => {
+                let fallthrough = ffi::PyLong_FromLong(0);
+                if fallthrough.is_null() {
+                    ffi::Py_DECREF(resume_closure);
+                    return ptr::null_mut();
+                }
+                let cell = PyCell_New(fallthrough);
+                ffi::Py_DECREF(fallthrough);
+                if cell.is_null() {
+                    ffi::Py_DECREF(resume_closure);
+                    return ptr::null_mut();
+                }
+                decref_value = true;
+                cell
+            }
             ClosureInit::RuntimeNone => {
                 let none = ffi::Py_None();
                 ffi::Py_INCREF(none);
@@ -1415,7 +1371,7 @@ unsafe fn build_resume_closure_from_state_tuple(
     resume_closure
 }
 
-unsafe extern "C" fn bind_function_direct_args_from_vectorcall(
+unsafe extern "C" fn bind_direct_args_from_vectorcall(
     callable: *mut c_void,
     args: *const *mut c_void,
     nargsf: usize,
@@ -1433,40 +1389,29 @@ unsafe extern "C" fn bind_function_direct_args_from_vectorcall(
             return 0;
         }
         let data = &mut *(data_ptr as *mut ClifFunctionData);
-        match data.binding.kind {
-            BindingKind::Function => {
-                let bound_args = match build_function_bound_args(
-                    callable as *mut ffi::PyObject,
-                    args as *const *mut ffi::PyObject,
-                    nargsf,
-                    kwnames as *mut ffi::PyObject,
-                    &data.binding,
-                ) {
-                    Ok(value) => value,
-                    Err(()) => return 0,
-                };
-                match write_owned_bound_args_to_buffer(
-                    bound_args,
-                    out_args as *mut *mut ffi::PyObject,
-                    out_len as usize,
-                ) {
-                    Ok(()) => 1,
-                    Err(()) => 0,
-                }
-            }
-            BindingKind::GeneratorResume | BindingKind::AsyncGeneratorResume => {
-                ffi::PyErr_SetString(
-                    ffi::PyExc_RuntimeError,
-                    b"direct function binder received resume metadata\0".as_ptr() as *const i8,
-                );
-                0
-            }
+        let bound_args = match build_function_bound_args(
+            callable as *mut ffi::PyObject,
+            args as *const *mut ffi::PyObject,
+            nargsf,
+            kwnames as *mut ffi::PyObject,
+            &data.binding,
+        ) {
+            Ok(value) => value,
+            Err(()) => return 0,
+        };
+        match write_owned_bound_args_to_buffer(
+            bound_args,
+            out_args as *mut *mut ffi::PyObject,
+            out_len as usize,
+        ) {
+            Ok(()) => 1,
+            Err(()) => 0,
         }
     })) {
         Ok(value) => value,
         Err(payload) => {
             let message = format!(
-                "panic in bind_function_direct_args_from_vectorcall: {}",
+                "panic in bind_direct_args_from_vectorcall: {}",
                 panic_payload_to_string(payload)
             );
             if let Ok(c_msg) = CString::new(message) {
@@ -1474,7 +1419,7 @@ unsafe extern "C" fn bind_function_direct_args_from_vectorcall(
             } else {
                 ffi::PyErr_SetString(
                     ffi::PyExc_RuntimeError,
-                    b"panic in bind_function_direct_args_from_vectorcall\0".as_ptr() as *const i8,
+                    b"panic in bind_direct_args_from_vectorcall\0".as_ptr() as *const i8,
                 );
             }
             0

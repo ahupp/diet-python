@@ -58,6 +58,7 @@ mod tests {
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
+            owned_cell_slot_names: vec![],
             slot_names: vec![],
             blocks: vec![
                 ClifBlockPlan {
@@ -114,6 +115,7 @@ mod tests {
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
+            owned_cell_slot_names: vec![],
             slot_names: vec![],
             blocks: vec![ClifBlockPlan {
                 label: "b0".into(),
@@ -167,6 +169,7 @@ mod tests {
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
+            owned_cell_slot_names: vec![],
             slot_names: vec![],
             blocks: vec![ClifBlockPlan {
                 label: "b0".into(),
@@ -216,6 +219,7 @@ mod tests {
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
+            owned_cell_slot_names: vec![],
             slot_names: vec!["x".into(), "y".into()],
             blocks: vec![ClifBlockPlan {
                 label: "b0".into(),
@@ -259,6 +263,7 @@ mod tests {
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
+            owned_cell_slot_names: vec![],
             slot_names: vec!["x".into()],
             blocks: vec![ClifBlockPlan {
                 label: "b0".into(),
@@ -307,6 +312,7 @@ mod tests {
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
+            owned_cell_slot_names: vec![],
             slot_names: vec![],
             blocks: vec![ClifBlockPlan {
                 label: "b0".into(),
@@ -351,7 +357,8 @@ mod tests {
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
-            slot_names: vec![],
+            owned_cell_slot_names: vec![],
+            slot_names: vec!["x".into()],
             blocks: vec![ClifBlockPlan {
                 label: "b0".into(),
                 param_names: vec![],
@@ -395,7 +402,8 @@ mod tests {
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
-            slot_names: vec![],
+            owned_cell_slot_names: vec![],
+            slot_names: vec!["x".into()],
             blocks: vec![ClifBlockPlan {
                 label: "b0".into(),
                 param_names: vec![],
@@ -447,7 +455,8 @@ mod tests {
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
-            slot_names: vec![],
+            owned_cell_slot_names: vec![],
+            slot_names: vec!["_dp_classcell".into()],
             blocks: vec![ClifBlockPlan {
                 label: "b0".into(),
                 param_names: vec![],
@@ -483,9 +492,12 @@ mod tests {
         .expect("specialized JIT CLIF render should succeed")
         .clif;
         assert!(
-            rendered.contains("call dp_jit_function_closure_cell")
-                && rendered.contains("call dp_jit_load_cell"),
-            "captured cell sources should unwrap the wrapper closure cell once:\n{rendered}"
+            rendered.contains("call dp_jit_function_closure_cell"),
+            "captured cell sources should resolve through the callable closure:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("call dp_jit_load_cell"),
+            "__dp_cell_ref on a captured cell source should still return the raw cell object:\n{rendered}"
         );
     }
 
@@ -499,6 +511,7 @@ mod tests {
                 Some(ClifEntryParamDefaultSource::Positional(0)),
             ],
             ambient_param_names: vec![],
+            owned_cell_slot_names: vec![],
             slot_names: vec!["x".into(), "y".into()],
             blocks: vec![ClifBlockPlan {
                 label: "b0".into(),
@@ -544,6 +557,7 @@ mod tests {
                 "x".into(),
             ))],
             ambient_param_names: vec![],
+            owned_cell_slot_names: vec![],
             slot_names: vec!["x".into()],
             blocks: vec![ClifBlockPlan {
                 label: "b0".into(),

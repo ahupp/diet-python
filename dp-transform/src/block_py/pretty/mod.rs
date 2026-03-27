@@ -456,6 +456,7 @@ fn closure_init_name(init: &crate::block_py::ClosureInit) -> &'static str {
         crate::block_py::ClosureInit::Parameter => "param",
         crate::block_py::ClosureInit::DeletedSentinel => "deleted",
         crate::block_py::ClosureInit::RuntimePcUnstarted => "pc_unstarted",
+        crate::block_py::ClosureInit::RuntimeAbruptKindFallthrough => "abrupt_kind_fallthrough",
         crate::block_py::ClosureInit::RuntimeNone => "none",
         crate::block_py::ClosureInit::Deferred => "deferred",
     }

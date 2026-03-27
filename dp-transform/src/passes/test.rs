@@ -1147,7 +1147,7 @@ def gen():
     let resume = lowered.bb_function("gen");
     let entry_params = resume.entry_block().param_name_vec();
     assert!(
-        entry_params.iter().any(|name| name == "_dp_pc"),
+        !entry_params.iter().any(|name| name == "_dp_pc"),
         "{resume:?}"
     );
     assert!(
@@ -1193,8 +1193,8 @@ def delegator():
     let resume = lowered.bb_function("delegator");
     let entry_params = resume.entry_block().param_name_vec();
     assert!(
-        entry_params.iter().any(|name| name == "_dp_pc")
-            && entry_params.iter().any(|name| name == "_dp_yieldfrom"),
+        !entry_params.iter().any(|name| name == "_dp_pc")
+            && !entry_params.iter().any(|name| name == "_dp_yieldfrom"),
         "{resume:?}"
     );
     assert!(
@@ -1239,7 +1239,7 @@ def gen():
     let resume = lowered.bb_function("gen");
     let entry_params = resume.entry_block().param_name_vec();
     assert!(
-        entry_params.iter().any(|name| name == "total"),
+        !entry_params.iter().any(|name| name == "total"),
         "{resume:?}"
     );
     assert!(
@@ -1255,6 +1255,31 @@ def gen():
             .iter()
             .any(|block| block_uses_text(block, "__dp_store_cell(total,")),
         "{resume:?}"
+    );
+}
+
+#[test]
+fn async_genexpr_inherited_capture_moves_to_name_binding_pass() {
+    let source = r#"
+import asyncio
+
+async def asynciter(seq):
+    for item in seq:
+        yield item
+
+async def run():
+    gen = ([i + j async for i in asynciter([1, 2])] for j in [10, 20])
+    return [x async for x in gen]
+"#;
+
+    let lowered = TrackedLowering::new(source);
+    let hidden_listcomp_resume = lowered.bb_function("_dp_listcomp_7");
+    assert!(
+        hidden_listcomp_resume
+            .blocks
+            .iter()
+            .any(|block| block_uses_text(block, "__dp_load_cell(j)")),
+        "{hidden_listcomp_resume:?}"
     );
 }
 
@@ -1329,12 +1354,12 @@ def gen():
         .as_ref()
         .and_then(|layout| {
             layout
-                .cellvars
+                .freevars
                 .iter()
                 .find(|slot| slot.logical_name.starts_with("_dp_try_exc_"))
         })
         .expect("resume closure layout should contain try-exception state cell");
-    assert_eq!(try_exc_slot.init, ClosureInit::DeletedSentinel);
+    assert_eq!(try_exc_slot.init, ClosureInit::InheritedCapture);
     assert_eq!(
         resume
             .semantic
@@ -2221,17 +2246,19 @@ def outer(scale):
     assert_eq!(factor.storage_name, "factor");
     assert_eq!(factor.init, ClosureInit::InheritedCapture);
 
-    let a = slot_by_name(&layout.cellvars, "a");
+    let a = slot_by_name(&layout.freevars, "a");
     assert_eq!(a.storage_name, "_dp_cell_a");
-    assert_eq!(a.init, ClosureInit::Parameter);
+    assert_eq!(a.init, ClosureInit::InheritedCapture);
 
-    let total = slot_by_name(&layout.cellvars, "total");
+    let total = slot_by_name(&layout.freevars, "total");
     assert_eq!(total.storage_name, "_dp_cell_total");
-    assert_eq!(total.init, ClosureInit::Deferred);
+    assert_eq!(total.init, ClosureInit::InheritedCapture);
 
-    let pc = slot_by_name(&layout.runtime_cells, "_dp_pc");
+    let pc = slot_by_name(&layout.freevars, "_dp_pc");
     assert_eq!(pc.storage_name, "_dp_cell__dp_pc");
-    assert_eq!(pc.init, ClosureInit::RuntimePcUnstarted);
+    assert_eq!(pc.init, ClosureInit::InheritedCapture);
+    assert!(layout.cellvars.is_empty(), "{layout:?}");
+    assert!(layout.runtime_cells.is_empty(), "{layout:?}");
 }
 
 #[test]
@@ -2255,7 +2282,7 @@ def gen():
         .expect("sync generator should record closure layout");
 
     let try_exc = layout
-        .cellvars
+        .freevars
         .iter()
         .find(|slot| slot.logical_name.starts_with("_dp_try_exc_"))
         .unwrap_or_else(|| panic!("missing try-exception slot in {layout:?}"));
@@ -2263,14 +2290,16 @@ def gen():
         try_exc.storage_name,
         format!("_dp_cell_{}", try_exc.logical_name)
     );
-    assert_eq!(try_exc.init, ClosureInit::DeletedSentinel);
+    assert_eq!(try_exc.init, ClosureInit::InheritedCapture);
     assert!(
         layout
-            .runtime_cells
+            .freevars
             .iter()
             .any(|slot| slot.logical_name == "_dp_pc"),
         "{layout:?}"
     );
+    assert!(layout.cellvars.is_empty(), "{layout:?}");
+    assert!(layout.runtime_cells.is_empty(), "{layout:?}");
 }
 
 #[test]
@@ -2305,12 +2334,15 @@ def outer(scale):
     assert_eq!(factor.storage_name, "factor");
     assert_eq!(factor.init, ClosureInit::InheritedCapture);
 
-    let total = slot_by_name(&layout.cellvars, "total");
+    let total = slot_by_name(&layout.freevars, "total");
     assert_eq!(total.storage_name, "_dp_cell_total");
+    assert_eq!(total.init, ClosureInit::InheritedCapture);
 
-    let pc = slot_by_name(&layout.runtime_cells, "_dp_pc");
+    let pc = slot_by_name(&layout.freevars, "_dp_pc");
     assert_eq!(pc.storage_name, "_dp_cell__dp_pc");
-    assert_eq!(pc.init, ClosureInit::RuntimePcUnstarted);
+    assert_eq!(pc.init, ClosureInit::InheritedCapture);
+    assert!(layout.cellvars.is_empty(), "{layout:?}");
+    assert!(layout.runtime_cells.is_empty(), "{layout:?}");
 }
 
 #[test]
@@ -2340,12 +2372,15 @@ def outer(scale):
     assert_eq!(factor.storage_name, "factor");
     assert_eq!(factor.init, ClosureInit::InheritedCapture);
 
-    let total = slot_by_name(&layout.cellvars, "total");
+    let total = slot_by_name(&layout.freevars, "total");
     assert_eq!(total.storage_name, "_dp_cell_total");
+    assert_eq!(total.init, ClosureInit::InheritedCapture);
 
-    let pc = slot_by_name(&layout.runtime_cells, "_dp_pc");
+    let pc = slot_by_name(&layout.freevars, "_dp_pc");
     assert_eq!(pc.storage_name, "_dp_cell__dp_pc");
-    assert_eq!(pc.init, ClosureInit::RuntimePcUnstarted);
+    assert_eq!(pc.init, ClosureInit::InheritedCapture);
+    assert!(layout.cellvars.is_empty(), "{layout:?}");
+    assert!(layout.runtime_cells.is_empty(), "{layout:?}");
 }
 
 #[test]

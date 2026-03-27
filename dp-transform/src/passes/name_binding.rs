@@ -629,6 +629,16 @@ fn closure_slot_init_expr(slot: &ClosureSlot) -> CoreBlockPyExpr {
                 value: CoreNumberLiteralValue::Int(ast::Int::ONE),
             }))
         }
+        ClosureInit::RuntimeAbruptKindFallthrough => {
+            CoreBlockPyExpr::Literal(CoreBlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+                node_index,
+                range,
+                value: CoreNumberLiteralValue::Int(
+                    ast::Int::from_str_radix("0", 10, "0")
+                        .expect("zero should parse as an integer literal"),
+                ),
+            }))
+        }
         ClosureInit::RuntimeNone | ClosureInit::Deferred => {
             core_name_expr("__dp_NONE", ast::ExprContext::Load, node_index, range)
         }
@@ -659,7 +669,7 @@ fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPa
         BlockPyFunctionKind::Function => {
             let mut storage_names = callable
                 .semantic
-                .local_cell_storage_names()
+                .owned_cell_storage_names()
                 .into_iter()
                 .collect::<Vec<_>>();
             if storage_names.is_empty() {
@@ -670,13 +680,14 @@ fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPa
             storage_names
                 .into_iter()
                 .map(|storage_name| {
-                    let logical_name = storage_name
-                        .strip_prefix("_dp_cell_")
-                        .expect("owned local cell storage should have _dp_cell_ prefix");
+                    let logical_name = callable
+                        .semantic
+                        .logical_name_for_cell_storage(storage_name.as_str())
+                        .unwrap_or_else(|| storage_name.clone());
                     build_local_cell_init_assign(
                         storage_name.as_str(),
-                        logical_name,
-                        param_names.contains(logical_name),
+                        logical_name.as_str(),
+                        param_names.contains(logical_name.as_str()),
                     )
                 })
                 .collect::<Vec<_>>()
@@ -1203,6 +1214,18 @@ fn resolve_cell_storage_name(semantic: &BlockPyCallableSemanticInfo, name: &str)
         .map(|logical_name| semantic.cell_storage_name(logical_name.as_str()))
 }
 
+fn resolve_cell_storage_binding(
+    semantic: &BlockPyCallableSemanticInfo,
+    name: &str,
+) -> Option<(String, BlockPyCellBindingKind)> {
+    let logical_name = semantic.logical_name_for_cell_capture_source(name)?;
+    let kind = match semantic.binding_kind(logical_name.as_str())? {
+        BlockPyBindingKind::Cell(kind) => kind,
+        _ => return None,
+    };
+    Some((semantic.cell_storage_name(logical_name.as_str()), kind))
+}
+
 fn resolve_captured_cell_source_storage_name(
     semantic: &BlockPyCallableSemanticInfo,
     name: &str,
@@ -1218,18 +1241,12 @@ fn resolve_captured_cell_source_storage_name(
     (capture_source_name == name && capture_source_name != storage_name).then_some(storage_name)
 }
 
-fn collect_cell_slot_locations(
+fn collect_captured_cell_slot_locations(
     callable: &BlockPyFunction<CoreBlockPyPass>,
 ) -> HashMap<String, u32> {
     let mut slots = HashMap::new();
     if let Some(layout) = callable.closure_layout.as_ref() {
-        for (slot, closure_slot) in layout
-            .freevars
-            .iter()
-            .chain(layout.cellvars.iter())
-            .chain(layout.runtime_cells.iter())
-            .enumerate()
-        {
+        for (slot, closure_slot) in layout.freevars.iter().enumerate() {
             slots.insert(closure_slot.storage_name.clone(), slot as u32);
             slots.insert(closure_slot.logical_name.clone(), slot as u32);
         }
@@ -1237,27 +1254,124 @@ fn collect_cell_slot_locations(
     slots
 }
 
-fn collect_inherited_capture_names(callable: &BlockPyFunction<CoreBlockPyPass>) -> HashSet<String> {
-    let mut names = HashSet::new();
-    if let Some(layout) = callable.closure_layout.as_ref() {
-        for slot in layout
-            .freevars
-            .iter()
-            .chain(layout.cellvars.iter())
-            .chain(layout.runtime_cells.iter())
-        {
-            if matches!(slot.init, ClosureInit::InheritedCapture) {
-                names.insert(slot.logical_name.clone());
-                names.insert(slot.storage_name.clone());
-            }
+fn collect_owned_cell_storage_bindings(
+    callable: &BlockPyFunction<CoreBlockPyPass>,
+) -> Vec<(String, String)> {
+    match callable.kind {
+        BlockPyFunctionKind::Function => {
+            let mut storage_names = callable
+                .semantic
+                .owned_cell_storage_names()
+                .into_iter()
+                .collect::<Vec<_>>();
+            storage_names.sort();
+            storage_names
+                .into_iter()
+                .map(|storage_name| {
+                    let logical_name = callable
+                        .semantic
+                        .logical_name_for_cell_storage(storage_name.as_str())
+                        .unwrap_or_else(|| storage_name.clone());
+                    (logical_name, storage_name)
+                })
+                .collect()
         }
+        BlockPyFunctionKind::Generator
+        | BlockPyFunctionKind::Coroutine
+        | BlockPyFunctionKind::AsyncGenerator => callable
+            .closure_layout
+            .as_ref()
+            .map(|layout| {
+                layout
+                    .cellvars
+                    .iter()
+                    .chain(layout.runtime_cells.iter())
+                    .map(|slot| (slot.logical_name.clone(), slot.storage_name.clone()))
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
-    names
 }
 
-fn is_remaining_local_name(name: &str, semantic: &BlockPyCallableSemanticInfo) -> bool {
+fn collect_owned_cell_slot_locations(
+    callable: &BlockPyFunction<CoreBlockPyPass>,
+) -> HashMap<String, u32> {
+    let mut slots = HashMap::new();
+    for (slot, (logical_name, storage_name)) in collect_owned_cell_storage_bindings(callable)
+        .into_iter()
+        .enumerate()
+    {
+        slots.insert(storage_name, slot as u32);
+        slots.insert(logical_name, slot as u32);
+    }
+    slots
+}
+
+fn collect_cell_bindings(
+    callable: &BlockPyFunction<CoreBlockPyPass>,
+) -> HashMap<String, (String, BlockPyCellBindingKind)> {
+    let mut bindings = HashMap::new();
+    let Some(layout) = callable.closure_layout.as_ref() else {
+        return bindings;
+    };
+
+    let mut add_binding = |name: &str, storage_name: &str, binding_kind: BlockPyCellBindingKind| {
+        bindings.insert(name.to_string(), (storage_name.to_string(), binding_kind));
+    };
+
+    for slot in &layout.freevars {
+        add_binding(
+            slot.logical_name.as_str(),
+            slot.storage_name.as_str(),
+            BlockPyCellBindingKind::Capture,
+        );
+        add_binding(
+            slot.storage_name.as_str(),
+            slot.storage_name.as_str(),
+            BlockPyCellBindingKind::Capture,
+        );
+        let capture_source_name = callable
+            .semantic
+            .cell_capture_source_name(slot.logical_name.as_str());
+        add_binding(
+            capture_source_name.as_str(),
+            slot.storage_name.as_str(),
+            BlockPyCellBindingKind::Capture,
+        );
+    }
+
+    for (logical_name, storage_name) in collect_owned_cell_storage_bindings(callable) {
+        add_binding(
+            logical_name.as_str(),
+            storage_name.as_str(),
+            BlockPyCellBindingKind::Owner,
+        );
+        add_binding(
+            storage_name.as_str(),
+            storage_name.as_str(),
+            BlockPyCellBindingKind::Owner,
+        );
+    }
+
+    bindings
+}
+
+fn is_remaining_local_name(
+    name: &str,
+    semantic: &BlockPyCallableSemanticInfo,
+    has_explicit_store: bool,
+) -> bool {
     if resolve_cell_storage_name(semantic, name).is_some() {
         return false;
+    }
+    if has_explicit_store {
+        return !matches!(
+            semantic.binding_kind(name),
+            Some(BlockPyBindingKind::Cell(_)) | Some(BlockPyBindingKind::Global)
+        ) && matches!(
+            semantic.binding_target_for_name(name, BlockPyBindingPurpose::Store),
+            BindingTarget::Local
+        );
     }
     match semantic.binding_kind(name) {
         Some(BlockPyBindingKind::Local) => semantic.honors_internal_binding(name),
@@ -1273,11 +1387,44 @@ fn collect_local_slot_locations(
     for (slot, param_name) in callable.params.names().into_iter().enumerate() {
         slots.insert(param_name, slot as u32);
     }
+    let mut next_slot = slots.len() as u32;
+    let mut owned_cell_storage_names = callable
+        .semantic
+        .owned_cell_storage_names()
+        .into_iter()
+        .collect::<Vec<_>>();
+    owned_cell_storage_names.sort();
+    for storage_name in owned_cell_storage_names {
+        if slots.contains_key(storage_name.as_str()) {
+            continue;
+        }
+        slots.insert(storage_name, next_slot);
+        next_slot += 1;
+    }
+    for block in &callable.blocks {
+        for param_name in block.param_names() {
+            if slots.contains_key(param_name) {
+                continue;
+            }
+            slots.insert(param_name.to_string(), next_slot);
+            next_slot += 1;
+        }
+    }
 
     let mut remaining = HashSet::new();
+    let mut explicitly_stored = HashSet::new();
     for block in &callable.blocks {
         for stmt in &block.body {
             collect_remaining_names_in_stmt(stmt, &mut remaining);
+            match stmt {
+                BbStmt::Assign(assign) => {
+                    explicitly_stored.insert(assign.target.id.to_string());
+                }
+                BbStmt::Delete(delete) => {
+                    explicitly_stored.insert(delete.target.id.to_string());
+                }
+                BbStmt::Expr(_) => {}
+            }
         }
         collect_remaining_names_in_term(&block.term, &mut remaining);
     }
@@ -1285,45 +1432,103 @@ fn collect_local_slot_locations(
     let mut non_param_locals = remaining
         .into_iter()
         .filter(|name| !slots.contains_key(name))
-        .filter(|name| is_remaining_local_name(name, &callable.semantic))
+        .filter(|name| {
+            is_remaining_local_name(
+                name,
+                &callable.semantic,
+                explicitly_stored.contains(name.as_str()),
+            )
+        })
         .collect::<Vec<_>>();
     non_param_locals.sort();
 
-    let next_slot = slots.len() as u32;
-    for (offset, name) in non_param_locals.into_iter().enumerate() {
-        slots.insert(name, next_slot + offset as u32);
+    for name in non_param_locals {
+        slots.insert(name, next_slot);
+        next_slot += 1;
     }
     slots
 }
 
 struct NameLocator<'a> {
     semantic: &'a BlockPyCallableSemanticInfo,
+    exception_param_names: HashSet<String>,
     local_slots: HashMap<String, u32>,
-    cell_slots: HashMap<String, u32>,
-    inherited_capture_names: HashSet<String>,
+    captured_cell_slots: HashMap<String, u32>,
+    owned_cell_slots: HashMap<String, u32>,
+    cell_bindings: HashMap<String, (String, BlockPyCellBindingKind)>,
 }
 
 impl NameLocator<'_> {
     fn locate_name(&self, name: ExprName) -> LocatedName {
         let name_text = name.id.to_string();
-        let location = if let Some(storage_name) =
+        let location = if self.exception_param_names.contains(name_text.as_str()) {
+            let slot = self
+                .local_slots
+                .get(name_text.as_str())
+                .copied()
+                .unwrap_or_else(|| {
+                    panic!("missing local slot for exception param {name_text}");
+                });
+            NameLocation::Local { slot }
+        } else if let Some(storage_name) =
             resolve_captured_cell_source_storage_name(self.semantic, name_text.as_str())
         {
-            let slot = self.cell_slots.get(storage_name.as_str()).copied().unwrap_or_else(|| {
+            let slot = self
+                .captured_cell_slots
+                .get(storage_name.as_str())
+                .copied()
+                .unwrap_or_else(|| {
                 panic!(
                     "missing closure slot for captured cell source {name_text} via storage name {storage_name}"
                 )
             });
             NameLocation::CapturedCellSource { slot }
-        } else if let Some(storage_name) =
-            resolve_cell_storage_name(self.semantic, name_text.as_str())
+        } else if let Some((storage_name, binding_kind)) =
+            self.cell_bindings.get(name_text.as_str()).cloned()
         {
-            let slot = self.cell_slots.get(storage_name.as_str()).copied().unwrap_or_else(|| {
-                panic!(
-                    "missing closure slot for storage name {storage_name} while locating {name_text}"
-                )
-            });
-            NameLocation::ClosureCell { slot }
+            match binding_kind {
+                BlockPyCellBindingKind::Owner => {
+                    if name_text != storage_name {
+                        if let Some(slot) = self.local_slots.get(name_text.as_str()).copied() {
+                            NameLocation::Local { slot }
+                        } else {
+                            let slot = self
+                                .owned_cell_slots
+                                .get(storage_name.as_str())
+                                .copied()
+                                .unwrap_or_else(|| {
+                                    panic!(
+                                        "missing owned cell slot for storage name {storage_name} while locating {name_text}"
+                                    )
+                                });
+                            NameLocation::OwnedCell { slot }
+                        }
+                    } else {
+                        let slot = self
+                            .owned_cell_slots
+                            .get(storage_name.as_str())
+                            .copied()
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "missing owned cell slot for storage name {storage_name} while locating {name_text}"
+                                )
+                            });
+                        NameLocation::OwnedCell { slot }
+                    }
+                }
+                BlockPyCellBindingKind::Capture => {
+                    let slot = self
+                        .captured_cell_slots
+                        .get(storage_name.as_str())
+                        .copied()
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "missing closure slot for storage name {storage_name} while locating {name_text}"
+                            )
+                        });
+                    NameLocation::ClosureCell { slot }
+                }
+            }
         } else if let Some(slot) = self.local_slots.get(name_text.as_str()).copied() {
             NameLocation::Local { slot }
         } else {
@@ -1333,10 +1538,53 @@ impl NameLocator<'_> {
     }
 
     fn mark_raw_cell_name(&self, name: LocatedName) -> LocatedName {
+        let name_text = name.id.to_string();
+        if let Some(storage_name) =
+            resolve_captured_cell_source_storage_name(self.semantic, name_text.as_str())
+        {
+            let slot = self
+                .captured_cell_slots
+                .get(storage_name.as_str())
+                .copied()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing closure slot for captured raw cell source {name_text} via storage name {storage_name}"
+                    )
+                });
+            return name.with_location(NameLocation::CapturedCellSource { slot });
+        }
+
+        if let Some((storage_name, binding_kind)) = self.cell_bindings.get(name_text.as_str()) {
+            return match binding_kind {
+                BlockPyCellBindingKind::Owner => {
+                    let slot = self
+                        .owned_cell_slots
+                        .get(storage_name.as_str())
+                        .copied()
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "missing owned cell slot for raw cell target {name_text} via storage name {storage_name}"
+                            )
+                        });
+                    name.with_location(NameLocation::OwnedCell { slot })
+                }
+                BlockPyCellBindingKind::Capture => {
+                    let slot = self
+                        .captured_cell_slots
+                        .get(storage_name.as_str())
+                        .copied()
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "missing closure slot for raw captured cell target {name_text} via storage name {storage_name}"
+                            )
+                        });
+                    name.with_location(NameLocation::CapturedCellSource { slot })
+                }
+            };
+        }
+
         match name.location {
-            NameLocation::ClosureCell { slot }
-                if self.inherited_capture_names.contains(name.id.as_str()) =>
-            {
+            NameLocation::ClosureCell { slot } => {
                 name.with_location(NameLocation::CapturedCellSource { slot })
             }
             _ => name,
@@ -1421,14 +1669,22 @@ fn locate_names_in_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
 ) -> BlockPyFunction<BbBlockPyPass> {
     let semantic = callable.semantic.clone();
+    let exception_param_names = callable
+        .blocks
+        .iter()
+        .filter_map(|block| block.exception_param().map(ToString::to_string))
+        .collect::<HashSet<_>>();
     let local_slots = collect_local_slot_locations(&callable);
-    let cell_slots = collect_cell_slot_locations(&callable);
-    let inherited_capture_names = collect_inherited_capture_names(&callable);
+    let captured_cell_slots = collect_captured_cell_slot_locations(&callable);
+    let owned_cell_slots = collect_owned_cell_slot_locations(&callable);
+    let cell_bindings = collect_cell_bindings(&callable);
     NameLocator {
         semantic: &semantic,
+        exception_param_names,
         local_slots,
-        cell_slots,
-        inherited_capture_names,
+        captured_cell_slots,
+        owned_cell_slots,
+        cell_bindings,
     }
     .map_fn(callable)
 }
@@ -1436,7 +1692,6 @@ fn locate_names_in_callable(
 fn refresh_bb_callable_block_params(
     mut callable: BlockPyFunction<BbBlockPyPass>,
 ) -> BlockPyFunction<BbBlockPyPass> {
-    rewrite_current_exception_in_core_blocks(&mut callable.blocks);
     let block_params = recompute_lowered_block_params(
         &callable,
         should_include_closure_storage_aliases(&callable),
@@ -1523,6 +1778,7 @@ fn lower_name_binding_callable(
             );
         }
     }
+    rewrite_current_exception_in_core_blocks(&mut lowered.blocks);
     refresh_bb_callable_block_params(locate_names_in_callable(lowered))
 }
 

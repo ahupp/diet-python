@@ -53,6 +53,7 @@ fn is_internal_symbol(name: &str) -> bool {
 pub enum NameLocation {
     Local { slot: u32 },
     Global,
+    OwnedCell { slot: u32 },
     ClosureCell { slot: u32 },
     CapturedCellSource { slot: u32 },
 }
@@ -61,6 +62,12 @@ pub trait BlockPyNameLike: Clone + fmt::Debug + From<ast::ExprName> + Into<ast::
     fn id_str(&self) -> &str;
     fn range(&self) -> ruff_text_size::TextRange;
     fn node_index(&self) -> ast::AtomicNodeIndex;
+}
+
+pub trait BlockPyExprLike: Clone + fmt::Debug + Into<Expr> {
+    fn walk_child_exprs<F>(&self, f: &mut F)
+    where
+        F: FnMut(&Self);
 }
 
 impl BlockPyNameLike for ast::ExprName {
@@ -74,6 +81,28 @@ impl BlockPyNameLike for ast::ExprName {
 
     fn node_index(&self) -> ast::AtomicNodeIndex {
         self.node_index.clone()
+    }
+}
+
+impl BlockPyExprLike for Expr {
+    fn walk_child_exprs<F>(&self, f: &mut F)
+    where
+        F: FnMut(&Self),
+    {
+        struct DirectChildTransformer<'a, F>(&'a mut F);
+
+        impl<F> crate::transformer::Transformer for DirectChildTransformer<'_, F>
+        where
+            F: FnMut(&Expr),
+        {
+            fn visit_expr(&mut self, expr: &mut Expr) {
+                (self.0)(expr);
+            }
+        }
+
+        let mut expr = self.clone();
+        let mut transformer = DirectChildTransformer(f);
+        crate::transformer::walk_expr(&mut transformer, &mut expr);
     }
 }
 
@@ -191,6 +220,7 @@ pub enum ClosureInit {
     Parameter,
     DeletedSentinel,
     RuntimePcUnstarted,
+    RuntimeAbruptKindFallthrough,
     RuntimeNone,
     Deferred,
 }
@@ -447,6 +477,38 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
     }
 }
 
+impl BlockPyExprLike for CoreBlockPyExprWithAwaitAndYield {
+    fn walk_child_exprs<F>(&self, f: &mut F)
+    where
+        F: FnMut(&Self),
+    {
+        match self {
+            Self::Name(_) | Self::Literal(_) => {}
+            Self::Call(call) => {
+                f(&call.func);
+                for arg in &call.args {
+                    f(arg.expr());
+                }
+                for keyword in &call.keywords {
+                    f(keyword.expr());
+                }
+            }
+            Self::Intrinsic(call) => {
+                for arg in &call.args {
+                    f(arg);
+                }
+            }
+            Self::Await(await_expr) => f(&await_expr.value),
+            Self::Yield(yield_expr) => {
+                if let Some(value) = &yield_expr.value {
+                    f(value);
+                }
+            }
+            Self::YieldFrom(yield_from_expr) => f(&yield_from_expr.value),
+        }
+    }
+}
+
 impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
     fn from_name(name: ast::ExprName) -> Self {
         Self::Name(name)
@@ -461,6 +523,37 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
     }
 }
 
+impl BlockPyExprLike for CoreBlockPyExprWithYield {
+    fn walk_child_exprs<F>(&self, f: &mut F)
+    where
+        F: FnMut(&Self),
+    {
+        match self {
+            Self::Name(_) | Self::Literal(_) => {}
+            Self::Call(call) => {
+                f(&call.func);
+                for arg in &call.args {
+                    f(arg.expr());
+                }
+                for keyword in &call.keywords {
+                    f(keyword.expr());
+                }
+            }
+            Self::Intrinsic(call) => {
+                for arg in &call.args {
+                    f(arg);
+                }
+            }
+            Self::Yield(yield_expr) => {
+                if let Some(value) = &yield_expr.value {
+                    f(value);
+                }
+            }
+            Self::YieldFrom(yield_from_expr) => f(&yield_from_expr.value),
+        }
+    }
+}
+
 impl<N: From<ast::ExprName>> CoreCallLikeExpr for CoreBlockPyExpr<N> {
     fn from_name(name: ast::ExprName) -> Self {
         Self::Name(name.into())
@@ -472,6 +565,34 @@ impl<N: From<ast::ExprName>> CoreCallLikeExpr for CoreBlockPyExpr<N> {
 
     fn from_intrinsic(call: IntrinsicCall<Self>) -> Self {
         Self::Intrinsic(call)
+    }
+}
+
+impl<N> BlockPyExprLike for CoreBlockPyExpr<N>
+where
+    N: Clone + fmt::Debug + Into<ast::ExprName>,
+{
+    fn walk_child_exprs<F>(&self, f: &mut F)
+    where
+        F: FnMut(&Self),
+    {
+        match self {
+            Self::Name(_) | Self::Literal(_) => {}
+            Self::Call(call) => {
+                f(&call.func);
+                for arg in &call.args {
+                    f(arg.expr());
+                }
+                for keyword in &call.keywords {
+                    f(keyword.expr());
+                }
+            }
+            Self::Intrinsic(call) => {
+                for arg in &call.args {
+                    f(arg);
+                }
+            }
+        }
     }
 }
 
@@ -1021,7 +1142,7 @@ pub trait IntoBlockPyStmt<E, N>: Clone + fmt::Debug {
 
 pub trait BlockPyPass: Clone + fmt::Debug {
     type Name: BlockPyNameLike;
-    type Expr: Clone + fmt::Debug + Into<Expr>;
+    type Expr: BlockPyExprLike;
     type Stmt: BlockPyNormalizedStmt + IntoBlockPyStmt<Self::Expr, Self::Name>;
 }
 
@@ -1048,6 +1169,32 @@ pub trait BlockPyFallthroughTerm<L>: BlockPyJumpTerm<L> {
 pub(crate) trait ImplicitNoneExpr {
     fn implicit_none_expr() -> Self;
     fn is_implicit_none_expr(expr: &Self) -> bool;
+}
+
+pub fn expr_any<E, F>(expr: &E, mut predicate: F) -> bool
+where
+    E: BlockPyExprLike,
+    F: FnMut(&E) -> bool,
+{
+    fn expr_any_impl<E, F>(expr: &E, predicate: &mut F) -> bool
+    where
+        E: BlockPyExprLike,
+        F: FnMut(&E) -> bool,
+    {
+        if predicate(expr) {
+            return true;
+        }
+
+        let mut found = false;
+        expr.walk_child_exprs(&mut |child| {
+            if !found && expr_any_impl(child, predicate) {
+                found = true;
+            }
+        });
+        found
+    }
+
+    expr_any_impl(expr, &mut predicate)
 }
 
 fn implicit_none_name() -> ast::ExprName {
@@ -1480,7 +1627,9 @@ where
         walk_label::<Self, P>(self, label);
     }
 
-    fn visit_expr(&mut self, _expr: &PassExpr<P>) {}
+    fn visit_expr(&mut self, expr: &PassExpr<P>) {
+        walk_expr(self, expr);
+    }
 }
 
 pub fn walk_module<V, P>(visitor: &mut V, module: &BlockPyModule<P>)
@@ -1587,6 +1736,14 @@ where
         }
         BlockPyTerm::Return(value) => visitor.visit_expr(value),
     }
+}
+
+pub fn walk_expr<V, P>(visitor: &mut V, expr: &PassExpr<P>)
+where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+{
+    expr.walk_child_exprs(&mut |child| visitor.visit_expr(child));
 }
 
 impl<E> BlockPyJumpTerm<BlockPyLabel> for BlockPyTerm<E> {

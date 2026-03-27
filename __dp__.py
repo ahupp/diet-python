@@ -360,7 +360,9 @@ def _resume_closure_value(owner, name):
                     return DELETED
             return value
         if target_name == name:
-            return value
+            if isinstance(value, _types.CellType):
+                return value
+            return cell
         if isinstance(value, _types.CellType):
             try:
                 return value.cell_contents
@@ -380,6 +382,8 @@ def _resume_closure_contents(cell):
             return value.cell_contents
         except ValueError:
             return DELETED
+    if type(cell) is _types.CellType:
+        return value
     return value
 
 

@@ -16,7 +16,12 @@ use std::time::Instant;
 mod eval;
 
 unsafe extern "C" {
+    static mut PyCell_Type: ffi::PyTypeObject;
     fn PyCell_New(obj: *mut ffi::PyObject) -> *mut ffi::PyObject;
+}
+
+fn is_cell_object(obj: *mut ffi::PyObject) -> bool {
+    unsafe { !obj.is_null() && ffi::Py_TYPE(obj) == std::ptr::addr_of_mut!(PyCell_Type) }
 }
 
 fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<dp_transform::LoweringResult> {
@@ -590,11 +595,15 @@ fn build_wrapped_entry<'py>(
                 "missing captured value for closure freevar {name:?}"
             ))
         })?;
-        let cell = unsafe { PyCell_New(value.as_ptr()) };
-        if cell.is_null() {
-            return Err(PyErr::fetch(py));
+        if is_cell_object(value.as_ptr()) {
+            closure_cells.push(value.clone().unbind());
+        } else {
+            let cell = unsafe { PyCell_New(value.as_ptr()) };
+            if cell.is_null() {
+                return Err(PyErr::fetch(py));
+            }
+            closure_cells.push(unsafe { Bound::from_owned_ptr(py, cell) }.unbind());
         }
-        closure_cells.push(unsafe { Bound::from_owned_ptr(py, cell) }.unbind());
     }
     let closure = PyTuple::new(py, closure_cells)?;
     let closure_slot_names = PyTuple::new(py, captured_names)?;
@@ -652,6 +661,7 @@ fn closure_init_name(init: &ClosureInit) -> &'static str {
         ClosureInit::Parameter => "Parameter",
         ClosureInit::DeletedSentinel => "DeletedSentinel",
         ClosureInit::RuntimePcUnstarted => "RuntimePcUnstarted",
+        ClosureInit::RuntimeAbruptKindFallthrough => "RuntimeAbruptKindFallthrough",
         ClosureInit::RuntimeNone => "RuntimeNone",
         ClosureInit::Deferred => "Deferred",
     }
@@ -913,6 +923,7 @@ fn make_bb_hidden_resume(
     let module_name = resolve_module_name(&module_globals, operation)?;
     let function = lookup_bb_function(&module_name, function_id, operation)?;
     let plan_name = ensure_bb_plan(&module_name, &function, operation)?;
+    let params = py_param_specs(py, &function)?;
     let state_order = PyTuple::new(py, entry_state_order(&function))?.unbind();
     let (captured_names, closure_map) =
         build_closure_map(py, &closure_names.bind(py), &closure_values.bind(py))?;
@@ -926,7 +937,7 @@ fn make_bb_hidden_resume(
         function_id,
         plan_name.as_str(),
         state_order.bind(py).as_any(),
-        None,
+        Some(params.bind(py).as_any()),
         None,
         Some(closure_map.as_any()),
         None,

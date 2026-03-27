@@ -407,6 +407,14 @@ fn direct_simple_expr_is_borrowable(
 ) -> bool {
     match expr {
         DirectSimpleExprPlan::Name(name) => {
+            if matches!(
+                name.location,
+                NameLocation::OwnedCell { .. }
+                    | NameLocation::CapturedCellSource { .. }
+                    | NameLocation::ClosureCell { .. }
+            ) {
+                return false;
+            }
             local_names
                 .iter()
                 .any(|candidate| candidate == name.id.as_str())
@@ -579,6 +587,7 @@ struct DirectSimpleEmitConsts {
 
 struct DirectSimpleEmitCtx {
     entry_args_layout: EntryArgsLayout,
+    owned_cell_slot_names: Vec<String>,
     incref_ref: ir::FuncRef,
     decref_ref: ir::FuncRef,
     py_call_positional_three_ref: ir::FuncRef,
@@ -880,6 +889,88 @@ fn block_arg_values(values: &[ir::Value]) -> Vec<ir::BlockArg> {
 
 fn step_null_block_args(ctx: &DirectSimpleEmitCtx) -> Vec<ir::BlockArg> {
     block_arg_values(&ctx.consts.step_null_args)
+}
+
+fn emit_raw_cell_object_for_name(
+    fb: &mut FunctionBuilder<'_>,
+    name: &LocatedName,
+    local_names: &[String],
+    local_values: &[ir::Value],
+    ctx: &DirectSimpleEmitCtx,
+) -> ir::Value {
+    let ptr_ty = ctx.consts.ptr_ty;
+    let i64_ty = ctx.consts.i64_ty;
+    let null_ptr = fb.ins().iconst(ptr_ty, 0);
+
+    match name.location {
+        NameLocation::OwnedCell { slot } => {
+            let storage_name = ctx
+                .owned_cell_slot_names
+                .get(slot as usize)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing owned cell slot mapping for {} at local cell slot {}",
+                        name.id, slot
+                    )
+                });
+            let mut candidate_names = vec![storage_name.as_str()];
+            if name.id.as_str() != storage_name.as_str() {
+                candidate_names.push(name.id.as_str());
+            }
+            for candidate_name in &candidate_names {
+                if let Some(slot_index) = local_names
+                    .iter()
+                    .position(|candidate| candidate == *candidate_name)
+                {
+                    let slot_value = local_values[slot_index];
+                    fb.ins().call(ctx.incref_ref, &[slot_value]);
+                    return slot_value;
+                }
+                if let Some(slot_value) = load_function_state_value(
+                    fb,
+                    &ctx.function_state_slots,
+                    candidate_name,
+                    ptr_ty,
+                    false,
+                    ctx.incref_ref,
+                ) {
+                    return slot_value;
+                }
+            }
+            panic!(
+                "missing owned cell {} in direct JIT state via names {:?} (slot {slot})",
+                name.id, candidate_names
+            );
+        }
+        NameLocation::ClosureCell { slot } | NameLocation::CapturedCellSource { slot } => {
+            let slot_value = fb.ins().iconst(i64_ty, slot as i64);
+            let raw_cell_inst = fb.ins().call(
+                ctx.function_closure_cell_ref,
+                &[ctx.consts.callable_value, slot_value],
+            );
+            let raw_cell_value = fb.inst_results(raw_cell_inst)[0];
+            let raw_cell_is_null =
+                fb.ins()
+                    .icmp(ir::condcodes::IntCC::Equal, raw_cell_value, null_ptr);
+            let raw_cell_ok_block = fb.create_block();
+            fb.append_block_param(raw_cell_ok_block, ptr_ty);
+            fb.ins().brif(
+                raw_cell_is_null,
+                ctx.consts.step_null_block,
+                &step_null_block_args(ctx),
+                raw_cell_ok_block,
+                &[ir::BlockArg::Value(raw_cell_value)],
+            );
+            fb.switch_to_block(raw_cell_ok_block);
+            fb.block_params(raw_cell_ok_block)[0]
+        }
+        NameLocation::Local { .. } | NameLocation::Global => {
+            panic!(
+                "raw cell access should target a cell-backed name, got {} at {:?}",
+                name.id, name.location
+            );
+        }
+    }
 }
 
 fn emit_pack_current_values_tuple(
@@ -1204,33 +1295,61 @@ fn emit_direct_simple_expr(
 
     match expr {
         DirectSimpleExprPlan::Name(name) => {
-            let may_read_from_state =
-                !matches!(name.location, NameLocation::CapturedCellSource { .. })
-                    || matches!(ctx.entry_args_layout, EntryArgsLayout::StateTuple);
-            if may_read_from_state {
-                if let Some(slot_index) = local_names
-                    .iter()
-                    .position(|candidate| candidate == name.id.as_str())
-                {
-                    let slot_value = local_values[slot_index];
-                    if !borrowed {
-                        fb.ins().call(incref_ref, &[slot_value]);
-                    }
-                    return slot_value;
-                }
-                if let Some(slot_value) = load_function_state_value(
-                    fb,
-                    &ctx.function_state_slots,
-                    name.id.as_str(),
-                    ptr_ty,
-                    borrowed,
-                    incref_ref,
-                ) {
-                    return slot_value;
-                }
-            }
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
             match name.location {
+                NameLocation::Local { slot: _ } => {
+                    if let Some(slot_index) = local_names
+                        .iter()
+                        .position(|candidate| candidate == name.id.as_str())
+                    {
+                        let slot_value = local_values[slot_index];
+                        if !borrowed {
+                            fb.ins().call(incref_ref, &[slot_value]);
+                        }
+                        return slot_value;
+                    }
+                    if let Some(slot_value) = load_function_state_value(
+                        fb,
+                        &ctx.function_state_slots,
+                        name.id.as_str(),
+                        ptr_ty,
+                        borrowed,
+                        incref_ref,
+                    ) {
+                        return slot_value;
+                    }
+                    panic!("missing located local {} in direct JIT state", name.id);
+                }
+                NameLocation::OwnedCell { .. } | NameLocation::ClosureCell { .. } => {
+                    assert!(
+                        !borrowed,
+                        "cell-backed name loads must produce owned references"
+                    );
+                    let cell_obj =
+                        emit_raw_cell_object_for_name(fb, name, local_names, local_values, ctx);
+                    let value_inst = fb.ins().call(load_cell_ref, &[cell_obj]);
+                    let value = fb.inst_results(value_inst)[0];
+                    fb.ins().call(decref_ref, &[cell_obj]);
+                    let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
+                    let value_ok_block = fb.create_block();
+                    fb.append_block_param(value_ok_block, ptr_ty);
+                    fb.ins().brif(
+                        value_is_null,
+                        step_null_block,
+                        &step_null_block_args(ctx),
+                        value_ok_block,
+                        &[ir::BlockArg::Value(value)],
+                    );
+                    fb.switch_to_block(value_ok_block);
+                    return fb.block_params(value_ok_block)[0];
+                }
+                NameLocation::CapturedCellSource { .. } => {
+                    assert!(
+                        !borrowed,
+                        "captured cell source loads must produce owned references"
+                    );
+                    return emit_raw_cell_object_for_name(fb, name, local_names, local_values, ctx);
+                }
                 NameLocation::Global => {
                     let globals_inst = fb.ins().call(function_globals_ref, &[callable_value]);
                     let globals_value = fb.inst_results(globals_inst)[0];
@@ -1269,90 +1388,6 @@ fn emit_direct_simple_expr(
                     );
                     fb.switch_to_block(value_ok_block);
                     return fb.block_params(value_ok_block)[0];
-                }
-                NameLocation::Local { slot } => {
-                    panic!(
-                        "missing located local {} in direct JIT state (slot {slot})",
-                        name.id
-                    );
-                }
-                NameLocation::ClosureCell { slot } => {
-                    assert!(
-                        !borrowed,
-                        "closure cell loads must produce owned references"
-                    );
-                    let slot_value = fb.ins().iconst(i64_ty, slot as i64);
-                    let cell_inst = fb
-                        .ins()
-                        .call(function_closure_cell_ref, &[callable_value, slot_value]);
-                    let cell_value = fb.inst_results(cell_inst)[0];
-                    let cell_is_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, cell_value, null_ptr);
-                    let cell_ok_block = fb.create_block();
-                    fb.append_block_param(cell_ok_block, ptr_ty);
-                    fb.ins().brif(
-                        cell_is_null,
-                        step_null_block,
-                        &step_null_block_args(ctx),
-                        cell_ok_block,
-                        &[ir::BlockArg::Value(cell_value)],
-                    );
-                    fb.switch_to_block(cell_ok_block);
-                    let cell_obj = fb.block_params(cell_ok_block)[0];
-                    let value_inst = fb.ins().call(load_cell_ref, &[cell_obj]);
-                    let value = fb.inst_results(value_inst)[0];
-                    fb.ins().call(decref_ref, &[cell_obj]);
-                    let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
-                    let value_ok_block = fb.create_block();
-                    fb.append_block_param(value_ok_block, ptr_ty);
-                    fb.ins().brif(
-                        value_is_null,
-                        step_null_block,
-                        &step_null_block_args(ctx),
-                        value_ok_block,
-                        &[ir::BlockArg::Value(value)],
-                    );
-                    fb.switch_to_block(value_ok_block);
-                    return fb.block_params(value_ok_block)[0];
-                }
-                NameLocation::CapturedCellSource { slot } => {
-                    let slot_value = fb.ins().iconst(i64_ty, slot as i64);
-                    let wrapper_cell_inst = fb
-                        .ins()
-                        .call(function_closure_cell_ref, &[callable_value, slot_value]);
-                    let wrapper_cell_value = fb.inst_results(wrapper_cell_inst)[0];
-                    let wrapper_cell_is_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, wrapper_cell_value, null_ptr);
-                    let wrapper_cell_ok_block = fb.create_block();
-                    fb.append_block_param(wrapper_cell_ok_block, ptr_ty);
-                    fb.ins().brif(
-                        wrapper_cell_is_null,
-                        step_null_block,
-                        &step_null_block_args(ctx),
-                        wrapper_cell_ok_block,
-                        &[ir::BlockArg::Value(wrapper_cell_value)],
-                    );
-                    fb.switch_to_block(wrapper_cell_ok_block);
-                    let wrapper_cell_obj = fb.block_params(wrapper_cell_ok_block)[0];
-                    let raw_cell_inst = fb.ins().call(load_cell_ref, &[wrapper_cell_obj]);
-                    let raw_cell_value = fb.inst_results(raw_cell_inst)[0];
-                    fb.ins().call(decref_ref, &[wrapper_cell_obj]);
-                    let raw_cell_is_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, raw_cell_value, null_ptr);
-                    let raw_cell_ok_block = fb.create_block();
-                    fb.append_block_param(raw_cell_ok_block, ptr_ty);
-                    fb.ins().brif(
-                        raw_cell_is_null,
-                        step_null_block,
-                        &step_null_block_args(ctx),
-                        raw_cell_ok_block,
-                        &[ir::BlockArg::Value(raw_cell_value)],
-                    );
-                    fb.switch_to_block(raw_cell_ok_block);
-                    return fb.block_params(raw_cell_ok_block)[0];
                 }
             }
         }
@@ -2165,83 +2200,69 @@ fn emit_direct_simple_expr(
                                     cell_expr
                                 );
                             };
-                            let cell_name_text = cell_name.id.as_str();
-                            let cell_in_locals = local_names
-                                .iter()
-                                .any(|candidate| candidate == cell_name_text);
-                            let may_read_from_state =
-                                !matches!(
-                                    cell_name.location,
-                                    NameLocation::CapturedCellSource { .. }
-                                ) || matches!(ctx.entry_args_layout, EntryArgsLayout::StateTuple);
-                            if may_read_from_state
-                                && (cell_in_locals
-                                    || ctx.function_state_slots.has_name(cell_name_text))
-                            {
-                                return emit_direct_simple_expr(
-                                    fb,
-                                    cell_expr,
-                                    local_names,
-                                    local_values,
-                                    ctx,
-                                    literal_pool,
-                                    borrowed,
-                                    jit_module,
-                                    func_imports,
-                                );
-                            }
                             match cell_name.location {
-                                NameLocation::ClosureCell { slot } => {
+                                NameLocation::OwnedCell { .. }
+                                | NameLocation::ClosureCell { .. }
+                                | NameLocation::CapturedCellSource { .. } => {
                                     assert!(
                                         !borrowed,
-                                        "__dp_cell_ref callable fallback should produce an owned cell object"
+                                        "__dp_cell_ref should produce an owned cell object"
                                     );
-                                    let slot_value = fb.ins().iconst(i64_ty, slot as i64);
-                                    let cell_inst = fb.ins().call(
-                                        function_closure_cell_ref,
-                                        &[callable_value, slot_value],
-                                    );
-                                    let cell_value = fb.inst_results(cell_inst)[0];
-                                    let cell_is_null = fb.ins().icmp(
-                                        ir::condcodes::IntCC::Equal,
-                                        cell_value,
-                                        null_ptr,
-                                    );
-                                    let cell_ok_block = fb.create_block();
-                                    fb.append_block_param(cell_ok_block, ptr_ty);
-                                    fb.ins().brif(
-                                        cell_is_null,
-                                        step_null_block,
-                                        &step_null_block_args(ctx),
-                                        cell_ok_block,
-                                        &[ir::BlockArg::Value(cell_value)],
-                                    );
-                                    fb.switch_to_block(cell_ok_block);
-                                    return fb.block_params(cell_ok_block)[0];
-                                }
-                                NameLocation::CapturedCellSource { .. } => {
-                                    return emit_direct_simple_expr(
+                                    return emit_raw_cell_object_for_name(
                                         fb,
-                                        cell_expr,
+                                        cell_name,
                                         local_names,
                                         local_values,
                                         ctx,
-                                        literal_pool,
-                                        false,
-                                        jit_module,
-                                        func_imports,
                                     );
                                 }
                                 _ => {
                                     panic!(
-                                        "__dp_cell_ref should target a closure cell, got {} at {:?}",
+                                        "__dp_cell_ref should target a cell-backed name, got {} at {:?}",
                                         cell_name.id, cell_name.location
                                     );
                                 }
                             }
                         }
                         let mut arg_values: Vec<(ir::Value, bool)> = Vec::with_capacity(args.len());
-                        for arg in &args {
+                        for (arg_index, arg) in args.iter().enumerate() {
+                            let raw_cell_arg = arg_index == 0
+                                && matches!(
+                                    func_name.id.as_str(),
+                                    "__dp_load_cell"
+                                        | "__dp_store_cell"
+                                        | "__dp_store_cell_if_not_deleted"
+                                );
+                            if raw_cell_arg {
+                                let DirectSimpleExprPlan::Name(cell_name) = arg else {
+                                    panic!(
+                                        "{} should lower to a located name arg, got {:?}",
+                                        func_name.id.as_str(),
+                                        arg
+                                    );
+                                };
+                                match cell_name.location {
+                                    NameLocation::OwnedCell { .. }
+                                    | NameLocation::ClosureCell { .. }
+                                    | NameLocation::CapturedCellSource { .. } => {
+                                        let value = emit_raw_cell_object_for_name(
+                                            fb,
+                                            cell_name,
+                                            local_names,
+                                            local_values,
+                                            ctx,
+                                        );
+                                        arg_values.push((value, false));
+                                        continue;
+                                    }
+                                    _ => {
+                                        panic!(
+                                            "{} should target a cell-backed name, got {} at {:?}",
+                                            func_name.id, cell_name.id, cell_name.location
+                                        );
+                                    }
+                                }
+                            }
                             let borrowed_arg = direct_simple_expr_is_borrowable(
                                 arg,
                                 local_names,
@@ -3646,6 +3667,7 @@ fn build_cranelift_run_bb_specialized_function(
             let fast_step_null_args = Vec::new();
             let emit_ctx = DirectSimpleEmitCtx {
                 entry_args_layout,
+                owned_cell_slot_names: plan.owned_cell_slot_names.clone(),
                 incref_ref,
                 decref_ref,
                 py_call_positional_three_ref,

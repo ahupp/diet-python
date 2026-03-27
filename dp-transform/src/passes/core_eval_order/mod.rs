@@ -1,9 +1,9 @@
 use crate::block_py::BlockPyAssign;
 use crate::block_py::{
-    map_call_args_with, map_intrinsic_args_with, map_keyword_args_with, BlockPyBranchTable,
-    BlockPyCfgFragment, BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyCall,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
+    expr_any, map_call_args_with, map_intrinsic_args_with, map_keyword_args_with,
+    BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyFunction, BlockPyIf,
+    BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
+    CoreBlockPyCall, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
     CoreBlockPyYieldFrom, IntoBlockPyStmt, IntrinsicCall,
 };
 use crate::namegen::fresh_name;
@@ -23,27 +23,14 @@ fn fresh_eval_name() -> ast::ExprName {
 }
 
 fn expr_contains_suspend(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
-    match expr {
-        CoreBlockPyExprWithAwaitAndYield::Name(_)
-        | CoreBlockPyExprWithAwaitAndYield::Literal(_) => false,
-        CoreBlockPyExprWithAwaitAndYield::Call(call) => {
-            expr_contains_suspend(&call.func)
-                || call
-                    .args
-                    .iter()
-                    .any(|arg| expr_contains_suspend(arg.expr()))
-                || call
-                    .keywords
-                    .iter()
-                    .any(|keyword| expr_contains_suspend(keyword.expr()))
-        }
-        CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) => {
-            call.args.iter().any(expr_contains_suspend)
-        }
-        CoreBlockPyExprWithAwaitAndYield::Await(_) => true,
-        CoreBlockPyExprWithAwaitAndYield::Yield(_) => true,
-        CoreBlockPyExprWithAwaitAndYield::YieldFrom(_) => true,
-    }
+    expr_any(expr, |expr| {
+        matches!(
+            expr,
+            CoreBlockPyExprWithAwaitAndYield::Await(_)
+                | CoreBlockPyExprWithAwaitAndYield::Yield(_)
+                | CoreBlockPyExprWithAwaitAndYield::YieldFrom(_)
+        )
+    })
 }
 
 fn hoist_core_expr_if_contains_suspend(
@@ -271,20 +258,12 @@ fn is_core_atom_without_await(expr: &CoreBlockPyExprWithYield) -> bool {
 }
 
 fn expr_contains_yield(expr: &CoreBlockPyExprWithYield) -> bool {
-    match expr {
-        CoreBlockPyExprWithYield::Name(_) | CoreBlockPyExprWithYield::Literal(_) => false,
-        CoreBlockPyExprWithYield::Call(call) => {
-            expr_contains_yield(&call.func)
-                || call.args.iter().any(|arg| expr_contains_yield(arg.expr()))
-                || call
-                    .keywords
-                    .iter()
-                    .any(|keyword| expr_contains_yield(keyword.expr()))
-        }
-        CoreBlockPyExprWithYield::Intrinsic(call) => call.args.iter().any(expr_contains_yield),
-        CoreBlockPyExprWithYield::Yield(_) => true,
-        CoreBlockPyExprWithYield::YieldFrom(_) => true,
-    }
+    expr_any(expr, |expr| {
+        matches!(
+            expr,
+            CoreBlockPyExprWithYield::Yield(_) | CoreBlockPyExprWithYield::YieldFrom(_)
+        )
+    })
 }
 
 fn hoist_core_expr_without_await_to_atom(
