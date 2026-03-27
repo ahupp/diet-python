@@ -351,6 +351,107 @@ mod tests {
     }
 
     #[test]
+    fn render_specialized_jit_load_global_intrinsic_uses_direct_helper() {
+        let blocks = [1usize as ObjPtr];
+        let plan = ClifPlan {
+            entry_params: vec![],
+            entry_param_names: vec![],
+            entry_param_default_sources: vec![],
+            ambient_param_names: vec![],
+            owned_cell_slot_names: vec![],
+            slot_names: vec![],
+            blocks: vec![ClifBlockPlan {
+                label: "b0".into(),
+                param_names: vec![],
+                runtime_param_names: vec![],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleRet {
+                    plan: DirectSimpleRetPlan {
+                        params: vec![],
+                        assigns: vec![],
+                        ret: DirectSimpleExprPlan::Intrinsic {
+                            intrinsic: &blockpy_intrinsics::LOAD_GLOBAL_INTRINSIC,
+                            parts: vec![
+                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(1)),
+                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(2)),
+                            ],
+                        },
+                    },
+                },
+            }],
+        };
+        let rendered = unsafe {
+            render_cranelift_run_bb_specialized_with_cfg(
+                &blocks,
+                &plan,
+                11usize as ObjPtr,
+                12usize as ObjPtr,
+                13usize as ObjPtr,
+                14usize as ObjPtr,
+            )
+        }
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
+        assert!(
+            rendered.contains("call dp_jit_load_global_obj"),
+            "load_global intrinsic should use the direct JIT helper:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_store_global_intrinsic_uses_direct_helper() {
+        let blocks = [1usize as ObjPtr];
+        let plan = ClifPlan {
+            entry_params: vec![],
+            entry_param_names: vec![],
+            entry_param_default_sources: vec![],
+            ambient_param_names: vec![],
+            owned_cell_slot_names: vec![],
+            slot_names: vec![],
+            blocks: vec![ClifBlockPlan {
+                label: "b0".into(),
+                param_names: vec![],
+                runtime_param_names: vec![],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleRet {
+                    plan: DirectSimpleRetPlan {
+                        params: vec![],
+                        assigns: vec![],
+                        ret: DirectSimpleExprPlan::Intrinsic {
+                            intrinsic: &blockpy_intrinsics::STORE_GLOBAL_INTRINSIC,
+                            parts: vec![
+                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(1)),
+                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(2)),
+                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(3)),
+                            ],
+                        },
+                    },
+                },
+            }],
+        };
+        let rendered = unsafe {
+            render_cranelift_run_bb_specialized_with_cfg(
+                &blocks,
+                &plan,
+                11usize as ObjPtr,
+                12usize as ObjPtr,
+                13usize as ObjPtr,
+                14usize as ObjPtr,
+            )
+        }
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
+        assert!(
+            rendered.contains("call dp_jit_store_global"),
+            "store_global intrinsic should use the direct JIT helper:\n{rendered}"
+        );
+    }
+
+    #[test]
     fn render_specialized_jit_closure_names_use_function_closure_cells() {
         let blocks = [1usize as ObjPtr];
         let plan = ClifPlan {
@@ -498,6 +599,91 @@ mod tests {
         assert!(
             !rendered.contains("call dp_jit_load_cell"),
             "__dp_cell_ref on a captured cell source should still return the raw cell object:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_delete_intrinsics_use_direct_helpers() {
+        let blocks = [1usize as ObjPtr];
+        let plan = ClifPlan {
+            entry_params: vec![],
+            entry_param_names: vec![],
+            entry_param_default_sources: vec![],
+            ambient_param_names: vec![],
+            owned_cell_slot_names: vec![],
+            slot_names: vec!["cell".into()],
+            blocks: vec![ClifBlockPlan {
+                label: "b0".into(),
+                param_names: vec![],
+                runtime_param_names: vec![],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleBlock {
+                    plan: DirectSimpleBlockPlan {
+                        params: vec![],
+                        ops: vec![
+                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Intrinsic {
+                                intrinsic: &blockpy_intrinsics::DELITEM_INTRINSIC,
+                                parts: vec![
+                                    DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(1)),
+                                    DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(2)),
+                                ],
+                            }),
+                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Intrinsic {
+                                intrinsic: &blockpy_intrinsics::DEL_QUIETLY_INTRINSIC,
+                                parts: vec![
+                                    DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(3)),
+                                    DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(4)),
+                                ],
+                            }),
+                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Intrinsic {
+                                intrinsic: &blockpy_intrinsics::DEL_DEREF_INTRINSIC,
+                                parts: vec![DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Name(
+                                    test_name("cell"),
+                                ))],
+                            }),
+                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Intrinsic {
+                                intrinsic: &blockpy_intrinsics::DEL_DEREF_QUIETLY_INTRINSIC,
+                                parts: vec![DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Name(
+                                    test_name("cell"),
+                                ))],
+                            }),
+                        ],
+                        term: DirectSimpleTermPlan::Ret {
+                            value: DirectSimpleExprPlan::Int(0),
+                        },
+                    },
+                },
+            }],
+        };
+        let rendered = unsafe {
+            render_cranelift_run_bb_specialized_with_cfg(
+                &blocks,
+                &plan,
+                11usize as ObjPtr,
+                12usize as ObjPtr,
+                13usize as ObjPtr,
+                14usize as ObjPtr,
+            )
+        }
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
+        assert!(
+            rendered.contains("call dp_jit_pyobject_delitem"),
+            "delitem intrinsic should use the direct JIT helper:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("call dp_jit_del_quietly"),
+            "del_quietly intrinsic should use the direct JIT helper:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("call dp_jit_del_deref"),
+            "del_deref intrinsic should use the direct JIT helper:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("call dp_jit_del_deref_quietly"),
+            "del_deref_quietly intrinsic should use the direct JIT helper:\n{rendered}"
         );
     }
 

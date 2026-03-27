@@ -210,11 +210,6 @@ static DP_JIT_STORE_CELL_IMPORT: ImportSpec = ImportSpec::new(
     &[SigType::Pointer, SigType::Pointer],
     &[SigType::Pointer],
 );
-static DP_JIT_STORE_CELL_IF_NOT_DELETED_IMPORT: ImportSpec = ImportSpec::new(
-    "dp_jit_store_cell_if_not_deleted",
-    &[SigType::Pointer, SigType::Pointer, SigType::Pointer],
-    &[SigType::Pointer],
-);
 static DP_JIT_TUPLE_NEW_IMPORT: ImportSpec =
     ImportSpec::new("dp_jit_tuple_new", &[SigType::I64], &[SigType::Pointer]);
 static DP_JIT_TUPLE_SET_ITEM_IMPORT: ImportSpec = ImportSpec::new(
@@ -510,7 +505,6 @@ struct DirectSimpleEmitCtx {
     make_cell_ref: ir::FuncRef,
     load_cell_ref: ir::FuncRef,
     store_cell_ref: ir::FuncRef,
-    store_cell_if_not_deleted_ref: ir::FuncRef,
     make_bytes_ref: ir::FuncRef,
     make_float_ref: ir::FuncRef,
     py_call_object_ref: ir::FuncRef,
@@ -1061,7 +1055,6 @@ fn emit_direct_simple_expr(
     let make_cell_ref = ctx.make_cell_ref;
     let load_cell_ref = ctx.load_cell_ref;
     let store_cell_ref = ctx.store_cell_ref;
-    let store_cell_if_not_deleted_ref = ctx.store_cell_if_not_deleted_ref;
     let make_bytes_ref = ctx.make_bytes_ref;
     let make_float_ref = ctx.make_float_ref;
     let py_call_object_ref = ctx.py_call_object_ref;
@@ -1965,7 +1958,6 @@ fn emit_direct_simple_expr(
                             | ("__dp_make_cell", 1)
                             | ("__dp_load_cell", 1)
                             | ("__dp_store_cell", 2)
-                            | ("__dp_store_cell_if_not_deleted", 2)
                     );
                     if is_direct_cell_call {
                         if matches!((func_name.id.as_str(), args.len()), ("__dp_cell_ref", 1)) {
@@ -2005,9 +1997,7 @@ fn emit_direct_simple_expr(
                             let raw_cell_arg = arg_index == 0
                                 && matches!(
                                     func_name.id.as_str(),
-                                    "__dp_load_cell"
-                                        | "__dp_store_cell"
-                                        | "__dp_store_cell_if_not_deleted"
+                                    "__dp_load_cell" | "__dp_store_cell"
                                 );
                             if raw_cell_arg {
                                 let DirectSimpleExprPlan::Name(cell_name) = arg else {
@@ -2067,10 +2057,6 @@ fn emit_direct_simple_expr(
                             ("__dp_store_cell", 2) => fb
                                 .ins()
                                 .call(store_cell_ref, &[arg_values[0].0, arg_values[1].0]),
-                            ("__dp_store_cell_if_not_deleted", 2) => fb.ins().call(
-                                store_cell_if_not_deleted_ref,
-                                &[arg_values[0].0, arg_values[1].0, deleted_const],
-                            ),
                             _ => unreachable!("unexpected direct cell call"),
                         };
                         for (value, borrowed_arg) in arg_values {
@@ -3110,11 +3096,6 @@ fn build_cranelift_run_bb_specialized_function(
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_LOAD_CELL_IMPORT);
         let store_cell_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_STORE_CELL_IMPORT);
-        let store_cell_if_not_deleted_ref = func_imports.get_or_panic(
-            jit_module,
-            &mut fb.func,
-            &DP_JIT_STORE_CELL_IF_NOT_DELETED_IMPORT,
-        );
         let make_bytes_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_MAKE_BYTES_IMPORT);
         let tuple_new_ref =
@@ -3348,7 +3329,6 @@ fn build_cranelift_run_bb_specialized_function(
                 make_cell_ref,
                 load_cell_ref,
                 store_cell_ref,
-                store_cell_if_not_deleted_ref,
                 make_bytes_ref,
                 make_float_ref,
                 py_call_object_ref,

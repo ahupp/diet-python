@@ -1127,12 +1127,6 @@ def store_cell(cell, value):
     return value
 
 
-def store_cell_if_not_deleted(cell, value):
-    if value is not DELETED:
-        cell.cell_contents = value
-    return value
-
-
 def load_global(globals_dict, name):
     try:
         return globals_dict[name]

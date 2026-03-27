@@ -68,6 +68,7 @@ define_intrinsic!(GetAttrIntrinsic, GETATTR_INTRINSIC, "__dp_getattr", 2);
 define_intrinsic!(SetAttrIntrinsic, SETATTR_INTRINSIC, "__dp_setattr", 3);
 define_intrinsic!(GetItemIntrinsic, GETITEM_INTRINSIC, "__dp_getitem", 2);
 define_intrinsic!(SetItemIntrinsic, SETITEM_INTRINSIC, "__dp_setitem", 3);
+define_intrinsic!(DelItemIntrinsic, DELITEM_INTRINSIC, "__dp_delitem", 2);
 define_intrinsic!(
     LoadGlobalIntrinsic,
     LOAD_GLOBAL_INTRINSIC,
@@ -159,6 +160,7 @@ pub fn intrinsic_by_name_and_arity(name: &str, arity: usize) -> Option<&'static 
         "__dp_setattr" => &SETATTR_INTRINSIC,
         "__dp_getitem" => &GETITEM_INTRINSIC,
         "__dp_setitem" => &SETITEM_INTRINSIC,
+        "__dp_delitem" => &DELITEM_INTRINSIC,
         "__dp_load_global" => &LOAD_GLOBAL_INTRINSIC,
         "__dp_store_global" => &STORE_GLOBAL_INTRINSIC,
         "__dp_load_cell" => &LOAD_CELL_INTRINSIC,

@@ -399,6 +399,43 @@ impl JitIntrinsic for blockpy_intrinsics::SetItemIntrinsic {
     }
 }
 
+define_owned_import_intrinsic!(
+    blockpy_intrinsics::DelItemIntrinsic,
+    DP_JIT_PYOBJECT_DELITEM_IMPORT,
+    "dp_jit_pyobject_delitem",
+    &[SigType::Pointer, SigType::Pointer]
+);
+define_owned_import_intrinsic!(
+    blockpy_intrinsics::LoadGlobalIntrinsic,
+    DP_JIT_LOAD_GLOBAL_OBJ_IMPORT,
+    "dp_jit_load_global_obj",
+    &[SigType::Pointer, SigType::Pointer]
+);
+define_owned_import_intrinsic!(
+    blockpy_intrinsics::StoreGlobalIntrinsic,
+    DP_JIT_STORE_GLOBAL_IMPORT,
+    "dp_jit_store_global",
+    &[SigType::Pointer, SigType::Pointer, SigType::Pointer]
+);
+define_owned_import_intrinsic!(
+    blockpy_intrinsics::DelQuietlyIntrinsic,
+    DP_JIT_DEL_QUIETLY_IMPORT,
+    "dp_jit_del_quietly",
+    &[SigType::Pointer, SigType::Pointer]
+);
+define_owned_import_intrinsic!(
+    blockpy_intrinsics::DelDerefQuietlyIntrinsic,
+    DP_JIT_DEL_DEREF_QUIETLY_IMPORT,
+    "dp_jit_del_deref_quietly",
+    &[SigType::Pointer]
+);
+define_owned_import_intrinsic!(
+    blockpy_intrinsics::DelDerefIntrinsic,
+    DP_JIT_DEL_DEREF_IMPORT,
+    "dp_jit_del_deref",
+    &[SigType::Pointer]
+);
+
 impl JitIntrinsic for blockpy_intrinsics::PowIntrinsic {
     fn emit_direct_simple(
         &self,
@@ -509,6 +546,12 @@ pub(super) fn jit_intrinsic_by_intrinsic(
         "__dp_make_cell" => Some(&blockpy_intrinsics::MAKE_CELL_INTRINSIC),
         "__dp_getitem" => Some(&blockpy_intrinsics::GETITEM_INTRINSIC),
         "__dp_setitem" => Some(&blockpy_intrinsics::SETITEM_INTRINSIC),
+        "__dp_delitem" => Some(&blockpy_intrinsics::DELITEM_INTRINSIC),
+        "__dp_load_global" => Some(&blockpy_intrinsics::LOAD_GLOBAL_INTRINSIC),
+        "__dp_store_global" => Some(&blockpy_intrinsics::STORE_GLOBAL_INTRINSIC),
+        "__dp_del_quietly" => Some(&blockpy_intrinsics::DEL_QUIETLY_INTRINSIC),
+        "__dp_del_deref_quietly" => Some(&blockpy_intrinsics::DEL_DEREF_QUIETLY_INTRINSIC),
+        "__dp_del_deref" => Some(&blockpy_intrinsics::DEL_DEREF_INTRINSIC),
         "__dp_sub" => Some(&blockpy_intrinsics::SUB_INTRINSIC),
         "__dp_mul" => Some(&blockpy_intrinsics::MUL_INTRINSIC),
         "__dp_matmul" => Some(&blockpy_intrinsics::MATMUL_INTRINSIC),

@@ -39,7 +39,6 @@ pub type LoadDeletedNameFn = unsafe extern "C" fn(*const u8, i64, ObjPtr, ObjPtr
 pub type MakeCellFn = unsafe extern "C" fn(ObjPtr) -> ObjPtr;
 pub type LoadCellFn = unsafe extern "C" fn(ObjPtr) -> ObjPtr;
 pub type StoreCellFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
-pub type StoreCellIfNotDeletedFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
 pub type TupleNewFn = unsafe extern "C" fn(i64) -> ObjPtr;
 pub type TupleSetItemFn = unsafe extern "C" fn(ObjPtr, i64, ObjPtr) -> i32;
 pub type IsTrueFn = unsafe extern "C" fn(ObjPtr) -> i32;
@@ -102,7 +101,6 @@ pub struct SpecializedJitHooks {
     pub make_cell: MakeCellFn,
     pub load_cell: LoadCellFn,
     pub store_cell: StoreCellFn,
-    pub store_cell_if_not_deleted: StoreCellIfNotDeletedFn,
     pub tuple_new: TupleNewFn,
     pub tuple_set_item: TupleSetItemFn,
     pub is_true: IsTrueFn,
@@ -134,7 +132,6 @@ static mut DP_JIT_LOAD_DELETED_NAME_FN: Option<LoadDeletedNameFn> = None;
 static mut DP_JIT_MAKE_CELL_FN: Option<MakeCellFn> = None;
 static mut DP_JIT_LOAD_CELL_FN: Option<LoadCellFn> = None;
 static mut DP_JIT_STORE_CELL_FN: Option<StoreCellFn> = None;
-static mut DP_JIT_STORE_CELL_IF_NOT_DELETED_FN: Option<StoreCellIfNotDeletedFn> = None;
 static mut DP_JIT_TUPLE_NEW_FN: Option<TupleNewFn> = None;
 static mut DP_JIT_TUPLE_SET_ITEM_FN: Option<TupleSetItemFn> = None;
 static mut DP_JIT_IS_TRUE_FN: Option<IsTrueFn> = None;
@@ -166,7 +163,6 @@ pub unsafe fn install_specialized_hooks(hooks: &SpecializedJitHooks) {
     DP_JIT_MAKE_CELL_FN = Some(hooks.make_cell);
     DP_JIT_LOAD_CELL_FN = Some(hooks.load_cell);
     DP_JIT_STORE_CELL_FN = Some(hooks.store_cell);
-    DP_JIT_STORE_CELL_IF_NOT_DELETED_FN = Some(hooks.store_cell_if_not_deleted);
     DP_JIT_TUPLE_NEW_FN = Some(hooks.tuple_new);
     DP_JIT_TUPLE_SET_ITEM_FN = Some(hooks.tuple_set_item);
     DP_JIT_IS_TRUE_FN = Some(hooks.is_true);
@@ -246,6 +242,7 @@ unsafe extern "C" fn make_bytes_hook(data_ptr: *const u8, data_len: i64) -> ObjP
     ffi::PyBytes_FromStringAndSize(data_ptr as *const i8, data_len as ffi::Py_ssize_t) as ObjPtr
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn load_name_hook(
     globals_obj: ObjPtr,
     name_ptr: *const u8,
@@ -266,41 +263,81 @@ unsafe extern "C" fn load_name_hook(
     if name_obj.is_null() {
         return ptr::null_mut();
     }
-    ffi::Py_INCREF(globals_obj as *mut ffi::PyObject);
+    let result = load_global_obj_impl(globals_obj, name_obj);
+    ffi::Py_DECREF(name_obj);
+    result
+}
+
+#[cfg(test)]
+unsafe extern "C" fn load_name_hook(
+    _globals_obj: ObjPtr,
+    _name_ptr: *const u8,
+    _name_len: i64,
+) -> ObjPtr {
+    ptr::null_mut()
+}
+
+#[cfg(not(test))]
+unsafe fn raise_name_error_for_missing_name(name_obj: *mut ffi::PyObject) {
+    let repr = ffi::PyObject_Repr(name_obj);
+    if !repr.is_null() {
+        let repr_utf8 = ffi::PyUnicode_AsUTF8(repr);
+        if !repr_utf8.is_null() {
+            let repr_text = std::ffi::CStr::from_ptr(repr_utf8).to_string_lossy();
+            let message = format!("name {repr_text} is not defined");
+            ffi::Py_DECREF(repr);
+            if let Ok(c_message) = std::ffi::CString::new(message) {
+                ffi::PyErr_SetString(ffi::PyExc_NameError, c_message.as_ptr());
+                return;
+            }
+        } else {
+            ffi::PyErr_Clear();
+        }
+        ffi::Py_DECREF(repr);
+    } else {
+        ffi::PyErr_Clear();
+    }
+    ffi::PyErr_SetString(
+        ffi::PyExc_NameError,
+        b"name is not defined\0".as_ptr() as *const i8,
+    );
+}
+
+#[cfg(not(test))]
+unsafe fn load_global_obj_impl(globals_obj: ObjPtr, name_obj: *mut ffi::PyObject) -> ObjPtr {
+    if globals_obj.is_null() || name_obj.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_load_global_obj\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let value = ffi::PyObject_GetItem(globals_obj as *mut ffi::PyObject, name_obj);
+    if !value.is_null() {
+        return value as ObjPtr;
+    }
+    if ffi::PyErr_ExceptionMatches(ffi::PyExc_KeyError) == 0 {
+        return ptr::null_mut();
+    }
+    ffi::PyErr_Clear();
     let builtins_dict = ffi::PyEval_GetBuiltins();
     if builtins_dict.is_null() {
-        ffi::Py_DECREF(globals_obj as *mut ffi::PyObject);
-        ffi::Py_DECREF(name_obj);
         ffi::PyErr_SetString(
             ffi::PyExc_RuntimeError,
             b"PyEval_GetBuiltins returned null\0".as_ptr() as *const i8,
         );
         return ptr::null_mut();
     }
-    let load_global = ffi::PyDict_GetItemString(
-        builtins_dict as *mut ffi::PyObject,
-        b"__dp_load_global\0".as_ptr() as *const i8,
-    );
-    if load_global.is_null() {
-        ffi::Py_DECREF(globals_obj as *mut ffi::PyObject);
-        ffi::Py_DECREF(name_obj);
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"missing builtins.__dp_load_global\0".as_ptr() as *const i8,
-        );
+    let builtin_value = ffi::PyObject_GetItem(builtins_dict as *mut ffi::PyObject, name_obj);
+    if !builtin_value.is_null() {
+        return builtin_value as ObjPtr;
+    }
+    if ffi::PyErr_ExceptionMatches(ffi::PyExc_KeyError) == 0 {
         return ptr::null_mut();
     }
-    ffi::Py_INCREF(load_global);
-    let result = ffi::PyObject_CallFunctionObjArgs(
-        load_global,
-        globals_obj as *mut ffi::PyObject,
-        name_obj,
-        ptr::null_mut::<ffi::PyObject>(),
-    );
-    ffi::Py_DECREF(load_global);
-    ffi::Py_DECREF(globals_obj as *mut ffi::PyObject);
-    ffi::Py_DECREF(name_obj);
-    result as ObjPtr
+    ffi::PyErr_Clear();
+    raise_name_error_for_missing_name(name_obj);
+    ptr::null_mut()
 }
 
 unsafe fn resolve_function_object(callable: ObjPtr) -> ObjPtr {
@@ -805,6 +842,89 @@ unsafe extern "C" fn pyobject_setitem_hook(obj: ObjPtr, key: ObjPtr, value: ObjP
     }
 }
 
+#[cfg(not(test))]
+unsafe extern "C" fn pyobject_delitem_hook(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
+    if obj.is_null() || key.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_pyobject_delitem\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let rc = ffi::PyObject_DelItem(obj as *mut ffi::PyObject, key as *mut ffi::PyObject);
+    if rc == 0 {
+        let none = ffi::Py_None();
+        ffi::Py_INCREF(none);
+        none as ObjPtr
+    } else {
+        ptr::null_mut()
+    }
+}
+
+#[cfg(test)]
+unsafe extern "C" fn pyobject_delitem_hook(_obj: ObjPtr, _key: ObjPtr) -> ObjPtr {
+    ptr::null_mut()
+}
+
+#[cfg(not(test))]
+unsafe extern "C" fn store_global_hook(globals_obj: ObjPtr, name: ObjPtr, value: ObjPtr) -> ObjPtr {
+    if globals_obj.is_null() || name.is_null() || value.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_store_global\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let rc = ffi::PyObject_SetItem(
+        globals_obj as *mut ffi::PyObject,
+        name as *mut ffi::PyObject,
+        value as *mut ffi::PyObject,
+    );
+    if rc == 0 {
+        ffi::Py_INCREF(value as *mut ffi::PyObject);
+        value
+    } else {
+        ptr::null_mut()
+    }
+}
+
+#[cfg(test)]
+unsafe extern "C" fn store_global_hook(
+    _globals_obj: ObjPtr,
+    _name: ObjPtr,
+    _value: ObjPtr,
+) -> ObjPtr {
+    ptr::null_mut()
+}
+
+#[cfg(not(test))]
+unsafe extern "C" fn del_quietly_hook(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
+    if obj.is_null() || key.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_del_quietly\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let rc = ffi::PyObject_DelItem(obj as *mut ffi::PyObject, key as *mut ffi::PyObject);
+    if rc != 0 {
+        let suppress = ffi::PyErr_ExceptionMatches(ffi::PyExc_NameError) != 0
+            || ffi::PyErr_ExceptionMatches(ffi::PyExc_KeyError) != 0;
+        if !suppress {
+            return ptr::null_mut();
+        }
+        ffi::PyErr_Clear();
+    }
+    let none = ffi::Py_None();
+    ffi::Py_INCREF(none);
+    none as ObjPtr
+}
+
+#[cfg(test)]
+unsafe extern "C" fn del_quietly_hook(_obj: ObjPtr, _key: ObjPtr) -> ObjPtr {
+    ptr::null_mut()
+}
+
 unsafe extern "C" fn pyobject_to_i64_hook(value: ObjPtr) -> i64 {
     if value.is_null() {
         ffi::PyErr_SetString(
@@ -905,23 +1025,70 @@ unsafe extern "C" fn store_cell_hook(cell: ObjPtr, value: ObjPtr) -> ObjPtr {
     value
 }
 
-unsafe extern "C" fn store_cell_if_not_deleted_hook(
-    cell: ObjPtr,
-    value: ObjPtr,
-    deleted: ObjPtr,
-) -> ObjPtr {
+#[cfg(not(test))]
+unsafe extern "C" fn del_deref_hook(cell: ObjPtr) -> ObjPtr {
     if !is_cell_object(cell as *mut ffi::PyObject) {
-        raise_expected_cell(
-            "dp_jit_store_cell_if_not_deleted",
-            cell as *mut ffi::PyObject,
+        raise_expected_cell("dp_jit_del_deref", cell as *mut ffi::PyObject);
+        return ptr::null_mut();
+    }
+    let rc = ffi::PyObject_DelAttrString(
+        cell as *mut ffi::PyObject,
+        b"cell_contents\0".as_ptr() as *const i8,
+    );
+    if rc == 0 {
+        let none = ffi::Py_None();
+        ffi::Py_INCREF(none);
+        return none as ObjPtr;
+    }
+    if ffi::PyErr_ExceptionMatches(ffi::PyExc_ValueError) != 0 {
+        ffi::PyErr_Clear();
+        ffi::PyErr_SetString(
+            ffi::PyExc_UnboundLocalError,
+            b"local variable referenced before assignment\0".as_ptr() as *const i8,
         );
+    }
+    ptr::null_mut()
+}
+
+#[cfg(test)]
+unsafe extern "C" fn del_deref_hook(_cell: ObjPtr) -> ObjPtr {
+    ptr::null_mut()
+}
+
+#[cfg(not(test))]
+unsafe extern "C" fn del_deref_quietly_hook(cell: ObjPtr) -> ObjPtr {
+    if !is_cell_object(cell as *mut ffi::PyObject) {
+        raise_expected_cell("dp_jit_del_deref_quietly", cell as *mut ffi::PyObject);
         return ptr::null_mut();
     }
-    if value != deleted && PyCell_Set(cell as *mut ffi::PyObject, value as *mut ffi::PyObject) < 0 {
-        return ptr::null_mut();
+    let rc = ffi::PyObject_DelAttrString(
+        cell as *mut ffi::PyObject,
+        b"cell_contents\0".as_ptr() as *const i8,
+    );
+    if rc != 0 {
+        if ffi::PyErr_ExceptionMatches(ffi::PyExc_ValueError) == 0 {
+            return ptr::null_mut();
+        }
+        ffi::PyErr_Clear();
     }
-    ffi::Py_INCREF(value as *mut ffi::PyObject);
-    value
+    let none = ffi::Py_None();
+    ffi::Py_INCREF(none);
+    none as ObjPtr
+}
+
+#[cfg(test)]
+unsafe extern "C" fn del_deref_quietly_hook(_cell: ObjPtr) -> ObjPtr {
+    ptr::null_mut()
+}
+
+#[cfg(not(test))]
+unsafe extern "C" fn load_global_obj_hook(globals_obj: ObjPtr, name: ObjPtr) -> ObjPtr {
+    load_global_obj_impl(globals_obj, name as *mut ffi::PyObject)
+}
+
+#[cfg(test)]
+unsafe extern "C" fn load_global_obj_hook(_globals_obj: ObjPtr, _name: ObjPtr) -> ObjPtr {
+    ptr::null_mut()
 }
 
 unsafe extern "C" fn tuple_new_hook(size: i64) -> ObjPtr {
@@ -998,7 +1165,6 @@ pub fn default_specialized_hooks() -> SpecializedJitHooks {
         make_cell: make_cell_hook,
         load_cell: load_cell_hook,
         store_cell: store_cell_hook,
-        store_cell_if_not_deleted: store_cell_if_not_deleted_hook,
         tuple_new: tuple_new_hook,
         tuple_set_item: tuple_set_item_hook,
         is_true: is_true_hook,
@@ -1175,6 +1341,26 @@ pub unsafe extern "C" fn dp_jit_pyobject_setitem(
     ptr::null_mut()
 }
 
+pub unsafe extern "C" fn dp_jit_pyobject_delitem(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
+    pyobject_delitem_hook(obj, key)
+}
+
+pub unsafe extern "C" fn dp_jit_load_global_obj(globals_obj: ObjPtr, name: ObjPtr) -> ObjPtr {
+    load_global_obj_hook(globals_obj, name)
+}
+
+pub unsafe extern "C" fn dp_jit_store_global(
+    globals_obj: ObjPtr,
+    name: ObjPtr,
+    value: ObjPtr,
+) -> ObjPtr {
+    store_global_hook(globals_obj, name, value)
+}
+
+pub unsafe extern "C" fn dp_jit_del_quietly(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
+    del_quietly_hook(obj, key)
+}
+
 pub unsafe extern "C" fn dp_jit_pyobject_to_i64(value: ObjPtr) -> i64 {
     if let Some(func) = DP_JIT_PYOBJECT_TO_I64_FN {
         return func(value);
@@ -1222,15 +1408,12 @@ pub unsafe extern "C" fn dp_jit_store_cell(cell: ObjPtr, value: ObjPtr) -> ObjPt
     ptr::null_mut()
 }
 
-pub unsafe extern "C" fn dp_jit_store_cell_if_not_deleted(
-    cell: ObjPtr,
-    value: ObjPtr,
-    deleted: ObjPtr,
-) -> ObjPtr {
-    if let Some(func) = DP_JIT_STORE_CELL_IF_NOT_DELETED_FN {
-        return func(cell, value, deleted);
-    }
-    ptr::null_mut()
+pub unsafe extern "C" fn dp_jit_del_deref(cell: ObjPtr) -> ObjPtr {
+    del_deref_hook(cell)
+}
+
+pub unsafe extern "C" fn dp_jit_del_deref_quietly(cell: ObjPtr) -> ObjPtr {
+    del_deref_quietly_hook(cell)
 }
 
 pub unsafe extern "C" fn dp_jit_tuple_new(size: i64) -> ObjPtr {
@@ -1488,6 +1671,16 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
         dp_jit_pyobject_setitem as *const u8,
     );
     builder.symbol(
+        "dp_jit_pyobject_delitem",
+        dp_jit_pyobject_delitem as *const u8,
+    );
+    builder.symbol(
+        "dp_jit_load_global_obj",
+        dp_jit_load_global_obj as *const u8,
+    );
+    builder.symbol("dp_jit_store_global", dp_jit_store_global as *const u8);
+    builder.symbol("dp_jit_del_quietly", dp_jit_del_quietly as *const u8);
+    builder.symbol(
         "dp_jit_pyobject_to_i64",
         dp_jit_pyobject_to_i64 as *const u8,
     );
@@ -1502,9 +1695,10 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol("dp_jit_make_cell", dp_jit_make_cell as *const u8);
     builder.symbol("dp_jit_load_cell", dp_jit_load_cell as *const u8);
     builder.symbol("dp_jit_store_cell", dp_jit_store_cell as *const u8);
+    builder.symbol("dp_jit_del_deref", dp_jit_del_deref as *const u8);
     builder.symbol(
-        "dp_jit_store_cell_if_not_deleted",
-        dp_jit_store_cell_if_not_deleted as *const u8,
+        "dp_jit_del_deref_quietly",
+        dp_jit_del_deref_quietly as *const u8,
     );
     builder.symbol("dp_jit_tuple_new", dp_jit_tuple_new as *const u8);
     builder.symbol("dp_jit_tuple_set_item", dp_jit_tuple_set_item as *const u8);
