@@ -148,9 +148,7 @@ fn register_clif_vectorcall_raw(
     func: &Bound<'_, PyAny>,
     module_name: &str,
     function_id: usize,
-    state_order: &Bound<'_, PyAny>,
     params: Option<&Bound<'_, PyAny>>,
-    param_defaults: Option<&Bound<'_, PyAny>>,
     deleted_value: &Bound<'_, PyAny>,
 ) -> PyResult<()> {
     unsafe {
@@ -158,9 +156,7 @@ fn register_clif_vectorcall_raw(
             func.as_ptr(),
             module_name,
             function_id,
-            state_order.as_ptr(),
             params.map_or(std::ptr::null_mut(), |value| value.as_ptr()),
-            param_defaults.map_or(std::ptr::null_mut(), |value| value.as_ptr()),
             deleted_value.as_ptr(),
         )
         .map_err(|_| {
@@ -221,21 +217,10 @@ fn register_lazy_clif_vectorcall(
     module_name: &str,
     function_id: usize,
     plan_name: &str,
-    state_order: &Bound<'_, PyAny>,
     params: Option<&Bound<'_, PyAny>>,
-    param_defaults: Option<&Bound<'_, PyAny>>,
     deleted_value: &Bound<'_, PyAny>,
 ) -> PyResult<()> {
-    match register_clif_vectorcall_raw(
-        py,
-        func,
-        module_name,
-        function_id,
-        state_order,
-        params,
-        param_defaults,
-        deleted_value,
-    ) {
+    match register_clif_vectorcall_raw(py, func, module_name, function_id, params, deleted_value) {
         Ok(()) => maybe_eager_compile_clif_entry(py, func, module_name, plan_name),
         Err(err) if err.is_instance_of::<PyNotImplementedError>(py) => Err(err),
         Err(err) => Err(PyRuntimeError::new_err(format!(
@@ -368,10 +353,6 @@ fn lookup_module_init_function(
                 "JIT basic-block module init failed to resolve lowered _dp_module_init for {module_name}"
             ))
         })
-}
-
-fn entry_state_order(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> Vec<String> {
-    function.entry_block().param_name_vec()
 }
 
 fn py_param_specs(
@@ -651,7 +632,6 @@ fn instantiate_bb_function(
 ) -> PyResult<Py<PyAny>> {
     let plan_name = ensure_bb_plan(module_name, function, "function instantiation")?;
     let params = py_param_specs(py, function)?;
-    let state_order = PyTuple::new(py, entry_state_order(function))?.unbind();
     let signature = build_bb_signature(py, function, param_defaults)?;
     let (captured_names, closure_values) = build_capture_map(py, captures)?;
     let raw_entry =
@@ -663,9 +643,7 @@ fn instantiate_bb_function(
         module_name,
         function.function_id.0,
         plan_name.as_str(),
-        state_order.bind(py).as_any(),
         Some(params.bind(py).as_any()),
-        Some(param_defaults),
         &deleted_value,
     )?;
     let entry = build_wrapped_entry(
@@ -842,7 +820,6 @@ fn make_bb_hidden_resume(
     let function = lookup_bb_function(&module_name, function_id, operation)?;
     let plan_name = ensure_bb_plan(&module_name, &function, operation)?;
     let params = py_param_specs(py, &function)?;
-    let state_order = PyTuple::new(py, entry_state_order(&function))?.unbind();
     let (captured_names, closure_map) =
         build_closure_map(py, &closure_names.bind(py), &closure_values.bind(py))?;
     let hidden_name = format!("_dp_resume_{}", function.names.fn_name);
@@ -854,9 +831,7 @@ fn make_bb_hidden_resume(
         module_name.as_str(),
         function_id,
         plan_name.as_str(),
-        state_order.bind(py).as_any(),
         Some(params.bind(py).as_any()),
-        None,
         &deleted_value,
     )?;
     let entry = build_wrapped_entry(
@@ -956,34 +931,24 @@ fn register_clif_vectorcall_impl(
     function_id: usize,
     metadata: &Bound<'_, PyTuple>,
 ) -> PyResult<()> {
-    if metadata.len() != 4 {
+    if metadata.len() != 2 {
         return Err(PyRuntimeError::new_err(
-            "register_clif_vectorcall metadata must be a 4-tuple",
+            "register_clif_vectorcall metadata must be a 2-tuple",
         ));
     }
-    let state_order_obj = metadata.get_item(0)?.unbind();
-    let params_obj = metadata.get_item(1)?.unbind();
-    let param_defaults_obj = metadata.get_item(2)?.unbind();
-    let deleted_obj = metadata.get_item(3)?.unbind();
-    let state_order_bound = state_order_obj.bind(py);
+    let params_obj = metadata.get_item(0)?.unbind();
+    let deleted_obj = metadata.get_item(1)?.unbind();
     let params_bound = params_obj.bind(py);
-    let param_defaults_bound = param_defaults_obj.bind(py);
     let deleted_bound = deleted_obj.bind(py);
     unsafe {
         soac_eval::tree_walk::register_clif_vectorcall(
             func.as_ptr(),
             module_name,
             function_id,
-            state_order_bound.as_ptr(),
             if params_bound.is_none() {
                 std::ptr::null_mut()
             } else {
                 params_bound.as_ptr()
-            },
-            if param_defaults_bound.is_none() {
-                std::ptr::null_mut()
-            } else {
-                param_defaults_bound.as_ptr()
             },
             deleted_bound.as_ptr(),
         )

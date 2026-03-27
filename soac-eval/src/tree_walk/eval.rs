@@ -52,7 +52,7 @@ struct BindingParam {
 
 #[derive(Debug)]
 struct BindingMetadata {
-    state_order: Vec<String>,
+    callable_name: String,
     params: Vec<BindingParam>,
     positional_param_indices: Vec<usize>,
     param_lookup: HashMap<String, usize>,
@@ -136,6 +136,23 @@ unsafe fn py_string(obj: *mut ffi::PyObject) -> Result<String, ()> {
     Ok(String::from_utf8_lossy(bytes).into_owned())
 }
 
+unsafe fn py_attr_string(obj: *mut ffi::PyObject, attr: &[u8], fallback: &str) -> String {
+    let value = ffi::PyObject_GetAttrString(obj, attr.as_ptr() as *const c_char);
+    if value.is_null() {
+        ffi::PyErr_Clear();
+        return fallback.to_string();
+    }
+    let result = match py_string(value) {
+        Ok(name) => name,
+        Err(()) => {
+            ffi::PyErr_Clear();
+            fallback.to_string()
+        }
+    };
+    ffi::Py_DECREF(value);
+    result
+}
+
 unsafe fn tuple_size(obj: *mut ffi::PyObject, context: &str) -> Result<usize, ()> {
     let size = ffi::PyTuple_Size(obj);
     if size < 0 {
@@ -174,31 +191,12 @@ fn parse_param_kind(kind_name: &str) -> Result<BindingParamKind, ()> {
 }
 
 unsafe fn parse_binding_metadata(
-    state_order_obj: *mut ffi::PyObject,
     params_obj: *mut ffi::PyObject,
-    _param_defaults_obj: *mut ffi::PyObject,
+    callable_name: String,
     deleted_obj: *mut ffi::PyObject,
 ) -> Result<BindingMetadata, ()> {
-    if !ffi::PyTuple_Check(state_order_obj).is_positive() {
-        return set_type_error("CLIF vectorcall state_order must be a tuple");
-    }
     if deleted_obj.is_null() {
         return set_type_error("CLIF vectorcall requires a deleted sentinel");
-    }
-
-    let state_len = tuple_size(
-        state_order_obj,
-        "failed to read CLIF vectorcall state_order",
-    )?;
-    let mut state_order = Vec::with_capacity(state_len);
-    for index in 0..state_len {
-        let name_obj = tuple_get_item(
-            state_order_obj,
-            index,
-            "failed to read CLIF vectorcall state_order entry",
-        )?;
-        let name = py_string(name_obj)?;
-        state_order.push(name);
     }
 
     ffi::Py_INCREF(deleted_obj);
@@ -268,7 +266,7 @@ unsafe fn parse_binding_metadata(
     }
 
     Ok(BindingMetadata {
-        state_order,
+        callable_name,
         params,
         positional_param_indices,
         param_lookup,
@@ -279,11 +277,10 @@ unsafe fn parse_binding_metadata(
 }
 
 unsafe fn make_clif_function_data(
+    function: *mut ffi::PyObject,
     module_name: &str,
     function_id: usize,
-    state_order_obj: *mut ffi::PyObject,
     params_obj: *mut ffi::PyObject,
-    param_defaults_obj: *mut ffi::PyObject,
     deleted_obj: *mut ffi::PyObject,
 ) -> Result<*mut c_void, ()> {
     let plan = jit::lookup_clif_plan(module_name, function_id);
@@ -335,12 +332,8 @@ unsafe fn make_clif_function_data(
         ffi::Py_DECREF(true_obj);
         return Err(());
     }
-    let binding = match parse_binding_metadata(
-        state_order_obj,
-        params_obj,
-        param_defaults_obj,
-        deleted_obj,
-    ) {
+    let callable_name = py_attr_string(function, b"__qualname__\0", "<function>");
+    let binding = match parse_binding_metadata(params_obj, callable_name, deleted_obj) {
         Ok(value) => value,
         Err(()) => {
             ffi::Py_DECREF(true_obj);
@@ -517,11 +510,7 @@ unsafe fn build_function_bound_args(
         cleanup_state_values(&mut bound_args);
         let msg = format!(
             "{}() takes {} positional argument{} but {} {} given",
-            binding
-                .state_order
-                .first()
-                .map(String::as_str)
-                .unwrap_or("<function>"),
+            binding.callable_name,
             positional_capacity,
             if positional_capacity == 1 { "" } else { "s" },
             nargs,
@@ -619,12 +608,7 @@ unsafe fn build_function_bound_args(
                         cleanup_state_values(&mut bound_args);
                         let msg = format!(
                             "{}() got an unexpected keyword argument '{}'",
-                            binding
-                                .state_order
-                                .first()
-                                .map(String::as_str)
-                                .unwrap_or("<function>"),
-                            key_name
+                            binding.callable_name, key_name
                         );
                         let _ = set_type_error::<()>(&msg);
                         return Err(());
@@ -639,12 +623,7 @@ unsafe fn build_function_bound_args(
                         cleanup_state_values(&mut bound_args);
                         let msg = format!(
                             "{}() got multiple values for argument '{}'",
-                            binding
-                                .state_order
-                                .first()
-                                .map(String::as_str)
-                                .unwrap_or("<function>"),
-                            key_name
+                            binding.callable_name, key_name
                         );
                         let _ = set_type_error::<()>(&msg);
                         return Err(());
@@ -675,12 +654,7 @@ unsafe fn build_function_bound_args(
             cleanup_state_values(&mut bound_args);
             let msg = format!(
                 "{}() got an unexpected keyword argument '{}'",
-                binding
-                    .state_order
-                    .first()
-                    .map(String::as_str)
-                    .unwrap_or("<function>"),
-                key_name
+                binding.callable_name, key_name
             );
             let _ = set_type_error::<()>(&msg);
             return Err(());
@@ -701,12 +675,7 @@ unsafe fn build_function_bound_args(
                 cleanup_state_values(&mut bound_args);
                 let msg = format!(
                     "{}() missing required argument '{}'",
-                    binding
-                        .state_order
-                        .first()
-                        .map(String::as_str)
-                        .unwrap_or("<function>"),
-                    param.name
+                    binding.callable_name, param.name
                 );
                 let _ = set_type_error::<()>(&msg);
                 return Err(());
@@ -872,9 +841,7 @@ pub unsafe fn register_clif_vectorcall(
     function: *mut ffi::PyObject,
     module_name: &str,
     function_id: usize,
-    state_order_obj: *mut ffi::PyObject,
     params_obj: *mut ffi::PyObject,
-    param_defaults_obj: *mut ffi::PyObject,
     deleted_obj: *mut ffi::PyObject,
 ) -> Result<(), ()> {
     if ffi::PyFunction_Check(function) == 0 {
@@ -896,14 +863,8 @@ pub unsafe fn register_clif_vectorcall(
         return Ok(());
     }
 
-    let data_ptr = make_clif_function_data(
-        module_name,
-        function_id,
-        state_order_obj,
-        params_obj,
-        param_defaults_obj,
-        deleted_obj,
-    )?;
+    let data_ptr =
+        make_clif_function_data(function, module_name, function_id, params_obj, deleted_obj)?;
     let capsule = ffi::PyCapsule_New(
         data_ptr,
         CLIF_VECTORCALL_CAPSULE_NAME.as_ptr() as *const c_char,
