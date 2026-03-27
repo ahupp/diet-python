@@ -83,6 +83,9 @@ pub enum NameLocation {
 
 pub trait BlockPyNameLike: Clone + fmt::Debug + From<ast::ExprName> + Into<ast::ExprName> {
     fn id_str(&self) -> &str;
+    fn pretty_id(&self) -> String {
+        self.id_str().to_string()
+    }
     fn range(&self) -> ruff_text_size::TextRange;
     fn node_index(&self) -> ast::AtomicNodeIndex;
 }
@@ -178,11 +181,27 @@ impl LocatedName {
         self.location = location;
         self
     }
+
+    pub fn resolved_pretty_id(&self) -> String {
+        match self.location {
+            NameLocation::Local { slot } => format!("local slot {slot}"),
+            NameLocation::Global => self.id.as_str().to_string(),
+            NameLocation::OwnedCell { slot } => format!("owned cell slot {slot}"),
+            NameLocation::ClosureCell { slot } => format!("closure slot {slot}"),
+            NameLocation::CapturedCellSource { slot } => {
+                format!("captured cell source slot {slot}")
+            }
+        }
+    }
 }
 
 impl BlockPyNameLike for LocatedName {
     fn id_str(&self) -> &str {
         self.id.as_str()
+    }
+
+    fn pretty_id(&self) -> String {
+        self.resolved_pretty_id()
     }
 
     fn range(&self) -> ruff_text_size::TextRange {

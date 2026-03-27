@@ -48,7 +48,24 @@ impl_default_blockpy_pretty_printer!(
 
 impl BlockPyPrettyPrinter for ResolvedStorageBlockPyPass {
     fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
-        render_resolved_storage_block_metadata::<Self>(block)
+        let mut lines = Vec::new();
+        if !block.params.is_empty() {
+            lines.push(format!(
+                "params: [{}]",
+                block
+                    .param_names()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        if let Some(exc_edge) = &block.exc_edge {
+            lines.push(format!("exc_target: {}", exc_edge.target));
+        }
+        if let Some(exc_name) = block.exception_param() {
+            lines.push(format!("exc_name: {exc_name}"));
+        }
+        lines
     }
 }
 
@@ -291,12 +308,12 @@ impl BlockPyFormatter {
         match stmt {
             StructuredBlockPyStmt::Assign(assign) => self.line(format!(
                 "{} = {}",
-                assign.target.id_str(),
+                assign.target.pretty_id(),
                 render_inline_expr(&assign.value)
             )),
             StructuredBlockPyStmt::Expr(expr) => self.line(render_inline_expr(expr)),
             StructuredBlockPyStmt::Delete(delete) => {
-                self.line(format!("del {}", delete.target.id_str()))
+                self.line(format!("del {}", delete.target.pretty_id()))
             }
             StructuredBlockPyStmt::If(if_stmt) => {
                 self.line(format!("if {}:", render_inline_expr(&if_stmt.test)));
@@ -449,7 +466,9 @@ fn closure_init_name(init: &crate::block_py::ClosureInit) -> &'static str {
         crate::block_py::ClosureInit::Parameter => "param",
         crate::block_py::ClosureInit::DeletedSentinel => "deleted",
         crate::block_py::ClosureInit::RuntimePcUnstarted => "pc_unstarted",
-        crate::block_py::ClosureInit::RuntimeAbruptKindFallthrough => "abrupt_kind_fallthrough",
+        crate::block_py::ClosureInit::RuntimeAbruptKindFallthrough => {
+            "abrupt_kind_fallthrough"
+        }
         crate::block_py::ClosureInit::RuntimeNone => "none",
         crate::block_py::ClosureInit::Deferred => "deferred",
     }
@@ -478,7 +497,7 @@ where
 #[cfg(test)]
 pub(crate) fn bb_expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> String {
     match expr {
-        CoreBlockPyExpr::Name(name) => name.id_str().to_string(),
+        CoreBlockPyExpr::Name(name) => name.pretty_id(),
         CoreBlockPyExpr::Literal(literal) => match literal {
             CoreBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value),
             CoreBlockPyLiteral::BytesLiteral(literal) => {
@@ -496,10 +515,6 @@ pub(crate) fn bb_expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> Str
                 super::CoreNumberLiteralValue::Float(value) => value.to_string(),
             },
         },
-        CoreBlockPyExpr::Op(operation) => helper_call_text(
-            operation.helper_name(),
-            operation.call_args().iter().map(|arg| bb_expr_text(*arg)),
-        ),
         CoreBlockPyExpr::Call(call) => {
             let mut parts = Vec::new();
             for arg in &call.args {
@@ -522,43 +537,33 @@ pub(crate) fn bb_expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> Str
             }
             format!("{}({})", bb_expr_text(&call.func), parts.join(", "))
         }
+        CoreBlockPyExpr::Intrinsic(call) => {
+            let mut parts = Vec::new();
+            for arg in &call.args {
+                parts.push(bb_expr_text(arg));
+            }
+            format!("{}({})", call.intrinsic.name(), parts.join(", "))
+        }
     }
 }
 
 #[cfg(test)]
-fn helper_call_text(helper_name: &str, args: impl IntoIterator<Item = String>) -> String {
-    format!(
-        "{}({})",
-        helper_name,
-        args.into_iter().collect::<Vec<_>>().join(", ")
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn bb_stmt_text<E, N>(stmt: &BlockPyStmt<E, N>) -> String
-where
-    E: Clone + Into<Expr> + std::fmt::Debug,
-    N: BlockPyNameLike,
-{
+pub(crate) fn bb_stmt_text<N: BlockPyNameLike>(stmt: &BbStmt<CoreBlockPyExpr<N>, N>) -> String {
     match stmt {
-        BlockPyStmt::Assign(assign) => {
+        BbStmt::Assign(assign) => {
             format!(
                 "{} = {}",
-                assign.target.id_str(),
-                render_inline_expr(&assign.value)
+                assign.target.pretty_id(),
+                bb_expr_text(&assign.value)
             )
         }
-        BlockPyStmt::Expr(expr) => render_inline_expr(expr),
-        BlockPyStmt::Delete(delete) => format!("del {}", delete.target.id_str()),
+        BbStmt::Expr(expr) => bb_expr_text(expr),
+        BbStmt::Delete(delete) => format!("del {}", delete.target.pretty_id()),
     }
 }
 
 #[cfg(test)]
-pub(crate) fn bb_stmts_text<E, N>(stmts: &[BlockPyStmt<E, N>]) -> String
-where
-    E: Clone + Into<Expr> + std::fmt::Debug,
-    N: BlockPyNameLike,
-{
+pub(crate) fn bb_stmts_text<N: BlockPyNameLike>(stmts: &[BbStmt<CoreBlockPyExpr<N>, N>]) -> String {
     let mut out = String::new();
     for stmt in stmts {
         out.push_str(&bb_stmt_text(stmt));

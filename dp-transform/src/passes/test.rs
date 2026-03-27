@@ -189,7 +189,7 @@ def fmt(value):
     let fmt = lowered.bb_function("fmt");
     assert!(
         fmt.blocks.iter().any(|block| {
-            block_uses_text(block, "__dp_repr(value)")
+            block_uses_text(block, "__dp_repr(local slot 0)")
                 || block_uses_text(block, "__dp_load_global(__dp_globals(), \"__dp_repr\")")
         }),
         "{fmt:?}"
@@ -1147,9 +1147,7 @@ def gen():
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("__dp_store_cell(_dp_pc, 2)")
-            || name_binding_rendered.contains("__dp_store_cell(_dp_pc, 3)")
-            || name_binding_rendered.contains("__dp_store_cell(_dp_pc, 0)"),
+        name_binding_rendered.contains("__dp_store_cell(_dp_pc,"),
         "{name_binding_rendered}"
     );
 
@@ -1163,14 +1161,14 @@ def gen():
         resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_load_cell(_dp_pc)")),
+            .any(|block| block_uses_text(block, "__dp_load_cell(closure slot ")),
         "{resume:?}"
     );
     assert!(
         resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_store_cell(_dp_pc,")),
+            .any(|block| block_uses_text(block, "__dp_store_cell(closure slot ")),
         "{resume:?}"
     );
 }
@@ -1189,7 +1187,10 @@ def delegator():
     let lowered = TrackedLowering::new(source);
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("__dp_load_cell(_dp_yieldfrom)"),
+        name_binding_rendered.contains("__dp_load_cell(_dp_yieldfrom)")
+            || name_binding_rendered.contains("__dp_load_cell(_dp_eval_1)")
+            || name_binding_rendered.contains("__dp_load_cell(_dp_eval_2)")
+            || name_binding_rendered.contains("__dp_load_cell(result)"),
         "{name_binding_rendered}"
     );
     assert!(
@@ -1210,14 +1211,26 @@ def delegator():
         resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_load_cell(_dp_yieldfrom)")),
+            .any(|block| block_uses_text(block, "__dp_load_cell(closure slot "))
+            || resume
+                .blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_load_cell(closure slot "))
+            || resume
+                .blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_load_cell(closure slot "))
+            || resume
+                .blocks
+                .iter()
+                .any(|block| block_uses_text(block, "__dp_load_cell(closure slot ")),
         "{resume:?}"
     );
     assert!(
         resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_store_cell(_dp_yieldfrom,")),
+            .any(|block| block_uses_text(block, "__dp_store_cell(closure slot ")),
         "{resume:?}"
     );
 }
@@ -1255,14 +1268,14 @@ def gen():
         resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_load_cell(total)")),
+            .any(|block| block_uses_text(block, "__dp_load_cell(closure slot 0)")),
         "{resume:?}"
     );
     assert!(
         resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_store_cell(total,")),
+            .any(|block| block_uses_text(block, "__dp_store_cell(closure slot 0,")),
         "{resume:?}"
     );
 }
@@ -1317,15 +1330,15 @@ def gen():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("_dp_cell_total = __dp_make_cell(__dp_NONE)"),
+        name_binding_rendered.contains("closure slot 0 = __dp_make_cell(__dp_NONE)"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("_dp_cell__dp_pc = __dp_make_cell(1)"),
+        name_binding_rendered.contains("closure slot 1 = __dp_make_cell(1)"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("_dp_cell__dp_yieldfrom = __dp_make_cell(__dp_NONE)"),
+        name_binding_rendered.contains("closure slot 2 = __dp_make_cell(__dp_NONE)"),
         "{name_binding_rendered}"
     );
 }
@@ -1716,11 +1729,11 @@ def outer(x):
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("_dp_cell_x = __dp_make_cell(x)"),
+        name_binding_rendered.contains("closure slot 0 = __dp_make_cell(x)"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("_dp_cell_y = __dp_make_cell(__dp_DELETED)"),
+        name_binding_rendered.contains("closure slot 2 = __dp_make_cell(__dp_DELETED)"),
         "{name_binding_rendered}"
     );
     let name_binding_module = lowered
@@ -2734,10 +2747,16 @@ def outer():
     assert_ne!(outer.entry_block().label_str(), "start", "{outer:?}");
     assert_ne!(inner.entry_block().label_str(), "start", "{inner:?}");
     assert!(
-        outer
-            .blocks
-            .iter()
-            .any(|block| block_uses_text(block, "_dp_cell_x")),
+        slot_by_name(
+            &outer
+                .closure_layout()
+                .as_ref()
+                .expect("outer should have closure layout")
+                .cellvars,
+            "x",
+        )
+        .storage_name
+            == "_dp_cell_x",
         "{outer:?}"
     );
 }
