@@ -754,8 +754,6 @@ unsafe extern "C" fn lazy_clif_vectorcall(
             }
         }
         let _recursive_call_guard = RecursiveCallGuard;
-        let hooks = jit::default_specialized_hooks();
-        unsafe { jit::install_specialized_hooks(&hooks) };
         entry(
             callable as *mut c_void,
             args as *const *mut c_void,

@@ -14,35 +14,6 @@ unsafe extern "C" {
 }
 
 pub type ObjPtr = *mut c_void;
-pub type IncrefFn = unsafe extern "C" fn(ObjPtr);
-pub type DecrefFn = unsafe extern "C" fn(ObjPtr);
-pub type CallPositionalThreeFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
-pub type CallObjectFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
-pub type CallWithKwFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
-pub type GetRaisedExceptionFn = unsafe extern "C" fn() -> ObjPtr;
-pub type GetArgItemFn = unsafe extern "C" fn(ObjPtr, i64) -> ObjPtr;
-pub type MakeIntFn = unsafe extern "C" fn(i64) -> ObjPtr;
-pub type MakeFloatFn = unsafe extern "C" fn(f64) -> ObjPtr;
-pub type MakeBytesFn = unsafe extern "C" fn(*const u8, i64) -> ObjPtr;
-pub type LoadNameFn = unsafe extern "C" fn(ObjPtr, *const u8, i64) -> ObjPtr;
-pub type FunctionGlobalsFn = unsafe extern "C" fn(ObjPtr) -> ObjPtr;
-pub type FunctionClosureCellFn = unsafe extern "C" fn(ObjPtr, i64) -> ObjPtr;
-pub type FunctionPositionalDefaultFn = unsafe extern "C" fn(ObjPtr, *const u8, i64, i64) -> ObjPtr;
-pub type FunctionKwonlyDefaultFn = unsafe extern "C" fn(ObjPtr, *const u8, i64) -> ObjPtr;
-pub type PyObjectGetAttrFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
-pub type PyObjectSetAttrFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
-pub type PyObjectGetItemFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
-pub type PyObjectSetItemFn = unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr;
-pub type PyObjectToI64Fn = unsafe extern "C" fn(ObjPtr) -> i64;
-pub type DecodeLiteralBytesFn = unsafe extern "C" fn(*const u8, i64) -> ObjPtr;
-pub type LoadDeletedNameFn = unsafe extern "C" fn(*const u8, i64, ObjPtr, ObjPtr) -> ObjPtr;
-pub type MakeCellFn = unsafe extern "C" fn(ObjPtr) -> ObjPtr;
-pub type LoadCellFn = unsafe extern "C" fn(ObjPtr) -> ObjPtr;
-pub type StoreCellFn = unsafe extern "C" fn(ObjPtr, ObjPtr) -> ObjPtr;
-pub type TupleNewFn = unsafe extern "C" fn(i64) -> ObjPtr;
-pub type TupleSetItemFn = unsafe extern "C" fn(ObjPtr, i64, ObjPtr) -> i32;
-pub type IsTrueFn = unsafe extern "C" fn(ObjPtr) -> i32;
-pub type RaiseFromExcFn = unsafe extern "C" fn(ObjPtr) -> i32;
 
 unsafe fn is_cell_object(obj: *mut ffi::PyObject) -> bool {
     !obj.is_null() && ffi::Py_TYPE(obj) == std::ptr::addr_of_mut!(PyCell_Type)
@@ -72,101 +43,6 @@ unsafe fn raise_expected_cell(where_name: &str, obj: *mut ffi::PyObject) {
             b"expected cell object\0".as_ptr() as *const i8,
         );
     }
-}
-
-#[derive(Clone, Copy)]
-pub struct SpecializedJitHooks {
-    pub incref: IncrefFn,
-    pub decref: DecrefFn,
-    pub py_call_positional_three: CallPositionalThreeFn,
-    pub py_call_object: CallObjectFn,
-    pub py_call_with_kw: CallWithKwFn,
-    pub py_get_raised_exception: GetRaisedExceptionFn,
-    pub get_arg_item: GetArgItemFn,
-    pub make_int: MakeIntFn,
-    pub make_float: MakeFloatFn,
-    pub make_bytes: MakeBytesFn,
-    pub load_name: LoadNameFn,
-    pub function_globals: FunctionGlobalsFn,
-    pub function_closure_cell: FunctionClosureCellFn,
-    pub function_positional_default: FunctionPositionalDefaultFn,
-    pub function_kwonly_default: FunctionKwonlyDefaultFn,
-    pub pyobject_getattr: PyObjectGetAttrFn,
-    pub pyobject_setattr: PyObjectSetAttrFn,
-    pub pyobject_getitem: PyObjectGetItemFn,
-    pub pyobject_setitem: PyObjectSetItemFn,
-    pub pyobject_to_i64: PyObjectToI64Fn,
-    pub decode_literal_bytes: DecodeLiteralBytesFn,
-    pub load_deleted_name: LoadDeletedNameFn,
-    pub make_cell: MakeCellFn,
-    pub load_cell: LoadCellFn,
-    pub store_cell: StoreCellFn,
-    pub tuple_new: TupleNewFn,
-    pub tuple_set_item: TupleSetItemFn,
-    pub is_true: IsTrueFn,
-    pub raise_from_exc: RaiseFromExcFn,
-}
-
-static mut DP_JIT_INCREF_FN: Option<IncrefFn> = None;
-static mut DP_JIT_DECREF_FN: Option<DecrefFn> = None;
-static mut DP_JIT_CALL_POSITIONAL_THREE_FN: Option<CallPositionalThreeFn> = None;
-static mut DP_JIT_CALL_OBJECT_FN: Option<CallObjectFn> = None;
-static mut DP_JIT_CALL_WITH_KW_FN: Option<CallWithKwFn> = None;
-static mut DP_JIT_GET_RAISED_EXCEPTION_FN: Option<GetRaisedExceptionFn> = None;
-static mut DP_JIT_GET_ARG_ITEM_FN: Option<GetArgItemFn> = None;
-static mut DP_JIT_MAKE_INT_FN: Option<MakeIntFn> = None;
-static mut DP_JIT_MAKE_FLOAT_FN: Option<MakeFloatFn> = None;
-static mut DP_JIT_MAKE_BYTES_FN: Option<MakeBytesFn> = None;
-static mut DP_JIT_LOAD_NAME_FN: Option<LoadNameFn> = None;
-static mut DP_JIT_FUNCTION_GLOBALS_FN: Option<FunctionGlobalsFn> = None;
-static mut DP_JIT_FUNCTION_CLOSURE_CELL_FN: Option<FunctionClosureCellFn> = None;
-static mut DP_JIT_FUNCTION_POSITIONAL_DEFAULT_FN: Option<FunctionPositionalDefaultFn> = None;
-static mut DP_JIT_FUNCTION_KWONLY_DEFAULT_FN: Option<FunctionKwonlyDefaultFn> = None;
-static mut DP_JIT_PYOBJECT_GETATTR_FN: Option<PyObjectGetAttrFn> = None;
-static mut DP_JIT_PYOBJECT_SETATTR_FN: Option<PyObjectSetAttrFn> = None;
-static mut DP_JIT_PYOBJECT_GETITEM_FN: Option<PyObjectGetItemFn> = None;
-static mut DP_JIT_PYOBJECT_SETITEM_FN: Option<PyObjectSetItemFn> = None;
-static mut DP_JIT_PYOBJECT_TO_I64_FN: Option<PyObjectToI64Fn> = None;
-static mut DP_JIT_DECODE_LITERAL_BYTES_FN: Option<DecodeLiteralBytesFn> = None;
-static mut DP_JIT_LOAD_DELETED_NAME_FN: Option<LoadDeletedNameFn> = None;
-static mut DP_JIT_MAKE_CELL_FN: Option<MakeCellFn> = None;
-static mut DP_JIT_LOAD_CELL_FN: Option<LoadCellFn> = None;
-static mut DP_JIT_STORE_CELL_FN: Option<StoreCellFn> = None;
-static mut DP_JIT_TUPLE_NEW_FN: Option<TupleNewFn> = None;
-static mut DP_JIT_TUPLE_SET_ITEM_FN: Option<TupleSetItemFn> = None;
-static mut DP_JIT_IS_TRUE_FN: Option<IsTrueFn> = None;
-static mut DP_JIT_RAISE_FROM_EXC_FN: Option<RaiseFromExcFn> = None;
-
-pub unsafe fn install_specialized_hooks(hooks: &SpecializedJitHooks) {
-    DP_JIT_INCREF_FN = Some(hooks.incref);
-    DP_JIT_DECREF_FN = Some(hooks.decref);
-    DP_JIT_CALL_POSITIONAL_THREE_FN = Some(hooks.py_call_positional_three);
-    DP_JIT_CALL_OBJECT_FN = Some(hooks.py_call_object);
-    DP_JIT_CALL_WITH_KW_FN = Some(hooks.py_call_with_kw);
-    DP_JIT_GET_RAISED_EXCEPTION_FN = Some(hooks.py_get_raised_exception);
-    DP_JIT_GET_ARG_ITEM_FN = Some(hooks.get_arg_item);
-    DP_JIT_MAKE_INT_FN = Some(hooks.make_int);
-    DP_JIT_MAKE_FLOAT_FN = Some(hooks.make_float);
-    DP_JIT_MAKE_BYTES_FN = Some(hooks.make_bytes);
-    DP_JIT_LOAD_NAME_FN = Some(hooks.load_name);
-    DP_JIT_FUNCTION_GLOBALS_FN = Some(hooks.function_globals);
-    DP_JIT_FUNCTION_CLOSURE_CELL_FN = Some(hooks.function_closure_cell);
-    DP_JIT_FUNCTION_POSITIONAL_DEFAULT_FN = Some(hooks.function_positional_default);
-    DP_JIT_FUNCTION_KWONLY_DEFAULT_FN = Some(hooks.function_kwonly_default);
-    DP_JIT_PYOBJECT_GETATTR_FN = Some(hooks.pyobject_getattr);
-    DP_JIT_PYOBJECT_SETATTR_FN = Some(hooks.pyobject_setattr);
-    DP_JIT_PYOBJECT_GETITEM_FN = Some(hooks.pyobject_getitem);
-    DP_JIT_PYOBJECT_SETITEM_FN = Some(hooks.pyobject_setitem);
-    DP_JIT_PYOBJECT_TO_I64_FN = Some(hooks.pyobject_to_i64);
-    DP_JIT_DECODE_LITERAL_BYTES_FN = Some(hooks.decode_literal_bytes);
-    DP_JIT_LOAD_DELETED_NAME_FN = Some(hooks.load_deleted_name);
-    DP_JIT_MAKE_CELL_FN = Some(hooks.make_cell);
-    DP_JIT_LOAD_CELL_FN = Some(hooks.load_cell);
-    DP_JIT_STORE_CELL_FN = Some(hooks.store_cell);
-    DP_JIT_TUPLE_NEW_FN = Some(hooks.tuple_new);
-    DP_JIT_TUPLE_SET_ITEM_FN = Some(hooks.tuple_set_item);
-    DP_JIT_IS_TRUE_FN = Some(hooks.is_true);
-    DP_JIT_RAISE_FROM_EXC_FN = Some(hooks.raise_from_exc);
 }
 
 unsafe extern "C" fn jit_incref_hook(obj: ObjPtr) {
@@ -266,15 +142,6 @@ unsafe extern "C" fn load_name_hook(
     let result = load_global_obj_impl(globals_obj, name_obj);
     ffi::Py_DECREF(name_obj);
     result
-}
-
-#[cfg(test)]
-unsafe extern "C" fn load_name_hook(
-    _globals_obj: ObjPtr,
-    _name_ptr: *const u8,
-    _name_len: i64,
-) -> ObjPtr {
-    ptr::null_mut()
 }
 
 #[cfg(not(test))]
@@ -861,11 +728,6 @@ unsafe extern "C" fn pyobject_delitem_hook(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
     }
 }
 
-#[cfg(test)]
-unsafe extern "C" fn pyobject_delitem_hook(_obj: ObjPtr, _key: ObjPtr) -> ObjPtr {
-    ptr::null_mut()
-}
-
 #[cfg(not(test))]
 unsafe extern "C" fn store_global_hook(globals_obj: ObjPtr, name: ObjPtr, value: ObjPtr) -> ObjPtr {
     if globals_obj.is_null() || name.is_null() || value.is_null() {
@@ -886,15 +748,6 @@ unsafe extern "C" fn store_global_hook(globals_obj: ObjPtr, name: ObjPtr, value:
     } else {
         ptr::null_mut()
     }
-}
-
-#[cfg(test)]
-unsafe extern "C" fn store_global_hook(
-    _globals_obj: ObjPtr,
-    _name: ObjPtr,
-    _value: ObjPtr,
-) -> ObjPtr {
-    ptr::null_mut()
 }
 
 #[cfg(not(test))]
@@ -918,11 +771,6 @@ unsafe extern "C" fn del_quietly_hook(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
     let none = ffi::Py_None();
     ffi::Py_INCREF(none);
     none as ObjPtr
-}
-
-#[cfg(test)]
-unsafe extern "C" fn del_quietly_hook(_obj: ObjPtr, _key: ObjPtr) -> ObjPtr {
-    ptr::null_mut()
 }
 
 unsafe extern "C" fn pyobject_to_i64_hook(value: ObjPtr) -> i64 {
@@ -1050,11 +898,6 @@ unsafe extern "C" fn del_deref_hook(cell: ObjPtr) -> ObjPtr {
     ptr::null_mut()
 }
 
-#[cfg(test)]
-unsafe extern "C" fn del_deref_hook(_cell: ObjPtr) -> ObjPtr {
-    ptr::null_mut()
-}
-
 #[cfg(not(test))]
 unsafe extern "C" fn del_deref_quietly_hook(cell: ObjPtr) -> ObjPtr {
     if !is_cell_object(cell as *mut ffi::PyObject) {
@@ -1076,19 +919,9 @@ unsafe extern "C" fn del_deref_quietly_hook(cell: ObjPtr) -> ObjPtr {
     none as ObjPtr
 }
 
-#[cfg(test)]
-unsafe extern "C" fn del_deref_quietly_hook(_cell: ObjPtr) -> ObjPtr {
-    ptr::null_mut()
-}
-
 #[cfg(not(test))]
 unsafe extern "C" fn load_global_obj_hook(globals_obj: ObjPtr, name: ObjPtr) -> ObjPtr {
     load_global_obj_impl(globals_obj, name as *mut ffi::PyObject)
-}
-
-#[cfg(test)]
-unsafe extern "C" fn load_global_obj_hook(_globals_obj: ObjPtr, _name: ObjPtr) -> ObjPtr {
-    ptr::null_mut()
 }
 
 unsafe extern "C" fn tuple_new_hook(size: i64) -> ObjPtr {
@@ -1138,59 +971,122 @@ unsafe extern "C" fn raise_from_exc_hook(exc: ObjPtr) -> i32 {
     0
 }
 
-pub fn default_specialized_hooks() -> SpecializedJitHooks {
-    SpecializedJitHooks {
-        incref: jit_incref_hook,
-        decref: jit_decref_hook,
-        py_call_positional_three: py_call_positional_three_hook,
-        py_call_object: py_call_object_hook,
-        py_call_with_kw: py_call_with_kw_hook,
-        py_get_raised_exception: py_get_raised_exception_hook,
-        get_arg_item: get_arg_item_hook,
-        make_int: make_int_hook,
-        make_float: make_float_hook,
-        make_bytes: make_bytes_hook,
-        load_name: load_name_hook,
-        function_globals: function_globals_hook,
-        function_closure_cell: function_closure_cell_hook,
-        function_positional_default: function_positional_default_hook,
-        function_kwonly_default: function_kwonly_default_hook,
-        pyobject_getattr: pyobject_getattr_hook,
-        pyobject_setattr: pyobject_setattr_hook,
-        pyobject_getitem: pyobject_getitem_hook,
-        pyobject_setitem: pyobject_setitem_hook,
-        pyobject_to_i64: pyobject_to_i64_hook,
-        decode_literal_bytes: decode_literal_bytes_hook,
-        load_deleted_name: load_deleted_name_hook,
-        make_cell: make_cell_hook,
-        load_cell: load_cell_hook,
-        store_cell: store_cell_hook,
-        tuple_new: tuple_new_hook,
-        tuple_set_item: tuple_set_item_hook,
-        is_true: is_true_hook,
-        raise_from_exc: raise_from_exc_hook,
+#[cfg(test)]
+mod test_only_export_stubs {
+    use super::*;
+
+    macro_rules! panic_obj_export {
+        ($name:ident($($arg:ident : $ty:ty),* $(,)?)) => {
+            pub unsafe extern "C" fn $name($($arg: $ty),*) -> ObjPtr {
+                $(let _ = $arg;)*
+                panic!(concat!(stringify!($name), " should not run in tests"));
+            }
+        };
     }
+
+    macro_rules! panic_i32_export {
+        ($name:ident($($arg:ident : $ty:ty),* $(,)?)) => {
+            pub unsafe extern "C" fn $name($($arg: $ty),*) -> i32 {
+                $(let _ = $arg;)*
+                panic!(concat!(stringify!($name), " should not run in tests"));
+            }
+        };
+    }
+
+    macro_rules! panic_i64_export {
+        ($name:ident($($arg:ident : $ty:ty),* $(,)?)) => {
+            pub unsafe extern "C" fn $name($($arg: $ty),*) -> i64 {
+                $(let _ = $arg;)*
+                panic!(concat!(stringify!($name), " should not run in tests"));
+            }
+        };
+    }
+
+    macro_rules! panic_unit_export {
+        ($name:ident($($arg:ident : $ty:ty),* $(,)?)) => {
+            pub unsafe extern "C" fn $name($($arg: $ty),*) {
+                $(let _ = $arg;)*
+                panic!(concat!(stringify!($name), " should not run in tests"));
+            }
+        };
+    }
+
+    panic_unit_export!(dp_jit_incref(obj: ObjPtr));
+    panic_unit_export!(dp_jit_decref(obj: ObjPtr));
+    panic_i32_export!(dp_jit_raise_from_exc(exc: ObjPtr));
+    panic_obj_export!(dp_jit_py_call_positional_three(
+        callable: ObjPtr,
+        arg1: ObjPtr,
+        arg2: ObjPtr,
+        arg3: ObjPtr,
+        sentinel: ObjPtr,
+    ));
+    panic_obj_export!(dp_jit_py_call_object(callable: ObjPtr, args: ObjPtr));
+    panic_obj_export!(dp_jit_py_call_with_kw(callable: ObjPtr, args: ObjPtr, kw: ObjPtr));
+    panic_obj_export!(dp_jit_get_raised_exception());
+    panic_obj_export!(dp_jit_get_arg_item(args: ObjPtr, index: i64));
+    panic_obj_export!(dp_jit_make_int(value: i64));
+    panic_obj_export!(dp_jit_make_float(value: f64));
+    panic_obj_export!(dp_jit_make_bytes(data_ptr: *const u8, data_len: i64));
+    panic_obj_export!(dp_jit_load_name(block: ObjPtr, name_ptr: *const u8, name_len: i64));
+    panic_obj_export!(dp_jit_function_globals(callable: ObjPtr));
+    panic_obj_export!(dp_jit_function_closure_cell(callable: ObjPtr, slot: i64));
+    panic_obj_export!(dp_jit_function_positional_default(
+        callable: ObjPtr,
+        name_ptr: *const u8,
+        name_len: i64,
+        index: i64,
+    ));
+    panic_obj_export!(dp_jit_function_kwonly_default(
+        callable: ObjPtr,
+        name_ptr: *const u8,
+        name_len: i64,
+    ));
+    panic_obj_export!(dp_jit_pyobject_getattr(obj: ObjPtr, attr: ObjPtr));
+    panic_obj_export!(dp_jit_pyobject_setattr(obj: ObjPtr, attr: ObjPtr, value: ObjPtr));
+    panic_obj_export!(dp_jit_pyobject_getitem(obj: ObjPtr, key: ObjPtr));
+    panic_obj_export!(dp_jit_pyobject_setitem(obj: ObjPtr, key: ObjPtr, value: ObjPtr));
+    panic_obj_export!(dp_jit_pyobject_delitem(obj: ObjPtr, key: ObjPtr));
+    panic_obj_export!(dp_jit_load_global_obj(globals_obj: ObjPtr, name: ObjPtr));
+    panic_obj_export!(dp_jit_store_global(globals_obj: ObjPtr, name: ObjPtr, value: ObjPtr));
+    panic_obj_export!(dp_jit_del_quietly(obj: ObjPtr, key: ObjPtr));
+    panic_i64_export!(dp_jit_pyobject_to_i64(value: ObjPtr));
+    panic_obj_export!(dp_jit_decode_literal_bytes(data_ptr: *const u8, data_len: i64));
+    panic_obj_export!(dp_jit_make_cell(value: ObjPtr));
+    panic_obj_export!(dp_jit_load_deleted_name(
+        name_ptr: *const u8,
+        name_len: i64,
+        value: ObjPtr,
+        deleted: ObjPtr,
+    ));
+    panic_obj_export!(dp_jit_load_cell(cell: ObjPtr));
+    panic_obj_export!(dp_jit_store_cell(cell: ObjPtr, value: ObjPtr));
+    panic_obj_export!(dp_jit_del_deref(cell: ObjPtr));
+    panic_obj_export!(dp_jit_del_deref_quietly(cell: ObjPtr));
+    panic_obj_export!(dp_jit_tuple_new(size: i64));
+    panic_i32_export!(dp_jit_tuple_set_item(tuple_obj: ObjPtr, index: i64, item: ObjPtr));
+    panic_i32_export!(dp_jit_is_true(value: ObjPtr));
 }
 
+#[cfg(test)]
+pub use test_only_export_stubs::*;
+
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_incref(obj: ObjPtr) {
-    if let Some(func) = DP_JIT_INCREF_FN {
-        func(obj);
-    }
+    jit_incref_hook(obj);
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_decref(obj: ObjPtr) {
-    if let Some(func) = DP_JIT_DECREF_FN {
-        func(obj);
-    }
+    jit_decref_hook(obj);
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_raise_from_exc(exc: ObjPtr) -> i32 {
-    if let Some(func) = DP_JIT_RAISE_FROM_EXC_FN {
-        return func(exc);
-    }
-    -1
+    raise_from_exc_hook(exc)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_py_call_positional_three(
     callable: ObjPtr,
     arg1: ObjPtr,
@@ -1198,157 +1094,125 @@ pub unsafe extern "C" fn dp_jit_py_call_positional_three(
     arg3: ObjPtr,
     _sentinel: ObjPtr,
 ) -> ObjPtr {
-    if let Some(func) = DP_JIT_CALL_POSITIONAL_THREE_FN {
-        return func(callable, arg1, arg2, arg3);
-    }
-    ptr::null_mut()
+    py_call_positional_three_hook(callable, arg1, arg2, arg3)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_py_call_object(callable: ObjPtr, args: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_CALL_OBJECT_FN {
-        return func(callable, args);
-    }
-    ptr::null_mut()
+    py_call_object_hook(callable, args)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_py_call_with_kw(
     callable: ObjPtr,
     args: ObjPtr,
     kw: ObjPtr,
 ) -> ObjPtr {
-    if let Some(func) = DP_JIT_CALL_WITH_KW_FN {
-        return func(callable, args, kw);
-    }
-    ptr::null_mut()
+    py_call_with_kw_hook(callable, args, kw)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_get_raised_exception() -> ObjPtr {
-    if let Some(func) = DP_JIT_GET_RAISED_EXCEPTION_FN {
-        return func();
-    }
-    ptr::null_mut()
+    py_get_raised_exception_hook()
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_get_arg_item(args: ObjPtr, index: i64) -> ObjPtr {
-    if let Some(func) = DP_JIT_GET_ARG_ITEM_FN {
-        return func(args, index);
-    }
-    ptr::null_mut()
+    get_arg_item_hook(args, index)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_make_int(value: i64) -> ObjPtr {
-    if let Some(func) = DP_JIT_MAKE_INT_FN {
-        return func(value);
-    }
-    ptr::null_mut()
+    make_int_hook(value)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_make_float(value: f64) -> ObjPtr {
-    if let Some(func) = DP_JIT_MAKE_FLOAT_FN {
-        return func(value);
-    }
-    ptr::null_mut()
+    make_float_hook(value)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_make_bytes(data_ptr: *const u8, data_len: i64) -> ObjPtr {
-    if let Some(func) = DP_JIT_MAKE_BYTES_FN {
-        return func(data_ptr, data_len);
-    }
-    ptr::null_mut()
+    make_bytes_hook(data_ptr, data_len)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_load_name(
     block: ObjPtr,
     name_ptr: *const u8,
     name_len: i64,
 ) -> ObjPtr {
-    if let Some(func) = DP_JIT_LOAD_NAME_FN {
-        return func(block, name_ptr, name_len);
-    }
-    ptr::null_mut()
+    load_name_hook(block, name_ptr, name_len)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_function_globals(callable: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_FUNCTION_GLOBALS_FN {
-        return func(callable);
-    }
-    ptr::null_mut()
+    function_globals_hook(callable)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_function_closure_cell(callable: ObjPtr, slot: i64) -> ObjPtr {
-    if let Some(func) = DP_JIT_FUNCTION_CLOSURE_CELL_FN {
-        return func(callable, slot);
-    }
-    ptr::null_mut()
+    function_closure_cell_hook(callable, slot)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_function_positional_default(
     callable: ObjPtr,
     name_ptr: *const u8,
     name_len: i64,
     index: i64,
 ) -> ObjPtr {
-    if let Some(func) = DP_JIT_FUNCTION_POSITIONAL_DEFAULT_FN {
-        return func(callable, name_ptr, name_len, index);
-    }
-    ptr::null_mut()
+    function_positional_default_hook(callable, name_ptr, name_len, index)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_function_kwonly_default(
     callable: ObjPtr,
     name_ptr: *const u8,
     name_len: i64,
 ) -> ObjPtr {
-    if let Some(func) = DP_JIT_FUNCTION_KWONLY_DEFAULT_FN {
-        return func(callable, name_ptr, name_len);
-    }
-    ptr::null_mut()
+    function_kwonly_default_hook(callable, name_ptr, name_len)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_pyobject_getattr(obj: ObjPtr, attr: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_PYOBJECT_GETATTR_FN {
-        return func(obj, attr);
-    }
-    ptr::null_mut()
+    pyobject_getattr_hook(obj, attr)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_pyobject_setattr(
     obj: ObjPtr,
     attr: ObjPtr,
     value: ObjPtr,
 ) -> ObjPtr {
-    if let Some(func) = DP_JIT_PYOBJECT_SETATTR_FN {
-        return func(obj, attr, value);
-    }
-    ptr::null_mut()
+    pyobject_setattr_hook(obj, attr, value)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_pyobject_getitem(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_PYOBJECT_GETITEM_FN {
-        return func(obj, key);
-    }
-    ptr::null_mut()
+    pyobject_getitem_hook(obj, key)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_pyobject_setitem(
     obj: ObjPtr,
     key: ObjPtr,
     value: ObjPtr,
 ) -> ObjPtr {
-    if let Some(func) = DP_JIT_PYOBJECT_SETITEM_FN {
-        return func(obj, key, value);
-    }
-    ptr::null_mut()
+    pyobject_setitem_hook(obj, key, value)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_pyobject_delitem(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
     pyobject_delitem_hook(obj, key)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_load_global_obj(globals_obj: ObjPtr, name: ObjPtr) -> ObjPtr {
     load_global_obj_hook(globals_obj, name)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_store_global(
     globals_obj: ObjPtr,
     name: ObjPtr,
@@ -1357,84 +1221,69 @@ pub unsafe extern "C" fn dp_jit_store_global(
     store_global_hook(globals_obj, name, value)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_del_quietly(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
     del_quietly_hook(obj, key)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_pyobject_to_i64(value: ObjPtr) -> i64 {
-    if let Some(func) = DP_JIT_PYOBJECT_TO_I64_FN {
-        return func(value);
-    }
-    i64::MIN
+    pyobject_to_i64_hook(value)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_decode_literal_bytes(data_ptr: *const u8, data_len: i64) -> ObjPtr {
-    if let Some(func) = DP_JIT_DECODE_LITERAL_BYTES_FN {
-        return func(data_ptr, data_len);
-    }
-    ptr::null_mut()
+    decode_literal_bytes_hook(data_ptr, data_len)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_make_cell(value: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_MAKE_CELL_FN {
-        return func(value);
-    }
-    ptr::null_mut()
+    make_cell_hook(value)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_load_deleted_name(
     name_ptr: *const u8,
     name_len: i64,
     value: ObjPtr,
     deleted: ObjPtr,
 ) -> ObjPtr {
-    if let Some(func) = DP_JIT_LOAD_DELETED_NAME_FN {
-        return func(name_ptr, name_len, value, deleted);
-    }
-    ptr::null_mut()
+    load_deleted_name_hook(name_ptr, name_len, value, deleted)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_load_cell(cell: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_LOAD_CELL_FN {
-        return func(cell);
-    }
-    ptr::null_mut()
+    load_cell_hook(cell)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_store_cell(cell: ObjPtr, value: ObjPtr) -> ObjPtr {
-    if let Some(func) = DP_JIT_STORE_CELL_FN {
-        return func(cell, value);
-    }
-    ptr::null_mut()
+    store_cell_hook(cell, value)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_del_deref(cell: ObjPtr) -> ObjPtr {
     del_deref_hook(cell)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_del_deref_quietly(cell: ObjPtr) -> ObjPtr {
     del_deref_quietly_hook(cell)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_tuple_new(size: i64) -> ObjPtr {
-    if let Some(func) = DP_JIT_TUPLE_NEW_FN {
-        return func(size);
-    }
-    ptr::null_mut()
+    tuple_new_hook(size)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_tuple_set_item(tuple_obj: ObjPtr, index: i64, item: ObjPtr) -> i32 {
-    if let Some(func) = DP_JIT_TUPLE_SET_ITEM_FN {
-        return func(tuple_obj, index, item);
-    }
-    -1
+    tuple_set_item_hook(tuple_obj, index, item)
 }
 
+#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_is_true(value: ObjPtr) -> i32 {
-    if let Some(func) = DP_JIT_IS_TRUE_FN {
-        return func(value);
-    }
-    -1
+    is_true_hook(value)
 }
 
 unsafe extern "C" fn pyobject_richcompare_wrapper(lhs: ObjPtr, rhs: ObjPtr, op: i32) -> ObjPtr {

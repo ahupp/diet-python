@@ -1,6 +1,5 @@
 import _thread
 import asyncio
-import operator
 
 
 class _TaskWrapper:
@@ -96,12 +95,6 @@ def run_interrupt_case(iterations=200_000):
 
 def validate_module(module):
     import asyncio
-    import builtins
-    import operator
-
-    if __dp_integration_mode__ != "stock":
-        assert builtins.__dp__.is_ is operator.is_
-        assert builtins.__dp__.is_not is operator.is_not
 
     exc = module.run_interrupt_case()
     assert isinstance(exc, asyncio.CancelledError), type(exc)

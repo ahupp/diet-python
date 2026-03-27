@@ -32,9 +32,6 @@ pub use planning::{
     register_clif_module_plans,
 };
 pub use specialized_helpers::ObjPtr;
-pub use specialized_helpers::SpecializedJitHooks;
-pub use specialized_helpers::default_specialized_hooks;
-pub use specialized_helpers::install_specialized_hooks;
 use specialized_helpers::{dp_jit_decref, register_specialized_jit_symbols};
 
 static INCREMENTAL_CLIF_CACHE: OnceLock<Mutex<HashMap<Vec<u8>, Vec<u8>>>> = OnceLock::new();
