@@ -50,19 +50,6 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
             ctx: ExprContext::Load,
             range: _,
             node_index: _,
-        }) if attr.id.as_str() == "f_locals" => {
-            let lowered = lower_expr_nested(context, *value);
-            let mut body_builder = BodyBuilder::default();
-            let value_expr = body_builder.push(lowered);
-            let expr = py_expr!("__dp_frame_locals({value:expr})", value = value_expr);
-            return LoweredExpr::modified(expr, body_builder.into_stmts());
-        }
-        Expr::Attribute(ast::ExprAttribute {
-            value,
-            attr,
-            ctx: ExprContext::Load,
-            range: _,
-            node_index: _,
         }) if context.options.lower_attributes => {
             let lowered = lower_expr_nested(context, *value);
             let mut body_builder = BodyBuilder::default();
