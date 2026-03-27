@@ -148,22 +148,16 @@ fn register_clif_vectorcall_raw(
     func: &Bound<'_, PyAny>,
     module_name: &str,
     function_id: usize,
-    deleted_value: &Bound<'_, PyAny>,
 ) -> PyResult<()> {
     unsafe {
-        soac_eval::tree_walk::register_clif_vectorcall(
-            func.as_ptr(),
-            module_name,
-            function_id,
-            deleted_value.as_ptr(),
-        )
-        .map_err(|_| {
-            if ffi::PyErr_Occurred().is_null() {
-                PyRuntimeError::new_err("failed to register CLIF vectorcall")
-            } else {
-                PyErr::fetch(py)
-            }
-        })
+        soac_eval::tree_walk::register_clif_vectorcall(func.as_ptr(), module_name, function_id)
+            .map_err(|_| {
+                if ffi::PyErr_Occurred().is_null() {
+                    PyRuntimeError::new_err("failed to register CLIF vectorcall")
+                } else {
+                    PyErr::fetch(py)
+                }
+            })
     }
 }
 
@@ -215,9 +209,8 @@ fn register_lazy_clif_vectorcall(
     module_name: &str,
     function_id: usize,
     plan_name: &str,
-    deleted_value: &Bound<'_, PyAny>,
 ) -> PyResult<()> {
-    match register_clif_vectorcall_raw(py, func, module_name, function_id, deleted_value) {
+    match register_clif_vectorcall_raw(py, func, module_name, function_id) {
         Ok(()) => maybe_eager_compile_clif_entry(py, func, module_name, plan_name),
         Err(err) if err.is_instance_of::<PyNotImplementedError>(py) => Err(err),
         Err(err) => Err(PyRuntimeError::new_err(format!(
@@ -613,14 +606,12 @@ fn instantiate_bb_function(
     let (captured_names, closure_values) = build_capture_map(py, captures)?;
     let raw_entry =
         make_lazy_clif_entry(py, dp, function.names.display_name.as_str(), module_globals)?;
-    let deleted_value = dp.getattr("DELETED")?;
     register_lazy_clif_vectorcall(
         py,
         &raw_entry,
         module_name,
         function.function_id.0,
         plan_name.as_str(),
-        &deleted_value,
     )?;
     let entry = build_wrapped_entry(
         py,
@@ -799,14 +790,12 @@ fn make_bb_hidden_resume(
         build_closure_map(py, &closure_names.bind(py), &closure_values.bind(py))?;
     let hidden_name = format!("_dp_resume_{}", function.names.fn_name);
     let raw_entry = make_lazy_clif_entry(py, &dp, hidden_name.as_str(), &module_globals)?;
-    let deleted_value = dp.getattr("DELETED")?;
     register_lazy_clif_vectorcall(
         py,
         &raw_entry,
         module_name.as_str(),
         function_id,
         plan_name.as_str(),
-        &deleted_value,
     )?;
     let entry = build_wrapped_entry(
         py,
@@ -904,10 +893,9 @@ fn register_clif_vectorcall(
     func: Py<PyAny>,
     module_name: String,
     function_id: usize,
-    deleted_value: Py<PyAny>,
 ) -> PyResult<()> {
     let func = func.bind(py);
-    register_clif_vectorcall_raw(py, &func, &module_name, function_id, deleted_value.bind(py))
+    register_clif_vectorcall_raw(py, &func, &module_name, function_id)
 }
 
 #[pyfunction]

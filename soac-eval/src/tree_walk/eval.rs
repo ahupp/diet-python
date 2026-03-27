@@ -137,6 +137,21 @@ unsafe fn py_attr_string(obj: *mut ffi::PyObject, attr: &[u8], fallback: &str) -
     result
 }
 
+unsafe fn lookup_deleted_sentinel() -> Result<*mut ffi::PyObject, ()> {
+    let builtins = ffi::PyEval_GetBuiltins();
+    if builtins.is_null() {
+        return set_runtime_error("missing Python builtins while resolving CLIF deleted sentinel");
+    }
+    let deleted_obj =
+        ffi::PyDict_GetItemString(builtins, b"__dp_DELETED\0".as_ptr() as *const c_char);
+    if deleted_obj.is_null() {
+        return set_runtime_error(
+            "missing builtins.__dp_DELETED while registering CLIF vectorcall",
+        );
+    }
+    Ok(deleted_obj)
+}
+
 unsafe fn tuple_size(obj: *mut ffi::PyObject, context: &str) -> Result<usize, ()> {
     let size = ffi::PyTuple_Size(obj);
     if size < 0 {
@@ -211,7 +226,6 @@ unsafe fn make_clif_function_data(
     function: *mut ffi::PyObject,
     module_name: &str,
     function_id: usize,
-    deleted_obj: *mut ffi::PyObject,
 ) -> Result<*mut c_void, ()> {
     let plan = jit::lookup_clif_plan(module_name, function_id);
     let Some(plan) = plan else {
@@ -262,6 +276,7 @@ unsafe fn make_clif_function_data(
         ffi::Py_DECREF(true_obj);
         return Err(());
     }
+    let deleted_obj = lookup_deleted_sentinel()?;
     let callable_name = py_attr_string(function, b"__qualname__\0", "<function>");
     let binding = match build_binding_metadata(&plan, callable_name, deleted_obj) {
         Ok(value) => value,
@@ -771,7 +786,6 @@ pub unsafe fn register_clif_vectorcall(
     function: *mut ffi::PyObject,
     module_name: &str,
     function_id: usize,
-    deleted_obj: *mut ffi::PyObject,
 ) -> Result<(), ()> {
     if ffi::PyFunction_Check(function) == 0 {
         ffi::PyErr_SetString(
@@ -792,7 +806,7 @@ pub unsafe fn register_clif_vectorcall(
         return Ok(());
     }
 
-    let data_ptr = make_clif_function_data(function, module_name, function_id, deleted_obj)?;
+    let data_ptr = make_clif_function_data(function, module_name, function_id)?;
     let capsule = ffi::PyCapsule_New(
         data_ptr,
         CLIF_VECTORCALL_CAPSULE_NAME.as_ptr() as *const c_char,
