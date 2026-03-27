@@ -119,16 +119,14 @@ fn import_dp_module<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyModule>> {
 fn make_lazy_clif_entry<'py>(
     py: Python<'py>,
     dp: &Bound<'py, PyModule>,
-    async_entry: bool,
     function_name: &str,
     module_globals: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let module_globals = module_globals
         .cast::<PyDict>()
         .map_err(|_| PyTypeError::new_err("module_globals must be a dict"))?;
-    let code = dp
-        .getattr("_bb_entry_template_code")?
-        .call1((async_entry,))?;
+    let template = dp.getattr("_dp_entry_template")?;
+    let code = template.getattr("__code__")?;
     unsafe {
         let func = ffi::PyFunction_New(code.as_ptr(), module_globals.as_ptr());
         if func.is_null() {
@@ -649,13 +647,8 @@ fn instantiate_bb_function(
         .as_ref()
         .map(|layout| py_closure_layout(py, layout))
         .transpose()?;
-    let raw_entry = make_lazy_clif_entry(
-        py,
-        dp,
-        false,
-        function.names.display_name.as_str(),
-        module_globals,
-    )?;
+    let raw_entry =
+        make_lazy_clif_entry(py, dp, function.names.display_name.as_str(), module_globals)?;
     let deleted_value = dp.getattr("DELETED")?;
     register_lazy_clif_vectorcall(
         py,
@@ -849,7 +842,7 @@ fn make_bb_hidden_resume(
     let (captured_names, closure_map) =
         build_closure_map(py, &closure_names.bind(py), &closure_values.bind(py))?;
     let hidden_name = format!("_dp_resume_{}", function.names.fn_name);
-    let raw_entry = make_lazy_clif_entry(py, &dp, false, hidden_name.as_str(), &module_globals)?;
+    let raw_entry = make_lazy_clif_entry(py, &dp, hidden_name.as_str(), &module_globals)?;
     let deleted_value = dp.getattr("DELETED")?;
     register_lazy_clif_vectorcall(
         py,

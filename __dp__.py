@@ -1555,44 +1555,8 @@ def code_with_freevars(names, is_async, is_generator):
     return code
 
 
-_DP_ENTRY_TEMPLATE_CODE = None
-_DP_ASYNC_ENTRY_TEMPLATE_CODE = None
-
-
-def _bb_entry_template_code(async_entry):
-    global _DP_ENTRY_TEMPLATE_CODE
-    global _DP_ASYNC_ENTRY_TEMPLATE_CODE
-    if async_entry:
-        if _DP_ASYNC_ENTRY_TEMPLATE_CODE is None:
-            ns = {}
-            exec(
-                "async def _dp_entry_template(\n"
-                "    *args,\n"
-                "    **kwargs,\n"
-                "):\n"
-                "    raise RuntimeError(\n"
-                '        "CLIF coroutine entry executed without vectorcall interception"\n'
-                "    )\n",
-                {},
-                ns,
-            )
-            _DP_ASYNC_ENTRY_TEMPLATE_CODE = ns["_dp_entry_template"].__code__
-        return _DP_ASYNC_ENTRY_TEMPLATE_CODE
-    if _DP_ENTRY_TEMPLATE_CODE is None:
-        ns = {}
-        exec(
-            "def _dp_entry_template(\n"
-            "    *args,\n"
-            "    **kwargs,\n"
-            "):\n"
-            "    raise RuntimeError(\n"
-            '        "CLIF entry executed without vectorcall interception"\n'
-            "    )\n",
-            {},
-            ns,
-        )
-        _DP_ENTRY_TEMPLATE_CODE = ns["_dp_entry_template"].__code__
-    return _DP_ENTRY_TEMPLATE_CODE
+def _dp_entry_template(*args, **kwargs):
+    raise RuntimeError("CLIF entry executed without vectorcall interception")
 
 def def_hidden_resume_fn(
     function_id,
