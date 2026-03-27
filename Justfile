@@ -395,6 +395,11 @@ _pytest-run *args='': ensure-venv
   #!/usr/bin/env bash
   cd "$REPO_ROOT"
 
+  # This is the authoritative transformed-runtime pytest entrypoint.
+  # Prefer `just pytest ...` over invoking `python -m pytest` directly:
+  # the recipe selects the interpreter/environment that can import the
+  # built `diet_python` extension and applies the expected test settings.
+
   set -- {{args}}
   if [ "$#" -eq 0 ]; then
     "$VENV_DIR/bin/python" -m pytest --help
@@ -427,6 +432,25 @@ _pytest-run *args='': ensure-venv
 
 pytest *args='': build-all
   just _pytest-run {{args}}
+
+py *args='': build-all
+  #!/usr/bin/env bash
+  cd "$REPO_ROOT"
+
+  # Authoritative ad-hoc transformed-runtime Python entrypoint.
+  # Prefer this over invoking `.venv/bin/python` or `vendor/cpython/python`
+  # directly when you need the built extension/import-hook path.
+  set -- {{args}}
+  "$VENV_DIR/bin/python" "$@"
+
+cpython *args='':
+  #!/usr/bin/env bash
+  cd "$REPO_ROOT"
+
+  # Raw CPython entrypoint for debugging vendored-CPython behavior without
+  # relying on the transformed-runtime environment from `just py`.
+  set -- {{args}}
+  "$REPO_ROOT/vendor/cpython/python" "$@"
 
 
 regen-snapshots:

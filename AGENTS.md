@@ -23,8 +23,9 @@
 - **NOTE**: Set `DIET_PYTHON_INTEGRATION_ONLY=1` to only transform integration test modules (skip transforming all imports).
 - To inspect the transformed output of some code, run `cargo run --bin diet-python file_with_code.py`, which prints output to stdout.
 - *MUST FOLLOW* when fixing a bug that fails a cpython test case *always* add a minimal reproducing integration test to reproduce it first.
+- **MUST FOLLOW**: Prefer `Justfile` recipes over invoking interpreters or test runners directly. `just pytest`, `just test-all`, and `just py ...` are the authoritative transformed-runtime entrypoints because they select the interpreter/environment that can import the built `diet_python` extension.
 - CPython source for tests is vendored at `vendor/cpython` (the scripts use `vendor/cpython/python`).
-- **MUST FOLLOW**: When running Python directly in this repo, always use `vendor/cpython/python` unless the user explicitly requests a different interpreter.
+- **MUST FOLLOW**: Only use `vendor/cpython/python` directly when there is no `Justfile` recipe for the task, or when you are explicitly debugging raw CPython behavior rather than the built `diet_python` extension path.
 - **NOTE**: For `just run-cpython-tests 0 -f <file>`, pass an absolute path for `<file>` since regrtest runs from `vendor/cpython`.
 - **NOTE**: In sandboxed environments, set `--tempdir /tmp/<dir>` when running CPython tests; default worker temp dirs under `/home/adam/project/cpython/build/...` can fail with permission errors.
 - **NOTE**: After interrupting CPython test runs, clean stale workers before retrying (`pkill -f test.libregrtest.worker`).
@@ -32,6 +33,7 @@
 - **NOTE**: For hangs under the transformed runtime, use `vendor/cpython/python` (or `.venv/bin/python`) with `faulthandler.dump_traceback_later(..., exit=True)` to capture a Python stack before terminating.
 - **MUST FOLLOW**: When you find a hang, add follow-up instrumentation where practical so the next diagnosis is easier, and add a focused regression test or assertion for the diagnosed hang shape instead of treating it as a one-off.
 - **NOTE**: For isolated transformed-runtime repros, prefer `tests._integration.transformed_module(...)` with a small inline source module instead of debugging through the full test harness.
+- **NOTE**: For ad-hoc transformed-runtime repros outside pytest, prefer `just py ...` rather than invoking `.venv/bin/python` or `vendor/cpython/python` manually.
 - **NOTE**: For BB/JIT inspection, use `diet_import_hook._get_pyo3_transform().jit_has_bb_plan(...)` / `jit_render_bb_with_cfg_plan(...)`; closure-backed outer factories are typically registered under `qualname::_dp_bb_<name>_factory`.
 - **NOTE**: To trace BB execution, set `DIET_PYTHON_BB_TRACE`. Accepted forms are `all`, `all:params`, `<exact-qualname>`, or `<exact-qualname>:params`. Prefer an exact qualname (for example `make_runner.<locals>.run:params`) to keep trace output manageable.
 - **MUST FOLLOW**: In any test failure summary, list expected failures separately from unexpected failures.
