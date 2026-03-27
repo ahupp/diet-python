@@ -18,25 +18,24 @@ def test_code_with_freevars_returns_requested_freevars():
     assert code.co_freevars == ("x", "y")
 
 
-def test_bb_wrap_with_named_closure_reorders_cells_to_code_freevars():
-    def entry():
-        return None
+def test_code_with_freevars_uses_canonical_freevar_order():
+    code = __dp__.code_with_freevars(("a", "_dp_eval_1", "_dp_pc"), False, False)
 
-    wrapped = __dp__._bb_wrap_with_named_closure(
-        entry,
-        ("a", "_dp_eval_1", "_dp_pc"),
-        ("captured-a", "captured-eval", "captured-pc"),
-    )
+    assert code.co_freevars == ("_dp_eval_1", "_dp_pc", "a")
 
-    assert wrapped.__code__.co_freevars == ("_dp_eval_1", "_dp_pc", "a")
-    assert {
-        name: cell.cell_contents
-        for name, cell in zip(wrapped.__code__.co_freevars, wrapped.__closure__)
-    } == {
+    captured_by_name = {
         "_dp_eval_1": "captured-eval",
         "_dp_pc": "captured-pc",
         "a": "captured-a",
     }
+    closure = tuple(__dp__.make_cell(captured_by_name[name]) for name in code.co_freevars)
+    wrapped = types.FunctionType(code, globals(), name="wrapped", closure=closure)
+    wrapped.__kwdefaults__ = {"__dp_entry": lambda: None}
+
+    assert {
+        name: cell.cell_contents
+        for name, cell in zip(wrapped.__code__.co_freevars, wrapped.__closure__)
+    } == captured_by_name
 
 
 def test_code_with_freevars_builds_sync_wrapper():

@@ -1503,78 +1503,6 @@ def _build_bb_signature(params, param_defaults):
     return _inspect.Signature(sig_params)
 
 
-def _split_bb_defaults(params, param_defaults):
-    positional_defaults = []
-    kwdefaults = {}
-    defaults_iter = iter(param_defaults)
-    for param in params:
-        if len(param) != 3:
-            raise RuntimeError(f"invalid bb param spec: {param!r}")
-        name, kind_name, has_default = param
-        kind = _bb_param_kind(kind_name)
-        if not has_default:
-            continue
-        try:
-            value = next(defaults_iter)
-        except StopIteration as exc:
-            raise RuntimeError(
-                "bb param defaults payload is shorter than the param spec"
-            ) from exc
-        if kind in (
-            _inspect.Parameter.POSITIONAL_ONLY,
-            _inspect.Parameter.POSITIONAL_OR_KEYWORD,
-        ):
-            positional_defaults.append(value)
-        elif kind is _inspect.Parameter.KEYWORD_ONLY:
-            kwdefaults[name] = value
-        else:
-            raise RuntimeError(
-                f"invalid default-bearing bb param kind: {kind_name!r}"
-            )
-    try:
-        next(defaults_iter)
-    except StopIteration:
-        pass
-    else:
-        raise RuntimeError("bb param defaults payload is longer than the param spec")
-    return (
-        tuple(positional_defaults) if positional_defaults else None,
-        kwdefaults or None,
-    )
-
-
-def _bb_apply_function_defaults(func, params, param_defaults):
-    defaults, kwdefaults = _split_bb_defaults(params, param_defaults)
-    func.__defaults__ = defaults
-    existing_kwdefaults = getattr(func, "__kwdefaults__", None)
-    if existing_kwdefaults:
-        merged_kwdefaults = dict(existing_kwdefaults)
-        if kwdefaults:
-            merged_kwdefaults.update(kwdefaults)
-        func.__kwdefaults__ = merged_kwdefaults
-    else:
-        func.__kwdefaults__ = kwdefaults
-    public_kwdefaults = getattr(func, "__kwdefaults__", None)
-    if isinstance(public_kwdefaults, dict):
-        entry = public_kwdefaults.get("__dp_entry")
-        if entry is not None:
-            entry.__dp_public_function__ = func
-    return func
-
-
-def _bb_capture_values(captures):
-    if not isinstance(captures, tuple):
-        raise RuntimeError(f"bb captures must be a tuple, got {type(captures)!r}")
-    closure_values = {}
-    for item in captures:
-        if not (
-            isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], str)
-        ):
-            raise RuntimeError(f"invalid bb capture payload: {item!r}")
-        closure_values[item[0]] = item[1]
-    return closure_values
-
-
 _DP_CODE_WITH_FREEVARS_CACHE = {}
 
 
@@ -1627,42 +1555,6 @@ def code_with_freevars(names, is_async, is_generator):
     return code
 
 
-def _bb_wrap_with_closure(entry, closure_values):
-    if not closure_values:
-        return entry
-    if getattr(entry, "__closure__", None):
-        return entry
-    captured_names = tuple(closure_values.keys())
-    captured_values = tuple(closure_values[name] for name in captured_names)
-    return _bb_wrap_with_named_closure(entry, captured_names, captured_values)
-
-
-def _bb_wrap_with_named_closure(entry, captured_names, captured_values):
-    if not captured_names:
-        return entry
-    if getattr(entry, "__closure__", None):
-        return entry
-    code = code_with_freevars(
-        captured_names,
-        is_async=_inspect.iscoroutinefunction(entry)
-        or _inspect.isasyncgenfunction(entry),
-        is_generator=_inspect.isgeneratorfunction(entry)
-        or _inspect.isasyncgenfunction(entry),
-    )
-    captured_by_name = dict(zip(captured_names, captured_values))
-    closure = tuple(make_cell(captured_by_name[name]) for name in code.co_freevars)
-    wrapped = _types.FunctionType(
-        code,
-        entry.__globals__,
-        name=entry.__name__,
-        closure=closure,
-    )
-    wrapped.__kwdefaults__ = {"__dp_entry": entry}
-    wrapped.__qualname__ = getattr(entry, "__qualname__", wrapped.__qualname__)
-    entry.__dp_public_function__ = wrapped
-    return wrapped
-
-
 _DP_ENTRY_TEMPLATE_CODE = None
 _DP_ASYNC_ENTRY_TEMPLATE_CODE = None
 
@@ -1701,27 +1593,6 @@ def _bb_entry_template_code(async_entry):
         )
         _DP_ENTRY_TEMPLATE_CODE = ns["_dp_entry_template"].__code__
     return _DP_ENTRY_TEMPLATE_CODE
-
-
-def _bb_rebind_function_globals(func, module_globals):
-    if module_globals is None:
-        return func
-    if not isinstance(module_globals, dict):
-        raise TypeError("module_globals must be a dict")
-    if func.__globals__ is module_globals:
-        return func
-    rebound = _types.FunctionType(
-        func.__code__,
-        module_globals,
-        name=func.__name__,
-        argdefs=func.__defaults__,
-        closure=func.__closure__,
-    )
-    # Preserve runtime metadata carried in keyword-only defaults.
-    rebound.__kwdefaults__ = func.__kwdefaults__
-    rebound.__dict__.update(func.__dict__)
-    return rebound
-
 
 def def_hidden_resume_fn(
     function_id,

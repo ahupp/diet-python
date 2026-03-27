@@ -1,6 +1,6 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use dp_transform::block_py::{BlockPyFunction, ClosureInit, ClosureLayout, ClosureSlot};
+use dp_transform::block_py::{BlockPyFunction, ClosureInit, ClosureLayout, ClosureSlot, ParamKind};
 use dp_transform::passes::PreparedBbBlockPyPass;
 use dp_transform::{Options, transform_str_to_ruff_with_options};
 use log::{info, trace};
@@ -9,11 +9,15 @@ use pyo3::exceptions::{
 };
 use pyo3::ffi;
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyDict, PyFunction, PyModule, PyTuple};
+use pyo3::types::{PyAny, PyDict, PyFunction, PyModule, PyString, PyTuple};
 use serde_json::json;
 use std::time::Instant;
 
 mod eval;
+
+unsafe extern "C" {
+    fn PyCell_New(obj: *mut ffi::PyObject) -> *mut ffi::PyObject;
+}
 
 fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<dp_transform::LoweringResult> {
     let _ = ensure;
@@ -402,6 +406,170 @@ fn py_param_specs(
     Ok(PyTuple::new(py, params)?.unbind())
 }
 
+fn build_capture_map<'py>(
+    py: Python<'py>,
+    captures: &Bound<'py, PyAny>,
+) -> PyResult<(Vec<String>, Bound<'py, PyDict>)> {
+    let captures = captures.cast::<PyTuple>().map_err(|_| {
+        PyTypeError::new_err(format!(
+            "bb captures must be a tuple, got {:?}",
+            captures.get_type()
+        ))
+    })?;
+    let closure_values = PyDict::new(py);
+    let mut captured_names = Vec::with_capacity(captures.len());
+    for item in captures.iter() {
+        let item = item
+            .cast::<PyTuple>()
+            .map_err(|_| PyTypeError::new_err(format!("invalid bb capture payload: {item:?}")))?;
+        if item.len() != 2 {
+            return Err(PyTypeError::new_err(format!(
+                "invalid bb capture payload: {item:?}"
+            )));
+        }
+        let name = item
+            .get_item(0)?
+            .extract::<String>()
+            .map_err(|_| PyTypeError::new_err(format!("invalid bb capture payload: {item:?}")))?;
+        let value = item.get_item(1)?;
+        closure_values.set_item(name.as_str(), &value)?;
+        captured_names.push(name);
+    }
+    Ok((captured_names, closure_values))
+}
+
+fn split_param_defaults<'py>(
+    py: Python<'py>,
+    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    param_defaults: &Bound<'py, PyAny>,
+) -> PyResult<(Option<Bound<'py, PyTuple>>, Option<Bound<'py, PyDict>>)> {
+    let defaults = param_defaults.cast::<PyTuple>().map_err(|_| {
+        PyTypeError::new_err(format!(
+            "bb param defaults must be a tuple, got {:?}",
+            param_defaults.get_type()
+        ))
+    })?;
+    let mut default_index = 0usize;
+    let mut positional_defaults = Vec::new();
+    let kwdefaults = PyDict::new(py);
+    for param in &function.params.params {
+        if !param.has_default {
+            continue;
+        }
+        let value = defaults.get_item(default_index).map_err(|_| {
+            PyRuntimeError::new_err("bb param defaults payload is shorter than the param spec")
+        })?;
+        default_index += 1;
+        match param.kind {
+            ParamKind::PosOnly | ParamKind::Any => positional_defaults.push(value.unbind()),
+            ParamKind::KwOnly => kwdefaults.set_item(param.name.as_str(), &value)?,
+            ParamKind::VarArg | ParamKind::KwArg => {
+                return Err(PyRuntimeError::new_err(format!(
+                    "invalid default-bearing bb param kind: {:?}",
+                    param.kind
+                )));
+            }
+        }
+    }
+    if default_index != defaults.len() {
+        return Err(PyRuntimeError::new_err(
+            "bb param defaults payload is longer than the param spec",
+        ));
+    }
+    let positional_defaults = if positional_defaults.is_empty() {
+        None
+    } else {
+        Some(PyTuple::new(py, positional_defaults)?)
+    };
+    let kwdefaults = if kwdefaults.is_empty() {
+        None
+    } else {
+        Some(kwdefaults)
+    };
+    Ok((positional_defaults, kwdefaults))
+}
+
+fn build_wrapped_entry<'py>(
+    py: Python<'py>,
+    dp: &Bound<'py, PyModule>,
+    raw_entry: &Bound<'py, PyAny>,
+    module_globals: &Bound<'py, PyAny>,
+    qualname: &str,
+    captured_names: &[String],
+    captured_values: &Bound<'py, PyDict>,
+) -> PyResult<Bound<'py, PyAny>> {
+    if captured_names.is_empty() || raw_entry.getattr("__closure__")?.is_truthy()? {
+        return Ok(raw_entry.clone());
+    }
+    let code = dp.getattr("code_with_freevars")?.call1((
+        PyTuple::new(py, captured_names)?,
+        false,
+        false,
+    ))?;
+    let freevars_obj = code.getattr("co_freevars")?;
+    let freevars = freevars_obj.cast::<PyTuple>()?;
+    let mut closure_cells = Vec::with_capacity(freevars.len());
+    for name_obj in freevars.iter() {
+        let name = name_obj.extract::<String>()?;
+        let value = captured_values.get_item(name.as_str())?.ok_or_else(|| {
+            PyRuntimeError::new_err(format!(
+                "missing captured value for closure freevar {name:?}"
+            ))
+        })?;
+        let cell = unsafe { PyCell_New(value.as_ptr()) };
+        if cell.is_null() {
+            return Err(PyErr::fetch(py));
+        }
+        closure_cells.push(unsafe { Bound::from_owned_ptr(py, cell) }.unbind());
+    }
+    let closure = PyTuple::new(py, closure_cells)?;
+    let qualname = PyString::new(py, qualname);
+    let func = unsafe {
+        let ptr = ffi::PyFunction_NewWithQualName(
+            code.as_ptr(),
+            module_globals.as_ptr(),
+            qualname.as_ptr(),
+        );
+        if ptr.is_null() {
+            return Err(PyErr::fetch(py));
+        }
+        Bound::from_owned_ptr(py, ptr)
+    };
+    if unsafe { ffi::PyFunction_SetClosure(func.as_ptr(), closure.as_ptr()) } != 0 {
+        return Err(PyErr::fetch(py));
+    }
+    let kwdefaults = PyDict::new(py);
+    kwdefaults.set_item("__dp_entry", raw_entry)?;
+    if unsafe { ffi::PyFunction_SetKwDefaults(func.as_ptr(), kwdefaults.as_ptr()) } != 0 {
+        return Err(PyErr::fetch(py));
+    }
+    raw_entry.setattr("__dp_public_function__", &func)?;
+    Ok(func.into_any())
+}
+
+fn apply_function_defaults(
+    py: Python<'_>,
+    func: &Bound<'_, PyAny>,
+    positional_defaults: Option<&Bound<'_, PyTuple>>,
+    kwdefaults: Option<&Bound<'_, PyDict>>,
+) -> PyResult<()> {
+    let defaults_obj = positional_defaults.map_or_else(
+        || py.None().into_any(),
+        |value| value.clone().into_any().unbind(),
+    );
+    if unsafe { ffi::PyFunction_SetDefaults(func.as_ptr(), defaults_obj.as_ptr()) } != 0 {
+        return Err(PyErr::fetch(py));
+    }
+    let kwdefaults_obj = kwdefaults.map_or_else(
+        || py.None().into_any(),
+        |value| value.clone().into_any().unbind(),
+    );
+    if unsafe { ffi::PyFunction_SetKwDefaults(func.as_ptr(), kwdefaults_obj.as_ptr()) } != 0 {
+        return Err(PyErr::fetch(py));
+    }
+    Ok(())
+}
+
 fn closure_init_name(init: &ClosureInit) -> &'static str {
     match init {
         ClosureInit::InheritedCapture => "InheritedCapture",
@@ -475,10 +643,7 @@ fn instantiate_bb_function(
         .getattr("_build_bb_signature")?
         .call1((params.bind(py), param_defaults))?
         .unbind();
-    let closure_values = dp
-        .getattr("_bb_capture_values")?
-        .call1((captures,))?
-        .unbind();
+    let (captured_names, closure_values) = build_capture_map(py, captures)?;
     let closure_layout = function
         .closure_layout()
         .as_ref()
@@ -501,23 +666,37 @@ fn instantiate_bb_function(
         state_order.bind(py).as_any(),
         Some(params.bind(py).as_any()),
         Some(param_defaults),
-        Some(closure_values.bind(py)),
+        Some(closure_values.as_any()),
         closure_layout.as_ref().map(|value| value.as_any()),
         &deleted_value,
         0,
         None,
     )?;
-    let entry = dp
-        .getattr("_bb_wrap_with_closure")?
-        .call1((raw_entry, closure_values.bind(py)))?;
-    let entry = dp
-        .getattr("_bb_rebind_function_globals")?
-        .call1((entry, module_globals))?;
-    let entry = dp.getattr("_bb_apply_function_defaults")?.call1((
-        entry,
-        params.bind(py),
-        param_defaults,
-    ))?;
+    let entry = build_wrapped_entry(
+        py,
+        dp,
+        &raw_entry,
+        module_globals,
+        function.names.qualname.as_str(),
+        &captured_names,
+        &closure_values,
+    )?;
+    let (positional_defaults, mut kwdefaults) = split_param_defaults(py, function, param_defaults)?;
+    if !std::ptr::eq(entry.as_ptr(), raw_entry.as_ptr()) {
+        if let Some(kwdefaults) = kwdefaults.as_ref() {
+            kwdefaults.set_item("__dp_entry", &raw_entry)?;
+        } else {
+            let merged = PyDict::new(py);
+            merged.set_item("__dp_entry", &raw_entry)?;
+            kwdefaults = Some(merged);
+        }
+    }
+    apply_function_defaults(
+        py,
+        &entry,
+        positional_defaults.as_ref(),
+        kwdefaults.as_ref(),
+    )?;
     entry.setattr("__signature__", signature.bind(py))?;
     update_function_metadata(
         py,
@@ -551,7 +730,7 @@ fn build_closure_map<'py>(
     py: Python<'py>,
     closure_names: &Bound<'py, PyAny>,
     closure_values: &Bound<'py, PyAny>,
-) -> PyResult<Bound<'py, PyDict>> {
+) -> PyResult<(Vec<String>, Bound<'py, PyDict>)> {
     let closure_names = closure_names.cast::<PyTuple>().map_err(|_| {
         PyTypeError::new_err(format!(
             "generator resume closure_names must be a tuple, got {:?}",
@@ -573,13 +752,15 @@ fn build_closure_map<'py>(
     }
 
     let closure_map = PyDict::new(py);
+    let mut captured_names = Vec::with_capacity(closure_names.len());
     for (name_obj, value_obj) in closure_names.iter().zip(closure_values.iter()) {
         let name = name_obj.extract::<String>().map_err(|_| {
             PyTypeError::new_err("generator resume closure_names entries must be strings")
         })?;
-        closure_map.set_item(name, value_obj)?;
+        closure_map.set_item(name.as_str(), value_obj)?;
+        captured_names.push(name);
     }
-    Ok(closure_map)
+    Ok((captured_names, closure_map))
 }
 
 #[pyfunction]
@@ -665,7 +846,8 @@ fn make_bb_hidden_resume(
     let function = lookup_bb_function(&module_name, function_id, operation)?;
     let plan_name = ensure_bb_plan(&module_name, &function, operation)?;
     let state_order = PyTuple::new(py, entry_state_order(&function))?.unbind();
-    let closure_map = build_closure_map(py, &closure_names.bind(py), &closure_values.bind(py))?;
+    let (captured_names, closure_map) =
+        build_closure_map(py, &closure_names.bind(py), &closure_values.bind(py))?;
     let hidden_name = format!("_dp_resume_{}", function.names.fn_name);
     let raw_entry = make_lazy_clif_entry(py, &dp, false, hidden_name.as_str(), &module_globals)?;
     let deleted_value = dp.getattr("DELETED")?;
@@ -684,12 +866,15 @@ fn make_bb_hidden_resume(
         if async_gen { 2 } else { 1 },
         None,
     )?;
-    let entry = dp
-        .getattr("_bb_wrap_with_closure")?
-        .call1((raw_entry, &closure_map))?;
-    let entry = dp
-        .getattr("_bb_rebind_function_globals")?
-        .call1((entry, &module_globals))?;
+    let entry = build_wrapped_entry(
+        py,
+        &dp,
+        &raw_entry,
+        &module_globals,
+        hidden_name.as_str(),
+        &captured_names,
+        &closure_map,
+    )?;
     entry.setattr("__module__", module_name.as_str())?;
     set_plan_metadata(
         &entry,

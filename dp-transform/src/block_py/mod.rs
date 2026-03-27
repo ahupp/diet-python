@@ -1,3 +1,4 @@
+pub use self::param_specs::ParamKind;
 use self::param_specs::ParamSpec;
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass};
