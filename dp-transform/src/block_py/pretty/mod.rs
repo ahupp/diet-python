@@ -154,13 +154,6 @@ impl BlockPyFormatter {
             if function.names.display_name != function.names.bind_name {
                 this.line(format!("display_name: {}", function.names.display_name));
             }
-            let local_cell_slots = function.local_cell_slots();
-            if !local_cell_slots.is_empty() {
-                this.line(format!(
-                    "local_cell_slots: [{}]",
-                    local_cell_slots.join(", ")
-                ));
-            }
             if let Some(layout) = &function.closure_layout {
                 if !layout.freevars.is_empty() {
                     this.line(format!(

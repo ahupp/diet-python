@@ -274,14 +274,6 @@ impl ClosureLayout {
             .map(|slot| slot.storage_name.clone())
             .collect()
     }
-
-    pub fn local_cell_storage_names(&self) -> Vec<String> {
-        self.cellvars
-            .iter()
-            .chain(self.runtime_cells.iter())
-            .map(|slot| slot.storage_name.clone())
-            .collect()
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1344,13 +1336,6 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
 
     pub fn closure_layout(&self) -> &Option<ClosureLayout> {
         &self.closure_layout
-    }
-
-    pub fn local_cell_slots(&self) -> Vec<String> {
-        self.closure_layout
-            .as_ref()
-            .map(ClosureLayout::local_cell_storage_names)
-            .unwrap_or_default()
     }
 
     pub fn entry_block(&self) -> &PassBlock<P> {
