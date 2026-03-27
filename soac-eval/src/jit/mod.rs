@@ -33,9 +33,8 @@ pub use planning::{
 pub use specialized_helpers::ObjPtr;
 pub use specialized_helpers::SpecializedJitHooks;
 pub use specialized_helpers::default_specialized_hooks;
-use specialized_helpers::{
-    dp_jit_decref, install_specialized_hooks, register_specialized_jit_symbols,
-};
+pub use specialized_helpers::install_specialized_hooks;
+use specialized_helpers::{dp_jit_decref, register_specialized_jit_symbols};
 
 static INCREMENTAL_CLIF_CACHE: OnceLock<Mutex<HashMap<Vec<u8>, Vec<u8>>>> = OnceLock::new();
 static NEXT_IMPORT_SPEC_ID: AtomicUsize = AtomicUsize::new(0);
@@ -52,6 +51,7 @@ struct GlobalIncrementalCacheStore<'a> {
 pub enum EntryArgsLayout {
     StateTuple,
     ParamTuple,
+    DirectArgs,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -236,6 +236,19 @@ static DP_JIT_VECTORCALL_BUILD_BB_ARGS_IMPORT: ImportSpec = ImportSpec::new(
     ],
     &[SigType::Pointer],
 );
+static DP_JIT_VECTORCALL_BIND_DIRECT_ARGS_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_vectorcall_bind_direct_args",
+    &[
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::I64,
+    ],
+    &[SigType::I32],
+);
 static DP_JIT_VECTORCALL_RUN_COMPILED_IMPORT: ImportSpec = ImportSpec::new(
     "dp_jit_vectorcall_run_compiled",
     &[
@@ -355,13 +368,22 @@ pub struct RenderedSpecializedClif {
 struct CompiledSpecializedRunner {
     _jit_module: JITModule,
     _literal_pool: Vec<Box<[u8]>>,
-    entry: Option<extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr>,
+    entry: Option<CompiledRunnerEntry>,
 }
 
 pub type VectorcallEntryFn = unsafe extern "C" fn(ObjPtr, *const ObjPtr, usize, ObjPtr) -> ObjPtr;
 
 struct CompiledVectorcallRunner {
     _jit_module: JITModule,
+}
+
+#[derive(Clone, Copy)]
+enum CompiledRunnerEntry {
+    Tuple(unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr),
+    Direct {
+        code_ptr: *const u8,
+        param_count: usize,
+    },
 }
 
 fn direct_simple_expr_is_borrowable(
@@ -3195,8 +3217,17 @@ fn build_cranelift_run_bb_specialized_function(
 
     let mut main_sig = jit_module.make_signature();
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
-    main_sig.params.push(ir::AbiParam::new(ptr_ty));
-    main_sig.params.push(ir::AbiParam::new(ptr_ty));
+    match entry_args_layout {
+        EntryArgsLayout::StateTuple | EntryArgsLayout::ParamTuple => {
+            main_sig.params.push(ir::AbiParam::new(ptr_ty));
+            main_sig.params.push(ir::AbiParam::new(ptr_ty));
+        }
+        EntryArgsLayout::DirectArgs => {
+            for _ in &plan.entry_param_names {
+                main_sig.params.push(ir::AbiParam::new(ptr_ty));
+            }
+        }
+    }
     main_sig.returns.push(ir::AbiParam::new(ptr_ty));
 
     let main_id = declare_local_fn(jit_module, "dp_jit_run_bb_specialized", &main_sig)?;
@@ -3234,9 +3265,24 @@ fn build_cranelift_run_bb_specialized_function(
         fb.append_block_param(raise_exc_direct_block, ptr_ty); // exc
 
         fb.switch_to_block(entry_block);
-        let callable = fb.block_params(entry_block)[0];
-        let entry_args = fb.block_params(entry_block)[1];
-        let ambient_args = fb.block_params(entry_block)[2];
+        let entry_block_params = fb.block_params(entry_block).to_vec();
+        let callable = entry_block_params[0];
+        let entry_args = match entry_args_layout {
+            EntryArgsLayout::StateTuple | EntryArgsLayout::ParamTuple => {
+                Some(entry_block_params[1])
+            }
+            EntryArgsLayout::DirectArgs => None,
+        };
+        let ambient_args = match entry_args_layout {
+            EntryArgsLayout::StateTuple | EntryArgsLayout::ParamTuple => {
+                Some(entry_block_params[2])
+            }
+            EntryArgsLayout::DirectArgs => None,
+        };
+        let direct_entry_args = match entry_args_layout {
+            EntryArgsLayout::DirectArgs => entry_block_params[1..].to_vec(),
+            EntryArgsLayout::StateTuple | EntryArgsLayout::ParamTuple => Vec::new(),
+        };
         let mut func_imports = FuncBuildImports::new(&mut module_imports);
         let incref_ref = func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_INCREF_IMPORT);
         let decref_ref = func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_DECREF_IMPORT);
@@ -3313,6 +3359,8 @@ fn build_cranelift_run_bb_specialized_function(
 
         let null_ptr = fb.ins().iconst(ptr_ty, 0);
         if matches!(entry_args_layout, EntryArgsLayout::StateTuple) {
+            let ambient_args = ambient_args.expect("state tuple entry should carry ambient args");
+            let entry_args = entry_args.expect("state tuple entry should carry entry args");
             for (param_index, param_name) in plan.ambient_param_names.iter().enumerate() {
                 let index_val = fb.ins().iconst(i64_ty, param_index as i64);
                 let item_inst = fb.ins().call(get_arg_item_ref, &[ambient_args, index_val]);
@@ -3341,6 +3389,7 @@ fn build_cranelift_run_bb_specialized_function(
         }
         match entry_args_layout {
             EntryArgsLayout::ParamTuple => {
+                let entry_args = entry_args.expect("param tuple entry should carry entry args");
                 for (param_index, param_name) in plan.entry_param_names.iter().enumerate() {
                     let index_val = fb.ins().iconst(i64_ty, param_index as i64);
                     let item_inst = fb.ins().call(get_arg_item_ref, &[entry_args, index_val]);
@@ -3368,6 +3417,7 @@ fn build_cranelift_run_bb_specialized_function(
                 }
             }
             EntryArgsLayout::StateTuple => {
+                let entry_args = entry_args.expect("state tuple entry should carry entry args");
                 for (param_index, param_name) in plan.blocks[0].param_names.iter().enumerate() {
                     if plan
                         .ambient_param_names
@@ -3399,6 +3449,22 @@ fn build_cranelift_run_bb_specialized_function(
                         )
                         .expect("entry slot missing from function state slots");
                     fb.ins().call(decref_ref, &[value]);
+                }
+            }
+            EntryArgsLayout::DirectArgs => {
+                assert_eq!(
+                    direct_entry_args.len(),
+                    plan.entry_param_names.len(),
+                    "direct JIT entry arity does not match entry_param_names",
+                );
+                for (param_name, value) in
+                    plan.entry_param_names.iter().zip(direct_entry_args.iter())
+                {
+                    function_state_slots
+                        .replace_cloned_value(
+                            &mut fb, param_name, *value, ptr_ty, incref_ref, decref_ref,
+                        )
+                        .expect("entry slot missing from function state slots");
                 }
             }
         }
@@ -4267,9 +4333,34 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
         .finalize_definitions()
         .map_err(|err| format!("failed to finalize specialized jit run_bb function: {err}"))?;
     let code_ptr = compiled._jit_module.get_finalized_function(main_id);
-    compiled.entry = Some(std::mem::transmute(code_ptr));
+    compiled.entry = Some(match entry_args_layout {
+        EntryArgsLayout::StateTuple | EntryArgsLayout::ParamTuple => {
+            CompiledRunnerEntry::Tuple(std::mem::transmute(code_ptr))
+        }
+        EntryArgsLayout::DirectArgs => CompiledRunnerEntry::Direct {
+            code_ptr,
+            param_count: plan.entry_param_names.len(),
+        },
+    });
     compiled._literal_pool = literal_pool;
     Ok(Box::into_raw(compiled) as ObjPtr)
+}
+
+fn compiled_direct_runner_info(compiled_handle: ObjPtr) -> Result<(*const u8, usize), String> {
+    if compiled_handle.is_null() {
+        return Err("invalid null compiled handle for direct vectorcall trampoline".to_string());
+    }
+    let compiled = unsafe { &*(compiled_handle as *const CompiledSpecializedRunner) };
+    match compiled.entry {
+        Some(CompiledRunnerEntry::Direct {
+            code_ptr,
+            param_count,
+        }) => Ok((code_ptr, param_count)),
+        Some(CompiledRunnerEntry::Tuple(_)) => {
+            Err("compiled handle does not expose a direct entry ABI".to_string())
+        }
+        None => Err("invalid compiled handle without entrypoint".to_string()),
+    }
 }
 
 pub unsafe fn compile_cranelift_vectorcall_trampoline(
@@ -4396,6 +4487,165 @@ pub unsafe fn compile_cranelift_vectorcall_trampoline(
     Ok((Box::into_raw(compiled) as ObjPtr, entry))
 }
 
+pub unsafe fn compile_cranelift_vectorcall_direct_trampoline(
+    bind_direct_args_fn: unsafe extern "C" fn(
+        ObjPtr,
+        *const ObjPtr,
+        usize,
+        ObjPtr,
+        ObjPtr,
+        *mut ObjPtr,
+        i64,
+    ) -> i32,
+    data_ptr: ObjPtr,
+    compiled_handle: ObjPtr,
+) -> Result<(ObjPtr, VectorcallEntryFn), String> {
+    if data_ptr.is_null() {
+        return Err("invalid null vectorcall data pointer".to_string());
+    }
+    let (direct_code_ptr, param_count) = compiled_direct_runner_info(compiled_handle)?;
+
+    let mut builder = new_jit_builder()?;
+    builder.symbol(
+        "dp_jit_vectorcall_bind_direct_args",
+        bind_direct_args_fn as *const u8,
+    );
+    builder.symbol("dp_jit_decref", dp_jit_decref as *const u8);
+    let mut jit_module = JITModule::new(builder);
+    let ptr_ty = jit_module.target_config().pointer_type();
+    let i64_ty = ir::types::I64;
+    let mut module_imports = ModuleFuncImports::new();
+
+    let mut main_sig = jit_module.make_signature();
+    main_sig.params.push(ir::AbiParam::new(ptr_ty));
+    main_sig.params.push(ir::AbiParam::new(ptr_ty));
+    main_sig.params.push(ir::AbiParam::new(ptr_ty));
+    main_sig.params.push(ir::AbiParam::new(ptr_ty));
+    main_sig.returns.push(ir::AbiParam::new(ptr_ty));
+
+    let main_id = declare_local_fn(
+        &mut jit_module,
+        "dp_jit_vectorcall_direct_trampoline",
+        &main_sig,
+    )?;
+
+    let mut direct_sig = jit_module.make_signature();
+    direct_sig.params.push(ir::AbiParam::new(ptr_ty));
+    for _ in 0..param_count {
+        direct_sig.params.push(ir::AbiParam::new(ptr_ty));
+    }
+    direct_sig.returns.push(ir::AbiParam::new(ptr_ty));
+
+    let mut ctx = jit_module.make_context();
+    ctx.func.signature = main_sig;
+    let mut builder_ctx = FunctionBuilderContext::new();
+    {
+        let mut fb = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
+        let entry = fb.create_block();
+        fb.append_block_params_for_function_params(entry);
+        fb.switch_to_block(entry);
+        fb.seal_block(entry);
+
+        let callable_val = fb.block_params(entry)[0];
+        let args_val = fb.block_params(entry)[1];
+        let nargsf_val = fb.block_params(entry)[2];
+        let kwnames_val = fb.block_params(entry)[3];
+
+        let mut func_imports = FuncBuildImports::new(&mut module_imports);
+        let bind_ref = func_imports.get_or_panic(
+            &mut jit_module,
+            &mut fb.func,
+            &DP_JIT_VECTORCALL_BIND_DIRECT_ARGS_IMPORT,
+        );
+        let decref_ref =
+            func_imports.get_or_panic(&mut jit_module, &mut fb.func, &DP_JIT_DECREF_IMPORT);
+
+        let data_const = fb.ins().iconst(ptr_ty, data_ptr as i64);
+        let null_ptr = fb.ins().iconst(ptr_ty, 0);
+        let bound_args_slot = if param_count == 0 {
+            None
+        } else {
+            Some(fb.create_sized_stack_slot(ir::StackSlotData::new(
+                ir::StackSlotKind::ExplicitSlot,
+                (param_count * std::mem::size_of::<u64>()) as u32,
+                0,
+            )))
+        };
+        let bound_args_ptr = if let Some(slot) = bound_args_slot {
+            fb.ins().stack_addr(ptr_ty, slot, 0)
+        } else {
+            null_ptr
+        };
+        let out_len = fb.ins().iconst(i64_ty, param_count as i64);
+        let bind_inst = fb.ins().call(
+            bind_ref,
+            &[
+                callable_val,
+                args_val,
+                nargsf_val,
+                kwnames_val,
+                data_const,
+                bound_args_ptr,
+                out_len,
+            ],
+        );
+        let bind_ok = fb.inst_results(bind_inst)[0];
+        let bind_failed = fb.ins().icmp_imm(ir::condcodes::IntCC::Equal, bind_ok, 0);
+        let fail_block = fb.create_block();
+        let ok_block = fb.create_block();
+        fb.ins().brif(bind_failed, fail_block, &[], ok_block, &[]);
+        fb.seal_block(fail_block);
+        fb.seal_block(ok_block);
+
+        fb.switch_to_block(fail_block);
+        fb.ins().return_(&[null_ptr]);
+
+        fb.switch_to_block(ok_block);
+        let direct_sig_ref = fb.import_signature(direct_sig);
+        let mut call_args = Vec::with_capacity(param_count + 1);
+        call_args.push(callable_val);
+        let mut owned_args = Vec::with_capacity(param_count);
+        if let Some(slot) = bound_args_slot {
+            for index in 0..param_count {
+                let value =
+                    fb.ins()
+                        .stack_load(ptr_ty, slot, (index * std::mem::size_of::<u64>()) as i32);
+                owned_args.push(value);
+                call_args.push(value);
+            }
+        }
+        let callee_ptr = fb.ins().iconst(ptr_ty, direct_code_ptr as i64);
+        let call_inst = fb
+            .ins()
+            .call_indirect(direct_sig_ref, callee_ptr, &call_args);
+        let result = fb.inst_results(call_inst)[0];
+        for value in owned_args {
+            fb.ins().call(decref_ref, &[value]);
+        }
+        fb.ins().return_(&[result]);
+        fb.seal_all_blocks();
+        fb.finalize();
+    }
+
+    define_function_with_incremental_cache(
+        &mut jit_module,
+        main_id,
+        &mut ctx,
+        "failed to define direct vectorcall trampoline",
+    )?;
+    jit_module.clear_context(&mut ctx);
+    jit_module
+        .finalize_definitions()
+        .map_err(|err| format!("failed to finalize direct vectorcall trampoline: {err}"))?;
+
+    let code_ptr = jit_module.get_finalized_function(main_id);
+    let entry: VectorcallEntryFn = std::mem::transmute(code_ptr);
+    let compiled = Box::new(CompiledVectorcallRunner {
+        _jit_module: jit_module,
+    });
+    Ok((Box::into_raw(compiled) as ObjPtr, entry))
+}
+
 pub unsafe fn run_cranelift_run_bb_specialized_cached(
     compiled_handle: ObjPtr,
     callable: ObjPtr,
@@ -4420,7 +4670,12 @@ pub unsafe fn run_cranelift_run_bb_specialized_cached(
     let Some(entry) = compiled.entry else {
         return Err("invalid compiled handle without entrypoint".to_string());
     };
-    Ok(entry(callable, args, ambient_args))
+    match entry {
+        CompiledRunnerEntry::Tuple(entry) => Ok(entry(callable, args, ambient_args)),
+        CompiledRunnerEntry::Direct { .. } => Err(
+            "direct compiled handle cannot be executed through tuple-based run helper".to_string(),
+        ),
+    }
 }
 
 pub unsafe fn free_cranelift_vectorcall_trampoline(compiled_handle: ObjPtr) {
