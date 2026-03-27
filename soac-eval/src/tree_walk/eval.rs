@@ -407,7 +407,6 @@ unsafe fn ensure_clif_vectorcall_compiled(
         data.compiled_handle = match jit::compile_cranelift_run_bb_specialized_cached(
             block_ptrs.as_slice(),
             &data.plan,
-            jit::EntryArgsLayout::DirectArgs,
             globals_obj as *mut c_void,
             data.true_obj as *mut c_void,
             data.false_obj as *mut c_void,

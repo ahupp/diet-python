@@ -47,12 +47,6 @@ struct GlobalIncrementalCacheStore<'a> {
     map: &'a Mutex<HashMap<Vec<u8>, Vec<u8>>>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum EntryArgsLayout {
-    StateTuple,
-    DirectArgs,
-}
-
 #[derive(Clone, Copy, Debug)]
 enum SigType {
     Pointer,
@@ -127,11 +121,6 @@ static DP_JIT_PY_CALL_WITH_KW_IMPORT: ImportSpec = ImportSpec::new(
 );
 static DP_JIT_GET_RAISED_EXCEPTION_IMPORT: ImportSpec =
     ImportSpec::new("dp_jit_get_raised_exception", &[], &[SigType::Pointer]);
-static DP_JIT_GET_ARG_ITEM_IMPORT: ImportSpec = ImportSpec::new(
-    "dp_jit_get_arg_item",
-    &[SigType::Pointer, SigType::I64],
-    &[SigType::Pointer],
-);
 static DP_JIT_MAKE_INT_IMPORT: ImportSpec =
     ImportSpec::new("dp_jit_make_int", &[SigType::I64], &[SigType::Pointer]);
 static DP_JIT_MAKE_FLOAT_IMPORT: ImportSpec =
@@ -239,17 +228,6 @@ static DP_JIT_RAISE_FROM_EXC_IMPORT: ImportSpec = ImportSpec::new(
     &[SigType::Pointer],
     &[SigType::I32],
 );
-static DP_JIT_VECTORCALL_BUILD_BB_ARGS_IMPORT: ImportSpec = ImportSpec::new(
-    "dp_jit_vectorcall_build_bb_args",
-    &[
-        SigType::Pointer,
-        SigType::Pointer,
-        SigType::Pointer,
-        SigType::Pointer,
-        SigType::Pointer,
-    ],
-    &[SigType::Pointer],
-);
 static DP_JIT_VECTORCALL_BIND_DIRECT_ARGS_IMPORT: ImportSpec = ImportSpec::new(
     "dp_jit_vectorcall_bind_direct_args",
     &[
@@ -263,17 +241,6 @@ static DP_JIT_VECTORCALL_BIND_DIRECT_ARGS_IMPORT: ImportSpec = ImportSpec::new(
     ],
     &[SigType::I32],
 );
-static DP_JIT_VECTORCALL_RUN_COMPILED_IMPORT: ImportSpec = ImportSpec::new(
-    "dp_jit_vectorcall_run_compiled",
-    &[
-        SigType::Pointer,
-        SigType::Pointer,
-        SigType::Pointer,
-        SigType::Pointer,
-    ],
-    &[SigType::Pointer],
-);
-
 struct ModuleFuncImports {
     func_ids_by_internal_id: Vec<Option<FuncId>>,
     import_id_to_symbol: HashMap<u32, &'static str>,
@@ -393,7 +360,6 @@ struct CompiledVectorcallRunner {
 
 #[derive(Clone, Copy)]
 enum CompiledRunnerEntry {
-    Tuple(unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr),
     Direct {
         code_ptr: *const u8,
         param_count: usize,
@@ -586,7 +552,6 @@ struct DirectSimpleEmitConsts {
 }
 
 struct DirectSimpleEmitCtx {
-    entry_args_layout: EntryArgsLayout,
     owned_cell_slot_names: Vec<String>,
     incref_ref: ir::FuncRef,
     decref_ref: ir::FuncRef,
@@ -3207,7 +3172,6 @@ fn build_cranelift_run_bb_specialized_function(
     jit_module: &mut JITModule,
     blocks: &[ObjPtr],
     plan: &ClifPlan,
-    entry_args_layout: EntryArgsLayout,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
@@ -3252,16 +3216,8 @@ fn build_cranelift_run_bb_specialized_function(
 
     let mut main_sig = jit_module.make_signature();
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
-    match entry_args_layout {
-        EntryArgsLayout::StateTuple => {
-            main_sig.params.push(ir::AbiParam::new(ptr_ty));
-            main_sig.params.push(ir::AbiParam::new(ptr_ty));
-        }
-        EntryArgsLayout::DirectArgs => {
-            for _ in &plan.entry_param_names {
-                main_sig.params.push(ir::AbiParam::new(ptr_ty));
-            }
-        }
+    for _ in &plan.entry_param_names {
+        main_sig.params.push(ir::AbiParam::new(ptr_ty));
     }
     main_sig.returns.push(ir::AbiParam::new(ptr_ty));
 
@@ -3302,18 +3258,7 @@ fn build_cranelift_run_bb_specialized_function(
         fb.switch_to_block(entry_block);
         let entry_block_params = fb.block_params(entry_block).to_vec();
         let callable = entry_block_params[0];
-        let entry_args = match entry_args_layout {
-            EntryArgsLayout::StateTuple => Some(entry_block_params[1]),
-            EntryArgsLayout::DirectArgs => None,
-        };
-        let ambient_args = match entry_args_layout {
-            EntryArgsLayout::StateTuple => Some(entry_block_params[2]),
-            EntryArgsLayout::DirectArgs => None,
-        };
-        let direct_entry_args = match entry_args_layout {
-            EntryArgsLayout::DirectArgs => entry_block_params[1..].to_vec(),
-            EntryArgsLayout::StateTuple => Vec::new(),
-        };
+        let direct_entry_args = entry_block_params[1..].to_vec();
         let mut func_imports = FuncBuildImports::new(&mut module_imports);
         let incref_ref = func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_INCREF_IMPORT);
         let decref_ref = func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_DECREF_IMPORT);
@@ -3331,8 +3276,6 @@ fn build_cranelift_run_bb_specialized_function(
             &mut fb.func,
             &DP_JIT_GET_RAISED_EXCEPTION_IMPORT,
         );
-        let get_arg_item_ref =
-            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_GET_ARG_ITEM_IMPORT);
         let make_int_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_MAKE_INT_IMPORT);
         let is_true_ref =
@@ -3399,221 +3342,146 @@ fn build_cranelift_run_bb_specialized_function(
         function_state_slots.initialize_all_to_value(&mut fb, entry_deleted_const, incref_ref);
 
         let null_ptr = fb.ins().iconst(ptr_ty, 0);
-        let entry_failure_block = if matches!(entry_args_layout, EntryArgsLayout::DirectArgs) {
-            cleanup_null_blocks[0]
-        } else {
-            step_null_block
-        };
-        let entry_failure_args = match entry_args {
-            Some(value) => vec![ir::BlockArg::Value(value)],
-            None => Vec::new(),
-        };
-        if matches!(entry_args_layout, EntryArgsLayout::StateTuple) {
-            let ambient_args = ambient_args.expect("state tuple entry should carry ambient args");
-            for (param_index, param_name) in plan.ambient_param_names.iter().enumerate() {
-                let index_val = fb.ins().iconst(i64_ty, param_index as i64);
-                let item_inst = fb.ins().call(get_arg_item_ref, &[ambient_args, index_val]);
-                let item_val = fb.inst_results(item_inst)[0];
-                let is_null = fb
-                    .ins()
-                    .icmp(ir::condcodes::IntCC::Equal, item_val, null_ptr);
-                let ok_block = fb.create_block();
-                fb.append_block_param(ok_block, ptr_ty);
-                fb.ins().brif(
-                    is_null,
-                    entry_failure_block,
-                    &entry_failure_args,
-                    ok_block,
-                    &[ir::BlockArg::Value(item_val)],
-                );
-                fb.switch_to_block(ok_block);
-                let value = fb.block_params(ok_block)[0];
-                function_state_slots
-                    .replace_cloned_value(
-                        &mut fb, param_name, value, ptr_ty, incref_ref, decref_ref,
-                    )
-                    .expect("ambient slot missing from function state slots");
-                fb.ins().call(decref_ref, &[value]);
-            }
-        }
-        match entry_args_layout {
-            EntryArgsLayout::StateTuple => {
-                let entry_args = entry_args.expect("state tuple entry should carry entry args");
-                for (param_index, param_name) in plan.blocks[0].param_names.iter().enumerate() {
-                    if plan
-                        .ambient_param_names
-                        .iter()
-                        .any(|ambient| ambient == param_name)
-                    {
-                        continue;
-                    }
-                    let index_val = fb.ins().iconst(i64_ty, param_index as i64);
-                    let item_inst = fb.ins().call(get_arg_item_ref, &[entry_args, index_val]);
-                    let item_val = fb.inst_results(item_inst)[0];
-                    let is_null = fb
-                        .ins()
-                        .icmp(ir::condcodes::IntCC::Equal, item_val, null_ptr);
-                    let ok_block = fb.create_block();
-                    fb.append_block_param(ok_block, ptr_ty);
+        let entry_failure_block = cleanup_null_blocks[0];
+        let entry_failure_args = Vec::new();
+        assert_eq!(
+            direct_entry_args.len(),
+            plan.entry_param_names.len(),
+            "direct JIT entry arity does not match entry_param_names",
+        );
+        assert_eq!(
+            plan.entry_param_names.len(),
+            plan.entry_param_default_sources.len(),
+            "direct JIT entry default metadata does not match entry params",
+        );
+        for ((param_name, default_source), value) in plan
+            .entry_param_names
+            .iter()
+            .zip(plan.entry_param_default_sources.iter())
+            .zip(direct_entry_args.iter())
+        {
+            match default_source {
+                Some(ClifEntryParamDefaultSource::Positional(default_index)) => {
+                    let arg_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, *value, null_ptr);
+                    let use_default_block = fb.create_block();
+                    let use_arg_block = fb.create_block();
+                    let after_block = fb.create_block();
+                    fb.ins()
+                        .brif(arg_is_null, use_default_block, &[], use_arg_block, &[]);
+
+                    fb.switch_to_block(use_default_block);
+                    let (name_ptr, name_len) =
+                        intern_bytes_literal(&mut literal_pool, param_name.as_bytes());
+                    let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
+                    let name_len_val = fb.ins().iconst(i64_ty, name_len);
+                    let default_index_val = fb.ins().iconst(i64_ty, *default_index as i64);
+                    let default_inst = fb.ins().call(
+                        function_positional_default_ref,
+                        &[callable, name_ptr_val, name_len_val, default_index_val],
+                    );
+                    let default_value = fb.inst_results(default_inst)[0];
+                    let default_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, default_value, null_ptr);
+                    let default_ok_block = fb.create_block();
+                    fb.append_block_param(default_ok_block, ptr_ty);
                     fb.ins().brif(
-                        is_null,
+                        default_is_null,
                         entry_failure_block,
                         &entry_failure_args,
-                        ok_block,
-                        &[ir::BlockArg::Value(item_val)],
+                        default_ok_block,
+                        &[ir::BlockArg::Value(default_value)],
                     );
-                    fb.switch_to_block(ok_block);
-                    let value = fb.block_params(ok_block)[0];
+                    fb.switch_to_block(default_ok_block);
+                    let default_value = fb.block_params(default_ok_block)[0];
                     function_state_slots
                         .replace_cloned_value(
-                            &mut fb, param_name, value, ptr_ty, incref_ref, decref_ref,
+                            &mut fb,
+                            param_name,
+                            default_value,
+                            ptr_ty,
+                            incref_ref,
+                            decref_ref,
                         )
                         .expect("entry slot missing from function state slots");
-                    fb.ins().call(decref_ref, &[value]);
+                    fb.ins().call(decref_ref, &[default_value]);
+                    fb.ins().jump(after_block, &[]);
+
+                    fb.switch_to_block(use_arg_block);
+                    function_state_slots
+                        .replace_cloned_value(
+                            &mut fb, param_name, *value, ptr_ty, incref_ref, decref_ref,
+                        )
+                        .expect("entry slot missing from function state slots");
+                    fb.ins().jump(after_block, &[]);
+
+                    fb.switch_to_block(after_block);
                 }
-            }
-            EntryArgsLayout::DirectArgs => {
-                assert_eq!(
-                    direct_entry_args.len(),
-                    plan.entry_param_names.len(),
-                    "direct JIT entry arity does not match entry_param_names",
-                );
-                assert_eq!(
-                    plan.entry_param_names.len(),
-                    plan.entry_param_default_sources.len(),
-                    "direct JIT entry default metadata does not match entry params",
-                );
-                for ((param_name, default_source), value) in plan
-                    .entry_param_names
-                    .iter()
-                    .zip(plan.entry_param_default_sources.iter())
-                    .zip(direct_entry_args.iter())
-                {
-                    match default_source {
-                        Some(ClifEntryParamDefaultSource::Positional(default_index)) => {
-                            let arg_is_null =
-                                fb.ins().icmp(ir::condcodes::IntCC::Equal, *value, null_ptr);
-                            let use_default_block = fb.create_block();
-                            let use_arg_block = fb.create_block();
-                            let after_block = fb.create_block();
-                            fb.ins()
-                                .brif(arg_is_null, use_default_block, &[], use_arg_block, &[]);
+                Some(ClifEntryParamDefaultSource::KeywordOnly(default_name)) => {
+                    let arg_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, *value, null_ptr);
+                    let use_default_block = fb.create_block();
+                    let use_arg_block = fb.create_block();
+                    let after_block = fb.create_block();
+                    fb.ins()
+                        .brif(arg_is_null, use_default_block, &[], use_arg_block, &[]);
 
-                            fb.switch_to_block(use_default_block);
-                            let (name_ptr, name_len) =
-                                intern_bytes_literal(&mut literal_pool, param_name.as_bytes());
-                            let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
-                            let name_len_val = fb.ins().iconst(i64_ty, name_len);
-                            let default_index_val = fb.ins().iconst(i64_ty, *default_index as i64);
-                            let default_inst = fb.ins().call(
-                                function_positional_default_ref,
-                                &[callable, name_ptr_val, name_len_val, default_index_val],
-                            );
-                            let default_value = fb.inst_results(default_inst)[0];
-                            let default_is_null =
-                                fb.ins()
-                                    .icmp(ir::condcodes::IntCC::Equal, default_value, null_ptr);
-                            let default_ok_block = fb.create_block();
-                            fb.append_block_param(default_ok_block, ptr_ty);
-                            fb.ins().brif(
-                                default_is_null,
-                                entry_failure_block,
-                                &entry_failure_args,
-                                default_ok_block,
-                                &[ir::BlockArg::Value(default_value)],
-                            );
-                            fb.switch_to_block(default_ok_block);
-                            let default_value = fb.block_params(default_ok_block)[0];
-                            function_state_slots
-                                .replace_cloned_value(
-                                    &mut fb,
-                                    param_name,
-                                    default_value,
-                                    ptr_ty,
-                                    incref_ref,
-                                    decref_ref,
-                                )
-                                .expect("entry slot missing from function state slots");
-                            fb.ins().call(decref_ref, &[default_value]);
-                            fb.ins().jump(after_block, &[]);
+                    fb.switch_to_block(use_default_block);
+                    let (name_ptr, name_len) =
+                        intern_bytes_literal(&mut literal_pool, default_name.as_bytes());
+                    let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
+                    let name_len_val = fb.ins().iconst(i64_ty, name_len);
+                    let default_inst = fb.ins().call(
+                        function_kwonly_default_ref,
+                        &[callable, name_ptr_val, name_len_val],
+                    );
+                    let default_value = fb.inst_results(default_inst)[0];
+                    let default_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, default_value, null_ptr);
+                    let default_ok_block = fb.create_block();
+                    fb.append_block_param(default_ok_block, ptr_ty);
+                    fb.ins().brif(
+                        default_is_null,
+                        entry_failure_block,
+                        &entry_failure_args,
+                        default_ok_block,
+                        &[ir::BlockArg::Value(default_value)],
+                    );
+                    fb.switch_to_block(default_ok_block);
+                    let default_value = fb.block_params(default_ok_block)[0];
+                    function_state_slots
+                        .replace_cloned_value(
+                            &mut fb,
+                            param_name,
+                            default_value,
+                            ptr_ty,
+                            incref_ref,
+                            decref_ref,
+                        )
+                        .expect("entry slot missing from function state slots");
+                    fb.ins().call(decref_ref, &[default_value]);
+                    fb.ins().jump(after_block, &[]);
 
-                            fb.switch_to_block(use_arg_block);
-                            function_state_slots
-                                .replace_cloned_value(
-                                    &mut fb, param_name, *value, ptr_ty, incref_ref, decref_ref,
-                                )
-                                .expect("entry slot missing from function state slots");
-                            fb.ins().jump(after_block, &[]);
+                    fb.switch_to_block(use_arg_block);
+                    function_state_slots
+                        .replace_cloned_value(
+                            &mut fb, param_name, *value, ptr_ty, incref_ref, decref_ref,
+                        )
+                        .expect("entry slot missing from function state slots");
+                    fb.ins().jump(after_block, &[]);
 
-                            fb.switch_to_block(after_block);
-                        }
-                        Some(ClifEntryParamDefaultSource::KeywordOnly(default_name)) => {
-                            let arg_is_null =
-                                fb.ins().icmp(ir::condcodes::IntCC::Equal, *value, null_ptr);
-                            let use_default_block = fb.create_block();
-                            let use_arg_block = fb.create_block();
-                            let after_block = fb.create_block();
-                            fb.ins()
-                                .brif(arg_is_null, use_default_block, &[], use_arg_block, &[]);
-
-                            fb.switch_to_block(use_default_block);
-                            let (name_ptr, name_len) =
-                                intern_bytes_literal(&mut literal_pool, default_name.as_bytes());
-                            let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
-                            let name_len_val = fb.ins().iconst(i64_ty, name_len);
-                            let default_inst = fb.ins().call(
-                                function_kwonly_default_ref,
-                                &[callable, name_ptr_val, name_len_val],
-                            );
-                            let default_value = fb.inst_results(default_inst)[0];
-                            let default_is_null =
-                                fb.ins()
-                                    .icmp(ir::condcodes::IntCC::Equal, default_value, null_ptr);
-                            let default_ok_block = fb.create_block();
-                            fb.append_block_param(default_ok_block, ptr_ty);
-                            fb.ins().brif(
-                                default_is_null,
-                                entry_failure_block,
-                                &entry_failure_args,
-                                default_ok_block,
-                                &[ir::BlockArg::Value(default_value)],
-                            );
-                            fb.switch_to_block(default_ok_block);
-                            let default_value = fb.block_params(default_ok_block)[0];
-                            function_state_slots
-                                .replace_cloned_value(
-                                    &mut fb,
-                                    param_name,
-                                    default_value,
-                                    ptr_ty,
-                                    incref_ref,
-                                    decref_ref,
-                                )
-                                .expect("entry slot missing from function state slots");
-                            fb.ins().call(decref_ref, &[default_value]);
-                            fb.ins().jump(after_block, &[]);
-
-                            fb.switch_to_block(use_arg_block);
-                            function_state_slots
-                                .replace_cloned_value(
-                                    &mut fb, param_name, *value, ptr_ty, incref_ref, decref_ref,
-                                )
-                                .expect("entry slot missing from function state slots");
-                            fb.ins().jump(after_block, &[]);
-
-                            fb.switch_to_block(after_block);
-                        }
-                        None => {
-                            function_state_slots
-                                .replace_cloned_value(
-                                    &mut fb, param_name, *value, ptr_ty, incref_ref, decref_ref,
-                                )
-                                .expect("entry slot missing from function state slots");
-                        }
-                    }
+                    fb.switch_to_block(after_block);
+                }
+                None => {
+                    function_state_slots
+                        .replace_cloned_value(
+                            &mut fb, param_name, *value, ptr_ty, incref_ref, decref_ref,
+                        )
+                        .expect("entry slot missing from function state slots");
                 }
             }
         }
+
         let mut entry_jump_args = Vec::with_capacity(runtime_block_param_names[0].len());
         for param_name in &runtime_block_param_names[0] {
             let value = load_function_state_value(
@@ -3666,7 +3534,6 @@ fn build_cranelift_run_bb_specialized_function(
                 exception_dispatch_blocks[index].unwrap_or(cleanup_null_blocks[index]);
             let fast_step_null_args = Vec::new();
             let emit_ctx = DirectSimpleEmitCtx {
-                entry_args_layout,
                 owned_cell_slot_names: plan.owned_cell_slot_names.clone(),
                 incref_ref,
                 decref_ref,
@@ -4355,7 +4222,6 @@ fn build_cranelift_run_bb_specialized_function(
 pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     blocks: &[ObjPtr],
     plan: &ClifPlan,
-    entry_args_layout: EntryArgsLayout,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
     deleted_obj: ObjPtr,
@@ -4372,7 +4238,6 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
         &mut jit_module,
         blocks,
         plan,
-        entry_args_layout,
         ptr::null_mut(),
         true_obj,
         false_obj,
@@ -4437,7 +4302,6 @@ fn render_compiled_clif_and_vcode_disasm(
 pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     blocks: &[ObjPtr],
     plan: &ClifPlan,
-    entry_args_layout: EntryArgsLayout,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
@@ -4460,7 +4324,6 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
             &mut compiled._jit_module,
             blocks,
             plan,
-            entry_args_layout,
             globals_obj,
             true_obj,
             false_obj,
@@ -4480,12 +4343,9 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
         .finalize_definitions()
         .map_err(|err| format!("failed to finalize specialized jit run_bb function: {err}"))?;
     let code_ptr = compiled._jit_module.get_finalized_function(main_id);
-    compiled.entry = Some(match entry_args_layout {
-        EntryArgsLayout::StateTuple => CompiledRunnerEntry::Tuple(std::mem::transmute(code_ptr)),
-        EntryArgsLayout::DirectArgs => CompiledRunnerEntry::Direct {
-            code_ptr,
-            param_count: plan.entry_param_names.len(),
-        },
+    compiled.entry = Some(CompiledRunnerEntry::Direct {
+        code_ptr,
+        param_count: plan.entry_param_names.len(),
     });
     compiled._literal_pool = literal_pool;
     Ok(Box::into_raw(compiled) as ObjPtr)
@@ -4501,135 +4361,8 @@ fn compiled_direct_runner_info(compiled_handle: ObjPtr) -> Result<(*const u8, us
             code_ptr,
             param_count,
         }) => Ok((code_ptr, param_count)),
-        Some(CompiledRunnerEntry::Tuple(_)) => {
-            Err("compiled handle does not expose a direct entry ABI".to_string())
-        }
         None => Err("invalid compiled handle without entrypoint".to_string()),
     }
-}
-
-pub unsafe fn compile_cranelift_vectorcall_trampoline(
-    build_bb_args_fn: unsafe extern "C" fn(ObjPtr, *const ObjPtr, usize, ObjPtr, ObjPtr) -> ObjPtr,
-    run_compiled_fn: unsafe extern "C" fn(ObjPtr, ObjPtr, ObjPtr, ObjPtr) -> ObjPtr,
-    data_ptr: ObjPtr,
-    compiled_handle: ObjPtr,
-) -> Result<(ObjPtr, VectorcallEntryFn), String> {
-    if data_ptr.is_null() {
-        return Err("invalid null vectorcall data pointer".to_string());
-    }
-    if compiled_handle.is_null() {
-        return Err("invalid null compiled handle for vectorcall trampoline".to_string());
-    }
-
-    let mut builder = new_jit_builder()?;
-    builder.symbol(
-        "dp_jit_vectorcall_build_bb_args",
-        build_bb_args_fn as *const u8,
-    );
-    builder.symbol(
-        "dp_jit_vectorcall_run_compiled",
-        run_compiled_fn as *const u8,
-    );
-    builder.symbol("dp_jit_decref", dp_jit_decref as *const u8);
-    let mut jit_module = JITModule::new(builder);
-    let ptr_ty = jit_module.target_config().pointer_type();
-    let mut module_imports = ModuleFuncImports::new();
-
-    let mut main_sig = jit_module.make_signature();
-    main_sig.params.push(ir::AbiParam::new(ptr_ty));
-    main_sig.params.push(ir::AbiParam::new(ptr_ty));
-    main_sig.params.push(ir::AbiParam::new(ptr_ty));
-    main_sig.params.push(ir::AbiParam::new(ptr_ty));
-    main_sig.returns.push(ir::AbiParam::new(ptr_ty));
-
-    let main_id = declare_local_fn(&mut jit_module, "dp_jit_vectorcall_trampoline", &main_sig)?;
-
-    let mut ctx = jit_module.make_context();
-    ctx.func.signature = main_sig;
-    let mut builder_ctx = FunctionBuilderContext::new();
-    {
-        let mut fb = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
-        let entry = fb.create_block();
-        fb.append_block_params_for_function_params(entry);
-        fb.switch_to_block(entry);
-        fb.seal_block(entry);
-
-        let callable_val = fb.block_params(entry)[0];
-        let args_val = fb.block_params(entry)[1];
-        let nargsf_val = fb.block_params(entry)[2];
-        let kwnames_val = fb.block_params(entry)[3];
-
-        let mut func_imports = FuncBuildImports::new(&mut module_imports);
-        let build_ref = func_imports.get_or_panic(
-            &mut jit_module,
-            &mut fb.func,
-            &DP_JIT_VECTORCALL_BUILD_BB_ARGS_IMPORT,
-        );
-        let run_ref = func_imports.get_or_panic(
-            &mut jit_module,
-            &mut fb.func,
-            &DP_JIT_VECTORCALL_RUN_COMPILED_IMPORT,
-        );
-        let decref_ref =
-            func_imports.get_or_panic(&mut jit_module, &mut fb.func, &DP_JIT_DECREF_IMPORT);
-
-        let data_const = fb.ins().iconst(ptr_ty, data_ptr as i64);
-        let compiled_const = fb.ins().iconst(ptr_ty, compiled_handle as i64);
-        let build_inst = fb.ins().call(
-            build_ref,
-            &[callable_val, args_val, nargsf_val, kwnames_val, data_const],
-        );
-        let bb_args = fb.inst_results(build_inst)[0];
-        let null_ptr = fb.ins().iconst(ptr_ty, 0);
-        let args_missing = fb
-            .ins()
-            .icmp(ir::condcodes::IntCC::Equal, bb_args, null_ptr);
-        let build_failed = fb.create_block();
-        let build_ok = fb.create_block();
-        fb.append_block_param(build_ok, ptr_ty);
-        fb.ins().brif(
-            args_missing,
-            build_failed,
-            &[],
-            build_ok,
-            &[ir::BlockArg::Value(bb_args)],
-        );
-        fb.seal_block(build_failed);
-        fb.seal_block(build_ok);
-
-        fb.switch_to_block(build_failed);
-        fb.ins().return_(&[null_ptr]);
-
-        fb.switch_to_block(build_ok);
-        let built_args = fb.block_params(build_ok)[0];
-        let run_inst = fb.ins().call(
-            run_ref,
-            &[compiled_const, callable_val, built_args, data_const],
-        );
-        let result = fb.inst_results(run_inst)[0];
-        fb.ins().call(decref_ref, &[built_args]);
-        fb.ins().return_(&[result]);
-        fb.seal_all_blocks();
-        fb.finalize();
-    }
-
-    define_function_with_incremental_cache(
-        &mut jit_module,
-        main_id,
-        &mut ctx,
-        "failed to define vectorcall trampoline",
-    )?;
-    jit_module.clear_context(&mut ctx);
-    jit_module
-        .finalize_definitions()
-        .map_err(|err| format!("failed to finalize vectorcall trampoline: {err}"))?;
-
-    let code_ptr = jit_module.get_finalized_function(main_id);
-    let entry: VectorcallEntryFn = std::mem::transmute(code_ptr);
-    let compiled = Box::new(CompiledVectorcallRunner {
-        _jit_module: jit_module,
-    });
-    Ok((Box::into_raw(compiled) as ObjPtr, entry))
 }
 
 pub unsafe fn compile_cranelift_vectorcall_direct_trampoline(
@@ -4791,38 +4524,6 @@ pub unsafe fn compile_cranelift_vectorcall_direct_trampoline(
     Ok((Box::into_raw(compiled) as ObjPtr, entry))
 }
 
-pub unsafe fn run_cranelift_run_bb_specialized_cached(
-    compiled_handle: ObjPtr,
-    callable: ObjPtr,
-    args: ObjPtr,
-    ambient_args: ObjPtr,
-    hooks: &SpecializedJitHooks,
-) -> Result<ObjPtr, String> {
-    if compiled_handle.is_null() {
-        return Err("invalid null compiled handle passed to specialized JIT run_bb".to_string());
-    }
-    if callable.is_null() {
-        return Err("invalid null callable passed to specialized JIT run_bb".to_string());
-    }
-    if args.is_null() {
-        return Err("invalid null args passed to specialized JIT run_bb".to_string());
-    }
-    if ambient_args.is_null() {
-        return Err("invalid null ambient args passed to specialized JIT run_bb".to_string());
-    }
-    install_specialized_hooks(hooks);
-    let compiled = &*(compiled_handle as *const CompiledSpecializedRunner);
-    let Some(entry) = compiled.entry else {
-        return Err("invalid compiled handle without entrypoint".to_string());
-    };
-    match entry {
-        CompiledRunnerEntry::Tuple(entry) => Ok(entry(callable, args, ambient_args)),
-        CompiledRunnerEntry::Direct { .. } => Err(
-            "direct compiled handle cannot be executed through tuple-based run helper".to_string(),
-        ),
-    }
-}
-
 pub unsafe fn free_cranelift_vectorcall_trampoline(compiled_handle: ObjPtr) {
     if compiled_handle.is_null() {
         return;
@@ -4835,66 +4536,6 @@ pub unsafe fn free_cranelift_run_bb_specialized_cached(compiled_handle: ObjPtr) 
         return;
     }
     let _ = Box::from_raw(compiled_handle as *mut CompiledSpecializedRunner);
-}
-
-pub unsafe fn run_cranelift_run_bb_specialized(
-    blocks: &[ObjPtr],
-    plan: &ClifPlan,
-    entry_args_layout: EntryArgsLayout,
-    callable: ObjPtr,
-    globals_obj: ObjPtr,
-    true_obj: ObjPtr,
-    false_obj: ObjPtr,
-    args: ObjPtr,
-    ambient_args: ObjPtr,
-    hooks: &SpecializedJitHooks,
-    none_obj: ObjPtr,
-    deleted_obj: ObjPtr,
-    empty_tuple_obj: ObjPtr,
-) -> Result<ObjPtr, String> {
-    if args.is_null() {
-        return Err("invalid null args passed to specialized JIT run_bb".to_string());
-    }
-    if callable.is_null() {
-        return Err("invalid null callable passed to specialized JIT run_bb".to_string());
-    }
-    if globals_obj.is_null() {
-        return Err("invalid null globals object passed to specialized JIT run_bb".to_string());
-    }
-    if ambient_args.is_null() {
-        return Err("invalid null ambient args passed to specialized JIT run_bb".to_string());
-    }
-    install_specialized_hooks(hooks);
-    let mut builder = new_jit_builder()?;
-    register_specialized_jit_symbols(&mut builder);
-    let mut jit_module = JITModule::new(builder);
-    let (mut ctx, main_id, _literal_pool, _import_id_to_symbol) =
-        build_cranelift_run_bb_specialized_function(
-            &mut jit_module,
-            blocks,
-            plan,
-            entry_args_layout,
-            globals_obj,
-            true_obj,
-            false_obj,
-            none_obj,
-            deleted_obj,
-            empty_tuple_obj,
-        )?;
-
-    define_function_with_incremental_cache(
-        &mut jit_module,
-        main_id,
-        &mut ctx,
-        "failed to define specialized jit run_bb function",
-    )?;
-    jit_module.clear_context(&mut ctx);
-    jit_module
-        .finalize_definitions()
-        .map_err(|err| format!("failed to finalize specialized jit run_bb function: {err}"))?;
-    let code_ptr = jit_module.get_finalized_function(main_id);
-    let compiled: extern "C" fn(ObjPtr, ObjPtr, ObjPtr) -> ObjPtr = std::mem::transmute(code_ptr);
-    Ok(compiled(callable, args, ambient_args))
 }
 
 #[cfg(test)]
