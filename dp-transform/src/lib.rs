@@ -394,15 +394,3 @@ pub fn ruff_ast_to_string(module: impl ToRuffAst) -> String {
     }
     output
 }
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen]
-pub fn transform(source: &str) -> Result<String, wasm_bindgen::JsValue> {
-    web_inspector::transform(source)
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen]
-pub fn inspect_pipeline(source: &str) -> Result<String, wasm_bindgen::JsValue> {
-    web_inspector::inspect_pipeline(source)
-}

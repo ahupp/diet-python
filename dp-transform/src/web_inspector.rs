@@ -2,6 +2,7 @@ use crate::{transform_str_to_ruff_with_options, LoweringResult, Options};
 use serde_json::{json, Value};
 use wasm_bindgen::JsValue;
 
+#[wasm_bindgen::prelude::wasm_bindgen]
 pub fn transform(source: &str) -> Result<String, JsValue> {
     let options = Options::default();
     let result = transform_str_to_ruff_with_options(source, options)
@@ -9,6 +10,7 @@ pub fn transform(source: &str) -> Result<String, JsValue> {
     Ok(result.to_string())
 }
 
+#[wasm_bindgen::prelude::wasm_bindgen]
 pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
     let transformed = transform_str_to_ruff_with_options(source, Options::default())
         .map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
