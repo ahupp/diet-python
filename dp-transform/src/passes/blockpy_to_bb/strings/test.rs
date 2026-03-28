@@ -2,7 +2,7 @@ use super::normalize_bb_module_strings;
 use crate::{
     block_py::{BlockPyNameLike, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr},
     passes::lower_try_jump_exception_flow,
-    transform_str_to_bb_ir_with_options, Options,
+    transform_str_to_bb_ir,
 };
 use std::cell::Cell;
 
@@ -120,8 +120,7 @@ def f():
     x = __dp_store_global(globals(), "classify", __dp_ret("ok"))
     return x
 "#;
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let prepared = lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
@@ -161,8 +160,7 @@ def f(obj, mapping, key, value):
     __dp_setitem(mapping, key, value)
     return a, b
 "#;
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let prepared = lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
@@ -188,8 +186,7 @@ def f(obj, mapping, key, value):
 #[test]
 fn lowers_surrogate_escaped_string_literals_for_codegen() {
     let source = "def f():\n    return \"\\udca7\" \"b\"\n";
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let prepared = lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");

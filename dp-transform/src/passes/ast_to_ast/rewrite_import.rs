@@ -1,29 +1,8 @@
 use crate::{passes::ast_to_ast::ast_rewrite::Rewrite, py_stmt};
 
-use super::{context::Context, Options};
+use super::context::Context;
 use ruff_python_ast::{self as ast};
 use ruff_python_parser::parse_module;
-
-pub fn should_rewrite_import_from(import_from: &ast::StmtImportFrom, options: &Options) -> bool {
-    let has_import_star = import_from
-        .names
-        .iter()
-        .any(|alias| alias.name.id.as_str() == "*");
-    if has_import_star {
-        return true;
-    }
-    if options.force_import_rewrite {
-        return true;
-    }
-    if import_from
-        .module
-        .as_ref()
-        .is_some_and(|module| module.id.as_str() == "__future__")
-    {
-        return false;
-    }
-    true
-}
 
 pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Rewrite {
     // TODO: hard-coded "import _testinternalcapi"
@@ -65,10 +44,6 @@ pub fn rewrite(ast::StmtImport { names, .. }: ast::StmtImport) -> Rewrite {
 }
 
 pub fn rewrite_from(context: &Context, import_from: ast::StmtImportFrom) -> Rewrite {
-    if !should_rewrite_import_from(&import_from, &context.options) {
-        return Rewrite::Unmodified(import_from.into());
-    }
-
     let ast::StmtImportFrom {
         module,
         names,

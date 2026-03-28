@@ -1,6 +1,6 @@
 use std::{env, fs, process};
 
-use dp_transform::{transform_str_to_ruff_with_options, Options};
+use dp_transform::transform_str_to_ruff;
 use serde_json::json;
 
 const USAGE: &str = "usage: diet-python [--timing] <python-file>";
@@ -46,7 +46,7 @@ fn main() {
         }
     };
 
-    let result = match transform_str_to_ruff_with_options(&source, Options::default()) {
+    let result = match transform_str_to_ruff(&source) {
         Ok(result) => result,
         Err(err) => {
             eprintln!("failed to parse {}: {}", path, err);

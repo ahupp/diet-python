@@ -5,10 +5,8 @@ use crate::block_py::{
     ResolvedStorageBlock,
 };
 use crate::passes::{CoreBlockPyPass, ResolvedStorageBlockPyPass, RuffBlockPyPass};
-use crate::LoweringResult;
-use crate::{
-    py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
-};
+use crate::py_expr;
+use crate::{transform_str_to_bb_ir, transform_str_to_ruff, LoweringResult};
 struct TrackedLowering {
     result: LoweringResult,
     blockpy_module: BlockPyModule<RuffBlockPyPass>,
@@ -17,11 +15,9 @@ struct TrackedLowering {
 impl TrackedLowering {
     fn new(source: &str) -> Self {
         let blockpy_module =
-            crate::transform_str_to_blockpy_with_options(source, Options::for_test())
-                .expect("transform should succeed");
+            crate::transform_str_to_blockpy(source).expect("transform should succeed");
         Self {
-            result: transform_str_to_ruff_with_options(source, Options::for_test())
-                .expect("transform should succeed"),
+            result: transform_str_to_ruff(source).expect("transform should succeed"),
             blockpy_module,
         }
     }
@@ -236,9 +232,7 @@ def foo(a, b):
         d = b + 1
         print(d)
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let foo = function_by_name(&bb_module, "foo");
@@ -259,9 +253,7 @@ def foo(a, b):
         return b
     return a
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let foo = bb_module
@@ -298,9 +290,7 @@ def build_qualnames():
         return inner_function()
     return global_function()
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let inner_global_function = function_by_name(&bb_module, "inner_global_function");
@@ -594,9 +584,7 @@ fn nested_method_dunder_class_capture_does_not_leak_classcell_to_enclosing_scope
         "            return g()\n",
         "    return C().f(), C\n",
     );
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let module_init = function_by_name(&bb_module, "_dp_module_init");
@@ -648,9 +636,7 @@ fn nested_class_closure_capture_does_not_turn_owner_cell_into_outer_freevar() {
         "        Inner().bump()\n",
         "        return counter\n",
     );
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
@@ -683,9 +669,7 @@ fn class_global_dunder_class_does_not_leak_synthetic_classcell_outward() {
         "            return __class__\n",
         "    return X().f(), X\n",
     );
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let module_init = function_by_name(&bb_module, "_dp_module_init");
@@ -1062,9 +1046,7 @@ def delegator():
     result = yield from child()
     return ("done", result)
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let delegator = function_by_name(&bb_module, "delegator");
@@ -2232,9 +2214,7 @@ def outer(scale):
         yield total
     return gen
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let gen = function_by_name(&bb_module, "gen");
@@ -2271,9 +2251,7 @@ def gen():
     except ValueError:
         return 2
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let gen = function_by_name(&bb_module, "gen");
@@ -2320,9 +2298,7 @@ def outer(scale):
         return total
     return run
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
@@ -2358,9 +2334,7 @@ def outer(scale):
         yield total + factor
     return agen
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let agen = function_by_name(&bb_module, "agen");
@@ -2398,9 +2372,7 @@ async def outer(scale):
     values = [x + scale async for x in agen()]
     return (value * 2 async for value in agen() if value in values)
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let generator_callables = bb_module
@@ -2453,9 +2425,7 @@ def run(limit):
         out.append(99)
     return out, i
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
@@ -2486,9 +2456,7 @@ def run(items):
         out.append(99)
     return out
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
@@ -2521,9 +2489,7 @@ async def run():
     else:
         done()
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
@@ -2573,9 +2539,7 @@ fn omits_synthetic_end_block_when_unreachable() {
 def f():
     return 1
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let f = function_by_name(&bb_module, "f");
@@ -2599,9 +2563,7 @@ fn folds_jump_to_trivial_none_return() {
 def f():
     x = 1
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let f = function_by_name(&bb_module, "f");
@@ -2651,8 +2613,7 @@ class Field:
 "#;
 
     for (name, source) in [("pass", pass_source), ("fail", fail_source)] {
-        let lowered = transform_str_to_ruff_with_options(source, Options::for_test())
-            .expect("transform should succeed");
+        let lowered = transform_str_to_ruff(source).expect("transform should succeed");
         let blockpy = lowered
             .get_pass::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
             .cloned()
@@ -2660,7 +2621,7 @@ class Field:
         let blockpy_rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
         eprintln!("==== {name} BLOCKPY ====\n{blockpy_rendered}");
 
-        let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+        let bb_module = transform_str_to_bb_ir(source)
             .expect("transform should succeed")
             .expect("bb module should be available");
         let function_names = bb_module
@@ -2712,7 +2673,7 @@ def make_counter(delta):
     return gen()
 "#;
 
-    let bb_module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let gen = bb_module
@@ -2734,9 +2695,7 @@ def outer():
         return x
     return inner()
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let outer = function_by_name(&bb_module, "outer");
@@ -2779,9 +2738,7 @@ def f(x):
         cleanup()
     return 2
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let f = function_by_name(&bb_module, "f");
@@ -2811,9 +2768,7 @@ def run():
         with open(path, "r", encoding="utf8") as handle:
             return "ok"
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
@@ -2831,9 +2786,7 @@ try:
 except Exception:
     print(2)
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let init_fn = function_by_name(&bb_module, "_dp_module_init");
@@ -2854,9 +2807,7 @@ def outer_read():
 
     return inner
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let init_fn = function_by_name(&bb_module, "_dp_module_init");
@@ -2943,9 +2894,7 @@ def f():
     except* ValueError as exc:
         return exc
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let f = function_by_name(&bb_module, "f");
@@ -2969,9 +2918,7 @@ def f():
     return
     x = 1
 "#;
-
-    let options = Options::for_test();
-    let bb_module = transform_str_to_bb_ir_with_options(source, options)
+    let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let f = function_by_name(&bb_module, "f");

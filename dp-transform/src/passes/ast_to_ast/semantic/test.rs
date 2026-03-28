@@ -3,8 +3,7 @@ use super::{
 };
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def::class_body::rewrite_class_body_scopes;
-use crate::passes::ast_to_ast::Options;
-use crate::transform_str_to_ruff_with_options;
+use crate::transform_str_to_ruff;
 use ruff_python_ast::{self as ast, Stmt};
 use ruff_python_parser::parse_module;
 
@@ -92,7 +91,7 @@ fn semantic_state_keeps_class_helper_scope_overrides_transformable() {
         "            return shared\n",
         "    return Box\n",
     );
-    let context = Context::new(Options::for_test(), source);
+    let context = Context::new(source);
     let mut module = parse_module(source).unwrap().into_syntax().body;
     let mut semantic_state = SemanticAstState::from_ruff(&mut module);
     rewrite_class_body_scopes(&context, &mut semantic_state, &mut module);
@@ -441,8 +440,7 @@ fn semantic_state_keeps_nested_class_binding_shape_transformable() {
         "def get_member():\n",
         "    return getattr(Container, \"Member\", None)\n",
     );
-    let _ = transform_str_to_ruff_with_options(source, Options::for_test())
-        .expect("transform should succeed");
+    let _ = transform_str_to_ruff(source).expect("transform should succeed");
 }
 
 #[test]
@@ -459,6 +457,5 @@ fn semantic_state_keeps_genexpr_iter_once_shape_transformable() {
         "def run():\n",
         "    return list(x for x in Iterable())\n",
     );
-    let _ = transform_str_to_ruff_with_options(source, Options::for_test())
-        .expect("transform should succeed");
+    let _ = transform_str_to_ruff(source).expect("transform should succeed");
 }

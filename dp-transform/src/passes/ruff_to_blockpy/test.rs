@@ -4,14 +4,14 @@ use crate::block_py::{
     BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
     BlockPyTerm, CoreBlockPyExpr, StructuredBlockPyStmt,
 };
-use crate::passes::ast_to_ast::{context::Context, Options};
+use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ruff_to_blockpy::stmt_sequences::{
     lower_for_stmt_sequence, lower_if_stmt_sequence, lower_if_stmt_sequence_from_stmt,
     lower_while_stmt_sequence, lower_while_stmt_sequence_from_stmt, plan_stmt_sequence_head,
 };
 use crate::passes::ruff_to_blockpy::try_regions::build_try_plan;
 use crate::passes::{CoreBlockPyPass, RuffBlockPyPass};
-use crate::{transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options};
+use crate::{transform_str_to_blockpy, transform_str_to_ruff};
 use stmt_lowering::lower_stmt_into;
 
 fn test_name_gen() -> FunctionNameGen {
@@ -20,11 +20,11 @@ fn test_name_gen() -> FunctionNameGen {
 }
 
 fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
-    transform_str_to_blockpy_with_options(source, Options::for_test()).unwrap()
+    transform_str_to_blockpy(source).unwrap()
 }
 
 fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
-    transform_str_to_ruff_with_options(source, Options::for_test())
+    transform_str_to_ruff(source)
         .unwrap()
         .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
@@ -32,7 +32,7 @@ fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
 }
 
 fn wrapped_core_blockpy(source: &str) -> BlockPyModule<CoreBlockPyPass> {
-    transform_str_to_ruff_with_options(source, Options::for_test())
+    transform_str_to_ruff(source)
         .unwrap()
         .get_pass::<BlockPyModule<CoreBlockPyPass>>("core_blockpy")
         .cloned()
@@ -51,7 +51,7 @@ fn function_by_name<'a, P: BlockPyPass>(
 }
 
 fn lower_stmt_for_panic_test(stmt: &Stmt) {
-    let context = Context::new(Options::for_test(), "");
+    let context = Context::new("");
     let mut out =
         crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
     let mut next_label_id = 0usize;
@@ -59,7 +59,7 @@ fn lower_stmt_for_panic_test(stmt: &Stmt) {
 }
 
 fn test_context() -> Context {
-    Context::new(Options::for_test(), "")
+    Context::new("")
 }
 
 #[test]
@@ -553,7 +553,7 @@ fn if_stmt_helper_lowers_both_branches_via_callback() {
     let then_body = vec![py_stmt!("x = 1")];
     let else_body = vec![py_stmt!("x = 2")];
     let mut calls = Vec::new();
-    let context = Context::new(crate::passes::ast_to_ast::Options::for_test(), "");
+    let context = Context::new("");
 
     let entry = lower_if_stmt_sequence(
         &context,
@@ -605,7 +605,7 @@ fn sequence_jump_helper_emits_jump_block() {
 #[test]
 fn sequence_return_helper_emits_return_block() {
     let mut blocks = Vec::new();
-    let context = Context::new(crate::passes::ast_to_ast::Options::for_test(), "");
+    let context = Context::new("");
     let entry = emit_sequence_return_block_with_expr_setup(
         &context,
         &mut blocks,
@@ -624,7 +624,7 @@ fn sequence_return_helper_emits_return_block() {
 #[test]
 fn sequence_raise_helper_emits_raise_block() {
     let mut blocks = Vec::new();
-    let context = Context::new(crate::passes::ast_to_ast::Options::for_test(), "");
+    let context = Context::new("");
     let entry = emit_sequence_raise_block_with_expr_setup(
         &context,
         &mut blocks,
@@ -665,7 +665,7 @@ y = 3
     let remaining = vec![module[1].clone()];
     let mut blocks = Vec::new();
     let mut calls = Vec::new();
-    let context = Context::new(crate::passes::ast_to_ast::Options::for_test(), "");
+    let context = Context::new("");
 
     let entry = lower_if_stmt_sequence_from_stmt(
         &context,
@@ -702,7 +702,7 @@ fn while_stmt_helper_lowers_loop_and_else_via_callbacks() {
     let remaining = vec![py_stmt!("x = 3")];
     let mut sequence_calls = Vec::new();
     let mut loop_calls = Vec::new();
-    let context = Context::new(crate::passes::ast_to_ast::Options::for_test(), "");
+    let context = Context::new("");
 
     let entry = lower_while_stmt_sequence(
         &context,
@@ -772,7 +772,7 @@ y = 3
     let mut blocks = Vec::new();
     let mut sequence_calls = Vec::new();
     let mut loop_calls = Vec::new();
-    let context = Context::new(crate::passes::ast_to_ast::Options::for_test(), "");
+    let context = Context::new("");
 
     let entry = lower_while_stmt_sequence_from_stmt(
         &context,

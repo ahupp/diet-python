@@ -1,6 +1,6 @@
 use super::super::{simplify_stmt_ast_once_for_blockpy, BlockPyStmtFragmentBuilder};
 use super::*;
-use crate::passes::ast_to_ast::{context::Context, Options};
+use crate::passes::ast_to_ast::context::Context;
 
 #[test]
 fn stmt_raise_simplify_ast_desugars_raise_from_before_blockpy_lowering() {
@@ -9,7 +9,7 @@ fn stmt_raise_simplify_ast_desugars_raise_from_before_blockpy_lowering() {
         panic!("expected raise stmt");
     };
 
-    let context = Context::new(Options::for_test(), "");
+    let context = Context::new("");
     let simplified = simplify_stmt_ast_once_for_blockpy(&context, Stmt::Raise(raise_stmt));
 
     assert!(!matches!(
@@ -24,7 +24,7 @@ fn stmt_raise_to_blockpy_handles_bare_raise_directly() {
     let Stmt::Raise(raise_stmt) = stmt else {
         panic!("expected raise stmt");
     };
-    let context = Context::new(Options::for_test(), "");
+    let context = Context::new("");
     let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
     let mut next_label_id = 0usize;
 
@@ -42,7 +42,7 @@ fn stmt_expr_to_blockpy_emits_setup_for_named_exprs() {
     let Stmt::Expr(expr_stmt) = stmt else {
         panic!("expected expr stmt");
     };
-    let context = Context::new(Options::for_test(), "");
+    let context = Context::new("");
     let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
     let mut next_label_id = 0usize;
 
@@ -66,7 +66,7 @@ fn stmt_return_to_blockpy_emits_setup_for_if_exprs() {
     let Stmt::Return(return_stmt) = stmt else {
         panic!("expected return stmt");
     };
-    let context = Context::new(Options::for_test(), "");
+    let context = Context::new("");
     let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
     let mut next_label_id = 0usize;
 

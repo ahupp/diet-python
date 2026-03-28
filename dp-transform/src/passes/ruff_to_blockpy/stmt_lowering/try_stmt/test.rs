@@ -1,6 +1,6 @@
 use super::super::simplify_stmt_ast_once_for_blockpy;
 use super::*;
-use crate::passes::ast_to_ast::{context::Context, Options};
+use crate::passes::ast_to_ast::context::Context;
 
 #[test]
 fn stmt_try_simplify_ast_rewrites_typed_except_before_blockpy_lowering() {
@@ -16,7 +16,7 @@ except ValueError as exc:
         panic!("expected try stmt");
     };
 
-    let context = Context::new(Options::for_test(), "");
+    let context = Context::new("");
     let simplified = simplify_stmt_ast_once_for_blockpy(&context, Stmt::Try(try_stmt));
     let rendered = crate::ruff_ast_to_string(simplified.as_slice());
 
@@ -39,7 +39,7 @@ except* ValueError as exc:
         panic!("expected try stmt");
     };
 
-    let context = Context::new(Options::for_test(), "");
+    let context = Context::new("");
     let simplified = simplify_stmt_ast_once_for_blockpy(&context, Stmt::Try(try_stmt));
     let rendered = crate::ruff_ast_to_string(simplified.as_slice());
 

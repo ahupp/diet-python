@@ -1,6 +1,6 @@
 use super::super::{simplify_stmt_ast_once_for_blockpy, BlockPyStmtFragmentBuilder};
 use super::*;
-use crate::passes::ast_to_ast::{context::Context, Options};
+use crate::passes::ast_to_ast::context::Context;
 
 #[test]
 fn stmt_match_simplify_ast_desugars_before_blockpy_lowering() {
@@ -14,7 +14,7 @@ match x:
         panic!("expected match stmt");
     };
 
-    let context = Context::new(Options::for_test(), "");
+    let context = Context::new("");
     let simplified = simplify_stmt_ast_once_for_blockpy(&context, Stmt::Match(match_stmt));
 
     assert!(!matches!(simplified.as_slice(), [Stmt::Match(_)]));
@@ -31,7 +31,7 @@ match x:
     let Stmt::Match(match_stmt) = stmt else {
         panic!("expected match stmt");
     };
-    let context = Context::new(Options::for_test(), "");
+    let context = Context::new("");
     let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
     let mut next_label_id = 0usize;
 

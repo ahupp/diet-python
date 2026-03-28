@@ -2,7 +2,7 @@ use super::{lower_try_jump_exception_flow, validate_prepared_bb_module};
 use crate::block_py::{
     BlockPyEdge, BlockPyLabel, BlockPyTerm, LocatedCoreBlockPyExpr, ResolvedStorageBlock,
 };
-use crate::{transform_str_to_bb_ir_with_options, Options};
+use crate::transform_str_to_bb_ir;
 
 #[test]
 fn preserves_existing_exception_edges() {
@@ -10,7 +10,7 @@ fn preserves_existing_exception_edges() {
 def f(x):
     return x
 "#;
-    let mut module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+    let mut module = transform_str_to_bb_ir(source)
         .expect("lowering must succeed")
         .expect("bb module must exist");
     let (body_label, except_label) = {
@@ -78,7 +78,7 @@ fn rejects_try_jump_with_unknown_label() {
 def f():
     return 1
 "#;
-    let mut module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+    let mut module = transform_str_to_bb_ir(source)
         .expect("lowering must succeed")
         .expect("bb module must exist");
     let function = module
@@ -103,7 +103,7 @@ def f():
     b = 2
     return b
 "#;
-    let mut module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+    let mut module = transform_str_to_bb_ir(source)
         .expect("lowering must succeed")
         .expect("bb module must exist");
     let function = module
@@ -173,7 +173,7 @@ def f():
     z = 1
     w()
 "#;
-    let mut module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+    let mut module = transform_str_to_bb_ir(source)
         .expect("lowering must succeed")
         .expect("bb module must exist");
     let function = module
@@ -244,7 +244,7 @@ def f():
         pass
     return 1
 "#;
-    let module = transform_str_to_bb_ir_with_options(source, Options::for_test())
+    let module = transform_str_to_bb_ir(source)
         .expect("lowering must succeed")
         .expect("bb module must exist");
     let raw_function = module

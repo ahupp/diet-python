@@ -26,7 +26,7 @@ use crate::block_py::{
 use crate::passes::RuffBlockPyPass;
 use crate::py_expr;
 use crate::ruff_ast_to_string;
-use crate::{transform_str_to_ruff_with_options, Options};
+use crate::transform_str_to_ruff;
 use ruff_python_ast::Expr;
 use ruff_python_parser::parse_expression;
 
@@ -38,7 +38,7 @@ def f(x):
         return 1
     return 2
 "#;
-    let blockpy = transform_str_to_ruff_with_options(source, Options::for_test())
+    let blockpy = transform_str_to_ruff(source)
         .unwrap()
         .get_pass::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
@@ -252,7 +252,7 @@ fn semantic_blockpy_keeps_function_defaults_out_of_blockpy_ir() {
 def f(*, d={"metaclass": Meta}, **kw):
     return d
 "#;
-    let blockpy = transform_str_to_ruff_with_options(source, Options::for_test())
+    let blockpy = transform_str_to_ruff(source)
         .unwrap()
         .get_pass::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()

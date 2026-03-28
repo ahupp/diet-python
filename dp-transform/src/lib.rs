@@ -26,7 +26,6 @@ mod web_inspector;
 use crate::block_py::BlockPyModule;
 use crate::driver::rewrite_module_with_tracker;
 use crate::passes::ast_to_ast::context::Context;
-pub use crate::passes::ast_to_ast::Options;
 
 #[derive(Debug, Clone)]
 pub struct PassTiming {
@@ -256,13 +255,9 @@ impl LoweringResult {
 }
 
 /// Transform the source code and return the resulting Ruff AST.
-pub fn transform_str_to_ruff_with_options(
-    source: &str,
-    options: Options,
-) -> Result<LoweringResult, ParseError> {
+pub fn transform_str_to_ruff(source: &str) -> Result<LoweringResult, ParseError> {
     init_logging();
     namegen::reset_namegen_state();
-    let options = options;
 
     let total_start = timing_start();
 
@@ -284,7 +279,7 @@ pub fn transform_str_to_ruff_with_options(
         });
     }
 
-    let ctx = Context::new(options, source);
+    let ctx = Context::new(source);
     let mut pass_tracker = PassTracker::new();
 
     let rewrite_start = timing_start();
@@ -307,23 +302,18 @@ pub fn transform_str_to_ruff_with_options(
     })
 }
 
-pub fn transform_str_to_bb_ir_with_options(
+pub fn transform_str_to_bb_ir(
     source: &str,
-    options: Options,
 ) -> Result<Option<BlockPyModule<ResolvedStorageBlockPyPass>>, ParseError> {
-    let mut options = options;
-    options.lower_attributes = true;
-
-    Ok(transform_str_to_ruff_with_options(source, options)?
+    Ok(transform_str_to_ruff(source)?
         .get_pass::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
         .cloned())
 }
 
-pub fn transform_str_to_blockpy_with_options(
+pub fn transform_str_to_blockpy(
     source: &str,
-    options: Options,
 ) -> Result<BlockPyModule<RuffBlockPyPass>, ParseError> {
-    Ok(transform_str_to_ruff_with_options(source, options)?
+    Ok(transform_str_to_ruff(source)?
         .get_pass::<BlockPyModule<crate::passes::RuffBlockPyPass>>("semantic_blockpy")
         .expect("blockpy pass should be tracked")
         .clone())

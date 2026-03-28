@@ -14,8 +14,7 @@ impl BlockPyPass for StructuredExprPass {
 }
 
 fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
-    crate::transform_str_to_blockpy_with_options(source, crate::Options::for_test())
-        .expect("expected lowered semantic BlockPy module")
+    crate::transform_str_to_blockpy(source).expect("expected lowered semantic BlockPy module")
 }
 
 fn parse_blockpy_expr(source: &str) -> Expr {
@@ -90,14 +89,13 @@ fn renders_empty_module_marker() {
 
 #[test]
 fn transformed_lowering_result_exposes_module_init_blockpy() {
-    let blockpy = crate::transform_str_to_blockpy_with_options(
+    let blockpy = crate::transform_str_to_blockpy(
         r#"
 def classify(n):
     if n < 0:
         return "neg"
     return "pos"
 "#,
-        crate::Options::default(),
     )
     .unwrap();
     let rendered = blockpy_module_to_string(&blockpy);

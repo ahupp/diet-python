@@ -2,7 +2,7 @@
 
 use dp_transform::block_py::{BlockPyFunction, ParamKind};
 use dp_transform::passes::ResolvedStorageBlockPyPass;
-use dp_transform::{Options, transform_str_to_ruff_with_options};
+use dp_transform::transform_str_to_ruff;
 use log::{info, trace};
 use pyo3::exceptions::{
     PyAttributeError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
@@ -26,11 +26,7 @@ fn is_cell_object(obj: *mut ffi::PyObject) -> bool {
 
 fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<dp_transform::LoweringResult> {
     let _ = ensure;
-    let options = Options {
-        lower_attributes: false,
-        ..Options::default()
-    };
-    transform_str_to_ruff_with_options(source, options)
+    transform_str_to_ruff(source)
         .map_err(|err| pyo3::exceptions::PySyntaxError::new_err(err.to_string()))
 }
 

@@ -4,10 +4,7 @@ use ruff_python_ast::{comparable::ComparableStmt, Stmt};
 use ruff_python_parser::parse_module;
 
 use crate::fixture::parse_fixture;
-use crate::passes::ast_to_ast::Options;
-use crate::{
-    ruff_ast_to_string, transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options,
-};
+use crate::{ruff_ast_to_string, transform_str_to_blockpy, transform_str_to_ruff};
 use similar::TextDiff;
 
 fn expected_output_for_mode(expected: &str) -> &str {
@@ -22,8 +19,7 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str) {
     let expected_for_mode = expected_output_for_mode(expected);
     let mut expected_normalized = expected_for_mode.trim_matches('\n').to_string();
     expected_normalized.push('\n');
-    let options = Options::for_test();
-    let module = transform_str_to_ruff_with_options(actual, options).unwrap();
+    let module = transform_str_to_ruff(actual).unwrap();
     let actual_str = ruff_ast_to_string(&module.module.body);
     let actual_body = &module.module.body;
     let _actual_stmt_internal: Vec<_> = actual_body.iter().map(ComparableStmt::from).collect();
@@ -100,7 +96,7 @@ pub(crate) fn run_transform_fixture_tests(fixture: &str) {
 }
 
 fn blockpy_output_for_snapshot(actual: &str) -> String {
-    let mut output = transform_str_to_blockpy_with_options(actual, Options::for_test())
+    let mut output = transform_str_to_blockpy(actual)
         .map(|module| crate::block_py::pretty::blockpy_module_to_string(&module))
         .unwrap()
         .trim_matches('\n')

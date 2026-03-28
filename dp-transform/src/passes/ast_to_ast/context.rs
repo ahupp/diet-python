@@ -2,7 +2,6 @@ use ruff_python_ast::Expr;
 use std::cell::RefCell;
 use std::collections::HashSet;
 
-use super::Options;
 use crate::passes::ast_to_ast::scope_helpers::ScopeKind;
 
 use crate::namegen::fresh_name;
@@ -39,15 +38,13 @@ impl ScopeFrame {
 }
 
 pub struct Context {
-    pub options: Options,
     pub source: String,
     scope_stack: RefCell<Vec<ScopeFrame>>,
 }
 
 impl Context {
-    pub fn new(options: Options, source: &str) -> Self {
+    pub fn new(source: &str) -> Self {
         Self {
-            options,
             source: source.to_string(),
             scope_stack: RefCell::new(vec![ScopeFrame::module()]),
         }

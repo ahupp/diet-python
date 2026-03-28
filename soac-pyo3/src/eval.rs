@@ -144,15 +144,7 @@ mod tests {
     }
 
     fn parse_and_lower(source: &str) -> Result<dp_transform::LoweringResult, String> {
-        let options = dp_transform::Options {
-            lower_attributes: true,
-            force_import_rewrite: true,
-            ..dp_transform::Options::default()
-        };
-
-        match std::panic::catch_unwind(|| {
-            dp_transform::transform_str_to_ruff_with_options(source, options)
-        }) {
+        match std::panic::catch_unwind(|| dp_transform::transform_str_to_ruff(source)) {
             Ok(Ok(result)) => Ok(result),
             Ok(Err(err)) => Err(err.to_string()),
             Err(payload) => Err(panic_payload_to_string(payload)),
@@ -160,15 +152,7 @@ mod tests {
     }
 
     fn parse_and_lower_runtime_style(source: &str) -> Result<dp_transform::LoweringResult, String> {
-        match std::panic::catch_unwind(|| {
-            dp_transform::transform_str_to_ruff_with_options(
-                source,
-                dp_transform::Options {
-                    lower_attributes: false,
-                    ..dp_transform::Options::default()
-                },
-            )
-        }) {
+        match std::panic::catch_unwind(|| dp_transform::transform_str_to_ruff(source)) {
             Ok(Ok(result)) => Ok(result),
             Ok(Err(err)) => Err(err.to_string()),
             Err(payload) => Err(panic_payload_to_string(payload)),

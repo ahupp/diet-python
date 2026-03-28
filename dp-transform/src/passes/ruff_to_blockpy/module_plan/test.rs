@@ -9,9 +9,8 @@ use crate::block_py::{
 };
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::semantic::SemanticAstState;
-use crate::passes::ast_to_ast::Options;
 use crate::passes::RuffBlockPyPass;
-use crate::transform_str_to_ruff_with_options;
+use crate::transform_str_to_ruff;
 use ruff_python_ast::Stmt;
 use ruff_python_parser::parse_module;
 
@@ -73,7 +72,7 @@ fn callable_semantic_info_uses_logical_storage_for_cell_captures() {
         "        return x\n",
         "    return inner\n",
     );
-    let blockpy_module = transform_str_to_ruff_with_options(source, Options::for_test())
+    let blockpy_module = transform_str_to_ruff(source)
         .unwrap()
         .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
@@ -109,7 +108,7 @@ fn callable_semantic_info_maps_classcell_capture_source_back_to_dunder_class() {
         "            return __class__\n",
         "        return g\n",
     );
-    let blockpy_module = transform_str_to_ruff_with_options(source, Options::for_test())
+    let blockpy_module = transform_str_to_ruff(source)
         .unwrap()
         .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
@@ -146,7 +145,7 @@ fn recursive_local_function_bindings_are_cell_owned_in_parent_scope() {
         "        return recurse()\n",
         "    return recurse\n",
     );
-    let context = Context::new(Options::for_test(), source);
+    let context = Context::new(source);
     let mut module = parse_module(source).unwrap().into_syntax().body;
     let semantic_state = SemanticAstState::from_ruff(&mut module);
     let Stmt::FunctionDef(outer) = &mut module[0] else {
@@ -207,7 +206,7 @@ fn recursive_local_function_bindings_are_cell_owned_in_parent_scope() {
 #[test]
 fn callable_semantic_info_tracks_bind_and_qualname_for_class_helper_override() {
     let source = "class Box:\n    value = 1\n";
-    let blockpy_module = transform_str_to_ruff_with_options(source, Options::for_test())
+    let blockpy_module = transform_str_to_ruff(source)
         .unwrap()
         .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
@@ -225,7 +224,7 @@ fn callable_semantic_info_tracks_bind_and_qualname_for_class_helper_override() {
 #[test]
 fn callable_semantic_info_marks_class_helper_as_owning_classcell() {
     let source = "class Box:\n    pass\n";
-    let blockpy_module = transform_str_to_ruff_with_options(source, Options::for_test())
+    let blockpy_module = transform_str_to_ruff(source)
         .unwrap()
         .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
@@ -252,7 +251,7 @@ fn callable_semantic_info_marks_class_helper_as_owning_classcell() {
 #[test]
 fn callable_semantic_info_distinguishes_class_type_params_from_class_body_locals() {
     let source = "class Box[T]:\n    value = T\n";
-    let blockpy_module = transform_str_to_ruff_with_options(source, Options::for_test())
+    let blockpy_module = transform_str_to_ruff(source)
         .unwrap()
         .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
@@ -311,7 +310,7 @@ fn callable_semantic_info_keeps_class_attrs_out_of_cell_bindings() {
         "            return x\n",
         "    return Inner\n",
     );
-    let blockpy_module = transform_str_to_ruff_with_options(source, Options::for_test())
+    let blockpy_module = transform_str_to_ruff(source)
         .unwrap()
         .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
@@ -343,7 +342,7 @@ fn callable_semantic_info_records_class_cell_fallback_for_outer_reads() {
         "        value = x\n",
         "    return Box\n",
     );
-    let blockpy_module = transform_str_to_ruff_with_options(source, Options::for_test())
+    let blockpy_module = transform_str_to_ruff(source)
         .unwrap()
         .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
@@ -445,7 +444,7 @@ fn lowering_recursive_local_function_with_finally_keeps_plain_binding_before_nam
         "    finally:\n",
         "        sys.setrecursionlimit(original_limit)\n",
     );
-    let context = Context::new(Options::for_test(), source);
+    let context = Context::new(source);
     let module = parse_module(source).unwrap().into_syntax().body;
     let blockpy = lower_test_module_plan(&context, module);
     let exercise = blockpy
@@ -485,7 +484,7 @@ fn lowering_recursive_local_function_treats_recurse_cell_as_local_state() {
         "    finally:\n",
         "        sys.setrecursionlimit(original_limit)\n",
     );
-    let context = Context::new(Options::for_test(), source);
+    let context = Context::new(source);
     let module = parse_module(source).unwrap().into_syntax().body;
     let blockpy = lower_test_module_plan(&context, module);
     let exercise = blockpy
@@ -521,7 +520,7 @@ fn lowering_recursive_local_function_finally_return_preserves_liveins() {
         "    finally:\n",
         "        sys.setrecursionlimit(original_limit)\n",
     );
-    let context = Context::new(Options::for_test(), source);
+    let context = Context::new(source);
     let module = parse_module(source).unwrap().into_syntax().body;
     let blockpy = lower_test_module_plan(&context, module);
     let exercise = blockpy
@@ -554,7 +553,7 @@ fn lowering_nonlocal_inner_captures_outer_cell() {
         "        return x\n",
         "    return inner()\n",
     );
-    let context = Context::new(Options::for_test(), source);
+    let context = Context::new(source);
     let module = parse_module(source).unwrap().into_syntax().body;
     let blockpy = lower_test_module_plan(&context, module);
     let inner = blockpy

@@ -11,27 +11,3 @@ pub(crate) mod scope_helpers;
 pub(crate) mod semantic;
 pub(crate) mod simplify;
 pub(crate) mod util;
-
-#[derive(Clone, Copy)]
-pub struct Options {
-    pub lower_attributes: bool,
-    pub force_import_rewrite: bool,
-}
-
-impl Default for Options {
-    fn default() -> Self {
-        Self {
-            lower_attributes: false,
-            force_import_rewrite: false,
-        }
-    }
-}
-
-impl Options {
-    pub fn for_test() -> Self {
-        Self {
-            lower_attributes: false,
-            force_import_rewrite: false,
-        }
-    }
-}

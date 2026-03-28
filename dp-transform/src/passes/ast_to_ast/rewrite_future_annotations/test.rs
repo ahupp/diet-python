@@ -1,6 +1,5 @@
 use super::rewrite;
 use crate::passes::ast_to_ast::context::Context;
-use crate::passes::ast_to_ast::Options;
 use ruff_python_parser::parse_module;
 use std::collections::HashSet;
 
@@ -8,7 +7,7 @@ fn rewrite_module(source: &str) -> (HashSet<String>, String) {
     let mut module = parse_module(source)
         .expect("parse should succeed")
         .into_syntax();
-    let context = Context::new(Options::for_test(), source);
+    let context = Context::new(source);
     let future_features = rewrite(&context, &mut module.body);
     (future_features, crate::ruff_ast_to_string(&module.body))
 }

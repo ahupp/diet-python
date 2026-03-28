@@ -27,7 +27,7 @@ pub(crate) fn lower_stmts_to_blockpy_stmts<E>(
 where
     E: From<Expr> + std::fmt::Debug,
 {
-    let context = Context::new(crate::passes::ast_to_ast::Options::for_test(), "");
+    let context = Context::new("");
     lower_stmts_to_blockpy_stmts_with_context(&context, stmts)
 }
 

@@ -50,7 +50,7 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
             ctx: ExprContext::Load,
             range: _,
             node_index: _,
-        }) if context.options.lower_attributes => {
+        }) => {
             let lowered = lower_expr_nested(context, *value);
             let mut body_builder = BodyBuilder::default();
             let value_expr = body_builder.push(lowered);

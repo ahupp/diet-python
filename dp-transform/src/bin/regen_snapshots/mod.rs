@@ -11,10 +11,7 @@ use dp_transform::block_py::{
 };
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
 use dp_transform::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
-use dp_transform::{
-    init_logging, transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options,
-    Options,
-};
+use dp_transform::{init_logging, transform_str_to_blockpy, transform_str_to_ruff};
 use log::{log_enabled, trace, Level};
 
 struct SnapshotSummaryRow {
@@ -83,7 +80,7 @@ fn render_blockpy_snapshot(
     source: &str,
     result: &dp_transform::LoweringResult,
 ) -> (String, usize, usize) {
-    let blockpy = transform_str_to_blockpy_with_options(source, Options::for_test())
+    let blockpy = transform_str_to_blockpy(source)
         .map_err(|err| err.to_string())
         .ok();
     let blockpy_rendered = blockpy
@@ -353,7 +350,6 @@ fn regenerate_fixture(path: &Path, summary: &mut Vec<SnapshotSummaryRow>) -> Res
         trace!("regenerate_fixture: parsed {} blocks", blocks.len());
     }
 
-    let options = Options::for_test();
     let mut snapshot_blocks = Vec::with_capacity(blocks.len());
     for block in &blocks {
         if log_enabled!(Level::Trace) {
@@ -361,7 +357,7 @@ fn regenerate_fixture(path: &Path, summary: &mut Vec<SnapshotSummaryRow>) -> Res
         }
         let case_name = qualified_case_name(path, block)?;
         let snapshot_result = with_suppressed_panic_hook(|| {
-            let transformed = transform_str_to_ruff_with_options(&block.input, options)
+            let transformed = transform_str_to_ruff(&block.input)
                 .map_err(|err| format!("{}: {}", path.display(), err))?;
             Ok(render_blockpy_snapshot(block.input.as_str(), &transformed))
         });

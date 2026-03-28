@@ -1,6 +1,6 @@
 use super::super::BlockPyStmtFragmentBuilder;
 use super::*;
-use crate::passes::ast_to_ast::{context::Context, Options};
+use crate::passes::ast_to_ast::context::Context;
 
 #[test]
 fn stmt_assign_to_blockpy_emits_setup_for_if_expr_rhs() {
@@ -8,7 +8,7 @@ fn stmt_assign_to_blockpy_emits_setup_for_if_expr_rhs() {
     let Stmt::Assign(assign_stmt) = stmt else {
         panic!("expected assign stmt");
     };
-    let context = Context::new(Options::for_test(), "");
+    let context = Context::new("");
     let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
     let mut next_label_id = 0usize;
 
