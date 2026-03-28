@@ -138,27 +138,34 @@ impl PassTracker {
 
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn run_pass<T: Clone + Any>(&mut self, name: &str, build: impl FnOnce() -> T) -> T {
-        self.run_pass_with_renderer(name, build, None)
+    pub(crate) fn run_unrenderable_pass<I, T: Clone + Any>(
+        &mut self,
+        name: &str,
+        input: I,
+        build: impl FnOnce(I) -> T,
+    ) -> T {
+        self.run_pass_with_renderer(name, input, build, None)
     }
 
     #[must_use]
-    pub(crate) fn run_renderable_pass<T: Clone + Any + TrackedPassText>(
+    pub(crate) fn run_pass<I, T: Clone + Any + TrackedPassText>(
         &mut self,
         name: &str,
-        build: impl FnOnce() -> T,
+        input: I,
+        build: impl FnOnce(I) -> T,
     ) -> T {
-        self.run_pass_with_renderer(name, build, Some(render_tracked_pass_value::<T>))
+        self.run_pass_with_renderer(name, input, build, Some(render_tracked_pass_value::<T>))
     }
 
-    fn run_pass_with_renderer<T: Clone + Any>(
+    fn run_pass_with_renderer<I, T: Clone + Any>(
         &mut self,
         name: &str,
-        build: impl FnOnce() -> T,
+        input: I,
+        build: impl FnOnce(I) -> T,
         render_text: Option<fn(&dyn Any) -> String>,
     ) -> T {
         let start = timing_start();
-        let value = build();
+        let value = build(input);
         let elapsed = timing_elapsed(start);
         assert!(
             !self.passes.iter().any(|pass| pass.name == name),

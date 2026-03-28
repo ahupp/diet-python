@@ -77,7 +77,7 @@ pub use blockpy_to_bb::{
 
 pub(crate) use name_binding::lower_name_binding_in_core_blockpy_module;
 pub(crate) use summarize_pass_shape::summarize_tracked_pass_shape;
-pub(crate) use trace::{instrument_bb_module_for_trace, parse_trace_env};
+pub(crate) use trace::{instrument_bb_module_for_trace, parse_trace_env, TraceConfig};
 
 #[cfg(test)]
 mod test;
