@@ -22,6 +22,8 @@ pub enum BinOpKind {
     Gt,
     Ge,
     Contains,
+    Is,
+    IsNot,
 }
 
 impl BinOpKind {
@@ -46,6 +48,8 @@ impl BinOpKind {
             Self::Gt => "__dp_gt",
             Self::Ge => "__dp_ge",
             Self::Contains => "__dp_contains",
+            Self::Is => "__dp_is_",
+            Self::IsNot => "__dp_is_not",
         }
     }
 
@@ -70,6 +74,8 @@ impl BinOpKind {
             "__dp_gt" => Self::Gt,
             "__dp_ge" => Self::Ge,
             "__dp_contains" => Self::Contains,
+            "__dp_is_" => Self::Is,
+            "__dp_is_not" => Self::IsNot,
             _ => return None,
         })
     }
@@ -292,18 +298,6 @@ pub enum Operation<E> {
         range: TextRange,
         arg0: E,
     },
-    Is {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-        arg1: E,
-    },
-    IsNot {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-        arg1: E,
-    },
 }
 
 impl<E> Operation<E> {
@@ -327,8 +321,6 @@ impl<E> Operation<E> {
             Self::DelQuietly { .. } => "__dp_del_quietly",
             Self::DelDerefQuietly { .. } => "__dp_del_deref_quietly",
             Self::DelDeref { .. } => "__dp_del_deref",
-            Self::Is { .. } => "__dp_is_",
-            Self::IsNot { .. } => "__dp_is_not",
         }
     }
 
@@ -351,9 +343,7 @@ impl<E> Operation<E> {
             | Self::StoreCell { node_index, .. }
             | Self::DelQuietly { node_index, .. }
             | Self::DelDerefQuietly { node_index, .. }
-            | Self::DelDeref { node_index, .. }
-            | Self::Is { node_index, .. }
-            | Self::IsNot { node_index, .. } => node_index,
+            | Self::DelDeref { node_index, .. } => node_index,
         }
     }
 
@@ -376,9 +366,7 @@ impl<E> Operation<E> {
             | Self::StoreCell { range, .. }
             | Self::DelQuietly { range, .. }
             | Self::DelDerefQuietly { range, .. }
-            | Self::DelDeref { range, .. }
-            | Self::Is { range, .. }
-            | Self::IsNot { range, .. } => *range,
+            | Self::DelDeref { range, .. } => *range,
         }
     }
 
@@ -585,28 +573,6 @@ impl<E> Operation<E> {
                 node_index,
                 range,
                 arg0: f(arg0),
-            },
-            Self::Is {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::Is {
-                node_index,
-                range,
-                arg0: f(arg0),
-                arg1: f(arg1),
-            },
-            Self::IsNot {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::IsNot {
-                node_index,
-                range,
-                arg0: f(arg0),
-                arg1: f(arg1),
             },
         }
     }
@@ -818,28 +784,6 @@ impl<E> Operation<E> {
                 range,
                 arg0: f(arg0)?,
             },
-            Self::Is {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::Is {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-                arg1: f(arg1)?,
-            },
-            Self::IsNot {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::IsNot {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-                arg1: f(arg1)?,
-            },
         })
     }
 
@@ -876,9 +820,7 @@ impl<E> Operation<E> {
             | Self::DelItem { arg0, arg1, .. }
             | Self::LoadGlobal { arg0, arg1, .. }
             | Self::StoreCell { arg0, arg1, .. }
-            | Self::DelQuietly { arg0, arg1, .. }
-            | Self::Is { arg0, arg1, .. }
-            | Self::IsNot { arg0, arg1, .. } => {
+            | Self::DelQuietly { arg0, arg1, .. } => {
                 f(arg0);
                 f(arg1);
             }
@@ -918,9 +860,7 @@ impl<E> Operation<E> {
             | Self::DelItem { arg0, arg1, .. }
             | Self::LoadGlobal { arg0, arg1, .. }
             | Self::StoreCell { arg0, arg1, .. }
-            | Self::DelQuietly { arg0, arg1, .. }
-            | Self::Is { arg0, arg1, .. }
-            | Self::IsNot { arg0, arg1, .. } => {
+            | Self::DelQuietly { arg0, arg1, .. } => {
                 f(arg0);
                 f(arg1);
             }
@@ -963,9 +903,7 @@ impl<E> Operation<E> {
             | Self::DelItem { arg0, arg1, .. }
             | Self::LoadGlobal { arg0, arg1, .. }
             | Self::StoreCell { arg0, arg1, .. }
-            | Self::DelQuietly { arg0, arg1, .. }
-            | Self::Is { arg0, arg1, .. }
-            | Self::IsNot { arg0, arg1, .. } => {
+            | Self::DelQuietly { arg0, arg1, .. } => {
                 out.push(arg0);
                 out.push(arg1);
             }
@@ -1009,9 +947,7 @@ impl<E> Operation<E> {
             | Self::DelItem { arg0, arg1, .. }
             | Self::LoadGlobal { arg0, arg1, .. }
             | Self::StoreCell { arg0, arg1, .. }
-            | Self::DelQuietly { arg0, arg1, .. }
-            | Self::Is { arg0, arg1, .. }
-            | Self::IsNot { arg0, arg1, .. } => {
+            | Self::DelQuietly { arg0, arg1, .. } => {
                 out.push(arg0);
                 out.push(arg1);
             }
@@ -1162,18 +1098,6 @@ pub fn operation_by_name_and_args<E>(
                 node_index,
                 range,
                 arg0: args.next()?,
-            },
-            "__dp_is_" => Operation::Is {
-                node_index,
-                range,
-                arg0: args.next()?,
-                arg1: args.next()?,
-            },
-            "__dp_is_not" => Operation::IsNot {
-                node_index,
-                range,
-                arg0: args.next()?,
-                arg1: args.next()?,
             },
             _ => return None,
         }

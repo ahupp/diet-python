@@ -405,6 +405,10 @@ fn emit_binop(
         blockpy_intrinsics::BinOpKind::Contains => {
             emit_positional_bool_call(helper_name, &PYSEQUENCE_CONTAINS_IMPORT, state, parts)
         }
+        blockpy_intrinsics::BinOpKind::Is => emit_identity_compare(helper_name, true, state, parts),
+        blockpy_intrinsics::BinOpKind::IsNot => {
+            emit_identity_compare(helper_name, false, state, parts)
+        }
     }
 }
 
@@ -574,11 +578,5 @@ pub(super) fn emit_operation_direct_simple<E>(
             state,
             parts,
         )),
-        blockpy_intrinsics::Operation::Is { .. } => {
-            Some(emit_identity_compare(helper_name, true, state, parts))
-        }
-        blockpy_intrinsics::Operation::IsNot { .. } => {
-            Some(emit_identity_compare(helper_name, false, state, parts))
-        }
     }
 }
