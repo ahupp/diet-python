@@ -217,7 +217,7 @@ impl UnaryOpKind {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub enum IUnaryOpKind {
+pub enum InplaceBinOpKind {
     Add,
     Sub,
     Mul,
@@ -233,7 +233,7 @@ pub enum IUnaryOpKind {
     And,
 }
 
-impl IUnaryOpKind {
+impl InplaceBinOpKind {
     pub fn helper_name(self) -> &'static str {
         match self {
             Self::Add => "__dp_iadd",
@@ -295,10 +295,10 @@ pub enum Operation<E> {
         kind: UnaryOpKind,
         arg0: E,
     },
-    IUnaryOp {
+    InplaceBinOp {
         node_index: ast::AtomicNodeIndex,
         range: TextRange,
-        kind: IUnaryOpKind,
+        kind: InplaceBinOpKind,
         arg0: E,
         arg1: E,
         arg2: Option<E>,
@@ -404,7 +404,7 @@ impl<E> Operation<E> {
         match self {
             Self::BinOp { kind, .. } => kind.helper_name(),
             Self::UnaryOp { kind, .. } => kind.helper_name(),
-            Self::IUnaryOp { kind, .. } => kind.helper_name(),
+            Self::InplaceBinOp { kind, .. } => kind.helper_name(),
             Self::GetAttr { .. } => "__dp_getattr",
             Self::SetAttr { .. } => "__dp_setattr",
             Self::GetItem { .. } => "__dp_getitem",
@@ -428,7 +428,7 @@ impl<E> Operation<E> {
         match self {
             Self::BinOp { node_index, .. }
             | Self::UnaryOp { node_index, .. }
-            | Self::IUnaryOp { node_index, .. }
+            | Self::InplaceBinOp { node_index, .. }
             | Self::GetAttr { node_index, .. }
             | Self::SetAttr { node_index, .. }
             | Self::GetItem { node_index, .. }
@@ -452,7 +452,7 @@ impl<E> Operation<E> {
         match self {
             Self::BinOp { range, .. }
             | Self::UnaryOp { range, .. }
-            | Self::IUnaryOp { range, .. }
+            | Self::InplaceBinOp { range, .. }
             | Self::GetAttr { range, .. }
             | Self::SetAttr { range, .. }
             | Self::GetItem { range, .. }
@@ -500,14 +500,14 @@ impl<E> Operation<E> {
                 kind,
                 arg0: f(arg0),
             },
-            Self::IUnaryOp {
+            Self::InplaceBinOp {
                 node_index,
                 range,
                 kind,
                 arg0,
                 arg1,
                 arg2,
-            } => Operation::IUnaryOp {
+            } => Operation::InplaceBinOp {
                 node_index,
                 range,
                 kind,
@@ -721,14 +721,14 @@ impl<E> Operation<E> {
                 kind,
                 arg0: f(arg0)?,
             },
-            Self::IUnaryOp {
+            Self::InplaceBinOp {
                 node_index,
                 range,
                 kind,
                 arg0,
                 arg1,
                 arg2,
-            } => Operation::IUnaryOp {
+            } => Operation::InplaceBinOp {
                 node_index,
                 range,
                 kind,
@@ -916,7 +916,7 @@ impl<E> Operation<E> {
             Self::BinOp {
                 arg0, arg1, arg2, ..
             }
-            | Self::IUnaryOp {
+            | Self::InplaceBinOp {
                 arg0, arg1, arg2, ..
             } => {
                 f(arg0);
@@ -961,7 +961,7 @@ impl<E> Operation<E> {
             Self::BinOp {
                 arg0, arg1, arg2, ..
             }
-            | Self::IUnaryOp {
+            | Self::InplaceBinOp {
                 arg0, arg1, arg2, ..
             } => {
                 f(arg0);
@@ -1007,7 +1007,7 @@ impl<E> Operation<E> {
             Self::BinOp {
                 arg0, arg1, arg2, ..
             }
-            | Self::IUnaryOp {
+            | Self::InplaceBinOp {
                 arg0, arg1, arg2, ..
             } => {
                 out.push(arg0);
@@ -1056,7 +1056,7 @@ impl<E> Operation<E> {
             Self::BinOp {
                 arg0, arg1, arg2, ..
             }
-            | Self::IUnaryOp {
+            | Self::InplaceBinOp {
                 arg0, arg1, arg2, ..
             } => {
                 out.push(arg0);
@@ -1133,14 +1133,14 @@ pub fn operation_by_name_and_args<E>(
             kind,
             arg0,
         }
-    } else if let Some(kind) = IUnaryOpKind::from_helper_name(name) {
+    } else if let Some(kind) = InplaceBinOpKind::from_helper_name(name) {
         let arg0 = args.next()?;
         let arg1 = args.next()?;
         let arg2 = args.next();
         if !kind.accepts_arity(2 + usize::from(arg2.is_some())) {
             return None;
         }
-        Operation::IUnaryOp {
+        Operation::InplaceBinOp {
             node_index,
             range,
             kind,

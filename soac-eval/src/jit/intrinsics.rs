@@ -442,59 +442,59 @@ fn emit_unary_op(
     }
 }
 
-fn emit_in_place_op(
-    kind: blockpy_intrinsics::IUnaryOpKind,
+fn emit_inplace_binop(
+    kind: blockpy_intrinsics::InplaceBinOpKind,
     helper_name: &str,
     state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_, '_>,
     parts: &[DirectSimpleCallPart],
 ) -> ir::Value {
     match kind {
-        blockpy_intrinsics::IUnaryOpKind::Add => {
+        blockpy_intrinsics::InplaceBinOpKind::Add => {
             emit_positional_owned_call(helper_name, &PYNUMBER_INPLACE_ADD_IMPORT, state, parts)
         }
-        blockpy_intrinsics::IUnaryOpKind::Sub => {
+        blockpy_intrinsics::InplaceBinOpKind::Sub => {
             emit_positional_owned_call(helper_name, &PYNUMBER_INPLACE_SUBTRACT_IMPORT, state, parts)
         }
-        blockpy_intrinsics::IUnaryOpKind::Mul => {
+        blockpy_intrinsics::InplaceBinOpKind::Mul => {
             emit_positional_owned_call(helper_name, &PYNUMBER_INPLACE_MULTIPLY_IMPORT, state, parts)
         }
-        blockpy_intrinsics::IUnaryOpKind::MatMul => {
+        blockpy_intrinsics::InplaceBinOpKind::MatMul => {
             emit_positional_owned_call(helper_name, &PYNUMBER_INPLACE_MATMUL_IMPORT, state, parts)
         }
-        blockpy_intrinsics::IUnaryOpKind::TrueDiv => emit_positional_owned_call(
+        blockpy_intrinsics::InplaceBinOpKind::TrueDiv => emit_positional_owned_call(
             helper_name,
             &PYNUMBER_INPLACE_TRUE_DIVIDE_IMPORT,
             state,
             parts,
         ),
-        blockpy_intrinsics::IUnaryOpKind::FloorDiv => emit_positional_owned_call(
+        blockpy_intrinsics::InplaceBinOpKind::FloorDiv => emit_positional_owned_call(
             helper_name,
             &PYNUMBER_INPLACE_FLOOR_DIVIDE_IMPORT,
             state,
             parts,
         ),
-        blockpy_intrinsics::IUnaryOpKind::Mod => emit_positional_owned_call(
+        blockpy_intrinsics::InplaceBinOpKind::Mod => emit_positional_owned_call(
             helper_name,
             &PYNUMBER_INPLACE_REMAINDER_IMPORT,
             state,
             parts,
         ),
-        blockpy_intrinsics::IUnaryOpKind::Pow => {
+        blockpy_intrinsics::InplaceBinOpKind::Pow => {
             emit_pow_like(helper_name, &PYNUMBER_INPLACE_POWER_IMPORT, state, parts)
         }
-        blockpy_intrinsics::IUnaryOpKind::LShift => {
+        blockpy_intrinsics::InplaceBinOpKind::LShift => {
             emit_positional_owned_call(helper_name, &PYNUMBER_INPLACE_LSHIFT_IMPORT, state, parts)
         }
-        blockpy_intrinsics::IUnaryOpKind::RShift => {
+        blockpy_intrinsics::InplaceBinOpKind::RShift => {
             emit_positional_owned_call(helper_name, &PYNUMBER_INPLACE_RSHIFT_IMPORT, state, parts)
         }
-        blockpy_intrinsics::IUnaryOpKind::Or => {
+        blockpy_intrinsics::InplaceBinOpKind::Or => {
             emit_positional_owned_call(helper_name, &PYNUMBER_INPLACE_OR_IMPORT, state, parts)
         }
-        blockpy_intrinsics::IUnaryOpKind::Xor => {
+        blockpy_intrinsics::InplaceBinOpKind::Xor => {
             emit_positional_owned_call(helper_name, &PYNUMBER_INPLACE_XOR_IMPORT, state, parts)
         }
-        blockpy_intrinsics::IUnaryOpKind::And => {
+        blockpy_intrinsics::InplaceBinOpKind::And => {
             emit_positional_owned_call(helper_name, &PYNUMBER_INPLACE_AND_IMPORT, state, parts)
         }
     }
@@ -513,8 +513,8 @@ pub(super) fn emit_operation_direct_simple<E>(
         blockpy_intrinsics::Operation::UnaryOp { kind, .. } => {
             Some(emit_unary_op(*kind, helper_name, state, parts))
         }
-        blockpy_intrinsics::Operation::IUnaryOp { kind, .. } => {
-            Some(emit_in_place_op(*kind, helper_name, state, parts))
+        blockpy_intrinsics::Operation::InplaceBinOp { kind, .. } => {
+            Some(emit_inplace_binop(*kind, helper_name, state, parts))
         }
         blockpy_intrinsics::Operation::GetAttr { .. } => {
             Some(emit_getattr(helper_name, state, parts))
