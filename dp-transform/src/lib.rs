@@ -4,7 +4,6 @@ use crate::passes::{CoreBlockPyPass, ResolvedStorageBlockPyPass, RuffBlockPyPass
 use anyhow::Result;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
-use ruff_python_parser::parse_module;
 pub use ruff_python_parser::ParseError;
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
@@ -83,7 +82,6 @@ pub(crate) fn should_skip(source: &str) -> bool {
 
 pub struct LoweringResult<P = RecordingPassTracker> {
     pub timings: TransformTimings,
-    pub module: ModModule,
     pub bb_codegen_module: Option<BlockPyModule<ResolvedStorageBlockPyPass>>,
     pub pass_tracker: P,
 }
@@ -266,28 +264,21 @@ impl PassTracker for RecordingPassTracker {
     }
 }
 
-impl<P> LoweringResult<P> {
-    pub fn to_string(&self) -> String {
-        ruff_ast_to_string(&self.module.body)
-    }
-
-    pub fn invalid_future_feature(&self) -> Option<String> {
-        let body = &self.module.body;
-        let [Stmt::Global(global_stmt), Stmt::Nonlocal(nonlocal_stmt), ..] = &body[..] else {
-            return None;
-        };
-        let [global_name] = global_stmt.names.as_slice() else {
-            return None;
-        };
-        let [nonlocal_name] = nonlocal_stmt.names.as_slice() else {
-            return None;
-        };
-        (global_name == nonlocal_name).then(|| global_name.id.to_string())
-    }
+pub fn invalid_future_feature(module: &ModModule) -> Option<String> {
+    let body = &module.body;
+    let [Stmt::Global(global_stmt), Stmt::Nonlocal(nonlocal_stmt), ..] = &body[..] else {
+        return None;
+    };
+    let [global_name] = global_stmt.names.as_slice() else {
+        return None;
+    };
+    let [nonlocal_name] = nonlocal_stmt.names.as_slice() else {
+        return None;
+    };
+    (global_name == nonlocal_name).then(|| global_name.id.to_string())
 }
 
 struct LoweringCore {
-    module: ModModule,
     bb_codegen_module: Option<BlockPyModule<ResolvedStorageBlockPyPass>>,
     total_time: Duration,
 }
@@ -301,17 +292,15 @@ fn lower_source_with_tracker(
 
     if should_skip(source) {
         return Ok(LoweringCore {
-            module: parse_module(source)?.into_syntax(),
             bb_codegen_module: None,
             total_time: Duration::ZERO,
         });
     }
 
     let total_start = timing_start();
-    let (module, bb_codegen_module) = rewrite_module_with_tracker(source, pass_tracker)?;
+    let bb_codegen_module = rewrite_module_with_tracker(source, pass_tracker)?;
 
     Ok(LoweringCore {
-        module,
         bb_codegen_module: Some(bb_codegen_module),
         total_time: timing_elapsed(total_start),
     })
@@ -321,7 +310,6 @@ fn lower_source_with_tracker(
 pub fn transform_str_to_ruff(source: &str) -> Result<LoweringResult> {
     let mut pass_tracker = RecordingPassTracker::new();
     let LoweringCore {
-        module,
         bb_codegen_module,
         total_time,
     } = lower_source_with_tracker(source, &mut pass_tracker)?;
@@ -331,25 +319,6 @@ pub fn transform_str_to_ruff(source: &str) -> Result<LoweringResult> {
     };
     Ok(LoweringResult {
         timings,
-        module,
-        bb_codegen_module,
-        pass_tracker,
-    })
-}
-
-pub fn transform_str_to_ruff_no_passes(source: &str) -> Result<LoweringResult<NoopPassTracker>> {
-    let mut pass_tracker = NoopPassTracker::new();
-    let LoweringCore {
-        module,
-        bb_codegen_module,
-        total_time,
-    } = lower_source_with_tracker(source, &mut pass_tracker)?;
-    Ok(LoweringResult {
-        timings: TransformTimings {
-            total_time,
-            pass_times: Vec::new(),
-        },
-        module,
         bb_codegen_module,
         pass_tracker,
     })

@@ -15,7 +15,7 @@ use crate::passes::{
 };
 use crate::PassTracker;
 use anyhow::Result;
-use ruff_python_ast::{self as ast, ModModule, Stmt};
+use ruff_python_ast::{self as ast, Stmt};
 use ruff_python_parser::parse_module;
 
 #[derive(Clone)]
@@ -85,18 +85,19 @@ fn lower_core_blockpy_with_await_and_yield(
 pub(crate) fn rewrite_module_with_tracker(
     source: &str,
     pass_tracker: &mut impl PassTracker,
-) -> Result<(ModModule, BlockPyModule<ResolvedStorageBlockPyPass>)> {
-    let mut module = pass_tracker.record_timing("parse", || {
+) -> Result<BlockPyModule<ResolvedStorageBlockPyPass>> {
+    let module = pass_tracker.record_timing("parse", || {
         parse_module(source).map(|module| module.into_syntax())
     })?;
+
     let context = Context::new(source);
+
     let AstToAstPassResult {
-        module: ast_module,
+        module,
         semantic_state,
     } = pass_tracker.run_pass("ast-to-ast", || {
-        rewrite_ast_to_ast_module(&context, std::mem::take(&mut module.body))
+        rewrite_ast_to_ast_module(&context, module.body)
     });
-    module.body = ast_module;
 
     /*
 
@@ -141,7 +142,7 @@ pub(crate) fn rewrite_module_with_tracker(
         pass_tracker.run_pass("semantic_blockpy", || {
             rewrite_ast_to_lowered_blockpy_module_plan_with_module(
                 &context,
-                &mut module.body,
+                module,
                 &semantic_state,
             )
         });
@@ -202,7 +203,7 @@ pub(crate) fn rewrite_module_with_tracker(
         bb_codegen
     };
     passes::validate_prepared_bb_module(&bb_traced).map_err(anyhow::Error::msg)?;
-    Ok((module, bb_traced))
+    Ok(bb_traced)
 }
 
 pub(crate) fn wrap_module_init(semantic_state: &mut SemanticAstState, module: &mut Suite) {

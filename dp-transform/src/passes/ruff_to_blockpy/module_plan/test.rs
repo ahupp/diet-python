@@ -34,7 +34,7 @@ fn lower_test_module_plan(
         ) {
             crate::driver::wrap_module_init(&mut semantic_state, &mut module);
         }
-    rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, &mut module, &semantic_state)
+    rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module, &semantic_state)
 }
 
 #[test]

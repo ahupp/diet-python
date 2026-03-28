@@ -2,7 +2,7 @@
 
 use dp_transform::block_py::{BlockPyFunction, ParamKind};
 use dp_transform::passes::ResolvedStorageBlockPyPass;
-use dp_transform::{transform_str_to_ruff, transform_str_to_ruff_no_passes};
+use dp_transform::{invalid_future_feature, ruff_ast_to_string, transform_str_to_ruff};
 use log::{info, trace};
 use pyo3::exceptions::{
     PyAttributeError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
@@ -24,17 +24,22 @@ fn is_cell_object(obj: *mut ffi::PyObject) -> bool {
     unsafe { !obj.is_null() && ffi::Py_TYPE(obj) == std::ptr::addr_of_mut!(PyCell_Type) }
 }
 
-fn lower_source(
-    source: &str,
-    ensure: Option<bool>,
-) -> PyResult<dp_transform::LoweringResult<dp_transform::NoopPassTracker>> {
+fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<dp_transform::LoweringResult> {
     let _ = ensure;
-    transform_str_to_ruff_no_passes(source).map_err(|err| {
+    transform_str_to_ruff(source).map_err(|err| {
         match err.downcast_ref::<dp_transform::ParseError>() {
             Some(parse_error) => pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string()),
             None => pyo3::exceptions::PyRuntimeError::new_err(err.to_string()),
         }
     })
+}
+
+fn rendered_ast_to_ast_source(source: &str, output: &dp_transform::LoweringResult) -> String {
+    output
+        .pass_tracker
+        .pass_ast_to_ast()
+        .map(|module| ruff_ast_to_string(&module.body))
+        .unwrap_or_else(|| source.to_string())
 }
 
 fn register_lowered_module_plans<P>(
@@ -65,7 +70,8 @@ fn register_lowered_module_plans<P>(
 fn transform_source(source: &str, ensure: Option<bool>) -> PyResult<String> {
     let preview = source.get(..100).unwrap_or(source);
     trace!("transform_source: {}", preview);
-    Ok(lower_source(source, ensure)?.to_string())
+    let output = lower_source(source, ensure)?;
+    Ok(rendered_ast_to_ast_source(source, &output))
 }
 
 #[pyfunction]
@@ -78,7 +84,7 @@ fn transform_source_with_name(
     trace!("transform_source_with_name({module_name}): {}", preview);
     let output = lower_source(source, ensure)?;
     register_lowered_module_plans(&output, module_name)?;
-    Ok(output.to_string())
+    Ok(rendered_ast_to_ast_source(source, &output))
 }
 
 #[pyfunction]
@@ -743,7 +749,12 @@ fn build_module_init(
     let module_globals = module_globals.bind(py);
     let module_name = resolve_module_name(&module_globals, "module init construction")?;
     let output = lower_source(source, ensure)?;
-    if let Some(feature) = output.invalid_future_feature() {
+    if let Some(feature) = output
+        .pass_tracker
+        .pass_ast_to_ast()
+        .as_ref()
+        .and_then(invalid_future_feature)
+    {
         return Err(pyo3::exceptions::PySyntaxError::new_err(format!(
             "name '{feature}' is nonlocal and global"
         )));

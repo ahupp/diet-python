@@ -1,6 +1,6 @@
 use std::{env, fs, process};
 
-use dp_transform::transform_str_to_ruff;
+use dp_transform::{ruff_ast_to_string, transform_str_to_ruff};
 use serde_json::json;
 
 const USAGE: &str = "usage: diet-python [--timing] <python-file>";
@@ -53,7 +53,12 @@ fn main() {
             process::exit(1);
         }
     };
-    print!("{}", result.to_string());
+    let rendered = result
+        .pass_tracker
+        .pass_ast_to_ast()
+        .map(|module| ruff_ast_to_string(&module.body))
+        .unwrap_or_else(|| source.clone());
+    print!("{rendered}");
     let timings = result.timings;
 
     if timing {

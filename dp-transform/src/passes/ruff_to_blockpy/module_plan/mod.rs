@@ -39,10 +39,10 @@ struct YieldFamilyDetector {
 
 pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
     context: &Context,
-    module: &mut Suite,
+    mut module: Suite,
     semantic_state: &SemanticAstState,
 ) -> BlockPyModule<RuffBlockPyPass> {
-    crate::passes::ast_to_ast::simplify::flatten(module);
+    crate::passes::ast_to_ast::simplify::flatten(&mut module);
     let mut rewriter = BlockPyModuleRewriter {
         context,
         semantic_state,
@@ -50,7 +50,7 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
         function_scope_stack: Vec::new(),
         callable_defs: Vec::new(),
     };
-    let module_init = BlockPyModuleRewriter::root_module_init_stmt(module);
+    let module_init = BlockPyModuleRewriter::root_module_init_stmt(&mut module);
     rewriter.lower_root_function_def(module_init);
     BlockPyModule {
         callable_defs: rewriter.callable_defs,

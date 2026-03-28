@@ -6,7 +6,11 @@ use wasm_bindgen::JsValue;
 pub fn transform(source: &str) -> Result<String, JsValue> {
     let result =
         transform_str_to_ruff(source).map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
-    Ok(result.to_string())
+    Ok(result
+        .pass_tracker
+        .pass_ast_to_ast()
+        .map(|module| crate::ruff_ast_to_string(&module.body))
+        .unwrap_or_else(|| source.to_string()))
 }
 
 #[wasm_bindgen::prelude::wasm_bindgen]
