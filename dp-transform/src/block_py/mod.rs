@@ -412,25 +412,36 @@ impl<P: BlockPyPass> BlockPyModule<P> {
 }
 
 #[derive(Debug, Clone)]
-pub enum Operation {}
-
-pub(crate) fn impossible_operation<T>(operation: Operation) -> T {
-    match operation {}
+pub enum Operation<E> {
+    Never(
+        std::convert::Infallible,
+        std::marker::PhantomData<fn() -> E>,
+    ),
 }
 
-pub(crate) fn impossible_operation_ref<T>(operation: &Operation) -> T {
-    match *operation {}
+pub(crate) fn impossible_operation<T, E>(operation: Operation<E>) -> T {
+    match operation {
+        Operation::Never(never, _) => match never {},
+    }
 }
 
-pub(crate) fn impossible_operation_mut<T>(operation: &mut Operation) -> T {
-    match *operation {}
+pub(crate) fn impossible_operation_ref<T, E>(operation: &Operation<E>) -> T {
+    match operation {
+        Operation::Never(never, _) => match *never {},
+    }
+}
+
+pub(crate) fn impossible_operation_mut<T, E>(operation: &mut Operation<E>) -> T {
+    match operation {
+        Operation::Never(never, _) => match *never {},
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
-    Op(Operation),
+    Op(Operation<CoreBlockPyExprWithAwaitAndYield>),
     Call(CoreBlockPyCall<CoreBlockPyExprWithAwaitAndYield>),
     Intrinsic(IntrinsicCall<CoreBlockPyExprWithAwaitAndYield>),
     Await(CoreBlockPyAwait<CoreBlockPyExprWithAwaitAndYield>),
@@ -442,7 +453,7 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
 pub enum CoreBlockPyExprWithYield {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
-    Op(Operation),
+    Op(Operation<CoreBlockPyExprWithYield>),
     Call(CoreBlockPyCall<CoreBlockPyExprWithYield>),
     Intrinsic(IntrinsicCall<CoreBlockPyExprWithYield>),
     Yield(CoreBlockPyYield<CoreBlockPyExprWithYield>),
@@ -453,7 +464,7 @@ pub enum CoreBlockPyExprWithYield {
 pub enum CoreBlockPyExpr<N = ast::ExprName> {
     Name(N),
     Literal(CoreBlockPyLiteral),
-    Op(Operation),
+    Op(Operation<CoreBlockPyExpr<N>>),
     Call(CoreBlockPyCall<CoreBlockPyExpr<N>>),
     Intrinsic(IntrinsicCall<CoreBlockPyExpr<N>>),
 }
