@@ -403,21 +403,6 @@ pub fn transform(source: &str) -> Result<String, wasm_bindgen::JsValue> {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen]
-pub fn transform_selected(
-    source: &str,
-    transforms: js_sys::Array,
-) -> Result<String, wasm_bindgen::JsValue> {
-    web_inspector::transform_selected(source, transforms)
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen]
 pub fn inspect_pipeline(source: &str) -> Result<String, wasm_bindgen::JsValue> {
     web_inspector::inspect_pipeline(source)
-}
-
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen]
-pub fn available_transforms() -> js_sys::Array {
-    web_inspector::available_transforms()
 }
