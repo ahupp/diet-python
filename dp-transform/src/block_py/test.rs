@@ -294,7 +294,16 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
             &self,
             expr: CoreBlockPyExprWithAwaitAndYield,
         ) -> Result<CoreBlockPyExprWithYield, Self::Error> {
-            expr.try_into()
+            match expr {
+                CoreBlockPyExprWithAwaitAndYield::Await(_) => Err(expr),
+                CoreBlockPyExprWithAwaitAndYield::Name(name) => {
+                    Ok(CoreBlockPyExprWithYield::Name(name))
+                }
+                CoreBlockPyExprWithAwaitAndYield::Literal(literal) => {
+                    Ok(CoreBlockPyExprWithYield::Literal(literal))
+                }
+                other => self.try_map_nested_expr(other),
+            }
         }
     }
 

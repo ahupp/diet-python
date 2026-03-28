@@ -17,7 +17,10 @@ mod name_gen;
 pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod state;
-pub(crate) use convert::{map_call_args_with, map_intrinsic_args_with, map_keyword_args_with};
+pub(crate) use convert::{
+    map_call_args_with, map_intrinsic_args_with, map_keyword_args_with, try_map_call_args_with,
+    try_map_intrinsic_args_with, try_map_keyword_args_with,
+};
 pub use convert::{BlockPyModuleMap, BlockPyModuleTryMap};
 pub use name_gen::{FunctionNameGen, ModuleNameGen};
 
@@ -81,6 +84,10 @@ impl From<RuffExpr> for ast::Expr {
 
 pub trait MapExpr<T>: Clone + fmt::Debug + Into<Expr> + Sized {
     fn map_expr(self, f: &mut impl FnMut(Self) -> T) -> T;
+}
+
+pub trait TryMapExpr<T, Error>: Clone + fmt::Debug + Into<Expr> + Sized {
+    fn try_map_expr(self, f: &mut impl FnMut(Self) -> Result<T, Error>) -> Result<T, Error>;
 }
 
 pub trait BlockPyExprLike: Clone + fmt::Debug + Into<Expr> + MapExpr<Self> {
@@ -547,6 +554,49 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYi
     }
 }
 
+impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
+    for CoreBlockPyExprWithAwaitAndYield
+{
+    fn try_map_expr(
+        self,
+        f: &mut impl FnMut(Self) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>,
+    ) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield> {
+        match self {
+            Self::Name(name) => Ok(CoreBlockPyExprWithYield::Name(name)),
+            Self::Literal(literal) => Ok(CoreBlockPyExprWithYield::Literal(literal)),
+            Self::Call(call) => Ok(CoreBlockPyExprWithYield::Call(CoreBlockPyCall {
+                node_index: call.node_index,
+                range: call.range,
+                func: Box::new(f(*call.func)?),
+                args: try_map_call_args_with(call.args, &mut *f)?,
+                keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
+            })),
+            Self::Intrinsic(call) => Ok(CoreBlockPyExprWithYield::Intrinsic(IntrinsicCall {
+                intrinsic: call.intrinsic,
+                node_index: call.node_index,
+                range: call.range,
+                args: try_map_intrinsic_args_with(call.args, &mut *f)?,
+            })),
+            Self::Await(_) => Err(self),
+            Self::Yield(yield_expr) => Ok(CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
+                node_index: yield_expr.node_index,
+                range: yield_expr.range,
+                value: yield_expr
+                    .value
+                    .map(|value| f(*value).map(Box::new))
+                    .transpose()?,
+            })),
+            Self::YieldFrom(yield_from_expr) => {
+                Ok(CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
+                    node_index: yield_from_expr.node_index,
+                    range: yield_from_expr.range,
+                    value: Box::new(f(*yield_from_expr.value)?),
+                }))
+            }
+        }
+    }
+}
+
 impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
     fn from_name(name: ast::ExprName) -> Self {
         Self::Name(name)
@@ -595,6 +645,32 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
     }
 }
 
+impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
+    fn try_map_expr(
+        self,
+        f: &mut impl FnMut(Self) -> Result<CoreBlockPyExpr, CoreBlockPyExprWithYield>,
+    ) -> Result<CoreBlockPyExpr, CoreBlockPyExprWithYield> {
+        match self {
+            Self::Name(name) => Ok(CoreBlockPyExpr::Name(name.into())),
+            Self::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
+            Self::Call(call) => Ok(CoreBlockPyExpr::Call(CoreBlockPyCall {
+                node_index: call.node_index,
+                range: call.range,
+                func: Box::new(f(*call.func)?),
+                args: try_map_call_args_with(call.args, &mut *f)?,
+                keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
+            })),
+            Self::Intrinsic(call) => Ok(CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+                intrinsic: call.intrinsic,
+                node_index: call.node_index,
+                range: call.range,
+                args: try_map_intrinsic_args_with(call.args, &mut *f)?,
+            })),
+            Self::Yield(_) | Self::YieldFrom(_) => Err(self),
+        }
+    }
+}
+
 impl<N: From<ast::ExprName>> CoreCallLikeExpr for CoreBlockPyExpr<N> {
     fn from_name(name: ast::ExprName) -> Self {
         Self::Name(name.into())
@@ -631,6 +707,35 @@ where
                 range: call.range,
                 args: map_intrinsic_args_with(call.args, &mut *f),
             }),
+        }
+    }
+}
+
+impl<NIn, NOut, Error> TryMapExpr<CoreBlockPyExpr<NOut>, Error> for CoreBlockPyExpr<NIn>
+where
+    NIn: BlockPyNameLike,
+    NOut: BlockPyNameLike + From<NIn>,
+{
+    fn try_map_expr(
+        self,
+        f: &mut impl FnMut(Self) -> Result<CoreBlockPyExpr<NOut>, Error>,
+    ) -> Result<CoreBlockPyExpr<NOut>, Error> {
+        match self {
+            Self::Name(name) => Ok(CoreBlockPyExpr::Name(NOut::from(name))),
+            Self::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
+            Self::Call(call) => Ok(CoreBlockPyExpr::Call(CoreBlockPyCall {
+                node_index: call.node_index,
+                range: call.range,
+                func: Box::new(f(*call.func)?),
+                args: try_map_call_args_with(call.args, &mut *f)?,
+                keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
+            })),
+            Self::Intrinsic(call) => Ok(CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+                intrinsic: call.intrinsic,
+                node_index: call.node_index,
+                range: call.range,
+                args: try_map_intrinsic_args_with(call.args, &mut *f)?,
+            })),
         }
     }
 }

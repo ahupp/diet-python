@@ -375,6 +375,13 @@ where
         Ok(<PassName<POut> as From<PassName<PIn>>>::from(name))
     }
 
+    fn try_map_nested_expr(&self, expr: PassExpr<PIn>) -> Result<PassExpr<POut>, Self::Error>
+    where
+        PassExpr<PIn>: TryMapExpr<PassExpr<POut>, Self::Error>,
+    {
+        expr.try_map_expr(&mut |child| self.try_map_expr(child))
+    }
+
     fn try_map_expr(&self, expr: PassExpr<PIn>) -> Result<PassExpr<POut>, Self::Error>;
 }
 
@@ -612,43 +619,7 @@ impl TryFrom<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithYield {
     type Error = CoreBlockPyExprWithAwaitAndYield;
 
     fn try_from(value: CoreBlockPyExprWithAwaitAndYield) -> Result<Self, Self::Error> {
-        match value {
-            CoreBlockPyExprWithAwaitAndYield::Name(node) => Ok(Self::Name(node)),
-            CoreBlockPyExprWithAwaitAndYield::Literal(literal) => Ok(Self::Literal(literal)),
-            CoreBlockPyExprWithAwaitAndYield::Call(call) => Ok(Self::Call(CoreBlockPyCall {
-                node_index: call.node_index,
-                range: call.range,
-                func: Box::new(Self::try_from(*call.func)?),
-                args: try_map_call_args_with(call.args, Self::try_from)?,
-                keywords: try_map_keyword_args_with(call.keywords, Self::try_from)?,
-            })),
-            CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) => {
-                Ok(Self::Intrinsic(IntrinsicCall {
-                    intrinsic: call.intrinsic,
-                    node_index: call.node_index,
-                    range: call.range,
-                    args: try_map_intrinsic_args_with(call.args, Self::try_from)?,
-                }))
-            }
-            CoreBlockPyExprWithAwaitAndYield::Yield(yield_expr) => {
-                Ok(Self::Yield(CoreBlockPyYield {
-                    node_index: yield_expr.node_index,
-                    range: yield_expr.range,
-                    value: yield_expr
-                        .value
-                        .map(|value| Self::try_from(*value).map(Box::new))
-                        .transpose()?,
-                }))
-            }
-            CoreBlockPyExprWithAwaitAndYield::YieldFrom(yield_from_expr) => {
-                Ok(Self::YieldFrom(CoreBlockPyYieldFrom {
-                    node_index: yield_from_expr.node_index,
-                    range: yield_from_expr.range,
-                    value: Box::new(Self::try_from(*yield_from_expr.value)?),
-                }))
-            }
-            CoreBlockPyExprWithAwaitAndYield::Await(_) => Err(value),
-        }
+        ElideAwaitExprTryMap.try_map_expr(value)
     }
 }
 
@@ -663,7 +634,16 @@ impl BlockPyModuleTryMap<CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYi
         &self,
         expr: CoreBlockPyExprWithAwaitAndYield,
     ) -> Result<CoreBlockPyExprWithYield, Self::Error> {
-        expr.try_into()
+        match expr {
+            CoreBlockPyExprWithAwaitAndYield::Await(_) => Err(expr),
+            CoreBlockPyExprWithAwaitAndYield::Name(name) => {
+                Ok(CoreBlockPyExprWithYield::Name(name))
+            }
+            CoreBlockPyExprWithAwaitAndYield::Literal(literal) => {
+                Ok(CoreBlockPyExprWithYield::Literal(literal))
+            }
+            other => self.try_map_nested_expr(other),
+        }
     }
 }
 
@@ -773,26 +753,7 @@ impl TryFrom<CoreBlockPyExprWithYield> for CoreBlockPyExpr {
     type Error = CoreBlockPyExprWithYield;
 
     fn try_from(value: CoreBlockPyExprWithYield) -> Result<Self, Self::Error> {
-        match value {
-            CoreBlockPyExprWithYield::Name(node) => Ok(Self::Name(node.into())),
-            CoreBlockPyExprWithYield::Literal(literal) => Ok(Self::Literal(literal)),
-            CoreBlockPyExprWithYield::Call(call) => Ok(Self::Call(CoreBlockPyCall {
-                node_index: call.node_index,
-                range: call.range,
-                func: Box::new(Self::try_from(*call.func)?),
-                args: try_map_call_args_with(call.args, Self::try_from)?,
-                keywords: try_map_keyword_args_with(call.keywords, Self::try_from)?,
-            })),
-            CoreBlockPyExprWithYield::Intrinsic(call) => Ok(Self::Intrinsic(IntrinsicCall {
-                intrinsic: call.intrinsic,
-                node_index: call.node_index,
-                range: call.range,
-                args: try_map_intrinsic_args_with(call.args, Self::try_from)?,
-            })),
-            CoreBlockPyExprWithYield::Yield(_) | CoreBlockPyExprWithYield::YieldFrom(_) => {
-                Err(value)
-            }
-        }
+        ElideYieldExprTryMap.try_map_expr(value)
     }
 }
 
@@ -802,7 +763,14 @@ impl BlockPyModuleTryMap<CoreBlockPyPassWithYield, CoreBlockPyPass> for ElideYie
     type Error = CoreBlockPyExprWithYield;
 
     fn try_map_expr(&self, expr: CoreBlockPyExprWithYield) -> Result<CoreBlockPyExpr, Self::Error> {
-        expr.try_into()
+        match expr {
+            CoreBlockPyExprWithYield::Yield(_) | CoreBlockPyExprWithYield::YieldFrom(_) => {
+                Err(expr)
+            }
+            CoreBlockPyExprWithYield::Name(name) => Ok(CoreBlockPyExpr::Name(name.into())),
+            CoreBlockPyExprWithYield::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
+            other => self.try_map_nested_expr(other),
+        }
     }
 }
 
