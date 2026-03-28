@@ -234,10 +234,7 @@ impl PassTracker for RecordingPassTracker {
         T: Clone + Any + TrackedPassText,
         F: FnOnce() -> T,
     {
-        let start = timing_start();
-        let value = build();
-        let elapsed = timing_elapsed(start);
-        self.record_pass_timing(name, elapsed);
+        let value = self.record_timing(name, build);
         self.passes.push(TrackedPass {
             name: name.to_string(),
             value: Box::new(value.clone()),
