@@ -411,6 +411,7 @@ impl From<CoreBlockPyExprWithAwaitAndYield> for Expr {
     fn from(value: CoreBlockPyExprWithAwaitAndYield) -> Self {
         match value {
             CoreBlockPyExprWithAwaitAndYield::Literal(literal) => core_literal_to_expr(literal),
+            CoreBlockPyExprWithAwaitAndYield::Op(operation) => impossible_operation(operation),
             CoreBlockPyExprWithAwaitAndYield::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -451,6 +452,7 @@ impl From<CoreBlockPyExprWithYield> for Expr {
     fn from(value: CoreBlockPyExprWithYield) -> Self {
         match value {
             CoreBlockPyExprWithYield::Literal(literal) => core_literal_to_expr(literal),
+            CoreBlockPyExprWithYield::Op(operation) => impossible_operation(operation),
             CoreBlockPyExprWithYield::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -484,6 +486,7 @@ impl<N: Into<ast::ExprName>> From<CoreBlockPyExpr<N>> for Expr {
     fn from(value: CoreBlockPyExpr<N>) -> Self {
         match value {
             CoreBlockPyExpr::Literal(literal) => core_literal_to_expr(literal),
+            CoreBlockPyExpr::Op(operation) => impossible_operation(operation),
             CoreBlockPyExpr::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -702,6 +705,7 @@ impl From<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
         match value {
             CoreBlockPyExprWithYield::Name(node) => Self::Name(node),
             CoreBlockPyExprWithYield::Literal(literal) => Self::Literal(literal),
+            CoreBlockPyExprWithYield::Op(operation) => impossible_operation(operation),
             CoreBlockPyExprWithYield::Call(call) => Self::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
@@ -814,6 +818,7 @@ impl From<CoreBlockPyExpr> for CoreBlockPyExprWithYield {
         match value {
             CoreBlockPyExpr::Name(node) => Self::Name(node.into()),
             CoreBlockPyExpr::Literal(literal) => Self::Literal(literal),
+            CoreBlockPyExpr::Op(operation) => impossible_operation(operation),
             CoreBlockPyExpr::Call(call) => Self::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,

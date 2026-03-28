@@ -492,6 +492,7 @@ fn direct_simple_expr_from(expr: &LocatedCoreBlockPyExpr) -> Option<DirectSimple
                 parts,
             })
         }
+        CoreBlockPyExpr::Op(operation) => match operation.clone() {},
     }
 }
 

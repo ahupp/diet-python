@@ -272,6 +272,7 @@ fn expr_meta(expr: &CoreBlockPyExpr) -> (ast::AtomicNodeIndex, ruff_text_size::T
         }
         CoreBlockPyExpr::Call(call) => (call.node_index.clone(), call.range),
         CoreBlockPyExpr::Intrinsic(call) => (call.node_index.clone(), call.range),
+        CoreBlockPyExpr::Op(operation) => crate::block_py::impossible_operation_ref(operation),
     }
 }
 
@@ -360,6 +361,7 @@ fn rewrite_deleted_name_loads_in_expr(
                 }
             }
         },
+        CoreBlockPyExpr::Op(operation) => crate::block_py::impossible_operation_mut(operation),
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
     }
 }
@@ -1146,6 +1148,7 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
             names.insert(name.id.to_string());
         }
         CoreBlockPyExpr::Literal(_) => {}
+        CoreBlockPyExpr::Op(operation) => crate::block_py::impossible_operation_ref(operation),
         CoreBlockPyExpr::Call(CoreBlockPyCall {
             func,
             args,

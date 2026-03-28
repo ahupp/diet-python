@@ -213,6 +213,7 @@ where
                 rewrite_current_exception_in_blockpy_expr(arg, exc_name);
             }
         }
+        CoreBlockPyExpr::Op(operation) => crate::block_py::impossible_operation_mut(operation),
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
     }
 

@@ -412,9 +412,25 @@ impl<P: BlockPyPass> BlockPyModule<P> {
 }
 
 #[derive(Debug, Clone)]
+pub enum Operation {}
+
+pub(crate) fn impossible_operation<T>(operation: Operation) -> T {
+    match operation {}
+}
+
+pub(crate) fn impossible_operation_ref<T>(operation: &Operation) -> T {
+    match *operation {}
+}
+
+pub(crate) fn impossible_operation_mut<T>(operation: &mut Operation) -> T {
+    match *operation {}
+}
+
+#[derive(Debug, Clone)]
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
+    Op(Operation),
     Call(CoreBlockPyCall<CoreBlockPyExprWithAwaitAndYield>),
     Intrinsic(IntrinsicCall<CoreBlockPyExprWithAwaitAndYield>),
     Await(CoreBlockPyAwait<CoreBlockPyExprWithAwaitAndYield>),
@@ -426,6 +442,7 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
 pub enum CoreBlockPyExprWithYield {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
+    Op(Operation),
     Call(CoreBlockPyCall<CoreBlockPyExprWithYield>),
     Intrinsic(IntrinsicCall<CoreBlockPyExprWithYield>),
     Yield(CoreBlockPyYield<CoreBlockPyExprWithYield>),
@@ -436,6 +453,7 @@ pub enum CoreBlockPyExprWithYield {
 pub enum CoreBlockPyExpr<N = ast::ExprName> {
     Name(N),
     Literal(CoreBlockPyLiteral),
+    Op(Operation),
     Call(CoreBlockPyCall<CoreBlockPyExpr<N>>),
     Intrinsic(IntrinsicCall<CoreBlockPyExpr<N>>),
 }
@@ -522,6 +540,7 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYi
     ) -> CoreBlockPyExprWithAwaitAndYield {
         match self {
             Self::Name(_) | Self::Literal(_) => self,
+            Self::Op(operation) => impossible_operation(operation),
             Self::Call(call) => Self::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
@@ -562,6 +581,7 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
         match self {
             Self::Name(name) => CoreBlockPyExprWithYield::Name(name),
             Self::Literal(literal) => CoreBlockPyExprWithYield::Literal(literal),
+            Self::Op(operation) => impossible_operation(operation),
             Self::Call(call) => CoreBlockPyExprWithYield::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
@@ -611,6 +631,7 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
         match self {
             Self::Name(name) => Ok(CoreBlockPyExprWithYield::Name(name)),
             Self::Literal(literal) => Ok(CoreBlockPyExprWithYield::Literal(literal)),
+            Self::Op(operation) => impossible_operation(operation),
             Self::Call(call) => Ok(CoreBlockPyExprWithYield::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
@@ -665,6 +686,7 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
     ) -> CoreBlockPyExprWithYield {
         match self {
             Self::Name(_) | Self::Literal(_) => self,
+            Self::Op(operation) => impossible_operation(operation),
             Self::Call(call) => Self::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
@@ -700,6 +722,7 @@ impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWi
         match self {
             Self::Name(name) => Ok(CoreBlockPyExpr::Name(name.into())),
             Self::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
+            Self::Op(operation) => impossible_operation(operation),
             Self::Call(call) => Ok(CoreBlockPyExpr::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
@@ -741,6 +764,7 @@ where
         match self {
             Self::Name(name) => CoreBlockPyExpr::Name(NOut::from(name)),
             Self::Literal(literal) => CoreBlockPyExpr::Literal(literal),
+            Self::Op(operation) => impossible_operation(operation),
             Self::Call(call) => CoreBlockPyExpr::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
@@ -770,6 +794,7 @@ where
         match self {
             Self::Name(name) => Ok(CoreBlockPyExpr::Name(NOut::from(name))),
             Self::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
+            Self::Op(operation) => impossible_operation(operation),
             Self::Call(call) => Ok(CoreBlockPyExpr::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
