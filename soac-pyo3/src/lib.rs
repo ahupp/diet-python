@@ -2,7 +2,10 @@
 
 use dp_transform::block_py::{BlockPyFunction, ParamKind};
 use dp_transform::passes::ResolvedStorageBlockPyPass;
-use dp_transform::{invalid_future_feature, lower_python_to_blockpy_recorded, ruff_ast_to_string};
+use dp_transform::{
+    invalid_future_feature, lower_python_to_blockpy, lower_python_to_blockpy_recorded,
+    ruff_ast_to_string,
+};
 use log::{info, trace};
 use pyo3::exceptions::{
     PyAttributeError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
@@ -27,6 +30,19 @@ fn is_cell_object(obj: *mut ffi::PyObject) -> bool {
 fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<dp_transform::LoweringResult> {
     let _ = ensure;
     lower_python_to_blockpy_recorded(source).map_err(|err| {
+        match err.downcast_ref::<dp_transform::ParseError>() {
+            Some(parse_error) => pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string()),
+            None => pyo3::exceptions::PyRuntimeError::new_err(err.to_string()),
+        }
+    })
+}
+
+fn lower_source_for_codegen(
+    source: &str,
+    ensure: Option<bool>,
+) -> PyResult<dp_transform::LoweringResult<dp_transform::NoopPassTracker>> {
+    let _ = ensure;
+    lower_python_to_blockpy(source).map_err(|err| {
         match err.downcast_ref::<dp_transform::ParseError>() {
             Some(parse_error) => pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string()),
             None => pyo3::exceptions::PyRuntimeError::new_err(err.to_string()),
@@ -748,8 +764,8 @@ fn build_module_init(
 ) -> PyResult<Py<PyAny>> {
     let module_globals = module_globals.bind(py);
     let module_name = resolve_module_name(&module_globals, "module init construction")?;
-    let output = lower_source(source, ensure)?;
-    if let Some(feature) = output
+    let output = lower_source_for_codegen(source, ensure)?;
+    if let Some(feature) = lower_source(source, ensure)?
         .pass_tracker
         .pass_ast_to_ast()
         .as_ref()

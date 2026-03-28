@@ -301,6 +301,10 @@ pub fn lower_python_to_blockpy_recorded(source: &str) -> Result<LoweringResult> 
     lower_python_to_blockpy_with_tracker(source, RecordingPassTracker::new())
 }
 
+pub fn lower_python_to_blockpy(source: &str) -> Result<LoweringResult<NoopPassTracker>> {
+    lower_python_to_blockpy_with_tracker(source, NoopPassTracker::new())
+}
+
 pub trait ToRuffAst {
     fn to_ruff_ast(&self) -> Vec<Stmt>;
 }
