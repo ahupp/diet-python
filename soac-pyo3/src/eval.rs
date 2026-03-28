@@ -182,7 +182,7 @@ mod tests {
 
     fn run_cranelift_jit_preflight(result: &dp_transform::LoweringResult) -> Result<(), String> {
         let normalized = result
-            .bb_codegen_module
+            .codegen_module
             .as_ref()
             .ok_or_else(|| "JIT mode requires tracked bb_codegen output".to_string())?;
         soac_eval::jit::run_cranelift_smoke(normalized)
@@ -204,7 +204,7 @@ def outer(scale):
 "#;
         let result = parse_and_lower(source).expect("lowering should succeed");
         let normalized = result
-            .bb_codegen_module
+            .codegen_module
             .as_ref()
             .expect("bb_codegen pass should be tracked")
             .clone();
@@ -367,7 +367,7 @@ def exercise():
 "#;
         let result = parse_and_lower_runtime_style(source).expect("lowering should succeed");
         let normalized = result
-            .bb_codegen_module
+            .codegen_module
             .as_ref()
             .expect("bb_codegen pass should be tracked")
             .clone();

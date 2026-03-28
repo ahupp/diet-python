@@ -59,12 +59,15 @@ fn main() {
         .map(|module| ruff_ast_to_string(&module.body))
         .unwrap_or_else(|| source.clone());
     print!("{rendered}");
-    let timings = result.timings;
 
     if timing {
-        let pass_timings = timings
-            .pass_times
+        let pass_timings = result.pass_tracker.pass_timings().collect::<Vec<_>>();
+        let total_ns: u128 = pass_timings
             .iter()
+            .map(|pass| pass.elapsed.as_nanos())
+            .sum();
+        let pass_timings = pass_timings
+            .into_iter()
             .map(|pass| {
                 json!({
                     "name": pass.name,
@@ -75,7 +78,7 @@ fn main() {
         eprintln!(
             "{}",
             json!({
-                "total_ns": timings.total_time.as_nanos(),
+                "total_ns": total_ns,
                 "pass_timings": pass_timings,
             })
         );

@@ -86,7 +86,7 @@ fn render_blockpy_snapshot(
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
     let blockpy_blocks = blockpy.map(count_blockpy_blocks).unwrap_or(0);
     let clif_blocks = result
-        .bb_codegen_module
+        .codegen_module
         .as_ref()
         .map(count_clif_blocks)
         .unwrap_or(0);

@@ -32,12 +32,6 @@ pub struct PassTiming {
     pub elapsed: Duration,
 }
 
-#[derive(Debug, Clone)]
-pub struct TransformTimings {
-    pub total_time: Duration,
-    pub pass_times: Vec<PassTiming>,
-}
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PassShapeSummary {
     pub contains_await: bool,
@@ -81,8 +75,7 @@ pub(crate) fn should_skip(source: &str) -> bool {
 }
 
 pub struct LoweringResult<P = RecordingPassTracker> {
-    pub timings: TransformTimings,
-    pub bb_codegen_module: Option<BlockPyModule<ResolvedStorageBlockPyPass>>,
+    pub codegen_module: Option<BlockPyModule<ResolvedStorageBlockPyPass>>,
     pub pass_tracker: P,
 }
 
@@ -278,50 +271,31 @@ pub fn invalid_future_feature(module: &ModModule) -> Option<String> {
     (global_name == nonlocal_name).then(|| global_name.id.to_string())
 }
 
-struct LoweringCore {
-    bb_codegen_module: Option<BlockPyModule<ResolvedStorageBlockPyPass>>,
-    total_time: Duration,
-}
-
-fn lower_source_with_tracker(
-    source: &str,
-    pass_tracker: &mut impl PassTracker,
-) -> Result<LoweringCore> {
+fn lower_source_with_tracker<P>(source: &str, mut pass_tracker: P) -> Result<LoweringResult<P>>
+where
+    P: PassTracker,
+{
     init_logging();
     namegen::reset_namegen_state();
 
     if should_skip(source) {
-        return Ok(LoweringCore {
-            bb_codegen_module: None,
-            total_time: Duration::ZERO,
+        return Ok(LoweringResult {
+            codegen_module: None,
+            pass_tracker,
         });
     }
 
-    let total_start = timing_start();
-    let bb_codegen_module = rewrite_module_with_tracker(source, pass_tracker)?;
+    let codegen_module = rewrite_module_with_tracker(source, &mut pass_tracker)?;
 
-    Ok(LoweringCore {
-        bb_codegen_module: Some(bb_codegen_module),
-        total_time: timing_elapsed(total_start),
+    Ok(LoweringResult {
+        codegen_module: Some(codegen_module),
+        pass_tracker,
     })
 }
 
 /// Transform the source code and return the resulting Ruff AST.
 pub fn transform_str_to_ruff(source: &str) -> Result<LoweringResult> {
-    let mut pass_tracker = RecordingPassTracker::new();
-    let LoweringCore {
-        bb_codegen_module,
-        total_time,
-    } = lower_source_with_tracker(source, &mut pass_tracker)?;
-    let timings = TransformTimings {
-        total_time,
-        pass_times: pass_tracker.pass_timings().collect(),
-    };
-    Ok(LoweringResult {
-        timings,
-        bb_codegen_module,
-        pass_tracker,
-    })
+    lower_source_with_tracker(source, RecordingPassTracker::new())
 }
 
 pub trait ToRuffAst {

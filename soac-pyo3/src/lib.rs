@@ -46,7 +46,7 @@ fn register_lowered_module_plans<P>(
     output: &dp_transform::LoweringResult<P>,
     module_name: &str,
 ) -> PyResult<()> {
-    let Some(bb_codegen) = output.bb_codegen_module.as_ref() else {
+    let Some(bb_codegen) = output.codegen_module.as_ref() else {
         return Err(PyRuntimeError::new_err(format!(
             "no bb_codegen module available for {module_name}"
         )));
@@ -351,7 +351,7 @@ fn lookup_module_init_function<P>(
     output: &dp_transform::LoweringResult<P>,
     module_name: &str,
 ) -> PyResult<BlockPyFunction<ResolvedStorageBlockPyPass>> {
-    let module = output.bb_codegen_module.as_ref().ok_or_else(|| {
+    let module = output.codegen_module.as_ref().ok_or_else(|| {
         PyRuntimeError::new_err(format!(
             "JIT basic-block module init requires a registered bb_codegen module for {module_name}"
         ))

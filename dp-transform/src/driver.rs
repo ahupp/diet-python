@@ -128,7 +128,7 @@ pub(crate) fn rewrite_module_with_tracker(
        ```
 
        This removes while/with/for from the AST, as well as expressions that
-       interact with the block structure like walrus and those that short circuit like bool ops.
+       interact with the block structure like walrus, and those that short circuit like bool ops.
 
        "def" is replaced by a call to
        `__dp_make_function(function_id, kind, closure, param_defaults, module_globals, annotate_fn)`.
