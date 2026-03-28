@@ -594,3 +594,102 @@ pub(super) fn jit_intrinsic_by_intrinsic(
         _ => None,
     }
 }
+
+pub(super) fn jit_intrinsic_by_operation<E>(
+    operation: &blockpy_intrinsics::Operation<E>,
+) -> Option<&'static dyn JitIntrinsic> {
+    match operation {
+        blockpy_intrinsics::Operation::Add { .. } => Some(&blockpy_intrinsics::ADD_INTRINSIC),
+        blockpy_intrinsics::Operation::GetAttr { .. } => {
+            Some(&blockpy_intrinsics::GETATTR_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::SetAttr { .. } => {
+            Some(&blockpy_intrinsics::SETATTR_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::GetItem { .. } => {
+            Some(&blockpy_intrinsics::GETITEM_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::SetItem { .. } => {
+            Some(&blockpy_intrinsics::SETITEM_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::DelItem { .. } => {
+            Some(&blockpy_intrinsics::DELITEM_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::LoadGlobal { .. } => {
+            Some(&blockpy_intrinsics::LOAD_GLOBAL_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::StoreGlobal { .. } => {
+            Some(&blockpy_intrinsics::STORE_GLOBAL_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::LoadCell { .. } => None,
+        blockpy_intrinsics::Operation::MakeCell { .. } => {
+            Some(&blockpy_intrinsics::MAKE_CELL_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::CellRef { .. } => None,
+        blockpy_intrinsics::Operation::StoreCell { .. } => None,
+        blockpy_intrinsics::Operation::DelQuietly { .. } => {
+            Some(&blockpy_intrinsics::DEL_QUIETLY_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::DelDerefQuietly { .. } => {
+            Some(&blockpy_intrinsics::DEL_DEREF_QUIETLY_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::DelDeref { .. } => {
+            Some(&blockpy_intrinsics::DEL_DEREF_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::Sub { .. } => Some(&blockpy_intrinsics::SUB_INTRINSIC),
+        blockpy_intrinsics::Operation::Mul { .. } => Some(&blockpy_intrinsics::MUL_INTRINSIC),
+        blockpy_intrinsics::Operation::MatMul { .. } => Some(&blockpy_intrinsics::MATMUL_INTRINSIC),
+        blockpy_intrinsics::Operation::TrueDiv { .. } => {
+            Some(&blockpy_intrinsics::TRUEDIV_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::FloorDiv { .. } => {
+            Some(&blockpy_intrinsics::FLOORDIV_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::Mod { .. } => Some(&blockpy_intrinsics::MOD_INTRINSIC),
+        blockpy_intrinsics::Operation::Pow { .. } => Some(&blockpy_intrinsics::POW_INTRINSIC),
+        blockpy_intrinsics::Operation::LShift { .. } => Some(&blockpy_intrinsics::LSHIFT_INTRINSIC),
+        blockpy_intrinsics::Operation::RShift { .. } => Some(&blockpy_intrinsics::RSHIFT_INTRINSIC),
+        blockpy_intrinsics::Operation::Or { .. } => Some(&blockpy_intrinsics::OR_INTRINSIC),
+        blockpy_intrinsics::Operation::Xor { .. } => Some(&blockpy_intrinsics::XOR_INTRINSIC),
+        blockpy_intrinsics::Operation::And { .. } => Some(&blockpy_intrinsics::AND_INTRINSIC),
+        blockpy_intrinsics::Operation::IAdd { .. } => Some(&blockpy_intrinsics::IADD_INTRINSIC),
+        blockpy_intrinsics::Operation::ISub { .. } => Some(&blockpy_intrinsics::ISUB_INTRINSIC),
+        blockpy_intrinsics::Operation::IMul { .. } => Some(&blockpy_intrinsics::IMUL_INTRINSIC),
+        blockpy_intrinsics::Operation::IMatMul { .. } => {
+            Some(&blockpy_intrinsics::IMATMUL_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::ITrueDiv { .. } => {
+            Some(&blockpy_intrinsics::ITRUEDIV_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::IFloorDiv { .. } => {
+            Some(&blockpy_intrinsics::IFLOORDIV_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::IMod { .. } => Some(&blockpy_intrinsics::IMOD_INTRINSIC),
+        blockpy_intrinsics::Operation::IPow { .. } => Some(&blockpy_intrinsics::IPOW_INTRINSIC),
+        blockpy_intrinsics::Operation::ILShift { .. } => {
+            Some(&blockpy_intrinsics::ILSHIFT_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::IRShift { .. } => {
+            Some(&blockpy_intrinsics::IRSHIFT_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::IOr { .. } => Some(&blockpy_intrinsics::IOR_INTRINSIC),
+        blockpy_intrinsics::Operation::IXor { .. } => Some(&blockpy_intrinsics::IXOR_INTRINSIC),
+        blockpy_intrinsics::Operation::IAnd { .. } => Some(&blockpy_intrinsics::IAND_INTRINSIC),
+        blockpy_intrinsics::Operation::Pos { .. } => Some(&blockpy_intrinsics::POS_INTRINSIC),
+        blockpy_intrinsics::Operation::Neg { .. } => Some(&blockpy_intrinsics::NEG_INTRINSIC),
+        blockpy_intrinsics::Operation::Invert { .. } => Some(&blockpy_intrinsics::INVERT_INTRINSIC),
+        blockpy_intrinsics::Operation::Not { .. } => Some(&blockpy_intrinsics::NOT_INTRINSIC),
+        blockpy_intrinsics::Operation::Truth { .. } => Some(&blockpy_intrinsics::TRUTH_INTRINSIC),
+        blockpy_intrinsics::Operation::Eq { .. } => Some(&blockpy_intrinsics::EQ_INTRINSIC),
+        blockpy_intrinsics::Operation::Ne { .. } => Some(&blockpy_intrinsics::NE_INTRINSIC),
+        blockpy_intrinsics::Operation::Lt { .. } => Some(&blockpy_intrinsics::LT_INTRINSIC),
+        blockpy_intrinsics::Operation::Le { .. } => Some(&blockpy_intrinsics::LE_INTRINSIC),
+        blockpy_intrinsics::Operation::Gt { .. } => Some(&blockpy_intrinsics::GT_INTRINSIC),
+        blockpy_intrinsics::Operation::Ge { .. } => Some(&blockpy_intrinsics::GE_INTRINSIC),
+        blockpy_intrinsics::Operation::Contains { .. } => {
+            Some(&blockpy_intrinsics::CONTAINS_INTRINSIC)
+        }
+        blockpy_intrinsics::Operation::Is { .. } => Some(&blockpy_intrinsics::IS_INTRINSIC),
+        blockpy_intrinsics::Operation::IsNot { .. } => Some(&blockpy_intrinsics::IS_NOT_INTRINSIC),
+    }
+}

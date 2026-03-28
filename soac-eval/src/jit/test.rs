@@ -3,7 +3,7 @@ use super::*;
 mod tests {
     use super::*;
     use dp_transform::block_py::{
-        BlockPyRaise, BlockPyTerm, LocatedCoreBlockPyExpr, LocatedName, NameLocation,
+        BlockPyRaise, BlockPyTerm, LocatedCoreBlockPyExpr, LocatedName, NameLocation, Operation,
     };
     use ruff_python_ast as ast;
 
@@ -129,13 +129,12 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Intrinsic {
-                            intrinsic: &blockpy_intrinsics::ADD_INTRINSIC,
-                            parts: vec![
-                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(1)),
-                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(2)),
-                            ],
-                        },
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::Add {
+                            node_index: Default::default(),
+                            range: Default::default(),
+                            arg0: DirectSimpleExprPlan::Int(1),
+                            arg1: DirectSimpleExprPlan::Int(2),
+                        })),
                     },
                 },
             }],
@@ -517,12 +516,11 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Intrinsic {
-                            intrinsic: &blockpy_intrinsics::CELL_REF_INTRINSIC,
-                            parts: vec![DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Name(
-                                test_closure_cell_name("x", 2),
-                            ))],
-                        },
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::CellRef {
+                            node_index: Default::default(),
+                            range: Default::default(),
+                            arg0: DirectSimpleExprPlan::Name(test_closure_cell_name("x", 2)),
+                        })),
                     },
                 },
             }],

@@ -19,6 +19,8 @@ trait OperationArg<E>: Sized {
 
     fn push_operation_args(self, out: &mut Vec<E>);
 
+    fn push_operation_arg_refs<'a>(&'a self, out: &mut Vec<&'a E>);
+
     fn take_operation_arg(args: &mut std::vec::IntoIter<E>) -> Option<Self>;
 }
 
@@ -45,6 +47,10 @@ impl<E> OperationArg<E> for E {
     }
 
     fn push_operation_args(self, out: &mut Vec<E>) {
+        out.push(self);
+    }
+
+    fn push_operation_arg_refs<'a>(&'a self, out: &mut Vec<&'a E>) {
         out.push(self);
     }
 
@@ -81,6 +87,12 @@ impl<E> OperationArg<E> for Option<E> {
 
     fn push_operation_args(self, out: &mut Vec<E>) {
         if let Some(value) = self {
+            out.push(value);
+        }
+    }
+
+    fn push_operation_arg_refs<'a>(&'a self, out: &mut Vec<&'a E>) {
+        if let Some(value) = self.as_ref() {
             out.push(value);
         }
     }
@@ -183,6 +195,18 @@ macro_rules! define_operations {
                     $(
                         Self::$variant { $( $field, )* .. } => {
                             $( <$field_ty as OperationArg<E>>::push_operation_args($field, &mut out); )*
+                        }
+                    )+
+                }
+                out
+            }
+
+            pub fn call_args(&self) -> Vec<&E> {
+                let mut out = Vec::new();
+                match self {
+                    $(
+                        Self::$variant { $( $field, )* .. } => {
+                            $( <$field_ty as OperationArg<E>>::push_operation_arg_refs($field, &mut out); )*
                         }
                     )+
                 }

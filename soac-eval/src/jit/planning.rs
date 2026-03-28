@@ -2,7 +2,7 @@ use dp_transform::block_py::{
     AbruptKind, BbStmt, BlockArg, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel,
     BlockPyModule, BlockPyNameLike, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr,
     CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreNumberLiteralValue, LocatedCoreBlockPyExpr,
-    LocatedName, ParamKind, PreparedBbBlock, intrinsics,
+    LocatedName, Operation, ParamKind, PreparedBbBlock, intrinsics,
 };
 use dp_transform::passes::PreparedBbBlockPyPass;
 use std::collections::{HashMap, HashSet};
@@ -80,6 +80,7 @@ pub enum DirectSimpleExprPlan {
     Int(i64),
     Float(f64),
     Bytes(Vec<u8>),
+    Op(Box<Operation<DirectSimpleExprPlan>>),
     Intrinsic {
         intrinsic: &'static dyn intrinsics::Intrinsic,
         parts: Vec<DirectSimpleCallPart>,
@@ -493,14 +494,11 @@ fn direct_simple_expr_from(expr: &LocatedCoreBlockPyExpr) -> Option<DirectSimple
             })
         }
         CoreBlockPyExpr::Op(operation) => {
-            let args = operation.clone().into_call_args();
-            let mut parts = Vec::with_capacity(args.len());
-            for arg in args {
-                parts.push(DirectSimpleCallPart::Pos(direct_simple_expr_from(&arg)?));
-            }
-            let intrinsic =
-                intrinsics::intrinsic_by_name_and_arity(operation.helper_name(), parts.len())?;
-            Some(DirectSimpleExprPlan::Intrinsic { intrinsic, parts })
+            let operation = operation
+                .clone()
+                .try_map_expr(&mut |arg| direct_simple_expr_from(&arg).ok_or(()))
+                .ok()?;
+            Some(DirectSimpleExprPlan::Op(Box::new(operation)))
         }
     }
 }

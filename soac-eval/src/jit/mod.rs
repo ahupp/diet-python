@@ -382,6 +382,7 @@ fn direct_simple_expr_is_borrowable(
         DirectSimpleExprPlan::Int(_)
         | DirectSimpleExprPlan::Float(_)
         | DirectSimpleExprPlan::Bytes(_)
+        | DirectSimpleExprPlan::Op(_)
         | DirectSimpleExprPlan::Intrinsic { .. }
         | DirectSimpleExprPlan::Call { .. } => false,
     }
@@ -389,6 +390,7 @@ fn direct_simple_expr_is_borrowable(
 
 enum DirectSimpleCallCallee<'a> {
     Name(&'a str),
+    Op(&'a blockpy_intrinsics::Operation<DirectSimpleExprPlan>),
     Intrinsic(&'static dyn blockpy_intrinsics::Intrinsic),
 }
 
@@ -396,6 +398,7 @@ impl DirectSimpleCallCallee<'_> {
     fn name(&self) -> &str {
         match self {
             DirectSimpleCallCallee::Name(name) => name,
+            DirectSimpleCallCallee::Op(operation) => operation.helper_name(),
             DirectSimpleCallCallee::Intrinsic(intrinsic) => intrinsic.name(),
         }
     }
@@ -418,6 +421,12 @@ fn direct_simple_call_positional_args<'a>(
             DirectSimpleCallCallee::Intrinsic(*intrinsic),
             parts.as_slice(),
         ),
+        DirectSimpleExprPlan::Op(operation) => {
+            return Some((
+                DirectSimpleCallCallee::Op(operation.as_ref()),
+                operation.call_args(),
+            ));
+        }
         _ => return None,
     };
     let mut args = Vec::with_capacity(parts.len());
@@ -433,7 +442,9 @@ fn direct_simple_call_positional_args<'a>(
 fn direct_simple_expr_const_string(expr: &DirectSimpleExprPlan) -> Option<String> {
     match expr {
         DirectSimpleExprPlan::Bytes(bytes) => String::from_utf8(bytes.clone()).ok(),
-        DirectSimpleExprPlan::Intrinsic { .. } | DirectSimpleExprPlan::Call { .. } => {
+        DirectSimpleExprPlan::Op(_)
+        | DirectSimpleExprPlan::Intrinsic { .. }
+        | DirectSimpleExprPlan::Call { .. } => {
             let (callee, args) = direct_simple_call_positional_args(expr)?;
             if args.len() != 1 {
                 return None;
@@ -1225,6 +1236,46 @@ fn emit_direct_simple_expr(
             );
             fb.switch_to_block(value_ok_block);
             fb.block_params(value_ok_block)[0]
+        }
+        DirectSimpleExprPlan::Op(operation) => {
+            assert!(
+                !borrowed,
+                "direct simple plan must not use borrowed operation expression"
+            );
+            let mut parts = Vec::new();
+            for arg in operation.clone().into_call_args() {
+                parts.push(DirectSimpleCallPart::Pos(arg));
+            }
+            let mut intrinsic_state = DirectSimpleIntrinsicEmitState {
+                fb,
+                local_names,
+                local_values,
+                ctx,
+                literal_pool,
+                jit_module,
+                func_imports,
+            };
+            if let Some(jit_intrinsic) = intrinsics::jit_intrinsic_by_operation(operation.as_ref())
+            {
+                return jit_intrinsic.emit_direct_simple(&mut intrinsic_state, &parts);
+            }
+            let fallback = DirectSimpleExprPlan::Call {
+                func: Box::new(DirectSimpleExprPlan::Name(compat_global_name(
+                    operation.helper_name(),
+                ))),
+                parts,
+            };
+            emit_direct_simple_expr(
+                intrinsic_state.fb,
+                &fallback,
+                intrinsic_state.local_names,
+                intrinsic_state.local_values,
+                intrinsic_state.ctx,
+                intrinsic_state.literal_pool,
+                false,
+                intrinsic_state.jit_module,
+                intrinsic_state.func_imports,
+            )
         }
         DirectSimpleExprPlan::Intrinsic { intrinsic, parts } => {
             assert!(
