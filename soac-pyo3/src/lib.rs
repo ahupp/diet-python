@@ -722,7 +722,7 @@ fn build_module_init(
     source: &str,
     module_globals: Py<PyAny>,
     ensure: Option<bool>,
-) -> PyResult<Py<PyTuple>> {
+) -> PyResult<Py<PyAny>> {
     let module_globals = module_globals.bind(py);
     let module_name = resolve_module_name(&module_globals, "module init construction")?;
     let output = lower_source(source, ensure)?;
@@ -746,11 +746,7 @@ fn build_module_init(
         &module_globals,
         none.bind(py),
     )?;
-    let doc = match output.module_docstring() {
-        Some(doc) => pyo3::types::PyString::new(py, &doc).into_any().unbind(),
-        None => none.clone_ref(py),
-    };
-    Ok(PyTuple::new(py, [module_init.bind(py).as_any(), doc.bind(py).as_any()])?.unbind())
+    Ok(module_init)
 }
 
 #[pyfunction]

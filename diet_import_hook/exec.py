@@ -57,9 +57,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.modules[module_name] = module
     sys.argv[0] = str(path)
     module.__dict__.setdefault("__builtins__", builtins.__dict__)
-    init, doc = transform.build_module_init(source, module.__dict__, True)
-    if doc is not None:
-        module.__doc__ = doc
+    init = transform.build_module_init(source, module.__dict__, True)
     if callable(init):
         module._dp_module_init = init
     init = getattr(module, "_dp_module_init", None)

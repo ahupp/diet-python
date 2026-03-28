@@ -6,8 +6,8 @@ use crate::py_stmt;
 #[should_panic(expected = "PassTracker already contains a pass named one")]
 fn pass_tracker_rejects_duplicate_names() {
     let mut tracker = PassTracker::new();
-    let _ = tracker.run_unrenderable_pass("one", || 1_i32);
-    let _ = tracker.run_unrenderable_pass("one", || 2_i32);
+    let _suite: Suite = tracker.run_pass("one", || vec![py_stmt!("x = 1")]);
+    let _suite: Suite = tracker.run_pass("one", || vec![py_stmt!("x = 2")]);
 }
 
 #[test]

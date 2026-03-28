@@ -4,9 +4,7 @@ use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def;
 use crate::passes::ast_to_ast::rewrite_expr::ScopedHelperExprPass;
 use crate::passes::ast_to_ast::{
-    body::{split_docstring, Suite},
-    rewrite_future_annotations, rewrite_stmt,
-    semantic::SemanticAstState,
+    body::Suite, rewrite_future_annotations, rewrite_stmt, semantic::SemanticAstState,
 };
 use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
@@ -195,23 +193,12 @@ pub(crate) fn rewrite_module_with_tracker(
     } else {
         bb_codegen
     };
-    pass_tracker
-        .run_unrenderable_pass("bb_validate", || {
-            passes::validate_prepared_bb_module(&bb_traced)
-        })
-        .map_err(anyhow::Error::msg)?;
+    passes::validate_prepared_bb_module(&bb_traced).map_err(anyhow::Error::msg)?;
     Ok(bb_traced)
 }
 
 pub(crate) fn wrap_module_init(semantic_state: &mut SemanticAstState, module: &mut Suite) {
-    let (docstring, mut init_body) = split_docstring(module);
-    if let Some(docstring) = docstring {
-        init_body.insert(
-            0,
-            crate::py_stmt!("__doc__ = {value:literal}", value = docstring),
-        );
-    }
-
+    let mut init_body = std::mem::take(module);
     if init_body.is_empty() {
         init_body.push(crate::py_stmt!("pass"));
     }

@@ -59,7 +59,7 @@ def _build_module_init(path: str, module):
         raise ImportError(f"diet-python could not read source for {path}: {err}") from err
     transformer = _get_pyo3_transform()
     try:
-        init, doc = transformer.build_module_init(
+        init = transformer.build_module_init(
             original_source,
             module.__dict__,
             True,
@@ -70,7 +70,7 @@ def _build_module_init(path: str, module):
         raise
     except Exception as err:
         raise ImportError(f"diet-python failed for {path}: {err}") from err
-    return init, doc
+    return init
 
 
 def _get_pyo3_transform():
@@ -136,9 +136,7 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
 
     def exec_module(self, module):
         module.__dict__.setdefault("__builtins__", builtins.__dict__)
-        init, doc = _build_module_init(self.path, module)
-        if doc is not None:
-            module.__doc__ = doc
+        init = _build_module_init(self.path, module)
         if init is not None:
             module._dp_module_init = init
         _run_module_init(module)

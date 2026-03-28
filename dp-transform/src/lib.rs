@@ -137,28 +137,10 @@ impl PassTracker {
     }
 
     #[must_use]
-    pub(crate) fn run_unrenderable_pass<T: Clone + Any>(
-        &mut self,
-        name: &str,
-        build: impl FnOnce() -> T,
-    ) -> T {
-        self.run_pass_with_renderer(name, build, None)
-    }
-
-    #[must_use]
     pub(crate) fn run_pass<T: Clone + Any + TrackedPassText>(
         &mut self,
         name: &str,
         build: impl FnOnce() -> T,
-    ) -> T {
-        self.run_pass_with_renderer(name, build, Some(render_tracked_pass_value::<T>))
-    }
-
-    fn run_pass_with_renderer<T: Clone + Any>(
-        &mut self,
-        name: &str,
-        build: impl FnOnce() -> T,
-        render_text: Option<fn(&dyn Any) -> String>,
     ) -> T {
         let start = timing_start();
         let value = build();
@@ -171,7 +153,7 @@ impl PassTracker {
             name: name.to_string(),
             elapsed,
             value: Box::new(value.clone()),
-            render_text,
+            render_text: Some(render_tracked_pass_value::<T>),
         });
         value
     }
@@ -223,17 +205,6 @@ impl LoweringResult {
 
     pub fn to_string(&self) -> String {
         ruff_ast_to_string(&self.module.body)
-    }
-
-    pub fn module_docstring(&self) -> Option<String> {
-        let stmt = &self.module.body.first()?;
-        let Stmt::Expr(ast::StmtExpr { value, .. }) = stmt else {
-            return None;
-        };
-        let Expr::StringLiteral(ast::ExprStringLiteral { value, .. }) = value.as_ref() else {
-            return None;
-        };
-        Some(value.to_string())
     }
 
     pub fn invalid_future_feature(&self) -> Option<String> {
