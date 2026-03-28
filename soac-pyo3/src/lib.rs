@@ -27,14 +27,20 @@ fn is_cell_object(obj: *mut ffi::PyObject) -> bool {
     unsafe { !obj.is_null() && ffi::Py_TYPE(obj) == std::ptr::addr_of_mut!(PyCell_Type) }
 }
 
+fn lowering_error_to_pyerr(err: dp_transform::LoweringError) -> PyErr {
+    match err {
+        dp_transform::LoweringError::Parse(parse_error) => {
+            pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string())
+        }
+        dp_transform::LoweringError::Other(err) => {
+            pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
+        }
+    }
+}
+
 fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<dp_transform::LoweringResult> {
     let _ = ensure;
-    lower_python_to_blockpy_recorded(source).map_err(|err| {
-        match err.downcast_ref::<dp_transform::ParseError>() {
-            Some(parse_error) => pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string()),
-            None => pyo3::exceptions::PyRuntimeError::new_err(err.to_string()),
-        }
-    })
+    lower_python_to_blockpy_recorded(source).map_err(lowering_error_to_pyerr)
 }
 
 fn lower_source_for_codegen(
@@ -42,12 +48,7 @@ fn lower_source_for_codegen(
     ensure: Option<bool>,
 ) -> PyResult<dp_transform::LoweringResult<dp_transform::NoopPassTracker>> {
     let _ = ensure;
-    lower_python_to_blockpy(source).map_err(|err| {
-        match err.downcast_ref::<dp_transform::ParseError>() {
-            Some(parse_error) => pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string()),
-            None => pyo3::exceptions::PyRuntimeError::new_err(err.to_string()),
-        }
-    })
+    lower_python_to_blockpy(source).map_err(lowering_error_to_pyerr)
 }
 
 fn rendered_ast_to_ast_source(source: &str, output: &dp_transform::LoweringResult) -> String {
@@ -111,12 +112,7 @@ fn debug_pass_shape(
     ensure: Option<bool>,
 ) -> PyResult<Py<PyDict>> {
     let _ = ensure;
-    let output = lower_python_to_blockpy_recorded(source).map_err(|err| {
-        match err.downcast_ref::<dp_transform::ParseError>() {
-            Some(parse_error) => pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string()),
-            None => pyo3::exceptions::PyRuntimeError::new_err(err.to_string()),
-        }
-    })?;
+    let output = lower_python_to_blockpy_recorded(source).map_err(lowering_error_to_pyerr)?;
     let summary = output
         .pass_tracker
         .summarize_pass_shape(pass_name)
@@ -131,12 +127,7 @@ fn debug_pass_shape(
 #[pyfunction]
 fn inspect_pipeline(source: &str, ensure: Option<bool>) -> PyResult<String> {
     let _ = ensure;
-    let output = lower_python_to_blockpy_recorded(source).map_err(|err| {
-        match err.downcast_ref::<dp_transform::ParseError>() {
-            Some(parse_error) => pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string()),
-            None => pyo3::exceptions::PyRuntimeError::new_err(err.to_string()),
-        }
-    })?;
+    let output = lower_python_to_blockpy_recorded(source).map_err(lowering_error_to_pyerr)?;
     let mut steps = vec![json!({
         "key": "input_source",
         "label": "input source",

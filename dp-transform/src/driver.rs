@@ -13,8 +13,7 @@ use crate::passes::{
     self, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield,
     ResolvedStorageBlockPyPass, RuffBlockPyPass,
 };
-use crate::PassTracker;
-use anyhow::Result;
+use crate::{PassTracker, Result};
 use ruff_python_ast::{self as ast, Stmt};
 use ruff_python_parser::parse_module;
 

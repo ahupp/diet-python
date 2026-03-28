@@ -1,7 +1,7 @@
 use crate::block_py::pretty::BlockPyPrettyPrint;
 use crate::passes::ast_to_ast::body::Suite;
 use crate::passes::{CoreBlockPyPass, ResolvedStorageBlockPyPass, RuffBlockPyPass};
-use anyhow::Result;
+use anyhow::Error as AnyhowError;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 pub use ruff_python_parser::ParseError;
@@ -25,6 +25,44 @@ mod web_inspector;
 
 use crate::block_py::BlockPyModule;
 use crate::driver::rewrite_module_with_tracker;
+
+#[derive(Debug)]
+pub enum LoweringError {
+    Parse(ParseError),
+    Other(AnyhowError),
+}
+
+pub type Result<T> = std::result::Result<T, LoweringError>;
+
+impl std::fmt::Display for LoweringError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Parse(err) => err.fmt(f),
+            Self::Other(err) => err.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for LoweringError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Parse(err) => Some(err),
+            Self::Other(err) => Some(err.as_ref()),
+        }
+    }
+}
+
+impl From<ParseError> for LoweringError {
+    fn from(value: ParseError) -> Self {
+        Self::Parse(value)
+    }
+}
+
+impl From<AnyhowError> for LoweringError {
+    fn from(value: AnyhowError) -> Self {
+        Self::Other(value)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct PassTiming {
