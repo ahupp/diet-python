@@ -1,6 +1,6 @@
 use crate::block_py::{
     core_positional_call_expr_with_meta, BlockPyFunction, BlockPyModule, BlockPyStmt,
-    CoreBlockPyLiteral, CoreStringLiteral, LocatedCoreBlockPyExpr, LocatedName, NameLocation,
+    CoreBlockPyLiteral, CoreBytesLiteral, LocatedCoreBlockPyExpr, LocatedName, NameLocation,
 };
 use crate::passes::PreparedBbBlockPyPass;
 use ruff_python_ast::{self as ast};
@@ -172,11 +172,11 @@ impl PreparedTraceNameLocator {
     }
 }
 
-fn string_literal_expr(value: &str) -> LocatedCoreBlockPyExpr {
-    LocatedCoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
+fn bytes_literal_expr(value: &[u8]) -> LocatedCoreBlockPyExpr {
+    LocatedCoreBlockPyExpr::Literal(CoreBlockPyLiteral::BytesLiteral(CoreBytesLiteral {
         range: compat_range(),
         node_index: compat_node_index(),
-        value: value.to_string(),
+        value: value.to_vec(),
     }))
 }
 
@@ -185,6 +185,10 @@ fn helper_call_expr(
     args: Vec<LocatedCoreBlockPyExpr>,
 ) -> LocatedCoreBlockPyExpr {
     core_positional_call_expr_with_meta(helper_name, compat_node_index(), compat_range(), args)
+}
+
+fn string_literal_expr(value: &str) -> LocatedCoreBlockPyExpr {
+    helper_call_expr("str", vec![bytes_literal_expr(value.as_bytes())])
 }
 
 fn tuple_expr(values: Vec<LocatedCoreBlockPyExpr>) -> LocatedCoreBlockPyExpr {

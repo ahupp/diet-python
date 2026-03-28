@@ -152,21 +152,29 @@ pub(crate) fn rewrite_module_with_tracker(
         .run_renderable_pass("name_binding", || {
             passes::lower_name_binding_in_core_blockpy_module(core_blockpy_without_await_or_yield)
         });
+    let trace_config = passes::parse_trace_env();
     let bb_prepared: BlockPyModule<PreparedBbBlockPyPass> =
         pass_tracker.run_renderable_pass("bb_prepared", || {
             passes::lower_try_jump_exception_flow(&name_binding)
                 .expect("bb_prepared pass should succeed for valid BB lowering")
         });
-    let bb_traced: BlockPyModule<PreparedBbBlockPyPass> =
-        pass_tracker.run_renderable_pass("bb_trace", || {
-            let mut traced = bb_prepared.clone();
-            if let Some(config) = passes::parse_trace_env() {
-                passes::instrument_bb_module_for_trace(&mut traced, &config);
-            }
-            traced
+    let bb_codegen: BlockPyModule<PreparedBbBlockPyPass> = pass_tracker
+        .run_renderable_pass("bb_codegen", || {
+            passes::normalize_bb_module_strings(&bb_prepared, &context.source)
         });
-    pass_tracker.run_renderable_pass("bb_codegen", || {
-        passes::normalize_bb_module_strings(&bb_traced, &context.source)
+    let bb_traced: BlockPyModule<PreparedBbBlockPyPass> = if let Some(config) = trace_config {
+        pass_tracker.run_renderable_pass("bb_trace", || {
+            let mut traced = bb_codegen.clone();
+            passes::instrument_bb_module_for_trace(&mut traced, &config);
+            traced
+        })
+    } else {
+        bb_codegen
+    };
+    pass_tracker.run_renderable_pass("bb_validate", || {
+        passes::validate_prepared_bb_module(&bb_traced)
+            .expect("bb_validate pass should succeed for valid prepared BB lowering");
+        bb_traced.clone()
     })
 }
 

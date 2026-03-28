@@ -71,7 +71,9 @@ impl BlockPyPass for PreparedBbBlockPyPass {
 }
 
 pub(crate) use blockpy_to_bb::lower_yield_in_lowered_core_blockpy_module_bundle;
-pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_strings};
+pub use blockpy_to_bb::{
+    lower_try_jump_exception_flow, normalize_bb_module_strings, validate_prepared_bb_module,
+};
 
 pub(crate) use name_binding::lower_name_binding_in_core_blockpy_module;
 pub(crate) use summarize_pass_shape::summarize_tracked_pass_shape;

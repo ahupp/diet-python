@@ -31,13 +31,6 @@ fn lower_function_try_jump_exception_flow(
         closure_layout: function.closure_layout,
         semantic: function.semantic,
     };
-    let label_set: HashSet<String> = function
-        .blocks
-        .iter()
-        .map(|block| block.label.as_str().to_string())
-        .collect();
-    validate_function_labels(&function, &label_set)?;
-
     // Canonicalize exception-edge blocks so each potentially-raising expression
     // step sits in its own block. This keeps per-expression exception checks
     // explicit in CFG shape (op-block -> jump -> ... -> term-block), which
@@ -46,6 +39,20 @@ fn lower_function_try_jump_exception_flow(
     populate_exception_edge_args(&mut function.blocks);
 
     Ok(function)
+}
+
+pub fn validate_prepared_bb_module(
+    module: &BlockPyModule<PreparedBbBlockPyPass>,
+) -> Result<(), String> {
+    for function in &module.callable_defs {
+        let label_set: HashSet<String> = function
+            .blocks
+            .iter()
+            .map(|block| block.label.as_str().to_string())
+            .collect();
+        validate_function_labels(function, &label_set)?;
+    }
+    Ok(())
 }
 
 fn bb_params_from_names(

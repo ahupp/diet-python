@@ -1,4 +1,4 @@
-use super::lower_try_jump_exception_flow;
+use super::{lower_try_jump_exception_flow, validate_prepared_bb_module};
 use crate::block_py::{BbBlock, BlockPyEdge, BlockPyLabel, BlockPyTerm, LocatedCoreBlockPyExpr};
 use crate::{transform_str_to_bb_ir_with_options, Options};
 
@@ -85,7 +85,8 @@ def f():
         .expect("must contain function");
     function.blocks[0].exc_edge = Some(BlockPyEdge::new(BlockPyLabel::from("missing_except")));
 
-    let err = lower_try_jump_exception_flow(&module).expect_err("must reject unknown labels");
+    let lowered = lower_try_jump_exception_flow(&module).expect("lowering should still succeed");
+    let err = validate_prepared_bb_module(&lowered).expect_err("must reject unknown labels");
     assert!(
         err.contains("unknown exception target"),
         "unexpected error: {err}"
