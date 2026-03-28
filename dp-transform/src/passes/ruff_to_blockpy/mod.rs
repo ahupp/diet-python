@@ -14,10 +14,10 @@ use crate::block_py::exception::{
 use crate::block_py::param_specs::ParamSpec;
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
-    assert_blockpy_block_normalized, move_entry_block_to_front, BbStmt, BlockPyBindingKind,
-    BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyLabel, BlockPyNameLike, BlockPyPass, BlockPyStmt, BlockPyTerm,
-    CfgBlock, ClosureLayout, FunctionName, FunctionNameGen, IntoBlockPyStmt,
+    assert_blockpy_block_normalized, convert_blockpy_term_expr, move_entry_block_to_front, BbStmt,
+    BlockPyBindingKind, BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm,
+    BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyNameLike, BlockPyPass, BlockPyStmt,
+    BlockPyTerm, CfgBlock, ClosureLayout, FunctionName, FunctionNameGen, IntoBlockPyStmt, RuffExpr,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -225,7 +225,8 @@ fn build_semantic_blockpy_closure_layout<P>(
     injected_exception_names: &HashSet<String>,
 ) -> Option<ClosureLayout>
 where
-    P: BlockPyPass<Expr = Expr, Name = ast::ExprName>,
+    P: BlockPyPass<Name = ast::ExprName>,
+    P::Expr: Clone + Into<Expr>,
 {
     #[derive(Default)]
     struct CellRefLogicalNameCollector {
@@ -248,27 +249,28 @@ where
         }
     }
 
-    fn collect_cell_ref_logical_names_in_stmt<S>(stmt: S, out: &mut HashSet<String>)
+    fn collect_cell_ref_logical_names_in_stmt<E, S>(stmt: S, out: &mut HashSet<String>)
     where
-        S: IntoBlockPyStmt<Expr, ast::ExprName>,
+        E: Clone + Into<Expr> + std::fmt::Debug,
+        S: IntoBlockPyStmt<E, ast::ExprName>,
     {
         match stmt.into_stmt() {
             BlockPyStmt::Assign(assign) => {
                 let mut collector = CellRefLogicalNameCollector::default();
-                let mut expr = assign.value;
+                let mut expr: Expr = assign.value.into();
                 collector.visit_expr(&mut expr);
                 out.extend(collector.names);
             }
             BlockPyStmt::Expr(expr) => {
                 let mut collector = CellRefLogicalNameCollector::default();
-                let mut expr = expr;
+                let mut expr: Expr = expr.into();
                 collector.visit_expr(&mut expr);
                 out.extend(collector.names);
             }
             BlockPyStmt::Delete(_) => {}
             BlockPyStmt::If(if_stmt) => {
                 let mut collector = CellRefLogicalNameCollector::default();
-                let mut test = if_stmt.test;
+                let mut test: Expr = if_stmt.test.into();
                 collector.visit_expr(&mut test);
                 out.extend(collector.names);
                 collect_cell_ref_logical_names_in_fragment(if_stmt.body, out);
@@ -277,18 +279,21 @@ where
         }
     }
 
-    fn collect_cell_ref_logical_names_in_term(term: &BlockPyTerm, out: &mut HashSet<String>) {
+    fn collect_cell_ref_logical_names_in_term<E>(term: &BlockPyTerm<E>, out: &mut HashSet<String>)
+    where
+        E: Clone + Into<Expr> + std::fmt::Debug,
+    {
         match term {
             BlockPyTerm::Jump(_) => {}
             BlockPyTerm::IfTerm(if_term) => {
                 let mut collector = CellRefLogicalNameCollector::default();
-                let mut test = if_term.test.clone();
+                let mut test: Expr = if_term.test.clone().into();
                 collector.visit_expr(&mut test);
                 out.extend(collector.names);
             }
             BlockPyTerm::BranchTable(branch) => {
                 let mut collector = CellRefLogicalNameCollector::default();
-                let mut index = branch.index.clone();
+                let mut index: Expr = branch.index.clone().into();
                 collector.visit_expr(&mut index);
                 out.extend(collector.names);
             }
@@ -297,23 +302,25 @@ where
                     return;
                 };
                 let mut collector = CellRefLogicalNameCollector::default();
-                let mut exc = exc.clone();
+                let mut exc: Expr = exc.clone().into();
                 collector.visit_expr(&mut exc);
                 out.extend(collector.names);
             }
             BlockPyTerm::Return(expr) => {
                 let mut collector = CellRefLogicalNameCollector::default();
-                let mut expr = expr.clone();
+                let mut expr: Expr = expr.clone().into();
                 collector.visit_expr(&mut expr);
                 out.extend(collector.names);
             }
         }
     }
 
-    fn collect_cell_ref_logical_names_in_fragment(
-        fragment: crate::block_py::BlockPyStmtFragment,
+    fn collect_cell_ref_logical_names_in_fragment<E>(
+        fragment: crate::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
         out: &mut HashSet<String>,
-    ) {
+    ) where
+        E: Clone + Into<Expr> + std::fmt::Debug,
+    {
         for stmt in fragment.body {
             collect_cell_ref_logical_names_in_stmt(stmt, out);
         }
@@ -424,7 +431,7 @@ where
 fn lower_structured_semantic_blocks_to_bb_blocks(
     blocks: &[CfgBlock<BlockPyStmt, BlockPyTerm>],
     block_params: &HashMap<String, Vec<String>>,
-) -> Vec<CfgBlock<BbStmt<Expr, ast::ExprName>, BlockPyTerm<Expr>>> {
+) -> Vec<CfgBlock<BbStmt<RuffExpr, ast::ExprName>, BlockPyTerm<RuffExpr>>> {
     let exception_edges = lowered_exception_edges(blocks);
     let (linear_blocks, linear_block_params, linear_exception_edges) =
         linearize_structured_ifs(blocks, block_params, &exception_edges);
@@ -462,7 +469,7 @@ fn lower_structured_semantic_blocks_to_bb_blocks(
             crate::block_py::CfgBlock {
                 label: block.label.clone(),
                 body: ops,
-                term: block.term.clone(),
+                term: convert_blockpy_term_expr(block.term.clone()),
                 params,
                 exc_edge,
             }
@@ -562,7 +569,7 @@ pub(crate) fn recompute_semantic_blockpy_closure_layout<P>(
     callable_def: &BlockPyFunction<P>,
 ) -> Option<ClosureLayout>
 where
-    P: BlockPyPass<Expr = Expr, Name = ast::ExprName>,
+    P: BlockPyPass<Name = ast::ExprName>,
 {
     build_semantic_blockpy_closure_layout(callable_def, &HashSet::new())
 }

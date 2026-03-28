@@ -4,14 +4,14 @@ use crate::block_py::intrinsics::{
     MAKE_CELL_INTRINSIC, SETITEM_INTRINSIC, STORE_CELL_INTRINSIC, STORE_GLOBAL_INTRINSIC,
 };
 use crate::block_py::{
-    core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta,
-    map_intrinsic_args_with, BbStmt, BindingTarget, BlockPyAssign, BlockPyBindingKind,
-    BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
-    BlockPyCellBindingKind, BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
-    IntrinsicCall, LocatedName, NameLocation,
+    core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta, BbStmt,
+    BindingTarget, BlockPyAssign, BlockPyBindingKind, BlockPyBindingPurpose,
+    BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyCellBindingKind,
+    BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt, BlockPyTerm, ClosureInit,
+    ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
+    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, IntrinsicCall, LocatedName,
+    NameLocation,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, recompute_lowered_block_params,
@@ -962,20 +962,17 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 {
                     return globals_expr(node_index, range);
                 }
-                CoreBlockPyExpr::Call(CoreBlockPyCall {
+                self.map_nested_expr(CoreBlockPyExpr::Call(CoreBlockPyCall {
                     node_index,
                     range,
-                    func: Box::new(self.map_expr(*func)),
-                    args: self.map_call_args(args),
-                    keywords: self.map_keyword_args(keywords),
-                })
+                    func,
+                    args,
+                    keywords,
+                }))
             }
-            CoreBlockPyExpr::Intrinsic(call) => CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-                intrinsic: call.intrinsic,
-                node_index: call.node_index,
-                range: call.range,
-                args: map_intrinsic_args_with(call.args, |expr| self.map_expr(expr)),
-            }),
+            CoreBlockPyExpr::Intrinsic(call) => {
+                self.map_nested_expr(CoreBlockPyExpr::Intrinsic(call))
+            }
         }
     }
 }
@@ -1620,8 +1617,16 @@ impl BlockPyModuleMap<CoreBlockPyPass, BbBlockPyPass> for NameLocator<'_> {
                 args,
                 keywords,
             }) => {
-                let func = Box::new(self.map_expr(*func));
-                let mut args = self.map_call_args(args);
+                let mut expr = self.map_nested_expr(CoreBlockPyExpr::Call(CoreBlockPyCall {
+                    node_index,
+                    range,
+                    func,
+                    args,
+                    keywords,
+                }));
+                let CoreBlockPyExpr::Call(CoreBlockPyCall { func, args, .. }) = &mut expr else {
+                    unreachable!("call expression should remain call after nested mapping")
+                };
                 if matches!(
                     func.as_ref(),
                     CoreBlockPyExpr::Name(func_name)
@@ -1632,17 +1637,16 @@ impl BlockPyModuleMap<CoreBlockPyPass, BbBlockPyPass> for NameLocator<'_> {
                         *expr = self.mark_raw_cell_expr(expr.clone());
                     }
                 }
-                CoreBlockPyExpr::Call(CoreBlockPyCall {
-                    node_index,
-                    range,
-                    func,
-                    args,
-                    keywords: self.map_keyword_args(keywords),
-                })
+                expr
             }
             CoreBlockPyExpr::Intrinsic(call) => {
                 let intrinsic = call.intrinsic;
-                let mut args = map_intrinsic_args_with(call.args, |expr| self.map_expr(expr));
+                let mut expr = self.map_nested_expr(CoreBlockPyExpr::Intrinsic(call));
+                let CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, .. }) = &mut expr else {
+                    unreachable!(
+                        "intrinsic expression should remain intrinsic after nested mapping"
+                    )
+                };
                 let marks_first_arg_as_raw_cell = matches!(
                     intrinsic.name(),
                     name if name == CELL_REF_INTRINSIC.name()
@@ -1656,12 +1660,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, BbBlockPyPass> for NameLocator<'_> {
                         *first = self.mark_raw_cell_expr(first.clone());
                     }
                 }
-                CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-                    intrinsic,
-                    node_index: call.node_index,
-                    range: call.range,
-                    args,
-                })
+                expr
             }
         }
     }

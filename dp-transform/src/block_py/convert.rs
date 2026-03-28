@@ -63,6 +63,8 @@ pub trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
+    PassExpr<PIn>: MapExpr<PassExpr<PIn>>,
+    PassExpr<POut>: MapExpr<PassExpr<POut>>,
     BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
     fn map_module(&self, module: BlockPyModule<PIn>) -> BlockPyModule<POut> {
@@ -199,6 +201,13 @@ where
         name.into()
     }
 
+    fn map_nested_expr(&self, expr: PassExpr<PIn>) -> PassExpr<POut>
+    where
+        PassExpr<PIn>: MapExpr<PassExpr<POut>>,
+    {
+        expr.map_expr(&mut |child| self.map_expr(child))
+    }
+
     fn map_expr(&self, expr: PassExpr<PIn>) -> PassExpr<POut>;
 }
 
@@ -206,6 +215,8 @@ pub trait BlockPyModuleTryMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
+    PassExpr<PIn>: MapExpr<PassExpr<PIn>>,
+    PassExpr<POut>: MapExpr<PassExpr<POut>>,
     BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
     type Error;

@@ -145,9 +145,10 @@ fn count_blockpy_blocks(module: &BlockPyModule<RuffBlockPyPass>) -> usize {
         .sum()
 }
 
-fn count_blockpy_blocks_in_list<S>(blocks: &[CfgBlock<S, BlockPyTerm>]) -> usize
+fn count_blockpy_blocks_in_list<S, E>(blocks: &[CfgBlock<S, BlockPyTerm<E>>]) -> usize
 where
-    S: IntoBlockPyStmt<Expr, ruff_python_ast::ExprName>,
+    E: Clone + Into<Expr> + std::fmt::Debug,
+    S: IntoBlockPyStmt<E, ruff_python_ast::ExprName>,
 {
     blocks
         .iter()
@@ -158,9 +159,10 @@ where
         .sum()
 }
 
-fn count_blockpy_blocks_in_stmts<S>(stmts: &[S]) -> usize
+fn count_blockpy_blocks_in_stmts<S, E>(stmts: &[S]) -> usize
 where
-    S: IntoBlockPyStmt<Expr, ruff_python_ast::ExprName>,
+    E: Clone + Into<Expr> + std::fmt::Debug,
+    S: IntoBlockPyStmt<E, ruff_python_ast::ExprName>,
 {
     stmts
         .iter()
@@ -174,9 +176,12 @@ where
         .sum()
 }
 
-fn count_blockpy_blocks_in_stmt_fragment(
-    fragment: &BlockPyCfgFragment<BlockPyStmt, dp_transform::block_py::BlockPyTerm>,
-) -> usize {
+fn count_blockpy_blocks_in_stmt_fragment<E>(
+    fragment: &BlockPyCfgFragment<BlockPyStmt<E>, dp_transform::block_py::BlockPyTerm<E>>,
+) -> usize
+where
+    E: Clone + Into<Expr> + std::fmt::Debug,
+{
     count_blockpy_blocks_in_stmts(&fragment.body)
         + fragment
             .term
@@ -184,7 +189,7 @@ fn count_blockpy_blocks_in_stmt_fragment(
             .map_or(0, count_blockpy_blocks_in_term)
 }
 
-fn count_blockpy_blocks_in_term(term: &dp_transform::block_py::BlockPyTerm) -> usize {
+fn count_blockpy_blocks_in_term<E>(term: &dp_transform::block_py::BlockPyTerm<E>) -> usize {
     match term {
         dp_transform::block_py::BlockPyTerm::IfTerm(_) => 0,
         _ => 0,

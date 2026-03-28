@@ -1,6 +1,6 @@
 use super::*;
 use crate::block_py::{BlockParam, BlockParamRole};
-use crate::block_py::{ClosureInit, ClosureLayout, ClosureSlot};
+use crate::block_py::{ClosureInit, ClosureLayout, ClosureSlot, RuffExpr};
 use crate::passes::{BbBlockPyPass, RuffBlockPyPass};
 use ruff_python_parser::parse_expression;
 
@@ -20,6 +20,10 @@ fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
 
 fn parse_blockpy_expr(source: &str) -> Expr {
     (*parse_expression(source).unwrap().into_syntax().body).into()
+}
+
+fn parse_ruff_blockpy_expr(source: &str) -> RuffExpr {
+    parse_blockpy_expr(source).into()
 }
 
 fn empty_param_spec() -> ParamSpec {
@@ -166,7 +170,7 @@ fn renders_public_closure_metadata_in_function_header() {
             blocks: vec![CfgBlock {
                 label: "gen_start".into(),
                 body: vec![],
-                term: BlockPyTerm::<Expr>::Return(parse_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             }],
@@ -211,7 +215,7 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
                 label: "start".into(),
                 body: vec![],
                 term: BlockPyTerm::IfTerm(BlockPyIfTerm {
-                    test: parse_blockpy_expr("cond"),
+                    test: parse_ruff_blockpy_expr("cond"),
                     then_label: "then".into(),
                     else_label: "else".into(),
                 }),
@@ -220,22 +224,22 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
             },
             CfgBlock {
                 label: "then".into(),
-                body: vec![BlockPyStmt::Expr(parse_blockpy_expr("then_side_effect()")).into()],
+                body: vec![BlockPyStmt::Expr(parse_ruff_blockpy_expr("then_side_effect()")).into()],
                 term: BlockPyTerm::Jump("after".into()),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: "else".into(),
-                body: vec![BlockPyStmt::Expr(parse_blockpy_expr("else_side_effect()")).into()],
+                body: vec![BlockPyStmt::Expr(parse_ruff_blockpy_expr("else_side_effect()")).into()],
                 term: BlockPyTerm::Jump("after".into()),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: "after".into(),
-                body: vec![BlockPyStmt::Expr(parse_blockpy_expr("finish()")).into()],
-                term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
+                body: vec![BlockPyStmt::Expr(parse_ruff_blockpy_expr("finish()")).into()],
+                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
@@ -294,28 +298,28 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
             CfgBlock {
                 label: "zeta".into(),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: "alpha".into(),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: "omega".into(),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: "beta".into(),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },

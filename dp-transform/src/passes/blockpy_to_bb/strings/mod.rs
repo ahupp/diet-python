@@ -1,7 +1,6 @@
 use crate::block_py::{
-    map_call_args_with, map_keyword_args_with, BlockPyModule, BlockPyModuleMap, CoreBlockPyCall,
-    CoreBlockPyCallArg, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBytesLiteral, IntrinsicCall,
-    LocatedCoreBlockPyExpr, LocatedName, NameLocation,
+    BlockPyModule, BlockPyModuleMap, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral, CoreBytesLiteral, LocatedCoreBlockPyExpr, LocatedName, NameLocation,
 };
 use crate::passes::PreparedBbBlockPyPass;
 use ruff_python_ast::{self as ast};
@@ -20,27 +19,7 @@ struct CodegenExprNormalizer<'a> {
 
 impl BlockPyModuleMap<PreparedBbBlockPyPass, PreparedBbBlockPyPass> for CodegenExprNormalizer<'_> {
     fn map_expr(&self, expr: LocatedCoreBlockPyExpr) -> LocatedCoreBlockPyExpr {
-        let expr = match expr {
-            LocatedCoreBlockPyExpr::Call(call) => LocatedCoreBlockPyExpr::Call(CoreBlockPyCall {
-                node_index: call.node_index,
-                range: call.range,
-                func: Box::new(self.map_expr(*call.func)),
-                args: map_call_args_with(call.args, |expr| self.map_expr(expr)),
-                keywords: map_keyword_args_with(call.keywords, |expr| self.map_expr(expr)),
-            }),
-            LocatedCoreBlockPyExpr::Intrinsic(IntrinsicCall {
-                intrinsic,
-                node_index,
-                range,
-                args,
-            }) => LocatedCoreBlockPyExpr::Intrinsic(IntrinsicCall {
-                intrinsic,
-                node_index,
-                range,
-                args: args.into_iter().map(|expr| self.map_expr(expr)).collect(),
-            }),
-            LocatedCoreBlockPyExpr::Name(_) | LocatedCoreBlockPyExpr::Literal(_) => expr,
-        };
+        let expr = self.map_nested_expr(expr);
 
         match expr {
             LocatedCoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(node)) => {

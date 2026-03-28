@@ -1,13 +1,14 @@
 use super::ast_to_ast::rewrite_expr::string::lower_string_templates_in_expr;
 use super::core_eval_order::make_eval_order_explicit_in_core_block;
 use crate::block_py::{
-    core_call_expr_with_meta, core_positional_call_expr_with_meta,
-    core_positional_intrinsic_expr_with_meta, intrinsics, BlockPyAssign, BlockPyBranchTable,
-    BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
-    BlockPyStmtFragment, BlockPyStmtFragmentBuilder, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
-    CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral, CoreBlockPyYield, CoreBlockPyYieldFrom, CoreBytesLiteral,
-    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, IntoBlockPyStmt,
+    convert_blockpy_stmt_expr, convert_blockpy_term_expr, core_call_expr_with_meta,
+    core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta, intrinsics,
+    BlockPyAssign, BlockPyBranchTable, BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm,
+    BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyStmtFragmentBuilder, BlockPyTerm,
+    CfgBlock, CoreBlockPyAwait, CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyYield, CoreBlockPyYieldFrom,
+    CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
+    IntoBlockPyStmt, RuffExpr,
 };
 use crate::passes::ast_to_ast::expr_utils::{make_binop, make_tuple, make_unaryop};
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
@@ -612,13 +613,13 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: BlockPyTerm<Exp
 }
 
 fn lower_semantic_block<S>(
-    block: CfgBlock<S, BlockPyTerm<Expr>>,
+    block: CfgBlock<S, BlockPyTerm<RuffExpr>>,
 ) -> CfgBlock<
     BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
     BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
 >
 where
-    S: IntoBlockPyStmt<Expr, ast::ExprName>,
+    S: IntoBlockPyStmt<RuffExpr, ast::ExprName>,
 {
     let CfgBlock {
         label,
@@ -629,9 +630,9 @@ where
     } = block;
     let mut builder = CoreStmtBuilder::new();
     for stmt in body {
-        lower_semantic_stmt_into(&mut builder, stmt.into_stmt());
+        lower_semantic_stmt_into(&mut builder, convert_blockpy_stmt_expr(stmt.into_stmt()));
     }
-    lower_semantic_term_into(&mut builder, term);
+    lower_semantic_term_into(&mut builder, convert_blockpy_term_expr(term));
     let fragment = builder.finish();
     CfgBlock {
         label,
