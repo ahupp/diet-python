@@ -102,26 +102,6 @@ fn transform_source_with_name(
 }
 
 #[pyfunction]
-fn debug_pass_shape(
-    py: Python<'_>,
-    source: &str,
-    pass_name: &str,
-    ensure: Option<bool>,
-) -> PyResult<Py<PyDict>> {
-    let _ = ensure;
-    let output = lower_python_to_blockpy_recorded(source).map_err(lowering_error_to_pyerr)?;
-    let summary = output
-        .pass_tracker
-        .summarize_pass_shape(pass_name)
-        .ok_or_else(|| PyRuntimeError::new_err(format!("no tracked pass named {pass_name}")))?;
-    let payload = PyDict::new(py);
-    payload.set_item("contains_await", summary.contains_await)?;
-    payload.set_item("contains_yield", summary.contains_yield)?;
-    payload.set_item("contains_dp_add", summary.contains_dp_add)?;
-    Ok(payload.unbind())
-}
-
-#[pyfunction]
 fn inspect_pipeline(source: &str, ensure: Option<bool>) -> PyResult<String> {
     let _ = ensure;
     let output = lower_python_to_blockpy_recorded(source).map_err(lowering_error_to_pyerr)?;
@@ -846,7 +826,6 @@ fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(transform_source, module)?)?;
     module.add_function(wrap_pyfunction!(transform_source_with_name, module)?)?;
     module.add_function(wrap_pyfunction!(build_module_init, module)?)?;
-    module.add_function(wrap_pyfunction!(debug_pass_shape, module)?)?;
     module.add_function(wrap_pyfunction!(inspect_pipeline, module)?)?;
     module.add_function(wrap_pyfunction!(make_bb_function, module)?)?;
     module.add_function(wrap_pyfunction!(make_bb_generator, module)?)?;

@@ -1,42 +1,19 @@
 use crate::passes::ast_to_ast::body::Suite;
 use crate::py_expr;
-use crate::{passes::ast_to_ast::context::Context, transformer::Transformer};
+use crate::transformer::Transformer;
 use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::{ParseError, ParseErrorType};
 use ruff_source_file::LineEnding;
 use std::collections::HashSet;
 
-pub fn rewrite(_context: &Context, body: &mut Suite) -> HashSet<String> {
+pub fn rewrite(body: &mut Suite) -> Result<HashSet<String>, ParseError> {
     let mut rewriter = FutureAnnotationsRewriter::new();
-    let future_features = rewriter.strip_future_imports(body);
+    let future_features = rewriter.strip_future_imports(body)?;
     if future_features.contains("annotations") {
         (&mut rewriter).visit_body(body);
     }
-    future_features
-}
-
-pub fn validate_future_imports(body: &Suite) -> Result<(), ParseError> {
-    for stmt in body {
-        let Stmt::ImportFrom(import_from) = stmt else {
-            continue;
-        };
-        if !is_future_import(import_from) {
-            continue;
-        }
-        for alias in &import_from.names {
-            if !is_known_future_feature(&alias.name) {
-                return Err(ParseError {
-                    error: ParseErrorType::OtherError(format!(
-                        "Future feature `{}` is not defined",
-                        alias.name
-                    )),
-                    location: alias.range,
-                });
-            }
-        }
-    }
-    Ok(())
+    Ok(future_features)
 }
 
 struct FutureAnnotationsRewriter {
@@ -50,19 +27,25 @@ impl FutureAnnotationsRewriter {
         }
     }
 
-    fn strip_future_imports(&mut self, body: &mut Suite) -> HashSet<String> {
+    fn strip_future_imports(&mut self, body: &mut Suite) -> Result<HashSet<String>, ParseError> {
         let mut future_features = HashSet::new();
         let mut index = 0;
         while index < body.len() {
             let mut remove_stmt = false;
             if let Stmt::ImportFrom(import_from) = &mut body[index] {
                 if is_future_import(import_from) {
-                    future_features.extend(
-                        import_from
-                            .names
-                            .iter()
-                            .map(|alias| alias.name.id.to_string()),
-                    );
+                    for alias in &import_from.names {
+                        if !is_known_future_feature(&alias.name) {
+                            return Err(ParseError {
+                                error: ParseErrorType::OtherError(format!(
+                                    "Future feature `{}` is not defined",
+                                    alias.name
+                                )),
+                                location: alias.range,
+                            });
+                        }
+                        future_features.insert(alias.name.id.to_string());
+                    }
                     remove_stmt = true;
                 }
             }
@@ -73,7 +56,7 @@ impl FutureAnnotationsRewriter {
                 index += 1;
             }
         }
-        future_features
+        Ok(future_features)
     }
 
     fn annotation_string(&self, expr: &Expr) -> String {

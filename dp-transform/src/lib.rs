@@ -70,13 +70,6 @@ pub struct PassTiming {
     pub elapsed: Duration,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct PassShapeSummary {
-    pub contains_await: bool,
-    pub contains_yield: bool,
-    pub contains_dp_add: bool,
-}
-
 static INIT_LOGGER: Once = Once::new();
 
 fn timing_start() -> Option<Instant> {
@@ -229,10 +222,6 @@ impl RecordingPassTracker {
 
     pub fn pass_names(&self) -> impl Iterator<Item = &str> {
         self.passes.iter().map(|pass| pass.name.as_str())
-    }
-
-    pub fn summarize_pass_shape(&self, name: &str) -> Option<PassShapeSummary> {
-        crate::passes::summarize_tracked_pass_shape(self, name)
     }
 
     pub fn pass_ast_to_ast(&self) -> Option<ModModule> {

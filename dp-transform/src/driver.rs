@@ -30,9 +30,6 @@ impl crate::TrackedPassText for AstToAstPassResult {
 }
 
 fn rewrite_ast_to_ast_module(context: &Context, mut module: Suite) -> AstToAstPassResult {
-    // The transform now has a single lowering strategy: basic-block form.
-    rewrite_future_annotations::rewrite(context, &mut module);
-
     // Rewrite names like "__foo" in class bodies to "_<class_name>__foo"
     rewrite_class_def::private::rewrite_private_names(context, &mut module);
 
@@ -79,8 +76,8 @@ pub(crate) fn rewrite_module_with_tracker(
 ) -> Result<BlockPyModule<ResolvedStorageBlockPyPass>> {
     let module =
         pass_tracker.record_timing("parse", || -> std::result::Result<_, ParseError> {
-            let module = parse_module(source).map(|module| module.into_syntax())?;
-            rewrite_future_annotations::validate_future_imports(&module.body)?;
+            let mut module = parse_module(source).map(|module| module.into_syntax())?;
+            rewrite_future_annotations::rewrite(&mut module.body)?;
             Ok(module)
         })?;
 
