@@ -182,13 +182,12 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Intrinsic {
-                            intrinsic: &blockpy_intrinsics::LT_INTRINSIC,
-                            parts: vec![
-                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(1)),
-                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(2)),
-                            ],
-                        },
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::Lt {
+                            node_index: Default::default(),
+                            range: Default::default(),
+                            arg0: DirectSimpleExprPlan::Int(1),
+                            arg1: DirectSimpleExprPlan::Int(2),
+                        })),
                     },
                 },
             }],
@@ -370,13 +369,12 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Intrinsic {
-                            intrinsic: &blockpy_intrinsics::LOAD_GLOBAL_INTRINSIC,
-                            parts: vec![
-                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(1)),
-                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(2)),
-                            ],
-                        },
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::LoadGlobal {
+                            node_index: Default::default(),
+                            range: Default::default(),
+                            arg0: DirectSimpleExprPlan::Int(1),
+                            arg1: DirectSimpleExprPlan::Int(2),
+                        })),
                     },
                 },
             }],
@@ -420,14 +418,13 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Intrinsic {
-                            intrinsic: &blockpy_intrinsics::STORE_GLOBAL_INTRINSIC,
-                            parts: vec![
-                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(1)),
-                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(2)),
-                                DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(3)),
-                            ],
-                        },
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::StoreGlobal {
+                            node_index: Default::default(),
+                            range: Default::default(),
+                            arg0: DirectSimpleExprPlan::Int(1),
+                            arg1: DirectSimpleExprPlan::Int(2),
+                            arg2: DirectSimpleExprPlan::Int(3),
+                        })),
                     },
                 },
             }],
@@ -568,12 +565,14 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Intrinsic {
-                            intrinsic: &blockpy_intrinsics::CELL_REF_INTRINSIC,
-                            parts: vec![DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Name(
-                                test_captured_cell_source_name("_dp_classcell", 2),
-                            ))],
-                        },
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::CellRef {
+                            node_index: Default::default(),
+                            range: Default::default(),
+                            arg0: DirectSimpleExprPlan::Name(test_captured_cell_source_name(
+                                "_dp_classcell",
+                                2,
+                            )),
+                        })),
                     },
                 },
             }],
@@ -621,32 +620,36 @@ mod tests {
                     plan: DirectSimpleBlockPlan {
                         params: vec![],
                         ops: vec![
-                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Intrinsic {
-                                intrinsic: &blockpy_intrinsics::DELITEM_INTRINSIC,
-                                parts: vec![
-                                    DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(1)),
-                                    DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(2)),
-                                ],
-                            }),
-                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Intrinsic {
-                                intrinsic: &blockpy_intrinsics::DEL_QUIETLY_INTRINSIC,
-                                parts: vec![
-                                    DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(3)),
-                                    DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Int(4)),
-                                ],
-                            }),
-                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Intrinsic {
-                                intrinsic: &blockpy_intrinsics::DEL_DEREF_INTRINSIC,
-                                parts: vec![DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Name(
-                                    test_name("cell"),
-                                ))],
-                            }),
-                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Intrinsic {
-                                intrinsic: &blockpy_intrinsics::DEL_DEREF_QUIETLY_INTRINSIC,
-                                parts: vec![DirectSimpleCallPart::Pos(DirectSimpleExprPlan::Name(
-                                    test_name("cell"),
-                                ))],
-                            }),
+                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
+                                Operation::DelItem {
+                                    node_index: Default::default(),
+                                    range: Default::default(),
+                                    arg0: DirectSimpleExprPlan::Int(1),
+                                    arg1: DirectSimpleExprPlan::Int(2),
+                                },
+                            ))),
+                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
+                                Operation::DelQuietly {
+                                    node_index: Default::default(),
+                                    range: Default::default(),
+                                    arg0: DirectSimpleExprPlan::Int(3),
+                                    arg1: DirectSimpleExprPlan::Int(4),
+                                },
+                            ))),
+                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
+                                Operation::DelDeref {
+                                    node_index: Default::default(),
+                                    range: Default::default(),
+                                    arg0: DirectSimpleExprPlan::Name(test_name("cell")),
+                                },
+                            ))),
+                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
+                                Operation::DelDerefQuietly {
+                                    node_index: Default::default(),
+                                    range: Default::default(),
+                                    arg0: DirectSimpleExprPlan::Name(test_name("cell")),
+                                },
+                            ))),
                         ],
                         term: DirectSimpleTermPlan::Ret {
                             value: DirectSimpleExprPlan::Int(0),

@@ -383,7 +383,6 @@ fn direct_simple_expr_is_borrowable(
         | DirectSimpleExprPlan::Float(_)
         | DirectSimpleExprPlan::Bytes(_)
         | DirectSimpleExprPlan::Op(_)
-        | DirectSimpleExprPlan::Intrinsic { .. }
         | DirectSimpleExprPlan::Call { .. } => false,
     }
 }
@@ -391,7 +390,6 @@ fn direct_simple_expr_is_borrowable(
 enum DirectSimpleCallCallee<'a> {
     Name(&'a str),
     Op(&'a blockpy_intrinsics::Operation<DirectSimpleExprPlan>),
-    Intrinsic(&'static dyn blockpy_intrinsics::Intrinsic),
 }
 
 impl DirectSimpleCallCallee<'_> {
@@ -399,7 +397,6 @@ impl DirectSimpleCallCallee<'_> {
         match self {
             DirectSimpleCallCallee::Name(name) => name,
             DirectSimpleCallCallee::Op(operation) => operation.helper_name(),
-            DirectSimpleCallCallee::Intrinsic(intrinsic) => intrinsic.name(),
         }
     }
 }
@@ -417,10 +414,6 @@ fn direct_simple_call_positional_args<'a>(
                 parts.as_slice(),
             )
         }
-        DirectSimpleExprPlan::Intrinsic { intrinsic, parts } => (
-            DirectSimpleCallCallee::Intrinsic(*intrinsic),
-            parts.as_slice(),
-        ),
         DirectSimpleExprPlan::Op(operation) => {
             return Some((
                 DirectSimpleCallCallee::Op(operation.as_ref()),
@@ -442,9 +435,7 @@ fn direct_simple_call_positional_args<'a>(
 fn direct_simple_expr_const_string(expr: &DirectSimpleExprPlan) -> Option<String> {
     match expr {
         DirectSimpleExprPlan::Bytes(bytes) => String::from_utf8(bytes.clone()).ok(),
-        DirectSimpleExprPlan::Op(_)
-        | DirectSimpleExprPlan::Intrinsic { .. }
-        | DirectSimpleExprPlan::Call { .. } => {
+        DirectSimpleExprPlan::Op(_) | DirectSimpleExprPlan::Call { .. } => {
             let (callee, args) = direct_simple_call_positional_args(expr)?;
             if args.len() != 1 {
                 return None;
@@ -768,12 +759,6 @@ impl DirectSimpleIntrinsicEmitState<'_, '_, '_, '_> {
     }
 }
 
-fn jit_intrinsic_by_intrinsic(
-    intrinsic: &'static dyn blockpy_intrinsics::Intrinsic,
-) -> Option<&'static dyn intrinsics::JitIntrinsic> {
-    intrinsics::jit_intrinsic_by_intrinsic(intrinsic)
-}
-
 fn load_function_state_value(
     fb: &mut FunctionBuilder<'_>,
     function_state_slots: &FunctionStateSlots,
@@ -1055,7 +1040,6 @@ fn emit_direct_simple_expr(
     let block_const = ctx.consts.block_const;
     let load_name_ref = ctx.load_name_ref;
     let function_globals_ref = ctx.function_globals_ref;
-    let function_closure_cell_ref = ctx.function_closure_cell_ref;
     let pyobject_getattr_ref = ctx.pyobject_getattr_ref;
     let pyobject_setitem_ref = ctx.pyobject_setitem_ref;
     let decode_literal_bytes_ref = ctx.decode_literal_bytes_ref;
@@ -1264,41 +1248,6 @@ fn emit_direct_simple_expr(
                     operation.helper_name(),
                 ))),
                 parts,
-            };
-            emit_direct_simple_expr(
-                intrinsic_state.fb,
-                &fallback,
-                intrinsic_state.local_names,
-                intrinsic_state.local_values,
-                intrinsic_state.ctx,
-                intrinsic_state.literal_pool,
-                false,
-                intrinsic_state.jit_module,
-                intrinsic_state.func_imports,
-            )
-        }
-        DirectSimpleExprPlan::Intrinsic { intrinsic, parts } => {
-            assert!(
-                !borrowed,
-                "direct simple plan must not use borrowed intrinsic expression"
-            );
-            let mut intrinsic_state = DirectSimpleIntrinsicEmitState {
-                fb,
-                local_names,
-                local_values,
-                ctx,
-                literal_pool,
-                jit_module,
-                func_imports,
-            };
-            if let Some(jit_intrinsic) = jit_intrinsic_by_intrinsic(*intrinsic) {
-                return jit_intrinsic.emit_direct_simple(&mut intrinsic_state, parts);
-            }
-            let fallback = DirectSimpleExprPlan::Call {
-                func: Box::new(DirectSimpleExprPlan::Name(compat_global_name(
-                    intrinsic.name(),
-                ))),
-                parts: parts.clone(),
             };
             emit_direct_simple_expr(
                 intrinsic_state.fb,

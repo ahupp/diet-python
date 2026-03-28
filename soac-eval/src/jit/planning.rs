@@ -1,10 +1,11 @@
 use dp_transform::block_py::{
     AbruptKind, BbStmt, BlockArg, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel,
-    BlockPyModule, BlockPyNameLike, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreNumberLiteralValue, LocatedCoreBlockPyExpr,
-    LocatedName, Operation, ParamKind, PreparedBbBlock, intrinsics,
+    BlockPyModule, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral, CoreNumberLiteralValue, LocatedCoreBlockPyExpr, LocatedName, Operation,
+    ParamKind, PreparedBbBlock, intrinsics,
 };
 use dp_transform::passes::PreparedBbBlockPyPass;
+use ruff_python_ast as ast;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
@@ -81,10 +82,6 @@ pub enum DirectSimpleExprPlan {
     Float(f64),
     Bytes(Vec<u8>),
     Op(Box<Operation<DirectSimpleExprPlan>>),
-    Intrinsic {
-        intrinsic: &'static dyn intrinsics::Intrinsic,
-        parts: Vec<DirectSimpleCallPart>,
-    },
     Call {
         func: Box<DirectSimpleExprPlan>,
         parts: Vec<DirectSimpleCallPart>,
@@ -484,13 +481,27 @@ fn direct_simple_expr_from(expr: &LocatedCoreBlockPyExpr) -> Option<DirectSimple
             })
         }
         CoreBlockPyExpr::Intrinsic(call) => {
-            let mut parts = Vec::with_capacity(call.args.len());
+            let mut args = Vec::with_capacity(call.args.len());
             for arg in &call.args {
-                parts.push(DirectSimpleCallPart::Pos(direct_simple_expr_from(arg)?));
+                args.push(direct_simple_expr_from(arg)?);
             }
-            Some(DirectSimpleExprPlan::Intrinsic {
-                intrinsic: call.intrinsic,
-                parts,
+            if let Some(operation) = intrinsics::operation_by_name_and_args(
+                call.intrinsic.name(),
+                call.node_index.clone(),
+                call.range,
+                args.clone(),
+            ) {
+                return Some(DirectSimpleExprPlan::Op(Box::new(operation)));
+            }
+            Some(DirectSimpleExprPlan::Call {
+                func: Box::new(DirectSimpleExprPlan::Name(LocatedName {
+                    id: call.intrinsic.name().into(),
+                    ctx: ast::ExprContext::Load,
+                    range: Default::default(),
+                    node_index: Default::default(),
+                    location: dp_transform::block_py::NameLocation::Global,
+                })),
+                parts: args.into_iter().map(DirectSimpleCallPart::Pos).collect(),
             })
         }
         CoreBlockPyExpr::Op(operation) => {
