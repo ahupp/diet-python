@@ -1,17 +1,15 @@
 use crate::block_py::intrinsics::{
-    Intrinsic, CELL_REF_INTRINSIC, DELITEM_INTRINSIC, DEL_DEREF_INTRINSIC,
-    DEL_DEREF_QUIETLY_INTRINSIC, DEL_QUIETLY_INTRINSIC, LOAD_CELL_INTRINSIC, LOAD_GLOBAL_INTRINSIC,
-    MAKE_CELL_INTRINSIC, SETITEM_INTRINSIC, STORE_CELL_INTRINSIC, STORE_GLOBAL_INTRINSIC,
+    Intrinsic, CELL_REF_INTRINSIC, DEL_DEREF_INTRINSIC, DEL_DEREF_QUIETLY_INTRINSIC,
+    LOAD_CELL_INTRINSIC, MAKE_CELL_INTRINSIC, STORE_CELL_INTRINSIC,
 };
 use crate::block_py::{
-    core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta, BbStmt,
-    BindingTarget, BlockPyAssign, BlockPyBindingKind, BlockPyBindingPurpose,
-    BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyCellBindingKind,
-    BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt, BlockPyTerm, ClosureInit,
-    ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
-    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, IntrinsicCall, LocatedName,
-    NameLocation, Operation,
+    core_positional_call_expr_with_meta, BbStmt, BindingTarget, BlockPyAssign, BlockPyBindingKind,
+    BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
+    BlockPyCellBindingKind, BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
+    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
+    IntrinsicCall, LocatedName, NameLocation, Operation,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, recompute_lowered_block_params,
@@ -48,19 +46,24 @@ fn globals_expr(
     core_positional_call_expr_with_meta("__dp_globals", node_index, range, Vec::new())
 }
 
+fn op_expr(operation: Operation<CoreBlockPyExpr>) -> CoreBlockPyExpr {
+    CoreBlockPyExpr::Op(Box::new(operation))
+}
+
+fn op_stmt(operation: Operation<CoreBlockPyExpr>) -> BlockPyStmt<CoreBlockPyExpr> {
+    BlockPyStmt::Expr(op_expr(operation))
+}
+
 fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
     let range = name.range;
     let bind_name = name.id.to_string();
-    core_positional_intrinsic_expr_with_meta(
-        &LOAD_GLOBAL_INTRINSIC,
-        node_index.clone(),
+    op_expr(Operation::LoadGlobal {
+        node_index: node_index.clone(),
         range,
-        vec![
-            globals_expr(node_index.clone(), range),
-            core_string_expr(bind_name, node_index, range),
-        ],
-    )
+        arg0: globals_expr(node_index.clone(), range),
+        arg1: core_string_expr(bind_name, node_index, range),
+    })
 }
 
 fn cell_expr_for_name(
@@ -83,17 +86,11 @@ fn rewrite_cell_name_load(
 ) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
     let range = name.range;
-    core_positional_intrinsic_expr_with_meta(
-        &LOAD_CELL_INTRINSIC,
-        node_index.clone(),
+    op_expr(Operation::LoadCell {
+        node_index: node_index.clone(),
         range,
-        vec![cell_expr_for_name(
-            name.id.as_str(),
-            semantic,
-            node_index,
-            range,
-        )],
-    )
+        arg0: cell_expr_for_name(name.id.as_str(), semantic, node_index, range),
+    })
 }
 
 fn rewrite_cell_ref_expr(
@@ -102,17 +99,16 @@ fn rewrite_cell_ref_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    core_positional_intrinsic_expr_with_meta(
-        &CELL_REF_INTRINSIC,
-        node_index.clone(),
+    op_expr(Operation::CellRef {
+        node_index: node_index.clone(),
         range,
-        vec![core_name_expr(
+        arg0: core_name_expr(
             semantic.cell_ref_source_name(logical_name).as_str(),
             ast::ExprContext::Load,
             node_index,
             range,
-        )],
-    )
+        ),
+    })
 }
 
 fn rewrite_global_binding_assign(
@@ -121,16 +117,13 @@ fn rewrite_global_binding_assign(
     let node_index = assign.target.node_index.clone();
     let range = assign.target.range;
     let bind_name = assign.target.id.to_string();
-    BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
-        &STORE_GLOBAL_INTRINSIC,
-        node_index.clone(),
+    op_stmt(Operation::StoreGlobal {
+        node_index: node_index.clone(),
         range,
-        vec![
-            globals_expr(node_index.clone(), range),
-            core_string_expr(bind_name, node_index, range),
-            assign.value,
-        ],
-    ))
+        arg0: globals_expr(node_index.clone(), range),
+        arg1: core_string_expr(bind_name, node_index, range),
+        arg2: assign.value,
+    })
 }
 
 fn rewrite_class_namespace_binding_assign(
@@ -139,16 +132,13 @@ fn rewrite_class_namespace_binding_assign(
     let node_index = assign.target.node_index.clone();
     let range = assign.target.range;
     let bind_name = assign.target.id.to_string();
-    BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
-        &SETITEM_INTRINSIC,
-        node_index.clone(),
+    op_stmt(Operation::SetItem {
+        node_index: node_index.clone(),
         range,
-        vec![
-            class_namespace_expr(node_index.clone(), range),
-            core_string_expr(bind_name, node_index, range),
-            assign.value,
-        ],
-    ))
+        arg0: class_namespace_expr(node_index.clone(), range),
+        arg1: core_string_expr(bind_name, node_index, range),
+        arg2: assign.value,
+    })
 }
 
 fn rewrite_cell_binding_assign(
@@ -157,15 +147,12 @@ fn rewrite_cell_binding_assign(
 ) -> BlockPyStmt<CoreBlockPyExpr> {
     let node_index = assign.target.node_index.clone();
     let range = assign.target.range;
-    BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
-        &STORE_CELL_INTRINSIC,
-        node_index.clone(),
+    op_stmt(Operation::StoreCell {
+        node_index: node_index.clone(),
         range,
-        vec![
-            cell_expr_for_name(assign.target.id.as_str(), semantic, node_index, range),
-            assign.value,
-        ],
-    ))
+        arg0: cell_expr_for_name(assign.target.id.as_str(), semantic, node_index, range),
+        arg1: assign.value,
+    })
 }
 
 fn rewrite_global_binding_delete_by_name(
@@ -173,15 +160,12 @@ fn rewrite_global_binding_delete_by_name(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> BlockPyStmt<CoreBlockPyExpr> {
-    BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
-        &DELITEM_INTRINSIC,
-        node_index.clone(),
+    op_stmt(Operation::DelItem {
+        node_index: node_index.clone(),
         range,
-        vec![
-            globals_expr(node_index.clone(), range),
-            core_string_expr(bind_name.to_string(), node_index, range),
-        ],
-    ))
+        arg0: globals_expr(node_index.clone(), range),
+        arg1: core_string_expr(bind_name.to_string(), node_index, range),
+    })
 }
 
 fn rewrite_binding_delete(
@@ -192,17 +176,11 @@ fn rewrite_binding_delete(
     let range = target.range;
     let bind_name = target.id.to_string();
     if semantic.is_cell_binding(bind_name.as_str()) {
-        return BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
-            &DEL_DEREF_INTRINSIC,
-            node_index.clone(),
+        return op_stmt(Operation::DelDeref {
+            node_index: node_index.clone(),
             range,
-            vec![cell_expr_for_name(
-                bind_name.as_str(),
-                semantic,
-                node_index,
-                range,
-            )],
-        ));
+            arg0: cell_expr_for_name(bind_name.as_str(), semantic, node_index, range),
+        });
     }
     match semantic.binding_target_for_name(bind_name.as_str(), BlockPyBindingPurpose::Store) {
         BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
@@ -217,17 +195,12 @@ fn rewrite_binding_delete(
         BindingTarget::ModuleGlobal => {
             rewrite_global_binding_delete_by_name(bind_name.as_str(), node_index, range)
         }
-        BindingTarget::ClassNamespace => {
-            BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
-                &DELITEM_INTRINSIC,
-                node_index.clone(),
-                range,
-                vec![
-                    class_namespace_expr(node_index.clone(), range),
-                    core_string_expr(bind_name, node_index, range),
-                ],
-            ))
-        }
+        BindingTarget::ClassNamespace => op_stmt(Operation::DelItem {
+            node_index: node_index.clone(),
+            range,
+            arg0: class_namespace_expr(node_index.clone(), range),
+            arg1: core_string_expr(bind_name, node_index, range),
+        }),
     }
 }
 
@@ -468,19 +441,11 @@ fn rewrite_quiet_delete_marker(
     let node_index = name.node_index.clone();
     let range = name.range;
     match semantic.binding_kind(name.id.as_str()) {
-        Some(BlockPyBindingKind::Cell(_)) => {
-            BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
-                &DEL_DEREF_QUIETLY_INTRINSIC,
-                node_index.clone(),
-                range,
-                vec![cell_expr_for_name(
-                    name.id.as_str(),
-                    semantic,
-                    node_index,
-                    range,
-                )],
-            ))
-        }
+        Some(BlockPyBindingKind::Cell(_)) => op_stmt(Operation::DelDerefQuietly {
+            node_index: node_index.clone(),
+            range,
+            arg0: cell_expr_for_name(name.id.as_str(), semantic, node_index, range),
+        }),
         _ => match semantic.binding_target_for_name(name.id.as_str(), BlockPyBindingPurpose::Store)
         {
             BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
@@ -492,28 +457,18 @@ fn rewrite_quiet_delete_marker(
                 },
                 value: deleted_sentinel_expr(node_index, range),
             }),
-            BindingTarget::ModuleGlobal => {
-                BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
-                    &DEL_QUIETLY_INTRINSIC,
-                    node_index.clone(),
-                    range,
-                    vec![
-                        globals_expr(node_index.clone(), range),
-                        core_string_expr(name.id.to_string(), node_index, range),
-                    ],
-                ))
-            }
-            BindingTarget::ClassNamespace => {
-                BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
-                    &DEL_QUIETLY_INTRINSIC,
-                    node_index.clone(),
-                    range,
-                    vec![
-                        class_namespace_expr(node_index.clone(), range),
-                        core_string_expr(name.id.to_string(), node_index, range),
-                    ],
-                ))
-            }
+            BindingTarget::ModuleGlobal => op_stmt(Operation::DelQuietly {
+                node_index: node_index.clone(),
+                range,
+                arg0: globals_expr(node_index.clone(), range),
+                arg1: core_string_expr(name.id.to_string(), node_index, range),
+            }),
+            BindingTarget::ClassNamespace => op_stmt(Operation::DelQuietly {
+                node_index: node_index.clone(),
+                range,
+                arg0: class_namespace_expr(node_index.clone(), range),
+                arg1: core_string_expr(name.id.to_string(), node_index, range),
+            }),
         },
     }
 }
@@ -645,12 +600,11 @@ fn build_local_cell_init_assign(
             node_index: node_index.clone(),
             range,
         },
-        value: core_positional_intrinsic_expr_with_meta(
-            &MAKE_CELL_INTRINSIC,
+        value: op_expr(Operation::MakeCell {
             node_index,
             range,
-            vec![init_expr],
-        ),
+            arg0: init_expr,
+        }),
     })
 }
 
@@ -701,12 +655,11 @@ fn build_closure_slot_cell_init_assign(slot: &ClosureSlot) -> BlockPyStmt<CoreBl
             node_index: node_index.clone(),
             range,
         },
-        value: core_positional_intrinsic_expr_with_meta(
-            &MAKE_CELL_INTRINSIC,
+        value: op_expr(Operation::MakeCell {
             node_index,
             range,
-            vec![closure_slot_init_expr(slot)],
-        ),
+            arg0: closure_slot_init_expr(slot),
+        }),
     })
 }
 
@@ -914,17 +867,11 @@ fn rewrite_binding_assign_by_name(
     };
     if semantic.is_cell_binding(name.as_str()) {
         if is_deleted_sentinel_expr(&assign.value) {
-            return BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
-                &DEL_DEREF_INTRINSIC,
-                node_index.clone(),
+            return op_stmt(Operation::DelDeref {
+                node_index: node_index.clone(),
                 range,
-                vec![cell_expr_for_name(
-                    name.as_str(),
-                    semantic,
-                    node_index,
-                    range,
-                )],
-            ));
+                arg0: cell_expr_for_name(name.as_str(), semantic, node_index, range),
+            });
         }
         return rewrite_cell_binding_assign(assign, semantic);
     }
@@ -937,15 +884,12 @@ fn rewrite_binding_assign_by_name(
         }
         BindingTarget::ClassNamespace => {
             if is_deleted_sentinel_expr(&assign.value) {
-                return BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
-                    &DELITEM_INTRINSIC,
-                    node_index.clone(),
+                return op_stmt(Operation::DelItem {
+                    node_index: node_index.clone(),
                     range,
-                    vec![
-                        class_namespace_expr(node_index.clone(), range),
-                        core_string_expr(name, node_index, range),
-                    ],
-                ));
+                    arg0: class_namespace_expr(node_index.clone(), range),
+                    arg1: core_string_expr(name, node_index, range),
+                });
             }
             rewrite_class_namespace_binding_assign(assign)
         }
@@ -1710,12 +1654,12 @@ impl BlockPyModuleMap<CoreBlockPyPass, BbBlockPyPass> for NameLocator<'_> {
                     unreachable!("op expression should remain op after nested mapping")
                 };
                 let marks_first_arg_as_raw_cell = matches!(
-                    operation.helper_name(),
-                    name if name == CELL_REF_INTRINSIC.name()
-                        || name == LOAD_CELL_INTRINSIC.name()
-                        || name == STORE_CELL_INTRINSIC.name()
-                        || name == DEL_DEREF_INTRINSIC.name()
-                        || name == DEL_DEREF_QUIETLY_INTRINSIC.name()
+                    operation.as_ref(),
+                    Operation::CellRef { .. }
+                        | Operation::LoadCell { .. }
+                        | Operation::StoreCell { .. }
+                        | Operation::DelDeref { .. }
+                        | Operation::DelDerefQuietly { .. }
                 );
                 if marks_first_arg_as_raw_cell {
                     let mut marked = false;
