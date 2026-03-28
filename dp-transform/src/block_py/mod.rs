@@ -616,7 +616,7 @@ where
 {
     fn map_expr(self, f: &mut impl FnMut(Self) -> CoreBlockPyExpr<NOut>) -> CoreBlockPyExpr<NOut> {
         match self {
-            Self::Name(name) => CoreBlockPyExpr::Name(name.into().into()),
+            Self::Name(name) => CoreBlockPyExpr::Name(NOut::from(name)),
             Self::Literal(literal) => CoreBlockPyExpr::Literal(literal),
             Self::Call(call) => CoreBlockPyExpr::Call(CoreBlockPyCall {
                 node_index: call.node_index,

@@ -65,6 +65,7 @@ where
     POut: BlockPyPass,
     PassExpr<PIn>: MapExpr<PassExpr<PIn>>,
     PassExpr<POut>: MapExpr<PassExpr<POut>>,
+    PassName<POut>: From<PassName<PIn>>,
     BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
     fn map_module(&self, module: BlockPyModule<PIn>) -> BlockPyModule<POut> {
@@ -197,8 +198,7 @@ where
     }
 
     fn map_name(&self, name: PassName<PIn>) -> PassName<POut> {
-        let name: ast::ExprName = name.into();
-        name.into()
+        <PassName<POut> as From<PassName<PIn>>>::from(name)
     }
 
     fn map_nested_expr(&self, expr: PassExpr<PIn>) -> PassExpr<POut>
@@ -217,6 +217,7 @@ where
     POut: BlockPyPass,
     PassExpr<PIn>: MapExpr<PassExpr<PIn>>,
     PassExpr<POut>: MapExpr<PassExpr<POut>>,
+    PassName<POut>: From<PassName<PIn>>,
     BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
     type Error;
@@ -371,8 +372,7 @@ where
     }
 
     fn try_map_name(&self, name: PassName<PIn>) -> Result<PassName<POut>, Self::Error> {
-        let name: ast::ExprName = name.into();
-        Ok(name.into())
+        Ok(<PassName<POut> as From<PassName<PIn>>>::from(name))
     }
 
     fn try_map_expr(&self, expr: PassExpr<PIn>) -> Result<PassExpr<POut>, Self::Error>;
@@ -385,6 +385,7 @@ where
     pub fn map_module<POut>(self, mapper: &impl BlockPyModuleMap<PIn, POut>) -> BlockPyModule<POut>
     where
         POut: BlockPyPass,
+        PassName<POut>: From<PassName<PIn>>,
         BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
     {
         mapper.map_module(self)
@@ -393,6 +394,7 @@ where
     pub fn try_map_module<POut, M>(self, mapper: &M) -> Result<BlockPyModule<POut>, M::Error>
     where
         POut: BlockPyPass,
+        PassName<POut>: From<PassName<PIn>>,
         BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
         M: BlockPyModuleTryMap<PIn, POut>,
     {
