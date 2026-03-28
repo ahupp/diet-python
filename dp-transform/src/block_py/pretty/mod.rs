@@ -503,11 +503,10 @@ pub(crate) fn bb_expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> Str
                 super::CoreNumberLiteralValue::Float(value) => value.to_string(),
             },
         },
-        CoreBlockPyExpr::Op(operation) => {
-            let mut parts = Vec::new();
-            operation.walk_args(&mut |arg| parts.push(bb_expr_text(arg)));
-            format!("{}({})", operation.helper_name(), parts.join(", "))
-        }
+        CoreBlockPyExpr::Op(operation) => helper_call_text(
+            operation.helper_name(),
+            operation.call_args().iter().map(|arg| bb_expr_text(*arg)),
+        ),
         CoreBlockPyExpr::Call(call) => {
             let mut parts = Vec::new();
             for arg in &call.args {
@@ -531,13 +530,18 @@ pub(crate) fn bb_expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> Str
             format!("{}({})", bb_expr_text(&call.func), parts.join(", "))
         }
         CoreBlockPyExpr::Intrinsic(call) => {
-            let mut parts = Vec::new();
-            for arg in &call.args {
-                parts.push(bb_expr_text(arg));
-            }
-            format!("{}({})", call.intrinsic.name(), parts.join(", "))
+            helper_call_text(call.intrinsic.name(), call.args.iter().map(bb_expr_text))
         }
     }
+}
+
+#[cfg(test)]
+fn helper_call_text(helper_name: &str, args: impl IntoIterator<Item = String>) -> String {
+    format!(
+        "{}({})",
+        helper_name,
+        args.into_iter().collect::<Vec<_>>().join(", ")
+    )
 }
 
 #[cfg(test)]

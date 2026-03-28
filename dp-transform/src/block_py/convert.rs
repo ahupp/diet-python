@@ -411,7 +411,12 @@ impl From<CoreBlockPyExprWithAwaitAndYield> for Expr {
     fn from(value: CoreBlockPyExprWithAwaitAndYield) -> Self {
         match value {
             CoreBlockPyExprWithAwaitAndYield::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExprWithAwaitAndYield::Op(operation) => operation_to_ast(*operation),
+            CoreBlockPyExprWithAwaitAndYield::Op(operation) => helper_call_to_ast(
+                operation.helper_name(),
+                operation.node_index().clone(),
+                operation.range(),
+                operation.into_call_args(),
+            ),
             CoreBlockPyExprWithAwaitAndYield::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -419,12 +424,11 @@ impl From<CoreBlockPyExprWithAwaitAndYield> for Expr {
                 node.args,
                 node.keywords,
             ),
-            CoreBlockPyExprWithAwaitAndYield::Intrinsic(node) => call_like_to_ast(
-                Expr::Name(intrinsic_name_expr(node.intrinsic)),
+            CoreBlockPyExprWithAwaitAndYield::Intrinsic(node) => helper_call_to_ast(
+                node.intrinsic.name(),
                 node.node_index,
                 node.range,
-                positional_call_args(node.args),
-                Vec::new(),
+                node.args,
             ),
             CoreBlockPyExprWithAwaitAndYield::Await(node) => Expr::Await(ast::ExprAwait {
                 node_index: node.node_index,
@@ -452,7 +456,12 @@ impl From<CoreBlockPyExprWithYield> for Expr {
     fn from(value: CoreBlockPyExprWithYield) -> Self {
         match value {
             CoreBlockPyExprWithYield::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExprWithYield::Op(operation) => operation_to_ast(*operation),
+            CoreBlockPyExprWithYield::Op(operation) => helper_call_to_ast(
+                operation.helper_name(),
+                operation.node_index().clone(),
+                operation.range(),
+                operation.into_call_args(),
+            ),
             CoreBlockPyExprWithYield::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -460,12 +469,11 @@ impl From<CoreBlockPyExprWithYield> for Expr {
                 node.args,
                 node.keywords,
             ),
-            CoreBlockPyExprWithYield::Intrinsic(node) => call_like_to_ast(
-                Expr::Name(intrinsic_name_expr(node.intrinsic)),
+            CoreBlockPyExprWithYield::Intrinsic(node) => helper_call_to_ast(
+                node.intrinsic.name(),
                 node.node_index,
                 node.range,
-                positional_call_args(node.args),
-                Vec::new(),
+                node.args,
             ),
             CoreBlockPyExprWithYield::Yield(node) => Expr::Yield(ast::ExprYield {
                 node_index: node.node_index,
@@ -486,7 +494,12 @@ impl<N: Into<ast::ExprName>> From<CoreBlockPyExpr<N>> for Expr {
     fn from(value: CoreBlockPyExpr<N>) -> Self {
         match value {
             CoreBlockPyExpr::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExpr::Op(operation) => operation_to_ast(*operation),
+            CoreBlockPyExpr::Op(operation) => helper_call_to_ast(
+                operation.helper_name(),
+                operation.node_index().clone(),
+                operation.range(),
+                operation.into_call_args(),
+            ),
             CoreBlockPyExpr::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -494,12 +507,11 @@ impl<N: Into<ast::ExprName>> From<CoreBlockPyExpr<N>> for Expr {
                 node.args,
                 node.keywords,
             ),
-            CoreBlockPyExpr::Intrinsic(node) => call_like_to_ast(
-                Expr::Name(intrinsic_name_expr(node.intrinsic)),
+            CoreBlockPyExpr::Intrinsic(node) => helper_call_to_ast(
+                node.intrinsic.name(),
                 node.node_index,
                 node.range,
-                positional_call_args(node.args),
-                Vec::new(),
+                node.args,
             ),
             CoreBlockPyExpr::Name(node) => Expr::Name(node.into()),
         }
@@ -552,16 +564,17 @@ fn helper_name_expr(id: &str) -> ast::ExprName {
     name
 }
 
-fn intrinsic_name_expr(intrinsic: &'static dyn intrinsics::Intrinsic) -> ast::ExprName {
-    helper_name_expr(intrinsic.name())
-}
-
-fn operation_to_ast<E: Into<Expr>>(operation: intrinsics::Operation<E>) -> Expr {
+fn helper_call_to_ast<E: Into<Expr>>(
+    helper_name: &str,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    args: Vec<E>,
+) -> Expr {
     call_like_to_ast(
-        Expr::Name(helper_name_expr(operation.helper_name())),
-        operation.node_index().clone(),
-        operation.range(),
-        positional_call_args(operation.into_call_args()),
+        Expr::Name(helper_name_expr(helper_name)),
+        node_index,
+        range,
+        positional_call_args(args),
         Vec::new(),
     )
 }
