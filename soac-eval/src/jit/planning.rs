@@ -517,19 +517,12 @@ fn direct_simple_block_arg_from(arg: &BlockArg) -> Option<DirectSimpleBlockArgPl
 }
 
 fn direct_simple_plan_from_block(block: &PreparedBbBlock) -> Option<DirectSimpleRetPlan> {
-    let mut known_names = block.param_name_vec();
     let mut assigns = Vec::new();
     for op in &block.body {
         let BbStmt::Assign(assign) = op else {
             return None;
         };
         let value = direct_simple_expr_from(&assign.value)?;
-        if !known_names
-            .iter()
-            .any(|candidate| candidate == assign.target.id.as_str())
-        {
-            known_names.push(assign.target.id.to_string());
-        }
         assigns.push(DirectSimpleAssignPlan {
             target: assign.target.clone(),
             value,
@@ -574,27 +567,18 @@ fn direct_simple_brif_plan_from_block(
     })
 }
 
-fn direct_simple_delete_plan_from_targets(
-    targets: &[LocatedName],
-    known_names: &mut Vec<String>,
-) -> Option<DirectSimpleDeletePlan> {
+fn direct_simple_delete_plan_from_targets(targets: &[LocatedName]) -> DirectSimpleDeletePlan {
     let mut plan_targets = Vec::with_capacity(targets.len());
     for target in targets {
-        let target_name = target.id_str().to_string();
-        if !known_names.iter().any(|known| known == &target_name) {
-            return None;
-        }
         plan_targets.push(DirectSimpleDeleteTargetPlan::LocalName(target.clone()));
-        known_names.retain(|known| known != &target_name);
     }
-    Some(DirectSimpleDeletePlan {
+    DirectSimpleDeletePlan {
         targets: plan_targets,
-    })
+    }
 }
 
 fn direct_simple_op_from_bb_stmt(
     op: &BbStmt<LocatedCoreBlockPyExpr, LocatedName>,
-    known_names: &mut Vec<String>,
 ) -> Option<DirectSimpleOpPlan> {
     match op {
         BbStmt::Expr(expr_stmt) => {
@@ -603,22 +587,14 @@ fn direct_simple_op_from_bb_stmt(
         }
         BbStmt::Assign(assign) => {
             let value = direct_simple_expr_from(&assign.value)?;
-            let target_name = assign.target.id.to_string();
-            if !known_names.iter().any(|known| known == &target_name) {
-                known_names.push(target_name.clone());
-            }
             Some(DirectSimpleOpPlan::Assign(DirectSimpleAssignPlan {
                 target: assign.target.clone(),
                 value,
             }))
         }
-        BbStmt::Delete(delete_stmt) => {
-            let delete_plan = direct_simple_delete_plan_from_targets(
-                std::slice::from_ref(&delete_stmt.target),
-                known_names,
-            )?;
-            Some(DirectSimpleOpPlan::Delete(delete_plan))
-        }
+        BbStmt::Delete(delete_stmt) => Some(DirectSimpleOpPlan::Delete(
+            direct_simple_delete_plan_from_targets(std::slice::from_ref(&delete_stmt.target)),
+        )),
     }
 }
 
@@ -634,10 +610,9 @@ fn direct_simple_block_plan_from_block(
     function: &ValidatedPreparedBbFunction<'_>,
     block: &PreparedBbBlock,
 ) -> DirectSimpleBlockPlan {
-    let mut known_names = block.param_name_vec();
     let mut ops = Vec::new();
     for op in &block.body {
-        let stmt_op = direct_simple_op_from_bb_stmt(op, &mut known_names).unwrap_or_else(|| {
+        let stmt_op = direct_simple_op_from_bb_stmt(op).unwrap_or_else(|| {
             panic!(
                 "unexpected non-direct-simple BB stmt in {}:{}: kind={} stmt={op:?}",
                 function.function.names.qualname,
