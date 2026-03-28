@@ -1,11 +1,12 @@
 use crate::block_py::cfg::linearize_structured_ifs;
+use crate::block_py::intrinsics;
 use crate::block_py::{
     BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike,
     BlockPyStmt, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
-    IntrinsicCall,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn lower_structured_blocks_to_bb_blocks<E, N>(
@@ -208,14 +209,14 @@ where
                 rewrite_current_exception_in_blockpy_expr(keyword.expr_mut(), exc_name);
             }
         }
-        CoreBlockPyExpr::Intrinsic(IntrinsicCall { args, .. }) => {
-            for arg in args {
-                rewrite_current_exception_in_blockpy_expr(arg, exc_name);
-            }
-        }
         CoreBlockPyExpr::Op(operation) => {
             operation
                 .walk_args_mut(&mut |arg| rewrite_current_exception_in_blockpy_expr(arg, exc_name));
+        }
+        CoreBlockPyExpr::Intrinsic(call) => {
+            for arg in &mut call.args {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name);
+            }
         }
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
     }
@@ -224,6 +225,22 @@ where
         *expr = current_exception_name_expr(exc_name);
     } else if is_exc_info_call(expr) {
         *expr = current_exception_info_expr(exc_name);
+    }
+}
+
+fn operation_expr<N: BlockPyNameLike + Clone>(
+    expr: &CoreBlockPyExpr<N>,
+) -> Option<Cow<'_, intrinsics::Operation<CoreBlockPyExpr<N>>>> {
+    match expr {
+        CoreBlockPyExpr::Op(operation) => Some(Cow::Borrowed(operation.as_ref())),
+        CoreBlockPyExpr::Intrinsic(call) => intrinsics::operation_by_name_and_args(
+            call.intrinsic.name(),
+            call.node_index.clone(),
+            call.range,
+            call.args.clone(),
+        )
+        .map(Cow::Owned),
+        _ => None,
     }
 }
 
@@ -253,7 +270,7 @@ where
 
 fn is_dp_lookup_call_expr<N>(func: &CoreBlockPyExpr<N>, attr_name: &str) -> bool
 where
-    N: BlockPyNameLike,
+    N: BlockPyNameLike + Clone,
 {
     match func {
         CoreBlockPyExpr::Name(name) => name.id_str() == format!("__dp_{attr_name}"),
@@ -263,12 +280,8 @@ where
                 CoreBlockPyExpr::Name(name) if name.id_str() == "__dp_getattr"
             ) && is_dp_getattr_lookup_args(&call.args, attr_name)
         }
-        CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-            intrinsic, args, ..
-        }) if args.len() == 2 && intrinsic.name() == "__dp_getattr" => {
-            is_dp_getattr_intrinsic_args(args, attr_name)
-        }
-        _ => false,
+        _ => operation_expr(func)
+            .is_some_and(|operation| is_dp_getattr_operation(operation.as_ref(), attr_name)),
     }
 }
 
@@ -289,14 +302,20 @@ where
     }) == Some(attr_name.to_string())
 }
 
-fn is_dp_getattr_intrinsic_args<N>(args: &[CoreBlockPyExpr<N>], attr_name: &str) -> bool
+fn is_dp_getattr_operation<N>(
+    operation: &intrinsics::Operation<CoreBlockPyExpr<N>>,
+    attr_name: &str,
+) -> bool
 where
     N: BlockPyNameLike,
 {
+    let intrinsics::Operation::GetAttr { arg0, arg1, .. } = operation else {
+        return false;
+    };
     matches!(
-        &args[0],
+        arg0,
         CoreBlockPyExpr::Name(base) if base.id_str() == "__dp__"
-    ) && expr_static_str(&args[1]) == Some(attr_name.to_string())
+    ) && expr_static_str(arg1) == Some(attr_name.to_string())
 }
 
 fn expr_static_str<N>(expr: &CoreBlockPyExpr<N>) -> Option<String>
