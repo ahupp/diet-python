@@ -13,7 +13,7 @@ use crate::passes::{
     self, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield,
     ResolvedStorageBlockPyPass, RuffBlockPyPass,
 };
-use crate::{should_skip, ParseError, PassTracker};
+use crate::{ParseError, PassTracker};
 use anyhow::Result;
 use ruff_python_ast::{self as ast, ModModule, Stmt};
 use ruff_python_parser::parse_module;
@@ -97,15 +97,12 @@ fn lower_core_blockpy_with_await_and_yield(
 pub(crate) fn rewrite_module_with_tracker(
     source: &str,
     pass_tracker: &mut impl PassTracker,
-) -> Result<(ModModule, Option<BlockPyModule<ResolvedStorageBlockPyPass>>)> {
+) -> Result<(ModModule, BlockPyModule<ResolvedStorageBlockPyPass>)> {
     let mut module = pass_tracker
         .run_pass("parse", || {
             ParsePassResult(parse_module(source).map(|module| module.into_syntax()))
         })
         .0?;
-    if should_skip(source) {
-        return Ok((module, None));
-    }
     let context = Context::new(source);
     let AstToAstPassResult {
         module: ast_module,
@@ -219,7 +216,7 @@ pub(crate) fn rewrite_module_with_tracker(
         bb_codegen
     };
     passes::validate_prepared_bb_module(&bb_traced).map_err(anyhow::Error::msg)?;
-    Ok((module, Some(bb_traced)))
+    Ok((module, bb_traced))
 }
 
 pub(crate) fn wrap_module_init(semantic_state: &mut SemanticAstState, module: &mut Suite) {

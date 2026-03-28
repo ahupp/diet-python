@@ -4,6 +4,7 @@ use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
 use anyhow::Result;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
+use ruff_python_parser::parse_module;
 pub use ruff_python_parser::ParseError;
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
@@ -248,12 +249,20 @@ fn lower_source_with_tracker(
     init_logging();
     namegen::reset_namegen_state();
 
+    if should_skip(source) {
+        return Ok(LoweringCore {
+            module: parse_module(source)?.into_syntax(),
+            bb_codegen_module: None,
+            total_time: Duration::ZERO,
+        });
+    }
+
     let total_start = timing_start();
     let (module, bb_codegen_module) = rewrite_module_with_tracker(source, pass_tracker)?;
 
     Ok(LoweringCore {
         module,
-        bb_codegen_module,
+        bb_codegen_module: Some(bb_codegen_module),
         total_time: timing_elapsed(total_start),
     })
 }
