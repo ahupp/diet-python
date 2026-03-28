@@ -1,13 +1,13 @@
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
-    core_operation_expr, core_positional_call_expr_with_meta, resume_abi_params, BbStmt,
-    BlockParam, BlockParamRole, BlockPyAssign, BlockPyBindingKind, BlockPyBlock,
-    BlockPyBranchTable, BlockPyCallableSemanticInfo, BlockPyCellBindingKind,
-    BlockPyCfgBlockBuilder, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel,
-    BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot,
-    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId,
-    FunctionName, IntoBlockPyStmt, ModuleNameGen, Operation,
+    core_operation_expr, core_positional_call_expr_with_meta, BbStmt, BlockParam, BlockParamRole,
+    BlockPyAssign, BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable,
+    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyExpr,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId, FunctionName,
+    IntoBlockPyStmt, ModuleNameGen, Operation,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
@@ -20,6 +20,48 @@ use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr, ExprName};
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum ResumeAbiParam {
+    SelfValue,
+    SendValue,
+    ResumeExc,
+    TransportSent,
+}
+
+impl ResumeAbiParam {
+    fn name(self) -> &'static str {
+        match self {
+            Self::SelfValue => "_dp_self",
+            Self::SendValue => "_dp_send_value",
+            Self::ResumeExc => "_dp_resume_exc",
+            Self::TransportSent => "_dp_transport_sent",
+        }
+    }
+}
+
+const GENERATOR_RESUME_ABI_PARAMS: [ResumeAbiParam; 3] = [
+    ResumeAbiParam::SelfValue,
+    ResumeAbiParam::SendValue,
+    ResumeAbiParam::ResumeExc,
+];
+
+const ASYNC_GENERATOR_RESUME_ABI_PARAMS: [ResumeAbiParam; 4] = [
+    ResumeAbiParam::SelfValue,
+    ResumeAbiParam::SendValue,
+    ResumeAbiParam::ResumeExc,
+    ResumeAbiParam::TransportSent,
+];
+
+fn resume_abi_params(kind: BlockPyFunctionKind) -> &'static [ResumeAbiParam] {
+    match kind {
+        BlockPyFunctionKind::Function => &[],
+        BlockPyFunctionKind::Coroutine | BlockPyFunctionKind::Generator => {
+            &GENERATOR_RESUME_ABI_PARAMS
+        }
+        BlockPyFunctionKind::AsyncGenerator => &ASYNC_GENERATOR_RESUME_ABI_PARAMS,
+    }
+}
 
 fn generator_state_logical_name(semantic: &BlockPyCallableSemanticInfo, name: &str) -> String {
     semantic

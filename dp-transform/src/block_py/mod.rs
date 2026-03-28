@@ -271,48 +271,6 @@ pub enum BlockPyFunctionKind {
     AsyncGenerator,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub(crate) enum ResumeAbiParam {
-    SelfValue,
-    SendValue,
-    ResumeExc,
-    TransportSent,
-}
-
-impl ResumeAbiParam {
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            ResumeAbiParam::SelfValue => "_dp_self",
-            ResumeAbiParam::SendValue => "_dp_send_value",
-            ResumeAbiParam::ResumeExc => "_dp_resume_exc",
-            ResumeAbiParam::TransportSent => "_dp_transport_sent",
-        }
-    }
-}
-
-const GENERATOR_RESUME_ABI_PARAMS: [ResumeAbiParam; 3] = [
-    ResumeAbiParam::SelfValue,
-    ResumeAbiParam::SendValue,
-    ResumeAbiParam::ResumeExc,
-];
-
-const ASYNC_GENERATOR_RESUME_ABI_PARAMS: [ResumeAbiParam; 4] = [
-    ResumeAbiParam::SelfValue,
-    ResumeAbiParam::SendValue,
-    ResumeAbiParam::ResumeExc,
-    ResumeAbiParam::TransportSent,
-];
-
-pub(crate) fn resume_abi_params(kind: BlockPyFunctionKind) -> &'static [ResumeAbiParam] {
-    match kind {
-        BlockPyFunctionKind::Function => &[],
-        BlockPyFunctionKind::Coroutine | BlockPyFunctionKind::Generator => {
-            &GENERATOR_RESUME_ABI_PARAMS
-        }
-        BlockPyFunctionKind::AsyncGenerator => &ASYNC_GENERATOR_RESUME_ABI_PARAMS,
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct CfgBlock<S, T> {
     pub label: BlockPyLabel,
