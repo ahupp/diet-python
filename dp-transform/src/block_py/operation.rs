@@ -187,393 +187,355 @@ impl TernaryOpKind {
 }
 
 #[derive(Debug, Clone)]
+pub struct BinOp<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub kind: BinOpKind,
+    pub arg0: E,
+    pub arg1: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct UnaryOp<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub kind: UnaryOpKind,
+    pub arg0: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct InplaceBinOp<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub kind: InplaceBinOpKind,
+    pub arg0: E,
+    pub arg1: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct TernaryOp<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub kind: TernaryOpKind,
+    pub arg0: E,
+    pub arg1: E,
+    pub arg2: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct GetAttr<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+    pub arg1: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct SetAttr<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+    pub arg1: E,
+    pub arg2: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct GetItem<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+    pub arg1: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct SetItem<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+    pub arg1: E,
+    pub arg2: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct DelItem<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+    pub arg1: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoadGlobal<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+    pub arg1: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoreGlobal<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+    pub arg1: E,
+    pub arg2: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoadCell<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct MakeCell<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct CellRef<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoreCell<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+    pub arg1: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct DelQuietly<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+    pub arg1: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct DelDerefQuietly<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+}
+
+#[derive(Debug, Clone)]
+pub struct DelDeref<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+}
+
+#[derive(Debug, Clone)]
 pub enum Operation<E> {
-    BinOp {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        kind: BinOpKind,
-        arg0: E,
-        arg1: E,
-    },
-    UnaryOp {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        kind: UnaryOpKind,
-        arg0: E,
-    },
-    InplaceBinOp {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        kind: InplaceBinOpKind,
-        arg0: E,
-        arg1: E,
-    },
-    TernaryOp {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        kind: TernaryOpKind,
-        arg0: E,
-        arg1: E,
-        arg2: E,
-    },
-    GetAttr {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-        arg1: E,
-    },
-    SetAttr {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-        arg1: E,
-        arg2: E,
-    },
-    GetItem {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-        arg1: E,
-    },
-    SetItem {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-        arg1: E,
-        arg2: E,
-    },
-    DelItem {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-        arg1: E,
-    },
-    LoadGlobal {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-        arg1: E,
-    },
-    StoreGlobal {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-        arg1: E,
-        arg2: E,
-    },
-    LoadCell {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-    },
-    MakeCell {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-    },
-    CellRef {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-    },
-    StoreCell {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-        arg1: E,
-    },
-    DelQuietly {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-        arg1: E,
-    },
-    DelDerefQuietly {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-    },
-    DelDeref {
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        arg0: E,
-    },
+    BinOp(BinOp<E>),
+    UnaryOp(UnaryOp<E>),
+    InplaceBinOp(InplaceBinOp<E>),
+    TernaryOp(TernaryOp<E>),
+    GetAttr(GetAttr<E>),
+    SetAttr(SetAttr<E>),
+    GetItem(GetItem<E>),
+    SetItem(SetItem<E>),
+    DelItem(DelItem<E>),
+    LoadGlobal(LoadGlobal<E>),
+    StoreGlobal(StoreGlobal<E>),
+    LoadCell(LoadCell<E>),
+    MakeCell(MakeCell<E>),
+    CellRef(CellRef<E>),
+    StoreCell(StoreCell<E>),
+    DelQuietly(DelQuietly<E>),
+    DelDerefQuietly(DelDerefQuietly<E>),
+    DelDeref(DelDeref<E>),
 }
 
 impl<E> Operation<E> {
     pub fn helper_name(&self) -> &'static str {
         match self {
-            Self::BinOp { kind, .. } => kind.helper_name(),
-            Self::UnaryOp { kind, .. } => kind.helper_name(),
-            Self::InplaceBinOp { kind, .. } => kind.helper_name(),
-            Self::TernaryOp { kind, .. } => kind.helper_name(),
-            Self::GetAttr { .. } => "__dp_getattr",
-            Self::SetAttr { .. } => "__dp_setattr",
-            Self::GetItem { .. } => "__dp_getitem",
-            Self::SetItem { .. } => "__dp_setitem",
-            Self::DelItem { .. } => "__dp_delitem",
-            Self::LoadGlobal { .. } => "__dp_load_global",
-            Self::StoreGlobal { .. } => "__dp_store_global",
-            Self::LoadCell { .. } => "__dp_load_cell",
-            Self::MakeCell { .. } => "__dp_make_cell",
-            Self::CellRef { .. } => "__dp_cell_ref",
-            Self::StoreCell { .. } => "__dp_store_cell",
-            Self::DelQuietly { .. } => "__dp_del_quietly",
-            Self::DelDerefQuietly { .. } => "__dp_del_deref_quietly",
-            Self::DelDeref { .. } => "__dp_del_deref",
+            Self::BinOp(op) => op.kind.helper_name(),
+            Self::UnaryOp(op) => op.kind.helper_name(),
+            Self::InplaceBinOp(op) => op.kind.helper_name(),
+            Self::TernaryOp(op) => op.kind.helper_name(),
+            Self::GetAttr(_) => "__dp_getattr",
+            Self::SetAttr(_) => "__dp_setattr",
+            Self::GetItem(_) => "__dp_getitem",
+            Self::SetItem(_) => "__dp_setitem",
+            Self::DelItem(_) => "__dp_delitem",
+            Self::LoadGlobal(_) => "__dp_load_global",
+            Self::StoreGlobal(_) => "__dp_store_global",
+            Self::LoadCell(_) => "__dp_load_cell",
+            Self::MakeCell(_) => "__dp_make_cell",
+            Self::CellRef(_) => "__dp_cell_ref",
+            Self::StoreCell(_) => "__dp_store_cell",
+            Self::DelQuietly(_) => "__dp_del_quietly",
+            Self::DelDerefQuietly(_) => "__dp_del_deref_quietly",
+            Self::DelDeref(_) => "__dp_del_deref",
         }
     }
 
     pub fn node_index(&self) -> &ast::AtomicNodeIndex {
         match self {
-            Self::BinOp { node_index, .. }
-            | Self::UnaryOp { node_index, .. }
-            | Self::InplaceBinOp { node_index, .. }
-            | Self::TernaryOp { node_index, .. }
-            | Self::GetAttr { node_index, .. }
-            | Self::SetAttr { node_index, .. }
-            | Self::GetItem { node_index, .. }
-            | Self::SetItem { node_index, .. }
-            | Self::DelItem { node_index, .. }
-            | Self::LoadGlobal { node_index, .. }
-            | Self::StoreGlobal { node_index, .. }
-            | Self::LoadCell { node_index, .. }
-            | Self::MakeCell { node_index, .. }
-            | Self::CellRef { node_index, .. }
-            | Self::StoreCell { node_index, .. }
-            | Self::DelQuietly { node_index, .. }
-            | Self::DelDerefQuietly { node_index, .. }
-            | Self::DelDeref { node_index, .. } => node_index,
+            Self::BinOp(op) => &op.node_index,
+            Self::UnaryOp(op) => &op.node_index,
+            Self::InplaceBinOp(op) => &op.node_index,
+            Self::TernaryOp(op) => &op.node_index,
+            Self::GetAttr(op) => &op.node_index,
+            Self::SetAttr(op) => &op.node_index,
+            Self::GetItem(op) => &op.node_index,
+            Self::SetItem(op) => &op.node_index,
+            Self::DelItem(op) => &op.node_index,
+            Self::LoadGlobal(op) => &op.node_index,
+            Self::StoreGlobal(op) => &op.node_index,
+            Self::LoadCell(op) => &op.node_index,
+            Self::MakeCell(op) => &op.node_index,
+            Self::CellRef(op) => &op.node_index,
+            Self::StoreCell(op) => &op.node_index,
+            Self::DelQuietly(op) => &op.node_index,
+            Self::DelDerefQuietly(op) => &op.node_index,
+            Self::DelDeref(op) => &op.node_index,
         }
     }
 
     pub fn range(&self) -> TextRange {
         match self {
-            Self::BinOp { range, .. }
-            | Self::UnaryOp { range, .. }
-            | Self::InplaceBinOp { range, .. }
-            | Self::TernaryOp { range, .. }
-            | Self::GetAttr { range, .. }
-            | Self::SetAttr { range, .. }
-            | Self::GetItem { range, .. }
-            | Self::SetItem { range, .. }
-            | Self::DelItem { range, .. }
-            | Self::LoadGlobal { range, .. }
-            | Self::StoreGlobal { range, .. }
-            | Self::LoadCell { range, .. }
-            | Self::MakeCell { range, .. }
-            | Self::CellRef { range, .. }
-            | Self::StoreCell { range, .. }
-            | Self::DelQuietly { range, .. }
-            | Self::DelDerefQuietly { range, .. }
-            | Self::DelDeref { range, .. } => *range,
+            Self::BinOp(op) => op.range,
+            Self::UnaryOp(op) => op.range,
+            Self::InplaceBinOp(op) => op.range,
+            Self::TernaryOp(op) => op.range,
+            Self::GetAttr(op) => op.range,
+            Self::SetAttr(op) => op.range,
+            Self::GetItem(op) => op.range,
+            Self::SetItem(op) => op.range,
+            Self::DelItem(op) => op.range,
+            Self::LoadGlobal(op) => op.range,
+            Self::StoreGlobal(op) => op.range,
+            Self::LoadCell(op) => op.range,
+            Self::MakeCell(op) => op.range,
+            Self::CellRef(op) => op.range,
+            Self::StoreCell(op) => op.range,
+            Self::DelQuietly(op) => op.range,
+            Self::DelDerefQuietly(op) => op.range,
+            Self::DelDeref(op) => op.range,
         }
     }
 
     pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> Operation<T> {
         match self {
-            Self::BinOp {
-                node_index,
-                range,
-                kind,
-                arg0,
-                arg1,
-            } => Operation::BinOp {
-                node_index,
-                range,
-                kind,
-                arg0: f(arg0),
-                arg1: f(arg1),
-            },
-            Self::UnaryOp {
-                node_index,
-                range,
-                kind,
-                arg0,
-            } => Operation::UnaryOp {
-                node_index,
-                range,
-                kind,
-                arg0: f(arg0),
-            },
-            Self::InplaceBinOp {
-                node_index,
-                range,
-                kind,
-                arg0,
-                arg1,
-            } => Operation::InplaceBinOp {
-                node_index,
-                range,
-                kind,
-                arg0: f(arg0),
-                arg1: f(arg1),
-            },
-            Self::TernaryOp {
-                node_index,
-                range,
-                kind,
-                arg0,
-                arg1,
-                arg2,
-            } => Operation::TernaryOp {
-                node_index,
-                range,
-                kind,
-                arg0: f(arg0),
-                arg1: f(arg1),
-                arg2: f(arg2),
-            },
-            Self::GetAttr {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::GetAttr {
-                node_index,
-                range,
-                arg0: f(arg0),
-                arg1: f(arg1),
-            },
-            Self::SetAttr {
-                node_index,
-                range,
-                arg0,
-                arg1,
-                arg2,
-            } => Operation::SetAttr {
-                node_index,
-                range,
-                arg0: f(arg0),
-                arg1: f(arg1),
-                arg2: f(arg2),
-            },
-            Self::GetItem {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::GetItem {
-                node_index,
-                range,
-                arg0: f(arg0),
-                arg1: f(arg1),
-            },
-            Self::SetItem {
-                node_index,
-                range,
-                arg0,
-                arg1,
-                arg2,
-            } => Operation::SetItem {
-                node_index,
-                range,
-                arg0: f(arg0),
-                arg1: f(arg1),
-                arg2: f(arg2),
-            },
-            Self::DelItem {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::DelItem {
-                node_index,
-                range,
-                arg0: f(arg0),
-                arg1: f(arg1),
-            },
-            Self::LoadGlobal {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::LoadGlobal {
-                node_index,
-                range,
-                arg0: f(arg0),
-                arg1: f(arg1),
-            },
-            Self::StoreGlobal {
-                node_index,
-                range,
-                arg0,
-                arg1,
-                arg2,
-            } => Operation::StoreGlobal {
-                node_index,
-                range,
-                arg0: f(arg0),
-                arg1: f(arg1),
-                arg2: f(arg2),
-            },
-            Self::LoadCell {
-                node_index,
-                range,
-                arg0,
-            } => Operation::LoadCell {
-                node_index,
-                range,
-                arg0: f(arg0),
-            },
-            Self::MakeCell {
-                node_index,
-                range,
-                arg0,
-            } => Operation::MakeCell {
-                node_index,
-                range,
-                arg0: f(arg0),
-            },
-            Self::CellRef {
-                node_index,
-                range,
-                arg0,
-            } => Operation::CellRef {
-                node_index,
-                range,
-                arg0: f(arg0),
-            },
-            Self::StoreCell {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::StoreCell {
-                node_index,
-                range,
-                arg0: f(arg0),
-                arg1: f(arg1),
-            },
-            Self::DelQuietly {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::DelQuietly {
-                node_index,
-                range,
-                arg0: f(arg0),
-                arg1: f(arg1),
-            },
-            Self::DelDerefQuietly {
-                node_index,
-                range,
-                arg0,
-            } => Operation::DelDerefQuietly {
-                node_index,
-                range,
-                arg0: f(arg0),
-            },
-            Self::DelDeref {
-                node_index,
-                range,
-                arg0,
-            } => Operation::DelDeref {
-                node_index,
-                range,
-                arg0: f(arg0),
-            },
+            Self::BinOp(op) => Operation::BinOp(BinOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f(op.arg0),
+                arg1: f(op.arg1),
+            }),
+            Self::UnaryOp(op) => Operation::UnaryOp(UnaryOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f(op.arg0),
+            }),
+            Self::InplaceBinOp(op) => Operation::InplaceBinOp(InplaceBinOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f(op.arg0),
+                arg1: f(op.arg1),
+            }),
+            Self::TernaryOp(op) => Operation::TernaryOp(TernaryOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f(op.arg0),
+                arg1: f(op.arg1),
+                arg2: f(op.arg2),
+            }),
+            Self::GetAttr(op) => Operation::GetAttr(GetAttr {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+                arg1: f(op.arg1),
+            }),
+            Self::SetAttr(op) => Operation::SetAttr(SetAttr {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+                arg1: f(op.arg1),
+                arg2: f(op.arg2),
+            }),
+            Self::GetItem(op) => Operation::GetItem(GetItem {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+                arg1: f(op.arg1),
+            }),
+            Self::SetItem(op) => Operation::SetItem(SetItem {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+                arg1: f(op.arg1),
+                arg2: f(op.arg2),
+            }),
+            Self::DelItem(op) => Operation::DelItem(DelItem {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+                arg1: f(op.arg1),
+            }),
+            Self::LoadGlobal(op) => Operation::LoadGlobal(LoadGlobal {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+                arg1: f(op.arg1),
+            }),
+            Self::StoreGlobal(op) => Operation::StoreGlobal(StoreGlobal {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+                arg1: f(op.arg1),
+                arg2: f(op.arg2),
+            }),
+            Self::LoadCell(op) => Operation::LoadCell(LoadCell {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+            }),
+            Self::MakeCell(op) => Operation::MakeCell(MakeCell {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+            }),
+            Self::CellRef(op) => Operation::CellRef(CellRef {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+            }),
+            Self::StoreCell(op) => Operation::StoreCell(StoreCell {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+                arg1: f(op.arg1),
+            }),
+            Self::DelQuietly(op) => Operation::DelQuietly(DelQuietly {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+                arg1: f(op.arg1),
+            }),
+            Self::DelDerefQuietly(op) => Operation::DelDerefQuietly(DelDerefQuietly {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+            }),
+            Self::DelDeref(op) => Operation::DelDeref(DelDeref {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+            }),
         }
     }
 
@@ -582,331 +544,308 @@ impl<E> Operation<E> {
         f: &mut impl FnMut(E) -> Result<T, Error>,
     ) -> Result<Operation<T>, Error> {
         Ok(match self {
-            Self::BinOp {
-                node_index,
-                range,
-                kind,
-                arg0,
-                arg1,
-            } => Operation::BinOp {
-                node_index,
-                range,
-                kind,
-                arg0: f(arg0)?,
-                arg1: f(arg1)?,
-            },
-            Self::UnaryOp {
-                node_index,
-                range,
-                kind,
-                arg0,
-            } => Operation::UnaryOp {
-                node_index,
-                range,
-                kind,
-                arg0: f(arg0)?,
-            },
-            Self::InplaceBinOp {
-                node_index,
-                range,
-                kind,
-                arg0,
-                arg1,
-            } => Operation::InplaceBinOp {
-                node_index,
-                range,
-                kind,
-                arg0: f(arg0)?,
-                arg1: f(arg1)?,
-            },
-            Self::TernaryOp {
-                node_index,
-                range,
-                kind,
-                arg0,
-                arg1,
-                arg2,
-            } => Operation::TernaryOp {
-                node_index,
-                range,
-                kind,
-                arg0: f(arg0)?,
-                arg1: f(arg1)?,
-                arg2: f(arg2)?,
-            },
-            Self::GetAttr {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::GetAttr {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-                arg1: f(arg1)?,
-            },
-            Self::SetAttr {
-                node_index,
-                range,
-                arg0,
-                arg1,
-                arg2,
-            } => Operation::SetAttr {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-                arg1: f(arg1)?,
-                arg2: f(arg2)?,
-            },
-            Self::GetItem {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::GetItem {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-                arg1: f(arg1)?,
-            },
-            Self::SetItem {
-                node_index,
-                range,
-                arg0,
-                arg1,
-                arg2,
-            } => Operation::SetItem {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-                arg1: f(arg1)?,
-                arg2: f(arg2)?,
-            },
-            Self::DelItem {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::DelItem {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-                arg1: f(arg1)?,
-            },
-            Self::LoadGlobal {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::LoadGlobal {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-                arg1: f(arg1)?,
-            },
-            Self::StoreGlobal {
-                node_index,
-                range,
-                arg0,
-                arg1,
-                arg2,
-            } => Operation::StoreGlobal {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-                arg1: f(arg1)?,
-                arg2: f(arg2)?,
-            },
-            Self::LoadCell {
-                node_index,
-                range,
-                arg0,
-            } => Operation::LoadCell {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-            },
-            Self::MakeCell {
-                node_index,
-                range,
-                arg0,
-            } => Operation::MakeCell {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-            },
-            Self::CellRef {
-                node_index,
-                range,
-                arg0,
-            } => Operation::CellRef {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-            },
-            Self::StoreCell {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::StoreCell {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-                arg1: f(arg1)?,
-            },
-            Self::DelQuietly {
-                node_index,
-                range,
-                arg0,
-                arg1,
-            } => Operation::DelQuietly {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-                arg1: f(arg1)?,
-            },
-            Self::DelDerefQuietly {
-                node_index,
-                range,
-                arg0,
-            } => Operation::DelDerefQuietly {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-            },
-            Self::DelDeref {
-                node_index,
-                range,
-                arg0,
-            } => Operation::DelDeref {
-                node_index,
-                range,
-                arg0: f(arg0)?,
-            },
+            Self::BinOp(op) => Operation::BinOp(BinOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f(op.arg0)?,
+                arg1: f(op.arg1)?,
+            }),
+            Self::UnaryOp(op) => Operation::UnaryOp(UnaryOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f(op.arg0)?,
+            }),
+            Self::InplaceBinOp(op) => Operation::InplaceBinOp(InplaceBinOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f(op.arg0)?,
+                arg1: f(op.arg1)?,
+            }),
+            Self::TernaryOp(op) => Operation::TernaryOp(TernaryOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f(op.arg0)?,
+                arg1: f(op.arg1)?,
+                arg2: f(op.arg2)?,
+            }),
+            Self::GetAttr(op) => Operation::GetAttr(GetAttr {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+                arg1: f(op.arg1)?,
+            }),
+            Self::SetAttr(op) => Operation::SetAttr(SetAttr {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+                arg1: f(op.arg1)?,
+                arg2: f(op.arg2)?,
+            }),
+            Self::GetItem(op) => Operation::GetItem(GetItem {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+                arg1: f(op.arg1)?,
+            }),
+            Self::SetItem(op) => Operation::SetItem(SetItem {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+                arg1: f(op.arg1)?,
+                arg2: f(op.arg2)?,
+            }),
+            Self::DelItem(op) => Operation::DelItem(DelItem {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+                arg1: f(op.arg1)?,
+            }),
+            Self::LoadGlobal(op) => Operation::LoadGlobal(LoadGlobal {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+                arg1: f(op.arg1)?,
+            }),
+            Self::StoreGlobal(op) => Operation::StoreGlobal(StoreGlobal {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+                arg1: f(op.arg1)?,
+                arg2: f(op.arg2)?,
+            }),
+            Self::LoadCell(op) => Operation::LoadCell(LoadCell {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+            }),
+            Self::MakeCell(op) => Operation::MakeCell(MakeCell {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+            }),
+            Self::CellRef(op) => Operation::CellRef(CellRef {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+            }),
+            Self::StoreCell(op) => Operation::StoreCell(StoreCell {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+                arg1: f(op.arg1)?,
+            }),
+            Self::DelQuietly(op) => Operation::DelQuietly(DelQuietly {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+                arg1: f(op.arg1)?,
+            }),
+            Self::DelDerefQuietly(op) => Operation::DelDerefQuietly(DelDerefQuietly {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+            }),
+            Self::DelDeref(op) => Operation::DelDeref(DelDeref {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+            }),
         })
     }
 
     pub fn walk_args(&self, f: &mut impl FnMut(&E)) {
         match self {
-            Self::BinOp { arg0, arg1, .. } | Self::InplaceBinOp { arg0, arg1, .. } => {
-                f(arg0);
-                f(arg1);
+            Self::BinOp(op) => {
+                f(&op.arg0);
+                f(&op.arg1);
             }
-            Self::UnaryOp { arg0, .. }
-            | Self::LoadCell { arg0, .. }
-            | Self::MakeCell { arg0, .. }
-            | Self::CellRef { arg0, .. }
-            | Self::DelDerefQuietly { arg0, .. }
-            | Self::DelDeref { arg0, .. } => f(arg0),
-            Self::TernaryOp {
-                arg0, arg1, arg2, ..
+            Self::UnaryOp(op) => f(&op.arg0),
+            Self::InplaceBinOp(op) => {
+                f(&op.arg0);
+                f(&op.arg1);
             }
-            | Self::SetAttr {
-                arg0, arg1, arg2, ..
+            Self::TernaryOp(op) => {
+                f(&op.arg0);
+                f(&op.arg1);
+                f(&op.arg2);
             }
-            | Self::SetItem {
-                arg0, arg1, arg2, ..
+            Self::GetAttr(op) => {
+                f(&op.arg0);
+                f(&op.arg1);
             }
-            | Self::StoreGlobal {
-                arg0, arg1, arg2, ..
-            } => {
-                f(arg0);
-                f(arg1);
-                f(arg2);
+            Self::SetAttr(op) => {
+                f(&op.arg0);
+                f(&op.arg1);
+                f(&op.arg2);
             }
-            Self::GetAttr { arg0, arg1, .. }
-            | Self::GetItem { arg0, arg1, .. }
-            | Self::DelItem { arg0, arg1, .. }
-            | Self::LoadGlobal { arg0, arg1, .. }
-            | Self::StoreCell { arg0, arg1, .. }
-            | Self::DelQuietly { arg0, arg1, .. } => {
-                f(arg0);
-                f(arg1);
+            Self::GetItem(op) => {
+                f(&op.arg0);
+                f(&op.arg1);
             }
+            Self::SetItem(op) => {
+                f(&op.arg0);
+                f(&op.arg1);
+                f(&op.arg2);
+            }
+            Self::DelItem(op) => {
+                f(&op.arg0);
+                f(&op.arg1);
+            }
+            Self::LoadGlobal(op) => {
+                f(&op.arg0);
+                f(&op.arg1);
+            }
+            Self::StoreGlobal(op) => {
+                f(&op.arg0);
+                f(&op.arg1);
+                f(&op.arg2);
+            }
+            Self::LoadCell(op) => f(&op.arg0),
+            Self::MakeCell(op) => f(&op.arg0),
+            Self::CellRef(op) => f(&op.arg0),
+            Self::StoreCell(op) => {
+                f(&op.arg0);
+                f(&op.arg1);
+            }
+            Self::DelQuietly(op) => {
+                f(&op.arg0);
+                f(&op.arg1);
+            }
+            Self::DelDerefQuietly(op) => f(&op.arg0),
+            Self::DelDeref(op) => f(&op.arg0),
         }
     }
 
     pub fn walk_args_mut(&mut self, f: &mut impl FnMut(&mut E)) {
         match self {
-            Self::BinOp { arg0, arg1, .. } | Self::InplaceBinOp { arg0, arg1, .. } => {
-                f(arg0);
-                f(arg1);
+            Self::BinOp(op) => {
+                f(&mut op.arg0);
+                f(&mut op.arg1);
             }
-            Self::UnaryOp { arg0, .. }
-            | Self::LoadCell { arg0, .. }
-            | Self::MakeCell { arg0, .. }
-            | Self::CellRef { arg0, .. }
-            | Self::DelDerefQuietly { arg0, .. }
-            | Self::DelDeref { arg0, .. } => f(arg0),
-            Self::TernaryOp {
-                arg0, arg1, arg2, ..
+            Self::UnaryOp(op) => f(&mut op.arg0),
+            Self::InplaceBinOp(op) => {
+                f(&mut op.arg0);
+                f(&mut op.arg1);
             }
-            | Self::SetAttr {
-                arg0, arg1, arg2, ..
+            Self::TernaryOp(op) => {
+                f(&mut op.arg0);
+                f(&mut op.arg1);
+                f(&mut op.arg2);
             }
-            | Self::SetItem {
-                arg0, arg1, arg2, ..
+            Self::GetAttr(op) => {
+                f(&mut op.arg0);
+                f(&mut op.arg1);
             }
-            | Self::StoreGlobal {
-                arg0, arg1, arg2, ..
-            } => {
-                f(arg0);
-                f(arg1);
-                f(arg2);
+            Self::SetAttr(op) => {
+                f(&mut op.arg0);
+                f(&mut op.arg1);
+                f(&mut op.arg2);
             }
-            Self::GetAttr { arg0, arg1, .. }
-            | Self::GetItem { arg0, arg1, .. }
-            | Self::DelItem { arg0, arg1, .. }
-            | Self::LoadGlobal { arg0, arg1, .. }
-            | Self::StoreCell { arg0, arg1, .. }
-            | Self::DelQuietly { arg0, arg1, .. } => {
-                f(arg0);
-                f(arg1);
+            Self::GetItem(op) => {
+                f(&mut op.arg0);
+                f(&mut op.arg1);
             }
+            Self::SetItem(op) => {
+                f(&mut op.arg0);
+                f(&mut op.arg1);
+                f(&mut op.arg2);
+            }
+            Self::DelItem(op) => {
+                f(&mut op.arg0);
+                f(&mut op.arg1);
+            }
+            Self::LoadGlobal(op) => {
+                f(&mut op.arg0);
+                f(&mut op.arg1);
+            }
+            Self::StoreGlobal(op) => {
+                f(&mut op.arg0);
+                f(&mut op.arg1);
+                f(&mut op.arg2);
+            }
+            Self::LoadCell(op) => f(&mut op.arg0),
+            Self::MakeCell(op) => f(&mut op.arg0),
+            Self::CellRef(op) => f(&mut op.arg0),
+            Self::StoreCell(op) => {
+                f(&mut op.arg0);
+                f(&mut op.arg1);
+            }
+            Self::DelQuietly(op) => {
+                f(&mut op.arg0);
+                f(&mut op.arg1);
+            }
+            Self::DelDerefQuietly(op) => f(&mut op.arg0),
+            Self::DelDeref(op) => f(&mut op.arg0),
         }
     }
 
     pub fn into_call_args(self) -> Vec<E> {
         let mut out = Vec::new();
         match self {
-            Self::BinOp { arg0, arg1, .. } | Self::InplaceBinOp { arg0, arg1, .. } => {
-                out.push(arg0);
-                out.push(arg1);
+            Self::BinOp(op) => {
+                out.push(op.arg0);
+                out.push(op.arg1);
             }
-            Self::UnaryOp { arg0, .. }
-            | Self::LoadCell { arg0, .. }
-            | Self::MakeCell { arg0, .. }
-            | Self::CellRef { arg0, .. }
-            | Self::DelDerefQuietly { arg0, .. }
-            | Self::DelDeref { arg0, .. } => {
-                out.push(arg0);
+            Self::UnaryOp(op) => {
+                out.push(op.arg0);
             }
-            Self::TernaryOp {
-                arg0, arg1, arg2, ..
+            Self::InplaceBinOp(op) => {
+                out.push(op.arg0);
+                out.push(op.arg1);
             }
-            | Self::SetAttr {
-                arg0, arg1, arg2, ..
+            Self::TernaryOp(op) => {
+                out.push(op.arg0);
+                out.push(op.arg1);
+                out.push(op.arg2);
             }
-            | Self::SetItem {
-                arg0, arg1, arg2, ..
+            Self::GetAttr(op) => {
+                out.push(op.arg0);
+                out.push(op.arg1);
             }
-            | Self::StoreGlobal {
-                arg0, arg1, arg2, ..
-            } => {
-                out.push(arg0);
-                out.push(arg1);
-                out.push(arg2);
+            Self::SetAttr(op) => {
+                out.push(op.arg0);
+                out.push(op.arg1);
+                out.push(op.arg2);
             }
-            Self::GetAttr { arg0, arg1, .. }
-            | Self::GetItem { arg0, arg1, .. }
-            | Self::DelItem { arg0, arg1, .. }
-            | Self::LoadGlobal { arg0, arg1, .. }
-            | Self::StoreCell { arg0, arg1, .. }
-            | Self::DelQuietly { arg0, arg1, .. } => {
-                out.push(arg0);
-                out.push(arg1);
+            Self::GetItem(op) => {
+                out.push(op.arg0);
+                out.push(op.arg1);
             }
+            Self::SetItem(op) => {
+                out.push(op.arg0);
+                out.push(op.arg1);
+                out.push(op.arg2);
+            }
+            Self::DelItem(op) => {
+                out.push(op.arg0);
+                out.push(op.arg1);
+            }
+            Self::LoadGlobal(op) => {
+                out.push(op.arg0);
+                out.push(op.arg1);
+            }
+            Self::StoreGlobal(op) => {
+                out.push(op.arg0);
+                out.push(op.arg1);
+                out.push(op.arg2);
+            }
+            Self::LoadCell(op) => out.push(op.arg0),
+            Self::MakeCell(op) => out.push(op.arg0),
+            Self::CellRef(op) => out.push(op.arg0),
+            Self::StoreCell(op) => {
+                out.push(op.arg0);
+                out.push(op.arg1);
+            }
+            Self::DelQuietly(op) => {
+                out.push(op.arg0);
+                out.push(op.arg1);
+            }
+            Self::DelDerefQuietly(op) => out.push(op.arg0),
+            Self::DelDeref(op) => out.push(op.arg0),
         }
         out
     }
@@ -914,43 +853,66 @@ impl<E> Operation<E> {
     pub fn call_args(&self) -> Vec<&E> {
         let mut out = Vec::new();
         match self {
-            Self::BinOp { arg0, arg1, .. } | Self::InplaceBinOp { arg0, arg1, .. } => {
-                out.push(arg0);
-                out.push(arg1);
+            Self::BinOp(op) => {
+                out.push(&op.arg0);
+                out.push(&op.arg1);
             }
-            Self::UnaryOp { arg0, .. }
-            | Self::LoadCell { arg0, .. }
-            | Self::MakeCell { arg0, .. }
-            | Self::CellRef { arg0, .. }
-            | Self::DelDerefQuietly { arg0, .. }
-            | Self::DelDeref { arg0, .. } => {
-                out.push(arg0);
+            Self::UnaryOp(op) => {
+                out.push(&op.arg0);
             }
-            Self::TernaryOp {
-                arg0, arg1, arg2, ..
+            Self::InplaceBinOp(op) => {
+                out.push(&op.arg0);
+                out.push(&op.arg1);
             }
-            | Self::SetAttr {
-                arg0, arg1, arg2, ..
+            Self::TernaryOp(op) => {
+                out.push(&op.arg0);
+                out.push(&op.arg1);
+                out.push(&op.arg2);
             }
-            | Self::SetItem {
-                arg0, arg1, arg2, ..
+            Self::GetAttr(op) => {
+                out.push(&op.arg0);
+                out.push(&op.arg1);
             }
-            | Self::StoreGlobal {
-                arg0, arg1, arg2, ..
-            } => {
-                out.push(arg0);
-                out.push(arg1);
-                out.push(arg2);
+            Self::SetAttr(op) => {
+                out.push(&op.arg0);
+                out.push(&op.arg1);
+                out.push(&op.arg2);
             }
-            Self::GetAttr { arg0, arg1, .. }
-            | Self::GetItem { arg0, arg1, .. }
-            | Self::DelItem { arg0, arg1, .. }
-            | Self::LoadGlobal { arg0, arg1, .. }
-            | Self::StoreCell { arg0, arg1, .. }
-            | Self::DelQuietly { arg0, arg1, .. } => {
-                out.push(arg0);
-                out.push(arg1);
+            Self::GetItem(op) => {
+                out.push(&op.arg0);
+                out.push(&op.arg1);
             }
+            Self::SetItem(op) => {
+                out.push(&op.arg0);
+                out.push(&op.arg1);
+                out.push(&op.arg2);
+            }
+            Self::DelItem(op) => {
+                out.push(&op.arg0);
+                out.push(&op.arg1);
+            }
+            Self::LoadGlobal(op) => {
+                out.push(&op.arg0);
+                out.push(&op.arg1);
+            }
+            Self::StoreGlobal(op) => {
+                out.push(&op.arg0);
+                out.push(&op.arg1);
+                out.push(&op.arg2);
+            }
+            Self::LoadCell(op) => out.push(&op.arg0),
+            Self::MakeCell(op) => out.push(&op.arg0),
+            Self::CellRef(op) => out.push(&op.arg0),
+            Self::StoreCell(op) => {
+                out.push(&op.arg0);
+                out.push(&op.arg1);
+            }
+            Self::DelQuietly(op) => {
+                out.push(&op.arg0);
+                out.push(&op.arg1);
+            }
+            Self::DelDerefQuietly(op) => out.push(&op.arg0),
+            Self::DelDeref(op) => out.push(&op.arg0),
         }
         out
     }
@@ -969,37 +931,37 @@ pub fn operation_by_name_and_args<E>(
         if args.next().is_some() {
             return None;
         }
-        Operation::BinOp {
+        Operation::BinOp(BinOp {
             node_index,
             range,
             kind,
             arg0,
             arg1,
-        }
+        })
     } else if let Some(kind) = UnaryOpKind::from_helper_name(name) {
         let arg0 = args.next()?;
         if args.next().is_some() {
             return None;
         }
-        Operation::UnaryOp {
+        Operation::UnaryOp(UnaryOp {
             node_index,
             range,
             kind,
             arg0,
-        }
+        })
     } else if let Some(kind) = InplaceBinOpKind::from_helper_name(name) {
         let arg0 = args.next()?;
         let arg1 = args.next()?;
         if args.next().is_some() {
             return None;
         }
-        Operation::InplaceBinOp {
+        Operation::InplaceBinOp(InplaceBinOp {
             node_index,
             range,
             kind,
             arg0,
             arg1,
-        }
+        })
     } else if let Some(kind) = TernaryOpKind::from_helper_name(name) {
         let arg0 = args.next()?;
         let arg1 = args.next()?;
@@ -1007,98 +969,98 @@ pub fn operation_by_name_and_args<E>(
         if args.next().is_some() {
             return None;
         }
-        Operation::TernaryOp {
+        Operation::TernaryOp(TernaryOp {
             node_index,
             range,
             kind,
             arg0,
             arg1,
             arg2,
-        }
+        })
     } else {
         match name {
-            "__dp_getattr" => Operation::GetAttr {
+            "__dp_getattr" => Operation::GetAttr(GetAttr {
                 node_index,
                 range,
                 arg0: args.next()?,
                 arg1: args.next()?,
-            },
-            "__dp_setattr" => Operation::SetAttr {
-                node_index,
-                range,
-                arg0: args.next()?,
-                arg1: args.next()?,
-                arg2: args.next()?,
-            },
-            "__dp_getitem" => Operation::GetItem {
-                node_index,
-                range,
-                arg0: args.next()?,
-                arg1: args.next()?,
-            },
-            "__dp_setitem" => Operation::SetItem {
+            }),
+            "__dp_setattr" => Operation::SetAttr(SetAttr {
                 node_index,
                 range,
                 arg0: args.next()?,
                 arg1: args.next()?,
                 arg2: args.next()?,
-            },
-            "__dp_delitem" => Operation::DelItem {
+            }),
+            "__dp_getitem" => Operation::GetItem(GetItem {
                 node_index,
                 range,
                 arg0: args.next()?,
                 arg1: args.next()?,
-            },
-            "__dp_load_global" => Operation::LoadGlobal {
-                node_index,
-                range,
-                arg0: args.next()?,
-                arg1: args.next()?,
-            },
-            "__dp_store_global" => Operation::StoreGlobal {
+            }),
+            "__dp_setitem" => Operation::SetItem(SetItem {
                 node_index,
                 range,
                 arg0: args.next()?,
                 arg1: args.next()?,
                 arg2: args.next()?,
-            },
-            "__dp_load_cell" => Operation::LoadCell {
-                node_index,
-                range,
-                arg0: args.next()?,
-            },
-            "__dp_make_cell" => Operation::MakeCell {
-                node_index,
-                range,
-                arg0: args.next()?,
-            },
-            "__dp_cell_ref" => Operation::CellRef {
-                node_index,
-                range,
-                arg0: args.next()?,
-            },
-            "__dp_store_cell" => Operation::StoreCell {
+            }),
+            "__dp_delitem" => Operation::DelItem(DelItem {
                 node_index,
                 range,
                 arg0: args.next()?,
                 arg1: args.next()?,
-            },
-            "__dp_del_quietly" => Operation::DelQuietly {
+            }),
+            "__dp_load_global" => Operation::LoadGlobal(LoadGlobal {
                 node_index,
                 range,
                 arg0: args.next()?,
                 arg1: args.next()?,
-            },
-            "__dp_del_deref_quietly" => Operation::DelDerefQuietly {
+            }),
+            "__dp_store_global" => Operation::StoreGlobal(StoreGlobal {
                 node_index,
                 range,
                 arg0: args.next()?,
-            },
-            "__dp_del_deref" => Operation::DelDeref {
+                arg1: args.next()?,
+                arg2: args.next()?,
+            }),
+            "__dp_load_cell" => Operation::LoadCell(LoadCell {
                 node_index,
                 range,
                 arg0: args.next()?,
-            },
+            }),
+            "__dp_make_cell" => Operation::MakeCell(MakeCell {
+                node_index,
+                range,
+                arg0: args.next()?,
+            }),
+            "__dp_cell_ref" => Operation::CellRef(CellRef {
+                node_index,
+                range,
+                arg0: args.next()?,
+            }),
+            "__dp_store_cell" => Operation::StoreCell(StoreCell {
+                node_index,
+                range,
+                arg0: args.next()?,
+                arg1: args.next()?,
+            }),
+            "__dp_del_quietly" => Operation::DelQuietly(DelQuietly {
+                node_index,
+                range,
+                arg0: args.next()?,
+                arg1: args.next()?,
+            }),
+            "__dp_del_deref_quietly" => Operation::DelDerefQuietly(DelDerefQuietly {
+                node_index,
+                range,
+                arg0: args.next()?,
+            }),
+            "__dp_del_deref" => Operation::DelDeref(DelDeref {
+                node_index,
+                range,
+                arg0: args.next()?,
+            }),
             _ => return None,
         }
     };

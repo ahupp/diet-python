@@ -5,7 +5,7 @@ use crate::block_py::{
     BlockPyAssign, BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable,
     BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyExpr,
+    CellRef, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyExpr,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId, FunctionName,
     IntoBlockPyStmt, ModuleNameGen, Operation,
 };
@@ -194,11 +194,11 @@ fn core_call(func_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
 }
 
 fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
-    core_operation_expr(Operation::CellRef {
+    core_operation_expr(Operation::CellRef(CellRef {
         node_index: ast::AtomicNodeIndex::default(),
         range: Default::default(),
         arg0: core_string(logical_name),
-    })
+    }))
 }
 
 fn is_generator_like(kind: BlockPyFunctionKind) -> bool {

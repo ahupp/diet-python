@@ -296,7 +296,7 @@ fn is_dp_getattr_operation<N>(
 where
     N: BlockPyNameLike,
 {
-    let operation::Operation::GetAttr { arg0, arg1, .. } = operation else {
+    let operation::Operation::GetAttr(operation::GetAttr { arg0, arg1, .. }) = operation else {
         return false;
     };
     matches!(

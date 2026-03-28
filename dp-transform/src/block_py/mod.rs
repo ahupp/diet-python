@@ -4,7 +4,11 @@ use self::param_specs::ParamSpec;
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass};
 use crate::py_expr;
-pub use operation::{BinOpKind, InplaceBinOpKind, Operation, TernaryOpKind, UnaryOpKind};
+pub use operation::{
+    BinOp, BinOpKind, CellRef, DelDeref, DelDerefQuietly, DelItem, DelQuietly, GetAttr, GetItem,
+    InplaceBinOp, InplaceBinOpKind, LoadCell, LoadGlobal, MakeCell, Operation, SetAttr, SetItem,
+    StoreCell, StoreGlobal, TernaryOp, TernaryOpKind, UnaryOp, UnaryOpKind,
+};
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
 use std::collections::{HashMap, HashSet};

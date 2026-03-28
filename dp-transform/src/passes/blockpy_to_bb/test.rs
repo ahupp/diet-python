@@ -1,7 +1,7 @@
 use crate::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt, BlockPyStmtFragment,
     BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
-    CoreStringLiteral, LocatedCoreBlockPyExpr, LocatedName, Operation,
+    CoreStringLiteral, GetAttr, LocatedCoreBlockPyExpr, LocatedName, Operation,
 };
 use crate::passes::ruff_to_blockpy::{
     lower_structured_located_blocks_to_bb_blocks, populate_exception_edge_args,
@@ -153,12 +153,12 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
         label: BlockPyLabel::from("start"),
         body: Vec::new(),
-        term: BlockPyTerm::Return(CoreBlockPyExpr::Op(Box::new(Operation::GetAttr {
+        term: BlockPyTerm::Return(CoreBlockPyExpr::Op(Box::new(Operation::GetAttr(GetAttr {
             node_index: ast::AtomicNodeIndex::default(),
             range: TextRange::default(),
             arg0: core_call_expr("__dp_current_exception", Vec::new()),
             arg1: core_string_expr("value"),
-        }))),
+        })))),
         params: vec![crate::block_py::BlockParam {
             name: "_dp_try_exc_0".to_string(),
             role: crate::block_py::BlockParamRole::Exception,
@@ -181,7 +181,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     let BlockPyTerm::Return(CoreBlockPyExpr::Op(operation)) = &block.term else {
         panic!("expected operation return expr");
     };
-    let Operation::GetAttr { arg0, arg1, .. } = operation.as_ref() else {
+    let Operation::GetAttr(GetAttr { arg0, arg1, .. }) = operation.as_ref() else {
         panic!("expected getattr operation");
     };
     assert!(matches!(

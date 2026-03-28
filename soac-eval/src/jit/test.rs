@@ -3,8 +3,9 @@ use super::*;
 mod tests {
     use super::*;
     use dp_transform::block_py::{
-        BinOpKind, BlockPyRaise, BlockPyTerm, LocatedCoreBlockPyExpr, LocatedName, NameLocation,
-        Operation, TernaryOpKind,
+        BinOp, BinOpKind, BlockPyRaise, BlockPyTerm, CellRef, DelDeref, DelDerefQuietly, DelItem,
+        DelQuietly, LoadGlobal, LocatedCoreBlockPyExpr, LocatedName, NameLocation, Operation,
+        StoreGlobal, TernaryOp, TernaryOpKind,
     };
     use ruff_python_ast as ast;
 
@@ -130,13 +131,13 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::BinOp {
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::BinOp(BinOp {
                             node_index: Default::default(),
                             range: Default::default(),
                             kind: BinOpKind::Add,
                             arg0: DirectSimpleExprPlan::Int(1),
                             arg1: DirectSimpleExprPlan::Int(2),
-                        })),
+                        }))),
                     },
                 },
             }],
@@ -184,13 +185,13 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::BinOp {
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::BinOp(BinOp {
                             node_index: Default::default(),
                             range: Default::default(),
                             kind: BinOpKind::Lt,
                             arg0: DirectSimpleExprPlan::Int(1),
                             arg1: DirectSimpleExprPlan::Int(2),
-                        })),
+                        }))),
                     },
                 },
             }],
@@ -234,14 +235,14 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::TernaryOp {
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::TernaryOp(TernaryOp {
                             node_index: Default::default(),
                             range: Default::default(),
                             kind: TernaryOpKind::Pow,
                             arg0: DirectSimpleExprPlan::Int(2),
                             arg1: DirectSimpleExprPlan::Int(3),
                             arg2: DirectSimpleExprPlan::Name(test_global_name("__dp_NONE")),
-                        })),
+                        }))),
                     },
                 },
             }],
@@ -423,12 +424,14 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::LoadGlobal {
-                            node_index: Default::default(),
-                            range: Default::default(),
-                            arg0: DirectSimpleExprPlan::Int(1),
-                            arg1: DirectSimpleExprPlan::Int(2),
-                        })),
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::LoadGlobal(
+                            LoadGlobal {
+                                node_index: Default::default(),
+                                range: Default::default(),
+                                arg0: DirectSimpleExprPlan::Int(1),
+                                arg1: DirectSimpleExprPlan::Int(2),
+                            },
+                        ))),
                     },
                 },
             }],
@@ -472,13 +475,15 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::StoreGlobal {
-                            node_index: Default::default(),
-                            range: Default::default(),
-                            arg0: DirectSimpleExprPlan::Int(1),
-                            arg1: DirectSimpleExprPlan::Int(2),
-                            arg2: DirectSimpleExprPlan::Int(3),
-                        })),
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::StoreGlobal(
+                            StoreGlobal {
+                                node_index: Default::default(),
+                                range: Default::default(),
+                                arg0: DirectSimpleExprPlan::Int(1),
+                                arg1: DirectSimpleExprPlan::Int(2),
+                                arg2: DirectSimpleExprPlan::Int(3),
+                            },
+                        ))),
                     },
                 },
             }],
@@ -567,11 +572,11 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::CellRef {
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::CellRef(CellRef {
                             node_index: Default::default(),
                             range: Default::default(),
                             arg0: DirectSimpleExprPlan::Name(test_closure_cell_name("x", 2)),
-                        })),
+                        }))),
                     },
                 },
             }],
@@ -619,14 +624,14 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::CellRef {
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::CellRef(CellRef {
                             node_index: Default::default(),
                             range: Default::default(),
                             arg0: DirectSimpleExprPlan::Name(test_captured_cell_source_name(
                                 "_dp_classcell",
                                 2,
                             )),
-                        })),
+                        }))),
                     },
                 },
             }],
@@ -675,34 +680,34 @@ mod tests {
                         params: vec![],
                         ops: vec![
                             DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
-                                Operation::DelItem {
+                                Operation::DelItem(DelItem {
                                     node_index: Default::default(),
                                     range: Default::default(),
                                     arg0: DirectSimpleExprPlan::Int(1),
                                     arg1: DirectSimpleExprPlan::Int(2),
-                                },
+                                }),
                             ))),
                             DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
-                                Operation::DelQuietly {
+                                Operation::DelQuietly(DelQuietly {
                                     node_index: Default::default(),
                                     range: Default::default(),
                                     arg0: DirectSimpleExprPlan::Int(3),
                                     arg1: DirectSimpleExprPlan::Int(4),
-                                },
+                                }),
                             ))),
                             DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
-                                Operation::DelDeref {
+                                Operation::DelDeref(DelDeref {
                                     node_index: Default::default(),
                                     range: Default::default(),
                                     arg0: DirectSimpleExprPlan::Name(test_name("cell")),
-                                },
+                                }),
                             ))),
                             DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
-                                Operation::DelDerefQuietly {
+                                Operation::DelDerefQuietly(DelDerefQuietly {
                                     node_index: Default::default(),
                                     range: Default::default(),
                                     arg0: DirectSimpleExprPlan::Name(test_name("cell")),
-                                },
+                                }),
                             ))),
                         ],
                         term: DirectSimpleTermPlan::Ret {

@@ -1727,7 +1727,7 @@ def outer(x):
         panic!("expected first entry stmt to be an assignment");
     };
     assert!(
-        matches!(&assign.value, CoreBlockPyExpr::Op(operation) if matches!(operation.as_ref(), crate::block_py::Operation::MakeCell { .. })),
+        matches!(&assign.value, CoreBlockPyExpr::Op(operation) if matches!(operation.as_ref(), crate::block_py::Operation::MakeCell(_))),
         "{assign:?}"
     );
 }

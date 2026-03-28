@@ -512,67 +512,59 @@ pub(super) fn emit_operation_direct_simple<E>(
 ) -> Option<ir::Value> {
     let helper_name = operation.helper_name();
     match operation {
-        blockpy_intrinsics::Operation::BinOp { kind, .. } => {
-            Some(emit_binop(*kind, helper_name, state, parts))
+        blockpy_intrinsics::Operation::BinOp(op) => {
+            Some(emit_binop(op.kind, helper_name, state, parts))
         }
-        blockpy_intrinsics::Operation::UnaryOp { kind, .. } => {
-            Some(emit_unary_op(*kind, helper_name, state, parts))
+        blockpy_intrinsics::Operation::UnaryOp(op) => {
+            Some(emit_unary_op(op.kind, helper_name, state, parts))
         }
-        blockpy_intrinsics::Operation::InplaceBinOp { kind, .. } => {
-            Some(emit_inplace_binop(*kind, helper_name, state, parts))
+        blockpy_intrinsics::Operation::InplaceBinOp(op) => {
+            Some(emit_inplace_binop(op.kind, helper_name, state, parts))
         }
-        blockpy_intrinsics::Operation::TernaryOp { kind, .. } => {
-            Some(emit_ternary_op(*kind, helper_name, state, parts))
+        blockpy_intrinsics::Operation::TernaryOp(op) => {
+            Some(emit_ternary_op(op.kind, helper_name, state, parts))
         }
-        blockpy_intrinsics::Operation::GetAttr { .. } => {
-            Some(emit_getattr(helper_name, state, parts))
-        }
-        blockpy_intrinsics::Operation::SetAttr { .. } => {
-            Some(emit_setattr(helper_name, state, parts))
-        }
-        blockpy_intrinsics::Operation::GetItem { .. } => {
-            Some(emit_getitem(helper_name, state, parts))
-        }
-        blockpy_intrinsics::Operation::SetItem { .. } => {
-            Some(emit_setitem(helper_name, state, parts))
-        }
-        blockpy_intrinsics::Operation::DelItem { .. } => Some(emit_positional_owned_call(
+        blockpy_intrinsics::Operation::GetAttr(_) => Some(emit_getattr(helper_name, state, parts)),
+        blockpy_intrinsics::Operation::SetAttr(_) => Some(emit_setattr(helper_name, state, parts)),
+        blockpy_intrinsics::Operation::GetItem(_) => Some(emit_getitem(helper_name, state, parts)),
+        blockpy_intrinsics::Operation::SetItem(_) => Some(emit_setitem(helper_name, state, parts)),
+        blockpy_intrinsics::Operation::DelItem(_) => Some(emit_positional_owned_call(
             helper_name,
             &DP_JIT_PYOBJECT_DELITEM_IMPORT,
             state,
             parts,
         )),
-        blockpy_intrinsics::Operation::LoadGlobal { .. } => Some(emit_positional_owned_call(
+        blockpy_intrinsics::Operation::LoadGlobal(_) => Some(emit_positional_owned_call(
             helper_name,
             &DP_JIT_LOAD_GLOBAL_OBJ_IMPORT,
             state,
             parts,
         )),
-        blockpy_intrinsics::Operation::StoreGlobal { .. } => Some(emit_positional_owned_call(
+        blockpy_intrinsics::Operation::StoreGlobal(_) => Some(emit_positional_owned_call(
             helper_name,
             &DP_JIT_STORE_GLOBAL_IMPORT,
             state,
             parts,
         )),
-        blockpy_intrinsics::Operation::LoadCell { .. } => None,
-        blockpy_intrinsics::Operation::MakeCell { .. } => {
+        blockpy_intrinsics::Operation::LoadCell(_) => None,
+        blockpy_intrinsics::Operation::MakeCell(_) => {
             Some(emit_make_cell(helper_name, state, parts))
         }
-        blockpy_intrinsics::Operation::CellRef { .. } => None,
-        blockpy_intrinsics::Operation::StoreCell { .. } => None,
-        blockpy_intrinsics::Operation::DelQuietly { .. } => Some(emit_positional_owned_call(
+        blockpy_intrinsics::Operation::CellRef(_) => None,
+        blockpy_intrinsics::Operation::StoreCell(_) => None,
+        blockpy_intrinsics::Operation::DelQuietly(_) => Some(emit_positional_owned_call(
             helper_name,
             &DP_JIT_DEL_QUIETLY_IMPORT,
             state,
             parts,
         )),
-        blockpy_intrinsics::Operation::DelDerefQuietly { .. } => Some(emit_positional_owned_call(
+        blockpy_intrinsics::Operation::DelDerefQuietly(_) => Some(emit_positional_owned_call(
             helper_name,
             &DP_JIT_DEL_DEREF_QUIETLY_IMPORT,
             state,
             parts,
         )),
-        blockpy_intrinsics::Operation::DelDeref { .. } => Some(emit_positional_owned_call(
+        blockpy_intrinsics::Operation::DelDeref(_) => Some(emit_positional_owned_call(
             helper_name,
             &DP_JIT_DEL_DEREF_IMPORT,
             state,

@@ -3,9 +3,11 @@ use crate::block_py::{
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
     BlockPyCellBindingKind, BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction,
     BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap, BlockPyNameLike, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm, ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
-    CoreStringLiteral, LocatedName, NameLocation, Operation,
+    BlockPyStmt, BlockPyTerm, CellRef, ClosureInit, ClosureSlot, CoreBlockPyCall,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, CoreNumberLiteral,
+    CoreNumberLiteralValue, CoreStringLiteral, DelDeref, DelDerefQuietly, DelItem, DelQuietly,
+    LoadCell, LoadGlobal, LocatedName, MakeCell, NameLocation, Operation, SetItem, StoreCell,
+    StoreGlobal,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, recompute_lowered_block_params,
@@ -54,12 +56,12 @@ fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
     let range = name.range;
     let bind_name = name.id.to_string();
-    op_expr(Operation::LoadGlobal {
+    op_expr(Operation::LoadGlobal(LoadGlobal {
         node_index: node_index.clone(),
         range,
         arg0: globals_expr(node_index.clone(), range),
         arg1: core_string_expr(bind_name, node_index, range),
-    })
+    }))
 }
 
 fn cell_expr_for_name(
@@ -82,11 +84,11 @@ fn rewrite_cell_name_load(
 ) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
     let range = name.range;
-    op_expr(Operation::LoadCell {
+    op_expr(Operation::LoadCell(LoadCell {
         node_index: node_index.clone(),
         range,
         arg0: cell_expr_for_name(name.id.as_str(), semantic, node_index, range),
-    })
+    }))
 }
 
 fn rewrite_cell_ref_expr(
@@ -95,7 +97,7 @@ fn rewrite_cell_ref_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    op_expr(Operation::CellRef {
+    op_expr(Operation::CellRef(CellRef {
         node_index: node_index.clone(),
         range,
         arg0: core_name_expr(
@@ -104,7 +106,7 @@ fn rewrite_cell_ref_expr(
             node_index,
             range,
         ),
-    })
+    }))
 }
 
 fn rewrite_global_binding_assign(
@@ -113,13 +115,13 @@ fn rewrite_global_binding_assign(
     let node_index = assign.target.node_index.clone();
     let range = assign.target.range;
     let bind_name = assign.target.id.to_string();
-    op_stmt(Operation::StoreGlobal {
+    op_stmt(Operation::StoreGlobal(StoreGlobal {
         node_index: node_index.clone(),
         range,
         arg0: globals_expr(node_index.clone(), range),
         arg1: core_string_expr(bind_name, node_index, range),
         arg2: assign.value,
-    })
+    }))
 }
 
 fn rewrite_class_namespace_binding_assign(
@@ -128,13 +130,13 @@ fn rewrite_class_namespace_binding_assign(
     let node_index = assign.target.node_index.clone();
     let range = assign.target.range;
     let bind_name = assign.target.id.to_string();
-    op_stmt(Operation::SetItem {
+    op_stmt(Operation::SetItem(SetItem {
         node_index: node_index.clone(),
         range,
         arg0: class_namespace_expr(node_index.clone(), range),
         arg1: core_string_expr(bind_name, node_index, range),
         arg2: assign.value,
-    })
+    }))
 }
 
 fn rewrite_cell_binding_assign(
@@ -143,12 +145,12 @@ fn rewrite_cell_binding_assign(
 ) -> BlockPyStmt<CoreBlockPyExpr> {
     let node_index = assign.target.node_index.clone();
     let range = assign.target.range;
-    op_stmt(Operation::StoreCell {
+    op_stmt(Operation::StoreCell(StoreCell {
         node_index: node_index.clone(),
         range,
         arg0: cell_expr_for_name(assign.target.id.as_str(), semantic, node_index, range),
         arg1: assign.value,
-    })
+    }))
 }
 
 fn rewrite_global_binding_delete_by_name(
@@ -156,12 +158,12 @@ fn rewrite_global_binding_delete_by_name(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> BlockPyStmt<CoreBlockPyExpr> {
-    op_stmt(Operation::DelItem {
+    op_stmt(Operation::DelItem(DelItem {
         node_index: node_index.clone(),
         range,
         arg0: globals_expr(node_index.clone(), range),
         arg1: core_string_expr(bind_name.to_string(), node_index, range),
-    })
+    }))
 }
 
 fn rewrite_binding_delete(
@@ -172,11 +174,11 @@ fn rewrite_binding_delete(
     let range = target.range;
     let bind_name = target.id.to_string();
     if semantic.is_cell_binding(bind_name.as_str()) {
-        return op_stmt(Operation::DelDeref {
+        return op_stmt(Operation::DelDeref(DelDeref {
             node_index: node_index.clone(),
             range,
             arg0: cell_expr_for_name(bind_name.as_str(), semantic, node_index, range),
-        });
+        }));
     }
     match semantic.binding_target_for_name(bind_name.as_str(), BlockPyBindingPurpose::Store) {
         BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
@@ -191,12 +193,12 @@ fn rewrite_binding_delete(
         BindingTarget::ModuleGlobal => {
             rewrite_global_binding_delete_by_name(bind_name.as_str(), node_index, range)
         }
-        BindingTarget::ClassNamespace => op_stmt(Operation::DelItem {
+        BindingTarget::ClassNamespace => op_stmt(Operation::DelItem(DelItem {
             node_index: node_index.clone(),
             range,
             arg0: class_namespace_expr(node_index.clone(), range),
             arg1: core_string_expr(bind_name, node_index, range),
-        }),
+        })),
     }
 }
 
@@ -347,11 +349,11 @@ fn rewrite_deleted_name_loads_in_expr(
                 unreachable!("op-like branch should have operation view");
             };
             match operation {
-                Operation::LoadCell { .. }
-                | Operation::DelDeref { .. }
-                | Operation::DelDerefQuietly { .. }
-                | Operation::CellRef { .. } => {}
-                Operation::StoreCell { .. } => {
+                Operation::LoadCell(_)
+                | Operation::DelDeref(_)
+                | Operation::DelDerefQuietly(_)
+                | Operation::CellRef(_) => {}
+                Operation::StoreCell(_) => {
                     with_helper_arg_mut(expr, 1, &mut |value_expr| {
                         rewrite_deleted_name_loads_in_expr(
                             value_expr,
@@ -456,11 +458,11 @@ fn rewrite_quiet_delete_marker(
     let node_index = name.node_index.clone();
     let range = name.range;
     match semantic.binding_kind(name.id.as_str()) {
-        Some(BlockPyBindingKind::Cell(_)) => op_stmt(Operation::DelDerefQuietly {
+        Some(BlockPyBindingKind::Cell(_)) => op_stmt(Operation::DelDerefQuietly(DelDerefQuietly {
             node_index: node_index.clone(),
             range,
             arg0: cell_expr_for_name(name.id.as_str(), semantic, node_index, range),
-        }),
+        })),
         _ => match semantic.binding_target_for_name(name.id.as_str(), BlockPyBindingPurpose::Store)
         {
             BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
@@ -472,18 +474,18 @@ fn rewrite_quiet_delete_marker(
                 },
                 value: deleted_sentinel_expr(node_index, range),
             }),
-            BindingTarget::ModuleGlobal => op_stmt(Operation::DelQuietly {
+            BindingTarget::ModuleGlobal => op_stmt(Operation::DelQuietly(DelQuietly {
                 node_index: node_index.clone(),
                 range,
                 arg0: globals_expr(node_index.clone(), range),
                 arg1: core_string_expr(name.id.to_string(), node_index, range),
-            }),
-            BindingTarget::ClassNamespace => op_stmt(Operation::DelQuietly {
+            })),
+            BindingTarget::ClassNamespace => op_stmt(Operation::DelQuietly(DelQuietly {
                 node_index: node_index.clone(),
                 range,
                 arg0: class_namespace_expr(node_index.clone(), range),
                 arg1: core_string_expr(name.id.to_string(), node_index, range),
-            }),
+            })),
         },
     }
 }
@@ -537,7 +539,7 @@ fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
 
 fn cell_ref_marker_target(expr: &CoreBlockPyExpr) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let Operation::CellRef { arg0, .. } = operation else {
+    let Operation::CellRef(CellRef { arg0, .. }) = operation else {
         return None;
     };
     let CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(literal)) = arg0 else {
@@ -551,7 +553,7 @@ fn cell_load_logical_name(
     semantic: &BlockPyCallableSemanticInfo,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let Operation::LoadCell { arg0, .. } = operation else {
+    let Operation::LoadCell(LoadCell { arg0, .. }) = operation else {
         return None;
     };
     let CoreBlockPyExpr::Name(name) = arg0 else {
@@ -584,11 +586,11 @@ fn build_local_cell_init_assign(
             node_index: node_index.clone(),
             range,
         },
-        value: op_expr(Operation::MakeCell {
+        value: op_expr(Operation::MakeCell(MakeCell {
             node_index,
             range,
             arg0: init_expr,
-        }),
+        })),
     })
 }
 
@@ -639,11 +641,11 @@ fn build_closure_slot_cell_init_assign(slot: &ClosureSlot) -> BlockPyStmt<CoreBl
             node_index: node_index.clone(),
             range,
         },
-        value: op_expr(Operation::MakeCell {
+        value: op_expr(Operation::MakeCell(MakeCell {
             node_index,
             range,
             arg0: closure_slot_init_expr(slot),
-        }),
+        })),
     })
 }
 
@@ -703,7 +705,7 @@ fn store_cell_deleted_logical_name(
     semantic: &BlockPyCallableSemanticInfo,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let Operation::StoreCell { arg0, arg1, .. } = operation else {
+    let Operation::StoreCell(StoreCell { arg0, arg1, .. }) = operation else {
         return None;
     };
     let CoreBlockPyExpr::Name(name) = arg0 else {
@@ -720,7 +722,7 @@ fn del_deref_logical_name(
     semantic: &BlockPyCallableSemanticInfo,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let Operation::DelDeref { arg0, .. } = operation else {
+    let Operation::DelDeref(DelDeref { arg0, .. }) = operation else {
         return None;
     };
     let CoreBlockPyExpr::Name(name) = arg0 else {
@@ -734,7 +736,7 @@ fn store_cell_runtime_logical_name(
     semantic: &BlockPyCallableSemanticInfo,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let Operation::StoreCell { arg0, arg1, .. } = operation else {
+    let Operation::StoreCell(StoreCell { arg0, arg1, .. }) = operation else {
         return None;
     };
     let CoreBlockPyExpr::Name(name) = arg0 else {
@@ -753,7 +755,7 @@ fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
     let Some(operation) = operation_expr(&assign.value) else {
         return false;
     };
-    let Operation::MakeCell { arg0, .. } = operation else {
+    let Operation::MakeCell(MakeCell { arg0, .. }) = operation else {
         return false;
     };
     matches!(
@@ -786,11 +788,11 @@ fn rewrite_binding_assign_by_name(
     };
     if semantic.is_cell_binding(name.as_str()) {
         if is_deleted_sentinel_expr(&assign.value) {
-            return op_stmt(Operation::DelDeref {
+            return op_stmt(Operation::DelDeref(DelDeref {
                 node_index: node_index.clone(),
                 range,
                 arg0: cell_expr_for_name(name.as_str(), semantic, node_index, range),
-            });
+            }));
         }
         return rewrite_cell_binding_assign(assign, semantic);
     }
@@ -803,12 +805,12 @@ fn rewrite_binding_assign_by_name(
         }
         BindingTarget::ClassNamespace => {
             if is_deleted_sentinel_expr(&assign.value) {
-                return op_stmt(Operation::DelItem {
+                return op_stmt(Operation::DelItem(DelItem {
                     node_index: node_index.clone(),
                     range,
                     arg0: class_namespace_expr(node_index.clone(), range),
                     arg1: core_string_expr(name, node_index, range),
-                });
+                }));
             }
             rewrite_class_namespace_binding_assign(assign)
         }
@@ -1548,11 +1550,11 @@ impl BlockPyModuleMap<CoreBlockPyPass, BbBlockPyPass> for NameLocator<'_> {
                 };
                 let marks_first_arg_as_raw_cell = matches!(
                     operation.as_ref(),
-                    Operation::CellRef { .. }
-                        | Operation::LoadCell { .. }
-                        | Operation::StoreCell { .. }
-                        | Operation::DelDeref { .. }
-                        | Operation::DelDerefQuietly { .. }
+                    Operation::CellRef(_)
+                        | Operation::LoadCell(_)
+                        | Operation::StoreCell(_)
+                        | Operation::DelDeref(_)
+                        | Operation::DelDerefQuietly(_)
                 );
                 if marks_first_arg_as_raw_cell {
                     let mut marked = false;
