@@ -2,7 +2,7 @@
 
 use dp_transform::block_py::{BlockPyFunction, ParamKind};
 use dp_transform::passes::ResolvedStorageBlockPyPass;
-use dp_transform::transform_str_to_ruff;
+use dp_transform::{transform_str_to_ruff, transform_str_to_ruff_no_passes};
 use log::{info, trace};
 use pyo3::exceptions::{
     PyAttributeError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
@@ -24,9 +24,12 @@ fn is_cell_object(obj: *mut ffi::PyObject) -> bool {
     unsafe { !obj.is_null() && ffi::Py_TYPE(obj) == std::ptr::addr_of_mut!(PyCell_Type) }
 }
 
-fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<dp_transform::LoweringResult> {
+fn lower_source(
+    source: &str,
+    ensure: Option<bool>,
+) -> PyResult<dp_transform::LoweringResult<dp_transform::NoopPassTracker>> {
     let _ = ensure;
-    transform_str_to_ruff(source).map_err(|err| {
+    transform_str_to_ruff_no_passes(source).map_err(|err| {
         match err.downcast_ref::<dp_transform::ParseError>() {
             Some(parse_error) => pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string()),
             None => pyo3::exceptions::PyRuntimeError::new_err(err.to_string()),
@@ -34,8 +37,8 @@ fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<dp_transform::Lo
     })
 }
 
-fn register_lowered_module_plans(
-    output: &dp_transform::LoweringResult,
+fn register_lowered_module_plans<P>(
+    output: &dp_transform::LoweringResult<P>,
     module_name: &str,
 ) -> PyResult<()> {
     let Some(bb_codegen) = output.bb_codegen_module.as_ref() else {
@@ -85,7 +88,13 @@ fn debug_pass_shape(
     pass_name: &str,
     ensure: Option<bool>,
 ) -> PyResult<Py<PyDict>> {
-    let output = lower_source(source, ensure)?;
+    let _ = ensure;
+    let output = transform_str_to_ruff(source).map_err(|err| {
+        match err.downcast_ref::<dp_transform::ParseError>() {
+            Some(parse_error) => pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string()),
+            None => pyo3::exceptions::PyRuntimeError::new_err(err.to_string()),
+        }
+    })?;
     let summary = output
         .summarize_pass_shape(pass_name)
         .ok_or_else(|| PyRuntimeError::new_err(format!("no tracked pass named {pass_name}")))?;
@@ -98,7 +107,13 @@ fn debug_pass_shape(
 
 #[pyfunction]
 fn inspect_pipeline(source: &str, ensure: Option<bool>) -> PyResult<String> {
-    let output = lower_source(source, ensure)?;
+    let _ = ensure;
+    let output = transform_str_to_ruff(source).map_err(|err| {
+        match err.downcast_ref::<dp_transform::ParseError>() {
+            Some(parse_error) => pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string()),
+            None => pyo3::exceptions::PyRuntimeError::new_err(err.to_string()),
+        }
+    })?;
     let mut steps = vec![json!({
         "key": "input_source",
         "label": "input source",
@@ -324,8 +339,8 @@ fn lookup_bb_function(
     })
 }
 
-fn lookup_module_init_function(
-    output: &dp_transform::LoweringResult,
+fn lookup_module_init_function<P>(
+    output: &dp_transform::LoweringResult<P>,
     module_name: &str,
 ) -> PyResult<BlockPyFunction<ResolvedStorageBlockPyPass>> {
     let module = output.bb_codegen_module.as_ref().ok_or_else(|| {

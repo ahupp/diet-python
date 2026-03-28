@@ -84,7 +84,7 @@ fn lower_core_blockpy_with_await_and_yield(
 pub(crate) fn rewrite_module_with_tracker(
     context: &Context,
     module: &mut Suite,
-    pass_tracker: &mut PassTracker,
+    pass_tracker: &mut impl PassTracker,
 ) -> Result<BlockPyModule<ResolvedStorageBlockPyPass>> {
     let AstToAstPassResult {
         module: ast_module,

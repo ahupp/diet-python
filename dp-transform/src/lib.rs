@@ -84,11 +84,11 @@ fn should_skip(source: &str) -> bool {
         .is_some_and(|line| line.contains("diet-python: disabled"))
 }
 
-pub struct LoweringResult {
+pub struct LoweringResult<P = RecordingPassTracker> {
     pub timings: TransformTimings,
     pub module: ModModule,
     pub bb_codegen_module: Option<BlockPyModule<ResolvedStorageBlockPyPass>>,
-    passes: PassTracker,
+    passes: P,
 }
 
 struct TrackedPass {
@@ -98,12 +98,22 @@ struct TrackedPass {
     render_text: Option<fn(&dyn Any) -> String>,
 }
 
-pub(crate) struct PassTracker {
+#[derive(Default)]
+pub struct NoopPassTracker;
+
+pub struct RecordingPassTracker {
     passes: Vec<TrackedPass>,
 }
 
 pub(crate) trait TrackedPassText {
     fn render_tracked_pass_text(&self) -> String;
+}
+
+pub(crate) trait PassTracker {
+    fn run_pass<T, F>(&mut self, name: &str, build: F) -> T
+    where
+        T: Clone + Any + TrackedPassText,
+        F: FnOnce() -> T;
 }
 
 impl TrackedPassText for Suite {
@@ -131,31 +141,25 @@ where
         .render_tracked_pass_text()
 }
 
-impl PassTracker {
-    pub(crate) fn new() -> Self {
-        Self { passes: Vec::new() }
+impl NoopPassTracker {
+    pub fn new() -> Self {
+        Self
     }
+}
 
-    #[must_use]
-    pub(crate) fn run_pass<T: Clone + Any + TrackedPassText>(
-        &mut self,
-        name: &str,
-        build: impl FnOnce() -> T,
-    ) -> T {
-        let start = timing_start();
-        let value = build();
-        let elapsed = timing_elapsed(start);
-        assert!(
-            !self.passes.iter().any(|pass| pass.name == name),
-            "PassTracker already contains a pass named {name}",
-        );
-        self.passes.push(TrackedPass {
-            name: name.to_string(),
-            elapsed,
-            value: Box::new(value.clone()),
-            render_text: Some(render_tracked_pass_value::<T>),
-        });
-        value
+impl PassTracker for NoopPassTracker {
+    fn run_pass<T, F>(&mut self, _name: &str, build: F) -> T
+    where
+        T: Clone + Any + TrackedPassText,
+        F: FnOnce() -> T,
+    {
+        build()
+    }
+}
+
+impl RecordingPassTracker {
+    pub fn new() -> Self {
+        Self { passes: Vec::new() }
     }
 
     pub(crate) fn get<T: Any>(&self, name: &str) -> Option<&T> {
@@ -182,7 +186,30 @@ impl PassTracker {
     }
 }
 
-impl LoweringResult {
+impl PassTracker for RecordingPassTracker {
+    fn run_pass<T, F>(&mut self, name: &str, build: F) -> T
+    where
+        T: Clone + Any + TrackedPassText,
+        F: FnOnce() -> T,
+    {
+        let start = timing_start();
+        let value = build();
+        let elapsed = timing_elapsed(start);
+        assert!(
+            !self.passes.iter().any(|pass| pass.name == name),
+            "PassTracker already contains a pass named {name}",
+        );
+        self.passes.push(TrackedPass {
+            name: name.to_string(),
+            elapsed,
+            value: Box::new(value.clone()),
+            render_text: Some(render_tracked_pass_value::<T>),
+        });
+        value
+    }
+}
+
+impl LoweringResult<RecordingPassTracker> {
     pub fn get_pass<T: Any>(&self, name: &str) -> Option<&T> {
         self.passes.get::<T>(name)
     }
@@ -202,7 +229,9 @@ impl LoweringResult {
     pub fn pass_timings(&self) -> impl Iterator<Item = PassTiming> + '_ {
         self.passes.timings()
     }
+}
 
+impl<P> LoweringResult<P> {
     pub fn to_string(&self) -> String {
         ruff_ast_to_string(&self.module.body)
     }
@@ -222,8 +251,18 @@ impl LoweringResult {
     }
 }
 
-/// Transform the source code and return the resulting Ruff AST.
-pub fn transform_str_to_ruff(source: &str) -> Result<LoweringResult> {
+struct LoweringCore {
+    module: ModModule,
+    bb_codegen_module: Option<BlockPyModule<ResolvedStorageBlockPyPass>>,
+    parse_time: Duration,
+    rewrite_time: Duration,
+    total_time: Duration,
+}
+
+fn lower_source_with_tracker(
+    source: &str,
+    pass_tracker: &mut impl PassTracker,
+) -> Result<LoweringCore> {
     init_logging();
     namegen::reset_namegen_state();
 
@@ -234,38 +273,71 @@ pub fn transform_str_to_ruff(source: &str) -> Result<LoweringResult> {
     let parse_time = timing_elapsed(parse_start);
 
     if should_skip(source) {
-        return Ok(LoweringResult {
-            timings: TransformTimings {
-                parse_time: Duration::from_nanos(0),
-                rewrite_time: Duration::from_nanos(0),
-                total_time: Duration::from_nanos(0),
-                pass_times: Vec::new(),
-            },
+        return Ok(LoweringCore {
             module,
             bb_codegen_module: None,
-            passes: PassTracker::new(),
+            parse_time: Duration::from_nanos(0),
+            rewrite_time: Duration::from_nanos(0),
+            total_time: Duration::from_nanos(0),
         });
     }
 
     let ctx = Context::new(source);
-    let mut pass_tracker = PassTracker::new();
-
     let rewrite_start = timing_start();
-    let bb_codegen_module = rewrite_module_with_tracker(&ctx, &mut module.body, &mut pass_tracker)?;
-
+    let bb_codegen_module = rewrite_module_with_tracker(&ctx, &mut module.body, pass_tracker)?;
     let rewrite_time = timing_elapsed(rewrite_start);
 
-    let timings = TransformTimings {
+    Ok(LoweringCore {
+        module,
+        bb_codegen_module: Some(bb_codegen_module),
         parse_time,
         rewrite_time,
         total_time: timing_elapsed(total_start),
+    })
+}
+
+/// Transform the source code and return the resulting Ruff AST.
+pub fn transform_str_to_ruff(source: &str) -> Result<LoweringResult> {
+    let mut pass_tracker = RecordingPassTracker::new();
+    let LoweringCore {
+        module,
+        bb_codegen_module,
+        parse_time,
+        rewrite_time,
+        total_time,
+    } = lower_source_with_tracker(source, &mut pass_tracker)?;
+    let timings = TransformTimings {
+        parse_time,
+        rewrite_time,
+        total_time,
         pass_times: pass_tracker.timings().collect(),
     };
-
     Ok(LoweringResult {
         timings,
         module,
-        bb_codegen_module: Some(bb_codegen_module),
+        bb_codegen_module,
+        passes: pass_tracker,
+    })
+}
+
+pub fn transform_str_to_ruff_no_passes(source: &str) -> Result<LoweringResult<NoopPassTracker>> {
+    let mut pass_tracker = NoopPassTracker::new();
+    let LoweringCore {
+        module,
+        bb_codegen_module,
+        parse_time,
+        rewrite_time,
+        total_time,
+    } = lower_source_with_tracker(source, &mut pass_tracker)?;
+    Ok(LoweringResult {
+        timings: TransformTimings {
+            parse_time,
+            rewrite_time,
+            total_time,
+            pass_times: Vec::new(),
+        },
+        module,
+        bb_codegen_module,
         passes: pass_tracker,
     })
 }
