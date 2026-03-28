@@ -75,6 +75,7 @@ pub(crate) fn should_skip(source: &str) -> bool {
 }
 
 pub struct LoweringResult<P = RecordingPassTracker> {
+    pub total_time: Duration,
     pub codegen_module: Option<BlockPyModule<ResolvedStorageBlockPyPass>>,
     pub pass_tracker: P,
 }
@@ -277,9 +278,11 @@ where
 {
     init_logging();
     namegen::reset_namegen_state();
+    let total_start = timing_start();
 
     if should_skip(source) {
         return Ok(LoweringResult {
+            total_time: timing_elapsed(total_start),
             codegen_module: None,
             pass_tracker,
         });
@@ -288,6 +291,7 @@ where
     let codegen_module = rewrite_module_with_tracker(source, &mut pass_tracker)?;
 
     Ok(LoweringResult {
+        total_time: timing_elapsed(total_start),
         codegen_module: Some(codegen_module),
         pass_tracker,
     })

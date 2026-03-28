@@ -62,10 +62,6 @@ fn main() {
 
     if timing {
         let pass_timings = result.pass_tracker.pass_timings().collect::<Vec<_>>();
-        let total_ns: u128 = pass_timings
-            .iter()
-            .map(|pass| pass.elapsed.as_nanos())
-            .sum();
         let pass_timings = pass_timings
             .into_iter()
             .map(|pass| {
@@ -78,7 +74,7 @@ fn main() {
         eprintln!(
             "{}",
             json!({
-                "total_ns": total_ns,
+                "total_ns": result.total_time.as_nanos(),
                 "pass_timings": pass_timings,
             })
         );
