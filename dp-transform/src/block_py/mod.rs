@@ -415,29 +415,29 @@ impl<P: BlockPyPass> BlockPyModule<P> {
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
-    Op(Box<Operation<CoreBlockPyExprWithAwaitAndYield>>),
-    Call(CoreBlockPyCall<CoreBlockPyExprWithAwaitAndYield>),
-    Await(CoreBlockPyAwait<CoreBlockPyExprWithAwaitAndYield>),
-    Yield(CoreBlockPyYield<CoreBlockPyExprWithAwaitAndYield>),
-    YieldFrom(CoreBlockPyYieldFrom<CoreBlockPyExprWithAwaitAndYield>),
+    Op(Box<Operation<Self>>),
+    Call(CoreBlockPyCall<Self>),
+    Await(CoreBlockPyAwait<Self>),
+    Yield(CoreBlockPyYield<Self>),
+    YieldFrom(CoreBlockPyYieldFrom<Self>),
 }
 
 #[derive(Debug, Clone)]
 pub enum CoreBlockPyExprWithYield {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
-    Op(Box<Operation<CoreBlockPyExprWithYield>>),
-    Call(CoreBlockPyCall<CoreBlockPyExprWithYield>),
-    Yield(CoreBlockPyYield<CoreBlockPyExprWithYield>),
-    YieldFrom(CoreBlockPyYieldFrom<CoreBlockPyExprWithYield>),
+    Op(Box<Operation<Self>>),
+    Call(CoreBlockPyCall<Self>),
+    Yield(CoreBlockPyYield<Self>),
+    YieldFrom(CoreBlockPyYieldFrom<Self>),
 }
 
 #[derive(Debug, Clone)]
 pub enum CoreBlockPyExpr<N = ast::ExprName> {
     Name(N),
     Literal(CoreBlockPyLiteral),
-    Op(Box<Operation<CoreBlockPyExpr<N>>>),
-    Call(CoreBlockPyCall<CoreBlockPyExpr<N>>),
+    Op(Box<Operation<Self>>),
+    Call(CoreBlockPyCall<Self>),
 }
 
 pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
