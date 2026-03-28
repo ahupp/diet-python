@@ -7,15 +7,15 @@ use crate::block_py::{
     BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyClassBodyFallback,
     BlockPyEffectiveBinding, BlockPyModule, ClosureInit, ClosureLayout, ClosureSlot, ModuleNameGen,
 };
+use crate::lower_python_to_blockpy_recorded;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::semantic::SemanticAstState;
 use crate::passes::RuffBlockPyPass;
-use crate::transform_str_to_ruff;
 use ruff_python_ast::Stmt;
 use ruff_python_parser::parse_module;
 
 fn tracked_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
-    transform_str_to_ruff(source)
+    lower_python_to_blockpy_recorded(source)
         .unwrap()
         .pass_tracker
         .pass_semantic_blockpy()

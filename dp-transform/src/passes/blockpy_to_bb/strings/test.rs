@@ -1,15 +1,15 @@
 use super::normalize_bb_module_strings;
 use crate::{
     block_py::{BlockPyNameLike, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr},
+    lower_python_to_blockpy_recorded,
     passes::lower_try_jump_exception_flow,
-    transform_str_to_ruff,
 };
 use std::cell::Cell;
 
 fn tracked_name_binding_module(
     source: &str,
 ) -> crate::block_py::BlockPyModule<crate::passes::ResolvedStorageBlockPyPass> {
-    transform_str_to_ruff(source)
+    lower_python_to_blockpy_recorded(source)
         .expect("transform should succeed")
         .pass_tracker
         .pass_name_binding()

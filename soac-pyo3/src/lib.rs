@@ -2,7 +2,7 @@
 
 use dp_transform::block_py::{BlockPyFunction, ParamKind};
 use dp_transform::passes::ResolvedStorageBlockPyPass;
-use dp_transform::{invalid_future_feature, ruff_ast_to_string, transform_str_to_ruff};
+use dp_transform::{invalid_future_feature, lower_python_to_blockpy_recorded, ruff_ast_to_string};
 use log::{info, trace};
 use pyo3::exceptions::{
     PyAttributeError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
@@ -26,7 +26,7 @@ fn is_cell_object(obj: *mut ffi::PyObject) -> bool {
 
 fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<dp_transform::LoweringResult> {
     let _ = ensure;
-    transform_str_to_ruff(source).map_err(|err| {
+    lower_python_to_blockpy_recorded(source).map_err(|err| {
         match err.downcast_ref::<dp_transform::ParseError>() {
             Some(parse_error) => pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string()),
             None => pyo3::exceptions::PyRuntimeError::new_err(err.to_string()),
@@ -95,7 +95,7 @@ fn debug_pass_shape(
     ensure: Option<bool>,
 ) -> PyResult<Py<PyDict>> {
     let _ = ensure;
-    let output = transform_str_to_ruff(source).map_err(|err| {
+    let output = lower_python_to_blockpy_recorded(source).map_err(|err| {
         match err.downcast_ref::<dp_transform::ParseError>() {
             Some(parse_error) => pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string()),
             None => pyo3::exceptions::PyRuntimeError::new_err(err.to_string()),
@@ -115,7 +115,7 @@ fn debug_pass_shape(
 #[pyfunction]
 fn inspect_pipeline(source: &str, ensure: Option<bool>) -> PyResult<String> {
     let _ = ensure;
-    let output = transform_str_to_ruff(source).map_err(|err| {
+    let output = lower_python_to_blockpy_recorded(source).map_err(|err| {
         match err.downcast_ref::<dp_transform::ParseError>() {
             Some(parse_error) => pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string()),
             None => pyo3::exceptions::PyRuntimeError::new_err(err.to_string()),

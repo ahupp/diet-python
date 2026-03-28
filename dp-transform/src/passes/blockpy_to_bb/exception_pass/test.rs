@@ -2,12 +2,12 @@ use super::{lower_try_jump_exception_flow, validate_prepared_bb_module};
 use crate::block_py::{
     BlockPyEdge, BlockPyLabel, BlockPyTerm, LocatedCoreBlockPyExpr, ResolvedStorageBlock,
 };
-use crate::transform_str_to_ruff;
+use crate::lower_python_to_blockpy_recorded;
 
 fn tracked_name_binding_module(
     source: &str,
 ) -> crate::block_py::BlockPyModule<crate::passes::ResolvedStorageBlockPyPass> {
-    transform_str_to_ruff(source)
+    lower_python_to_blockpy_recorded(source)
         .expect("lowering must succeed")
         .pass_tracker
         .pass_name_binding()

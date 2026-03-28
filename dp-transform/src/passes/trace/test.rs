@@ -1,12 +1,12 @@
 use super::{instrument_bb_module_for_trace, parse_trace_config, TraceConfig};
+use crate::lower_python_to_blockpy_recorded;
 use crate::passes::{lower_try_jump_exception_flow, normalize_bb_module_strings};
-use crate::transform_str_to_ruff;
 
 fn tracked_name_binding_module(
     source: &str,
 ) -> anyhow::Result<Option<crate::block_py::BlockPyModule<crate::passes::ResolvedStorageBlockPyPass>>>
 {
-    Ok(transform_str_to_ruff(source)?
+    Ok(lower_python_to_blockpy_recorded(source)?
         .pass_tracker
         .pass_name_binding()
         .cloned())

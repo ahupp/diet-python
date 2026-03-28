@@ -144,7 +144,7 @@ mod tests {
     }
 
     fn parse_and_lower(source: &str) -> Result<dp_transform::LoweringResult, String> {
-        match std::panic::catch_unwind(|| dp_transform::transform_str_to_ruff(source)) {
+        match std::panic::catch_unwind(|| dp_transform::lower_python_to_blockpy_recorded(source)) {
             Ok(Ok(result)) => Ok(result),
             Ok(Err(err)) => Err(err.to_string()),
             Err(payload) => Err(panic_payload_to_string(payload)),
@@ -152,7 +152,7 @@ mod tests {
     }
 
     fn parse_and_lower_runtime_style(source: &str) -> Result<dp_transform::LoweringResult, String> {
-        match std::panic::catch_unwind(|| dp_transform::transform_str_to_ruff(source)) {
+        match std::panic::catch_unwind(|| dp_transform::lower_python_to_blockpy_recorded(source)) {
             Ok(Ok(result)) => Ok(result),
             Ok(Err(err)) => Err(err.to_string()),
             Err(payload) => Err(panic_payload_to_string(payload)),

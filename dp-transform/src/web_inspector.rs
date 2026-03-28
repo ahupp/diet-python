@@ -1,11 +1,11 @@
-use crate::{transform_str_to_ruff, LoweringResult};
+use crate::{lower_python_to_blockpy_recorded, LoweringResult};
 use serde_json::{json, Value};
 use wasm_bindgen::JsValue;
 
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn transform(source: &str) -> Result<String, JsValue> {
-    let result =
-        transform_str_to_ruff(source).map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
+    let result = lower_python_to_blockpy_recorded(source)
+        .map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
     Ok(result
         .pass_tracker
         .pass_ast_to_ast()
@@ -15,8 +15,8 @@ pub fn transform(source: &str) -> Result<String, JsValue> {
 
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn inspect_pipeline(source: &str) -> Result<String, JsValue> {
-    let transformed =
-        transform_str_to_ruff(source).map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
+    let transformed = lower_python_to_blockpy_recorded(source)
+        .map_err(|e| JsValue::from_str(e.to_string().as_str()))?;
     let payload = json!({
         "steps": pipeline_steps(source, &transformed),
     });

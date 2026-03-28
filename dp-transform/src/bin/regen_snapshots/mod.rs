@@ -11,7 +11,7 @@ use dp_transform::block_py::{
 };
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
 use dp_transform::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
-use dp_transform::{init_logging, transform_str_to_ruff};
+use dp_transform::{init_logging, lower_python_to_blockpy_recorded};
 use log::{log_enabled, trace, Level};
 
 struct SnapshotSummaryRow {
@@ -354,7 +354,7 @@ fn regenerate_fixture(path: &Path, summary: &mut Vec<SnapshotSummaryRow>) -> Res
         }
         let case_name = qualified_case_name(path, block)?;
         let snapshot_result = with_suppressed_panic_hook(|| {
-            let transformed = transform_str_to_ruff(&block.input)
+            let transformed = lower_python_to_blockpy_recorded(&block.input)
                 .map_err(|err| format!("{}: {}", path.display(), err))?;
             Ok(render_blockpy_snapshot(block.input.as_str(), &transformed))
         });

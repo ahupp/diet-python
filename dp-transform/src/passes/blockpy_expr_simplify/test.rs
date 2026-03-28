@@ -23,10 +23,10 @@ type TestCoreBlockPyModule = BlockPyModule<CoreBlockPyPassWithAwaitAndYield>;
 use crate::block_py::{
     CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
 };
+use crate::lower_python_to_blockpy_recorded;
 use crate::passes::RuffBlockPyPass;
 use crate::py_expr;
 use crate::ruff_ast_to_string;
-use crate::transform_str_to_ruff;
 use ruff_python_ast::Expr;
 use ruff_python_parser::parse_expression;
 
@@ -38,7 +38,7 @@ def f(x):
         return 1
     return 2
 "#;
-    let blockpy = transform_str_to_ruff(source)
+    let blockpy = lower_python_to_blockpy_recorded(source)
         .unwrap()
         .pass_tracker
         .get::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
@@ -253,7 +253,7 @@ fn semantic_blockpy_keeps_function_defaults_out_of_blockpy_ir() {
 def f(*, d={"metaclass": Meta}, **kw):
     return d
 "#;
-    let blockpy = transform_str_to_ruff(source)
+    let blockpy = lower_python_to_blockpy_recorded(source)
         .unwrap()
         .pass_tracker
         .get::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")

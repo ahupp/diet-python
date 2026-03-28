@@ -6,10 +6,10 @@ use crate::block_py::{
 };
 use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
 use crate::py_expr;
-use crate::{transform_str_to_ruff, LoweringResult};
+use crate::{lower_python_to_blockpy_recorded, LoweringResult};
 
 fn tracked_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
-    transform_str_to_ruff(source)
+    lower_python_to_blockpy_recorded(source)
         .expect("transform should succeed")
         .pass_tracker
         .pass_semantic_blockpy()
@@ -20,7 +20,7 @@ fn tracked_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
 fn tracked_name_binding_module(
     source: &str,
 ) -> anyhow::Result<Option<BlockPyModule<ResolvedStorageBlockPyPass>>> {
-    Ok(transform_str_to_ruff(source)?
+    Ok(lower_python_to_blockpy_recorded(source)?
         .pass_tracker
         .pass_name_binding()
         .cloned())
@@ -35,7 +35,7 @@ impl TrackedLowering {
     fn new(source: &str) -> Self {
         let blockpy_module = tracked_semantic_blockpy(source);
         Self {
-            result: transform_str_to_ruff(source).expect("transform should succeed"),
+            result: lower_python_to_blockpy_recorded(source).expect("transform should succeed"),
             blockpy_module,
         }
     }
@@ -2635,7 +2635,7 @@ class Field:
 "#;
 
     for (name, source) in [("pass", pass_source), ("fail", fail_source)] {
-        let lowered = transform_str_to_ruff(source).expect("transform should succeed");
+        let lowered = lower_python_to_blockpy_recorded(source).expect("transform should succeed");
         let blockpy = lowered
             .pass_tracker
             .get::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")

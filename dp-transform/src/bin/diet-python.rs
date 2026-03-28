@@ -1,6 +1,6 @@
 use std::{env, fs, process};
 
-use dp_transform::{ruff_ast_to_string, transform_str_to_ruff};
+use dp_transform::{lower_python_to_blockpy_recorded, ruff_ast_to_string};
 use serde_json::json;
 
 const USAGE: &str = "usage: diet-python [--timing] <python-file>";
@@ -46,7 +46,7 @@ fn main() {
         }
     };
 
-    let result = match transform_str_to_ruff(&source) {
+    let result = match lower_python_to_blockpy_recorded(&source) {
         Ok(result) => result,
         Err(err) => {
             eprintln!("failed to parse {}: {}", path, err);

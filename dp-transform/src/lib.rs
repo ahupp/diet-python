@@ -272,7 +272,10 @@ pub fn invalid_future_feature(module: &ModModule) -> Option<String> {
     (global_name == nonlocal_name).then(|| global_name.id.to_string())
 }
 
-fn lower_source_with_tracker<P>(source: &str, mut pass_tracker: P) -> Result<LoweringResult<P>>
+fn lower_python_to_blockpy_with_tracker<P>(
+    source: &str,
+    mut pass_tracker: P,
+) -> Result<LoweringResult<P>>
 where
     P: PassTracker,
 {
@@ -297,9 +300,8 @@ where
     })
 }
 
-/// Transform the source code and return the resulting Ruff AST.
-pub fn transform_str_to_ruff(source: &str) -> Result<LoweringResult> {
-    lower_source_with_tracker(source, RecordingPassTracker::new())
+pub fn lower_python_to_blockpy_recorded(source: &str) -> Result<LoweringResult> {
+    lower_python_to_blockpy_with_tracker(source, RecordingPassTracker::new())
 }
 
 pub trait ToRuffAst {
