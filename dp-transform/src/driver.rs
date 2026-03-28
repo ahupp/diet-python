@@ -16,6 +16,7 @@ use crate::passes::{
     ResolvedStorageBlockPyPass, RuffBlockPyPass,
 };
 use crate::PassTracker;
+use anyhow::Result;
 use ruff_python_ast::{self as ast, Stmt};
 
 #[derive(Clone)]
@@ -76,56 +77,17 @@ fn rewrite_ast_to_ast_module(context: &Context, mut module: Suite) -> AstToAstPa
     }
 }
 
-fn lower_semantic_blockpy(
-    context: &Context,
-    module: &mut Suite,
-    semantic_state: &SemanticAstState,
-) -> BlockPyModule<RuffBlockPyPass> {
-    rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module, semantic_state)
-}
-
 fn lower_core_blockpy_with_await_and_yield(
     module: BlockPyModule<RuffBlockPyPass>,
 ) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
     module.map_callable_defs(simplify_blockpy_callable_def_exprs)
 }
 
-fn lower_bb_prepared(
-    name_binding: &BlockPyModule<ResolvedStorageBlockPyPass>,
-) -> BlockPyModule<ResolvedStorageBlockPyPass> {
-    passes::lower_try_jump_exception_flow(name_binding)
-        .expect("bb_prepared pass should succeed for valid BB lowering")
-}
-
-fn lower_bb_codegen(
-    bb_prepared: &BlockPyModule<ResolvedStorageBlockPyPass>,
-    source: &str,
-) -> BlockPyModule<ResolvedStorageBlockPyPass> {
-    passes::normalize_bb_module_strings(bb_prepared, source)
-}
-
-fn lower_bb_trace(
-    bb_codegen: BlockPyModule<ResolvedStorageBlockPyPass>,
-    config: &passes::TraceConfig,
-) -> BlockPyModule<ResolvedStorageBlockPyPass> {
-    let mut traced = bb_codegen;
-    passes::instrument_bb_module_for_trace(&mut traced, config);
-    traced
-}
-
-fn lower_bb_validate(
-    bb_traced: BlockPyModule<ResolvedStorageBlockPyPass>,
-) -> BlockPyModule<ResolvedStorageBlockPyPass> {
-    passes::validate_prepared_bb_module(&bb_traced)
-        .expect("bb_validate pass should succeed for valid prepared BB lowering");
-    bb_traced
-}
-
 pub(crate) fn rewrite_module_with_tracker(
     context: &Context,
     module: &mut Suite,
     pass_tracker: &mut PassTracker,
-) -> BlockPyModule<ResolvedStorageBlockPyPass> {
+) -> Result<BlockPyModule<ResolvedStorageBlockPyPass>> {
     let AstToAstPassResult {
         module: ast_module,
         semantic_state,
@@ -175,7 +137,7 @@ pub(crate) fn rewrite_module_with_tracker(
 
     let semantic_blockpy: BlockPyModule<RuffBlockPyPass> = pass_tracker
         .run_pass("semantic_blockpy", || {
-            lower_semantic_blockpy(context, module, &semantic_state)
+            rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module, &semantic_state)
         });
 
     /*
@@ -216,18 +178,29 @@ pub(crate) fn rewrite_module_with_tracker(
             passes::lower_name_binding_in_core_blockpy_module(core_blockpy_without_await_or_yield)
         });
     let trace_config = passes::parse_trace_env();
-    let bb_prepared: BlockPyModule<ResolvedStorageBlockPyPass> =
-        pass_tracker.run_pass("bb_prepared", || lower_bb_prepared(&name_binding));
+    let bb_prepared: BlockPyModule<ResolvedStorageBlockPyPass> = pass_tracker
+        .run_pass("bb_prepared", || {
+            passes::lower_try_jump_exception_flow(&name_binding)
+        });
     let bb_codegen: BlockPyModule<ResolvedStorageBlockPyPass> = pass_tracker
         .run_pass("bb_codegen", || {
-            lower_bb_codegen(&bb_prepared, context.source.as_str())
+            passes::normalize_bb_module_strings(&bb_prepared, context.source.as_str())
         });
     let bb_traced: BlockPyModule<ResolvedStorageBlockPyPass> = if let Some(config) = trace_config {
-        pass_tracker.run_pass("bb_trace", || lower_bb_trace(bb_codegen, &config))
+        pass_tracker.run_pass("bb_trace", || {
+            let mut traced = bb_codegen;
+            passes::instrument_bb_module_for_trace(&mut traced, &config);
+            traced
+        })
     } else {
         bb_codegen
     };
-    pass_tracker.run_pass("bb_validate", || lower_bb_validate(bb_traced))
+    pass_tracker
+        .run_unrenderable_pass("bb_validate", || {
+            passes::validate_prepared_bb_module(&bb_traced)
+        })
+        .map_err(anyhow::Error::msg)?;
+    Ok(bb_traced)
 }
 
 pub(crate) fn wrap_module_init(semantic_state: &mut SemanticAstState, module: &mut Suite) {

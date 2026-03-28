@@ -46,7 +46,7 @@ def f(x):
         (body_label, except_label)
     };
 
-    let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
+    let lowered = lower_try_jump_exception_flow(&module);
     let lowered_function = lowered
         .callable_defs
         .iter()
@@ -87,7 +87,7 @@ def f():
         .expect("must contain function");
     function.blocks[0].exc_edge = Some(BlockPyEdge::new(BlockPyLabel::from("missing_except")));
 
-    let lowered = lower_try_jump_exception_flow(&module).expect("lowering should still succeed");
+    let lowered = lower_try_jump_exception_flow(&module);
     let err = validate_prepared_bb_module(&lowered).expect_err("must reject unknown labels");
     assert!(
         err.contains("unknown exception target"),
@@ -130,7 +130,7 @@ def f():
     function.blocks[block_index].exc_edge = Some(BlockPyEdge::new(except_label.clone()));
     function.blocks[block_index].set_exception_param("_dp_try_exc_split");
 
-    let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
+    let lowered = lower_try_jump_exception_flow(&module);
     let lowered_function = lowered
         .callable_defs
         .iter()
@@ -200,7 +200,7 @@ def f():
     function.blocks[block_index].exc_edge = Some(BlockPyEdge::new(except_label.clone()));
     function.blocks[block_index].set_exception_param("_dp_try_exc_group");
 
-    let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
+    let lowered = lower_try_jump_exception_flow(&module);
     let lowered_function = lowered
         .callable_defs
         .iter()
@@ -268,7 +268,7 @@ def f():
         }),
         "{raw_function:#?}"
     );
-    let lowered = lower_try_jump_exception_flow(&module).expect("pass should succeed");
+    let lowered = lower_try_jump_exception_flow(&module);
     let lowered_function = lowered
         .callable_defs
         .iter()

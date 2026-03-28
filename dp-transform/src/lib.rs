@@ -1,6 +1,7 @@
 use crate::block_py::pretty::BlockPyPrettyPrint;
 use crate::passes::ast_to_ast::body::Suite;
 use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
+use anyhow::Result;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
@@ -135,7 +136,6 @@ impl PassTracker {
         Self { passes: Vec::new() }
     }
 
-    #[cfg(test)]
     #[must_use]
     pub(crate) fn run_unrenderable_pass<T: Clone + Any>(
         &mut self,
@@ -252,7 +252,7 @@ impl LoweringResult {
 }
 
 /// Transform the source code and return the resulting Ruff AST.
-pub fn transform_str_to_ruff(source: &str) -> Result<LoweringResult, ParseError> {
+pub fn transform_str_to_ruff(source: &str) -> Result<LoweringResult> {
     init_logging();
     namegen::reset_namegen_state();
 
@@ -280,7 +280,7 @@ pub fn transform_str_to_ruff(source: &str) -> Result<LoweringResult, ParseError>
     let mut pass_tracker = PassTracker::new();
 
     let rewrite_start = timing_start();
-    let bb_codegen_module = rewrite_module_with_tracker(&ctx, &mut module.body, &mut pass_tracker);
+    let bb_codegen_module = rewrite_module_with_tracker(&ctx, &mut module.body, &mut pass_tracker)?;
 
     let rewrite_time = timing_elapsed(rewrite_start);
 
@@ -301,15 +301,13 @@ pub fn transform_str_to_ruff(source: &str) -> Result<LoweringResult, ParseError>
 
 pub fn transform_str_to_bb_ir(
     source: &str,
-) -> Result<Option<BlockPyModule<ResolvedStorageBlockPyPass>>, ParseError> {
+) -> Result<Option<BlockPyModule<ResolvedStorageBlockPyPass>>> {
     Ok(transform_str_to_ruff(source)?
         .get_pass::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
         .cloned())
 }
 
-pub fn transform_str_to_blockpy(
-    source: &str,
-) -> Result<BlockPyModule<RuffBlockPyPass>, ParseError> {
+pub fn transform_str_to_blockpy(source: &str) -> Result<BlockPyModule<RuffBlockPyPass>> {
     Ok(transform_str_to_ruff(source)?
         .get_pass::<BlockPyModule<crate::passes::RuffBlockPyPass>>("semantic_blockpy")
         .expect("blockpy pass should be tracked")

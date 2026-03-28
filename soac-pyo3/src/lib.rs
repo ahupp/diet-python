@@ -26,8 +26,12 @@ fn is_cell_object(obj: *mut ffi::PyObject) -> bool {
 
 fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<dp_transform::LoweringResult> {
     let _ = ensure;
-    transform_str_to_ruff(source)
-        .map_err(|err| pyo3::exceptions::PySyntaxError::new_err(err.to_string()))
+    transform_str_to_ruff(source).map_err(|err| {
+        match err.downcast_ref::<dp_transform::ParseError>() {
+            Some(parse_error) => pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string()),
+            None => pyo3::exceptions::PyRuntimeError::new_err(err.to_string()),
+        }
+    })
 }
 
 fn register_lowered_module_plans(

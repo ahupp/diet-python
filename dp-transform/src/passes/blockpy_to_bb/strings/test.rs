@@ -123,7 +123,7 @@ def f():
     let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
-    let prepared = lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
+    let prepared = lower_try_jump_exception_flow(&bb_module);
     let normalized = normalize_bb_module_strings(&prepared, source);
 
     let mut probe = ExprShapeProbe::new();
@@ -163,7 +163,7 @@ def f(obj, mapping, key, value):
     let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
-    let prepared = lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
+    let prepared = lower_try_jump_exception_flow(&bb_module);
     let normalized = normalize_bb_module_strings(&prepared, source);
 
     let mut text = String::new();
@@ -189,7 +189,7 @@ fn lowers_surrogate_escaped_string_literals_for_codegen() {
     let bb_module = transform_str_to_bb_ir(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
-    let prepared = lower_try_jump_exception_flow(&bb_module).expect("bb lowering should succeed");
+    let prepared = lower_try_jump_exception_flow(&bb_module);
     let normalized = normalize_bb_module_strings(&prepared, source);
 
     let mut probe = ExprShapeProbe::new();

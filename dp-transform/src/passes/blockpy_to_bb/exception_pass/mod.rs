@@ -7,19 +7,19 @@ use std::collections::HashSet;
 
 pub fn lower_try_jump_exception_flow(
     module: &BlockPyModule<ResolvedStorageBlockPyPass>,
-) -> Result<BlockPyModule<ResolvedStorageBlockPyPass>, String> {
+) -> BlockPyModule<ResolvedStorageBlockPyPass> {
     let callable_defs = module
         .callable_defs
         .iter()
         .cloned()
         .map(lower_function_try_jump_exception_flow)
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(BlockPyModule { callable_defs })
+        .collect();
+    BlockPyModule { callable_defs }
 }
 
 fn lower_function_try_jump_exception_flow(
     function: BlockPyFunction<ResolvedStorageBlockPyPass>,
-) -> Result<BlockPyFunction<ResolvedStorageBlockPyPass>, String> {
+) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
     let mut function = BlockPyFunction {
         function_id: function.function_id,
         name_gen: function.name_gen,
@@ -38,7 +38,7 @@ fn lower_function_try_jump_exception_flow(
     split_exception_blocks_for_expr_checks(&mut function);
     populate_exception_edge_args(&mut function.blocks);
 
-    Ok(function)
+    function
 }
 
 pub fn validate_prepared_bb_module(
