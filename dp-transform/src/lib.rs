@@ -4,7 +4,6 @@ use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
 use anyhow::Result;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
-use ruff_python_parser::parse_module;
 pub use ruff_python_parser::ParseError;
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
@@ -26,7 +25,6 @@ mod web_inspector;
 
 use crate::block_py::BlockPyModule;
 use crate::driver::rewrite_module_with_tracker;
-use crate::passes::ast_to_ast::context::Context;
 
 #[derive(Debug, Clone)]
 pub struct PassTiming {
@@ -36,8 +34,6 @@ pub struct PassTiming {
 
 #[derive(Debug, Clone)]
 pub struct TransformTimings {
-    pub parse_time: Duration,
-    pub rewrite_time: Duration,
     pub total_time: Duration,
     pub pass_times: Vec<PassTiming>,
 }
@@ -77,7 +73,7 @@ pub fn init_logging() {
     });
 }
 
-fn should_skip(source: &str) -> bool {
+pub(crate) fn should_skip(source: &str) -> bool {
     source
         .lines()
         .next()
@@ -119,6 +115,12 @@ pub(crate) trait PassTracker {
 impl TrackedPassText for Suite {
     fn render_tracked_pass_text(&self) -> String {
         ruff_ast_to_string(self)
+    }
+}
+
+impl TrackedPassText for ModModule {
+    fn render_tracked_pass_text(&self) -> String {
+        ruff_ast_to_string(&self.body)
     }
 }
 
@@ -236,8 +238,6 @@ impl<P> LoweringResult<P> {
 struct LoweringCore {
     module: ModModule,
     bb_codegen_module: Option<BlockPyModule<ResolvedStorageBlockPyPass>>,
-    parse_time: Duration,
-    rewrite_time: Duration,
     total_time: Duration,
 }
 
@@ -249,31 +249,11 @@ fn lower_source_with_tracker(
     namegen::reset_namegen_state();
 
     let total_start = timing_start();
-
-    let parse_start = timing_start();
-    let mut module = parse_module(source)?.into_syntax();
-    let parse_time = timing_elapsed(parse_start);
-
-    if should_skip(source) {
-        return Ok(LoweringCore {
-            module,
-            bb_codegen_module: None,
-            parse_time: Duration::from_nanos(0),
-            rewrite_time: Duration::from_nanos(0),
-            total_time: Duration::from_nanos(0),
-        });
-    }
-
-    let ctx = Context::new(source);
-    let rewrite_start = timing_start();
-    let bb_codegen_module = rewrite_module_with_tracker(&ctx, &mut module.body, pass_tracker)?;
-    let rewrite_time = timing_elapsed(rewrite_start);
+    let (module, bb_codegen_module) = rewrite_module_with_tracker(source, pass_tracker)?;
 
     Ok(LoweringCore {
         module,
-        bb_codegen_module: Some(bb_codegen_module),
-        parse_time,
-        rewrite_time,
+        bb_codegen_module,
         total_time: timing_elapsed(total_start),
     })
 }
@@ -284,13 +264,9 @@ pub fn transform_str_to_ruff(source: &str) -> Result<LoweringResult> {
     let LoweringCore {
         module,
         bb_codegen_module,
-        parse_time,
-        rewrite_time,
         total_time,
     } = lower_source_with_tracker(source, &mut pass_tracker)?;
     let timings = TransformTimings {
-        parse_time,
-        rewrite_time,
         total_time,
         pass_times: pass_tracker.pass_timings().collect(),
     };
@@ -307,14 +283,10 @@ pub fn transform_str_to_ruff_no_passes(source: &str) -> Result<LoweringResult<No
     let LoweringCore {
         module,
         bb_codegen_module,
-        parse_time,
-        rewrite_time,
         total_time,
     } = lower_source_with_tracker(source, &mut pass_tracker)?;
     Ok(LoweringResult {
         timings: TransformTimings {
-            parse_time,
-            rewrite_time,
             total_time,
             pass_times: Vec::new(),
         },

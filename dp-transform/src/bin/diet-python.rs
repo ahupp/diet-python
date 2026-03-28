@@ -70,8 +70,6 @@ fn main() {
         eprintln!(
             "{}",
             json!({
-                "parse_ns": timings.parse_time.as_nanos(),
-                "rewrite_ns": timings.rewrite_time.as_nanos(),
                 "total_ns": timings.total_time.as_nanos(),
                 "pass_timings": pass_timings,
             })
