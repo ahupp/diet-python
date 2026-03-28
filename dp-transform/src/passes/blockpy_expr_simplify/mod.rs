@@ -2,13 +2,12 @@ use super::ast_to_ast::rewrite_expr::string::lower_string_templates_in_expr;
 use super::core_eval_order::make_eval_order_explicit_in_core_block;
 use crate::block_py::{
     convert_blockpy_stmt_expr, convert_blockpy_term_expr, core_call_expr_with_meta,
-    core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta, intrinsics,
-    BlockPyAssign, BlockPyBranchTable, BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm,
-    BlockPyRaise, BlockPyStmt, BlockPyStmtFragment, BlockPyStmtFragmentBuilder, BlockPyTerm,
-    CfgBlock, CoreBlockPyAwait, CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyYield, CoreBlockPyYieldFrom,
-    CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
-    IntoBlockPyStmt, RuffExpr,
+    core_positional_call_expr_with_meta, intrinsics, BlockPyAssign, BlockPyBranchTable,
+    BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
+    BlockPyStmtFragment, BlockPyStmtFragmentBuilder, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
+    CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral, CoreBlockPyYield, CoreBlockPyYieldFrom, CoreBytesLiteral,
+    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, IntoBlockPyStmt, RuffExpr,
 };
 use crate::passes::ast_to_ast::expr_utils::{make_binop, make_tuple, make_unaryop};
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
@@ -110,29 +109,35 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithA
     CoreBlockPyExprWithAwaitAndYield::from(expr)
 }
 
-fn add_intrinsic_expr_with_meta(
+fn core_operation_expr(
+    operation: intrinsics::Operation<CoreBlockPyExprWithAwaitAndYield>,
+) -> CoreBlockPyExprWithAwaitAndYield {
+    CoreBlockPyExprWithAwaitAndYield::Op(Box::new(operation))
+}
+
+fn add_op_expr_with_meta(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
     left: CoreBlockPyExprWithAwaitAndYield,
     right: CoreBlockPyExprWithAwaitAndYield,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    core_positional_intrinsic_expr_with_meta(
-        &intrinsics::ADD_INTRINSIC,
+    core_operation_expr(intrinsics::Operation::Add {
         node_index,
         range,
-        vec![left, right],
-    )
+        arg0: left,
+        arg1: right,
+    })
 }
 
-fn add_intrinsic_expr(
+fn add_op_expr(
     left: CoreBlockPyExprWithAwaitAndYield,
     right: CoreBlockPyExprWithAwaitAndYield,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    core_positional_intrinsic_expr_with_meta(
-        &intrinsics::ADD_INTRINSIC,
+    add_op_expr_with_meta(
         ast::AtomicNodeIndex::default(),
         Default::default(),
-        vec![left, right],
+        left,
+        right,
     )
 }
 
@@ -175,30 +180,26 @@ fn lower_core_call_expr_with_meta(
 ) -> CoreBlockPyExprWithAwaitAndYield {
     if keywords.is_empty() {
         if let Expr::Name(name) = &func {
-            if let Some(intrinsic) =
-                intrinsics::intrinsic_by_name_and_arity(name.id.as_str(), args.len())
-            {
-                let mut intrinsic_args = Vec::with_capacity(args.len());
+            let mut operation_args = Vec::with_capacity(args.len());
+            let mut saw_starred = false;
+            for arg in &args {
+                if matches!(arg, Expr::Starred(_)) {
+                    saw_starred = true;
+                    break;
+                }
+            }
+            if !saw_starred {
                 for arg in &args {
-                    if matches!(arg, Expr::Starred(_)) {
-                        return core_call_expr_with_meta(
-                            CoreBlockPyExprWithAwaitAndYield::from(func),
-                            node_index,
-                            range,
-                            lower_core_call_args(args),
-                            Vec::new(),
-                        );
-                    }
+                    operation_args.push(CoreBlockPyExprWithAwaitAndYield::from(arg.clone()));
                 }
-                for arg in args {
-                    intrinsic_args.push(CoreBlockPyExprWithAwaitAndYield::from(arg));
-                }
-                return core_positional_intrinsic_expr_with_meta(
-                    intrinsic,
-                    node_index,
+                if let Some(operation) = intrinsics::operation_by_name_and_args(
+                    name.id.as_str(),
+                    node_index.clone(),
                     range,
-                    intrinsic_args,
-                );
+                    operation_args,
+                ) {
+                    return core_operation_expr(operation);
+                }
             }
         }
     }
@@ -252,17 +253,14 @@ fn reduce_core_tuple_splat(elts: Vec<Expr>) -> CoreBlockPyExprWithAwaitAndYield 
         ));
     }
 
-    segments
-        .into_iter()
-        .reduce(add_intrinsic_expr)
-        .unwrap_or_else(|| {
-            core_positional_call_expr_with_meta(
-                "__dp_tuple",
-                ast::AtomicNodeIndex::default(),
-                Default::default(),
-                Vec::new(),
-            )
-        })
+    segments.into_iter().reduce(add_op_expr).unwrap_or_else(|| {
+        core_positional_call_expr_with_meta(
+            "__dp_tuple",
+            ast::AtomicNodeIndex::default(),
+            Default::default(),
+            Vec::new(),
+        )
+    })
 }
 
 impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
@@ -353,7 +351,7 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                 Self::from(make_unaryop(func_name, *node.operand))
             }
             Expr::BinOp(node) => match node.op {
-                ast::Operator::Add => add_intrinsic_expr_with_meta(
+                ast::Operator::Add => add_op_expr_with_meta(
                     node.node_index,
                     node.range,
                     Self::from(*node.left),

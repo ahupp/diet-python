@@ -11,7 +11,7 @@ use crate::block_py::{
     BlockPyModule, BlockPyModuleMap, BlockPyRaise, BlockPyStmt, BlockPyTerm, ClosureInit,
     ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
     CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, IntrinsicCall, LocatedName,
-    NameLocation,
+    NameLocation, Operation,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, recompute_lowered_block_params,
@@ -361,16 +361,28 @@ fn rewrite_deleted_name_loads_in_expr(
                 }
             }
         },
-        CoreBlockPyExpr::Op(operation) => {
-            operation.walk_args_mut(&mut |arg| {
-                rewrite_deleted_name_loads_in_expr(
-                    arg,
-                    semantic,
-                    deleted_names,
-                    always_unbound_names,
-                )
-            });
-        }
+        CoreBlockPyExpr::Op(operation) => match operation.as_mut() {
+            Operation::LoadCell { .. }
+            | Operation::DelDeref { .. }
+            | Operation::DelDerefQuietly { .. }
+            | Operation::CellRef { .. } => {}
+            Operation::StoreCell { arg1, .. } => rewrite_deleted_name_loads_in_expr(
+                arg1,
+                semantic,
+                deleted_names,
+                always_unbound_names,
+            ),
+            _ => {
+                operation.walk_args_mut(&mut |arg| {
+                    rewrite_deleted_name_loads_in_expr(
+                        arg,
+                        semantic,
+                        deleted_names,
+                        always_unbound_names,
+                    )
+                });
+            }
+        },
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
     }
 }
@@ -554,38 +566,59 @@ fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
 }
 
 fn cell_ref_marker_target(expr: &CoreBlockPyExpr) -> Option<String> {
-    let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-        intrinsic, args, ..
-    }) = expr
-    else {
-        return None;
-    };
-    if intrinsic.name() != CELL_REF_INTRINSIC.name() || args.len() != 1 {
-        return None;
+    match expr {
+        CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+            intrinsic, args, ..
+        }) => {
+            if intrinsic.name() != CELL_REF_INTRINSIC.name() || args.len() != 1 {
+                return None;
+            }
+            let CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(literal)) = &args[0]
+            else {
+                return None;
+            };
+            Some(literal.value.clone())
+        }
+        CoreBlockPyExpr::Op(operation) => {
+            let Operation::CellRef { arg0, .. } = operation.as_ref() else {
+                return None;
+            };
+            let CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(literal)) = arg0 else {
+                return None;
+            };
+            Some(literal.value.clone())
+        }
+        _ => None,
     }
-    let CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(literal)) = &args[0] else {
-        return None;
-    };
-    Some(literal.value.clone())
 }
 
 fn cell_load_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
 ) -> Option<String> {
-    let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-        intrinsic, args, ..
-    }) = expr
-    else {
-        return None;
-    };
-    if intrinsic.name() != LOAD_CELL_INTRINSIC.name() || args.len() != 1 {
-        return None;
+    match expr {
+        CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+            intrinsic, args, ..
+        }) => {
+            if intrinsic.name() != LOAD_CELL_INTRINSIC.name() || args.len() != 1 {
+                return None;
+            }
+            let CoreBlockPyExpr::Name(name) = &args[0] else {
+                return None;
+            };
+            semantic.logical_name_for_cell_storage(name.id.as_str())
+        }
+        CoreBlockPyExpr::Op(operation) => {
+            let Operation::LoadCell { arg0, .. } = operation.as_ref() else {
+                return None;
+            };
+            let CoreBlockPyExpr::Name(name) = arg0 else {
+                return None;
+            };
+            semantic.logical_name_for_cell_storage(name.id.as_str())
+        }
+        _ => None,
     }
-    let CoreBlockPyExpr::Name(name) = &args[0] else {
-        return None;
-    };
-    semantic.logical_name_for_cell_storage(name.id.as_str())
 }
 
 fn build_local_cell_init_assign(
@@ -732,86 +765,129 @@ fn store_cell_deleted_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
 ) -> Option<String> {
-    let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-        intrinsic, args, ..
-    }) = expr
-    else {
-        return None;
-    };
-    if intrinsic.name() != STORE_CELL_INTRINSIC.name() || args.len() != 2 {
-        return None;
+    match expr {
+        CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+            intrinsic, args, ..
+        }) => {
+            if intrinsic.name() != STORE_CELL_INTRINSIC.name() || args.len() != 2 {
+                return None;
+            }
+            let CoreBlockPyExpr::Name(name) = &args[0] else {
+                return None;
+            };
+            let value_expr = &args[1];
+            if !is_deleted_sentinel_expr(value_expr) {
+                return None;
+            }
+            semantic.logical_name_for_cell_storage(name.id.as_str())
+        }
+        CoreBlockPyExpr::Op(operation) => {
+            let Operation::StoreCell { arg0, arg1, .. } = operation.as_ref() else {
+                return None;
+            };
+            let CoreBlockPyExpr::Name(name) = arg0 else {
+                return None;
+            };
+            if !is_deleted_sentinel_expr(arg1) {
+                return None;
+            }
+            semantic.logical_name_for_cell_storage(name.id.as_str())
+        }
+        _ => None,
     }
-    let CoreBlockPyExpr::Name(name) = &args[0] else {
-        return None;
-    };
-    let value_expr = &args[1];
-    if !is_deleted_sentinel_expr(value_expr) {
-        return None;
-    }
-    semantic.logical_name_for_cell_storage(name.id.as_str())
 }
 
 fn del_deref_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
 ) -> Option<String> {
-    let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-        intrinsic, args, ..
-    }) = expr
-    else {
-        return None;
-    };
-    if intrinsic.name() != DEL_DEREF_INTRINSIC.name() || args.len() != 1 {
-        return None;
+    match expr {
+        CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+            intrinsic, args, ..
+        }) => {
+            if intrinsic.name() != DEL_DEREF_INTRINSIC.name() || args.len() != 1 {
+                return None;
+            }
+            let CoreBlockPyExpr::Name(name) = &args[0] else {
+                return None;
+            };
+            semantic.logical_name_for_cell_storage(name.id.as_str())
+        }
+        CoreBlockPyExpr::Op(operation) => {
+            let Operation::DelDeref { arg0, .. } = operation.as_ref() else {
+                return None;
+            };
+            let CoreBlockPyExpr::Name(name) = arg0 else {
+                return None;
+            };
+            semantic.logical_name_for_cell_storage(name.id.as_str())
+        }
+        _ => None,
     }
-    let CoreBlockPyExpr::Name(name) = &args[0] else {
-        return None;
-    };
-    semantic.logical_name_for_cell_storage(name.id.as_str())
 }
 
 fn store_cell_runtime_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
 ) -> Option<String> {
-    let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-        intrinsic, args, ..
-    }) = expr
-    else {
-        return None;
-    };
-    if intrinsic.name() != STORE_CELL_INTRINSIC.name() || args.len() != 2 {
-        return None;
+    match expr {
+        CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+            intrinsic, args, ..
+        }) => {
+            if intrinsic.name() != STORE_CELL_INTRINSIC.name() || args.len() != 2 {
+                return None;
+            }
+            let CoreBlockPyExpr::Name(name) = &args[0] else {
+                return None;
+            };
+            if is_deleted_sentinel_expr(&args[1]) {
+                return None;
+            }
+            semantic.logical_name_for_cell_storage(name.id.as_str())
+        }
+        CoreBlockPyExpr::Op(operation) => {
+            let Operation::StoreCell { arg0, arg1, .. } = operation.as_ref() else {
+                return None;
+            };
+            let CoreBlockPyExpr::Name(name) = arg0 else {
+                return None;
+            };
+            if is_deleted_sentinel_expr(arg1) {
+                return None;
+            }
+            semantic.logical_name_for_cell_storage(name.id.as_str())
+        }
+        _ => None,
     }
-    let CoreBlockPyExpr::Name(name) = &args[0] else {
-        return None;
-    };
-    if is_deleted_sentinel_expr(&args[1]) {
-        return None;
-    }
-    semantic.logical_name_for_cell_storage(name.id.as_str())
 }
 
 fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
     let Some(logical_name) = assign.target.id.as_str().strip_prefix("_dp_cell_") else {
         return false;
     };
-    let CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-        intrinsic, args, ..
-    }) = &assign.value
-    else {
-        return false;
-    };
-    if args.len() != 1 {
-        return false;
+    match &assign.value {
+        CoreBlockPyExpr::Intrinsic(IntrinsicCall {
+            intrinsic, args, ..
+        }) => {
+            if args.len() != 1 || intrinsic.name() != MAKE_CELL_INTRINSIC.name() {
+                return false;
+            }
+            matches!(
+                &args[0],
+                CoreBlockPyExpr::Name(name) if name.id.as_str() == logical_name
+            )
+        }
+        CoreBlockPyExpr::Op(operation) => {
+            let Operation::MakeCell { arg0, .. } = operation.as_ref() else {
+                return false;
+            };
+            matches!(
+                arg0,
+                CoreBlockPyExpr::Name(name) if name.id.as_str() == logical_name
+            )
+        }
+        _ => false,
     }
-    if intrinsic.name() != MAKE_CELL_INTRINSIC.name() {
-        return false;
-    }
-    matches!(
-        &args[0],
-        CoreBlockPyExpr::Name(name) if name.id.as_str() == logical_name
-    )
 }
 
 struct NameBindingMapper<'a> {
@@ -945,16 +1021,19 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
             }
             CoreBlockPyExpr::Name(name) => CoreBlockPyExpr::Name(name),
             CoreBlockPyExpr::Literal(literal) => CoreBlockPyExpr::Literal(literal),
-            CoreBlockPyExpr::Op(operation) => self.map_nested_expr(CoreBlockPyExpr::Op(operation)),
             expr if cell_ref_marker_target(&expr).is_some() => {
                 let target_name = cell_ref_marker_target(&expr)
                     .expect("cell-ref marker target should exist after guard");
                 let (node_index, range) = match &expr {
                     CoreBlockPyExpr::Intrinsic(call) => (call.node_index.clone(), call.range),
-                    _ => unreachable!("cell-ref marker should be intrinsic"),
+                    CoreBlockPyExpr::Op(operation) => {
+                        (operation.node_index().clone(), operation.range())
+                    }
+                    _ => unreachable!("cell-ref marker should be op or intrinsic"),
                 };
                 rewrite_cell_ref_expr(target_name.as_str(), self.semantic, node_index, range)
             }
+            CoreBlockPyExpr::Op(operation) => self.map_nested_expr(CoreBlockPyExpr::Op(operation)),
             CoreBlockPyExpr::Call(CoreBlockPyCall {
                 node_index,
                 range,

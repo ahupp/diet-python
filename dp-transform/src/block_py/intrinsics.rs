@@ -18,6 +18,8 @@ trait OperationArg<E>: Sized {
     fn walk_operation_arg_mut(&mut self, f: &mut impl FnMut(&mut E));
 
     fn push_operation_args(self, out: &mut Vec<E>);
+
+    fn take_operation_arg(args: &mut std::vec::IntoIter<E>) -> Option<Self>;
 }
 
 impl<E> OperationArg<E> for E {
@@ -44,6 +46,10 @@ impl<E> OperationArg<E> for E {
 
     fn push_operation_args(self, out: &mut Vec<E>) {
         out.push(self);
+    }
+
+    fn take_operation_arg(args: &mut std::vec::IntoIter<E>) -> Option<Self> {
+        args.next()
     }
 }
 
@@ -77,6 +83,10 @@ impl<E> OperationArg<E> for Option<E> {
         if let Some(value) = self {
             out.push(value);
         }
+    }
+
+    fn take_operation_arg(args: &mut std::vec::IntoIter<E>) -> Option<Self> {
+        Some(args.next())
     }
 }
 
@@ -178,6 +188,29 @@ macro_rules! define_operations {
                 }
                 out
             }
+        }
+
+        pub fn operation_by_name_and_args<E>(
+            name: &str,
+            node_index: ast::AtomicNodeIndex,
+            range: TextRange,
+            args: Vec<E>,
+        ) -> Option<Operation<E>> {
+            let mut args = args.into_iter();
+            let operation = match name {
+                $(
+                    $name => Operation::$variant {
+                        node_index,
+                        range,
+                        $( $field: <$field_ty as OperationArg<E>>::take_operation_arg(&mut args)?, )*
+                    },
+                )+
+                _ => return None,
+            };
+            if args.next().is_some() {
+                return None;
+            }
+            Some(operation)
         }
     };
 }

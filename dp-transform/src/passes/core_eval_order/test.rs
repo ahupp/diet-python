@@ -126,12 +126,13 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
     let BlockPyStmt::Assign(assign) = &lowered.body[1] else {
         panic!("expected rewritten assignment");
     };
-    let CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) = &assign.value else {
-        panic!("expected iadd intrinsic");
+    let CoreBlockPyExprWithAwaitAndYield::Op(call) = &assign.value else {
+        panic!("expected iadd operation");
     };
-    assert_eq!(call.intrinsic.name(), "__dp_iadd");
+    assert_eq!(call.helper_name(), "__dp_iadd");
+    let call_args = (*call.clone()).into_call_args();
     assert!(matches!(
-        &call.args[1],
+        &call_args[1],
         CoreBlockPyExprWithAwaitAndYield::Name(_)
     ));
     assert!(matches!(lowered.body[2], BlockPyStmt::Delete(_)));

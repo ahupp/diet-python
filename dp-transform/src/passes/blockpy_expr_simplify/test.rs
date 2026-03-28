@@ -58,14 +58,15 @@ fn expr_simplify_recurses_bottom_up_for_operator_family() {
     let expr = Expr::from(py_expr!("-(x + 1)"));
     let lowered = lower_semantic_expr_without_setup(&expr);
 
-    let CoreBlockPyExprWithAwaitAndYield::Intrinsic(outer) = lowered else {
-        panic!("expected intrinsic-shaped core expr");
+    let CoreBlockPyExprWithAwaitAndYield::Op(outer) = lowered else {
+        panic!("expected operation-shaped core expr");
     };
-    assert_eq!(outer.intrinsic.name(), "__dp_neg");
-    let [CoreBlockPyExprWithAwaitAndYield::Intrinsic(inner)] = &outer.args[..] else {
-        panic!("expected __dp_neg to receive one lowered intrinsic arg");
+    assert_eq!(outer.helper_name(), "__dp_neg");
+    let outer_args = (*outer).clone().into_call_args();
+    let [CoreBlockPyExprWithAwaitAndYield::Op(inner)] = &outer_args[..] else {
+        panic!("expected __dp_neg to receive one lowered op arg");
     };
-    assert_eq!(inner.intrinsic.name(), "__dp_add");
+    assert_eq!(inner.helper_name(), "__dp_add");
 }
 
 #[test]
@@ -123,16 +124,11 @@ fn core_blockpy_call_supports_star_args_and_kwargs() {
 #[test]
 fn core_blockpy_expr_reduces_add_to_structured_intrinsic() {
     let parsed = *parse_expression("x + y").unwrap().into_syntax().body;
-    let CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) =
-        CoreBlockPyExprWithAwaitAndYield::from(parsed)
+    let CoreBlockPyExprWithAwaitAndYield::Op(call) = CoreBlockPyExprWithAwaitAndYield::from(parsed)
     else {
-        panic!("expected intrinsic-shaped reduced expr for x + y");
+        panic!("expected operation-shaped reduced expr for x + y");
     };
-    assert_eq!(call.intrinsic.name(), "__dp_add");
-    assert!(call
-        .intrinsic
-        .as_any()
-        .is::<crate::block_py::intrinsics::AddIntrinsic>());
+    assert_eq!(call.helper_name(), "__dp_add");
 }
 
 #[test]
@@ -146,12 +142,12 @@ fn core_blockpy_expr_reduces_operator_helper_families_to_intrinsics() {
         ("x is y", "__dp_is_"),
     ] {
         let parsed = *parse_expression(expr).unwrap().into_syntax().body;
-        let CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) =
+        let CoreBlockPyExprWithAwaitAndYield::Op(call) =
             CoreBlockPyExprWithAwaitAndYield::from(parsed)
         else {
-            panic!("expected intrinsic-shaped reduced expr for {expr}");
+            panic!("expected operation-shaped reduced expr for {expr}");
         };
-        assert_eq!(call.intrinsic.name(), helper_name, "{call:?}");
+        assert_eq!(call.helper_name(), helper_name, "{call:?}");
     }
 }
 
@@ -179,19 +175,12 @@ fn core_blockpy_expr_keeps_non_intrinsic_helper_families_as_named_calls() {
 #[test]
 fn core_blockpy_expr_reuses_shared_tuple_splat_intrinsic_shape() {
     let parsed = *parse_expression("(x, *xs, y)").unwrap().into_syntax().body;
-    let CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) =
-        CoreBlockPyExprWithAwaitAndYield::from(parsed)
+    let CoreBlockPyExprWithAwaitAndYield::Op(call) = CoreBlockPyExprWithAwaitAndYield::from(parsed)
     else {
-        panic!("expected intrinsic-shaped reduced tuple expr");
+        panic!("expected operation-shaped reduced tuple expr");
     };
-    assert_eq!(call.intrinsic.name(), "__dp_add");
-    assert!(call
-        .intrinsic
-        .as_any()
-        .is::<crate::block_py::intrinsics::AddIntrinsic>());
-    let rendered = ruff_ast_to_string(&Expr::from(CoreBlockPyExprWithAwaitAndYield::Intrinsic(
-        call,
-    )));
+    assert_eq!(call.helper_name(), "__dp_add");
+    let rendered = ruff_ast_to_string(&Expr::from(CoreBlockPyExprWithAwaitAndYield::Op(call)));
     assert!(rendered.contains("__dp_tuple_from_iter(xs)"), "{rendered}");
 }
 
