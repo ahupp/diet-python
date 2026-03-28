@@ -3,7 +3,8 @@ use super::*;
 mod tests {
     use super::*;
     use dp_transform::block_py::{
-        BlockPyRaise, BlockPyTerm, LocatedCoreBlockPyExpr, LocatedName, NameLocation, Operation,
+        BinOpKind, BlockPyRaise, BlockPyTerm, LocatedCoreBlockPyExpr, LocatedName, NameLocation,
+        Operation,
     };
     use ruff_python_ast as ast;
 
@@ -129,11 +130,13 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::Add {
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::BinOp {
                             node_index: Default::default(),
                             range: Default::default(),
+                            kind: BinOpKind::Add,
                             arg0: DirectSimpleExprPlan::Int(1),
                             arg1: DirectSimpleExprPlan::Int(2),
+                            arg2: None,
                         })),
                     },
                 },
@@ -182,11 +185,13 @@ mod tests {
                     plan: DirectSimpleRetPlan {
                         params: vec![],
                         assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::Lt {
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::BinOp {
                             node_index: Default::default(),
                             range: Default::default(),
+                            kind: BinOpKind::Lt,
                             arg0: DirectSimpleExprPlan::Int(1),
                             arg1: DirectSimpleExprPlan::Int(2),
+                            arg2: None,
                         })),
                     },
                 },

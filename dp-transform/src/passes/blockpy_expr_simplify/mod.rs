@@ -121,11 +121,13 @@ fn add_op_expr_with_meta(
     left: CoreBlockPyExprWithAwaitAndYield,
     right: CoreBlockPyExprWithAwaitAndYield,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    core_operation_expr(operation::Operation::Add {
+    core_operation_expr(operation::Operation::BinOp {
         node_index,
         range,
+        kind: operation::BinOpKind::Add,
         arg0: left,
         arg1: right,
+        arg2: None,
     })
 }
 
