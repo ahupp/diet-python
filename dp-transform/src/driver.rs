@@ -13,7 +13,7 @@ use crate::passes::{
     self, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield,
     ResolvedStorageBlockPyPass, RuffBlockPyPass,
 };
-use crate::{PassTracker, Result};
+use crate::{ParseError, PassTracker, Result};
 use ruff_python_ast::{self as ast, Stmt};
 use ruff_python_parser::parse_module;
 
@@ -31,7 +31,7 @@ impl crate::TrackedPassText for AstToAstPassResult {
 
 fn rewrite_ast_to_ast_module(context: &Context, mut module: Suite) -> AstToAstPassResult {
     // The transform now has a single lowering strategy: basic-block form.
-    let future_imports = rewrite_future_annotations::rewrite(context, &mut module);
+    rewrite_future_annotations::rewrite(context, &mut module);
 
     // Rewrite names like "__foo" in class bodies to "_<class_name>__foo"
     rewrite_class_def::private::rewrite_private_names(context, &mut module);
@@ -60,14 +60,6 @@ fn rewrite_ast_to_ast_module(context: &Context, mut module: Suite) -> AstToAstPa
         &mut semantic_state,
         &mut module,
     );
-    let invalid_future_stmts =
-        rewrite_future_annotations::invalid_future_feature_syntax_error_stmts(&future_imports);
-    if !invalid_future_stmts.is_empty() {
-        let [Stmt::FunctionDef(module_init)] = &mut module.as_mut_slice() else {
-            panic!("expected wrapped module root before inserting invalid future error stubs");
-        };
-        module_init.body.splice(0..0, invalid_future_stmts);
-    }
 
     AstToAstPassResult {
         module,
@@ -85,9 +77,12 @@ pub(crate) fn rewrite_module_with_tracker(
     source: &str,
     pass_tracker: &mut impl PassTracker,
 ) -> Result<BlockPyModule<ResolvedStorageBlockPyPass>> {
-    let module = pass_tracker.record_timing("parse", || {
-        parse_module(source).map(|module| module.into_syntax())
-    })?;
+    let module =
+        pass_tracker.record_timing("parse", || -> std::result::Result<_, ParseError> {
+            let module = parse_module(source).map(|module| module.into_syntax())?;
+            rewrite_future_annotations::validate_future_imports(&module.body)?;
+            Ok(module)
+        })?;
 
     let context = Context::new(source);
 

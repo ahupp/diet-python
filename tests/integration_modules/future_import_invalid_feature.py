@@ -12,9 +12,8 @@ def validate_module(module):
         handle.write(module.SOURCE)
         path = handle.name
     try:
-        transformed = diet_import_hook._transform_source(path)
         with pytest.raises(SyntaxError) as excinfo:
-            compile(transformed, path, "exec")
+            diet_import_hook._transform_source(path)
         assert "not_a_feature" in str(excinfo.value)
     finally:
         os.remove(path)

@@ -293,20 +293,6 @@ impl PassTracker for RecordingPassTracker {
     }
 }
 
-pub fn invalid_future_feature(module: &ModModule) -> Option<String> {
-    let body = &module.body;
-    let [Stmt::Global(global_stmt), Stmt::Nonlocal(nonlocal_stmt), ..] = &body[..] else {
-        return None;
-    };
-    let [global_name] = global_stmt.names.as_slice() else {
-        return None;
-    };
-    let [nonlocal_name] = nonlocal_stmt.names.as_slice() else {
-        return None;
-    };
-    (global_name == nonlocal_name).then(|| global_name.id.to_string())
-}
-
 fn lower_python_to_blockpy_with_tracker<P>(
     source: &str,
     mut pass_tracker: P,

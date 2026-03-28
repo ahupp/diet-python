@@ -1,4 +1,4 @@
-use super::rewrite;
+use super::{rewrite, validate_future_imports};
 use crate::passes::ast_to_ast::context::Context;
 use ruff_python_parser::parse_module;
 use std::collections::HashSet;
@@ -7,6 +7,7 @@ fn rewrite_module(source: &str) -> (HashSet<String>, String) {
     let mut module = parse_module(source)
         .expect("parse should succeed")
         .into_syntax();
+    validate_future_imports(&module.body).expect("future imports should be valid");
     let context = Context::new(source);
     let future_features = rewrite(&context, &mut module.body);
     (future_features, crate::ruff_ast_to_string(&module.body))
@@ -43,4 +44,16 @@ fn non_annotations_future_does_not_stringize_annotations() {
     assert_eq!(future_features, HashSet::from(["division".to_string()]));
     assert!(!rendered.contains("__future__"), "{rendered}");
     assert!(rendered.contains("x: Foo = 1"), "{rendered}");
+}
+
+#[test]
+fn invalid_future_import_reports_parse_error() {
+    let source = "from __future__ import not_a_feature\nx = 1\n";
+    let module = parse_module(source)
+        .expect("parse should succeed")
+        .into_syntax();
+
+    let err = validate_future_imports(&module.body).expect_err("future import should be invalid");
+
+    assert!(err.to_string().contains("not_a_feature"), "{err}");
 }

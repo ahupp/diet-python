@@ -2,10 +2,7 @@
 
 use dp_transform::block_py::{BlockPyFunction, ParamKind};
 use dp_transform::passes::ResolvedStorageBlockPyPass;
-use dp_transform::{
-    invalid_future_feature, lower_python_to_blockpy, lower_python_to_blockpy_recorded,
-    ruff_ast_to_string,
-};
+use dp_transform::{lower_python_to_blockpy, lower_python_to_blockpy_recorded, ruff_ast_to_string};
 use log::{info, trace};
 use pyo3::exceptions::{
     PyAttributeError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
@@ -756,16 +753,6 @@ fn build_module_init(
     let module_globals = module_globals.bind(py);
     let module_name = resolve_module_name(&module_globals, "module init construction")?;
     let output = lower_source_for_codegen(source, ensure)?;
-    if let Some(feature) = lower_source(source, ensure)?
-        .pass_tracker
-        .pass_ast_to_ast()
-        .as_ref()
-        .and_then(invalid_future_feature)
-    {
-        return Err(pyo3::exceptions::PySyntaxError::new_err(format!(
-            "name '{feature}' is nonlocal and global"
-        )));
-    }
     register_lowered_module_plans(&output, &module_name)?;
     let function = lookup_module_init_function(&output, &module_name)?;
     let dp = import_dp_module(py)?;
