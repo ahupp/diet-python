@@ -540,12 +540,7 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYi
                 args: map_call_args_with(call.args, &mut *f),
                 keywords: map_keyword_args_with(call.keywords, &mut *f),
             }),
-            Self::Intrinsic(call) => Self::Intrinsic(IntrinsicCall {
-                intrinsic: call.intrinsic,
-                node_index: call.node_index,
-                range: call.range,
-                args: map_intrinsic_args_with(call.args, &mut *f),
-            }),
+            Self::Intrinsic(call) => map_intrinsic_expr_with(call, &mut *f),
             Self::Await(await_expr) => Self::Await(CoreBlockPyAwait {
                 node_index: await_expr.node_index,
                 range: await_expr.range,
@@ -583,12 +578,7 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
                 args: map_call_args_with(call.args, &mut *f),
                 keywords: map_keyword_args_with(call.keywords, &mut *f),
             }),
-            Self::Intrinsic(call) => CoreBlockPyExprWithYield::Intrinsic(IntrinsicCall {
-                intrinsic: call.intrinsic,
-                node_index: call.node_index,
-                range: call.range,
-                args: map_intrinsic_args_with(call.args, &mut *f),
-            }),
+            Self::Intrinsic(call) => map_intrinsic_expr_with(call, &mut *f),
             Self::Await(await_expr) => CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
                 node_index: await_expr.node_index.clone(),
                 range: await_expr.range,
@@ -635,12 +625,7 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
                 args: try_map_call_args_with(call.args, &mut *f)?,
                 keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
             })),
-            Self::Intrinsic(call) => Ok(CoreBlockPyExprWithYield::Intrinsic(IntrinsicCall {
-                intrinsic: call.intrinsic,
-                node_index: call.node_index,
-                range: call.range,
-                args: try_map_intrinsic_args_with(call.args, &mut *f)?,
-            })),
+            Self::Intrinsic(call) => try_map_intrinsic_expr_with(call, &mut *f),
             Self::Await(_) => Err(self),
             Self::Yield(yield_expr) => Ok(CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,
@@ -694,12 +679,7 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
                 args: map_call_args_with(call.args, &mut *f),
                 keywords: map_keyword_args_with(call.keywords, &mut *f),
             }),
-            Self::Intrinsic(call) => Self::Intrinsic(IntrinsicCall {
-                intrinsic: call.intrinsic,
-                node_index: call.node_index,
-                range: call.range,
-                args: map_intrinsic_args_with(call.args, &mut *f),
-            }),
+            Self::Intrinsic(call) => map_intrinsic_expr_with(call, &mut *f),
             Self::Yield(yield_expr) => Self::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,
                 range: yield_expr.range,
@@ -732,12 +712,7 @@ impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWi
                 args: try_map_call_args_with(call.args, &mut *f)?,
                 keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
             })),
-            Self::Intrinsic(call) => Ok(CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-                intrinsic: call.intrinsic,
-                node_index: call.node_index,
-                range: call.range,
-                args: try_map_intrinsic_args_with(call.args, &mut *f)?,
-            })),
+            Self::Intrinsic(call) => try_map_intrinsic_expr_with(call, &mut *f),
             Self::Yield(_) | Self::YieldFrom(_) => Err(self),
         }
     }
@@ -778,12 +753,7 @@ where
                 args: map_call_args_with(call.args, &mut *f),
                 keywords: map_keyword_args_with(call.keywords, &mut *f),
             }),
-            Self::Intrinsic(call) => CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-                intrinsic: call.intrinsic,
-                node_index: call.node_index,
-                range: call.range,
-                args: map_intrinsic_args_with(call.args, &mut *f),
-            }),
+            Self::Intrinsic(call) => map_intrinsic_expr_with(call, &mut *f),
         }
     }
 }
@@ -810,12 +780,7 @@ where
                 args: try_map_call_args_with(call.args, &mut *f)?,
                 keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
             })),
-            Self::Intrinsic(call) => Ok(CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-                intrinsic: call.intrinsic,
-                node_index: call.node_index,
-                range: call.range,
-                args: try_map_intrinsic_args_with(call.args, &mut *f)?,
-            })),
+            Self::Intrinsic(call) => try_map_intrinsic_expr_with(call, &mut *f),
         }
     }
 }
@@ -877,6 +842,30 @@ pub(crate) fn core_intrinsic_expr_with_meta<E: CoreCallLikeExpr + Clone>(
         range,
         args,
     })
+}
+
+pub(crate) fn map_intrinsic_expr_with<EIn, EOut: CoreCallLikeExpr + Clone>(
+    call: IntrinsicCall<EIn>,
+    map_expr: impl FnMut(EIn) -> EOut,
+) -> EOut {
+    core_intrinsic_expr_with_meta(
+        call.intrinsic,
+        call.node_index,
+        call.range,
+        map_intrinsic_args_with(call.args, map_expr),
+    )
+}
+
+pub(crate) fn try_map_intrinsic_expr_with<EIn, EOut: CoreCallLikeExpr + Clone, Error>(
+    call: IntrinsicCall<EIn>,
+    map_expr: impl FnMut(EIn) -> Result<EOut, Error>,
+) -> Result<EOut, Error> {
+    Ok(core_intrinsic_expr_with_meta(
+        call.intrinsic,
+        call.node_index,
+        call.range,
+        try_map_intrinsic_args_with(call.args, map_expr)?,
+    ))
 }
 
 pub(crate) fn core_positional_intrinsic_expr_with_meta<E: CoreCallLikeExpr + Clone>(

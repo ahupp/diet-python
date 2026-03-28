@@ -742,12 +742,7 @@ impl From<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
                 args: map_call_args_with(call.args, Self::from),
                 keywords: map_keyword_args_with(call.keywords, Self::from),
             }),
-            CoreBlockPyExprWithYield::Intrinsic(call) => Self::Intrinsic(IntrinsicCall {
-                intrinsic: call.intrinsic,
-                node_index: call.node_index,
-                range: call.range,
-                args: map_intrinsic_args_with(call.args, Self::from),
-            }),
+            CoreBlockPyExprWithYield::Intrinsic(call) => map_intrinsic_expr_with(call, Self::from),
             CoreBlockPyExprWithYield::Yield(yield_expr) => Self::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,
                 range: yield_expr.range,
@@ -857,12 +852,7 @@ impl From<CoreBlockPyExpr> for CoreBlockPyExprWithYield {
                 args: map_call_args_with(call.args, Self::from),
                 keywords: map_keyword_args_with(call.keywords, Self::from),
             }),
-            CoreBlockPyExpr::Intrinsic(call) => Self::Intrinsic(IntrinsicCall {
-                intrinsic: call.intrinsic,
-                node_index: call.node_index,
-                range: call.range,
-                args: map_intrinsic_args_with(call.args, Self::from),
-            }),
+            CoreBlockPyExpr::Intrinsic(call) => map_intrinsic_expr_with(call, Self::from),
         }
     }
 }
