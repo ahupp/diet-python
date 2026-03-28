@@ -1,6 +1,16 @@
 use super::{instrument_bb_module_for_trace, parse_trace_config, TraceConfig};
 use crate::passes::{lower_try_jump_exception_flow, normalize_bb_module_strings};
-use crate::transform_str_to_bb_ir;
+use crate::transform_str_to_ruff;
+
+fn tracked_name_binding_module(
+    source: &str,
+) -> anyhow::Result<Option<crate::block_py::BlockPyModule<crate::passes::ResolvedStorageBlockPyPass>>>
+{
+    Ok(transform_str_to_ruff(source)?
+        .pass_tracker
+        .pass_name_binding()
+        .cloned())
+}
 
 #[test]
 fn parses_all_and_params_variants() {
@@ -31,7 +41,7 @@ fn parses_all_and_params_variants() {
 #[test]
 fn instruments_matching_function_blocks() {
     let source = "def f(x):\n    return x + 1\n\ndef g(y):\n    return y + 2\n";
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let prepared = lower_try_jump_exception_flow(&bb_module);

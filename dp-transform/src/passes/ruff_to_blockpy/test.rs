@@ -11,7 +11,7 @@ use crate::passes::ruff_to_blockpy::stmt_sequences::{
 };
 use crate::passes::ruff_to_blockpy::try_regions::build_try_plan;
 use crate::passes::{CoreBlockPyPass, RuffBlockPyPass};
-use crate::{transform_str_to_blockpy, transform_str_to_ruff};
+use crate::transform_str_to_ruff;
 use stmt_lowering::lower_stmt_into;
 
 fn test_name_gen() -> FunctionNameGen {
@@ -20,25 +20,30 @@ fn test_name_gen() -> FunctionNameGen {
 }
 
 fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
-    transform_str_to_blockpy(source).unwrap()
+    transform_str_to_ruff(source)
+        .unwrap()
+        .pass_tracker
+        .pass_semantic_blockpy()
+        .expect("semantic_blockpy pass should be tracked")
+        .clone()
 }
 
 fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
     transform_str_to_ruff(source)
         .unwrap()
         .pass_tracker
-        .get::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
-        .cloned()
+        .pass_semantic_blockpy()
         .expect("semantic_blockpy pass should be tracked")
+        .clone()
 }
 
 fn wrapped_core_blockpy(source: &str) -> BlockPyModule<CoreBlockPyPass> {
     transform_str_to_ruff(source)
         .unwrap()
         .pass_tracker
-        .get::<BlockPyModule<CoreBlockPyPass>>("core_blockpy")
-        .cloned()
+        .pass_core_blockpy()
         .expect("core_blockpy pass should be tracked")
+        .clone()
 }
 
 fn function_by_name<'a, P: BlockPyPass>(

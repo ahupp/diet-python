@@ -2,9 +2,20 @@ use super::normalize_bb_module_strings;
 use crate::{
     block_py::{BlockPyNameLike, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr},
     passes::lower_try_jump_exception_flow,
-    transform_str_to_bb_ir,
+    transform_str_to_ruff,
 };
 use std::cell::Cell;
+
+fn tracked_name_binding_module(
+    source: &str,
+) -> crate::block_py::BlockPyModule<crate::passes::ResolvedStorageBlockPyPass> {
+    transform_str_to_ruff(source)
+        .expect("transform should succeed")
+        .pass_tracker
+        .pass_name_binding()
+        .expect("bb module should be available")
+        .clone()
+}
 
 struct ExprShapeProbe {
     saw_string_literal: Cell<bool>,
@@ -120,9 +131,7 @@ def f():
     x = __dp_store_global(globals(), "classify", __dp_ret("ok"))
     return x
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
-        .expect("transform should succeed")
-        .expect("bb module should be available");
+    let bb_module = tracked_name_binding_module(source);
     let prepared = lower_try_jump_exception_flow(&bb_module);
     let normalized = normalize_bb_module_strings(&prepared, source);
 
@@ -160,9 +169,7 @@ def f(obj, mapping, key, value):
     __dp_setitem(mapping, key, value)
     return a, b
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
-        .expect("transform should succeed")
-        .expect("bb module should be available");
+    let bb_module = tracked_name_binding_module(source);
     let prepared = lower_try_jump_exception_flow(&bb_module);
     let normalized = normalize_bb_module_strings(&prepared, source);
 
@@ -186,9 +193,7 @@ def f(obj, mapping, key, value):
 #[test]
 fn lowers_surrogate_escaped_string_literals_for_codegen() {
     let source = "def f():\n    return \"\\udca7\" \"b\"\n";
-    let bb_module = transform_str_to_bb_ir(source)
-        .expect("transform should succeed")
-        .expect("bb module should be available");
+    let bb_module = tracked_name_binding_module(source);
     let prepared = lower_try_jump_exception_flow(&bb_module);
     let normalized = normalize_bb_module_strings(&prepared, source);
 

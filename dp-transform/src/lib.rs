@@ -1,6 +1,6 @@
 use crate::block_py::pretty::BlockPyPrettyPrint;
 use crate::passes::ast_to_ast::body::Suite;
-use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
+use crate::passes::{CoreBlockPyPass, ResolvedStorageBlockPyPass, RuffBlockPyPass};
 use anyhow::Result;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
@@ -180,6 +180,27 @@ impl RecordingPassTracker {
         crate::passes::summarize_tracked_pass_shape(self, name)
     }
 
+    pub fn pass_ast_to_ast(&self) -> Option<ModModule> {
+        self.get::<crate::driver::AstToAstPassResult>("ast-to-ast")
+            .map(|pass| ModModule {
+                node_index: ast::AtomicNodeIndex::default(),
+                range: TextRange::default(),
+                body: pass.module.clone(),
+            })
+    }
+
+    pub fn pass_semantic_blockpy(&self) -> Option<&BlockPyModule<RuffBlockPyPass>> {
+        self.get::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+    }
+
+    pub fn pass_core_blockpy(&self) -> Option<&BlockPyModule<CoreBlockPyPass>> {
+        self.get::<BlockPyModule<CoreBlockPyPass>>("core_blockpy")
+    }
+
+    pub fn pass_name_binding(&self) -> Option<&BlockPyModule<ResolvedStorageBlockPyPass>> {
+        self.get::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
+    }
+
     pub fn render_pass_text(&self, name: &str) -> Option<String> {
         let pass = self.passes.iter().find(|pass| pass.name == name)?;
         pass.render_text.map(|render| render(pass.value.as_ref()))
@@ -303,25 +324,6 @@ pub fn transform_str_to_ruff_no_passes(source: &str) -> Result<LoweringResult<No
         bb_codegen_module,
         pass_tracker,
     })
-}
-
-pub fn transform_str_to_bb_ir(
-    source: &str,
-) -> Result<Option<BlockPyModule<ResolvedStorageBlockPyPass>>> {
-    let result = transform_str_to_ruff(source)?;
-    Ok(result
-        .pass_tracker
-        .get::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
-        .cloned())
-}
-
-pub fn transform_str_to_blockpy(source: &str) -> Result<BlockPyModule<RuffBlockPyPass>> {
-    let result = transform_str_to_ruff(source)?;
-    Ok(result
-        .pass_tracker
-        .get::<BlockPyModule<crate::passes::RuffBlockPyPass>>("semantic_blockpy")
-        .expect("blockpy pass should be tracked")
-        .clone())
 }
 
 pub trait ToRuffAst {

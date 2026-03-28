@@ -31,8 +31,8 @@ impl crate::TrackedPassText for ParsePassResult {
 }
 
 #[derive(Clone)]
-struct AstToAstPassResult {
-    module: Suite,
+pub(crate) struct AstToAstPassResult {
+    pub(crate) module: Suite,
     semantic_state: SemanticAstState,
 }
 

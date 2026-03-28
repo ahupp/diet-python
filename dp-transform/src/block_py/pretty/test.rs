@@ -2,6 +2,7 @@ use super::*;
 use crate::block_py::{BlockParam, BlockParamRole};
 use crate::block_py::{ClosureInit, ClosureLayout, ClosureSlot, RuffExpr};
 use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
+use crate::transform_str_to_ruff;
 use ruff_python_parser::parse_expression;
 
 #[derive(Debug, Clone)]
@@ -14,7 +15,12 @@ impl BlockPyPass for StructuredExprPass {
 }
 
 fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
-    crate::transform_str_to_blockpy(source).expect("expected lowered semantic BlockPy module")
+    transform_str_to_ruff(source)
+        .expect("expected lowered semantic BlockPy module")
+        .pass_tracker
+        .pass_semantic_blockpy()
+        .expect("semantic_blockpy pass should be tracked")
+        .clone()
 }
 
 fn parse_blockpy_expr(source: &str) -> Expr {
@@ -89,7 +95,7 @@ fn renders_empty_module_marker() {
 
 #[test]
 fn transformed_lowering_result_exposes_module_init_blockpy() {
-    let blockpy = crate::transform_str_to_blockpy(
+    let blockpy = transform_str_to_ruff(
         r#"
 def classify(n):
     if n < 0:
@@ -97,7 +103,11 @@ def classify(n):
     return "pos"
 "#,
     )
-    .unwrap();
+    .unwrap()
+    .pass_tracker
+    .pass_semantic_blockpy()
+    .expect("semantic_blockpy pass should be tracked")
+    .clone();
     let rendered = blockpy_module_to_string(&blockpy);
 
     assert!(blockpy

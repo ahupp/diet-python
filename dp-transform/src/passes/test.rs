@@ -4,9 +4,28 @@ use crate::block_py::{
     BlockPyModule, BlockPyNameLike, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
     ResolvedStorageBlock,
 };
-use crate::passes::{CoreBlockPyPass, ResolvedStorageBlockPyPass, RuffBlockPyPass};
+use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
 use crate::py_expr;
-use crate::{transform_str_to_bb_ir, transform_str_to_ruff, LoweringResult};
+use crate::{transform_str_to_ruff, LoweringResult};
+
+fn tracked_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
+    transform_str_to_ruff(source)
+        .expect("transform should succeed")
+        .pass_tracker
+        .pass_semantic_blockpy()
+        .expect("semantic_blockpy pass should be tracked")
+        .clone()
+}
+
+fn tracked_name_binding_module(
+    source: &str,
+) -> anyhow::Result<Option<BlockPyModule<ResolvedStorageBlockPyPass>>> {
+    Ok(transform_str_to_ruff(source)?
+        .pass_tracker
+        .pass_name_binding()
+        .cloned())
+}
+
 struct TrackedLowering {
     result: LoweringResult,
     blockpy_module: BlockPyModule<RuffBlockPyPass>,
@@ -14,8 +33,7 @@ struct TrackedLowering {
 
 impl TrackedLowering {
     fn new(source: &str) -> Self {
-        let blockpy_module =
-            crate::transform_str_to_blockpy(source).expect("transform should succeed");
+        let blockpy_module = tracked_semantic_blockpy(source);
         Self {
             result: transform_str_to_ruff(source).expect("transform should succeed"),
             blockpy_module,
@@ -56,7 +74,7 @@ impl TrackedLowering {
     fn bb_module(&self) -> &BlockPyModule<ResolvedStorageBlockPyPass> {
         self.result
             .pass_tracker
-            .get::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
+            .pass_name_binding()
             .expect("bb module should be available")
     }
 
@@ -234,7 +252,7 @@ def foo(a, b):
         d = b + 1
         print(d)
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let foo = function_by_name(&bb_module, "foo");
@@ -255,7 +273,7 @@ def foo(a, b):
         return b
     return a
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let foo = bb_module
@@ -292,7 +310,7 @@ def build_qualnames():
         return inner_function()
     return global_function()
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let inner_global_function = function_by_name(&bb_module, "inner_global_function");
@@ -586,7 +604,7 @@ fn nested_method_dunder_class_capture_does_not_leak_classcell_to_enclosing_scope
         "            return g()\n",
         "    return C().f(), C\n",
     );
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let module_init = function_by_name(&bb_module, "_dp_module_init");
@@ -638,7 +656,7 @@ fn nested_class_closure_capture_does_not_turn_owner_cell_into_outer_freevar() {
         "        Inner().bump()\n",
         "        return counter\n",
     );
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
@@ -671,7 +689,7 @@ fn class_global_dunder_class_does_not_leak_synthetic_classcell_outward() {
         "            return __class__\n",
         "    return X().f(), X\n",
     );
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let module_init = function_by_name(&bb_module, "_dp_module_init");
@@ -1048,7 +1066,7 @@ def delegator():
     result = yield from child()
     return ("done", result)
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let delegator = function_by_name(&bb_module, "delegator");
@@ -1080,7 +1098,7 @@ def delegator():
     let core_module = lowered
         .result
         .pass_tracker
-        .get::<BlockPyModule<CoreBlockPyPass>>("core_blockpy")
+        .pass_core_blockpy()
         .expect("expected core no-yield pass");
     let resume_function = core_module
         .callable_defs
@@ -1703,7 +1721,7 @@ def outer(x):
     let name_binding_module = lowered
         .result
         .pass_tracker
-        .get::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
+        .pass_name_binding()
         .expect("name_binding pass should be available");
     let outer = name_binding_module
         .callable_defs
@@ -2218,7 +2236,7 @@ def outer(scale):
         yield total
     return gen
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let gen = function_by_name(&bb_module, "gen");
@@ -2255,7 +2273,7 @@ def gen():
     except ValueError:
         return 2
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let gen = function_by_name(&bb_module, "gen");
@@ -2302,7 +2320,7 @@ def outer(scale):
         return total
     return run
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
@@ -2338,7 +2356,7 @@ def outer(scale):
         yield total + factor
     return agen
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let agen = function_by_name(&bb_module, "agen");
@@ -2376,7 +2394,7 @@ async def outer(scale):
     values = [x + scale async for x in agen()]
     return (value * 2 async for value in agen() if value in values)
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let generator_callables = bb_module
@@ -2429,7 +2447,7 @@ def run(limit):
         out.append(99)
     return out, i
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
@@ -2460,7 +2478,7 @@ def run(items):
         out.append(99)
     return out
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
@@ -2493,7 +2511,7 @@ async def run():
     else:
         done()
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
@@ -2543,7 +2561,7 @@ fn omits_synthetic_end_block_when_unreachable() {
 def f():
     return 1
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let f = function_by_name(&bb_module, "f");
@@ -2567,7 +2585,7 @@ fn folds_jump_to_trivial_none_return() {
 def f():
     x = 1
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let f = function_by_name(&bb_module, "f");
@@ -2626,7 +2644,7 @@ class Field:
         let blockpy_rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
         eprintln!("==== {name} BLOCKPY ====\n{blockpy_rendered}");
 
-        let bb_module = transform_str_to_bb_ir(source)
+        let bb_module = tracked_name_binding_module(source)
             .expect("transform should succeed")
             .expect("bb module should be available");
         let function_names = bb_module
@@ -2677,7 +2695,7 @@ def make_counter(delta):
     return gen()
 "#;
 
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let gen = bb_module
@@ -2699,7 +2717,7 @@ def outer():
         return x
     return inner()
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let outer = function_by_name(&bb_module, "outer");
@@ -2742,7 +2760,7 @@ def f(x):
         cleanup()
     return 2
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let f = function_by_name(&bb_module, "f");
@@ -2772,7 +2790,7 @@ def run():
         with open(path, "r", encoding="utf8") as handle:
             return "ok"
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
@@ -2790,7 +2808,7 @@ try:
 except Exception:
     print(2)
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let init_fn = function_by_name(&bb_module, "_dp_module_init");
@@ -2811,7 +2829,7 @@ def outer_read():
 
     return inner
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let init_fn = function_by_name(&bb_module, "_dp_module_init");
@@ -2898,7 +2916,7 @@ def f():
     except* ValueError as exc:
         return exc
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let f = function_by_name(&bb_module, "f");
@@ -2922,7 +2940,7 @@ def f():
     return
     x = 1
 "#;
-    let bb_module = transform_str_to_bb_ir(source)
+    let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
     let f = function_by_name(&bb_module, "f");

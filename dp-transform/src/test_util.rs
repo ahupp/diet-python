@@ -4,7 +4,7 @@ use ruff_python_ast::{comparable::ComparableStmt, Stmt};
 use ruff_python_parser::parse_module;
 
 use crate::fixture::parse_fixture;
-use crate::{ruff_ast_to_string, transform_str_to_blockpy, transform_str_to_ruff};
+use crate::{ruff_ast_to_string, transform_str_to_ruff};
 use similar::TextDiff;
 
 fn expected_output_for_mode(expected: &str) -> &str {
@@ -20,8 +20,12 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str) {
     let mut expected_normalized = expected_for_mode.trim_matches('\n').to_string();
     expected_normalized.push('\n');
     let module = transform_str_to_ruff(actual).unwrap();
-    let actual_str = ruff_ast_to_string(&module.module.body);
-    let actual_body = &module.module.body;
+    let actual_module = module
+        .pass_tracker
+        .pass_ast_to_ast()
+        .expect("ast-to-ast pass should be tracked");
+    let actual_str = ruff_ast_to_string(&actual_module.body);
+    let actual_body = &actual_module.body;
     let _actual_stmt_internal: Vec<_> = actual_body.iter().map(ComparableStmt::from).collect();
 
     let actual_parsed = parse_module(actual_str.as_str())
@@ -96,8 +100,15 @@ pub(crate) fn run_transform_fixture_tests(fixture: &str) {
 }
 
 fn blockpy_output_for_snapshot(actual: &str) -> String {
-    let mut output = transform_str_to_blockpy(actual)
-        .map(|module| crate::block_py::pretty::blockpy_module_to_string(&module))
+    let mut output = transform_str_to_ruff(actual)
+        .map(|result| {
+            crate::block_py::pretty::blockpy_module_to_string(
+                result
+                    .pass_tracker
+                    .pass_semantic_blockpy()
+                    .expect("semantic_blockpy pass should be tracked"),
+            )
+        })
         .unwrap()
         .trim_matches('\n')
         .to_string();

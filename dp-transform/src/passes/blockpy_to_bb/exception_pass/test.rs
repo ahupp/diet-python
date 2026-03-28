@@ -2,7 +2,18 @@ use super::{lower_try_jump_exception_flow, validate_prepared_bb_module};
 use crate::block_py::{
     BlockPyEdge, BlockPyLabel, BlockPyTerm, LocatedCoreBlockPyExpr, ResolvedStorageBlock,
 };
-use crate::transform_str_to_bb_ir;
+use crate::transform_str_to_ruff;
+
+fn tracked_name_binding_module(
+    source: &str,
+) -> crate::block_py::BlockPyModule<crate::passes::ResolvedStorageBlockPyPass> {
+    transform_str_to_ruff(source)
+        .expect("lowering must succeed")
+        .pass_tracker
+        .pass_name_binding()
+        .expect("bb module must exist")
+        .clone()
+}
 
 #[test]
 fn preserves_existing_exception_edges() {
@@ -10,9 +21,7 @@ fn preserves_existing_exception_edges() {
 def f(x):
     return x
 "#;
-    let mut module = transform_str_to_bb_ir(source)
-        .expect("lowering must succeed")
-        .expect("bb module must exist");
+    let mut module = tracked_name_binding_module(source);
     let (body_label, except_label) = {
         let function = module
             .callable_defs
@@ -78,9 +87,7 @@ fn rejects_try_jump_with_unknown_label() {
 def f():
     return 1
 "#;
-    let mut module = transform_str_to_bb_ir(source)
-        .expect("lowering must succeed")
-        .expect("bb module must exist");
+    let mut module = tracked_name_binding_module(source);
     let function = module
         .callable_defs
         .first_mut()
@@ -103,9 +110,7 @@ def f():
     b = 2
     return b
 "#;
-    let mut module = transform_str_to_bb_ir(source)
-        .expect("lowering must succeed")
-        .expect("bb module must exist");
+    let mut module = tracked_name_binding_module(source);
     let function = module
         .callable_defs
         .iter_mut()
@@ -173,9 +178,7 @@ def f():
     z = 1
     w()
 "#;
-    let mut module = transform_str_to_bb_ir(source)
-        .expect("lowering must succeed")
-        .expect("bb module must exist");
+    let mut module = tracked_name_binding_module(source);
     let function = module
         .callable_defs
         .iter_mut()
@@ -244,9 +247,7 @@ def f():
         pass
     return 1
 "#;
-    let module = transform_str_to_bb_ir(source)
-        .expect("lowering must succeed")
-        .expect("bb module must exist");
+    let module = tracked_name_binding_module(source);
     let raw_function = module
         .callable_defs
         .iter()

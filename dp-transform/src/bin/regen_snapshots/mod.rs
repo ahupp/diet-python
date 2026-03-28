@@ -11,7 +11,7 @@ use dp_transform::block_py::{
 };
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
 use dp_transform::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
-use dp_transform::{init_logging, transform_str_to_blockpy, transform_str_to_ruff};
+use dp_transform::{init_logging, transform_str_to_ruff};
 use log::{log_enabled, trace, Level};
 
 struct SnapshotSummaryRow {
@@ -77,17 +77,14 @@ fn qualified_case_name(path: &Path, block: &FixtureBlock) -> Result<String, Stri
 }
 
 fn render_blockpy_snapshot(
-    source: &str,
+    _source: &str,
     result: &dp_transform::LoweringResult,
 ) -> (String, usize, usize) {
-    let blockpy = transform_str_to_blockpy(source)
-        .map_err(|err| err.to_string())
-        .ok();
+    let blockpy = result.pass_tracker.pass_semantic_blockpy();
     let blockpy_rendered = blockpy
-        .as_ref()
         .map(dp_transform::block_py::pretty::blockpy_module_to_string)
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
-    let blockpy_blocks = blockpy.as_ref().map(count_blockpy_blocks).unwrap_or(0);
+    let blockpy_blocks = blockpy.map(count_blockpy_blocks).unwrap_or(0);
     let clif_blocks = result
         .bb_codegen_module
         .as_ref()
