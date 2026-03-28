@@ -125,14 +125,10 @@ pub struct RecordingPassTracker {
     timings: Vec<PassTiming>,
 }
 
-pub(crate) trait TrackedPassText {
-    fn render_tracked_pass_text(&self) -> String;
-}
-
 pub(crate) trait PassTracker {
     fn run_pass<T, F>(&mut self, name: &str, build: F) -> T
     where
-        T: Clone + Any + TrackedPassText,
+        T: Clone + Any + BlockPyPrettyPrint,
         F: FnOnce() -> T;
 
     fn record_timing<T, F>(&mut self, name: &str, build: F) -> T
@@ -140,35 +136,26 @@ pub(crate) trait PassTracker {
         F: FnOnce() -> T;
 }
 
-impl TrackedPassText for Suite {
-    fn render_tracked_pass_text(&self) -> String {
+impl BlockPyPrettyPrint for Suite {
+    fn pretty_print(&self) -> String {
         ruff_ast_to_string(self)
     }
 }
 
-impl TrackedPassText for ModModule {
-    fn render_tracked_pass_text(&self) -> String {
+impl BlockPyPrettyPrint for ModModule {
+    fn pretty_print(&self) -> String {
         ruff_ast_to_string(&self.body)
-    }
-}
-
-impl<T> TrackedPassText for T
-where
-    T: BlockPyPrettyPrint,
-{
-    fn render_tracked_pass_text(&self) -> String {
-        self.pretty_print()
     }
 }
 
 fn render_tracked_pass_value<T>(value: &dyn Any) -> String
 where
-    T: Any + TrackedPassText,
+    T: Any + BlockPyPrettyPrint,
 {
     value
         .downcast_ref::<T>()
         .expect("tracked pass renderer type should match stored value")
-        .render_tracked_pass_text()
+        .pretty_print()
 }
 
 impl NoopPassTracker {
@@ -180,7 +167,7 @@ impl NoopPassTracker {
 impl PassTracker for NoopPassTracker {
     fn run_pass<T, F>(&mut self, _name: &str, build: F) -> T
     where
-        T: Clone + Any + TrackedPassText,
+        T: Clone + Any + BlockPyPrettyPrint,
         F: FnOnce() -> T,
     {
         build()
@@ -258,7 +245,7 @@ impl RecordingPassTracker {
 impl PassTracker for RecordingPassTracker {
     fn run_pass<T, F>(&mut self, name: &str, build: F) -> T
     where
-        T: Clone + Any + TrackedPassText,
+        T: Clone + Any + BlockPyPrettyPrint,
         F: FnOnce() -> T,
     {
         let value = self.record_timing(name, build);

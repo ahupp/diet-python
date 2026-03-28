@@ -1,3 +1,4 @@
+use crate::block_py::pretty::BlockPyPrettyPrint;
 use crate::block_py::BlockPyModule;
 use crate::passes::ast_to_ast::ast_rewrite::rewrite_with_pass;
 use crate::passes::ast_to_ast::context::Context;
@@ -23,8 +24,8 @@ pub(crate) struct AstToAstPassResult {
     semantic_state: SemanticAstState,
 }
 
-impl crate::TrackedPassText for AstToAstPassResult {
-    fn render_tracked_pass_text(&self) -> String {
+impl BlockPyPrettyPrint for AstToAstPassResult {
+    fn pretty_print(&self) -> String {
         crate::ruff_ast_to_string(&self.module)
     }
 }
@@ -171,11 +172,21 @@ pub(crate) fn rewrite_module_with_tracker(
         .run_pass("core_blockpy", || {
             passes::lower_yield_in_lowered_core_blockpy_module_bundle(core_blockpy_without_await)
         });
+
+    /*
+     Resolve Names into specific storage operations:
+       - globals become Load/StoreGlobal
+       - cellvars (locals that are captured by inner functions) become MakeCell / LoadCell / StoreCell
+         against a cell stored in local variables
+       - freevars (captures from outer scopes) become Load/StoreCell against a slot in the closure tuple
+       - Locals are assigned stack slots, and become Load/StoreLocal with the slot number.
+
+    */
     let name_binding: BlockPyModule<ResolvedStorageBlockPyPass> = pass_tracker
         .run_pass("name_binding", || {
             passes::lower_name_binding_in_core_blockpy_module(core_blockpy_without_await_or_yield)
         });
-    let trace_config = passes::parse_trace_env();
+
     let bb_prepared: BlockPyModule<ResolvedStorageBlockPyPass> = pass_tracker
         .run_pass("bb_prepared", || {
             passes::lower_try_jump_exception_flow(&name_binding)
@@ -184,15 +195,17 @@ pub(crate) fn rewrite_module_with_tracker(
         .run_pass("bb_codegen", || {
             passes::normalize_bb_module_strings(&bb_prepared, context.source.as_str())
         });
-    let bb_traced: BlockPyModule<ResolvedStorageBlockPyPass> = if let Some(config) = trace_config {
-        pass_tracker.run_pass("bb_trace", || {
-            let mut traced = bb_codegen;
-            passes::instrument_bb_module_for_trace(&mut traced, &config);
-            traced
-        })
-    } else {
-        bb_codegen
-    };
+
+    let bb_traced: BlockPyModule<ResolvedStorageBlockPyPass> =
+        if let Some(config) = passes::parse_trace_env() {
+            pass_tracker.run_pass("bb_trace", || {
+                let mut traced = bb_codegen;
+                passes::instrument_bb_module_for_trace(&mut traced, &config);
+                traced
+            })
+        } else {
+            bb_codegen
+        };
     passes::validate_prepared_bb_module(&bb_traced).map_err(anyhow::Error::msg)?;
     Ok(bb_traced)
 }
