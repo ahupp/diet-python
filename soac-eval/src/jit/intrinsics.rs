@@ -203,12 +203,6 @@ static PYNUMBER_POWER_IMPORT: ImportSpec = ImportSpec::new(
     &[SigType::Pointer, SigType::Pointer, SigType::Pointer],
     &[SigType::Pointer],
 );
-static PYNUMBER_INPLACE_POWER_IMPORT: ImportSpec = ImportSpec::new(
-    "PyNumber_InPlacePower",
-    &[SigType::Pointer, SigType::Pointer, SigType::Pointer],
-    &[SigType::Pointer],
-);
-
 fn emit_positional_owned_call(
     helper_name: &str,
     spec: &'static ImportSpec,
@@ -375,9 +369,6 @@ fn emit_binop(
         blockpy_intrinsics::BinOpKind::Mod => {
             emit_positional_owned_call(helper_name, &PYNUMBER_REMAINDER_IMPORT, state, parts)
         }
-        blockpy_intrinsics::BinOpKind::Pow => {
-            emit_pow_like(helper_name, &PYNUMBER_POWER_IMPORT, state, parts)
-        }
         blockpy_intrinsics::BinOpKind::LShift => {
             emit_positional_owned_call(helper_name, &PYNUMBER_LSHIFT_IMPORT, state, parts)
         }
@@ -442,6 +433,19 @@ fn emit_unary_op(
     }
 }
 
+fn emit_ternary_op(
+    kind: blockpy_intrinsics::TernaryOpKind,
+    helper_name: &str,
+    state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_, '_>,
+    parts: &[DirectSimpleCallPart],
+) -> ir::Value {
+    match kind {
+        blockpy_intrinsics::TernaryOpKind::Pow => {
+            emit_pow_like(helper_name, &PYNUMBER_POWER_IMPORT, state, parts)
+        }
+    }
+}
+
 fn emit_inplace_binop(
     kind: blockpy_intrinsics::InplaceBinOpKind,
     helper_name: &str,
@@ -479,9 +483,6 @@ fn emit_inplace_binop(
             state,
             parts,
         ),
-        blockpy_intrinsics::InplaceBinOpKind::Pow => {
-            emit_pow_like(helper_name, &PYNUMBER_INPLACE_POWER_IMPORT, state, parts)
-        }
         blockpy_intrinsics::InplaceBinOpKind::LShift => {
             emit_positional_owned_call(helper_name, &PYNUMBER_INPLACE_LSHIFT_IMPORT, state, parts)
         }
@@ -515,6 +516,9 @@ pub(super) fn emit_operation_direct_simple<E>(
         }
         blockpy_intrinsics::Operation::InplaceBinOp { kind, .. } => {
             Some(emit_inplace_binop(*kind, helper_name, state, parts))
+        }
+        blockpy_intrinsics::Operation::TernaryOp { kind, .. } => {
+            Some(emit_ternary_op(*kind, helper_name, state, parts))
         }
         blockpy_intrinsics::Operation::GetAttr { .. } => {
             Some(emit_getattr(helper_name, state, parts))

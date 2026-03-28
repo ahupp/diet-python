@@ -1456,7 +1456,6 @@ define_binary_obj_wrapper!(
     pynumber_inplace_remainder_wrapper,
     "PyNumber_InPlaceRemainder"
 );
-define_ternary_obj_wrapper!(pynumber_inplace_power_wrapper, "PyNumber_InPlacePower");
 define_binary_obj_wrapper!(pynumber_inplace_lshift_wrapper, "PyNumber_InPlaceLshift");
 define_binary_obj_wrapper!(pynumber_inplace_rshift_wrapper, "PyNumber_InPlaceRshift");
 define_binary_obj_wrapper!(pynumber_inplace_or_wrapper, "PyNumber_InPlaceOr");
@@ -1615,10 +1614,6 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol(
         "PyNumber_InPlaceRemainder",
         pynumber_inplace_remainder_wrapper as *const u8,
-    );
-    builder.symbol(
-        "PyNumber_InPlacePower",
-        pynumber_inplace_power_wrapper as *const u8,
     );
     builder.symbol(
         "PyNumber_InPlaceLshift",

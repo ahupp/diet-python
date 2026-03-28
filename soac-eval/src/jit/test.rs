@@ -4,7 +4,7 @@ mod tests {
     use super::*;
     use dp_transform::block_py::{
         BinOpKind, BlockPyRaise, BlockPyTerm, LocatedCoreBlockPyExpr, LocatedName, NameLocation,
-        Operation,
+        Operation, TernaryOpKind,
     };
     use ruff_python_ast as ast;
 
@@ -136,7 +136,6 @@ mod tests {
                             kind: BinOpKind::Add,
                             arg0: DirectSimpleExprPlan::Int(1),
                             arg1: DirectSimpleExprPlan::Int(2),
-                            arg2: None,
                         })),
                     },
                 },
@@ -191,7 +190,6 @@ mod tests {
                             kind: BinOpKind::Lt,
                             arg0: DirectSimpleExprPlan::Int(1),
                             arg1: DirectSimpleExprPlan::Int(2),
-                            arg2: None,
                         })),
                     },
                 },
@@ -212,6 +210,57 @@ mod tests {
         assert!(
             rendered.contains("call PyObject_RichCompare"),
             "comparison lowering should use PyObject_RichCompare in rendered CLIF:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_pow_calls_use_pynumber_power() {
+        let blocks = [1usize as ObjPtr];
+        let plan = ClifPlan {
+            entry_params: vec![],
+            entry_param_names: vec![],
+            entry_param_default_sources: vec![],
+            ambient_param_names: vec![],
+            owned_cell_slot_names: vec![],
+            slot_names: vec![],
+            blocks: vec![ClifBlockPlan {
+                label: "b0".into(),
+                param_names: vec![],
+                runtime_param_names: vec![],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleRet {
+                    plan: DirectSimpleRetPlan {
+                        params: vec![],
+                        assigns: vec![],
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::TernaryOp {
+                            node_index: Default::default(),
+                            range: Default::default(),
+                            kind: TernaryOpKind::Pow,
+                            arg0: DirectSimpleExprPlan::Int(2),
+                            arg1: DirectSimpleExprPlan::Int(3),
+                            arg2: DirectSimpleExprPlan::Name(test_global_name("__dp_NONE")),
+                        })),
+                    },
+                },
+            }],
+        };
+        let rendered = unsafe {
+            render_cranelift_run_bb_specialized_with_cfg(
+                &blocks,
+                &plan,
+                11usize as ObjPtr,
+                12usize as ObjPtr,
+                13usize as ObjPtr,
+                14usize as ObjPtr,
+            )
+        }
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
+        assert!(
+            rendered.contains("call PyNumber_Power"),
+            "power lowering should use PyNumber_Power in rendered CLIF:\n{rendered}"
         );
     }
 

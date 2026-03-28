@@ -1,105 +1,6 @@
 use ruff_python_ast as ast;
 use ruff_text_size::TextRange;
 
-trait OperationArg<E>: Sized {
-    type Mapped<T>;
-
-    fn map_operation_arg<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>;
-
-    fn try_map_operation_arg<T, Error>(
-        self,
-        f: &mut impl FnMut(E) -> Result<T, Error>,
-    ) -> Result<Self::Mapped<T>, Error>;
-
-    fn walk_operation_arg(&self, f: &mut impl FnMut(&E));
-
-    fn walk_operation_arg_mut(&mut self, f: &mut impl FnMut(&mut E));
-
-    fn push_operation_args(self, out: &mut Vec<E>);
-
-    fn push_operation_arg_refs<'a>(&'a self, out: &mut Vec<&'a E>);
-
-    fn take_operation_arg(args: &mut std::vec::IntoIter<E>) -> Option<Self>;
-}
-
-impl<E> OperationArg<E> for E {
-    type Mapped<T> = T;
-
-    fn map_operation_arg<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T> {
-        f(self)
-    }
-
-    fn try_map_operation_arg<T, Error>(
-        self,
-        f: &mut impl FnMut(E) -> Result<T, Error>,
-    ) -> Result<Self::Mapped<T>, Error> {
-        f(self)
-    }
-
-    fn walk_operation_arg(&self, f: &mut impl FnMut(&E)) {
-        f(self);
-    }
-
-    fn walk_operation_arg_mut(&mut self, f: &mut impl FnMut(&mut E)) {
-        f(self);
-    }
-
-    fn push_operation_args(self, out: &mut Vec<E>) {
-        out.push(self);
-    }
-
-    fn push_operation_arg_refs<'a>(&'a self, out: &mut Vec<&'a E>) {
-        out.push(self);
-    }
-
-    fn take_operation_arg(args: &mut std::vec::IntoIter<E>) -> Option<Self> {
-        args.next()
-    }
-}
-
-impl<E> OperationArg<E> for Option<E> {
-    type Mapped<T> = Option<T>;
-
-    fn map_operation_arg<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T> {
-        self.map(f)
-    }
-
-    fn try_map_operation_arg<T, Error>(
-        self,
-        f: &mut impl FnMut(E) -> Result<T, Error>,
-    ) -> Result<Self::Mapped<T>, Error> {
-        self.map(f).transpose()
-    }
-
-    fn walk_operation_arg(&self, f: &mut impl FnMut(&E)) {
-        if let Some(value) = self.as_ref() {
-            f(value);
-        }
-    }
-
-    fn walk_operation_arg_mut(&mut self, f: &mut impl FnMut(&mut E)) {
-        if let Some(value) = self.as_mut() {
-            f(value);
-        }
-    }
-
-    fn push_operation_args(self, out: &mut Vec<E>) {
-        if let Some(value) = self {
-            out.push(value);
-        }
-    }
-
-    fn push_operation_arg_refs<'a>(&'a self, out: &mut Vec<&'a E>) {
-        if let Some(value) = self.as_ref() {
-            out.push(value);
-        }
-    }
-
-    fn take_operation_arg(args: &mut std::vec::IntoIter<E>) -> Option<Self> {
-        Some(args.next())
-    }
-}
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum BinOpKind {
     Add,
@@ -109,7 +10,6 @@ pub enum BinOpKind {
     TrueDiv,
     FloorDiv,
     Mod,
-    Pow,
     LShift,
     RShift,
     Or,
@@ -134,7 +34,6 @@ impl BinOpKind {
             Self::TrueDiv => "__dp_truediv",
             Self::FloorDiv => "__dp_floordiv",
             Self::Mod => "__dp_mod",
-            Self::Pow => "__dp_pow",
             Self::LShift => "__dp_lshift",
             Self::RShift => "__dp_rshift",
             Self::Or => "__dp_or_",
@@ -150,13 +49,6 @@ impl BinOpKind {
         }
     }
 
-    fn accepts_arity(self, arity: usize) -> bool {
-        match self {
-            Self::Pow => matches!(arity, 2 | 3),
-            _ => arity == 2,
-        }
-    }
-
     fn from_helper_name(name: &str) -> Option<Self> {
         Some(match name {
             "__dp_add" => Self::Add,
@@ -166,7 +58,6 @@ impl BinOpKind {
             "__dp_truediv" => Self::TrueDiv,
             "__dp_floordiv" => Self::FloorDiv,
             "__dp_mod" => Self::Mod,
-            "__dp_pow" => Self::Pow,
             "__dp_lshift" => Self::LShift,
             "__dp_rshift" => Self::RShift,
             "__dp_or_" => Self::Or,
@@ -225,7 +116,6 @@ pub enum InplaceBinOpKind {
     TrueDiv,
     FloorDiv,
     Mod,
-    Pow,
     LShift,
     RShift,
     Or,
@@ -243,19 +133,11 @@ impl InplaceBinOpKind {
             Self::TrueDiv => "__dp_itruediv",
             Self::FloorDiv => "__dp_ifloordiv",
             Self::Mod => "__dp_imod",
-            Self::Pow => "__dp_ipow",
             Self::LShift => "__dp_ilshift",
             Self::RShift => "__dp_irshift",
             Self::Or => "__dp_ior",
             Self::Xor => "__dp_ixor",
             Self::And => "__dp_iand",
-        }
-    }
-
-    fn accepts_arity(self, arity: usize) -> bool {
-        match self {
-            Self::Pow => matches!(arity, 2 | 3),
-            _ => arity == 2,
         }
     }
 
@@ -268,12 +150,31 @@ impl InplaceBinOpKind {
             "__dp_itruediv" => Self::TrueDiv,
             "__dp_ifloordiv" => Self::FloorDiv,
             "__dp_imod" => Self::Mod,
-            "__dp_ipow" => Self::Pow,
             "__dp_ilshift" => Self::LShift,
             "__dp_irshift" => Self::RShift,
             "__dp_ior" => Self::Or,
             "__dp_ixor" => Self::Xor,
             "__dp_iand" => Self::And,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub enum TernaryOpKind {
+    Pow,
+}
+
+impl TernaryOpKind {
+    pub fn helper_name(self) -> &'static str {
+        match self {
+            Self::Pow => "__dp_pow",
+        }
+    }
+
+    fn from_helper_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "__dp_pow" => Self::Pow,
             _ => return None,
         })
     }
@@ -287,7 +188,6 @@ pub enum Operation<E> {
         kind: BinOpKind,
         arg0: E,
         arg1: E,
-        arg2: Option<E>,
     },
     UnaryOp {
         node_index: ast::AtomicNodeIndex,
@@ -301,7 +201,14 @@ pub enum Operation<E> {
         kind: InplaceBinOpKind,
         arg0: E,
         arg1: E,
-        arg2: Option<E>,
+    },
+    TernaryOp {
+        node_index: ast::AtomicNodeIndex,
+        range: TextRange,
+        kind: TernaryOpKind,
+        arg0: E,
+        arg1: E,
+        arg2: E,
     },
     GetAttr {
         node_index: ast::AtomicNodeIndex,
@@ -405,6 +312,7 @@ impl<E> Operation<E> {
             Self::BinOp { kind, .. } => kind.helper_name(),
             Self::UnaryOp { kind, .. } => kind.helper_name(),
             Self::InplaceBinOp { kind, .. } => kind.helper_name(),
+            Self::TernaryOp { kind, .. } => kind.helper_name(),
             Self::GetAttr { .. } => "__dp_getattr",
             Self::SetAttr { .. } => "__dp_setattr",
             Self::GetItem { .. } => "__dp_getitem",
@@ -429,6 +337,7 @@ impl<E> Operation<E> {
             Self::BinOp { node_index, .. }
             | Self::UnaryOp { node_index, .. }
             | Self::InplaceBinOp { node_index, .. }
+            | Self::TernaryOp { node_index, .. }
             | Self::GetAttr { node_index, .. }
             | Self::SetAttr { node_index, .. }
             | Self::GetItem { node_index, .. }
@@ -453,6 +362,7 @@ impl<E> Operation<E> {
             Self::BinOp { range, .. }
             | Self::UnaryOp { range, .. }
             | Self::InplaceBinOp { range, .. }
+            | Self::TernaryOp { range, .. }
             | Self::GetAttr { range, .. }
             | Self::SetAttr { range, .. }
             | Self::GetItem { range, .. }
@@ -480,14 +390,12 @@ impl<E> Operation<E> {
                 kind,
                 arg0,
                 arg1,
-                arg2,
             } => Operation::BinOp {
                 node_index,
                 range,
                 kind,
                 arg0: f(arg0),
                 arg1: f(arg1),
-                arg2: <Option<E> as OperationArg<E>>::map_operation_arg(arg2, f),
             },
             Self::UnaryOp {
                 node_index,
@@ -506,14 +414,27 @@ impl<E> Operation<E> {
                 kind,
                 arg0,
                 arg1,
-                arg2,
             } => Operation::InplaceBinOp {
                 node_index,
                 range,
                 kind,
                 arg0: f(arg0),
                 arg1: f(arg1),
-                arg2: <Option<E> as OperationArg<E>>::map_operation_arg(arg2, f),
+            },
+            Self::TernaryOp {
+                node_index,
+                range,
+                kind,
+                arg0,
+                arg1,
+                arg2,
+            } => Operation::TernaryOp {
+                node_index,
+                range,
+                kind,
+                arg0: f(arg0),
+                arg1: f(arg1),
+                arg2: f(arg2),
             },
             Self::GetAttr {
                 node_index,
@@ -701,14 +622,12 @@ impl<E> Operation<E> {
                 kind,
                 arg0,
                 arg1,
-                arg2,
             } => Operation::BinOp {
                 node_index,
                 range,
                 kind,
                 arg0: f(arg0)?,
                 arg1: f(arg1)?,
-                arg2: <Option<E> as OperationArg<E>>::try_map_operation_arg(arg2, f)?,
             },
             Self::UnaryOp {
                 node_index,
@@ -727,14 +646,27 @@ impl<E> Operation<E> {
                 kind,
                 arg0,
                 arg1,
-                arg2,
             } => Operation::InplaceBinOp {
                 node_index,
                 range,
                 kind,
                 arg0: f(arg0)?,
                 arg1: f(arg1)?,
-                arg2: <Option<E> as OperationArg<E>>::try_map_operation_arg(arg2, f)?,
+            },
+            Self::TernaryOp {
+                node_index,
+                range,
+                kind,
+                arg0,
+                arg1,
+                arg2,
+            } => Operation::TernaryOp {
+                node_index,
+                range,
+                kind,
+                arg0: f(arg0)?,
+                arg1: f(arg1)?,
+                arg2: f(arg2)?,
             },
             Self::GetAttr {
                 node_index,
@@ -913,15 +845,9 @@ impl<E> Operation<E> {
 
     pub fn walk_args(&self, f: &mut impl FnMut(&E)) {
         match self {
-            Self::BinOp {
-                arg0, arg1, arg2, ..
-            }
-            | Self::InplaceBinOp {
-                arg0, arg1, arg2, ..
-            } => {
+            Self::BinOp { arg0, arg1, .. } | Self::InplaceBinOp { arg0, arg1, .. } => {
                 f(arg0);
                 f(arg1);
-                <Option<E> as OperationArg<E>>::walk_operation_arg(arg2, f);
             }
             Self::UnaryOp { arg0, .. }
             | Self::LoadCell { arg0, .. }
@@ -929,18 +855,10 @@ impl<E> Operation<E> {
             | Self::CellRef { arg0, .. }
             | Self::DelDerefQuietly { arg0, .. }
             | Self::DelDeref { arg0, .. } => f(arg0),
-            Self::GetAttr { arg0, arg1, .. }
-            | Self::GetItem { arg0, arg1, .. }
-            | Self::DelItem { arg0, arg1, .. }
-            | Self::LoadGlobal { arg0, arg1, .. }
-            | Self::StoreCell { arg0, arg1, .. }
-            | Self::DelQuietly { arg0, arg1, .. }
-            | Self::Is { arg0, arg1, .. }
-            | Self::IsNot { arg0, arg1, .. } => {
-                f(arg0);
-                f(arg1);
+            Self::TernaryOp {
+                arg0, arg1, arg2, ..
             }
-            Self::SetAttr {
+            | Self::SetAttr {
                 arg0, arg1, arg2, ..
             }
             | Self::SetItem {
@@ -952,21 +870,26 @@ impl<E> Operation<E> {
                 f(arg0);
                 f(arg1);
                 f(arg2);
+            }
+            Self::GetAttr { arg0, arg1, .. }
+            | Self::GetItem { arg0, arg1, .. }
+            | Self::DelItem { arg0, arg1, .. }
+            | Self::LoadGlobal { arg0, arg1, .. }
+            | Self::StoreCell { arg0, arg1, .. }
+            | Self::DelQuietly { arg0, arg1, .. }
+            | Self::Is { arg0, arg1, .. }
+            | Self::IsNot { arg0, arg1, .. } => {
+                f(arg0);
+                f(arg1);
             }
         }
     }
 
     pub fn walk_args_mut(&mut self, f: &mut impl FnMut(&mut E)) {
         match self {
-            Self::BinOp {
-                arg0, arg1, arg2, ..
-            }
-            | Self::InplaceBinOp {
-                arg0, arg1, arg2, ..
-            } => {
+            Self::BinOp { arg0, arg1, .. } | Self::InplaceBinOp { arg0, arg1, .. } => {
                 f(arg0);
                 f(arg1);
-                <Option<E> as OperationArg<E>>::walk_operation_arg_mut(arg2, f);
             }
             Self::UnaryOp { arg0, .. }
             | Self::LoadCell { arg0, .. }
@@ -974,18 +897,10 @@ impl<E> Operation<E> {
             | Self::CellRef { arg0, .. }
             | Self::DelDerefQuietly { arg0, .. }
             | Self::DelDeref { arg0, .. } => f(arg0),
-            Self::GetAttr { arg0, arg1, .. }
-            | Self::GetItem { arg0, arg1, .. }
-            | Self::DelItem { arg0, arg1, .. }
-            | Self::LoadGlobal { arg0, arg1, .. }
-            | Self::StoreCell { arg0, arg1, .. }
-            | Self::DelQuietly { arg0, arg1, .. }
-            | Self::Is { arg0, arg1, .. }
-            | Self::IsNot { arg0, arg1, .. } => {
-                f(arg0);
-                f(arg1);
+            Self::TernaryOp {
+                arg0, arg1, arg2, ..
             }
-            Self::SetAttr {
+            | Self::SetAttr {
                 arg0, arg1, arg2, ..
             }
             | Self::SetItem {
@@ -997,6 +912,17 @@ impl<E> Operation<E> {
                 f(arg0);
                 f(arg1);
                 f(arg2);
+            }
+            Self::GetAttr { arg0, arg1, .. }
+            | Self::GetItem { arg0, arg1, .. }
+            | Self::DelItem { arg0, arg1, .. }
+            | Self::LoadGlobal { arg0, arg1, .. }
+            | Self::StoreCell { arg0, arg1, .. }
+            | Self::DelQuietly { arg0, arg1, .. }
+            | Self::Is { arg0, arg1, .. }
+            | Self::IsNot { arg0, arg1, .. } => {
+                f(arg0);
+                f(arg1);
             }
         }
     }
@@ -1004,15 +930,9 @@ impl<E> Operation<E> {
     pub fn into_call_args(self) -> Vec<E> {
         let mut out = Vec::new();
         match self {
-            Self::BinOp {
-                arg0, arg1, arg2, ..
-            }
-            | Self::InplaceBinOp {
-                arg0, arg1, arg2, ..
-            } => {
+            Self::BinOp { arg0, arg1, .. } | Self::InplaceBinOp { arg0, arg1, .. } => {
                 out.push(arg0);
                 out.push(arg1);
-                <Option<E> as OperationArg<E>>::push_operation_args(arg2, &mut out);
             }
             Self::UnaryOp { arg0, .. }
             | Self::LoadCell { arg0, .. }
@@ -1022,18 +942,10 @@ impl<E> Operation<E> {
             | Self::DelDeref { arg0, .. } => {
                 out.push(arg0);
             }
-            Self::GetAttr { arg0, arg1, .. }
-            | Self::GetItem { arg0, arg1, .. }
-            | Self::DelItem { arg0, arg1, .. }
-            | Self::LoadGlobal { arg0, arg1, .. }
-            | Self::StoreCell { arg0, arg1, .. }
-            | Self::DelQuietly { arg0, arg1, .. }
-            | Self::Is { arg0, arg1, .. }
-            | Self::IsNot { arg0, arg1, .. } => {
-                out.push(arg0);
-                out.push(arg1);
+            Self::TernaryOp {
+                arg0, arg1, arg2, ..
             }
-            Self::SetAttr {
+            | Self::SetAttr {
                 arg0, arg1, arg2, ..
             }
             | Self::SetItem {
@@ -1045,6 +957,17 @@ impl<E> Operation<E> {
                 out.push(arg0);
                 out.push(arg1);
                 out.push(arg2);
+            }
+            Self::GetAttr { arg0, arg1, .. }
+            | Self::GetItem { arg0, arg1, .. }
+            | Self::DelItem { arg0, arg1, .. }
+            | Self::LoadGlobal { arg0, arg1, .. }
+            | Self::StoreCell { arg0, arg1, .. }
+            | Self::DelQuietly { arg0, arg1, .. }
+            | Self::Is { arg0, arg1, .. }
+            | Self::IsNot { arg0, arg1, .. } => {
+                out.push(arg0);
+                out.push(arg1);
             }
         }
         out
@@ -1053,15 +976,9 @@ impl<E> Operation<E> {
     pub fn call_args(&self) -> Vec<&E> {
         let mut out = Vec::new();
         match self {
-            Self::BinOp {
-                arg0, arg1, arg2, ..
-            }
-            | Self::InplaceBinOp {
-                arg0, arg1, arg2, ..
-            } => {
+            Self::BinOp { arg0, arg1, .. } | Self::InplaceBinOp { arg0, arg1, .. } => {
                 out.push(arg0);
                 out.push(arg1);
-                <Option<E> as OperationArg<E>>::push_operation_arg_refs(arg2, &mut out);
             }
             Self::UnaryOp { arg0, .. }
             | Self::LoadCell { arg0, .. }
@@ -1071,18 +988,10 @@ impl<E> Operation<E> {
             | Self::DelDeref { arg0, .. } => {
                 out.push(arg0);
             }
-            Self::GetAttr { arg0, arg1, .. }
-            | Self::GetItem { arg0, arg1, .. }
-            | Self::DelItem { arg0, arg1, .. }
-            | Self::LoadGlobal { arg0, arg1, .. }
-            | Self::StoreCell { arg0, arg1, .. }
-            | Self::DelQuietly { arg0, arg1, .. }
-            | Self::Is { arg0, arg1, .. }
-            | Self::IsNot { arg0, arg1, .. } => {
-                out.push(arg0);
-                out.push(arg1);
+            Self::TernaryOp {
+                arg0, arg1, arg2, ..
             }
-            Self::SetAttr {
+            | Self::SetAttr {
                 arg0, arg1, arg2, ..
             }
             | Self::SetItem {
@@ -1094,6 +1003,17 @@ impl<E> Operation<E> {
                 out.push(arg0);
                 out.push(arg1);
                 out.push(arg2);
+            }
+            Self::GetAttr { arg0, arg1, .. }
+            | Self::GetItem { arg0, arg1, .. }
+            | Self::DelItem { arg0, arg1, .. }
+            | Self::LoadGlobal { arg0, arg1, .. }
+            | Self::StoreCell { arg0, arg1, .. }
+            | Self::DelQuietly { arg0, arg1, .. }
+            | Self::Is { arg0, arg1, .. }
+            | Self::IsNot { arg0, arg1, .. } => {
+                out.push(arg0);
+                out.push(arg1);
             }
         }
         out
@@ -1110,8 +1030,7 @@ pub fn operation_by_name_and_args<E>(
     let operation = if let Some(kind) = BinOpKind::from_helper_name(name) {
         let arg0 = args.next()?;
         let arg1 = args.next()?;
-        let arg2 = args.next();
-        if !kind.accepts_arity(2 + usize::from(arg2.is_some())) {
+        if args.next().is_some() {
             return None;
         }
         Operation::BinOp {
@@ -1120,7 +1039,6 @@ pub fn operation_by_name_and_args<E>(
             kind,
             arg0,
             arg1,
-            arg2,
         }
     } else if let Some(kind) = UnaryOpKind::from_helper_name(name) {
         let arg0 = args.next()?;
@@ -1136,11 +1054,24 @@ pub fn operation_by_name_and_args<E>(
     } else if let Some(kind) = InplaceBinOpKind::from_helper_name(name) {
         let arg0 = args.next()?;
         let arg1 = args.next()?;
-        let arg2 = args.next();
-        if !kind.accepts_arity(2 + usize::from(arg2.is_some())) {
+        if args.next().is_some() {
             return None;
         }
         Operation::InplaceBinOp {
+            node_index,
+            range,
+            kind,
+            arg0,
+            arg1,
+        }
+    } else if let Some(kind) = TernaryOpKind::from_helper_name(name) {
+        let arg0 = args.next()?;
+        let arg1 = args.next()?;
+        let arg2 = args.next()?;
+        if args.next().is_some() {
+            return None;
+        }
+        Operation::TernaryOp {
             node_index,
             range,
             kind,

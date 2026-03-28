@@ -152,6 +152,20 @@ fn core_blockpy_expr_reduces_operator_helper_families_to_intrinsics() {
 }
 
 #[test]
+fn core_blockpy_expr_rewrites_ipow_helper_to_pow_operation() {
+    let parsed = *parse_expression("__dp_ipow(x, y)")
+        .unwrap()
+        .into_syntax()
+        .body;
+    let CoreBlockPyExprWithAwaitAndYield::Op(call) = CoreBlockPyExprWithAwaitAndYield::from(parsed)
+    else {
+        panic!("expected operation-shaped reduced expr for __dp_ipow(x, y)");
+    };
+    assert_eq!(call.helper_name(), "__dp_pow");
+    assert_eq!(call.call_args().len(), 3);
+}
+
+#[test]
 fn core_blockpy_expr_keeps_non_intrinsic_helper_families_as_named_calls() {
     for (expr, helper_name) in [
         ("(x, y)", "__dp_tuple"),

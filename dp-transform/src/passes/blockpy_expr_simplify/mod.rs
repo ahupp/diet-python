@@ -127,7 +127,6 @@ fn add_op_expr_with_meta(
         kind: operation::BinOpKind::Add,
         arg0: left,
         arg1: right,
-        arg2: None,
     })
 }
 
@@ -194,8 +193,16 @@ fn lower_core_call_expr_with_meta(
                 for arg in &args {
                     operation_args.push(CoreBlockPyExprWithAwaitAndYield::from(arg.clone()));
                 }
+                let helper_name = if name.id.as_str() == "__dp_ipow" {
+                    "__dp_pow"
+                } else {
+                    name.id.as_str()
+                };
+                if helper_name == "__dp_pow" && operation_args.len() == 2 {
+                    operation_args.push(core_builtin_name("__dp_NONE"));
+                }
                 if let Some(operation) = operation::operation_by_name_and_args(
-                    name.id.as_str(),
+                    helper_name,
                     node_index.clone(),
                     range,
                     operation_args,
