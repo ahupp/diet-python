@@ -30,7 +30,7 @@ impl crate::TrackedPassText for AstToAstPassResult {
     }
 }
 
-fn rewrite_ast_to_ast_module((context, mut module): (&Context, Suite)) -> AstToAstPassResult {
+fn rewrite_ast_to_ast_module(context: &Context, mut module: Suite) -> AstToAstPassResult {
     // The transform now has a single lowering strategy: basic-block form.
     let future_imports = rewrite_future_annotations::rewrite(context, &mut module);
 
@@ -77,7 +77,9 @@ fn rewrite_ast_to_ast_module((context, mut module): (&Context, Suite)) -> AstToA
 }
 
 fn lower_semantic_blockpy(
-    (context, module, semantic_state): (&Context, &mut Suite, &SemanticAstState),
+    context: &Context,
+    module: &mut Suite,
+    semantic_state: &SemanticAstState,
 ) -> BlockPyModule<RuffBlockPyPass> {
     rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module, semantic_state)
 }
@@ -96,16 +98,15 @@ fn lower_bb_prepared(
 }
 
 fn lower_bb_codegen(
-    (bb_prepared, source): (&BlockPyModule<ResolvedStorageBlockPyPass>, &str),
+    bb_prepared: &BlockPyModule<ResolvedStorageBlockPyPass>,
+    source: &str,
 ) -> BlockPyModule<ResolvedStorageBlockPyPass> {
     passes::normalize_bb_module_strings(bb_prepared, source)
 }
 
 fn lower_bb_trace(
-    (bb_codegen, config): (
-        BlockPyModule<ResolvedStorageBlockPyPass>,
-        &passes::TraceConfig,
-    ),
+    bb_codegen: BlockPyModule<ResolvedStorageBlockPyPass>,
+    config: &passes::TraceConfig,
 ) -> BlockPyModule<ResolvedStorageBlockPyPass> {
     let mut traced = bb_codegen;
     passes::instrument_bb_module_for_trace(&mut traced, config);
@@ -128,11 +129,9 @@ pub(crate) fn rewrite_module_with_tracker(
     let AstToAstPassResult {
         module: ast_module,
         semantic_state,
-    } = pass_tracker.run_pass(
-        "ast-to-ast",
-        (context, std::mem::take(module)),
-        rewrite_ast_to_ast_module,
-    );
+    } = pass_tracker.run_pass("ast-to-ast", || {
+        rewrite_ast_to_ast_module(context, std::mem::take(module))
+    });
     *module = ast_module;
 
     /*
@@ -174,11 +173,10 @@ pub(crate) fn rewrite_module_with_tracker(
        still jump to finally.
     */
 
-    let semantic_blockpy: BlockPyModule<RuffBlockPyPass> = pass_tracker.run_pass(
-        "semantic_blockpy",
-        (context, module, &semantic_state),
-        lower_semantic_blockpy,
-    );
+    let semantic_blockpy: BlockPyModule<RuffBlockPyPass> = pass_tracker
+        .run_pass("semantic_blockpy", || {
+            lower_semantic_blockpy(context, module, &semantic_state)
+        });
 
     /*
     Simplify expressions:
@@ -190,21 +188,18 @@ pub(crate) fn rewrite_module_with_tracker(
             __dp_add(__dp_getitem(a, 1), __dp_getitem(b, 2))
             ```
     */
-    let core_blockpy: BlockPyModule<CoreBlockPyPassWithAwaitAndYield> = pass_tracker.run_pass(
-        "core_blockpy_with_await_and_yield",
-        semantic_blockpy,
-        lower_core_blockpy_with_await_and_yield,
-    );
+    let core_blockpy: BlockPyModule<CoreBlockPyPassWithAwaitAndYield> = pass_tracker
+        .run_pass("core_blockpy_with_await_and_yield", || {
+            lower_core_blockpy_with_await_and_yield(semantic_blockpy)
+        });
 
     /*
       A very simple pass to rewrite `await foo` into  `yield from __dp_await_iter(foo)`
     */
     let core_blockpy_without_await: BlockPyModule<CoreBlockPyPassWithYield> = pass_tracker
-        .run_pass(
-            "core_blockpy_with_yield",
-            core_blockpy,
-            lower_awaits_in_core_blockpy_module,
-        );
+        .run_pass("core_blockpy_with_yield", || {
+            lower_awaits_in_core_blockpy_module(core_blockpy)
+        });
 
     /*
      Convert generators into a state machine, driven by an internal `resume(send, throw)` function.
@@ -213,30 +208,26 @@ pub(crate) fn rewrite_module_with_tracker(
 
     */
     let core_blockpy_without_await_or_yield: BlockPyModule<CoreBlockPyPass> = pass_tracker
-        .run_pass(
-            "core_blockpy",
-            core_blockpy_without_await,
-            passes::lower_yield_in_lowered_core_blockpy_module_bundle,
-        );
-    let name_binding: BlockPyModule<ResolvedStorageBlockPyPass> = pass_tracker.run_pass(
-        "name_binding",
-        core_blockpy_without_await_or_yield,
-        passes::lower_name_binding_in_core_blockpy_module,
-    );
+        .run_pass("core_blockpy", || {
+            passes::lower_yield_in_lowered_core_blockpy_module_bundle(core_blockpy_without_await)
+        });
+    let name_binding: BlockPyModule<ResolvedStorageBlockPyPass> = pass_tracker
+        .run_pass("name_binding", || {
+            passes::lower_name_binding_in_core_blockpy_module(core_blockpy_without_await_or_yield)
+        });
     let trace_config = passes::parse_trace_env();
     let bb_prepared: BlockPyModule<ResolvedStorageBlockPyPass> =
-        pass_tracker.run_pass("bb_prepared", &name_binding, lower_bb_prepared);
-    let bb_codegen: BlockPyModule<ResolvedStorageBlockPyPass> = pass_tracker.run_pass(
-        "bb_codegen",
-        (&bb_prepared, context.source.as_str()),
-        lower_bb_codegen,
-    );
+        pass_tracker.run_pass("bb_prepared", || lower_bb_prepared(&name_binding));
+    let bb_codegen: BlockPyModule<ResolvedStorageBlockPyPass> = pass_tracker
+        .run_pass("bb_codegen", || {
+            lower_bb_codegen(&bb_prepared, context.source.as_str())
+        });
     let bb_traced: BlockPyModule<ResolvedStorageBlockPyPass> = if let Some(config) = trace_config {
-        pass_tracker.run_pass("bb_trace", (bb_codegen, &config), lower_bb_trace)
+        pass_tracker.run_pass("bb_trace", || lower_bb_trace(bb_codegen, &config))
     } else {
         bb_codegen
     };
-    pass_tracker.run_pass("bb_validate", bb_traced, lower_bb_validate)
+    pass_tracker.run_pass("bb_validate", || lower_bb_validate(bb_traced))
 }
 
 pub(crate) fn wrap_module_init(semantic_state: &mut SemanticAstState, module: &mut Suite) {
