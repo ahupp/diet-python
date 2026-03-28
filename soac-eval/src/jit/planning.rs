@@ -20,6 +20,17 @@ pub struct ClifPlan {
 }
 
 #[derive(Clone, Debug)]
+pub struct JitFunctionInfo {
+    pub entry_params: Vec<ClifBindingParam>,
+    pub entry_param_names: Vec<String>,
+    pub entry_param_default_sources: Vec<Option<ClifEntryParamDefaultSource>>,
+    pub ambient_param_names: Vec<String>,
+    pub owned_cell_slot_names: Vec<String>,
+    pub slot_names: Vec<String>,
+    pub blocks: Vec<JitBlockInfo>,
+}
+
+#[derive(Clone, Debug)]
 pub struct ClifBindingParam {
     pub name: String,
     pub kind: ClifBindingParamKind,
@@ -50,6 +61,13 @@ pub struct ClifBlockPlan {
     pub exc_target: Option<usize>,
     pub exc_dispatch: Option<BlockExcDispatchPlan>,
     pub fast_path: BlockFastPath,
+}
+
+#[derive(Clone, Debug)]
+pub struct JitBlockInfo {
+    pub runtime_param_names: Vec<String>,
+    pub exc_target: Option<usize>,
+    pub exc_dispatch: Option<BlockExcDispatchPlan>,
 }
 
 #[derive(Clone, Debug)]
@@ -180,8 +198,13 @@ pub struct DirectSimpleBlockPlan {
     pub term: DirectSimpleTermPlan,
 }
 
-type PlanRegistry = HashMap<PlanKey, ClifPlan>;
-type FunctionRegistry = HashMap<PlanKey, BlockPyFunction<CodegenBlockPyPass>>;
+#[derive(Clone)]
+struct RegisteredJitFunction {
+    function: BlockPyFunction<CodegenBlockPyPass>,
+    info: JitFunctionInfo,
+}
+
+type FunctionRegistry = HashMap<PlanKey, RegisteredJitFunction>;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct PlanKey {
@@ -189,7 +212,6 @@ pub struct PlanKey {
     pub function_id: usize,
 }
 
-static CLIF_PLAN_REGISTRY: OnceLock<Mutex<PlanRegistry>> = OnceLock::new();
 static BB_FUNCTION_REGISTRY: OnceLock<Mutex<FunctionRegistry>> = OnceLock::new();
 
 struct ValidatedPreparedBbFunction<'a> {
@@ -423,10 +445,6 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
             })
             .collect()
     }
-}
-
-fn clif_plan_registry() -> &'static Mutex<PlanRegistry> {
-    CLIF_PLAN_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn bb_function_registry() -> &'static Mutex<FunctionRegistry> {
@@ -673,7 +691,7 @@ fn direct_simple_block_plan_from_block(
     }
 }
 
-fn build_clif_plan(function: &BlockPyFunction<CodegenBlockPyPass>) -> ClifPlan {
+fn build_jit_function_info(function: &BlockPyFunction<CodegenBlockPyPass>) -> JitFunctionInfo {
     let function = ValidatedPreparedBbFunction::new(function);
     let slot_names = function.slot_names();
     let owned_cell_slot_names = match function.function.kind {
@@ -691,68 +709,22 @@ fn build_clif_plan(function: &BlockPyFunction<CodegenBlockPyPass>) -> ClifPlan {
         | BlockPyFunctionKind::Coroutine
         | BlockPyFunctionKind::AsyncGenerator => function.function.local_cell_slots(),
     };
-    let mut blocks = Vec::with_capacity(function.function.blocks.len());
-    for block in &function.function.blocks {
-        let exc_target = function.exc_target_index(block);
-        let exc_dispatch = function.exc_dispatch_plan(block, exc_target);
-        let runtime_param_names = function.jit_param_names_for_block(block);
-        let term = block.term.clone();
-        let fast_path = {
-            if block.body.is_empty() {
-                match &block.term {
-                    BlockPyTerm::Jump(target_label) => {
-                        let target_index = function.index_of_target(&target_label.target);
-                        let source_params = function.jit_param_names_for_block(block);
-                        let target_params = function.jit_param_names_for_index(target_index);
-                        if target_label.args.is_empty()
-                            && source_params.is_empty()
-                            && source_params == target_params
-                        {
-                            BlockFastPath::JumpPassThrough { target_index }
-                        } else {
-                            BlockFastPath::DirectSimpleBlock {
-                                plan: direct_simple_block_plan_from_block(&function, block),
-                            }
-                        }
-                    }
-                    BlockPyTerm::IfTerm(_) => {
-                        if let Some(plan) = direct_simple_brif_plan_from_block(&function, block) {
-                            BlockFastPath::DirectSimpleBrIf { plan }
-                        } else {
-                            BlockFastPath::DirectSimpleBlock {
-                                plan: direct_simple_block_plan_from_block(&function, block),
-                            }
-                        }
-                    }
-                    _ => {
-                        if let Some(plan) = direct_simple_plan_from_block(block) {
-                            BlockFastPath::DirectSimpleRet { plan }
-                        } else {
-                            BlockFastPath::DirectSimpleBlock {
-                                plan: direct_simple_block_plan_from_block(&function, block),
-                            }
-                        }
-                    }
-                }
-            } else if let Some(plan) = direct_simple_plan_from_block(block) {
-                BlockFastPath::DirectSimpleRet { plan }
-            } else {
-                BlockFastPath::DirectSimpleBlock {
-                    plan: direct_simple_block_plan_from_block(&function, block),
-                }
+    let blocks = function
+        .function
+        .blocks
+        .iter()
+        .map(|block| {
+            let exc_target = function.exc_target_index(block);
+            let exc_dispatch = function.exc_dispatch_plan(block, exc_target);
+            let runtime_param_names = function.jit_param_names_for_block(block);
+            JitBlockInfo {
+                runtime_param_names,
+                exc_target,
+                exc_dispatch,
             }
-        };
-        blocks.push(ClifBlockPlan {
-            label: block.label.to_string(),
-            param_names: block.param_name_vec(),
-            runtime_param_names,
-            term,
-            exc_target,
-            exc_dispatch,
-            fast_path,
-        });
-    }
-    ClifPlan {
+        })
+        .collect();
+    JitFunctionInfo {
         entry_params: function.entry_params(),
         entry_param_names: function.function.params.names(),
         entry_param_default_sources: function.entry_param_default_sources(),
@@ -763,28 +735,104 @@ fn build_clif_plan(function: &BlockPyFunction<CodegenBlockPyPass>) -> ClifPlan {
     }
 }
 
+fn classify_block_fast_path(
+    function: &ValidatedPreparedBbFunction<'_>,
+    block: &CodegenBlock,
+) -> BlockFastPath {
+    if block.body.is_empty() {
+        match &block.term {
+            BlockPyTerm::Jump(target_label) => {
+                let target_index = function.index_of_target(&target_label.target);
+                let source_params = function.jit_param_names_for_block(block);
+                let target_params = function.jit_param_names_for_index(target_index);
+                if target_label.args.is_empty()
+                    && source_params.is_empty()
+                    && source_params == target_params
+                {
+                    BlockFastPath::JumpPassThrough { target_index }
+                } else {
+                    BlockFastPath::DirectSimpleBlock {
+                        plan: direct_simple_block_plan_from_block(function, block),
+                    }
+                }
+            }
+            BlockPyTerm::IfTerm(_) => {
+                if let Some(plan) = direct_simple_brif_plan_from_block(function, block) {
+                    BlockFastPath::DirectSimpleBrIf { plan }
+                } else {
+                    BlockFastPath::DirectSimpleBlock {
+                        plan: direct_simple_block_plan_from_block(function, block),
+                    }
+                }
+            }
+            _ => {
+                if let Some(plan) = direct_simple_plan_from_block(block) {
+                    BlockFastPath::DirectSimpleRet { plan }
+                } else {
+                    BlockFastPath::DirectSimpleBlock {
+                        plan: direct_simple_block_plan_from_block(function, block),
+                    }
+                }
+            }
+        }
+    } else if let Some(plan) = direct_simple_plan_from_block(block) {
+        BlockFastPath::DirectSimpleRet { plan }
+    } else {
+        BlockFastPath::DirectSimpleBlock {
+            plan: direct_simple_block_plan_from_block(function, block),
+        }
+    }
+}
+
+fn build_clif_plan(
+    function: &BlockPyFunction<CodegenBlockPyPass>,
+    info: &JitFunctionInfo,
+) -> ClifPlan {
+    let validated = ValidatedPreparedBbFunction::new(function);
+    let blocks = function
+        .blocks
+        .iter()
+        .zip(info.blocks.iter())
+        .map(|(block, block_info)| ClifBlockPlan {
+            label: block.label.to_string(),
+            param_names: block.param_name_vec(),
+            runtime_param_names: block_info.runtime_param_names.clone(),
+            term: block.term.clone(),
+            exc_target: block_info.exc_target,
+            exc_dispatch: block_info.exc_dispatch.clone(),
+            fast_path: classify_block_fast_path(&validated, block),
+        })
+        .collect();
+    ClifPlan {
+        entry_params: info.entry_params.clone(),
+        entry_param_names: info.entry_param_names.clone(),
+        entry_param_default_sources: info.entry_param_default_sources.clone(),
+        ambient_param_names: info.ambient_param_names.clone(),
+        owned_cell_slot_names: info.owned_cell_slot_names.clone(),
+        slot_names: info.slot_names.clone(),
+        blocks,
+    }
+}
+
 pub fn register_clif_module_plans(
     module_name: &str,
     module: &BlockPyModule<CodegenBlockPyPass>,
 ) -> Result<(), String> {
-    let mut plans = HashMap::new();
     let mut functions = HashMap::new();
     for function in &module.callable_defs {
         let key = PlanKey {
             module: module_name.to_string(),
             function_id: function.function_id.0,
         };
-        let plan = build_clif_plan(function);
-        plans.insert(key.clone(), plan);
-        functions.insert(key, function.clone());
+        let info = build_jit_function_info(function);
+        functions.insert(
+            key,
+            RegisteredJitFunction {
+                function: function.clone(),
+                info,
+            },
+        );
     }
-
-    let mut registry = clif_plan_registry()
-        .lock()
-        .map_err(|_| "failed to lock bb plan registry".to_string())?;
-    registry.retain(|key, _| key.module != module_name);
-    registry.extend(plans);
-    drop(registry);
 
     let mut function_registry = bb_function_registry()
         .lock()
@@ -795,13 +843,15 @@ pub fn register_clif_module_plans(
 }
 
 pub fn lookup_clif_plan(module_name: &str, function_id: usize) -> Option<ClifPlan> {
-    let registry = clif_plan_registry().lock().ok()?;
-    registry
+    let registry = bb_function_registry().lock().ok()?;
+    let registered = registry
         .get(&PlanKey {
             module: module_name.to_string(),
             function_id,
         })
-        .cloned()
+        .cloned()?;
+    drop(registry);
+    Some(build_clif_plan(&registered.function, &registered.info))
 }
 
 pub fn lookup_blockpy_function(
@@ -814,5 +864,5 @@ pub fn lookup_blockpy_function(
             module: module_name.to_string(),
             function_id,
         })
-        .cloned()
+        .map(|registered| registered.function.clone())
 }
