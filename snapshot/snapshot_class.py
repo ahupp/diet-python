@@ -40,8 +40,8 @@ class C:
 
 # function _dp_class_ns_C(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 2
-#     local_cell_slots: [_dp_cell__dp_class_ns, _dp_cell__dp_classcell_arg, _dp_cell___annotate_func__, _dp_classcell, _dp_cell_m, _dp_cell_x]
-#     cellvars: [_dp_class_ns->_dp_cell__dp_class_ns@param, _dp_classcell_arg->_dp_cell__dp_classcell_arg@param, __annotate_func__->_dp_cell___annotate_func__@deferred, __class__->_dp_classcell@deferred, m->_dp_cell_m@deferred, x->_dp_cell_x@deferred]
+#     local_cell_slots: [_dp_cell__dp_class_ns, _dp_cell__dp_classcell_arg, _dp_classcell, _dp_cell_x, _dp_cell_m, _dp_cell___annotate_func__]
+#     cellvars: [_dp_class_ns->_dp_cell__dp_class_ns@param, _dp_classcell_arg->_dp_cell__dp_classcell_arg@param, __class__->_dp_classcell@deferred, x->_dp_cell_x@deferred, m->_dp_cell_m@deferred, __annotate_func__->_dp_cell___annotate_func__@deferred]
 #     block _dp_bb_2_1:
 #         params: [_dp_class_ns:Local, _dp_classcell_arg:Local]
 #         _dp_classcell = _dp_classcell_arg
@@ -183,8 +183,8 @@ def outer():
 
 # function outer():
 #     function_id: 2
-#     local_cell_slots: [_dp_cell_Inner, _dp_cell__dp_class_ns_Inner, _dp_cell__dp_define_class_Inner, _dp_cell_x]
-#     cellvars: [Inner->_dp_cell_Inner@deferred, _dp_class_ns_Inner->_dp_cell__dp_class_ns_Inner@deferred, _dp_define_class_Inner->_dp_cell__dp_define_class_Inner@deferred, x->_dp_cell_x@deferred]
+#     local_cell_slots: [_dp_cell_x, _dp_cell__dp_class_ns_Inner, _dp_cell__dp_define_class_Inner, _dp_cell_Inner]
+#     cellvars: [x->_dp_cell_x@deferred, _dp_class_ns_Inner->_dp_cell__dp_class_ns_Inner@deferred, _dp_define_class_Inner->_dp_cell__dp_define_class_Inner@deferred, Inner->_dp_cell_Inner@deferred]
 #     block _dp_bb_2_1:
 #         x = "outer"
 #         _dp_class_ns_Inner = __dp_make_function(0, "function", __dp_tuple(__dp_tuple("x", __dp_cell_ref("x"))), __dp_tuple(), __dp_globals(), None)
@@ -278,8 +278,8 @@ class A:
 
 # function _dp_class_ns_A(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 2
-#     local_cell_slots: [_dp_cell__dp_class_ns, _dp_cell__dp_classcell_arg, _dp_cell_B, _dp_cell__dp_class_ns_B, _dp_classcell, _dp_cell__dp_define_class_B]
-#     cellvars: [_dp_class_ns->_dp_cell__dp_class_ns@param, _dp_classcell_arg->_dp_cell__dp_classcell_arg@param, B->_dp_cell_B@deferred, _dp_class_ns_B->_dp_cell__dp_class_ns_B@deferred, __class__->_dp_classcell@deferred, _dp_define_class_B->_dp_cell__dp_define_class_B@deferred]
+#     local_cell_slots: [_dp_cell__dp_class_ns, _dp_cell__dp_classcell_arg, _dp_classcell, _dp_cell__dp_class_ns_B, _dp_cell__dp_define_class_B, _dp_cell_B]
+#     cellvars: [_dp_class_ns->_dp_cell__dp_class_ns@param, _dp_classcell_arg->_dp_cell__dp_classcell_arg@param, __class__->_dp_classcell@deferred, _dp_class_ns_B->_dp_cell__dp_class_ns_B@deferred, _dp_define_class_B->_dp_cell__dp_define_class_B@deferred, B->_dp_cell_B@deferred]
 #     block _dp_bb_2_1:
 #         params: [_dp_class_ns:Local, _dp_classcell_arg:Local]
 #         _dp_classcell = _dp_classcell_arg
@@ -338,8 +338,8 @@ def foo():
 
 # function foo.<locals>._dp_class_ns_A(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 2
-#     local_cell_slots: [_dp_cell__dp_class_ns, _dp_cell__dp_classcell_arg, _dp_cell_B, _dp_cell__dp_class_ns_B, _dp_classcell, _dp_cell__dp_define_class_B]
-#     cellvars: [_dp_class_ns->_dp_cell__dp_class_ns@param, _dp_classcell_arg->_dp_cell__dp_classcell_arg@param, B->_dp_cell_B@deferred, _dp_class_ns_B->_dp_cell__dp_class_ns_B@deferred, __class__->_dp_classcell@deferred, _dp_define_class_B->_dp_cell__dp_define_class_B@deferred]
+#     local_cell_slots: [_dp_cell__dp_class_ns, _dp_cell__dp_classcell_arg, _dp_classcell, _dp_cell__dp_class_ns_B, _dp_cell__dp_define_class_B, _dp_cell_B]
+#     cellvars: [_dp_class_ns->_dp_cell__dp_class_ns@param, _dp_classcell_arg->_dp_cell__dp_classcell_arg@param, __class__->_dp_classcell@deferred, _dp_class_ns_B->_dp_cell__dp_class_ns_B@deferred, _dp_define_class_B->_dp_cell__dp_define_class_B@deferred, B->_dp_cell_B@deferred]
 #     block _dp_bb_2_1:
 #         params: [_dp_class_ns:Local, _dp_classcell_arg:Local]
 #         _dp_classcell = _dp_classcell_arg

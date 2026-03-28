@@ -1,8 +1,5 @@
-use super::dataflow::{
-    analyze_blockpy_use_def, assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term,
-};
+use super::dataflow::{assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term};
 use super::{BlockPyNameLike, BlockPyTerm, CfgBlock, Expr, IntoBlockPyStmt};
-use std::collections::HashSet;
 
 pub(crate) fn collect_state_vars<S, E, N>(
     param_names: &[String],
@@ -13,35 +10,26 @@ where
     E: Clone + Into<Expr>,
     N: BlockPyNameLike,
 {
-    let mut defs_anywhere = HashSet::new();
-    for block in blocks {
-        for stmt in &block.body {
-            let stmt = stmt.clone().into_stmt();
-            defs_anywhere.extend(assigned_names_in_blockpy_stmt(&stmt));
-        }
-        defs_anywhere.extend(assigned_names_in_blockpy_term(&block.term));
-    }
-
     let mut state = param_names.to_vec();
     for block in blocks {
-        let (uses, defs) = analyze_blockpy_use_def(block);
-        let mut names = defs.into_iter().collect::<Vec<_>>();
-        for name in uses {
-            let is_special_runtime_state = name == "_dp_self"
-                || name.starts_with("_dp_cell_")
-                || name.starts_with("_dp_try_exc_")
-                || name.starts_with("_dp_try_abrupt_")
-                || name == "_dp_classcell";
-            let is_known_local = defs_anywhere.contains(name.as_str())
-                || param_names.iter().any(|param| param == &name);
-            let include = is_special_runtime_state || is_known_local;
-            if include {
-                names.push(name);
+        for param_name in block
+            .exception_param()
+            .into_iter()
+            .chain(block.param_names())
+        {
+            if !state.iter().any(|existing| existing == param_name) {
+                state.push(param_name.to_string());
             }
         }
-        names.sort();
-        names.dedup();
-        for name in names {
+        for stmt in &block.body {
+            let stmt = stmt.clone().into_stmt();
+            for name in assigned_names_in_blockpy_stmt(&stmt) {
+                if !state.iter().any(|existing| existing == &name) {
+                    state.push(name);
+                }
+            }
+        }
+        for name in assigned_names_in_blockpy_term(&block.term) {
             if !state.iter().any(|existing| existing == &name) {
                 state.push(name);
             }

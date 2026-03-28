@@ -352,18 +352,18 @@ with cm as x:
 #                         then:
 #                             block _dp_bb_0_7:
 #                                 exc_param: _dp_try_exc_0_3
-#                                 params: [_dp_try_exc_0_3:Exception, _dp_with_exit_1:Local, _dp_try_abrupt_payload_0_2:Local, _dp_try_abrupt_kind_0_1:Local]
+#                                 params: [_dp_try_exc_0_3:Exception, _dp_with_exit_1:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_abrupt_payload_0_2:Local]
 #                                 __dp_contextmanager_exit(_dp_with_exit_1, None)
 #                                 jump _dp_bb_0_6
 #                         else:
 #                             jump _dp_bb_0_6
 #                     block _dp_bb_0_6:
 #                         exc_param: _dp_try_exc_0_3
-#                         params: [_dp_try_exc_0_3:Exception, _dp_try_abrupt_payload_0_2:Local, _dp_try_abrupt_kind_0_1:Local]
+#                         params: [_dp_try_exc_0_3:Exception, _dp_try_abrupt_kind_0_1:Local, _dp_try_abrupt_payload_0_2:Local]
 #                         _dp_with_exit_1 = None
 #                         jump _dp_bb_0_1
 #                         block _dp_bb_0_1:
-#                             params: [_dp_try_abrupt_payload_0_2:Local, _dp_try_abrupt_kind_0_1:Local]
+#                             params: [_dp_try_abrupt_kind_0_1:Local, _dp_try_abrupt_payload_0_2:Local]
 #                             branch_table _dp_try_abrupt_kind_0_1 -> [_dp_bb_0_0, _dp_bb_0_2, _dp_bb_0_3] default _dp_bb_0_0
 #                             block _dp_bb_0_0:
 #                                 return __dp_NONE
@@ -435,7 +435,7 @@ zs = {k: v for k, v in items}
 #         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
 #         jump _dp_bb_0_1
 #         block _dp_bb_0_1:
-#             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local]
+#             params: [_dp_tmp_1:Local, _dp_iter_0_0:Local]
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
 #             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
@@ -444,12 +444,12 @@ zs = {k: v for k, v in items}
 #                         return _dp_tmp_1
 #                 else:
 #                     block _dp_bb_0_2:
-#                         params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, _dp_tmp_0_1:Local]
+#                         params: [_dp_tmp_1:Local, _dp_iter_0_0:Local, _dp_tmp_0_1:Local]
 #                         x = _dp_tmp_0_1
 #                         _dp_tmp_0_1 = None
 #                         jump _dp_bb_0_5
 #                         block _dp_bb_0_5:
-#                             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, x:Local]
+#                             params: [_dp_tmp_1:Local, _dp_iter_0_0:Local, x:Local]
 #                             _dp_tmp_1.append(x)
 #                             jump _dp_bb_0_1
 
@@ -462,7 +462,7 @@ zs = {k: v for k, v in items}
 #         _dp_iter_1_0 = __dp_iter(_dp_iter_5)
 #         jump _dp_bb_1_1
 #         block _dp_bb_1_1:
-#             params: [_dp_iter_1_0:Local, _dp_tmp_4:Local]
+#             params: [_dp_tmp_4:Local, _dp_iter_1_0:Local]
 #             _dp_tmp_1_1 = __dp_next_or_sentinel(_dp_iter_1_0)
 #             if_term __dp_is_(_dp_tmp_1_1, __dp__.ITER_COMPLETE):
 #                 then:
@@ -471,12 +471,12 @@ zs = {k: v for k, v in items}
 #                         return _dp_tmp_4
 #                 else:
 #                     block _dp_bb_1_2:
-#                         params: [_dp_iter_1_0:Local, _dp_tmp_4:Local, _dp_tmp_1_1:Local]
+#                         params: [_dp_tmp_4:Local, _dp_iter_1_0:Local, _dp_tmp_1_1:Local]
 #                         x = _dp_tmp_1_1
 #                         _dp_tmp_1_1 = None
 #                         jump _dp_bb_1_5
 #                         block _dp_bb_1_5:
-#                             params: [_dp_iter_1_0:Local, _dp_tmp_4:Local, x:Local]
+#                             params: [_dp_tmp_4:Local, _dp_iter_1_0:Local, x:Local]
 #                             _dp_tmp_4.add(x)
 #                             jump _dp_bb_1_1
 
@@ -489,7 +489,7 @@ zs = {k: v for k, v in items}
 #         _dp_iter_2_0 = __dp_iter(_dp_iter_8)
 #         jump _dp_bb_2_1
 #         block _dp_bb_2_1:
-#             params: [_dp_iter_2_0:Local, _dp_tmp_7:Local]
+#             params: [_dp_tmp_7:Local, _dp_iter_2_0:Local]
 #             _dp_tmp_2_1 = __dp_next_or_sentinel(_dp_iter_2_0)
 #             if_term __dp_is_(_dp_tmp_2_1, __dp__.ITER_COMPLETE):
 #                 then:
@@ -498,7 +498,7 @@ zs = {k: v for k, v in items}
 #                         return _dp_tmp_7
 #                 else:
 #                     block _dp_bb_2_2:
-#                         params: [_dp_iter_2_0:Local, _dp_tmp_7:Local, _dp_tmp_2_1:Local]
+#                         params: [_dp_tmp_7:Local, _dp_iter_2_0:Local, _dp_tmp_2_1:Local]
 #                         _dp_tmp_2_2 = __dp_unpack(_dp_tmp_2_1, __dp_tuple(True, True))
 #                         k = __dp_getitem(_dp_tmp_2_2, 0)
 #                         v = __dp_getitem(_dp_tmp_2_2, 1)
@@ -506,7 +506,7 @@ zs = {k: v for k, v in items}
 #                         _dp_tmp_2_1 = None
 #                         jump _dp_bb_2_5
 #                         block _dp_bb_2_5:
-#                             params: [_dp_iter_2_0:Local, _dp_tmp_7:Local, k:Local, v:Local]
+#                             params: [_dp_tmp_7:Local, _dp_iter_2_0:Local, k:Local, v:Local]
 #                             __dp_setitem(_dp_tmp_7, k, v)
 #                             jump _dp_bb_2_1
 
@@ -539,7 +539,7 @@ def f():
 #         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
 #         jump _dp_bb_0_1
 #         block _dp_bb_0_1:
-#             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local]
+#             params: [_dp_tmp_1:Local, _dp_iter_0_0:Local]
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
 #             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
@@ -548,16 +548,16 @@ def f():
 #                         return _dp_tmp_1
 #                 else:
 #                     block _dp_bb_0_2:
-#                         params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, _dp_tmp_0_1:Local]
+#                         params: [_dp_tmp_1:Local, _dp_iter_0_0:Local, _dp_tmp_0_1:Local]
 #                         x = _dp_tmp_0_1
 #                         _dp_tmp_0_1 = None
 #                         jump _dp_bb_0_5
 #                         block _dp_bb_0_5:
-#                             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, x:Local]
+#                             params: [_dp_tmp_1:Local, _dp_iter_0_0:Local, x:Local]
 #                             if_term __dp_gt(x, 0):
 #                                 then:
 #                                     block _dp_bb_0_6:
-#                                         params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, x:Local]
+#                                         params: [_dp_tmp_1:Local, _dp_iter_0_0:Local, x:Local]
 #                                         _dp_tmp_1.append(x)
 #                                         jump _dp_bb_0_1
 #                                 else:
@@ -593,7 +593,7 @@ class C:
 #         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
 #         jump _dp_bb_0_1
 #         block _dp_bb_0_1:
-#             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local]
+#             params: [_dp_tmp_1:Local, _dp_iter_0_0:Local]
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
 #             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
@@ -602,12 +602,12 @@ class C:
 #                         return _dp_tmp_1
 #                 else:
 #                     block _dp_bb_0_2:
-#                         params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, _dp_tmp_0_1:Local]
+#                         params: [_dp_tmp_1:Local, _dp_iter_0_0:Local, _dp_tmp_0_1:Local]
 #                         x = _dp_tmp_0_1
 #                         _dp_tmp_0_1 = None
 #                         jump _dp_bb_0_5
 #                         block _dp_bb_0_5:
-#                             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, x:Local]
+#                             params: [_dp_tmp_1:Local, _dp_iter_0_0:Local, x:Local]
 #                             _dp_tmp_1.append(x)
 #                             jump _dp_bb_0_1
 
@@ -661,11 +661,11 @@ with a as x, b as y:
 #             _dp_with_ok_2 = True
 #             jump _dp_bb_0_21
 #             block _dp_bb_0_21:
-#                 params: [_dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_try_exc_0_7:Local, _dp_with_exit_1:Local, _dp_with_ok_2:Local, _dp_try_abrupt_kind_0_5:Local, _dp_try_exc_0_4:Local]
+#                 params: [_dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_try_exc_0_7:Local, _dp_with_exit_1:Local, _dp_try_abrupt_kind_0_5:Local, _dp_try_exc_0_4:Local, _dp_with_ok_2:Local]
 #                 body()
 #                 jump _dp_bb_0_15__normal
 #                 block _dp_bb_0_15__normal:
-#                     params: [_dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_with_exit_1:Local, _dp_with_ok_2:Local, _dp_try_abrupt_kind_0_5:Local]
+#                     params: [_dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_with_exit_1:Local, _dp_try_abrupt_kind_0_5:Local, _dp_with_ok_2:Local]
 #                     jump _dp_bb_0_15(Fallthrough, None)
 #                     block _dp_bb_0_15:
 #                         exc_param: _dp_try_exc_0_7
@@ -674,18 +674,18 @@ with a as x, b as y:
 #                             then:
 #                                 block _dp_bb_0_17:
 #                                     exc_param: _dp_try_exc_0_7
-#                                     params: [_dp_try_exc_0_7:Exception, _dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_with_exit_1:Local, _dp_try_abrupt_payload_0_6:Local, _dp_try_abrupt_kind_0_5:Local]
+#                                     params: [_dp_try_exc_0_7:Exception, _dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_with_exit_1:Local, _dp_try_abrupt_kind_0_5:Local, _dp_try_abrupt_payload_0_6:Local]
 #                                     __dp_contextmanager_exit(_dp_with_exit_1, None)
 #                                     jump _dp_bb_0_16
 #                             else:
 #                                 jump _dp_bb_0_16
 #                         block _dp_bb_0_16:
 #                             exc_param: _dp_try_exc_0_7
-#                             params: [_dp_try_exc_0_7:Exception, _dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_try_abrupt_payload_0_6:Local, _dp_try_abrupt_kind_0_5:Local]
+#                             params: [_dp_try_exc_0_7:Exception, _dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_try_abrupt_kind_0_5:Local, _dp_try_abrupt_payload_0_6:Local]
 #                             _dp_with_exit_1 = None
 #                             jump _dp_bb_0_11
 #                             block _dp_bb_0_11:
-#                                 params: [_dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_try_abrupt_payload_0_6:Local, _dp_try_abrupt_kind_0_5:Local]
+#                                 params: [_dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_try_abrupt_kind_0_5:Local, _dp_try_abrupt_payload_0_6:Local]
 #                                 branch_table _dp_try_abrupt_kind_0_5 -> [_dp_bb_0_5__normal, _dp_bb_0_12, _dp_bb_0_13] default _dp_bb_0_5__normal
 #                                 block _dp_bb_0_12:
 #                                     params: [_dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_try_abrupt_payload_0_6:Local]
@@ -701,18 +701,18 @@ with a as x, b as y:
 #                                         then:
 #                                             block _dp_bb_0_7:
 #                                                 exc_param: _dp_try_exc_0_3
-#                                                 params: [_dp_try_exc_0_3:Exception, _dp_with_exit_4:Local, _dp_try_abrupt_payload_0_2:Local, _dp_try_abrupt_kind_0_1:Local]
+#                                                 params: [_dp_try_exc_0_3:Exception, _dp_with_exit_4:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_abrupt_payload_0_2:Local]
 #                                                 __dp_contextmanager_exit(_dp_with_exit_4, None)
 #                                                 jump _dp_bb_0_6
 #                                         else:
 #                                             jump _dp_bb_0_6
 #                                     block _dp_bb_0_6:
 #                                         exc_param: _dp_try_exc_0_3
-#                                         params: [_dp_try_exc_0_3:Exception, _dp_try_abrupt_payload_0_2:Local, _dp_try_abrupt_kind_0_1:Local]
+#                                         params: [_dp_try_exc_0_3:Exception, _dp_try_abrupt_kind_0_1:Local, _dp_try_abrupt_payload_0_2:Local]
 #                                         _dp_with_exit_4 = None
 #                                         jump _dp_bb_0_1
 #                                         block _dp_bb_0_1:
-#                                             params: [_dp_try_abrupt_payload_0_2:Local, _dp_try_abrupt_kind_0_1:Local]
+#                                             params: [_dp_try_abrupt_kind_0_1:Local, _dp_try_abrupt_payload_0_2:Local]
 #                                             branch_table _dp_try_abrupt_kind_0_1 -> [_dp_bb_0_0, _dp_bb_0_2, _dp_bb_0_3] default _dp_bb_0_0
 #                                             block _dp_bb_0_0:
 #                                                 return __dp_NONE
@@ -731,11 +731,11 @@ with a as x, b as y:
 #         raise _dp_try_exc_0_0
 #     block _dp_bb_0_15__exception:
 #         exc_param: _dp_try_exc_0_7
-#         params: [_dp_try_exc_0_7:Exception, _dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_with_exit_1:Local, _dp_with_ok_2:Local, _dp_try_abrupt_kind_0_5:Local]
+#         params: [_dp_try_exc_0_7:Exception, _dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_with_exit_1:Local, _dp_try_abrupt_kind_0_5:Local, _dp_with_ok_2:Local]
 #         jump _dp_bb_0_15(Exception, _dp_try_exc_0_7)
 #     block _dp_bb_0_18:
 #         exc_param: _dp_try_exc_0_4
-#         params: [_dp_try_exc_0_4:Exception, _dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_try_exc_0_7:Local, _dp_with_exit_1:Local, _dp_with_ok_2:Local, _dp_try_abrupt_kind_0_5:Local]
+#         params: [_dp_try_exc_0_4:Exception, _dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_try_exc_0_7:Local, _dp_with_exit_1:Local, _dp_try_abrupt_kind_0_5:Local, _dp_with_ok_2:Local]
 #         if_term __dp_exception_matches(_dp_try_exc_0_4, BaseException):
 #             then:
 #                 jump _dp_bb_0_19
@@ -749,7 +749,7 @@ with a as x, b as y:
 #         jump _dp_bb_0_15__normal
 #     block _dp_bb_0_20:
 #         exc_param: _dp_try_exc_0_4
-#         params: [_dp_try_exc_0_4:Exception, _dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_try_exc_0_7:Local, _dp_with_exit_1:Local, _dp_with_ok_2:Local, _dp_try_abrupt_kind_0_5:Local]
+#         params: [_dp_try_exc_0_4:Exception, _dp_with_exit_4:Local, _dp_with_ok_5:Local, _dp_try_exc_0_3:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_exc_0_0:Local, _dp_try_exc_0_7:Local, _dp_with_exit_1:Local, _dp_try_abrupt_kind_0_5:Local, _dp_with_ok_2:Local]
 #         raise _dp_try_exc_0_4
 #     block _dp_bb_0_5__exception:
 #         exc_param: _dp_try_exc_0_3
@@ -841,18 +841,18 @@ async def run():
 #                         then:
 #                             block _dp_bb_0_7:
 #                                 exc_param: _dp_try_exc_0_3
-#                                 params: [_dp_try_exc_0_3:Exception, _dp_with_exit_1:Local, _dp_try_abrupt_payload_0_2:Local, _dp_try_abrupt_kind_0_1:Local]
+#                                 params: [_dp_try_exc_0_3:Exception, _dp_with_exit_1:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_abrupt_payload_0_2:Local]
 #                                 await __dp_asynccontextmanager_exit(_dp_with_exit_1, None)
 #                                 jump _dp_bb_0_6
 #                         else:
 #                             jump _dp_bb_0_6
 #                     block _dp_bb_0_6:
 #                         exc_param: _dp_try_exc_0_3
-#                         params: [_dp_try_exc_0_3:Exception, _dp_try_abrupt_payload_0_2:Local, _dp_try_abrupt_kind_0_1:Local]
+#                         params: [_dp_try_exc_0_3:Exception, _dp_try_abrupt_kind_0_1:Local, _dp_try_abrupt_payload_0_2:Local]
 #                         _dp_with_exit_1 = None
 #                         jump _dp_bb_0_1
 #                         block _dp_bb_0_1:
-#                             params: [_dp_try_abrupt_payload_0_2:Local, _dp_try_abrupt_kind_0_1:Local]
+#                             params: [_dp_try_abrupt_kind_0_1:Local, _dp_try_abrupt_payload_0_2:Local]
 #                             branch_table _dp_try_abrupt_kind_0_1 -> [_dp_bb_0_0, _dp_bb_0_2, _dp_bb_0_3] default _dp_bb_0_0
 #                             block _dp_bb_0_0:
 #                                 return __dp_NONE
@@ -987,7 +987,7 @@ with Suppress():
 #     block _dp_bb_0_0:
 #         return __dp_NONE
 #     block _dp_bb_0_1:
-#         params: [_dp_try_abrupt_payload_0_2:Local, _dp_try_abrupt_kind_0_1:Local]
+#         params: [_dp_try_abrupt_kind_0_1:Local, _dp_try_abrupt_payload_0_2:Local]
 #         branch_table _dp_try_abrupt_kind_0_1 -> [_dp_bb_0_0, _dp_bb_0_2, _dp_bb_0_3] default _dp_bb_0_0
 #     block _dp_bb_0_10:
 #         exc_param: _dp_try_exc_0_0
@@ -1016,13 +1016,13 @@ with Suppress():
 #         jump _dp_bb_0_5(Fallthrough, None)
 #     block _dp_bb_0_6:
 #         exc_param: _dp_try_exc_0_3
-#         params: [_dp_try_exc_0_3:Exception, _dp_try_abrupt_payload_0_2:Local, _dp_try_abrupt_kind_0_1:Local]
+#         params: [_dp_try_exc_0_3:Exception, _dp_try_abrupt_kind_0_1:Local, _dp_try_abrupt_payload_0_2:Local]
 #         _dp_with_exit_1 = None
 #         _dp_tmp_4 = None
 #         jump _dp_bb_0_1
 #     block _dp_bb_0_7:
 #         exc_param: _dp_try_exc_0_3
-#         params: [_dp_try_exc_0_3:Exception, _dp_with_exit_1:Local, _dp_try_abrupt_payload_0_2:Local, _dp_try_abrupt_kind_0_1:Local]
+#         params: [_dp_try_exc_0_3:Exception, _dp_with_exit_1:Local, _dp_try_abrupt_kind_0_1:Local, _dp_try_abrupt_payload_0_2:Local]
 #         __dp_contextmanager_exit(_dp_with_exit_1, None)
 #         jump _dp_bb_0_6
 #     block _dp_bb_0_8:
@@ -1062,8 +1062,8 @@ def outer():
 
 # function outer():
 #     function_id: 1
-#     local_cell_slots: [_dp_cell_inner, _dp_cell_x]
-#     cellvars: [inner->_dp_cell_inner@deferred, x->_dp_cell_x@deferred]
+#     local_cell_slots: [_dp_cell_x, _dp_cell_inner]
+#     cellvars: [x->_dp_cell_x@deferred, inner->_dp_cell_inner@deferred]
 #     block _dp_bb_1_1:
 #         x = 5
 #         inner = __dp_make_function(0, "function", __dp_tuple(__dp_tuple("x", __dp_cell_ref("x"))), __dp_tuple(), __dp_globals(), None)
@@ -1134,8 +1134,8 @@ def outer():
 
 # function outer():
 #     function_id: 1
-#     local_cell_slots: [_dp_cell_inner, _dp_cell_x]
-#     cellvars: [inner->_dp_cell_inner@deferred, x->_dp_cell_x@deferred]
+#     local_cell_slots: [_dp_cell_x, _dp_cell_inner]
+#     cellvars: [x->_dp_cell_x@deferred, inner->_dp_cell_inner@deferred]
 #     block _dp_bb_1_1:
 #         x = 5
 #         inner = __dp_make_function(0, "function", __dp_tuple(__dp_tuple("x", __dp_cell_ref("x"))), __dp_tuple(), __dp_globals(), None)

@@ -327,7 +327,7 @@ x = [i for i in it]
 #         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
 #         jump _dp_bb_0_1
 #         block _dp_bb_0_1:
-#             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local]
+#             params: [_dp_tmp_1:Local, _dp_iter_0_0:Local]
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
 #             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
@@ -336,12 +336,12 @@ x = [i for i in it]
 #                         return _dp_tmp_1
 #                 else:
 #                     block _dp_bb_0_2:
-#                         params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, _dp_tmp_0_1:Local]
+#                         params: [_dp_tmp_1:Local, _dp_iter_0_0:Local, _dp_tmp_0_1:Local]
 #                         i = _dp_tmp_0_1
 #                         _dp_tmp_0_1 = None
 #                         jump _dp_bb_0_5
 #                         block _dp_bb_0_5:
-#                             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, i:Local]
+#                             params: [_dp_tmp_1:Local, _dp_iter_0_0:Local, i:Local]
 #                             _dp_tmp_1.append(i)
 #                             jump _dp_bb_0_1
 
@@ -367,7 +367,7 @@ x = {i for i in it}
 #         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
 #         jump _dp_bb_0_1
 #         block _dp_bb_0_1:
-#             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local]
+#             params: [_dp_tmp_1:Local, _dp_iter_0_0:Local]
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
 #             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
@@ -376,12 +376,12 @@ x = {i for i in it}
 #                         return _dp_tmp_1
 #                 else:
 #                     block _dp_bb_0_2:
-#                         params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, _dp_tmp_0_1:Local]
+#                         params: [_dp_tmp_1:Local, _dp_iter_0_0:Local, _dp_tmp_0_1:Local]
 #                         i = _dp_tmp_0_1
 #                         _dp_tmp_0_1 = None
 #                         jump _dp_bb_0_5
 #                         block _dp_bb_0_5:
-#                             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, i:Local]
+#                             params: [_dp_tmp_1:Local, _dp_iter_0_0:Local, i:Local]
 #                             _dp_tmp_1.add(i)
 #                             jump _dp_bb_0_1
 
@@ -407,7 +407,7 @@ x = {k: v for k, v in it}
 #         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
 #         jump _dp_bb_0_1
 #         block _dp_bb_0_1:
-#             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local]
+#             params: [_dp_tmp_1:Local, _dp_iter_0_0:Local]
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
 #             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
 #                 then:
@@ -416,7 +416,7 @@ x = {k: v for k, v in it}
 #                         return _dp_tmp_1
 #                 else:
 #                     block _dp_bb_0_2:
-#                         params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, _dp_tmp_0_1:Local]
+#                         params: [_dp_tmp_1:Local, _dp_iter_0_0:Local, _dp_tmp_0_1:Local]
 #                         _dp_tmp_0_2 = __dp_unpack(_dp_tmp_0_1, __dp_tuple(True, True))
 #                         k = __dp_getitem(_dp_tmp_0_2, 0)
 #                         v = __dp_getitem(_dp_tmp_0_2, 1)
@@ -424,7 +424,7 @@ x = {k: v for k, v in it}
 #                         _dp_tmp_0_1 = None
 #                         jump _dp_bb_0_5
 #                         block _dp_bb_0_5:
-#                             params: [_dp_iter_0_0:Local, _dp_tmp_1:Local, k:Local, v:Local]
+#                             params: [_dp_tmp_1:Local, _dp_iter_0_0:Local, k:Local, v:Local]
 #                             __dp_setitem(_dp_tmp_1, k, v)
 #                             jump _dp_bb_0_1
 
