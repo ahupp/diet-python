@@ -26,7 +26,8 @@ fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
 fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
     transform_str_to_ruff(source)
         .unwrap()
-        .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .pass_tracker
+        .get::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
         .expect("semantic_blockpy pass should be tracked")
 }
@@ -34,7 +35,8 @@ fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
 fn wrapped_core_blockpy(source: &str) -> BlockPyModule<CoreBlockPyPass> {
     transform_str_to_ruff(source)
         .unwrap()
-        .get_pass::<BlockPyModule<CoreBlockPyPass>>("core_blockpy")
+        .pass_tracker
+        .get::<BlockPyModule<CoreBlockPyPass>>("core_blockpy")
         .cloned()
         .expect("core_blockpy pass should be tracked")
 }

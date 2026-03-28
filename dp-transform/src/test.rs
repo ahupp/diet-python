@@ -15,5 +15,5 @@ fn pass_tracker_renders_tracked_pass_text_for_renderable_passes() {
     let mut tracker = RecordingPassTracker::new();
     let _suite: Suite = tracker.run_pass("one", || vec![py_stmt!("x = 1")]);
 
-    assert_eq!(tracker.render_text("one").as_deref(), Some("x = 1\n"));
+    assert_eq!(tracker.render_pass_text("one").as_deref(), Some("x = 1\n"));
 }

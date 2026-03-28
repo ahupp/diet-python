@@ -96,6 +96,7 @@ fn debug_pass_shape(
         }
     })?;
     let summary = output
+        .pass_tracker
         .summarize_pass_shape(pass_name)
         .ok_or_else(|| PyRuntimeError::new_err(format!("no tracked pass named {pass_name}")))?;
     let payload = PyDict::new(py);
@@ -119,8 +120,9 @@ fn inspect_pipeline(source: &str, ensure: Option<bool>) -> PyResult<String> {
         "label": "input source",
         "text": source,
     })];
-    for name in output.pass_names() {
+    for name in output.pass_tracker.pass_names() {
         let text = output
+            .pass_tracker
             .render_pass_text(name)
             .unwrap_or_else(|| format!("; no text renderer for pass {name}"));
         steps.push(json!({

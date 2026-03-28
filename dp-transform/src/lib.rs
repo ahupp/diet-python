@@ -88,7 +88,7 @@ pub struct LoweringResult<P = RecordingPassTracker> {
     pub timings: TransformTimings,
     pub module: ModModule,
     pub bb_codegen_module: Option<BlockPyModule<ResolvedStorageBlockPyPass>>,
-    passes: P,
+    pub pass_tracker: P,
 }
 
 struct TrackedPass {
@@ -162,23 +162,27 @@ impl RecordingPassTracker {
         Self { passes: Vec::new() }
     }
 
-    pub(crate) fn get<T: Any>(&self, name: &str) -> Option<&T> {
+    pub fn get<T: Any>(&self, name: &str) -> Option<&T> {
         self.passes
             .iter()
             .find(|pass| pass.name == name)
             .and_then(|pass| pass.value.downcast_ref::<T>())
     }
 
-    fn names(&self) -> impl Iterator<Item = &str> {
+    pub fn pass_names(&self) -> impl Iterator<Item = &str> {
         self.passes.iter().map(|pass| pass.name.as_str())
     }
 
-    fn render_text(&self, name: &str) -> Option<String> {
+    pub fn summarize_pass_shape(&self, name: &str) -> Option<PassShapeSummary> {
+        crate::passes::summarize_tracked_pass_shape(self, name)
+    }
+
+    pub fn render_pass_text(&self, name: &str) -> Option<String> {
         let pass = self.passes.iter().find(|pass| pass.name == name)?;
         pass.render_text.map(|render| render(pass.value.as_ref()))
     }
 
-    fn timings(&self) -> impl Iterator<Item = PassTiming> + '_ {
+    pub fn pass_timings(&self) -> impl Iterator<Item = PassTiming> + '_ {
         self.passes.iter().map(|pass| PassTiming {
             name: pass.name.clone(),
             elapsed: pass.elapsed,
@@ -206,28 +210,6 @@ impl PassTracker for RecordingPassTracker {
             render_text: Some(render_tracked_pass_value::<T>),
         });
         value
-    }
-}
-
-impl LoweringResult<RecordingPassTracker> {
-    pub fn get_pass<T: Any>(&self, name: &str) -> Option<&T> {
-        self.passes.get::<T>(name)
-    }
-
-    pub fn summarize_pass_shape(&self, name: &str) -> Option<PassShapeSummary> {
-        crate::passes::summarize_tracked_pass_shape(self, name)
-    }
-
-    pub fn render_pass_text(&self, name: &str) -> Option<String> {
-        self.passes.render_text(name)
-    }
-
-    pub fn pass_names(&self) -> impl Iterator<Item = &str> {
-        self.passes.names()
-    }
-
-    pub fn pass_timings(&self) -> impl Iterator<Item = PassTiming> + '_ {
-        self.passes.timings()
     }
 }
 
@@ -310,13 +292,13 @@ pub fn transform_str_to_ruff(source: &str) -> Result<LoweringResult> {
         parse_time,
         rewrite_time,
         total_time,
-        pass_times: pass_tracker.timings().collect(),
+        pass_times: pass_tracker.pass_timings().collect(),
     };
     Ok(LoweringResult {
         timings,
         module,
         bb_codegen_module,
-        passes: pass_tracker,
+        pass_tracker,
     })
 }
 
@@ -338,21 +320,25 @@ pub fn transform_str_to_ruff_no_passes(source: &str) -> Result<LoweringResult<No
         },
         module,
         bb_codegen_module,
-        passes: pass_tracker,
+        pass_tracker,
     })
 }
 
 pub fn transform_str_to_bb_ir(
     source: &str,
 ) -> Result<Option<BlockPyModule<ResolvedStorageBlockPyPass>>> {
-    Ok(transform_str_to_ruff(source)?
-        .get_pass::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
+    let result = transform_str_to_ruff(source)?;
+    Ok(result
+        .pass_tracker
+        .get::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
         .cloned())
 }
 
 pub fn transform_str_to_blockpy(source: &str) -> Result<BlockPyModule<RuffBlockPyPass>> {
-    Ok(transform_str_to_ruff(source)?
-        .get_pass::<BlockPyModule<crate::passes::RuffBlockPyPass>>("semantic_blockpy")
+    let result = transform_str_to_ruff(source)?;
+    Ok(result
+        .pass_tracker
+        .get::<BlockPyModule<crate::passes::RuffBlockPyPass>>("semantic_blockpy")
         .expect("blockpy pass should be tracked")
         .clone())
 }

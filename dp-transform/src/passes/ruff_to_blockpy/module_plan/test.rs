@@ -74,7 +74,8 @@ fn callable_semantic_info_uses_logical_storage_for_cell_captures() {
     );
     let blockpy_module = transform_str_to_ruff(source)
         .unwrap()
-        .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .pass_tracker
+        .get::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
         .expect("semantic_blockpy pass should be tracked");
     let inner = blockpy_module
@@ -110,7 +111,8 @@ fn callable_semantic_info_maps_classcell_capture_source_back_to_dunder_class() {
     );
     let blockpy_module = transform_str_to_ruff(source)
         .unwrap()
-        .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .pass_tracker
+        .get::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
         .expect("semantic_blockpy pass should be tracked");
     let f = blockpy_module
@@ -208,7 +210,8 @@ fn callable_semantic_info_tracks_bind_and_qualname_for_class_helper_override() {
     let source = "class Box:\n    value = 1\n";
     let blockpy_module = transform_str_to_ruff(source)
         .unwrap()
-        .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .pass_tracker
+        .get::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
         .expect("semantic_blockpy pass should be tracked");
     let class_helper = blockpy_module
@@ -226,7 +229,8 @@ fn callable_semantic_info_marks_class_helper_as_owning_classcell() {
     let source = "class Box:\n    pass\n";
     let blockpy_module = transform_str_to_ruff(source)
         .unwrap()
-        .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .pass_tracker
+        .get::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
         .expect("semantic_blockpy pass should be tracked");
     let class_helper = blockpy_module
@@ -253,7 +257,8 @@ fn callable_semantic_info_distinguishes_class_type_params_from_class_body_locals
     let source = "class Box[T]:\n    value = T\n";
     let blockpy_module = transform_str_to_ruff(source)
         .unwrap()
-        .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .pass_tracker
+        .get::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
         .expect("semantic_blockpy pass should be tracked");
     let class_helper = blockpy_module
@@ -312,7 +317,8 @@ fn callable_semantic_info_keeps_class_attrs_out_of_cell_bindings() {
     );
     let blockpy_module = transform_str_to_ruff(source)
         .unwrap()
-        .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .pass_tracker
+        .get::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
         .expect("semantic_blockpy pass should be tracked");
     let class_helper = blockpy_module
@@ -344,7 +350,8 @@ fn callable_semantic_info_records_class_cell_fallback_for_outer_reads() {
     );
     let blockpy_module = transform_str_to_ruff(source)
         .unwrap()
-        .get_pass::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .pass_tracker
+        .get::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
         .expect("semantic_blockpy pass should be tracked");
     let class_helper = blockpy_module

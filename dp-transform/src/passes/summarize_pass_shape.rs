@@ -67,25 +67,25 @@ where
 }
 
 pub(crate) fn summarize_tracked_pass_shape(
-    result: &crate::LoweringResult,
+    tracker: &crate::RecordingPassTracker,
     name: &str,
 ) -> Option<crate::PassShapeSummary> {
-    if let Some(module) = result.get_pass::<BlockPyModule<RuffBlockPyPass>>(name) {
+    if let Some(module) = tracker.get::<BlockPyModule<RuffBlockPyPass>>(name) {
         return Some(summarize_blockpy_module(module));
     }
-    if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyPassWithAwaitAndYield>>(name) {
+    if let Some(module) = tracker.get::<BlockPyModule<CoreBlockPyPassWithAwaitAndYield>>(name) {
         return Some(summarize_blockpy_module(module));
     }
-    if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyPassWithYield>>(name) {
+    if let Some(module) = tracker.get::<BlockPyModule<CoreBlockPyPassWithYield>>(name) {
         return Some(summarize_blockpy_module(module));
     }
-    if let Some(module) = result.get_pass::<BlockPyModule<CoreBlockPyPass>>(name) {
+    if let Some(module) = tracker.get::<BlockPyModule<CoreBlockPyPass>>(name) {
         return Some(summarize_blockpy_module(module));
     }
-    if let Some(module) = result.get_pass::<BlockPyModule<ResolvedStorageBlockPyPass>>(name) {
+    if let Some(module) = tracker.get::<BlockPyModule<ResolvedStorageBlockPyPass>>(name) {
         return Some(summarize_blockpy_module(module));
     }
-    if let Some(module) = result.get_pass::<BlockPyModule<ResolvedStorageBlockPyPass>>(name) {
+    if let Some(module) = tracker.get::<BlockPyModule<ResolvedStorageBlockPyPass>>(name) {
         return Some(summarize_blockpy_module(module));
     }
     None

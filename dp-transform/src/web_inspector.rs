@@ -25,8 +25,9 @@ fn pipeline_steps(source: &str, transformed: &LoweringResult) -> Vec<Value> {
         "label": "input source",
         "text": source,
     })];
-    for name in transformed.pass_names() {
+    for name in transformed.pass_tracker.pass_names() {
         let text = transformed
+            .pass_tracker
             .render_pass_text(name)
             .unwrap_or_else(|| format!("; no text renderer for pass {name}"));
         steps.push(json!({

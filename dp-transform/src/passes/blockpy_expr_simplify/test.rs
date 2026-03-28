@@ -40,7 +40,8 @@ def f(x):
 "#;
     let blockpy = transform_str_to_ruff(source)
         .unwrap()
-        .get_pass::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .pass_tracker
+        .get::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
         .expect("expected lowered semantic BlockPy module");
     let core = simplify_blockpy_module_exprs(blockpy.clone());
@@ -254,7 +255,8 @@ def f(*, d={"metaclass": Meta}, **kw):
 "#;
     let blockpy = transform_str_to_ruff(source)
         .unwrap()
-        .get_pass::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .pass_tracker
+        .get::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
         .cloned()
         .expect("expected lowered semantic BlockPy module");
     let rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);

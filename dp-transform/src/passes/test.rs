@@ -48,13 +48,15 @@ impl TrackedLowering {
 
     fn pass_text(&self, name: &str) -> String {
         self.result
+            .pass_tracker
             .render_pass_text(name)
             .unwrap_or_else(|| panic!("expected renderable pass {name}"))
     }
 
     fn bb_module(&self) -> &BlockPyModule<ResolvedStorageBlockPyPass> {
         self.result
-            .get_pass::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
+            .pass_tracker
+            .get::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
             .expect("bb module should be available")
     }
 
@@ -1077,7 +1079,8 @@ def delegator():
     let lowered = TrackedLowering::new(source);
     let core_module = lowered
         .result
-        .get_pass::<BlockPyModule<CoreBlockPyPass>>("core_blockpy")
+        .pass_tracker
+        .get::<BlockPyModule<CoreBlockPyPass>>("core_blockpy")
         .expect("expected core no-yield pass");
     let resume_function = core_module
         .callable_defs
@@ -1699,7 +1702,8 @@ def outer(x):
     );
     let name_binding_module = lowered
         .result
-        .get_pass::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
+        .pass_tracker
+        .get::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
         .expect("name_binding pass should be available");
     let outer = name_binding_module
         .callable_defs
@@ -2615,7 +2619,8 @@ class Field:
     for (name, source) in [("pass", pass_source), ("fail", fail_source)] {
         let lowered = transform_str_to_ruff(source).expect("transform should succeed");
         let blockpy = lowered
-            .get_pass::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+            .pass_tracker
+            .get::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
             .cloned()
             .expect("expected lowered semantic BlockPy module");
         let blockpy_rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
