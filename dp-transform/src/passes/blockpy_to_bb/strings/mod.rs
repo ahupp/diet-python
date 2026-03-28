@@ -1,6 +1,6 @@
 use crate::block_py::{
-    BbStmt, BlockPyModule, BlockPyRaise, BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg,
-    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBytesLiteral, IntrinsicCall,
+    map_call_args_with, map_keyword_args_with, BlockPyModule, BlockPyModuleMap, CoreBlockPyCall,
+    CoreBlockPyCallArg, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBytesLiteral, IntrinsicCall,
     LocatedCoreBlockPyExpr, LocatedName, NameLocation,
 };
 use crate::passes::PreparedBbBlockPyPass;
@@ -11,62 +11,36 @@ pub fn normalize_bb_module_strings(
     module: &BlockPyModule<PreparedBbBlockPyPass>,
     source: &str,
 ) -> BlockPyModule<PreparedBbBlockPyPass> {
-    let mut normalized = module.clone();
-    let mut rewriter = CodegenExprNormalizer { source };
-    for function in &mut normalized.callable_defs {
-        for block in &mut function.blocks {
-            for op in &mut block.body {
-                match op {
-                    BbStmt::Assign(assign) => rewrite_bb_expr(&mut rewriter, &mut assign.value),
-                    BbStmt::Expr(expr) => rewrite_bb_expr(&mut rewriter, expr),
-                    BbStmt::Delete(_) => {}
-                }
-            }
-            rewrite_term_exprs(&mut rewriter, &mut block.term);
-        }
-    }
-    normalized
-}
-
-fn rewrite_term_exprs(
-    rewriter: &mut CodegenExprNormalizer,
-    term: &mut BlockPyTerm<LocatedCoreBlockPyExpr>,
-) {
-    match term {
-        BlockPyTerm::Jump(_) => {}
-        BlockPyTerm::IfTerm(if_term) => rewrite_bb_expr(rewriter, &mut if_term.test),
-        BlockPyTerm::BranchTable(branch) => rewrite_bb_expr(rewriter, &mut branch.index),
-        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
-            if let Some(exc) = exc.as_mut() {
-                rewrite_bb_expr(rewriter, exc);
-            }
-        }
-        BlockPyTerm::Return(value) => rewrite_bb_expr(rewriter, value),
-    }
-}
-
-fn rewrite_bb_expr(rewriter: &mut CodegenExprNormalizer, expr: &mut LocatedCoreBlockPyExpr) {
-    rewriter.rewrite_expr(expr);
+    module.clone().map_module(&CodegenExprNormalizer { source })
 }
 
 struct CodegenExprNormalizer<'a> {
     source: &'a str,
 }
 
-impl CodegenExprNormalizer<'_> {
-    fn rewrite_expr(&mut self, expr: &mut LocatedCoreBlockPyExpr) {
-        match expr {
-            LocatedCoreBlockPyExpr::Call(call) => {
-                self.rewrite_expr(call.func.as_mut());
-                rewrite_call_parts(self, &mut call.args, &mut call.keywords);
-            }
-            LocatedCoreBlockPyExpr::Intrinsic(IntrinsicCall { args, .. }) => {
-                for arg in args {
-                    self.rewrite_expr(arg);
-                }
-            }
-            LocatedCoreBlockPyExpr::Name(_) | LocatedCoreBlockPyExpr::Literal(_) => {}
-        }
+impl BlockPyModuleMap<PreparedBbBlockPyPass, PreparedBbBlockPyPass> for CodegenExprNormalizer<'_> {
+    fn map_expr(&self, expr: LocatedCoreBlockPyExpr) -> LocatedCoreBlockPyExpr {
+        let expr = match expr {
+            LocatedCoreBlockPyExpr::Call(call) => LocatedCoreBlockPyExpr::Call(CoreBlockPyCall {
+                node_index: call.node_index,
+                range: call.range,
+                func: Box::new(self.map_expr(*call.func)),
+                args: map_call_args_with(call.args, |expr| self.map_expr(expr)),
+                keywords: map_keyword_args_with(call.keywords, |expr| self.map_expr(expr)),
+            }),
+            LocatedCoreBlockPyExpr::Intrinsic(IntrinsicCall {
+                intrinsic,
+                node_index,
+                range,
+                args,
+            }) => LocatedCoreBlockPyExpr::Intrinsic(IntrinsicCall {
+                intrinsic,
+                node_index,
+                range,
+                args: args.into_iter().map(|expr| self.map_expr(expr)).collect(),
+            }),
+            LocatedCoreBlockPyExpr::Name(_) | LocatedCoreBlockPyExpr::Literal(_) => expr,
+        };
 
         match expr {
             LocatedCoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(node)) => {
@@ -74,27 +48,13 @@ impl CodegenExprNormalizer<'_> {
                 if let Some(src) = source_slice(self.source, node.range) {
                     if has_surrogate_escape(src) {
                         let wrapped = format!("({src})");
-                        *expr = decode_literal_source_bytes_call_expr(wrapped.as_bytes(), meta);
-                        return;
+                        return decode_literal_source_bytes_call_expr(wrapped.as_bytes(), meta);
                     }
                 }
-                *expr = str_bytes_call_expr_with_meta(node.value.as_bytes(), meta);
+                str_bytes_call_expr_with_meta(node.value.as_bytes(), meta)
             }
-            _ => {}
+            _ => expr,
         }
-    }
-}
-
-fn rewrite_call_parts(
-    rewriter: &mut CodegenExprNormalizer,
-    args: &mut [CoreBlockPyCallArg<LocatedCoreBlockPyExpr>],
-    keywords: &mut [CoreBlockPyKeywordArg<LocatedCoreBlockPyExpr>],
-) {
-    for arg in args {
-        rewriter.rewrite_expr(arg.expr_mut());
-    }
-    for keyword in keywords {
-        rewriter.rewrite_expr(keyword.expr_mut());
     }
 }
 
