@@ -502,6 +502,8 @@ pub(crate) trait CoreCallLikeExpr: Sized {
 
     fn from_call(call: CoreBlockPyCall<Self>) -> Self;
 
+    fn from_operation(operation: intrinsics::Operation<Self>) -> Self;
+
     fn from_intrinsic(call: IntrinsicCall<Self>) -> Self;
 }
 
@@ -512,6 +514,10 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
 
     fn from_call(call: CoreBlockPyCall<Self>) -> Self {
         Self::Call(call)
+    }
+
+    fn from_operation(operation: intrinsics::Operation<Self>) -> Self {
+        Self::Op(Box::new(operation))
     }
 
     fn from_intrinsic(call: IntrinsicCall<Self>) -> Self {
@@ -664,6 +670,10 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
         Self::Call(call)
     }
 
+    fn from_operation(operation: intrinsics::Operation<Self>) -> Self {
+        Self::Op(Box::new(operation))
+    }
+
     fn from_intrinsic(call: IntrinsicCall<Self>) -> Self {
         Self::Intrinsic(call)
     }
@@ -740,6 +750,10 @@ impl<N: From<ast::ExprName>> CoreCallLikeExpr for CoreBlockPyExpr<N> {
 
     fn from_call(call: CoreBlockPyCall<Self>) -> Self {
         Self::Call(call)
+    }
+
+    fn from_operation(operation: intrinsics::Operation<Self>) -> Self {
+        Self::Op(Box::new(operation))
     }
 
     fn from_intrinsic(call: IntrinsicCall<Self>) -> Self {
@@ -843,12 +857,20 @@ pub(crate) fn core_named_call_expr_with_meta<E: CoreCallLikeExpr>(
     )
 }
 
-pub(crate) fn core_intrinsic_expr_with_meta<E: CoreCallLikeExpr>(
+pub(crate) fn core_intrinsic_expr_with_meta<E: CoreCallLikeExpr + Clone>(
     intrinsic: &'static dyn intrinsics::Intrinsic,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
     args: Vec<E>,
 ) -> E {
+    if let Some(operation) = intrinsics::operation_by_name_and_args(
+        intrinsic.name(),
+        node_index.clone(),
+        range,
+        args.clone(),
+    ) {
+        return E::from_operation(operation);
+    }
     E::from_intrinsic(IntrinsicCall {
         intrinsic,
         node_index,
@@ -857,7 +879,7 @@ pub(crate) fn core_intrinsic_expr_with_meta<E: CoreCallLikeExpr>(
     })
 }
 
-pub(crate) fn core_positional_intrinsic_expr_with_meta<E: CoreCallLikeExpr>(
+pub(crate) fn core_positional_intrinsic_expr_with_meta<E: CoreCallLikeExpr + Clone>(
     intrinsic: &'static dyn intrinsics::Intrinsic,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
