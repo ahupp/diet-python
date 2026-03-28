@@ -63,8 +63,7 @@ pub trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    PassExpr<PIn>: MapExpr<PassExpr<PIn>>,
-    PassExpr<POut>: MapExpr<PassExpr<POut>>,
+    PassExpr<PIn>: MapExpr<PassExpr<POut>>,
     PassName<POut>: From<PassName<PIn>>,
     BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
@@ -201,22 +200,20 @@ where
         <PassName<POut> as From<PassName<PIn>>>::from(name)
     }
 
-    fn map_nested_expr(&self, expr: PassExpr<PIn>) -> PassExpr<POut>
-    where
-        PassExpr<PIn>: MapExpr<PassExpr<POut>>,
-    {
+    fn map_nested_expr(&self, expr: PassExpr<PIn>) -> PassExpr<POut> {
         expr.map_expr(&mut |child| self.map_expr(child))
     }
 
-    fn map_expr(&self, expr: PassExpr<PIn>) -> PassExpr<POut>;
+    fn map_expr(&self, expr: PassExpr<PIn>) -> PassExpr<POut> {
+        self.map_nested_expr(expr)
+    }
 }
 
 pub trait BlockPyModuleTryMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    PassExpr<PIn>: MapExpr<PassExpr<PIn>>,
-    PassExpr<POut>: MapExpr<PassExpr<POut>>,
+    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, Self::Error>,
     PassName<POut>: From<PassName<PIn>>,
     BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
@@ -375,14 +372,13 @@ where
         Ok(<PassName<POut> as From<PassName<PIn>>>::from(name))
     }
 
-    fn try_map_nested_expr(&self, expr: PassExpr<PIn>) -> Result<PassExpr<POut>, Self::Error>
-    where
-        PassExpr<PIn>: TryMapExpr<PassExpr<POut>, Self::Error>,
-    {
+    fn try_map_nested_expr(&self, expr: PassExpr<PIn>) -> Result<PassExpr<POut>, Self::Error> {
         expr.try_map_expr(&mut |child| self.try_map_expr(child))
     }
 
-    fn try_map_expr(&self, expr: PassExpr<PIn>) -> Result<PassExpr<POut>, Self::Error>;
+    fn try_map_expr(&self, expr: PassExpr<PIn>) -> Result<PassExpr<POut>, Self::Error> {
+        self.try_map_nested_expr(expr)
+    }
 }
 
 impl<PIn> BlockPyModule<PIn>
@@ -392,6 +388,7 @@ where
     pub fn map_module<POut>(self, mapper: &impl BlockPyModuleMap<PIn, POut>) -> BlockPyModule<POut>
     where
         POut: BlockPyPass,
+        PassExpr<PIn>: MapExpr<PassExpr<POut>>,
         PassName<POut>: From<PassName<PIn>>,
         BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
     {
@@ -401,6 +398,7 @@ where
     pub fn try_map_module<POut, M>(self, mapper: &M) -> Result<BlockPyModule<POut>, M::Error>
     where
         POut: BlockPyPass,
+        PassExpr<PIn>: TryMapExpr<PassExpr<POut>, M::Error>,
         PassName<POut>: From<PassName<PIn>>,
         BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
         M: BlockPyModuleTryMap<PIn, POut>,
@@ -629,22 +627,6 @@ impl BlockPyModuleTryMap<CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYi
     for ElideAwaitExprTryMap
 {
     type Error = CoreBlockPyExprWithAwaitAndYield;
-
-    fn try_map_expr(
-        &self,
-        expr: CoreBlockPyExprWithAwaitAndYield,
-    ) -> Result<CoreBlockPyExprWithYield, Self::Error> {
-        match expr {
-            CoreBlockPyExprWithAwaitAndYield::Await(_) => Err(expr),
-            CoreBlockPyExprWithAwaitAndYield::Name(name) => {
-                Ok(CoreBlockPyExprWithYield::Name(name))
-            }
-            CoreBlockPyExprWithAwaitAndYield::Literal(literal) => {
-                Ok(CoreBlockPyExprWithYield::Literal(literal))
-            }
-            other => self.try_map_nested_expr(other),
-        }
-    }
 }
 
 impl TryFrom<BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>>
@@ -761,17 +743,6 @@ struct ElideYieldExprTryMap;
 
 impl BlockPyModuleTryMap<CoreBlockPyPassWithYield, CoreBlockPyPass> for ElideYieldExprTryMap {
     type Error = CoreBlockPyExprWithYield;
-
-    fn try_map_expr(&self, expr: CoreBlockPyExprWithYield) -> Result<CoreBlockPyExpr, Self::Error> {
-        match expr {
-            CoreBlockPyExprWithYield::Yield(_) | CoreBlockPyExprWithYield::YieldFrom(_) => {
-                Err(expr)
-            }
-            CoreBlockPyExprWithYield::Name(name) => Ok(CoreBlockPyExpr::Name(name.into())),
-            CoreBlockPyExprWithYield::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
-            other => self.try_map_nested_expr(other),
-        }
-    }
 }
 
 impl TryFrom<BlockPyStmt<CoreBlockPyExprWithYield>> for BlockPyStmt<CoreBlockPyExpr> {

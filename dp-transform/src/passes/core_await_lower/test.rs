@@ -2,7 +2,8 @@ use super::*;
 
 use crate::block_py::{
     BbStmt, BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel,
-    BlockPyTerm, CfgBlock, CoreBlockPyExprWithAwaitAndYield, FunctionName,
+    BlockPyTerm, CfgBlock, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
+    FunctionName,
 };
 use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
 

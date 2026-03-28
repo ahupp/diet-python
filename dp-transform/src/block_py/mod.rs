@@ -554,6 +554,53 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYi
     }
 }
 
+impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
+    fn map_expr(
+        self,
+        f: &mut impl FnMut(Self) -> CoreBlockPyExprWithYield,
+    ) -> CoreBlockPyExprWithYield {
+        match self {
+            Self::Name(name) => CoreBlockPyExprWithYield::Name(name),
+            Self::Literal(literal) => CoreBlockPyExprWithYield::Literal(literal),
+            Self::Call(call) => CoreBlockPyExprWithYield::Call(CoreBlockPyCall {
+                node_index: call.node_index,
+                range: call.range,
+                func: Box::new(f(*call.func)),
+                args: map_call_args_with(call.args, &mut *f),
+                keywords: map_keyword_args_with(call.keywords, &mut *f),
+            }),
+            Self::Intrinsic(call) => CoreBlockPyExprWithYield::Intrinsic(IntrinsicCall {
+                intrinsic: call.intrinsic,
+                node_index: call.node_index,
+                range: call.range,
+                args: map_intrinsic_args_with(call.args, &mut *f),
+            }),
+            Self::Await(await_expr) => CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
+                node_index: await_expr.node_index.clone(),
+                range: await_expr.range,
+                value: Box::new(core_positional_call_expr_with_meta(
+                    "__dp_await_iter",
+                    await_expr.node_index,
+                    await_expr.range,
+                    vec![f(*await_expr.value)],
+                )),
+            }),
+            Self::Yield(yield_expr) => CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
+                node_index: yield_expr.node_index,
+                range: yield_expr.range,
+                value: yield_expr.value.map(|value| Box::new(f(*value))),
+            }),
+            Self::YieldFrom(yield_from_expr) => {
+                CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
+                    node_index: yield_from_expr.node_index,
+                    range: yield_from_expr.range,
+                    value: Box::new(f(*yield_from_expr.value)),
+                })
+            }
+        }
+    }
+}
+
 impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
     for CoreBlockPyExprWithAwaitAndYield
 {
