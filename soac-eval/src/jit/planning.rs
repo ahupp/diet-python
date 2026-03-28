@@ -433,30 +433,35 @@ fn bb_function_registry() -> &'static Mutex<FunctionRegistry> {
     BB_FUNCTION_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn direct_simple_expr_from(expr: &LocatedCodegenBlockPyExpr) -> Option<DirectSimpleExprPlan> {
+fn direct_simple_expr_from(expr: &LocatedCodegenBlockPyExpr) -> DirectSimpleExprPlan {
     match expr {
         dp_transform::block_py::CodegenBlockPyExpr::Name(name) => {
-            Some(DirectSimpleExprPlan::Name(name.clone()))
+            DirectSimpleExprPlan::Name(name.clone())
         }
         dp_transform::block_py::CodegenBlockPyExpr::Literal(literal) => match literal {
             CodegenBlockPyLiteral::BytesLiteral(bytes) => {
-                Some(DirectSimpleExprPlan::Bytes(bytes.value.clone()))
+                DirectSimpleExprPlan::Bytes(bytes.value.clone())
             }
             CodegenBlockPyLiteral::NumberLiteral(number) => match &number.value {
-                CoreNumberLiteralValue::Int(value) => value.as_i64().map(DirectSimpleExprPlan::Int),
-                CoreNumberLiteralValue::Float(value) => Some(DirectSimpleExprPlan::Float(*value)),
+                CoreNumberLiteralValue::Int(value) => value
+                    .as_i64()
+                    .map(DirectSimpleExprPlan::Int)
+                    .unwrap_or_else(|| {
+                        panic!("integer literal does not fit in direct-simple i64 plan: {value}")
+                    }),
+                CoreNumberLiteralValue::Float(value) => DirectSimpleExprPlan::Float(*value),
             },
         },
         dp_transform::block_py::CodegenBlockPyExpr::Call(call) => {
-            let func = direct_simple_expr_from(call.func.as_ref())?;
+            let func = direct_simple_expr_from(call.func.as_ref());
             let mut parts = Vec::with_capacity(call.args.len() + call.keywords.len());
             for arg in &call.args {
                 match arg {
                     CoreBlockPyCallArg::Positional(arg) => {
-                        parts.push(DirectSimpleCallPart::Pos(direct_simple_expr_from(arg)?));
+                        parts.push(DirectSimpleCallPart::Pos(direct_simple_expr_from(arg)));
                     }
                     CoreBlockPyCallArg::Starred(arg) => {
-                        parts.push(DirectSimpleCallPart::Star(direct_simple_expr_from(arg)?));
+                        parts.push(DirectSimpleCallPart::Star(direct_simple_expr_from(arg)));
                     }
                 }
             }
@@ -465,27 +470,24 @@ fn direct_simple_expr_from(expr: &LocatedCodegenBlockPyExpr) -> Option<DirectSim
                     CoreBlockPyKeywordArg::Named { arg: name, value } => {
                         parts.push(DirectSimpleCallPart::Kw {
                             name: name.to_string(),
-                            value: direct_simple_expr_from(value)?,
+                            value: direct_simple_expr_from(value),
                         });
                     }
                     CoreBlockPyKeywordArg::Starred(value) => {
-                        parts.push(DirectSimpleCallPart::KwStar(direct_simple_expr_from(
-                            value,
-                        )?));
+                        parts.push(DirectSimpleCallPart::KwStar(direct_simple_expr_from(value)));
                     }
                 }
             }
-            Some(DirectSimpleExprPlan::Call {
+            DirectSimpleExprPlan::Call {
                 func: Box::new(func),
                 parts,
-            })
+            }
         }
         dp_transform::block_py::CodegenBlockPyExpr::Op(operation) => {
             let operation = operation
                 .clone()
-                .try_map_expr(&mut |arg| direct_simple_expr_from(&arg).ok_or(()))
-                .ok()?;
-            Some(DirectSimpleExprPlan::Op(Box::new(operation)))
+                .map_expr(&mut |arg| direct_simple_expr_from(&arg));
+            DirectSimpleExprPlan::Op(Box::new(operation))
         }
     }
 }
@@ -517,7 +519,7 @@ fn direct_simple_plan_from_block(block: &CodegenBlock) -> Option<DirectSimpleRet
         let BlockPyStmt::Assign(assign) = op else {
             return None;
         };
-        let value = direct_simple_expr_from(&assign.value)?;
+        let value = direct_simple_expr_from(&assign.value);
         assigns.push(DirectSimpleAssignPlan {
             target: assign.target.clone(),
             value,
@@ -526,7 +528,7 @@ fn direct_simple_plan_from_block(block: &CodegenBlock) -> Option<DirectSimpleRet
     let BlockPyTerm::Return(ret_value) = &block.term else {
         return None;
     };
-    let ret = direct_simple_expr_from(ret_value)?;
+    let ret = direct_simple_expr_from(ret_value);
     Some(DirectSimpleRetPlan {
         params: block.param_name_vec(),
         assigns,
@@ -553,7 +555,7 @@ fn direct_simple_brif_plan_from_block(
     {
         return None;
     }
-    let test = direct_simple_expr_from(&if_term.test)?;
+    let test = direct_simple_expr_from(&if_term.test);
     Some(DirectSimpleBrIfPlan {
         params: block.param_name_vec(),
         test,
@@ -574,30 +576,21 @@ fn direct_simple_delete_plan_from_targets(targets: &[LocatedName]) -> DirectSimp
 
 fn direct_simple_op_from_bb_stmt(
     op: &BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>,
-) -> Option<DirectSimpleOpPlan> {
+) -> DirectSimpleOpPlan {
     match op {
         BlockPyStmt::Expr(expr_stmt) => {
-            let value = direct_simple_expr_from(expr_stmt)?;
-            Some(DirectSimpleOpPlan::Expr(value))
+            DirectSimpleOpPlan::Expr(direct_simple_expr_from(expr_stmt))
         }
         BlockPyStmt::Assign(assign) => {
-            let value = direct_simple_expr_from(&assign.value)?;
-            Some(DirectSimpleOpPlan::Assign(DirectSimpleAssignPlan {
+            let value = direct_simple_expr_from(&assign.value);
+            DirectSimpleOpPlan::Assign(DirectSimpleAssignPlan {
                 target: assign.target.clone(),
                 value,
-            }))
+            })
         }
-        BlockPyStmt::Delete(delete_stmt) => Some(DirectSimpleOpPlan::Delete(
+        BlockPyStmt::Delete(delete_stmt) => DirectSimpleOpPlan::Delete(
             direct_simple_delete_plan_from_targets(std::slice::from_ref(&delete_stmt.target)),
-        )),
-    }
-}
-
-fn bb_stmt_kind(op: &BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>) -> &'static str {
-    match op {
-        BlockPyStmt::Assign(_) => "Assign",
-        BlockPyStmt::Expr(_) => "Expr",
-        BlockPyStmt::Delete(_) => "Delete",
+        ),
     }
 }
 
@@ -607,14 +600,7 @@ fn direct_simple_block_plan_from_block(
 ) -> DirectSimpleBlockPlan {
     let mut ops = Vec::new();
     for op in &block.body {
-        let stmt_op = direct_simple_op_from_bb_stmt(op).unwrap_or_else(|| {
-            panic!(
-                "unexpected non-direct-simple BB stmt in {}:{}: kind={} stmt={op:?}",
-                function.function.names.qualname,
-                block.label,
-                bb_stmt_kind(op),
-            )
-        });
+        let stmt_op = direct_simple_op_from_bb_stmt(op);
         ops.push(stmt_op);
     }
     let term = match &block.term {
@@ -641,12 +627,7 @@ fn direct_simple_block_plan_from_block(
             }
         }
         BlockPyTerm::IfTerm(if_term) => {
-            let test_expr = direct_simple_expr_from(&if_term.test).unwrap_or_else(|| {
-                panic!(
-                    "unexpected non-direct-simple if test in {}:{}: {:?}",
-                    function.function.names.qualname, block.label, if_term.test
-                )
-            });
+            let test_expr = direct_simple_expr_from(&if_term.test);
             let then_index = function.index_of_target(&if_term.then_label);
             let then_params = function.jit_param_names_for_index(then_index);
             let else_index = function.index_of_target(&if_term.else_label);
@@ -660,12 +641,7 @@ fn direct_simple_block_plan_from_block(
             }
         }
         BlockPyTerm::BranchTable(branch) => {
-            let index_expr = direct_simple_expr_from(&branch.index).unwrap_or_else(|| {
-                panic!(
-                    "unexpected non-direct-simple br_table index in {}:{}: {:?}",
-                    function.function.names.qualname, block.label, branch.index
-                )
-            });
+            let index_expr = direct_simple_expr_from(&branch.index);
             let mut target_plans = Vec::with_capacity(branch.targets.len());
             for target_label in &branch.targets {
                 let target_index = function.index_of_target(target_label);
@@ -682,23 +658,11 @@ fn direct_simple_block_plan_from_block(
             }
         }
         BlockPyTerm::Return(ret_value) => {
-            let value = direct_simple_expr_from(ret_value).unwrap_or_else(|| {
-                panic!(
-                    "unexpected non-direct-simple return value in {}:{}: {:?}",
-                    function.function.names.qualname, block.label, ret_value
-                )
-            });
+            let value = direct_simple_expr_from(ret_value);
             DirectSimpleTermPlan::Ret { value }
         }
         BlockPyTerm::Raise(raise_stmt) => {
-            let exc = raise_stmt.exc.as_ref().map(|expr| {
-                direct_simple_expr_from(expr).unwrap_or_else(|| {
-                    panic!(
-                        "unexpected non-direct-simple raise value in {}:{}: {:?}",
-                        function.function.names.qualname, block.label, expr
-                    )
-                })
-            });
+            let exc = raise_stmt.exc.as_ref().map(direct_simple_expr_from);
             DirectSimpleTermPlan::Raise { exc }
         }
     };
