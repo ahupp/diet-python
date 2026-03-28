@@ -145,7 +145,6 @@ mod tests {
 
     fn parse_and_lower(source: &str) -> Result<dp_transform::LoweringResult, String> {
         let options = dp_transform::Options {
-            eval_mode: true,
             lower_attributes: true,
             force_import_rewrite: true,
             ..dp_transform::Options::default()

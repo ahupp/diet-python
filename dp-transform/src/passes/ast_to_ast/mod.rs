@@ -14,8 +14,6 @@ pub(crate) mod util;
 
 #[derive(Clone, Copy)]
 pub struct Options {
-    pub cpython: bool,
-    pub eval_mode: bool,
     pub lower_attributes: bool,
     pub force_import_rewrite: bool,
 }
@@ -24,8 +22,6 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             lower_attributes: false,
-            cpython: false,
-            eval_mode: false,
             force_import_rewrite: false,
         }
     }
@@ -35,8 +31,6 @@ impl Options {
     pub fn for_test() -> Self {
         Self {
             lower_attributes: false,
-            cpython: false,
-            eval_mode: false,
             force_import_rewrite: false,
         }
     }
