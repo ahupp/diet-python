@@ -2,7 +2,7 @@ use super::ast_to_ast::rewrite_expr::string::lower_string_templates_in_expr;
 use super::core_eval_order::make_eval_order_explicit_in_core_block;
 use crate::block_py::{
     convert_blockpy_stmt_expr, convert_blockpy_term_expr, core_call_expr_with_meta,
-    core_positional_call_expr_with_meta, intrinsics, BlockPyAssign, BlockPyBranchTable,
+    core_positional_call_expr_with_meta, operation, BlockPyAssign, BlockPyBranchTable,
     BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
     BlockPyStmtFragment, BlockPyStmtFragmentBuilder, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
     CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg,
@@ -110,7 +110,7 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithA
 }
 
 fn core_operation_expr(
-    operation: intrinsics::Operation<CoreBlockPyExprWithAwaitAndYield>,
+    operation: operation::Operation<CoreBlockPyExprWithAwaitAndYield>,
 ) -> CoreBlockPyExprWithAwaitAndYield {
     CoreBlockPyExprWithAwaitAndYield::Op(Box::new(operation))
 }
@@ -121,7 +121,7 @@ fn add_op_expr_with_meta(
     left: CoreBlockPyExprWithAwaitAndYield,
     right: CoreBlockPyExprWithAwaitAndYield,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    core_operation_expr(intrinsics::Operation::Add {
+    core_operation_expr(operation::Operation::Add {
         node_index,
         range,
         arg0: left,
@@ -192,7 +192,7 @@ fn lower_core_call_expr_with_meta(
                 for arg in &args {
                     operation_args.push(CoreBlockPyExprWithAwaitAndYield::from(arg.clone()));
                 }
-                if let Some(operation) = intrinsics::operation_by_name_and_args(
+                if let Some(operation) = operation::operation_by_name_and_args(
                     name.id.as_str(),
                     node_index.clone(),
                     range,

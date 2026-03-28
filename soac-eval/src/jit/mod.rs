@@ -9,7 +9,7 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use dp_transform::block_py::{
-    BlockPyModule, LocatedName, NameLocation, intrinsics as blockpy_intrinsics,
+    BlockPyModule, LocatedName, NameLocation, operation as blockpy_intrinsics,
 };
 use dp_transform::passes::PreparedBbBlockPyPass;
 use ruff_python_ast as ast;

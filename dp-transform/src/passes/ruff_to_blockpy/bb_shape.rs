@@ -1,5 +1,5 @@
 use crate::block_py::cfg::linearize_structured_ifs;
-use crate::block_py::intrinsics;
+use crate::block_py::operation;
 use crate::block_py::{
     BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike,
     BlockPyStmt, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
@@ -224,7 +224,7 @@ where
 
 fn operation_expr<N: BlockPyNameLike + Clone>(
     expr: &CoreBlockPyExpr<N>,
-) -> Option<&intrinsics::Operation<CoreBlockPyExpr<N>>> {
+) -> Option<&operation::Operation<CoreBlockPyExpr<N>>> {
     match expr {
         CoreBlockPyExpr::Op(operation) => Some(operation.as_ref()),
         _ => None,
@@ -290,13 +290,13 @@ where
 }
 
 fn is_dp_getattr_operation<N>(
-    operation: &intrinsics::Operation<CoreBlockPyExpr<N>>,
+    operation: &operation::Operation<CoreBlockPyExpr<N>>,
     attr_name: &str,
 ) -> bool
 where
     N: BlockPyNameLike,
 {
-    let intrinsics::Operation::GetAttr { arg0, arg1, .. } = operation else {
+    let operation::Operation::GetAttr { arg0, arg1, .. } = operation else {
         return false;
     };
     matches!(

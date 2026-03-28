@@ -1,9 +1,10 @@
+use self::operation as block_py_operation;
 pub use self::param_specs::ParamKind;
 use self::param_specs::ParamSpec;
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass};
 use crate::py_expr;
-pub use intrinsics::Operation;
+pub use operation::Operation;
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
 use std::collections::{HashMap, HashSet};
@@ -13,8 +14,8 @@ pub(crate) mod cfg;
 mod convert;
 pub(crate) mod dataflow;
 pub(crate) mod exception;
-pub mod intrinsics;
 mod name_gen;
+pub mod operation;
 pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod state;
@@ -448,7 +449,7 @@ pub(crate) trait CoreCallLikeExpr: Sized {
 
     fn from_call(call: CoreBlockPyCall<Self>) -> Self;
 
-    fn from_operation(operation: intrinsics::Operation<Self>) -> Self;
+    fn from_operation(operation: block_py_operation::Operation<Self>) -> Self;
 }
 
 impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
@@ -460,7 +461,7 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
         Self::Call(call)
     }
 
-    fn from_operation(operation: intrinsics::Operation<Self>) -> Self {
+    fn from_operation(operation: block_py_operation::Operation<Self>) -> Self {
         Self::Op(Box::new(operation))
     }
 }
@@ -592,7 +593,7 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
         Self::Call(call)
     }
 
-    fn from_operation(operation: intrinsics::Operation<Self>) -> Self {
+    fn from_operation(operation: block_py_operation::Operation<Self>) -> Self {
         Self::Op(Box::new(operation))
     }
 }
@@ -658,7 +659,7 @@ impl<N: From<ast::ExprName>> CoreCallLikeExpr for CoreBlockPyExpr<N> {
         Self::Call(call)
     }
 
-    fn from_operation(operation: intrinsics::Operation<Self>) -> Self {
+    fn from_operation(operation: block_py_operation::Operation<Self>) -> Self {
         Self::Op(Box::new(operation))
     }
 }
@@ -747,7 +748,9 @@ pub(crate) fn core_named_call_expr_with_meta<E: CoreCallLikeExpr>(
     )
 }
 
-pub(crate) fn core_operation_expr<E: CoreCallLikeExpr>(operation: intrinsics::Operation<E>) -> E {
+pub(crate) fn core_operation_expr<E: CoreCallLikeExpr>(
+    operation: block_py_operation::Operation<E>,
+) -> E {
     E::from_operation(operation)
 }
 
