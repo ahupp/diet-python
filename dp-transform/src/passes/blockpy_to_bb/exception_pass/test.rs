@@ -1,5 +1,7 @@
 use super::{lower_try_jump_exception_flow, validate_prepared_bb_module};
-use crate::block_py::{BbBlock, BlockPyEdge, BlockPyLabel, BlockPyTerm, LocatedCoreBlockPyExpr};
+use crate::block_py::{
+    BlockPyEdge, BlockPyLabel, BlockPyTerm, LocatedCoreBlockPyExpr, ResolvedStorageBlock,
+};
 use crate::{transform_str_to_bb_ir_with_options, Options};
 
 #[test]
@@ -20,7 +22,7 @@ def f(x):
         let body_label = BlockPyLabel::from("_dp_manual_body");
         let except_label = BlockPyLabel::from("_dp_manual_except");
 
-        function.blocks.push(BbBlock {
+        function.blocks.push(ResolvedStorageBlock {
             label: body_label.clone(),
             body: vec![],
             term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
@@ -32,7 +34,7 @@ def f(x):
             }],
             exc_edge: Some(BlockPyEdge::new(except_label.clone())),
         });
-        function.blocks.push(BbBlock {
+        function.blocks.push(ResolvedStorageBlock {
             label: except_label.clone(),
             body: vec![],
             term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
@@ -116,7 +118,7 @@ def f():
         .expect("must contain multi-op block");
     let original_label = function.blocks[block_index].label.clone();
     let except_label = BlockPyLabel::from("_dp_manual_except_split");
-    function.blocks.push(BbBlock {
+    function.blocks.push(ResolvedStorageBlock {
         label: except_label.clone(),
         body: vec![],
         term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
@@ -186,7 +188,7 @@ def f():
         .expect("must contain multi-op block");
     let original_label = function.blocks[block_index].label.clone();
     let except_label = BlockPyLabel::from("_dp_manual_except_group");
-    function.blocks.push(BbBlock {
+    function.blocks.push(ResolvedStorageBlock {
         label: except_label.clone(),
         body: vec![],
         term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(

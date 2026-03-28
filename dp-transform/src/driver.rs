@@ -12,8 +12,8 @@ use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
 use crate::passes::ruff_to_blockpy::rewrite_ast_to_lowered_blockpy_module_plan_with_module;
 use crate::passes::{
-    self, BbBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield,
-    CoreBlockPyPassWithYield, PreparedBbBlockPyPass, RuffBlockPyPass,
+    self, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield,
+    ResolvedStorageBlockPyPass, RuffBlockPyPass,
 };
 use crate::PassTracker;
 use ruff_python_ast::{self as ast, Stmt};
@@ -89,29 +89,32 @@ fn lower_core_blockpy_with_await_and_yield(
 }
 
 fn lower_bb_prepared(
-    name_binding: &BlockPyModule<BbBlockPyPass>,
-) -> BlockPyModule<PreparedBbBlockPyPass> {
+    name_binding: &BlockPyModule<ResolvedStorageBlockPyPass>,
+) -> BlockPyModule<ResolvedStorageBlockPyPass> {
     passes::lower_try_jump_exception_flow(name_binding)
         .expect("bb_prepared pass should succeed for valid BB lowering")
 }
 
 fn lower_bb_codegen(
-    (bb_prepared, source): (&BlockPyModule<PreparedBbBlockPyPass>, &str),
-) -> BlockPyModule<PreparedBbBlockPyPass> {
+    (bb_prepared, source): (&BlockPyModule<ResolvedStorageBlockPyPass>, &str),
+) -> BlockPyModule<ResolvedStorageBlockPyPass> {
     passes::normalize_bb_module_strings(bb_prepared, source)
 }
 
 fn lower_bb_trace(
-    (bb_codegen, config): (BlockPyModule<PreparedBbBlockPyPass>, &passes::TraceConfig),
-) -> BlockPyModule<PreparedBbBlockPyPass> {
+    (bb_codegen, config): (
+        BlockPyModule<ResolvedStorageBlockPyPass>,
+        &passes::TraceConfig,
+    ),
+) -> BlockPyModule<ResolvedStorageBlockPyPass> {
     let mut traced = bb_codegen;
     passes::instrument_bb_module_for_trace(&mut traced, config);
     traced
 }
 
 fn lower_bb_validate(
-    bb_traced: BlockPyModule<PreparedBbBlockPyPass>,
-) -> BlockPyModule<PreparedBbBlockPyPass> {
+    bb_traced: BlockPyModule<ResolvedStorageBlockPyPass>,
+) -> BlockPyModule<ResolvedStorageBlockPyPass> {
     passes::validate_prepared_bb_module(&bb_traced)
         .expect("bb_validate pass should succeed for valid prepared BB lowering");
     bb_traced
@@ -121,7 +124,7 @@ pub(crate) fn rewrite_module_with_tracker(
     context: &Context,
     module: &mut Suite,
     pass_tracker: &mut PassTracker,
-) -> BlockPyModule<PreparedBbBlockPyPass> {
+) -> BlockPyModule<ResolvedStorageBlockPyPass> {
     let AstToAstPassResult {
         module: ast_module,
         semantic_state,
@@ -215,20 +218,20 @@ pub(crate) fn rewrite_module_with_tracker(
             core_blockpy_without_await,
             passes::lower_yield_in_lowered_core_blockpy_module_bundle,
         );
-    let name_binding: BlockPyModule<BbBlockPyPass> = pass_tracker.run_pass(
+    let name_binding: BlockPyModule<ResolvedStorageBlockPyPass> = pass_tracker.run_pass(
         "name_binding",
         core_blockpy_without_await_or_yield,
         passes::lower_name_binding_in_core_blockpy_module,
     );
     let trace_config = passes::parse_trace_env();
-    let bb_prepared: BlockPyModule<PreparedBbBlockPyPass> =
+    let bb_prepared: BlockPyModule<ResolvedStorageBlockPyPass> =
         pass_tracker.run_pass("bb_prepared", &name_binding, lower_bb_prepared);
-    let bb_codegen: BlockPyModule<PreparedBbBlockPyPass> = pass_tracker.run_pass(
+    let bb_codegen: BlockPyModule<ResolvedStorageBlockPyPass> = pass_tracker.run_pass(
         "bb_codegen",
         (&bb_prepared, context.source.as_str()),
         lower_bb_codegen,
     );
-    let bb_traced: BlockPyModule<PreparedBbBlockPyPass> = if let Some(config) = trace_config {
+    let bb_traced: BlockPyModule<ResolvedStorageBlockPyPass> = if let Some(config) = trace_config {
         pass_tracker.run_pass("bb_trace", (bb_codegen, &config), lower_bb_trace)
     } else {
         bb_codegen

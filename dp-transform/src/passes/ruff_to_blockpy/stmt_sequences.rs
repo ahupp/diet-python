@@ -1,17 +1,19 @@
 use super::stmt_lowering::lower_stmt_into_with_expr;
 use super::*;
-use crate::block_py::{BlockPyRaise, BlockPyStmt, BlockPyTerm, Expr};
+use crate::block_py::{BlockPyRaise, BlockPyTerm, Expr, StructuredBlockPyStmt};
 use crate::passes::ast_to_ast::context::Context;
 
 pub(crate) fn lower_stmts_to_blockpy_stmts_with_context<E>(
     context: &Context,
     stmts: &[Stmt],
-) -> Result<crate::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>, String>
+) -> Result<crate::block_py::BlockPyCfgFragment<StructuredBlockPyStmt<E>, BlockPyTerm<E>>, String>
 where
     E: From<Expr> + std::fmt::Debug,
 {
-    let mut out =
-        crate::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt<E>, BlockPyTerm<E>>::new();
+    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+        StructuredBlockPyStmt<E>,
+        BlockPyTerm<E>,
+    >::new();
     let mut next_label_id = 0usize;
     for stmt in stmts {
         lower_stmt_into_with_expr(context, stmt, &mut out, None, &mut next_label_id)?;
@@ -21,7 +23,7 @@ where
 
 pub(crate) fn lower_stmts_to_blockpy_stmts<E>(
     stmts: &[Stmt],
-) -> Result<crate::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>, String>
+) -> Result<crate::block_py::BlockPyCfgFragment<StructuredBlockPyStmt<E>, BlockPyTerm<E>>, String>
 where
     E: From<Expr> + std::fmt::Debug,
 {

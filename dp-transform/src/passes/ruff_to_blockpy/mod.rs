@@ -14,10 +14,11 @@ use crate::block_py::exception::{
 use crate::block_py::param_specs::ParamSpec;
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
-    assert_blockpy_block_normalized, convert_blockpy_term_expr, move_entry_block_to_front, BbStmt,
+    assert_blockpy_block_normalized, convert_blockpy_term_expr, move_entry_block_to_front,
     BlockPyBindingKind, BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm,
     BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyNameLike, BlockPyPass, BlockPyStmt,
-    BlockPyTerm, CfgBlock, ClosureLayout, FunctionName, FunctionNameGen, IntoBlockPyStmt, RuffExpr,
+    BlockPyTerm, CfgBlock, ClosureLayout, FunctionName, FunctionNameGen, IntoStructuredBlockPyStmt,
+    RuffExpr, StructuredBlockPyStmt,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -64,7 +65,7 @@ pub(crate) use try_regions::{
     prepare_except_body, prepare_finally_body, TryPlan,
 };
 
-pub(crate) type LoweredBlockPyBlock<E = Expr> = CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>;
+pub(crate) type LoweredBlockPyBlock<E = Expr> = CfgBlock<StructuredBlockPyStmt<E>, BlockPyTerm<E>>;
 pub(crate) type BlockPyBlock<E = Expr> = LoweredBlockPyBlock<E>;
 
 #[derive(Debug, Clone)]
@@ -73,7 +74,7 @@ struct StructuredRuffBlockPyPass;
 impl BlockPyPass for StructuredRuffBlockPyPass {
     type Name = ast::ExprName;
     type Expr = Expr;
-    type Stmt = BlockPyStmt<Self::Expr>;
+    type Stmt = StructuredBlockPyStmt<Self::Expr>;
 }
 
 #[derive(Clone)]
@@ -190,7 +191,7 @@ pub(crate) fn recompute_lowered_block_params_for_blocks<S, E, N>(
     blocks: &[CfgBlock<S, BlockPyTerm<E>>],
 ) -> HashMap<String, Vec<String>>
 where
-    S: IntoBlockPyStmt<E, N>,
+    S: IntoStructuredBlockPyStmt<E, N>,
     E: Clone + Into<Expr>,
     N: BlockPyNameLike,
 {
@@ -252,23 +253,23 @@ where
     fn collect_cell_ref_logical_names_in_stmt<E, S>(stmt: S, out: &mut HashSet<String>)
     where
         E: Clone + Into<Expr> + std::fmt::Debug,
-        S: IntoBlockPyStmt<E, ast::ExprName>,
+        S: IntoStructuredBlockPyStmt<E, ast::ExprName>,
     {
-        match stmt.into_stmt() {
-            BlockPyStmt::Assign(assign) => {
+        match stmt.into_structured_stmt() {
+            StructuredBlockPyStmt::Assign(assign) => {
                 let mut collector = CellRefLogicalNameCollector::default();
                 let mut expr: Expr = assign.value.into();
                 collector.visit_expr(&mut expr);
                 out.extend(collector.names);
             }
-            BlockPyStmt::Expr(expr) => {
+            StructuredBlockPyStmt::Expr(expr) => {
                 let mut collector = CellRefLogicalNameCollector::default();
                 let mut expr: Expr = expr.into();
                 collector.visit_expr(&mut expr);
                 out.extend(collector.names);
             }
-            BlockPyStmt::Delete(_) => {}
-            BlockPyStmt::If(if_stmt) => {
+            StructuredBlockPyStmt::Delete(_) => {}
+            StructuredBlockPyStmt::If(if_stmt) => {
                 let mut collector = CellRefLogicalNameCollector::default();
                 let mut test: Expr = if_stmt.test.into();
                 collector.visit_expr(&mut test);
@@ -316,7 +317,7 @@ where
     }
 
     fn collect_cell_ref_logical_names_in_fragment<E>(
-        fragment: crate::block_py::BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>,
+        fragment: crate::block_py::BlockPyCfgFragment<StructuredBlockPyStmt<E>, BlockPyTerm<E>>,
         out: &mut HashSet<String>,
     ) where
         E: Clone + Into<Expr> + std::fmt::Debug,
@@ -348,8 +349,8 @@ where
         .blocks
         .iter()
         .flat_map(|block| block.body.iter().cloned())
-        .filter_map(|stmt| match stmt.into_stmt() {
-            BlockPyStmt::Delete(delete) => Some(delete.target.id.to_string()),
+        .filter_map(|stmt| match stmt.into_structured_stmt() {
+            StructuredBlockPyStmt::Delete(delete) => Some(delete.target.id.to_string()),
             _ => None,
         })
         .collect();
@@ -429,9 +430,9 @@ where
 
 #[allow(clippy::too_many_arguments)]
 fn lower_structured_semantic_blocks_to_bb_blocks(
-    blocks: &[CfgBlock<BlockPyStmt, BlockPyTerm>],
+    blocks: &[CfgBlock<StructuredBlockPyStmt, BlockPyTerm>],
     block_params: &HashMap<String, Vec<String>>,
-) -> Vec<CfgBlock<BbStmt<RuffExpr, ast::ExprName>, BlockPyTerm<RuffExpr>>> {
+) -> Vec<CfgBlock<BlockPyStmt<RuffExpr, ast::ExprName>, BlockPyTerm<RuffExpr>>> {
     let exception_edges = lowered_exception_edges(blocks);
     let (linear_blocks, linear_block_params, linear_exception_edges) =
         linearize_structured_ifs(blocks, block_params, &exception_edges);
@@ -448,7 +449,7 @@ fn lower_structured_semantic_blocks_to_bb_blocks(
                 .body
                 .clone()
                 .into_iter()
-                .map(BbStmt::from)
+                .map(BlockPyStmt::from)
                 .collect::<Vec<_>>();
             let semantic_param_names = block
                 .param_names()
@@ -593,7 +594,7 @@ impl Transformer for CurrentExceptionPlaceholderRewriter<'_> {
 }
 
 fn rewrite_current_exception_placeholders_in_lowered_blocks(
-    blocks: &mut [crate::block_py::CfgBlock<BlockPyStmt, BlockPyTerm>],
+    blocks: &mut [crate::block_py::CfgBlock<StructuredBlockPyStmt, BlockPyTerm>],
 ) {
     for block in blocks {
         let Some(exc_name) = block.exception_param().map(ToString::to_string) else {
@@ -606,16 +607,19 @@ fn rewrite_current_exception_placeholders_in_lowered_blocks(
     }
 }
 
-fn rewrite_current_exception_placeholders_in_stmt(stmt: &mut BlockPyStmt, exc_name: &str) {
+fn rewrite_current_exception_placeholders_in_stmt(
+    stmt: &mut StructuredBlockPyStmt,
+    exc_name: &str,
+) {
     match stmt {
-        BlockPyStmt::Assign(assign) => {
+        StructuredBlockPyStmt::Assign(assign) => {
             rewrite_current_exception_placeholders_in_expr(&mut assign.value, exc_name);
         }
-        BlockPyStmt::Expr(expr) => {
+        StructuredBlockPyStmt::Expr(expr) => {
             rewrite_current_exception_placeholders_in_expr(expr, exc_name);
         }
-        BlockPyStmt::Delete(_) => {}
-        BlockPyStmt::If(if_stmt) => {
+        StructuredBlockPyStmt::Delete(_) => {}
+        StructuredBlockPyStmt::If(if_stmt) => {
             rewrite_current_exception_placeholders_in_expr(&mut if_stmt.test, exc_name);
             for stmt in &mut if_stmt.body.body {
                 rewrite_current_exception_placeholders_in_stmt(stmt, exc_name);

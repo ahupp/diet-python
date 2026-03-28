@@ -1,13 +1,13 @@
 use crate::block_py::{
-    BbStmt, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyTerm, PreparedBbBlock,
+    BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyStmt, BlockPyTerm, ResolvedStorageBlock,
 };
 use crate::passes::ruff_to_blockpy::populate_exception_edge_args;
-use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass};
+use crate::passes::ResolvedStorageBlockPyPass;
 use std::collections::HashSet;
 
 pub fn lower_try_jump_exception_flow(
-    module: &BlockPyModule<BbBlockPyPass>,
-) -> Result<BlockPyModule<PreparedBbBlockPyPass>, String> {
+    module: &BlockPyModule<ResolvedStorageBlockPyPass>,
+) -> Result<BlockPyModule<ResolvedStorageBlockPyPass>, String> {
     let callable_defs = module
         .callable_defs
         .iter()
@@ -18,8 +18,8 @@ pub fn lower_try_jump_exception_flow(
 }
 
 fn lower_function_try_jump_exception_flow(
-    function: BlockPyFunction<BbBlockPyPass>,
-) -> Result<BlockPyFunction<PreparedBbBlockPyPass>, String> {
+    function: BlockPyFunction<ResolvedStorageBlockPyPass>,
+) -> Result<BlockPyFunction<ResolvedStorageBlockPyPass>, String> {
     let mut function = BlockPyFunction {
         function_id: function.function_id,
         name_gen: function.name_gen,
@@ -42,7 +42,7 @@ fn lower_function_try_jump_exception_flow(
 }
 
 pub fn validate_prepared_bb_module(
-    module: &BlockPyModule<PreparedBbBlockPyPass>,
+    module: &BlockPyModule<ResolvedStorageBlockPyPass>,
 ) -> Result<(), String> {
     for function in &module.callable_defs {
         let label_set: HashSet<String> = function
@@ -72,7 +72,9 @@ fn bb_params_from_names(
         .collect()
 }
 
-fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<PreparedBbBlockPyPass>) {
+fn split_exception_blocks_for_expr_checks(
+    function: &mut BlockPyFunction<ResolvedStorageBlockPyPass>,
+) {
     let mut used_labels: HashSet<BlockPyLabel> = function
         .blocks
         .iter()
@@ -94,7 +96,7 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<Prepare
         let mut ops = block.body.into_iter().peekable();
         let mut segment_start_names = known_names.clone();
 
-        let mut segment_ops: Vec<BbStmt> = Vec::new();
+        let mut segment_ops: Vec<BlockPyStmt> = Vec::new();
         while let Some(op) = ops.next() {
             let ends_segment = op_updates_exception_state(&op) && ops.peek().is_some();
             segment_ops.push(op.clone());
@@ -104,7 +106,7 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<Prepare
                 let next_label =
                     unique_exc_split_label(&mut used_labels, current_label.as_str(), fresh_index);
                 fresh_index += 1;
-                out.push(PreparedBbBlock {
+                out.push(ResolvedStorageBlock {
                     label: current_label.clone(),
                     body: std::mem::take(&mut segment_ops),
                     term: BlockPyTerm::Jump(next_label.clone().into()),
@@ -119,7 +121,7 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<Prepare
             }
 
             if ops.peek().is_none() {
-                out.push(PreparedBbBlock {
+                out.push(ResolvedStorageBlock {
                     label: current_label.clone(),
                     body: std::mem::take(&mut segment_ops),
                     term: block.term.clone(),
@@ -136,8 +138,8 @@ fn split_exception_blocks_for_expr_checks(function: &mut BlockPyFunction<Prepare
     function.blocks = out;
 }
 
-fn op_updates_exception_state(op: &BbStmt) -> bool {
-    matches!(op, BbStmt::Assign(_) | BbStmt::Delete(_))
+fn op_updates_exception_state(op: &BlockPyStmt) -> bool {
+    matches!(op, BlockPyStmt::Assign(_) | BlockPyStmt::Delete(_))
 }
 
 fn unique_exc_split_label(
@@ -155,9 +157,9 @@ fn unique_exc_split_label(
     }
 }
 
-fn apply_op_effect_to_known_names(op: &BbStmt, known_names: &mut Vec<String>) {
+fn apply_op_effect_to_known_names(op: &BlockPyStmt, known_names: &mut Vec<String>) {
     match op {
-        BbStmt::Assign(assign) => {
+        BlockPyStmt::Assign(assign) => {
             let target = assign.target.id.to_string();
             for target_name in [Some(target.as_str()), target.strip_prefix("_dp_cell_")]
                 .into_iter()
@@ -168,8 +170,8 @@ fn apply_op_effect_to_known_names(op: &BbStmt, known_names: &mut Vec<String>) {
                 }
             }
         }
-        BbStmt::Expr(_) => {}
-        BbStmt::Delete(delete) => {
+        BlockPyStmt::Expr(_) => {}
+        BlockPyStmt::Delete(delete) => {
             let target_name = delete.target.id.to_string();
             known_names.retain(|existing| {
                 existing != &target_name
@@ -183,7 +185,7 @@ fn apply_op_effect_to_known_names(op: &BbStmt, known_names: &mut Vec<String>) {
 }
 
 fn validate_function_labels(
-    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    function: &BlockPyFunction<ResolvedStorageBlockPyPass>,
     labels: &HashSet<String>,
 ) -> Result<(), String> {
     let qualname = function.names.qualname.as_str();

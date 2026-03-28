@@ -1,5 +1,5 @@
 use crate::block_py::{
-    core_positional_call_expr_with_meta, BbStmt, BindingTarget, BlockPyAssign, BlockPyBindingKind,
+    core_positional_call_expr_with_meta, BindingTarget, BlockPyAssign, BlockPyBindingKind,
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
     BlockPyCellBindingKind, BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction,
     BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap, BlockPyNameLike, BlockPyRaise,
@@ -7,13 +7,13 @@ use crate::block_py::{
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, DelDeref, DelDerefQuietly, DelItem, DelQuietly,
     LoadCell, LoadGlobal, LocatedName, MakeCell, NameLocation, Operation, SetItem, StoreCell,
-    StoreGlobal,
+    StoreGlobal, StructuredBlockPyStmt,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, recompute_lowered_block_params,
     rewrite_current_exception_in_core_blocks, should_include_closure_storage_aliases,
 };
-use crate::passes::{BbBlockPyPass, CoreBlockPyPass};
+use crate::passes::{CoreBlockPyPass, ResolvedStorageBlockPyPass};
 use ruff_python_ast::{self as ast, ExprName};
 use std::collections::{HashMap, HashSet};
 
@@ -48,8 +48,8 @@ fn op_expr(operation: Operation<CoreBlockPyExpr>) -> CoreBlockPyExpr {
     CoreBlockPyExpr::Op(Box::new(operation))
 }
 
-fn op_stmt(operation: Operation<CoreBlockPyExpr>) -> BlockPyStmt<CoreBlockPyExpr> {
-    BlockPyStmt::Expr(op_expr(operation))
+fn op_stmt(operation: Operation<CoreBlockPyExpr>) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
+    StructuredBlockPyStmt::Expr(op_expr(operation))
 }
 
 fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
@@ -111,7 +111,7 @@ fn rewrite_cell_ref_expr(
 
 fn rewrite_global_binding_assign(
     assign: BlockPyAssign<CoreBlockPyExpr>,
-) -> BlockPyStmt<CoreBlockPyExpr> {
+) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
     let node_index = assign.target.node_index.clone();
     let range = assign.target.range;
     let bind_name = assign.target.id.to_string();
@@ -126,7 +126,7 @@ fn rewrite_global_binding_assign(
 
 fn rewrite_class_namespace_binding_assign(
     assign: BlockPyAssign<CoreBlockPyExpr>,
-) -> BlockPyStmt<CoreBlockPyExpr> {
+) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
     let node_index = assign.target.node_index.clone();
     let range = assign.target.range;
     let bind_name = assign.target.id.to_string();
@@ -142,7 +142,7 @@ fn rewrite_class_namespace_binding_assign(
 fn rewrite_cell_binding_assign(
     assign: BlockPyAssign<CoreBlockPyExpr>,
     semantic: &BlockPyCallableSemanticInfo,
-) -> BlockPyStmt<CoreBlockPyExpr> {
+) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
     let node_index = assign.target.node_index.clone();
     let range = assign.target.range;
     op_stmt(Operation::StoreCell(StoreCell {
@@ -157,7 +157,7 @@ fn rewrite_global_binding_delete_by_name(
     bind_name: &str,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
-) -> BlockPyStmt<CoreBlockPyExpr> {
+) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
     op_stmt(Operation::DelItem(DelItem {
         node_index: node_index.clone(),
         range,
@@ -169,7 +169,7 @@ fn rewrite_global_binding_delete_by_name(
 fn rewrite_binding_delete(
     target: ExprName,
     semantic: &BlockPyCallableSemanticInfo,
-) -> BlockPyStmt<CoreBlockPyExpr> {
+) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
     let node_index = target.node_index.clone();
     let range = target.range;
     let bind_name = target.id.to_string();
@@ -181,7 +181,7 @@ fn rewrite_binding_delete(
         }));
     }
     match semantic.binding_target_for_name(bind_name.as_str(), BlockPyBindingPurpose::Store) {
-        BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
+        BindingTarget::Local => StructuredBlockPyStmt::Assign(BlockPyAssign {
             target: ast::ExprName {
                 id: target.id,
                 ctx: ast::ExprContext::Store,
@@ -454,7 +454,7 @@ fn rewrite_class_name_load_cell(
 fn rewrite_quiet_delete_marker(
     name: ExprName,
     semantic: &BlockPyCallableSemanticInfo,
-) -> BlockPyStmt<CoreBlockPyExpr> {
+) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
     let node_index = name.node_index.clone();
     let range = name.range;
     match semantic.binding_kind(name.id.as_str()) {
@@ -465,7 +465,7 @@ fn rewrite_quiet_delete_marker(
         })),
         _ => match semantic.binding_target_for_name(name.id.as_str(), BlockPyBindingPurpose::Store)
         {
-            BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
+            BindingTarget::Local => StructuredBlockPyStmt::Assign(BlockPyAssign {
                 target: ast::ExprName {
                     id: name.id,
                     ctx: ast::ExprContext::Store,
@@ -566,7 +566,7 @@ fn build_local_cell_init_assign(
     storage_name: &str,
     logical_name: &str,
     is_parameter: bool,
-) -> BlockPyStmt<CoreBlockPyExpr> {
+) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
     let node_index = compat_node_index();
     let range = compat_range();
     let init_expr = if is_parameter {
@@ -579,7 +579,7 @@ fn build_local_cell_init_assign(
     } else {
         deleted_sentinel_expr(node_index.clone(), range)
     };
-    BlockPyStmt::Assign(BlockPyAssign {
+    StructuredBlockPyStmt::Assign(BlockPyAssign {
         target: ast::ExprName {
             id: storage_name.into(),
             ctx: ast::ExprContext::Store,
@@ -631,10 +631,12 @@ fn closure_slot_init_expr(slot: &ClosureSlot) -> CoreBlockPyExpr {
     }
 }
 
-fn build_closure_slot_cell_init_assign(slot: &ClosureSlot) -> BlockPyStmt<CoreBlockPyExpr> {
+fn build_closure_slot_cell_init_assign(
+    slot: &ClosureSlot,
+) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
     let node_index = compat_node_index();
     let range = compat_range();
-    BlockPyStmt::Assign(BlockPyAssign {
+    StructuredBlockPyStmt::Assign(BlockPyAssign {
         target: ast::ExprName {
             id: slot.storage_name.as_str().into(),
             ctx: ast::ExprContext::Store,
@@ -776,7 +778,7 @@ fn rewrite_binding_assign_by_name(
     semantic: &BlockPyCallableSemanticInfo,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
-) -> BlockPyStmt<CoreBlockPyExpr> {
+) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
     let assign = BlockPyAssign {
         target: ast::ExprName {
             id: name.clone().into(),
@@ -814,28 +816,38 @@ fn rewrite_binding_assign_by_name(
             }
             rewrite_class_namespace_binding_assign(assign)
         }
-        BindingTarget::Local => BlockPyStmt::Assign(assign),
+        BindingTarget::Local => StructuredBlockPyStmt::Assign(assign),
     }
 }
 
 impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_> {
-    fn map_stmt(&self, stmt: BlockPyStmt<CoreBlockPyExpr>) -> BlockPyStmt<CoreBlockPyExpr> {
+    fn map_stmt(
+        &self,
+        stmt: StructuredBlockPyStmt<CoreBlockPyExpr>,
+    ) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
         match stmt {
-            BlockPyStmt::Expr(expr) => {
+            StructuredBlockPyStmt::Expr(expr) => {
                 if let Some(name) = quiet_delete_marker_target(&expr) {
                     return rewrite_quiet_delete_marker(name, self.semantic);
                 }
-                BlockPyStmt::Expr(self.map_expr(expr))
+                StructuredBlockPyStmt::Expr(self.map_expr(expr))
             }
-            BlockPyStmt::Assign(assign) => self.map_assign(assign),
-            BlockPyStmt::Delete(delete) => rewrite_binding_delete(delete.target, self.semantic),
-            BlockPyStmt::If(_) => unreachable!("structured if should not reach name_binding"),
+            StructuredBlockPyStmt::Assign(assign) => self.map_assign(assign),
+            StructuredBlockPyStmt::Delete(delete) => {
+                rewrite_binding_delete(delete.target, self.semantic)
+            }
+            StructuredBlockPyStmt::If(_) => {
+                unreachable!("structured if should not reach name_binding")
+            }
         }
     }
 
-    fn map_assign(&self, assign: BlockPyAssign<CoreBlockPyExpr>) -> BlockPyStmt<CoreBlockPyExpr> {
+    fn map_assign(
+        &self,
+        assign: BlockPyAssign<CoreBlockPyExpr>,
+    ) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
         if is_local_cell_init_assign(&assign) {
-            return BlockPyStmt::Assign(assign);
+            return StructuredBlockPyStmt::Assign(assign);
         }
         rewrite_binding_assign_by_name(
             assign.target.id.to_string(),
@@ -925,18 +937,18 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
 }
 
 fn collect_deleted_names_in_stmt(
-    stmt: &BbStmt<CoreBlockPyExpr, ExprName>,
+    stmt: &BlockPyStmt<CoreBlockPyExpr, ExprName>,
     semantic: &BlockPyCallableSemanticInfo,
     names: &mut HashSet<String>,
 ) {
     match stmt {
-        BbStmt::Assign(assign)
+        BlockPyStmt::Assign(assign)
             if semantic.has_local_def(assign.target.id.as_str())
                 && is_deleted_sentinel_expr(&assign.value) =>
         {
             names.insert(assign.target.id.to_string());
         }
-        BbStmt::Expr(expr) => {
+        BlockPyStmt::Expr(expr) => {
             if let Some(name) = store_cell_deleted_logical_name(expr, semantic) {
                 names.insert(name);
             }
@@ -944,19 +956,19 @@ fn collect_deleted_names_in_stmt(
                 names.insert(name);
             }
         }
-        BbStmt::Delete(_) => {}
+        BlockPyStmt::Delete(_) => {}
         _ => {}
     }
 }
 
 fn rewrite_deleted_name_loads_in_stmt(
-    stmt: &mut BbStmt<CoreBlockPyExpr, ExprName>,
+    stmt: &mut BlockPyStmt<CoreBlockPyExpr, ExprName>,
     semantic: &BlockPyCallableSemanticInfo,
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
 ) {
     match stmt {
-        BbStmt::Assign(assign) => {
+        BlockPyStmt::Assign(assign) => {
             rewrite_deleted_name_loads_in_expr(
                 &mut assign.value,
                 semantic,
@@ -964,10 +976,10 @@ fn rewrite_deleted_name_loads_in_stmt(
                 always_unbound_names,
             );
         }
-        BbStmt::Expr(expr) => {
+        BlockPyStmt::Expr(expr) => {
             rewrite_deleted_name_loads_in_expr(expr, semantic, deleted_names, always_unbound_names)
         }
-        BbStmt::Delete(_) => {}
+        BlockPyStmt::Delete(_) => {}
     }
 }
 
@@ -1028,23 +1040,23 @@ fn collect_deleted_names_in_blocks(
 }
 
 fn collect_runtime_bound_local_names_in_stmt(
-    stmt: &BbStmt<CoreBlockPyExpr, ExprName>,
+    stmt: &BlockPyStmt<CoreBlockPyExpr, ExprName>,
     semantic: &BlockPyCallableSemanticInfo,
     names: &mut HashSet<String>,
 ) {
     match stmt {
-        BbStmt::Assign(assign)
+        BlockPyStmt::Assign(assign)
             if semantic.has_local_def(assign.target.id.as_str())
                 && !is_deleted_sentinel_expr(&assign.value) =>
         {
             names.insert(assign.target.id.to_string());
         }
-        BbStmt::Expr(expr) => {
+        BlockPyStmt::Expr(expr) => {
             if let Some(name) = store_cell_runtime_logical_name(expr, semantic) {
                 names.insert(name);
             }
         }
-        BbStmt::Delete(_) => {}
+        BlockPyStmt::Delete(_) => {}
         _ => {}
     }
 }
@@ -1114,16 +1126,16 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
 }
 
 fn collect_remaining_names_in_stmt(
-    stmt: &BbStmt<CoreBlockPyExpr, ExprName>,
+    stmt: &BlockPyStmt<CoreBlockPyExpr, ExprName>,
     names: &mut HashSet<String>,
 ) {
     match stmt {
-        BbStmt::Assign(assign) => {
+        BlockPyStmt::Assign(assign) => {
             names.insert(assign.target.id.to_string());
             collect_remaining_names_in_expr(&assign.value, names);
         }
-        BbStmt::Expr(expr) => collect_remaining_names_in_expr(expr, names),
-        BbStmt::Delete(delete) => {
+        BlockPyStmt::Expr(expr) => collect_remaining_names_in_expr(expr, names),
+        BlockPyStmt::Delete(delete) => {
             names.insert(delete.target.id.to_string());
         }
     }
@@ -1349,13 +1361,13 @@ fn collect_local_slot_locations(
         for stmt in &block.body {
             collect_remaining_names_in_stmt(stmt, &mut remaining);
             match stmt {
-                BbStmt::Assign(assign) => {
+                BlockPyStmt::Assign(assign) => {
                     explicitly_stored.insert(assign.target.id.to_string());
                 }
-                BbStmt::Delete(delete) => {
+                BlockPyStmt::Delete(delete) => {
                     explicitly_stored.insert(delete.target.id.to_string());
                 }
-                BbStmt::Expr(_) => {}
+                BlockPyStmt::Expr(_) => {}
             }
         }
         collect_remaining_names_in_term(&block.term, &mut remaining);
@@ -1534,7 +1546,7 @@ impl NameLocator<'_> {
     }
 }
 
-impl BlockPyModuleMap<CoreBlockPyPass, BbBlockPyPass> for NameLocator<'_> {
+impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocator<'_> {
     fn map_name(&self, name: ExprName) -> LocatedName {
         self.locate_name(name)
     }
@@ -1602,7 +1614,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, BbBlockPyPass> for NameLocator<'_> {
 
 fn locate_names_in_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
-) -> BlockPyFunction<BbBlockPyPass> {
+) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
     let semantic = callable.semantic.clone();
     let exception_param_names = callable
         .blocks
@@ -1625,8 +1637,8 @@ fn locate_names_in_callable(
 }
 
 fn refresh_bb_callable_block_params(
-    callable: BlockPyFunction<BbBlockPyPass>,
-) -> BlockPyFunction<BbBlockPyPass> {
+    callable: BlockPyFunction<ResolvedStorageBlockPyPass>,
+) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
     let block_params = recompute_lowered_block_params(
         &callable,
         should_include_closure_storage_aliases(&callable),
@@ -1686,7 +1698,7 @@ fn refresh_bb_callable_block_params(
 
 fn lower_name_binding_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
-) -> BlockPyFunction<BbBlockPyPass> {
+) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
     let semantic = callable.semantic.clone();
     let mut lowered = NameBindingMapper {
         semantic: &semantic,
@@ -1719,6 +1731,6 @@ fn lower_name_binding_callable(
 
 pub(crate) fn lower_name_binding_in_core_blockpy_module(
     module: BlockPyModule<CoreBlockPyPass>,
-) -> BlockPyModule<BbBlockPyPass> {
+) -> BlockPyModule<ResolvedStorageBlockPyPass> {
     module.map_callable_defs(lower_name_binding_callable)
 }

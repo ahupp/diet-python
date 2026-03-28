@@ -1,6 +1,6 @@
 use super::{
-    AbruptKind, BlockArg, BlockPyAssign, BlockPyEdge, BlockPyLabel, BlockPyStmt, BlockPyTerm,
-    CfgBlock,
+    AbruptKind, BlockArg, BlockPyAssign, BlockPyEdge, BlockPyLabel, BlockPyTerm, CfgBlock,
+    StructuredBlockPyStmt,
 };
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr, ExprName, Stmt};
@@ -13,7 +13,7 @@ fn expr_name(id: &str) -> ExprName {
 }
 
 pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
-    blocks: &mut [CfgBlock<BlockPyStmt<E>, BlockPyTerm<E>>],
+    blocks: &mut [CfgBlock<StructuredBlockPyStmt<E>, BlockPyTerm<E>>],
     finally_target: &str,
     payload_name: &str,
 ) where
@@ -30,10 +30,12 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
                 continue;
             }
         };
-        block.body.push(BlockPyStmt::Assign(BlockPyAssign {
-            target: expr_name(payload_name),
-            value: ret_value,
-        }));
+        block
+            .body
+            .push(StructuredBlockPyStmt::Assign(BlockPyAssign {
+                target: expr_name(payload_name),
+                value: ret_value,
+            }));
         let payload_arg = BlockArg::Name(payload_name.to_string());
         // Only bind the synthetic abrupt slots explicitly. Any ordinary live-ins
         // for the finally entry, including its exception slot, must continue to

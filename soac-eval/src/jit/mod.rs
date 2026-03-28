@@ -11,7 +11,7 @@ use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use dp_transform::block_py::{
     BlockPyModule, LocatedName, NameLocation, operation as blockpy_intrinsics,
 };
-use dp_transform::passes::PreparedBbBlockPyPass;
+use dp_transform::passes::ResolvedStorageBlockPyPass;
 use ruff_python_ast as ast;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -2883,7 +2883,9 @@ fn rewrite_import_fn_aliases(
     out
 }
 
-pub fn run_cranelift_smoke(module: &BlockPyModule<PreparedBbBlockPyPass>) -> Result<(), String> {
+pub fn run_cranelift_smoke(
+    module: &BlockPyModule<ResolvedStorageBlockPyPass>,
+) -> Result<(), String> {
     let function_count = module.callable_defs.len() as i64;
     let block_count = module
         .callable_defs

@@ -51,7 +51,7 @@ where
     POut: BlockPyPass,
     PassExpr<PIn>: MapExpr<PassExpr<POut>>,
     PassName<POut>: From<PassName<PIn>>,
-    BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
+    StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
     fn map_module(&self, module: BlockPyModule<PIn>) -> BlockPyModule<POut> {
         BlockPyModule {
@@ -87,7 +87,7 @@ where
             body: block
                 .body
                 .into_iter()
-                .map(|stmt| self.map_stmt(stmt.into_stmt()).into())
+                .map(|stmt| self.map_stmt(stmt.into_structured_stmt()).into())
                 .collect(),
             term: self.map_term(block.term),
             params: block.params,
@@ -98,11 +98,13 @@ where
     fn map_fragment(
         &self,
         fragment: BlockPyCfgFragment<
-            BlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+            StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
             BlockPyTerm<PassExpr<PIn>>,
         >,
-    ) -> BlockPyCfgFragment<BlockPyStmt<PassExpr<POut>, PassName<POut>>, BlockPyTerm<PassExpr<POut>>>
-    {
+    ) -> BlockPyCfgFragment<
+        StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>>,
+        BlockPyTerm<PassExpr<POut>>,
+    > {
         BlockPyCfgFragment {
             body: fragment
                 .body
@@ -115,13 +117,15 @@ where
 
     fn map_stmt(
         &self,
-        stmt: BlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
-    ) -> BlockPyStmt<PassExpr<POut>, PassName<POut>> {
+        stmt: StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+    ) -> StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>> {
         match stmt {
-            BlockPyStmt::Assign(assign) => self.map_assign(assign),
-            BlockPyStmt::Expr(expr) => BlockPyStmt::Expr(self.map_expr(expr)),
-            BlockPyStmt::Delete(delete) => BlockPyStmt::Delete(self.map_delete(delete)),
-            BlockPyStmt::If(if_stmt) => BlockPyStmt::If(BlockPyIf {
+            StructuredBlockPyStmt::Assign(assign) => self.map_assign(assign),
+            StructuredBlockPyStmt::Expr(expr) => StructuredBlockPyStmt::Expr(self.map_expr(expr)),
+            StructuredBlockPyStmt::Delete(delete) => {
+                StructuredBlockPyStmt::Delete(self.map_delete(delete))
+            }
+            StructuredBlockPyStmt::If(if_stmt) => StructuredBlockPyStmt::If(BlockPyIf {
                 test: self.map_expr(if_stmt.test),
                 body: self.map_fragment(if_stmt.body),
                 orelse: self.map_fragment(if_stmt.orelse),
@@ -132,8 +136,8 @@ where
     fn map_assign(
         &self,
         assign: BlockPyAssign<PassExpr<PIn>, PassName<PIn>>,
-    ) -> BlockPyStmt<PassExpr<POut>, PassName<POut>> {
-        BlockPyStmt::Assign(BlockPyAssign {
+    ) -> StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>> {
+        StructuredBlockPyStmt::Assign(BlockPyAssign {
             target: self.map_name(assign.target),
             value: self.map_expr(assign.value),
         })
@@ -201,7 +205,7 @@ where
     POut: BlockPyPass,
     PassExpr<PIn>: TryMapExpr<PassExpr<POut>, Self::Error>,
     PassName<POut>: From<PassName<PIn>>,
-    BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
+    StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
     type Error;
 
@@ -242,7 +246,10 @@ where
             body: block
                 .body
                 .into_iter()
-                .map(|stmt| self.try_map_stmt(stmt.into_stmt()).map(Into::into))
+                .map(|stmt| {
+                    self.try_map_stmt(stmt.into_structured_stmt())
+                        .map(Into::into)
+                })
                 .collect::<Result<_, _>>()?,
             term: self.try_map_term(block.term)?,
             params: block.params,
@@ -253,12 +260,12 @@ where
     fn try_map_fragment(
         &self,
         fragment: BlockPyCfgFragment<
-            BlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+            StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
             BlockPyTerm<PassExpr<PIn>>,
         >,
     ) -> Result<
         BlockPyCfgFragment<
-            BlockPyStmt<PassExpr<POut>, PassName<POut>>,
+            StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>>,
             BlockPyTerm<PassExpr<POut>>,
         >,
         Self::Error,
@@ -278,13 +285,17 @@ where
 
     fn try_map_stmt(
         &self,
-        stmt: BlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
-    ) -> Result<BlockPyStmt<PassExpr<POut>, PassName<POut>>, Self::Error> {
+        stmt: StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+    ) -> Result<StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>>, Self::Error> {
         match stmt {
-            BlockPyStmt::Assign(assign) => self.try_map_assign(assign),
-            BlockPyStmt::Expr(expr) => Ok(BlockPyStmt::Expr(self.try_map_expr(expr)?)),
-            BlockPyStmt::Delete(delete) => Ok(BlockPyStmt::Delete(self.try_map_delete(delete)?)),
-            BlockPyStmt::If(if_stmt) => Ok(BlockPyStmt::If(BlockPyIf {
+            StructuredBlockPyStmt::Assign(assign) => self.try_map_assign(assign),
+            StructuredBlockPyStmt::Expr(expr) => {
+                Ok(StructuredBlockPyStmt::Expr(self.try_map_expr(expr)?))
+            }
+            StructuredBlockPyStmt::Delete(delete) => {
+                Ok(StructuredBlockPyStmt::Delete(self.try_map_delete(delete)?))
+            }
+            StructuredBlockPyStmt::If(if_stmt) => Ok(StructuredBlockPyStmt::If(BlockPyIf {
                 test: self.try_map_expr(if_stmt.test)?,
                 body: self.try_map_fragment(if_stmt.body)?,
                 orelse: self.try_map_fragment(if_stmt.orelse)?,
@@ -295,8 +306,8 @@ where
     fn try_map_assign(
         &self,
         assign: BlockPyAssign<PassExpr<PIn>, PassName<PIn>>,
-    ) -> Result<BlockPyStmt<PassExpr<POut>, PassName<POut>>, Self::Error> {
-        Ok(BlockPyStmt::Assign(BlockPyAssign {
+    ) -> Result<StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>>, Self::Error> {
+        Ok(StructuredBlockPyStmt::Assign(BlockPyAssign {
             target: self.try_map_name(assign.target)?,
             value: self.try_map_expr(assign.value)?,
         }))
@@ -376,7 +387,7 @@ where
         POut: BlockPyPass,
         PassExpr<PIn>: MapExpr<PassExpr<POut>>,
         PassName<POut>: From<PassName<PIn>>,
-        BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
+        StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
     {
         mapper.map_module(self)
     }
@@ -386,7 +397,7 @@ where
         POut: BlockPyPass,
         PassExpr<PIn>: TryMapExpr<PassExpr<POut>, M::Error>,
         PassName<POut>: From<PassName<PIn>>,
-        BlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
+        StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
         M: BlockPyModuleTryMap<PIn, POut>,
     {
         mapper.try_map_module(self)
@@ -627,12 +638,14 @@ impl BlockPyModuleTryMap<CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYi
     type Error = CoreBlockPyExprWithAwaitAndYield;
 }
 
-impl TryFrom<BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>>
-    for BlockPyStmt<CoreBlockPyExprWithYield>
+impl TryFrom<StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>>
+    for StructuredBlockPyStmt<CoreBlockPyExprWithYield>
 {
     type Error = CoreBlockPyExprWithAwaitAndYield;
 
-    fn try_from(value: BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>) -> Result<Self, Self::Error> {
+    fn try_from(
+        value: StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+    ) -> Result<Self, Self::Error> {
         ElideAwaitExprTryMap.try_map_stmt(value)
     }
 }
@@ -650,12 +663,12 @@ impl TryFrom<BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>>
 impl
     TryFrom<
         BlockPyCfgFragment<
-            BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+            StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
             BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
         >,
     >
     for BlockPyCfgFragment<
-        BlockPyStmt<CoreBlockPyExprWithYield>,
+        StructuredBlockPyStmt<CoreBlockPyExprWithYield>,
         BlockPyTerm<CoreBlockPyExprWithYield>,
     >
 {
@@ -663,7 +676,7 @@ impl
 
     fn try_from(
         value: BlockPyCfgFragment<
-            BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+            StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
             BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
         >,
     ) -> Result<Self, Self::Error> {
@@ -674,12 +687,12 @@ impl
 impl
     TryFrom<
         CfgBlock<
-            BbStmt<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>,
+            BlockPyStmt<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>,
             BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
         >,
     >
     for CfgBlock<
-        BbStmt<CoreBlockPyExprWithYield, ast::ExprName>,
+        BlockPyStmt<CoreBlockPyExprWithYield, ast::ExprName>,
         BlockPyTerm<CoreBlockPyExprWithYield>,
     >
 {
@@ -687,7 +700,7 @@ impl
 
     fn try_from(
         value: CfgBlock<
-            BbStmt<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>,
+            BlockPyStmt<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>,
             BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
         >,
     ) -> Result<Self, Self::Error> {
@@ -740,10 +753,14 @@ impl BlockPyModuleTryMap<CoreBlockPyPassWithYield, CoreBlockPyPass> for ElideYie
     type Error = CoreBlockPyExprWithYield;
 }
 
-impl TryFrom<BlockPyStmt<CoreBlockPyExprWithYield>> for BlockPyStmt<CoreBlockPyExpr> {
+impl TryFrom<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>
+    for StructuredBlockPyStmt<CoreBlockPyExpr>
+{
     type Error = CoreBlockPyExprWithYield;
 
-    fn try_from(value: BlockPyStmt<CoreBlockPyExprWithYield>) -> Result<Self, Self::Error> {
+    fn try_from(
+        value: StructuredBlockPyStmt<CoreBlockPyExprWithYield>,
+    ) -> Result<Self, Self::Error> {
         ElideYieldExprTryMap.try_map_stmt(value)
     }
 }
@@ -759,16 +776,16 @@ impl TryFrom<BlockPyTerm<CoreBlockPyExprWithYield>> for BlockPyTerm<CoreBlockPyE
 impl
     TryFrom<
         BlockPyCfgFragment<
-            BlockPyStmt<CoreBlockPyExprWithYield>,
+            StructuredBlockPyStmt<CoreBlockPyExprWithYield>,
             BlockPyTerm<CoreBlockPyExprWithYield>,
         >,
-    > for BlockPyCfgFragment<BlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>
+    > for BlockPyCfgFragment<StructuredBlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>
 {
     type Error = CoreBlockPyExprWithYield;
 
     fn try_from(
         value: BlockPyCfgFragment<
-            BlockPyStmt<CoreBlockPyExprWithYield>,
+            StructuredBlockPyStmt<CoreBlockPyExprWithYield>,
             BlockPyTerm<CoreBlockPyExprWithYield>,
         >,
     ) -> Result<Self, Self::Error> {
@@ -779,16 +796,16 @@ impl
 impl
     TryFrom<
         CfgBlock<
-            BbStmt<CoreBlockPyExprWithYield, ast::ExprName>,
+            BlockPyStmt<CoreBlockPyExprWithYield, ast::ExprName>,
             BlockPyTerm<CoreBlockPyExprWithYield>,
         >,
-    > for CfgBlock<BbStmt<CoreBlockPyExpr, ast::ExprName>, BlockPyTerm<CoreBlockPyExpr>>
+    > for CfgBlock<BlockPyStmt<CoreBlockPyExpr, ast::ExprName>, BlockPyTerm<CoreBlockPyExpr>>
 {
     type Error = CoreBlockPyExprWithYield;
 
     fn try_from(
         value: CfgBlock<
-            BbStmt<CoreBlockPyExprWithYield, ast::ExprName>,
+            BlockPyStmt<CoreBlockPyExprWithYield, ast::ExprName>,
             BlockPyTerm<CoreBlockPyExprWithYield>,
         >,
     ) -> Result<Self, Self::Error> {

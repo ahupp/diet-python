@@ -3,11 +3,11 @@ use super::core_eval_order::make_eval_order_explicit_in_core_block;
 use crate::block_py::{
     convert_blockpy_stmt_expr, convert_blockpy_term_expr, core_call_expr_with_meta,
     core_positional_call_expr_with_meta, operation, BlockPyAssign, BlockPyBranchTable,
-    BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
-    BlockPyStmtFragment, BlockPyStmtFragmentBuilder, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
-    CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral, CoreBlockPyYield, CoreBlockPyYieldFrom, CoreBytesLiteral,
-    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, IntoBlockPyStmt, RuffExpr,
+    BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragment,
+    BlockPyStmtFragmentBuilder, BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyCallArg,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyYield,
+    CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
+    CoreStringLiteral, IntoStructuredBlockPyStmt, RuffExpr, StructuredBlockPyStmt,
 };
 use crate::passes::ast_to_ast::expr_utils::{make_binop, make_tuple, make_unaryop};
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
@@ -475,7 +475,7 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
 
 fn finish_expr_setup(
     builder: CoreStmtBuilder,
-) -> Vec<BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>> {
+) -> Vec<StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>> {
     let fragment = builder.finish();
     assert!(
         fragment.term.is_none(),
@@ -519,31 +519,31 @@ fn lower_semantic_stmt_fragment(
 
 type CoreLikeStmtFragmentInput = BlockPyStmtFragment<Expr>;
 
-fn lower_semantic_stmt_into(builder: &mut CoreStmtBuilder, stmt: BlockPyStmt<Expr>) {
+fn lower_semantic_stmt_into(builder: &mut CoreStmtBuilder, stmt: StructuredBlockPyStmt<Expr>) {
     match stmt {
-        BlockPyStmt::Assign(assign) => {
+        StructuredBlockPyStmt::Assign(assign) => {
             let mut setup = CoreStmtBuilder::new();
             let value = lower_semantic_expr_into(&mut setup, &assign.value);
             builder.extend(finish_expr_setup(setup));
-            builder.push_stmt(BlockPyStmt::Assign(BlockPyAssign {
+            builder.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
                 target: assign.target,
                 value,
             }));
         }
-        BlockPyStmt::Expr(expr) => {
+        StructuredBlockPyStmt::Expr(expr) => {
             let mut setup = CoreStmtBuilder::new();
             let expr = lower_semantic_expr_into(&mut setup, &expr);
             builder.extend(finish_expr_setup(setup));
-            builder.push_stmt(BlockPyStmt::Expr(expr));
+            builder.push_stmt(StructuredBlockPyStmt::Expr(expr));
         }
-        BlockPyStmt::Delete(BlockPyDelete { target }) => {
-            builder.push_stmt(BlockPyStmt::Delete(BlockPyDelete { target }));
+        StructuredBlockPyStmt::Delete(BlockPyDelete { target }) => {
+            builder.push_stmt(StructuredBlockPyStmt::Delete(BlockPyDelete { target }));
         }
-        BlockPyStmt::If(if_stmt) => {
+        StructuredBlockPyStmt::If(if_stmt) => {
             let mut setup = CoreStmtBuilder::new();
             let test = lower_semantic_expr_into(&mut setup, &if_stmt.test);
             builder.extend(finish_expr_setup(setup));
-            builder.push_stmt(BlockPyStmt::If(BlockPyIf {
+            builder.push_stmt(StructuredBlockPyStmt::If(BlockPyIf {
                 test,
                 body: lower_semantic_stmt_fragment(if_stmt.body),
                 orelse: lower_semantic_stmt_fragment(if_stmt.orelse),
@@ -622,11 +622,11 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: BlockPyTerm<Exp
 fn lower_semantic_block<S>(
     block: CfgBlock<S, BlockPyTerm<RuffExpr>>,
 ) -> CfgBlock<
-    BlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+    StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
     BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
 >
 where
-    S: IntoBlockPyStmt<RuffExpr, ast::ExprName>,
+    S: IntoStructuredBlockPyStmt<RuffExpr, ast::ExprName>,
 {
     let CfgBlock {
         label,
@@ -637,7 +637,10 @@ where
     } = block;
     let mut builder = CoreStmtBuilder::new();
     for stmt in body {
-        lower_semantic_stmt_into(&mut builder, convert_blockpy_stmt_expr(stmt.into_stmt()));
+        lower_semantic_stmt_into(
+            &mut builder,
+            convert_blockpy_stmt_expr(stmt.into_structured_stmt()),
+        );
     }
     lower_semantic_term_into(&mut builder, convert_blockpy_term_expr(term));
     let fragment = builder.finish();

@@ -55,7 +55,7 @@ impl StmtLowerer for ast::StmtDelete {
                 &Stmt::Delete(self.clone()),
             ));
         };
-        out.push_stmt(BlockPyStmt::Delete(BlockPyDelete { target }));
+        out.push_stmt(StructuredBlockPyStmt::Delete(BlockPyDelete { target }));
         Ok(())
     }
 }

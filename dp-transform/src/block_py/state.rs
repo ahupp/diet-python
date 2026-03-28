@@ -1,12 +1,12 @@
 use super::dataflow::{assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term};
-use super::{BlockPyNameLike, BlockPyTerm, CfgBlock, Expr, IntoBlockPyStmt};
+use super::{BlockPyNameLike, BlockPyTerm, CfgBlock, Expr, IntoStructuredBlockPyStmt};
 
 pub(crate) fn collect_state_vars<S, E, N>(
     param_names: &[String],
     blocks: &[CfgBlock<S, BlockPyTerm<E>>],
 ) -> Vec<String>
 where
-    S: IntoBlockPyStmt<E, N>,
+    S: IntoStructuredBlockPyStmt<E, N>,
     E: Clone + Into<Expr>,
     N: BlockPyNameLike,
 {
@@ -22,7 +22,7 @@ where
             }
         }
         for stmt in &block.body {
-            let stmt = stmt.clone().into_stmt();
+            let stmt = stmt.clone().into_structured_stmt();
             for name in assigned_names_in_blockpy_stmt(&stmt) {
                 if !state.iter().any(|existing| existing == &name) {
                     state.push(name);

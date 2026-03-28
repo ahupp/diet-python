@@ -1,4 +1,4 @@
-use crate::block_py::{BlockPyStmt, BlockPyStmtFragmentBuilder};
+use crate::block_py::{BlockPyStmtFragmentBuilder, StructuredBlockPyStmt};
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::py_expr;
 use ruff_python_ast::Expr;
@@ -18,7 +18,7 @@ fn if_expr_lowering_emits_blockpy_setup_directly() {
 
     let fragment = out.finish();
     assert!(matches!(lowered, Expr::Name(_)), "{lowered:?}");
-    let [BlockPyStmt::If(if_stmt)] = &fragment.body[..] else {
+    let [StructuredBlockPyStmt::If(if_stmt)] = &fragment.body[..] else {
         panic!("expected one structured if stmt, got {fragment:?}");
     };
     assert!(
@@ -26,7 +26,7 @@ fn if_expr_lowering_emits_blockpy_setup_directly() {
             .body
             .body
             .iter()
-            .any(|stmt| matches!(stmt, BlockPyStmt::Assign(_))),
+            .any(|stmt| matches!(stmt, StructuredBlockPyStmt::Assign(_))),
         "{if_stmt:?}"
     );
     assert!(
@@ -34,7 +34,7 @@ fn if_expr_lowering_emits_blockpy_setup_directly() {
             .orelse
             .body
             .iter()
-            .any(|stmt| matches!(stmt, BlockPyStmt::Assign(_))),
+            .any(|stmt| matches!(stmt, StructuredBlockPyStmt::Assign(_))),
         "{if_stmt:?}"
     );
 }

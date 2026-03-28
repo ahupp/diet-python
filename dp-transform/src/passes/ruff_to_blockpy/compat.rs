@@ -1,13 +1,13 @@
 use super::*;
 use crate::block_py::{
-    BlockPyCfgBlockBuilder, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
-    BlockPyStmtFragmentBuilder, BlockPyTerm, Expr,
+    BlockPyCfgBlockBuilder, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmtFragmentBuilder,
+    BlockPyTerm, Expr, StructuredBlockPyStmt,
 };
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ruff_to_blockpy::stmt_lowering::lower_nested_stmt_into_with_expr;
 
 fn with_exc_meta(
-    block: crate::block_py::CfgBlock<BlockPyStmt, BlockPyTerm>,
+    block: crate::block_py::CfgBlock<StructuredBlockPyStmt, BlockPyTerm>,
     exc_target: Option<&str>,
 ) -> LoweredBlockPyBlock {
     crate::block_py::CfgBlock {
@@ -42,7 +42,7 @@ pub(crate) fn compat_block_from_blockpy_with_exc_target(
         body.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(label);
+    let mut block = BlockPyCfgBlockBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new(label);
     block.extend(body.body);
     block.set_term(term);
     with_exc_meta(block.finish(None), exc_target)
@@ -82,7 +82,7 @@ pub(crate) fn compat_if_jump_block_with_expr_setup_and_exc_target(
         fragment.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(label);
+    let mut block = BlockPyCfgBlockBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new(label);
     block.extend(fragment.body);
     block.set_term(BlockPyTerm::IfTerm(BlockPyIfTerm {
         test,
@@ -143,7 +143,8 @@ pub(crate) fn emit_sequence_return_block_with_expr_setup(
         fragment.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(label.clone());
+    let mut block =
+        BlockPyCfgBlockBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new(label.clone());
     block.extend(fragment.body);
     block.set_term(BlockPyTerm::Return(
         value.unwrap_or_else(|| crate::py_expr!("__dp_NONE")),
@@ -180,7 +181,8 @@ pub(crate) fn emit_sequence_raise_block_with_expr_setup(
         fragment.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(label.clone());
+    let mut block =
+        BlockPyCfgBlockBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new(label.clone());
     block.extend(fragment.body);
     block.set_term(BlockPyTerm::Raise(exc));
     blocks.push(with_exc_meta(block.finish(None), exc_target));

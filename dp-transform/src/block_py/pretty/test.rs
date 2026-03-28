@@ -1,7 +1,7 @@
 use super::*;
 use crate::block_py::{BlockParam, BlockParamRole};
 use crate::block_py::{ClosureInit, ClosureLayout, ClosureSlot, RuffExpr};
-use crate::passes::{BbBlockPyPass, RuffBlockPyPass};
+use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
 use ruff_python_parser::parse_expression;
 
 #[derive(Debug, Clone)]
@@ -10,7 +10,7 @@ struct StructuredExprPass;
 impl BlockPyPass for StructuredExprPass {
     type Name = ruff_python_ast::ExprName;
     type Expr = Expr;
-    type Stmt = BlockPyStmt<Self::Expr>;
+    type Stmt = StructuredBlockPyStmt<Self::Expr>;
 }
 
 fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
@@ -224,21 +224,27 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
             },
             CfgBlock {
                 label: "then".into(),
-                body: vec![BlockPyStmt::Expr(parse_ruff_blockpy_expr("then_side_effect()")).into()],
+                body: vec![StructuredBlockPyStmt::Expr(parse_ruff_blockpy_expr(
+                    "then_side_effect()",
+                ))
+                .into()],
                 term: BlockPyTerm::Jump("after".into()),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: "else".into(),
-                body: vec![BlockPyStmt::Expr(parse_ruff_blockpy_expr("else_side_effect()")).into()],
+                body: vec![StructuredBlockPyStmt::Expr(parse_ruff_blockpy_expr(
+                    "else_side_effect()",
+                ))
+                .into()],
                 term: BlockPyTerm::Jump("after".into()),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: "after".into(),
-                body: vec![BlockPyStmt::Expr(parse_ruff_blockpy_expr("finish()")).into()],
+                body: vec![StructuredBlockPyStmt::Expr(parse_ruff_blockpy_expr("finish()")).into()],
                 term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
@@ -345,7 +351,7 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
 fn collects_referenced_labels_from_nested_if_fragments_via_visitor() {
     let referenced = collect_referenced_labels_from_blocks::<StructuredExprPass>(&[CfgBlock {
         label: "start".into(),
-        body: vec![BlockPyStmt::If(crate::block_py::BlockPyIf {
+        body: vec![StructuredBlockPyStmt::If(crate::block_py::BlockPyIf {
             test: parse_blockpy_expr("cond"),
             body: BlockPyCfgFragment {
                 body: Vec::new(),
@@ -383,14 +389,14 @@ fn collects_referenced_labels_from_nested_if_fragments_via_visitor() {
 #[test]
 fn renders_bb_block_metadata_with_shared_layout() {
     let rendered = blockpy_module_to_string(&BlockPyModule {
-        callable_defs: vec![BlockPyFunction::<BbBlockPyPass> {
+        callable_defs: vec![BlockPyFunction::<ResolvedStorageBlockPyPass> {
             function_id: crate::block_py::FunctionId(0),
             name_gen: test_name_gen(),
             names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
             kind: BlockPyFunctionKind::Function,
             params: empty_param_spec(),
             blocks: vec![
-                PassBlock::<BbBlockPyPass> {
+                PassBlock::<ResolvedStorageBlockPyPass> {
                     label: "start".into(),
                     body: vec![],
                     term: BlockPyTerm::Jump("except".into()),
@@ -406,7 +412,7 @@ fn renders_bb_block_metadata_with_shared_layout() {
                     ],
                     exc_edge: Some(BlockPyEdge::new("except".into())),
                 },
-                PassBlock::<BbBlockPyPass> {
+                PassBlock::<ResolvedStorageBlockPyPass> {
                     label: "except".into(),
                     body: vec![],
                     term: BlockPyTerm::Return(

@@ -30,5 +30,8 @@ fn stmt_augassign_to_blockpy_uses_trait_owned_simplification_path() {
         .expect("augassign lowering should succeed");
 
     let fragment = out.finish();
-    assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::Assign(_)]));
+    assert!(matches!(
+        fragment.body.as_slice(),
+        [StructuredBlockPyStmt::Assign(_)]
+    ));
 }

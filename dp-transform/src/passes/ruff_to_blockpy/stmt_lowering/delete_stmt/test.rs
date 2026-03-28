@@ -33,5 +33,8 @@ fn stmt_delete_lowering_uses_trait_owned_simplification_path() {
     }
 
     let fragment = out.finish();
-    assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::Expr(_)]));
+    assert!(matches!(
+        fragment.body.as_slice(),
+        [StructuredBlockPyStmt::Expr(_)]
+    ));
 }

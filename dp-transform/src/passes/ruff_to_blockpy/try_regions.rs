@@ -2,7 +2,7 @@ use super::compat::set_region_exc_param;
 use super::*;
 use crate::block_py::{
     AbruptKind, BlockArg, BlockParamRole, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyEdge,
-    BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    BlockPyLabel, BlockPyRaise, BlockPyTerm, StructuredBlockPyStmt,
 };
 use crate::passes::ast_to_ast::body::Suite;
 
@@ -137,7 +137,7 @@ where
         }
         let finally_normal_entry = try_plan.finally_abrupt_kind_name.as_ref().map(|_| {
             let normal_label = format!("{finally_label}__normal");
-            let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(
+            let mut block = BlockPyCfgBlockBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new(
                 BlockPyLabel::from(normal_label.clone()),
             );
             let mut args = Vec::new();
@@ -162,7 +162,7 @@ where
         });
         let finally_exception_entry = try_plan.finally_exc_name.as_ref().map(|finally_exc_name| {
             let exception_label = format!("{finally_label}__exception");
-            let mut block = BlockPyCfgBlockBuilder::<BlockPyStmt, BlockPyTerm>::new(
+            let mut block = BlockPyCfgBlockBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new(
                 BlockPyLabel::from(exception_label.clone()),
             )
             .with_exc_param(Some(finally_exc_name.clone()));
@@ -405,12 +405,12 @@ pub(crate) fn emit_try_jump_entry(
 }
 
 pub(crate) fn block_references_label(
-    block: &crate::block_py::CfgBlock<BlockPyStmt, BlockPyTerm>,
+    block: &crate::block_py::CfgBlock<StructuredBlockPyStmt, BlockPyTerm>,
     label: &str,
 ) -> bool {
-    fn stmt_references_label(stmt: &BlockPyStmt, label: &str) -> bool {
+    fn stmt_references_label(stmt: &StructuredBlockPyStmt, label: &str) -> bool {
         match stmt {
-            BlockPyStmt::If(if_stmt) => {
+            StructuredBlockPyStmt::If(if_stmt) => {
                 stmt_fragment_references_label(&if_stmt.body, label)
                     || stmt_fragment_references_label(&if_stmt.orelse, label)
             }
@@ -418,12 +418,12 @@ pub(crate) fn block_references_label(
         }
     }
 
-    fn stmt_list_references_label(stmts: &[BlockPyStmt], label: &str) -> bool {
+    fn stmt_list_references_label(stmts: &[StructuredBlockPyStmt], label: &str) -> bool {
         stmts.iter().any(|stmt| stmt_references_label(stmt, label))
     }
 
     fn stmt_fragment_references_label(
-        fragment: &crate::block_py::BlockPyCfgFragment<BlockPyStmt, BlockPyTerm>,
+        fragment: &crate::block_py::BlockPyCfgFragment<StructuredBlockPyStmt, BlockPyTerm>,
         label: &str,
     ) -> bool {
         stmt_list_references_label(&fragment.body, label)

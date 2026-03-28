@@ -236,7 +236,10 @@ impl StmtLowerer for ast::StmtAssign {
             loop_ctx,
             next_label_id,
         )?;
-        out.push_stmt(BlockPyStmt::Assign(BlockPyAssign { target, value }));
+        out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
+            target,
+            value,
+        }));
         Ok(())
     }
 }

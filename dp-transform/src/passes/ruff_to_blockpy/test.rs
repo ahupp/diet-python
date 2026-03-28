@@ -2,7 +2,7 @@ use super::*;
 
 use crate::block_py::{
     BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
+    BlockPyTerm, CoreBlockPyExpr, StructuredBlockPyStmt,
 };
 use crate::passes::ast_to_ast::{context::Context, Options};
 use crate::passes::ruff_to_blockpy::stmt_sequences::{
@@ -52,7 +52,8 @@ fn function_by_name<'a, P: BlockPyPass>(
 
 fn lower_stmt_for_panic_test(stmt: &Stmt) {
     let context = Context::new(Options::for_test(), "");
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
+    let mut out =
+        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
     let mut next_label_id = 0usize;
     let _ = lower_stmt_into(&context, stmt, &mut out, None, &mut next_label_id);
 }
@@ -920,12 +921,16 @@ def f(x):
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
+    let mut out =
+        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
         .expect("assert lowering should succeed");
     let fragment = out.finish();
-    assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::If(_)]));
+    assert!(matches!(
+        fragment.body.as_slice(),
+        [StructuredBlockPyStmt::If(_)]
+    ));
 }
 
 #[test]
@@ -962,12 +967,16 @@ def f(x):
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
+    let mut out =
+        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
         .expect("augassign lowering should succeed");
     let fragment = out.finish();
-    assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::Assign(_)]));
+    assert!(matches!(
+        fragment.body.as_slice(),
+        [StructuredBlockPyStmt::Assign(_)]
+    ));
 }
 
 #[test]
@@ -1002,7 +1011,8 @@ def f():
     .into_syntax()
     .body;
     let context = test_context();
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
+    let mut out =
+        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &module[0], &mut out, None, &mut next_label_id)
         .expect("type alias lowering should succeed");
@@ -1027,7 +1037,8 @@ def f(x):
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
+    let mut out =
+        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
         .expect("match lowering should succeed");
@@ -1050,12 +1061,16 @@ def f():
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
+    let mut out =
+        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
         .expect("import lowering should succeed");
     let fragment = out.finish();
-    assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::Assign(_)]));
+    assert!(matches!(
+        fragment.body.as_slice(),
+        [StructuredBlockPyStmt::Assign(_)]
+    ));
 }
 
 #[test]
@@ -1073,7 +1088,8 @@ def f():
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
+    let mut out =
+        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
         .expect("import-from lowering should succeed");
@@ -1127,7 +1143,8 @@ fn panics_if_while_reaches_stmt_list_lowering() {
         panic!("expected while stmt");
     };
     let context = test_context();
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<BlockPyStmt, BlockPyTerm>::new();
+    let mut out =
+        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(
         &context,

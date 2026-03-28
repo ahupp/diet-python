@@ -1,17 +1,17 @@
 use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::operation;
 use crate::block_py::{
-    BbStmt, BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike,
-    BlockPyStmt, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
+    BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike, BlockPyStmt,
+    BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, StructuredBlockPyStmt,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn lower_structured_blocks_to_bb_blocks<E, N>(
-    blocks: &[crate::block_py::CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>],
+    blocks: &[crate::block_py::CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
     block_params: &HashMap<String, Vec<String>>,
-) -> Vec<crate::block_py::CfgBlock<BbStmt<E, N>, BlockPyTerm<E>>>
+) -> Vec<crate::block_py::CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>>
 where
     E: Clone + Into<crate::block_py::Expr>,
     N: BlockPyNameLike,
@@ -32,7 +32,7 @@ where
                 .body
                 .clone()
                 .into_iter()
-                .map(BbStmt::from)
+                .map(BlockPyStmt::from)
                 .collect::<Vec<_>>();
             let semantic_param_names = block
                 .param_names()
@@ -65,7 +65,7 @@ where
 
 pub(crate) fn rewrite_current_exception_in_core_blocks<N>(
     blocks: &mut [crate::block_py::CfgBlock<
-        BbStmt<CoreBlockPyExpr<N>, N>,
+        BlockPyStmt<CoreBlockPyExpr<N>, N>,
         BlockPyTerm<CoreBlockPyExpr<N>>,
     >],
 ) where
@@ -82,23 +82,25 @@ pub(crate) fn rewrite_current_exception_in_core_blocks<N>(
     }
 }
 
-fn rewrite_current_exception_in_bb_stmt<N>(stmt: &mut BbStmt<CoreBlockPyExpr<N>, N>, exc_name: &str)
-where
+fn rewrite_current_exception_in_bb_stmt<N>(
+    stmt: &mut BlockPyStmt<CoreBlockPyExpr<N>, N>,
+    exc_name: &str,
+) where
     N: BlockPyNameLike,
 {
     match stmt {
-        BbStmt::Assign(assign) => {
+        BlockPyStmt::Assign(assign) => {
             rewrite_current_exception_in_blockpy_expr(&mut assign.value, exc_name);
         }
-        BbStmt::Expr(expr) => {
+        BlockPyStmt::Expr(expr) => {
             rewrite_current_exception_in_blockpy_expr(expr, exc_name);
         }
-        BbStmt::Delete(_) => {}
+        BlockPyStmt::Delete(_) => {}
     }
 }
 
 pub(crate) fn populate_exception_edge_args<E, N>(
-    blocks: &mut [crate::block_py::CfgBlock<BbStmt<E, N>, BlockPyTerm<E>>],
+    blocks: &mut [crate::block_py::CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>],
 ) {
     let label_to_index = blocks
         .iter()

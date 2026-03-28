@@ -1,7 +1,7 @@
 use super::BlockPySetupExprLowerer;
 use crate::block_py::{
-    BlockPyAssign, BlockPyCfgFragment, BlockPyIf, BlockPyStmt, BlockPyStmtFragmentBuilder,
-    BlockPyTerm,
+    BlockPyAssign, BlockPyCfgFragment, BlockPyIf, BlockPyStmtFragmentBuilder, BlockPyTerm,
+    StructuredBlockPyStmt,
 };
 use crate::passes::ast_to_ast::expr_utils::{make_binop, make_unaryop};
 use crate::passes::ruff_to_blockpy::expr_lowering::fresh_setup_name;
@@ -22,17 +22,17 @@ fn load_name(name: &str) -> Expr {
     py_expr!("{name:id}", name = name)
 }
 
-fn assign_name<E>(target: &str, value: Expr) -> BlockPyStmt<E>
+fn assign_name<E>(target: &str, value: Expr) -> StructuredBlockPyStmt<E>
 where
     E: From<Expr>,
 {
-    BlockPyStmt::Assign(BlockPyAssign {
+    StructuredBlockPyStmt::Assign(BlockPyAssign {
         target: store_name(target),
         value: value.into(),
     })
 }
 
-fn empty_fragment<E>() -> BlockPyCfgFragment<BlockPyStmt<E>, BlockPyTerm<E>>
+fn empty_fragment<E>() -> BlockPyCfgFragment<StructuredBlockPyStmt<E>, BlockPyTerm<E>>
 where
     E: std::fmt::Debug,
 {
@@ -65,7 +65,7 @@ where
             ast::BoolOp::And => load_name(&target),
             ast::BoolOp::Or => py_expr!("not {target:id}", target = target.as_str()),
         };
-        out.push_stmt(BlockPyStmt::If(BlockPyIf {
+        out.push_stmt(StructuredBlockPyStmt::If(BlockPyIf {
             test: test.into(),
             body: body.finish(),
             orelse: empty_fragment(),
@@ -143,7 +143,7 @@ where
             compare_expr(op, current_left.clone(), comparator_expr.clone()),
         ));
         current_left = comparator_expr;
-        out.push_stmt(BlockPyStmt::If(BlockPyIf {
+        out.push_stmt(StructuredBlockPyStmt::If(BlockPyIf {
             test: load_name(&target_name).into(),
             body: step_body.finish(),
             orelse: empty_fragment(),

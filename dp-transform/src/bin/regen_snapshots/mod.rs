@@ -6,10 +6,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use dp_transform::block_py::{
-    BlockPyCfgFragment, BlockPyModule, BlockPyStmt, BlockPyTerm, CfgBlock, Expr, IntoBlockPyStmt,
+    BlockPyCfgFragment, BlockPyModule, BlockPyTerm, CfgBlock, Expr, IntoStructuredBlockPyStmt,
+    StructuredBlockPyStmt,
 };
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
-use dp_transform::passes::{PreparedBbBlockPyPass, RuffBlockPyPass};
+use dp_transform::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
 use dp_transform::{
     init_logging, transform_str_to_blockpy_with_options, transform_str_to_ruff_with_options,
     Options,
@@ -148,7 +149,7 @@ fn count_blockpy_blocks(module: &BlockPyModule<RuffBlockPyPass>) -> usize {
 fn count_blockpy_blocks_in_list<S, E>(blocks: &[CfgBlock<S, BlockPyTerm<E>>]) -> usize
 where
     E: Clone + Into<Expr> + std::fmt::Debug,
-    S: IntoBlockPyStmt<E, ruff_python_ast::ExprName>,
+    S: IntoStructuredBlockPyStmt<E, ruff_python_ast::ExprName>,
 {
     blocks
         .iter()
@@ -162,12 +163,12 @@ where
 fn count_blockpy_blocks_in_stmts<S, E>(stmts: &[S]) -> usize
 where
     E: Clone + Into<Expr> + std::fmt::Debug,
-    S: IntoBlockPyStmt<E, ruff_python_ast::ExprName>,
+    S: IntoStructuredBlockPyStmt<E, ruff_python_ast::ExprName>,
 {
     stmts
         .iter()
-        .map(|stmt| match stmt.clone().into_stmt() {
-            BlockPyStmt::If(if_stmt) => {
+        .map(|stmt| match stmt.clone().into_structured_stmt() {
+            StructuredBlockPyStmt::If(if_stmt) => {
                 count_blockpy_blocks_in_stmt_fragment(&if_stmt.body)
                     + count_blockpy_blocks_in_stmt_fragment(&if_stmt.orelse)
             }
@@ -177,7 +178,7 @@ where
 }
 
 fn count_blockpy_blocks_in_stmt_fragment<E>(
-    fragment: &BlockPyCfgFragment<BlockPyStmt<E>, dp_transform::block_py::BlockPyTerm<E>>,
+    fragment: &BlockPyCfgFragment<StructuredBlockPyStmt<E>, dp_transform::block_py::BlockPyTerm<E>>,
 ) -> usize
 where
     E: Clone + Into<Expr> + std::fmt::Debug,
@@ -196,7 +197,7 @@ fn count_blockpy_blocks_in_term<E>(term: &dp_transform::block_py::BlockPyTerm<E>
     }
 }
 
-fn count_clif_blocks(module: &BlockPyModule<PreparedBbBlockPyPass>) -> usize {
+fn count_clif_blocks(module: &BlockPyModule<ResolvedStorageBlockPyPass>) -> usize {
     module
         .callable_defs
         .iter()

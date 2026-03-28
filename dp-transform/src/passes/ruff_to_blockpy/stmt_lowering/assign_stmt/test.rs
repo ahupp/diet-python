@@ -18,5 +18,8 @@ fn stmt_assign_to_blockpy_emits_setup_for_if_expr_rhs() {
 
     let fragment = out.finish();
     assert!(fragment.body.len() >= 2, "{fragment:?}");
-    assert!(matches!(fragment.body.last(), Some(BlockPyStmt::Assign(_))));
+    assert!(matches!(
+        fragment.body.last(),
+        Some(StructuredBlockPyStmt::Assign(_))
+    ));
 }

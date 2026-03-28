@@ -2,7 +2,7 @@ use self::operation as block_py_operation;
 pub use self::param_specs::ParamKind;
 use self::param_specs::ParamSpec;
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
-use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass};
+use crate::passes::ResolvedStorageBlockPyPass;
 use crate::py_expr;
 pub use operation::{
     BinOp, BinOpKind, CellRef, DelDeref, DelDerefQuietly, DelItem, DelQuietly, GetAttr, GetItem,
@@ -1238,27 +1238,27 @@ pub trait BlockPyNormalizedStmt {
     fn assert_blockpy_normalized(&self);
 }
 
-pub trait IntoBlockPyStmt<E, N>: Clone + fmt::Debug {
-    fn into_stmt(self) -> BlockPyStmt<E, N>;
+pub trait IntoStructuredBlockPyStmt<E, N>: Clone + fmt::Debug {
+    fn into_structured_stmt(self) -> StructuredBlockPyStmt<E, N>;
 }
 
 pub trait BlockPyPass: Clone + fmt::Debug {
     type Name: BlockPyNameLike;
     type Expr: BlockPyExprLike;
-    type Stmt: BlockPyNormalizedStmt + IntoBlockPyStmt<Self::Expr, Self::Name>;
+    type Stmt: BlockPyNormalizedStmt + IntoStructuredBlockPyStmt<Self::Expr, Self::Name>;
 }
 
 pub type PassExpr<P> = <P as BlockPyPass>::Expr;
 pub type PassName<P> = <P as BlockPyPass>::Name;
-pub type StructuredPassStmt<P> = BlockPyStmt<PassExpr<P>, PassName<P>>;
+pub type StructuredPassStmt<P> = StructuredBlockPyStmt<PassExpr<P>, PassName<P>>;
 pub type PassBlock<P> = CfgBlock<<P as BlockPyPass>::Stmt, BlockPyTerm<PassExpr<P>>>;
-pub type BbBlock = PassBlock<BbBlockPyPass>;
-pub type PreparedBbBlock = PassBlock<PreparedBbBlockPyPass>;
+pub type ResolvedStorageBlock = PassBlock<ResolvedStorageBlockPyPass>;
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
-pub type BlockPyBlock<E = Expr, N = ExprName> = BlockPyCfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>;
+pub type BlockPyBlock<E = Expr, N = ExprName> =
+    BlockPyCfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
 pub type BlockPyStructuredIf<E = Expr, N = ExprName> =
-    BlockPyIf<E, BlockPyStmt<E, N>, BlockPyTerm<E>>;
+    BlockPyIf<E, StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
 
 pub trait BlockPyJumpTerm<L> {
     fn jump_term(target: L) -> Self;
@@ -1319,7 +1319,7 @@ pub struct BlockPyCfgFragment<S, T> {
 }
 
 pub type BlockPyStmtFragment<E = Expr, N = ExprName> =
-    BlockPyCfgFragment<BlockPyStmt<E, N>, BlockPyTerm<E>>;
+    BlockPyCfgFragment<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
 
 impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragment<S, T> {
     pub fn assert_normalized(&self) {
@@ -1357,7 +1357,7 @@ pub struct BlockPyCfgFragmentBuilder<S, T> {
 }
 
 pub type BlockPyStmtFragmentBuilder<E = Expr, N = ExprName> =
-    BlockPyCfgFragmentBuilder<BlockPyStmt<E, N>, BlockPyTerm<E>>;
+    BlockPyCfgFragmentBuilder<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
 
 impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
     pub fn new() -> Self {
@@ -1370,7 +1370,7 @@ impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
     pub fn push_stmt(&mut self, stmt: S) {
         assert!(
             self.term.is_none(),
-            "cannot append BlockPyStmt after stmt-fragment terminator"
+            "cannot append structured BlockPy stmt after stmt-fragment terminator"
         );
         stmt.assert_blockpy_normalized();
         self.body.push(stmt);
@@ -1412,7 +1412,7 @@ pub struct BlockPyCfgBlockBuilder<S, T> {
 }
 
 pub type BlockPyBlockBuilder<E = Expr, N = ExprName> =
-    BlockPyCfgBlockBuilder<BlockPyStmt<E, N>, BlockPyTerm<E>>;
+    BlockPyCfgBlockBuilder<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
 
 impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
     BlockPyCfgBlockBuilder<S, T>
@@ -1498,14 +1498,14 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
 }
 
 #[derive(Debug, Clone)]
-pub enum BlockPyStmt<E = Expr, N = ExprName> {
+pub enum StructuredBlockPyStmt<E = Expr, N = ExprName> {
     Assign(BlockPyAssign<E, N>),
     Expr(E),
     Delete(BlockPyDelete<N>),
     If(BlockPyStructuredIf<E, N>),
 }
 
-impl<E: std::fmt::Debug, N: std::fmt::Debug> BlockPyStmt<E, N> {
+impl<E: std::fmt::Debug, N: std::fmt::Debug> StructuredBlockPyStmt<E, N> {
     pub fn assert_normalized(&self) {
         if let Self::If(if_stmt) = self {
             if_stmt.body.assert_normalized();
@@ -1514,24 +1514,26 @@ impl<E: std::fmt::Debug, N: std::fmt::Debug> BlockPyStmt<E, N> {
     }
 }
 
-impl<E: std::fmt::Debug, N: std::fmt::Debug> BlockPyNormalizedStmt for BlockPyStmt<E, N> {
+impl<E: std::fmt::Debug, N: std::fmt::Debug> BlockPyNormalizedStmt for StructuredBlockPyStmt<E, N> {
     fn assert_blockpy_normalized(&self) {
         self.assert_normalized();
     }
 }
 
-pub fn convert_blockpy_stmt_expr<EIn, EOut, N>(value: BlockPyStmt<EIn, N>) -> BlockPyStmt<EOut, N>
+pub fn convert_blockpy_stmt_expr<EIn, EOut, N>(
+    value: StructuredBlockPyStmt<EIn, N>,
+) -> StructuredBlockPyStmt<EOut, N>
 where
     EOut: From<EIn>,
 {
     match value {
-        BlockPyStmt::Assign(assign) => BlockPyStmt::Assign(BlockPyAssign {
+        StructuredBlockPyStmt::Assign(assign) => StructuredBlockPyStmt::Assign(BlockPyAssign {
             target: assign.target,
             value: assign.value.into(),
         }),
-        BlockPyStmt::Expr(expr) => BlockPyStmt::Expr(expr.into()),
-        BlockPyStmt::Delete(delete) => BlockPyStmt::Delete(delete),
-        BlockPyStmt::If(if_stmt) => BlockPyStmt::If(BlockPyIf {
+        StructuredBlockPyStmt::Expr(expr) => StructuredBlockPyStmt::Expr(expr.into()),
+        StructuredBlockPyStmt::Delete(delete) => StructuredBlockPyStmt::Delete(delete),
+        StructuredBlockPyStmt::If(if_stmt) => StructuredBlockPyStmt::If(BlockPyIf {
             test: if_stmt.test.into(),
             body: convert_blockpy_fragment_expr(if_stmt.body),
             orelse: convert_blockpy_fragment_expr(if_stmt.orelse),
@@ -1540,63 +1542,69 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub enum BbStmt<E = CoreBlockPyExpr<LocatedName>, N = LocatedName> {
+pub enum BlockPyStmt<E = CoreBlockPyExpr<LocatedName>, N = LocatedName> {
     Assign(BlockPyAssign<E, N>),
     Expr(E),
     Delete(BlockPyDelete<N>),
 }
 
-impl<E, N> From<BlockPyAssign<E, N>> for BbStmt<E, N> {
+impl<E, N> From<BlockPyAssign<E, N>> for BlockPyStmt<E, N> {
     fn from(value: BlockPyAssign<E, N>) -> Self {
         Self::Assign(value)
     }
 }
 
-impl<N> From<CoreBlockPyExpr<N>> for BbStmt<CoreBlockPyExpr<N>, N> {
+impl<N> From<CoreBlockPyExpr<N>> for BlockPyStmt<CoreBlockPyExpr<N>, N> {
     fn from(value: CoreBlockPyExpr<N>) -> Self {
         Self::Expr(value)
     }
 }
 
-impl<E, N> From<BlockPyDelete<N>> for BbStmt<E, N> {
+impl<E, N> From<BlockPyDelete<N>> for BlockPyStmt<E, N> {
     fn from(value: BlockPyDelete<N>) -> Self {
         Self::Delete(value)
     }
 }
 
-impl<EIn, EOut, N> From<BlockPyStmt<EIn, N>> for BbStmt<EOut, N>
+impl<EIn, EOut, N> From<StructuredBlockPyStmt<EIn, N>> for BlockPyStmt<EOut, N>
 where
     EOut: From<EIn>,
 {
-    fn from(value: BlockPyStmt<EIn, N>) -> Self {
+    fn from(value: StructuredBlockPyStmt<EIn, N>) -> Self {
         match value {
-            BlockPyStmt::Assign(assign) => Self::Assign(BlockPyAssign {
+            StructuredBlockPyStmt::Assign(assign) => Self::Assign(BlockPyAssign {
                 target: assign.target,
                 value: assign.value.into(),
             }),
-            BlockPyStmt::Expr(expr) => Self::Expr(expr.into()),
-            BlockPyStmt::Delete(delete) => Self::Delete(delete),
-            BlockPyStmt::If(_) => panic!("structured BlockPy If reached BbStmt conversion"),
+            StructuredBlockPyStmt::Expr(expr) => Self::Expr(expr.into()),
+            StructuredBlockPyStmt::Delete(delete) => Self::Delete(delete),
+            StructuredBlockPyStmt::If(_) => {
+                panic!("structured BlockPy If reached BlockPyStmt conversion")
+            }
         }
     }
 }
 
-impl<E: Clone + fmt::Debug, N: Clone + fmt::Debug> IntoBlockPyStmt<E, N> for BbStmt<E, N> {
-    fn into_stmt(self) -> BlockPyStmt<E, N> {
+impl<E: Clone + fmt::Debug, N: Clone + fmt::Debug> IntoStructuredBlockPyStmt<E, N>
+    for BlockPyStmt<E, N>
+{
+    fn into_structured_stmt(self) -> StructuredBlockPyStmt<E, N> {
         match self {
-            BbStmt::Assign(assign) => BlockPyStmt::Assign(assign),
-            BbStmt::Expr(expr) => BlockPyStmt::Expr(expr),
-            BbStmt::Delete(delete) => BlockPyStmt::Delete(delete),
+            BlockPyStmt::Assign(assign) => StructuredBlockPyStmt::Assign(assign),
+            BlockPyStmt::Expr(expr) => StructuredBlockPyStmt::Expr(expr),
+            BlockPyStmt::Delete(delete) => StructuredBlockPyStmt::Delete(delete),
         }
     }
 }
 
-impl<E, N> BlockPyNormalizedStmt for BbStmt<E, N> {
+impl<E, N> BlockPyNormalizedStmt for BlockPyStmt<E, N> {
     fn assert_blockpy_normalized(&self) {}
 }
 
-impl<E: Clone + fmt::Debug, N: Clone + fmt::Debug> IntoBlockPyStmt<E, N> for BlockPyStmt<E, N> {
-    fn into_stmt(self) -> BlockPyStmt<E, N> {
+impl<E: Clone + fmt::Debug, N: Clone + fmt::Debug> IntoStructuredBlockPyStmt<E, N>
+    for StructuredBlockPyStmt<E, N>
+{
+    fn into_structured_stmt(self) -> StructuredBlockPyStmt<E, N> {
         self
     }
 }
@@ -1622,7 +1630,7 @@ pub struct BlockPyDelete<N = ExprName> {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyIf<E = Expr, S = BlockPyStmt<E>, T = BlockPyTerm<E>> {
+pub struct BlockPyIf<E = Expr, S = StructuredBlockPyStmt<E>, T = BlockPyTerm<E>> {
     pub test: E,
     pub body: BlockPyCfgFragment<S, T>,
     pub orelse: BlockPyCfgFragment<S, T>,
@@ -1648,8 +1656,8 @@ pub struct BlockPyRaise<E = Expr> {
 }
 
 pub fn convert_blockpy_fragment_expr<EIn, EOut, N>(
-    value: BlockPyCfgFragment<BlockPyStmt<EIn, N>, BlockPyTerm<EIn>>,
-) -> BlockPyCfgFragment<BlockPyStmt<EOut, N>, BlockPyTerm<EOut>>
+    value: BlockPyCfgFragment<StructuredBlockPyStmt<EIn, N>, BlockPyTerm<EIn>>,
+) -> BlockPyCfgFragment<StructuredBlockPyStmt<EOut, N>, BlockPyTerm<EOut>>
 where
     EOut: From<EIn>,
 {
@@ -1828,7 +1836,7 @@ where
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     for stmt in &block.body {
-        let stmt = stmt.clone().into_stmt();
+        let stmt = stmt.clone().into_structured_stmt();
         visitor.visit_stmt(&stmt);
     }
     if let Some(exc_edge) = &block.exc_edge {
@@ -1860,10 +1868,10 @@ where
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     match stmt {
-        BlockPyStmt::Assign(assign) => visitor.visit_expr(&assign.value),
-        BlockPyStmt::Expr(expr) => visitor.visit_expr(expr),
-        BlockPyStmt::Delete(_) => {}
-        BlockPyStmt::If(if_stmt) => {
+        StructuredBlockPyStmt::Assign(assign) => visitor.visit_expr(&assign.value),
+        StructuredBlockPyStmt::Expr(expr) => visitor.visit_expr(expr),
+        StructuredBlockPyStmt::Delete(_) => {}
+        StructuredBlockPyStmt::If(if_stmt) => {
             visitor.visit_expr(&if_stmt.test);
             visitor.visit_fragment(&if_stmt.body);
             visitor.visit_fragment(&if_stmt.orelse);

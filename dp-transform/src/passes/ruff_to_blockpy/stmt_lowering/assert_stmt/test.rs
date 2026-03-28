@@ -30,5 +30,8 @@ fn stmt_assert_to_blockpy_uses_trait_owned_simplification_path() {
         .expect("assert lowering should succeed");
 
     let fragment = out.finish();
-    assert!(matches!(fragment.body.as_slice(), [BlockPyStmt::If(_)]));
+    assert!(matches!(
+        fragment.body.as_slice(),
+        [StructuredBlockPyStmt::If(_)]
+    ));
 }

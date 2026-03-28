@@ -1,6 +1,6 @@
 use super::normalize_bb_module_strings;
 use crate::{
-    block_py::{BbStmt, BlockPyNameLike, BlockPyTerm, CoreBlockPyExpr},
+    block_py::{BlockPyNameLike, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr},
     passes::lower_try_jump_exception_flow,
     transform_str_to_bb_ir_with_options, Options,
 };
@@ -104,12 +104,12 @@ fn probe_bb_term_exprs<N: BlockPyNameLike>(
 
 fn probe_bb_stmt_exprs<N: BlockPyNameLike>(
     probe: &mut ExprShapeProbe,
-    stmt: &BbStmt<CoreBlockPyExpr<N>, N>,
+    stmt: &BlockPyStmt<CoreBlockPyExpr<N>, N>,
 ) {
     match stmt {
-        BbStmt::Assign(assign) => probe_bb_exprs(probe, &assign.value),
-        BbStmt::Expr(expr) => probe_bb_exprs(probe, expr),
-        BbStmt::Delete(_) => {}
+        BlockPyStmt::Assign(assign) => probe_bb_exprs(probe, &assign.value),
+        BlockPyStmt::Expr(expr) => probe_bb_exprs(probe, expr),
+        BlockPyStmt::Delete(_) => {}
     }
 }
 

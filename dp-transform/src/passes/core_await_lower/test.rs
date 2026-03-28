@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::block_py::{
-    BbStmt, BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel,
+    BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyStmt,
     BlockPyTerm, CfgBlock, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
     FunctionName,
 };
@@ -35,7 +35,7 @@ fn lowers_await_to_yield_from_await_iter() {
                 body: structured_block
                     .body
                     .into_iter()
-                    .map(BbStmt::from)
+                    .map(BlockPyStmt::from)
                     .collect(),
                 term: structured_block.term,
                 params: structured_block.params,
@@ -50,7 +50,7 @@ fn lowers_await_to_yield_from_await_iter() {
     let lowered = lower_awaits_in_core_blockpy_module(module);
     let block = &lowered.callable_defs[0].blocks[0];
     assert_eq!(block.body.len(), 1);
-    let crate::block_py::BbStmt::Assign(await_assign) = &block.body[0] else {
+    let crate::block_py::BlockPyStmt::Assign(await_assign) = &block.body[0] else {
         panic!("expected lowered await assignment");
     };
     let BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(return_name)) = &block.term else {

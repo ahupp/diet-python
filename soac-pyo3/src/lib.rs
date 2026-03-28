@@ -1,7 +1,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use dp_transform::block_py::{BlockPyFunction, ParamKind};
-use dp_transform::passes::PreparedBbBlockPyPass;
+use dp_transform::passes::ResolvedStorageBlockPyPass;
 use dp_transform::{Options, transform_str_to_ruff_with_options};
 use log::{info, trace};
 use pyo3::exceptions::{
@@ -316,7 +316,7 @@ fn lookup_bb_function(
     module_name: &str,
     function_id: usize,
     operation: &str,
-) -> PyResult<BlockPyFunction<PreparedBbBlockPyPass>> {
+) -> PyResult<BlockPyFunction<ResolvedStorageBlockPyPass>> {
     soac_eval::jit::lookup_blockpy_function(module_name, function_id).ok_or_else(|| {
         PyRuntimeError::new_err(format!(
             "JIT basic-block {operation} failed to resolve static function metadata for {module_name}.fn#{function_id}"
@@ -327,7 +327,7 @@ fn lookup_bb_function(
 fn lookup_module_init_function(
     output: &dp_transform::LoweringResult,
     module_name: &str,
-) -> PyResult<BlockPyFunction<PreparedBbBlockPyPass>> {
+) -> PyResult<BlockPyFunction<ResolvedStorageBlockPyPass>> {
     let module = output.bb_codegen_module.as_ref().ok_or_else(|| {
         PyRuntimeError::new_err(format!(
             "JIT basic-block module init requires a registered bb_codegen module for {module_name}"
@@ -379,7 +379,7 @@ fn build_capture_map<'py>(
 
 fn split_param_defaults<'py>(
     py: Python<'py>,
-    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    function: &BlockPyFunction<ResolvedStorageBlockPyPass>,
     param_defaults: &Bound<'py, PyAny>,
 ) -> PyResult<(Option<Bound<'py, PyTuple>>, Option<Bound<'py, PyDict>>)> {
     let defaults = param_defaults.cast::<PyTuple>().map_err(|_| {
@@ -444,7 +444,7 @@ fn inspect_param_kind<'py>(
 
 fn build_bb_signature<'py>(
     py: Python<'py>,
-    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    function: &BlockPyFunction<ResolvedStorageBlockPyPass>,
     param_defaults: &Bound<'py, PyAny>,
 ) -> PyResult<Py<PyAny>> {
     let inspect_module = PyModule::import(py, "inspect")?;
@@ -595,7 +595,7 @@ fn instantiate_bb_function(
     py: Python<'_>,
     dp: &Bound<'_, PyModule>,
     module_name: &str,
-    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    function: &BlockPyFunction<ResolvedStorageBlockPyPass>,
     captures: &Bound<'_, PyAny>,
     param_defaults: &Bound<'_, PyAny>,
     module_globals: &Bound<'_, PyAny>,
@@ -644,7 +644,7 @@ fn instantiate_bb_function(
 
 fn ensure_bb_plan(
     module_name: &str,
-    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    function: &BlockPyFunction<ResolvedStorageBlockPyPass>,
     operation: &str,
 ) -> PyResult<String> {
     let plan_name = function
@@ -662,7 +662,7 @@ fn instantiate_closure_backed_entry<'py>(
     py: Python<'py>,
     dp: &Bound<'py, PyModule>,
     module_name: &str,
-    function: &BlockPyFunction<PreparedBbBlockPyPass>,
+    function: &BlockPyFunction<ResolvedStorageBlockPyPass>,
     captures: &Bound<'py, PyAny>,
     module_globals: &Bound<'py, PyAny>,
     operation: &str,

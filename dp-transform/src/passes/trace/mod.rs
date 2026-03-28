@@ -1,8 +1,8 @@
 use crate::block_py::{
-    core_positional_call_expr_with_meta, BlockPyFunction, BlockPyModule, BlockPyStmt,
-    CoreBlockPyLiteral, CoreBytesLiteral, LocatedCoreBlockPyExpr, LocatedName, NameLocation,
+    core_positional_call_expr_with_meta, BlockPyFunction, BlockPyModule, CoreBlockPyLiteral,
+    CoreBytesLiteral, LocatedCoreBlockPyExpr, LocatedName, NameLocation, StructuredBlockPyStmt,
 };
-use crate::passes::PreparedBbBlockPyPass;
+use crate::passes::ResolvedStorageBlockPyPass;
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 use std::collections::HashMap;
@@ -40,7 +40,7 @@ pub(crate) fn parse_trace_config(raw: &str) -> Option<TraceConfig> {
 }
 
 pub(crate) fn instrument_bb_module_for_trace(
-    module: &mut BlockPyModule<PreparedBbBlockPyPass>,
+    module: &mut BlockPyModule<ResolvedStorageBlockPyPass>,
     config: &TraceConfig,
 ) {
     for function in &mut module.callable_defs {
@@ -71,7 +71,9 @@ pub(crate) fn instrument_bb_module_for_trace(
                     ],
                 )
             };
-            block.body.insert(0, BlockPyStmt::Expr(trace_expr).into());
+            block
+                .body
+                .insert(0, StructuredBlockPyStmt::Expr(trace_expr).into());
         }
     }
 }
@@ -92,7 +94,7 @@ struct PreparedTraceNameLocator {
 }
 
 impl PreparedTraceNameLocator {
-    fn new(function: &BlockPyFunction<PreparedBbBlockPyPass>) -> Self {
+    fn new(function: &BlockPyFunction<ResolvedStorageBlockPyPass>) -> Self {
         let param_slots = function
             .params
             .names()
@@ -104,12 +106,13 @@ impl PreparedTraceNameLocator {
         for block in &function.blocks {
             for stmt in &block.body {
                 match stmt {
-                    crate::block_py::BbStmt::Assign(assign) => {
+                    crate::block_py::BlockPyStmt::Assign(assign) => {
                         existing_locations
                             .entry(assign.target.id.to_string())
                             .or_insert(assign.target.location);
                     }
-                    crate::block_py::BbStmt::Expr(_) | crate::block_py::BbStmt::Delete(_) => {}
+                    crate::block_py::BlockPyStmt::Expr(_)
+                    | crate::block_py::BlockPyStmt::Delete(_) => {}
                 }
             }
         }

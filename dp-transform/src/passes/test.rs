@@ -1,9 +1,10 @@
-use crate::block_py::{
-    BbBlock, BbStmt, BlockPyCallableScopeKind, BlockPyCellBindingKind, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyModule, BlockPyNameLike, BlockPyTerm, CoreBlockPyExpr,
-};
 use crate::block_py::{BlockPyBindingKind, ClosureInit, ClosureSlot};
-use crate::passes::{BbBlockPyPass, CoreBlockPyPass, RuffBlockPyPass};
+use crate::block_py::{
+    BlockPyCallableScopeKind, BlockPyCellBindingKind, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyModule, BlockPyNameLike, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
+    ResolvedStorageBlock,
+};
+use crate::passes::{CoreBlockPyPass, ResolvedStorageBlockPyPass, RuffBlockPyPass};
 use crate::LoweringResult;
 use crate::{
     py_expr, transform_str_to_bb_ir_with_options, transform_str_to_ruff_with_options, Options,
@@ -55,21 +56,21 @@ impl TrackedLowering {
             .unwrap_or_else(|| panic!("expected renderable pass {name}"))
     }
 
-    fn bb_module(&self) -> &BlockPyModule<BbBlockPyPass> {
+    fn bb_module(&self) -> &BlockPyModule<ResolvedStorageBlockPyPass> {
         self.result
-            .get_pass::<BlockPyModule<BbBlockPyPass>>("name_binding")
+            .get_pass::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
             .expect("bb module should be available")
     }
 
-    fn bb_function(&self, bind_name: &str) -> &BlockPyFunction<BbBlockPyPass> {
+    fn bb_function(&self, bind_name: &str) -> &BlockPyFunction<ResolvedStorageBlockPyPass> {
         function_by_name(self.bb_module(), bind_name)
     }
 }
 
 fn function_by_name<'a>(
-    bb_module: &'a BlockPyModule<BbBlockPyPass>,
+    bb_module: &'a BlockPyModule<ResolvedStorageBlockPyPass>,
     bind_name: &str,
-) -> &'a BlockPyFunction<BbBlockPyPass> {
+) -> &'a BlockPyFunction<ResolvedStorageBlockPyPass> {
     let resume_name = format!("{bind_name}_resume");
     if let Some(resume) = bb_module
         .callable_defs
@@ -109,11 +110,11 @@ fn callable_def_by_name<'a>(
         })
 }
 
-fn block_uses_text(block: &BbBlock, needle: &str) -> bool {
+fn block_uses_text(block: &ResolvedStorageBlock, needle: &str) -> bool {
     block.body.iter().any(|op| match op {
-        BbStmt::Assign(assign) => expr_text(&assign.value).contains(needle),
-        BbStmt::Expr(expr) => expr_text(expr).contains(needle),
-        BbStmt::Delete(delete) => delete.target.id.as_str().contains(needle),
+        BlockPyStmt::Assign(assign) => expr_text(&assign.value).contains(needle),
+        BlockPyStmt::Expr(expr) => expr_text(expr).contains(needle),
+        BlockPyStmt::Delete(delete) => delete.target.id.as_str().contains(needle),
     }) || match &block.term {
         BlockPyTerm::IfTerm(if_term) => expr_text(&if_term.test).contains(needle),
         BlockPyTerm::BranchTable(branch) => expr_text(&branch.index).contains(needle),
@@ -1716,14 +1717,14 @@ def outer(x):
     );
     let name_binding_module = lowered
         .result
-        .get_pass::<BlockPyModule<BbBlockPyPass>>("name_binding")
+        .get_pass::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
         .expect("name_binding pass should be available");
     let outer = name_binding_module
         .callable_defs
         .iter()
         .find(|func| func.names.bind_name == "outer")
         .expect("outer function should be present");
-    let Some(BbStmt::Assign(assign)) = outer.entry_block().body.first() else {
+    let Some(BlockPyStmt::Assign(assign)) = outer.entry_block().body.first() else {
         panic!("expected first entry stmt to be an assignment");
     };
     assert!(
@@ -2211,7 +2212,7 @@ def bump(x):
         bump.blocks.iter().any(|block| match block.body.as_slice() {
             [stmt] => matches!(
                 stmt,
-                BbStmt::Assign(assign) if expr_text(&assign.value).contains("__dp_iadd")
+                BlockPyStmt::Assign(assign) if expr_text(&assign.value).contains("__dp_iadd")
             ),
             _ => false,
         }),

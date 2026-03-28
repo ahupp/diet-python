@@ -53,7 +53,10 @@ fn stmt_expr_to_blockpy_emits_setup_for_named_exprs() {
     let fragment = out.finish();
     assert!(matches!(
         fragment.body.as_slice(),
-        [BlockPyStmt::Assign(_), BlockPyStmt::Expr(_)]
+        [
+            StructuredBlockPyStmt::Assign(_),
+            StructuredBlockPyStmt::Expr(_)
+        ]
     ));
 }
 

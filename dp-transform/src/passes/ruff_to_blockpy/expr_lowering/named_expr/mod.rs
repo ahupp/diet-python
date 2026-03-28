@@ -1,5 +1,5 @@
 use super::BlockPySetupExprLowerer;
-use crate::block_py::{BlockPyAssign, BlockPyStmt, BlockPyStmtFragmentBuilder};
+use crate::block_py::{BlockPyAssign, BlockPyStmtFragmentBuilder, StructuredBlockPyStmt};
 use crate::passes::ruff_to_blockpy::LoopContext;
 use ruff_python_ast::{self as ast, Expr};
 
@@ -33,7 +33,7 @@ where
         return Err("named expression lowering expected a name target".to_string());
     };
     let value = lowerer.lower_expr_ast_into(*value, out, loop_ctx, next_label_id)?;
-    out.push_stmt(BlockPyStmt::Assign(BlockPyAssign {
+    out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
         target: into_store_name(target_name.clone()),
         value: value.into(),
     }));

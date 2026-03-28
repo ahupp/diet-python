@@ -36,11 +36,11 @@ fn stmt_if_to_blockpy_uses_trait_owned_simplification_path_for_elif() {
         .expect("if lowering should succeed");
 
     let fragment = out.finish();
-    let [BlockPyStmt::If(lowered_if)] = fragment.body.as_slice() else {
+    let [StructuredBlockPyStmt::If(lowered_if)] = fragment.body.as_slice() else {
         panic!("expected one lowered if stmt");
     };
     assert!(matches!(
         lowered_if.orelse.body.as_slice(),
-        [BlockPyStmt::If(_)]
+        [StructuredBlockPyStmt::If(_)]
     ));
 }

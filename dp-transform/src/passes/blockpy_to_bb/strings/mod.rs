@@ -2,14 +2,14 @@ use crate::block_py::{
     BlockPyModule, BlockPyModuleMap, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyKeywordArg,
     CoreBlockPyLiteral, CoreBytesLiteral, LocatedCoreBlockPyExpr, LocatedName, NameLocation,
 };
-use crate::passes::PreparedBbBlockPyPass;
+use crate::passes::ResolvedStorageBlockPyPass;
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 
 pub fn normalize_bb_module_strings(
-    module: &BlockPyModule<PreparedBbBlockPyPass>,
+    module: &BlockPyModule<ResolvedStorageBlockPyPass>,
     source: &str,
-) -> BlockPyModule<PreparedBbBlockPyPass> {
+) -> BlockPyModule<ResolvedStorageBlockPyPass> {
     module.clone().map_module(&CodegenExprNormalizer { source })
 }
 
@@ -17,7 +17,9 @@ struct CodegenExprNormalizer<'a> {
     source: &'a str,
 }
 
-impl BlockPyModuleMap<PreparedBbBlockPyPass, PreparedBbBlockPyPass> for CodegenExprNormalizer<'_> {
+impl BlockPyModuleMap<ResolvedStorageBlockPyPass, ResolvedStorageBlockPyPass>
+    for CodegenExprNormalizer<'_>
+{
     fn map_expr(&self, expr: LocatedCoreBlockPyExpr) -> LocatedCoreBlockPyExpr {
         let expr = self.map_nested_expr(expr);
 

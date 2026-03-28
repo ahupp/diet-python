@@ -1,12 +1,12 @@
 use super::*;
 use crate::block_py::{
-    BlockPyAssign, BlockPyDelete, BlockPyIf, BlockPyRaise, BlockPyStmt, BlockPyTerm, Expr,
+    BlockPyAssign, BlockPyDelete, BlockPyIf, BlockPyRaise, BlockPyTerm, Expr, StructuredBlockPyStmt,
 };
 use crate::passes::ast_to_ast::ast_rewrite::Rewrite;
 use crate::passes::ast_to_ast::context::Context;
 
 pub(super) type BlockPyStmtFragmentBuilder<E> =
-    crate::block_py::BlockPyCfgFragmentBuilder<BlockPyStmt<E>, BlockPyTerm<E>>;
+    crate::block_py::BlockPyCfgFragmentBuilder<StructuredBlockPyStmt<E>, BlockPyTerm<E>>;
 
 pub(super) fn stmts_from_rewrite(rewrite: Rewrite) -> Vec<Stmt> {
     match rewrite {
@@ -268,7 +268,7 @@ fn simplify_if_test_for_blockpy(_context: &Context, mut if_stmt: ast::StmtIf) ->
 pub(crate) fn lower_stmt_into(
     context: &Context,
     stmt: &Stmt,
-    out: &mut crate::block_py::BlockPyCfgFragmentBuilder<BlockPyStmt, BlockPyTerm>,
+    out: &mut crate::block_py::BlockPyCfgFragmentBuilder<StructuredBlockPyStmt, BlockPyTerm>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String> {

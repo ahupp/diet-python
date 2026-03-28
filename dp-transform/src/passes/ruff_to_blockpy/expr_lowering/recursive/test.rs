@@ -1,4 +1,4 @@
-use crate::block_py::{BlockPyStmt, BlockPyStmtFragmentBuilder};
+use crate::block_py::{BlockPyStmtFragmentBuilder, StructuredBlockPyStmt};
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::py_expr;
 use ruff_python_ast::Expr;
@@ -17,7 +17,7 @@ fn nested_boolop_in_call_argument_emits_setup_via_expr_lowering() {
         fragment
             .body
             .iter()
-            .any(|stmt| matches!(stmt, BlockPyStmt::If(_))),
+            .any(|stmt| matches!(stmt, StructuredBlockPyStmt::If(_))),
         "{fragment:?}"
     );
     let rendered = crate::ruff_ast_to_string(&lowered);

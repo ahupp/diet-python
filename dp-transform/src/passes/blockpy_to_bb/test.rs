@@ -1,7 +1,7 @@
 use crate::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt, BlockPyStmtFragment,
-    BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
-    CoreStringLiteral, GetAttr, LocatedCoreBlockPyExpr, LocatedName, Operation,
+    BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmtFragment, BlockPyTerm,
+    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, CoreStringLiteral,
+    GetAttr, LocatedCoreBlockPyExpr, LocatedName, Operation, StructuredBlockPyStmt,
 };
 use crate::passes::ruff_to_blockpy::{
     lower_structured_located_blocks_to_bb_blocks, populate_exception_edge_args,
@@ -15,7 +15,7 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
         label: BlockPyLabel::from("start"),
         body: vec![
-            BlockPyStmt::Assign(BlockPyAssign {
+            StructuredBlockPyStmt::Assign(BlockPyAssign {
                 target: LocatedName::from(ast::ExprName {
                     id: "x".into(),
                     ctx: ast::ExprContext::Store,
@@ -24,28 +24,32 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
                 }),
                 value: core_name_expr("a"),
             }),
-            BlockPyStmt::If(BlockPyIf {
+            StructuredBlockPyStmt::If(BlockPyIf {
                 test: core_name_expr("cond"),
-                body: BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Assign(BlockPyAssign {
-                    target: LocatedName::from(ast::ExprName {
-                        id: "x".into(),
-                        ctx: ast::ExprContext::Store,
-                        range: TextRange::default(),
-                        node_index: ast::AtomicNodeIndex::default(),
-                    }),
-                    value: core_name_expr("b"),
-                })]),
-                orelse: BlockPyStmtFragment::from_stmts(vec![BlockPyStmt::Assign(BlockPyAssign {
-                    target: LocatedName::from(ast::ExprName {
-                        id: "x".into(),
-                        ctx: ast::ExprContext::Store,
-                        range: TextRange::default(),
-                        node_index: ast::AtomicNodeIndex::default(),
-                    }),
-                    value: core_name_expr("c"),
-                })]),
+                body: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Assign(
+                    BlockPyAssign {
+                        target: LocatedName::from(ast::ExprName {
+                            id: "x".into(),
+                            ctx: ast::ExprContext::Store,
+                            range: TextRange::default(),
+                            node_index: ast::AtomicNodeIndex::default(),
+                        }),
+                        value: core_name_expr("b"),
+                    },
+                )]),
+                orelse: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Assign(
+                    BlockPyAssign {
+                        target: LocatedName::from(ast::ExprName {
+                            id: "x".into(),
+                            ctx: ast::ExprContext::Store,
+                            range: TextRange::default(),
+                            node_index: ast::AtomicNodeIndex::default(),
+                        }),
+                        value: core_name_expr("c"),
+                    },
+                )]),
             }),
-            BlockPyStmt::Expr(core_call_expr("sink", vec![core_name_expr("x")])),
+            StructuredBlockPyStmt::Expr(core_call_expr("sink", vec![core_name_expr("x")])),
         ],
         term: BlockPyTerm::Return(core_name_expr("__dp_NONE")),
         params: Vec::new(),
@@ -101,7 +105,7 @@ fn core_string_expr(value: &str) -> LocatedCoreBlockPyExpr {
 fn rewrites_current_exception_placeholders_in_final_core_blocks() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
         label: BlockPyLabel::from("start"),
-        body: vec![BlockPyStmt::Expr(core_call_expr(
+        body: vec![StructuredBlockPyStmt::Expr(core_call_expr(
             "__dp_current_exception",
             Vec::new(),
         ))],
@@ -125,7 +129,7 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
     );
     let block = &lowered[0];
 
-    let crate::block_py::BbStmt::Expr(body_expr) = &block.body[0] else {
+    let crate::block_py::BlockPyStmt::Expr(body_expr) = &block.body[0] else {
         panic!("expected expr stmt in lowered BB block");
     };
     assert!(matches!(
@@ -197,7 +201,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
 fn exception_edges_seed_hidden_try_exception_locals_from_current_exception() {
     let mut blocks: Vec<
         crate::block_py::CfgBlock<
-            crate::block_py::BbStmt<LocatedCoreBlockPyExpr, LocatedName>,
+            crate::block_py::BlockPyStmt<LocatedCoreBlockPyExpr, LocatedName>,
             BlockPyTerm<LocatedCoreBlockPyExpr>,
         >,
     > = vec![

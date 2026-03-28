@@ -11,8 +11,8 @@ mod summarize_pass_shape;
 mod trace;
 
 use crate::block_py::{
-    BlockPyPass, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
-    LocatedName, RuffExpr,
+    BlockPyPass, BlockPyStmt, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, LocatedName, RuffExpr,
 };
 use ruff_python_ast as ast;
 
@@ -22,7 +22,7 @@ pub struct RuffBlockPyPass;
 impl BlockPyPass for RuffBlockPyPass {
     type Name = ast::ExprName;
     type Expr = RuffExpr;
-    type Stmt = crate::block_py::BbStmt<Self::Expr, Self::Name>;
+    type Stmt = BlockPyStmt<Self::Expr, Self::Name>;
 }
 
 #[derive(Debug, Clone)]
@@ -31,7 +31,7 @@ pub struct CoreBlockPyPassWithAwaitAndYield;
 impl BlockPyPass for CoreBlockPyPassWithAwaitAndYield {
     type Name = ast::ExprName;
     type Expr = CoreBlockPyExprWithAwaitAndYield;
-    type Stmt = crate::block_py::BbStmt<Self::Expr, Self::Name>;
+    type Stmt = BlockPyStmt<Self::Expr, Self::Name>;
 }
 
 #[derive(Debug, Clone)]
@@ -40,7 +40,7 @@ pub struct CoreBlockPyPassWithYield;
 impl BlockPyPass for CoreBlockPyPassWithYield {
     type Name = ast::ExprName;
     type Expr = CoreBlockPyExprWithYield;
-    type Stmt = crate::block_py::BbStmt<Self::Expr, Self::Name>;
+    type Stmt = BlockPyStmt<Self::Expr, Self::Name>;
 }
 
 #[derive(Debug, Clone)]
@@ -49,25 +49,16 @@ pub struct CoreBlockPyPass;
 impl BlockPyPass for CoreBlockPyPass {
     type Name = ast::ExprName;
     type Expr = CoreBlockPyExpr<Self::Name>;
-    type Stmt = crate::block_py::BbStmt<Self::Expr, Self::Name>;
+    type Stmt = BlockPyStmt<Self::Expr, Self::Name>;
 }
 
 #[derive(Debug, Clone)]
-pub struct BbBlockPyPass;
+pub struct ResolvedStorageBlockPyPass;
 
-impl BlockPyPass for BbBlockPyPass {
+impl BlockPyPass for ResolvedStorageBlockPyPass {
     type Name = LocatedName;
     type Expr = CoreBlockPyExpr<Self::Name>;
-    type Stmt = crate::block_py::BbStmt;
-}
-
-#[derive(Debug, Clone)]
-pub struct PreparedBbBlockPyPass;
-
-impl BlockPyPass for PreparedBbBlockPyPass {
-    type Name = LocatedName;
-    type Expr = CoreBlockPyExpr<Self::Name>;
-    type Stmt = crate::block_py::BbStmt;
+    type Stmt = BlockPyStmt;
 }
 
 pub(crate) use blockpy_to_bb::lower_yield_in_lowered_core_blockpy_module_bundle;

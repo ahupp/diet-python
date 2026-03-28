@@ -68,7 +68,7 @@ fn eval_order_hoists_return_value_to_temp() {
 fn eval_order_hoists_nested_call_in_assignment_rhs() {
     let block = BlockPyBlock {
         label: BlockPyLabel("start".to_string()),
-        body: vec![BlockPyStmt::Assign(BlockPyAssign {
+        body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
             target: fresh_eval_name(),
             value: CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("f(g(x))")),
         })],
@@ -81,7 +81,7 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
 
     let lowered = make_eval_order_explicit_in_core_block(block);
     assert_eq!(lowered.body.len(), 1);
-    let BlockPyStmt::Assign(assign) = &lowered.body[0] else {
+    let StructuredBlockPyStmt::Assign(assign) = &lowered.body[0] else {
         panic!("expected rewritten assignment");
     };
     let CoreBlockPyExprWithAwaitAndYield::Call(call) = &assign.value else {
@@ -101,7 +101,7 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
 fn eval_order_hoists_await_in_assignment_call_argument() {
     let block = BlockPyBlock {
         label: BlockPyLabel("start".to_string()),
-        body: vec![BlockPyStmt::Assign(BlockPyAssign {
+        body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
             target: test_name("total"),
             value: CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
                 "__dp_iadd(total, await Once())"
@@ -116,14 +116,14 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
 
     let lowered = make_eval_order_explicit_in_core_block(block);
     assert_eq!(lowered.body.len(), 3);
-    let BlockPyStmt::Assign(temp_assign) = &lowered.body[0] else {
+    let StructuredBlockPyStmt::Assign(temp_assign) = &lowered.body[0] else {
         panic!("expected hoisted await temp assignment");
     };
     assert!(matches!(
         temp_assign.value,
         CoreBlockPyExprWithAwaitAndYield::Await(_)
     ));
-    let BlockPyStmt::Assign(assign) = &lowered.body[1] else {
+    let StructuredBlockPyStmt::Assign(assign) = &lowered.body[1] else {
         panic!("expected rewritten assignment");
     };
     let CoreBlockPyExprWithAwaitAndYield::Op(call) = &assign.value else {
@@ -135,14 +135,14 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
         &call_args[1],
         CoreBlockPyExprWithAwaitAndYield::Name(_)
     ));
-    assert!(matches!(lowered.body[2], BlockPyStmt::Delete(_)));
+    assert!(matches!(lowered.body[2], StructuredBlockPyStmt::Delete(_)));
 }
 
 #[test]
 fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
     let block = BlockPyBlock {
         label: BlockPyLabel("start".to_string()),
-        body: vec![BlockPyStmt::Assign(BlockPyAssign {
+        body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
             target: test_name("total"),
             value: CoreBlockPyExprWithYield::Call(CoreBlockPyCall {
                 node_index: Default::default(),
@@ -170,14 +170,14 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
 
     let lowered = make_eval_order_explicit_in_core_block_without_await(block);
     assert_eq!(lowered.body.len(), 3);
-    let BlockPyStmt::Assign(temp_assign) = &lowered.body[0] else {
+    let StructuredBlockPyStmt::Assign(temp_assign) = &lowered.body[0] else {
         panic!("expected hoisted yield-from temp assignment");
     };
     assert!(matches!(
         temp_assign.value,
         CoreBlockPyExprWithYield::YieldFrom(_)
     ));
-    let BlockPyStmt::Assign(assign) = &lowered.body[1] else {
+    let StructuredBlockPyStmt::Assign(assign) = &lowered.body[1] else {
         panic!("expected rewritten assignment");
     };
     let CoreBlockPyExprWithYield::Call(call) = &assign.value else {
@@ -187,5 +187,5 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
         call.args[1],
         CoreBlockPyCallArg::Positional(CoreBlockPyExprWithYield::Name(_))
     ));
-    assert!(matches!(lowered.body[2], BlockPyStmt::Delete(_)));
+    assert!(matches!(lowered.body[2], StructuredBlockPyStmt::Delete(_)));
 }

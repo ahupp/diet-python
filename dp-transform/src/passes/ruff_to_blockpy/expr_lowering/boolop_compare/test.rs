@@ -1,4 +1,4 @@
-use crate::block_py::{BlockPyStmt, BlockPyStmtFragmentBuilder};
+use crate::block_py::{BlockPyStmtFragmentBuilder, StructuredBlockPyStmt};
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::py_expr;
 use ruff_python_ast::Expr;
@@ -18,14 +18,14 @@ fn boolop_lowering_emits_blockpy_setup_directly() {
         fragment
             .body
             .iter()
-            .any(|stmt| matches!(stmt, BlockPyStmt::Assign(_))),
+            .any(|stmt| matches!(stmt, StructuredBlockPyStmt::Assign(_))),
         "{fragment:?}"
     );
     assert!(
         fragment
             .body
             .iter()
-            .any(|stmt| matches!(stmt, BlockPyStmt::If(_))),
+            .any(|stmt| matches!(stmt, StructuredBlockPyStmt::If(_))),
         "{fragment:?}"
     );
 }

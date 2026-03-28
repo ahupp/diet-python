@@ -1,4 +1,4 @@
-use crate::block_py::{BlockPyStmt, BlockPyStmtFragmentBuilder};
+use crate::block_py::{BlockPyStmtFragmentBuilder, StructuredBlockPyStmt};
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::py_expr;
 use ruff_python_ast::Expr;
@@ -14,7 +14,7 @@ fn named_expr_lowering_emits_blockpy_assign_directly() {
 
     let fragment = out.finish();
     assert!(matches!(lowered, Expr::Name(_)), "{lowered:?}");
-    let [BlockPyStmt::Assign(assign)] = &fragment.body[..] else {
+    let [StructuredBlockPyStmt::Assign(assign)] = &fragment.body[..] else {
         panic!("expected one direct assign stmt, got {fragment:?}");
     };
     assert_eq!(assign.target.id.as_str(), "x");

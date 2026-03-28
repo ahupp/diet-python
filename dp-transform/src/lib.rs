@@ -1,6 +1,6 @@
 use crate::block_py::pretty::BlockPyPrettyPrint;
 use crate::passes::ast_to_ast::body::Suite;
-use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass, RuffBlockPyPass};
+use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 use ruff_python_parser::parse_module;
@@ -87,7 +87,7 @@ fn should_skip(source: &str) -> bool {
 pub struct LoweringResult {
     pub timings: TransformTimings,
     pub module: ModModule,
-    pub bb_codegen_module: Option<BlockPyModule<PreparedBbBlockPyPass>>,
+    pub bb_codegen_module: Option<BlockPyModule<ResolvedStorageBlockPyPass>>,
     passes: PassTracker,
 }
 
@@ -310,12 +310,12 @@ pub fn transform_str_to_ruff_with_options(
 pub fn transform_str_to_bb_ir_with_options(
     source: &str,
     options: Options,
-) -> Result<Option<BlockPyModule<BbBlockPyPass>>, ParseError> {
+) -> Result<Option<BlockPyModule<ResolvedStorageBlockPyPass>>, ParseError> {
     let mut options = options;
     options.lower_attributes = true;
 
     Ok(transform_str_to_ruff_with_options(source, options)?
-        .get_pass::<BlockPyModule<BbBlockPyPass>>("name_binding")
+        .get_pass::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
         .cloned())
 }
 
