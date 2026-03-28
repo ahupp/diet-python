@@ -13,22 +13,10 @@ use crate::passes::{
     self, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield,
     ResolvedStorageBlockPyPass, RuffBlockPyPass,
 };
-use crate::{ParseError, PassTracker};
+use crate::PassTracker;
 use anyhow::Result;
 use ruff_python_ast::{self as ast, ModModule, Stmt};
 use ruff_python_parser::parse_module;
-
-#[derive(Clone)]
-struct ParsePassResult(Result<ModModule, ParseError>);
-
-impl crate::TrackedPassText for ParsePassResult {
-    fn render_tracked_pass_text(&self) -> String {
-        match &self.0 {
-            Ok(module) => crate::ruff_ast_to_string(&module.body),
-            Err(err) => format!("; parse error: {err}"),
-        }
-    }
-}
 
 #[derive(Clone)]
 pub(crate) struct AstToAstPassResult {
@@ -98,11 +86,9 @@ pub(crate) fn rewrite_module_with_tracker(
     source: &str,
     pass_tracker: &mut impl PassTracker,
 ) -> Result<(ModModule, BlockPyModule<ResolvedStorageBlockPyPass>)> {
-    let mut module = pass_tracker
-        .run_pass("parse", || {
-            ParsePassResult(parse_module(source).map(|module| module.into_syntax()))
-        })
-        .0?;
+    let mut module = pass_tracker.record_timing("parse", || {
+        parse_module(source).map(|module| module.into_syntax())
+    })?;
     let context = Context::new(source);
     let AstToAstPassResult {
         module: ast_module,

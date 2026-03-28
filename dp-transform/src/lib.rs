@@ -90,7 +90,6 @@ pub struct LoweringResult<P = RecordingPassTracker> {
 
 struct TrackedPass {
     name: String,
-    elapsed: Duration,
     value: Box<dyn Any>,
     render_text: Option<fn(&dyn Any) -> String>,
 }
@@ -100,6 +99,7 @@ pub struct NoopPassTracker;
 
 pub struct RecordingPassTracker {
     passes: Vec<TrackedPass>,
+    timings: Vec<PassTiming>,
 }
 
 pub(crate) trait TrackedPassText {
@@ -110,6 +110,10 @@ pub(crate) trait PassTracker {
     fn run_pass<T, F>(&mut self, name: &str, build: F) -> T
     where
         T: Clone + Any + TrackedPassText,
+        F: FnOnce() -> T;
+
+    fn record_timing<T, F>(&mut self, name: &str, build: F) -> T
+    where
         F: FnOnce() -> T;
 }
 
@@ -158,11 +162,32 @@ impl PassTracker for NoopPassTracker {
     {
         build()
     }
+
+    fn record_timing<T, F>(&mut self, _name: &str, build: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        build()
+    }
 }
 
 impl RecordingPassTracker {
     pub fn new() -> Self {
-        Self { passes: Vec::new() }
+        Self {
+            passes: Vec::new(),
+            timings: Vec::new(),
+        }
+    }
+
+    fn record_pass_timing(&mut self, name: &str, elapsed: Duration) {
+        assert!(
+            !self.timings.iter().any(|timing| timing.name == name),
+            "PassTracker already contains a pass named {name}",
+        );
+        self.timings.push(PassTiming {
+            name: name.to_string(),
+            elapsed,
+        });
     }
 
     pub fn get<T: Any>(&self, name: &str) -> Option<&T> {
@@ -207,10 +232,7 @@ impl RecordingPassTracker {
     }
 
     pub fn pass_timings(&self) -> impl Iterator<Item = PassTiming> + '_ {
-        self.passes.iter().map(|pass| PassTiming {
-            name: pass.name.clone(),
-            elapsed: pass.elapsed,
-        })
+        self.timings.iter().cloned()
     }
 }
 
@@ -223,16 +245,23 @@ impl PassTracker for RecordingPassTracker {
         let start = timing_start();
         let value = build();
         let elapsed = timing_elapsed(start);
-        assert!(
-            !self.passes.iter().any(|pass| pass.name == name),
-            "PassTracker already contains a pass named {name}",
-        );
+        self.record_pass_timing(name, elapsed);
         self.passes.push(TrackedPass {
             name: name.to_string(),
-            elapsed,
             value: Box::new(value.clone()),
             render_text: Some(render_tracked_pass_value::<T>),
         });
+        value
+    }
+
+    fn record_timing<T, F>(&mut self, name: &str, build: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        let start = timing_start();
+        let value = build();
+        let elapsed = timing_elapsed(start);
+        self.record_pass_timing(name, elapsed);
         value
     }
 }
