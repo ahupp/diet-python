@@ -1,6 +1,8 @@
 use super::normalize_bb_module_strings;
 use crate::{
-    block_py::{BlockPyNameLike, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr},
+    block_py::{
+        BlockPyNameLike, BlockPyStmt, BlockPyTerm, CodegenBlockPyExpr, CodegenBlockPyLiteral,
+    },
     lower_python_to_blockpy_recorded,
     passes::lower_try_jump_exception_flow,
 };
@@ -18,63 +20,38 @@ fn tracked_name_binding_module(
 }
 
 struct ExprShapeProbe {
-    saw_string_literal: Cell<bool>,
     saw_bytes_literal: Cell<bool>,
-    saw_str_bytes_call: Cell<bool>,
-    saw_decode_literal_call: Cell<bool>,
+    saw_make_string: Cell<bool>,
 }
 
 impl ExprShapeProbe {
     fn new() -> Self {
         Self {
-            saw_string_literal: Cell::new(false),
             saw_bytes_literal: Cell::new(false),
-            saw_str_bytes_call: Cell::new(false),
-            saw_decode_literal_call: Cell::new(false),
+            saw_make_string: Cell::new(false),
         }
     }
 }
 
-fn probe_bb_exprs<N: BlockPyNameLike>(
-    probe: &mut ExprShapeProbe,
-    expr: &crate::block_py::CoreBlockPyExpr<N>,
-) {
+fn probe_bb_exprs<N: BlockPyNameLike>(probe: &mut ExprShapeProbe, expr: &CodegenBlockPyExpr<N>) {
     match expr {
-        crate::block_py::CoreBlockPyExpr::Name(_) => {}
-        crate::block_py::CoreBlockPyExpr::Literal(literal) => match literal {
-            crate::block_py::CoreBlockPyLiteral::StringLiteral(_) => {
-                probe.saw_string_literal.set(true);
-            }
-            crate::block_py::CoreBlockPyLiteral::BytesLiteral(_) => {
+        CodegenBlockPyExpr::Name(_) => {}
+        CodegenBlockPyExpr::Literal(literal) => match literal {
+            CodegenBlockPyLiteral::BytesLiteral(_) => {
                 probe.saw_bytes_literal.set(true);
             }
             _ => {}
         },
-        crate::block_py::CoreBlockPyExpr::Op(operation) => {
+        CodegenBlockPyExpr::Op(operation) => {
+            if matches!(
+                operation.as_ref(),
+                crate::block_py::Operation::MakeString(_)
+            ) {
+                probe.saw_make_string.set(true);
+            }
             operation.walk_args(&mut |arg| probe_bb_exprs(probe, arg));
         }
-        crate::block_py::CoreBlockPyExpr::Call(call) => {
-            if let crate::block_py::CoreBlockPyExpr::Name(name) = call.func.as_ref() {
-                if name.id_str() == "str"
-                    && call.args.len() == 1
-                    && call.keywords.is_empty()
-                    && matches!(
-                        call.args[0],
-                        crate::block_py::CoreBlockPyCallArg::Positional(
-                            crate::block_py::CoreBlockPyExpr::Literal(
-                                crate::block_py::CoreBlockPyLiteral::BytesLiteral(_)
-                            )
-                        )
-                    )
-                {
-                    probe.saw_str_bytes_call.set(true);
-                }
-                if name.id_str() == "__dp_decode_literal_bytes"
-                    || name.id_str() == "__dp_decode_literal_source_bytes"
-                {
-                    probe.saw_decode_literal_call.set(true);
-                }
-            }
+        CodegenBlockPyExpr::Call(call) => {
             probe_bb_exprs(probe, &call.func);
             for arg in &call.args {
                 match arg {
@@ -98,7 +75,7 @@ fn probe_bb_exprs<N: BlockPyNameLike>(
 
 fn probe_bb_term_exprs<N: BlockPyNameLike>(
     probe: &mut ExprShapeProbe,
-    term: &BlockPyTerm<CoreBlockPyExpr<N>>,
+    term: &BlockPyTerm<CodegenBlockPyExpr<N>>,
 ) {
     match term {
         BlockPyTerm::Jump(_) => {}
@@ -115,7 +92,7 @@ fn probe_bb_term_exprs<N: BlockPyNameLike>(
 
 fn probe_bb_stmt_exprs<N: BlockPyNameLike>(
     probe: &mut ExprShapeProbe,
-    stmt: &BlockPyStmt<CoreBlockPyExpr<N>, N>,
+    stmt: &BlockPyStmt<CodegenBlockPyExpr<N>, N>,
 ) {
     match stmt {
         BlockPyStmt::Assign(assign) => probe_bb_exprs(probe, &assign.value),
@@ -133,7 +110,7 @@ def f():
 "#;
     let bb_module = tracked_name_binding_module(source);
     let prepared = lower_try_jump_exception_flow(&bb_module);
-    let normalized = normalize_bb_module_strings(&prepared, source);
+    let normalized = normalize_bb_module_strings(&prepared);
 
     let mut probe = ExprShapeProbe::new();
     for function in normalized.callable_defs {
@@ -146,16 +123,12 @@ def f():
     }
 
     assert!(
-        !probe.saw_string_literal.get(),
-        "string literals should be lowered"
-    );
-    assert!(
         probe.saw_bytes_literal.get(),
         "bytes literals should remain"
     );
     assert!(
-        probe.saw_str_bytes_call.get() || probe.saw_decode_literal_call.get(),
-        "a lowered string decode call should be present"
+        probe.saw_make_string.get(),
+        "a MakeString operation should be present"
     );
 }
 
@@ -171,7 +144,7 @@ def f(obj, mapping, key, value):
 "#;
     let bb_module = tracked_name_binding_module(source);
     let prepared = lower_try_jump_exception_flow(&bb_module);
-    let normalized = normalize_bb_module_strings(&prepared, source);
+    let normalized = normalize_bb_module_strings(&prepared);
 
     let mut text = String::new();
     for function in normalized.callable_defs {
@@ -195,7 +168,7 @@ fn lowers_surrogate_escaped_string_literals_for_codegen() {
     let source = "def f():\n    return \"\\udca7\" \"b\"\n";
     let bb_module = tracked_name_binding_module(source);
     let prepared = lower_try_jump_exception_flow(&bb_module);
-    let normalized = normalize_bb_module_strings(&prepared, source);
+    let normalized = normalize_bb_module_strings(&prepared);
 
     let mut probe = ExprShapeProbe::new();
     for function in normalized.callable_defs {
@@ -207,12 +180,5 @@ fn lowers_surrogate_escaped_string_literals_for_codegen() {
         }
     }
 
-    assert!(
-        probe.saw_decode_literal_call.get(),
-        "expected surrogate decode call"
-    );
-    assert!(
-        !probe.saw_string_literal.get(),
-        "string literal should have been lowered"
-    );
+    assert!(probe.saw_make_string.get(), "expected MakeString operation");
 }

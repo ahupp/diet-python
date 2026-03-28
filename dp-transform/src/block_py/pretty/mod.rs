@@ -6,8 +6,8 @@ use super::{
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
-    CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield,
-    ResolvedStorageBlockPyPass, RuffBlockPyPass,
+    CodegenBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield,
+    CoreBlockPyPassWithYield, ResolvedStorageBlockPyPass, RuffBlockPyPass,
 };
 use crate::ruff_ast_to_string;
 use std::collections::{HashMap, HashSet};
@@ -48,25 +48,38 @@ impl_default_blockpy_pretty_printer!(
 
 impl BlockPyPrettyPrinter for ResolvedStorageBlockPyPass {
     fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
-        let mut lines = Vec::new();
-        if !block.params.is_empty() {
-            lines.push(format!(
-                "params: [{}]",
-                block
-                    .param_names()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-        }
-        if let Some(exc_edge) = &block.exc_edge {
-            lines.push(format!("exc_target: {}", exc_edge.target.as_str()));
-        }
-        if let Some(exc_name) = block.exception_param() {
-            lines.push(format!("exc_name: {exc_name}"));
-        }
-        lines
+        render_resolved_storage_block_metadata::<Self>(block)
     }
+}
+
+impl BlockPyPrettyPrinter for CodegenBlockPyPass {
+    fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
+        render_resolved_storage_block_metadata::<Self>(block)
+    }
+}
+
+fn render_resolved_storage_block_metadata<P>(block: &PassBlock<P>) -> Vec<String>
+where
+    P: BlockPyPass<Name = super::LocatedName>,
+{
+    let mut lines = Vec::new();
+    if !block.params.is_empty() {
+        lines.push(format!(
+            "params: [{}]",
+            block
+                .param_names()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if let Some(exc_edge) = &block.exc_edge {
+        lines.push(format!("exc_target: {}", exc_edge.target.as_str()));
+    }
+    if let Some(exc_name) = block.exception_param() {
+        lines.push(format!("exc_name: {exc_name}"));
+    }
+    lines
 }
 
 pub trait BlockPyPrettyPrint {
@@ -522,26 +535,30 @@ fn helper_call_text(helper_name: &str, args: impl IntoIterator<Item = String>) -
 }
 
 #[cfg(test)]
-pub(crate) fn bb_stmt_text<N: BlockPyNameLike>(
-    stmt: &BlockPyStmt<CoreBlockPyExpr<N>, N>,
-) -> String {
+pub(crate) fn bb_stmt_text<E, N>(stmt: &BlockPyStmt<E, N>) -> String
+where
+    E: Clone + Into<Expr> + std::fmt::Debug,
+    N: BlockPyNameLike,
+{
     match stmt {
         BlockPyStmt::Assign(assign) => {
             format!(
                 "{} = {}",
                 assign.target.id_str(),
-                bb_expr_text(&assign.value)
+                render_inline_expr(&assign.value)
             )
         }
-        BlockPyStmt::Expr(expr) => bb_expr_text(expr),
+        BlockPyStmt::Expr(expr) => render_inline_expr(expr),
         BlockPyStmt::Delete(delete) => format!("del {}", delete.target.id_str()),
     }
 }
 
 #[cfg(test)]
-pub(crate) fn bb_stmts_text<N: BlockPyNameLike>(
-    stmts: &[BlockPyStmt<CoreBlockPyExpr<N>, N>],
-) -> String {
+pub(crate) fn bb_stmts_text<E, N>(stmts: &[BlockPyStmt<E, N>]) -> String
+where
+    E: Clone + Into<Expr> + std::fmt::Debug,
+    N: BlockPyNameLike,
+{
     let mut out = String::new();
     for stmt in stmts {
         out.push_str(&bb_stmt_text(stmt));

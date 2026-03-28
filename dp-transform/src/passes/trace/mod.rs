@@ -1,8 +1,9 @@
 use crate::block_py::{
-    core_positional_call_expr_with_meta, BlockPyFunction, BlockPyModule, CoreBlockPyLiteral,
-    CoreBytesLiteral, LocatedCoreBlockPyExpr, LocatedName, NameLocation, StructuredBlockPyStmt,
+    core_operation_expr, core_positional_call_expr_with_meta, BlockPyFunction, BlockPyModule,
+    CodegenBlockPyLiteral, CoreBytesLiteral, LocatedCodegenBlockPyExpr, LocatedName, MakeString,
+    NameLocation, StructuredBlockPyStmt,
 };
-use crate::passes::ResolvedStorageBlockPyPass;
+use crate::passes::CodegenBlockPyPass;
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 use std::collections::HashMap;
@@ -40,7 +41,7 @@ pub(crate) fn parse_trace_config(raw: &str) -> Option<TraceConfig> {
 }
 
 pub(crate) fn instrument_bb_module_for_trace(
-    module: &mut BlockPyModule<ResolvedStorageBlockPyPass>,
+    module: &mut BlockPyModule<CodegenBlockPyPass>,
     config: &TraceConfig,
 ) {
     for function in &mut module.callable_defs {
@@ -94,7 +95,7 @@ struct PreparedTraceNameLocator {
 }
 
 impl PreparedTraceNameLocator {
-    fn new(function: &BlockPyFunction<ResolvedStorageBlockPyPass>) -> Self {
+    fn new(function: &BlockPyFunction<CodegenBlockPyPass>) -> Self {
         let param_slots = function
             .params
             .names()
@@ -175,8 +176,8 @@ impl PreparedTraceNameLocator {
     }
 }
 
-fn bytes_literal_expr(value: &[u8]) -> LocatedCoreBlockPyExpr {
-    LocatedCoreBlockPyExpr::Literal(CoreBlockPyLiteral::BytesLiteral(CoreBytesLiteral {
+fn bytes_literal_expr(value: &[u8]) -> LocatedCodegenBlockPyExpr {
+    LocatedCodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(CoreBytesLiteral {
         range: compat_range(),
         node_index: compat_node_index(),
         value: value.to_vec(),
@@ -185,30 +186,34 @@ fn bytes_literal_expr(value: &[u8]) -> LocatedCoreBlockPyExpr {
 
 fn helper_call_expr(
     helper_name: &str,
-    args: Vec<LocatedCoreBlockPyExpr>,
-) -> LocatedCoreBlockPyExpr {
+    args: Vec<LocatedCodegenBlockPyExpr>,
+) -> LocatedCodegenBlockPyExpr {
     core_positional_call_expr_with_meta(helper_name, compat_node_index(), compat_range(), args)
 }
 
-fn string_literal_expr(value: &str) -> LocatedCoreBlockPyExpr {
-    helper_call_expr("str", vec![bytes_literal_expr(value.as_bytes())])
+fn string_literal_expr(value: &str) -> LocatedCodegenBlockPyExpr {
+    core_operation_expr(crate::block_py::Operation::MakeString(MakeString {
+        node_index: compat_node_index(),
+        range: compat_range(),
+        arg0: bytes_literal_expr(value.as_bytes()),
+    }))
 }
 
-fn tuple_expr(values: Vec<LocatedCoreBlockPyExpr>) -> LocatedCoreBlockPyExpr {
+fn tuple_expr(values: Vec<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyExpr {
     helper_call_expr("__dp_tuple", values)
 }
 
 fn param_pairs_expr(
     locator: &PreparedTraceNameLocator,
     params: &[String],
-) -> LocatedCoreBlockPyExpr {
+) -> LocatedCodegenBlockPyExpr {
     tuple_expr(
         params
             .iter()
             .map(|param| {
                 tuple_expr(vec![
                     string_literal_expr(param),
-                    LocatedCoreBlockPyExpr::Name(locator.load_name(param)),
+                    LocatedCodegenBlockPyExpr::Name(locator.load_name(param)),
                 ])
             })
             .collect(),

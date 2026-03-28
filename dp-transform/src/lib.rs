@@ -1,6 +1,8 @@
 use crate::block_py::pretty::BlockPyPrettyPrint;
 use crate::passes::ast_to_ast::body::Suite;
-use crate::passes::{CoreBlockPyPass, ResolvedStorageBlockPyPass, RuffBlockPyPass};
+use crate::passes::{
+    CodegenBlockPyPass, CoreBlockPyPass, ResolvedStorageBlockPyPass, RuffBlockPyPass,
+};
 use anyhow::Error as AnyhowError;
 use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
@@ -107,7 +109,7 @@ pub(crate) fn should_skip(source: &str) -> bool {
 
 pub struct LoweringResult<P = RecordingPassTracker> {
     pub total_time: Duration,
-    pub codegen_module: Option<BlockPyModule<ResolvedStorageBlockPyPass>>,
+    pub codegen_module: Option<BlockPyModule<CodegenBlockPyPass>>,
     pub pass_tracker: P,
 }
 

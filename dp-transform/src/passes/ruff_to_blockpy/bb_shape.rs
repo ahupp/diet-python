@@ -324,10 +324,7 @@ where
                 && matches!(
                     call.func.as_ref(),
                     CoreBlockPyExpr::Name(name)
-                        if matches!(
-                            name.id_str(),
-                            "__dp_decode_literal_bytes" | "__dp_decode_literal_source_bytes"
-                        )
+                        if name.id_str() == "__dp_decode_literal_bytes"
                 ) =>
         {
             match &call.args[0] {

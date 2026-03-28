@@ -10,8 +10,8 @@ pub mod ruff_to_blockpy;
 mod trace;
 
 use crate::block_py::{
-    BlockPyPass, BlockPyStmt, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, LocatedName, RuffExpr,
+    BlockPyPass, BlockPyStmt, CodegenBlockPyExpr, CoreBlockPyExpr,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, LocatedName, RuffExpr,
 };
 use ruff_python_ast as ast;
 
@@ -58,6 +58,15 @@ impl BlockPyPass for ResolvedStorageBlockPyPass {
     type Name = LocatedName;
     type Expr = CoreBlockPyExpr<Self::Name>;
     type Stmt = BlockPyStmt;
+}
+
+#[derive(Debug, Clone)]
+pub struct CodegenBlockPyPass;
+
+impl BlockPyPass for CodegenBlockPyPass {
+    type Name = LocatedName;
+    type Expr = CodegenBlockPyExpr<Self::Name>;
+    type Stmt = BlockPyStmt<Self::Expr, Self::Name>;
 }
 
 pub(crate) use blockpy_to_bb::lower_yield_in_lowered_core_blockpy_module_bundle;

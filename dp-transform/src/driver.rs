@@ -11,8 +11,8 @@ use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
 use crate::passes::ruff_to_blockpy::rewrite_ast_to_lowered_blockpy_module_plan_with_module;
 use crate::passes::{
-    self, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield,
-    ResolvedStorageBlockPyPass, RuffBlockPyPass,
+    self, CodegenBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield,
+    CoreBlockPyPassWithYield, ResolvedStorageBlockPyPass, RuffBlockPyPass,
 };
 use crate::{ParseError, PassTracker, Result};
 use ruff_python_ast::{self as ast, Stmt};
@@ -74,7 +74,7 @@ fn lower_core_blockpy_with_await_and_yield(
 pub(crate) fn rewrite_module_with_tracker(
     source: &str,
     pass_tracker: &mut impl PassTracker,
-) -> Result<BlockPyModule<ResolvedStorageBlockPyPass>> {
+) -> Result<BlockPyModule<CodegenBlockPyPass>> {
     let module =
         pass_tracker.record_timing("parse", || -> std::result::Result<_, ParseError> {
             let mut module = parse_module(source).map(|module| module.into_syntax())?;
@@ -191,12 +191,11 @@ pub(crate) fn rewrite_module_with_tracker(
         .run_pass("bb_prepared", || {
             passes::lower_try_jump_exception_flow(&name_binding)
         });
-    let bb_codegen: BlockPyModule<ResolvedStorageBlockPyPass> = pass_tracker
-        .run_pass("bb_codegen", || {
-            passes::normalize_bb_module_strings(&bb_prepared, context.source.as_str())
-        });
+    let bb_codegen: BlockPyModule<CodegenBlockPyPass> = pass_tracker.run_pass("bb_codegen", || {
+        passes::normalize_bb_module_strings(&bb_prepared)
+    });
 
-    let bb_traced: BlockPyModule<ResolvedStorageBlockPyPass> =
+    let bb_traced: BlockPyModule<CodegenBlockPyPass> =
         if let Some(config) = passes::parse_trace_env() {
             pass_tracker.run_pass("bb_trace", || {
                 let mut traced = bb_codegen;
@@ -206,7 +205,11 @@ pub(crate) fn rewrite_module_with_tracker(
         } else {
             bb_codegen
         };
-    passes::validate_prepared_bb_module(&bb_traced).map_err(anyhow::Error::msg)?;
+
+    pass_tracker.record_timing("validate", || {
+        passes::validate_prepared_bb_module(&bb_traced).map_err(anyhow::Error::msg)
+    })?;
+
     Ok(bb_traced)
 }
 

@@ -4,7 +4,7 @@ mod tests {
     use super::*;
     use dp_transform::block_py::{
         BinOp, BinOpKind, BlockPyRaise, BlockPyTerm, CellRef, DelDeref, DelDerefQuietly, DelItem,
-        DelQuietly, LoadGlobal, LocatedCoreBlockPyExpr, LocatedName, NameLocation, Operation,
+        DelQuietly, LoadGlobal, LocatedCodegenBlockPyExpr, LocatedName, NameLocation, Operation,
         StoreGlobal, TernaryOp, TernaryOpKind,
     };
     use ruff_python_ast as ast;
@@ -49,7 +49,7 @@ mod tests {
         }
     }
 
-    fn test_term() -> BlockPyTerm<LocatedCoreBlockPyExpr> {
+    fn test_term() -> BlockPyTerm<LocatedCodegenBlockPyExpr> {
         BlockPyTerm::Raise(BlockPyRaise { exc: None })
     }
 

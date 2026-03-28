@@ -1224,22 +1224,7 @@ def decode_literal_bytes(value):
     return value.decode("utf-8", "surrogatepass")
 
 
-# TODO: questionable
-def decode_literal_source_bytes(src_bytes):
-    try:
-        import ast
-
-        src = src_bytes.decode("utf-8", "surrogatepass")
-        value = ast.literal_eval(src)
-        if isinstance(value, str):
-            return decode_literal_bytes(value.encode("utf-8", "surrogatepass"))
-        return value
-    except Exception:
-        return decode_literal_bytes(src_bytes)
-
-
 builtins.__dp_decode_literal_bytes = decode_literal_bytes
-builtins.__dp_decode_literal_source_bytes = decode_literal_source_bytes
 
 
 def create_class(

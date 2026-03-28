@@ -2,12 +2,12 @@ use self::operation as block_py_operation;
 pub use self::param_specs::ParamKind;
 use self::param_specs::ParamSpec;
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
-use crate::passes::ResolvedStorageBlockPyPass;
+use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 pub use operation::{
     BinOp, BinOpKind, CellRef, DelDeref, DelDerefQuietly, DelItem, DelQuietly, GetAttr, GetItem,
-    InplaceBinOp, InplaceBinOpKind, LoadCell, LoadGlobal, MakeCell, Operation, SetAttr, SetItem,
-    StoreCell, StoreGlobal, TernaryOp, TernaryOpKind, UnaryOp, UnaryOpKind,
+    InplaceBinOp, InplaceBinOpKind, LoadCell, LoadGlobal, MakeCell, MakeString, Operation, SetAttr,
+    SetItem, StoreCell, StoreGlobal, TernaryOp, TernaryOpKind, UnaryOp, UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
@@ -406,8 +406,24 @@ pub enum CoreBlockPyExpr<N = ast::ExprName> {
 pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 
 #[derive(Debug, Clone)]
+pub enum CodegenBlockPyExpr<N = ast::ExprName> {
+    Name(N),
+    Literal(CodegenBlockPyLiteral),
+    Op(Box<Operation<Self>>),
+    Call(CoreBlockPyCall<Self>),
+}
+
+pub type LocatedCodegenBlockPyExpr = CodegenBlockPyExpr<LocatedName>;
+
+#[derive(Debug, Clone)]
 pub enum CoreBlockPyLiteral {
     StringLiteral(CoreStringLiteral),
+    BytesLiteral(CoreBytesLiteral),
+    NumberLiteral(CoreNumberLiteral),
+}
+
+#[derive(Debug, Clone)]
+pub enum CodegenBlockPyLiteral {
     BytesLiteral(CoreBytesLiteral),
     NumberLiteral(CoreNumberLiteral),
 }
@@ -711,6 +727,102 @@ where
                 args: try_map_call_args_with(call.args, &mut *f)?,
                 keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
             })),
+        }
+    }
+}
+
+impl<N: From<ast::ExprName>> CoreCallLikeExpr for CodegenBlockPyExpr<N> {
+    fn from_name(name: ast::ExprName) -> Self {
+        Self::Name(name.into())
+    }
+
+    fn from_call(call: CoreBlockPyCall<Self>) -> Self {
+        Self::Call(call)
+    }
+
+    fn from_operation(operation: block_py_operation::Operation<Self>) -> Self {
+        Self::Op(Box::new(operation))
+    }
+}
+
+impl<NIn, NOut> MapExpr<CodegenBlockPyExpr<NOut>> for CoreBlockPyExpr<NIn>
+where
+    NIn: BlockPyNameLike,
+    NOut: BlockPyNameLike + From<NIn>,
+{
+    fn map_expr(
+        self,
+        f: &mut impl FnMut(Self) -> CodegenBlockPyExpr<NOut>,
+    ) -> CodegenBlockPyExpr<NOut> {
+        match self {
+            Self::Name(name) => CodegenBlockPyExpr::Name(NOut::from(name)),
+            Self::Literal(CoreBlockPyLiteral::BytesLiteral(literal)) => {
+                CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(literal))
+            }
+            Self::Literal(CoreBlockPyLiteral::NumberLiteral(literal)) => {
+                CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(literal))
+            }
+            Self::Literal(CoreBlockPyLiteral::StringLiteral(_)) => {
+                unreachable!("codegen mapping should lower string literals explicitly")
+            }
+            Self::Op(operation) => CodegenBlockPyExpr::Op(Box::new(operation.map_expr(&mut *f))),
+            Self::Call(call) => CodegenBlockPyExpr::Call(CoreBlockPyCall {
+                node_index: call.node_index,
+                range: call.range,
+                func: Box::new(f(*call.func)),
+                args: map_call_args_with(call.args, &mut *f),
+                keywords: map_keyword_args_with(call.keywords, &mut *f),
+            }),
+        }
+    }
+}
+
+impl<NIn, NOut, Error> TryMapExpr<CodegenBlockPyExpr<NOut>, Error> for CodegenBlockPyExpr<NIn>
+where
+    NIn: BlockPyNameLike,
+    NOut: BlockPyNameLike + From<NIn>,
+{
+    fn try_map_expr(
+        self,
+        f: &mut impl FnMut(Self) -> Result<CodegenBlockPyExpr<NOut>, Error>,
+    ) -> Result<CodegenBlockPyExpr<NOut>, Error> {
+        match self {
+            Self::Name(name) => Ok(CodegenBlockPyExpr::Name(NOut::from(name))),
+            Self::Literal(literal) => Ok(CodegenBlockPyExpr::Literal(literal)),
+            Self::Op(operation) => Ok(CodegenBlockPyExpr::Op(Box::new(
+                operation.try_map_expr(&mut *f)?,
+            ))),
+            Self::Call(call) => Ok(CodegenBlockPyExpr::Call(CoreBlockPyCall {
+                node_index: call.node_index,
+                range: call.range,
+                func: Box::new(f(*call.func)?),
+                args: try_map_call_args_with(call.args, &mut *f)?,
+                keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
+            })),
+        }
+    }
+}
+
+impl<NIn, NOut> MapExpr<CodegenBlockPyExpr<NOut>> for CodegenBlockPyExpr<NIn>
+where
+    NIn: BlockPyNameLike,
+    NOut: BlockPyNameLike + From<NIn>,
+{
+    fn map_expr(
+        self,
+        f: &mut impl FnMut(Self) -> CodegenBlockPyExpr<NOut>,
+    ) -> CodegenBlockPyExpr<NOut> {
+        match self {
+            Self::Name(name) => CodegenBlockPyExpr::Name(NOut::from(name)),
+            Self::Literal(literal) => CodegenBlockPyExpr::Literal(literal),
+            Self::Op(operation) => CodegenBlockPyExpr::Op(Box::new(operation.map_expr(&mut *f))),
+            Self::Call(call) => CodegenBlockPyExpr::Call(CoreBlockPyCall {
+                node_index: call.node_index,
+                range: call.range,
+                func: Box::new(f(*call.func)),
+                args: map_call_args_with(call.args, &mut *f),
+                keywords: map_keyword_args_with(call.keywords, &mut *f),
+            }),
         }
     }
 }
@@ -1253,6 +1365,7 @@ pub type PassName<P> = <P as BlockPyPass>::Name;
 pub type StructuredPassStmt<P> = StructuredBlockPyStmt<PassExpr<P>, PassName<P>>;
 pub type PassBlock<P> = CfgBlock<<P as BlockPyPass>::Stmt, BlockPyTerm<PassExpr<P>>>;
 pub type ResolvedStorageBlock = PassBlock<ResolvedStorageBlockPyPass>;
+pub type CodegenBlock = PassBlock<CodegenBlockPyPass>;
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
 pub type BlockPyBlock<E = Expr, N = ExprName> =
@@ -1975,6 +2088,16 @@ impl<N: BlockPyNameLike> ImplicitNoneExpr for CoreBlockPyExpr<N> {
 
     fn is_implicit_none_expr(expr: &Self) -> bool {
         matches!(expr, CoreBlockPyExpr::Name(name) if name.id_str() == "__dp_NONE")
+    }
+}
+
+impl<N: BlockPyNameLike> ImplicitNoneExpr for CodegenBlockPyExpr<N> {
+    fn implicit_none_expr() -> Self {
+        Self::Name(implicit_none_name().into())
+    }
+
+    fn is_implicit_none_expr(expr: &Self) -> bool {
+        matches!(expr, CodegenBlockPyExpr::Name(name) if name.id_str() == "__dp_NONE")
     }
 }
 

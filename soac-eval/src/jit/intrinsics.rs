@@ -323,6 +323,28 @@ fn emit_make_cell(
     state.finish_owned_result(state.fb.inst_results(call_inst)[0])
 }
 
+fn emit_make_string(
+    helper_name: &str,
+    state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_, '_>,
+    parts: &[DirectSimpleCallPart],
+) -> Option<ir::Value> {
+    let args = state.positional_args_for_operation(helper_name, parts);
+    let [super::DirectSimpleExprPlan::Bytes(bytes)] = args.as_slice() else {
+        return None;
+    };
+    let (data_ptr, data_len) = super::intern_bytes_literal(state.literal_pool, bytes.as_slice());
+    let data_ptr_val = state
+        .fb
+        .ins()
+        .iconst(state.ctx.consts.ptr_ty, data_ptr as i64);
+    let data_len_val = state.fb.ins().iconst(state.ctx.consts.i64_ty, data_len);
+    let call_inst = state.fb.ins().call(
+        state.ctx.decode_literal_bytes_ref,
+        &[data_ptr_val, data_len_val],
+    );
+    Some(state.finish_owned_result(state.fb.inst_results(call_inst)[0]))
+}
+
 fn emit_getitem(
     helper_name: &str,
     state: &mut DirectSimpleIntrinsicEmitState<'_, '_, '_, '_>,
@@ -550,6 +572,7 @@ pub(super) fn emit_operation_direct_simple<E>(
         blockpy_intrinsics::Operation::MakeCell(_) => {
             Some(emit_make_cell(helper_name, state, parts))
         }
+        blockpy_intrinsics::Operation::MakeString(_) => emit_make_string(helper_name, state, parts),
         blockpy_intrinsics::Operation::CellRef(_) => None,
         blockpy_intrinsics::Operation::StoreCell(_) => None,
         blockpy_intrinsics::Operation::DelQuietly(_) => Some(emit_positional_owned_call(

@@ -296,6 +296,13 @@ pub struct MakeCell<E> {
 }
 
 #[derive(Debug, Clone)]
+pub struct MakeString<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub arg0: E,
+}
+
+#[derive(Debug, Clone)]
 pub struct CellRef<E> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: TextRange,
@@ -347,6 +354,7 @@ pub enum Operation<E> {
     StoreGlobal(StoreGlobal<E>),
     LoadCell(LoadCell<E>),
     MakeCell(MakeCell<E>),
+    MakeString(MakeString<E>),
     CellRef(CellRef<E>),
     StoreCell(StoreCell<E>),
     DelQuietly(DelQuietly<E>),
@@ -370,6 +378,7 @@ impl<E> Operation<E> {
             Self::StoreGlobal(_) => "__dp_store_global",
             Self::LoadCell(_) => "__dp_load_cell",
             Self::MakeCell(_) => "__dp_make_cell",
+            Self::MakeString(_) => "__dp_decode_literal_bytes",
             Self::CellRef(_) => "__dp_cell_ref",
             Self::StoreCell(_) => "__dp_store_cell",
             Self::DelQuietly(_) => "__dp_del_quietly",
@@ -393,6 +402,7 @@ impl<E> Operation<E> {
             Self::StoreGlobal(op) => &op.node_index,
             Self::LoadCell(op) => &op.node_index,
             Self::MakeCell(op) => &op.node_index,
+            Self::MakeString(op) => &op.node_index,
             Self::CellRef(op) => &op.node_index,
             Self::StoreCell(op) => &op.node_index,
             Self::DelQuietly(op) => &op.node_index,
@@ -416,6 +426,7 @@ impl<E> Operation<E> {
             Self::StoreGlobal(op) => op.range,
             Self::LoadCell(op) => op.range,
             Self::MakeCell(op) => op.range,
+            Self::MakeString(op) => op.range,
             Self::CellRef(op) => op.range,
             Self::StoreCell(op) => op.range,
             Self::DelQuietly(op) => op.range,
@@ -505,6 +516,11 @@ impl<E> Operation<E> {
                 arg0: f(op.arg0),
             }),
             Self::MakeCell(op) => Operation::MakeCell(MakeCell {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0),
+            }),
+            Self::MakeString(op) => Operation::MakeString(MakeString {
                 node_index: op.node_index,
                 range: op.range,
                 arg0: f(op.arg0),
@@ -627,6 +643,11 @@ impl<E> Operation<E> {
                 range: op.range,
                 arg0: f(op.arg0)?,
             }),
+            Self::MakeString(op) => Operation::MakeString(MakeString {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f(op.arg0)?,
+            }),
             Self::CellRef(op) => Operation::CellRef(CellRef {
                 node_index: op.node_index,
                 range: op.range,
@@ -706,6 +727,7 @@ impl<E> Operation<E> {
             }
             Self::LoadCell(op) => f(&op.arg0),
             Self::MakeCell(op) => f(&op.arg0),
+            Self::MakeString(op) => f(&op.arg0),
             Self::CellRef(op) => f(&op.arg0),
             Self::StoreCell(op) => {
                 f(&op.arg0);
@@ -769,6 +791,7 @@ impl<E> Operation<E> {
             }
             Self::LoadCell(op) => f(&mut op.arg0),
             Self::MakeCell(op) => f(&mut op.arg0),
+            Self::MakeString(op) => f(&mut op.arg0),
             Self::CellRef(op) => f(&mut op.arg0),
             Self::StoreCell(op) => {
                 f(&mut op.arg0);
@@ -835,6 +858,7 @@ impl<E> Operation<E> {
             }
             Self::LoadCell(op) => out.push(op.arg0),
             Self::MakeCell(op) => out.push(op.arg0),
+            Self::MakeString(op) => out.push(op.arg0),
             Self::CellRef(op) => out.push(op.arg0),
             Self::StoreCell(op) => {
                 out.push(op.arg0);
@@ -902,6 +926,7 @@ impl<E> Operation<E> {
             }
             Self::LoadCell(op) => out.push(&op.arg0),
             Self::MakeCell(op) => out.push(&op.arg0),
+            Self::MakeString(op) => out.push(&op.arg0),
             Self::CellRef(op) => out.push(&op.arg0),
             Self::StoreCell(op) => {
                 out.push(&op.arg0);
@@ -1030,6 +1055,11 @@ pub fn operation_by_name_and_args<E>(
                 arg0: args.next()?,
             }),
             "__dp_make_cell" => Operation::MakeCell(MakeCell {
+                node_index,
+                range,
+                arg0: args.next()?,
+            }),
+            "__dp_decode_literal_bytes" => Operation::MakeString(MakeString {
                 node_index,
                 range,
                 arg0: args.next()?,

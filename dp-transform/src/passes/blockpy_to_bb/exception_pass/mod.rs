@@ -1,5 +1,6 @@
 use crate::block_py::{
-    BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyStmt, BlockPyTerm, ResolvedStorageBlock,
+    BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyStmt, BlockPyTerm,
+    ResolvedStorageBlock,
 };
 use crate::passes::ruff_to_blockpy::populate_exception_edge_args;
 use crate::passes::ResolvedStorageBlockPyPass;
@@ -41,8 +42,8 @@ fn lower_function_try_jump_exception_flow(
     function
 }
 
-pub fn validate_prepared_bb_module(
-    module: &BlockPyModule<ResolvedStorageBlockPyPass>,
+pub fn validate_prepared_bb_module<P: BlockPyPass>(
+    module: &BlockPyModule<P>,
 ) -> Result<(), String> {
     for function in &module.callable_defs {
         let label_set: HashSet<String> = function
@@ -184,8 +185,8 @@ fn apply_op_effect_to_known_names(op: &BlockPyStmt, known_names: &mut Vec<String
     }
 }
 
-fn validate_function_labels(
-    function: &BlockPyFunction<ResolvedStorageBlockPyPass>,
+fn validate_function_labels<P: BlockPyPass>(
+    function: &BlockPyFunction<P>,
     labels: &HashSet<String>,
 ) -> Result<(), String> {
     let qualname = function.names.qualname.as_str();

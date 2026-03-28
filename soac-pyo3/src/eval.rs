@@ -161,9 +161,7 @@ mod tests {
 
     fn validate_bb_module_for_jit(
         bb_module: Option<
-            &dp_transform::block_py::BlockPyModule<
-                dp_transform::passes::ResolvedStorageBlockPyPass,
-            >,
+            &dp_transform::block_py::BlockPyModule<dp_transform::passes::CodegenBlockPyPass>,
         >,
     ) -> Result<(), String> {
         let bb_module = bb_module.ok_or_else(|| {
@@ -272,12 +270,7 @@ class C:
         return self.x
 "#;
         let result = parse_and_lower(source).expect("lowering should succeed");
-        let bb_module =
-            result
-                .pass_tracker
-                .get::<dp_transform::block_py::BlockPyModule<
-                    dp_transform::passes::ResolvedStorageBlockPyPass,
-                >>("name_binding");
+        let bb_module = result.codegen_module.as_ref();
         validate_bb_module_for_jit(bb_module).expect("validator should accept lowered class defs");
     }
 
@@ -288,12 +281,7 @@ async def run():
     return 1
 "#;
         let result = parse_and_lower(source).expect("lowering should succeed");
-        let bb_module =
-            result
-                .pass_tracker
-                .get::<dp_transform::block_py::BlockPyModule<
-                    dp_transform::passes::ResolvedStorageBlockPyPass,
-                >>("name_binding");
+        let bb_module = result.codegen_module.as_ref();
         validate_bb_module_for_jit(bb_module).expect("validator should accept coroutine lowering");
     }
 
@@ -304,12 +292,7 @@ async def run():
     yield 1
 "#;
         let result = parse_and_lower(source).expect("lowering should succeed");
-        let bb_module =
-            result
-                .pass_tracker
-                .get::<dp_transform::block_py::BlockPyModule<
-                    dp_transform::passes::ResolvedStorageBlockPyPass,
-                >>("name_binding");
+        let bb_module = result.codegen_module.as_ref();
         validate_bb_module_for_jit(bb_module)
             .expect("validator should accept async generator lowering");
     }
@@ -324,12 +307,7 @@ def f():
         return 2
 "#;
         let result = parse_and_lower(source).expect("lowering should succeed");
-        let bb_module =
-            result
-                .pass_tracker
-                .get::<dp_transform::block_py::BlockPyModule<
-                    dp_transform::passes::ResolvedStorageBlockPyPass,
-                >>("name_binding");
+        let bb_module = result.codegen_module.as_ref();
         validate_bb_module_for_jit(bb_module).expect("validator should accept lowered try blocks");
     }
 
@@ -340,12 +318,7 @@ def f(x):
     return x
 "#;
         let result = parse_and_lower(source).expect("lowering should succeed");
-        let bb_module =
-            result
-                .pass_tracker
-                .get::<dp_transform::block_py::BlockPyModule<
-                    dp_transform::passes::ResolvedStorageBlockPyPass,
-                >>("name_binding");
+        let bb_module = result.codegen_module.as_ref();
         validate_bb_module_for_jit(bb_module).expect("validator should allow module");
         run_cranelift_jit_preflight(&result).expect("cranelift preflight should run");
     }

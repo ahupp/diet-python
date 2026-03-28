@@ -1,10 +1,10 @@
 use dp_transform::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyModule,
-    BlockPyStmt, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral, CoreNumberLiteralValue, LocatedCoreBlockPyExpr, LocatedName, Operation,
-    ParamKind, ResolvedStorageBlock,
+    BlockPyStmt, BlockPyTerm, CodegenBlock, CodegenBlockPyLiteral, CoreBlockPyCallArg,
+    CoreBlockPyKeywordArg, CoreNumberLiteralValue, LocatedCodegenBlockPyExpr, LocatedName,
+    Operation, ParamKind,
 };
-use dp_transform::passes::ResolvedStorageBlockPyPass;
+use dp_transform::passes::CodegenBlockPyPass;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
@@ -46,7 +46,7 @@ pub struct ClifBlockPlan {
     pub label: String,
     pub param_names: Vec<String>,
     pub runtime_param_names: Vec<String>,
-    pub term: BlockPyTerm<LocatedCoreBlockPyExpr>,
+    pub term: BlockPyTerm<LocatedCodegenBlockPyExpr>,
     pub exc_target: Option<usize>,
     pub exc_dispatch: Option<BlockExcDispatchPlan>,
     pub fast_path: BlockFastPath,
@@ -181,7 +181,7 @@ pub struct DirectSimpleBlockPlan {
 }
 
 type PlanRegistry = HashMap<PlanKey, ClifPlan>;
-type FunctionRegistry = HashMap<PlanKey, BlockPyFunction<ResolvedStorageBlockPyPass>>;
+type FunctionRegistry = HashMap<PlanKey, BlockPyFunction<CodegenBlockPyPass>>;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct PlanKey {
@@ -193,14 +193,14 @@ static CLIF_PLAN_REGISTRY: OnceLock<Mutex<PlanRegistry>> = OnceLock::new();
 static BB_FUNCTION_REGISTRY: OnceLock<Mutex<FunctionRegistry>> = OnceLock::new();
 
 struct ValidatedPreparedBbFunction<'a> {
-    function: &'a BlockPyFunction<ResolvedStorageBlockPyPass>,
+    function: &'a BlockPyFunction<CodegenBlockPyPass>,
     ambient_param_names: Vec<String>,
     ambient_param_name_set: HashSet<String>,
     label_to_index: HashMap<BlockPyLabel, usize>,
 }
 
 impl<'a> ValidatedPreparedBbFunction<'a> {
-    fn new(function: &'a BlockPyFunction<ResolvedStorageBlockPyPass>) -> Self {
+    fn new(function: &'a BlockPyFunction<CodegenBlockPyPass>) -> Self {
         let ambient_param_names = function
             .closure_layout()
             .as_ref()
@@ -256,7 +256,7 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
 
     fn require_known_target(
         &self,
-        source_block: &ResolvedStorageBlock,
+        source_block: &CodegenBlock,
         target: &BlockPyLabel,
         edge_kind: &str,
     ) {
@@ -275,7 +275,7 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
             .expect("validated BB label lookup")
     }
 
-    fn jit_param_names_for_block(&self, block: &ResolvedStorageBlock) -> Vec<String> {
+    fn jit_param_names_for_block(&self, block: &CodegenBlock) -> Vec<String> {
         block
             .exception_param()
             .into_iter()
@@ -287,7 +287,7 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
         self.jit_param_names_for_block(&self.function.blocks[target_index])
     }
 
-    fn exc_target_index(&self, block: &ResolvedStorageBlock) -> Option<usize> {
+    fn exc_target_index(&self, block: &CodegenBlock) -> Option<usize> {
         block
             .exc_edge
             .as_ref()
@@ -296,7 +296,7 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
 
     fn exc_dispatch_plan(
         &self,
-        block: &ResolvedStorageBlock,
+        block: &CodegenBlock,
         exc_target: Option<usize>,
     ) -> Option<BlockExcDispatchPlan> {
         let target_index = exc_target?;
@@ -433,20 +433,21 @@ fn bb_function_registry() -> &'static Mutex<FunctionRegistry> {
     BB_FUNCTION_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn direct_simple_expr_from(expr: &LocatedCoreBlockPyExpr) -> Option<DirectSimpleExprPlan> {
+fn direct_simple_expr_from(expr: &LocatedCodegenBlockPyExpr) -> Option<DirectSimpleExprPlan> {
     match expr {
-        CoreBlockPyExpr::Name(name) => Some(DirectSimpleExprPlan::Name(name.clone())),
-        CoreBlockPyExpr::Literal(literal) => match literal {
-            CoreBlockPyLiteral::NumberLiteral(number) => match &number.value {
+        dp_transform::block_py::CodegenBlockPyExpr::Name(name) => {
+            Some(DirectSimpleExprPlan::Name(name.clone()))
+        }
+        dp_transform::block_py::CodegenBlockPyExpr::Literal(literal) => match literal {
+            CodegenBlockPyLiteral::BytesLiteral(bytes) => {
+                Some(DirectSimpleExprPlan::Bytes(bytes.value.clone()))
+            }
+            CodegenBlockPyLiteral::NumberLiteral(number) => match &number.value {
                 CoreNumberLiteralValue::Int(value) => value.as_i64().map(DirectSimpleExprPlan::Int),
                 CoreNumberLiteralValue::Float(value) => Some(DirectSimpleExprPlan::Float(*value)),
             },
-            CoreBlockPyLiteral::BytesLiteral(bytes) => {
-                Some(DirectSimpleExprPlan::Bytes(bytes.value.clone()))
-            }
-            CoreBlockPyLiteral::StringLiteral(_) => None,
         },
-        CoreBlockPyExpr::Call(call) => {
+        dp_transform::block_py::CodegenBlockPyExpr::Call(call) => {
             let func = direct_simple_expr_from(call.func.as_ref())?;
             let mut parts = Vec::with_capacity(call.args.len() + call.keywords.len());
             for arg in &call.args {
@@ -479,7 +480,7 @@ fn direct_simple_expr_from(expr: &LocatedCoreBlockPyExpr) -> Option<DirectSimple
                 parts,
             })
         }
-        CoreBlockPyExpr::Op(operation) => {
+        dp_transform::block_py::CodegenBlockPyExpr::Op(operation) => {
             let operation = operation
                 .clone()
                 .try_map_expr(&mut |arg| direct_simple_expr_from(&arg).ok_or(()))
@@ -510,7 +511,7 @@ fn direct_simple_block_arg_from(arg: &BlockArg) -> Option<DirectSimpleBlockArgPl
     }
 }
 
-fn direct_simple_plan_from_block(block: &ResolvedStorageBlock) -> Option<DirectSimpleRetPlan> {
+fn direct_simple_plan_from_block(block: &CodegenBlock) -> Option<DirectSimpleRetPlan> {
     let mut assigns = Vec::new();
     for op in &block.body {
         let BlockPyStmt::Assign(assign) = op else {
@@ -535,7 +536,7 @@ fn direct_simple_plan_from_block(block: &ResolvedStorageBlock) -> Option<DirectS
 
 fn direct_simple_brif_plan_from_block(
     function: &ValidatedPreparedBbFunction<'_>,
-    block: &ResolvedStorageBlock,
+    block: &CodegenBlock,
 ) -> Option<DirectSimpleBrIfPlan> {
     if !block.body.is_empty() {
         return None;
@@ -572,7 +573,7 @@ fn direct_simple_delete_plan_from_targets(targets: &[LocatedName]) -> DirectSimp
 }
 
 fn direct_simple_op_from_bb_stmt(
-    op: &BlockPyStmt<LocatedCoreBlockPyExpr, LocatedName>,
+    op: &BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>,
 ) -> Option<DirectSimpleOpPlan> {
     match op {
         BlockPyStmt::Expr(expr_stmt) => {
@@ -592,7 +593,7 @@ fn direct_simple_op_from_bb_stmt(
     }
 }
 
-fn bb_stmt_kind(op: &BlockPyStmt) -> &'static str {
+fn bb_stmt_kind(op: &BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>) -> &'static str {
     match op {
         BlockPyStmt::Assign(_) => "Assign",
         BlockPyStmt::Expr(_) => "Expr",
@@ -602,7 +603,7 @@ fn bb_stmt_kind(op: &BlockPyStmt) -> &'static str {
 
 fn direct_simple_block_plan_from_block(
     function: &ValidatedPreparedBbFunction<'_>,
-    block: &ResolvedStorageBlock,
+    block: &CodegenBlock,
 ) -> DirectSimpleBlockPlan {
     let mut ops = Vec::new();
     for op in &block.body {
@@ -708,7 +709,7 @@ fn direct_simple_block_plan_from_block(
     }
 }
 
-fn build_clif_plan(function: &BlockPyFunction<ResolvedStorageBlockPyPass>) -> ClifPlan {
+fn build_clif_plan(function: &BlockPyFunction<CodegenBlockPyPass>) -> ClifPlan {
     let function = ValidatedPreparedBbFunction::new(function);
     let slot_names = function.slot_names();
     let owned_cell_slot_names = match function.function.kind {
@@ -800,7 +801,7 @@ fn build_clif_plan(function: &BlockPyFunction<ResolvedStorageBlockPyPass>) -> Cl
 
 pub fn register_clif_module_plans(
     module_name: &str,
-    module: &BlockPyModule<ResolvedStorageBlockPyPass>,
+    module: &BlockPyModule<CodegenBlockPyPass>,
 ) -> Result<(), String> {
     let mut plans = HashMap::new();
     let mut functions = HashMap::new();
@@ -842,7 +843,7 @@ pub fn lookup_clif_plan(module_name: &str, function_id: usize) -> Option<ClifPla
 pub fn lookup_blockpy_function(
     module_name: &str,
     function_id: usize,
-) -> Option<BlockPyFunction<ResolvedStorageBlockPyPass>> {
+) -> Option<BlockPyFunction<CodegenBlockPyPass>> {
     let registry = bb_function_registry().lock().ok()?;
     registry
         .get(&PlanKey {

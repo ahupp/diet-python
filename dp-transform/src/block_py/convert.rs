@@ -497,6 +497,28 @@ impl<N: Into<ast::ExprName>> From<CoreBlockPyExpr<N>> for Expr {
     }
 }
 
+impl<N: Into<ast::ExprName>> From<CodegenBlockPyExpr<N>> for Expr {
+    fn from(value: CodegenBlockPyExpr<N>) -> Self {
+        match value {
+            CodegenBlockPyExpr::Literal(literal) => codegen_literal_to_expr(literal),
+            CodegenBlockPyExpr::Op(operation) => helper_call_to_ast(
+                operation.helper_name(),
+                operation.node_index().clone(),
+                operation.range(),
+                operation.into_call_args(),
+            ),
+            CodegenBlockPyExpr::Call(node) => call_like_to_ast(
+                Expr::from(*node.func),
+                node.node_index,
+                node.range,
+                node.args,
+                node.keywords,
+            ),
+            CodegenBlockPyExpr::Name(node) => Expr::Name(node.into()),
+        }
+    }
+}
+
 fn core_literal_to_expr(literal: CoreBlockPyLiteral) -> Expr {
     match literal {
         CoreBlockPyLiteral::StringLiteral(node) => {
@@ -526,6 +548,32 @@ fn core_literal_to_expr(literal: CoreBlockPyLiteral) -> Expr {
             })
         }
         CoreBlockPyLiteral::NumberLiteral(node) => Expr::NumberLiteral(ast::ExprNumberLiteral {
+            node_index: node.node_index,
+            range: node.range,
+            value: match node.value {
+                CoreNumberLiteralValue::Int(value) => ast::Number::Int(value),
+                CoreNumberLiteralValue::Float(value) => ast::Number::Float(value),
+            },
+        }),
+    }
+}
+
+fn codegen_literal_to_expr(literal: CodegenBlockPyLiteral) -> Expr {
+    match literal {
+        CodegenBlockPyLiteral::BytesLiteral(node) => {
+            let node_index = node.node_index.clone();
+            Expr::BytesLiteral(ast::ExprBytesLiteral {
+                node_index: node_index.clone(),
+                range: node.range,
+                value: ast::BytesLiteralValue::single(BytesLiteral {
+                    node_index,
+                    range: node.range,
+                    value: node.value.into(),
+                    flags: BytesLiteralFlags::empty().with_quote_style(Quote::Double),
+                }),
+            })
+        }
+        CodegenBlockPyLiteral::NumberLiteral(node) => Expr::NumberLiteral(ast::ExprNumberLiteral {
             node_index: node.node_index,
             range: node.range,
             value: match node.value {

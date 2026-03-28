@@ -10,7 +10,7 @@ use dp_transform::block_py::{
     StructuredBlockPyStmt,
 };
 use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
-use dp_transform::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
+use dp_transform::passes::{CodegenBlockPyPass, RuffBlockPyPass};
 use dp_transform::{init_logging, lower_python_to_blockpy_recorded};
 use log::{log_enabled, trace, Level};
 
@@ -191,7 +191,7 @@ fn count_blockpy_blocks_in_term<E>(term: &dp_transform::block_py::BlockPyTerm<E>
     }
 }
 
-fn count_clif_blocks(module: &BlockPyModule<ResolvedStorageBlockPyPass>) -> usize {
+fn count_clif_blocks(module: &BlockPyModule<CodegenBlockPyPass>) -> usize {
     module
         .callable_defs
         .iter()

@@ -133,10 +133,7 @@ fn expr_static_str(expr: &Expr) -> Option<String> {
                 && matches!(
                     call.func.as_ref(),
                     Expr::Name(name)
-                        if matches!(
-                            name.id.as_str(),
-                            "__dp_decode_literal_bytes" | "__dp_decode_literal_source_bytes"
-                        )
+                        if name.id.as_str() == "__dp_decode_literal_bytes"
                 ) =>
         {
             match &call.arguments.args[0] {
