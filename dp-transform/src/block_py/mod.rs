@@ -3,6 +3,7 @@ use self::param_specs::ParamSpec;
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::{BbBlockPyPass, PreparedBbBlockPyPass};
 use crate::py_expr;
+pub use intrinsics::Operation;
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
 use std::collections::{HashMap, HashSet};
@@ -412,36 +413,10 @@ impl<P: BlockPyPass> BlockPyModule<P> {
 }
 
 #[derive(Debug, Clone)]
-pub enum Operation<E> {
-    Never(
-        std::convert::Infallible,
-        std::marker::PhantomData<fn() -> E>,
-    ),
-}
-
-pub(crate) fn impossible_operation<T, E>(operation: Operation<E>) -> T {
-    match operation {
-        Operation::Never(never, _) => match never {},
-    }
-}
-
-pub(crate) fn impossible_operation_ref<T, E>(operation: &Operation<E>) -> T {
-    match operation {
-        Operation::Never(never, _) => match *never {},
-    }
-}
-
-pub(crate) fn impossible_operation_mut<T, E>(operation: &mut Operation<E>) -> T {
-    match operation {
-        Operation::Never(never, _) => match *never {},
-    }
-}
-
-#[derive(Debug, Clone)]
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
-    Op(Operation<CoreBlockPyExprWithAwaitAndYield>),
+    Op(Box<Operation<CoreBlockPyExprWithAwaitAndYield>>),
     Call(CoreBlockPyCall<CoreBlockPyExprWithAwaitAndYield>),
     Intrinsic(IntrinsicCall<CoreBlockPyExprWithAwaitAndYield>),
     Await(CoreBlockPyAwait<CoreBlockPyExprWithAwaitAndYield>),
@@ -453,7 +428,7 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
 pub enum CoreBlockPyExprWithYield {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
-    Op(Operation<CoreBlockPyExprWithYield>),
+    Op(Box<Operation<CoreBlockPyExprWithYield>>),
     Call(CoreBlockPyCall<CoreBlockPyExprWithYield>),
     Intrinsic(IntrinsicCall<CoreBlockPyExprWithYield>),
     Yield(CoreBlockPyYield<CoreBlockPyExprWithYield>),
@@ -464,7 +439,7 @@ pub enum CoreBlockPyExprWithYield {
 pub enum CoreBlockPyExpr<N = ast::ExprName> {
     Name(N),
     Literal(CoreBlockPyLiteral),
-    Op(Operation<CoreBlockPyExpr<N>>),
+    Op(Box<Operation<CoreBlockPyExpr<N>>>),
     Call(CoreBlockPyCall<CoreBlockPyExpr<N>>),
     Intrinsic(IntrinsicCall<CoreBlockPyExpr<N>>),
 }
@@ -551,7 +526,7 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYi
     ) -> CoreBlockPyExprWithAwaitAndYield {
         match self {
             Self::Name(_) | Self::Literal(_) => self,
-            Self::Op(operation) => impossible_operation(operation),
+            Self::Op(operation) => Self::Op(Box::new(operation.map_expr(&mut *f))),
             Self::Call(call) => Self::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
@@ -592,7 +567,9 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
         match self {
             Self::Name(name) => CoreBlockPyExprWithYield::Name(name),
             Self::Literal(literal) => CoreBlockPyExprWithYield::Literal(literal),
-            Self::Op(operation) => impossible_operation(operation),
+            Self::Op(operation) => {
+                CoreBlockPyExprWithYield::Op(Box::new(operation.map_expr(&mut *f)))
+            }
             Self::Call(call) => CoreBlockPyExprWithYield::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
@@ -642,7 +619,9 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
         match self {
             Self::Name(name) => Ok(CoreBlockPyExprWithYield::Name(name)),
             Self::Literal(literal) => Ok(CoreBlockPyExprWithYield::Literal(literal)),
-            Self::Op(operation) => impossible_operation(operation),
+            Self::Op(operation) => Ok(CoreBlockPyExprWithYield::Op(Box::new(
+                operation.try_map_expr(&mut *f)?,
+            ))),
             Self::Call(call) => Ok(CoreBlockPyExprWithYield::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
@@ -697,7 +676,7 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
     ) -> CoreBlockPyExprWithYield {
         match self {
             Self::Name(_) | Self::Literal(_) => self,
-            Self::Op(operation) => impossible_operation(operation),
+            Self::Op(operation) => Self::Op(Box::new(operation.map_expr(&mut *f))),
             Self::Call(call) => Self::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
@@ -733,7 +712,9 @@ impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWi
         match self {
             Self::Name(name) => Ok(CoreBlockPyExpr::Name(name.into())),
             Self::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
-            Self::Op(operation) => impossible_operation(operation),
+            Self::Op(operation) => Ok(CoreBlockPyExpr::Op(Box::new(
+                operation.try_map_expr(&mut *f)?,
+            ))),
             Self::Call(call) => Ok(CoreBlockPyExpr::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
@@ -775,7 +756,7 @@ where
         match self {
             Self::Name(name) => CoreBlockPyExpr::Name(NOut::from(name)),
             Self::Literal(literal) => CoreBlockPyExpr::Literal(literal),
-            Self::Op(operation) => impossible_operation(operation),
+            Self::Op(operation) => CoreBlockPyExpr::Op(Box::new(operation.map_expr(&mut *f))),
             Self::Call(call) => CoreBlockPyExpr::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
@@ -805,7 +786,9 @@ where
         match self {
             Self::Name(name) => Ok(CoreBlockPyExpr::Name(NOut::from(name))),
             Self::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
-            Self::Op(operation) => impossible_operation(operation),
+            Self::Op(operation) => Ok(CoreBlockPyExpr::Op(Box::new(
+                operation.try_map_expr(&mut *f)?,
+            ))),
             Self::Call(call) => Ok(CoreBlockPyExpr::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,

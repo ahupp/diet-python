@@ -60,6 +60,13 @@ fn make_eval_order_explicit_in_core_expr(
     match expr {
         CoreBlockPyExprWithAwaitAndYield::Name(_)
         | CoreBlockPyExprWithAwaitAndYield::Literal(_) => expr,
+        CoreBlockPyExprWithAwaitAndYield::Op(operation) => {
+            CoreBlockPyExprWithAwaitAndYield::Op(Box::new(
+                operation.map_expr(&mut |value| {
+                    hoist_core_expr_if_contains_suspend(value, out, cleanup)
+                }),
+            ))
+        }
         CoreBlockPyExprWithAwaitAndYield::Call(call) => {
             CoreBlockPyExprWithAwaitAndYield::Call(CoreBlockPyCall {
                 node_index: call.node_index,
@@ -292,6 +299,10 @@ fn make_eval_order_explicit_in_core_expr_without_await(
 ) -> CoreBlockPyExprWithYield {
     match expr {
         CoreBlockPyExprWithYield::Name(_) | CoreBlockPyExprWithYield::Literal(_) => expr,
+        CoreBlockPyExprWithYield::Op(operation) => CoreBlockPyExprWithYield::Op(Box::new(
+            operation
+                .map_expr(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup)),
+        )),
         CoreBlockPyExprWithYield::Call(call) => CoreBlockPyExprWithYield::Call(CoreBlockPyCall {
             node_index: call.node_index,
             range: call.range,

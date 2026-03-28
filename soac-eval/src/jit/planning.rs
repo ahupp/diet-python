@@ -492,7 +492,16 @@ fn direct_simple_expr_from(expr: &LocatedCoreBlockPyExpr) -> Option<DirectSimple
                 parts,
             })
         }
-        CoreBlockPyExpr::Op(operation) => match operation.clone() {},
+        CoreBlockPyExpr::Op(operation) => {
+            let args = operation.clone().into_call_args();
+            let mut parts = Vec::with_capacity(args.len());
+            for arg in args {
+                parts.push(DirectSimpleCallPart::Pos(direct_simple_expr_from(&arg)?));
+            }
+            let intrinsic =
+                intrinsics::intrinsic_by_name_and_arity(operation.helper_name(), parts.len())?;
+            Some(DirectSimpleExprPlan::Intrinsic { intrinsic, parts })
+        }
     }
 }
 

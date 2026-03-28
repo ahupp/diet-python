@@ -272,7 +272,7 @@ fn expr_meta(expr: &CoreBlockPyExpr) -> (ast::AtomicNodeIndex, ruff_text_size::T
         }
         CoreBlockPyExpr::Call(call) => (call.node_index.clone(), call.range),
         CoreBlockPyExpr::Intrinsic(call) => (call.node_index.clone(), call.range),
-        CoreBlockPyExpr::Op(operation) => crate::block_py::impossible_operation_ref(operation),
+        CoreBlockPyExpr::Op(operation) => (operation.node_index().clone(), operation.range()),
     }
 }
 
@@ -361,7 +361,16 @@ fn rewrite_deleted_name_loads_in_expr(
                 }
             }
         },
-        CoreBlockPyExpr::Op(operation) => crate::block_py::impossible_operation_mut(operation),
+        CoreBlockPyExpr::Op(operation) => {
+            operation.walk_args_mut(&mut |arg| {
+                rewrite_deleted_name_loads_in_expr(
+                    arg,
+                    semantic,
+                    deleted_names,
+                    always_unbound_names,
+                )
+            });
+        }
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
     }
 }
@@ -936,6 +945,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
             }
             CoreBlockPyExpr::Name(name) => CoreBlockPyExpr::Name(name),
             CoreBlockPyExpr::Literal(literal) => CoreBlockPyExpr::Literal(literal),
+            CoreBlockPyExpr::Op(operation) => self.map_nested_expr(CoreBlockPyExpr::Op(operation)),
             expr if cell_ref_marker_target(&expr).is_some() => {
                 let target_name = cell_ref_marker_target(&expr)
                     .expect("cell-ref marker target should exist after guard");
@@ -1148,7 +1158,9 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
             names.insert(name.id.to_string());
         }
         CoreBlockPyExpr::Literal(_) => {}
-        CoreBlockPyExpr::Op(operation) => crate::block_py::impossible_operation_ref(operation),
+        CoreBlockPyExpr::Op(operation) => {
+            operation.walk_args(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
         CoreBlockPyExpr::Call(CoreBlockPyCall {
             func,
             args,
@@ -1613,6 +1625,30 @@ impl BlockPyModuleMap<CoreBlockPyPass, BbBlockPyPass> for NameLocator<'_> {
         match expr {
             CoreBlockPyExpr::Name(name) => CoreBlockPyExpr::Name(self.locate_name(name)),
             CoreBlockPyExpr::Literal(literal) => CoreBlockPyExpr::Literal(literal),
+            CoreBlockPyExpr::Op(operation) => {
+                let mut expr = self.map_nested_expr(CoreBlockPyExpr::Op(operation));
+                let CoreBlockPyExpr::Op(operation) = &mut expr else {
+                    unreachable!("op expression should remain op after nested mapping")
+                };
+                let marks_first_arg_as_raw_cell = matches!(
+                    operation.helper_name(),
+                    name if name == CELL_REF_INTRINSIC.name()
+                        || name == LOAD_CELL_INTRINSIC.name()
+                        || name == STORE_CELL_INTRINSIC.name()
+                        || name == DEL_DEREF_INTRINSIC.name()
+                        || name == DEL_DEREF_QUIETLY_INTRINSIC.name()
+                );
+                if marks_first_arg_as_raw_cell {
+                    let mut marked = false;
+                    operation.walk_args_mut(&mut |arg| {
+                        if !marked {
+                            *arg = self.mark_raw_cell_expr(arg.clone());
+                            marked = true;
+                        }
+                    });
+                }
+                expr
+            }
             CoreBlockPyExpr::Call(CoreBlockPyCall {
                 node_index,
                 range,

@@ -411,7 +411,7 @@ impl From<CoreBlockPyExprWithAwaitAndYield> for Expr {
     fn from(value: CoreBlockPyExprWithAwaitAndYield) -> Self {
         match value {
             CoreBlockPyExprWithAwaitAndYield::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExprWithAwaitAndYield::Op(operation) => impossible_operation(operation),
+            CoreBlockPyExprWithAwaitAndYield::Op(operation) => operation_to_ast(*operation),
             CoreBlockPyExprWithAwaitAndYield::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -452,7 +452,7 @@ impl From<CoreBlockPyExprWithYield> for Expr {
     fn from(value: CoreBlockPyExprWithYield) -> Self {
         match value {
             CoreBlockPyExprWithYield::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExprWithYield::Op(operation) => impossible_operation(operation),
+            CoreBlockPyExprWithYield::Op(operation) => operation_to_ast(*operation),
             CoreBlockPyExprWithYield::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -486,7 +486,7 @@ impl<N: Into<ast::ExprName>> From<CoreBlockPyExpr<N>> for Expr {
     fn from(value: CoreBlockPyExpr<N>) -> Self {
         match value {
             CoreBlockPyExpr::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExpr::Op(operation) => impossible_operation(operation),
+            CoreBlockPyExpr::Op(operation) => operation_to_ast(*operation),
             CoreBlockPyExpr::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -545,11 +545,25 @@ fn core_literal_to_expr(literal: CoreBlockPyLiteral) -> Expr {
     }
 }
 
-fn intrinsic_name_expr(intrinsic: &'static dyn intrinsics::Intrinsic) -> ast::ExprName {
-    let Expr::Name(name) = py_expr!("{id:id}", id = intrinsic.name()) else {
+fn helper_name_expr(id: &str) -> ast::ExprName {
+    let Expr::Name(name) = py_expr!("{id:id}", id = id) else {
         unreachable!();
     };
     name
+}
+
+fn intrinsic_name_expr(intrinsic: &'static dyn intrinsics::Intrinsic) -> ast::ExprName {
+    helper_name_expr(intrinsic.name())
+}
+
+fn operation_to_ast<E: Into<Expr>>(operation: intrinsics::Operation<E>) -> Expr {
+    call_like_to_ast(
+        Expr::Name(helper_name_expr(operation.helper_name())),
+        operation.node_index().clone(),
+        operation.range(),
+        positional_call_args(operation.into_call_args()),
+        Vec::new(),
+    )
 }
 
 fn call_args_to_ast<E: Into<Expr>>(args: Vec<CoreBlockPyCallArg<E>>) -> Box<[Expr]> {
@@ -705,7 +719,9 @@ impl From<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
         match value {
             CoreBlockPyExprWithYield::Name(node) => Self::Name(node),
             CoreBlockPyExprWithYield::Literal(literal) => Self::Literal(literal),
-            CoreBlockPyExprWithYield::Op(operation) => impossible_operation(operation),
+            CoreBlockPyExprWithYield::Op(operation) => {
+                Self::Op(Box::new(operation.map_expr(&mut Self::from)))
+            }
             CoreBlockPyExprWithYield::Call(call) => Self::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,
@@ -818,7 +834,9 @@ impl From<CoreBlockPyExpr> for CoreBlockPyExprWithYield {
         match value {
             CoreBlockPyExpr::Name(node) => Self::Name(node.into()),
             CoreBlockPyExpr::Literal(literal) => Self::Literal(literal),
-            CoreBlockPyExpr::Op(operation) => impossible_operation(operation),
+            CoreBlockPyExpr::Op(operation) => {
+                Self::Op(Box::new(operation.map_expr(&mut Self::from)))
+            }
             CoreBlockPyExpr::Call(call) => Self::Call(CoreBlockPyCall {
                 node_index: call.node_index,
                 range: call.range,

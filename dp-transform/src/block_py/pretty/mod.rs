@@ -503,7 +503,11 @@ pub(crate) fn bb_expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> Str
                 super::CoreNumberLiteralValue::Float(value) => value.to_string(),
             },
         },
-        CoreBlockPyExpr::Op(operation) => super::impossible_operation_ref(operation),
+        CoreBlockPyExpr::Op(operation) => {
+            let mut parts = Vec::new();
+            operation.walk_args(&mut |arg| parts.push(bb_expr_text(arg)));
+            format!("{}({})", operation.helper_name(), parts.join(", "))
+        }
         CoreBlockPyExpr::Call(call) => {
             let mut parts = Vec::new();
             for arg in &call.args {

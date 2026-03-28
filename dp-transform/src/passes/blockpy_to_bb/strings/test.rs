@@ -40,7 +40,7 @@ fn probe_bb_exprs<N: BlockPyNameLike>(
             _ => {}
         },
         crate::block_py::CoreBlockPyExpr::Op(operation) => {
-            crate::block_py::impossible_operation_ref(operation)
+            operation.walk_args(&mut |arg| probe_bb_exprs(probe, arg));
         }
         crate::block_py::CoreBlockPyExpr::Call(call) => {
             if let crate::block_py::CoreBlockPyExpr::Name(name) = call.func.as_ref() {
