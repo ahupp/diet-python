@@ -4,8 +4,8 @@ mod tests {
     use super::*;
     use dp_transform::block_py::{
         BinOp, BinOpKind, BlockPyRaise, BlockPyTerm, CellRef, DelDeref, DelDerefQuietly, DelItem,
-        DelQuietly, LoadGlobal, LocatedCodegenBlockPyExpr, LocatedName, NameLocation, Operation,
-        StoreGlobal, TernaryOp, TernaryOpKind,
+        DelQuietly, LoadGlobal, LocatedCodegenBlockPyExpr, LocatedName, MakeString, NameLocation,
+        Operation, StoreGlobal, TernaryOp, TernaryOpKind,
     };
     use ruff_python_ast as ast;
 
@@ -211,6 +211,60 @@ mod tests {
         assert!(
             rendered.contains("call PyObject_RichCompare"),
             "comparison lowering should use PyObject_RichCompare in rendered CLIF:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_make_string_uses_decode_helper_directly() {
+        let blocks = [1usize as ObjPtr];
+        let plan = ClifPlan {
+            entry_params: vec![],
+            entry_param_names: vec![],
+            entry_param_default_sources: vec![],
+            ambient_param_names: vec![],
+            owned_cell_slot_names: vec![],
+            slot_names: vec![],
+            blocks: vec![ClifBlockPlan {
+                label: "b0".into(),
+                param_names: vec![],
+                runtime_param_names: vec![],
+                term: test_term(),
+                exc_target: None,
+                exc_dispatch: None,
+                fast_path: BlockFastPath::DirectSimpleRet {
+                    plan: DirectSimpleRetPlan {
+                        params: vec![],
+                        assigns: vec![],
+                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::MakeString(
+                            MakeString {
+                                node_index: Default::default(),
+                                range: Default::default(),
+                                arg0: DirectSimpleExprPlan::Bytes(b"hello".to_vec()),
+                            },
+                        ))),
+                    },
+                },
+            }],
+        };
+        let rendered = unsafe {
+            render_cranelift_run_bb_specialized_with_cfg(
+                &blocks,
+                &plan,
+                11usize as ObjPtr,
+                12usize as ObjPtr,
+                13usize as ObjPtr,
+                14usize as ObjPtr,
+            )
+        }
+        .expect("specialized JIT CLIF render should succeed")
+        .clif;
+        assert!(
+            rendered.contains("call dp_jit_decode_literal_bytes"),
+            "MakeString lowering should use the direct decode helper:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("call dp_jit_py_call_positional_one"),
+            "MakeString lowering should avoid generic Python helper calls:\n{rendered}"
         );
     }
 

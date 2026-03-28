@@ -435,13 +435,22 @@ fn direct_simple_call_positional_args<'a>(
 fn direct_simple_expr_const_string(expr: &DirectSimpleExprPlan) -> Option<String> {
     match expr {
         DirectSimpleExprPlan::Bytes(bytes) => String::from_utf8(bytes.clone()).ok(),
-        DirectSimpleExprPlan::Op(_) | DirectSimpleExprPlan::Call { .. } => {
+        DirectSimpleExprPlan::Op(operation) => match operation.as_ref() {
+            blockpy_intrinsics::Operation::MakeString(op) => {
+                let DirectSimpleExprPlan::Bytes(bytes) = &op.arg0 else {
+                    return None;
+                };
+                String::from_utf8(bytes.clone()).ok()
+            }
+            _ => None,
+        },
+        DirectSimpleExprPlan::Call { .. } => {
             let (callee, args) = direct_simple_call_positional_args(expr)?;
             if args.len() != 1 {
                 return None;
             }
             let func_name = callee.name();
-            if func_name != "__dp_decode_literal_bytes" && func_name != "str" {
+            if func_name != "str" {
                 return None;
             }
             let DirectSimpleExprPlan::Bytes(bytes) = args[0] else {
@@ -1283,35 +1292,6 @@ fn emit_direct_simple_expr(
             if let DirectSimpleExprPlan::Name(func_name) = func.as_ref() {
                 if !has_unpack
                     && simple_keywords.is_empty()
-                    && func_name.id.as_str() == "__dp_decode_literal_bytes"
-                    && simple_args.len() == 1
-                {
-                    if let DirectSimpleExprPlan::Bytes(bytes) = simple_args[0] {
-                        let (data_ptr, data_len) =
-                            intern_bytes_literal(literal_pool, bytes.as_slice());
-                        let data_ptr_val = fb.ins().iconst(ptr_ty, data_ptr as i64);
-                        let data_len_val = fb.ins().iconst(i64_ty, data_len);
-                        let value_inst = fb
-                            .ins()
-                            .call(decode_literal_bytes_ref, &[data_ptr_val, data_len_val]);
-                        let value = fb.inst_results(value_inst)[0];
-                        let value_is_null =
-                            fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
-                        let value_ok_block = fb.create_block();
-                        fb.append_block_param(value_ok_block, ptr_ty);
-                        fb.ins().brif(
-                            value_is_null,
-                            step_null_block,
-                            &step_null_block_args(ctx),
-                            value_ok_block,
-                            &[ir::BlockArg::Value(value)],
-                        );
-                        fb.switch_to_block(value_ok_block);
-                        return fb.block_params(value_ok_block)[0];
-                    }
-                }
-                if !has_unpack
-                    && simple_keywords.is_empty()
                     && func_name.id.as_str() == "str"
                     && simple_args.len() == 1
                 {
@@ -1790,34 +1770,6 @@ fn emit_direct_simple_expr(
                 return fb.block_params(call_ok_block)[0];
             }
             if let DirectSimpleExprPlan::Name(func_name) = func.as_ref() {
-                if keywords.is_empty()
-                    && func_name.id.as_str() == "__dp_decode_literal_bytes"
-                    && args.len() == 1
-                {
-                    if let DirectSimpleExprPlan::Bytes(bytes) = &args[0] {
-                        let (data_ptr, data_len) =
-                            intern_bytes_literal(literal_pool, bytes.as_slice());
-                        let data_ptr_val = fb.ins().iconst(ptr_ty, data_ptr as i64);
-                        let data_len_val = fb.ins().iconst(i64_ty, data_len);
-                        let value_inst = fb
-                            .ins()
-                            .call(decode_literal_bytes_ref, &[data_ptr_val, data_len_val]);
-                        let value = fb.inst_results(value_inst)[0];
-                        let value_is_null =
-                            fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
-                        let value_ok_block = fb.create_block();
-                        fb.append_block_param(value_ok_block, ptr_ty);
-                        fb.ins().brif(
-                            value_is_null,
-                            step_null_block,
-                            &step_null_block_args(ctx),
-                            value_ok_block,
-                            &[ir::BlockArg::Value(value)],
-                        );
-                        fb.switch_to_block(value_ok_block);
-                        return fb.block_params(value_ok_block)[0];
-                    }
-                }
                 if keywords.is_empty() && func_name.id.as_str() == "str" && args.len() == 1 {
                     if let DirectSimpleExprPlan::Bytes(bytes) = &args[0] {
                         let (data_ptr, data_len) =
