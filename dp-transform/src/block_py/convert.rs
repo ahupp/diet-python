@@ -45,20 +45,6 @@ pub(crate) fn try_map_keyword_args_with<EIn, EOut, Error>(
         .collect()
 }
 
-pub(crate) fn map_intrinsic_args_with<EIn, EOut>(
-    args: Vec<EIn>,
-    map_expr: impl FnMut(EIn) -> EOut,
-) -> Vec<EOut> {
-    args.into_iter().map(map_expr).collect()
-}
-
-pub(crate) fn try_map_intrinsic_args_with<EIn, EOut, Error>(
-    args: Vec<EIn>,
-    map_expr: impl FnMut(EIn) -> Result<EOut, Error>,
-) -> Result<Vec<EOut>, Error> {
-    args.into_iter().map(map_expr).collect()
-}
-
 pub trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
@@ -424,12 +410,6 @@ impl From<CoreBlockPyExprWithAwaitAndYield> for Expr {
                 node.args,
                 node.keywords,
             ),
-            CoreBlockPyExprWithAwaitAndYield::Intrinsic(node) => helper_call_to_ast(
-                node.intrinsic.name(),
-                node.node_index,
-                node.range,
-                node.args,
-            ),
             CoreBlockPyExprWithAwaitAndYield::Await(node) => Expr::Await(ast::ExprAwait {
                 node_index: node.node_index,
                 range: node.range,
@@ -469,12 +449,6 @@ impl From<CoreBlockPyExprWithYield> for Expr {
                 node.args,
                 node.keywords,
             ),
-            CoreBlockPyExprWithYield::Intrinsic(node) => helper_call_to_ast(
-                node.intrinsic.name(),
-                node.node_index,
-                node.range,
-                node.args,
-            ),
             CoreBlockPyExprWithYield::Yield(node) => Expr::Yield(ast::ExprYield {
                 node_index: node.node_index,
                 range: node.range,
@@ -506,12 +480,6 @@ impl<N: Into<ast::ExprName>> From<CoreBlockPyExpr<N>> for Expr {
                 node.range,
                 node.args,
                 node.keywords,
-            ),
-            CoreBlockPyExpr::Intrinsic(node) => helper_call_to_ast(
-                node.intrinsic.name(),
-                node.node_index,
-                node.range,
-                node.args,
             ),
             CoreBlockPyExpr::Name(node) => Expr::Name(node.into()),
         }
@@ -742,7 +710,6 @@ impl From<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
                 args: map_call_args_with(call.args, Self::from),
                 keywords: map_keyword_args_with(call.keywords, Self::from),
             }),
-            CoreBlockPyExprWithYield::Intrinsic(call) => map_intrinsic_expr_with(call, Self::from),
             CoreBlockPyExprWithYield::Yield(yield_expr) => Self::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,
                 range: yield_expr.range,
@@ -852,7 +819,6 @@ impl From<CoreBlockPyExpr> for CoreBlockPyExprWithYield {
                 args: map_call_args_with(call.args, Self::from),
                 keywords: map_keyword_args_with(call.keywords, Self::from),
             }),
-            CoreBlockPyExpr::Intrinsic(call) => map_intrinsic_expr_with(call, Self::from),
         }
     }
 }

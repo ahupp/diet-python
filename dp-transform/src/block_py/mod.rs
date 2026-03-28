@@ -19,8 +19,7 @@ pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod state;
 pub(crate) use convert::{
-    map_call_args_with, map_intrinsic_args_with, map_keyword_args_with, try_map_call_args_with,
-    try_map_intrinsic_args_with, try_map_keyword_args_with,
+    map_call_args_with, map_keyword_args_with, try_map_call_args_with, try_map_keyword_args_with,
 };
 pub use convert::{BlockPyModuleMap, BlockPyModuleTryMap};
 pub use name_gen::{FunctionNameGen, ModuleNameGen};
@@ -418,7 +417,6 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
     Literal(CoreBlockPyLiteral),
     Op(Box<Operation<CoreBlockPyExprWithAwaitAndYield>>),
     Call(CoreBlockPyCall<CoreBlockPyExprWithAwaitAndYield>),
-    Intrinsic(IntrinsicCall<CoreBlockPyExprWithAwaitAndYield>),
     Await(CoreBlockPyAwait<CoreBlockPyExprWithAwaitAndYield>),
     Yield(CoreBlockPyYield<CoreBlockPyExprWithAwaitAndYield>),
     YieldFrom(CoreBlockPyYieldFrom<CoreBlockPyExprWithAwaitAndYield>),
@@ -430,7 +428,6 @@ pub enum CoreBlockPyExprWithYield {
     Literal(CoreBlockPyLiteral),
     Op(Box<Operation<CoreBlockPyExprWithYield>>),
     Call(CoreBlockPyCall<CoreBlockPyExprWithYield>),
-    Intrinsic(IntrinsicCall<CoreBlockPyExprWithYield>),
     Yield(CoreBlockPyYield<CoreBlockPyExprWithYield>),
     YieldFrom(CoreBlockPyYieldFrom<CoreBlockPyExprWithYield>),
 }
@@ -441,7 +438,6 @@ pub enum CoreBlockPyExpr<N = ast::ExprName> {
     Literal(CoreBlockPyLiteral),
     Op(Box<Operation<CoreBlockPyExpr<N>>>),
     Call(CoreBlockPyCall<CoreBlockPyExpr<N>>),
-    Intrinsic(IntrinsicCall<CoreBlockPyExpr<N>>),
 }
 
 pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
@@ -489,22 +485,12 @@ pub struct CoreBlockPyCall<E> {
     pub keywords: Vec<CoreBlockPyKeywordArg<E>>,
 }
 
-#[derive(Debug, Clone)]
-pub struct IntrinsicCall<E> {
-    pub intrinsic: &'static dyn intrinsics::Intrinsic,
-    pub node_index: ast::AtomicNodeIndex,
-    pub range: ruff_text_size::TextRange,
-    pub args: Vec<E>,
-}
-
 pub(crate) trait CoreCallLikeExpr: Sized {
     fn from_name(name: ast::ExprName) -> Self;
 
     fn from_call(call: CoreBlockPyCall<Self>) -> Self;
 
     fn from_operation(operation: intrinsics::Operation<Self>) -> Self;
-
-    fn from_intrinsic(call: IntrinsicCall<Self>) -> Self;
 }
 
 impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
@@ -518,10 +504,6 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
 
     fn from_operation(operation: intrinsics::Operation<Self>) -> Self {
         Self::Op(Box::new(operation))
-    }
-
-    fn from_intrinsic(call: IntrinsicCall<Self>) -> Self {
-        Self::Intrinsic(call)
     }
 }
 
@@ -540,7 +522,6 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYi
                 args: map_call_args_with(call.args, &mut *f),
                 keywords: map_keyword_args_with(call.keywords, &mut *f),
             }),
-            Self::Intrinsic(call) => map_intrinsic_expr_with(call, &mut *f),
             Self::Await(await_expr) => Self::Await(CoreBlockPyAwait {
                 node_index: await_expr.node_index,
                 range: await_expr.range,
@@ -578,7 +559,6 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
                 args: map_call_args_with(call.args, &mut *f),
                 keywords: map_keyword_args_with(call.keywords, &mut *f),
             }),
-            Self::Intrinsic(call) => map_intrinsic_expr_with(call, &mut *f),
             Self::Await(await_expr) => CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
                 node_index: await_expr.node_index.clone(),
                 range: await_expr.range,
@@ -625,7 +605,6 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
                 args: try_map_call_args_with(call.args, &mut *f)?,
                 keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
             })),
-            Self::Intrinsic(call) => try_map_intrinsic_expr_with(call, &mut *f),
             Self::Await(_) => Err(self),
             Self::Yield(yield_expr) => Ok(CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,
@@ -658,10 +637,6 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
     fn from_operation(operation: intrinsics::Operation<Self>) -> Self {
         Self::Op(Box::new(operation))
     }
-
-    fn from_intrinsic(call: IntrinsicCall<Self>) -> Self {
-        Self::Intrinsic(call)
-    }
 }
 
 impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
@@ -679,7 +654,6 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
                 args: map_call_args_with(call.args, &mut *f),
                 keywords: map_keyword_args_with(call.keywords, &mut *f),
             }),
-            Self::Intrinsic(call) => map_intrinsic_expr_with(call, &mut *f),
             Self::Yield(yield_expr) => Self::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,
                 range: yield_expr.range,
@@ -712,7 +686,6 @@ impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWi
                 args: try_map_call_args_with(call.args, &mut *f)?,
                 keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
             })),
-            Self::Intrinsic(call) => try_map_intrinsic_expr_with(call, &mut *f),
             Self::Yield(_) | Self::YieldFrom(_) => Err(self),
         }
     }
@@ -729,10 +702,6 @@ impl<N: From<ast::ExprName>> CoreCallLikeExpr for CoreBlockPyExpr<N> {
 
     fn from_operation(operation: intrinsics::Operation<Self>) -> Self {
         Self::Op(Box::new(operation))
-    }
-
-    fn from_intrinsic(call: IntrinsicCall<Self>) -> Self {
-        Self::Intrinsic(call)
     }
 }
 
@@ -753,7 +722,6 @@ where
                 args: map_call_args_with(call.args, &mut *f),
                 keywords: map_keyword_args_with(call.keywords, &mut *f),
             }),
-            Self::Intrinsic(call) => map_intrinsic_expr_with(call, &mut *f),
         }
     }
 }
@@ -780,7 +748,6 @@ where
                 args: try_map_call_args_with(call.args, &mut *f)?,
                 keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
             })),
-            Self::Intrinsic(call) => try_map_intrinsic_expr_with(call, &mut *f),
         }
     }
 }
@@ -822,59 +789,8 @@ pub(crate) fn core_named_call_expr_with_meta<E: CoreCallLikeExpr>(
     )
 }
 
-pub(crate) fn core_intrinsic_expr_with_meta<E: CoreCallLikeExpr + Clone>(
-    intrinsic: &'static dyn intrinsics::Intrinsic,
-    node_index: ast::AtomicNodeIndex,
-    range: ruff_text_size::TextRange,
-    args: Vec<E>,
-) -> E {
-    if let Some(operation) = intrinsics::operation_by_name_and_args(
-        intrinsic.name(),
-        node_index.clone(),
-        range,
-        args.clone(),
-    ) {
-        return E::from_operation(operation);
-    }
-    E::from_intrinsic(IntrinsicCall {
-        intrinsic,
-        node_index,
-        range,
-        args,
-    })
-}
-
-pub(crate) fn map_intrinsic_expr_with<EIn, EOut: CoreCallLikeExpr + Clone>(
-    call: IntrinsicCall<EIn>,
-    map_expr: impl FnMut(EIn) -> EOut,
-) -> EOut {
-    core_intrinsic_expr_with_meta(
-        call.intrinsic,
-        call.node_index,
-        call.range,
-        map_intrinsic_args_with(call.args, map_expr),
-    )
-}
-
-pub(crate) fn try_map_intrinsic_expr_with<EIn, EOut: CoreCallLikeExpr + Clone, Error>(
-    call: IntrinsicCall<EIn>,
-    map_expr: impl FnMut(EIn) -> Result<EOut, Error>,
-) -> Result<EOut, Error> {
-    Ok(core_intrinsic_expr_with_meta(
-        call.intrinsic,
-        call.node_index,
-        call.range,
-        try_map_intrinsic_args_with(call.args, map_expr)?,
-    ))
-}
-
-pub(crate) fn core_positional_intrinsic_expr_with_meta<E: CoreCallLikeExpr + Clone>(
-    intrinsic: &'static dyn intrinsics::Intrinsic,
-    node_index: ast::AtomicNodeIndex,
-    range: ruff_text_size::TextRange,
-    args: Vec<E>,
-) -> E {
-    core_intrinsic_expr_with_meta(intrinsic, node_index, range, args)
+pub(crate) fn core_operation_expr<E: CoreCallLikeExpr>(operation: intrinsics::Operation<E>) -> E {
+    E::from_operation(operation)
 }
 
 pub(crate) fn core_positional_call_expr_with_meta<E: CoreCallLikeExpr>(

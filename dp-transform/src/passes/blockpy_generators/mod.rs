@@ -1,14 +1,13 @@
-use crate::block_py::intrinsics::CELL_REF_INTRINSIC;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
-    core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta,
-    resume_abi_params, BbStmt, BlockParam, BlockParamRole, BlockPyAssign, BlockPyBindingKind,
-    BlockPyBlock, BlockPyBranchTable, BlockPyCallableSemanticInfo, BlockPyCellBindingKind,
+    core_operation_expr, core_positional_call_expr_with_meta, resume_abi_params, BbStmt,
+    BlockParam, BlockParamRole, BlockPyAssign, BlockPyBindingKind, BlockPyBlock,
+    BlockPyBranchTable, BlockPyCallableSemanticInfo, BlockPyCellBindingKind,
     BlockPyCfgBlockBuilder, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel,
     BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot,
     CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId,
-    FunctionName, IntoBlockPyStmt, ModuleNameGen,
+    FunctionName, IntoBlockPyStmt, ModuleNameGen, Operation,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
@@ -153,12 +152,11 @@ fn core_call(func_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
 }
 
 fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
-    core_positional_intrinsic_expr_with_meta(
-        &CELL_REF_INTRINSIC,
-        ast::AtomicNodeIndex::default(),
-        Default::default(),
-        vec![core_string(logical_name)],
-    )
+    core_operation_expr(Operation::CellRef {
+        node_index: ast::AtomicNodeIndex::default(),
+        range: Default::default(),
+        arg0: core_string(logical_name),
+    })
 }
 
 fn is_generator_like(kind: BlockPyFunctionKind) -> bool {
@@ -168,10 +166,6 @@ fn is_generator_like(kind: BlockPyFunctionKind) -> bool {
             | BlockPyFunctionKind::Coroutine
             | BlockPyFunctionKind::AsyncGenerator
     )
-}
-
-fn is_async_generator(kind: BlockPyFunctionKind) -> bool {
-    matches!(kind, BlockPyFunctionKind::AsyncGenerator)
 }
 
 fn injected_exception_names<S>(

@@ -647,27 +647,21 @@ fn delete_local_value(
 }
 
 impl DirectSimpleIntrinsicEmitState<'_, '_, '_, '_> {
-    fn positional_args_for_intrinsic<'a>(
+    fn positional_args_for_operation<'a>(
         &self,
-        intrinsic: &dyn blockpy_intrinsics::Intrinsic,
+        helper_name: &str,
         parts: &'a [DirectSimpleCallPart],
     ) -> Vec<&'a DirectSimpleExprPlan> {
         let mut args = Vec::with_capacity(parts.len());
         for part in parts {
             let DirectSimpleCallPart::Pos(value) = part else {
                 panic!(
-                    "intrinsic {} received non-positional args in JIT plan",
-                    intrinsic.name()
+                    "operation {} received non-positional args in JIT plan",
+                    helper_name
                 );
             };
             args.push(value);
         }
-        assert!(
-            intrinsic.accepts_arity(args.len()),
-            "intrinsic {} received unsupported arity {} in JIT plan",
-            intrinsic.name(),
-            args.len(),
-        );
         args
     }
 
@@ -1239,9 +1233,12 @@ fn emit_direct_simple_expr(
                 jit_module,
                 func_imports,
             };
-            if let Some(jit_intrinsic) = intrinsics::jit_intrinsic_by_operation(operation.as_ref())
-            {
-                return jit_intrinsic.emit_direct_simple(&mut intrinsic_state, &parts);
+            if let Some(value) = intrinsics::emit_operation_direct_simple(
+                operation.as_ref(),
+                &mut intrinsic_state,
+                &parts,
+            ) {
+                return value;
             }
             let fallback = DirectSimpleExprPlan::Call {
                 func: Box::new(DirectSimpleExprPlan::Name(compat_global_name(

@@ -6,7 +6,6 @@ use crate::block_py::{
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
-use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn lower_structured_blocks_to_bb_blocks<E, N>(
@@ -213,11 +212,6 @@ where
             operation
                 .walk_args_mut(&mut |arg| rewrite_current_exception_in_blockpy_expr(arg, exc_name));
         }
-        CoreBlockPyExpr::Intrinsic(call) => {
-            for arg in &mut call.args {
-                rewrite_current_exception_in_blockpy_expr(arg, exc_name);
-            }
-        }
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
     }
 
@@ -230,16 +224,9 @@ where
 
 fn operation_expr<N: BlockPyNameLike + Clone>(
     expr: &CoreBlockPyExpr<N>,
-) -> Option<Cow<'_, intrinsics::Operation<CoreBlockPyExpr<N>>>> {
+) -> Option<&intrinsics::Operation<CoreBlockPyExpr<N>>> {
     match expr {
-        CoreBlockPyExpr::Op(operation) => Some(Cow::Borrowed(operation.as_ref())),
-        CoreBlockPyExpr::Intrinsic(call) => intrinsics::operation_by_name_and_args(
-            call.intrinsic.name(),
-            call.node_index.clone(),
-            call.range,
-            call.args.clone(),
-        )
-        .map(Cow::Owned),
+        CoreBlockPyExpr::Op(operation) => Some(operation.as_ref()),
         _ => None,
     }
 }
@@ -281,7 +268,7 @@ where
             ) && is_dp_getattr_lookup_args(&call.args, attr_name)
         }
         _ => operation_expr(func)
-            .is_some_and(|operation| is_dp_getattr_operation(operation.as_ref(), attr_name)),
+            .is_some_and(|operation| is_dp_getattr_operation(operation, attr_name)),
     }
 }
 

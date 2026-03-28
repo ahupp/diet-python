@@ -1,7 +1,7 @@
 use crate::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmt, BlockPyStmtFragment,
     BlockPyTerm, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
-    CoreStringLiteral, IntrinsicCall, LocatedCoreBlockPyExpr, LocatedName,
+    CoreStringLiteral, LocatedCoreBlockPyExpr, LocatedName, Operation,
 };
 use crate::passes::ruff_to_blockpy::{
     lower_structured_located_blocks_to_bb_blocks, populate_exception_edge_args,
@@ -153,15 +153,12 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
         label: BlockPyLabel::from("start"),
         body: Vec::new(),
-        term: BlockPyTerm::Return(CoreBlockPyExpr::Intrinsic(IntrinsicCall {
-            intrinsic: &crate::block_py::intrinsics::GETATTR_INTRINSIC,
+        term: BlockPyTerm::Return(CoreBlockPyExpr::Op(Box::new(Operation::GetAttr {
             node_index: ast::AtomicNodeIndex::default(),
             range: TextRange::default(),
-            args: vec![
-                core_call_expr("__dp_current_exception", Vec::new()),
-                core_string_expr("value"),
-            ],
-        })),
+            arg0: core_call_expr("__dp_current_exception", Vec::new()),
+            arg1: core_string_expr("value"),
+        }))),
         params: vec![crate::block_py::BlockParam {
             name: "_dp_try_exc_0".to_string(),
             role: crate::block_py::BlockParamRole::Exception,
@@ -181,16 +178,18 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     );
     let block = &lowered[0];
 
-    let BlockPyTerm::Return(CoreBlockPyExpr::Intrinsic(call)) = &block.term else {
-        panic!("expected intrinsic return expr");
+    let BlockPyTerm::Return(CoreBlockPyExpr::Op(operation)) = &block.term else {
+        panic!("expected operation return expr");
     };
-    assert_eq!(call.intrinsic.name(), "__dp_getattr");
+    let Operation::GetAttr { arg0, arg1, .. } = operation.as_ref() else {
+        panic!("expected getattr operation");
+    };
     assert!(matches!(
-        call.args.as_slice(),
-        [
+        (arg0, arg1),
+        (
             CoreBlockPyExpr::Name(name),
             CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(value))
-        ] if name.id.as_str() == "_dp_try_exc_0" && value.value == "value"
+        ) if name.id.as_str() == "_dp_try_exc_0" && value.value == "value"
     ));
 }
 

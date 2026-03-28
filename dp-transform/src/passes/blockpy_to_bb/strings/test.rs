@@ -82,11 +82,6 @@ fn probe_bb_exprs<N: BlockPyNameLike>(
                 }
             }
         }
-        crate::block_py::CoreBlockPyExpr::Intrinsic(call) => {
-            for arg in &call.args {
-                probe_bb_exprs(probe, arg);
-            }
-        }
     }
 }
 

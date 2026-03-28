@@ -1,10 +1,9 @@
 use crate::block_py::BlockPyAssign;
 use crate::block_py::{
-    core_intrinsic_expr_with_meta, expr_any, map_call_args_with, map_intrinsic_args_with,
-    map_keyword_args_with, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyFunction,
-    BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
-    CoreBlockPyCall, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
-    CoreBlockPyYieldFrom, IntoBlockPyStmt,
+    expr_any, map_call_args_with, map_keyword_args_with, BlockPyBranchTable, BlockPyCfgFragment,
+    BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmt,
+    BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyCall, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, CoreBlockPyYield, CoreBlockPyYieldFrom, IntoBlockPyStmt,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::{
@@ -82,14 +81,6 @@ fn make_eval_order_explicit_in_core_expr(
                 }),
             })
         }
-        CoreBlockPyExprWithAwaitAndYield::Intrinsic(call) => core_intrinsic_expr_with_meta(
-            call.intrinsic,
-            call.node_index,
-            call.range,
-            map_intrinsic_args_with(call.args, |value| {
-                hoist_core_expr_if_contains_suspend(value, out, cleanup)
-            }),
-        ),
         CoreBlockPyExprWithAwaitAndYield::Await(await_expr) => {
             CoreBlockPyExprWithAwaitAndYield::Await(CoreBlockPyAwait {
                 node_index: await_expr.node_index,
@@ -314,14 +305,6 @@ fn make_eval_order_explicit_in_core_expr_without_await(
                 hoist_core_expr_without_await_to_atom(value, out, cleanup)
             }),
         }),
-        CoreBlockPyExprWithYield::Intrinsic(call) => core_intrinsic_expr_with_meta(
-            call.intrinsic,
-            call.node_index,
-            call.range,
-            map_intrinsic_args_with(call.args, |value| {
-                hoist_core_expr_without_await_to_atom(value, out, cleanup)
-            }),
-        ),
         CoreBlockPyExprWithYield::Yield(yield_expr) => {
             CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,

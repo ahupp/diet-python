@@ -529,9 +529,6 @@ pub(crate) fn bb_expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> Str
             }
             format!("{}({})", bb_expr_text(&call.func), parts.join(", "))
         }
-        CoreBlockPyExpr::Intrinsic(call) => {
-            helper_call_text(call.intrinsic.name(), call.args.iter().map(bb_expr_text))
-        }
     }
 }
 
