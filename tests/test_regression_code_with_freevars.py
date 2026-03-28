@@ -5,9 +5,15 @@ import types
 import __dp__
 
 
+def _make_cell(value):
+    cell = types.CellType()
+    cell.cell_contents = value
+    return cell
+
+
 def _build_wrapped(names, is_async, is_generator, entry):
     code = __dp__.code_with_freevars(names, is_async, is_generator)
-    closure = tuple(__dp__.make_cell(f"cell-{name}") for name in names)
+    closure = tuple(_make_cell(f"cell-{name}") for name in names)
     wrapped = types.FunctionType(code, globals(), name="wrapped", closure=closure)
     wrapped.__kwdefaults__ = {"__dp_entry": entry}
     return wrapped
@@ -28,7 +34,7 @@ def test_code_with_freevars_uses_canonical_freevar_order():
         "_dp_pc": "captured-pc",
         "a": "captured-a",
     }
-    closure = tuple(__dp__.make_cell(captured_by_name[name]) for name in code.co_freevars)
+    closure = tuple(_make_cell(captured_by_name[name]) for name in code.co_freevars)
     wrapped = types.FunctionType(code, globals(), name="wrapped", closure=closure)
     wrapped.__kwdefaults__ = {"__dp_entry": lambda: None}
 

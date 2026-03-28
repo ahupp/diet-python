@@ -1,7 +1,7 @@
 use crate::block_py::intrinsics::{
-    Intrinsic, CELL_REF_INTRINSIC, DEL_DEREF_INTRINSIC, DEL_DEREF_QUIETLY_INTRINSIC,
-    DEL_QUIETLY_INTRINSIC, LOAD_CELL_INTRINSIC, LOAD_GLOBAL_INTRINSIC, MAKE_CELL_INTRINSIC,
-    STORE_CELL_INTRINSIC, STORE_GLOBAL_INTRINSIC,
+    Intrinsic, CELL_REF_INTRINSIC, DELITEM_INTRINSIC, DEL_DEREF_INTRINSIC,
+    DEL_DEREF_QUIETLY_INTRINSIC, DEL_QUIETLY_INTRINSIC, LOAD_CELL_INTRINSIC, LOAD_GLOBAL_INTRINSIC,
+    MAKE_CELL_INTRINSIC, SETITEM_INTRINSIC, STORE_CELL_INTRINSIC, STORE_GLOBAL_INTRINSIC,
 };
 use crate::block_py::{
     core_positional_call_expr_with_meta, core_positional_intrinsic_expr_with_meta,
@@ -139,8 +139,8 @@ fn rewrite_class_namespace_binding_assign(
     let node_index = assign.target.node_index.clone();
     let range = assign.target.range;
     let bind_name = assign.target.id.to_string();
-    BlockPyStmt::Expr(core_positional_call_expr_with_meta(
-        "__dp_setitem",
+    BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
+        &SETITEM_INTRINSIC,
         node_index.clone(),
         range,
         vec![
@@ -173,8 +173,8 @@ fn rewrite_global_binding_delete_by_name(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> BlockPyStmt<CoreBlockPyExpr> {
-    BlockPyStmt::Expr(core_positional_call_expr_with_meta(
-        "__dp_delitem",
+    BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
+        &DELITEM_INTRINSIC,
         node_index.clone(),
         range,
         vec![
@@ -217,15 +217,17 @@ fn rewrite_binding_delete(
         BindingTarget::ModuleGlobal => {
             rewrite_global_binding_delete_by_name(bind_name.as_str(), node_index, range)
         }
-        BindingTarget::ClassNamespace => BlockPyStmt::Expr(core_positional_call_expr_with_meta(
-            "__dp_delitem",
-            node_index.clone(),
-            range,
-            vec![
-                class_namespace_expr(node_index.clone(), range),
-                core_string_expr(bind_name, node_index, range),
-            ],
-        )),
+        BindingTarget::ClassNamespace => {
+            BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
+                &DELITEM_INTRINSIC,
+                node_index.clone(),
+                range,
+                vec![
+                    class_namespace_expr(node_index.clone(), range),
+                    core_string_expr(bind_name, node_index, range),
+                ],
+            ))
+        }
     }
 }
 
@@ -848,8 +850,8 @@ fn rewrite_binding_assign_by_name(
         }
         BindingTarget::ClassNamespace => {
             if is_deleted_sentinel_expr(&assign.value) {
-                return BlockPyStmt::Expr(core_positional_call_expr_with_meta(
-                    "__dp_delitem",
+                return BlockPyStmt::Expr(core_positional_intrinsic_expr_with_meta(
+                    &DELITEM_INTRINSIC,
                     node_index.clone(),
                     range,
                     vec![

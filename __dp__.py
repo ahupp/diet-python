@@ -1,7 +1,7 @@
 # diet-python: disabled
+from asyncio import coroutines
 import collections.abc as _abc
 import keyword as _keyword
-import operator as _operator
 import os
 import reprlib
 import sys
@@ -63,10 +63,9 @@ builtins.__dp_templatelib_Interpolation = _dp_templatelib.Interpolation
 _MISSING = object()
 DELETED = object()
 NO_DEFAULT = object()
-_GEN_PC_DONE = 0
+
 builtins.__dp_DELETED = DELETED
 builtins.__dp_NO_DEFAULT = NO_DEFAULT
-builtins.__dp_GEN_PC_DONE = _GEN_PC_DONE
 builtins.__dp_Ellipsis = Ellipsis
 builtins.__dp_TRUE = True
 builtins.__dp_FALSE = False
@@ -936,55 +935,10 @@ def ge(lhs, rhs):
     return _rich_compare_error("__ge__", "__le__", lhs, rhs)
 
 
-is_ = _operator.is_
-
-
-is_not = _operator.is_not
-
-
-def contains(container, item):
-    return item in container
-
-
-def getitem(obj, key):
-    return obj[key]
-
-
-def setitem(obj, key, value):
-    if obj is DELETED:
-        raise builtins.UnboundLocalError(
-            "cannot access local variable before assignment"
-        )
-    obj[key] = value
-
-
-def delitem(obj, key):
-    del obj[key]
-
-
-def del_quietly(obj, key):
-    # Used for `except ... as name` cleanup where CPython `del name` must be
-    # silent if the binding was already removed in handler code.
-    try:
-        del obj[key]
-    except (NameError, KeyError):
-        pass
-
-
-def del_deref_quietly(cell):
-    try:
-        del cell.cell_contents
-    except ValueError:
-        pass
-
-
 # TODO: very questionable
 def float_from_literal(literal):
     # Preserve CPython's literal parsing for values that Rust rounds differently.
     return float(literal.replace("_", ""))
-
-
-_DP_CELL_PREFIX = "_dp_cell_"
 
 
 def class_lookup_cell(class_ns, name, cell):
@@ -993,8 +947,8 @@ def class_lookup_cell(class_ns, name, cell):
     except KeyError:
         pass
     try:
-        value = load_cell(cell)
-    except UnboundLocalError as exc:
+        value = cell.cell_contents
+    except ValueError as exc:
         raise NameError(
             f"cannot access free variable {name!r} where it is not associated with a value in enclosing scope"
         ) from exc
@@ -1098,55 +1052,12 @@ def unpack(iterable, spec):
     return tuple(result)
 
 
-def make_cell(value):
-    cell = _types.CellType()
-    if value is not _MISSING:
-        cell.cell_contents = value
-    return cell
-
-
-def load_cell(cell):
-    if not isinstance(cell, _types.CellType):
-        raise TypeError("expected cell")
-    try:
-        return cell.cell_contents
-    except ValueError as exc:
-        raise UnboundLocalError("local variable referenced before assignment") from exc
-
-
 def globals():
     frame = sys._getframe(1)
     return frame.f_globals
 
 
 builtins.__dp_globals = globals
-
-
-def store_cell(cell, value):
-    cell.cell_contents = value
-    return value
-
-
-def load_global(globals_dict, name):
-    try:
-        return globals_dict[name]
-    except KeyError:
-        try:
-            return builtins.__dict__[name]
-        except KeyError as exc:
-            raise NameError(f"name {name!r} is not defined") from exc
-
-
-def store_global(globals_dict, name, value):
-    globals_dict[name] = value
-    return value
-
-
-def del_deref(cell):
-    try:
-        del cell.cell_contents
-    except ValueError as exc:
-        raise UnboundLocalError("local variable referenced before assignment") from exc
 
 
 def call_super(super_fn, cls, instance_or_cls):
@@ -1198,6 +1109,8 @@ def match_class_attr_value(cls, subject, idx, total):
 
     name = match_args[idx]
     return getattr(subject, name)
+
+
 _DP_CODE_WITH_FREEVARS_CACHE = {}
 
 
@@ -1221,9 +1134,7 @@ def code_with_freevars(names, is_async, is_generator):
     for name in names:
         outer_lines.append(f"    {name} = None")
     if is_async:
-        outer_lines.append(
-            "    async def wrapped(*args, __dp_entry=None, **kwargs):"
-        )
+        outer_lines.append("    async def wrapped(*args, __dp_entry=None, **kwargs):")
     else:
         outer_lines.append("    def wrapped(*args, __dp_entry=None, **kwargs):")
     if names:
@@ -1263,6 +1174,7 @@ async def _dp_async_gen_code_template():
     if False:
         yield None
 
+
 def make_function(
     function_id,
     kind,
@@ -1283,23 +1195,8 @@ def make_function(
         annotate_fn,
     )
     if kind == "coroutine":
-        return mark_coroutine_function(func)
-    return func
+        func._is_coroutine = coroutines._is_coroutine
 
-
-def mark_coroutine_function(func):
-    module = sys.modules.get("asyncio.coroutines")
-    if module is None:
-        try:
-            import asyncio.coroutines as module
-        except Exception:
-            module = None
-    marker = getattr(module, "_is_coroutine", None) if module is not None else None
-    if marker is not None:
-        try:
-            func._is_coroutine = marker
-        except Exception:
-            pass
     return func
 
 
@@ -1359,7 +1256,7 @@ def create_class(
 
     class_cell = ns.get("__classcell__", None)
     if requires_class_cell and class_cell is None:
-        class_cell = make_cell(_MISSING)
+        class_cell = _types.CellType()
         ns["__classcell__"] = class_cell
 
     namespace_fn(ns, class_cell)
