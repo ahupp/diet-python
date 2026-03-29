@@ -14,30 +14,6 @@ def _integration_only_enabled() -> bool:
     # Read dynamically so tests can toggle this per import context.
     return os.environ.get("DIET_PYTHON_INTEGRATION_ONLY") == "1"
 
-
-def _transform_source(path: str, module_name: str | None = None) -> str:
-    try:
-        with open(path, "r", encoding="utf-8") as file:
-            original_source = file.read()
-    except OSError as err:
-        raise ImportError(f"diet-python could not read source for {path}: {err}") from err
-    transformer = _get_pyo3_transform()
-    try:
-        if module_name and hasattr(transformer, "transform_source_with_name"):
-            compiled_source = transformer.transform_source_with_name(
-                original_source, module_name, True
-            )
-        else:
-            compiled_source = transformer.transform_source(original_source, True)
-    except SyntaxError as err:
-        if err.filename is None:
-            err.filename = path
-        raise
-    except Exception as err:
-        raise ImportError(f"diet-python failed for {path}: {err}") from err
-    return compiled_source
-
-
 def _run_module_init(module) -> None:
     init = getattr(module, "_dp_module_init", None)
     if init is None:

@@ -30,13 +30,8 @@ fn parse_and_lower_runtime_style(source: &str) -> Result<dp_transform::LoweringR
 }
 
 fn validate_bb_module_for_jit(
-    bb_module: Option<
-        &dp_transform::block_py::BlockPyModule<dp_transform::passes::CodegenBlockPyPass>,
-    >,
+    bb_module: &dp_transform::block_py::BlockPyModule<dp_transform::passes::CodegenBlockPyPass>,
 ) -> Result<(), String> {
-    let bb_module = bb_module.ok_or_else(|| {
-        "JIT mode requires emitted basic-block IR, but none was produced".to_string()
-    })?;
     for function in &bb_module.callable_defs {
         match function.lowered_kind() {
             BlockPyFunctionKind::Function
@@ -49,11 +44,7 @@ fn validate_bb_module_for_jit(
 }
 
 fn run_cranelift_jit_preflight(result: &dp_transform::LoweringResult) -> Result<(), String> {
-    let normalized = result
-        .codegen_module
-        .as_ref()
-        .ok_or_else(|| "JIT mode requires tracked bb_codegen output".to_string())?;
-    soac_eval::jit::run_cranelift_smoke(normalized)
+    soac_eval::jit::run_cranelift_smoke(&result.codegen_module)
 }
 
 #[test]
@@ -69,13 +60,9 @@ def outer(scale):
             return total + len(str(exc))
         return total
     return inner
-"#;
+    "#;
     let result = parse_and_lower(source).expect("lowering should succeed");
-    let normalized = result
-        .codegen_module
-        .as_ref()
-        .expect("bb_codegen pass should be tracked")
-        .clone();
+    let normalized = result.codegen_module.clone();
     let module_name = "jit_plan_slot_inventory_test";
     jit::register_clif_module_plans(module_name, &normalized)
         .expect("plan registration should succeed");
@@ -166,9 +153,9 @@ class C:
     x = 1
     def m(self):
         return self.x
-"#;
+    "#;
     let result = parse_and_lower(source).expect("lowering should succeed");
-    let bb_module = result.codegen_module.as_ref();
+    let bb_module = &result.codegen_module;
     validate_bb_module_for_jit(bb_module).expect("validator should accept lowered class defs");
 }
 
@@ -177,9 +164,9 @@ fn jit_validator_accepts_coroutines() {
     let source = r#"
 async def run():
     return 1
-"#;
+    "#;
     let result = parse_and_lower(source).expect("lowering should succeed");
-    let bb_module = result.codegen_module.as_ref();
+    let bb_module = &result.codegen_module;
     validate_bb_module_for_jit(bb_module).expect("validator should accept coroutine lowering");
 }
 
@@ -188,9 +175,9 @@ fn jit_validator_accepts_async_generators() {
     let source = r#"
 async def run():
     yield 1
-"#;
+    "#;
     let result = parse_and_lower(source).expect("lowering should succeed");
-    let bb_module = result.codegen_module.as_ref();
+    let bb_module = &result.codegen_module;
     validate_bb_module_for_jit(bb_module)
         .expect("validator should accept async generator lowering");
 }
@@ -203,9 +190,9 @@ def f():
         return 1
     except Exception:
         return 2
-"#;
+    "#;
     let result = parse_and_lower(source).expect("lowering should succeed");
-    let bb_module = result.codegen_module.as_ref();
+    let bb_module = &result.codegen_module;
     validate_bb_module_for_jit(bb_module).expect("validator should accept lowered try blocks");
 }
 
@@ -214,9 +201,9 @@ fn jit_preflight_runs_cranelift_for_supported_module() {
     let source = r#"
 def f(x):
     return x
-"#;
+    "#;
     let result = parse_and_lower(source).expect("lowering should succeed");
-    let bb_module = result.codegen_module.as_ref();
+    let bb_module = &result.codegen_module;
     validate_bb_module_for_jit(bb_module).expect("validator should allow module");
     run_cranelift_jit_preflight(&result).expect("cranelift preflight should run");
 }
@@ -235,13 +222,9 @@ def exercise():
             total += len(str(exc))
         yield total
     return gen
-"#;
+    "#;
     let result = parse_and_lower_runtime_style(source).expect("lowering should succeed");
-    let normalized = result
-        .codegen_module
-        .as_ref()
-        .expect("bb_codegen pass should be tracked")
-        .clone();
+    let normalized = result.codegen_module.clone();
     let module_name = "jit_plan_generator_throw_handler_param_test";
     jit::register_clif_module_plans(module_name, &normalized)
         .expect("plan registration should succeed");

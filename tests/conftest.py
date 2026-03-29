@@ -29,7 +29,7 @@ def _print_integration_failure_context(module_path: Path) -> None:
         source = f"<<failed to read source: {err}>>"
 
     try:
-        transformed = diet_import_hook._transform_source(str(module_path))
+        transformed = _integration.render_transformed_source(module_path)
     except Exception as err:
         transformed = f"<<failed to transform source: {err}>>"
 

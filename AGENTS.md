@@ -34,7 +34,7 @@
 - **MUST FOLLOW**: When you find a hang, add follow-up instrumentation where practical so the next diagnosis is easier, and add a focused regression test or assertion for the diagnosed hang shape instead of treating it as a one-off.
 - **NOTE**: For isolated transformed-runtime repros, prefer `tests._integration.transformed_module(...)` with a small inline source module instead of debugging through the full test harness.
 - **NOTE**: For ad-hoc transformed-runtime repros outside pytest, prefer `just py ...` rather than invoking `.venv/bin/python` or `vendor/cpython/python` manually.
-- **NOTE**: For BB/JIT inspection, prefer `just run-web-inspector` or `scripts/render_jit_clif.py`; closure-backed outer factories are typically registered under `qualname::_dp_bb_<name>_factory`.
+- **NOTE**: For BB/JIT inspection, prefer `just run-web-inspector` or `cargo run -p soac-inspector --bin render_jit_clif -- <source> <function_id>`; closure-backed outer factories are typically registered under `qualname::_dp_bb_<name>_factory`.
 - **NOTE**: To trace BB execution, set `DIET_PYTHON_BB_TRACE`. Accepted forms are `all`, `all:params`, `<exact-qualname>`, or `<exact-qualname>:params`. Prefer an exact qualname (for example `make_runner.<locals>.run:params`) to keep trace output manageable.
 - **MUST FOLLOW**: In any test failure summary, list expected failures separately from unexpected failures.
 - When running tests, put the output in logs/

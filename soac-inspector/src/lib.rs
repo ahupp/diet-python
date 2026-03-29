@@ -39,13 +39,13 @@ struct JitClifRequest {
 }
 
 #[derive(Serialize)]
-struct JitClifResponse {
-    clif: String,
+pub struct JitClifResponse {
+    pub clif: String,
     #[serde(rename = "cfgDot")]
-    cfg_dot: String,
+    pub cfg_dot: String,
     #[serde(rename = "vcodeDisasm")]
-    vcode_disasm: String,
-    resolved_entry: String,
+    pub vcode_disasm: String,
+    pub resolved_entry: String,
 }
 
 #[derive(Debug)]
@@ -170,21 +170,19 @@ fn lower_source_recorded(source: &str) -> Result<dp_transform::LoweringResult, A
         .map_err(|err| ApiError::internal(err.to_string()))
 }
 
-fn register_plans_from_source(
-    source: &str,
-) -> Result<(String, dp_transform::LoweringResult), ApiError> {
-    let output = lower_source_recorded(source)?;
-    let codegen_module = output
-        .codegen_module
-        .as_ref()
-        .ok_or_else(|| ApiError::internal("no bb_codegen module available for inspector source"))?;
+pub fn register_named_plans_from_source(source: &str, module_name: &str) -> Result<(), String> {
+    let output = lower_source_recorded(source).map_err(|err| err.error)?;
+    jit::register_clif_module_plans(module_name, &output.codegen_module)?;
+    Ok(())
+}
+
+fn register_plans_from_source(source: &str) -> Result<String, ApiError> {
     let module_name = format!(
         "_dp_web_{:016x}",
         NEXT_WEB_MODULE_ID.fetch_add(1, Ordering::Relaxed)
     );
-    jit::register_clif_module_plans(module_name.as_str(), codegen_module)
-        .map_err(ApiError::internal)?;
-    Ok((module_name, output))
+    register_named_plans_from_source(source, module_name.as_str()).map_err(ApiError::internal)?;
+    Ok(module_name)
 }
 
 fn inspect_pipeline_payload(source: &str) -> Result<Value, ApiError> {
@@ -193,29 +191,37 @@ fn inspect_pipeline_payload(source: &str) -> Result<Value, ApiError> {
     serde_json::from_str(&payload).map_err(|err| ApiError::internal(err.to_string()))
 }
 
-fn render_jit_clif(
+pub fn jit_debug_plan(module_name: &str, function_id: usize) -> Result<String, String> {
+    let Some(function) = jit::lookup_blockpy_function(module_name, function_id) else {
+        return Err(format!(
+            "no specialized JIT plan for {module_name}.fn#{function_id}"
+        ));
+    };
+    let block_info = function
+        .blocks
+        .iter()
+        .map(|block| jit::jit_block_info(&function, block))
+        .collect::<Vec<_>>();
+    Ok(format!(
+        "function:\n{function:#?}\n\njit_blocks:\n{block_info:#?}"
+    ))
+}
+
+pub fn render_registered_jit_clif(
     repo_root: &Path,
-    source: &str,
+    module_name: &str,
     function_id: usize,
-    qualname: Option<&str>,
-    entry_label: &str,
-) -> Result<JitClifResponse, ApiError> {
-    let (module_name, _) = register_plans_from_source(source)?;
-    let function =
-        jit::lookup_blockpy_function(module_name.as_str(), function_id).ok_or_else(|| {
-            ApiError::internal(format!(
-                "no specialized JIT plan for {module_name}.fn#{function_id}"
-            ))
-        })?;
+) -> Result<JitClifResponse, String> {
+    let function = jit::lookup_blockpy_function(module_name, function_id)
+        .ok_or_else(|| format!("no specialized JIT plan for {module_name}.fn#{function_id}"))?;
     prepare_python();
     let rendered = Python::attach(|py| {
-        ensure_repo_root_on_sys_path(py, repo_root)?;
-        PyModule::import(py, "__dp__").map_err(|err| ApiError::internal(err.to_string()))?;
-        let builtins =
-            PyModule::import(py, "builtins").map_err(|err| ApiError::internal(err.to_string()))?;
+        ensure_repo_root_on_sys_path(py, repo_root).map_err(|err| err.error)?;
+        PyModule::import(py, "__dp__").map_err(|err| err.to_string())?;
+        let builtins = PyModule::import(py, "builtins").map_err(|err| err.to_string())?;
         let deleted_obj = builtins
             .getattr("__dp_DELETED")
-            .map_err(|err| ApiError::internal(err.to_string()))?;
+            .map_err(|err| err.to_string())?;
         let empty_tuple = PyTuple::empty(py);
         let true_obj = PyBool::new(py, true).as_ptr() as *mut c_void;
         let false_obj = PyBool::new(py, false).as_ptr() as *mut c_void;
@@ -229,19 +235,40 @@ fn render_jit_clif(
                 empty_tuple.as_ptr() as *mut c_void,
             )
         }
-        .map_err(ApiError::internal)
     })?;
+    let entry_label = function
+        .blocks
+        .first()
+        .map(|block| block.label.to_string())
+        .unwrap_or_else(|| "<unknown>".to_string());
     Ok(JitClifResponse {
         clif: rendered.clif,
         cfg_dot: rendered.cfg_dot,
         vcode_disasm: rendered.vcode_disasm,
         resolved_entry: format!(
             "{}::__dp_fn_{}::{}",
-            qualname.unwrap_or("<unknown>"),
-            function_id,
-            entry_label
+            function.names.qualname, function_id, entry_label
         ),
     })
+}
+
+fn render_jit_clif(
+    repo_root: &Path,
+    source: &str,
+    function_id: usize,
+    qualname: Option<&str>,
+    entry_label: &str,
+) -> Result<JitClifResponse, ApiError> {
+    let module_name = register_plans_from_source(source)?;
+    let mut rendered = render_registered_jit_clif(repo_root, module_name.as_str(), function_id)
+        .map_err(ApiError::internal)?;
+    rendered.resolved_entry = format!(
+        "{}::__dp_fn_{}::{}",
+        qualname.unwrap_or("<unknown>"),
+        function_id,
+        entry_label
+    );
+    Ok(rendered)
 }
 
 async fn handle_inspect_pipeline(

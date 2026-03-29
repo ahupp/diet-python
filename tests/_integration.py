@@ -82,7 +82,7 @@ def _print_integration_failure_context(module_path: Path, mode: str | None = Non
 
     try:
         with _transform_env_for_mode(mode):
-            transformed = diet_import_hook._transform_source(str(module_path))
+            transformed = render_transformed_source(module_path)
     except Exception as err:
         transformed = f"<<failed to transform source: {err}>>"
 
@@ -96,6 +96,28 @@ def _print_integration_failure_context(module_path: Path, mode: str | None = Non
     print(source, file=sys.stderr)
     print("--- end diet-python integration context ---", file=sys.stderr)
     _PRINTED_MODULES.add(module_path)
+
+
+def render_transformed_source(module_path: Path) -> str:
+    try:
+        source = module_path.read_text(encoding="utf-8")
+    except OSError as err:
+        raise ImportError(
+            f"diet-python could not read source for {module_path}: {err}"
+        ) from err
+    transformer = diet_import_hook._get_pyo3_transform()
+    try:
+        return transformer.transform_source_with_name(
+            source,
+            module_path.stem,
+            True,
+        )
+    except SyntaxError as err:
+        if err.filename is None:
+            err.filename = str(module_path)
+        raise
+    except Exception as err:
+        raise ImportError(f"diet-python failed for {module_path}: {err}") from err
 
 
 @contextmanager

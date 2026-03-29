@@ -1,4 +1,4 @@
-use crate::block_py::{BlockPyFunction, BlockPyModule};
+use crate::block_py::BlockPyFunction;
 use crate::passes::CodegenBlockPyPass;
 use crate::LoweringResult;
 use serde_json::{json, Value};
@@ -14,16 +14,14 @@ fn inspector_function_payload(function: &BlockPyFunction<CodegenBlockPyPass>) ->
     })
 }
 
-fn inspector_functions_payload(module: Option<&BlockPyModule<CodegenBlockPyPass>>) -> Vec<Value> {
+fn inspector_functions_payload(
+    module: &crate::block_py::BlockPyModule<CodegenBlockPyPass>,
+) -> Vec<Value> {
     module
-        .map(|module| {
-            module
-                .callable_defs
-                .iter()
-                .map(inspector_function_payload)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
+        .callable_defs
+        .iter()
+        .map(inspector_function_payload)
+        .collect::<Vec<_>>()
 }
 
 pub fn render_inspector_payload(source: &str, output: &LoweringResult) -> String {
@@ -45,7 +43,7 @@ pub fn render_inspector_payload(source: &str, output: &LoweringResult) -> String
     }
     json!({
         "steps": steps,
-        "functions": inspector_functions_payload(output.codegen_module.as_ref()),
+        "functions": inspector_functions_payload(&output.codegen_module),
     })
     .to_string()
 }

@@ -6,14 +6,15 @@ def validate_module(module):
     import os
     import tempfile
     import pytest
-    import diet_import_hook
+    from pathlib import Path
+    from tests import _integration
 
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as handle:
         handle.write(module.SOURCE)
         path = handle.name
     try:
         with pytest.raises(SyntaxError) as excinfo:
-            diet_import_hook._transform_source(path)
+            _integration.render_transformed_source(Path(path))
         assert "not_a_feature" in str(excinfo.value)
     finally:
         os.remove(path)

@@ -99,16 +99,9 @@ pub fn init_logging() {
     });
 }
 
-pub(crate) fn should_skip(source: &str) -> bool {
-    source
-        .lines()
-        .next()
-        .is_some_and(|line| line.contains("diet-python: disabled"))
-}
-
 pub struct LoweringResult<P = RecordingPassTracker> {
     pub total_time: Duration,
-    pub codegen_module: Option<BlockPyModule<CodegenBlockPyPass>>,
+    pub codegen_module: BlockPyModule<CodegenBlockPyPass>,
     pub pass_tracker: P,
 }
 
@@ -281,19 +274,11 @@ where
     namegen::reset_namegen_state();
     let total_start = timing_start();
 
-    if should_skip(source) {
-        return Ok(LoweringResult {
-            total_time: timing_elapsed(total_start),
-            codegen_module: None,
-            pass_tracker,
-        });
-    }
-
     let codegen_module = rewrite_module_with_tracker(source, &mut pass_tracker)?;
 
     Ok(LoweringResult {
         total_time: timing_elapsed(total_start),
-        codegen_module: Some(codegen_module),
+        codegen_module,
         pass_tracker,
     })
 }

@@ -12,7 +12,6 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyFunction, PyModule, PyString, PyTuple};
 use std::time::Instant;
 
-mod eval;
 #[cfg(test)]
 mod test;
 
@@ -61,32 +60,23 @@ fn register_lowered_module_plans<P>(
     output: &dp_transform::LoweringResult<P>,
     module_name: &str,
 ) -> PyResult<()> {
-    let Some(bb_codegen) = output.codegen_module.as_ref() else {
-        return Err(PyRuntimeError::new_err(format!(
-            "no bb_codegen module available for {module_name}"
-        )));
-    };
-    soac_eval::jit::register_clif_module_plans(module_name, bb_codegen).map_err(|err| {
-        pyo3::exceptions::PyRuntimeError::new_err(format!(
-            "failed to register BB plans for {module_name}: {err}"
-        ))
-    })?;
-    if module_name.ends_with(".__main__") && module_name != "__main__" {
-        soac_eval::jit::register_clif_module_plans("__main__", bb_codegen).map_err(|err| {
+    soac_eval::jit::register_clif_module_plans(module_name, &output.codegen_module).map_err(
+        |err| {
             pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "failed to register BB plans alias for __main__ from {module_name}: {err}"
+                "failed to register BB plans for {module_name}: {err}"
             ))
-        })?;
+        },
+    )?;
+    if module_name.ends_with(".__main__") && module_name != "__main__" {
+        soac_eval::jit::register_clif_module_plans("__main__", &output.codegen_module).map_err(
+            |err| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "failed to register BB plans alias for __main__ from {module_name}: {err}"
+                ))
+            },
+        )?;
     }
     Ok(())
-}
-
-#[pyfunction]
-fn transform_source(source: &str, ensure: Option<bool>) -> PyResult<String> {
-    let preview = source.get(..100).unwrap_or(source);
-    trace!("transform_source: {}", preview);
-    let output = lower_source(source, ensure)?;
-    Ok(rendered_ast_to_ast_source(source, &output))
 }
 
 #[pyfunction]
@@ -261,26 +251,6 @@ fn update_function_metadata(
     Ok(())
 }
 
-fn set_plan_metadata(
-    func: &Bound<'_, PyAny>,
-    module_name: &str,
-    function_id: usize,
-    plan_name: &str,
-    module_globals: &Bound<'_, PyAny>,
-    entry_ref: Option<&str>,
-) -> PyResult<()> {
-    func.setattr("__dp_plan_module", module_name)?;
-    func.setattr("__dp_function_id", function_id)?;
-    func.setattr("__dp_plan_name", plan_name)?;
-    if let Some(entry_ref) = entry_ref {
-        func.setattr("__dp_entry_ref", entry_ref)?;
-    }
-    if module_globals.cast::<PyDict>().is_ok() {
-        func.setattr("__dp_plan_globals", module_globals)?;
-    }
-    Ok(())
-}
-
 fn resolve_module_name(module_globals: &Bound<'_, PyAny>, operation: &str) -> PyResult<String> {
     let globals = module_globals
         .cast::<PyDict>()
@@ -313,12 +283,7 @@ fn lookup_module_init_function<P>(
     output: &dp_transform::LoweringResult<P>,
     module_name: &str,
 ) -> PyResult<BlockPyFunction<CodegenBlockPyPass>> {
-    let module = output.codegen_module.as_ref().ok_or_else(|| {
-        PyRuntimeError::new_err(format!(
-            "JIT basic-block module init requires a registered bb_codegen module for {module_name}"
-        ))
-    })?;
-    module
+    (&output.codegen_module)
         .callable_defs
         .iter()
         .find(|function| function.names.bind_name == "_dp_module_init")
@@ -764,35 +729,12 @@ fn make_bb_generator(
     Ok(generator.unbind())
 }
 
-#[pyfunction]
-fn jit_debug_plan(module_name: &str, function_id: usize) -> PyResult<String> {
-    eval::jit_debug_plan_impl(module_name, function_id)
-}
-
-#[pyfunction]
-fn jit_render_bb_with_cfg_plan(
-    py: Python<'_>,
-    module_name: &str,
-    function_id: usize,
-) -> PyResult<Py<PyDict>> {
-    let (clif, cfg_dot, vcode_disasm) =
-        eval::jit_render_bb_with_cfg_plan_impl(py, module_name, function_id)?;
-    let payload = PyDict::new(py);
-    payload.set_item("clif", clif)?;
-    payload.set_item("cfg_dot", cfg_dot)?;
-    payload.set_item("vcode_disasm", vcode_disasm)?;
-    Ok(payload.unbind())
-}
-
 #[pymodule]
 fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     dp_transform::init_logging();
-    module.add_function(wrap_pyfunction!(transform_source, module)?)?;
     module.add_function(wrap_pyfunction!(transform_source_with_name, module)?)?;
     module.add_function(wrap_pyfunction!(build_module_init, module)?)?;
     module.add_function(wrap_pyfunction!(make_bb_function, module)?)?;
     module.add_function(wrap_pyfunction!(make_bb_generator, module)?)?;
-    module.add_function(wrap_pyfunction!(jit_debug_plan, module)?)?;
-    module.add_function(wrap_pyfunction!(jit_render_bb_with_cfg_plan, module)?)?;
     Ok(())
 }
