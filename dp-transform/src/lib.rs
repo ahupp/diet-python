@@ -23,8 +23,6 @@ mod template;
 #[cfg(test)]
 mod test_util;
 pub(crate) mod transformer;
-#[cfg(target_arch = "wasm32")]
-mod web_inspector;
 
 use crate::block_py::BlockPyModule;
 use crate::driver::rewrite_module_with_tracker;

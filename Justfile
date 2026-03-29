@@ -5,11 +5,8 @@ cpython_bin := repo_root + "/vendor/cpython/python"
 venv_dir := repo_root + "/.venv"
 uv_cache_dir := repo_root + "/.uv-cache"
 cargo_home := env_var_or_default("CARGO_HOME", repo_root + "/tmp/cargo-home")
-out_name := env_var_or_default("OUT_NAME", "diet_python")
-wasm_pack_mode := env_var_or_default("WASM_PACK_MODE", "no-install")
 pyo3_python := cpython_bin
 web_dir := repo_root + "/web"
-web_cargo_target_dir := env_var_or_default("WEB_CARGO_TARGET_DIR", repo_root + "/tmp/target-web-inspector")
 port := env_var_or_default("PORT", "8000")
 host := env_var_or_default("HOST", "127.0.0.1")
 log_file := env_var_or_default("LOG_FILE", "/tmp/diet_python_web_inspector.log")
@@ -24,10 +21,7 @@ export UV_PYTHON := cpython_bin
 export PYO3_PYTHON := pyo3_python
 export PYO3_PYTHON_REAL := pyo3_python
 export CARGO_HOME := cargo_home
-export OUT_NAME := out_name
-export WASM_PACK_MODE := wasm_pack_mode
 export WEB_DIR := web_dir
-export WEB_CARGO_TARGET_DIR := web_cargo_target_dir
 export PORT := port
 export HOST := host
 export LOG_FILE := log_file
@@ -186,63 +180,15 @@ run-cpython-tests jobs="0" *args='': build-all ensure-cpython ensure-venv
     "${TEST_CMD[@]}"
   )
 
-build-web-inspector:
+build-web-inspector: ensure-cpython
   #!/usr/bin/env bash
-  echo "[1/3] Building wasm package..."
-
-  required_wasm_bindgen_version() {
-    awk '
-      $0 == "name = \"wasm-bindgen\"" { found = 1; next }
-      found && $1 == "version" {
-        gsub(/"/, "", $3);
-        print $3;
-        exit
-      }
-    ' "$REPO_ROOT/Cargo.lock"
-  }
-
-  installed_wasm_bindgen_version() {
-    if command -v wasm-bindgen >/dev/null 2>&1; then
-      wasm-bindgen --version | awk '{print $2}'
-    fi
-  }
-
-  ensure_wasm_bindgen() {
-    local required installed root
-    required="$(required_wasm_bindgen_version)"
-    if [ -z "$required" ]; then
-      echo "Could not determine required wasm-bindgen version from Cargo.lock" >&2
-      exit 1
-    fi
-
-    installed="$(installed_wasm_bindgen_version || true)"
-    if [ "$installed" = "$required" ]; then
-      return
-    fi
-
-    root="$CARGO_HOME"
-    mkdir -p "$root"
-    if [ ! -x "$root/bin/wasm-bindgen" ]; then
-      echo "Installing wasm-bindgen-cli $required to $root ..."
-      CARGO_HOME="$CARGO_HOME" cargo install wasm-bindgen-cli --version "$required" --root "$root"
-    fi
-    export PATH="$root/bin:$PATH"
-  }
-
+  set -euo pipefail
+  echo "[1/3] Validating web inspector assets..."
   TIMEFORMAT='[diet-python timing] build_web_inspector_s=%3R'
-  set +e
   time {
     cd "$REPO_ROOT"
-    ensure_wasm_bindgen
-    CARGO_TARGET_DIR="$WEB_CARGO_TARGET_DIR" wasm-pack build dp-transform \
-      --target web \
-      --out-dir ../web/pkg \
-      --out-name "$OUT_NAME" \
-      --mode "$WASM_PACK_MODE"
+    "$CPYTHON_BIN" scripts/check_web_inspector.py
   }
-  STATUS=$?
-  set -e
-  exit "$STATUS"
 
 history-metrics-report history_jsonl="logs/warloc_history.jsonl" daily_jsonl="logs/warloc_history_daily.jsonl" html_output="web/history_metrics.html" revset="..@": ensure-cpython
   #!/usr/bin/env bash

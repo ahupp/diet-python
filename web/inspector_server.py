@@ -25,16 +25,21 @@ os.environ.setdefault("DIET_PYTHON_MODE", "transform")
 os.environ.setdefault("DIET_PYTHON_INTEGRATION_ONLY", "1")
 
 import diet_import_hook  # noqa: E402
-diet_import_hook.install()
-import __dp__  # noqa: E402
+
+_DIET_PYTHON = None
 
 
-DIET_PYTHON = diet_import_hook._get_pyo3_transform()
+def _get_transform():
+    global _DIET_PYTHON
+    if _DIET_PYTHON is None:
+        diet_import_hook.install()
+        _DIET_PYTHON = diet_import_hook._get_pyo3_transform()
+    return _DIET_PYTHON
 
 
 def _register_plans_from_source(source: str) -> str:
     module_name = f"_dp_web_{uuid.uuid4().hex}"
-    DIET_PYTHON.transform_source_with_name(source, module_name, True)
+    _get_transform().transform_source_with_name(source, module_name, True)
     return module_name
 
 
@@ -49,7 +54,7 @@ def _render_clif(
         raise TypeError("functionId must be provided")
     if entry_label is None:
         raise TypeError("entryLabel must be provided")
-    rendered = DIET_PYTHON.jit_render_bb_with_cfg_plan(plan_module, function_id)
+    rendered = _get_transform().jit_render_bb_with_cfg_plan(plan_module, function_id)
     if not isinstance(rendered, dict):
         raise RuntimeError("jit_render_bb_with_cfg_plan() returned non-dict payload")
     clif = rendered.get("clif", "")
@@ -127,7 +132,7 @@ class InspectorHandler(SimpleHTTPRequestHandler):
             source = payload.get("source", "")
             if not isinstance(source, str):
                 raise TypeError("source must be a string")
-            rendered = DIET_PYTHON.inspect_pipeline(source, True)
+            rendered = _get_transform().inspect_pipeline(source, True)
             self._send_json(HTTPStatus.OK, json.loads(rendered))
         except Exception as exc:  # noqa: BLE001
             self._send_json(
