@@ -39,6 +39,16 @@ fn incremental_clif_cache() -> &'static Mutex<HashMap<Vec<u8>, Vec<u8>>> {
     INCREMENTAL_CLIF_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn collect_specialized_jit_block_info(
+    function: &BlockPyFunction<CodegenBlockPyPass>,
+) -> Vec<JitBlockInfo> {
+    function
+        .blocks
+        .iter()
+        .map(|block| jit_block_info(function, block))
+        .collect()
+}
+
 struct GlobalIncrementalCacheStore<'a> {
     map: &'a Mutex<HashMap<Vec<u8>, Vec<u8>>>,
 }
@@ -3422,20 +3432,19 @@ fn build_cranelift_run_bb_specialized_function(
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
         let entry_block = fb.create_block();
         let mut exec_blocks = Vec::with_capacity(block_count);
-        let runtime_block_param_names = function
-            .blocks
+        let block_infos = collect_specialized_jit_block_info(function);
+        let runtime_block_param_names = block_infos
             .iter()
-            .map(jit_param_names_for_block)
+            .map(|info| info.runtime_param_names.clone())
             .collect::<Vec<_>>();
         let full_block_param_names = function
             .blocks
             .iter()
             .map(CodegenBlock::param_name_vec)
             .collect::<Vec<_>>();
-        let exc_dispatches = function
-            .blocks
+        let exc_dispatches = block_infos
             .iter()
-            .map(|block| exc_dispatch_plan(function, block))
+            .map(|info| info.exc_dispatch.clone())
             .collect::<Vec<_>>();
         let mut cleanup_null_blocks = Vec::with_capacity(block_count);
         for _ in 0..block_count {

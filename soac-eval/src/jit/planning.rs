@@ -6,7 +6,6 @@ use std::sync::{Mutex, OnceLock};
 #[derive(Clone, Debug)]
 pub struct JitBlockInfo {
     pub runtime_param_names: Vec<String>,
-    pub exc_target: Option<usize>,
     pub exc_dispatch: Option<BlockExcDispatchPlan>,
 }
 
@@ -75,11 +74,9 @@ pub fn jit_block_info(
     block: &CodegenBlock,
 ) -> JitBlockInfo {
     let exc_dispatch = exc_dispatch_plan(function, block);
-    let exc_target = exc_dispatch.as_ref().map(|plan| plan.target_index);
     let runtime_param_names = jit_param_names_for_block(block);
     JitBlockInfo {
         runtime_param_names,
-        exc_target,
         exc_dispatch,
     }
 }
