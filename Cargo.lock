@@ -508,24 +508,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dp-transform"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "env_logger",
- "log",
- "regex",
- "ruff_python_ast",
- "ruff_python_codegen",
- "ruff_python_parser",
- "ruff_python_semantic",
- "ruff_source_file",
- "ruff_text_size",
- "serde_json",
- "similar",
-]
-
-[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1628,6 +1610,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "soac-blockpy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "log",
+ "regex",
+ "ruff_python_ast",
+ "ruff_python_codegen",
+ "ruff_python_parser",
+ "ruff_python_semantic",
+ "ruff_source_file",
+ "ruff_text_size",
+ "serde_json",
+ "similar",
+]
+
+[[package]]
 name = "soac-eval"
 version = "0.1.0"
 dependencies = [
@@ -1636,11 +1636,11 @@ dependencies = [
  "cranelift-frontend",
  "cranelift-jit",
  "cranelift-module",
- "dp-transform",
  "libc",
  "log",
  "pyo3",
  "ruff_python_ast",
+ "soac-blockpy",
 ]
 
 [[package]]
@@ -1648,11 +1648,11 @@ name = "soac-inspector"
 version = "0.1.0"
 dependencies = [
  "axum",
- "dp-transform",
  "http-body-util",
  "pyo3",
  "serde",
  "serde_json",
+ "soac-blockpy",
  "soac-eval",
  "tokio",
  "tower",
@@ -1663,10 +1663,10 @@ dependencies = [
 name = "soac-pyo3"
 version = "0.1.0"
 dependencies = [
- "dp-transform",
  "log",
  "pyo3",
  "serde_json",
+ "soac-blockpy",
  "soac-eval",
 ]
 

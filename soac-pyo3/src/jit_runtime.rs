@@ -1,8 +1,4 @@
 use crate::lowering_error_to_pyerr;
-use dp_transform::block_py::{BlockPyFunction, ParamKind};
-use dp_transform::lower_python_to_blockpy;
-use dp_transform::pass_tracker::NoopPassTracker;
-use dp_transform::passes::CodegenBlockPyPass;
 use log::info;
 use pyo3::exceptions::{
     PyAttributeError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
@@ -10,6 +6,10 @@ use pyo3::exceptions::{
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyFunction, PyModule, PyString, PyTuple};
+use soac_blockpy::block_py::{BlockPyFunction, ParamKind};
+use soac_blockpy::lower_python_to_blockpy;
+use soac_blockpy::pass_tracker::NoopPassTracker;
+use soac_blockpy::passes::CodegenBlockPyPass;
 use std::time::Instant;
 
 unsafe extern "C" {
@@ -28,13 +28,13 @@ fn import_dp_module<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyModule>> {
 fn lower_source_for_codegen(
     source: &str,
     ensure: Option<bool>,
-) -> PyResult<dp_transform::LoweringResult<NoopPassTracker>> {
+) -> PyResult<soac_blockpy::LoweringResult<NoopPassTracker>> {
     let _ = ensure;
     lower_python_to_blockpy(source).map_err(lowering_error_to_pyerr)
 }
 
 pub(crate) fn register_lowered_module_plans<P>(
-    output: &dp_transform::LoweringResult<P>,
+    output: &soac_blockpy::LoweringResult<P>,
     module_name: &str,
 ) -> PyResult<()> {
     soac_eval::jit::register_clif_module_plans(module_name, &output.codegen_module).map_err(
@@ -240,7 +240,7 @@ fn lookup_bb_function(
 }
 
 fn lookup_module_init_function<P>(
-    output: &dp_transform::LoweringResult<P>,
+    output: &soac_blockpy::LoweringResult<P>,
     module_name: &str,
 ) -> PyResult<BlockPyFunction<CodegenBlockPyPass>> {
     (&output.codegen_module)

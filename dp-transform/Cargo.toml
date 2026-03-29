@@ -1,10 +1,10 @@
 [package]
-name = "dp-transform"
+name = "soac-blockpy"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "dp_transform"
+name = "soac_blockpy"
 path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 

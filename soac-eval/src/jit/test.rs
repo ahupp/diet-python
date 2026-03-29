@@ -1,5 +1,5 @@
 use super::*;
-use dp_transform::block_py::{
+use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyStmt,
     BlockPyTerm, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral,
     CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref, DelDerefQuietly,
@@ -7,7 +7,7 @@ use dp_transform::block_py::{
     MakeString, ModuleNameGen, NameLocation, Operation, Param, ParamKind, ParamSpec, StorageLayout,
     StoreGlobal, TernaryOp, TernaryOpKind,
 };
-use dp_transform::passes::CodegenBlockPyPass;
+use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
     use super::*;
     use ruff_python_ast as ast;
@@ -102,7 +102,7 @@ mod tests {
     }
 
     fn raise_term() -> BlockPyTerm<LocatedCodegenBlockPyExpr> {
-        BlockPyTerm::Raise(dp_transform::block_py::BlockPyRaise { exc: None })
+        BlockPyTerm::Raise(soac_blockpy::block_py::BlockPyRaise { exc: None })
     }
 
     fn test_source_block(
@@ -126,7 +126,7 @@ mod tests {
             function_id: name_gen.function_id(),
             name_gen,
             names: FunctionName::new("test", "test", "test", "test"),
-            kind: dp_transform::block_py::BlockPyFunctionKind::Function,
+            kind: soac_blockpy::block_py::BlockPyFunctionKind::Function,
             params: ParamSpec::default(),
             blocks: vec![],
             doc: None,
@@ -434,7 +434,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(Operation::CellRef(
-                dp_transform::block_py::CellRef {
+                soac_blockpy::block_py::CellRef {
                     node_index: Default::default(),
                     range: Default::default(),
                     arg0: name_expr(test_closure_cell_name("x", 2)),
@@ -460,7 +460,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(Operation::CellRef(
-                dp_transform::block_py::CellRef {
+                soac_blockpy::block_py::CellRef {
                     node_index: Default::default(),
                     range: Default::default(),
                     arg0: name_expr(test_captured_cell_source_name("_dp_classcell", 2)),

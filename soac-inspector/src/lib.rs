@@ -3,12 +3,12 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
-use dp_transform::block_py::BlockPyFunction;
-use dp_transform::passes::CodegenBlockPyPass;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyList, PyModule, PyTuple};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use soac_blockpy::block_py::BlockPyFunction;
+use soac_blockpy::passes::CodegenBlockPyPass;
 use soac_eval::jit;
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
@@ -167,8 +167,8 @@ fn ensure_repo_root_on_sys_path(py: Python<'_>, repo_root: &Path) -> Result<(), 
     Ok(())
 }
 
-fn lower_source_recorded(source: &str) -> Result<dp_transform::LoweringResult, ApiError> {
-    dp_transform::lower_python_to_blockpy_recorded(source)
+fn lower_source_recorded(source: &str) -> Result<soac_blockpy::LoweringResult, ApiError> {
+    soac_blockpy::lower_python_to_blockpy_recorded(source)
         .map_err(|err| ApiError::internal(err.to_string()))
 }
 
@@ -183,7 +183,7 @@ fn inspector_function_payload(function: &BlockPyFunction<CodegenBlockPyPass>) ->
     })
 }
 
-fn render_inspector_payload(source: &str, output: &dp_transform::LoweringResult) -> Value {
+fn render_inspector_payload(source: &str, output: &soac_blockpy::LoweringResult) -> Value {
     let mut steps = vec![json!({
         "key": "input_source",
         "label": "input source",

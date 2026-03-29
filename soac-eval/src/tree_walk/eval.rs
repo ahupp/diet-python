@@ -1,10 +1,10 @@
 use crate::jit;
-use dp_transform::block_py::{ParamKind, ParamSpec};
-use dp_transform::passes::CodegenBlockPyPass;
 use log::info;
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
+use soac_blockpy::block_py::{ParamKind, ParamSpec};
+use soac_blockpy::passes::CodegenBlockPyPass;
 use std::any::Any;
 use std::ffi::{CString, c_char, c_void};
 use std::panic::{self, AssertUnwindSafe};
@@ -43,7 +43,7 @@ struct BindingMetadata {
 }
 
 struct ClifFunctionData {
-    function: dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
+    function: soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
     module_name: String,
     qualname: String,
     true_obj: *mut ffi::PyObject,
@@ -150,7 +150,7 @@ unsafe fn lookup_deleted_sentinel() -> Result<*mut ffi::PyObject, ()> {
 }
 
 unsafe fn build_binding_metadata(
-    function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
+    function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
     callable_name: String,
     deleted_obj: *mut ffi::PyObject,
 ) -> Result<BindingMetadata, ()> {

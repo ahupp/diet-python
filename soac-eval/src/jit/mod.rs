@@ -8,13 +8,13 @@ use cranelift_control::ControlPlane;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
-use dp_transform::block_py::{
+use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm, CodegenBlock,
     CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyKeywordArg,
     LocatedCodegenBlockPyExpr, LocatedName, NameLocation, ParamDefaultSource, StorageLayout,
     operation as blockpy_intrinsics,
 };
-use dp_transform::passes::CodegenBlockPyPass;
+use soac_blockpy::passes::CodegenBlockPyPass;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ptr;
@@ -1103,7 +1103,7 @@ fn emit_codegen_expr(
                 "codegen number literal must not use borrowed expression"
             );
             match &number.value {
-                dp_transform::block_py::CoreNumberLiteralValue::Int(value) => {
+                soac_blockpy::block_py::CoreNumberLiteralValue::Int(value) => {
                     let value = value.as_i64().unwrap_or_else(|| {
                         panic!(
                             "oversized integer literal reached direct JIT codegen: {}",
@@ -1112,7 +1112,7 @@ fn emit_codegen_expr(
                     });
                     emit_owned_int_constant(fb, value, ctx)
                 }
-                dp_transform::block_py::CoreNumberLiteralValue::Float(value) => {
+                soac_blockpy::block_py::CoreNumberLiteralValue::Float(value) => {
                     let null_ptr = fb.ins().iconst(ptr_ty, 0);
                     let float_const = fb.ins().f64const(*value);
                     let float_inst = fb.ins().call(make_float_ref, &[float_const]);
@@ -3975,7 +3975,7 @@ fn build_cranelift_run_bb_specialized_function(
 
 pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     blocks: &[ObjPtr],
-    function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
+    function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
     deleted_obj: ObjPtr,
@@ -4062,7 +4062,7 @@ fn render_compiled_clif_and_vcode_disasm(
 
 pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     blocks: &[ObjPtr],
-    function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
+    function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
     false_obj: ObjPtr,

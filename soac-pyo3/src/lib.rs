@@ -2,31 +2,31 @@
 
 mod jit_runtime;
 
-use dp_transform::{lower_python_to_blockpy_recorded, ruff_ast_to_string};
 use log::trace;
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
+use soac_blockpy::{lower_python_to_blockpy_recorded, ruff_ast_to_string};
 
 #[cfg(test)]
 mod test;
 
-pub(crate) fn lowering_error_to_pyerr(err: dp_transform::LoweringError) -> PyErr {
+pub(crate) fn lowering_error_to_pyerr(err: soac_blockpy::LoweringError) -> PyErr {
     match err {
-        dp_transform::LoweringError::Parse(parse_error) => {
+        soac_blockpy::LoweringError::Parse(parse_error) => {
             pyo3::exceptions::PySyntaxError::new_err(parse_error.to_string())
         }
-        dp_transform::LoweringError::Other(err) => {
+        soac_blockpy::LoweringError::Other(err) => {
             pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
         }
     }
 }
 
-fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<dp_transform::LoweringResult> {
+fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<soac_blockpy::LoweringResult> {
     let _ = ensure;
     lower_python_to_blockpy_recorded(source).map_err(lowering_error_to_pyerr)
 }
 
-fn rendered_ast_to_ast_source(source: &str, output: &dp_transform::LoweringResult) -> String {
+fn rendered_ast_to_ast_source(source: &str, output: &soac_blockpy::LoweringResult) -> String {
     output
         .pass_tracker
         .pass_ast_to_ast()
@@ -49,7 +49,7 @@ fn transform_source_with_name(
 
 #[pymodule]
 fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
-    dp_transform::init_logging();
+    soac_blockpy::init_logging();
     module.add_function(wrap_pyfunction!(transform_source_with_name, module)?)?;
     jit_runtime::add_module_functions(module)?;
     Ok(())

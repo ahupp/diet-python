@@ -1,4 +1,4 @@
-use dp_transform::block_py::BlockPyFunctionKind;
+use soac_blockpy::block_py::BlockPyFunctionKind;
 use soac_eval::jit;
 use std::any::Any;
 use std::collections::HashSet;
@@ -13,16 +13,16 @@ fn panic_payload_to_string(payload: Box<dyn Any + Send>) -> String {
     }
 }
 
-fn parse_and_lower(source: &str) -> Result<dp_transform::LoweringResult, String> {
-    match std::panic::catch_unwind(|| dp_transform::lower_python_to_blockpy_recorded(source)) {
+fn parse_and_lower(source: &str) -> Result<soac_blockpy::LoweringResult, String> {
+    match std::panic::catch_unwind(|| soac_blockpy::lower_python_to_blockpy_recorded(source)) {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(err)) => Err(err.to_string()),
         Err(payload) => Err(panic_payload_to_string(payload)),
     }
 }
 
-fn parse_and_lower_runtime_style(source: &str) -> Result<dp_transform::LoweringResult, String> {
-    match std::panic::catch_unwind(|| dp_transform::lower_python_to_blockpy_recorded(source)) {
+fn parse_and_lower_runtime_style(source: &str) -> Result<soac_blockpy::LoweringResult, String> {
+    match std::panic::catch_unwind(|| soac_blockpy::lower_python_to_blockpy_recorded(source)) {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(err)) => Err(err.to_string()),
         Err(payload) => Err(panic_payload_to_string(payload)),
@@ -30,7 +30,7 @@ fn parse_and_lower_runtime_style(source: &str) -> Result<dp_transform::LoweringR
 }
 
 fn validate_bb_module_for_jit(
-    bb_module: &dp_transform::block_py::BlockPyModule<dp_transform::passes::CodegenBlockPyPass>,
+    bb_module: &soac_blockpy::block_py::BlockPyModule<soac_blockpy::passes::CodegenBlockPyPass>,
 ) -> Result<(), String> {
     for function in &bb_module.callable_defs {
         match function.lowered_kind() {
@@ -43,7 +43,7 @@ fn validate_bb_module_for_jit(
     Ok(())
 }
 
-fn run_cranelift_jit_preflight(result: &dp_transform::LoweringResult) -> Result<(), String> {
+fn run_cranelift_jit_preflight(result: &soac_blockpy::LoweringResult) -> Result<(), String> {
     soac_eval::jit::run_cranelift_smoke(&result.codegen_module)
 }
 
@@ -250,7 +250,7 @@ def exercise():
                         .iter()
                         .any(|name| name.starts_with("_dp_try_exc_"))
                         || dispatch.slot_writes.iter().any(|(_, source)| {
-                            matches!(source, dp_transform::block_py::BlockArg::CurrentException)
+                            matches!(source, soac_blockpy::block_py::BlockArg::CurrentException)
                         }))
             }),
         "expected a dispatch into an except handler target to pass the active exception: {:?}",

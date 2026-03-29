@@ -79,7 +79,7 @@ fn split_source(path: &Path) -> Result<String, String> {
 }
 
 fn main() -> Result<(), String> {
-    dp_transform::init_logging();
+    soac_blockpy::init_logging();
     let args = parse_args().inspect_err(|_| print_usage())?;
     let source_path = args.source.canonicalize().map_err(|err| {
         format!(

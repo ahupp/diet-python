@@ -5,14 +5,14 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use dp_transform::block_py::{
+use log::{log_enabled, trace, Level};
+use soac_blockpy::block_py::{
     BlockPyCfgFragment, BlockPyModule, BlockPyTerm, CfgBlock, Expr, IntoStructuredBlockPyStmt,
     StructuredBlockPyStmt,
 };
-use dp_transform::fixture::{parse_fixture, render_fixture, FixtureBlock};
-use dp_transform::passes::{CodegenBlockPyPass, RuffBlockPyPass};
-use dp_transform::{init_logging, lower_python_to_blockpy_recorded};
-use log::{log_enabled, trace, Level};
+use soac_blockpy::fixture::{parse_fixture, render_fixture, FixtureBlock};
+use soac_blockpy::passes::{CodegenBlockPyPass, RuffBlockPyPass};
+use soac_blockpy::{init_logging, lower_python_to_blockpy_recorded};
 
 struct SnapshotSummaryRow {
     case_name: String,
@@ -78,11 +78,11 @@ fn qualified_case_name(path: &Path, block: &FixtureBlock) -> Result<String, Stri
 
 fn render_blockpy_snapshot(
     _source: &str,
-    result: &dp_transform::LoweringResult,
+    result: &soac_blockpy::LoweringResult,
 ) -> (String, usize, usize) {
     let blockpy = result.pass_tracker.pass_semantic_blockpy();
     let blockpy_rendered = blockpy
-        .map(dp_transform::block_py::pretty::blockpy_module_to_string)
+        .map(soac_blockpy::block_py::pretty::blockpy_module_to_string)
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
     let blockpy_blocks = blockpy.map(count_blockpy_blocks).unwrap_or(0);
     let clif_blocks = count_clif_blocks(&result.codegen_module);
@@ -168,7 +168,7 @@ where
 }
 
 fn count_blockpy_blocks_in_stmt_fragment<E>(
-    fragment: &BlockPyCfgFragment<StructuredBlockPyStmt<E>, dp_transform::block_py::BlockPyTerm<E>>,
+    fragment: &BlockPyCfgFragment<StructuredBlockPyStmt<E>, soac_blockpy::block_py::BlockPyTerm<E>>,
 ) -> usize
 where
     E: Clone + Into<Expr> + std::fmt::Debug,
@@ -180,9 +180,9 @@ where
             .map_or(0, count_blockpy_blocks_in_term)
 }
 
-fn count_blockpy_blocks_in_term<E>(term: &dp_transform::block_py::BlockPyTerm<E>) -> usize {
+fn count_blockpy_blocks_in_term<E>(term: &soac_blockpy::block_py::BlockPyTerm<E>) -> usize {
     match term {
-        dp_transform::block_py::BlockPyTerm::IfTerm(_) => 0,
+        soac_blockpy::block_py::BlockPyTerm::IfTerm(_) => 0,
         _ => 0,
     }
 }
