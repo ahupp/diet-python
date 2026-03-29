@@ -10,9 +10,9 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use dp_transform::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm, ClosureLayout,
-    CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyKeywordArg,
-    LocatedCodegenBlockPyExpr, LocatedName, NameLocation, ParamDefaultSource,
-    operation as blockpy_intrinsics,
+    CodegenBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg,
+    CoreBlockPyKeywordArg, LocatedCodegenBlockPyExpr, LocatedName, NameLocation,
+    ParamDefaultSource, operation as blockpy_intrinsics,
 };
 use dp_transform::passes::CodegenBlockPyPass;
 use std::borrow::Cow;
@@ -45,12 +45,10 @@ struct GlobalIncrementalCacheStore<'a> {
 
 #[derive(Clone)]
 struct SpecializedJitBlockData {
-    label: String,
+    source: CodegenBlock,
     full_param_names: Vec<String>,
     runtime_param_names: Vec<String>,
     exc_dispatch: Option<BlockExcDispatchPlan>,
-    ops: Vec<BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>>,
-    term: BlockPyTerm<LocatedCodegenBlockPyExpr>,
 }
 
 #[derive(Clone)]
@@ -3543,7 +3541,7 @@ fn build_cranelift_run_bb_specialized_function(
             register_block_display_annotation(
                 &mut block_annotations,
                 *block,
-                jit_data.blocks[index].label.clone(),
+                jit_data.blocks[index].source.label.to_string(),
                 param_names,
             );
         }
@@ -3551,7 +3549,7 @@ fn build_cranelift_run_bb_specialized_function(
             register_block_display_annotation(
                 &mut block_annotations,
                 *block,
-                format!("cleanup_null::{}", jit_data.blocks[index].label),
+                format!("cleanup_null::{}", jit_data.blocks[index].source.label),
                 vec!["value".into()],
             );
         }
@@ -3831,7 +3829,7 @@ fn build_cranelift_run_bb_specialized_function(
                 register_block_display_annotation(
                     &mut block_annotations,
                     dispatch_block,
-                    format!("exc_dispatch::{}", jit_data.blocks[index].label),
+                    format!("exc_dispatch::{}", jit_data.blocks[index].source.label),
                     Vec::new(),
                 );
                 exception_dispatch_blocks[index] = Some(dispatch_block);
@@ -3911,7 +3909,7 @@ fn build_cranelift_run_bb_specialized_function(
 
             emit_codegen_ops(
                 &mut fb,
-                &block_data.ops,
+                &block_data.source.body,
                 &mut local_names,
                 &mut local_values,
                 &function_state_slots,
@@ -3923,8 +3921,8 @@ fn build_cranelift_run_bb_specialized_function(
 
             emit_codegen_term(
                 &mut fb,
-                block_data.label.as_str(),
-                &block_data.term,
+                block_data.source.label.to_string().as_str(),
+                &block_data.source.term,
                 &exec_blocks,
                 &runtime_block_param_names,
                 &full_block_param_names,
@@ -4070,12 +4068,10 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
             .map(|block| {
                 let block_info = jit_block_info(function, block);
                 SpecializedJitBlockData {
-                    label: block.label.to_string(),
+                    source: block.clone(),
                     full_param_names: block.param_name_vec(),
                     runtime_param_names: block_info.runtime_param_names,
                     exc_dispatch: block_info.exc_dispatch,
-                    ops: block.body.clone(),
-                    term: block.term.clone(),
                 }
             })
             .collect(),
@@ -4177,12 +4173,10 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
             .map(|block| {
                 let block_info = jit_block_info(function, block);
                 SpecializedJitBlockData {
-                    label: block.label.to_string(),
+                    source: block.clone(),
                     full_param_names: block.param_name_vec(),
                     runtime_param_names: block_info.runtime_param_names,
                     exc_dispatch: block_info.exc_dispatch,
-                    ops: block.body.clone(),
-                    term: block.term.clone(),
                 }
             })
             .collect(),

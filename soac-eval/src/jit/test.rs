@@ -1,11 +1,11 @@
 use super::*;
 use dp_transform::block_py::{
     BinOp, BinOpKind, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyStmt, BlockPyTerm,
-    ClosureInit, ClosureLayout, ClosureSlot, CodegenBlockPyExpr, CodegenBlockPyLiteral,
-    CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref, DelDerefQuietly,
-    DelItem, DelQuietly, FunctionName, LoadGlobal, LocatedCodegenBlockPyExpr, LocatedName,
-    MakeString, ModuleNameGen, NameLocation, Operation, Param, ParamKind, ParamSpec, StoreGlobal,
-    TernaryOp, TernaryOpKind,
+    ClosureInit, ClosureLayout, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
+    CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref,
+    DelDerefQuietly, DelItem, DelQuietly, FunctionName, LoadGlobal, LocatedCodegenBlockPyExpr,
+    LocatedName, MakeString, ModuleNameGen, NameLocation, Operation, Param, ParamKind, ParamSpec,
+    StoreGlobal, TernaryOp, TernaryOpKind,
 };
 use dp_transform::passes::CodegenBlockPyPass;
 mod tests {
@@ -105,18 +105,17 @@ mod tests {
         BlockPyTerm::Raise(dp_transform::block_py::BlockPyRaise { exc: None })
     }
 
-    fn test_block(
-        label: &str,
+    fn test_source_block(
+        function: &BlockPyFunction<CodegenBlockPyPass>,
         ops: Vec<BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>>,
         term: BlockPyTerm<LocatedCodegenBlockPyExpr>,
-    ) -> SpecializedJitBlockData {
-        SpecializedJitBlockData {
-            label: label.into(),
-            full_param_names: vec![],
-            runtime_param_names: vec![],
-            exc_dispatch: None,
-            ops,
+    ) -> CodegenBlock {
+        CodegenBlock {
+            label: function.name_gen.next_block_name(),
+            body: ops,
             term,
+            params: vec![],
+            exc_edge: None,
         }
     }
 
@@ -136,18 +135,34 @@ mod tests {
         }
     }
 
-    fn test_jit_data(blocks: Vec<SpecializedJitBlockData>) -> SpecializedJitData {
+    fn test_jit_data(
+        function: &BlockPyFunction<CodegenBlockPyPass>,
+        blocks: Vec<CodegenBlock>,
+    ) -> SpecializedJitData {
         SpecializedJitData {
             function_state_slot_names: vec![],
-            blocks,
+            blocks: blocks
+                .into_iter()
+                .map(|source| {
+                    let block_info = jit_block_info(function, &source);
+                    let full_param_names = source.param_name_vec();
+                    SpecializedJitBlockData {
+                        source,
+                        full_param_names,
+                        runtime_param_names: block_info.runtime_param_names,
+                        exc_dispatch: block_info.exc_dispatch,
+                    }
+                })
+                .collect(),
         }
     }
 
     fn test_single_block_data(
+        function: &BlockPyFunction<CodegenBlockPyPass>,
         ops: Vec<BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>>,
         term: BlockPyTerm<LocatedCodegenBlockPyExpr>,
     ) -> SpecializedJitData {
-        test_jit_data(vec![test_block("b0", ops, term)])
+        test_jit_data(function, vec![test_source_block(function, ops, term)])
     }
 
     fn render_test_jit_data(
@@ -186,12 +201,15 @@ mod tests {
     #[test]
     fn render_specialized_jit_clif_smoke() {
         let blocks = [1usize as ObjPtr, 2usize as ObjPtr, 3usize as ObjPtr];
-        let jit_data = test_jit_data(vec![
-            test_block("b0", vec![], raise_term()),
-            test_block("b1", vec![], raise_term()),
-            test_block("b2", vec![], raise_term()),
-        ]);
         let function = test_function();
+        let jit_data = test_jit_data(
+            &function,
+            vec![
+                test_source_block(&function, vec![], raise_term()),
+                test_source_block(&function, vec![], raise_term()),
+                test_source_block(&function, vec![], raise_term()),
+            ],
+        );
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("function"),
@@ -204,14 +222,13 @@ mod tests {
     fn render_specialized_jit_clif_annotates_block_headers_with_named_typed_params() {
         let blocks = [1usize as ObjPtr];
         let function = test_function();
+        let source = test_source_block(&function, vec![], ret_term(int_expr(7)));
         let jit_data = SpecializedJitData {
             function_state_slot_names: vec!["current".into(), "acc".into()],
             blocks: vec![SpecializedJitBlockData {
-                label: "loop_body".into(),
+                source,
                 full_param_names: vec!["current".into(), "acc".into()],
                 runtime_param_names: vec!["current".into(), "acc".into()],
-                ops: vec![],
-                term: ret_term(int_expr(7)),
                 exc_dispatch: None,
             }],
         };
@@ -221,7 +238,7 @@ mod tests {
             "rendered CLIF should include named typed params on surviving post-opt block headers:\n{rendered}"
         );
         assert!(
-            rendered.contains("; block loop_body()"),
+            rendered.contains("; block bb0()"),
             "rendered CLIF should still surface the semantic name for optimized blocks:\n{rendered}"
         );
         assert!(
@@ -233,7 +250,9 @@ mod tests {
     #[test]
     fn render_specialized_jit_operator_calls_use_python_capi() {
         let blocks = [1usize as ObjPtr];
+        let function = test_function();
         let jit_data = test_single_block_data(
+            &function,
             vec![],
             ret_term(op_expr(Operation::BinOp(BinOp {
                 node_index: Default::default(),
@@ -243,7 +262,6 @@ mod tests {
                 arg1: int_expr(2),
             }))),
         );
-        let function = test_function();
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call PyNumber_Add"),
@@ -258,7 +276,9 @@ mod tests {
     #[test]
     fn render_specialized_jit_compare_calls_use_richcompare() {
         let blocks = [1usize as ObjPtr];
+        let function = test_function();
         let jit_data = test_single_block_data(
+            &function,
             vec![],
             ret_term(op_expr(Operation::BinOp(BinOp {
                 node_index: Default::default(),
@@ -268,7 +288,6 @@ mod tests {
                 arg1: int_expr(2),
             }))),
         );
-        let function = test_function();
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call PyObject_RichCompare"),
@@ -279,7 +298,9 @@ mod tests {
     #[test]
     fn render_specialized_jit_make_string_uses_decode_helper_directly() {
         let blocks = [1usize as ObjPtr];
+        let function = test_function();
         let jit_data = test_single_block_data(
+            &function,
             vec![],
             ret_term(op_expr(Operation::MakeString(MakeString {
                 node_index: Default::default(),
@@ -287,7 +308,6 @@ mod tests {
                 arg0: bytes_expr(b"hello"),
             }))),
         );
-        let function = test_function();
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_decode_literal_bytes"),
@@ -302,7 +322,9 @@ mod tests {
     #[test]
     fn render_specialized_jit_pow_calls_use_pynumber_power() {
         let blocks = [1usize as ObjPtr];
+        let function = test_function();
         let jit_data = test_single_block_data(
+            &function,
             vec![],
             ret_term(op_expr(Operation::TernaryOp(TernaryOp {
                 node_index: Default::default(),
@@ -313,7 +335,6 @@ mod tests {
                 arg2: name_expr(test_global_name("__dp_NONE")),
             }))),
         );
-        let function = test_function();
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call PyNumber_Power"),
@@ -324,9 +345,9 @@ mod tests {
     #[test]
     fn render_specialized_jit_allocates_function_state_slots() {
         let blocks = [1usize as ObjPtr];
-        let mut jit_data = test_single_block_data(vec![], ret_term(int_expr(7)));
-        jit_data.function_state_slot_names = vec!["x".into(), "y".into()];
         let function = test_function();
+        let mut jit_data = test_single_block_data(&function, vec![], ret_term(int_expr(7)));
+        jit_data.function_state_slot_names = vec!["x".into(), "y".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.matches("explicit_slot 8").count() >= 2,
@@ -337,12 +358,13 @@ mod tests {
     #[test]
     fn render_specialized_jit_assignments_sync_function_state_slots() {
         let blocks = [1usize as ObjPtr];
+        let function = test_function();
         let mut jit_data = test_single_block_data(
+            &function,
             vec![assign_stmt(test_name("x"), int_expr(7))],
             ret_term(name_expr(test_name("x"))),
         );
         jit_data.function_state_slot_names = vec!["x".into()];
-        let function = test_function();
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("store.i64") || rendered.contains("stack_store"),
@@ -353,8 +375,12 @@ mod tests {
     #[test]
     fn render_specialized_jit_global_names_use_global_lookup_hook() {
         let blocks = [1usize as ObjPtr];
-        let jit_data = test_single_block_data(vec![], ret_term(name_expr(test_global_name("x"))));
         let function = test_function();
+        let jit_data = test_single_block_data(
+            &function,
+            vec![],
+            ret_term(name_expr(test_global_name("x"))),
+        );
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_globals")
@@ -366,7 +392,9 @@ mod tests {
     #[test]
     fn render_specialized_jit_load_global_intrinsic_uses_direct_helper() {
         let blocks = [1usize as ObjPtr];
+        let function = test_function();
         let jit_data = test_single_block_data(
+            &function,
             vec![],
             ret_term(op_expr(Operation::LoadGlobal(LoadGlobal {
                 node_index: Default::default(),
@@ -375,7 +403,6 @@ mod tests {
                 arg1: int_expr(2),
             }))),
         );
-        let function = test_function();
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_load_global_obj"),
@@ -386,7 +413,9 @@ mod tests {
     #[test]
     fn render_specialized_jit_store_global_intrinsic_uses_direct_helper() {
         let blocks = [1usize as ObjPtr];
+        let function = test_function();
         let jit_data = test_single_block_data(
+            &function,
             vec![],
             ret_term(op_expr(Operation::StoreGlobal(StoreGlobal {
                 node_index: Default::default(),
@@ -396,7 +425,6 @@ mod tests {
                 arg2: int_expr(3),
             }))),
         );
-        let function = test_function();
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_store_global"),
@@ -407,10 +435,13 @@ mod tests {
     #[test]
     fn render_specialized_jit_closure_names_use_function_closure_cells() {
         let blocks = [1usize as ObjPtr];
-        let mut jit_data =
-            test_single_block_data(vec![], ret_term(name_expr(test_closure_cell_name("x", 2))));
-        jit_data.function_state_slot_names = vec!["x".into()];
         let function = test_function();
+        let mut jit_data = test_single_block_data(
+            &function,
+            vec![],
+            ret_term(name_expr(test_closure_cell_name("x", 2))),
+        );
+        jit_data.function_state_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell")
@@ -422,7 +453,9 @@ mod tests {
     #[test]
     fn render_specialized_jit_cell_ref_intrinsic_uses_function_closure_cells() {
         let blocks = [1usize as ObjPtr];
+        let function = test_function();
         let mut jit_data = test_single_block_data(
+            &function,
             vec![],
             ret_term(op_expr(Operation::CellRef(
                 dp_transform::block_py::CellRef {
@@ -433,7 +466,6 @@ mod tests {
             ))),
         );
         jit_data.function_state_slot_names = vec!["x".into()];
-        let function = test_function();
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell"),
@@ -450,6 +482,7 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let mut function = test_function();
         let mut jit_data = test_single_block_data(
+            &function,
             vec![],
             ret_term(op_expr(Operation::CellRef(
                 dp_transform::block_py::CellRef {
@@ -495,7 +528,9 @@ mod tests {
     #[test]
     fn render_specialized_jit_delete_intrinsics_use_direct_helpers() {
         let blocks = [1usize as ObjPtr];
+        let function = test_function();
         let mut jit_data = test_single_block_data(
+            &function,
             vec![
                 expr_stmt(op_expr(Operation::DelItem(DelItem {
                     node_index: Default::default(),
@@ -523,7 +558,6 @@ mod tests {
             ret_term(int_expr(0)),
         );
         jit_data.function_state_slot_names = vec!["cell".into()];
-        let function = test_function();
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_pyobject_delitem"),
@@ -547,7 +581,8 @@ mod tests {
     fn render_specialized_jit_direct_entry_uses_live_positional_defaults() {
         let blocks = [1usize as ObjPtr];
         let mut function = test_function();
-        let mut jit_data = test_single_block_data(vec![], ret_term(name_expr(test_name("y"))));
+        let mut jit_data =
+            test_single_block_data(&function, vec![], ret_term(name_expr(test_name("y"))));
         function.params = ParamSpec {
             params: vec![
                 Param {
@@ -574,7 +609,8 @@ mod tests {
     fn render_specialized_jit_direct_entry_uses_live_kwonly_defaults() {
         let blocks = [1usize as ObjPtr];
         let mut function = test_function();
-        let mut jit_data = test_single_block_data(vec![], ret_term(name_expr(test_name("x"))));
+        let mut jit_data =
+            test_single_block_data(&function, vec![], ret_term(name_expr(test_name("x"))));
         function.params = ParamSpec {
             params: vec![Param {
                 name: "x".into(),
@@ -593,10 +629,13 @@ mod tests {
     #[test]
     fn render_specialized_jit_delete_stmt_updates_function_state_slots() {
         let blocks = [1usize as ObjPtr];
-        let mut jit_data =
-            test_single_block_data(vec![delete_stmt(test_name("x"))], ret_term(int_expr(0)));
-        jit_data.function_state_slot_names = vec!["x".into()];
         let function = test_function();
+        let mut jit_data = test_single_block_data(
+            &function,
+            vec![delete_stmt(test_name("x"))],
+            ret_term(int_expr(0)),
+        );
+        jit_data.function_state_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("store.i64")
