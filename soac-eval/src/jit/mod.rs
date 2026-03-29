@@ -24,13 +24,12 @@ mod planning;
 mod specialized_helpers;
 
 pub use planning::{
-    BlockExcArgSource, BlockExcDispatchPlan, BlockFastPath, ClifBindingParam, ClifBindingParamKind,
-    ClifBlockPlan, ClifEntryParamDefaultSource, ClifPlan, DirectSimpleAssignPlan,
-    DirectSimpleBlockArgPlan, DirectSimpleBlockPlan, DirectSimpleBrIfPlan, DirectSimpleCallPart,
-    DirectSimpleDeletePlan, DirectSimpleDeleteTargetPlan, DirectSimpleExprPlan, DirectSimpleOpPlan,
-    DirectSimpleRetPlan, DirectSimpleTermPlan, JitFunctionInfo, build_block_fast_paths,
-    lookup_blockpy_function, lookup_clif_plan, lookup_registered_jit_function,
-    register_clif_module_plans,
+    BlockExcArgSource, BlockExcDispatchPlan, ClifBindingParam, ClifBindingParamKind, ClifBlockPlan,
+    ClifEntryParamDefaultSource, ClifPlan, DirectSimpleAssignPlan, DirectSimpleBlockArgPlan,
+    DirectSimpleBlockPlan, DirectSimpleCallPart, DirectSimpleDeletePlan,
+    DirectSimpleDeleteTargetPlan, DirectSimpleExprPlan, DirectSimpleOpPlan, DirectSimpleTermPlan,
+    JitFunctionInfo, build_direct_simple_block_plans, lookup_blockpy_function, lookup_clif_plan,
+    lookup_registered_jit_function, register_clif_module_plans,
 };
 pub use specialized_helpers::ObjPtr;
 use specialized_helpers::{dp_jit_decref, register_specialized_jit_symbols};
@@ -51,7 +50,7 @@ struct SpecializedJitBlockData {
     label: String,
     runtime_param_names: Vec<String>,
     exc_dispatch: Option<BlockExcDispatchPlan>,
-    fast_path: BlockFastPath,
+    plan: DirectSimpleBlockPlan,
 }
 
 #[derive(Clone)]
@@ -2925,16 +2924,6 @@ fn build_cranelift_run_bb_specialized_function(
     if block_count == 0 {
         return Err(format!("specialized JIT run_bb plan has no blocks"));
     }
-    let has_generic_blocks = jit_data
-        .blocks
-        .iter()
-        .any(|block| matches!(block.fast_path, BlockFastPath::None));
-    if has_generic_blocks {
-        return Err(
-            "specialized JIT requires fully lowered fastpath blocks (no BlockFastPath::None)"
-                .to_string(),
-        );
-    }
     if !blocks.is_empty() && blocks.len() != block_count {
         return Err(format!(
             "specialized JIT block table length mismatch: {} != {}",
@@ -3301,92 +3290,88 @@ fn build_cranelift_run_bb_specialized_function(
                 tuple_set_item_ref,
                 function_state_slots: function_state_slots.clone(),
             };
-            match &jit_data.blocks[index].fast_path {
-                BlockFastPath::JumpPassThrough { target_index } => {
-                    fb.ins().jump(exec_blocks[*target_index], &[]);
-                    continue;
-                }
-                BlockFastPath::DirectSimpleBrIf { plan } => {
-                    let local_names = Vec::new();
-                    let local_values = Vec::new();
+            let block_plan = &jit_data.blocks[index].plan;
+            let mut local_names = Vec::new();
+            let mut local_values = Vec::new();
 
-                    let test_value = emit_direct_simple_expr(
+            emit_direct_simple_ops(
+                &mut fb,
+                &block_plan.ops,
+                &mut local_names,
+                &mut local_values,
+                &function_state_slots,
+                &emit_ctx,
+                &mut literal_pool,
+                jit_module,
+                &mut func_imports,
+            )?;
+
+            match &block_plan.term {
+                DirectSimpleTermPlan::Jump {
+                    target_index,
+                    target_params: _,
+                    full_target_params,
+                    target_args,
+                } => {
+                    let target_params = &runtime_block_param_names[*target_index];
+                    emit_explicit_target_slot_writes(
                         &mut fb,
-                        &plan.test,
+                        full_target_params,
+                        target_params,
+                        target_args,
                         &local_names,
                         &local_values,
                         &emit_ctx,
                         &mut literal_pool,
-                        false,
                         jit_module,
                         &mut func_imports,
-                    );
-                    let truth_inst = fb.ins().call(is_true_ref, &[test_value]);
-                    let truth_value = fb.inst_results(truth_inst)[0];
-                    fb.ins().call(decref_ref, &[test_value]);
-                    let truth_error = fb.ins().iconst(i32_ty, -1);
-                    let is_error =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, truth_value, truth_error);
-                    let truth_ok_block = fb.create_block();
-                    fb.append_block_param(truth_ok_block, i32_ty);
-                    fb.ins().brif(
-                        is_error,
-                        emit_ctx.consts.step_null_block,
-                        &block_arg_values(&emit_ctx.consts.step_null_args),
-                        truth_ok_block,
-                        &[ir::BlockArg::Value(truth_value)],
-                    );
-                    fb.switch_to_block(truth_ok_block);
-                    let truth_ok_value = fb.block_params(truth_ok_block)[0];
-                    let zero_i32 = fb.ins().iconst(i32_ty, 0);
-                    let is_true = fb.ins().icmp(
-                        ir::condcodes::IntCC::SignedGreaterThan,
-                        truth_ok_value,
-                        zero_i32,
-                    );
-                    fb.ins().brif(
-                        is_true,
-                        exec_blocks[plan.then_index],
-                        &[],
-                        exec_blocks[plan.else_index],
-                        &[],
-                    );
-                    continue;
-                }
-                BlockFastPath::DirectSimpleRet { plan } => {
-                    let mut local_names = Vec::new();
-                    let mut local_values = Vec::new();
-
-                    for assign in &plan.assigns {
-                        let value = emit_direct_simple_expr(
+                    )
+                    .ok_or_else(|| {
+                        format!(
+                            "missing local mapping for jump slot updates in block {}",
+                            jit_data.blocks[index].label
+                        )
+                    })?;
+                    let mut jump_args = Vec::with_capacity(target_params.len());
+                    jump_args.extend(
+                        emit_prepare_target_args(
                             &mut fb,
-                            &assign.value,
+                            target_params,
+                            Some(full_target_params),
+                            Some(target_args),
                             &local_names,
                             &local_values,
                             &emit_ctx,
                             &mut literal_pool,
-                            false,
                             jit_module,
                             &mut func_imports,
-                        );
-
-                        bind_local_value(
-                            &mut fb,
-                            &mut local_names,
-                            &mut local_values,
-                            assign.target.id.as_str(),
-                            value,
-                            &function_state_slots,
-                            ptr_ty,
-                            incref_ref,
-                            decref_ref,
-                        );
-                    }
-
-                    let ret_value = emit_direct_simple_expr(
+                        )
+                        .ok_or_else(|| {
+                            format!(
+                                "missing local mapping for jump block params in block {}",
+                                jit_data.blocks[index].label
+                            )
+                        })?,
+                    );
+                    emit_decref_unforwarded_locals(
                         &mut fb,
-                        &plan.ret,
+                        &local_values,
+                        &local_names,
+                        target_params,
+                        decref_ref,
+                    );
+                    fb.ins().jump(exec_blocks[*target_index], &jump_args);
+                }
+                DirectSimpleTermPlan::BrIf {
+                    test,
+                    then_index,
+                    then_params: _,
+                    else_index,
+                    else_params: _,
+                } => {
+                    let test_value = emit_direct_simple_expr(
+                        &mut fb,
+                        test,
                         &local_names,
                         &local_values,
                         &emit_ctx,
@@ -3395,236 +3380,136 @@ fn build_cranelift_run_bb_specialized_function(
                         jit_module,
                         &mut func_imports,
                     );
-
-                    for value in local_values {
-                        fb.ins().call(decref_ref, &[value]);
-                    }
-                    function_state_slots.decref_all(&mut fb, ptr_ty, decref_ref);
-                    fb.ins().return_(&[ret_value]);
-                    continue;
-                }
-                BlockFastPath::DirectSimpleBlock { plan: block_plan } => {
-                    let mut local_names = Vec::new();
-                    let mut local_values = Vec::new();
-
-                    emit_direct_simple_ops(
+                    let is_true = emit_truthy_from_owned(
                         &mut fb,
-                        &block_plan.ops,
-                        &mut local_names,
-                        &mut local_values,
-                        &function_state_slots,
+                        test_value,
+                        is_true_ref,
+                        decref_ref,
+                        emit_ctx.consts.step_null_block,
+                        &emit_ctx.consts.step_null_args,
+                        i32_ty,
+                    );
+
+                    let then_branch = fb.create_block();
+                    let else_branch = fb.create_block();
+                    fb.ins().brif(is_true, then_branch, &[], else_branch, &[]);
+
+                    fb.switch_to_block(then_branch);
+                    let then_params = &runtime_block_param_names[*then_index];
+                    let mut then_jump_args = Vec::with_capacity(then_params.len());
+                    then_jump_args.extend(
+                        emit_prepare_target_args(
+                            &mut fb,
+                            then_params,
+                            None,
+                            None,
+                            &local_names,
+                            &local_values,
+                            &emit_ctx,
+                            &mut literal_pool,
+                            jit_module,
+                            &mut func_imports,
+                        )
+                        .ok_or_else(|| {
+                            format!(
+                                "missing local mapping for then-branch block params in block {}",
+                                jit_data.blocks[index].label
+                            )
+                        })?,
+                    );
+                    emit_decref_unforwarded_locals(
+                        &mut fb,
+                        &local_values,
+                        &local_names,
+                        then_params,
+                        decref_ref,
+                    );
+                    fb.ins().jump(exec_blocks[*then_index], &then_jump_args);
+
+                    fb.switch_to_block(else_branch);
+                    let else_params = &runtime_block_param_names[*else_index];
+                    let mut else_jump_args = Vec::with_capacity(else_params.len());
+                    else_jump_args.extend(
+                        emit_prepare_target_args(
+                            &mut fb,
+                            else_params,
+                            None,
+                            None,
+                            &local_names,
+                            &local_values,
+                            &emit_ctx,
+                            &mut literal_pool,
+                            jit_module,
+                            &mut func_imports,
+                        )
+                        .ok_or_else(|| {
+                            format!(
+                                "missing local mapping for else-branch block params in block {}",
+                                jit_data.blocks[index].label
+                            )
+                        })?,
+                    );
+                    emit_decref_unforwarded_locals(
+                        &mut fb,
+                        &local_values,
+                        &local_names,
+                        else_params,
+                        decref_ref,
+                    );
+                    fb.ins().jump(exec_blocks[*else_index], &else_jump_args);
+                }
+                DirectSimpleTermPlan::BrTable {
+                    index: table_index_expr,
+                    targets,
+                    default_index,
+                    default_params: _,
+                } => {
+                    let index_obj = emit_direct_simple_expr(
+                        &mut fb,
+                        table_index_expr,
+                        &local_names,
+                        &local_values,
                         &emit_ctx,
                         &mut literal_pool,
+                        false,
                         jit_module,
                         &mut func_imports,
-                    )?;
+                    );
+                    let index_i64_inst = fb.ins().call(pyobject_to_i64_ref, &[index_obj]);
+                    let index_i64 = fb.inst_results(index_i64_inst)[0];
+                    fb.ins().call(decref_ref, &[index_obj]);
+                    let index_error = fb.ins().iconst(i64_ty, i64::MIN);
+                    let is_error =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, index_i64, index_error);
+                    let dispatch_block = fb.create_block();
+                    fb.append_block_param(dispatch_block, i64_ty);
+                    fb.ins().brif(
+                        is_error,
+                        emit_ctx.consts.step_null_block,
+                        &block_arg_values(&emit_ctx.consts.step_null_args),
+                        dispatch_block,
+                        &[ir::BlockArg::Value(index_i64)],
+                    );
 
-                    match &block_plan.term {
-                        DirectSimpleTermPlan::Jump {
-                            target_index,
-                            target_params: _,
-                            full_target_params,
-                            target_args,
-                        } => {
-                            let target_params = &runtime_block_param_names[*target_index];
-                            emit_explicit_target_slot_writes(
-                                &mut fb,
-                                full_target_params,
-                                target_params,
-                                target_args,
-                                &local_names,
-                                &local_values,
-                                &emit_ctx,
-                                &mut literal_pool,
-                                jit_module,
-                                &mut func_imports,
-                            )
-                            .ok_or_else(|| {
-                                format!(
-                                    "missing local mapping for jump slot updates in block {}",
-                                    jit_data.blocks[index].label
-                                )
-                            })?;
-                            let mut jump_args = Vec::with_capacity(target_params.len());
-                            jump_args.extend(
-                                emit_prepare_target_args(
-                                    &mut fb,
-                                    target_params,
-                                    Some(full_target_params),
-                                    Some(target_args),
-                                    &local_names,
-                                    &local_values,
-                                    &emit_ctx,
-                                    &mut literal_pool,
-                                    jit_module,
-                                    &mut func_imports,
-                                )
-                                .ok_or_else(|| {
-                                    format!(
-                                        "missing local mapping for jump block params in block {}",
-                                        jit_data.blocks[index].label
-                                    )
-                                })?,
-                            );
-                            emit_decref_unforwarded_locals(
-                                &mut fb,
-                                &local_values,
-                                &local_names,
-                                target_params,
-                                decref_ref,
-                            );
-                            fb.ins().jump(exec_blocks[*target_index], &jump_args);
-                        }
-                        DirectSimpleTermPlan::BrIf {
-                            test,
-                            then_index,
-                            then_params: _,
-                            else_index,
-                            else_params: _,
-                        } => {
-                            let test_value = emit_direct_simple_expr(
-                                &mut fb,
-                                test,
-                                &local_names,
-                                &local_values,
-                                &emit_ctx,
-                                &mut literal_pool,
-                                false,
-                                jit_module,
-                                &mut func_imports,
-                            );
-                            let is_true = emit_truthy_from_owned(
-                                &mut fb,
-                                test_value,
-                                is_true_ref,
-                                decref_ref,
-                                emit_ctx.consts.step_null_block,
-                                &emit_ctx.consts.step_null_args,
-                                i32_ty,
-                            );
+                    let default_block = fb.create_block();
+                    let mut switch = Switch::new();
+                    let mut case_blocks = Vec::with_capacity(targets.len());
+                    for (case_index, _) in targets.iter().enumerate() {
+                        let case_block = fb.create_block();
+                        switch.set_entry(case_index as u128, case_block);
+                        case_blocks.push(case_block);
+                    }
 
-                            let then_branch = fb.create_block();
-                            let else_branch = fb.create_block();
-                            fb.ins().brif(is_true, then_branch, &[], else_branch, &[]);
+                    fb.switch_to_block(dispatch_block);
+                    let dispatch_value = fb.block_params(dispatch_block)[0];
+                    switch.emit(&mut fb, dispatch_value, default_block);
 
-                            fb.switch_to_block(then_branch);
-                            let then_params = &runtime_block_param_names[*then_index];
-                            let mut then_jump_args = Vec::with_capacity(then_params.len());
-                            then_jump_args.extend(
-                                emit_prepare_target_args(
-                                    &mut fb,
-                                    then_params,
-                                    None,
-                                    None,
-                                    &local_names,
-                                    &local_values,
-                                    &emit_ctx,
-                                    &mut literal_pool,
-                                    jit_module,
-                                    &mut func_imports,
-                                )
-                                .ok_or_else(|| {
-                                    format!(
-                                        "missing local mapping for then-branch block params in block {}",
-                                        jit_data.blocks[index].label
-                                    )
-                                })?,
-                            );
-                            emit_decref_unforwarded_locals(
-                                &mut fb,
-                                &local_values,
-                                &local_names,
-                                then_params,
-                                decref_ref,
-                            );
-                            fb.ins().jump(exec_blocks[*then_index], &then_jump_args);
-
-                            fb.switch_to_block(else_branch);
-                            let else_params = &runtime_block_param_names[*else_index];
-                            let mut else_jump_args = Vec::with_capacity(else_params.len());
-                            else_jump_args.extend(
-                                emit_prepare_target_args(
-                                    &mut fb,
-                                    else_params,
-                                    None,
-                                    None,
-                                    &local_names,
-                                    &local_values,
-                                    &emit_ctx,
-                                    &mut literal_pool,
-                                    jit_module,
-                                    &mut func_imports,
-                                )
-                                .ok_or_else(|| {
-                                    format!(
-                                        "missing local mapping for else-branch block params in block {}",
-                                        jit_data.blocks[index].label
-                                    )
-                                })?,
-                            );
-                            emit_decref_unforwarded_locals(
-                                &mut fb,
-                                &local_values,
-                                &local_names,
-                                else_params,
-                                decref_ref,
-                            );
-                            fb.ins().jump(exec_blocks[*else_index], &else_jump_args);
-                        }
-                        DirectSimpleTermPlan::BrTable {
-                            index: table_index_expr,
-                            targets,
-                            default_index,
-                            default_params: _,
-                        } => {
-                            let index_obj = emit_direct_simple_expr(
-                                &mut fb,
-                                table_index_expr,
-                                &local_names,
-                                &local_values,
-                                &emit_ctx,
-                                &mut literal_pool,
-                                false,
-                                jit_module,
-                                &mut func_imports,
-                            );
-                            let index_i64_inst = fb.ins().call(pyobject_to_i64_ref, &[index_obj]);
-                            let index_i64 = fb.inst_results(index_i64_inst)[0];
-                            fb.ins().call(decref_ref, &[index_obj]);
-                            let index_error = fb.ins().iconst(i64_ty, i64::MIN);
-                            let is_error =
-                                fb.ins()
-                                    .icmp(ir::condcodes::IntCC::Equal, index_i64, index_error);
-                            let dispatch_block = fb.create_block();
-                            fb.append_block_param(dispatch_block, i64_ty);
-                            fb.ins().brif(
-                                is_error,
-                                emit_ctx.consts.step_null_block,
-                                &block_arg_values(&emit_ctx.consts.step_null_args),
-                                dispatch_block,
-                                &[ir::BlockArg::Value(index_i64)],
-                            );
-
-                            let default_block = fb.create_block();
-                            let mut switch = Switch::new();
-                            let mut case_blocks = Vec::with_capacity(targets.len());
-                            for (case_index, _) in targets.iter().enumerate() {
-                                let case_block = fb.create_block();
-                                switch.set_entry(case_index as u128, case_block);
-                                case_blocks.push(case_block);
-                            }
-
-                            fb.switch_to_block(dispatch_block);
-                            let dispatch_value = fb.block_params(dispatch_block)[0];
-                            switch.emit(&mut fb, dispatch_value, default_block);
-
-                            for ((target_index, _), case_block) in
-                                targets.iter().zip(case_blocks.iter())
-                            {
-                                fb.switch_to_block(*case_block);
-                                let target_params = &runtime_block_param_names[*target_index];
-                                let mut case_jump_args = Vec::with_capacity(target_params.len());
-                                case_jump_args.extend(
+                    for ((target_index, _), case_block) in targets.iter().zip(case_blocks.iter()) {
+                        fb.switch_to_block(*case_block);
+                        let target_params = &runtime_block_param_names[*target_index];
+                        let mut case_jump_args = Vec::with_capacity(target_params.len());
+                        case_jump_args.extend(
                                     emit_prepare_target_args(
                                     &mut fb,
                                     target_params,
@@ -3644,20 +3529,20 @@ fn build_cranelift_run_bb_specialized_function(
                                         )
                                     })?,
                                 );
-                                emit_decref_unforwarded_locals(
-                                    &mut fb,
-                                    &local_values,
-                                    &local_names,
-                                    target_params,
-                                    decref_ref,
-                                );
-                                fb.ins().jump(exec_blocks[*target_index], &case_jump_args);
-                            }
+                        emit_decref_unforwarded_locals(
+                            &mut fb,
+                            &local_values,
+                            &local_names,
+                            target_params,
+                            decref_ref,
+                        );
+                        fb.ins().jump(exec_blocks[*target_index], &case_jump_args);
+                    }
 
-                            fb.switch_to_block(default_block);
-                            let default_params = &runtime_block_param_names[*default_index];
-                            let mut default_jump_args = Vec::with_capacity(default_params.len());
-                            default_jump_args.extend(
+                    fb.switch_to_block(default_block);
+                    let default_params = &runtime_block_param_names[*default_index];
+                    let mut default_jump_args = Vec::with_capacity(default_params.len());
+                    default_jump_args.extend(
                                 emit_prepare_target_args(
                                     &mut fb,
                                     default_params,
@@ -3677,139 +3562,130 @@ fn build_cranelift_run_bb_specialized_function(
                                     )
                                 })?,
                             );
-                            emit_decref_unforwarded_locals(
-                                &mut fb,
-                                &local_values,
-                                &local_names,
-                                default_params,
-                                decref_ref,
-                            );
-                            fb.ins()
-                                .jump(exec_blocks[*default_index], &default_jump_args);
-                        }
-                        DirectSimpleTermPlan::Ret { value } => {
-                            let ret_value = emit_direct_simple_expr(
-                                &mut fb,
-                                value,
-                                &local_names,
-                                &local_values,
-                                &emit_ctx,
-                                &mut literal_pool,
-                                false,
-                                jit_module,
-                                &mut func_imports,
-                            );
-                            for value in &local_values {
-                                fb.ins().call(decref_ref, &[*value]);
-                            }
-                            function_state_slots.decref_all(&mut fb, ptr_ty, decref_ref);
-                            fb.ins().return_(&[ret_value]);
-                        }
-                        DirectSimpleTermPlan::Raise { exc } => {
-                            let (raise_name_ptr, raise_name_len) =
-                                intern_bytes_literal(&mut literal_pool, b"__dp_raise_from");
-                            let raise_name_ptr_val = fb.ins().iconst(ptr_ty, raise_name_ptr as i64);
-                            let raise_name_len_val = fb.ins().iconst(i64_ty, raise_name_len);
-                            let raise_fn_inst = fb.ins().call(
-                                load_name_ref,
-                                &[block_const, raise_name_ptr_val, raise_name_len_val],
-                            );
-                            let raise_fn = fb.inst_results(raise_fn_inst)[0];
-                            let raise_fn_null =
-                                fb.ins()
-                                    .icmp(ir::condcodes::IntCC::Equal, raise_fn, null_ptr);
-                            let raise_fn_ok = fb.create_block();
-                            fb.append_block_param(raise_fn_ok, ptr_ty);
-                            fb.ins().brif(
-                                raise_fn_null,
-                                emit_ctx.consts.step_null_block,
-                                &step_null_block_args(&emit_ctx),
-                                raise_fn_ok,
-                                &[ir::BlockArg::Value(raise_fn)],
-                            );
-
-                            fb.switch_to_block(raise_fn_ok);
-                            let rfo_raise_fn = fb.block_params(raise_fn_ok)[0];
-                            let exc_value = if let Some(exc_expr) = exc.as_ref() {
-                                emit_direct_simple_expr(
-                                    &mut fb,
-                                    exc_expr,
-                                    &local_names,
-                                    &local_values,
-                                    &emit_ctx,
-                                    &mut literal_pool,
-                                    false,
-                                    jit_module,
-                                    &mut func_imports,
-                                )
-                            } else {
-                                fb.ins().call(incref_ref, &[none_const]);
-                                none_const
-                            };
-                            fb.ins().call(incref_ref, &[none_const]);
-                            let cause_value = none_const;
-                            let raise_call_inst = fb.ins().call(
-                                py_call_positional_three_ref,
-                                &[rfo_raise_fn, exc_value, cause_value, null_ptr, null_ptr],
-                            );
-                            let raise_exc_obj = fb.inst_results(raise_call_inst)[0];
-                            fb.ins().call(decref_ref, &[cause_value]);
-                            fb.ins().call(decref_ref, &[exc_value]);
-                            fb.ins().call(decref_ref, &[rfo_raise_fn]);
-                            let raise_exc_null =
-                                fb.ins()
-                                    .icmp(ir::condcodes::IntCC::Equal, raise_exc_obj, null_ptr);
-                            let raise_exc_ok = fb.create_block();
-                            fb.append_block_param(raise_exc_ok, ptr_ty);
-                            fb.ins().brif(
-                                raise_exc_null,
-                                emit_ctx.consts.step_null_block,
-                                &step_null_block_args(&emit_ctx),
-                                raise_exc_ok,
-                                &[ir::BlockArg::Value(raise_exc_obj)],
-                            );
-
-                            fb.switch_to_block(raise_exc_ok);
-                            let reo_exc_obj = fb.block_params(raise_exc_ok)[0];
-                            let raise_inst = fb.ins().call(raise_exc_ref, &[reo_exc_obj]);
-                            let raise_rc = fb.inst_results(raise_inst)[0];
-                            fb.ins().call(decref_ref, &[reo_exc_obj]);
-                            let raise_rc_fail = fb.create_block();
-                            let raise_rc_ok = fb.create_block();
-                            let raise_ok =
-                                fb.ins().icmp_imm(ir::condcodes::IntCC::Equal, raise_rc, 0);
-                            fb.ins()
-                                .brif(raise_ok, raise_rc_ok, &[], raise_rc_fail, &[]);
-
-                            fb.switch_to_block(raise_rc_fail);
-                            fb.ins().jump(
-                                emit_ctx.consts.step_null_block,
-                                &step_null_block_args(&emit_ctx),
-                            );
-
-                            fb.switch_to_block(raise_rc_ok);
-                            emit_decref_unforwarded_locals(
-                                &mut fb,
-                                &local_values,
-                                &local_names,
-                                &[],
-                                decref_ref,
-                            );
-                            fb.ins().jump(
-                                emit_ctx.consts.step_null_block,
-                                &step_null_block_args(&emit_ctx),
-                            );
-                        }
-                    }
-                    continue;
+                    emit_decref_unforwarded_locals(
+                        &mut fb,
+                        &local_values,
+                        &local_names,
+                        default_params,
+                        decref_ref,
+                    );
+                    fb.ins()
+                        .jump(exec_blocks[*default_index], &default_jump_args);
                 }
-                BlockFastPath::None => {
-                    return Err(format!(
-                        "specialized JIT encountered unexpected slow-path block {}",
-                        jit_data.blocks[index].label
-                    ));
+                DirectSimpleTermPlan::Ret { value } => {
+                    let ret_value = emit_direct_simple_expr(
+                        &mut fb,
+                        value,
+                        &local_names,
+                        &local_values,
+                        &emit_ctx,
+                        &mut literal_pool,
+                        false,
+                        jit_module,
+                        &mut func_imports,
+                    );
+                    for value in &local_values {
+                        fb.ins().call(decref_ref, &[*value]);
+                    }
+                    function_state_slots.decref_all(&mut fb, ptr_ty, decref_ref);
+                    fb.ins().return_(&[ret_value]);
+                }
+                DirectSimpleTermPlan::Raise { exc } => {
+                    let (raise_name_ptr, raise_name_len) =
+                        intern_bytes_literal(&mut literal_pool, b"__dp_raise_from");
+                    let raise_name_ptr_val = fb.ins().iconst(ptr_ty, raise_name_ptr as i64);
+                    let raise_name_len_val = fb.ins().iconst(i64_ty, raise_name_len);
+                    let raise_fn_inst = fb.ins().call(
+                        load_name_ref,
+                        &[block_const, raise_name_ptr_val, raise_name_len_val],
+                    );
+                    let raise_fn = fb.inst_results(raise_fn_inst)[0];
+                    let raise_fn_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, raise_fn, null_ptr);
+                    let raise_fn_ok = fb.create_block();
+                    fb.append_block_param(raise_fn_ok, ptr_ty);
+                    fb.ins().brif(
+                        raise_fn_null,
+                        emit_ctx.consts.step_null_block,
+                        &step_null_block_args(&emit_ctx),
+                        raise_fn_ok,
+                        &[ir::BlockArg::Value(raise_fn)],
+                    );
+
+                    fb.switch_to_block(raise_fn_ok);
+                    let rfo_raise_fn = fb.block_params(raise_fn_ok)[0];
+                    let exc_value = if let Some(exc_expr) = exc.as_ref() {
+                        emit_direct_simple_expr(
+                            &mut fb,
+                            exc_expr,
+                            &local_names,
+                            &local_values,
+                            &emit_ctx,
+                            &mut literal_pool,
+                            false,
+                            jit_module,
+                            &mut func_imports,
+                        )
+                    } else {
+                        fb.ins().call(incref_ref, &[none_const]);
+                        none_const
+                    };
+                    fb.ins().call(incref_ref, &[none_const]);
+                    let cause_value = none_const;
+                    let raise_call_inst = fb.ins().call(
+                        py_call_positional_three_ref,
+                        &[rfo_raise_fn, exc_value, cause_value, null_ptr, null_ptr],
+                    );
+                    let raise_exc_obj = fb.inst_results(raise_call_inst)[0];
+                    fb.ins().call(decref_ref, &[cause_value]);
+                    fb.ins().call(decref_ref, &[exc_value]);
+                    fb.ins().call(decref_ref, &[rfo_raise_fn]);
+                    let raise_exc_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, raise_exc_obj, null_ptr);
+                    let raise_exc_ok = fb.create_block();
+                    fb.append_block_param(raise_exc_ok, ptr_ty);
+                    fb.ins().brif(
+                        raise_exc_null,
+                        emit_ctx.consts.step_null_block,
+                        &step_null_block_args(&emit_ctx),
+                        raise_exc_ok,
+                        &[ir::BlockArg::Value(raise_exc_obj)],
+                    );
+
+                    fb.switch_to_block(raise_exc_ok);
+                    let reo_exc_obj = fb.block_params(raise_exc_ok)[0];
+                    let raise_inst = fb.ins().call(raise_exc_ref, &[reo_exc_obj]);
+                    let raise_rc = fb.inst_results(raise_inst)[0];
+                    fb.ins().call(decref_ref, &[reo_exc_obj]);
+                    let raise_rc_fail = fb.create_block();
+                    let raise_rc_ok = fb.create_block();
+                    let raise_ok = fb.ins().icmp_imm(ir::condcodes::IntCC::Equal, raise_rc, 0);
+                    fb.ins()
+                        .brif(raise_ok, raise_rc_ok, &[], raise_rc_fail, &[]);
+
+                    fb.switch_to_block(raise_rc_fail);
+                    fb.ins().jump(
+                        emit_ctx.consts.step_null_block,
+                        &step_null_block_args(&emit_ctx),
+                    );
+
+                    fb.switch_to_block(raise_rc_ok);
+                    emit_decref_unforwarded_locals(
+                        &mut fb,
+                        &local_values,
+                        &local_names,
+                        &[],
+                        decref_ref,
+                    );
+                    fb.ins().jump(
+                        emit_ctx.consts.step_null_block,
+                        &step_null_block_args(&emit_ctx),
+                    );
                 }
             }
+            continue;
         }
 
         for (index, maybe_dispatch_block) in exception_dispatch_blocks.iter().enumerate() {
@@ -4014,7 +3890,7 @@ fn specialized_jit_data_from_plan(plan: &ClifPlan) -> SpecializedJitData {
                 label: block.label.clone(),
                 runtime_param_names: block.runtime_param_names.clone(),
                 exc_dispatch: block.exc_dispatch.clone(),
-                fast_path: block.fast_path.clone(),
+                plan: block.plan.clone(),
             })
             .collect(),
     }
@@ -4024,7 +3900,7 @@ fn specialized_jit_data_from_function(
     function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
     info: &JitFunctionInfo,
 ) -> SpecializedJitData {
-    let fast_paths = build_block_fast_paths(function);
+    let block_plans = build_direct_simple_block_plans(function);
     SpecializedJitData {
         entry_param_names: info.entry_param_names.clone(),
         entry_param_default_sources: info.entry_param_default_sources.clone(),
@@ -4034,12 +3910,12 @@ fn specialized_jit_data_from_function(
             .blocks
             .iter()
             .zip(info.blocks.iter())
-            .zip(fast_paths)
-            .map(|((block, block_info), fast_path)| SpecializedJitBlockData {
+            .zip(block_plans)
+            .map(|((block, block_info), plan)| SpecializedJitBlockData {
                 label: block.label.to_string(),
                 runtime_param_names: block_info.runtime_param_names.clone(),
                 exc_dispatch: block_info.exc_dispatch.clone(),
-                fast_path,
+                plan,
             })
             .collect(),
     }

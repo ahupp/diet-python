@@ -57,10 +57,9 @@ pub struct ClifBlockPlan {
     pub label: String,
     pub param_names: Vec<String>,
     pub runtime_param_names: Vec<String>,
-    pub term: BlockPyTerm<LocatedCodegenBlockPyExpr>,
     pub exc_target: Option<usize>,
     pub exc_dispatch: Option<BlockExcDispatchPlan>,
-    pub fast_path: BlockFastPath,
+    pub plan: DirectSimpleBlockPlan,
 }
 
 #[derive(Clone, Debug)]
@@ -81,15 +80,6 @@ pub enum BlockExcArgSource {
     Name(String),
     Exception,
     NoneValue,
-}
-
-#[derive(Clone, Debug)]
-pub enum BlockFastPath {
-    None,
-    JumpPassThrough { target_index: usize },
-    DirectSimpleBrIf { plan: DirectSimpleBrIfPlan },
-    DirectSimpleRet { plan: DirectSimpleRetPlan },
-    DirectSimpleBlock { plan: DirectSimpleBlockPlan },
 }
 
 #[derive(Clone, Debug)]
@@ -128,21 +118,6 @@ pub enum DirectSimpleBlockArgPlan {
 pub struct DirectSimpleAssignPlan {
     pub target: LocatedName,
     pub value: DirectSimpleExprPlan,
-}
-
-#[derive(Clone, Debug)]
-pub struct DirectSimpleRetPlan {
-    pub params: Vec<String>,
-    pub assigns: Vec<DirectSimpleAssignPlan>,
-    pub ret: DirectSimpleExprPlan,
-}
-
-#[derive(Clone, Debug)]
-pub struct DirectSimpleBrIfPlan {
-    pub params: Vec<String>,
-    pub test: DirectSimpleExprPlan,
-    pub then_index: usize,
-    pub else_index: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -193,7 +168,6 @@ pub enum DirectSimpleDeleteTargetPlan {
 
 #[derive(Clone, Debug)]
 pub struct DirectSimpleBlockPlan {
-    pub params: Vec<String>,
     pub ops: Vec<DirectSimpleOpPlan>,
     pub term: DirectSimpleTermPlan,
 }
@@ -531,57 +505,6 @@ fn direct_simple_block_arg_from(arg: &BlockArg) -> Option<DirectSimpleBlockArgPl
     }
 }
 
-fn direct_simple_plan_from_block(block: &CodegenBlock) -> Option<DirectSimpleRetPlan> {
-    let mut assigns = Vec::new();
-    for op in &block.body {
-        let BlockPyStmt::Assign(assign) = op else {
-            return None;
-        };
-        let value = direct_simple_expr_from(&assign.value);
-        assigns.push(DirectSimpleAssignPlan {
-            target: assign.target.clone(),
-            value,
-        });
-    }
-    let BlockPyTerm::Return(ret_value) = &block.term else {
-        return None;
-    };
-    let ret = direct_simple_expr_from(ret_value);
-    Some(DirectSimpleRetPlan {
-        params: block.param_name_vec(),
-        assigns,
-        ret,
-    })
-}
-
-fn direct_simple_brif_plan_from_block(
-    function: &ValidatedPreparedBbFunction<'_>,
-    block: &CodegenBlock,
-) -> Option<DirectSimpleBrIfPlan> {
-    if !block.body.is_empty() {
-        return None;
-    }
-    let BlockPyTerm::IfTerm(if_term) = &block.term else {
-        return None;
-    };
-    let then_index = function.index_of_target(&if_term.then_label);
-    let else_index = function.index_of_target(&if_term.else_label);
-    let source_params = function.jit_param_names_for_block(block);
-    if !source_params.is_empty()
-        || function.jit_param_names_for_index(then_index) != source_params
-        || function.jit_param_names_for_index(else_index) != source_params
-    {
-        return None;
-    }
-    let test = direct_simple_expr_from(&if_term.test);
-    Some(DirectSimpleBrIfPlan {
-        params: block.param_name_vec(),
-        test,
-        then_index,
-        else_index,
-    })
-}
-
 fn direct_simple_delete_plan_from_targets(targets: &[LocatedName]) -> DirectSimpleDeletePlan {
     let mut plan_targets = Vec::with_capacity(targets.len());
     for target in targets {
@@ -684,11 +607,7 @@ fn direct_simple_block_plan_from_block(
             DirectSimpleTermPlan::Raise { exc }
         }
     };
-    DirectSimpleBlockPlan {
-        params: block.param_name_vec(),
-        ops,
-        term,
-    }
+    DirectSimpleBlockPlan { ops, term }
 }
 
 fn build_jit_function_info(function: &BlockPyFunction<CodegenBlockPyPass>) -> JitFunctionInfo {
@@ -735,63 +654,14 @@ fn build_jit_function_info(function: &BlockPyFunction<CodegenBlockPyPass>) -> Ji
     }
 }
 
-fn classify_block_fast_path(
-    function: &ValidatedPreparedBbFunction<'_>,
-    block: &CodegenBlock,
-) -> BlockFastPath {
-    if block.body.is_empty() {
-        match &block.term {
-            BlockPyTerm::Jump(target_label) => {
-                let target_index = function.index_of_target(&target_label.target);
-                let source_params = function.jit_param_names_for_block(block);
-                let target_params = function.jit_param_names_for_index(target_index);
-                if target_label.args.is_empty()
-                    && source_params.is_empty()
-                    && source_params == target_params
-                {
-                    BlockFastPath::JumpPassThrough { target_index }
-                } else {
-                    BlockFastPath::DirectSimpleBlock {
-                        plan: direct_simple_block_plan_from_block(function, block),
-                    }
-                }
-            }
-            BlockPyTerm::IfTerm(_) => {
-                if let Some(plan) = direct_simple_brif_plan_from_block(function, block) {
-                    BlockFastPath::DirectSimpleBrIf { plan }
-                } else {
-                    BlockFastPath::DirectSimpleBlock {
-                        plan: direct_simple_block_plan_from_block(function, block),
-                    }
-                }
-            }
-            _ => {
-                if let Some(plan) = direct_simple_plan_from_block(block) {
-                    BlockFastPath::DirectSimpleRet { plan }
-                } else {
-                    BlockFastPath::DirectSimpleBlock {
-                        plan: direct_simple_block_plan_from_block(function, block),
-                    }
-                }
-            }
-        }
-    } else if let Some(plan) = direct_simple_plan_from_block(block) {
-        BlockFastPath::DirectSimpleRet { plan }
-    } else {
-        BlockFastPath::DirectSimpleBlock {
-            plan: direct_simple_block_plan_from_block(function, block),
-        }
-    }
-}
-
-pub fn build_block_fast_paths(
+pub fn build_direct_simple_block_plans(
     function: &BlockPyFunction<CodegenBlockPyPass>,
-) -> Vec<BlockFastPath> {
+) -> Vec<DirectSimpleBlockPlan> {
     let validated = ValidatedPreparedBbFunction::new(function);
     function
         .blocks
         .iter()
-        .map(|block| classify_block_fast_path(&validated, block))
+        .map(|block| direct_simple_block_plan_from_block(&validated, block))
         .collect()
 }
 
@@ -799,20 +669,19 @@ fn build_clif_plan(
     function: &BlockPyFunction<CodegenBlockPyPass>,
     info: &JitFunctionInfo,
 ) -> ClifPlan {
-    let fast_paths = build_block_fast_paths(function);
+    let block_plans = build_direct_simple_block_plans(function);
     let blocks = function
         .blocks
         .iter()
         .zip(info.blocks.iter())
-        .zip(fast_paths)
-        .map(|((block, block_info), fast_path)| ClifBlockPlan {
+        .zip(block_plans)
+        .map(|((block, block_info), plan)| ClifBlockPlan {
             label: block.label.to_string(),
             param_names: block.param_name_vec(),
             runtime_param_names: block_info.runtime_param_names.clone(),
-            term: block.term.clone(),
             exc_target: block_info.exc_target,
             exc_dispatch: block_info.exc_dispatch.clone(),
-            fast_path,
+            plan,
         })
         .collect();
     ClifPlan {

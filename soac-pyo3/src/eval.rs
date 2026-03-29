@@ -11,25 +11,7 @@ struct ResolvedSpecializedJitBlocks {
 }
 
 pub(crate) fn jit_has_bb_plan_impl(module_name: &str, function_id: usize) -> bool {
-    let Some(plan) = soac_eval::jit::lookup_clif_plan(module_name, function_id) else {
-        return false;
-    };
-    let has_none = plan
-        .blocks
-        .iter()
-        .any(|block| matches!(block.fast_path, soac_eval::jit::BlockFastPath::None));
-    if has_none && std::env::var("DIET_PYTHON_DEBUG_JIT_HAS").as_deref() == Ok("1") {
-        eprintln!("jit_has_bb_plan=false for {module_name}.fn#{function_id}");
-        for (idx, block) in plan.blocks.iter().enumerate() {
-            eprintln!(
-                "  [{idx}] {label}: {path:?}, exc_target={:?}",
-                block.exc_target,
-                label = block.label.as_str(),
-                path = &block.fast_path
-            );
-        }
-    }
-    !has_none
+    soac_eval::jit::lookup_clif_plan(module_name, function_id).is_some()
 }
 
 pub(crate) fn jit_block_param_names_impl(
@@ -75,15 +57,6 @@ fn resolve_specialized_jit_blocks_by_key(
             "no specialized JIT plan for {module_name}.fn#{function_id}"
         )));
     };
-    if plan
-        .blocks
-        .iter()
-        .any(|block| matches!(block.fast_path, soac_eval::jit::BlockFastPath::None))
-    {
-        return Err(PyRuntimeError::new_err(format!(
-            "specialized JIT requires fully lowered fastpath blocks: {module_name}.fn#{function_id}"
-        )));
-    }
     let block_ptrs = vec![std::ptr::null_mut::<c_void>(); plan.blocks.len()];
     if block_ptrs.is_empty() {
         return Err(PyRuntimeError::new_err(format!(

@@ -3,9 +3,8 @@ use super::*;
 mod tests {
     use super::*;
     use dp_transform::block_py::{
-        BinOp, BinOpKind, BlockPyRaise, BlockPyTerm, CellRef, DelDeref, DelDerefQuietly, DelItem,
-        DelQuietly, LoadGlobal, LocatedCodegenBlockPyExpr, LocatedName, MakeString, NameLocation,
-        Operation, StoreGlobal, TernaryOp, TernaryOpKind,
+        BinOp, BinOpKind, CellRef, DelDeref, DelDerefQuietly, DelItem, DelQuietly, LoadGlobal,
+        LocatedName, MakeString, NameLocation, Operation, StoreGlobal, TernaryOp, TernaryOpKind,
     };
     use ruff_python_ast as ast;
 
@@ -49,51 +48,56 @@ mod tests {
         }
     }
 
-    fn test_term() -> BlockPyTerm<LocatedCodegenBlockPyExpr> {
-        BlockPyTerm::Raise(BlockPyRaise { exc: None })
+    fn test_block(label: &str, plan: DirectSimpleBlockPlan) -> ClifBlockPlan {
+        ClifBlockPlan {
+            label: label.into(),
+            param_names: vec![],
+            runtime_param_names: vec![],
+            exc_target: None,
+            exc_dispatch: None,
+            plan,
+        }
     }
 
-    #[test]
-    fn render_specialized_jit_clif_smoke() {
-        let blocks = [1usize as ObjPtr, 2usize as ObjPtr, 3usize as ObjPtr];
-        let plan = ClifPlan {
+    fn test_plan(blocks: Vec<ClifBlockPlan>) -> ClifPlan {
+        ClifPlan {
             entry_params: vec![],
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
             ambient_param_names: vec![],
             owned_cell_slot_names: vec![],
             slot_names: vec![],
-            blocks: vec![
-                ClifBlockPlan {
-                    label: "b0".into(),
-                    param_names: vec![],
-                    runtime_param_names: vec![],
-                    term: test_term(),
-                    exc_target: None,
-                    exc_dispatch: None,
-                    fast_path: BlockFastPath::None,
-                },
-                ClifBlockPlan {
-                    label: "b1".into(),
-                    param_names: vec![],
-                    runtime_param_names: vec![],
-                    term: test_term(),
-                    exc_target: None,
-                    exc_dispatch: None,
-                    fast_path: BlockFastPath::None,
-                },
-                ClifBlockPlan {
-                    label: "b2".into(),
-                    param_names: vec![],
-                    runtime_param_names: vec![],
-                    term: test_term(),
-                    exc_target: None,
-                    exc_dispatch: None,
-                    fast_path: BlockFastPath::None,
-                },
-            ],
-        };
-        let err = unsafe {
+            blocks,
+        }
+    }
+
+    fn test_single_block_plan(plan: DirectSimpleBlockPlan) -> ClifPlan {
+        test_plan(vec![test_block("b0", plan)])
+    }
+
+    fn test_raise_block_plan() -> DirectSimpleBlockPlan {
+        DirectSimpleBlockPlan {
+            ops: vec![],
+            term: DirectSimpleTermPlan::Raise { exc: None },
+        }
+    }
+
+    fn test_ret_block_plan(value: DirectSimpleExprPlan) -> DirectSimpleBlockPlan {
+        DirectSimpleBlockPlan {
+            ops: vec![],
+            term: DirectSimpleTermPlan::Ret { value },
+        }
+    }
+
+    #[test]
+    fn render_specialized_jit_clif_smoke() {
+        let blocks = [1usize as ObjPtr, 2usize as ObjPtr, 3usize as ObjPtr];
+        let plan = test_plan(vec![
+            test_block("b0", test_raise_block_plan()),
+            test_block("b1", test_raise_block_plan()),
+            test_block("b2", test_raise_block_plan()),
+        ]);
+        let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
                 &plan,
@@ -103,45 +107,26 @@ mod tests {
                 14usize as ObjPtr,
             )
         }
-        .expect_err("specialized JIT CLIF render should reject slow-path blocks");
+        .expect("specialized JIT CLIF render should succeed");
         assert!(
-            err.contains("fully lowered fastpath blocks"),
-            "unexpected error message: {err}"
+            rendered.clif.contains("function"),
+            "specialized JIT CLIF render should produce function text:\n{}",
+            rendered.clif
         );
     }
 
     #[test]
     fn render_specialized_jit_operator_calls_use_python_capi() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_params: vec![],
-            entry_param_names: vec![],
-            entry_param_default_sources: vec![],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec![],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleRet {
-                    plan: DirectSimpleRetPlan {
-                        params: vec![],
-                        assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::BinOp(BinOp {
-                            node_index: Default::default(),
-                            range: Default::default(),
-                            kind: BinOpKind::Add,
-                            arg0: DirectSimpleExprPlan::Int(1),
-                            arg1: DirectSimpleExprPlan::Int(2),
-                        }))),
-                    },
-                },
-            }],
-        };
+        let plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(Box::new(
+            Operation::BinOp(BinOp {
+                node_index: Default::default(),
+                range: Default::default(),
+                kind: BinOpKind::Add,
+                arg0: DirectSimpleExprPlan::Int(1),
+                arg1: DirectSimpleExprPlan::Int(2),
+            }),
+        ))));
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
@@ -167,35 +152,15 @@ mod tests {
     #[test]
     fn render_specialized_jit_compare_calls_use_richcompare() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_params: vec![],
-            entry_param_names: vec![],
-            entry_param_default_sources: vec![],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec![],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleRet {
-                    plan: DirectSimpleRetPlan {
-                        params: vec![],
-                        assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::BinOp(BinOp {
-                            node_index: Default::default(),
-                            range: Default::default(),
-                            kind: BinOpKind::Lt,
-                            arg0: DirectSimpleExprPlan::Int(1),
-                            arg1: DirectSimpleExprPlan::Int(2),
-                        }))),
-                    },
-                },
-            }],
-        };
+        let plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(Box::new(
+            Operation::BinOp(BinOp {
+                node_index: Default::default(),
+                range: Default::default(),
+                kind: BinOpKind::Lt,
+                arg0: DirectSimpleExprPlan::Int(1),
+                arg1: DirectSimpleExprPlan::Int(2),
+            }),
+        ))));
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
@@ -217,35 +182,13 @@ mod tests {
     #[test]
     fn render_specialized_jit_make_string_uses_decode_helper_directly() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_params: vec![],
-            entry_param_names: vec![],
-            entry_param_default_sources: vec![],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec![],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleRet {
-                    plan: DirectSimpleRetPlan {
-                        params: vec![],
-                        assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::MakeString(
-                            MakeString {
-                                node_index: Default::default(),
-                                range: Default::default(),
-                                arg0: DirectSimpleExprPlan::Bytes(b"hello".to_vec()),
-                            },
-                        ))),
-                    },
-                },
-            }],
-        };
+        let plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(Box::new(
+            Operation::MakeString(MakeString {
+                node_index: Default::default(),
+                range: Default::default(),
+                arg0: DirectSimpleExprPlan::Bytes(b"hello".to_vec()),
+            }),
+        ))));
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
@@ -271,36 +214,16 @@ mod tests {
     #[test]
     fn render_specialized_jit_pow_calls_use_pynumber_power() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_params: vec![],
-            entry_param_names: vec![],
-            entry_param_default_sources: vec![],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec![],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleRet {
-                    plan: DirectSimpleRetPlan {
-                        params: vec![],
-                        assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::TernaryOp(TernaryOp {
-                            node_index: Default::default(),
-                            range: Default::default(),
-                            kind: TernaryOpKind::Pow,
-                            arg0: DirectSimpleExprPlan::Int(2),
-                            arg1: DirectSimpleExprPlan::Int(3),
-                            arg2: DirectSimpleExprPlan::Name(test_global_name("__dp_NONE")),
-                        }))),
-                    },
-                },
-            }],
-        };
+        let plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(Box::new(
+            Operation::TernaryOp(TernaryOp {
+                node_index: Default::default(),
+                range: Default::default(),
+                kind: TernaryOpKind::Pow,
+                arg0: DirectSimpleExprPlan::Int(2),
+                arg1: DirectSimpleExprPlan::Int(3),
+                arg2: DirectSimpleExprPlan::Name(test_global_name("__dp_NONE")),
+            }),
+        ))));
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
@@ -322,29 +245,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_allocates_function_state_slots() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_params: vec![],
-            entry_param_names: vec![],
-            entry_param_default_sources: vec![],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec!["x".into(), "y".into()],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleRet {
-                    plan: DirectSimpleRetPlan {
-                        params: vec![],
-                        assigns: vec![],
-                        ret: DirectSimpleExprPlan::Int(7),
-                    },
-                },
-            }],
-        };
+        let mut plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Int(7)));
+        plan.slot_names = vec!["x".into(), "y".into()];
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
@@ -366,34 +268,16 @@ mod tests {
     #[test]
     fn render_specialized_jit_assignments_sync_function_state_slots() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_params: vec![],
-            entry_param_names: vec![],
-            entry_param_default_sources: vec![],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec!["x".into()],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleBlock {
-                    plan: DirectSimpleBlockPlan {
-                        params: vec![],
-                        ops: vec![DirectSimpleOpPlan::Assign(DirectSimpleAssignPlan {
-                            target: test_name("x"),
-                            value: DirectSimpleExprPlan::Int(7),
-                        })],
-                        term: DirectSimpleTermPlan::Ret {
-                            value: DirectSimpleExprPlan::Name(test_name("x")),
-                        },
-                    },
-                },
-            }],
-        };
+        let mut plan = test_single_block_plan(DirectSimpleBlockPlan {
+            ops: vec![DirectSimpleOpPlan::Assign(DirectSimpleAssignPlan {
+                target: test_name("x"),
+                value: DirectSimpleExprPlan::Int(7),
+            })],
+            term: DirectSimpleTermPlan::Ret {
+                value: DirectSimpleExprPlan::Name(test_name("x")),
+            },
+        });
+        plan.slot_names = vec!["x".into()];
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
@@ -415,29 +299,9 @@ mod tests {
     #[test]
     fn render_specialized_jit_global_names_use_global_lookup_hook() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_params: vec![],
-            entry_param_names: vec![],
-            entry_param_default_sources: vec![],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec![],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleRet {
-                    plan: DirectSimpleRetPlan {
-                        params: vec![],
-                        assigns: vec![],
-                        ret: DirectSimpleExprPlan::Name(test_global_name("x")),
-                    },
-                },
-            }],
-        };
+        let plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Name(
+            test_global_name("x"),
+        )));
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
@@ -460,36 +324,14 @@ mod tests {
     #[test]
     fn render_specialized_jit_load_global_intrinsic_uses_direct_helper() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_params: vec![],
-            entry_param_names: vec![],
-            entry_param_default_sources: vec![],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec![],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleRet {
-                    plan: DirectSimpleRetPlan {
-                        params: vec![],
-                        assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::LoadGlobal(
-                            LoadGlobal {
-                                node_index: Default::default(),
-                                range: Default::default(),
-                                arg0: DirectSimpleExprPlan::Int(1),
-                                arg1: DirectSimpleExprPlan::Int(2),
-                            },
-                        ))),
-                    },
-                },
-            }],
-        };
+        let plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(Box::new(
+            Operation::LoadGlobal(LoadGlobal {
+                node_index: Default::default(),
+                range: Default::default(),
+                arg0: DirectSimpleExprPlan::Int(1),
+                arg1: DirectSimpleExprPlan::Int(2),
+            }),
+        ))));
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
@@ -511,37 +353,15 @@ mod tests {
     #[test]
     fn render_specialized_jit_store_global_intrinsic_uses_direct_helper() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_params: vec![],
-            entry_param_names: vec![],
-            entry_param_default_sources: vec![],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec![],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleRet {
-                    plan: DirectSimpleRetPlan {
-                        params: vec![],
-                        assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::StoreGlobal(
-                            StoreGlobal {
-                                node_index: Default::default(),
-                                range: Default::default(),
-                                arg0: DirectSimpleExprPlan::Int(1),
-                                arg1: DirectSimpleExprPlan::Int(2),
-                                arg2: DirectSimpleExprPlan::Int(3),
-                            },
-                        ))),
-                    },
-                },
-            }],
-        };
+        let plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(Box::new(
+            Operation::StoreGlobal(StoreGlobal {
+                node_index: Default::default(),
+                range: Default::default(),
+                arg0: DirectSimpleExprPlan::Int(1),
+                arg1: DirectSimpleExprPlan::Int(2),
+                arg2: DirectSimpleExprPlan::Int(3),
+            }),
+        ))));
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
@@ -563,29 +383,10 @@ mod tests {
     #[test]
     fn render_specialized_jit_closure_names_use_function_closure_cells() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_params: vec![],
-            entry_param_names: vec![],
-            entry_param_default_sources: vec![],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec!["x".into()],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleRet {
-                    plan: DirectSimpleRetPlan {
-                        params: vec![],
-                        assigns: vec![],
-                        ret: DirectSimpleExprPlan::Name(test_closure_cell_name("x", 2)),
-                    },
-                },
-            }],
-        };
+        let mut plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Name(
+            test_closure_cell_name("x", 2),
+        )));
+        plan.slot_names = vec!["x".into()];
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
@@ -608,33 +409,14 @@ mod tests {
     #[test]
     fn render_specialized_jit_cell_ref_intrinsic_uses_function_closure_cells() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_params: vec![],
-            entry_param_names: vec![],
-            entry_param_default_sources: vec![],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec!["x".into()],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleRet {
-                    plan: DirectSimpleRetPlan {
-                        params: vec![],
-                        assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::CellRef(CellRef {
-                            node_index: Default::default(),
-                            range: Default::default(),
-                            arg0: DirectSimpleExprPlan::Name(test_closure_cell_name("x", 2)),
-                        }))),
-                    },
-                },
-            }],
-        };
+        let mut plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(
+            Box::new(Operation::CellRef(CellRef {
+                node_index: Default::default(),
+                range: Default::default(),
+                arg0: DirectSimpleExprPlan::Name(test_closure_cell_name("x", 2)),
+            })),
+        )));
+        plan.slot_names = vec!["x".into()];
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
@@ -660,36 +442,17 @@ mod tests {
     #[test]
     fn render_specialized_jit_cell_ref_on_captured_source_unwraps_wrapper_cell_once() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_params: vec![],
-            entry_param_names: vec![],
-            entry_param_default_sources: vec![],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec!["_dp_classcell".into()],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleRet {
-                    plan: DirectSimpleRetPlan {
-                        params: vec![],
-                        assigns: vec![],
-                        ret: DirectSimpleExprPlan::Op(Box::new(Operation::CellRef(CellRef {
-                            node_index: Default::default(),
-                            range: Default::default(),
-                            arg0: DirectSimpleExprPlan::Name(test_captured_cell_source_name(
-                                "_dp_classcell",
-                                2,
-                            )),
-                        }))),
-                    },
-                },
-            }],
-        };
+        let mut plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(
+            Box::new(Operation::CellRef(CellRef {
+                node_index: Default::default(),
+                range: Default::default(),
+                arg0: DirectSimpleExprPlan::Name(test_captured_cell_source_name(
+                    "_dp_classcell",
+                    2,
+                )),
+            })),
+        )));
+        plan.slot_names = vec!["_dp_classcell".into()];
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
@@ -715,62 +478,44 @@ mod tests {
     #[test]
     fn render_specialized_jit_delete_intrinsics_use_direct_helpers() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_params: vec![],
-            entry_param_names: vec![],
-            entry_param_default_sources: vec![],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec!["cell".into()],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleBlock {
-                    plan: DirectSimpleBlockPlan {
-                        params: vec![],
-                        ops: vec![
-                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
-                                Operation::DelItem(DelItem {
-                                    node_index: Default::default(),
-                                    range: Default::default(),
-                                    arg0: DirectSimpleExprPlan::Int(1),
-                                    arg1: DirectSimpleExprPlan::Int(2),
-                                }),
-                            ))),
-                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
-                                Operation::DelQuietly(DelQuietly {
-                                    node_index: Default::default(),
-                                    range: Default::default(),
-                                    arg0: DirectSimpleExprPlan::Int(3),
-                                    arg1: DirectSimpleExprPlan::Int(4),
-                                }),
-                            ))),
-                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
-                                Operation::DelDeref(DelDeref {
-                                    node_index: Default::default(),
-                                    range: Default::default(),
-                                    arg0: DirectSimpleExprPlan::Name(test_name("cell")),
-                                }),
-                            ))),
-                            DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
-                                Operation::DelDerefQuietly(DelDerefQuietly {
-                                    node_index: Default::default(),
-                                    range: Default::default(),
-                                    arg0: DirectSimpleExprPlan::Name(test_name("cell")),
-                                }),
-                            ))),
-                        ],
-                        term: DirectSimpleTermPlan::Ret {
-                            value: DirectSimpleExprPlan::Int(0),
-                        },
+        let mut plan = test_single_block_plan(DirectSimpleBlockPlan {
+            ops: vec![
+                DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(Operation::DelItem(
+                    DelItem {
+                        node_index: Default::default(),
+                        range: Default::default(),
+                        arg0: DirectSimpleExprPlan::Int(1),
+                        arg1: DirectSimpleExprPlan::Int(2),
                     },
-                },
-            }],
-        };
+                )))),
+                DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
+                    Operation::DelQuietly(DelQuietly {
+                        node_index: Default::default(),
+                        range: Default::default(),
+                        arg0: DirectSimpleExprPlan::Int(3),
+                        arg1: DirectSimpleExprPlan::Int(4),
+                    }),
+                ))),
+                DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(Operation::DelDeref(
+                    DelDeref {
+                        node_index: Default::default(),
+                        range: Default::default(),
+                        arg0: DirectSimpleExprPlan::Name(test_name("cell")),
+                    },
+                )))),
+                DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
+                    Operation::DelDerefQuietly(DelDerefQuietly {
+                        node_index: Default::default(),
+                        range: Default::default(),
+                        arg0: DirectSimpleExprPlan::Name(test_name("cell")),
+                    }),
+                ))),
+            ],
+            term: DirectSimpleTermPlan::Ret {
+                value: DirectSimpleExprPlan::Int(0),
+            },
+        });
+        plan.slot_names = vec!["cell".into()];
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
@@ -804,7 +549,7 @@ mod tests {
     #[test]
     fn render_specialized_jit_direct_entry_uses_live_positional_defaults() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
+        let mut plan = ClifPlan {
             entry_params: vec![
                 ClifBindingParam {
                     name: "x".into(),
@@ -825,22 +570,12 @@ mod tests {
             ambient_param_names: vec![],
             owned_cell_slot_names: vec![],
             slot_names: vec!["x".into(), "y".into()],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleRet {
-                    plan: DirectSimpleRetPlan {
-                        params: vec![],
-                        assigns: vec![],
-                        ret: DirectSimpleExprPlan::Name(test_name("y")),
-                    },
-                },
-            }],
+            blocks: vec![],
         };
+        plan.blocks.push(test_block(
+            "b0",
+            test_ret_block_plan(DirectSimpleExprPlan::Name(test_name("y"))),
+        ));
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,
@@ -862,7 +597,7 @@ mod tests {
     #[test]
     fn render_specialized_jit_direct_entry_uses_live_kwonly_defaults() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
+        let mut plan = ClifPlan {
             entry_params: vec![ClifBindingParam {
                 name: "x".into(),
                 kind: ClifBindingParamKind::KeywordOnly,
@@ -875,22 +610,12 @@ mod tests {
             ambient_param_names: vec![],
             owned_cell_slot_names: vec![],
             slot_names: vec!["x".into()],
-            blocks: vec![ClifBlockPlan {
-                label: "b0".into(),
-                param_names: vec![],
-                runtime_param_names: vec![],
-                term: test_term(),
-                exc_target: None,
-                exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleRet {
-                    plan: DirectSimpleRetPlan {
-                        params: vec![],
-                        assigns: vec![],
-                        ret: DirectSimpleExprPlan::Name(test_name("x")),
-                    },
-                },
-            }],
+            blocks: vec![],
         };
+        plan.blocks.push(test_block(
+            "b0",
+            test_ret_block_plan(DirectSimpleExprPlan::Name(test_name("x"))),
+        ));
         let rendered = unsafe {
             render_cranelift_run_bb_specialized_with_cfg(
                 &blocks,

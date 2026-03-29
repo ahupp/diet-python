@@ -244,31 +244,6 @@ unsafe fn make_clif_function_data(
         }
         return Err(());
     };
-    let fast_paths = jit::build_block_fast_paths(&blockpy_function);
-    if let Some((index, _)) = fast_paths
-        .iter()
-        .enumerate()
-        .find(|(_, path)| matches!(path, jit::BlockFastPath::None))
-    {
-        let label = blockpy_function
-            .blocks
-            .get(index)
-            .map(|block| block.label.as_str())
-            .unwrap_or("<unknown>");
-        let msg = format!(
-            "CLIF function requires full fast-path plan; unsupported block at index {index} label {label:?} for module={module_name:?} function_id={function_id:?}"
-        );
-        if let Ok(c_msg) = CString::new(msg) {
-            ffi::PyErr_SetString(ffi::PyExc_RuntimeError, c_msg.as_ptr());
-        } else {
-            ffi::PyErr_SetString(
-                ffi::PyExc_RuntimeError,
-                b"CLIF function requires full fast-path plan\0".as_ptr() as *const c_char,
-            );
-        }
-        return Err(());
-    }
-
     let true_obj = ffi::PyBool_FromLong(1);
     if true_obj.is_null() {
         return Err(());
