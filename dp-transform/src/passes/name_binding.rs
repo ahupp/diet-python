@@ -908,9 +908,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 BlockPyStmt::Expr(self.map_expr(expr))
             }
             BlockPyStmt::Assign(assign) => self.map_assign(assign),
-            BlockPyStmt::Delete(delete) => {
-                rewrite_binding_delete(delete.target, self.semantic)
-            }
+            BlockPyStmt::Delete(delete) => rewrite_binding_delete(delete.target, self.semantic),
         }
     }
 

@@ -84,7 +84,11 @@ where
     fn map_block(&self, block: PassBlock<PIn>) -> PassBlock<POut> {
         CfgBlock {
             label: block.label,
-            body: block.body.into_iter().map(|stmt| self.map_stmt(stmt)).collect(),
+            body: block
+                .body
+                .into_iter()
+                .map(|stmt| self.map_stmt(stmt))
+                .collect(),
             term: self.map_term(block.term),
             params: block.params,
             exc_edge: block.exc_edge,
@@ -111,10 +115,7 @@ where
         }
     }
 
-    fn map_stmt(
-        &self,
-        stmt: PIn::Stmt,
-    ) -> POut::Stmt {
+    fn map_stmt(&self, stmt: PIn::Stmt) -> POut::Stmt {
         self.map_structured_stmt(stmt.into_structured_stmt()).into()
     }
 
@@ -283,10 +284,7 @@ where
         })
     }
 
-    fn try_map_stmt(
-        &self,
-        stmt: PIn::Stmt,
-    ) -> Result<POut::Stmt, Self::Error> {
+    fn try_map_stmt(&self, stmt: PIn::Stmt) -> Result<POut::Stmt, Self::Error> {
         self.try_map_structured_stmt(stmt.into_structured_stmt())
             .map(Into::into)
     }
