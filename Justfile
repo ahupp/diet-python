@@ -51,7 +51,7 @@ build-python: ensure-cpython-checkout
   #!/usr/bin/env bash
   set -euo pipefail
   cd "$REPO_ROOT/vendor/cpython"
-  make clean && ./configure --enable-shared --enable-optimizations
+  make clean && LDFLAGS="-Wl,-rpath,'\$\$ORIGIN'" ./configure --enable-shared --enable-optimizations
   make -j"$(nproc)"
 
 [private]
