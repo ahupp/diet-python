@@ -140,7 +140,6 @@ mod tests {
         blocks: Vec<CodegenBlock>,
     ) -> SpecializedJitData {
         SpecializedJitData {
-            stack_slot_names: vec![],
             blocks: blocks
                 .into_iter()
                 .map(|source| {
@@ -155,6 +154,13 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    fn set_stack_slots(function: &mut BlockPyFunction<CodegenBlockPyPass>, names: &[&str]) {
+        function
+            .storage_layout
+            .get_or_insert_with(StorageLayout::default)
+            .set_stack_slots(names.iter().map(|name| (*name).to_string()).collect());
     }
 
     fn test_single_block_data(
@@ -221,10 +227,10 @@ mod tests {
     #[test]
     fn render_specialized_jit_clif_annotates_block_headers_with_named_typed_params() {
         let blocks = [1usize as ObjPtr];
-        let function = test_function();
+        let mut function = test_function();
+        set_stack_slots(&mut function, &["current", "acc"]);
         let source = test_source_block(&function, vec![], ret_term(int_expr(7)));
         let jit_data = SpecializedJitData {
-            stack_slot_names: vec!["current".into(), "acc".into()],
             blocks: vec![SpecializedJitBlockData {
                 source,
                 full_param_names: vec!["current".into(), "acc".into()],
@@ -345,9 +351,9 @@ mod tests {
     #[test]
     fn render_specialized_jit_allocates_function_state_slots() {
         let blocks = [1usize as ObjPtr];
-        let function = test_function();
+        let mut function = test_function();
+        set_stack_slots(&mut function, &["x", "y"]);
         let mut jit_data = test_single_block_data(&function, vec![], ret_term(int_expr(7)));
-        jit_data.stack_slot_names = vec!["x".into(), "y".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.matches("explicit_slot 8").count() >= 2,
@@ -358,13 +364,13 @@ mod tests {
     #[test]
     fn render_specialized_jit_assignments_sync_function_state_slots() {
         let blocks = [1usize as ObjPtr];
-        let function = test_function();
+        let mut function = test_function();
+        set_stack_slots(&mut function, &["x"]);
         let mut jit_data = test_single_block_data(
             &function,
             vec![assign_stmt(test_name("x"), int_expr(7))],
             ret_term(name_expr(test_name("x"))),
         );
-        jit_data.stack_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("store.i64") || rendered.contains("stack_store"),
@@ -435,13 +441,13 @@ mod tests {
     #[test]
     fn render_specialized_jit_closure_names_use_function_closure_cells() {
         let blocks = [1usize as ObjPtr];
-        let function = test_function();
+        let mut function = test_function();
+        set_stack_slots(&mut function, &["x"]);
         let mut jit_data = test_single_block_data(
             &function,
             vec![],
             ret_term(name_expr(test_closure_cell_name("x", 2))),
         );
-        jit_data.stack_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell")
@@ -453,7 +459,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_cell_ref_intrinsic_uses_function_closure_cells() {
         let blocks = [1usize as ObjPtr];
-        let function = test_function();
+        let mut function = test_function();
+        set_stack_slots(&mut function, &["x"]);
         let mut jit_data = test_single_block_data(
             &function,
             vec![],
@@ -465,7 +472,6 @@ mod tests {
                 },
             ))),
         );
-        jit_data.stack_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell"),
@@ -514,7 +520,7 @@ mod tests {
             runtime_cells: vec![],
             stack_slots: Vec::new(),
         });
-        jit_data.stack_slot_names = vec!["_dp_classcell".into()];
+        set_stack_slots(&mut function, &["_dp_classcell"]);
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell"),
@@ -529,7 +535,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_delete_intrinsics_use_direct_helpers() {
         let blocks = [1usize as ObjPtr];
-        let function = test_function();
+        let mut function = test_function();
+        set_stack_slots(&mut function, &["cell"]);
         let mut jit_data = test_single_block_data(
             &function,
             vec![
@@ -558,7 +565,6 @@ mod tests {
             ],
             ret_term(int_expr(0)),
         );
-        jit_data.stack_slot_names = vec!["cell".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_pyobject_delitem"),
@@ -598,7 +604,7 @@ mod tests {
                 },
             ],
         };
-        jit_data.stack_slot_names = vec!["x".into(), "y".into()];
+        set_stack_slots(&mut function, &["x", "y"]);
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_positional_default"),
@@ -619,7 +625,7 @@ mod tests {
                 has_default: true,
             }],
         };
-        jit_data.stack_slot_names = vec!["x".into()];
+        set_stack_slots(&mut function, &["x"]);
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_kwonly_default"),
@@ -630,13 +636,13 @@ mod tests {
     #[test]
     fn render_specialized_jit_delete_stmt_updates_function_state_slots() {
         let blocks = [1usize as ObjPtr];
-        let function = test_function();
+        let mut function = test_function();
+        set_stack_slots(&mut function, &["x"]);
         let mut jit_data = test_single_block_data(
             &function,
             vec![delete_stmt(test_name("x"))],
             ret_term(int_expr(0)),
         );
-        jit_data.stack_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("store.i64")

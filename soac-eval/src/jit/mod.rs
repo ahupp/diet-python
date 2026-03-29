@@ -53,7 +53,6 @@ struct SpecializedJitBlockData {
 
 #[derive(Clone)]
 struct SpecializedJitData {
-    stack_slot_names: Vec<String>,
     blocks: Vec<SpecializedJitBlockData>,
 }
 
@@ -3454,7 +3453,14 @@ fn build_cranelift_run_bb_specialized_function(
         }
         let step_null_block = fb.create_block();
         let raise_exc_direct_block = fb.create_block();
-        let stack_slots = StackSlots::new(&mut fb, &jit_data.stack_slot_names);
+        let stack_slots = StackSlots::new(
+            &mut fb,
+            function
+                .storage_layout()
+                .as_ref()
+                .map(|layout| layout.stack_slots())
+                .unwrap_or(&[]),
+        );
 
         register_block_display_annotation(
             &mut block_annotations,
@@ -3989,12 +3995,6 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     }
 
     let jit_data = SpecializedJitData {
-        stack_slot_names: function
-            .storage_layout()
-            .as_ref()
-            .expect("specialized JIT render requires storage layout")
-            .stack_slots()
-            .to_vec(),
         blocks: function
             .blocks
             .iter()
@@ -4099,12 +4099,6 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
         return Err("invalid null globals object passed to specialized JIT run_bb".to_string());
     }
     let jit_data = SpecializedJitData {
-        stack_slot_names: function
-            .storage_layout()
-            .as_ref()
-            .expect("specialized JIT compile requires storage layout")
-            .stack_slots()
-            .to_vec(),
         blocks: function
             .blocks
             .iter()
