@@ -44,6 +44,7 @@
 - **MUST FOLLOW**: After each logical change, run `jj diff --stat` and show a concise summary of the size and location of the change.
 - **MUST FOLLOW**: When completing one step in a multi-stage plan, explain the next concrete step. If stopping instead of continuing, explicitly say the current line is done and then describe the next suggested plan.
 - **MUST FOLLOW**: If a user request starts with `TODO`, add it to the `## Codex TODO Intake` section of `TODO.md`.
+- **MUST FOLLOW**: When a user asks a question and the response does not involve code changes, add the question and answer to the `# QA` section of `TODO.md` with a date/timestamp.
 - **MUST FOLLOW**: If a response to a `TODO` request includes a plan or other useful information, include that in the corresponding `TODO.md` entry.
 - **MUST FOLLOW**: When a TODO is completed, move it from `## Codex TODO Intake` to `## Completed` in `TODO.md` and include a brief description of the work done.
 - **MUST FOLLOW**: At the end of each completed response for a `TODO` request, list the TODOs one per line and include a summary of the last response.

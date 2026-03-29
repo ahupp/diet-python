@@ -143,3 +143,8 @@
 - Remove the “start label” concept and always make the first block the callable entry block.
 - Determine if codegen_trace.rs and cfg_trace.rs are doing similar things, and merge if so.
 - Simplify should remove literals for true/false/none/ellipsis, replacing them with their _dp_ versions, remove that from codegen_normalize.  Remove those from the expr ast.
+
+# QA
+
+- Add question/answer entries here when the user asks a question and the response does not involve code changes.
+- Include a date/timestamp with each entry.
