@@ -55,7 +55,6 @@ struct SpecializedJitBlockData {
 
 #[derive(Clone)]
 struct SpecializedJitData {
-    function: BlockPyFunction<CodegenBlockPyPass>,
     function_state_slot_names: Vec<String>,
     blocks: Vec<SpecializedJitBlockData>,
 }
@@ -3462,6 +3461,7 @@ pub fn run_cranelift_smoke(module: &BlockPyModule<CodegenBlockPyPass>) -> Result
 fn build_cranelift_run_bb_specialized_function(
     jit_module: &mut JITModule,
     blocks: &[ObjPtr],
+    function: &BlockPyFunction<CodegenBlockPyPass>,
     jit_data: &SpecializedJitData,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
@@ -3488,7 +3488,7 @@ fn build_cranelift_run_bb_specialized_function(
 
     let mut main_sig = jit_module.make_signature();
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
-    for _ in jit_data.function.params.iter() {
+    for _ in function.params.iter() {
         main_sig.params.push(ir::AbiParam::new(ptr_ty));
     }
     main_sig.returns.push(ir::AbiParam::new(ptr_ty));
@@ -3664,11 +3664,10 @@ fn build_cranelift_run_bb_specialized_function(
         let entry_failure_args = Vec::new();
         assert_eq!(
             direct_entry_args.len(),
-            jit_data.function.params.len(),
+            function.params.len(),
             "direct JIT entry arity does not match entry params",
         );
-        for ((param, default_source), value) in jit_data
-            .function
+        for ((param, default_source), value) in function
             .params
             .iter_with_default_sources()
             .zip(direct_entry_args.iter())
@@ -3868,7 +3867,7 @@ fn build_cranelift_run_bb_specialized_function(
                 exception_dispatch_blocks[index].unwrap_or(cleanup_null_blocks[index]);
             let fast_step_null_args = Vec::new();
             let emit_ctx = JitEmitCtx {
-                closure_layout: jit_data.function.closure_layout().clone(),
+                closure_layout: function.closure_layout().clone(),
                 incref_ref,
                 decref_ref,
                 py_call_positional_three_ref,
@@ -4051,9 +4050,9 @@ fn build_cranelift_run_bb_specialized_function(
     })
 }
 
-unsafe fn render_cranelift_run_bb_specialized_data_with_cfg(
+pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     blocks: &[ObjPtr],
-    jit_data: &SpecializedJitData,
+    function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
     deleted_obj: ObjPtr,
@@ -4063,13 +4062,32 @@ unsafe fn render_cranelift_run_bb_specialized_data_with_cfg(
         return Err("specialized JIT run_bb requires at least one block".to_string());
     }
 
+    let jit_data = SpecializedJitData {
+        function_state_slot_names: function_state_slot_names(function),
+        blocks: function
+            .blocks
+            .iter()
+            .map(|block| {
+                let block_info = jit_block_info(function, block);
+                SpecializedJitBlockData {
+                    label: block.label.to_string(),
+                    full_param_names: block.param_name_vec(),
+                    runtime_param_names: block_info.runtime_param_names,
+                    exc_dispatch: block_info.exc_dispatch,
+                    ops: block.body.clone(),
+                    term: block.term.clone(),
+                }
+            })
+            .collect(),
+    };
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut jit_module = JITModule::new(builder);
     let built = build_cranelift_run_bb_specialized_function(
         &mut jit_module,
         blocks,
-        jit_data,
+        function,
+        &jit_data,
         ptr::null_mut(),
         true_obj,
         false_obj,
@@ -4100,25 +4118,6 @@ unsafe fn render_cranelift_run_bb_specialized_data_with_cfg(
         cfg_dot,
         vcode_disasm,
     })
-}
-
-pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
-    blocks: &[ObjPtr],
-    function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
-    true_obj: ObjPtr,
-    false_obj: ObjPtr,
-    deleted_obj: ObjPtr,
-    empty_tuple_obj: ObjPtr,
-) -> Result<RenderedSpecializedClif, String> {
-    let jit_data = specialized_jit_data_from_function(function);
-    render_cranelift_run_bb_specialized_data_with_cfg(
-        blocks,
-        &jit_data,
-        true_obj,
-        false_obj,
-        deleted_obj,
-        empty_tuple_obj,
-    )
 }
 
 fn render_compiled_clif_and_vcode_disasm(
@@ -4157,11 +4156,20 @@ fn render_compiled_clif_and_vcode_disasm(
     Ok((clif, cfg_dot, vcode_disasm))
 }
 
-fn specialized_jit_data_from_function(
+pub unsafe fn compile_cranelift_run_bb_specialized_cached(
+    blocks: &[ObjPtr],
     function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
-) -> SpecializedJitData {
-    SpecializedJitData {
-        function: function.clone(),
+    globals_obj: ObjPtr,
+    true_obj: ObjPtr,
+    false_obj: ObjPtr,
+    none_obj: ObjPtr,
+    deleted_obj: ObjPtr,
+    empty_tuple_obj: ObjPtr,
+) -> Result<ObjPtr, String> {
+    if globals_obj.is_null() {
+        return Err("invalid null globals object passed to specialized JIT run_bb".to_string());
+    }
+    let jit_data = SpecializedJitData {
         function_state_slot_names: function_state_slot_names(function),
         blocks: function
             .blocks
@@ -4178,23 +4186,7 @@ fn specialized_jit_data_from_function(
                 }
             })
             .collect(),
-    }
-}
-
-pub unsafe fn compile_cranelift_run_bb_specialized_cached(
-    blocks: &[ObjPtr],
-    function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
-    globals_obj: ObjPtr,
-    true_obj: ObjPtr,
-    false_obj: ObjPtr,
-    none_obj: ObjPtr,
-    deleted_obj: ObjPtr,
-    empty_tuple_obj: ObjPtr,
-) -> Result<ObjPtr, String> {
-    if globals_obj.is_null() {
-        return Err("invalid null globals object passed to specialized JIT run_bb".to_string());
-    }
-    let jit_data = specialized_jit_data_from_function(function);
+    };
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut compiled = Box::new(CompiledSpecializedRunner {
@@ -4205,6 +4197,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     let built = build_cranelift_run_bb_specialized_function(
         &mut compiled._jit_module,
         blocks,
+        function,
         &jit_data,
         globals_obj,
         true_obj,
@@ -4229,7 +4222,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     let code_ptr = compiled._jit_module.get_finalized_function(main_id);
     compiled.entry = Some(CompiledRunnerEntry::Direct {
         code_ptr,
-        param_count: jit_data.function.params.len(),
+        param_count: function.params.len(),
     });
     compiled._literal_pool = built.literal_pool;
     Ok(Box::into_raw(compiled) as ObjPtr)
