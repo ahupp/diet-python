@@ -13,6 +13,8 @@ use pyo3::types::{PyAny, PyDict, PyFunction, PyModule, PyString, PyTuple};
 use std::time::Instant;
 
 mod eval;
+#[cfg(test)]
+mod test;
 
 unsafe extern "C" {
     static mut PyCell_Type: ffi::PyTypeObject;
