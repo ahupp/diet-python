@@ -43,7 +43,7 @@ fn lower_source(source: &str, ensure: Option<bool>) -> PyResult<dp_transform::Lo
 fn lower_source_for_codegen(
     source: &str,
     ensure: Option<bool>,
-) -> PyResult<dp_transform::LoweringResult<dp_transform::NoopPassTracker>> {
+) -> PyResult<dp_transform::LoweringResult<dp_transform::pass_tracker::NoopPassTracker>> {
     let _ = ensure;
     lower_python_to_blockpy(source).map_err(lowering_error_to_pyerr)
 }

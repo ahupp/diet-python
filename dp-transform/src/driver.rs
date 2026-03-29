@@ -1,5 +1,6 @@
 use crate::block_py::pretty::BlockPyPrettyPrint;
 use crate::block_py::BlockPyModule;
+use crate::pass_tracker::PassTracker;
 use crate::passes::ast_to_ast::ast_rewrite::rewrite_with_pass;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def;
@@ -14,7 +15,7 @@ use crate::passes::{
     self, CodegenBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield,
     CoreBlockPyPassWithYield, ResolvedStorageBlockPyPass, RuffBlockPyPass,
 };
-use crate::{ParseError, PassTracker, Result};
+use crate::{ParseError, Result};
 use ruff_python_ast::{self as ast, Stmt};
 use ruff_python_parser::parse_module;
 

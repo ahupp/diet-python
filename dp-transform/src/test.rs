@@ -1,7 +1,6 @@
-use super::{PassTracker, RecordingPassTracker};
+use crate::pass_tracker::{PassTracker, RecordingPassTracker};
 use crate::passes::ast_to_ast::body::Suite;
 use crate::py_stmt;
-use serde_json::Value;
 
 #[test]
 #[should_panic(expected = "PassTracker already contains a pass named one")]
@@ -40,32 +39,4 @@ fn pass_tracker_renders_tracked_pass_text_for_renderable_passes() {
             .collect::<Vec<_>>(),
         vec!["one".to_string()]
     );
-}
-
-#[test]
-fn render_inspector_payload_includes_lowered_callable_metadata() {
-    let source = "def f(x):\n    return x\n";
-    let lowered = crate::lower_python_to_blockpy_recorded(source).expect("source should lower");
-    let payload: Value = serde_json::from_str(&crate::web_inspector::render_inspector_payload(
-        source, &lowered,
-    ))
-    .expect("inspector payload should be valid JSON");
-
-    let steps = payload["steps"]
-        .as_array()
-        .expect("inspector payload should include step array");
-    assert_eq!(steps[0]["key"], "input_source");
-
-    let functions = payload["functions"]
-        .as_array()
-        .expect("inspector payload should include function array");
-    let function = functions
-        .iter()
-        .find(|function| function["qualname"] == "f")
-        .expect("inspector payload should include lowered function metadata");
-    assert_eq!(function["displayName"], "f");
-    assert!(function["functionId"].as_u64().is_some());
-    assert!(function["entryLabel"]
-        .as_str()
-        .is_some_and(|entry_label| !entry_label.is_empty()));
 }

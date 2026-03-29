@@ -3,6 +3,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
+use dp_transform::block_py::BlockPyFunction;
+use dp_transform::passes::CodegenBlockPyPass;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyList, PyModule, PyTuple};
 use serde::{Deserialize, Serialize};
@@ -170,6 +172,45 @@ fn lower_source_recorded(source: &str) -> Result<dp_transform::LoweringResult, A
         .map_err(|err| ApiError::internal(err.to_string()))
 }
 
+fn inspector_function_payload(function: &BlockPyFunction<CodegenBlockPyPass>) -> Value {
+    json!({
+        "functionId": function.function_id.0,
+        "qualname": function.names.qualname,
+        "displayName": function.names.display_name,
+        "bindName": function.names.bind_name,
+        "kind": format!("{:?}", function.kind).to_lowercase(),
+        "entryLabel": function.entry_block().label_str(),
+    })
+}
+
+fn render_inspector_payload(source: &str, output: &dp_transform::LoweringResult) -> Value {
+    let mut steps = vec![json!({
+        "key": "input_source",
+        "label": "input source",
+        "text": source,
+    })];
+    for name in output.pass_tracker.pass_names() {
+        let text = output
+            .pass_tracker
+            .render_pass_text(name)
+            .unwrap_or_else(|| format!("; no text renderer for pass {name}"));
+        steps.push(json!({
+            "key": name,
+            "label": name,
+            "text": text,
+        }));
+    }
+    json!({
+        "steps": steps,
+        "functions": output
+            .codegen_module
+            .callable_defs
+            .iter()
+            .map(inspector_function_payload)
+            .collect::<Vec<_>>(),
+    })
+}
+
 pub fn register_named_plans_from_source(source: &str, module_name: &str) -> Result<(), String> {
     let output = lower_source_recorded(source).map_err(|err| err.error)?;
     jit::register_clif_module_plans(module_name, &output.codegen_module)?;
@@ -187,8 +228,7 @@ fn register_plans_from_source(source: &str) -> Result<String, ApiError> {
 
 fn inspect_pipeline_payload(source: &str) -> Result<Value, ApiError> {
     let output = lower_source_recorded(source)?;
-    let payload = dp_transform::web_inspector::render_inspector_payload(source, &output);
-    serde_json::from_str(&payload).map_err(|err| ApiError::internal(err.to_string()))
+    Ok(render_inspector_payload(source, &output))
 }
 
 pub fn jit_debug_plan(module_name: &str, function_id: usize) -> Result<String, String> {
@@ -343,6 +383,13 @@ mod test {
         let payload: Value = serde_json::from_str(&response_text(response).await).unwrap();
         assert_eq!(payload["steps"][0]["key"], "input_source");
         assert_eq!(payload["functions"][0]["qualname"], "classify");
+        assert_eq!(payload["functions"][0]["displayName"], "classify");
+        assert!(payload["functions"][0]["functionId"].as_u64().is_some());
+        assert!(
+            payload["functions"][0]["entryLabel"]
+                .as_str()
+                .is_some_and(|entry_label| !entry_label.is_empty())
+        );
     }
 
     #[tokio::test]

@@ -1,15 +1,13 @@
-use crate::block_py::pretty::BlockPyPrettyPrint;
-use crate::passes::ast_to_ast::body::Suite;
-use crate::passes::{
-    CodegenBlockPyPass, CoreBlockPyPass, ResolvedStorageBlockPyPass, RuffBlockPyPass,
-};
+use crate::block_py::BlockPyModule;
+use crate::driver::rewrite_module_with_tracker;
+use crate::pass_tracker::{NoopPassTracker, PassTracker, RecordingPassTracker};
+use crate::passes::CodegenBlockPyPass;
 use anyhow::Error as AnyhowError;
-use ruff_python_ast::{self as ast, Expr, ModModule, Stmt};
+use ruff_python_ast::{self as ast, Expr, Stmt};
 use ruff_python_codegen::{Generator, Indentation};
 pub use ruff_python_parser::ParseError;
 use ruff_source_file::LineEnding;
 use ruff_text_size::TextRange;
-use std::any::Any;
 use std::sync::Once;
 use std::time::{Duration, Instant};
 
@@ -17,15 +15,12 @@ pub mod block_py;
 mod driver;
 pub mod fixture;
 mod namegen;
+pub mod pass_tracker;
 pub mod passes;
 mod template;
 #[cfg(test)]
 mod test_util;
 pub(crate) mod transformer;
-pub mod web_inspector;
-
-use crate::block_py::BlockPyModule;
-use crate::driver::rewrite_module_with_tracker;
 
 #[derive(Debug)]
 pub enum LoweringError {
@@ -65,28 +60,7 @@ impl From<AnyhowError> for LoweringError {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct PassTiming {
-    pub name: String,
-    pub elapsed: Duration,
-}
-
 static INIT_LOGGER: Once = Once::new();
-
-fn timing_start() -> Option<Instant> {
-    #[cfg(target_arch = "wasm32")]
-    {
-        None
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        Some(Instant::now())
-    }
-}
-
-fn timing_elapsed(start: Option<Instant>) -> Duration {
-    start.map_or(Duration::ZERO, |instant| instant.elapsed())
-}
 
 pub fn init_logging() {
     INIT_LOGGER.call_once(|| {
@@ -105,164 +79,6 @@ pub struct LoweringResult<P = RecordingPassTracker> {
     pub pass_tracker: P,
 }
 
-struct TrackedPass {
-    name: String,
-    value: Box<dyn Any>,
-    render_text: Option<fn(&dyn Any) -> String>,
-}
-
-#[derive(Default)]
-pub struct NoopPassTracker;
-
-pub struct RecordingPassTracker {
-    passes: Vec<TrackedPass>,
-    timings: Vec<PassTiming>,
-}
-
-pub(crate) trait PassTracker {
-    fn run_pass<T, F>(&mut self, name: &str, build: F) -> T
-    where
-        T: Clone + Any + BlockPyPrettyPrint,
-        F: FnOnce() -> T;
-
-    fn record_timing<T, F>(&mut self, name: &str, build: F) -> T
-    where
-        F: FnOnce() -> T;
-}
-
-impl BlockPyPrettyPrint for Suite {
-    fn pretty_print(&self) -> String {
-        ruff_ast_to_string(self)
-    }
-}
-
-impl BlockPyPrettyPrint for ModModule {
-    fn pretty_print(&self) -> String {
-        ruff_ast_to_string(&self.body)
-    }
-}
-
-fn render_tracked_pass_value<T>(value: &dyn Any) -> String
-where
-    T: Any + BlockPyPrettyPrint,
-{
-    value
-        .downcast_ref::<T>()
-        .expect("tracked pass renderer type should match stored value")
-        .pretty_print()
-}
-
-impl NoopPassTracker {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl PassTracker for NoopPassTracker {
-    fn run_pass<T, F>(&mut self, _name: &str, build: F) -> T
-    where
-        T: Clone + Any + BlockPyPrettyPrint,
-        F: FnOnce() -> T,
-    {
-        build()
-    }
-
-    fn record_timing<T, F>(&mut self, _name: &str, build: F) -> T
-    where
-        F: FnOnce() -> T,
-    {
-        build()
-    }
-}
-
-impl RecordingPassTracker {
-    pub fn new() -> Self {
-        Self {
-            passes: Vec::new(),
-            timings: Vec::new(),
-        }
-    }
-
-    fn record_pass_timing(&mut self, name: &str, elapsed: Duration) {
-        assert!(
-            !self.timings.iter().any(|timing| timing.name == name),
-            "PassTracker already contains a pass named {name}",
-        );
-        self.timings.push(PassTiming {
-            name: name.to_string(),
-            elapsed,
-        });
-    }
-
-    pub fn get<T: Any>(&self, name: &str) -> Option<&T> {
-        self.passes
-            .iter()
-            .find(|pass| pass.name == name)
-            .and_then(|pass| pass.value.downcast_ref::<T>())
-    }
-
-    pub fn pass_names(&self) -> impl Iterator<Item = &str> {
-        self.passes.iter().map(|pass| pass.name.as_str())
-    }
-
-    pub fn pass_ast_to_ast(&self) -> Option<ModModule> {
-        self.get::<crate::driver::AstToAstPassResult>("ast-to-ast")
-            .map(|pass| ModModule {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                body: pass.module.clone(),
-            })
-    }
-
-    pub fn pass_semantic_blockpy(&self) -> Option<&BlockPyModule<RuffBlockPyPass>> {
-        self.get::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
-    }
-
-    pub fn pass_core_blockpy(&self) -> Option<&BlockPyModule<CoreBlockPyPass>> {
-        self.get::<BlockPyModule<CoreBlockPyPass>>("core_blockpy")
-    }
-
-    pub fn pass_name_binding(&self) -> Option<&BlockPyModule<ResolvedStorageBlockPyPass>> {
-        self.get::<BlockPyModule<ResolvedStorageBlockPyPass>>("name_binding")
-    }
-
-    pub fn render_pass_text(&self, name: &str) -> Option<String> {
-        let pass = self.passes.iter().find(|pass| pass.name == name)?;
-        pass.render_text.map(|render| render(pass.value.as_ref()))
-    }
-
-    pub fn pass_timings(&self) -> impl Iterator<Item = PassTiming> + '_ {
-        self.timings.iter().cloned()
-    }
-}
-
-impl PassTracker for RecordingPassTracker {
-    fn run_pass<T, F>(&mut self, name: &str, build: F) -> T
-    where
-        T: Clone + Any + BlockPyPrettyPrint,
-        F: FnOnce() -> T,
-    {
-        let value = self.record_timing(name, build);
-        self.passes.push(TrackedPass {
-            name: name.to_string(),
-            value: Box::new(value.clone()),
-            render_text: Some(render_tracked_pass_value::<T>),
-        });
-        value
-    }
-
-    fn record_timing<T, F>(&mut self, name: &str, build: F) -> T
-    where
-        F: FnOnce() -> T,
-    {
-        let start = timing_start();
-        let value = build();
-        let elapsed = timing_elapsed(start);
-        self.record_pass_timing(name, elapsed);
-        value
-    }
-}
-
 fn lower_python_to_blockpy_with_tracker<P>(
     source: &str,
     mut pass_tracker: P,
@@ -272,12 +88,12 @@ where
 {
     init_logging();
     namegen::reset_namegen_state();
-    let total_start = timing_start();
+    let total_start = Instant::now();
 
     let codegen_module = rewrite_module_with_tracker(source, &mut pass_tracker)?;
 
     Ok(LoweringResult {
-        total_time: timing_elapsed(total_start),
+        total_time: total_start.elapsed(),
         codegen_module,
         pass_tracker,
     })
