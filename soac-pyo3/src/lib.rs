@@ -10,7 +10,6 @@ use pyo3::exceptions::{
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyFunction, PyModule, PyString, PyTuple};
-use pyo3::types::{PyAny, PyDict, PyFunction, PyModule, PyString, PyTuple};
 use std::time::Instant;
 
 mod eval;
@@ -104,7 +103,9 @@ fn transform_source_with_name(
 #[pyfunction]
 fn inspect_pipeline(source: &str, ensure: Option<bool>) -> PyResult<String> {
     let output = lower_source(source, ensure)?;
-    Ok(dp_transform::render_inspector_payload(source, &output))
+    Ok(dp_transform::web_inspector::render_inspector_payload(
+        source, &output,
+    ))
 }
 
 fn import_dp_module<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyModule>> {
@@ -640,8 +641,7 @@ fn ensure_bb_plan(
     let plan_name = function
         .function_id
         .plan_qualname(function.names.qualname.as_str());
-    if soac_eval::jit::lookup_registered_jit_function(module_name, function.function_id.0).is_none()
-    {
+    if soac_eval::jit::lookup_blockpy_function(module_name, function.function_id.0).is_none() {
         return Err(PyRuntimeError::new_err(format!(
             "JIT basic-block {operation} requires a registered plan, but none is available for {module_name}.{plan_name}"
         )));

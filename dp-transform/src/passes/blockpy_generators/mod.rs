@@ -12,7 +12,8 @@ use crate::block_py::{
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{
-    attach_exception_edges_to_blocks, lowered_exception_edges, recompute_lowered_block_params,
+    attach_exception_edges_to_blocks, compute_closure_layout_from_semantics,
+    lowered_exception_edges, recompute_lowered_block_params,
     should_include_closure_storage_aliases,
 };
 use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithYield};
@@ -226,22 +227,22 @@ fn build_generator_closure_layout(
     callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
 ) -> ClosureLayout {
     let param_names = callable.params.names();
-    let local_cell_slot_names = callable.semantic.local_cell_storage_names();
-    let mut local_cell_slots = local_cell_slot_names.iter().cloned().collect::<Vec<_>>();
-    local_cell_slots.sort();
-    let mut capture_names = callable
-        .closure_layout
-        .as_ref()
-        .map(|layout| {
-            layout
-                .freevars
-                .iter()
-                .map(|slot| slot.storage_name.clone())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    capture_names.sort();
-    capture_names.dedup();
+    let semantic_layout =
+        compute_closure_layout_from_semantics(callable).unwrap_or(ClosureLayout {
+            freevars: Vec::new(),
+            cellvars: Vec::new(),
+            runtime_cells: Vec::new(),
+        });
+    let capture_names = semantic_layout
+        .freevars
+        .iter()
+        .map(|slot| slot.logical_name.clone())
+        .collect::<Vec<_>>();
+    let local_cell_slots = semantic_layout
+        .cellvars
+        .iter()
+        .map(|slot| slot.storage_name.clone())
+        .collect::<Vec<_>>();
 
     let mut state_vars = collect_state_vars(&param_names, &callable.blocks);
     for capture_name in &capture_names {

@@ -1,5 +1,5 @@
 use self::operation as block_py_operation;
-pub use self::param_specs::{Param, ParamKind, ParamSpec};
+pub use self::param_specs::{Param, ParamDefaultSource, ParamKind, ParamSpec};
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
@@ -265,6 +265,17 @@ pub struct ClosureLayout {
 }
 
 impl ClosureLayout {
+    pub fn freevar_slot(&self, slot: u32) -> Option<&ClosureSlot> {
+        self.freevars.get(slot as usize)
+    }
+
+    pub fn local_cell_slot(&self, slot: u32) -> Option<&ClosureSlot> {
+        self.cellvars
+            .iter()
+            .chain(self.runtime_cells.iter())
+            .nth(slot as usize)
+    }
+
     pub fn ambient_storage_names(&self) -> Vec<String> {
         self.freevars
             .iter()
@@ -273,6 +284,35 @@ impl ClosureLayout {
             .filter(|slot| matches!(slot.init, ClosureInit::InheritedCapture))
             .map(|slot| slot.storage_name.clone())
             .collect()
+    }
+
+    pub fn local_cell_storage_names(&self) -> Vec<String> {
+        self.cellvars
+            .iter()
+            .chain(self.runtime_cells.iter())
+            .map(|slot| slot.storage_name.clone())
+            .collect()
+    }
+
+    pub fn has_freevar_storage_name(&self, storage_name: &str) -> bool {
+        self.freevars
+            .iter()
+            .any(|slot| slot.storage_name == storage_name)
+    }
+
+    pub fn has_cellvar_storage_name(&self, storage_name: &str) -> bool {
+        self.cellvars
+            .iter()
+            .any(|slot| slot.storage_name == storage_name)
+    }
+
+    pub fn has_storage_name(&self, storage_name: &str) -> bool {
+        self.has_freevar_storage_name(storage_name)
+            || self.has_cellvar_storage_name(storage_name)
+            || self
+                .runtime_cells
+                .iter()
+                .any(|slot| slot.storage_name == storage_name)
     }
 }
 
@@ -1276,6 +1316,22 @@ impl BlockPyCallableSemanticInfo {
             })
             .collect::<HashSet<_>>();
         names.extend(self.owned_cell_source_names.iter().cloned());
+        names
+    }
+
+    pub fn captured_cell_logical_names(&self) -> Vec<String> {
+        let mut names = self
+            .bindings
+            .iter()
+            .filter_map(|(name, binding)| {
+                matches!(
+                    binding,
+                    BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+                )
+                .then(|| name.clone())
+            })
+            .collect::<Vec<_>>();
+        names.sort();
         names
     }
 

@@ -45,10 +45,11 @@ fn pass_tracker_renders_tracked_pass_text_for_renderable_passes() {
 #[test]
 fn render_inspector_payload_includes_lowered_callable_metadata() {
     let source = "def f(x):\n    return x\n";
-    let lowered = crate::transform_str_to_ruff_with_options(source, crate::Options::default())
-        .expect("source should lower");
-    let payload: Value = serde_json::from_str(&crate::render_inspector_payload(source, &lowered))
-        .expect("inspector payload should be valid JSON");
+    let lowered = crate::lower_python_to_blockpy_recorded(source).expect("source should lower");
+    let payload: Value = serde_json::from_str(&crate::web_inspector::render_inspector_payload(
+        source, &lowered,
+    ))
+    .expect("inspector payload should be valid JSON");
 
     let steps = payload["steps"]
         .as_array()

@@ -62,6 +62,16 @@
     - Several later stages still implicitly decide concrete storage/layout details such as which values live in cells, the ordering of closure slots, and stack/local slot numbering.
     - A dedicated pass for those decisions would make the backend-facing layout explicit, instead of spreading that knowledge across generator lowering, closure construction, and codegen-adjacent logic.
     - A good first pass is to identify which existing decisions are semantic versus purely physical layout, then choose one IR boundary where storage class, closure slot index, and stack/local offsets become fixed and immutable.
+- Compute `ClosureLayout` in `name_binding`, and keep all closure data semantic before that.
+  - Planning note:
+    - `ClosureLayout` currently crosses the semantic/storage boundary too early even though it mixes runtime storage layout with logical capture information.
+    - The desired end state is for pre-`name_binding` passes to carry only semantic closure facts, and for `name_binding` to materialize the first real `ClosureLayout` with a clear distinction between logical names and storage slots.
+    - Later passes that add new freevars, cellvars, or runtime closure cells should update `ClosureLayout` through one explicit API or validation hook, so layout drift cannot be introduced silently.
+- Remove the `_dp_resume` closure-layout refresh special case by making later closure-layout mutations explicit.
+  - Planning note:
+    - The current unconditional closure-layout refresh had to grow a special case for synthetic `_dp_resume` callables because their runtime closure layout is no longer derivable from ordinary semantic capture facts.
+    - The desired end state is for refresh/recompute logic to stop guessing about post-`name_binding` runtime layouts, and for generator/resume lowering to own its closure-layout mutations through explicit APIs or phase-local construction.
+    - A good first pass is to identify every later pass that mutates closure storage shape, then make those updates visible as explicit `ClosureLayout` edits or validations instead of patching over them with name-based exclusions.
 - Story for constants (`None`, strings, etc.).
   - Planning note:
     - The pipeline still has multiple places that decide how constants are represented, including literal expr forms, `_dp_` builtins, and backend/runtime materialization paths.

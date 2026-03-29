@@ -116,14 +116,17 @@ fn bb_text_renders_located_names_with_resolved_locations() {
         "captured",
         NameLocation::ClosureCell { slot: 2 },
     ));
-    let assign_stmt = BbStmt::Assign(BlockPyAssign {
+    let assign_stmt = BlockPyStmt::Assign(BlockPyAssign {
         target: located_name("temp", NameLocation::Local { slot: 1 }),
         value: closure_expr.clone(),
     });
     let global_expr = CoreBlockPyExpr::Name(located_name("answer", NameLocation::Global));
 
     assert_eq!(bb_expr_text(&closure_expr), "closure slot 2");
-    assert_eq!(bb_stmt_text(&assign_stmt), "local slot 1 = closure slot 2");
+    assert_eq!(
+        core_bb_stmt_text(&assign_stmt),
+        "local slot 1 = closure slot 2"
+    );
     assert_eq!(bb_expr_text(&global_expr), "answer");
 }
 
@@ -215,7 +218,7 @@ fn renders_public_closure_metadata_in_function_header() {
             blocks: vec![CfgBlock {
                 label: label(0),
                 body: vec![],
-                term: BlockPyTerm::<Expr>::Return(parse_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             }],
@@ -349,28 +352,28 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
             CfgBlock {
                 label: label(4),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: label(1),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: label(3),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: label(2),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },

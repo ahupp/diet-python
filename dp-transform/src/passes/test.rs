@@ -196,7 +196,7 @@ def fmt(value):
     );
     assert!(
         fmt.blocks.iter().any(|block| {
-            block_uses_text(block, "__dp_format(_dp_eval_2)")
+            block_uses_text(block, "__dp_format(local slot 2)")
                 || block_uses_text(block, "__dp_load_global(__dp_globals(), \"__dp_format\")")
         }),
         "{fmt:?}"
@@ -582,12 +582,12 @@ fn method_super_uses_cell_ref_marker_for_classcell() {
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("_dp_eval_1 = __dp_cell_ref(__class__)"),
+        name_binding_rendered.contains("__dp_cell_ref(__class__)"),
         "{name_binding_rendered}"
     );
     assert!(
         name_binding_rendered.contains(
-            "_dp_eval_2 = __dp_call_super(__dp_load_global(__dp_globals(), \"super\"), _dp_eval_1, self)"
+            "__dp_call_super(__dp_load_global(__dp_globals(), \"super\"), _dp_eval_1, self)"
         ),
         "{name_binding_rendered}"
     );
@@ -1161,14 +1161,14 @@ def gen():
         resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_load_cell(closure slot ")),
+            .any(|block| block_uses_text(block, "__dp_load_cell(captured cell source slot ")),
         "{resume:?}"
     );
     assert!(
         resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_store_cell(closure slot ")),
+            .any(|block| block_uses_text(block, "__dp_store_cell(captured cell source slot ")),
         "{resume:?}"
     );
 }
@@ -1211,26 +1211,14 @@ def delegator():
         resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_load_cell(closure slot "))
-            || resume
-                .blocks
-                .iter()
-                .any(|block| block_uses_text(block, "__dp_load_cell(closure slot "))
-            || resume
-                .blocks
-                .iter()
-                .any(|block| block_uses_text(block, "__dp_load_cell(closure slot "))
-            || resume
-                .blocks
-                .iter()
-                .any(|block| block_uses_text(block, "__dp_load_cell(closure slot ")),
+            .any(|block| block_uses_text(block, "__dp_load_cell(captured cell source slot ")),
         "{resume:?}"
     );
     assert!(
         resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_store_cell(closure slot ")),
+            .any(|block| block_uses_text(block, "__dp_store_cell(captured cell source slot ")),
         "{resume:?}"
     );
 }
@@ -1268,14 +1256,13 @@ def gen():
         resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_load_cell(closure slot 0)")),
+            .any(|block| block_uses_text(block, "__dp_load_cell(captured cell source slot 0)")),
         "{resume:?}"
     );
     assert!(
-        resume
-            .blocks
-            .iter()
-            .any(|block| block_uses_text(block, "__dp_store_cell(closure slot 0,")),
+        resume.blocks.iter().any(|block| {
+            block_uses_text(block, "__dp_store_cell(captured cell source slot 0,")
+        }),
         "{resume:?}"
     );
 }
@@ -1300,7 +1287,7 @@ async def run():
         hidden_listcomp_resume
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_load_cell(j)")),
+            .any(|block| block_uses_text(block, "__dp_load_cell(captured cell source slot ")),
         "{hidden_listcomp_resume:?}"
     );
 }
@@ -1330,15 +1317,15 @@ def gen():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("closure slot 0 = __dp_make_cell(__dp_NONE)"),
+        name_binding_rendered.contains("owned cell slot 0 = __dp_make_cell(__dp_NONE)"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("closure slot 1 = __dp_make_cell(1)"),
+        name_binding_rendered.contains("owned cell slot 1 = __dp_make_cell(1)"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("closure slot 2 = __dp_make_cell(__dp_NONE)"),
+        name_binding_rendered.contains("owned cell slot 2 = __dp_make_cell(__dp_NONE)"),
         "{name_binding_rendered}"
     );
 }
@@ -1662,7 +1649,8 @@ def outer():
     let lowered = TrackedLowering::new(source);
     let blockpy_rendered = lowered.blockpy_text();
     assert!(
-        blockpy_rendered.contains("freevars: [x->x@inherited]"),
+        blockpy_rendered.contains("__dp_make_function(")
+            && blockpy_rendered.contains("__dp_tuple(__dp_tuple(\"x\", __dp_cell_ref(\"x\")))"),
         "{blockpy_rendered}"
     );
 }
@@ -1729,11 +1717,11 @@ def outer(x):
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("closure slot 0 = __dp_make_cell(x)"),
+        name_binding_rendered.contains("owned cell slot 0 = __dp_make_cell(x)"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("closure slot 2 = __dp_make_cell(__dp_DELETED)"),
+        name_binding_rendered.contains("owned cell slot 1 = __dp_make_cell(__dp_DELETED)"),
         "{name_binding_rendered}"
     );
     let name_binding_module = lowered

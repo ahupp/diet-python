@@ -1,7 +1,7 @@
 use super::lower_try_jump_exception_flow;
 use crate::block_py::{
-    validate_module, BlockArg, BlockPyEdge, BlockPyLabel, BlockPyTerm, LocatedCoreBlockPyExpr,
-    ResolvedStorageBlock,
+    validate_module, AbruptKind, BlockArg, BlockPyBindingKind, BlockPyCellBindingKind, BlockPyEdge,
+    BlockPyLabel, BlockPyTerm, ClosureLayout, LocatedCoreBlockPyExpr, ResolvedStorageBlock,
 };
 use crate::lower_python_to_blockpy_recorded;
 use crate::passes::CodegenBlockPyPass;
@@ -127,6 +127,69 @@ def f():
         err.contains("exception dispatch")
             && err.contains("explicit edge args")
             && err.contains("full params"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn rejects_exception_edge_with_abrupt_kind_arg() {
+    let source = r#"
+def f():
+    return 1
+"#;
+    let mut module = tracked_codegen_module(source);
+    let function = module
+        .callable_defs
+        .first_mut()
+        .expect("must contain function");
+    let target = function.blocks[0].label;
+    function.blocks[0].set_exception_param("_dp_try_exc");
+    function.blocks[0].exc_edge = Some(BlockPyEdge::with_args(
+        target,
+        vec![BlockArg::AbruptKind(AbruptKind::Exception)],
+    ));
+
+    let err = validate_module(&module).expect_err("must reject abrupt-kind exception edge args");
+    assert!(
+        err.contains("exception dispatch")
+            && err.contains("abrupt-kind edge arg")
+            && err.contains("target param"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn rejects_semantic_cell_binding_storage_drift_from_closure_layout() {
+    let source = r#"
+def f():
+    return 1
+"#;
+    let mut module = tracked_codegen_module(source);
+    let function = module
+        .callable_defs
+        .first_mut()
+        .expect("must contain function");
+    function.closure_layout = Some(ClosureLayout {
+        freevars: vec![],
+        cellvars: vec![crate::block_py::ClosureSlot {
+            logical_name: "captured".to_string(),
+            storage_name: "_dp_wrong_storage".to_string(),
+            init: crate::block_py::ClosureInit::Deferred,
+        }],
+        runtime_cells: vec![],
+    });
+    function.semantic.insert_binding(
+        "captured",
+        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner),
+        false,
+        Some("_dp_cell_captured".to_string()),
+    );
+
+    let err = validate_module(&module).expect_err("must reject semantic/layout drift");
+    assert!(
+        err.contains("semantic info expects _dp_cell_captured")
+            && err.contains("_dp_wrong_storage")
+            && err.contains("captured"),
         "unexpected error: {err}"
     );
 }

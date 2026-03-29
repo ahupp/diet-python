@@ -1,6 +1,7 @@
 use crate::block_py::{
-    BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyTerm, PassBlock,
+    BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyTerm, PassBlock,
 };
+use crate::passes::ruff_to_blockpy::compute_closure_layout_from_semantics;
 
 pub fn validate_module<P: BlockPyPass>(module: &BlockPyModule<P>) -> Result<(), String> {
     for function in &module.callable_defs {
@@ -11,6 +12,7 @@ pub fn validate_module<P: BlockPyPass>(module: &BlockPyModule<P>) -> Result<(), 
 
 fn validate_function<P: BlockPyPass>(function: &BlockPyFunction<P>) -> Result<(), String> {
     let qualname = function.names.qualname.as_str();
+    validate_closure_layout_scoping(function, qualname)?;
     for (index, block) in function.blocks.iter().enumerate() {
         let expected_label = BlockPyLabel::from_index(index);
         if block.label != expected_label {
@@ -39,6 +41,18 @@ fn validate_function<P: BlockPyPass>(function: &BlockPyFunction<P>) -> Result<()
                     target_block.label,
                     target_block.param_name_vec().len()
                 ));
+            }
+            for (target_param_name, source) in target_block
+                .param_name_vec()
+                .iter()
+                .zip(exc_edge.args.iter())
+            {
+                if let BlockArg::AbruptKind(kind) = source {
+                    return Err(format!(
+                        "exception dispatch from {}:{} uses abrupt-kind edge arg {:?} for target param {}",
+                        qualname, block.label, kind, target_param_name
+                    ));
+                }
             }
         }
         match &block.term {
@@ -86,6 +100,80 @@ fn validate_function<P: BlockPyPass>(function: &BlockPyFunction<P>) -> Result<()
                 )?;
             }
             BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
+        }
+    }
+    Ok(())
+}
+
+fn validate_closure_layout_scoping<P: BlockPyPass>(
+    function: &BlockPyFunction<P>,
+    qualname: &str,
+) -> Result<(), String> {
+    let expected_layout = compute_closure_layout_from_semantics(function);
+
+    let Some(layout) = function.closure_layout.as_ref() else {
+        if expected_layout.is_none() {
+            return Ok(());
+        }
+        return Err(format!(
+            "closure layout missing for {} despite semantic closure state",
+            qualname
+        ));
+    };
+
+    let Some(expected_layout) = expected_layout else {
+        return Ok(());
+    };
+
+    for expected_slot in &expected_layout.cellvars {
+        let Some(actual_slot) = layout
+            .cellvars
+            .iter()
+            .find(|slot| slot.logical_name == expected_slot.logical_name)
+        else {
+            return Err(format!(
+                "closure layout for {} is missing owner cell {}; actual cellvars: {:?}",
+                qualname,
+                expected_slot.logical_name,
+                layout
+                    .cellvars
+                    .iter()
+                    .map(|slot| format!("{}->{}", slot.logical_name, slot.storage_name))
+                    .collect::<Vec<_>>()
+            ));
+        };
+        if actual_slot.storage_name != expected_slot.storage_name {
+            return Err(format!(
+                "closure layout for {} has owner cell {} stored as {}, but semantic info expects {}; actual cellvars: {:?}",
+                qualname,
+                expected_slot.logical_name,
+                actual_slot.storage_name,
+                expected_slot.storage_name,
+                layout
+                    .cellvars
+                    .iter()
+                    .map(|slot| format!("{}->{}", slot.logical_name, slot.storage_name))
+                    .collect::<Vec<_>>()
+            ));
+        }
+    }
+
+    for expected_slot in &expected_layout.freevars {
+        if !layout
+            .freevars
+            .iter()
+            .any(|slot| slot.logical_name == expected_slot.logical_name)
+        {
+            return Err(format!(
+                "closure layout for {} is missing freevar {}; actual freevars: {:?}",
+                qualname,
+                expected_slot.logical_name,
+                layout
+                    .freevars
+                    .iter()
+                    .map(|slot| format!("{}->{}", slot.logical_name, slot.storage_name))
+                    .collect::<Vec<_>>()
+            ));
         }
     }
     Ok(())

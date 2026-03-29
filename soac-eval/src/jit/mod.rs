@@ -9,9 +9,10 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use dp_transform::block_py::{
-    AbruptKind, BlockArg, BlockPyModule, BlockPyStmt, BlockPyTerm, CodegenBlockPyExpr,
-    CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyKeywordArg, LocatedCodegenBlockPyExpr,
-    LocatedName, NameLocation, operation as blockpy_intrinsics,
+    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm, ClosureLayout,
+    CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyKeywordArg,
+    LocatedCodegenBlockPyExpr, LocatedName, NameLocation, ParamDefaultSource,
+    operation as blockpy_intrinsics,
 };
 use dp_transform::passes::CodegenBlockPyPass;
 use std::borrow::Cow;
@@ -25,8 +26,8 @@ mod planning;
 mod specialized_helpers;
 
 pub use planning::{
-    BlockExcArgSource, BlockExcDispatchPlan, ClifEntryParamDefaultSource, JitFunctionInfo,
-    lookup_blockpy_function, lookup_registered_jit_function, register_clif_module_plans,
+    BlockExcDispatchPlan, JitBlockInfo, exc_dispatch_plan, jit_block_info,
+    jit_param_names_for_block, lookup_blockpy_function, register_clif_module_plans,
 };
 pub use specialized_helpers::ObjPtr;
 use specialized_helpers::{dp_jit_decref, register_specialized_jit_symbols};
@@ -54,10 +55,8 @@ struct SpecializedJitBlockData {
 
 #[derive(Clone)]
 struct SpecializedJitData {
-    entry_param_names: Vec<String>,
-    entry_param_default_sources: Vec<Option<ClifEntryParamDefaultSource>>,
-    owned_cell_slot_names: Vec<String>,
-    slot_names: Vec<String>,
+    function: BlockPyFunction<CodegenBlockPyPass>,
+    function_state_slot_names: Vec<String>,
     blocks: Vec<SpecializedJitBlockData>,
 }
 
@@ -475,7 +474,7 @@ struct JitEmitConsts {
 }
 
 struct JitEmitCtx {
-    owned_cell_slot_names: Vec<String>,
+    closure_layout: Option<ClosureLayout>,
     incref_ref: ir::FuncRef,
     decref_ref: ir::FuncRef,
     py_call_positional_three_ref: ir::FuncRef,
@@ -580,6 +579,40 @@ impl FunctionStateSlots {
             fb.ins().call(decref_ref, &[value]);
         }
     }
+}
+
+fn function_state_slot_names(
+    function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
+) -> Vec<String> {
+    let mut slot_names = Vec::new();
+    let mut seen = HashMap::new();
+
+    let mut push_name = |name: String| {
+        if seen.insert(name.clone(), ()).is_none() {
+            slot_names.push(name);
+        }
+    };
+
+    if let Some(layout) = function.closure_layout().as_ref() {
+        for name in layout.ambient_storage_names() {
+            push_name(name);
+        }
+        for name in layout.local_cell_storage_names() {
+            push_name(name);
+        }
+    }
+
+    for name in function.params.names() {
+        push_name(name);
+    }
+
+    for block in &function.blocks {
+        for name in block.param_names() {
+            push_name(name.to_string());
+        }
+    }
+
+    slot_names
 }
 
 fn bind_local_value(
@@ -759,18 +792,19 @@ fn emit_raw_cell_object_for_name(
 
     match name.location {
         NameLocation::OwnedCell { slot } => {
-            let storage_name = ctx
-                .owned_cell_slot_names
-                .get(slot as usize)
+            let closure_slot = ctx
+                .closure_layout
+                .as_ref()
+                .and_then(|layout| layout.local_cell_slot(slot))
                 .unwrap_or_else(|| {
                     panic!(
                         "missing owned cell slot mapping for {} at local cell slot {}",
                         name.id, slot
                     )
                 });
-            let mut candidate_names = vec![storage_name.as_str()];
-            if name.id.as_str() != storage_name.as_str() {
-                candidate_names.push(name.id.as_str());
+            let mut candidate_names = vec![closure_slot.storage_name.as_str()];
+            if closure_slot.logical_name != closure_slot.storage_name {
+                candidate_names.push(closure_slot.logical_name.as_str());
             }
             for candidate_name in &candidate_names {
                 if let Some(slot_index) = local_names
@@ -2592,7 +2626,7 @@ fn emit_explicit_target_slot_writes_codegen(
 
 fn emit_exception_dispatch_slot_writes(
     fb: &mut FunctionBuilder<'_>,
-    slot_writes: &[(String, BlockExcArgSource)],
+    slot_writes: &[(String, BlockArg)],
     dispatch_exc: ir::Value,
     function_state_slots: &FunctionStateSlots,
     ptr_ty: ir::Type,
@@ -2602,7 +2636,7 @@ fn emit_exception_dispatch_slot_writes(
 ) -> Result<(), String> {
     for (target_name, source) in slot_writes {
         let value = match source {
-            BlockExcArgSource::Name(source_name) => load_function_state_value(
+            BlockArg::Name(source_name) => load_function_state_value(
                 fb,
                 function_state_slots,
                 source_name,
@@ -2615,8 +2649,11 @@ fn emit_exception_dispatch_slot_writes(
                     "missing exception dispatch slot source {source_name} for target {target_name}"
                 )
             })?,
-            BlockExcArgSource::Exception => dispatch_exc,
-            BlockExcArgSource::NoneValue => none_const,
+            BlockArg::CurrentException => dispatch_exc,
+            BlockArg::None => none_const,
+            BlockArg::AbruptKind(_) => {
+                unreachable!("validated exception edges should not use abrupt-kind args")
+            }
         };
         function_state_slots
             .replace_cloned_value(fb, target_name, value, ptr_ty, incref_ref, decref_ref)
@@ -3445,7 +3482,7 @@ fn build_cranelift_run_bb_specialized_function(
 
     let mut main_sig = jit_module.make_signature();
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
-    for _ in &jit_data.entry_param_names {
+    for _ in jit_data.function.params.iter() {
         main_sig.params.push(ir::AbiParam::new(ptr_ty));
     }
     main_sig.returns.push(ir::AbiParam::new(ptr_ty));
@@ -3478,7 +3515,8 @@ fn build_cranelift_run_bb_specialized_function(
         }
         let step_null_block = fb.create_block();
         let raise_exc_direct_block = fb.create_block();
-        let function_state_slots = FunctionStateSlots::new(&mut fb, &jit_data.slot_names);
+        let function_state_slots =
+            FunctionStateSlots::new(&mut fb, &jit_data.function_state_slot_names);
 
         register_block_display_annotation(
             &mut block_annotations,
@@ -3492,14 +3530,14 @@ fn build_cranelift_run_bb_specialized_function(
         );
         for (index, block) in exec_blocks.iter().enumerate() {
             let param_names = if runtime_block_param_names[index].is_empty() {
-                plan.blocks[index].param_names.clone()
+                full_block_param_names[index].clone()
             } else {
                 runtime_block_param_names[index].clone()
             };
             register_block_display_annotation(
                 &mut block_annotations,
                 *block,
-                plan.blocks[index].label.clone(),
+                jit_data.blocks[index].label.clone(),
                 param_names,
             );
         }
@@ -3507,7 +3545,7 @@ fn build_cranelift_run_bb_specialized_function(
             register_block_display_annotation(
                 &mut block_annotations,
                 *block,
-                format!("cleanup_null::{}", plan.blocks[index].label),
+                format!("cleanup_null::{}", jit_data.blocks[index].label),
                 vec!["value".into()],
             );
         }
@@ -3620,22 +3658,17 @@ fn build_cranelift_run_bb_specialized_function(
         let entry_failure_args = Vec::new();
         assert_eq!(
             direct_entry_args.len(),
-            jit_data.entry_param_names.len(),
-            "direct JIT entry arity does not match entry_param_names",
+            jit_data.function.params.len(),
+            "direct JIT entry arity does not match entry params",
         );
-        assert_eq!(
-            jit_data.entry_param_names.len(),
-            jit_data.entry_param_default_sources.len(),
-            "direct JIT entry default metadata does not match entry params",
-        );
-        for ((param_name, default_source), value) in jit_data
-            .entry_param_names
-            .iter()
-            .zip(jit_data.entry_param_default_sources.iter())
+        for ((param, default_source), value) in jit_data
+            .function
+            .params
+            .iter_with_default_sources()
             .zip(direct_entry_args.iter())
         {
             match default_source {
-                Some(ClifEntryParamDefaultSource::Positional(default_index)) => {
+                Some(ParamDefaultSource::Positional(default_index)) => {
                     let arg_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, *value, null_ptr);
                     let use_default_block = fb.create_block();
                     let use_arg_block = fb.create_block();
@@ -3645,10 +3678,10 @@ fn build_cranelift_run_bb_specialized_function(
 
                     fb.switch_to_block(use_default_block);
                     let (name_ptr, name_len) =
-                        intern_bytes_literal(&mut literal_pool, param_name.as_bytes());
+                        intern_bytes_literal(&mut literal_pool, param.name.as_bytes());
                     let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
                     let name_len_val = fb.ins().iconst(i64_ty, name_len);
-                    let default_index_val = fb.ins().iconst(i64_ty, *default_index as i64);
+                    let default_index_val = fb.ins().iconst(i64_ty, default_index as i64);
                     let default_inst = fb.ins().call(
                         function_positional_default_ref,
                         &[callable, name_ptr_val, name_len_val, default_index_val],
@@ -3671,7 +3704,7 @@ fn build_cranelift_run_bb_specialized_function(
                     function_state_slots
                         .replace_cloned_value(
                             &mut fb,
-                            param_name,
+                            param.name.as_str(),
                             default_value,
                             ptr_ty,
                             incref_ref,
@@ -3684,14 +3717,19 @@ fn build_cranelift_run_bb_specialized_function(
                     fb.switch_to_block(use_arg_block);
                     function_state_slots
                         .replace_cloned_value(
-                            &mut fb, param_name, *value, ptr_ty, incref_ref, decref_ref,
+                            &mut fb,
+                            param.name.as_str(),
+                            *value,
+                            ptr_ty,
+                            incref_ref,
+                            decref_ref,
                         )
                         .expect("entry slot missing from function state slots");
                     fb.ins().jump(after_block, &[]);
 
                     fb.switch_to_block(after_block);
                 }
-                Some(ClifEntryParamDefaultSource::KeywordOnly(default_name)) => {
+                Some(ParamDefaultSource::KeywordOnly(default_name)) => {
                     let arg_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, *value, null_ptr);
                     let use_default_block = fb.create_block();
                     let use_arg_block = fb.create_block();
@@ -3726,7 +3764,7 @@ fn build_cranelift_run_bb_specialized_function(
                     function_state_slots
                         .replace_cloned_value(
                             &mut fb,
-                            param_name,
+                            param.name.as_str(),
                             default_value,
                             ptr_ty,
                             incref_ref,
@@ -3739,7 +3777,12 @@ fn build_cranelift_run_bb_specialized_function(
                     fb.switch_to_block(use_arg_block);
                     function_state_slots
                         .replace_cloned_value(
-                            &mut fb, param_name, *value, ptr_ty, incref_ref, decref_ref,
+                            &mut fb,
+                            param.name.as_str(),
+                            *value,
+                            ptr_ty,
+                            incref_ref,
+                            decref_ref,
                         )
                         .expect("entry slot missing from function state slots");
                     fb.ins().jump(after_block, &[]);
@@ -3749,7 +3792,12 @@ fn build_cranelift_run_bb_specialized_function(
                 None => {
                     function_state_slots
                         .replace_cloned_value(
-                            &mut fb, param_name, *value, ptr_ty, incref_ref, decref_ref,
+                            &mut fb,
+                            param.name.as_str(),
+                            *value,
+                            ptr_ty,
+                            incref_ref,
+                            decref_ref,
                         )
                         .expect("entry slot missing from function state slots");
                 }
@@ -3778,7 +3826,7 @@ fn build_cranelift_run_bb_specialized_function(
                 register_block_display_annotation(
                     &mut block_annotations,
                     dispatch_block,
-                    format!("exc_dispatch::{}", plan.blocks[index].label),
+                    format!("exc_dispatch::{}", jit_data.blocks[index].label),
                     Vec::new(),
                 );
                 exception_dispatch_blocks[index] = Some(dispatch_block);
@@ -3814,7 +3862,7 @@ fn build_cranelift_run_bb_specialized_function(
                 exception_dispatch_blocks[index].unwrap_or(cleanup_null_blocks[index]);
             let fast_step_null_args = Vec::new();
             let emit_ctx = JitEmitCtx {
-                owned_cell_slot_names: jit_data.owned_cell_slot_names.clone(),
+                closure_layout: jit_data.function.closure_layout().clone(),
                 incref_ref,
                 decref_ref,
                 py_call_positional_three_ref,
@@ -4051,13 +4099,12 @@ unsafe fn render_cranelift_run_bb_specialized_data_with_cfg(
 pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     blocks: &[ObjPtr],
     function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
-    info: &JitFunctionInfo,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
     deleted_obj: ObjPtr,
     empty_tuple_obj: ObjPtr,
 ) -> Result<RenderedSpecializedClif, String> {
-    let jit_data = specialized_jit_data_from_function(function, info);
+    let jit_data = specialized_jit_data_from_function(function);
     render_cranelift_run_bb_specialized_data_with_cfg(
         blocks,
         &jit_data,
@@ -4106,24 +4153,23 @@ fn render_compiled_clif_and_vcode_disasm(
 
 fn specialized_jit_data_from_function(
     function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
-    info: &JitFunctionInfo,
 ) -> SpecializedJitData {
     SpecializedJitData {
-        entry_param_names: info.entry_param_names.clone(),
-        entry_param_default_sources: info.entry_param_default_sources.clone(),
-        owned_cell_slot_names: info.owned_cell_slot_names.clone(),
-        slot_names: info.slot_names.clone(),
+        function: function.clone(),
+        function_state_slot_names: function_state_slot_names(function),
         blocks: function
             .blocks
             .iter()
-            .zip(info.blocks.iter())
-            .map(|(block, block_info)| SpecializedJitBlockData {
-                label: block.label.to_string(),
-                full_param_names: block.param_name_vec(),
-                runtime_param_names: block_info.runtime_param_names.clone(),
-                exc_dispatch: block_info.exc_dispatch.clone(),
-                ops: block.body.clone(),
-                term: block.term.clone(),
+            .map(|block| {
+                let block_info = jit_block_info(function, block);
+                SpecializedJitBlockData {
+                    label: block.label.to_string(),
+                    full_param_names: block.param_name_vec(),
+                    runtime_param_names: block_info.runtime_param_names,
+                    exc_dispatch: block_info.exc_dispatch,
+                    ops: block.body.clone(),
+                    term: block.term.clone(),
+                }
             })
             .collect(),
     }
@@ -4132,7 +4178,6 @@ fn specialized_jit_data_from_function(
 pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     blocks: &[ObjPtr],
     function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
-    info: &JitFunctionInfo,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
@@ -4143,7 +4188,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     if globals_obj.is_null() {
         return Err("invalid null globals object passed to specialized JIT run_bb".to_string());
     }
-    let jit_data = specialized_jit_data_from_function(function, info);
+    let jit_data = specialized_jit_data_from_function(function);
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut compiled = Box::new(CompiledSpecializedRunner {
@@ -4178,7 +4223,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     let code_ptr = compiled._jit_module.get_finalized_function(main_id);
     compiled.entry = Some(CompiledRunnerEntry::Direct {
         code_ptr,
-        param_count: jit_data.entry_param_names.len(),
+        param_count: jit_data.function.params.len(),
     });
     compiled._literal_pool = built.literal_pool;
     Ok(Box::into_raw(compiled) as ObjPtr)

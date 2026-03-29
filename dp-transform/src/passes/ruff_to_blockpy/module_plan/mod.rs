@@ -1,14 +1,13 @@
 use crate::block_py::param_specs::{collect_param_spec_and_defaults, param_defaults_to_expr};
 use crate::block_py::{
     BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind, BlockPyModule,
-    ClosureLayout, FunctionNameGen, ModuleNameGen,
+    FunctionNameGen, ModuleNameGen,
 };
 use crate::passes::ast_to_ast::body::{split_docstring, Suite};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::rewrite_stmt;
 use crate::passes::ast_to_ast::semantic::{SemanticAstState, SemanticScope};
-use crate::passes::ruff_to_blockpy::recompute_semantic_blockpy_closure_layout;
 use crate::passes::RuffBlockPyPass;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt};
@@ -133,35 +132,30 @@ fn capture_items_to_expr(captures: &[(String, Expr)]) -> Expr {
     )
 }
 
-fn closure_freevar_capture_items(
-    closure_layout: Option<&ClosureLayout>,
-    _semantic: &BlockPyCallableSemanticInfo,
-) -> Vec<(String, Expr)> {
-    closure_layout
+fn closure_freevar_capture_items(capture_names: &[String]) -> Vec<(String, Expr)> {
+    capture_names
+        .iter()
+        .cloned()
         .into_iter()
-        .flat_map(|layout| layout.freevars.iter())
-        .map(|slot| {
-            (
-                slot.logical_name.clone(),
-                py_expr!(
-                    "__dp_cell_ref({name:literal})",
-                    name = slot.logical_name.as_str()
-                ),
-            )
+        .map(|logical_name| {
+            let capture_expr = py_expr!(
+                "__dp_cell_ref({name:literal})",
+                name = logical_name.as_str()
+            );
+            (logical_name, capture_expr)
         })
         .collect()
 }
 
 fn build_lowered_function_instantiation_expr(
     function_id: crate::block_py::FunctionId,
-    closure_layout: Option<&ClosureLayout>,
-    semantic: &BlockPyCallableSemanticInfo,
+    capture_names: &[String],
     decorator_exprs: Vec<Expr>,
     param_defaults: &[Expr],
     annotate_fn_expr: Expr,
     kind: BlockPyFunctionKind,
 ) -> Expr {
-    let captures = closure_freevar_capture_items(closure_layout, semantic);
+    let captures = closure_freevar_capture_items(capture_names);
     let capture_expr = capture_items_to_expr(&captures);
     let param_defaults_expr = param_defaults_to_expr(param_defaults);
     let kind_name = match kind {
@@ -193,15 +187,15 @@ fn rewrite_function_def_stmt_via_blockpy(
     callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
 ) -> Vec<Stmt> {
     let name_gen = module_name_gen.next_function_name_gen();
-    let mut lowered_plan =
+    let lowered_plan =
         try_lower_function_to_blockpy_bundle(context, func, callable_semantic, name_gen);
-    lowered_plan.closure_layout = recompute_semantic_blockpy_closure_layout(&lowered_plan);
+    let capture_names =
+        crate::passes::ruff_to_blockpy::semantic_capture_names_for_instantiation(&lowered_plan);
     let bind_name = lowered_plan.names.bind_name.clone();
     let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let decorated = build_lowered_function_instantiation_expr(
         lowered_plan.function_id,
-        lowered_plan.closure_layout.as_ref(),
-        &lowered_plan.semantic,
+        &capture_names,
         rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
         &param_defaults,
         py_expr!("None"),

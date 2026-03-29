@@ -4,8 +4,8 @@ use super::{
     FunctionScopeFrame,
 };
 use crate::block_py::{
-    BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyClassBodyFallback,
-    BlockPyEffectiveBinding, BlockPyModule, ClosureInit, ClosureLayout, ClosureSlot, ModuleNameGen,
+    BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCellBindingKind,
+    BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyModule, ModuleNameGen,
 };
 use crate::lower_python_to_blockpy_recorded;
 use crate::passes::ast_to_ast::context::Context;
@@ -40,31 +40,25 @@ fn lower_test_module_plan(
 #[test]
 fn capture_items_render_as_name_value_pairs() {
     let mut semantic = crate::block_py::BlockPyCallableSemanticInfo::default();
+    semantic.insert_binding(
+        "x",
+        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
+        false,
+        Some("x".to_string()),
+    );
     semantic
         .cell_capture_source_names
         .insert("x".to_string(), "_dp_cell_x".to_string());
+    semantic.insert_binding(
+        "y",
+        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
+        false,
+        Some("y".to_string()),
+    );
     semantic
         .cell_capture_source_names
         .insert("y".to_string(), "_dp_classcell".to_string());
-    let captures = closure_freevar_capture_items(
-        Some(&ClosureLayout {
-            freevars: vec![
-                ClosureSlot {
-                    logical_name: "x".to_string(),
-                    storage_name: "x".to_string(),
-                    init: ClosureInit::InheritedCapture,
-                },
-                ClosureSlot {
-                    logical_name: "y".to_string(),
-                    storage_name: "y".to_string(),
-                    init: ClosureInit::InheritedCapture,
-                },
-            ],
-            cellvars: vec![],
-            runtime_cells: vec![],
-        }),
-        &semantic,
-    );
+    let captures = closure_freevar_capture_items(&semantic.captured_cell_logical_names());
     let expr = capture_items_to_expr(&captures);
     assert_eq!(
         crate::ruff_ast_to_string(&expr).trim(),
@@ -548,13 +542,7 @@ fn lowering_nonlocal_inner_captures_outer_cell() {
         .find(|callable| callable.names.bind_name == "outer")
         .expect("missing lowered outer callable");
     assert!(
-        inner
-            .closure_layout()
-            .as_ref()
-            .expect("inner should have closure layout")
-            .freevars
-            .iter()
-            .any(|slot| slot.storage_name == "x"),
+        inner.closure_layout().is_none(),
         "{:?}",
         inner.closure_layout()
     );

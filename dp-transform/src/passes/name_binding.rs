@@ -10,8 +10,9 @@ use crate::block_py::{
     StoreGlobal, StructuredBlockPyStmt,
 };
 use crate::passes::ruff_to_blockpy::{
-    populate_exception_edge_args, recompute_lowered_block_params,
-    rewrite_current_exception_in_core_blocks, should_include_closure_storage_aliases,
+    compute_closure_layout_from_semantics, populate_exception_edge_args,
+    recompute_lowered_block_params, rewrite_current_exception_in_core_blocks,
+    should_include_closure_storage_aliases,
 };
 use crate::passes::{CoreBlockPyPass, ResolvedStorageBlockPyPass};
 use ruff_python_ast::{self as ast, ExprName};
@@ -1201,40 +1202,35 @@ fn collect_captured_cell_slot_locations(
 fn collect_owned_cell_storage_bindings(
     callable: &BlockPyFunction<CoreBlockPyPass>,
 ) -> Vec<(String, String)> {
-    match callable.kind {
-        BlockPyFunctionKind::Function => {
-            let mut storage_names = callable
-                .semantic
-                .owned_cell_storage_names()
-                .into_iter()
-                .collect::<Vec<_>>();
-            storage_names.sort();
-            storage_names
-                .into_iter()
-                .map(|storage_name| {
-                    let logical_name = callable
-                        .semantic
-                        .logical_name_for_cell_storage(storage_name.as_str())
-                        .unwrap_or_else(|| storage_name.clone());
-                    (logical_name, storage_name)
-                })
-                .collect()
-        }
-        BlockPyFunctionKind::Generator
-        | BlockPyFunctionKind::Coroutine
-        | BlockPyFunctionKind::AsyncGenerator => callable
-            .closure_layout
-            .as_ref()
-            .map(|layout| {
-                layout
-                    .cellvars
-                    .iter()
-                    .chain(layout.runtime_cells.iter())
-                    .map(|slot| (slot.logical_name.clone(), slot.storage_name.clone()))
-                    .collect()
-            })
-            .unwrap_or_default(),
+    if let Some(layout) = callable
+        .closure_layout
+        .as_ref()
+        .filter(|layout| !layout.cellvars.is_empty() || !layout.runtime_cells.is_empty())
+    {
+        return layout
+            .cellvars
+            .iter()
+            .chain(layout.runtime_cells.iter())
+            .map(|slot| (slot.logical_name.clone(), slot.storage_name.clone()))
+            .collect();
     }
+
+    let mut storage_names = callable
+        .semantic
+        .owned_cell_storage_names()
+        .into_iter()
+        .collect::<Vec<_>>();
+    storage_names.sort();
+    storage_names
+        .into_iter()
+        .map(|storage_name| {
+            let logical_name = callable
+                .semantic
+                .logical_name_for_cell_storage(storage_name.as_str())
+                .unwrap_or_else(|| storage_name.clone());
+            (logical_name, storage_name)
+        })
+        .collect()
 }
 
 fn collect_owned_cell_slot_locations(
@@ -1697,8 +1693,11 @@ fn refresh_bb_callable_block_params(
 }
 
 fn lower_name_binding_callable(
-    callable: BlockPyFunction<CoreBlockPyPass>,
+    mut callable: BlockPyFunction<CoreBlockPyPass>,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
+    if callable.closure_layout.is_none() {
+        callable.closure_layout = compute_closure_layout_from_semantics(&callable);
+    }
     let semantic = callable.semantic.clone();
     let mut lowered = NameBindingMapper {
         semantic: &semantic,

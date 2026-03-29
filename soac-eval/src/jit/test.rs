@@ -1,10 +1,13 @@
 use super::*;
 use dp_transform::block_py::{
-    BinOp, BinOpKind, BlockPyAssign, BlockPyDelete, BlockPyStmt, BlockPyTerm, CodegenBlockPyExpr,
-    CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref,
-    DelDerefQuietly, DelItem, DelQuietly, LoadGlobal, LocatedCodegenBlockPyExpr, LocatedName,
-    MakeString, NameLocation, Operation, StoreGlobal, TernaryOp, TernaryOpKind,
+    BinOp, BinOpKind, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyStmt, BlockPyTerm,
+    ClosureInit, ClosureLayout, ClosureSlot, CodegenBlockPyExpr, CodegenBlockPyLiteral,
+    CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref, DelDerefQuietly,
+    DelItem, DelQuietly, FunctionName, LoadGlobal, LocatedCodegenBlockPyExpr, LocatedName,
+    MakeString, ModuleNameGen, NameLocation, Operation, Param, ParamKind, ParamSpec, StoreGlobal,
+    TernaryOp, TernaryOpKind,
 };
+use dp_transform::passes::CodegenBlockPyPass;
 mod tests {
     use super::*;
     use ruff_python_ast as ast;
@@ -117,12 +120,26 @@ mod tests {
         }
     }
 
+    fn test_function() -> BlockPyFunction<CodegenBlockPyPass> {
+        let mut module_name_gen = ModuleNameGen::new(0);
+        let name_gen = module_name_gen.next_function_name_gen();
+        BlockPyFunction {
+            function_id: name_gen.function_id(),
+            name_gen,
+            names: FunctionName::new("test", "test", "test", "test"),
+            kind: dp_transform::block_py::BlockPyFunctionKind::Function,
+            params: ParamSpec::default(),
+            blocks: vec![],
+            doc: None,
+            closure_layout: None,
+            semantic: Default::default(),
+        }
+    }
+
     fn test_jit_data(blocks: Vec<SpecializedJitBlockData>) -> SpecializedJitData {
         SpecializedJitData {
-            entry_param_names: vec![],
-            entry_param_default_sources: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec![],
+            function: test_function(),
+            function_state_slot_names: vec![],
             blocks,
         }
     }
@@ -168,30 +185,22 @@ mod tests {
     #[test]
     fn render_specialized_jit_clif_annotates_block_headers_with_named_typed_params() {
         let blocks = [1usize as ObjPtr];
-        let plan = ClifPlan {
-            entry_param_names: vec![],
-            ambient_param_names: vec![],
-            slot_names: vec!["current".into(), "acc".into()],
-            blocks: vec![ClifBlockPlan {
+        let jit_data = SpecializedJitData {
+            function: test_function(),
+            function_state_slot_names: vec!["current".into(), "acc".into()],
+            blocks: vec![SpecializedJitBlockData {
                 label: "loop_body".into(),
-                param_names: vec!["current".into(), "acc".into()],
+                full_param_names: vec!["current".into(), "acc".into()],
                 runtime_param_names: vec!["current".into(), "acc".into()],
-                term: test_term(),
-                exc_target: None,
+                ops: vec![],
+                term: ret_term(int_expr(7)),
                 exc_dispatch: None,
-                fast_path: BlockFastPath::DirectSimpleRet {
-                    plan: DirectSimpleRetPlan {
-                        params: vec!["current".into(), "acc".into()],
-                        assigns: vec![],
-                        ret: DirectSimpleExprPlan::Int(7),
-                    },
-                },
             }],
         };
         let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
+            render_cranelift_run_bb_specialized_data_with_cfg(
                 &blocks,
-                &plan,
+                &jit_data,
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,
@@ -201,8 +210,7 @@ mod tests {
         .expect("specialized JIT CLIF render should succeed")
         .clif;
         assert!(
-            rendered
-                .contains("; block jit_entry(callable: i64, entry_args: i64, ambient_args: i64)"),
+            rendered.contains("; block jit_entry(callable: i64)"),
             "rendered CLIF should include named typed params on surviving post-opt block headers:\n{rendered}"
         );
         assert!(
@@ -210,7 +218,7 @@ mod tests {
             "rendered CLIF should still surface the semantic name for optimized blocks:\n{rendered}"
         );
         assert!(
-            rendered.contains("block0(v0: i64, v1: i64, v2: i64):"),
+            rendered.contains("block0(v0: i64):"),
             "rendered CLIF should keep the real Cranelift block header for round-tripping:\n{rendered}"
         );
     }
@@ -306,7 +314,7 @@ mod tests {
     fn render_specialized_jit_allocates_function_state_slots() {
         let blocks = [1usize as ObjPtr];
         let mut jit_data = test_single_block_data(vec![], ret_term(int_expr(7)));
-        jit_data.slot_names = vec!["x".into(), "y".into()];
+        jit_data.function_state_slot_names = vec!["x".into(), "y".into()];
         let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.matches("explicit_slot 8").count() >= 2,
@@ -321,7 +329,7 @@ mod tests {
             vec![assign_stmt(test_name("x"), int_expr(7))],
             ret_term(name_expr(test_name("x"))),
         );
-        jit_data.slot_names = vec!["x".into()];
+        jit_data.function_state_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("store.i64") || rendered.contains("stack_store"),
@@ -385,7 +393,7 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let mut jit_data =
             test_single_block_data(vec![], ret_term(name_expr(test_closure_cell_name("x", 2))));
-        jit_data.slot_names = vec!["x".into()];
+        jit_data.function_state_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell")
@@ -407,7 +415,7 @@ mod tests {
                 },
             ))),
         );
-        jit_data.slot_names = vec!["x".into()];
+        jit_data.function_state_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell"),
@@ -432,7 +440,28 @@ mod tests {
                 },
             ))),
         );
-        jit_data.slot_names = vec!["_dp_classcell".into()];
+        jit_data.function.closure_layout = Some(ClosureLayout {
+            freevars: vec![
+                ClosureSlot {
+                    logical_name: "_dp_classcell".into(),
+                    storage_name: "_dp_classcell".into(),
+                    init: ClosureInit::InheritedCapture,
+                },
+                ClosureSlot {
+                    logical_name: "__unused".into(),
+                    storage_name: "__unused".into(),
+                    init: ClosureInit::InheritedCapture,
+                },
+                ClosureSlot {
+                    logical_name: "_dp_classcell".into(),
+                    storage_name: "_dp_classcell".into(),
+                    init: ClosureInit::InheritedCapture,
+                },
+            ],
+            cellvars: vec![],
+            runtime_cells: vec![],
+        });
+        jit_data.function_state_slot_names = vec!["_dp_classcell".into()];
         let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell"),
@@ -474,7 +503,7 @@ mod tests {
             ],
             ret_term(int_expr(0)),
         );
-        jit_data.slot_names = vec!["cell".into()];
+        jit_data.function_state_slot_names = vec!["cell".into()];
         let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_pyobject_delitem"),
@@ -498,10 +527,21 @@ mod tests {
     fn render_specialized_jit_direct_entry_uses_live_positional_defaults() {
         let blocks = [1usize as ObjPtr];
         let mut jit_data = test_single_block_data(vec![], ret_term(name_expr(test_name("y"))));
-        jit_data.entry_param_names = vec!["x".into(), "y".into()];
-        jit_data.entry_param_default_sources =
-            vec![None, Some(ClifEntryParamDefaultSource::Positional(0))];
-        jit_data.slot_names = vec!["x".into(), "y".into()];
+        jit_data.function.params = ParamSpec {
+            params: vec![
+                Param {
+                    name: "x".into(),
+                    kind: ParamKind::Any,
+                    has_default: false,
+                },
+                Param {
+                    name: "y".into(),
+                    kind: ParamKind::Any,
+                    has_default: true,
+                },
+            ],
+        };
+        jit_data.function_state_slot_names = vec!["x".into(), "y".into()];
         let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_positional_default"),
@@ -513,10 +553,14 @@ mod tests {
     fn render_specialized_jit_direct_entry_uses_live_kwonly_defaults() {
         let blocks = [1usize as ObjPtr];
         let mut jit_data = test_single_block_data(vec![], ret_term(name_expr(test_name("x"))));
-        jit_data.entry_param_names = vec!["x".into()];
-        jit_data.entry_param_default_sources =
-            vec![Some(ClifEntryParamDefaultSource::KeywordOnly("x".into()))];
-        jit_data.slot_names = vec!["x".into()];
+        jit_data.function.params = ParamSpec {
+            params: vec![Param {
+                name: "x".into(),
+                kind: ParamKind::KwOnly,
+                has_default: true,
+            }],
+        };
+        jit_data.function_state_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_kwonly_default"),
@@ -529,7 +573,7 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let mut jit_data =
             test_single_block_data(vec![delete_stmt(test_name("x"))], ret_term(int_expr(0)));
-        jit_data.slot_names = vec!["x".into()];
+        jit_data.function_state_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("store.i64")

@@ -1,12 +1,11 @@
-use crate::jit::{self, JitFunctionInfo};
-use dp_transform::block_py::{Param, ParamKind};
+use crate::jit;
+use dp_transform::block_py::{ParamKind, ParamSpec};
 use dp_transform::passes::CodegenBlockPyPass;
 use log::info;
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use std::any::Any;
-use std::collections::HashMap;
 use std::ffi::{CString, c_char, c_void};
 use std::panic::{self, AssertUnwindSafe};
 use std::ptr;
@@ -39,17 +38,12 @@ const CLIF_VECTORCALL_ATTR: &[u8] = b"__dp_clif_vectorcall_data\0";
 #[derive(Debug)]
 struct BindingMetadata {
     callable_name: String,
-    params: Vec<Param>,
-    positional_param_indices: Vec<usize>,
-    param_lookup: HashMap<String, usize>,
-    varargs_param: Option<usize>,
-    varkw_param: Option<usize>,
+    params: ParamSpec,
     deleted_obj: *mut ffi::PyObject,
 }
 
 struct ClifFunctionData {
     function: dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
-    info: JitFunctionInfo,
     module_name: String,
     qualname: String,
     true_obj: *mut ffi::PyObject,
@@ -155,34 +149,8 @@ unsafe fn lookup_deleted_sentinel() -> Result<*mut ffi::PyObject, ()> {
     Ok(deleted_obj)
 }
 
-unsafe fn tuple_size(obj: *mut ffi::PyObject, context: &str) -> Result<usize, ()> {
-    let size = ffi::PyTuple_Size(obj);
-    if size < 0 {
-        if ffi::PyErr_Occurred().is_null() {
-            return set_type_error(context);
-        }
-        return Err(());
-    }
-    Ok(size as usize)
-}
-
-unsafe fn tuple_get_item(
-    obj: *mut ffi::PyObject,
-    index: usize,
-    context: &str,
-) -> Result<*mut ffi::PyObject, ()> {
-    let item = ffi::PyTuple_GetItem(obj, index as ffi::Py_ssize_t);
-    if item.is_null() {
-        if ffi::PyErr_Occurred().is_null() {
-            return set_type_error(context);
-        }
-        return Err(());
-    }
-    Ok(item)
-}
-
 unsafe fn build_binding_metadata(
-    info: &JitFunctionInfo,
+    function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
     callable_name: String,
     deleted_obj: *mut ffi::PyObject,
 ) -> Result<BindingMetadata, ()> {
@@ -191,36 +159,9 @@ unsafe fn build_binding_metadata(
     }
 
     ffi::Py_INCREF(deleted_obj);
-    let params = info.entry_params.params.clone();
-    let mut positional_param_indices = Vec::new();
-    let mut param_lookup = HashMap::new();
-    let mut varargs_param = None;
-    let mut varkw_param = None;
-    for (index, param) in params.iter().enumerate() {
-        if param_lookup.insert(param.name.clone(), index).is_some() {
-            return set_type_error("duplicate parameter name in CLIF plan metadata");
-        }
-        match param.kind {
-            ParamKind::PosOnly | ParamKind::Any => {
-                positional_param_indices.push(index);
-            }
-            ParamKind::VarArg => {
-                varargs_param = Some(index);
-            }
-            ParamKind::KwArg => {
-                varkw_param = Some(index);
-            }
-            ParamKind::KwOnly => {}
-        }
-    }
-
     Ok(BindingMetadata {
         callable_name,
-        params,
-        positional_param_indices,
-        param_lookup,
-        varargs_param,
-        varkw_param,
+        params: function.params.clone(),
         deleted_obj,
     })
 }
@@ -230,8 +171,7 @@ unsafe fn make_clif_function_data(
     module_name: &str,
     function_id: usize,
 ) -> Result<*mut c_void, ()> {
-    let registered = jit::lookup_registered_jit_function(module_name, function_id);
-    let Some((blockpy_function, info)) = registered else {
+    let Some(blockpy_function) = jit::lookup_blockpy_function(module_name, function_id) else {
         let msg = format!(
             "no specialized JIT plan found: module={module_name:?} function_id={function_id:?}"
         );
@@ -256,7 +196,7 @@ unsafe fn make_clif_function_data(
     }
     let deleted_obj = lookup_deleted_sentinel()?;
     let callable_name = py_attr_string(callable, b"__qualname__\0", "<function>");
-    let binding = match build_binding_metadata(&info, callable_name, deleted_obj) {
+    let binding = match build_binding_metadata(&blockpy_function, callable_name, deleted_obj) {
         Ok(value) => value,
         Err(()) => {
             ffi::Py_DECREF(true_obj);
@@ -267,7 +207,6 @@ unsafe fn make_clif_function_data(
 
     let clif_data = Box::new(ClifFunctionData {
         function: blockpy_function,
-        info,
         module_name: module_name.to_string(),
         qualname: format!("fn#{function_id}"),
         true_obj,
@@ -324,7 +263,6 @@ unsafe fn ensure_clif_vectorcall_compiled(
         data.compiled_handle = match jit::compile_cranelift_run_bb_specialized_cached(
             block_ptrs.as_slice(),
             &data.function,
-            &data.info,
             globals_obj as *mut c_void,
             data.true_obj as *mut c_void,
             data.false_obj as *mut c_void,
@@ -429,9 +367,12 @@ unsafe fn build_function_bound_args(
     };
     let mut bound_args = vec![ptr::null_mut(); binding.params.len()];
     let mut assigned = vec![false; binding.params.len()];
-    let positional_capacity = binding.positional_param_indices.len();
+    let positional_param_indices = binding.params.positional_param_indices();
+    let positional_capacity = positional_param_indices.len();
+    let varargs_param = binding.params.vararg_index();
+    let varkw_param = binding.params.kwarg_index();
 
-    if binding.varargs_param.is_none() && nargs > positional_capacity {
+    if varargs_param.is_none() && nargs > positional_capacity {
         cleanup_state_values(&mut bound_args);
         let msg = format!(
             "{}() takes {} positional argument{} but {} {} given",
@@ -447,7 +388,7 @@ unsafe fn build_function_bound_args(
 
     let positional_bound = nargs.min(positional_capacity);
     for position in 0..positional_bound {
-        let param_index = binding.positional_param_indices[position];
+        let param_index = positional_param_indices[position];
         let value = *args.add(position);
         if value.is_null() {
             cleanup_state_values(&mut bound_args);
@@ -461,7 +402,7 @@ unsafe fn build_function_bound_args(
         assigned[param_index] = true;
     }
 
-    if let Some(varargs_param) = binding.varargs_param {
+    if let Some(varargs_param) = varargs_param {
         let extras = nargs.saturating_sub(positional_capacity);
         let extra_tuple = ffi::PyTuple_New(extras as ffi::Py_ssize_t);
         if extra_tuple.is_null() {
@@ -491,9 +432,9 @@ unsafe fn build_function_bound_args(
         assigned[varargs_param] = true;
     }
 
-    let has_varkw = binding.varkw_param.is_some();
+    let has_varkw = varkw_param.is_some();
     let mut varkw_dict = ptr::null_mut();
-    if let Some(varkw_param) = binding.varkw_param {
+    if let Some(varkw_param) = varkw_param {
         varkw_dict = ffi::PyDict_New();
         if varkw_dict.is_null() {
             cleanup_state_values(&mut bound_args);
@@ -525,8 +466,8 @@ unsafe fn build_function_bound_args(
                 return Err(());
             }
         };
-        if let Some(&param_index) = binding.param_lookup.get(key_name.as_str()) {
-            let param = &binding.params[param_index];
+        if let Some(param_index) = binding.params.param_index(key_name.as_str()) {
+            let param = &binding.params.params[param_index];
             match param.kind {
                 ParamKind::PosOnly | ParamKind::VarArg => {
                     if !has_varkw {

@@ -15,10 +15,10 @@ use crate::block_py::param_specs::ParamSpec;
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     assert_blockpy_block_normalized, convert_blockpy_term_expr, move_entry_block_to_front,
-    BlockPyBindingKind, BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm,
-    BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyNameLike, BlockPyPass, BlockPyStmt,
-    BlockPyTerm, CfgBlock, ClosureLayout, FunctionName, FunctionNameGen, IntoStructuredBlockPyStmt,
-    RuffExpr, StructuredBlockPyStmt,
+    BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyLabel, BlockPyModule, BlockPyNameLike, BlockPyPass, BlockPyStmt,
+    BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, FunctionName, FunctionNameGen,
+    IntoStructuredBlockPyStmt, RuffExpr, StructuredBlockPyStmt,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -38,7 +38,6 @@ mod stmt_lowering;
 mod stmt_sequences;
 mod try_regions;
 
-pub(crate) use super::blockpy_generators::build_blockpy_closure_layout;
 #[cfg(test)]
 pub(crate) use bb_shape::lower_structured_located_blocks_to_bb_blocks;
 pub(crate) use bb_shape::{
@@ -220,14 +219,17 @@ where
     block_params
 }
 
-fn build_semantic_blockpy_closure_layout<P>(
+pub(crate) fn compute_closure_layout_from_semantics<P>(
     callable_def: &BlockPyFunction<P>,
-    injected_exception_names: &HashSet<String>,
 ) -> Option<ClosureLayout>
 where
-    P: BlockPyPass<Name = ast::ExprName>,
+    P: BlockPyPass,
     P::Expr: Clone + Into<Expr>,
 {
+    fn is_runtime_closure_name(name: &str) -> bool {
+        matches!(name, "_dp_pc" | "_dp_yieldfrom") || name.starts_with("_dp_try_abrupt_kind_")
+    }
+
     #[derive(Default)]
     struct CellRefLogicalNameCollector {
         names: HashSet<String>,
@@ -242,6 +244,7 @@ where
                         {
                             self.names.insert(literal.value.to_str().to_string());
                         }
+                        return;
                     }
                 }
             }
@@ -249,10 +252,11 @@ where
         }
     }
 
-    fn collect_cell_ref_logical_names_in_stmt<E, S>(stmt: S, out: &mut HashSet<String>)
+    fn collect_cell_ref_logical_names_in_stmt<E, S, N>(stmt: S, out: &mut HashSet<String>)
     where
         E: Clone + Into<Expr> + std::fmt::Debug,
-        S: IntoStructuredBlockPyStmt<E, ast::ExprName>,
+        N: BlockPyNameLike,
+        S: IntoStructuredBlockPyStmt<E, N>,
     {
         match stmt.into_structured_stmt() {
             StructuredBlockPyStmt::Assign(assign) => {
@@ -315,11 +319,12 @@ where
         }
     }
 
-    fn collect_cell_ref_logical_names_in_fragment<E>(
-        fragment: crate::block_py::BlockPyCfgFragment<StructuredBlockPyStmt<E>, BlockPyTerm<E>>,
+    fn collect_cell_ref_logical_names_in_fragment<E, N>(
+        fragment: crate::block_py::BlockPyCfgFragment<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>,
         out: &mut HashSet<String>,
     ) where
         E: Clone + Into<Expr> + std::fmt::Debug,
+        N: BlockPyNameLike,
     {
         for stmt in fragment.body {
             collect_cell_ref_logical_names_in_stmt(stmt, out);
@@ -328,6 +333,14 @@ where
             collect_cell_ref_logical_names_in_term(&term, out);
         }
     }
+
+    let normalize_capture_name = |name: &str| {
+        callable_def
+            .semantic
+            .logical_name_for_cell_capture_source(name)
+            .or_else(|| callable_def.semantic.logical_name_for_cell_storage(name))
+            .unwrap_or_else(|| name.to_string())
+    };
 
     let param_names = callable_def.params.names();
     let owned_cell_slot_names = callable_def.semantic.owned_cell_storage_names();
@@ -349,7 +362,10 @@ where
         .iter()
         .flat_map(|block| block.body.iter().cloned())
         .filter_map(|stmt| match stmt.into_structured_stmt() {
-            StructuredBlockPyStmt::Delete(delete) => Some(delete.target.id.to_string()),
+            StructuredBlockPyStmt::Delete(delete) => {
+                let target: ast::ExprName = delete.target.into();
+                Some(target.id.to_string())
+            }
             _ => None,
         })
         .collect();
@@ -360,71 +376,106 @@ where
         }
         collect_cell_ref_logical_names_in_term(&block.term, &mut cell_ref_logical_names);
     }
-    let mut referenced_names = used_names
+    let capture_candidate_names = used_names
         .iter()
         .chain(defined_names.iter())
         .chain(deleted_names.iter())
         .chain(cell_ref_logical_names.iter())
-        .cloned()
-        .collect::<Vec<_>>();
-    referenced_names.sort();
-    referenced_names.dedup();
-    let mut capture_names = referenced_names
-        .iter()
-        .filter(|name| !param_name_set.contains(name.as_str()))
-        .filter(|name| {
-            callable_def
-                .semantic
-                .resolved_load_binding_kind(name.as_str())
-                == BlockPyBindingKind::Cell(crate::block_py::BlockPyCellBindingKind::Capture)
-        })
-        .cloned()
+        .map(|name| normalize_capture_name(name.as_str()))
+        .collect::<HashSet<_>>();
+    let mut capture_names = callable_def
+        .semantic
+        .captured_cell_logical_names()
+        .into_iter()
+        .map(|name| normalize_capture_name(name.as_str()))
+        .filter(|name| !is_runtime_closure_name(name.as_str()))
+        .filter(|name| capture_candidate_names.contains(name))
         .collect::<Vec<_>>();
     capture_names.extend(
         cell_ref_logical_names
             .iter()
+            .map(|name| normalize_capture_name(name.as_str()))
+            .filter(|logical_name| !is_runtime_closure_name(logical_name.as_str()))
+            .filter(|logical_name| !param_name_set.contains(logical_name.as_str()))
             .filter(|logical_name| {
                 !owned_cell_slot_names.contains(
                     callable_def
                         .semantic
                         .cell_capture_source_name(logical_name.as_str())
                         .as_str(),
-                ) && !param_name_set.contains(logical_name.as_str())
-            })
-            .cloned(),
+                )
+            }),
     );
     capture_names.sort();
     capture_names.dedup();
-    if capture_names.is_empty()
-        && local_cell_slots.is_empty()
-        && injected_exception_names.is_empty()
-    {
+    let local_cell_slots = local_cell_slots
+        .into_iter()
+        .filter(|storage_name| {
+            let logical_name = callable_def
+                .semantic
+                .logical_name_for_cell_storage(storage_name.as_str())
+                .unwrap_or_else(|| storage_name.clone());
+            !is_runtime_closure_name(logical_name.as_str())
+        })
+        .collect::<Vec<_>>();
+
+    if capture_names.is_empty() && local_cell_slots.is_empty() {
         return None;
     }
 
-    let mut state_vars = collect_state_vars(&param_names, &callable_def.blocks);
-    for capture_name in &capture_names {
-        if !state_vars.iter().any(|existing| existing == capture_name) {
-            state_vars.push(capture_name.clone());
-        }
-    }
-    for slot in local_cell_slots {
-        let logical_name = callable_def
-            .semantic
-            .logical_name_for_cell_storage(slot.as_str())
-            .unwrap_or(slot);
-        if !state_vars.iter().any(|existing| existing == &logical_name) {
-            state_vars.push(logical_name);
-        }
-    }
+    let freevars = capture_names
+        .iter()
+        .map(|logical_name| ClosureSlot {
+            logical_name: logical_name.clone(),
+            storage_name: callable_def
+                .semantic
+                .cell_storage_name(logical_name.as_str()),
+            init: ClosureInit::InheritedCapture,
+        })
+        .collect::<Vec<_>>();
+    let cellvars = local_cell_slots
+        .into_iter()
+        .map(|storage_name| {
+            let logical_name = callable_def
+                .semantic
+                .logical_name_for_cell_storage(storage_name.as_str())
+                .unwrap_or_else(|| storage_name.clone());
+            let init = if param_name_set.contains(logical_name.as_str()) {
+                ClosureInit::Parameter
+            } else {
+                ClosureInit::DeletedSentinel
+            };
+            ClosureSlot {
+                logical_name,
+                storage_name,
+                init,
+            }
+        })
+        .collect::<Vec<_>>();
 
-    Some(build_blockpy_closure_layout(
-        &callable_def.semantic,
-        &param_names,
-        &state_vars,
-        &capture_names,
-        injected_exception_names,
-    ))
+    Some(ClosureLayout {
+        freevars,
+        cellvars,
+        runtime_cells: Vec::new(),
+    })
+}
+
+pub(crate) fn semantic_capture_names_for_instantiation<P>(
+    callable: &BlockPyFunction<P>,
+) -> Vec<String>
+where
+    P: BlockPyPass,
+    P::Expr: Clone + Into<Expr>,
+{
+    compute_closure_layout_from_semantics(callable)
+        .map(|layout| {
+            layout
+                .freevars
+                .into_iter()
+                .map(|slot| slot.logical_name)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -545,8 +596,6 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
         );
     }
     let block_params = recompute_lowered_block_params(&structured_callable_def, false);
-    let closure_layout =
-        build_semantic_blockpy_closure_layout(&structured_callable_def, &HashSet::new());
     let blocks = lower_structured_semantic_blocks_to_bb_blocks(
         &structured_callable_def.blocks,
         &block_params,
@@ -559,18 +608,9 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
         params: structured_callable_def.params,
         blocks,
         doc: structured_callable_def.doc,
-        closure_layout,
+        closure_layout: None,
         semantic: structured_callable_def.semantic,
     }
-}
-
-pub(crate) fn recompute_semantic_blockpy_closure_layout<P>(
-    callable_def: &BlockPyFunction<P>,
-) -> Option<ClosureLayout>
-where
-    P: BlockPyPass<Name = ast::ExprName>,
-{
-    build_semantic_blockpy_closure_layout(callable_def, &HashSet::new())
 }
 
 struct CurrentExceptionPlaceholderRewriter<'a> {

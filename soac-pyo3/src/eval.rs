@@ -5,14 +5,13 @@ use std::ffi::c_void;
 
 struct ResolvedSpecializedJitBlocks {
     function: dp_transform::block_py::BlockPyFunction<dp_transform::passes::CodegenBlockPyPass>,
-    info: soac_eval::jit::JitFunctionInfo,
     block_ptrs: Vec<*mut c_void>,
     true_obj: *mut c_void,
     false_obj: *mut c_void,
 }
 
 pub(crate) fn jit_has_bb_plan_impl(module_name: &str, function_id: usize) -> bool {
-    soac_eval::jit::lookup_registered_jit_function(module_name, function_id).is_some()
+    soac_eval::jit::lookup_blockpy_function(module_name, function_id).is_some()
 }
 
 pub(crate) fn jit_block_param_names_impl(
@@ -39,14 +38,19 @@ pub(crate) fn jit_block_param_names_impl(
 }
 
 pub(crate) fn jit_debug_plan_impl(module_name: &str, function_id: usize) -> PyResult<String> {
-    let Some((function, info)) =
-        soac_eval::jit::lookup_registered_jit_function(module_name, function_id)
-    else {
+    let Some(function) = soac_eval::jit::lookup_blockpy_function(module_name, function_id) else {
         return Err(PyRuntimeError::new_err(format!(
             "no specialized JIT plan for {module_name}.fn#{function_id}"
         )));
     };
-    Ok(format!("function:\n{function:#?}\n\njit_info:\n{info:#?}"))
+    let block_info = function
+        .blocks
+        .iter()
+        .map(|block| soac_eval::jit::jit_block_info(&function, block))
+        .collect::<Vec<_>>();
+    Ok(format!(
+        "function:\n{function:#?}\n\njit_blocks:\n{block_info:#?}"
+    ))
 }
 
 fn resolve_specialized_jit_blocks_by_key(
@@ -54,9 +58,7 @@ fn resolve_specialized_jit_blocks_by_key(
     module_name: &str,
     function_id: usize,
 ) -> PyResult<ResolvedSpecializedJitBlocks> {
-    let Some((function, info)) =
-        soac_eval::jit::lookup_registered_jit_function(module_name, function_id)
-    else {
+    let Some(function) = soac_eval::jit::lookup_blockpy_function(module_name, function_id) else {
         return Err(PyRuntimeError::new_err(format!(
             "no specialized JIT plan for {module_name}.fn#{function_id}"
         )));
@@ -73,7 +75,6 @@ fn resolve_specialized_jit_blocks_by_key(
 
     Ok(ResolvedSpecializedJitBlocks {
         function,
-        info,
         block_ptrs,
         true_obj,
         false_obj,
@@ -94,7 +95,6 @@ pub(crate) fn jit_render_bb_with_cfg_plan_impl(
         soac_eval::jit::render_cranelift_run_bb_specialized_with_cfg(
             resolved.block_ptrs.as_slice(),
             &resolved.function,
-            &resolved.info,
             resolved.true_obj,
             resolved.false_obj,
             deleted_obj.as_ptr() as *mut c_void,
@@ -108,7 +108,7 @@ pub(crate) fn jit_render_bb_with_cfg_plan_impl(
 #[cfg(test)]
 mod tests {
     use dp_transform::block_py::BlockPyFunctionKind;
-    use soac_eval::jit::{self, BlockExcArgSource};
+    use soac_eval::jit;
     use std::any::Any;
     use std::collections::HashSet;
 
@@ -193,52 +193,79 @@ def outer(scale):
             .iter()
             .find(|function| function.names.bind_name == "inner")
             .expect("missing lowered inner function");
-        let (_, plan) =
-            jit::lookup_registered_jit_function(module_name, inner_function.function_id.0)
+        let registered_function =
+            jit::lookup_blockpy_function(module_name, inner_function.function_id.0)
                 .expect("registered plan should exist");
+        let closure_layout = inner_function
+            .closure_layout()
+            .as_ref()
+            .expect("inner function should preserve closure layout");
+        let mut slot_names = Vec::new();
+        let mut seen = HashSet::new();
+        let mut push_name = |name: String| {
+            if seen.insert(name.clone()) {
+                slot_names.push(name);
+            }
+        };
+        for name in closure_layout.ambient_storage_names() {
+            push_name(name);
+        }
+        for name in closure_layout.local_cell_storage_names() {
+            push_name(name);
+        }
+        for name in inner_function.params.names() {
+            push_name(name);
+        }
+        for block in &inner_function.blocks {
+            for name in block.param_names() {
+                push_name(name.to_string());
+            }
+        }
+        let ambient_names = closure_layout.ambient_storage_names();
 
         assert_eq!(
-            plan.ambient_param_names.len(),
+            ambient_names.len(),
             1,
             "expected one closure capture in ambient state: {:?}",
-            plan.ambient_param_names
+            ambient_names
         );
-        let capture_name = &plan.ambient_param_names[0];
+        let capture_name = &ambient_names[0];
         assert!(
             capture_name.contains("factor"),
             "expected capture name to track factor: {capture_name:?}"
         );
         assert_eq!(
-            plan.slot_names.first(),
+            slot_names.first(),
             Some(capture_name),
             "slot inventory should seed ambient captures first: {:?}",
-            plan.slot_names
+            slot_names
         );
         assert!(
-            plan.slot_names.iter().any(|name| name == "x"),
+            slot_names.iter().any(|name| name == "x"),
             "expected parameter x in slot inventory: {:?}",
-            plan.slot_names
+            slot_names
         );
         assert!(
-            plan.slot_names.iter().any(|name| name == "total"),
+            slot_names.iter().any(|name| name == "total"),
             "expected local total in slot inventory: {:?}",
-            plan.slot_names
+            slot_names
         );
         assert!(
-            plan.slot_names
+            slot_names
                 .iter()
                 .any(|name| name.starts_with("_dp_try_exc_")),
             "expected synthetic try-exception state in slot inventory: {:?}",
-            plan.slot_names
+            slot_names
         );
 
-        let unique_names = plan.slot_names.iter().collect::<HashSet<_>>();
+        let unique_names = slot_names.iter().collect::<HashSet<_>>();
         assert_eq!(
             unique_names.len(),
-            plan.slot_names.len(),
+            slot_names.len(),
             "slot inventory should not duplicate names: {:?}",
-            plan.slot_names
+            slot_names
         );
+        assert_eq!(registered_function.params, inner_function.params);
     }
 
     #[test]
@@ -332,16 +359,20 @@ def exercise():
             .iter()
             .find(|function| function.names.bind_name == "gen_resume")
             .expect("missing lowered generator resume function");
-        let (_, plan) =
-            jit::lookup_registered_jit_function(module_name, gen_function.function_id.0)
+        let registered_function =
+            jit::lookup_blockpy_function(module_name, gen_function.function_id.0)
                 .expect("registered plan should exist");
-
-        let handler_entry_targets = plan
+        let plan_blocks = registered_function
             .blocks
+            .iter()
+            .map(|block| jit::jit_block_info(&registered_function, block))
+            .collect::<Vec<_>>();
+
+        let handler_entry_targets = plan_blocks
             .iter()
             .enumerate()
             .filter(|(index, _)| {
-                gen_function.blocks[*index]
+                registered_function.blocks[*index]
                     .param_names()
                     .any(|name| name.starts_with("_dp_try_exc_"))
             })
@@ -351,32 +382,33 @@ def exercise():
         assert!(
             !handler_entry_targets.is_empty(),
             "expected at least one except handler block with an explicit try-exception carrier: {:?}",
-            plan.blocks
+            plan_blocks
         );
         assert!(
-            plan.blocks
+            plan_blocks
                 .iter()
                 .filter_map(|block| block.exc_dispatch.as_ref())
                 .any(|dispatch| {
                     handler_entry_targets.contains(&dispatch.target_index)
-                        && (plan.blocks[dispatch.target_index]
+                        && (plan_blocks[dispatch.target_index]
                             .runtime_param_names
                             .iter()
                             .any(|name| name.starts_with("_dp_try_exc_"))
-                            || dispatch
-                                .slot_writes
-                                .iter()
-                                .any(|(_, source)| matches!(source, BlockExcArgSource::Exception)))
+                            || dispatch.slot_writes.iter().any(|(_, source)| {
+                                matches!(source, dp_transform::block_py::BlockArg::CurrentException)
+                            }))
                 }),
             "expected a dispatch into an except handler target to pass the active exception: {:?}",
-            plan.blocks
+            plan_blocks
                 .iter()
                 .enumerate()
                 .filter_map(|(index, block)| {
                     block.exc_dispatch.as_ref().map(|dispatch| {
                         (
-                            gen_function.blocks[index].label.to_string(),
-                            gen_function.blocks[dispatch.target_index].label.to_string(),
+                            registered_function.blocks[index].label.to_string(),
+                            registered_function.blocks[dispatch.target_index]
+                                .label
+                                .to_string(),
                             &dispatch.slot_writes,
                         )
                     })
