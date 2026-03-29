@@ -18,8 +18,8 @@ def split_source(path: Path) -> str:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Render JIT CLIF for a registered BB plan using the same "
-            "diet_python.jit_render_bb_with_cfg_plan path as the web inspector."
+            "Render JIT CLIF for a registered BB plan using the "
+            "diet_python.jit_render_bb_with_cfg_plan helper."
         )
     )
     parser.add_argument("source", help="Python source file to transform/register")

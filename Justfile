@@ -2,19 +2,21 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 repo_root := justfile_directory()
 cpython_bin := repo_root + "/vendor/cpython/python"
+cpython_lib_dir := repo_root + "/vendor/cpython"
 venv_dir := repo_root + "/.venv"
 uv_cache_dir := repo_root + "/.uv-cache"
 cargo_home := env_var_or_default("CARGO_HOME", repo_root + "/tmp/cargo-home")
 pyo3_python := cpython_bin
 web_dir := repo_root + "/web"
+inspector_bin := repo_root + "/target/debug/soac-inspector"
 port := env_var_or_default("PORT", "8000")
 host := env_var_or_default("HOST", "127.0.0.1")
-log_file := env_var_or_default("LOG_FILE", "/tmp/diet_python_web_inspector.log")
 url := "http://" + host + ":" + port
 limit_wrapper := repo_root + "/scripts/run_with_limits.sh"
 
 export REPO_ROOT := repo_root
 export CPYTHON_BIN := cpython_bin
+export CPYTHON_LIB_DIR := cpython_lib_dir
 export VENV_DIR := venv_dir
 export UV_CACHE_DIR := uv_cache_dir
 export UV_PYTHON := cpython_bin
@@ -22,19 +24,39 @@ export PYO3_PYTHON := pyo3_python
 export PYO3_PYTHON_REAL := pyo3_python
 export CARGO_HOME := cargo_home
 export WEB_DIR := web_dir
+export INSPECTOR_BIN := inspector_bin
 export PORT := port
 export HOST := host
-export LOG_FILE := log_file
 export URL := url
 export LIMIT_WRAPPER := limit_wrapper
 
 [private]
-ensure-cpython:
+ensure-cpython-checkout:
   #!/usr/bin/env bash
   if [[ ! -d "$REPO_ROOT/vendor/cpython" ]]; then
     echo "cpython checkout not found at $REPO_ROOT/vendor/cpython" >&2
     exit 1
   fi
+
+[private]
+ensure-shared-python: ensure-cpython
+  #!/usr/bin/env bash
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  if [[ "$("$CPYTHON_BIN" -c 'import sysconfig; print(sysconfig.get_config_var("Py_ENABLE_SHARED") or 0)')" != "1" ]]; then
+    echo "vendored CPython at $CPYTHON_BIN is not built with --enable-shared; run 'just build-python'" >&2
+    exit 1
+  fi
+
+build-python: ensure-cpython-checkout
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd "$REPO_ROOT/vendor/cpython"
+  make clean && ./configure --enable-shared --enable-optimizations
+  make -j"$(nproc)"
+
+[private]
+ensure-cpython: ensure-cpython-checkout
+  #!/usr/bin/env bash
   if [[ ! -x "$CPYTHON_BIN" ]]; then
     echo "python not found in $CPYTHON_BIN" >&2
     exit 1
@@ -51,6 +73,7 @@ ensure-venv:
 [private]
 uninstall-extension: ensure-venv
   #!/usr/bin/env bash
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   SITE_PACKAGES="$("$VENV_DIR/bin/python" -c 'import sysconfig; print(sysconfig.get_path("platlib"))')"
   if [[ -d "$SITE_PACKAGES" ]]; then
     find "$SITE_PACKAGES" -maxdepth 1 -type f -name 'diet_python*.so' -delete
@@ -60,6 +83,7 @@ uninstall-extension: ensure-venv
 [private]
 install-extension build="debug": ensure-venv ensure-cpython
   #!/usr/bin/env bash
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   BUILD="{{build}}"
 
   if [[ "$BUILD" != "debug" && "$BUILD" != "release" ]]; then
@@ -89,6 +113,7 @@ install-extension build="debug": ensure-venv ensure-cpython
 
 update-venv: ensure-cpython
   #!/usr/bin/env bash
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   rm -rf "$VENV_DIR"
   uv venv --python "$CPYTHON_BIN" "$VENV_DIR"
 
@@ -101,6 +126,7 @@ update-venv: ensure-cpython
 build-extension build="debug": ensure-cpython
   #!/usr/bin/env bash
   set -euo pipefail
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   BUILD="{{build}}"
 
   if [[ "$BUILD" != "debug" && "$BUILD" != "release" ]]; then
@@ -120,9 +146,10 @@ build-extension build="debug": ensure-cpython
   )
   just install-extension "$BUILD"
 
-build-all: (update-venv) ensure-cpython
+build-all: (update-venv) ensure-cpython ensure-shared-python
   #!/usr/bin/env bash
   set -euo pipefail
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   cd "$REPO_ROOT"
   cargo build --quiet --workspace --tests
   just build-extension debug
@@ -131,6 +158,7 @@ build-all: (update-venv) ensure-cpython
 
 run-cpython-tests jobs="0" *args='': build-all ensure-cpython ensure-venv
   #!/usr/bin/env bash
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   cd "$REPO_ROOT"
 
   TEST_JOBS="{{jobs}}"
@@ -180,35 +208,61 @@ run-cpython-tests jobs="0" *args='': build-all ensure-cpython ensure-venv
     "${TEST_CMD[@]}"
   )
 
-build-web-inspector: ensure-cpython
+build-web-inspector: ensure-cpython ensure-shared-python
   #!/usr/bin/env bash
   set -euo pipefail
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   echo "[1/3] Validating web inspector assets..."
   TIMEFORMAT='[diet-python timing] build_web_inspector_s=%3R'
   time {
     cd "$REPO_ROOT"
-    "$CPYTHON_BIN" scripts/check_web_inspector.py
+    cargo test -p soac-inspector --lib
+    cargo build -q -p soac-inspector --bin soac-inspector
   }
 
 history-metrics-report history_jsonl="logs/warloc_history.jsonl" daily_jsonl="logs/warloc_history_daily.jsonl" html_output="web/history_metrics.html" revset="..@": ensure-cpython
   #!/usr/bin/env bash
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   cd "$REPO_ROOT"
   mkdir -p "$(dirname "{{history_jsonl}}")" "$(dirname "{{daily_jsonl}}")" "$(dirname "{{html_output}}")"
   "$CPYTHON_BIN" scripts/collect_warloc_history.py "{{history_jsonl}}" --revset "{{revset}}"
   "$CPYTHON_BIN" scripts/build_history_metrics_rollup.py "{{history_jsonl}}" "{{daily_jsonl}}" --html-output "{{html_output}}"
 
-run-web-inspector: build-web-inspector (build-extension "debug") ensure-venv
+run-web-inspector: build-web-inspector
   #!/usr/bin/env bash
-  echo "[2/3] Starting web server in $WEB_DIR on $URL ..."
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  open_browser() {
+    local open_url="$1"
+    echo "[3/3] Opening browser..."
+    if command -v open >/dev/null 2>&1; then
+      open "$open_url" >/dev/null 2>&1 || true
+    elif command -v xdg-open >/dev/null 2>&1; then
+      xdg-open "$open_url" >/dev/null 2>&1 || true
+    else
+      echo "No browser opener found. Open this URL manually: $open_url"
+    fi
+  }
 
-  if [ ! -x "$VENV_DIR/bin/python" ]; then
-    echo "venv python not found at $VENV_DIR/bin/python" >&2
+  if ss -ltnH "( sport = :$PORT )" | grep -q .; then
+    if curl -fsS "$URL/api/inspect_pipeline" \
+      -H 'content-type: application/json' \
+      -d '{"source":"def classify(n):\n    return n\n"}' >/dev/null 2>&1; then
+      OPEN_URL="${URL}/?v=$(date +%s)"
+      echo "[2/3] Reusing existing web inspector at $URL ..."
+      open_browser "$OPEN_URL"
+      echo "Serving $URL (opened $OPEN_URL)."
+      exit 0
+    fi
+
+    echo "Port $PORT is already in use, but the existing listener is not a healthy soac-inspector server." >&2
+    ss -ltnp "( sport = :$PORT )" >&2 || true
     exit 1
   fi
-  PYTHON_BIN="$VENV_DIR/bin/python"
+
+  echo "[2/3] Starting web server in $WEB_DIR on $URL ..."
 
   cd "$REPO_ROOT"
-  HOST="$HOST" PORT="$PORT" "$PYTHON_BIN" web/inspector_server.py >"$LOG_FILE" 2>&1 &
+  HOST="$HOST" PORT="$PORT" "$INSPECTOR_BIN" &
   SERVER_PID=$!
 
   cleanup() {
@@ -221,28 +275,19 @@ run-web-inspector: build-web-inspector (build-extension "debug") ensure-venv
   sleep 0.5
 
   if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
-    echo "Web inspector server exited before startup. Log: $LOG_FILE" >&2
-    if [ -f "$LOG_FILE" ]; then
-      sed -n '1,160p' "$LOG_FILE" >&2
-    fi
+    echo "Web inspector server exited before startup." >&2
     wait "$SERVER_PID"
   fi
 
   OPEN_URL="${URL}/?v=$(date +%s)"
-  echo "[3/3] Opening browser..."
-  if command -v open >/dev/null 2>&1; then
-    open "$OPEN_URL" >/dev/null 2>&1 || true
-  elif command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "$OPEN_URL" >/dev/null 2>&1 || true
-  else
-    echo "No browser opener found. Open this URL manually: $OPEN_URL"
-  fi
+  open_browser "$OPEN_URL"
 
   echo "Serving $URL (opened $OPEN_URL, pid=$SERVER_PID). Press Ctrl+C to stop."
   wait "$SERVER_PID"
 
 perf-pystone-jit-warm loops="500000" output_prefix="logs/pystone_jit_perf_warm": ensure-cpython
   #!/usr/bin/env bash
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   mkdir -p logs
   mkdir -p "$REPO_ROOT/tmp"
 
@@ -342,6 +387,7 @@ perf-pystone-jit-warm loops="500000" output_prefix="logs/pystone_jit_perf_warm":
 [private]
 _pytest-run *args='': ensure-venv
   #!/usr/bin/env bash
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   cd "$REPO_ROOT"
 
   # This is the authoritative transformed-runtime pytest entrypoint.
@@ -384,6 +430,7 @@ pytest *args='': build-all
 
 py *args='': build-all
   #!/usr/bin/env bash
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   cd "$REPO_ROOT"
 
   # Authoritative ad-hoc transformed-runtime Python entrypoint.
@@ -394,6 +441,7 @@ py *args='': build-all
 
 cpython *args='':
   #!/usr/bin/env bash
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   cd "$REPO_ROOT"
 
   # Raw CPython entrypoint for debugging vendored-CPython behavior without
@@ -409,6 +457,7 @@ regen-snapshots:
 
 test-all:
   #!/usr/bin/env bash
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   cd "$REPO_ROOT"
   just uninstall-extension
   TIMEFORMAT='[diet-python timing] fmt_check_s=%3R'
@@ -470,6 +519,7 @@ test-all:
 
 benchmark loops="1000000": (update-venv) (build-extension "release")
   #!/usr/bin/env bash
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   echo "date: $(date +%F)"
   echo "loops: {{loops}}"
 

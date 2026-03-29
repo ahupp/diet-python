@@ -102,14 +102,6 @@ fn transform_source_with_name(
     Ok(rendered_ast_to_ast_source(source, &output))
 }
 
-#[pyfunction]
-fn inspect_pipeline(source: &str, ensure: Option<bool>) -> PyResult<String> {
-    let output = lower_source(source, ensure)?;
-    Ok(dp_transform::web_inspector::render_inspector_payload(
-        source, &output,
-    ))
-}
-
 fn import_dp_module<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyModule>> {
     PyModule::import(py, "__dp__")
 }
@@ -773,20 +765,6 @@ fn make_bb_generator(
 }
 
 #[pyfunction]
-fn jit_has_bb_plan(module_name: &str, function_id: usize) -> bool {
-    eval::jit_has_bb_plan_impl(module_name, function_id)
-}
-
-#[pyfunction]
-fn jit_block_param_names(
-    module_name: &str,
-    function_id: usize,
-    entry_label: &str,
-) -> PyResult<Vec<String>> {
-    eval::jit_block_param_names_impl(module_name, function_id, entry_label)
-}
-
-#[pyfunction]
 fn jit_debug_plan(module_name: &str, function_id: usize) -> PyResult<String> {
     eval::jit_debug_plan_impl(module_name, function_id)
 }
@@ -812,11 +790,8 @@ fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(transform_source, module)?)?;
     module.add_function(wrap_pyfunction!(transform_source_with_name, module)?)?;
     module.add_function(wrap_pyfunction!(build_module_init, module)?)?;
-    module.add_function(wrap_pyfunction!(inspect_pipeline, module)?)?;
     module.add_function(wrap_pyfunction!(make_bb_function, module)?)?;
     module.add_function(wrap_pyfunction!(make_bb_generator, module)?)?;
-    module.add_function(wrap_pyfunction!(jit_has_bb_plan, module)?)?;
-    module.add_function(wrap_pyfunction!(jit_block_param_names, module)?)?;
     module.add_function(wrap_pyfunction!(jit_debug_plan, module)?)?;
     module.add_function(wrap_pyfunction!(jit_render_bb_with_cfg_plan, module)?)?;
     Ok(())

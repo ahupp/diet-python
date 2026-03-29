@@ -13,7 +13,7 @@ Use this workflow when the user wants a concrete transform example in the web in
    - If needed, run `just build-web-inspector`.
 
 2. Ensure the local inspector server is running.
-   - Prefer `vendor/cpython/python web/inspector_server.py`.
+   - Prefer `cargo run -p soac-inspector`.
    - Keep it in a long-lived exec session.
    - Reuse an existing server on `http://127.0.0.1:8000/` when it is already serving the inspector.
 

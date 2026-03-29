@@ -10,33 +10,6 @@ struct ResolvedSpecializedJitBlocks {
     false_obj: *mut c_void,
 }
 
-pub(crate) fn jit_has_bb_plan_impl(module_name: &str, function_id: usize) -> bool {
-    soac_eval::jit::lookup_blockpy_function(module_name, function_id).is_some()
-}
-
-pub(crate) fn jit_block_param_names_impl(
-    module_name: &str,
-    function_id: usize,
-    entry_label: &str,
-) -> PyResult<Vec<String>> {
-    let Some(function) = soac_eval::jit::lookup_blockpy_function(module_name, function_id) else {
-        return Err(PyRuntimeError::new_err(format!(
-            "no specialized JIT plan for {module_name}.fn#{function_id}"
-        )));
-    };
-    let Some(index) = function
-        .blocks
-        .iter()
-        .position(|block| block.label.to_string() == entry_label)
-    else {
-        return Err(PyRuntimeError::new_err(format!(
-            "entry label {:?} not found in plan {module_name}.fn#{}",
-            entry_label, function_id
-        )));
-    };
-    Ok(function.blocks[index].param_name_vec())
-}
-
 pub(crate) fn jit_debug_plan_impl(module_name: &str, function_id: usize) -> PyResult<String> {
     let Some(function) = soac_eval::jit::lookup_blockpy_function(module_name, function_id) else {
         return Err(PyRuntimeError::new_err(format!(

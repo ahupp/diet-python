@@ -1,0 +1,19 @@
+[package]
+name = "soac-inspector"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[dependencies]
+axum = "0.8"
+dp-transform = { path = "../dp-transform" }
+pyo3 = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+soac-eval = { path = "../soac-eval" }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
+tower-http = { version = "0.6", features = ["fs"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
