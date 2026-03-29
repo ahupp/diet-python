@@ -5,9 +5,10 @@ use crate::block_py::{
     BlockPyAssign, BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable,
     BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    CellRef, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, FunctionId, FunctionName, IntoStructuredBlockPyStmt, MakeFunction,
-    ModuleNameGen, Operation, StorageLayout, StructuredBlockPyStmt,
+    CellRef, CellRefTarget, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyExpr,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId, FunctionName,
+    IntoStructuredBlockPyStmt, MakeFunction, ModuleNameGen, Operation, StorageLayout,
+    StructuredBlockPyStmt,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
@@ -199,7 +200,7 @@ fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
     core_operation_expr(Operation::CellRef(CellRef {
         node_index: ast::AtomicNodeIndex::default(),
         range: Default::default(),
-        arg0: core_string(logical_name),
+        arg0: CellRefTarget::LogicalName(logical_name.to_string()),
     }))
 }
 

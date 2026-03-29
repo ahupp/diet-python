@@ -406,12 +406,7 @@ fn codegen_expr_const_string(expr: &LocatedCodegenBlockPyExpr) -> Option<String>
         }
         CodegenBlockPyExpr::Op(operation) => match operation.as_ref() {
             blockpy_intrinsics::Operation::MakeString(op) => {
-                let CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) =
-                    &op.arg0
-                else {
-                    return None;
-                };
-                String::from_utf8(bytes.value.clone()).ok()
+                String::from_utf8(op.arg0.clone()).ok()
             }
             _ => None,
         },
@@ -692,15 +687,6 @@ impl<'a, 'b, 'c, 'd> intrinsics::OperationEmitState<'b, LocatedCodegenBlockPyExp
 
     fn emit_owned_bool_from_cond(&mut self, cond: ir::Value) -> ir::Value {
         emit_owned_bool_from_cond(self.fb, cond, self.ctx)
-    }
-
-    fn constant_bytes<'expr>(&self, expr: &'expr LocatedCodegenBlockPyExpr) -> Option<&'expr [u8]> {
-        match expr {
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
-                Some(bytes.value.as_slice())
-            }
-            _ => None,
-        }
     }
 }
 
@@ -1184,9 +1170,9 @@ fn emit_codegen_expr(
             }
             match operation_ref {
                 blockpy_intrinsics::Operation::CellRef(op) => {
-                    let CodegenBlockPyExpr::Name(cell_name) = &op.arg0 else {
+                    let blockpy_intrinsics::CellRefTarget::Name(cell_name) = &op.arg0 else {
                         panic!(
-                            "__dp_cell_ref should lower to a located name arg, got {:?}",
+                            "__dp_cell_ref should lower to a resolved name arg, got {:?}",
                             op.arg0
                         );
                     };
@@ -1209,12 +1195,7 @@ fn emit_codegen_expr(
                     }
                 }
                 blockpy_intrinsics::Operation::LoadCell(op) => {
-                    let CodegenBlockPyExpr::Name(cell_name) = &op.arg0 else {
-                        panic!(
-                            "__dp_load_cell should lower to a located name arg, got {:?}",
-                            op.arg0
-                        );
-                    };
+                    let cell_name = &op.arg0;
                     let raw_cell = emit_raw_cell_object_for_name(
                         intrinsic_state.fb,
                         cell_name,
@@ -1255,12 +1236,7 @@ fn emit_codegen_expr(
                     intrinsic_state.fb.block_params(value_ok_block)[0]
                 }
                 blockpy_intrinsics::Operation::StoreCell(op) => {
-                    let CodegenBlockPyExpr::Name(cell_name) = &op.arg0 else {
-                        panic!(
-                            "__dp_store_cell should lower to a located name arg, got {:?}",
-                            op.arg0
-                        );
-                    };
+                    let cell_name = &op.arg0;
                     let raw_cell = emit_raw_cell_object_for_name(
                         intrinsic_state.fb,
                         cell_name,
@@ -1303,6 +1279,26 @@ fn emit_codegen_expr(
                         &mut intrinsic_state,
                         call_value,
                     )
+                }
+                blockpy_intrinsics::Operation::DelDeref(op) => {
+                    let raw_cell = emit_raw_cell_object_for_name(
+                        intrinsic_state.fb,
+                        &op.arg0,
+                        intrinsic_state.local_names,
+                        intrinsic_state.local_values,
+                        intrinsic_state.ctx,
+                    );
+                    intrinsics::emit_del_deref_raw_cell(raw_cell, false, &mut intrinsic_state)
+                }
+                blockpy_intrinsics::Operation::DelDerefQuietly(op) => {
+                    let raw_cell = emit_raw_cell_object_for_name(
+                        intrinsic_state.fb,
+                        &op.arg0,
+                        intrinsic_state.local_names,
+                        intrinsic_state.local_values,
+                        intrinsic_state.ctx,
+                    );
+                    intrinsics::emit_del_deref_raw_cell(raw_cell, true, &mut intrinsic_state)
                 }
                 _ => panic!(
                     "operation {} should have been handled by direct emitter",

@@ -414,15 +414,7 @@ impl From<CoreBlockPyExprWithAwaitAndYield> for Expr {
     fn from(value: CoreBlockPyExprWithAwaitAndYield) -> Self {
         match value {
             CoreBlockPyExprWithAwaitAndYield::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExprWithAwaitAndYield::Op(operation) => match *operation {
-                Operation::MakeFunction(op) => make_function_call_to_ast(op),
-                other => helper_call_to_ast(
-                    other.helper_name(),
-                    other.node_index().clone(),
-                    other.range(),
-                    other.into_call_args(),
-                ),
-            },
+            CoreBlockPyExprWithAwaitAndYield::Op(operation) => operation_to_ast(*operation),
             CoreBlockPyExprWithAwaitAndYield::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -456,15 +448,7 @@ impl From<CoreBlockPyExprWithYield> for Expr {
     fn from(value: CoreBlockPyExprWithYield) -> Self {
         match value {
             CoreBlockPyExprWithYield::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExprWithYield::Op(operation) => match *operation {
-                Operation::MakeFunction(op) => make_function_call_to_ast(op),
-                other => helper_call_to_ast(
-                    other.helper_name(),
-                    other.node_index().clone(),
-                    other.range(),
-                    other.into_call_args(),
-                ),
-            },
+            CoreBlockPyExprWithYield::Op(operation) => operation_to_ast(*operation),
             CoreBlockPyExprWithYield::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -491,15 +475,7 @@ impl<N: Into<ast::ExprName>> From<CoreBlockPyExpr<N>> for Expr {
     fn from(value: CoreBlockPyExpr<N>) -> Self {
         match value {
             CoreBlockPyExpr::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExpr::Op(operation) => match *operation {
-                Operation::MakeFunction(op) => make_function_call_to_ast(op),
-                other => helper_call_to_ast(
-                    other.helper_name(),
-                    other.node_index().clone(),
-                    other.range(),
-                    other.into_call_args(),
-                ),
-            },
+            CoreBlockPyExpr::Op(operation) => operation_to_ast(*operation),
             CoreBlockPyExpr::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -516,15 +492,7 @@ impl<N: Into<ast::ExprName>> From<CodegenBlockPyExpr<N>> for Expr {
     fn from(value: CodegenBlockPyExpr<N>) -> Self {
         match value {
             CodegenBlockPyExpr::Literal(literal) => codegen_literal_to_expr(literal),
-            CodegenBlockPyExpr::Op(operation) => match *operation {
-                Operation::MakeFunction(op) => make_function_call_to_ast(op),
-                other => helper_call_to_ast(
-                    other.helper_name(),
-                    other.node_index().clone(),
-                    other.range(),
-                    other.into_call_args(),
-                ),
-            },
+            CodegenBlockPyExpr::Op(operation) => operation_to_ast(*operation),
             CodegenBlockPyExpr::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -622,6 +590,146 @@ fn helper_call_to_ast<E: Into<Expr>>(
         positional_call_args(args),
         Vec::new(),
     )
+}
+
+fn string_literal_expr(
+    value: String,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+) -> Expr {
+    Expr::StringLiteral(ast::ExprStringLiteral {
+        node_index: node_index.clone(),
+        range,
+        value: StringLiteralValue::single(StringLiteral {
+            node_index,
+            range,
+            value: value.into(),
+            flags: StringLiteralFlags::empty().with_quote_style(Quote::Double),
+        }),
+    })
+}
+
+fn bytes_literal_expr(
+    value: Vec<u8>,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+) -> Expr {
+    Expr::BytesLiteral(ast::ExprBytesLiteral {
+        node_index: node_index.clone(),
+        range,
+        value: ast::BytesLiteralValue::single(BytesLiteral {
+            node_index,
+            range,
+            value: value.into(),
+            flags: BytesLiteralFlags::empty().with_quote_style(Quote::Double),
+        }),
+    })
+}
+
+fn cell_ref_target_to_ast<N: Into<ast::ExprName>>(
+    target: CellRefTarget<N>,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+) -> Expr {
+    match target {
+        CellRefTarget::LogicalName(name) => string_literal_expr(name, node_index, range),
+        CellRefTarget::Name(name) => Expr::Name(name.into()),
+    }
+}
+
+fn operation_to_ast<E: Into<Expr>, N: Into<ast::ExprName>>(operation: Operation<E, N>) -> Expr {
+    match operation {
+        Operation::MakeFunction(op) => make_function_call_to_ast(op),
+        Operation::GetAttr(op) => helper_call_to_ast(
+            "__dp_getattr",
+            op.node_index.clone(),
+            op.range,
+            vec![
+                op.arg0.into(),
+                string_literal_expr(op.arg1, op.node_index, op.range),
+            ],
+        ),
+        Operation::SetAttr(op) => helper_call_to_ast(
+            "__dp_setattr",
+            op.node_index.clone(),
+            op.range,
+            vec![
+                op.arg0.into(),
+                string_literal_expr(op.arg1, op.node_index.clone(), op.range),
+                op.arg2.into(),
+            ],
+        ),
+        Operation::LoadGlobal(op) => helper_call_to_ast(
+            "__dp_load_global",
+            op.node_index.clone(),
+            op.range,
+            vec![
+                op.arg0.into(),
+                string_literal_expr(op.arg1, op.node_index, op.range),
+            ],
+        ),
+        Operation::StoreGlobal(op) => helper_call_to_ast(
+            "__dp_store_global",
+            op.node_index.clone(),
+            op.range,
+            vec![
+                op.arg0.into(),
+                string_literal_expr(op.arg1, op.node_index.clone(), op.range),
+                op.arg2.into(),
+            ],
+        ),
+        Operation::LoadCell(op) => helper_call_to_ast(
+            "__dp_load_cell",
+            op.node_index,
+            op.range,
+            vec![Expr::Name(op.arg0.into())],
+        ),
+        Operation::MakeString(op) => helper_call_to_ast(
+            "__dp_decode_literal_bytes",
+            op.node_index.clone(),
+            op.range,
+            vec![bytes_literal_expr(op.arg0, op.node_index, op.range)],
+        ),
+        Operation::CellRef(op) => helper_call_to_ast(
+            "__dp_cell_ref",
+            op.node_index.clone(),
+            op.range,
+            vec![cell_ref_target_to_ast(op.arg0, op.node_index, op.range)],
+        ),
+        Operation::StoreCell(op) => helper_call_to_ast(
+            "__dp_store_cell",
+            op.node_index,
+            op.range,
+            vec![Expr::Name(op.arg0.into()), op.arg1.into()],
+        ),
+        Operation::DelQuietly(op) => helper_call_to_ast(
+            "__dp_del_quietly",
+            op.node_index.clone(),
+            op.range,
+            vec![
+                op.arg0.into(),
+                string_literal_expr(op.arg1, op.node_index, op.range),
+            ],
+        ),
+        Operation::DelDerefQuietly(op) => helper_call_to_ast(
+            "__dp_del_deref_quietly",
+            op.node_index,
+            op.range,
+            vec![Expr::Name(op.arg0.into())],
+        ),
+        Operation::DelDeref(op) => helper_call_to_ast(
+            "__dp_del_deref",
+            op.node_index,
+            op.range,
+            vec![Expr::Name(op.arg0.into())],
+        ),
+        other => helper_call_to_ast(
+            other.helper_name(),
+            other.node_index().clone(),
+            other.range(),
+            other.into_call_args(),
+        ),
+    }
 }
 
 fn make_function_kind_literal(kind: BlockPyFunctionKind) -> Expr {

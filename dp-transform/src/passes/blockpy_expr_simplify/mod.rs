@@ -110,7 +110,7 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithA
 }
 
 fn core_operation_expr(
-    operation: operation::Operation<CoreBlockPyExprWithAwaitAndYield>,
+    operation: operation::Operation<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>,
 ) -> CoreBlockPyExprWithAwaitAndYield {
     CoreBlockPyExprWithAwaitAndYield::Op(Box::new(operation))
 }
@@ -199,6 +199,196 @@ fn make_function_id_from_literal(expr: &Expr) -> Option<crate::block_py::Functio
         .map(crate::block_py::FunctionId)
 }
 
+fn string_arg_from_core_expr(expr: CoreBlockPyExprWithAwaitAndYield) -> Option<String> {
+    let CoreBlockPyExprWithAwaitAndYield::Literal(
+        crate::block_py::CoreBlockPyLiteral::StringLiteral(literal),
+    ) = expr
+    else {
+        return None;
+    };
+    Some(literal.value)
+}
+
+fn bytes_arg_from_core_expr(expr: CoreBlockPyExprWithAwaitAndYield) -> Option<Vec<u8>> {
+    let CoreBlockPyExprWithAwaitAndYield::Literal(
+        crate::block_py::CoreBlockPyLiteral::BytesLiteral(literal),
+    ) = expr
+    else {
+        return None;
+    };
+    Some(literal.value)
+}
+
+fn name_arg_from_core_expr(expr: CoreBlockPyExprWithAwaitAndYield) -> Option<ast::ExprName> {
+    let CoreBlockPyExprWithAwaitAndYield::Name(name) = expr else {
+        return None;
+    };
+    Some(name)
+}
+
+fn operation_by_name_and_args(
+    name: &str,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    args: Vec<CoreBlockPyExprWithAwaitAndYield>,
+) -> Option<operation::Operation<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>> {
+    let mut args = args.into_iter();
+    let operation = if let Some(kind) = operation::BinOpKind::from_helper_name(name) {
+        let arg0 = args.next()?;
+        let arg1 = args.next()?;
+        if args.next().is_some() {
+            return None;
+        }
+        operation::Operation::BinOp(operation::BinOp {
+            node_index,
+            range,
+            kind,
+            arg0,
+            arg1,
+        })
+    } else if let Some(kind) = operation::UnaryOpKind::from_helper_name(name) {
+        let arg0 = args.next()?;
+        if args.next().is_some() {
+            return None;
+        }
+        operation::Operation::UnaryOp(operation::UnaryOp {
+            node_index,
+            range,
+            kind,
+            arg0,
+        })
+    } else if let Some(kind) = operation::InplaceBinOpKind::from_helper_name(name) {
+        let arg0 = args.next()?;
+        let arg1 = args.next()?;
+        if args.next().is_some() {
+            return None;
+        }
+        operation::Operation::InplaceBinOp(operation::InplaceBinOp {
+            node_index,
+            range,
+            kind,
+            arg0,
+            arg1,
+        })
+    } else if let Some(kind) = operation::TernaryOpKind::from_helper_name(name) {
+        let arg0 = args.next()?;
+        let arg1 = args.next()?;
+        let arg2 = args.next()?;
+        if args.next().is_some() {
+            return None;
+        }
+        operation::Operation::TernaryOp(operation::TernaryOp {
+            node_index,
+            range,
+            kind,
+            arg0,
+            arg1,
+            arg2,
+        })
+    } else {
+        match name {
+            "__dp_getattr" => operation::Operation::GetAttr(operation::GetAttr {
+                node_index,
+                range,
+                arg0: args.next()?,
+                arg1: string_arg_from_core_expr(args.next()?)?,
+            }),
+            "__dp_setattr" => operation::Operation::SetAttr(operation::SetAttr {
+                node_index,
+                range,
+                arg0: args.next()?,
+                arg1: string_arg_from_core_expr(args.next()?)?,
+                arg2: args.next()?,
+            }),
+            "__dp_getitem" => operation::Operation::GetItem(operation::GetItem {
+                node_index,
+                range,
+                arg0: args.next()?,
+                arg1: args.next()?,
+            }),
+            "__dp_setitem" => operation::Operation::SetItem(operation::SetItem {
+                node_index,
+                range,
+                arg0: args.next()?,
+                arg1: args.next()?,
+                arg2: args.next()?,
+            }),
+            "__dp_delitem" => operation::Operation::DelItem(operation::DelItem {
+                node_index,
+                range,
+                arg0: args.next()?,
+                arg1: args.next()?,
+            }),
+            "__dp_load_global" => operation::Operation::LoadGlobal(operation::LoadGlobal {
+                node_index,
+                range,
+                arg0: args.next()?,
+                arg1: string_arg_from_core_expr(args.next()?)?,
+            }),
+            "__dp_store_global" => operation::Operation::StoreGlobal(operation::StoreGlobal {
+                node_index,
+                range,
+                arg0: args.next()?,
+                arg1: string_arg_from_core_expr(args.next()?)?,
+                arg2: args.next()?,
+            }),
+            "__dp_load_cell" => operation::Operation::LoadCell(operation::LoadCell {
+                node_index,
+                range,
+                arg0: name_arg_from_core_expr(args.next()?)?,
+            }),
+            "__dp_make_cell" => operation::Operation::MakeCell(operation::MakeCell {
+                node_index,
+                range,
+                arg0: args.next()?,
+            }),
+            "__dp_decode_literal_bytes" => {
+                operation::Operation::MakeString(operation::MakeString {
+                    node_index,
+                    range,
+                    arg0: bytes_arg_from_core_expr(args.next()?)?,
+                })
+            }
+            "__dp_cell_ref" => operation::Operation::CellRef(operation::CellRef {
+                node_index,
+                range,
+                arg0: operation::CellRefTarget::LogicalName(string_arg_from_core_expr(
+                    args.next()?,
+                )?),
+            }),
+            "__dp_store_cell" => operation::Operation::StoreCell(operation::StoreCell {
+                node_index,
+                range,
+                arg0: name_arg_from_core_expr(args.next()?)?,
+                arg1: args.next()?,
+            }),
+            "__dp_del_quietly" => operation::Operation::DelQuietly(operation::DelQuietly {
+                node_index,
+                range,
+                arg0: args.next()?,
+                arg1: string_arg_from_core_expr(args.next()?)?,
+            }),
+            "__dp_del_deref_quietly" => {
+                operation::Operation::DelDerefQuietly(operation::DelDerefQuietly {
+                    node_index,
+                    range,
+                    arg0: name_arg_from_core_expr(args.next()?)?,
+                })
+            }
+            "__dp_del_deref" => operation::Operation::DelDeref(operation::DelDeref {
+                node_index,
+                range,
+                arg0: name_arg_from_core_expr(args.next()?)?,
+            }),
+            _ => return None,
+        }
+    };
+    if args.next().is_some() {
+        return None;
+    }
+    Some(operation)
+}
+
 fn lower_core_call_expr_with_meta(
     func: Expr,
     node_index: ast::AtomicNodeIndex,
@@ -246,7 +436,7 @@ fn lower_core_call_expr_with_meta(
                 if helper_name == "__dp_pow" && operation_args.len() == 2 {
                     operation_args.push(core_builtin_name("__dp_NONE"));
                 }
-                if let Some(operation) = operation::operation_by_name_and_args(
+                if let Some(operation) = operation_by_name_and_args(
                     helper_name,
                     node_index.clone(),
                     range,

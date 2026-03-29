@@ -20,15 +20,15 @@ fn tracked_name_binding_module(
 }
 
 struct ExprShapeProbe {
-    saw_bytes_literal: Cell<bool>,
     saw_make_string: Cell<bool>,
+    saw_make_string_bytes: Cell<bool>,
 }
 
 impl ExprShapeProbe {
     fn new() -> Self {
         Self {
-            saw_bytes_literal: Cell::new(false),
             saw_make_string: Cell::new(false),
+            saw_make_string_bytes: Cell::new(false),
         }
     }
 }
@@ -36,18 +36,17 @@ impl ExprShapeProbe {
 fn probe_bb_exprs<N: BlockPyNameLike>(probe: &mut ExprShapeProbe, expr: &CodegenBlockPyExpr<N>) {
     match expr {
         CodegenBlockPyExpr::Name(_) => {}
-        CodegenBlockPyExpr::Literal(literal) => match literal {
-            CodegenBlockPyLiteral::BytesLiteral(_) => {
-                probe.saw_bytes_literal.set(true);
+        CodegenBlockPyExpr::Literal(literal) => {
+            if matches!(literal, CodegenBlockPyLiteral::BytesLiteral(_)) {
+                probe.saw_make_string_bytes.set(true);
             }
-            _ => {}
-        },
+        }
         CodegenBlockPyExpr::Op(operation) => {
-            if matches!(
-                operation.as_ref(),
-                crate::block_py::Operation::MakeString(_)
-            ) {
+            if let crate::block_py::Operation::MakeString(op) = operation.as_ref() {
                 probe.saw_make_string.set(true);
+                if !op.arg0.is_empty() {
+                    probe.saw_make_string_bytes.set(true);
+                }
             }
             operation.walk_args(&mut |arg| probe_bb_exprs(probe, arg));
         }
@@ -123,12 +122,12 @@ def f():
     }
 
     assert!(
-        probe.saw_bytes_literal.get(),
-        "bytes literals should remain"
-    );
-    assert!(
         probe.saw_make_string.get(),
         "a MakeString operation should be present"
+    );
+    assert!(
+        probe.saw_make_string_bytes.get(),
+        "MakeString should carry utf-8 byte payloads"
     );
 }
 

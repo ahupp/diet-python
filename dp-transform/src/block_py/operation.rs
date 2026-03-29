@@ -54,7 +54,7 @@ impl BinOpKind {
         }
     }
 
-    fn from_helper_name(name: &str) -> Option<Self> {
+    pub(crate) fn from_helper_name(name: &str) -> Option<Self> {
         Some(match name {
             "__dp_add" => Self::Add,
             "__dp_sub" => Self::Sub,
@@ -102,7 +102,7 @@ impl UnaryOpKind {
         }
     }
 
-    fn from_helper_name(name: &str) -> Option<Self> {
+    pub(crate) fn from_helper_name(name: &str) -> Option<Self> {
         Some(match name {
             "__dp_pos" => Self::Pos,
             "__dp_neg" => Self::Neg,
@@ -148,7 +148,7 @@ impl InplaceBinOpKind {
         }
     }
 
-    fn from_helper_name(name: &str) -> Option<Self> {
+    pub(crate) fn from_helper_name(name: &str) -> Option<Self> {
         Some(match name {
             "__dp_iadd" => Self::Add,
             "__dp_isub" => Self::Sub,
@@ -179,7 +179,7 @@ impl TernaryOpKind {
         }
     }
 
-    fn from_helper_name(name: &str) -> Option<Self> {
+    pub(crate) fn from_helper_name(name: &str) -> Option<Self> {
         Some(match name {
             "__dp_pow" => Self::Pow,
             _ => return None,
@@ -228,7 +228,7 @@ pub struct GetAttr<E> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: TextRange,
     pub arg0: E,
-    pub arg1: E,
+    pub arg1: String,
 }
 
 #[derive(Debug, Clone)]
@@ -236,7 +236,7 @@ pub struct SetAttr<E> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: TextRange,
     pub arg0: E,
-    pub arg1: E,
+    pub arg1: String,
     pub arg2: E,
 }
 
@@ -270,7 +270,7 @@ pub struct LoadGlobal<E> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: TextRange,
     pub arg0: E,
-    pub arg1: E,
+    pub arg1: String,
 }
 
 #[derive(Debug, Clone)]
@@ -278,15 +278,15 @@ pub struct StoreGlobal<E> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: TextRange,
     pub arg0: E,
-    pub arg1: E,
+    pub arg1: String,
     pub arg2: E,
 }
 
 #[derive(Debug, Clone)]
-pub struct LoadCell<E> {
+pub struct LoadCell<N> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: TextRange,
-    pub arg0: E,
+    pub arg0: N,
 }
 
 #[derive(Debug, Clone)]
@@ -297,17 +297,32 @@ pub struct MakeCell<E> {
 }
 
 #[derive(Debug, Clone)]
-pub struct MakeString<E> {
+pub struct MakeString {
     pub node_index: ast::AtomicNodeIndex,
     pub range: TextRange,
-    pub arg0: E,
+    pub arg0: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
-pub struct CellRef<E> {
+pub enum CellRefTarget<N> {
+    LogicalName(String),
+    Name(N),
+}
+
+impl<N> CellRefTarget<N> {
+    pub fn map_name<T>(self, f: &mut impl FnMut(N) -> T) -> CellRefTarget<T> {
+        match self {
+            Self::LogicalName(name) => CellRefTarget::LogicalName(name),
+            Self::Name(name) => CellRefTarget::Name(f(name)),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CellRef<N> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: TextRange,
-    pub arg0: E,
+    pub arg0: CellRefTarget<N>,
 }
 
 #[derive(Debug, Clone)]
@@ -322,10 +337,10 @@ pub struct MakeFunction<E> {
 }
 
 #[derive(Debug, Clone)]
-pub struct StoreCell<E> {
+pub struct StoreCell<N, E> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: TextRange,
-    pub arg0: E,
+    pub arg0: N,
     pub arg1: E,
 }
 
@@ -334,25 +349,25 @@ pub struct DelQuietly<E> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: TextRange,
     pub arg0: E,
-    pub arg1: E,
+    pub arg1: String,
 }
 
 #[derive(Debug, Clone)]
-pub struct DelDerefQuietly<E> {
+pub struct DelDerefQuietly<N> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: TextRange,
-    pub arg0: E,
+    pub arg0: N,
 }
 
 #[derive(Debug, Clone)]
-pub struct DelDeref<E> {
+pub struct DelDeref<N> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: TextRange,
-    pub arg0: E,
+    pub arg0: N,
 }
 
 #[derive(Debug, Clone)]
-pub enum Operation<E> {
+pub enum Operation<E, N = E> {
     BinOp(BinOp<E>),
     UnaryOp(UnaryOp<E>),
     InplaceBinOp(InplaceBinOp<E>),
@@ -364,18 +379,18 @@ pub enum Operation<E> {
     DelItem(DelItem<E>),
     LoadGlobal(LoadGlobal<E>),
     StoreGlobal(StoreGlobal<E>),
-    LoadCell(LoadCell<E>),
+    LoadCell(LoadCell<N>),
     MakeCell(MakeCell<E>),
-    MakeString(MakeString<E>),
-    CellRef(CellRef<E>),
+    MakeString(MakeString),
+    CellRef(CellRef<N>),
     MakeFunction(MakeFunction<E>),
-    StoreCell(StoreCell<E>),
+    StoreCell(StoreCell<N, E>),
     DelQuietly(DelQuietly<E>),
-    DelDerefQuietly(DelDerefQuietly<E>),
-    DelDeref(DelDeref<E>),
+    DelDerefQuietly(DelDerefQuietly<N>),
+    DelDeref(DelDeref<N>),
 }
 
-impl<E> Operation<E> {
+impl<E, N> Operation<E, N> {
     pub fn helper_name(&self) -> &'static str {
         match self {
             Self::BinOp(op) => op.kind.helper_name(),
@@ -451,7 +466,7 @@ impl<E> Operation<E> {
         }
     }
 
-    pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> Operation<T> {
+    pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> Operation<T, N> {
         match self {
             Self::BinOp(op) => Operation::BinOp(BinOp {
                 node_index: op.node_index,
@@ -485,13 +500,13 @@ impl<E> Operation<E> {
                 node_index: op.node_index,
                 range: op.range,
                 arg0: f(op.arg0),
-                arg1: f(op.arg1),
+                arg1: op.arg1,
             }),
             Self::SetAttr(op) => Operation::SetAttr(SetAttr {
                 node_index: op.node_index,
                 range: op.range,
                 arg0: f(op.arg0),
-                arg1: f(op.arg1),
+                arg1: op.arg1,
                 arg2: f(op.arg2),
             }),
             Self::GetItem(op) => Operation::GetItem(GetItem {
@@ -517,19 +532,19 @@ impl<E> Operation<E> {
                 node_index: op.node_index,
                 range: op.range,
                 arg0: f(op.arg0),
-                arg1: f(op.arg1),
+                arg1: op.arg1,
             }),
             Self::StoreGlobal(op) => Operation::StoreGlobal(StoreGlobal {
                 node_index: op.node_index,
                 range: op.range,
                 arg0: f(op.arg0),
-                arg1: f(op.arg1),
+                arg1: op.arg1,
                 arg2: f(op.arg2),
             }),
             Self::LoadCell(op) => Operation::LoadCell(LoadCell {
                 node_index: op.node_index,
                 range: op.range,
-                arg0: f(op.arg0),
+                arg0: op.arg0,
             }),
             Self::MakeCell(op) => Operation::MakeCell(MakeCell {
                 node_index: op.node_index,
@@ -539,12 +554,12 @@ impl<E> Operation<E> {
             Self::MakeString(op) => Operation::MakeString(MakeString {
                 node_index: op.node_index,
                 range: op.range,
-                arg0: f(op.arg0),
+                arg0: op.arg0,
             }),
             Self::CellRef(op) => Operation::CellRef(CellRef {
                 node_index: op.node_index,
                 range: op.range,
-                arg0: f(op.arg0),
+                arg0: op.arg0,
             }),
             Self::MakeFunction(op) => Operation::MakeFunction(MakeFunction {
                 node_index: op.node_index,
@@ -558,24 +573,153 @@ impl<E> Operation<E> {
             Self::StoreCell(op) => Operation::StoreCell(StoreCell {
                 node_index: op.node_index,
                 range: op.range,
-                arg0: f(op.arg0),
+                arg0: op.arg0,
                 arg1: f(op.arg1),
             }),
             Self::DelQuietly(op) => Operation::DelQuietly(DelQuietly {
                 node_index: op.node_index,
                 range: op.range,
                 arg0: f(op.arg0),
-                arg1: f(op.arg1),
+                arg1: op.arg1,
             }),
             Self::DelDerefQuietly(op) => Operation::DelDerefQuietly(DelDerefQuietly {
                 node_index: op.node_index,
                 range: op.range,
-                arg0: f(op.arg0),
+                arg0: op.arg0,
             }),
             Self::DelDeref(op) => Operation::DelDeref(DelDeref {
                 node_index: op.node_index,
                 range: op.range,
-                arg0: f(op.arg0),
+                arg0: op.arg0,
+            }),
+        }
+    }
+
+    pub fn map_expr_and_name<T, M>(
+        self,
+        f_expr: &mut impl FnMut(E) -> T,
+        f_name: &mut impl FnMut(N) -> M,
+    ) -> Operation<T, M> {
+        match self {
+            Self::BinOp(op) => Operation::BinOp(BinOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f_expr(op.arg0),
+                arg1: f_expr(op.arg1),
+            }),
+            Self::UnaryOp(op) => Operation::UnaryOp(UnaryOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f_expr(op.arg0),
+            }),
+            Self::InplaceBinOp(op) => Operation::InplaceBinOp(InplaceBinOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f_expr(op.arg0),
+                arg1: f_expr(op.arg1),
+            }),
+            Self::TernaryOp(op) => Operation::TernaryOp(TernaryOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f_expr(op.arg0),
+                arg1: f_expr(op.arg1),
+                arg2: f_expr(op.arg2),
+            }),
+            Self::GetAttr(op) => Operation::GetAttr(GetAttr {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0),
+                arg1: op.arg1,
+            }),
+            Self::SetAttr(op) => Operation::SetAttr(SetAttr {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0),
+                arg1: op.arg1,
+                arg2: f_expr(op.arg2),
+            }),
+            Self::GetItem(op) => Operation::GetItem(GetItem {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0),
+                arg1: f_expr(op.arg1),
+            }),
+            Self::SetItem(op) => Operation::SetItem(SetItem {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0),
+                arg1: f_expr(op.arg1),
+                arg2: f_expr(op.arg2),
+            }),
+            Self::DelItem(op) => Operation::DelItem(DelItem {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0),
+                arg1: f_expr(op.arg1),
+            }),
+            Self::LoadGlobal(op) => Operation::LoadGlobal(LoadGlobal {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0),
+                arg1: op.arg1,
+            }),
+            Self::StoreGlobal(op) => Operation::StoreGlobal(StoreGlobal {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0),
+                arg1: op.arg1,
+                arg2: f_expr(op.arg2),
+            }),
+            Self::LoadCell(op) => Operation::LoadCell(LoadCell {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_name(op.arg0),
+            }),
+            Self::MakeCell(op) => Operation::MakeCell(MakeCell {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0),
+            }),
+            Self::MakeString(op) => Operation::MakeString(op),
+            Self::CellRef(op) => Operation::CellRef(CellRef {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: op.arg0.map_name(f_name),
+            }),
+            Self::MakeFunction(op) => Operation::MakeFunction(MakeFunction {
+                node_index: op.node_index,
+                range: op.range,
+                function_id: op.function_id,
+                kind: op.kind,
+                arg0: f_expr(op.arg0),
+                arg1: f_expr(op.arg1),
+                arg2: f_expr(op.arg2),
+            }),
+            Self::StoreCell(op) => Operation::StoreCell(StoreCell {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_name(op.arg0),
+                arg1: f_expr(op.arg1),
+            }),
+            Self::DelQuietly(op) => Operation::DelQuietly(DelQuietly {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0),
+                arg1: op.arg1,
+            }),
+            Self::DelDerefQuietly(op) => Operation::DelDerefQuietly(DelDerefQuietly {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_name(op.arg0),
+            }),
+            Self::DelDeref(op) => Operation::DelDeref(DelDeref {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_name(op.arg0),
             }),
         }
     }
@@ -583,7 +727,7 @@ impl<E> Operation<E> {
     pub fn try_map_expr<T, Error>(
         self,
         f: &mut impl FnMut(E) -> Result<T, Error>,
-    ) -> Result<Operation<T>, Error> {
+    ) -> Result<Operation<T, N>, Error> {
         Ok(match self {
             Self::BinOp(op) => Operation::BinOp(BinOp {
                 node_index: op.node_index,
@@ -617,13 +761,13 @@ impl<E> Operation<E> {
                 node_index: op.node_index,
                 range: op.range,
                 arg0: f(op.arg0)?,
-                arg1: f(op.arg1)?,
+                arg1: op.arg1,
             }),
             Self::SetAttr(op) => Operation::SetAttr(SetAttr {
                 node_index: op.node_index,
                 range: op.range,
                 arg0: f(op.arg0)?,
-                arg1: f(op.arg1)?,
+                arg1: op.arg1,
                 arg2: f(op.arg2)?,
             }),
             Self::GetItem(op) => Operation::GetItem(GetItem {
@@ -649,19 +793,19 @@ impl<E> Operation<E> {
                 node_index: op.node_index,
                 range: op.range,
                 arg0: f(op.arg0)?,
-                arg1: f(op.arg1)?,
+                arg1: op.arg1,
             }),
             Self::StoreGlobal(op) => Operation::StoreGlobal(StoreGlobal {
                 node_index: op.node_index,
                 range: op.range,
                 arg0: f(op.arg0)?,
-                arg1: f(op.arg1)?,
+                arg1: op.arg1,
                 arg2: f(op.arg2)?,
             }),
             Self::LoadCell(op) => Operation::LoadCell(LoadCell {
                 node_index: op.node_index,
                 range: op.range,
-                arg0: f(op.arg0)?,
+                arg0: op.arg0,
             }),
             Self::MakeCell(op) => Operation::MakeCell(MakeCell {
                 node_index: op.node_index,
@@ -671,12 +815,12 @@ impl<E> Operation<E> {
             Self::MakeString(op) => Operation::MakeString(MakeString {
                 node_index: op.node_index,
                 range: op.range,
-                arg0: f(op.arg0)?,
+                arg0: op.arg0,
             }),
             Self::CellRef(op) => Operation::CellRef(CellRef {
                 node_index: op.node_index,
                 range: op.range,
-                arg0: f(op.arg0)?,
+                arg0: op.arg0,
             }),
             Self::MakeFunction(op) => Operation::MakeFunction(MakeFunction {
                 node_index: op.node_index,
@@ -690,24 +834,156 @@ impl<E> Operation<E> {
             Self::StoreCell(op) => Operation::StoreCell(StoreCell {
                 node_index: op.node_index,
                 range: op.range,
-                arg0: f(op.arg0)?,
+                arg0: op.arg0,
                 arg1: f(op.arg1)?,
             }),
             Self::DelQuietly(op) => Operation::DelQuietly(DelQuietly {
                 node_index: op.node_index,
                 range: op.range,
                 arg0: f(op.arg0)?,
-                arg1: f(op.arg1)?,
+                arg1: op.arg1,
             }),
             Self::DelDerefQuietly(op) => Operation::DelDerefQuietly(DelDerefQuietly {
                 node_index: op.node_index,
                 range: op.range,
-                arg0: f(op.arg0)?,
+                arg0: op.arg0,
             }),
             Self::DelDeref(op) => Operation::DelDeref(DelDeref {
                 node_index: op.node_index,
                 range: op.range,
-                arg0: f(op.arg0)?,
+                arg0: op.arg0,
+            }),
+        })
+    }
+
+    pub fn try_map_expr_and_name<T, M, Error>(
+        self,
+        f_expr: &mut impl FnMut(E) -> Result<T, Error>,
+        f_name: &mut impl FnMut(N) -> Result<M, Error>,
+    ) -> Result<Operation<T, M>, Error> {
+        Ok(match self {
+            Self::BinOp(op) => Operation::BinOp(BinOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f_expr(op.arg0)?,
+                arg1: f_expr(op.arg1)?,
+            }),
+            Self::UnaryOp(op) => Operation::UnaryOp(UnaryOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f_expr(op.arg0)?,
+            }),
+            Self::InplaceBinOp(op) => Operation::InplaceBinOp(InplaceBinOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f_expr(op.arg0)?,
+                arg1: f_expr(op.arg1)?,
+            }),
+            Self::TernaryOp(op) => Operation::TernaryOp(TernaryOp {
+                node_index: op.node_index,
+                range: op.range,
+                kind: op.kind,
+                arg0: f_expr(op.arg0)?,
+                arg1: f_expr(op.arg1)?,
+                arg2: f_expr(op.arg2)?,
+            }),
+            Self::GetAttr(op) => Operation::GetAttr(GetAttr {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0)?,
+                arg1: op.arg1,
+            }),
+            Self::SetAttr(op) => Operation::SetAttr(SetAttr {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0)?,
+                arg1: op.arg1,
+                arg2: f_expr(op.arg2)?,
+            }),
+            Self::GetItem(op) => Operation::GetItem(GetItem {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0)?,
+                arg1: f_expr(op.arg1)?,
+            }),
+            Self::SetItem(op) => Operation::SetItem(SetItem {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0)?,
+                arg1: f_expr(op.arg1)?,
+                arg2: f_expr(op.arg2)?,
+            }),
+            Self::DelItem(op) => Operation::DelItem(DelItem {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0)?,
+                arg1: f_expr(op.arg1)?,
+            }),
+            Self::LoadGlobal(op) => Operation::LoadGlobal(LoadGlobal {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0)?,
+                arg1: op.arg1,
+            }),
+            Self::StoreGlobal(op) => Operation::StoreGlobal(StoreGlobal {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0)?,
+                arg1: op.arg1,
+                arg2: f_expr(op.arg2)?,
+            }),
+            Self::LoadCell(op) => Operation::LoadCell(LoadCell {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_name(op.arg0)?,
+            }),
+            Self::MakeCell(op) => Operation::MakeCell(MakeCell {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0)?,
+            }),
+            Self::MakeString(op) => Operation::MakeString(op),
+            Self::CellRef(op) => Operation::CellRef(CellRef {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: match op.arg0 {
+                    CellRefTarget::LogicalName(name) => CellRefTarget::LogicalName(name),
+                    CellRefTarget::Name(name) => CellRefTarget::Name(f_name(name)?),
+                },
+            }),
+            Self::MakeFunction(op) => Operation::MakeFunction(MakeFunction {
+                node_index: op.node_index,
+                range: op.range,
+                function_id: op.function_id,
+                kind: op.kind,
+                arg0: f_expr(op.arg0)?,
+                arg1: f_expr(op.arg1)?,
+                arg2: f_expr(op.arg2)?,
+            }),
+            Self::StoreCell(op) => Operation::StoreCell(StoreCell {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_name(op.arg0)?,
+                arg1: f_expr(op.arg1)?,
+            }),
+            Self::DelQuietly(op) => Operation::DelQuietly(DelQuietly {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_expr(op.arg0)?,
+                arg1: op.arg1,
+            }),
+            Self::DelDerefQuietly(op) => Operation::DelDerefQuietly(DelDerefQuietly {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_name(op.arg0)?,
+            }),
+            Self::DelDeref(op) => Operation::DelDeref(DelDeref {
+                node_index: op.node_index,
+                range: op.range,
+                arg0: f_name(op.arg0)?,
             }),
         })
     }
@@ -730,11 +1006,9 @@ impl<E> Operation<E> {
             }
             Self::GetAttr(op) => {
                 f(&op.arg0);
-                f(&op.arg1);
             }
             Self::SetAttr(op) => {
                 f(&op.arg0);
-                f(&op.arg1);
                 f(&op.arg2);
             }
             Self::GetItem(op) => {
@@ -752,32 +1026,28 @@ impl<E> Operation<E> {
             }
             Self::LoadGlobal(op) => {
                 f(&op.arg0);
-                f(&op.arg1);
             }
             Self::StoreGlobal(op) => {
                 f(&op.arg0);
-                f(&op.arg1);
                 f(&op.arg2);
             }
-            Self::LoadCell(op) => f(&op.arg0),
+            Self::LoadCell(_) => {}
             Self::MakeCell(op) => f(&op.arg0),
-            Self::MakeString(op) => f(&op.arg0),
-            Self::CellRef(op) => f(&op.arg0),
+            Self::MakeString(_) => {}
+            Self::CellRef(_) => {}
             Self::MakeFunction(op) => {
                 f(&op.arg0);
                 f(&op.arg1);
                 f(&op.arg2);
             }
             Self::StoreCell(op) => {
-                f(&op.arg0);
                 f(&op.arg1);
             }
             Self::DelQuietly(op) => {
                 f(&op.arg0);
-                f(&op.arg1);
             }
-            Self::DelDerefQuietly(op) => f(&op.arg0),
-            Self::DelDeref(op) => f(&op.arg0),
+            Self::DelDerefQuietly(_) => {}
+            Self::DelDeref(_) => {}
         }
     }
 
@@ -799,11 +1069,9 @@ impl<E> Operation<E> {
             }
             Self::GetAttr(op) => {
                 f(&mut op.arg0);
-                f(&mut op.arg1);
             }
             Self::SetAttr(op) => {
                 f(&mut op.arg0);
-                f(&mut op.arg1);
                 f(&mut op.arg2);
             }
             Self::GetItem(op) => {
@@ -821,32 +1089,28 @@ impl<E> Operation<E> {
             }
             Self::LoadGlobal(op) => {
                 f(&mut op.arg0);
-                f(&mut op.arg1);
             }
             Self::StoreGlobal(op) => {
                 f(&mut op.arg0);
-                f(&mut op.arg1);
                 f(&mut op.arg2);
             }
-            Self::LoadCell(op) => f(&mut op.arg0),
+            Self::LoadCell(_) => {}
             Self::MakeCell(op) => f(&mut op.arg0),
-            Self::MakeString(op) => f(&mut op.arg0),
-            Self::CellRef(op) => f(&mut op.arg0),
+            Self::MakeString(_) => {}
+            Self::CellRef(_) => {}
             Self::MakeFunction(op) => {
                 f(&mut op.arg0);
                 f(&mut op.arg1);
                 f(&mut op.arg2);
             }
             Self::StoreCell(op) => {
-                f(&mut op.arg0);
                 f(&mut op.arg1);
             }
             Self::DelQuietly(op) => {
                 f(&mut op.arg0);
-                f(&mut op.arg1);
             }
-            Self::DelDerefQuietly(op) => f(&mut op.arg0),
-            Self::DelDeref(op) => f(&mut op.arg0),
+            Self::DelDerefQuietly(_) => {}
+            Self::DelDeref(_) => {}
         }
     }
 
@@ -871,11 +1135,9 @@ impl<E> Operation<E> {
             }
             Self::GetAttr(op) => {
                 out.push(op.arg0);
-                out.push(op.arg1);
             }
             Self::SetAttr(op) => {
                 out.push(op.arg0);
-                out.push(op.arg1);
                 out.push(op.arg2);
             }
             Self::GetItem(op) => {
@@ -893,32 +1155,28 @@ impl<E> Operation<E> {
             }
             Self::LoadGlobal(op) => {
                 out.push(op.arg0);
-                out.push(op.arg1);
             }
             Self::StoreGlobal(op) => {
                 out.push(op.arg0);
-                out.push(op.arg1);
                 out.push(op.arg2);
             }
-            Self::LoadCell(op) => out.push(op.arg0),
+            Self::LoadCell(_) => {}
             Self::MakeCell(op) => out.push(op.arg0),
-            Self::MakeString(op) => out.push(op.arg0),
-            Self::CellRef(op) => out.push(op.arg0),
+            Self::MakeString(_) => {}
+            Self::CellRef(_) => {}
             Self::MakeFunction(op) => {
                 out.push(op.arg0);
                 out.push(op.arg1);
                 out.push(op.arg2);
             }
             Self::StoreCell(op) => {
-                out.push(op.arg0);
                 out.push(op.arg1);
             }
             Self::DelQuietly(op) => {
                 out.push(op.arg0);
-                out.push(op.arg1);
             }
-            Self::DelDerefQuietly(op) => out.push(op.arg0),
-            Self::DelDeref(op) => out.push(op.arg0),
+            Self::DelDerefQuietly(_) => {}
+            Self::DelDeref(_) => {}
         }
         out
     }
@@ -944,11 +1202,9 @@ impl<E> Operation<E> {
             }
             Self::GetAttr(op) => {
                 out.push(&op.arg0);
-                out.push(&op.arg1);
             }
             Self::SetAttr(op) => {
                 out.push(&op.arg0);
-                out.push(&op.arg1);
                 out.push(&op.arg2);
             }
             Self::GetItem(op) => {
@@ -966,190 +1222,29 @@ impl<E> Operation<E> {
             }
             Self::LoadGlobal(op) => {
                 out.push(&op.arg0);
-                out.push(&op.arg1);
             }
             Self::StoreGlobal(op) => {
                 out.push(&op.arg0);
-                out.push(&op.arg1);
                 out.push(&op.arg2);
             }
-            Self::LoadCell(op) => out.push(&op.arg0),
+            Self::LoadCell(_) => {}
             Self::MakeCell(op) => out.push(&op.arg0),
-            Self::MakeString(op) => out.push(&op.arg0),
-            Self::CellRef(op) => out.push(&op.arg0),
+            Self::MakeString(_) => {}
+            Self::CellRef(_) => {}
             Self::MakeFunction(op) => {
                 out.push(&op.arg0);
                 out.push(&op.arg1);
                 out.push(&op.arg2);
             }
             Self::StoreCell(op) => {
-                out.push(&op.arg0);
                 out.push(&op.arg1);
             }
             Self::DelQuietly(op) => {
                 out.push(&op.arg0);
-                out.push(&op.arg1);
             }
-            Self::DelDerefQuietly(op) => out.push(&op.arg0),
-            Self::DelDeref(op) => out.push(&op.arg0),
+            Self::DelDerefQuietly(_) => {}
+            Self::DelDeref(_) => {}
         }
         out
     }
-}
-
-pub fn operation_by_name_and_args<E>(
-    name: &str,
-    node_index: ast::AtomicNodeIndex,
-    range: TextRange,
-    args: Vec<E>,
-) -> Option<Operation<E>> {
-    let mut args = args.into_iter();
-    let operation = if let Some(kind) = BinOpKind::from_helper_name(name) {
-        let arg0 = args.next()?;
-        let arg1 = args.next()?;
-        if args.next().is_some() {
-            return None;
-        }
-        Operation::BinOp(BinOp {
-            node_index,
-            range,
-            kind,
-            arg0,
-            arg1,
-        })
-    } else if let Some(kind) = UnaryOpKind::from_helper_name(name) {
-        let arg0 = args.next()?;
-        if args.next().is_some() {
-            return None;
-        }
-        Operation::UnaryOp(UnaryOp {
-            node_index,
-            range,
-            kind,
-            arg0,
-        })
-    } else if let Some(kind) = InplaceBinOpKind::from_helper_name(name) {
-        let arg0 = args.next()?;
-        let arg1 = args.next()?;
-        if args.next().is_some() {
-            return None;
-        }
-        Operation::InplaceBinOp(InplaceBinOp {
-            node_index,
-            range,
-            kind,
-            arg0,
-            arg1,
-        })
-    } else if let Some(kind) = TernaryOpKind::from_helper_name(name) {
-        let arg0 = args.next()?;
-        let arg1 = args.next()?;
-        let arg2 = args.next()?;
-        if args.next().is_some() {
-            return None;
-        }
-        Operation::TernaryOp(TernaryOp {
-            node_index,
-            range,
-            kind,
-            arg0,
-            arg1,
-            arg2,
-        })
-    } else {
-        match name {
-            "__dp_getattr" => Operation::GetAttr(GetAttr {
-                node_index,
-                range,
-                arg0: args.next()?,
-                arg1: args.next()?,
-            }),
-            "__dp_setattr" => Operation::SetAttr(SetAttr {
-                node_index,
-                range,
-                arg0: args.next()?,
-                arg1: args.next()?,
-                arg2: args.next()?,
-            }),
-            "__dp_getitem" => Operation::GetItem(GetItem {
-                node_index,
-                range,
-                arg0: args.next()?,
-                arg1: args.next()?,
-            }),
-            "__dp_setitem" => Operation::SetItem(SetItem {
-                node_index,
-                range,
-                arg0: args.next()?,
-                arg1: args.next()?,
-                arg2: args.next()?,
-            }),
-            "__dp_delitem" => Operation::DelItem(DelItem {
-                node_index,
-                range,
-                arg0: args.next()?,
-                arg1: args.next()?,
-            }),
-            "__dp_load_global" => Operation::LoadGlobal(LoadGlobal {
-                node_index,
-                range,
-                arg0: args.next()?,
-                arg1: args.next()?,
-            }),
-            "__dp_store_global" => Operation::StoreGlobal(StoreGlobal {
-                node_index,
-                range,
-                arg0: args.next()?,
-                arg1: args.next()?,
-                arg2: args.next()?,
-            }),
-            "__dp_load_cell" => Operation::LoadCell(LoadCell {
-                node_index,
-                range,
-                arg0: args.next()?,
-            }),
-            "__dp_make_cell" => Operation::MakeCell(MakeCell {
-                node_index,
-                range,
-                arg0: args.next()?,
-            }),
-            "__dp_decode_literal_bytes" => Operation::MakeString(MakeString {
-                node_index,
-                range,
-                arg0: args.next()?,
-            }),
-            "__dp_cell_ref" => Operation::CellRef(CellRef {
-                node_index,
-                range,
-                arg0: args.next()?,
-            }),
-            "__dp_store_cell" => Operation::StoreCell(StoreCell {
-                node_index,
-                range,
-                arg0: args.next()?,
-                arg1: args.next()?,
-            }),
-            "__dp_del_quietly" => Operation::DelQuietly(DelQuietly {
-                node_index,
-                range,
-                arg0: args.next()?,
-                arg1: args.next()?,
-            }),
-            "__dp_del_deref_quietly" => Operation::DelDerefQuietly(DelDerefQuietly {
-                node_index,
-                range,
-                arg0: args.next()?,
-            }),
-            "__dp_del_deref" => Operation::DelDeref(DelDeref {
-                node_index,
-                range,
-                arg0: args.next()?,
-            }),
-            _ => return None,
-        }
-    };
-    if args.next().is_some() {
-        return None;
-    }
-    Some(operation)
 }

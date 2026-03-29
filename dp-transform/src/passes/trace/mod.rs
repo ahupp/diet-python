@@ -195,7 +195,7 @@ fn string_literal_expr(value: &str) -> LocatedCodegenBlockPyExpr {
     core_operation_expr(crate::block_py::Operation::MakeString(MakeString {
         node_index: compat_node_index(),
         range: compat_range(),
-        arg0: bytes_literal_expr(value.as_bytes()),
+        arg0: value.as_bytes().to_vec(),
     }))
 }
 

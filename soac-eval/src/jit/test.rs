@@ -1,11 +1,11 @@
 use super::*;
 use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyStmt,
-    BlockPyTerm, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral,
-    CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref, DelDerefQuietly,
-    DelItem, DelQuietly, FunctionName, LoadGlobal, LocatedCodegenBlockPyExpr, LocatedName,
-    MakeString, ModuleNameGen, NameLocation, Operation, Param, ParamKind, ParamSpec, StorageLayout,
-    StoreGlobal, TernaryOp, TernaryOpKind,
+    BlockPyTerm, CellRefTarget, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
+    CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref,
+    DelDerefQuietly, DelItem, DelQuietly, FunctionName, LoadGlobal, LocatedCodegenBlockPyExpr,
+    LocatedName, MakeString, ModuleNameGen, NameLocation, Operation, Param, ParamKind, ParamSpec,
+    StorageLayout, StoreGlobal, TernaryOp, TernaryOpKind,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
@@ -76,7 +76,9 @@ mod tests {
         CodegenBlockPyExpr::Name(name)
     }
 
-    fn op_expr(operation: Operation<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyExpr {
+    fn op_expr(
+        operation: Operation<LocatedCodegenBlockPyExpr, LocatedName>,
+    ) -> LocatedCodegenBlockPyExpr {
         CodegenBlockPyExpr::Op(Box::new(operation))
     }
 
@@ -289,7 +291,7 @@ mod tests {
             ret_term(op_expr(Operation::MakeString(MakeString {
                 node_index: Default::default(),
                 range: Default::default(),
-                arg0: bytes_expr(b"hello"),
+                arg0: b"hello".to_vec(),
             }))),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -379,7 +381,7 @@ mod tests {
                 node_index: Default::default(),
                 range: Default::default(),
                 arg0: int_expr(1),
-                arg1: int_expr(2),
+                arg1: "x".to_string(),
             }))),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -399,7 +401,7 @@ mod tests {
                 node_index: Default::default(),
                 range: Default::default(),
                 arg0: int_expr(1),
-                arg1: int_expr(2),
+                arg1: "x".to_string(),
                 arg2: int_expr(3),
             }))),
         );
@@ -437,7 +439,7 @@ mod tests {
                 soac_blockpy::block_py::CellRef {
                     node_index: Default::default(),
                     range: Default::default(),
-                    arg0: name_expr(test_closure_cell_name("x", 2)),
+                    arg0: CellRefTarget::Name(test_closure_cell_name("x", 2)),
                 },
             ))),
         );
@@ -463,7 +465,7 @@ mod tests {
                 soac_blockpy::block_py::CellRef {
                     node_index: Default::default(),
                     range: Default::default(),
-                    arg0: name_expr(test_captured_cell_source_name("_dp_classcell", 2)),
+                    arg0: CellRefTarget::Name(test_captured_cell_source_name("_dp_classcell", 2)),
                 },
             ))),
         );
@@ -517,17 +519,17 @@ mod tests {
                     node_index: Default::default(),
                     range: Default::default(),
                     arg0: int_expr(3),
-                    arg1: int_expr(4),
+                    arg1: "x".to_string(),
                 }))),
                 expr_stmt(op_expr(Operation::DelDeref(DelDeref {
                     node_index: Default::default(),
                     range: Default::default(),
-                    arg0: name_expr(test_name("cell")),
+                    arg0: test_closure_cell_name("cell", 2),
                 }))),
                 expr_stmt(op_expr(Operation::DelDerefQuietly(DelDerefQuietly {
                     node_index: Default::default(),
                     range: Default::default(),
-                    arg0: name_expr(test_name("cell")),
+                    arg0: test_closure_cell_name("cell", 2),
                 }))),
             ],
             ret_term(int_expr(0)),

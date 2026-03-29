@@ -477,20 +477,31 @@ where
 
 #[cfg(test)]
 pub(crate) fn bb_expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> String {
+    fn bytes_text(value: &[u8]) -> String {
+        let mut out = String::from("b\"");
+        for &byte in value {
+            for escaped in std::ascii::escape_default(byte) {
+                out.push(escaped as char);
+            }
+        }
+        out.push('"');
+        out
+    }
+
+    fn cell_ref_target_text<N: BlockPyNameLike>(
+        target: &crate::block_py::CellRefTarget<N>,
+    ) -> String {
+        match target {
+            crate::block_py::CellRefTarget::LogicalName(name) => format!("{name:?}"),
+            crate::block_py::CellRefTarget::Name(name) => name.pretty_id(),
+        }
+    }
+
     match expr {
         CoreBlockPyExpr::Name(name) => name.pretty_id(),
         CoreBlockPyExpr::Literal(literal) => match literal {
             CoreBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value),
-            CoreBlockPyLiteral::BytesLiteral(literal) => {
-                let mut out = String::from("b\"");
-                for &byte in &literal.value {
-                    for escaped in std::ascii::escape_default(byte) {
-                        out.push(escaped as char);
-                    }
-                }
-                out.push('"');
-                out
-            }
+            CoreBlockPyLiteral::BytesLiteral(literal) => bytes_text(&literal.value),
             CoreBlockPyLiteral::NumberLiteral(literal) => match &literal.value {
                 super::CoreNumberLiteralValue::Int(value) => value.to_string(),
                 super::CoreNumberLiteralValue::Float(value) => value.to_string(),
@@ -540,7 +551,42 @@ pub(crate) fn bb_expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> Str
             }
             other => helper_call_text(
                 other.helper_name(),
-                other.call_args().iter().map(|arg| bb_expr_text(*arg)),
+                match other {
+                    crate::block_py::Operation::GetAttr(op) => {
+                        vec![bb_expr_text(&op.arg0), format!("{:?}", op.arg1)]
+                    }
+                    crate::block_py::Operation::SetAttr(op) => vec![
+                        bb_expr_text(&op.arg0),
+                        format!("{:?}", op.arg1),
+                        bb_expr_text(&op.arg2),
+                    ],
+                    crate::block_py::Operation::LoadGlobal(op) => {
+                        vec![bb_expr_text(&op.arg0), format!("{:?}", op.arg1)]
+                    }
+                    crate::block_py::Operation::StoreGlobal(op) => vec![
+                        bb_expr_text(&op.arg0),
+                        format!("{:?}", op.arg1),
+                        bb_expr_text(&op.arg2),
+                    ],
+                    crate::block_py::Operation::LoadCell(op) => vec![op.arg0.pretty_id()],
+                    crate::block_py::Operation::MakeString(op) => vec![bytes_text(&op.arg0)],
+                    crate::block_py::Operation::CellRef(op) => {
+                        vec![cell_ref_target_text(&op.arg0)]
+                    }
+                    crate::block_py::Operation::StoreCell(op) => {
+                        vec![op.arg0.pretty_id(), bb_expr_text(&op.arg1)]
+                    }
+                    crate::block_py::Operation::DelQuietly(op) => {
+                        vec![bb_expr_text(&op.arg0), format!("{:?}", op.arg1)]
+                    }
+                    crate::block_py::Operation::DelDerefQuietly(op) => vec![op.arg0.pretty_id()],
+                    crate::block_py::Operation::DelDeref(op) => vec![op.arg0.pretty_id()],
+                    _ => other
+                        .call_args()
+                        .iter()
+                        .map(|arg| bb_expr_text(*arg))
+                        .collect(),
+                },
             ),
         },
     }

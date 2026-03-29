@@ -161,7 +161,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
             node_index: ast::AtomicNodeIndex::default(),
             range: TextRange::default(),
             arg0: core_call_expr("__dp_current_exception", Vec::new()),
-            arg1: core_string_expr("value"),
+            arg1: "value".to_string(),
         })))),
         params: vec![crate::block_py::BlockParam {
             name: "_dp_try_exc_0".to_string(),
@@ -189,12 +189,10 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         panic!("expected getattr operation");
     };
     assert!(matches!(
-        (arg0, arg1),
-        (
-            CoreBlockPyExpr::Name(name),
-            CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(value))
-        ) if name.id.as_str() == "_dp_try_exc_0" && value.value == "value"
+        arg0,
+        CoreBlockPyExpr::Name(name) if name.id.as_str() == "_dp_try_exc_0"
     ));
+    assert_eq!(arg1, "value");
 }
 
 #[test]
