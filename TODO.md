@@ -148,3 +148,6 @@
 
 - Add question/answer entries here when the user asks a question and the response does not involve code changes.
 - Include a date/timestamp with each entry.
+- 2026-03-29 11:32:39 PDT
+  - Question: How is `function_state_slot_names` defined/used ?
+  - Answer: In `function_state_slot_names`, at `/home/adam/project/diet-python/soac-eval/src/jit/mod.rs:583`, it builds a deduplicated ordered list of names that need persistent stack-backed storage in the specialized JIT function. The list is assembled from closure-layout ambient storage names, closure-layout local cell storage names, ordinary function parameter names, and block parameter names. That list is consumed by `FunctionStateSlots::new`, at `/home/adam/project/diet-python/soac-eval/src/jit/mod.rs:519`, which allocates one Cranelift stack slot per name. Those slots are then used as the per-function state store: entry initialization writes defaults and incoming args into them, block entry writes runtime block params into them, name loads can read from them through `load_function_state_value`, and assignments/deletes update them through `replace_cloned_value`. So conceptually `function_state_slot_names` is the inventory of names that should survive across block boundaries in the specialized JIT path, as opposed to transient SSA locals stored only in `local_names` / `local_values`.
