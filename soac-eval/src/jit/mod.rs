@@ -28,7 +28,8 @@ pub use planning::{
     ClifBlockPlan, ClifEntryParamDefaultSource, ClifPlan, DirectSimpleAssignPlan,
     DirectSimpleBlockArgPlan, DirectSimpleBlockPlan, DirectSimpleBrIfPlan, DirectSimpleCallPart,
     DirectSimpleDeletePlan, DirectSimpleDeleteTargetPlan, DirectSimpleExprPlan, DirectSimpleOpPlan,
-    DirectSimpleRetPlan, DirectSimpleTermPlan, lookup_blockpy_function, lookup_clif_plan,
+    DirectSimpleRetPlan, DirectSimpleTermPlan, JitFunctionInfo, build_block_fast_paths,
+    lookup_blockpy_function, lookup_clif_plan, lookup_registered_jit_function,
     register_clif_module_plans,
 };
 pub use specialized_helpers::ObjPtr;
@@ -43,6 +44,23 @@ fn incremental_clif_cache() -> &'static Mutex<HashMap<Vec<u8>, Vec<u8>>> {
 
 struct GlobalIncrementalCacheStore<'a> {
     map: &'a Mutex<HashMap<Vec<u8>, Vec<u8>>>,
+}
+
+#[derive(Clone)]
+struct SpecializedJitBlockData {
+    label: String,
+    runtime_param_names: Vec<String>,
+    exc_dispatch: Option<BlockExcDispatchPlan>,
+    fast_path: BlockFastPath,
+}
+
+#[derive(Clone)]
+struct SpecializedJitData {
+    entry_param_names: Vec<String>,
+    entry_param_default_sources: Vec<Option<ClifEntryParamDefaultSource>>,
+    owned_cell_slot_names: Vec<String>,
+    slot_names: Vec<String>,
+    blocks: Vec<SpecializedJitBlockData>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2887,7 +2905,7 @@ pub fn run_cranelift_smoke(module: &BlockPyModule<CodegenBlockPyPass>) -> Result
 fn build_cranelift_run_bb_specialized_function(
     jit_module: &mut JITModule,
     blocks: &[ObjPtr],
-    plan: &ClifPlan,
+    jit_data: &SpecializedJitData,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
@@ -2903,11 +2921,11 @@ fn build_cranelift_run_bb_specialized_function(
     ),
     String,
 > {
-    let block_count = plan.blocks.len();
+    let block_count = jit_data.blocks.len();
     if block_count == 0 {
         return Err(format!("specialized JIT run_bb plan has no blocks"));
     }
-    let has_generic_blocks = plan
+    let has_generic_blocks = jit_data
         .blocks
         .iter()
         .any(|block| matches!(block.fast_path, BlockFastPath::None));
@@ -2932,7 +2950,7 @@ fn build_cranelift_run_bb_specialized_function(
 
     let mut main_sig = jit_module.make_signature();
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
-    for _ in &plan.entry_param_names {
+    for _ in &jit_data.entry_param_names {
         main_sig.params.push(ir::AbiParam::new(ptr_ty));
     }
     main_sig.returns.push(ir::AbiParam::new(ptr_ty));
@@ -2947,7 +2965,7 @@ fn build_cranelift_run_bb_specialized_function(
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
         let entry_block = fb.create_block();
         let mut exec_blocks = Vec::with_capacity(block_count);
-        let runtime_block_param_names = plan
+        let runtime_block_param_names = jit_data
             .blocks
             .iter()
             .map(|block| block.runtime_param_names.clone())
@@ -2959,7 +2977,7 @@ fn build_cranelift_run_bb_specialized_function(
         }
         let step_null_block = fb.create_block();
         let raise_exc_direct_block = fb.create_block();
-        let function_state_slots = FunctionStateSlots::new(&mut fb, &plan.slot_names);
+        let function_state_slots = FunctionStateSlots::new(&mut fb, &jit_data.slot_names);
 
         fb.append_block_params_for_function_params(entry_block);
         for (index, block) in exec_blocks.iter().enumerate() {
@@ -3057,18 +3075,18 @@ fn build_cranelift_run_bb_specialized_function(
         let entry_failure_args = Vec::new();
         assert_eq!(
             direct_entry_args.len(),
-            plan.entry_param_names.len(),
+            jit_data.entry_param_names.len(),
             "direct JIT entry arity does not match entry_param_names",
         );
         assert_eq!(
-            plan.entry_param_names.len(),
-            plan.entry_param_default_sources.len(),
+            jit_data.entry_param_names.len(),
+            jit_data.entry_param_default_sources.len(),
             "direct JIT entry default metadata does not match entry params",
         );
-        for ((param_name, default_source), value) in plan
+        for ((param_name, default_source), value) in jit_data
             .entry_param_names
             .iter()
-            .zip(plan.entry_param_default_sources.iter())
+            .zip(jit_data.entry_param_default_sources.iter())
             .zip(direct_entry_args.iter())
         {
             match default_source {
@@ -3209,8 +3227,8 @@ fn build_cranelift_run_bb_specialized_function(
         fb.ins().jump(exec_blocks[0], &entry_jump_args);
 
         let mut exception_dispatch_blocks: Vec<Option<ir::Block>> = vec![None; exec_blocks.len()];
-        for (index, block) in plan.blocks.iter().enumerate() {
-            if block.exc_dispatch.is_some() {
+        for (index, block_data) in jit_data.blocks.iter().enumerate() {
+            if block_data.exc_dispatch.is_some() {
                 let dispatch_block = fb.create_block();
                 exception_dispatch_blocks[index] = Some(dispatch_block);
             }
@@ -3245,7 +3263,7 @@ fn build_cranelift_run_bb_specialized_function(
                 exception_dispatch_blocks[index].unwrap_or(cleanup_null_blocks[index]);
             let fast_step_null_args = Vec::new();
             let emit_ctx = DirectSimpleEmitCtx {
-                owned_cell_slot_names: plan.owned_cell_slot_names.clone(),
+                owned_cell_slot_names: jit_data.owned_cell_slot_names.clone(),
                 incref_ref,
                 decref_ref,
                 py_call_positional_three_ref,
@@ -3283,7 +3301,7 @@ fn build_cranelift_run_bb_specialized_function(
                 tuple_set_item_ref,
                 function_state_slots: function_state_slots.clone(),
             };
-            match &plan.blocks[index].fast_path {
+            match &jit_data.blocks[index].fast_path {
                 BlockFastPath::JumpPassThrough { target_index } => {
                     fb.ins().jump(exec_blocks[*target_index], &[]);
                     continue;
@@ -3424,7 +3442,7 @@ fn build_cranelift_run_bb_specialized_function(
                             .ok_or_else(|| {
                                 format!(
                                     "missing local mapping for jump slot updates in block {}",
-                                    plan.blocks[index].label
+                                    jit_data.blocks[index].label
                                 )
                             })?;
                             let mut jump_args = Vec::with_capacity(target_params.len());
@@ -3444,7 +3462,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 .ok_or_else(|| {
                                     format!(
                                         "missing local mapping for jump block params in block {}",
-                                        plan.blocks[index].label
+                                        jit_data.blocks[index].label
                                     )
                                 })?,
                             );
@@ -3508,7 +3526,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 .ok_or_else(|| {
                                     format!(
                                         "missing local mapping for then-branch block params in block {}",
-                                        plan.blocks[index].label
+                                        jit_data.blocks[index].label
                                     )
                                 })?,
                             );
@@ -3540,7 +3558,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 .ok_or_else(|| {
                                     format!(
                                         "missing local mapping for else-branch block params in block {}",
-                                        plan.blocks[index].label
+                                        jit_data.blocks[index].label
                                     )
                                 })?,
                             );
@@ -3622,7 +3640,7 @@ fn build_cranelift_run_bb_specialized_function(
                                     .ok_or_else(|| {
                                         format!(
                                             "missing local mapping for br_table case block params in block {}",
-                                            plan.blocks[index].label
+                                            jit_data.blocks[index].label
                                         )
                                     })?,
                                 );
@@ -3655,7 +3673,7 @@ fn build_cranelift_run_bb_specialized_function(
                                 .ok_or_else(|| {
                                     format!(
                                         "missing local mapping for br_table default block params in block {}",
-                                        plan.blocks[index].label
+                                        jit_data.blocks[index].label
                                     )
                                 })?,
                             );
@@ -3788,7 +3806,7 @@ fn build_cranelift_run_bb_specialized_function(
                 BlockFastPath::None => {
                     return Err(format!(
                         "specialized JIT encountered unexpected slow-path block {}",
-                        plan.blocks[index].label
+                        jit_data.blocks[index].label
                     ));
                 }
             }
@@ -3798,7 +3816,7 @@ fn build_cranelift_run_bb_specialized_function(
             let Some(dispatch_block) = *maybe_dispatch_block else {
                 continue;
             };
-            let Some(dispatch_plan) = plan.blocks[index].exc_dispatch.as_ref() else {
+            let Some(dispatch_plan) = jit_data.blocks[index].exc_dispatch.as_ref() else {
                 continue;
             };
 
@@ -3917,10 +3935,11 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut jit_module = JITModule::new(builder);
+    let jit_data = specialized_jit_data_from_plan(plan);
     let (ctx, _, _literal_pool, import_id_to_symbol) = build_cranelift_run_bb_specialized_function(
         &mut jit_module,
         blocks,
-        plan,
+        &jit_data,
         ptr::null_mut(),
         true_obj,
         false_obj,
@@ -3982,9 +4001,54 @@ fn render_compiled_clif_and_vcode_disasm(
     Ok((clif, cfg_dot, vcode_disasm))
 }
 
+fn specialized_jit_data_from_plan(plan: &ClifPlan) -> SpecializedJitData {
+    SpecializedJitData {
+        entry_param_names: plan.entry_param_names.clone(),
+        entry_param_default_sources: plan.entry_param_default_sources.clone(),
+        owned_cell_slot_names: plan.owned_cell_slot_names.clone(),
+        slot_names: plan.slot_names.clone(),
+        blocks: plan
+            .blocks
+            .iter()
+            .map(|block| SpecializedJitBlockData {
+                label: block.label.clone(),
+                runtime_param_names: block.runtime_param_names.clone(),
+                exc_dispatch: block.exc_dispatch.clone(),
+                fast_path: block.fast_path.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn specialized_jit_data_from_function(
+    function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
+    info: &JitFunctionInfo,
+) -> SpecializedJitData {
+    let fast_paths = build_block_fast_paths(function);
+    SpecializedJitData {
+        entry_param_names: info.entry_param_names.clone(),
+        entry_param_default_sources: info.entry_param_default_sources.clone(),
+        owned_cell_slot_names: info.owned_cell_slot_names.clone(),
+        slot_names: info.slot_names.clone(),
+        blocks: function
+            .blocks
+            .iter()
+            .zip(info.blocks.iter())
+            .zip(fast_paths)
+            .map(|((block, block_info), fast_path)| SpecializedJitBlockData {
+                label: block.label.to_string(),
+                runtime_param_names: block_info.runtime_param_names.clone(),
+                exc_dispatch: block_info.exc_dispatch.clone(),
+                fast_path,
+            })
+            .collect(),
+    }
+}
+
 pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     blocks: &[ObjPtr],
-    plan: &ClifPlan,
+    function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
+    info: &JitFunctionInfo,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
@@ -3995,6 +4059,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     if globals_obj.is_null() {
         return Err("invalid null globals object passed to specialized JIT run_bb".to_string());
     }
+    let jit_data = specialized_jit_data_from_function(function, info);
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut compiled = Box::new(CompiledSpecializedRunner {
@@ -4006,7 +4071,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
         build_cranelift_run_bb_specialized_function(
             &mut compiled._jit_module,
             blocks,
-            plan,
+            &jit_data,
             globals_obj,
             true_obj,
             false_obj,
@@ -4028,7 +4093,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     let code_ptr = compiled._jit_module.get_finalized_function(main_id);
     compiled.entry = Some(CompiledRunnerEntry::Direct {
         code_ptr,
-        param_count: plan.entry_param_names.len(),
+        param_count: jit_data.entry_param_names.len(),
     });
     compiled._literal_pool = literal_pool;
     Ok(Box::into_raw(compiled) as ObjPtr)

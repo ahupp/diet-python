@@ -1,4 +1,5 @@
-use crate::jit::{self, ClifBindingParam, ClifBindingParamKind, ClifPlan};
+use crate::jit::{self, ClifBindingParam, ClifBindingParamKind, JitFunctionInfo};
+use dp_transform::passes::CodegenBlockPyPass;
 use log::info;
 use pyo3::ffi;
 use pyo3::prelude::*;
@@ -46,7 +47,8 @@ struct BindingMetadata {
 }
 
 struct ClifFunctionData {
-    plan: ClifPlan,
+    function: dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
+    info: JitFunctionInfo,
     module_name: String,
     qualname: String,
     true_obj: *mut ffi::PyObject,
@@ -179,7 +181,7 @@ unsafe fn tuple_get_item(
 }
 
 unsafe fn build_binding_metadata(
-    plan: &ClifPlan,
+    info: &JitFunctionInfo,
     callable_name: String,
     deleted_obj: *mut ffi::PyObject,
 ) -> Result<BindingMetadata, ()> {
@@ -188,7 +190,7 @@ unsafe fn build_binding_metadata(
     }
 
     ffi::Py_INCREF(deleted_obj);
-    let params = plan.entry_params.clone();
+    let params = info.entry_params.clone();
     let mut positional_param_indices = Vec::new();
     let mut param_lookup = HashMap::new();
     let mut varargs_param = None;
@@ -223,12 +225,12 @@ unsafe fn build_binding_metadata(
 }
 
 unsafe fn make_clif_function_data(
-    function: *mut ffi::PyObject,
+    callable: *mut ffi::PyObject,
     module_name: &str,
     function_id: usize,
 ) -> Result<*mut c_void, ()> {
-    let plan = jit::lookup_clif_plan(module_name, function_id);
-    let Some(plan) = plan else {
+    let registered = jit::lookup_registered_jit_function(module_name, function_id);
+    let Some((blockpy_function, info)) = registered else {
         let msg = format!(
             "no specialized JIT plan found: module={module_name:?} function_id={function_id:?}"
         );
@@ -242,13 +244,13 @@ unsafe fn make_clif_function_data(
         }
         return Err(());
     };
-    if let Some((index, _)) = plan
-        .blocks
+    let fast_paths = jit::build_block_fast_paths(&blockpy_function);
+    if let Some((index, _)) = fast_paths
         .iter()
         .enumerate()
-        .find(|(_, block)| matches!(block.fast_path, jit::BlockFastPath::None))
+        .find(|(_, path)| matches!(path, jit::BlockFastPath::None))
     {
-        let label = plan
+        let label = blockpy_function
             .blocks
             .get(index)
             .map(|block| block.label.as_str())
@@ -277,8 +279,8 @@ unsafe fn make_clif_function_data(
         return Err(());
     }
     let deleted_obj = lookup_deleted_sentinel()?;
-    let callable_name = py_attr_string(function, b"__qualname__\0", "<function>");
-    let binding = match build_binding_metadata(&plan, callable_name, deleted_obj) {
+    let callable_name = py_attr_string(callable, b"__qualname__\0", "<function>");
+    let binding = match build_binding_metadata(&info, callable_name, deleted_obj) {
         Ok(value) => value,
         Err(()) => {
             ffi::Py_DECREF(true_obj);
@@ -288,7 +290,8 @@ unsafe fn make_clif_function_data(
     };
 
     let clif_data = Box::new(ClifFunctionData {
-        plan,
+        function: blockpy_function,
+        info,
         module_name: module_name.to_string(),
         qualname: format!("fn#{function_id}"),
         true_obj,
@@ -341,10 +344,11 @@ unsafe fn ensure_clif_vectorcall_compiled(
         }
         let empty_tuple_obj = PyTuple::empty(py);
         let compile_start = Instant::now();
-        let block_ptrs = vec![ptr::null_mut::<c_void>(); data.plan.blocks.len()];
+        let block_ptrs = vec![ptr::null_mut::<c_void>(); data.function.blocks.len()];
         data.compiled_handle = match jit::compile_cranelift_run_bb_specialized_cached(
             block_ptrs.as_slice(),
-            &data.plan,
+            &data.function,
+            &data.info,
             globals_obj as *mut c_void,
             data.true_obj as *mut c_void,
             data.false_obj as *mut c_void,
@@ -370,7 +374,7 @@ unsafe fn ensure_clif_vectorcall_compiled(
             "soac_jit_precompile module={} qualname={} blocks={} elapsed_ms={elapsed_ms:.3}",
             data.module_name,
             data.qualname,
-            data.plan.blocks.len(),
+            data.function.blocks.len(),
         );
     }
     if data.compiled_vectorcall_handle.is_null() {

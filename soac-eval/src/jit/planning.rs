@@ -784,23 +784,35 @@ fn classify_block_fast_path(
     }
 }
 
+pub fn build_block_fast_paths(
+    function: &BlockPyFunction<CodegenBlockPyPass>,
+) -> Vec<BlockFastPath> {
+    let validated = ValidatedPreparedBbFunction::new(function);
+    function
+        .blocks
+        .iter()
+        .map(|block| classify_block_fast_path(&validated, block))
+        .collect()
+}
+
 fn build_clif_plan(
     function: &BlockPyFunction<CodegenBlockPyPass>,
     info: &JitFunctionInfo,
 ) -> ClifPlan {
-    let validated = ValidatedPreparedBbFunction::new(function);
+    let fast_paths = build_block_fast_paths(function);
     let blocks = function
         .blocks
         .iter()
         .zip(info.blocks.iter())
-        .map(|(block, block_info)| ClifBlockPlan {
+        .zip(fast_paths)
+        .map(|((block, block_info), fast_path)| ClifBlockPlan {
             label: block.label.to_string(),
             param_names: block.param_name_vec(),
             runtime_param_names: block_info.runtime_param_names.clone(),
             term: block.term.clone(),
             exc_target: block_info.exc_target,
             exc_dispatch: block_info.exc_dispatch.clone(),
-            fast_path: classify_block_fast_path(&validated, block),
+            fast_path,
         })
         .collect();
     ClifPlan {
@@ -865,4 +877,17 @@ pub fn lookup_blockpy_function(
             function_id,
         })
         .map(|registered| registered.function.clone())
+}
+
+pub fn lookup_registered_jit_function(
+    module_name: &str,
+    function_id: usize,
+) -> Option<(BlockPyFunction<CodegenBlockPyPass>, JitFunctionInfo)> {
+    let registry = bb_function_registry().lock().ok()?;
+    registry
+        .get(&PlanKey {
+            module: module_name.to_string(),
+            function_id,
+        })
+        .map(|registered| (registered.function.clone(), registered.info.clone()))
 }
