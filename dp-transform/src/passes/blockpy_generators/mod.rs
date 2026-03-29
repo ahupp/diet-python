@@ -5,12 +5,10 @@ use crate::block_py::{
     BlockPyAssign, BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable,
     BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    CellRef, CellRefTarget, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyExpr,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId, FunctionName,
-    IntoStructuredBlockPyStmt, MakeFunction, ModuleNameGen, Operation, StorageLayout,
-    StructuredBlockPyStmt,
+    CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, FunctionId, FunctionName, IntoStructuredBlockPyStmt, MakeFunction,
+    ModuleNameGen, Operation, StorageLayout, StructuredBlockPyStmt,
 };
-use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{
     attach_exception_edges_to_blocks, compute_storage_layout_from_semantics,
@@ -173,16 +171,6 @@ fn core_literal_int(value: usize) -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("{value:literal}", value = value))
 }
 
-fn core_string(value: &str) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Literal(crate::block_py::CoreBlockPyLiteral::StringLiteral(
-        crate::block_py::CoreStringLiteral {
-            node_index: ast::AtomicNodeIndex::default(),
-            range: Default::default(),
-            value: value.to_string(),
-        },
-    ))
-}
-
 fn core_none() -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("None"))
 }
@@ -194,14 +182,6 @@ fn core_call(func_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
         Default::default(),
         args,
     )
-}
-
-fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
-    core_operation_expr(Operation::CellRef(CellRef {
-        node_index: ast::AtomicNodeIndex::default(),
-        range: Default::default(),
-        arg0: CellRefTarget::LogicalName(logical_name.to_string()),
-    }))
 }
 
 fn core_make_function(
@@ -216,9 +196,9 @@ fn core_make_function(
         range: Default::default(),
         function_id,
         kind,
-        arg0: param_defaults,
-        arg1: module_globals,
-        arg2: annotate_fn,
+        arg0: Box::new(param_defaults),
+        arg1: Box::new(module_globals),
+        arg2: Box::new(annotate_fn),
     }))
 }
 
@@ -320,11 +300,7 @@ struct ResumeClosureBindings {
     runtime_state_bindings: Vec<(String, String)>,
 }
 
-impl ResumeClosureBindings {
-    fn all_bindings(&self) -> impl Iterator<Item = &(String, String)> {
-        self.runtime_state_bindings.iter()
-    }
-}
+impl ResumeClosureBindings {}
 
 fn resume_state_uses_standard_name_binding(name: &str) -> bool {
     !name.starts_with("_dp_cell_")

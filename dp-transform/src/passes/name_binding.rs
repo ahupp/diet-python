@@ -78,7 +78,7 @@ fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
     op_expr(Operation::LoadGlobal(LoadGlobal {
         node_index: node_index.clone(),
         range,
-        arg0: globals_expr(node_index.clone(), range),
+        arg0: Box::new(globals_expr(node_index.clone(), range)),
         arg1: bind_name,
     }))
 }
@@ -153,9 +153,9 @@ fn rewrite_global_binding_assign(
     op_stmt(Operation::StoreGlobal(StoreGlobal {
         node_index: node_index.clone(),
         range,
-        arg0: globals_expr(node_index.clone(), range),
+        arg0: Box::new(globals_expr(node_index.clone(), range)),
         arg1: bind_name,
-        arg2: assign.value,
+        arg2: Box::new(assign.value),
     }))
 }
 
@@ -168,9 +168,9 @@ fn rewrite_class_namespace_binding_assign(
     op_stmt(Operation::SetItem(SetItem {
         node_index: node_index.clone(),
         range,
-        arg0: class_namespace_expr(node_index.clone(), range),
-        arg1: core_string_expr(bind_name, node_index, range),
-        arg2: assign.value,
+        arg0: Box::new(class_namespace_expr(node_index.clone(), range)),
+        arg1: Box::new(core_string_expr(bind_name, node_index, range)),
+        arg2: Box::new(assign.value),
     }))
 }
 
@@ -184,7 +184,7 @@ fn rewrite_cell_binding_assign(
         node_index: node_index.clone(),
         range,
         arg0: cell_name_for_name(assign.target.id.as_str(), semantic, node_index, range),
-        arg1: assign.value,
+        arg1: Box::new(assign.value),
     }))
 }
 
@@ -196,8 +196,8 @@ fn rewrite_global_binding_delete_by_name(
     op_stmt(Operation::DelItem(DelItem {
         node_index: node_index.clone(),
         range,
-        arg0: globals_expr(node_index.clone(), range),
-        arg1: core_string_expr(bind_name.to_string(), node_index, range),
+        arg0: Box::new(globals_expr(node_index.clone(), range)),
+        arg1: Box::new(core_string_expr(bind_name.to_string(), node_index, range)),
     }))
 }
 
@@ -231,8 +231,8 @@ fn rewrite_binding_delete(
         BindingTarget::ClassNamespace => op_stmt(Operation::DelItem(DelItem {
             node_index: node_index.clone(),
             range,
-            arg0: class_namespace_expr(node_index.clone(), range),
-            arg1: core_string_expr(bind_name, node_index, range),
+            arg0: Box::new(class_namespace_expr(node_index.clone(), range)),
+            arg1: Box::new(core_string_expr(bind_name, node_index, range)),
         })),
     }
 }
@@ -512,13 +512,13 @@ fn rewrite_quiet_delete_marker(
             BindingTarget::ModuleGlobal => op_stmt(Operation::DelQuietly(DelQuietly {
                 node_index: node_index.clone(),
                 range,
-                arg0: globals_expr(node_index.clone(), range),
+                arg0: Box::new(globals_expr(node_index.clone(), range)),
                 arg1: name.id.to_string(),
             })),
             BindingTarget::ClassNamespace => op_stmt(Operation::DelQuietly(DelQuietly {
                 node_index: node_index.clone(),
                 range,
-                arg0: class_namespace_expr(node_index.clone(), range),
+                arg0: Box::new(class_namespace_expr(node_index.clone(), range)),
                 arg1: name.id.to_string(),
             })),
         },
@@ -630,7 +630,7 @@ fn build_local_cell_init_assign(
         value: op_expr(Operation::MakeCell(MakeCell {
             node_index,
             range,
-            arg0: init_expr,
+            arg0: Box::new(init_expr),
         })),
     })
 }
@@ -687,7 +687,7 @@ fn build_closure_slot_cell_init_assign(
         value: op_expr(Operation::MakeCell(MakeCell {
             node_index,
             range,
-            arg0: closure_slot_init_expr(slot),
+            arg0: Box::new(closure_slot_init_expr(slot)),
         })),
     })
 }
@@ -793,7 +793,7 @@ fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
         return false;
     };
     matches!(
-        arg0,
+        arg0.as_ref(),
         CoreBlockPyExpr::Name(name) if name.id.as_str() == logical_name
     )
 }
@@ -845,9 +845,9 @@ impl NameBindingMapper<'_> {
                     op.range,
                 ),
                 captures_expr,
-                self.map_expr(op.arg0),
-                self.map_expr(op.arg1),
-                self.map_expr(op.arg2),
+                self.map_expr(*op.arg0),
+                self.map_expr(*op.arg1),
+                self.map_expr(*op.arg2),
             ],
         )
     }
@@ -891,8 +891,8 @@ fn rewrite_binding_assign_by_name(
                 return op_stmt(Operation::DelItem(DelItem {
                     node_index: node_index.clone(),
                     range,
-                    arg0: class_namespace_expr(node_index.clone(), range),
-                    arg1: core_string_expr(name, node_index, range),
+                    arg0: Box::new(class_namespace_expr(node_index.clone(), range)),
+                    arg1: Box::new(core_string_expr(name, node_index, range)),
                 }));
             }
             rewrite_class_namespace_binding_assign(assign)

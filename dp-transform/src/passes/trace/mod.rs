@@ -1,7 +1,6 @@
 use crate::block_py::{
     core_operation_expr, core_positional_call_expr_with_meta, BlockPyFunction, BlockPyModule,
-    CodegenBlockPyLiteral, CoreBytesLiteral, LocatedCodegenBlockPyExpr, LocatedName, MakeString,
-    NameLocation, StructuredBlockPyStmt,
+    LocatedCodegenBlockPyExpr, LocatedName, MakeString, NameLocation, StructuredBlockPyStmt,
 };
 use crate::passes::CodegenBlockPyPass;
 use ruff_python_ast::{self as ast};
@@ -174,14 +173,6 @@ impl PreparedTraceNameLocator {
             location,
         }
     }
-}
-
-fn bytes_literal_expr(value: &[u8]) -> LocatedCodegenBlockPyExpr {
-    LocatedCodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(CoreBytesLiteral {
-        range: compat_range(),
-        node_index: compat_node_index(),
-        value: value.to_vec(),
-    }))
 }
 
 fn helper_call_expr(

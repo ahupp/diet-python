@@ -5,7 +5,6 @@ use crate::block_py::{
 };
 use crate::passes::ast_to_ast::body::{split_docstring, Suite};
 use crate::passes::ast_to_ast::context::Context;
-use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::rewrite_stmt;
 use crate::passes::ast_to_ast::semantic::{SemanticAstState, SemanticScope};
 use crate::passes::RuffBlockPyPass;
@@ -114,37 +113,6 @@ fn try_lower_function_to_blockpy_bundle(
         function_kind(func),
         callable_semantic,
     )
-}
-
-// Function-definition rewriting stays in one tree pass, but the instantiation
-// machinery is grouped here so the later binding split has one obvious home.
-fn capture_items_to_expr(captures: &[(String, Expr)]) -> Expr {
-    make_dp_tuple(
-        captures
-            .iter()
-            .map(|(name, value_expr)| {
-                make_dp_tuple(vec![
-                    py_expr!("{value:literal}", value = name.as_str()),
-                    value_expr.clone(),
-                ])
-            })
-            .collect(),
-    )
-}
-
-fn closure_freevar_capture_items(capture_names: &[String]) -> Vec<(String, Expr)> {
-    capture_names
-        .iter()
-        .cloned()
-        .into_iter()
-        .map(|logical_name| {
-            let capture_expr = py_expr!(
-                "__dp_cell_ref({name:literal})",
-                name = logical_name.as_str()
-            );
-            (logical_name, capture_expr)
-        })
-        .collect()
 }
 
 fn build_lowered_function_instantiation_expr(

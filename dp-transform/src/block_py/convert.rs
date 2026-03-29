@@ -645,7 +645,7 @@ fn operation_to_ast<E: Into<Expr>, N: Into<ast::ExprName>>(operation: Operation<
             op.node_index.clone(),
             op.range,
             vec![
-                op.arg0.into(),
+                (*op.arg0).into(),
                 string_literal_expr(op.arg1, op.node_index, op.range),
             ],
         ),
@@ -654,9 +654,9 @@ fn operation_to_ast<E: Into<Expr>, N: Into<ast::ExprName>>(operation: Operation<
             op.node_index.clone(),
             op.range,
             vec![
-                op.arg0.into(),
+                (*op.arg0).into(),
                 string_literal_expr(op.arg1, op.node_index.clone(), op.range),
-                op.arg2.into(),
+                (*op.arg2).into(),
             ],
         ),
         Operation::LoadGlobal(op) => helper_call_to_ast(
@@ -664,7 +664,7 @@ fn operation_to_ast<E: Into<Expr>, N: Into<ast::ExprName>>(operation: Operation<
             op.node_index.clone(),
             op.range,
             vec![
-                op.arg0.into(),
+                (*op.arg0).into(),
                 string_literal_expr(op.arg1, op.node_index, op.range),
             ],
         ),
@@ -673,9 +673,9 @@ fn operation_to_ast<E: Into<Expr>, N: Into<ast::ExprName>>(operation: Operation<
             op.node_index.clone(),
             op.range,
             vec![
-                op.arg0.into(),
+                (*op.arg0).into(),
                 string_literal_expr(op.arg1, op.node_index.clone(), op.range),
-                op.arg2.into(),
+                (*op.arg2).into(),
             ],
         ),
         Operation::LoadCell(op) => helper_call_to_ast(
@@ -700,14 +700,14 @@ fn operation_to_ast<E: Into<Expr>, N: Into<ast::ExprName>>(operation: Operation<
             "__dp_store_cell",
             op.node_index,
             op.range,
-            vec![Expr::Name(op.arg0.into()), op.arg1.into()],
+            vec![Expr::Name(op.arg0.into()), (*op.arg1).into()],
         ),
         Operation::DelQuietly(op) => helper_call_to_ast(
             "__dp_del_quietly",
             op.node_index.clone(),
             op.range,
             vec![
-                op.arg0.into(),
+                (*op.arg0).into(),
                 string_literal_expr(op.arg1, op.node_index, op.range),
             ],
         ),
@@ -754,9 +754,9 @@ fn make_function_call_to_ast<E: Into<Expr>>(operation: MakeFunction<E>) -> Expr 
             )),
             CoreBlockPyCallArg::Positional(make_function_kind_literal(operation.kind)),
             CoreBlockPyCallArg::Positional(py_expr!("__dp_tuple()")),
-            CoreBlockPyCallArg::Positional(operation.arg0.into()),
-            CoreBlockPyCallArg::Positional(operation.arg1.into()),
-            CoreBlockPyCallArg::Positional(operation.arg2.into()),
+            CoreBlockPyCallArg::Positional((*operation.arg0).into()),
+            CoreBlockPyCallArg::Positional((*operation.arg1).into()),
+            CoreBlockPyCallArg::Positional((*operation.arg2).into()),
         ],
         Vec::new(),
     )

@@ -1,7 +1,6 @@
 use super::{
-    callable_semantic_info, capture_items_to_expr, closure_freevar_capture_items,
-    rewrite_ast_to_lowered_blockpy_module_plan_with_module, BlockPyModuleRewriter,
-    FunctionScopeFrame,
+    callable_semantic_info, rewrite_ast_to_lowered_blockpy_module_plan_with_module,
+    BlockPyModuleRewriter, FunctionScopeFrame,
 };
 use crate::block_py::{
     BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCellBindingKind,
@@ -35,35 +34,6 @@ fn lower_test_module_plan(
             crate::driver::wrap_module_init(&mut semantic_state, &mut module);
         }
     rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module, &semantic_state)
-}
-
-#[test]
-fn capture_items_render_as_name_value_pairs() {
-    let mut semantic = crate::block_py::BlockPyCallableSemanticInfo::default();
-    semantic.insert_binding(
-        "x",
-        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
-        false,
-        Some("x".to_string()),
-    );
-    semantic
-        .cell_capture_source_names
-        .insert("x".to_string(), "_dp_cell_x".to_string());
-    semantic.insert_binding(
-        "y",
-        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
-        false,
-        Some("y".to_string()),
-    );
-    semantic
-        .cell_capture_source_names
-        .insert("y".to_string(), "_dp_classcell".to_string());
-    let captures = closure_freevar_capture_items(&semantic.captured_cell_logical_names());
-    let expr = capture_items_to_expr(&captures);
-    assert_eq!(
-        crate::ruff_ast_to_string(&expr).trim(),
-        "__dp_tuple(__dp_tuple(\"x\", __dp_cell_ref(\"x\")), __dp_tuple(\"y\", __dp_cell_ref(\"y\")))"
-    );
 }
 
 #[test]

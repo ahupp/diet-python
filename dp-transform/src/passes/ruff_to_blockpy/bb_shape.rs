@@ -301,7 +301,7 @@ where
         return false;
     };
     matches!(
-        arg0,
+        arg0.as_ref(),
         CoreBlockPyExpr::Name(base) if base.id_str() == "__dp__"
     ) && arg1 == attr_name
 }

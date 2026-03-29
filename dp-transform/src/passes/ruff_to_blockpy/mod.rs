@@ -16,9 +16,9 @@ use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     assert_blockpy_block_normalized, convert_blockpy_term_expr, move_entry_block_to_front,
     BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyLabel, BlockPyModule, BlockPyNameLike, BlockPyPass, BlockPyStmt,
-    BlockPyTerm, CfgBlock, ClosureInit, ClosureSlot, FunctionName, FunctionNameGen,
-    IntoStructuredBlockPyStmt, RuffExpr, StorageLayout, StructuredBlockPyStmt,
+    BlockPyFunctionKind, BlockPyLabel, BlockPyNameLike, BlockPyPass, BlockPyStmt, BlockPyTerm,
+    CfgBlock, ClosureInit, ClosureSlot, FunctionName, FunctionNameGen, IntoStructuredBlockPyStmt,
+    RuffExpr, StorageLayout, StructuredBlockPyStmt,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -484,24 +484,6 @@ where
         runtime_cells: Vec::new(),
         stack_slots: Vec::new(),
     })
-}
-
-pub(crate) fn semantic_capture_names_for_instantiation<P>(
-    callable: &BlockPyFunction<P>,
-) -> Vec<String>
-where
-    P: BlockPyPass,
-    P::Expr: Clone + Into<Expr>,
-{
-    compute_storage_layout_from_semantics(callable)
-        .map(|layout| {
-            layout
-                .freevars
-                .into_iter()
-                .map(|slot| slot.logical_name)
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 #[allow(clippy::too_many_arguments)]

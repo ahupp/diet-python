@@ -125,8 +125,8 @@ fn add_op_expr_with_meta(
         node_index,
         range,
         kind: operation::BinOpKind::Add,
-        arg0: left,
-        arg1: right,
+        arg0: Box::new(left),
+        arg1: Box::new(right),
     }))
 }
 
@@ -243,8 +243,8 @@ fn operation_by_name_and_args(
             node_index,
             range,
             kind,
-            arg0,
-            arg1,
+            arg0: Box::new(arg0),
+            arg1: Box::new(arg1),
         })
     } else if let Some(kind) = operation::UnaryOpKind::from_helper_name(name) {
         let arg0 = args.next()?;
@@ -255,7 +255,7 @@ fn operation_by_name_and_args(
             node_index,
             range,
             kind,
-            arg0,
+            arg0: Box::new(arg0),
         })
     } else if let Some(kind) = operation::InplaceBinOpKind::from_helper_name(name) {
         let arg0 = args.next()?;
@@ -267,8 +267,8 @@ fn operation_by_name_and_args(
             node_index,
             range,
             kind,
-            arg0,
-            arg1,
+            arg0: Box::new(arg0),
+            arg1: Box::new(arg1),
         })
     } else if let Some(kind) = operation::TernaryOpKind::from_helper_name(name) {
         let arg0 = args.next()?;
@@ -281,56 +281,56 @@ fn operation_by_name_and_args(
             node_index,
             range,
             kind,
-            arg0,
-            arg1,
-            arg2,
+            arg0: Box::new(arg0),
+            arg1: Box::new(arg1),
+            arg2: Box::new(arg2),
         })
     } else {
         match name {
             "__dp_getattr" => operation::Operation::GetAttr(operation::GetAttr {
                 node_index,
                 range,
-                arg0: args.next()?,
+                arg0: Box::new(args.next()?),
                 arg1: string_arg_from_core_expr(args.next()?)?,
             }),
             "__dp_setattr" => operation::Operation::SetAttr(operation::SetAttr {
                 node_index,
                 range,
-                arg0: args.next()?,
+                arg0: Box::new(args.next()?),
                 arg1: string_arg_from_core_expr(args.next()?)?,
-                arg2: args.next()?,
+                arg2: Box::new(args.next()?),
             }),
             "__dp_getitem" => operation::Operation::GetItem(operation::GetItem {
                 node_index,
                 range,
-                arg0: args.next()?,
-                arg1: args.next()?,
+                arg0: Box::new(args.next()?),
+                arg1: Box::new(args.next()?),
             }),
             "__dp_setitem" => operation::Operation::SetItem(operation::SetItem {
                 node_index,
                 range,
-                arg0: args.next()?,
-                arg1: args.next()?,
-                arg2: args.next()?,
+                arg0: Box::new(args.next()?),
+                arg1: Box::new(args.next()?),
+                arg2: Box::new(args.next()?),
             }),
             "__dp_delitem" => operation::Operation::DelItem(operation::DelItem {
                 node_index,
                 range,
-                arg0: args.next()?,
-                arg1: args.next()?,
+                arg0: Box::new(args.next()?),
+                arg1: Box::new(args.next()?),
             }),
             "__dp_load_global" => operation::Operation::LoadGlobal(operation::LoadGlobal {
                 node_index,
                 range,
-                arg0: args.next()?,
+                arg0: Box::new(args.next()?),
                 arg1: string_arg_from_core_expr(args.next()?)?,
             }),
             "__dp_store_global" => operation::Operation::StoreGlobal(operation::StoreGlobal {
                 node_index,
                 range,
-                arg0: args.next()?,
+                arg0: Box::new(args.next()?),
                 arg1: string_arg_from_core_expr(args.next()?)?,
-                arg2: args.next()?,
+                arg2: Box::new(args.next()?),
             }),
             "__dp_load_cell" => operation::Operation::LoadCell(operation::LoadCell {
                 node_index,
@@ -340,7 +340,7 @@ fn operation_by_name_and_args(
             "__dp_make_cell" => operation::Operation::MakeCell(operation::MakeCell {
                 node_index,
                 range,
-                arg0: args.next()?,
+                arg0: Box::new(args.next()?),
             }),
             "__dp_decode_literal_bytes" => {
                 operation::Operation::MakeString(operation::MakeString {
@@ -360,12 +360,12 @@ fn operation_by_name_and_args(
                 node_index,
                 range,
                 arg0: name_arg_from_core_expr(args.next()?)?,
-                arg1: args.next()?,
+                arg1: Box::new(args.next()?),
             }),
             "__dp_del_quietly" => operation::Operation::DelQuietly(operation::DelQuietly {
                 node_index,
                 range,
-                arg0: args.next()?,
+                arg0: Box::new(args.next()?),
                 arg1: string_arg_from_core_expr(args.next()?)?,
             }),
             "__dp_del_deref_quietly" => {
@@ -409,9 +409,9 @@ fn lower_core_call_expr_with_meta(
                             range,
                             function_id,
                             kind,
-                            arg0: CoreBlockPyExprWithAwaitAndYield::from(args[3].clone()),
-                            arg1: CoreBlockPyExprWithAwaitAndYield::from(args[4].clone()),
-                            arg2: CoreBlockPyExprWithAwaitAndYield::from(args[5].clone()),
+                            arg0: Box::new(CoreBlockPyExprWithAwaitAndYield::from(args[3].clone())),
+                            arg1: Box::new(CoreBlockPyExprWithAwaitAndYield::from(args[4].clone())),
+                            arg2: Box::new(CoreBlockPyExprWithAwaitAndYield::from(args[5].clone())),
                         },
                     ));
                 }

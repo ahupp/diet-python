@@ -246,8 +246,8 @@ mod tests {
                 node_index: Default::default(),
                 range: Default::default(),
                 kind: BinOpKind::Add,
-                arg0: int_expr(1),
-                arg1: int_expr(2),
+                arg0: Box::new(int_expr(1)),
+                arg1: Box::new(int_expr(2)),
             }))),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -271,8 +271,8 @@ mod tests {
                 node_index: Default::default(),
                 range: Default::default(),
                 kind: BinOpKind::Lt,
-                arg0: int_expr(1),
-                arg1: int_expr(2),
+                arg0: Box::new(int_expr(1)),
+                arg1: Box::new(int_expr(2)),
             }))),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -315,9 +315,9 @@ mod tests {
                 node_index: Default::default(),
                 range: Default::default(),
                 kind: TernaryOpKind::Pow,
-                arg0: int_expr(2),
-                arg1: int_expr(3),
-                arg2: name_expr(test_global_name("__dp_NONE")),
+                arg0: Box::new(int_expr(2)),
+                arg1: Box::new(int_expr(3)),
+                arg2: Box::new(name_expr(test_global_name("__dp_NONE"))),
             }))),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -380,7 +380,7 @@ mod tests {
             ret_term(op_expr(Operation::LoadGlobal(LoadGlobal {
                 node_index: Default::default(),
                 range: Default::default(),
-                arg0: int_expr(1),
+                arg0: Box::new(int_expr(1)),
                 arg1: "x".to_string(),
             }))),
         );
@@ -400,9 +400,9 @@ mod tests {
             ret_term(op_expr(Operation::StoreGlobal(StoreGlobal {
                 node_index: Default::default(),
                 range: Default::default(),
-                arg0: int_expr(1),
+                arg0: Box::new(int_expr(1)),
                 arg1: "x".to_string(),
-                arg2: int_expr(3),
+                arg2: Box::new(int_expr(3)),
             }))),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -512,13 +512,13 @@ mod tests {
                 expr_stmt(op_expr(Operation::DelItem(DelItem {
                     node_index: Default::default(),
                     range: Default::default(),
-                    arg0: int_expr(1),
-                    arg1: int_expr(2),
+                    arg0: Box::new(int_expr(1)),
+                    arg1: Box::new(int_expr(2)),
                 }))),
                 expr_stmt(op_expr(Operation::DelQuietly(DelQuietly {
                     node_index: Default::default(),
                     range: Default::default(),
-                    arg0: int_expr(3),
+                    arg0: Box::new(int_expr(3)),
                     arg1: "x".to_string(),
                 }))),
                 expr_stmt(op_expr(Operation::DelDeref(DelDeref {
