@@ -1,4 +1,4 @@
-use super::{DirectSimpleEmitCtx, ImportSpec, SigType};
+use super::{ImportSpec, JitEmitCtx, SigType};
 use crate::jit::blockpy_intrinsics;
 use cranelift_codegen::ir;
 use cranelift_codegen::ir::InstBuilder;
@@ -6,7 +6,7 @@ use cranelift_frontend::FunctionBuilder;
 use pyo3::ffi;
 
 pub(super) trait OperationEmitState<'fb, E> {
-    fn ctx(&self) -> &DirectSimpleEmitCtx;
+    fn ctx(&self) -> &JitEmitCtx;
     fn fb(&mut self) -> &mut FunctionBuilder<'fb>;
     fn literal_pool(&mut self) -> &mut Vec<Box<[u8]>>;
     fn import_func(&mut self, spec: &'static ImportSpec) -> ir::FuncRef;

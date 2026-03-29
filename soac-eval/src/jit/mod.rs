@@ -445,7 +445,7 @@ fn intern_bytes_literal(literal_pool: &mut Vec<Box<[u8]>>, bytes: &[u8]) -> (*co
     (ptr, len)
 }
 
-struct DirectSimpleEmitConsts {
+struct JitEmitConsts {
     step_null_block: ir::Block,
     step_null_args: Vec<ir::Value>,
     ptr_ty: ir::Type,
@@ -459,13 +459,13 @@ struct DirectSimpleEmitConsts {
     block_const: ir::Value,
 }
 
-struct DirectSimpleEmitCtx {
+struct JitEmitCtx {
     owned_cell_slot_names: Vec<String>,
     incref_ref: ir::FuncRef,
     decref_ref: ir::FuncRef,
     py_call_positional_three_ref: ir::FuncRef,
     make_int_ref: ir::FuncRef,
-    consts: DirectSimpleEmitConsts,
+    consts: JitEmitConsts,
     load_name_ref: ir::FuncRef,
     function_globals_ref: ir::FuncRef,
     function_closure_cell_ref: ir::FuncRef,
@@ -491,7 +491,7 @@ struct CodegenIntrinsicEmitState<'a, 'b, 'c, 'd> {
     fb: &'a mut FunctionBuilder<'b>,
     local_names: &'c [String],
     local_values: &'c [ir::Value],
-    ctx: &'c DirectSimpleEmitCtx,
+    ctx: &'c JitEmitCtx,
     literal_pool: &'c mut Vec<Box<[u8]>>,
     jit_module: &'a mut JITModule,
     func_imports: &'a mut FuncBuildImports<'d>,
@@ -623,7 +623,7 @@ fn delete_local_value(
 impl<'a, 'b, 'c, 'd> intrinsics::OperationEmitState<'b, LocatedCodegenBlockPyExpr>
     for CodegenIntrinsicEmitState<'a, 'b, 'c, 'd>
 {
-    fn ctx(&self) -> &DirectSimpleEmitCtx {
+    fn ctx(&self) -> &JitEmitCtx {
         self.ctx
     }
 
@@ -727,7 +727,7 @@ fn block_arg_values(values: &[ir::Value]) -> Vec<ir::BlockArg> {
     values.iter().copied().map(ir::BlockArg::Value).collect()
 }
 
-fn step_null_block_args(ctx: &DirectSimpleEmitCtx) -> Vec<ir::BlockArg> {
+fn step_null_block_args(ctx: &JitEmitCtx) -> Vec<ir::BlockArg> {
     block_arg_values(&ctx.consts.step_null_args)
 }
 
@@ -736,7 +736,7 @@ fn emit_raw_cell_object_for_name(
     name: &LocatedName,
     local_names: &[String],
     local_values: &[ir::Value],
-    ctx: &DirectSimpleEmitCtx,
+    ctx: &JitEmitCtx,
 ) -> ir::Value {
     let ptr_ty = ctx.consts.ptr_ty;
     let i64_ty = ctx.consts.i64_ty;
@@ -816,7 +816,7 @@ fn emit_raw_cell_object_for_name(
 fn emit_pack_current_values_tuple(
     fb: &mut FunctionBuilder<'_>,
     values: &[ir::Value],
-    ctx: &DirectSimpleEmitCtx,
+    ctx: &JitEmitCtx,
 ) -> ir::Value {
     if values.is_empty() {
         fb.ins()
@@ -936,7 +936,7 @@ fn emit_pack_current_values_tuple(
 fn emit_owned_bool_from_cond(
     fb: &mut FunctionBuilder<'_>,
     cond: ir::Value,
-    ctx: &DirectSimpleEmitCtx,
+    ctx: &JitEmitCtx,
 ) -> ir::Value {
     let bool_value = fb
         .ins()
@@ -948,7 +948,7 @@ fn emit_owned_bool_from_cond(
 fn emit_owned_bool_from_i32_result(
     fb: &mut FunctionBuilder<'_>,
     result: ir::Value,
-    ctx: &DirectSimpleEmitCtx,
+    ctx: &JitEmitCtx,
 ) -> ir::Value {
     let is_error = fb.ins().icmp_imm(ir::condcodes::IntCC::Equal, result, -1);
     let ok_block = fb.create_block();
@@ -969,7 +969,7 @@ fn emit_codegen_expr(
     expr: &LocatedCodegenBlockPyExpr,
     local_names: &[String],
     local_values: &[ir::Value],
-    ctx: &DirectSimpleEmitCtx,
+    ctx: &JitEmitCtx,
     literal_pool: &mut Vec<Box<[u8]>>,
     borrowed: bool,
     jit_module: &mut JITModule,
@@ -2391,7 +2391,7 @@ fn abrupt_kind_tag(kind: AbruptKind) -> i64 {
 fn emit_owned_int_constant(
     fb: &mut FunctionBuilder<'_>,
     value: i64,
-    ctx: &DirectSimpleEmitCtx,
+    ctx: &JitEmitCtx,
 ) -> ir::Value {
     let null_ptr = fb.ins().iconst(ctx.consts.ptr_ty, 0);
     let int_const = fb.ins().iconst(ctx.consts.i64_ty, value);
@@ -2420,7 +2420,7 @@ fn emit_prepare_target_args_codegen(
     explicit_args: Option<&[BlockArg]>,
     local_names: &[String],
     local_values: &[ir::Value],
-    ctx: &DirectSimpleEmitCtx,
+    ctx: &JitEmitCtx,
     _literal_pool: &mut Vec<Box<[u8]>>,
     _jit_module: &mut JITModule,
     _func_imports: &mut FuncBuildImports<'_>,
@@ -2520,7 +2520,7 @@ fn emit_explicit_target_slot_writes_codegen(
     explicit_args: &[BlockArg],
     local_names: &[String],
     local_values: &[ir::Value],
-    ctx: &DirectSimpleEmitCtx,
+    ctx: &JitEmitCtx,
     _literal_pool: &mut Vec<Box<[u8]>>,
     _jit_module: &mut JITModule,
     _func_imports: &mut FuncBuildImports<'_>,
@@ -2672,7 +2672,7 @@ fn emit_codegen_ops(
     local_names: &mut Vec<String>,
     local_values: &mut Vec<ir::Value>,
     function_state_slots: &FunctionStateSlots,
-    emit_ctx: &DirectSimpleEmitCtx,
+    emit_ctx: &JitEmitCtx,
     literal_pool: &mut Vec<Box<[u8]>>,
     jit_module: &mut JITModule,
     func_imports: &mut FuncBuildImports<'_>,
@@ -2744,7 +2744,7 @@ fn emit_codegen_term(
     full_block_param_names: &[Vec<String>],
     local_names: &[String],
     local_values: &[ir::Value],
-    emit_ctx: &DirectSimpleEmitCtx,
+    emit_ctx: &JitEmitCtx,
     literal_pool: &mut Vec<Box<[u8]>>,
     jit_module: &mut JITModule,
     func_imports: &mut FuncBuildImports<'_>,
@@ -3668,13 +3668,13 @@ fn build_cranelift_run_bb_specialized_function(
             let fast_step_null_block =
                 exception_dispatch_blocks[index].unwrap_or(cleanup_null_blocks[index]);
             let fast_step_null_args = Vec::new();
-            let emit_ctx = DirectSimpleEmitCtx {
+            let emit_ctx = JitEmitCtx {
                 owned_cell_slot_names: jit_data.owned_cell_slot_names.clone(),
                 incref_ref,
                 decref_ref,
                 py_call_positional_three_ref,
                 make_int_ref,
-                consts: DirectSimpleEmitConsts {
+                consts: JitEmitConsts {
                     step_null_block: fast_step_null_block,
                     step_null_args: fast_step_null_args,
                     ptr_ty,
