@@ -26,8 +26,8 @@ mod planning;
 mod specialized_helpers;
 
 pub use planning::{
-    BlockExcDispatchPlan, JitBlockInfo, exc_dispatch_plan, jit_block_info,
-    jit_param_names_for_block, lookup_blockpy_function, register_clif_module_plans,
+    BlockExcDispatchPlan, exc_dispatch_plan, jit_param_names_for_block, lookup_blockpy_function,
+    register_clif_module_plans,
 };
 pub use specialized_helpers::ObjPtr;
 use specialized_helpers::{dp_jit_decref, register_specialized_jit_symbols};
@@ -37,16 +37,6 @@ static NEXT_IMPORT_SPEC_ID: AtomicUsize = AtomicUsize::new(0);
 
 fn incremental_clif_cache() -> &'static Mutex<HashMap<Vec<u8>, Vec<u8>>> {
     INCREMENTAL_CLIF_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn collect_specialized_jit_block_info(
-    function: &BlockPyFunction<CodegenBlockPyPass>,
-) -> Vec<JitBlockInfo> {
-    function
-        .blocks
-        .iter()
-        .map(|block| jit_block_info(function, block))
-        .collect()
 }
 
 struct GlobalIncrementalCacheStore<'a> {
@@ -3432,19 +3422,20 @@ fn build_cranelift_run_bb_specialized_function(
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
         let entry_block = fb.create_block();
         let mut exec_blocks = Vec::with_capacity(block_count);
-        let block_infos = collect_specialized_jit_block_info(function);
-        let runtime_block_param_names = block_infos
+        let runtime_block_param_names = function
+            .blocks
             .iter()
-            .map(|info| info.runtime_param_names.clone())
+            .map(jit_param_names_for_block)
             .collect::<Vec<_>>();
         let full_block_param_names = function
             .blocks
             .iter()
             .map(CodegenBlock::param_name_vec)
             .collect::<Vec<_>>();
-        let exc_dispatches = block_infos
+        let exc_dispatches = function
+            .blocks
             .iter()
-            .map(|info| info.exc_dispatch.clone())
+            .map(|block| exc_dispatch_plan(function, block))
             .collect::<Vec<_>>();
         let mut cleanup_null_blocks = Vec::with_capacity(block_count);
         for _ in 0..block_count {

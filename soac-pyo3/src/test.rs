@@ -235,13 +235,18 @@ def exercise():
         .expect("missing lowered generator resume function");
     let registered_function = jit::lookup_blockpy_function(module_name, gen_function.function_id.0)
         .expect("registered plan should exist");
-    let plan_blocks = registered_function
+    let plan_runtime_param_names = registered_function
         .blocks
         .iter()
-        .map(|block| jit::jit_block_info(&registered_function, block))
+        .map(jit::jit_param_names_for_block)
+        .collect::<Vec<_>>();
+    let plan_exc_dispatches = registered_function
+        .blocks
+        .iter()
+        .map(|block| jit::exc_dispatch_plan(&registered_function, block))
         .collect::<Vec<_>>();
 
-    let handler_entry_targets = plan_blocks
+    let handler_entry_targets = plan_runtime_param_names
         .iter()
         .enumerate()
         .filter(|(index, _)| {
@@ -255,16 +260,15 @@ def exercise():
     assert!(
         !handler_entry_targets.is_empty(),
         "expected at least one except handler block with an explicit try-exception carrier: {:?}",
-        plan_blocks
+        plan_runtime_param_names
     );
     assert!(
-        plan_blocks
+        plan_exc_dispatches
             .iter()
-            .filter_map(|block| block.exc_dispatch.as_ref())
+            .filter_map(|dispatch| dispatch.as_ref())
             .any(|dispatch| {
                 handler_entry_targets.contains(&dispatch.target_index)
-                    && (plan_blocks[dispatch.target_index]
-                        .runtime_param_names
+                    && (plan_runtime_param_names[dispatch.target_index]
                         .iter()
                         .any(|name| name.starts_with("_dp_try_exc_"))
                         || dispatch.slot_writes.iter().any(|(_, source)| {
@@ -272,11 +276,11 @@ def exercise():
                         }))
             }),
         "expected a dispatch into an except handler target to pass the active exception: {:?}",
-        plan_blocks
+        plan_exc_dispatches
             .iter()
             .enumerate()
-            .filter_map(|(index, block)| {
-                block.exc_dispatch.as_ref().map(|dispatch| {
+            .filter_map(|(index, dispatch)| {
+                dispatch.as_ref().map(|dispatch| {
                     (
                         registered_function.blocks[index].label.to_string(),
                         registered_function.blocks[dispatch.target_index]

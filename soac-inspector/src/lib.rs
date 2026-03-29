@@ -240,7 +240,13 @@ pub fn jit_debug_plan(module_name: &str, function_id: usize) -> Result<String, S
     let block_info = function
         .blocks
         .iter()
-        .map(|block| jit::jit_block_info(&function, block))
+        .map(|block| {
+            (
+                block.label.to_string(),
+                jit::jit_param_names_for_block(block),
+                jit::exc_dispatch_plan(&function, block),
+            )
+        })
         .collect::<Vec<_>>();
     Ok(format!(
         "function:\n{function:#?}\n\njit_blocks:\n{block_info:#?}"

@@ -4,12 +4,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
 #[derive(Clone, Debug)]
-pub struct JitBlockInfo {
-    pub runtime_param_names: Vec<String>,
-    pub exc_dispatch: Option<BlockExcDispatchPlan>,
-}
-
-#[derive(Clone, Debug)]
 pub struct BlockExcDispatchPlan {
     pub target_index: usize,
     pub slot_writes: Vec<(String, BlockArg)>,
@@ -67,18 +61,6 @@ pub fn exc_dispatch_plan(
         target_index,
         slot_writes,
     })
-}
-
-pub fn jit_block_info(
-    function: &BlockPyFunction<CodegenBlockPyPass>,
-    block: &CodegenBlock,
-) -> JitBlockInfo {
-    let exc_dispatch = exc_dispatch_plan(function, block);
-    let runtime_param_names = jit_param_names_for_block(block);
-    JitBlockInfo {
-        runtime_param_names,
-        exc_dispatch,
-    }
 }
 
 fn bb_function_registry() -> &'static Mutex<FunctionRegistry> {
