@@ -72,6 +72,11 @@
     - The current unconditional closure-layout refresh had to grow a special case for synthetic `_dp_resume` callables because their runtime closure layout is no longer derivable from ordinary semantic capture facts.
     - The desired end state is for refresh/recompute logic to stop guessing about post-`name_binding` runtime layouts, and for generator/resume lowering to own its closure-layout mutations through explicit APIs or phase-local construction.
     - A good first pass is to identify every later pass that mutates closure storage shape, then make those updates visible as explicit `ClosureLayout` edits or validations instead of patching over them with name-based exclusions.
+- Audit remaining `diet-python` naming and update user-facing/project naming to `soac` where appropriate.
+  - Planning note:
+    - The crate rename to `soac-blockpy` removed one major old name seam, but there are still likely package, binary, doc, log, and runtime-visible references to `diet-python`.
+    - The goal is to identify which of those are intentional compatibility surfaces and which are just stale internal/project naming.
+    - A good first pass is to inventory repo-wide `diet-python` mentions, group them into code/runtime/docs/tooling buckets, and then rename the non-compatibility cases first.
 - Story for constants (`None`, strings, etc.).
   - Planning note:
     - The pipeline still has multiple places that decide how constants are represented, including literal expr forms, `_dp_` builtins, and backend/runtime materialization paths.
