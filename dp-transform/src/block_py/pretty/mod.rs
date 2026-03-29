@@ -154,7 +154,7 @@ impl BlockPyFormatter {
             if function.names.display_name != function.names.bind_name {
                 this.line(format!("display_name: {}", function.names.display_name));
             }
-            if let Some(layout) = &function.closure_layout {
+            if let Some(layout) = &function.storage_layout {
                 if !layout.freevars.is_empty() {
                     this.line(format!(
                         "freevars: [{}]",

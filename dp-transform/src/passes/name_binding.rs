@@ -3,14 +3,14 @@ use crate::block_py::{
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
     BlockPyCellBindingKind, BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction,
     BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap, BlockPyNameLike, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm, CellRef, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyCall,
+    BlockPyStmt, BlockPyTerm, CellRef, ClosureInit, ClosureSlot, CoreBlockPyCall,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, DelDeref, DelDerefQuietly, DelItem, DelQuietly,
     FunctionId, LoadCell, LoadGlobal, LocatedName, MakeCell, MakeFunction, NameLocation, Operation,
-    SetItem, StoreCell, StoreGlobal,
+    SetItem, StorageLayout, StoreCell, StoreGlobal,
 };
 use crate::passes::ruff_to_blockpy::{
-    build_closure_layout_from_capture_names, compute_closure_layout_from_semantics,
+    build_storage_layout_from_capture_names, compute_storage_layout_from_semantics,
     populate_exception_edge_args, recompute_lowered_block_params,
     rewrite_current_exception_in_core_blocks, should_include_closure_storage_aliases,
 };
@@ -709,7 +709,7 @@ fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPa
         | BlockPyFunctionKind::Coroutine
         | BlockPyFunctionKind::AsyncGenerator => {
             let layout = callable
-                .closure_layout
+                .storage_layout
                 .as_ref()
                 .expect("generator-like visible function should have closure layout");
             layout
@@ -1264,7 +1264,7 @@ fn collect_captured_cell_slot_locations(
     callable: &BlockPyFunction<CoreBlockPyPass>,
 ) -> HashMap<String, u32> {
     let mut slots = HashMap::new();
-    if let Some(layout) = callable.closure_layout.as_ref() {
+    if let Some(layout) = callable.storage_layout.as_ref() {
         for (slot, closure_slot) in layout.freevars.iter().enumerate() {
             slots.insert(closure_slot.storage_name.clone(), slot as u32);
             slots.insert(closure_slot.logical_name.clone(), slot as u32);
@@ -1277,7 +1277,7 @@ fn collect_owned_cell_storage_bindings(
     callable: &BlockPyFunction<CoreBlockPyPass>,
 ) -> Vec<(String, String)> {
     if let Some(layout) = callable
-        .closure_layout
+        .storage_layout
         .as_ref()
         .filter(|layout| !layout.cellvars.is_empty() || !layout.runtime_cells.is_empty())
     {
@@ -1325,7 +1325,7 @@ fn collect_cell_bindings(
     callable: &BlockPyFunction<CoreBlockPyPass>,
 ) -> HashMap<String, (String, BlockPyCellBindingKind)> {
     let mut bindings = HashMap::new();
-    let Some(layout) = callable.closure_layout.as_ref() else {
+    let Some(layout) = callable.storage_layout.as_ref() else {
         return bindings;
     };
 
@@ -1394,7 +1394,7 @@ fn is_remaining_local_name(
     }
 }
 
-fn collect_local_slot_locations(
+fn compute_local_slot_locations_from_analysis(
     callable: &BlockPyFunction<CoreBlockPyPass>,
 ) -> HashMap<String, u32> {
     let mut slots = HashMap::new();
@@ -1461,6 +1461,53 @@ fn collect_local_slot_locations(
         next_slot += 1;
     }
     slots
+}
+
+fn ordered_slot_names_from_local_slots(local_slots: HashMap<String, u32>) -> Vec<String> {
+    let mut slots = local_slots.into_iter().collect::<Vec<_>>();
+    slots.sort_by_key(|(_, slot)| *slot);
+    slots.into_iter().map(|(name, _)| name).collect()
+}
+
+fn collect_local_slot_locations(
+    callable: &BlockPyFunction<CoreBlockPyPass>,
+) -> HashMap<String, u32> {
+    if let Some(layout) = callable
+        .storage_layout
+        .as_ref()
+        .filter(|layout| !layout.stack_slots().is_empty())
+    {
+        return layout
+            .stack_slots()
+            .iter()
+            .enumerate()
+            .map(|(slot, name)| (name.clone(), slot as u32))
+            .collect();
+    }
+
+    compute_local_slot_locations_from_analysis(callable)
+}
+
+fn populate_stack_slots_in_storage_layout(callable: &mut BlockPyFunction<CoreBlockPyPass>) {
+    let stack_slots =
+        ordered_slot_names_from_local_slots(compute_local_slot_locations_from_analysis(callable));
+    callable
+        .storage_layout
+        .get_or_insert_with(StorageLayout::default)
+        .set_stack_slots(stack_slots);
+}
+
+fn ensure_storage_layout_covers_block_params<P: crate::block_py::BlockPyPass>(
+    callable: &mut BlockPyFunction<P>,
+) {
+    let Some(layout) = callable.storage_layout.as_mut() else {
+        return;
+    };
+    for block in &callable.blocks {
+        for name in block.param_names() {
+            layout.ensure_stack_slot(name.to_string());
+        }
+    }
 }
 
 struct NameLocator<'a> {
@@ -1784,28 +1831,28 @@ fn collect_make_function_callee_ids_in_term(
     }
 }
 
-fn compute_callable_closure_layout_for_name_binding(
+fn compute_callable_storage_layout_for_name_binding(
     function_id: FunctionId,
     callable_by_id: &HashMap<FunctionId, &BlockPyFunction<CoreBlockPyPass>>,
     make_function_callees: &HashMap<FunctionId, Vec<FunctionId>>,
-    memo: &mut HashMap<FunctionId, Option<ClosureLayout>>,
+    memo: &mut HashMap<FunctionId, Option<StorageLayout>>,
     visiting: &mut HashSet<FunctionId>,
-) -> Option<ClosureLayout> {
+) -> Option<StorageLayout> {
     if let Some(layout) = memo.get(&function_id) {
         return layout.clone();
     }
     let callable = callable_by_id
         .get(&function_id)
         .unwrap_or_else(|| panic!("missing callable for function id {:?}", function_id));
-    if let Some(layout) = callable.closure_layout.clone() {
+    if let Some(layout) = callable.storage_layout.clone() {
         memo.insert(function_id, Some(layout.clone()));
         return Some(layout);
     }
     if !visiting.insert(function_id) {
-        return compute_closure_layout_from_semantics(callable);
+        return compute_storage_layout_from_semantics(callable);
     }
 
-    let base_layout = compute_closure_layout_from_semantics(callable);
+    let base_layout = compute_storage_layout_from_semantics(callable);
     let mut capture_names = base_layout
         .as_ref()
         .map(|layout| {
@@ -1838,7 +1885,7 @@ fn compute_callable_closure_layout_for_name_binding(
         .unwrap_or_default();
     if let Some(callee_ids) = make_function_callees.get(&function_id) {
         for callee_id in callee_ids {
-            let Some(callee_layout) = compute_callable_closure_layout_for_name_binding(
+            let Some(callee_layout) = compute_callable_storage_layout_for_name_binding(
                 *callee_id,
                 callable_by_id,
                 make_function_callees,
@@ -1869,7 +1916,7 @@ fn compute_callable_closure_layout_for_name_binding(
         .into_iter()
         .collect::<Vec<_>>();
     local_cell_slots.sort();
-    let layout = build_closure_layout_from_capture_names(
+    let layout = build_storage_layout_from_capture_names(
         callable,
         capture_names,
         &param_name_set,
@@ -1879,7 +1926,7 @@ fn compute_callable_closure_layout_for_name_binding(
     layout
 }
 
-fn ensure_module_closure_layouts(
+fn ensure_module_storage_layouts(
     callable_defs: Vec<BlockPyFunction<CoreBlockPyPass>>,
 ) -> Vec<BlockPyFunction<CoreBlockPyPass>> {
     let computed_layouts = {
@@ -1899,7 +1946,7 @@ fn ensure_module_closure_layouts(
         let mut memo = HashMap::new();
         let mut visiting = HashSet::new();
         for function_id in callable_by_id.keys().copied().collect::<Vec<_>>() {
-            compute_callable_closure_layout_for_name_binding(
+            compute_callable_storage_layout_for_name_binding(
                 function_id,
                 &callable_by_id,
                 &make_function_callees,
@@ -1913,8 +1960,8 @@ fn ensure_module_closure_layouts(
     callable_defs
         .into_iter()
         .map(|mut callable| {
-            if callable.closure_layout.is_none() {
-                callable.closure_layout = computed_layouts
+            if callable.storage_layout.is_none() {
+                callable.storage_layout = computed_layouts
                     .get(&callable.function_id)
                     .cloned()
                     .flatten();
@@ -1931,7 +1978,7 @@ fn compute_module_make_function_capture_names(
         .iter()
         .map(|callable| {
             let capture_names = callable
-                .closure_layout
+                .storage_layout
                 .as_ref()
                 .map(|layout| {
                     layout
@@ -1961,7 +2008,7 @@ fn refresh_bb_callable_block_params(
         params,
         blocks,
         doc,
-        closure_layout,
+        storage_layout,
         semantic,
     } = callable;
     let mut blocks = blocks
@@ -2001,7 +2048,7 @@ fn refresh_bb_callable_block_params(
         params,
         blocks,
         doc,
-        closure_layout,
+        storage_layout,
         semantic,
     }
 }
@@ -2017,6 +2064,7 @@ fn lower_name_binding_callable(
     }
     .map_fn(callable);
     prepend_owned_cell_init_preamble(&mut lowered);
+    populate_stack_slots_in_storage_layout(&mut lowered);
     let deleted_names = collect_deleted_names_in_blocks(&lowered.blocks, &semantic);
     let always_unbound_names = collect_always_unbound_local_names(&lowered);
     if !deleted_names.is_empty() || !always_unbound_names.is_empty() {
@@ -2038,13 +2086,15 @@ fn lower_name_binding_callable(
         }
     }
     rewrite_current_exception_in_core_blocks(&mut lowered.blocks);
-    refresh_bb_callable_block_params(locate_names_in_callable(lowered))
+    let mut lowered = refresh_bb_callable_block_params(locate_names_in_callable(lowered));
+    ensure_storage_layout_covers_block_params(&mut lowered);
+    lowered
 }
 
 pub(crate) fn lower_name_binding_in_core_blockpy_module(
     module: BlockPyModule<CoreBlockPyPass>,
 ) -> BlockPyModule<ResolvedStorageBlockPyPass> {
-    let callable_defs = ensure_module_closure_layouts(module.callable_defs);
+    let callable_defs = ensure_module_storage_layouts(module.callable_defs);
     let callee_make_function_capture_names =
         compute_module_make_function_capture_names(&callable_defs);
     BlockPyModule {

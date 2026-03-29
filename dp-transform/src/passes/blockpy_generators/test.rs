@@ -1,11 +1,11 @@
 use super::{
-    augment_resume_semantic_for_standard_name_binding, build_blockpy_closure_layout,
+    augment_resume_semantic_for_standard_name_binding, build_blockpy_storage_layout,
     persistent_generator_state_order, resume_closure_bindings,
 };
 use crate::block_py::{
     BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
     BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyLabel,
-    BlockPyTerm, ClosureInit, ClosureLayout, ClosureSlot, FunctionId, FunctionName,
+    BlockPyTerm, ClosureInit, ClosureSlot, FunctionId, FunctionName, StorageLayout,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::py_expr;
@@ -33,7 +33,7 @@ fn build_closure_backed_generator_factory_block(
     visible_function_id: FunctionId,
     resume_function_id: FunctionId,
     _resume_state_order: &[String],
-    _layout: &ClosureLayout,
+    _layout: &StorageLayout,
     is_coroutine: bool,
     is_async_generator: bool,
 ) -> crate::block_py::BlockPyBlock<Expr> {
@@ -72,7 +72,7 @@ fn build_closure_backed_generator_factory_block(
 
 #[test]
 fn resume_closure_bindings_keep_internal_eval_state_on_runtime_binding_path() {
-    let layout = ClosureLayout {
+    let layout = StorageLayout {
         freevars: vec![ClosureSlot {
             logical_name: "captured".to_string(),
             storage_name: "_dp_cell_captured".to_string(),
@@ -112,6 +112,7 @@ fn resume_closure_bindings_keep_internal_eval_state_on_runtime_binding_path() {
                 init: ClosureInit::RuntimePcUnstarted,
             },
         ],
+        stack_slots: Vec::new(),
     };
 
     let closure_bindings = resume_closure_bindings(
@@ -143,7 +144,7 @@ fn resume_closure_bindings_keep_internal_eval_state_on_runtime_binding_path() {
 
 #[test]
 fn persistent_generator_state_order_omits_resume_abi_params() {
-    let layout = ClosureLayout {
+    let layout = StorageLayout {
         freevars: vec![ClosureSlot {
             logical_name: "captured".to_string(),
             storage_name: "_dp_cell_captured".to_string(),
@@ -159,6 +160,7 @@ fn persistent_generator_state_order_omits_resume_abi_params() {
             storage_name: "_dp_cell__dp_pc".to_string(),
             init: ClosureInit::RuntimePcUnstarted,
         }],
+        stack_slots: Vec::new(),
     };
 
     assert_eq!(
@@ -172,9 +174,9 @@ fn persistent_generator_state_order_omits_resume_abi_params() {
 }
 
 #[test]
-fn build_blockpy_closure_layout_classifies_capture_local_and_runtime_cells() {
+fn build_blockpy_storage_layout_classifies_capture_local_and_runtime_cells() {
     let semantic = generator_test_semantic();
-    let layout = build_blockpy_closure_layout(
+    let layout = build_blockpy_storage_layout(
         &semantic,
         &["arg".to_string()],
         &[
@@ -241,7 +243,7 @@ fn build_blockpy_closure_layout_classifies_capture_local_and_runtime_cells() {
 }
 
 #[test]
-fn build_blockpy_closure_layout_uses_semantic_classcell_storage_mapping() {
+fn build_blockpy_storage_layout_uses_semantic_classcell_storage_mapping() {
     let mut semantic = generator_test_semantic();
     semantic.insert_binding(
         "__class__",
@@ -250,7 +252,7 @@ fn build_blockpy_closure_layout_uses_semantic_classcell_storage_mapping() {
         Some("_dp_classcell".to_string()),
     );
 
-    let layout = build_blockpy_closure_layout(
+    let layout = build_blockpy_storage_layout(
         &semantic,
         &[],
         &["__class__".to_string()],
@@ -270,7 +272,7 @@ fn build_blockpy_closure_layout_uses_semantic_classcell_storage_mapping() {
 
 #[test]
 fn builds_closure_backed_generator_factory_block() {
-    let layout = ClosureLayout {
+    let layout = StorageLayout {
         freevars: vec![ClosureSlot {
             logical_name: "captured".to_string(),
             storage_name: "_dp_cell_captured".to_string(),
@@ -286,6 +288,7 @@ fn builds_closure_backed_generator_factory_block() {
             storage_name: "_dp_cell__dp_pc".to_string(),
             init: ClosureInit::RuntimePcUnstarted,
         }],
+        stack_slots: Vec::new(),
     };
 
     let block = build_closure_backed_generator_factory_block(
@@ -309,7 +312,7 @@ fn builds_closure_backed_generator_factory_block() {
 
 #[test]
 fn resume_closure_bindings_include_storage_aliases_for_cell_backed_state() {
-    let layout = ClosureLayout {
+    let layout = StorageLayout {
         freevars: vec![ClosureSlot {
             logical_name: "captured".to_string(),
             storage_name: "_dp_cell_captured".to_string(),
@@ -325,6 +328,7 @@ fn resume_closure_bindings_include_storage_aliases_for_cell_backed_state() {
             storage_name: "_dp_cell__dp_pc".to_string(),
             init: ClosureInit::RuntimePcUnstarted,
         }],
+        stack_slots: Vec::new(),
     };
 
     let closure_bindings = resume_closure_bindings(
@@ -348,7 +352,7 @@ fn resume_closure_bindings_include_storage_aliases_for_cell_backed_state() {
 
 #[test]
 fn resume_closure_bindings_use_logical_names_for_shared_storage() {
-    let layout = ClosureLayout {
+    let layout = StorageLayout {
         freevars: vec![ClosureSlot {
             logical_name: "j".to_string(),
             storage_name: "_dp_cell_j".to_string(),
@@ -360,6 +364,7 @@ fn resume_closure_bindings_use_logical_names_for_shared_storage() {
             storage_name: "_dp_cell__dp_pc".to_string(),
             init: ClosureInit::RuntimePcUnstarted,
         }],
+        stack_slots: Vec::new(),
     };
 
     let closure_bindings =
@@ -376,7 +381,7 @@ fn resume_closure_bindings_use_logical_names_for_shared_storage() {
 
 #[test]
 fn resume_semantic_marks_generator_state_as_cell_captures() {
-    let layout = ClosureLayout {
+    let layout = StorageLayout {
         freevars: vec![ClosureSlot {
             logical_name: "captured".to_string(),
             storage_name: "_dp_cell_captured".to_string(),
@@ -392,6 +397,7 @@ fn resume_semantic_marks_generator_state_as_cell_captures() {
             storage_name: "_dp_cell__dp_pc".to_string(),
             init: ClosureInit::RuntimePcUnstarted,
         }],
+        stack_slots: Vec::new(),
     };
     let mut semantic = BlockPyCallableSemanticInfo {
         names: FunctionName::new("gen_resume", "_dp_resume", "gen", "gen"),
@@ -443,7 +449,7 @@ fn resume_semantic_marks_generator_state_as_cell_captures() {
 
 #[test]
 fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_binding() {
-    let layout = ClosureLayout {
+    let layout = StorageLayout {
         freevars: vec![ClosureSlot {
             logical_name: "captured".to_string(),
             storage_name: "_dp_cell_captured".to_string(),
@@ -483,6 +489,7 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
                 init: ClosureInit::RuntimePcUnstarted,
             },
         ],
+        stack_slots: Vec::new(),
     };
     let closure_bindings = resume_closure_bindings(
         &layout,

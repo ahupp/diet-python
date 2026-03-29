@@ -42,7 +42,7 @@ fn lowers_await_to_yield_from_await_iter() {
                 exc_edge: structured_block.exc_edge,
             }],
             doc: None,
-            closure_layout: None,
+            storage_layout: None,
             semantic: BlockPyCallableSemanticInfo::default(),
         }],
     };

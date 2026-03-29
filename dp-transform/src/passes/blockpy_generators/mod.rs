@@ -5,14 +5,14 @@ use crate::block_py::{
     BlockPyAssign, BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable,
     BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    CellRef, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyExpr,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId, FunctionName,
-    IntoStructuredBlockPyStmt, MakeFunction, ModuleNameGen, Operation, StructuredBlockPyStmt,
+    CellRef, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, FunctionId, FunctionName, IntoStructuredBlockPyStmt, MakeFunction,
+    ModuleNameGen, Operation, StorageLayout, StructuredBlockPyStmt,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{
-    attach_exception_edges_to_blocks, compute_closure_layout_from_semantics,
+    attach_exception_edges_to_blocks, compute_storage_layout_from_semantics,
     lowered_exception_edges, recompute_lowered_block_params,
     should_include_closure_storage_aliases,
 };
@@ -86,13 +86,13 @@ fn runtime_init(name: &str) -> Option<ClosureInit> {
     }
 }
 
-pub(crate) fn build_blockpy_closure_layout(
+pub(crate) fn build_blockpy_storage_layout(
     semantic: &BlockPyCallableSemanticInfo,
     param_names: &[String],
     state_vars: &[String],
     capture_names: &[String],
     injected_exception_names: &HashSet<String>,
-) -> ClosureLayout {
+) -> StorageLayout {
     let capture_names = capture_names.iter().cloned().collect::<HashSet<_>>();
     let mut seen_storage_names = HashSet::new();
 
@@ -139,10 +139,11 @@ pub(crate) fn build_blockpy_closure_layout(
         });
     }
 
-    ClosureLayout {
+    StorageLayout {
         freevars,
         cellvars,
         runtime_cells,
+        stack_slots: Vec::new(),
     }
 }
 
@@ -241,15 +242,16 @@ fn injected_exception_names<S>(
     names
 }
 
-fn build_generator_closure_layout(
+fn build_generator_storage_layout(
     callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
-) -> ClosureLayout {
+) -> StorageLayout {
     let param_names = callable.params.names();
     let semantic_layout =
-        compute_closure_layout_from_semantics(callable).unwrap_or(ClosureLayout {
+        compute_storage_layout_from_semantics(callable).unwrap_or(StorageLayout {
             freevars: Vec::new(),
             cellvars: Vec::new(),
             runtime_cells: Vec::new(),
+            stack_slots: Vec::new(),
         });
     let capture_names = semantic_layout
         .freevars
@@ -290,7 +292,7 @@ fn build_generator_closure_layout(
         }
     }
 
-    build_blockpy_closure_layout(
+    build_blockpy_storage_layout(
         &callable.semantic,
         &param_names,
         &state_vars,
@@ -299,7 +301,7 @@ fn build_generator_closure_layout(
     )
 }
 
-fn persistent_generator_state_order(layout: &ClosureLayout) -> Vec<String> {
+fn persistent_generator_state_order(layout: &StorageLayout) -> Vec<String> {
     let mut order = Vec::new();
     order.extend(layout.freevars.iter().map(|slot| slot.logical_name.clone()));
     order.extend(layout.cellvars.iter().map(|slot| slot.logical_name.clone()));
@@ -343,7 +345,7 @@ fn augment_resume_semantic_for_standard_name_binding(
     }
 }
 
-fn resume_closure_value_name(layout: &ClosureLayout, name: &str) -> String {
+fn resume_closure_value_name(layout: &StorageLayout, name: &str) -> String {
     layout
         .freevars
         .iter()
@@ -354,7 +356,7 @@ fn resume_closure_value_name(layout: &ClosureLayout, name: &str) -> String {
         .unwrap_or_else(|| name.to_string())
 }
 
-fn is_resume_closure_state_name(layout: &ClosureLayout, name: &str) -> bool {
+fn is_resume_closure_state_name(layout: &StorageLayout, name: &str) -> bool {
     layout
         .freevars
         .iter()
@@ -364,7 +366,7 @@ fn is_resume_closure_state_name(layout: &ClosureLayout, name: &str) -> bool {
 }
 
 fn resume_closure_bindings(
-    layout: &ClosureLayout,
+    layout: &StorageLayout,
     persistent_state_names: &[String],
 ) -> ResumeClosureBindings {
     let runtime_state_bindings = persistent_state_names
@@ -382,10 +384,10 @@ fn resume_closure_bindings(
     }
 }
 
-fn build_resume_closure_layout(
-    visible_layout: &ClosureLayout,
+fn build_resume_storage_layout(
+    visible_layout: &StorageLayout,
     closure_bindings: &ResumeClosureBindings,
-) -> ClosureLayout {
+) -> StorageLayout {
     let freevars = closure_bindings
         .runtime_state_bindings
         .iter()
@@ -406,10 +408,11 @@ fn build_resume_closure_layout(
             }
         })
         .collect();
-    ClosureLayout {
+    StorageLayout {
         freevars,
         cellvars: Vec::new(),
         runtime_cells: Vec::new(),
+        stack_slots: Vec::new(),
     }
 }
 
@@ -1502,13 +1505,13 @@ pub(crate) fn lower_generator_like_function(
     );
     let resume_name_gen = module_name_gen.next_function_name_gen();
     let resume_function_id = resume_name_gen.function_id();
-    let closure_layout = build_generator_closure_layout(&callable);
-    let persistent_state_order = persistent_generator_state_order(&closure_layout);
+    let storage_layout = build_generator_storage_layout(&callable);
+    let persistent_state_order = persistent_generator_state_order(&storage_layout);
     let resume_binding_names = ordered_resume_binding_names(&callable, &persistent_state_order);
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
         lower_resume_blocks(&callable);
-    let closure_bindings = resume_closure_bindings(&closure_layout, &resume_binding_names);
-    let resume_closure_layout = build_resume_closure_layout(&closure_layout, &closure_bindings);
+    let closure_bindings = resume_closure_bindings(&storage_layout, &resume_binding_names);
+    let resume_storage_layout = build_resume_storage_layout(&storage_layout, &closure_bindings);
 
     let factory_block =
         build_factory_block(callable.function_id, resume_function_id, callable.kind);
@@ -1538,7 +1541,7 @@ pub(crate) fn lower_generator_like_function(
             &HashMap::from([(factory_block.label.clone(), None)]),
         )),
         doc,
-        closure_layout: Some(closure_layout.clone()),
+        storage_layout: Some(storage_layout.clone()),
         semantic: semantic.clone(),
     };
 
@@ -1557,7 +1560,7 @@ pub(crate) fn lower_generator_like_function(
         params: resume_params.clone(),
         blocks: flatten_core_blocks(resume_blocks.clone()),
         doc: None,
-        closure_layout: Some(resume_closure_layout),
+        storage_layout: Some(resume_storage_layout),
         semantic: resume_semantic,
     };
 

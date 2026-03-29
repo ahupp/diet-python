@@ -118,7 +118,7 @@ impl PreparedTraceNameLocator {
             }
         }
         let captured_cell_slots = function
-            .closure_layout
+            .storage_layout
             .as_ref()
             .map(|layout| {
                 let mut slots = HashMap::new();
@@ -130,7 +130,7 @@ impl PreparedTraceNameLocator {
             })
             .unwrap_or_default();
         let owned_cell_slots = function
-            .closure_layout
+            .storage_layout
             .as_ref()
             .map(|layout| {
                 let mut slots = HashMap::new();

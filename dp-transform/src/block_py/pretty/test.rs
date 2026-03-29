@@ -1,7 +1,7 @@
 use super::*;
 use crate::block_py::{BlockParam, BlockParamRole};
 use crate::block_py::{
-    BlockPyAssign, ClosureInit, ClosureLayout, ClosureSlot, LocatedName, NameLocation, RuffExpr,
+    BlockPyAssign, ClosureInit, ClosureSlot, LocatedName, NameLocation, RuffExpr, StorageLayout,
 };
 use crate::lower_python_to_blockpy_recorded;
 use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
@@ -223,7 +223,7 @@ fn renders_public_closure_metadata_in_function_header() {
                 exc_edge: None,
             }],
             doc: None,
-            closure_layout: Some(ClosureLayout {
+            storage_layout: Some(StorageLayout {
                 freevars: vec![ClosureSlot {
                     logical_name: "factor".to_string(),
                     storage_name: "factor".to_string(),
@@ -239,6 +239,7 @@ fn renders_public_closure_metadata_in_function_header() {
                     storage_name: "_dp_cell__dp_pc".to_string(),
                     init: ClosureInit::RuntimePcUnstarted,
                 }],
+                stack_slots: Vec::new(),
             }),
             semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
         }],
@@ -299,7 +300,7 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
             },
         ],
         doc: None,
-        closure_layout: None,
+        storage_layout: None,
         semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
     };
     let rendered = blockpy_module_to_string(&BlockPyModule {
@@ -379,7 +380,7 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
             },
         ],
         doc: None,
-        closure_layout: None,
+        storage_layout: None,
         semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
     };
     let rendered = blockpy_module_to_string(&BlockPyModule {
@@ -467,7 +468,7 @@ fn renders_bb_block_metadata_with_shared_layout() {
                 },
             ],
             doc: None,
-            closure_layout: None,
+            storage_layout: None,
             semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
         }],
     });

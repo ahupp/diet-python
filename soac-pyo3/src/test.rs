@@ -74,8 +74,8 @@ def outer(scale):
     let registered_function =
         jit::lookup_blockpy_function(module_name, inner_function.function_id.0)
             .expect("registered plan should exist");
-    let closure_layout = inner_function
-        .closure_layout()
+    let storage_layout = inner_function
+        .storage_layout()
         .as_ref()
         .expect("inner function should preserve closure layout");
     let mut slot_names = Vec::new();
@@ -85,10 +85,10 @@ def outer(scale):
             slot_names.push(name);
         }
     };
-    for name in closure_layout.ambient_storage_names() {
+    for name in storage_layout.ambient_storage_names() {
         push_name(name);
     }
-    for name in closure_layout.local_cell_storage_names() {
+    for name in storage_layout.local_cell_storage_names() {
         push_name(name);
     }
     for name in inner_function.params.names() {
@@ -99,7 +99,7 @@ def outer(scale):
             push_name(name.to_string());
         }
     }
-    let ambient_names = closure_layout.ambient_storage_names();
+    let ambient_names = storage_layout.ambient_storage_names();
 
     assert_eq!(
         ambient_names.len(),
@@ -289,24 +289,24 @@ def exercise():
             .collect::<Vec<_>>()
     );
 
-    let closure_layout = gen_function
-        .closure_layout()
+    let storage_layout = gen_function
+        .storage_layout()
         .as_ref()
         .expect("hidden resume should preserve closure layout");
     assert!(
-        closure_layout
+        storage_layout
             .freevars
             .iter()
             .any(|slot| slot.logical_name == "exc"),
         "expected hidden resume closure layout to preserve the user-visible exception binding as a freevar cell: {:?}",
-        closure_layout
+        storage_layout
     );
     assert!(
-        closure_layout
+        storage_layout
             .freevars
             .iter()
             .any(|slot| slot.logical_name == "exc" && slot.storage_name.contains("exc")),
         "expected hidden resume closure slot for exc to keep a stable cell storage name: {:?}",
-        closure_layout
+        storage_layout
     );
 }

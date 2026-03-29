@@ -223,7 +223,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
                 },
             ],
             doc: None,
-            closure_layout: None,
+            storage_layout: None,
             semantic: BlockPyCallableSemanticInfo::default(),
         }],
     };
@@ -313,7 +313,7 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
                 exc_edge: None,
             }],
             doc: None,
-            closure_layout: None,
+            storage_layout: None,
             semantic: BlockPyCallableSemanticInfo::default(),
         }],
     };

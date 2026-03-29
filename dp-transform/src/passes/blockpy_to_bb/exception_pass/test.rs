@@ -1,7 +1,7 @@
 use super::lower_try_jump_exception_flow;
 use crate::block_py::{
     validate_module, AbruptKind, BlockArg, BlockPyBindingKind, BlockPyCellBindingKind, BlockPyEdge,
-    BlockPyLabel, BlockPyTerm, ClosureLayout, LocatedCoreBlockPyExpr, ResolvedStorageBlock,
+    BlockPyLabel, BlockPyTerm, LocatedCoreBlockPyExpr, ResolvedStorageBlock, StorageLayout,
 };
 use crate::lower_python_to_blockpy_recorded;
 use crate::passes::CodegenBlockPyPass;
@@ -159,7 +159,7 @@ def f():
 }
 
 #[test]
-fn rejects_semantic_cell_binding_storage_drift_from_closure_layout() {
+fn rejects_semantic_cell_binding_storage_drift_from_storage_layout() {
     let source = r#"
 def f():
     return 1
@@ -169,7 +169,7 @@ def f():
         .callable_defs
         .first_mut()
         .expect("must contain function");
-    function.closure_layout = Some(ClosureLayout {
+    function.storage_layout = Some(StorageLayout {
         freevars: vec![],
         cellvars: vec![crate::block_py::ClosureSlot {
             logical_name: "captured".to_string(),
@@ -177,6 +177,7 @@ def f():
             init: crate::block_py::ClosureInit::Deferred,
         }],
         runtime_cells: vec![],
+        stack_slots: Vec::new(),
     });
     function.semantic.insert_binding(
         "captured",

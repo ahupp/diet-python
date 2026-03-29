@@ -9,10 +9,10 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use dp_transform::block_py::{
-    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm, ClosureLayout,
-    CodegenBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg,
-    CoreBlockPyKeywordArg, LocatedCodegenBlockPyExpr, LocatedName, NameLocation,
-    ParamDefaultSource, operation as blockpy_intrinsics,
+    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm, CodegenBlock,
+    CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyKeywordArg,
+    LocatedCodegenBlockPyExpr, LocatedName, NameLocation, ParamDefaultSource, StorageLayout,
+    operation as blockpy_intrinsics,
 };
 use dp_transform::passes::CodegenBlockPyPass;
 use std::borrow::Cow;
@@ -53,7 +53,7 @@ struct SpecializedJitBlockData {
 
 #[derive(Clone)]
 struct SpecializedJitData {
-    function_state_slot_names: Vec<String>,
+    stack_slot_names: Vec<String>,
     blocks: Vec<SpecializedJitBlockData>,
 }
 
@@ -390,7 +390,7 @@ enum CompiledRunnerEntry {
 fn codegen_expr_is_borrowable(
     expr: &LocatedCodegenBlockPyExpr,
     local_names: &[String],
-    function_state_slots: &FunctionStateSlots,
+    stack_slots: &StackSlots,
 ) -> bool {
     match expr {
         CodegenBlockPyExpr::Name(name) => {
@@ -405,7 +405,7 @@ fn codegen_expr_is_borrowable(
             local_names
                 .iter()
                 .any(|candidate| candidate == name.id.as_str())
-                || function_state_slots.has_name(name.id.as_str())
+                || stack_slots.has_name(name.id.as_str())
         }
         CodegenBlockPyExpr::Literal(_)
         | CodegenBlockPyExpr::Op(_)
@@ -471,7 +471,7 @@ struct JitEmitConsts {
 }
 
 struct JitEmitCtx {
-    closure_layout: Option<ClosureLayout>,
+    storage_layout: Option<StorageLayout>,
     incref_ref: ir::FuncRef,
     decref_ref: ir::FuncRef,
     py_call_positional_three_ref: ir::FuncRef,
@@ -495,7 +495,7 @@ struct JitEmitCtx {
     py_call_with_kw_ref: ir::FuncRef,
     tuple_new_ref: ir::FuncRef,
     tuple_set_item_ref: ir::FuncRef,
-    function_state_slots: FunctionStateSlots,
+    stack_slots: StackSlots,
 }
 
 struct CodegenIntrinsicEmitState<'a, 'b, 'c, 'd> {
@@ -509,12 +509,12 @@ struct CodegenIntrinsicEmitState<'a, 'b, 'c, 'd> {
 }
 
 #[derive(Clone)]
-struct FunctionStateSlots {
+struct StackSlots {
     names: Vec<String>,
     slots: Vec<ir::StackSlot>,
 }
 
-impl FunctionStateSlots {
+impl StackSlots {
     fn new(fb: &mut FunctionBuilder<'_>, slot_names: &[String]) -> Self {
         let mut slots = Vec::with_capacity(slot_names.len());
         for _ in slot_names {
@@ -578,47 +578,13 @@ impl FunctionStateSlots {
     }
 }
 
-fn function_state_slot_names(
-    function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
-) -> Vec<String> {
-    let mut slot_names = Vec::new();
-    let mut seen = HashMap::new();
-
-    let mut push_name = |name: String| {
-        if seen.insert(name.clone(), ()).is_none() {
-            slot_names.push(name);
-        }
-    };
-
-    if let Some(layout) = function.closure_layout().as_ref() {
-        for name in layout.ambient_storage_names() {
-            push_name(name);
-        }
-        for name in layout.local_cell_storage_names() {
-            push_name(name);
-        }
-    }
-
-    for name in function.params.names() {
-        push_name(name);
-    }
-
-    for block in &function.blocks {
-        for name in block.param_names() {
-            push_name(name.to_string());
-        }
-    }
-
-    slot_names
-}
-
 fn bind_local_value(
     fb: &mut FunctionBuilder<'_>,
     local_names: &mut Vec<String>,
     local_values: &mut Vec<ir::Value>,
     name: &str,
     value: ir::Value,
-    function_state_slots: &FunctionStateSlots,
+    stack_slots: &StackSlots,
     ptr_ty: ir::Type,
     incref_ref: ir::FuncRef,
     decref_ref: ir::FuncRef,
@@ -628,10 +594,10 @@ fn bind_local_value(
         local_names.remove(existing_index);
         fb.ins().call(decref_ref, &[previous]);
     }
-    if function_state_slots.has_name(name) {
-        function_state_slots
+    if stack_slots.has_name(name) {
+        stack_slots
             .replace_cloned_value(fb, name, value, ptr_ty, incref_ref, decref_ref)
-            .expect("slot-backed local missing from function state slots");
+            .expect("slot-backed local missing from stack slots");
         fb.ins().call(decref_ref, &[value]);
     } else {
         local_names.push(name.to_string());
@@ -644,7 +610,7 @@ fn delete_local_value(
     local_names: &mut Vec<String>,
     local_values: &mut Vec<ir::Value>,
     name: &str,
-    function_state_slots: &FunctionStateSlots,
+    stack_slots: &StackSlots,
     deleted_const: ir::Value,
     ptr_ty: ir::Type,
     incref_ref: ir::FuncRef,
@@ -654,13 +620,13 @@ fn delete_local_value(
         let previous = local_values.remove(index);
         local_names.remove(index);
         fb.ins().call(decref_ref, &[previous]);
-    } else if !function_state_slots.has_name(name) {
+    } else if !stack_slots.has_name(name) {
         return Err(format!("missing local binding for delete target: {name}"));
     }
-    if function_state_slots.has_name(name) {
-        function_state_slots
+    if stack_slots.has_name(name) {
+        stack_slots
             .replace_cloned_value(fb, name, deleted_const, ptr_ty, incref_ref, decref_ref)
-            .expect("slot-backed delete target missing from function state slots");
+            .expect("slot-backed delete target missing from stack slots");
     }
     Ok(())
 }
@@ -689,7 +655,7 @@ impl<'a, 'b, 'c, 'd> intrinsics::OperationEmitState<'b, LocatedCodegenBlockPyExp
         let mut arg_values = Vec::with_capacity(args.len());
         for arg in args {
             let borrowed_arg =
-                codegen_expr_is_borrowable(arg, self.local_names, &self.ctx.function_state_slots);
+                codegen_expr_is_borrowable(arg, self.local_names, &self.ctx.stack_slots);
             let value = emit_codegen_expr(
                 self.fb,
                 arg,
@@ -752,15 +718,15 @@ impl<'a, 'b, 'c, 'd> intrinsics::OperationEmitState<'b, LocatedCodegenBlockPyExp
     }
 }
 
-fn load_function_state_value(
+fn load_stack_slot_value(
     fb: &mut FunctionBuilder<'_>,
-    function_state_slots: &FunctionStateSlots,
+    stack_slots: &StackSlots,
     name: &str,
     ptr_ty: ir::Type,
     borrowed: bool,
     incref_ref: ir::FuncRef,
 ) -> Option<ir::Value> {
-    let slot = function_state_slots.slot_for_name(name)?;
+    let slot = stack_slots.slot_for_name(name)?;
     let value = fb.ins().stack_load(ptr_ty, slot, 0);
     if !borrowed {
         fb.ins().call(incref_ref, &[value]);
@@ -790,7 +756,7 @@ fn emit_raw_cell_object_for_name(
     match name.location {
         NameLocation::OwnedCell { slot } => {
             let closure_slot = ctx
-                .closure_layout
+                .storage_layout
                 .as_ref()
                 .and_then(|layout| layout.local_cell_slot(slot))
                 .unwrap_or_else(|| {
@@ -812,9 +778,9 @@ fn emit_raw_cell_object_for_name(
                     fb.ins().call(ctx.incref_ref, &[slot_value]);
                     return slot_value;
                 }
-                if let Some(slot_value) = load_function_state_value(
+                if let Some(slot_value) = load_stack_slot_value(
                     fb,
-                    &ctx.function_state_slots,
+                    &ctx.stack_slots,
                     candidate_name,
                     ptr_ty,
                     false,
@@ -1062,9 +1028,9 @@ fn emit_codegen_expr(
                         }
                         return slot_value;
                     }
-                    if let Some(slot_value) = load_function_state_value(
+                    if let Some(slot_value) = load_stack_slot_value(
                         fb,
-                        &ctx.function_state_slots,
+                        &ctx.stack_slots,
                         name.id.as_str(),
                         ptr_ty,
                         borrowed,
@@ -1319,7 +1285,7 @@ fn emit_codegen_expr(
                     let value_borrowed = codegen_expr_is_borrowable(
                         &op.arg1,
                         intrinsic_state.local_names,
-                        &intrinsic_state.ctx.function_state_slots,
+                        &intrinsic_state.ctx.stack_slots,
                     );
                     let value_obj = emit_codegen_expr(
                         intrinsic_state.fb,
@@ -1428,11 +1394,8 @@ fn emit_codegen_expr(
             }
 
             if has_unpack {
-                let callable_is_borrowed = codegen_expr_is_borrowable(
-                    call.func.as_ref(),
-                    local_names,
-                    &ctx.function_state_slots,
-                );
+                let callable_is_borrowed =
+                    codegen_expr_is_borrowable(call.func.as_ref(), local_names, &ctx.stack_slots);
                 let callable = emit_codegen_expr(
                     fb,
                     call.func.as_ref(),
@@ -1581,11 +1544,8 @@ fn emit_codegen_expr(
                     );
                     fb.switch_to_block(method_ok);
                     let method_obj = fb.block_params(method_ok)[0];
-                    let value_borrowed = codegen_expr_is_borrowable(
-                        value_expr,
-                        local_names,
-                        &ctx.function_state_slots,
-                    );
+                    let value_borrowed =
+                        codegen_expr_is_borrowable(value_expr, local_names, &ctx.stack_slots);
                     let value_obj = emit_codegen_expr(
                         fb,
                         value_expr,
@@ -1650,11 +1610,8 @@ fn emit_codegen_expr(
                             );
                             fb.switch_to_block(key_ok);
                             let key_obj = fb.block_params(key_ok)[0];
-                            let value_borrowed = codegen_expr_is_borrowable(
-                                value,
-                                local_names,
-                                &ctx.function_state_slots,
-                            );
+                            let value_borrowed =
+                                codegen_expr_is_borrowable(value, local_names, &ctx.stack_slots);
                             let value_obj = emit_codegen_expr(
                                 fb,
                                 value,
@@ -1747,7 +1704,7 @@ fn emit_codegen_expr(
                             let value_borrowed = codegen_expr_is_borrowable(
                                 value_expr,
                                 local_names,
-                                &ctx.function_state_slots,
+                                &ctx.stack_slots,
                             );
                             let value_obj = emit_codegen_expr(
                                 fb,
@@ -1919,11 +1876,8 @@ fn emit_codegen_expr(
                         let mut arg_values: Vec<ir::Value> = Vec::with_capacity(args.len());
                         let mut borrowed_args: Vec<bool> = Vec::with_capacity(args.len());
                         for arg in &args {
-                            let borrowed_arg = codegen_expr_is_borrowable(
-                                arg,
-                                local_names,
-                                &ctx.function_state_slots,
-                            );
+                            let borrowed_arg =
+                                codegen_expr_is_borrowable(arg, local_names, &ctx.stack_slots);
                             let value = emit_codegen_expr(
                                 fb,
                                 arg,
@@ -1953,11 +1907,8 @@ fn emit_codegen_expr(
                         if let Some(name) = codegen_expr_const_string(args[0]) {
                             let (name_ptr, name_len) =
                                 intern_bytes_literal(literal_pool, name.as_bytes());
-                            let value_borrowed = codegen_expr_is_borrowable(
-                                args[1],
-                                local_names,
-                                &ctx.function_state_slots,
-                            );
+                            let value_borrowed =
+                                codegen_expr_is_borrowable(args[1], local_names, &ctx.stack_slots);
                             let value_obj = emit_codegen_expr(
                                 fb,
                                 args[1],
@@ -2072,11 +2023,8 @@ fn emit_codegen_expr(
                                     }
                                 }
                             }
-                            let borrowed_arg = codegen_expr_is_borrowable(
-                                arg,
-                                local_names,
-                                &ctx.function_state_slots,
-                            );
+                            let borrowed_arg =
+                                codegen_expr_is_borrowable(arg, local_names, &ctx.stack_slots);
                             let value = emit_codegen_expr(
                                 fb,
                                 arg,
@@ -2133,25 +2081,18 @@ fn emit_codegen_expr(
                 local_values,
                 ctx,
                 literal_pool,
-                codegen_expr_is_borrowable(
-                    call.func.as_ref(),
-                    local_names,
-                    &ctx.function_state_slots,
-                ),
+                codegen_expr_is_borrowable(call.func.as_ref(), local_names, &ctx.stack_slots),
                 jit_module,
                 func_imports,
             );
-            let callable_is_borrowed = codegen_expr_is_borrowable(
-                call.func.as_ref(),
-                local_names,
-                &ctx.function_state_slots,
-            );
+            let callable_is_borrowed =
+                codegen_expr_is_borrowable(call.func.as_ref(), local_names, &ctx.stack_slots);
             if keywords.is_empty() && args.len() <= 3 {
                 let mut arg_values = [null_ptr, null_ptr, null_ptr];
                 let mut arg_borrowed = [true, true, true];
                 for (idx, arg) in args.iter().enumerate() {
                     let borrowed_arg =
-                        codegen_expr_is_borrowable(arg, local_names, &ctx.function_state_slots);
+                        codegen_expr_is_borrowable(arg, local_names, &ctx.stack_slots);
                     arg_borrowed[idx] = borrowed_arg;
                     arg_values[idx] = emit_codegen_expr(
                         fb,
@@ -2219,8 +2160,7 @@ fn emit_codegen_expr(
             let call_args_tuple = fb.block_params(tuple_ok_block)[0];
             let mut tuple_items: Vec<(ir::Value, bool)> = Vec::with_capacity(args.len());
             for arg in args {
-                let borrowed_arg =
-                    codegen_expr_is_borrowable(arg, local_names, &ctx.function_state_slots);
+                let borrowed_arg = codegen_expr_is_borrowable(arg, local_names, &ctx.stack_slots);
                 let value = emit_codegen_expr(
                     fb,
                     arg,
@@ -2351,11 +2291,8 @@ fn emit_codegen_expr(
                     fb.switch_to_block(key_ok);
                     let key_obj = fb.block_params(key_ok)[0];
 
-                    let value_borrowed = codegen_expr_is_borrowable(
-                        value_expr,
-                        local_names,
-                        &ctx.function_state_slots,
-                    );
+                    let value_borrowed =
+                        codegen_expr_is_borrowable(value_expr, local_names, &ctx.stack_slots);
                     let value_obj = emit_codegen_expr(
                         fb,
                         value_expr,
@@ -2513,9 +2450,9 @@ fn emit_prepare_target_args_codegen(
                         }
                         *forwarded_count += 1;
                         value
-                    } else if let Some(value) = load_function_state_value(
+                    } else if let Some(value) = load_stack_slot_value(
                         fb,
-                        &ctx.function_state_slots,
+                        &ctx.stack_slots,
                         source_name,
                         ctx.consts.ptr_ty,
                         false,
@@ -2548,9 +2485,9 @@ fn emit_prepare_target_args_codegen(
             args.push(ir::BlockArg::Value(value));
             continue;
         }
-        if let Some(value) = load_function_state_value(
+        if let Some(value) = load_stack_slot_value(
             fb,
-            &ctx.function_state_slots,
+            &ctx.stack_slots,
             name,
             ctx.consts.ptr_ty,
             false,
@@ -2590,9 +2527,9 @@ fn emit_explicit_target_slot_writes_codegen(
                     .position(|candidate| candidate == source_name)
                 {
                     (local_values[index], false)
-                } else if let Some(value) = load_function_state_value(
+                } else if let Some(value) = load_stack_slot_value(
                     fb,
-                    &ctx.function_state_slots,
+                    &ctx.stack_slots,
                     source_name,
                     ctx.consts.ptr_ty,
                     true,
@@ -2610,7 +2547,7 @@ fn emit_explicit_target_slot_writes_codegen(
                 true,
             ),
         };
-        ctx.function_state_slots
+        ctx.stack_slots
             .replace_cloned_value(
                 fb,
                 target_name,
@@ -2619,7 +2556,7 @@ fn emit_explicit_target_slot_writes_codegen(
                 ctx.incref_ref,
                 ctx.decref_ref,
             )
-            .expect("explicit edge slot target missing from function state slots");
+            .expect("explicit edge slot target missing from stack slots");
         if owned_value {
             fb.ins().call(ctx.decref_ref, &[value]);
         }
@@ -2631,7 +2568,7 @@ fn emit_exception_dispatch_slot_writes(
     fb: &mut FunctionBuilder<'_>,
     slot_writes: &[(String, BlockArg)],
     dispatch_exc: ir::Value,
-    function_state_slots: &FunctionStateSlots,
+    stack_slots: &StackSlots,
     ptr_ty: ir::Type,
     none_const: ir::Value,
     incref_ref: ir::FuncRef,
@@ -2639,9 +2576,9 @@ fn emit_exception_dispatch_slot_writes(
 ) -> Result<(), String> {
     for (target_name, source) in slot_writes {
         let value = match source {
-            BlockArg::Name(source_name) => load_function_state_value(
+            BlockArg::Name(source_name) => load_stack_slot_value(
                 fb,
-                function_state_slots,
+                stack_slots,
                 source_name,
                 ptr_ty,
                 true,
@@ -2658,9 +2595,9 @@ fn emit_exception_dispatch_slot_writes(
                 unreachable!("validated exception edges should not use abrupt-kind args")
             }
         };
-        function_state_slots
+        stack_slots
             .replace_cloned_value(fb, target_name, value, ptr_ty, incref_ref, decref_ref)
-            .expect("exception dispatch slot target missing from function state slots");
+            .expect("exception dispatch slot target missing from stack slots");
     }
     Ok(())
 }
@@ -2726,7 +2663,7 @@ fn emit_codegen_ops(
     ops: &[BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>],
     local_names: &mut Vec<String>,
     local_values: &mut Vec<ir::Value>,
-    function_state_slots: &FunctionStateSlots,
+    stack_slots: &StackSlots,
     emit_ctx: &JitEmitCtx,
     literal_pool: &mut Vec<Box<[u8]>>,
     jit_module: &mut JITModule,
@@ -2752,7 +2689,7 @@ fn emit_codegen_ops(
                     local_values,
                     assign.target.id.as_str(),
                     value,
-                    function_state_slots,
+                    stack_slots,
                     emit_ctx.consts.ptr_ty,
                     emit_ctx.incref_ref,
                     emit_ctx.decref_ref,
@@ -2778,7 +2715,7 @@ fn emit_codegen_ops(
                     local_names,
                     local_values,
                     delete_stmt.target.id.as_str(),
-                    function_state_slots,
+                    stack_slots,
                     emit_ctx.consts.deleted_const,
                     emit_ctx.consts.ptr_ty,
                     emit_ctx.incref_ref,
@@ -3064,9 +3001,7 @@ fn emit_codegen_term(
             for value in local_values {
                 fb.ins().call(decref_ref, &[*value]);
             }
-            emit_ctx
-                .function_state_slots
-                .decref_all(fb, ptr_ty, decref_ref);
+            emit_ctx.stack_slots.decref_all(fb, ptr_ty, decref_ref);
             fb.ins().return_(&[ret_value]);
         }
         BlockPyTerm::Raise(raise_stmt) => {
@@ -3519,8 +3454,7 @@ fn build_cranelift_run_bb_specialized_function(
         }
         let step_null_block = fb.create_block();
         let raise_exc_direct_block = fb.create_block();
-        let function_state_slots =
-            FunctionStateSlots::new(&mut fb, &jit_data.function_state_slot_names);
+        let stack_slots = StackSlots::new(&mut fb, &jit_data.stack_slot_names);
 
         register_block_display_annotation(
             &mut block_annotations,
@@ -3655,7 +3589,7 @@ fn build_cranelift_run_bb_specialized_function(
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_TUPLE_SET_ITEM_IMPORT);
 
         let entry_deleted_const = fb.ins().iconst(ptr_ty, deleted_obj as i64);
-        function_state_slots.initialize_all_to_value(&mut fb, entry_deleted_const, incref_ref);
+        stack_slots.initialize_all_to_value(&mut fb, entry_deleted_const, incref_ref);
 
         let null_ptr = fb.ins().iconst(ptr_ty, 0);
         let entry_failure_block = cleanup_null_blocks[0];
@@ -3704,7 +3638,7 @@ fn build_cranelift_run_bb_specialized_function(
                     );
                     fb.switch_to_block(default_ok_block);
                     let default_value = fb.block_params(default_ok_block)[0];
-                    function_state_slots
+                    stack_slots
                         .replace_cloned_value(
                             &mut fb,
                             param.name.as_str(),
@@ -3713,12 +3647,12 @@ fn build_cranelift_run_bb_specialized_function(
                             incref_ref,
                             decref_ref,
                         )
-                        .expect("entry slot missing from function state slots");
+                        .expect("entry slot missing from stack slots");
                     fb.ins().call(decref_ref, &[default_value]);
                     fb.ins().jump(after_block, &[]);
 
                     fb.switch_to_block(use_arg_block);
-                    function_state_slots
+                    stack_slots
                         .replace_cloned_value(
                             &mut fb,
                             param.name.as_str(),
@@ -3727,7 +3661,7 @@ fn build_cranelift_run_bb_specialized_function(
                             incref_ref,
                             decref_ref,
                         )
-                        .expect("entry slot missing from function state slots");
+                        .expect("entry slot missing from stack slots");
                     fb.ins().jump(after_block, &[]);
 
                     fb.switch_to_block(after_block);
@@ -3764,7 +3698,7 @@ fn build_cranelift_run_bb_specialized_function(
                     );
                     fb.switch_to_block(default_ok_block);
                     let default_value = fb.block_params(default_ok_block)[0];
-                    function_state_slots
+                    stack_slots
                         .replace_cloned_value(
                             &mut fb,
                             param.name.as_str(),
@@ -3773,12 +3707,12 @@ fn build_cranelift_run_bb_specialized_function(
                             incref_ref,
                             decref_ref,
                         )
-                        .expect("entry slot missing from function state slots");
+                        .expect("entry slot missing from stack slots");
                     fb.ins().call(decref_ref, &[default_value]);
                     fb.ins().jump(after_block, &[]);
 
                     fb.switch_to_block(use_arg_block);
-                    function_state_slots
+                    stack_slots
                         .replace_cloned_value(
                             &mut fb,
                             param.name.as_str(),
@@ -3787,13 +3721,13 @@ fn build_cranelift_run_bb_specialized_function(
                             incref_ref,
                             decref_ref,
                         )
-                        .expect("entry slot missing from function state slots");
+                        .expect("entry slot missing from stack slots");
                     fb.ins().jump(after_block, &[]);
 
                     fb.switch_to_block(after_block);
                 }
                 None => {
-                    function_state_slots
+                    stack_slots
                         .replace_cloned_value(
                             &mut fb,
                             param.name.as_str(),
@@ -3802,22 +3736,16 @@ fn build_cranelift_run_bb_specialized_function(
                             incref_ref,
                             decref_ref,
                         )
-                        .expect("entry slot missing from function state slots");
+                        .expect("entry slot missing from stack slots");
                 }
             }
         }
 
         let mut entry_jump_args = Vec::with_capacity(runtime_block_param_names[0].len());
         for param_name in &runtime_block_param_names[0] {
-            let value = load_function_state_value(
-                &mut fb,
-                &function_state_slots,
-                param_name,
-                ptr_ty,
-                false,
-                incref_ref,
-            )
-            .expect("entry runtime param missing from function state slots");
+            let value =
+                load_stack_slot_value(&mut fb, &stack_slots, param_name, ptr_ty, false, incref_ref)
+                    .expect("entry runtime param missing from stack slots");
             entry_jump_args.push(ir::BlockArg::Value(value));
         }
         fb.ins().jump(exec_blocks[0], &entry_jump_args);
@@ -3843,7 +3771,7 @@ fn build_cranelift_run_bb_specialized_function(
                 .iter()
                 .zip(block_param_values.iter())
             {
-                function_state_slots
+                stack_slots
                     .replace_cloned_value(
                         &mut fb,
                         param_name,
@@ -3852,7 +3780,7 @@ fn build_cranelift_run_bb_specialized_function(
                         incref_ref,
                         decref_ref,
                     )
-                    .expect("runtime block param missing from function state slots");
+                    .expect("runtime block param missing from stack slots");
                 fb.ins().call(decref_ref, &[*param_value]);
             }
             let block_const = fb.ins().iconst(ptr_ty, globals_obj as i64);
@@ -3865,7 +3793,7 @@ fn build_cranelift_run_bb_specialized_function(
                 exception_dispatch_blocks[index].unwrap_or(cleanup_null_blocks[index]);
             let fast_step_null_args = Vec::new();
             let emit_ctx = JitEmitCtx {
-                closure_layout: function.closure_layout().clone(),
+                storage_layout: function.storage_layout().clone(),
                 incref_ref,
                 decref_ref,
                 py_call_positional_three_ref,
@@ -3901,7 +3829,7 @@ fn build_cranelift_run_bb_specialized_function(
                 py_call_with_kw_ref,
                 tuple_new_ref,
                 tuple_set_item_ref,
-                function_state_slots: function_state_slots.clone(),
+                stack_slots: stack_slots.clone(),
             };
             let block_data = &jit_data.blocks[index];
             let mut local_names = Vec::new();
@@ -3912,7 +3840,7 @@ fn build_cranelift_run_bb_specialized_function(
                 &block_data.source.body,
                 &mut local_names,
                 &mut local_values,
-                &function_state_slots,
+                &stack_slots,
                 &emit_ctx,
                 &mut literal_pool,
                 jit_module,
@@ -3973,7 +3901,7 @@ fn build_cranelift_run_bb_specialized_function(
                 &mut fb,
                 &dispatch_plan.slot_writes,
                 dispatch_exc,
-                &function_state_slots,
+                &stack_slots,
                 ptr_ty,
                 none_const,
                 incref_ref,
@@ -3996,14 +3924,14 @@ fn build_cranelift_run_bb_specialized_function(
             for value in cleanup_args {
                 fb.ins().call(decref_ref, &[value]);
             }
-            function_state_slots.decref_all(&mut fb, ptr_ty, decref_ref);
+            stack_slots.decref_all(&mut fb, ptr_ty, decref_ref);
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
             fb.ins().return_(&[null_ptr]);
         }
 
         fb.switch_to_block(step_null_block);
         let step_null_args = fb.block_params(step_null_block)[0];
-        function_state_slots.decref_all(&mut fb, ptr_ty, decref_ref);
+        stack_slots.decref_all(&mut fb, ptr_ty, decref_ref);
         fb.ins().call(decref_ref, &[step_null_args]);
         let null_ptr = fb.ins().iconst(ptr_ty, 0);
         fb.ins().return_(&[null_ptr]);
@@ -4032,7 +3960,7 @@ fn build_cranelift_run_bb_specialized_function(
         fb.ins().jump(red_done_block, &[]);
         fb.switch_to_block(red_done_block);
         fb.ins().call(decref_ref, &[red_args]);
-        function_state_slots.decref_all(&mut fb, ptr_ty, decref_ref);
+        stack_slots.decref_all(&mut fb, ptr_ty, decref_ref);
         fb.ins().return_(&[red_null]);
 
         fb.seal_all_blocks();
@@ -4061,7 +3989,12 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     }
 
     let jit_data = SpecializedJitData {
-        function_state_slot_names: function_state_slot_names(function),
+        stack_slot_names: function
+            .storage_layout()
+            .as_ref()
+            .expect("specialized JIT render requires storage layout")
+            .stack_slots()
+            .to_vec(),
         blocks: function
             .blocks
             .iter()
@@ -4166,7 +4099,12 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
         return Err("invalid null globals object passed to specialized JIT run_bb".to_string());
     }
     let jit_data = SpecializedJitData {
-        function_state_slot_names: function_state_slot_names(function),
+        stack_slot_names: function
+            .storage_layout()
+            .as_ref()
+            .expect("specialized JIT compile requires storage layout")
+            .stack_slots()
+            .to_vec(),
         blocks: function
             .blocks
             .iter()

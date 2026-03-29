@@ -76,7 +76,7 @@ where
                 .map(|block| self.map_block(block))
                 .collect(),
             doc: func.doc,
-            closure_layout: func.closure_layout,
+            storage_layout: func.storage_layout,
             semantic: func.semantic,
         }
     }
@@ -239,7 +239,7 @@ where
                 .map(|block| self.try_map_block(block))
                 .collect::<Result<_, _>>()?,
             doc: func.doc,
-            closure_layout: func.closure_layout,
+            storage_layout: func.storage_layout,
             semantic: func.semantic,
         })
     }

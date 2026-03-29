@@ -258,14 +258,15 @@ pub enum BlockPyBindingKind {
     Cell(BlockPyCellBindingKind),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClosureLayout {
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StorageLayout {
     pub freevars: Vec<ClosureSlot>,
     pub cellvars: Vec<ClosureSlot>,
     pub runtime_cells: Vec<ClosureSlot>,
+    pub stack_slots: Vec<String>,
 }
 
-impl ClosureLayout {
+impl StorageLayout {
     pub fn freevar_slot(&self, slot: u32) -> Option<&ClosureSlot> {
         self.freevars.get(slot as usize)
     }
@@ -314,6 +315,22 @@ impl ClosureLayout {
                 .runtime_cells
                 .iter()
                 .any(|slot| slot.storage_name == storage_name)
+    }
+
+    pub fn stack_slots(&self) -> &[String] {
+        &self.stack_slots
+    }
+
+    pub fn set_stack_slots(&mut self, stack_slots: Vec<String>) {
+        self.stack_slots = stack_slots;
+    }
+
+    pub fn ensure_stack_slot(&mut self, name: impl Into<String>) {
+        let name = name.into();
+        if self.stack_slots.iter().any(|existing| existing == &name) {
+            return;
+        }
+        self.stack_slots.push(name);
     }
 }
 
@@ -1364,7 +1381,7 @@ pub struct BlockPyFunction<P: BlockPyPass> {
     pub params: ParamSpec,
     pub blocks: Vec<CfgBlock<P::Stmt, BlockPyTerm<P::Expr>>>,
     pub doc: Option<String>,
-    pub closure_layout: Option<ClosureLayout>,
+    pub storage_layout: Option<StorageLayout>,
     pub semantic: BlockPyCallableSemanticInfo,
 }
 
@@ -1380,7 +1397,7 @@ impl<P: BlockPyPass> Clone for BlockPyFunction<P> {
             params: self.params.clone(),
             blocks: self.blocks.clone(),
             doc: self.doc.clone(),
-            closure_layout: self.closure_layout.clone(),
+            storage_layout: self.storage_layout.clone(),
             semantic: self.semantic.clone(),
         }
     }
@@ -1391,8 +1408,8 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
         &self.kind
     }
 
-    pub fn closure_layout(&self) -> &Option<ClosureLayout> {
-        &self.closure_layout
+    pub fn storage_layout(&self) -> &Option<StorageLayout> {
+        &self.storage_layout
     }
 
     pub fn entry_block(&self) -> &PassBlock<P> {
@@ -1416,7 +1433,7 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
             params: self.params,
             blocks: self.blocks.into_iter().map(&mut f).collect(),
             doc: self.doc,
-            closure_layout: self.closure_layout,
+            storage_layout: self.storage_layout,
             semantic: self.semantic,
         }
     }

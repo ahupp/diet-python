@@ -17,8 +17,8 @@ use crate::block_py::{
     assert_blockpy_block_normalized, convert_blockpy_term_expr, move_entry_block_to_front,
     BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm, BlockPyFunction,
     BlockPyFunctionKind, BlockPyLabel, BlockPyModule, BlockPyNameLike, BlockPyPass, BlockPyStmt,
-    BlockPyTerm, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, FunctionName, FunctionNameGen,
-    IntoStructuredBlockPyStmt, RuffExpr, StructuredBlockPyStmt,
+    BlockPyTerm, CfgBlock, ClosureInit, ClosureSlot, FunctionName, FunctionNameGen,
+    IntoStructuredBlockPyStmt, RuffExpr, StorageLayout, StructuredBlockPyStmt,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -126,7 +126,7 @@ pub(crate) fn attach_exception_edges_to_blocks<E>(
 
 fn append_closure_storage_aliases(
     block_params: &mut HashMap<BlockPyLabel, Vec<String>>,
-    layout: &ClosureLayout,
+    layout: &StorageLayout,
 ) {
     let logical_name_by_storage = layout
         .cellvars
@@ -177,7 +177,7 @@ where
     let mut block_params =
         recompute_lowered_block_params_for_blocks(&function.params.names(), &function.blocks);
     if include_closure_storage_aliases {
-        if let Some(layout) = function.closure_layout.as_ref() {
+        if let Some(layout) = function.storage_layout.as_ref() {
             append_closure_storage_aliases(&mut block_params, layout);
         }
     }
@@ -219,9 +219,9 @@ where
     block_params
 }
 
-pub(crate) fn compute_closure_layout_from_semantics<P>(
+pub(crate) fn compute_storage_layout_from_semantics<P>(
     callable_def: &BlockPyFunction<P>,
-) -> Option<ClosureLayout>
+) -> Option<StorageLayout>
 where
     P: BlockPyPass,
     P::Expr: Clone + Into<Expr>,
@@ -408,7 +408,7 @@ where
     );
     capture_names.sort();
     capture_names.dedup();
-    build_closure_layout_from_capture_names(
+    build_storage_layout_from_capture_names(
         callable_def,
         capture_names,
         &param_name_set,
@@ -416,12 +416,12 @@ where
     )
 }
 
-pub(crate) fn build_closure_layout_from_capture_names<P>(
+pub(crate) fn build_storage_layout_from_capture_names<P>(
     callable_def: &BlockPyFunction<P>,
     mut capture_names: Vec<String>,
     param_name_set: &HashSet<String>,
     local_cell_slots: &[String],
-) -> Option<ClosureLayout>
+) -> Option<StorageLayout>
 where
     P: BlockPyPass,
     P::Expr: Clone + Into<Expr>,
@@ -478,10 +478,11 @@ where
         })
         .collect::<Vec<_>>();
 
-    Some(ClosureLayout {
+    Some(StorageLayout {
         freevars,
         cellvars,
         runtime_cells: Vec::new(),
+        stack_slots: Vec::new(),
     })
 }
 
@@ -492,7 +493,7 @@ where
     P: BlockPyPass,
     P::Expr: Clone + Into<Expr>,
 {
-    compute_closure_layout_from_semantics(callable)
+    compute_storage_layout_from_semantics(callable)
         .map(|layout| {
             layout
                 .freevars
@@ -586,7 +587,7 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
         params,
         blocks,
         doc,
-        closure_layout: None,
+        storage_layout: None,
         semantic: semantic.clone(),
     };
     let needs_end_block = entry_label == end_label
@@ -633,7 +634,7 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
         params: structured_callable_def.params,
         blocks,
         doc: structured_callable_def.doc,
-        closure_layout: None,
+        storage_layout: None,
         semantic: structured_callable_def.semantic,
     }
 }

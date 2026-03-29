@@ -542,9 +542,9 @@ fn lowering_nonlocal_inner_captures_outer_cell() {
         .find(|callable| callable.names.bind_name == "outer")
         .expect("missing lowered outer callable");
     assert!(
-        inner.closure_layout().is_none(),
+        inner.storage_layout().is_none(),
         "{:?}",
-        inner.closure_layout()
+        inner.storage_layout()
     );
     let rendered =
         crate::block_py::pretty::blockpy_module_to_string(&crate::block_py::BlockPyModule {

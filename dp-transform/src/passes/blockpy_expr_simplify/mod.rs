@@ -711,7 +711,7 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
         params,
         blocks,
         doc,
-        closure_layout,
+        storage_layout,
         semantic,
     } = callable_def;
     let param_names = params.names();
@@ -729,7 +729,7 @@ pub(crate) fn simplify_blockpy_callable_def_exprs(
         params,
         blocks: lower_structured_blocks_to_bb_blocks(&structured_blocks, &block_params),
         doc,
-        closure_layout,
+        storage_layout,
         semantic,
     }
 }

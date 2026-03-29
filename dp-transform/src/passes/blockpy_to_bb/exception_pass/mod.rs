@@ -28,7 +28,7 @@ fn lower_function_try_jump_exception_flow(
         params: function.params,
         blocks: function.blocks,
         doc: function.doc,
-        closure_layout: function.closure_layout,
+        storage_layout: function.storage_layout,
         semantic: function.semantic,
     };
     // Canonicalize exception-edge blocks so each potentially-raising expression

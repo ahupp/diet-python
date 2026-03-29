@@ -477,7 +477,7 @@ pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
         params,
         blocks,
         doc,
-        closure_layout,
+        storage_layout,
         semantic,
     } = callable_def;
     let param_names = params.names();
@@ -505,7 +505,7 @@ pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
         params,
         blocks: lower_structured_blocks_to_bb_blocks(&structured_blocks, &block_params),
         doc,
-        closure_layout,
+        storage_layout,
         semantic,
     }
 }

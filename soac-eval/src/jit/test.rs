@@ -1,10 +1,10 @@
 use super::*;
 use dp_transform::block_py::{
     BinOp, BinOpKind, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyStmt, BlockPyTerm,
-    ClosureInit, ClosureLayout, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
-    CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref,
-    DelDerefQuietly, DelItem, DelQuietly, FunctionName, LoadGlobal, LocatedCodegenBlockPyExpr,
-    LocatedName, MakeString, ModuleNameGen, NameLocation, Operation, Param, ParamKind, ParamSpec,
+    ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral,
+    CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref, DelDerefQuietly,
+    DelItem, DelQuietly, FunctionName, LoadGlobal, LocatedCodegenBlockPyExpr, LocatedName,
+    MakeString, ModuleNameGen, NameLocation, Operation, Param, ParamKind, ParamSpec, StorageLayout,
     StoreGlobal, TernaryOp, TernaryOpKind,
 };
 use dp_transform::passes::CodegenBlockPyPass;
@@ -130,7 +130,7 @@ mod tests {
             params: ParamSpec::default(),
             blocks: vec![],
             doc: None,
-            closure_layout: None,
+            storage_layout: None,
             semantic: Default::default(),
         }
     }
@@ -140,7 +140,7 @@ mod tests {
         blocks: Vec<CodegenBlock>,
     ) -> SpecializedJitData {
         SpecializedJitData {
-            function_state_slot_names: vec![],
+            stack_slot_names: vec![],
             blocks: blocks
                 .into_iter()
                 .map(|source| {
@@ -224,7 +224,7 @@ mod tests {
         let function = test_function();
         let source = test_source_block(&function, vec![], ret_term(int_expr(7)));
         let jit_data = SpecializedJitData {
-            function_state_slot_names: vec!["current".into(), "acc".into()],
+            stack_slot_names: vec!["current".into(), "acc".into()],
             blocks: vec![SpecializedJitBlockData {
                 source,
                 full_param_names: vec!["current".into(), "acc".into()],
@@ -347,7 +347,7 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let function = test_function();
         let mut jit_data = test_single_block_data(&function, vec![], ret_term(int_expr(7)));
-        jit_data.function_state_slot_names = vec!["x".into(), "y".into()];
+        jit_data.stack_slot_names = vec!["x".into(), "y".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.matches("explicit_slot 8").count() >= 2,
@@ -364,7 +364,7 @@ mod tests {
             vec![assign_stmt(test_name("x"), int_expr(7))],
             ret_term(name_expr(test_name("x"))),
         );
-        jit_data.function_state_slot_names = vec!["x".into()];
+        jit_data.stack_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("store.i64") || rendered.contains("stack_store"),
@@ -441,7 +441,7 @@ mod tests {
             vec![],
             ret_term(name_expr(test_closure_cell_name("x", 2))),
         );
-        jit_data.function_state_slot_names = vec!["x".into()];
+        jit_data.stack_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell")
@@ -465,7 +465,7 @@ mod tests {
                 },
             ))),
         );
-        jit_data.function_state_slot_names = vec!["x".into()];
+        jit_data.stack_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell"),
@@ -492,7 +492,7 @@ mod tests {
                 },
             ))),
         );
-        function.closure_layout = Some(ClosureLayout {
+        function.storage_layout = Some(StorageLayout {
             freevars: vec![
                 ClosureSlot {
                     logical_name: "_dp_classcell".into(),
@@ -512,8 +512,9 @@ mod tests {
             ],
             cellvars: vec![],
             runtime_cells: vec![],
+            stack_slots: Vec::new(),
         });
-        jit_data.function_state_slot_names = vec!["_dp_classcell".into()];
+        jit_data.stack_slot_names = vec!["_dp_classcell".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell"),
@@ -557,7 +558,7 @@ mod tests {
             ],
             ret_term(int_expr(0)),
         );
-        jit_data.function_state_slot_names = vec!["cell".into()];
+        jit_data.stack_slot_names = vec!["cell".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_pyobject_delitem"),
@@ -597,7 +598,7 @@ mod tests {
                 },
             ],
         };
-        jit_data.function_state_slot_names = vec!["x".into(), "y".into()];
+        jit_data.stack_slot_names = vec!["x".into(), "y".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_positional_default"),
@@ -618,7 +619,7 @@ mod tests {
                 has_default: true,
             }],
         };
-        jit_data.function_state_slot_names = vec!["x".into()];
+        jit_data.stack_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_kwonly_default"),
@@ -635,7 +636,7 @@ mod tests {
             vec![delete_stmt(test_name("x"))],
             ret_term(int_expr(0)),
         );
-        jit_data.function_state_slot_names = vec!["x".into()];
+        jit_data.stack_slot_names = vec!["x".into()];
         let rendered = render_test_jit_data(&function, &jit_data, &blocks);
         assert!(
             rendered.contains("store.i64")

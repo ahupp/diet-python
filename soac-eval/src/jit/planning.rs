@@ -42,7 +42,7 @@ pub fn exc_dispatch_plan(
     let target_index = exc_edge.target.index();
     let target_block = &function.blocks[target_index];
     let ambient_param_name_set = function
-        .closure_layout()
+        .storage_layout()
         .as_ref()
         .map(|layout| {
             layout

@@ -1,7 +1,7 @@
 use crate::block_py::{
     BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyTerm, PassBlock,
 };
-use crate::passes::ruff_to_blockpy::compute_closure_layout_from_semantics;
+use crate::passes::ruff_to_blockpy::compute_storage_layout_from_semantics;
 
 pub fn validate_module<P: BlockPyPass>(module: &BlockPyModule<P>) -> Result<(), String> {
     for function in &module.callable_defs {
@@ -12,7 +12,7 @@ pub fn validate_module<P: BlockPyPass>(module: &BlockPyModule<P>) -> Result<(), 
 
 fn validate_function<P: BlockPyPass>(function: &BlockPyFunction<P>) -> Result<(), String> {
     let qualname = function.names.qualname.as_str();
-    validate_closure_layout_scoping(function, qualname)?;
+    validate_storage_layout_scoping(function, qualname)?;
     for (index, block) in function.blocks.iter().enumerate() {
         let expected_label = BlockPyLabel::from_index(index);
         if block.label != expected_label {
@@ -105,13 +105,13 @@ fn validate_function<P: BlockPyPass>(function: &BlockPyFunction<P>) -> Result<()
     Ok(())
 }
 
-fn validate_closure_layout_scoping<P: BlockPyPass>(
+fn validate_storage_layout_scoping<P: BlockPyPass>(
     function: &BlockPyFunction<P>,
     qualname: &str,
 ) -> Result<(), String> {
-    let expected_layout = compute_closure_layout_from_semantics(function);
+    let expected_layout = compute_storage_layout_from_semantics(function);
 
-    let Some(layout) = function.closure_layout.as_ref() else {
+    let Some(layout) = function.storage_layout.as_ref() else {
         if expected_layout.is_none() {
             return Ok(());
         }

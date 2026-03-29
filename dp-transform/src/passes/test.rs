@@ -610,7 +610,7 @@ fn nested_method_dunder_class_capture_does_not_leak_classcell_to_enclosing_scope
     let module_init = function_by_name(&bb_module, "_dp_module_init");
     assert!(
         module_init
-            .closure_layout()
+            .storage_layout()
             .as_ref()
             .is_none_or(|layout| layout.freevars.is_empty()),
         "{module_init:?}"
@@ -618,7 +618,7 @@ fn nested_method_dunder_class_capture_does_not_leak_classcell_to_enclosing_scope
     let exercise = function_by_name(&bb_module, "exercise");
     assert!(
         exercise
-            .closure_layout()
+            .storage_layout()
             .as_ref()
             .is_none_or(|layout| layout.freevars.is_empty()),
         "{exercise:?}"
@@ -626,7 +626,7 @@ fn nested_method_dunder_class_capture_does_not_leak_classcell_to_enclosing_scope
     let class_ns = function_by_name(&bb_module, "_dp_class_ns_C");
     assert!(
         class_ns
-            .closure_layout()
+            .storage_layout()
             .as_ref()
             .is_none_or(|layout| layout.freevars.is_empty()),
         "{class_ns:?}"
@@ -634,7 +634,7 @@ fn nested_method_dunder_class_capture_does_not_leak_classcell_to_enclosing_scope
     let method = function_by_name(&bb_module, "f");
     let class_slot = slot_by_name(
         &method
-            .closure_layout()
+            .storage_layout()
             .as_ref()
             .expect("method should have closure layout")
             .freevars,
@@ -661,7 +661,7 @@ fn nested_class_closure_capture_does_not_turn_owner_cell_into_outer_freevar() {
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
     assert!(
-        run.closure_layout()
+        run.storage_layout()
             .as_ref()
             .is_none_or(|layout| layout.freevars.is_empty()),
         "{run:?}"
@@ -669,7 +669,7 @@ fn nested_class_closure_capture_does_not_turn_owner_cell_into_outer_freevar() {
     let class_ns = function_by_name(&bb_module, "_dp_class_ns_Inner");
     let counter_slot = slot_by_name(
         &class_ns
-            .closure_layout()
+            .storage_layout()
             .as_ref()
             .expect("class helper should have closure layout")
             .freevars,
@@ -695,7 +695,7 @@ fn class_global_dunder_class_does_not_leak_synthetic_classcell_outward() {
     let module_init = function_by_name(&bb_module, "_dp_module_init");
     assert!(
         module_init
-            .closure_layout()
+            .storage_layout()
             .as_ref()
             .is_none_or(|layout| layout.freevars.is_empty()),
         "{module_init:?}"
@@ -703,7 +703,7 @@ fn class_global_dunder_class_does_not_leak_synthetic_classcell_outward() {
     let exercise = function_by_name(&bb_module, "exercise");
     assert!(
         exercise
-            .closure_layout()
+            .storage_layout()
             .as_ref()
             .is_none_or(|layout| layout.freevars.is_empty()),
         "{exercise:?}"
@@ -711,7 +711,7 @@ fn class_global_dunder_class_does_not_leak_synthetic_classcell_outward() {
     let class_ns = function_by_name(&bb_module, "_dp_class_ns_X");
     assert!(
         class_ns
-            .closure_layout()
+            .storage_layout()
             .as_ref()
             .is_none_or(|layout| layout.freevars.is_empty()),
         "{class_ns:?}"
@@ -719,7 +719,7 @@ fn class_global_dunder_class_does_not_leak_synthetic_classcell_outward() {
     let method = function_by_name(&bb_module, "f");
     let class_slot = slot_by_name(
         &method
-            .closure_layout()
+            .storage_layout()
             .as_ref()
             .expect("method should have closure layout")
             .freevars,
@@ -1071,7 +1071,7 @@ def delegator():
         .expect("bb module should be available");
     let delegator = function_by_name(&bb_module, "delegator");
     let layout = delegator
-        .closure_layout()
+        .storage_layout()
         .as_ref()
         .expect("closure-backed generator should record closure layout");
     assert!(
@@ -1359,7 +1359,7 @@ def gen():
 
     let resume = lowered.bb_function("gen");
     let try_exc_slot = resume
-        .closure_layout()
+        .storage_layout()
         .as_ref()
         .and_then(|layout| {
             layout
@@ -2231,7 +2231,7 @@ def bump(x):
 }
 
 #[test]
-fn closure_backed_generator_records_explicit_closure_layout() {
+fn closure_backed_generator_records_explicit_storage_layout() {
     let source = r#"
 def outer(scale):
     factor = scale
@@ -2247,7 +2247,7 @@ def outer(scale):
         .expect("bb module should be available");
     let gen = function_by_name(&bb_module, "gen");
     let layout = gen
-        .closure_layout()
+        .storage_layout()
         .as_ref()
         .expect("sync generator should record closure layout");
 
@@ -2284,7 +2284,7 @@ def gen():
         .expect("bb module should be available");
     let gen = function_by_name(&bb_module, "gen");
     let layout = gen
-        .closure_layout()
+        .storage_layout()
         .as_ref()
         .expect("sync generator should record closure layout");
 
@@ -2310,7 +2310,7 @@ def gen():
 }
 
 #[test]
-fn closure_backed_coroutine_records_explicit_closure_layout() {
+fn closure_backed_coroutine_records_explicit_storage_layout() {
     let source = r#"
 class Once:
     def __await__(self):
@@ -2331,7 +2331,7 @@ def outer(scale):
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
     let layout = run
-        .closure_layout()
+        .storage_layout()
         .as_ref()
         .expect("closure-backed coroutine should record closure layout");
 
@@ -2351,7 +2351,7 @@ def outer(scale):
 }
 
 #[test]
-fn closure_backed_async_generator_records_explicit_closure_layout() {
+fn closure_backed_async_generator_records_explicit_storage_layout() {
     let source = r#"
 def outer(scale):
     factor = scale
@@ -2367,7 +2367,7 @@ def outer(scale):
         .expect("bb module should be available");
     let agen = function_by_name(&bb_module, "agen");
     let layout = agen
-        .closure_layout()
+        .storage_layout()
         .as_ref()
         .expect("closure-backed async generator should record closure layout");
 
@@ -2430,7 +2430,7 @@ async def outer(scale):
     assert!(
         generator_callables
             .iter()
-            .all(|func| func.closure_layout().is_some()),
+            .all(|func| func.storage_layout().is_some()),
         "expected only closure-backed generator callables; got {}",
         generator_names.join(", ")
     );
@@ -2737,7 +2737,7 @@ def outer():
     assert!(
         slot_by_name(
             &outer
-                .closure_layout()
+                .storage_layout()
                 .as_ref()
                 .expect("outer should have closure layout")
                 .cellvars,
