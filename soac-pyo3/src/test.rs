@@ -78,45 +78,23 @@ def outer(scale):
         .storage_layout()
         .as_ref()
         .expect("inner function should preserve closure layout");
-    let mut slot_names = Vec::new();
-    let mut seen = HashSet::new();
-    let mut push_name = |name: String| {
-        if seen.insert(name.clone()) {
-            slot_names.push(name);
-        }
-    };
-    for name in storage_layout.ambient_storage_names() {
-        push_name(name);
-    }
-    for name in storage_layout.local_cell_storage_names() {
-        push_name(name);
-    }
-    for name in inner_function.params.names() {
-        push_name(name);
-    }
-    for block in &inner_function.blocks {
-        for name in block.param_names() {
-            push_name(name.to_string());
-        }
-    }
-    let ambient_names = storage_layout.ambient_storage_names();
+    let slot_names = storage_layout.stack_slots().to_vec();
+    let freevar_names = storage_layout
+        .freevars
+        .iter()
+        .map(|slot| slot.storage_name.clone())
+        .collect::<Vec<_>>();
 
     assert_eq!(
-        ambient_names.len(),
+        freevar_names.len(),
         1,
-        "expected one closure capture in ambient state: {:?}",
-        ambient_names
+        "expected one closure capture in storage layout freevars: {:?}",
+        freevar_names
     );
-    let capture_name = &ambient_names[0];
+    let capture_name = &freevar_names[0];
     assert!(
         capture_name.contains("factor"),
         "expected capture name to track factor: {capture_name:?}"
-    );
-    assert_eq!(
-        slot_names.first(),
-        Some(capture_name),
-        "slot inventory should seed ambient captures first: {:?}",
-        slot_names
     );
     assert!(
         slot_names.iter().any(|name| name == "x"),

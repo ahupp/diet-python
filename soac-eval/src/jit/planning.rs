@@ -34,12 +34,14 @@ pub fn exc_dispatch_plan(
     let exc_edge = block.exc_edge.as_ref()?;
     let target_index = exc_edge.target.index();
     let target_block = &function.blocks[target_index];
-    let ambient_param_name_set = function
+    let stack_slot_name_set = function
         .storage_layout()
         .as_ref()
         .map(|layout| {
             layout
-                .ambient_storage_names()
+                .stack_slots()
+                .iter()
+                .cloned()
                 .into_iter()
                 .collect::<HashSet<_>>()
         })
@@ -51,7 +53,7 @@ pub fn exc_dispatch_plan(
     let mut slot_writes = Vec::new();
     for (target_param_name, source) in full_target_param_names.iter().zip(exc_edge.args.iter()) {
         if runtime_param_name_set.contains(target_param_name)
-            || ambient_param_name_set.contains(target_param_name)
+            || !stack_slot_name_set.contains(target_param_name)
         {
             continue;
         }

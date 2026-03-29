@@ -278,16 +278,6 @@ impl StorageLayout {
             .nth(slot as usize)
     }
 
-    pub fn ambient_storage_names(&self) -> Vec<String> {
-        self.freevars
-            .iter()
-            .chain(self.cellvars.iter())
-            .chain(self.runtime_cells.iter())
-            .filter(|slot| matches!(slot.init, ClosureInit::InheritedCapture))
-            .map(|slot| slot.storage_name.clone())
-            .collect()
-    }
-
     pub fn local_cell_storage_names(&self) -> Vec<String> {
         self.cellvars
             .iter()
