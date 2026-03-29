@@ -1,6 +1,5 @@
 use self::operation as block_py_operation;
-pub use self::param_specs::ParamKind;
-use self::param_specs::ParamSpec;
+pub use self::param_specs::{Param, ParamKind, ParamSpec};
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;

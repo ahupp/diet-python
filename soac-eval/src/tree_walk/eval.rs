@@ -1,5 +1,5 @@
-use crate::jit::{self, ClifBindingParam, JitFunctionInfo};
-use dp_transform::block_py::ParamKind;
+use crate::jit::{self, JitFunctionInfo};
+use dp_transform::block_py::{Param, ParamKind};
 use dp_transform::passes::CodegenBlockPyPass;
 use log::info;
 use pyo3::ffi;
@@ -39,7 +39,7 @@ const CLIF_VECTORCALL_ATTR: &[u8] = b"__dp_clif_vectorcall_data\0";
 #[derive(Debug)]
 struct BindingMetadata {
     callable_name: String,
-    params: Vec<ClifBindingParam>,
+    params: Vec<Param>,
     positional_param_indices: Vec<usize>,
     param_lookup: HashMap<String, usize>,
     varargs_param: Option<usize>,
@@ -191,7 +191,7 @@ unsafe fn build_binding_metadata(
     }
 
     ffi::Py_INCREF(deleted_obj);
-    let params = info.entry_params.clone();
+    let params = info.entry_params.params.clone();
     let mut positional_param_indices = Vec::new();
     let mut param_lookup = HashMap::new();
     let mut varargs_param = None;

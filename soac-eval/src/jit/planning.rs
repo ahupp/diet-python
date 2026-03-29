@@ -1,6 +1,6 @@
 use dp_transform::block_py::{
-    BlockArg, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyModule, CodegenBlock,
-    ParamKind,
+    BlockArg, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, CodegenBlock, ParamKind,
+    ParamSpec,
 };
 use dp_transform::passes::CodegenBlockPyPass;
 use std::collections::{HashMap, HashSet};
@@ -8,20 +8,13 @@ use std::sync::{Mutex, OnceLock};
 
 #[derive(Clone, Debug)]
 pub struct JitFunctionInfo {
-    pub entry_params: Vec<ClifBindingParam>,
+    pub entry_params: ParamSpec,
     pub entry_param_names: Vec<String>,
     pub entry_param_default_sources: Vec<Option<ClifEntryParamDefaultSource>>,
     pub ambient_param_names: Vec<String>,
     pub owned_cell_slot_names: Vec<String>,
     pub slot_names: Vec<String>,
     pub blocks: Vec<JitBlockInfo>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ClifBindingParam {
-    pub name: String,
-    pub kind: ParamKind,
-    pub has_default: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -87,10 +80,6 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
         }
     }
 
-    fn index_of_target(&self, target: &BlockPyLabel) -> usize {
-        target.index()
-    }
-
     fn jit_param_names_for_block(&self, block: &CodegenBlock) -> Vec<String> {
         block
             .exception_param()
@@ -99,32 +88,14 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
             .collect()
     }
 
-    fn jit_param_names_for_index(&self, target_index: usize) -> Vec<String> {
-        self.jit_param_names_for_block(&self.function.blocks[target_index])
-    }
-
-    fn exc_target_index(&self, block: &CodegenBlock) -> Option<usize> {
-        block
-            .exc_edge
-            .as_ref()
-            .map(|edge| self.index_of_target(&edge.target))
-    }
-
-    fn exc_dispatch_plan(
-        &self,
-        block: &CodegenBlock,
-        exc_target: Option<usize>,
-    ) -> Option<BlockExcDispatchPlan> {
-        let target_index = exc_target?;
+    fn exc_dispatch_plan(&self, block: &CodegenBlock) -> Option<BlockExcDispatchPlan> {
+        let exc_edge = block.exc_edge.as_ref()?;
+        let target_index = exc_edge.target.index();
         let target_block = &self.function.blocks[target_index];
         let runtime_param_name_set = self
-            .jit_param_names_for_index(target_index)
+            .jit_param_names_for_block(target_block)
             .into_iter()
             .collect::<HashSet<_>>();
-        let exc_edge = block
-            .exc_edge
-            .as_ref()
-            .expect("exc_target implies exc_edge");
         let full_target_param_names = target_block.param_name_vec();
         let mut slot_writes = Vec::new();
         for (target_param_name, source) in full_target_param_names.iter().zip(exc_edge.args.iter())
@@ -210,19 +181,6 @@ impl<'a> ValidatedPreparedBbFunction<'a> {
             })
             .collect()
     }
-
-    fn entry_params(&self) -> Vec<ClifBindingParam> {
-        self.function
-            .params
-            .params
-            .iter()
-            .map(|param| ClifBindingParam {
-                name: param.name.clone(),
-                kind: param.kind,
-                has_default: param.has_default,
-            })
-            .collect()
-    }
 }
 
 fn bb_function_registry() -> &'static Mutex<FunctionRegistry> {
@@ -252,8 +210,8 @@ fn build_jit_function_info(function: &BlockPyFunction<CodegenBlockPyPass>) -> Ji
         .blocks
         .iter()
         .map(|block| {
-            let exc_target = function.exc_target_index(block);
-            let exc_dispatch = function.exc_dispatch_plan(block, exc_target);
+            let exc_dispatch = function.exc_dispatch_plan(block);
+            let exc_target = exc_dispatch.as_ref().map(|plan| plan.target_index);
             let runtime_param_names = function.jit_param_names_for_block(block);
             JitBlockInfo {
                 runtime_param_names,
@@ -263,7 +221,7 @@ fn build_jit_function_info(function: &BlockPyFunction<CodegenBlockPyPass>) -> Ji
         })
         .collect();
     JitFunctionInfo {
-        entry_params: function.entry_params(),
+        entry_params: function.function.params.clone(),
         entry_param_names: function.function.params.names(),
         entry_param_default_sources: function.entry_param_default_sources(),
         ambient_param_names: function.ambient_param_names.clone(),

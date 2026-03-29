@@ -25,9 +25,8 @@ mod planning;
 mod specialized_helpers;
 
 pub use planning::{
-    BlockExcArgSource, BlockExcDispatchPlan, ClifBindingParam, ClifEntryParamDefaultSource,
-    JitFunctionInfo, lookup_blockpy_function, lookup_registered_jit_function,
-    register_clif_module_plans,
+    BlockExcArgSource, BlockExcDispatchPlan, ClifEntryParamDefaultSource, JitFunctionInfo,
+    lookup_blockpy_function, lookup_registered_jit_function, register_clif_module_plans,
 };
 pub use specialized_helpers::ObjPtr;
 use specialized_helpers::{dp_jit_decref, register_specialized_jit_symbols};
