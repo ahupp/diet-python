@@ -1,7 +1,7 @@
 use super::*;
 use dp_transform::block_py::{
-    BinOp, BinOpKind, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyStmt, BlockPyTerm,
-    ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral,
+    BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyStmt,
+    BlockPyTerm, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral,
     CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref, DelDerefQuietly,
     DelItem, DelQuietly, FunctionName, LoadGlobal, LocatedCodegenBlockPyExpr, LocatedName,
     MakeString, ModuleNameGen, NameLocation, Operation, Param, ParamKind, ParamSpec, StorageLayout,
@@ -135,25 +135,12 @@ mod tests {
         }
     }
 
-    fn test_jit_data(
-        function: &BlockPyFunction<CodegenBlockPyPass>,
+    fn with_test_blocks(
+        mut function: BlockPyFunction<CodegenBlockPyPass>,
         blocks: Vec<CodegenBlock>,
-    ) -> SpecializedJitData {
-        SpecializedJitData {
-            blocks: blocks
-                .into_iter()
-                .map(|source| {
-                    let block_info = jit_block_info(function, &source);
-                    let full_param_names = source.param_name_vec();
-                    SpecializedJitBlockData {
-                        source,
-                        full_param_names,
-                        runtime_param_names: block_info.runtime_param_names,
-                        exc_dispatch: block_info.exc_dispatch,
-                    }
-                })
-                .collect(),
-        }
+    ) -> BlockPyFunction<CodegenBlockPyPass> {
+        function.blocks = blocks;
+        function
     }
 
     fn set_stack_slots(function: &mut BlockPyFunction<CodegenBlockPyPass>, names: &[&str]) {
@@ -163,17 +150,17 @@ mod tests {
             .set_stack_slots(names.iter().map(|name| (*name).to_string()).collect());
     }
 
-    fn test_single_block_data(
-        function: &BlockPyFunction<CodegenBlockPyPass>,
+    fn with_single_test_block(
+        function: BlockPyFunction<CodegenBlockPyPass>,
         ops: Vec<BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>>,
         term: BlockPyTerm<LocatedCodegenBlockPyExpr>,
-    ) -> SpecializedJitData {
-        test_jit_data(function, vec![test_source_block(function, ops, term)])
+    ) -> BlockPyFunction<CodegenBlockPyPass> {
+        let block = test_source_block(&function, ops, term);
+        with_test_blocks(function, vec![block])
     }
 
-    fn render_test_jit_data(
+    fn render_test_jit_function(
         function: &BlockPyFunction<CodegenBlockPyPass>,
-        jit_data: &SpecializedJitData,
         blocks: &[ObjPtr],
     ) -> String {
         unsafe {
@@ -184,7 +171,6 @@ mod tests {
                 &mut jit_module,
                 blocks,
                 function,
-                jit_data,
                 std::ptr::null_mut(),
                 11usize as ObjPtr,
                 12usize as ObjPtr,
@@ -208,15 +194,15 @@ mod tests {
     fn render_specialized_jit_clif_smoke() {
         let blocks = [1usize as ObjPtr, 2usize as ObjPtr, 3usize as ObjPtr];
         let function = test_function();
-        let jit_data = test_jit_data(
-            &function,
+        let function = with_test_blocks(
+            function.clone(),
             vec![
                 test_source_block(&function, vec![], raise_term()),
                 test_source_block(&function, vec![], raise_term()),
                 test_source_block(&function, vec![], raise_term()),
             ],
         );
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("function"),
             "specialized JIT CLIF render should produce function text:\n{}",
@@ -229,16 +215,11 @@ mod tests {
         let blocks = [1usize as ObjPtr];
         let mut function = test_function();
         set_stack_slots(&mut function, &["current", "acc"]);
-        let source = test_source_block(&function, vec![], ret_term(int_expr(7)));
-        let jit_data = SpecializedJitData {
-            blocks: vec![SpecializedJitBlockData {
-                source,
-                full_param_names: vec!["current".into(), "acc".into()],
-                runtime_param_names: vec!["current".into(), "acc".into()],
-                exc_dispatch: None,
-            }],
-        };
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        let mut source = test_source_block(&function, vec![], ret_term(int_expr(7)));
+        source.ensure_param("current", BlockParamRole::Local);
+        source.ensure_param("acc", BlockParamRole::Local);
+        let function = with_test_blocks(function, vec![source]);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("; block jit_entry(callable: i64)"),
             "rendered CLIF should include named typed params on surviving post-opt block headers:\n{rendered}"
@@ -256,9 +237,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_operator_calls_use_python_capi() {
         let blocks = [1usize as ObjPtr];
-        let function = test_function();
-        let jit_data = test_single_block_data(
-            &function,
+        let function = with_single_test_block(
+            test_function(),
             vec![],
             ret_term(op_expr(Operation::BinOp(BinOp {
                 node_index: Default::default(),
@@ -268,7 +248,7 @@ mod tests {
                 arg1: int_expr(2),
             }))),
         );
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call PyNumber_Add"),
             "operator lowering should use PyNumber_Add in rendered CLIF:\n{rendered}"
@@ -282,9 +262,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_compare_calls_use_richcompare() {
         let blocks = [1usize as ObjPtr];
-        let function = test_function();
-        let jit_data = test_single_block_data(
-            &function,
+        let function = with_single_test_block(
+            test_function(),
             vec![],
             ret_term(op_expr(Operation::BinOp(BinOp {
                 node_index: Default::default(),
@@ -294,7 +273,7 @@ mod tests {
                 arg1: int_expr(2),
             }))),
         );
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call PyObject_RichCompare"),
             "comparison lowering should use PyObject_RichCompare in rendered CLIF:\n{rendered}"
@@ -304,9 +283,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_make_string_uses_decode_helper_directly() {
         let blocks = [1usize as ObjPtr];
-        let function = test_function();
-        let jit_data = test_single_block_data(
-            &function,
+        let function = with_single_test_block(
+            test_function(),
             vec![],
             ret_term(op_expr(Operation::MakeString(MakeString {
                 node_index: Default::default(),
@@ -314,7 +292,7 @@ mod tests {
                 arg0: bytes_expr(b"hello"),
             }))),
         );
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call dp_jit_decode_literal_bytes"),
             "MakeString lowering should use the direct decode helper:\n{rendered}"
@@ -328,9 +306,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_pow_calls_use_pynumber_power() {
         let blocks = [1usize as ObjPtr];
-        let function = test_function();
-        let jit_data = test_single_block_data(
-            &function,
+        let function = with_single_test_block(
+            test_function(),
             vec![],
             ret_term(op_expr(Operation::TernaryOp(TernaryOp {
                 node_index: Default::default(),
@@ -341,7 +318,7 @@ mod tests {
                 arg2: name_expr(test_global_name("__dp_NONE")),
             }))),
         );
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call PyNumber_Power"),
             "power lowering should use PyNumber_Power in rendered CLIF:\n{rendered}"
@@ -351,10 +328,9 @@ mod tests {
     #[test]
     fn render_specialized_jit_allocates_function_state_slots() {
         let blocks = [1usize as ObjPtr];
-        let mut function = test_function();
+        let mut function = with_single_test_block(test_function(), vec![], ret_term(int_expr(7)));
         set_stack_slots(&mut function, &["x", "y"]);
-        let mut jit_data = test_single_block_data(&function, vec![], ret_term(int_expr(7)));
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.matches("explicit_slot 8").count() >= 2,
             "slot-backed JIT plans should allocate explicit stack slots:\n{rendered}"
@@ -364,14 +340,13 @@ mod tests {
     #[test]
     fn render_specialized_jit_assignments_sync_function_state_slots() {
         let blocks = [1usize as ObjPtr];
-        let mut function = test_function();
-        set_stack_slots(&mut function, &["x"]);
-        let mut jit_data = test_single_block_data(
-            &function,
+        let mut function = with_single_test_block(
+            test_function(),
             vec![assign_stmt(test_name("x"), int_expr(7))],
             ret_term(name_expr(test_name("x"))),
         );
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        set_stack_slots(&mut function, &["x"]);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("store.i64") || rendered.contains("stack_store"),
             "assignment-backed JIT plans should update mirrored function-state slots:\n{rendered}"
@@ -381,13 +356,12 @@ mod tests {
     #[test]
     fn render_specialized_jit_global_names_use_global_lookup_hook() {
         let blocks = [1usize as ObjPtr];
-        let function = test_function();
-        let jit_data = test_single_block_data(
-            &function,
+        let function = with_single_test_block(
+            test_function(),
             vec![],
             ret_term(name_expr(test_global_name("x"))),
         );
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_globals")
                 && rendered.contains("call dp_jit_load_name"),
@@ -398,9 +372,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_load_global_intrinsic_uses_direct_helper() {
         let blocks = [1usize as ObjPtr];
-        let function = test_function();
-        let jit_data = test_single_block_data(
-            &function,
+        let function = with_single_test_block(
+            test_function(),
             vec![],
             ret_term(op_expr(Operation::LoadGlobal(LoadGlobal {
                 node_index: Default::default(),
@@ -409,7 +382,7 @@ mod tests {
                 arg1: int_expr(2),
             }))),
         );
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call dp_jit_load_global_obj"),
             "load_global intrinsic should use the direct JIT helper:\n{rendered}"
@@ -419,9 +392,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_store_global_intrinsic_uses_direct_helper() {
         let blocks = [1usize as ObjPtr];
-        let function = test_function();
-        let jit_data = test_single_block_data(
-            &function,
+        let function = with_single_test_block(
+            test_function(),
             vec![],
             ret_term(op_expr(Operation::StoreGlobal(StoreGlobal {
                 node_index: Default::default(),
@@ -431,7 +403,7 @@ mod tests {
                 arg2: int_expr(3),
             }))),
         );
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call dp_jit_store_global"),
             "store_global intrinsic should use the direct JIT helper:\n{rendered}"
@@ -441,14 +413,13 @@ mod tests {
     #[test]
     fn render_specialized_jit_closure_names_use_function_closure_cells() {
         let blocks = [1usize as ObjPtr];
-        let mut function = test_function();
-        set_stack_slots(&mut function, &["x"]);
-        let mut jit_data = test_single_block_data(
-            &function,
+        let mut function = with_single_test_block(
+            test_function(),
             vec![],
             ret_term(name_expr(test_closure_cell_name("x", 2))),
         );
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        set_stack_slots(&mut function, &["x"]);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell")
                 && rendered.contains("call dp_jit_load_cell"),
@@ -459,10 +430,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_cell_ref_intrinsic_uses_function_closure_cells() {
         let blocks = [1usize as ObjPtr];
-        let mut function = test_function();
-        set_stack_slots(&mut function, &["x"]);
-        let mut jit_data = test_single_block_data(
-            &function,
+        let mut function = with_single_test_block(
+            test_function(),
             vec![],
             ret_term(op_expr(Operation::CellRef(
                 dp_transform::block_py::CellRef {
@@ -472,7 +441,8 @@ mod tests {
                 },
             ))),
         );
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        set_stack_slots(&mut function, &["x"]);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell"),
             "cell_ref intrinsic should use callable-rooted closure cells:\n{rendered}"
@@ -486,9 +456,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_cell_ref_on_captured_source_unwraps_wrapper_cell_once() {
         let blocks = [1usize as ObjPtr];
-        let mut function = test_function();
-        let mut jit_data = test_single_block_data(
-            &function,
+        let mut function = with_single_test_block(
+            test_function(),
             vec![],
             ret_term(op_expr(Operation::CellRef(
                 dp_transform::block_py::CellRef {
@@ -521,7 +490,7 @@ mod tests {
             stack_slots: Vec::new(),
         });
         set_stack_slots(&mut function, &["_dp_classcell"]);
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell"),
             "captured cell sources should resolve through the callable closure:\n{rendered}"
@@ -535,10 +504,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_delete_intrinsics_use_direct_helpers() {
         let blocks = [1usize as ObjPtr];
-        let mut function = test_function();
-        set_stack_slots(&mut function, &["cell"]);
-        let mut jit_data = test_single_block_data(
-            &function,
+        let mut function = with_single_test_block(
+            test_function(),
             vec![
                 expr_stmt(op_expr(Operation::DelItem(DelItem {
                     node_index: Default::default(),
@@ -565,7 +532,8 @@ mod tests {
             ],
             ret_term(int_expr(0)),
         );
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        set_stack_slots(&mut function, &["cell"]);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call dp_jit_pyobject_delitem"),
             "delitem intrinsic should use the direct JIT helper:\n{rendered}"
@@ -587,9 +555,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_direct_entry_uses_live_positional_defaults() {
         let blocks = [1usize as ObjPtr];
-        let mut function = test_function();
-        let mut jit_data =
-            test_single_block_data(&function, vec![], ret_term(name_expr(test_name("y"))));
+        let mut function =
+            with_single_test_block(test_function(), vec![], ret_term(name_expr(test_name("y"))));
         function.params = ParamSpec {
             params: vec![
                 Param {
@@ -605,7 +572,7 @@ mod tests {
             ],
         };
         set_stack_slots(&mut function, &["x", "y"]);
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_positional_default"),
             "direct entry lowering should source omitted positional defaults from the callable:\n{rendered}"
@@ -615,9 +582,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_direct_entry_uses_live_kwonly_defaults() {
         let blocks = [1usize as ObjPtr];
-        let mut function = test_function();
-        let mut jit_data =
-            test_single_block_data(&function, vec![], ret_term(name_expr(test_name("x"))));
+        let mut function =
+            with_single_test_block(test_function(), vec![], ret_term(name_expr(test_name("x"))));
         function.params = ParamSpec {
             params: vec![Param {
                 name: "x".into(),
@@ -626,7 +592,7 @@ mod tests {
             }],
         };
         set_stack_slots(&mut function, &["x"]);
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_kwonly_default"),
             "direct entry lowering should source omitted kwonly defaults from the callable:\n{rendered}"
@@ -636,14 +602,13 @@ mod tests {
     #[test]
     fn render_specialized_jit_delete_stmt_updates_function_state_slots() {
         let blocks = [1usize as ObjPtr];
-        let mut function = test_function();
-        set_stack_slots(&mut function, &["x"]);
-        let mut jit_data = test_single_block_data(
-            &function,
+        let mut function = with_single_test_block(
+            test_function(),
             vec![delete_stmt(test_name("x"))],
             ret_term(int_expr(0)),
         );
-        let rendered = render_test_jit_data(&function, &jit_data, &blocks);
+        set_stack_slots(&mut function, &["x"]);
+        let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("store.i64")
                 || rendered.contains("stack_store")

@@ -43,19 +43,6 @@ struct GlobalIncrementalCacheStore<'a> {
     map: &'a Mutex<HashMap<Vec<u8>, Vec<u8>>>,
 }
 
-#[derive(Clone)]
-struct SpecializedJitBlockData {
-    source: CodegenBlock,
-    full_param_names: Vec<String>,
-    runtime_param_names: Vec<String>,
-    exc_dispatch: Option<BlockExcDispatchPlan>,
-}
-
-#[derive(Clone)]
-struct SpecializedJitData {
-    blocks: Vec<SpecializedJitBlockData>,
-}
-
 #[derive(Clone, Copy, Debug)]
 enum SigType {
     Pointer,
@@ -3394,7 +3381,6 @@ fn build_cranelift_run_bb_specialized_function(
     jit_module: &mut JITModule,
     blocks: &[ObjPtr],
     function: &BlockPyFunction<CodegenBlockPyPass>,
-    jit_data: &SpecializedJitData,
     globals_obj: ObjPtr,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
@@ -3402,7 +3388,7 @@ fn build_cranelift_run_bb_specialized_function(
     deleted_obj: ObjPtr,
     empty_tuple_obj: ObjPtr,
 ) -> Result<BuiltSpecializedFunction, String> {
-    let block_count = jit_data.blocks.len();
+    let block_count = function.blocks.len();
     if block_count == 0 {
         return Err(format!("specialized JIT run_bb plan has no blocks"));
     }
@@ -3436,15 +3422,20 @@ fn build_cranelift_run_bb_specialized_function(
         let mut fb = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
         let entry_block = fb.create_block();
         let mut exec_blocks = Vec::with_capacity(block_count);
-        let runtime_block_param_names = jit_data
+        let runtime_block_param_names = function
             .blocks
             .iter()
-            .map(|block| block.runtime_param_names.clone())
+            .map(jit_param_names_for_block)
             .collect::<Vec<_>>();
-        let full_block_param_names = jit_data
+        let full_block_param_names = function
             .blocks
             .iter()
-            .map(|block| block.full_param_names.clone())
+            .map(CodegenBlock::param_name_vec)
+            .collect::<Vec<_>>();
+        let exc_dispatches = function
+            .blocks
+            .iter()
+            .map(|block| exc_dispatch_plan(function, block))
             .collect::<Vec<_>>();
         let mut cleanup_null_blocks = Vec::with_capacity(block_count);
         for _ in 0..block_count {
@@ -3481,7 +3472,7 @@ fn build_cranelift_run_bb_specialized_function(
             register_block_display_annotation(
                 &mut block_annotations,
                 *block,
-                jit_data.blocks[index].source.label.to_string(),
+                function.blocks[index].label.to_string(),
                 param_names,
             );
         }
@@ -3489,7 +3480,7 @@ fn build_cranelift_run_bb_specialized_function(
             register_block_display_annotation(
                 &mut block_annotations,
                 *block,
-                format!("cleanup_null::{}", jit_data.blocks[index].source.label),
+                format!("cleanup_null::{}", function.blocks[index].label),
                 vec!["value".into()],
             );
         }
@@ -3757,13 +3748,13 @@ fn build_cranelift_run_bb_specialized_function(
         fb.ins().jump(exec_blocks[0], &entry_jump_args);
 
         let mut exception_dispatch_blocks: Vec<Option<ir::Block>> = vec![None; exec_blocks.len()];
-        for (index, block_data) in jit_data.blocks.iter().enumerate() {
-            if block_data.exc_dispatch.is_some() {
+        for (index, maybe_dispatch) in exc_dispatches.iter().enumerate() {
+            if maybe_dispatch.is_some() {
                 let dispatch_block = fb.create_block();
                 register_block_display_annotation(
                     &mut block_annotations,
                     dispatch_block,
-                    format!("exc_dispatch::{}", jit_data.blocks[index].source.label),
+                    format!("exc_dispatch::{}", function.blocks[index].label),
                     Vec::new(),
                 );
                 exception_dispatch_blocks[index] = Some(dispatch_block);
@@ -3837,13 +3828,13 @@ fn build_cranelift_run_bb_specialized_function(
                 tuple_set_item_ref,
                 stack_slots: stack_slots.clone(),
             };
-            let block_data = &jit_data.blocks[index];
+            let block = &function.blocks[index];
             let mut local_names = Vec::new();
             let mut local_values = Vec::new();
 
             emit_codegen_ops(
                 &mut fb,
-                &block_data.source.body,
+                &block.body,
                 &mut local_names,
                 &mut local_values,
                 &stack_slots,
@@ -3855,8 +3846,8 @@ fn build_cranelift_run_bb_specialized_function(
 
             emit_codegen_term(
                 &mut fb,
-                block_data.source.label.to_string().as_str(),
-                &block_data.source.term,
+                block.label.to_string().as_str(),
+                &block.term,
                 &exec_blocks,
                 &runtime_block_param_names,
                 &full_block_param_names,
@@ -3877,7 +3868,7 @@ fn build_cranelift_run_bb_specialized_function(
             let Some(dispatch_block) = *maybe_dispatch_block else {
                 continue;
             };
-            let Some(dispatch_plan) = jit_data.blocks[index].exc_dispatch.as_ref() else {
+            let Some(dispatch_plan) = exc_dispatches[index].as_ref() else {
                 continue;
             };
 
@@ -3994,21 +3985,6 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
         return Err("specialized JIT run_bb requires at least one block".to_string());
     }
 
-    let jit_data = SpecializedJitData {
-        blocks: function
-            .blocks
-            .iter()
-            .map(|block| {
-                let block_info = jit_block_info(function, block);
-                SpecializedJitBlockData {
-                    source: block.clone(),
-                    full_param_names: block.param_name_vec(),
-                    runtime_param_names: block_info.runtime_param_names,
-                    exc_dispatch: block_info.exc_dispatch,
-                }
-            })
-            .collect(),
-    };
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut jit_module = JITModule::new(builder);
@@ -4016,7 +3992,6 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
         &mut jit_module,
         blocks,
         function,
-        &jit_data,
         ptr::null_mut(),
         true_obj,
         false_obj,
@@ -4098,21 +4073,6 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     if globals_obj.is_null() {
         return Err("invalid null globals object passed to specialized JIT run_bb".to_string());
     }
-    let jit_data = SpecializedJitData {
-        blocks: function
-            .blocks
-            .iter()
-            .map(|block| {
-                let block_info = jit_block_info(function, block);
-                SpecializedJitBlockData {
-                    source: block.clone(),
-                    full_param_names: block.param_name_vec(),
-                    runtime_param_names: block_info.runtime_param_names,
-                    exc_dispatch: block_info.exc_dispatch,
-                }
-            })
-            .collect(),
-    };
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut compiled = Box::new(CompiledSpecializedRunner {
@@ -4124,7 +4084,6 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
         &mut compiled._jit_module,
         blocks,
         function,
-        &jit_data,
         globals_obj,
         true_obj,
         false_obj,
