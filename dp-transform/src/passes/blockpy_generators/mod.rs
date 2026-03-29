@@ -432,7 +432,7 @@ fn build_factory_block(
     closure_bindings: &ResumeClosureBindings,
     kind: BlockPyFunctionKind,
 ) -> BlockPyBlock<CoreBlockPyExpr> {
-    let mut block = BlockPyCfgBlockBuilder::new(BlockPyLabel::from("_dp_factory_entry"));
+    let mut block = BlockPyCfgBlockBuilder::new(BlockPyLabel::from_index(0));
 
     let all_bindings = closure_bindings.all_bindings().cloned().collect::<Vec<_>>();
     let captures = all_bindings
@@ -523,23 +523,13 @@ fn fresh_resume_dispatch_label(
     blocks: &[CfgBlock<StructuredBlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>],
     exhausted_label: &BlockPyLabel,
 ) -> BlockPyLabel {
-    let base = "_dp_resume_dispatch";
-    let existing = blocks
+    let max_index = blocks
         .iter()
-        .map(|block| block.label.as_str())
-        .chain(std::iter::once(exhausted_label.as_str()))
-        .collect::<HashSet<_>>();
-    if !existing.contains(base) {
-        return BlockPyLabel::from(base);
-    }
-    let mut next_id = 0usize;
-    loop {
-        let candidate = format!("{base}_{next_id}");
-        if !existing.contains(candidate.as_str()) {
-            return BlockPyLabel::from(candidate);
-        }
-        next_id += 1;
-    }
+        .map(|block| block.label.index())
+        .chain(std::iter::once(exhausted_label.index()))
+        .max()
+        .unwrap_or(0);
+    BlockPyLabel::from_index(max_index + 1)
 }
 
 #[derive(Clone)]
@@ -651,7 +641,7 @@ fn push_completion_raise_block(
     mut body: Vec<StructuredBlockPyStmt<CoreBlockPyExpr>>,
     value: Option<CoreBlockPyExpr>,
     params: Vec<BlockParam>,
-    exc_target: Option<String>,
+    exc_target: Option<BlockPyLabel>,
 ) {
     body.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
         target: expr_name("_dp_pc"),
@@ -727,28 +717,39 @@ struct ResumeLoweringState {
     next_label_id: usize,
     next_resume_pc: usize,
     blocks: Vec<BlockPyBlock<CoreBlockPyExpr>>,
-    exception_edges: HashMap<String, Option<String>>,
-    target_arg_indices: HashMap<String, Vec<usize>>,
+    exception_edges: HashMap<BlockPyLabel, Option<BlockPyLabel>>,
+    target_arg_indices: HashMap<BlockPyLabel, Vec<usize>>,
     resume_targets: Vec<(usize, BlockPyLabel)>,
     exhausted_label: BlockPyLabel,
 }
 
 impl ResumeLoweringState {
-    fn new(kind: BlockPyFunctionKind, target_arg_indices: HashMap<String, Vec<usize>>) -> Self {
+    fn new(
+        kind: BlockPyFunctionKind,
+        target_arg_indices: HashMap<BlockPyLabel, Vec<usize>>,
+    ) -> Self {
+        let next_label_id = target_arg_indices
+            .keys()
+            .map(|label| label.index())
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let exhausted_label = BlockPyLabel::from_index(next_label_id);
         Self {
             kind,
-            next_label_id: 0,
+            next_label_id: next_label_id + 1,
             next_resume_pc: 2,
             blocks: Vec::new(),
             exception_edges: HashMap::new(),
             target_arg_indices,
             resume_targets: Vec::new(),
-            exhausted_label: BlockPyLabel::from("_dp_resume_exhausted"),
+            exhausted_label,
         }
     }
 
     fn fresh_label(&mut self, base: &str) -> BlockPyLabel {
-        let label = BlockPyLabel::from(format!("{base}_{}", self.next_label_id));
+        let _ = base;
+        let label = BlockPyLabel::from_index(self.next_label_id);
         self.next_label_id += 1;
         label
     }
@@ -767,9 +768,12 @@ impl ResumeLoweringState {
         name
     }
 
-    fn push_block(&mut self, block: BlockPyBlock<CoreBlockPyExpr>, exc_target: Option<String>) {
-        self.exception_edges
-            .insert(block.label.as_str().to_string(), exc_target);
+    fn push_block(
+        &mut self,
+        block: BlockPyBlock<CoreBlockPyExpr>,
+        exc_target: Option<BlockPyLabel>,
+    ) {
+        self.exception_edges.insert(block.label.clone(), exc_target);
         self.blocks.push(block);
     }
 
@@ -777,7 +781,7 @@ impl ResumeLoweringState {
         let BlockPyTerm::Jump(edge) = term else {
             return;
         };
-        let Some(indices) = self.target_arg_indices.get(edge.target.as_str()) else {
+        let Some(indices) = self.target_arg_indices.get(&edge.target) else {
             return;
         };
         if edge.args.is_empty() {
@@ -796,7 +800,7 @@ fn lower_resume_fragment(
     body: Vec<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>,
     term: BlockPyTerm<CoreBlockPyExprWithYield>,
     params: Vec<BlockParam>,
-    exc_target: Option<String>,
+    exc_target: Option<BlockPyLabel>,
 ) {
     for (index, stmt) in body.iter().enumerate() {
         if let Some(site) = stmt_yield_site(stmt) {
@@ -878,7 +882,7 @@ fn emit_yield_site(
     tail_body: Vec<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>,
     tail_term: BlockPyTerm<CoreBlockPyExprWithYield>,
     params: Vec<BlockParam>,
-    exc_target: Option<String>,
+    exc_target: Option<BlockPyLabel>,
 ) {
     match site {
         YieldSite::ExprYield(value) => {
@@ -1008,7 +1012,7 @@ fn emit_resume_after_yield(
     mut tail_body: Vec<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>,
     tail_term: BlockPyTerm<CoreBlockPyExprWithYield>,
     params: Vec<BlockParam>,
-    exc_target: Option<String>,
+    exc_target: Option<BlockPyLabel>,
 ) {
     let raise_label = state.fresh_label("yield_throw");
     let continue_label = state.fresh_label("yield_continue");
@@ -1065,7 +1069,7 @@ fn emit_yield_from_site(
     mut tail_body: Vec<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>,
     tail_term: BlockPyTerm<CoreBlockPyExprWithYield>,
     params: Vec<BlockParam>,
-    exc_target: Option<String>,
+    exc_target: Option<BlockPyLabel>,
 ) {
     let (delegate_pc, delegate_label) = state.fresh_resume_target("yield_from");
     let send_dispatch_label = state.fresh_label("yield_from_send_dispatch");
@@ -1150,7 +1154,7 @@ fn emit_yield_from_site(
             params: params.clone(),
             exc_edge: None,
         },
-        Some(call_except_label.as_str().to_string()),
+        Some(call_except_label.clone()),
     );
     state.push_block(
         BlockPyBlock {
@@ -1163,7 +1167,7 @@ fn emit_yield_from_site(
             params: params.clone(),
             exc_edge: None,
         },
-        Some(call_except_label.as_str().to_string()),
+        Some(call_except_label.clone()),
     );
     state.push_block(
         BlockPyBlock {
@@ -1239,7 +1243,7 @@ fn emit_yield_from_site(
             params: params.clone(),
             exc_edge: None,
         },
-        Some(call_except_label.as_str().to_string()),
+        Some(call_except_label.clone()),
     );
     let mut except_params = params.clone();
     if let Some(existing) = except_params
@@ -1353,8 +1357,8 @@ fn lower_resume_blocks(
     callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
 ) -> (
     Vec<CfgBlock<StructuredBlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>,
-    HashMap<String, Option<String>>,
-    String,
+    HashMap<BlockPyLabel, Option<BlockPyLabel>>,
+    BlockPyLabel,
 ) {
     let linear_exception_edges = lowered_exception_edges(&callable.blocks);
     let declared_param_indices_by_label = callable
@@ -1362,7 +1366,7 @@ fn lower_resume_blocks(
         .iter()
         .map(|block| {
             (
-                block.label.as_str().to_string(),
+                block.label.clone(),
                 generator_resume_declared_param_indices(callable.kind, &block.params),
             )
         })
@@ -1397,7 +1401,7 @@ fn lower_resume_blocks(
                 block.term,
                 generator_resume_declared_params(callable.kind, &block.params),
                 linear_exception_edges
-                    .get(block.label.as_str())
+                    .get(&block.label)
                     .cloned()
                     .unwrap_or(None),
             )
@@ -1448,16 +1452,14 @@ fn lower_resume_blocks(
         params: Vec::new(),
         exc_edge: None,
     });
+    state.exception_edges.insert(dispatch_label.clone(), None);
     state
         .exception_edges
-        .insert(dispatch_label.as_str().to_string(), None);
-    state
-        .exception_edges
-        .insert(state.exhausted_label.as_str().to_string(), None);
+        .insert(state.exhausted_label.clone(), None);
     (
         attach_exception_edges_to_blocks(blocks, &state.exception_edges),
         state.exception_edges,
-        dispatch_label.as_str().to_string(),
+        dispatch_label,
     )
 }
 
@@ -1528,7 +1530,7 @@ pub(crate) fn lower_generator_like_function(
         params: params.clone(),
         blocks: flatten_core_blocks(attach_exception_edges_to_blocks(
             vec![factory_block.clone()],
-            &HashMap::from([(factory_block.label.as_str().to_string(), None)]),
+            &HashMap::from([(factory_block.label.clone(), None)]),
         )),
         doc,
         closure_layout: Some(closure_layout.clone()),

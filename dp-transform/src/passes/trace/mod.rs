@@ -59,7 +59,7 @@ pub(crate) fn instrument_bb_module_for_trace(
                     "__dp_bb_trace_enter",
                     vec![
                         string_literal_expr(qualname.as_str()),
-                        string_literal_expr(block.label.as_str()),
+                        string_literal_expr(block.label.to_string().as_str()),
                         param_pairs_expr(&locator, block_params.as_slice()),
                     ],
                 )
@@ -68,7 +68,7 @@ pub(crate) fn instrument_bb_module_for_trace(
                     "__dp_bb_trace_enter",
                     vec![
                         string_literal_expr(qualname.as_str()),
-                        string_literal_expr(block.label.as_str()),
+                        string_literal_expr(block.label.to_string().as_str()),
                     ],
                 )
             };

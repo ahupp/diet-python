@@ -23,24 +23,40 @@ pub mod operation;
 pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod state;
+pub(crate) mod validate;
 pub(crate) use convert::{
     map_call_args_with, map_keyword_args_with, try_map_call_args_with, try_map_keyword_args_with,
 };
 pub use convert::{BlockPyModuleMap, BlockPyModuleTryMap};
 pub use name_gen::{FunctionNameGen, ModuleNameGen};
+pub(crate) use validate::validate_module;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct BlockPyLabel(pub String);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct BlockPyLabel {
+    index: u32,
+}
 
-impl From<String> for BlockPyLabel {
-    fn from(value: String) -> Self {
-        Self(value)
+impl BlockPyLabel {
+    pub(crate) fn from_u32_index(value: u32) -> Self {
+        Self { index: value }
+    }
+
+    pub(crate) fn from_index(value: usize) -> Self {
+        Self::from_u32_index(u32::try_from(value).expect("block label usize should fit in u32"))
     }
 }
 
-impl From<&str> for BlockPyLabel {
-    fn from(value: &str) -> Self {
-        Self(value.to_string())
+#[cfg(test)]
+impl From<u32> for BlockPyLabel {
+    fn from(value: u32) -> Self {
+        Self::from_u32_index(value)
+    }
+}
+
+#[cfg(test)]
+impl From<usize> for BlockPyLabel {
+    fn from(value: usize) -> Self {
+        Self::from_index(value)
     }
 }
 
@@ -286,8 +302,8 @@ pub struct CfgBlock<S, T> {
 }
 
 impl<S, T> CfgBlock<S, T> {
-    pub fn label_str(&self) -> &str {
-        self.label.as_str()
+    pub fn label_str(&self) -> String {
+        self.label.to_string()
     }
 
     pub fn ensure_param(&mut self, name: impl Into<String>, role: BlockParamRole) {
@@ -346,11 +362,11 @@ impl<S, T> CfgBlock<S, T> {
     }
 }
 
-pub(crate) fn move_entry_block_to_front<S, T>(blocks: &mut Vec<CfgBlock<S, T>>, entry_label: &str) {
-    if let Some(entry_index) = blocks
-        .iter()
-        .position(|block| block.label.as_str() == entry_label)
-    {
+pub(crate) fn move_entry_block_to_front<S, T>(
+    blocks: &mut Vec<CfgBlock<S, T>>,
+    entry_label: BlockPyLabel,
+) {
+    if let Some(entry_index) = blocks.iter().position(|block| block.label == entry_label) {
         if entry_index != 0 {
             let entry_block = blocks.remove(entry_index);
             blocks.insert(0, entry_block);
@@ -1824,27 +1840,11 @@ impl BlockPyEdge {
     pub fn with_args(target: BlockPyLabel, args: Vec<BlockArg>) -> Self {
         Self { target, args }
     }
-
-    pub fn as_str(&self) -> &str {
-        self.target.as_str()
-    }
 }
 
 impl From<BlockPyLabel> for BlockPyEdge {
     fn from(value: BlockPyLabel) -> Self {
         Self::new(value)
-    }
-}
-
-impl From<&str> for BlockPyEdge {
-    fn from(value: &str) -> Self {
-        Self::new(BlockPyLabel::from(value))
-    }
-}
-
-impl From<String> for BlockPyEdge {
-    fn from(value: String) -> Self {
-        Self::new(BlockPyLabel::from(value))
     }
 }
 
@@ -2120,19 +2120,13 @@ where
 mod test;
 
 impl BlockPyLabel {
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
+    pub fn index(self) -> usize {
+        self.index as usize
     }
 }
 
 impl fmt::Display for BlockPyLabel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl PartialEq<&str> for BlockPyLabel {
-    fn eq(&self, other: &&str) -> bool {
-        self.as_str() == *other
+        write!(f, "bb{}", self.index)
     }
 }

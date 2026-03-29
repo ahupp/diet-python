@@ -234,9 +234,9 @@ pub(crate) fn lower_star_try_stmt_sequence<F>(
     blocks: &mut Vec<BlockPyBlock>,
     jump_label: Option<BlockPyLabel>,
     lower_sequence: &mut F,
-) -> String
+) -> BlockPyLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
 {
     let rewritten_try = match rewrite_try_stmt(try_stmt) {
         Rewrite::Unmodified(stmt) => stmt_to_stmts(stmt),
@@ -259,12 +259,13 @@ pub(crate) fn lower_try_stmt_sequence<F>(
     targets: RegionTargets,
     linear: Vec<Stmt>,
     blocks: &mut Vec<BlockPyBlock>,
+    name_gen: &FunctionNameGen,
     label: BlockPyLabel,
     try_plan: TryPlan,
     lower_sequence: &mut F,
-) -> String
+) -> BlockPyLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
 {
     let rest_entry = lower_sequence(remaining_stmts, targets.clone(), blocks);
 
@@ -280,8 +281,9 @@ where
 
     let lowered_try = lower_try_regions(
         blocks,
+        name_gen,
         &try_plan,
-        rest_entry.as_str(),
+        &rest_entry,
         finally_body,
         else_body,
         try_body,

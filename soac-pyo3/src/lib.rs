@@ -657,7 +657,8 @@ fn ensure_bb_plan(
     let plan_name = function
         .function_id
         .plan_qualname(function.names.qualname.as_str());
-    if soac_eval::jit::lookup_clif_plan(module_name, function.function_id.0).is_none() {
+    if soac_eval::jit::lookup_registered_jit_function(module_name, function.function_id.0).is_none()
+    {
         return Err(PyRuntimeError::new_err(format!(
             "JIT basic-block {operation} requires a registered plan, but none is available for {module_name}.{plan_name}"
         )));

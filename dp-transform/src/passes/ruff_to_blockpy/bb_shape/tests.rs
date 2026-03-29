@@ -17,7 +17,7 @@ pub(crate) fn lower_structured_core_blocks_to_bb_blocks<N>(
         StructuredBlockPyStmt<CoreBlockPyExpr<N>, N>,
         BlockPyTerm<CoreBlockPyExpr<N>>,
     >],
-    block_params: &HashMap<String, Vec<String>>,
+    block_params: &HashMap<BlockPyLabel, Vec<String>>,
 ) -> Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr<N>, N>, BlockPyTerm<CoreBlockPyExpr<N>>>>
 where
     N: BlockPyNameLike,
@@ -32,7 +32,7 @@ pub(crate) fn lower_structured_located_blocks_to_bb_blocks(
         StructuredBlockPyStmt<CoreBlockPyExpr<LocatedName>, LocatedName>,
         BlockPyTerm<LocatedCoreBlockPyExpr>,
     >],
-    block_params: &HashMap<String, Vec<String>>,
+    block_params: &HashMap<BlockPyLabel, Vec<String>>,
 ) -> Vec<ResolvedStorageBlock> {
     lower_structured_core_blocks_to_bb_blocks(blocks, block_params)
 }
@@ -104,7 +104,7 @@ fn core_name_expr(name: &str) -> CoreBlockPyExpr {
 #[test]
 fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
     let blocks = vec![CfgBlock {
-        label: BlockPyLabel::from("start"),
+        label: BlockPyLabel::from(0u32),
         body: vec![StructuredBlockPyStmt::If(BlockPyIf {
             test: CoreBlockPyExpr::Call(CoreBlockPyCall {
                 node_index: ast::AtomicNodeIndex::default(),

@@ -91,9 +91,9 @@ pub(crate) fn lower_common_stmt_sequence_head<FSeq>(
     blocks: &mut Vec<BlockPyBlock>,
     next_label: &mut dyn FnMut() -> BlockPyLabel,
     lower_sequence: &mut FSeq,
-) -> Option<String>
+) -> Option<BlockPyLabel>
 where
-    FSeq: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
+    FSeq: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
 {
     match plan {
         StmtSequenceHeadPlan::Raise(raise_stmt) => Some(
@@ -103,7 +103,7 @@ where
                 next_label(),
                 linear,
                 compat_blockpy_raise_from_stmt(raise_stmt),
-                targets.active_exc.as_deref(),
+                targets.active_exc.as_ref(),
             )
             .unwrap_or_else(|err| {
                 panic!("failed to lower sequence raise head through expr seam: {err}")
@@ -116,7 +116,7 @@ where
                 next_label(),
                 linear,
                 value,
-                targets.active_exc.as_deref(),
+                targets.active_exc.as_ref(),
             )
             .unwrap_or_else(|err| {
                 panic!("failed to lower sequence return head through expr seam: {err}")
@@ -157,7 +157,7 @@ where
                 next_label(),
                 linear,
                 loop_labels.break_label,
-                targets.active_exc.as_deref(),
+                targets.active_exc.as_ref(),
             )),
             None => Some(targets.normal_cont),
         },
@@ -167,7 +167,7 @@ where
                 next_label(),
                 linear,
                 loop_labels.continue_label,
-                targets.active_exc.as_deref(),
+                targets.active_exc.as_ref(),
             )),
             None => Some(targets.normal_cont),
         },
@@ -189,9 +189,9 @@ pub(crate) fn lower_for_stmt_sequence_head<F>(
     loop_continue_label: BlockPyLabel,
     assign_body: Vec<Stmt>,
     lower_region: &mut F,
-) -> String
+) -> BlockPyLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
 {
     let assign_label = name_gen.next_block_name();
     let setup_label = name_gen.next_block_name();
@@ -218,7 +218,7 @@ pub(crate) fn lower_stmt_sequence_with_state(
     targets: RegionTargets,
     blocks: &mut Vec<BlockPyBlock>,
     name_gen: &FunctionNameGen,
-) -> String {
+) -> BlockPyLabel {
     if stmts.is_empty() {
         return targets.normal_cont;
     }
@@ -236,7 +236,7 @@ pub(crate) fn lower_stmt_sequence_with_state(
                         label,
                         linear,
                         targets.normal_cont.clone(),
-                        targets.active_exc.as_deref(),
+                        targets.active_exc.as_ref(),
                     );
                 }
                 StmtSequenceDriveResult::Break {
@@ -372,6 +372,7 @@ pub(crate) fn lower_stmt_sequence_with_state(
                         targets.clone(),
                         linear,
                         blocks,
+                        name_gen,
                         label.clone(),
                         try_plan,
                         &mut |stmts, nested_targets, blocks| {
@@ -422,7 +423,7 @@ pub(crate) fn lower_stmt_sequence_with_state(
         label,
         linear,
         targets.normal_cont,
-        targets.active_exc.as_deref(),
+        targets.active_exc.as_ref(),
     )
 }
 
@@ -434,13 +435,13 @@ pub(crate) fn lower_expanded_stmt_sequence<F>(
     blocks: &mut Vec<BlockPyBlock>,
     jump_label: Option<BlockPyLabel>,
     lower_sequence: &mut F,
-) -> String
+) -> BlockPyLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
 {
     let mut expanded = desugared_stmts;
     expanded.extend_from_slice(remaining_stmts);
-    let active_exc: Option<String> = targets.active_exc.clone();
+    let active_exc = targets.active_exc.clone();
     let expanded_entry = lower_sequence(&expanded, targets, blocks);
     if linear.is_empty() {
         return expanded_entry;
@@ -449,14 +450,12 @@ where
     blocks.push(compat_block_from_blockpy(
         jump_label.clone(),
         linear,
-        BlockPyTerm::Jump(BlockPyLabel::from(expanded_entry).into()),
+        BlockPyTerm::Jump(expanded_entry.into()),
     ));
     if let Some(block) = blocks.last_mut() {
-        block.exc_edge = active_exc
-            .as_ref()
-            .map(|target| BlockPyEdge::new(BlockPyLabel::from(target.clone())));
+        block.exc_edge = active_exc.map(BlockPyEdge::new);
     }
-    jump_label.to_string()
+    jump_label
 }
 
 pub(crate) fn lower_if_stmt_sequence<F>(
@@ -467,12 +466,12 @@ pub(crate) fn lower_if_stmt_sequence<F>(
     test: Expr,
     then_body: &[Stmt],
     else_body: &[Stmt],
-    rest_entry: String,
+    rest_entry: BlockPyLabel,
     targets: &RegionTargets,
     lower_region: &mut F,
-) -> String
+) -> BlockPyLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
 {
     let then_entry = lower_region(
         then_body,
@@ -500,7 +499,7 @@ where
         test,
         then_entry,
         else_entry,
-        targets.active_exc.as_deref(),
+        targets.active_exc.as_ref(),
     )
     .unwrap_or_else(|err| panic!("failed to lower sequence if head through expr seam: {err}"))
 }
@@ -514,9 +513,9 @@ pub(crate) fn lower_if_stmt_sequence_from_stmt<F>(
     blocks: &mut Vec<BlockPyBlock>,
     label: BlockPyLabel,
     lower_region: &mut F,
-) -> String
+) -> BlockPyLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
 {
     let then_body = &if_stmt.body.to_vec();
     let else_body = extract_if_else_body(&if_stmt);
@@ -558,9 +557,9 @@ pub(crate) fn lower_while_stmt_sequence<F>(
     remaining_stmts: &[Stmt],
     targets: RegionTargets,
     lower_region: &mut F,
-) -> String
+) -> BlockPyLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
 {
     let rest_entry = lower_region(remaining_stmts, targets.clone(), blocks);
     let cond_false_entry = if else_body.is_empty() {
@@ -571,10 +570,10 @@ where
     let body_entry = lower_region(
         body,
         targets.nested_with_loop(
-            test_label.to_string(),
+            test_label.clone(),
             Some(LoopLabels {
                 break_label: rest_entry,
-                continue_label: test_label.to_string(),
+                continue_label: test_label.clone(),
             }),
         ),
         blocks,
@@ -588,7 +587,7 @@ where
         test,
         body_entry,
         cond_false_entry,
-        targets.active_exc.as_deref(),
+        targets.active_exc.as_ref(),
     )
     .unwrap_or_else(|err| panic!("failed to lower sequence while head through expr seam: {err}"))
 }
@@ -603,9 +602,9 @@ pub(crate) fn lower_while_stmt_sequence_from_stmt<F>(
     test_label: BlockPyLabel,
     linear_label: Option<BlockPyLabel>,
     lower_region: &mut F,
-) -> String
+) -> BlockPyLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
 {
     let body = &while_stmt.body.to_vec();
     let else_body = &while_stmt.orelse.to_vec();
@@ -630,9 +629,9 @@ pub(crate) fn lower_for_stmt_exit_entries<F>(
     remaining_stmts: &[Stmt],
     targets: RegionTargets,
     lower_region: &mut F,
-) -> (String, String)
+) -> (BlockPyLabel, BlockPyLabel)
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
 {
     let rest_entry = lower_region(remaining_stmts, targets.clone(), blocks);
     let exhausted_entry = if else_body.is_empty() {
@@ -647,20 +646,20 @@ pub(crate) fn lower_for_stmt_body_entry<F>(
     blocks: &mut Vec<BlockPyBlock>,
     loop_continue_label: BlockPyLabel,
     body: &[Stmt],
-    break_label: String,
+    break_label: BlockPyLabel,
     targets: &RegionTargets,
     lower_region: &mut F,
-) -> String
+) -> BlockPyLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
 {
     let body_entry = lower_region(
         body,
         targets.nested_with_loop(
-            loop_continue_label.to_string(),
+            loop_continue_label.clone(),
             Some(LoopLabels {
                 break_label,
-                continue_label: loop_continue_label.to_string(),
+                continue_label: loop_continue_label.clone(),
             }),
         ),
         blocks,
@@ -683,9 +682,9 @@ pub(crate) fn lower_for_stmt_sequence<F>(
     setup_label: BlockPyLabel,
     assign_body: Vec<Stmt>,
     lower_region: &mut F,
-) -> String
+) -> BlockPyLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
 {
     let else_body = &for_stmt.orelse.to_vec();
     let (rest_entry, exhausted_entry) = lower_for_stmt_exit_entries(
@@ -720,6 +719,6 @@ where
         exhausted_entry,
         body_entry,
         assign_body,
-        targets.active_exc.as_deref(),
+        targets.active_exc.as_ref(),
     )
 }

@@ -1,6 +1,7 @@
 use super::{assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term};
 use crate::block_py::{
-    BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyTerm, StructuredBlockPyStmt,
+    BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyTerm,
+    StructuredBlockPyStmt,
 };
 use crate::py_expr;
 use std::collections::HashSet;
@@ -41,7 +42,7 @@ fn assigned_names_in_blockpy_stmt_collects_nested_fragments() {
 
 #[test]
 fn assigned_names_in_blockpy_term_keeps_jump_edge_args_out_of_results() {
-    let term: BlockPyTerm = BlockPyTerm::Jump("after".into());
+    let term: BlockPyTerm = BlockPyTerm::Jump(BlockPyLabel::from(0u32).into());
 
     assert!(assigned_names_in_blockpy_term(&term).is_empty());
 }
@@ -50,8 +51,8 @@ fn assigned_names_in_blockpy_term_keeps_jump_edge_args_out_of_results() {
 fn assigned_names_in_blockpy_term_collects_named_exprs_from_if_term() {
     let term = BlockPyTerm::IfTerm(BlockPyIfTerm {
         test: py_expr!("(branch_name := branch_source)"),
-        then_label: "then".into(),
-        else_label: "else".into(),
+        then_label: BlockPyLabel::from(0u32),
+        else_label: BlockPyLabel::from(1u32),
     });
 
     assert_eq!(

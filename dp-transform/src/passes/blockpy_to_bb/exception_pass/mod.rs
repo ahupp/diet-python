@@ -1,6 +1,5 @@
 use crate::block_py::{
-    BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyStmt, BlockPyTerm,
-    ResolvedStorageBlock,
+    BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyStmt, BlockPyTerm, ResolvedStorageBlock,
 };
 use crate::passes::ruff_to_blockpy::populate_exception_edge_args;
 use crate::passes::ResolvedStorageBlockPyPass;
@@ -42,20 +41,6 @@ fn lower_function_try_jump_exception_flow(
     function
 }
 
-pub fn validate_prepared_bb_module<P: BlockPyPass>(
-    module: &BlockPyModule<P>,
-) -> Result<(), String> {
-    for function in &module.callable_defs {
-        let label_set: HashSet<String> = function
-            .blocks
-            .iter()
-            .map(|block| block.label.as_str().to_string())
-            .collect();
-        validate_function_labels(function, &label_set)?;
-    }
-    Ok(())
-}
-
 fn bb_params_from_names(
     param_names: Vec<String>,
     exception_name: Option<&str>,
@@ -76,11 +61,8 @@ fn bb_params_from_names(
 fn split_exception_blocks_for_expr_checks(
     function: &mut BlockPyFunction<ResolvedStorageBlockPyPass>,
 ) {
-    let mut used_labels: HashSet<BlockPyLabel> = function
-        .blocks
-        .iter()
-        .map(|block| block.label.clone())
-        .collect();
+    let mut used_labels: HashSet<BlockPyLabel> =
+        function.blocks.iter().map(|block| block.label).collect();
     let mut fresh_index: usize = 0;
     let mut out = Vec::with_capacity(function.blocks.len());
 
@@ -91,7 +73,7 @@ fn split_exception_blocks_for_expr_checks(
         }
 
         let mut known_names = block.param_name_vec();
-        let mut current_label = block.label.clone();
+        let mut current_label = block.label;
         let exc_edge = block.exc_edge.clone();
         let edge_exc_name = block.exception_param().map(ToString::to_string);
         let mut ops = block.body.into_iter().peekable();
@@ -104,13 +86,12 @@ fn split_exception_blocks_for_expr_checks(
             apply_op_effect_to_known_names(&op, &mut known_names);
 
             if ends_segment {
-                let next_label =
-                    unique_exc_split_label(&mut used_labels, current_label.as_str(), fresh_index);
+                let next_label = unique_exc_split_label(&mut used_labels, fresh_index);
                 fresh_index += 1;
                 out.push(ResolvedStorageBlock {
-                    label: current_label.clone(),
+                    label: current_label,
                     body: std::mem::take(&mut segment_ops),
-                    term: BlockPyTerm::Jump(next_label.clone().into()),
+                    term: BlockPyTerm::Jump(next_label.into()),
                     params: bb_params_from_names(
                         segment_start_names.clone(),
                         edge_exc_name.as_deref(),
@@ -123,7 +104,7 @@ fn split_exception_blocks_for_expr_checks(
 
             if ops.peek().is_none() {
                 out.push(ResolvedStorageBlock {
-                    label: current_label.clone(),
+                    label: current_label,
                     body: std::mem::take(&mut segment_ops),
                     term: block.term.clone(),
                     params: bb_params_from_names(
@@ -145,13 +126,12 @@ fn op_updates_exception_state(op: &BlockPyStmt) -> bool {
 
 fn unique_exc_split_label(
     used_labels: &mut HashSet<BlockPyLabel>,
-    base_label: &str,
     index_seed: usize,
 ) -> BlockPyLabel {
     let mut index = index_seed;
     loop {
-        let candidate = BlockPyLabel::from(format!("{base_label}__excchk_{index}"));
-        if used_labels.insert(candidate.clone()) {
+        let candidate = BlockPyLabel::from_index(index);
+        if used_labels.insert(candidate) {
             return candidate;
         }
         index += 1;
@@ -183,86 +163,6 @@ fn apply_op_effect_to_known_names(op: &BlockPyStmt, known_names: &mut Vec<String
             });
         }
     }
-}
-
-fn validate_function_labels<P: BlockPyPass>(
-    function: &BlockPyFunction<P>,
-    labels: &HashSet<String>,
-) -> Result<(), String> {
-    let qualname = function.names.qualname.as_str();
-    for block in &function.blocks {
-        if let Some(exc_target_label) = block.exc_edge.as_ref().map(|edge| &edge.target) {
-            if !labels.contains(exc_target_label.as_str()) {
-                return Err(format!(
-                    "unknown exception target {exc_target_label} in {}:{}",
-                    qualname, block.label
-                ));
-            }
-        }
-        match &block.term {
-            BlockPyTerm::Jump(target) => ensure_known_label(
-                labels,
-                target.as_str(),
-                qualname,
-                block.label.as_str(),
-                "jump target",
-            )?,
-            BlockPyTerm::IfTerm(if_term) => {
-                let then_label = &if_term.then_label;
-                let else_label = &if_term.else_label;
-                ensure_known_label(
-                    labels,
-                    then_label.as_str(),
-                    qualname,
-                    block.label.as_str(),
-                    "then target",
-                )?;
-                ensure_known_label(
-                    labels,
-                    else_label.as_str(),
-                    qualname,
-                    block.label.as_str(),
-                    "else target",
-                )?;
-            }
-            BlockPyTerm::BranchTable(branch) => {
-                for target in &branch.targets {
-                    ensure_known_label(
-                        labels,
-                        target.as_str(),
-                        qualname,
-                        block.label.as_str(),
-                        "br_table target",
-                    )?;
-                }
-                ensure_known_label(
-                    labels,
-                    branch.default_label.as_str(),
-                    qualname,
-                    block.label.as_str(),
-                    "br_table default target",
-                )?;
-            }
-            BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
-        }
-    }
-    Ok(())
-}
-
-fn ensure_known_label(
-    labels: &HashSet<String>,
-    label: &str,
-    qualname: &str,
-    block_label: &str,
-    label_kind: &str,
-) -> Result<(), String> {
-    if labels.contains(label) {
-        return Ok(());
-    }
-    Err(format!(
-        "unknown {label_kind} {label} in {}:{}",
-        qualname, block_label
-    ))
 }
 
 #[cfg(test)]

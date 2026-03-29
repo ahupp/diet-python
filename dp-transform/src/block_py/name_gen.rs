@@ -38,7 +38,7 @@ impl FunctionNameGen {
 
     pub fn next_block_name(&self) -> BlockPyLabel {
         let current = self.state.next_block_id.fetch_add(1, Ordering::Relaxed);
-        BlockPyLabel(format!("_dp_bb_{}_{}", self.state.function_id.0, current))
+        BlockPyLabel::from_index(current)
     }
 
     pub fn next_tmp_name(&self, prefix: &str) -> ast::name::Name {

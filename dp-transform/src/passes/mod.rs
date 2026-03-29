@@ -9,6 +9,7 @@ mod name_binding;
 pub mod ruff_to_blockpy;
 mod trace;
 
+use crate::block_py::{cfg::relabel_blockpy_blocks_dense, BlockPyModule};
 use crate::block_py::{
     BlockPyPass, BlockPyStmt, CodegenBlockPyExpr, CoreBlockPyExpr,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, LocatedName, RuffExpr,
@@ -70,12 +71,16 @@ impl BlockPyPass for CodegenBlockPyPass {
 }
 
 pub(crate) use blockpy_to_bb::lower_yield_in_lowered_core_blockpy_module_bundle;
-pub use blockpy_to_bb::{
-    lower_try_jump_exception_flow, normalize_bb_module_strings, validate_prepared_bb_module,
-};
+pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_strings};
 
 pub(crate) use name_binding::lower_name_binding_in_core_blockpy_module;
 pub(crate) use trace::{instrument_bb_module_for_trace, parse_trace_env};
+
+pub fn relabel_dense_bb_module(module: &mut BlockPyModule<CodegenBlockPyPass>) {
+    for callable in &mut module.callable_defs {
+        relabel_blockpy_blocks_dense(&mut callable.blocks);
+    }
+}
 
 #[cfg(test)]
 mod test;

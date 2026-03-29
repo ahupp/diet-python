@@ -6,7 +6,7 @@ use super::core_eval_order::make_eval_order_explicit_in_core_callable_def_withou
 use crate::block_py::{BlockPyFunctionKind, BlockPyModule, ModuleNameGen};
 use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithYield};
 
-pub use exception_pass::{lower_try_jump_exception_flow, validate_prepared_bb_module};
+pub use exception_pass::lower_try_jump_exception_flow;
 pub use strings::normalize_bb_module_strings;
 
 pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(

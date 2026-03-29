@@ -1,8 +1,10 @@
-use super::{lower_try_jump_exception_flow, validate_prepared_bb_module};
+use super::lower_try_jump_exception_flow;
 use crate::block_py::{
-    BlockPyEdge, BlockPyLabel, BlockPyTerm, LocatedCoreBlockPyExpr, ResolvedStorageBlock,
+    validate_module, BlockArg, BlockPyEdge, BlockPyLabel, BlockPyTerm, LocatedCoreBlockPyExpr,
+    ResolvedStorageBlock,
 };
 use crate::lower_python_to_blockpy_recorded;
+use crate::passes::CodegenBlockPyPass;
 
 fn tracked_name_binding_module(
     source: &str,
@@ -13,6 +15,14 @@ fn tracked_name_binding_module(
         .pass_name_binding()
         .expect("bb module must exist")
         .clone()
+}
+
+fn tracked_codegen_module(source: &str) -> crate::block_py::BlockPyModule<CodegenBlockPyPass> {
+    let name_binding = tracked_name_binding_module(source);
+    let lowered = lower_try_jump_exception_flow(&name_binding);
+    let mut codegen = crate::passes::normalize_bb_module_strings(&lowered);
+    crate::passes::relabel_dense_bb_module(&mut codegen);
+    codegen
 }
 
 #[test]
@@ -28,8 +38,8 @@ def f(x):
             .iter_mut()
             .find(|function| function.names.qualname == "f")
             .expect("must contain f");
-        let body_label = BlockPyLabel::from("_dp_manual_body");
-        let except_label = BlockPyLabel::from("_dp_manual_except");
+        let body_label = BlockPyLabel::from(100u32);
+        let except_label = BlockPyLabel::from(101u32);
 
         function.blocks.push(ResolvedStorageBlock {
             label: body_label.clone(),
@@ -67,11 +77,8 @@ def f(x):
         .find(|block| block.label == body_label)
         .expect("body block must exist");
     assert_eq!(
-        body_block
-            .exc_edge
-            .as_ref()
-            .map(|edge| edge.target.as_str()),
-        Some(except_label.as_str()),
+        body_block.exc_edge.as_ref().map(|edge| edge.target),
+        Some(except_label),
         "body region should dispatch to except block on exception"
     );
     assert_eq!(
@@ -87,17 +94,39 @@ fn rejects_try_jump_with_unknown_label() {
 def f():
     return 1
 "#;
-    let mut module = tracked_name_binding_module(source);
+    let mut module = tracked_codegen_module(source);
     let function = module
         .callable_defs
         .first_mut()
         .expect("must contain function");
-    function.blocks[0].exc_edge = Some(BlockPyEdge::new(BlockPyLabel::from("missing_except")));
+    function.blocks[0].exc_edge = Some(BlockPyEdge::new(BlockPyLabel::from(999u32)));
 
-    let lowered = lower_try_jump_exception_flow(&module);
-    let err = validate_prepared_bb_module(&lowered).expect_err("must reject unknown labels");
+    let err = validate_module(&module).expect_err("must reject unknown labels");
     assert!(
         err.contains("unknown exception target"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn rejects_exception_edge_with_wrong_arg_arity() {
+    let source = r#"
+def f():
+    return 1
+"#;
+    let mut module = tracked_codegen_module(source);
+    let function = module
+        .callable_defs
+        .first_mut()
+        .expect("must contain function");
+    let target = function.blocks[0].label;
+    function.blocks[0].exc_edge = Some(BlockPyEdge::with_args(target, vec![BlockArg::None]));
+
+    let err = validate_module(&module).expect_err("must reject mismatched exception edge arity");
+    assert!(
+        err.contains("exception dispatch")
+            && err.contains("explicit edge args")
+            && err.contains("full params"),
         "unexpected error: {err}"
     );
 }
@@ -122,7 +151,7 @@ def f():
         .position(|block| block.body.len() >= 2)
         .expect("must contain multi-op block");
     let original_label = function.blocks[block_index].label.clone();
-    let except_label = BlockPyLabel::from("_dp_manual_except_split");
+    let except_label = BlockPyLabel::from(100u32);
     function.blocks.push(ResolvedStorageBlock {
         label: except_label.clone(),
         body: vec![],
@@ -153,15 +182,15 @@ def f():
         "split op block must jump to next split block"
     );
     assert_eq!(
-        first.exc_edge.as_ref().map(|edge| edge.target.as_str()),
-        Some(except_label.as_str()),
+        first.exc_edge.as_ref().map(|edge| edge.target),
+        Some(except_label),
         "split block must preserve exception edge target"
     );
 
     let split_tail = lowered_function
         .blocks
         .iter()
-        .find(|block| block.label.as_str().contains("__excchk_"))
+        .find(|block| block.label != original_label && block.label != except_label)
         .expect("must contain split tail block");
     assert!(
         split_tail.body.len() <= 1,
@@ -190,7 +219,7 @@ def f():
         .position(|block| block.body.len() >= 4)
         .expect("must contain multi-op block");
     let original_label = function.blocks[block_index].label.clone();
-    let except_label = BlockPyLabel::from("_dp_manual_except_group");
+    let except_label = BlockPyLabel::from(100u32);
     function.blocks.push(ResolvedStorageBlock {
         label: except_label.clone(),
         body: vec![],
@@ -228,7 +257,7 @@ def f():
     let next = lowered_function
         .blocks
         .iter()
-        .find(|block| block.label.as_str().contains("__excchk_"))
+        .find(|block| block.label != original_label && block.label != except_label)
         .expect("must contain split successor");
     assert_eq!(
         next.body.len(),

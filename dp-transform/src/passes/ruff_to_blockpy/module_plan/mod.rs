@@ -101,68 +101,20 @@ fn try_lower_function_to_blockpy_bundle(
     let (docstring, lowered_input_body) = split_docstring(&func.body);
     let lowered_input_body = lowered_input_body.to_vec();
     let (param_spec, _param_defaults) = collect_param_spec_and_defaults(&func.parameters);
-    let runtime_input_body = prune_dead_stmt_suffixes(&lowered_input_body);
 
     let end_label = name_gen.next_block_name();
-    let doc = docstring;
-    let blockpy_kind = function_kind(func);
+
     build_blockpy_callable_def_from_runtime_input(
         context,
         name_gen,
         callable_semantic.names.clone(),
         param_spec,
-        &runtime_input_body,
-        doc,
+        &lowered_input_body,
+        docstring,
         end_label,
-        blockpy_kind,
+        function_kind(func),
         callable_semantic,
     )
-}
-
-fn prune_dead_stmt_suffixes(stmts: &[Stmt]) -> Vec<Stmt> {
-    let mut out = Vec::new();
-    for stmt in stmts {
-        let mut stmt = stmt.clone();
-        prune_dead_stmt_suffixes_in_stmt(&mut stmt);
-        let terminates = matches!(
-            stmt,
-            Stmt::Return(_) | Stmt::Raise(_) | Stmt::Break(_) | Stmt::Continue(_)
-        );
-        out.push(stmt);
-        if terminates {
-            break;
-        }
-    }
-    out
-}
-
-fn prune_dead_stmt_suffixes_in_stmt(stmt: &mut Stmt) {
-    match stmt {
-        Stmt::If(if_stmt) => {
-            *&mut if_stmt.body = prune_dead_stmt_suffixes(&if_stmt.body);
-            for clause in &mut if_stmt.elif_else_clauses {
-                *&mut clause.body = prune_dead_stmt_suffixes(&clause.body);
-            }
-        }
-        Stmt::While(while_stmt) => {
-            *&mut while_stmt.body = prune_dead_stmt_suffixes(&while_stmt.body);
-            *&mut while_stmt.orelse = prune_dead_stmt_suffixes(&while_stmt.orelse);
-        }
-        Stmt::For(for_stmt) => {
-            *&mut for_stmt.body = prune_dead_stmt_suffixes(&for_stmt.body);
-            *&mut for_stmt.orelse = prune_dead_stmt_suffixes(&for_stmt.orelse);
-        }
-        Stmt::Try(try_stmt) => {
-            *&mut try_stmt.body = prune_dead_stmt_suffixes(&try_stmt.body);
-            for handler in &mut try_stmt.handlers {
-                let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                *&mut handler.body = prune_dead_stmt_suffixes(&handler.body);
-            }
-            *&mut try_stmt.orelse = prune_dead_stmt_suffixes(&try_stmt.orelse);
-            *&mut try_stmt.finalbody = prune_dead_stmt_suffixes(&try_stmt.finalbody);
-        }
-        _ => {}
-    }
 }
 
 // Function-definition rewriting stays in one tree pass, but the instantiation

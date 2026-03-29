@@ -17,11 +17,6 @@ pub(crate) fn strip_synthetic_module_init_qualname(raw: &str) -> String {
     if let Some(rest) = raw.strip_prefix("_dp_module_init.<locals>.") {
         return rest.to_string();
     }
-    if raw.starts_with("_dp_fn__dp_module_init_") {
-        if let Some((_, tail)) = raw.split_once(".<locals>.") {
-            return tail.to_string();
-        }
-    }
     raw.to_string()
 }
 

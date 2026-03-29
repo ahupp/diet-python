@@ -1,11 +1,12 @@
 use super::*;
-
+use dp_transform::block_py::{
+    BinOp, BinOpKind, BlockPyAssign, BlockPyDelete, BlockPyStmt, BlockPyTerm, CodegenBlockPyExpr,
+    CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref,
+    DelDerefQuietly, DelItem, DelQuietly, LoadGlobal, LocatedCodegenBlockPyExpr, LocatedName,
+    MakeString, NameLocation, Operation, StoreGlobal, TernaryOp, TernaryOpKind,
+};
 mod tests {
     use super::*;
-    use dp_transform::block_py::{
-        BinOp, BinOpKind, CellRef, DelDeref, DelDerefQuietly, DelItem, DelQuietly, LoadGlobal,
-        LocatedName, MakeString, NameLocation, Operation, StoreGlobal, TernaryOp, TernaryOpKind,
-    };
     use ruff_python_ast as ast;
 
     fn test_name(name: &str) -> LocatedName {
@@ -48,89 +49,96 @@ mod tests {
         }
     }
 
-    fn test_block(label: &str, plan: DirectSimpleBlockPlan) -> ClifBlockPlan {
-        ClifBlockPlan {
+    fn int_expr(value: i64) -> LocatedCodegenBlockPyExpr {
+        let value_str = value.to_string();
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+            node_index: Default::default(),
+            range: Default::default(),
+            value: CoreNumberLiteralValue::Int(
+                ast::Int::from_str_radix(value_str.as_str(), 10, value_str.as_str())
+                    .expect("test integer literal should parse"),
+            ),
+        }))
+    }
+
+    fn bytes_expr(value: &[u8]) -> LocatedCodegenBlockPyExpr {
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(CoreBytesLiteral {
+            node_index: Default::default(),
+            range: Default::default(),
+            value: value.to_vec(),
+        }))
+    }
+
+    fn name_expr(name: LocatedName) -> LocatedCodegenBlockPyExpr {
+        CodegenBlockPyExpr::Name(name)
+    }
+
+    fn op_expr(operation: Operation<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyExpr {
+        CodegenBlockPyExpr::Op(Box::new(operation))
+    }
+
+    fn expr_stmt(
+        expr: LocatedCodegenBlockPyExpr,
+    ) -> BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName> {
+        BlockPyStmt::Expr(expr)
+    }
+
+    fn assign_stmt(
+        target: LocatedName,
+        value: LocatedCodegenBlockPyExpr,
+    ) -> BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName> {
+        BlockPyStmt::Assign(BlockPyAssign { target, value })
+    }
+
+    fn delete_stmt(target: LocatedName) -> BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName> {
+        BlockPyStmt::Delete(BlockPyDelete { target })
+    }
+
+    fn ret_term(value: LocatedCodegenBlockPyExpr) -> BlockPyTerm<LocatedCodegenBlockPyExpr> {
+        BlockPyTerm::Return(value)
+    }
+
+    fn raise_term() -> BlockPyTerm<LocatedCodegenBlockPyExpr> {
+        BlockPyTerm::Raise(dp_transform::block_py::BlockPyRaise { exc: None })
+    }
+
+    fn test_block(
+        label: &str,
+        ops: Vec<BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>>,
+        term: BlockPyTerm<LocatedCodegenBlockPyExpr>,
+    ) -> SpecializedJitBlockData {
+        SpecializedJitBlockData {
             label: label.into(),
-            param_names: vec![],
+            full_param_names: vec![],
             runtime_param_names: vec![],
-            exc_target: None,
             exc_dispatch: None,
-            plan,
+            ops,
+            term,
         }
     }
 
-    fn test_plan(blocks: Vec<ClifBlockPlan>) -> ClifPlan {
-        ClifPlan {
-            entry_params: vec![],
+    fn test_jit_data(blocks: Vec<SpecializedJitBlockData>) -> SpecializedJitData {
+        SpecializedJitData {
             entry_param_names: vec![],
             entry_param_default_sources: vec![],
-            ambient_param_names: vec![],
             owned_cell_slot_names: vec![],
             slot_names: vec![],
             blocks,
         }
     }
 
-    fn test_single_block_plan(plan: DirectSimpleBlockPlan) -> ClifPlan {
-        test_plan(vec![test_block("b0", plan)])
+    fn test_single_block_data(
+        ops: Vec<BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>>,
+        term: BlockPyTerm<LocatedCodegenBlockPyExpr>,
+    ) -> SpecializedJitData {
+        test_jit_data(vec![test_block("b0", ops, term)])
     }
 
-    fn test_raise_block_plan() -> DirectSimpleBlockPlan {
-        DirectSimpleBlockPlan {
-            ops: vec![],
-            term: DirectSimpleTermPlan::Raise { exc: None },
-        }
-    }
-
-    fn test_ret_block_plan(value: DirectSimpleExprPlan) -> DirectSimpleBlockPlan {
-        DirectSimpleBlockPlan {
-            ops: vec![],
-            term: DirectSimpleTermPlan::Ret { value },
-        }
-    }
-
-    #[test]
-    fn render_specialized_jit_clif_smoke() {
-        let blocks = [1usize as ObjPtr, 2usize as ObjPtr, 3usize as ObjPtr];
-        let plan = test_plan(vec![
-            test_block("b0", test_raise_block_plan()),
-            test_block("b1", test_raise_block_plan()),
-            test_block("b2", test_raise_block_plan()),
-        ]);
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed");
-        assert!(
-            rendered.clif.contains("function"),
-            "specialized JIT CLIF render should produce function text:\n{}",
-            rendered.clif
-        );
-    }
-
-    #[test]
-    fn render_specialized_jit_operator_calls_use_python_capi() {
-        let blocks = [1usize as ObjPtr];
-        let plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(Box::new(
-            Operation::BinOp(BinOp {
-                node_index: Default::default(),
-                range: Default::default(),
-                kind: BinOpKind::Add,
-                arg0: DirectSimpleExprPlan::Int(1),
-                arg1: DirectSimpleExprPlan::Int(2),
-            }),
-        ))));
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
+    fn render_test_jit_data(jit_data: &SpecializedJitData, blocks: &[ObjPtr]) -> String {
+        unsafe {
+            render_cranelift_run_bb_specialized_data_with_cfg(
+                blocks,
+                jit_data,
                 11usize as ObjPtr,
                 12usize as ObjPtr,
                 13usize as ObjPtr,
@@ -138,7 +146,39 @@ mod tests {
             )
         }
         .expect("specialized JIT CLIF render should succeed")
-        .clif;
+        .clif
+    }
+
+    #[test]
+    fn render_specialized_jit_clif_smoke() {
+        let blocks = [1usize as ObjPtr, 2usize as ObjPtr, 3usize as ObjPtr];
+        let jit_data = test_jit_data(vec![
+            test_block("b0", vec![], raise_term()),
+            test_block("b1", vec![], raise_term()),
+            test_block("b2", vec![], raise_term()),
+        ]);
+        let rendered = render_test_jit_data(&jit_data, &blocks);
+        assert!(
+            rendered.contains("function"),
+            "specialized JIT CLIF render should produce function text:\n{}",
+            rendered
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_operator_calls_use_python_capi() {
+        let blocks = [1usize as ObjPtr];
+        let jit_data = test_single_block_data(
+            vec![],
+            ret_term(op_expr(Operation::BinOp(BinOp {
+                node_index: Default::default(),
+                range: Default::default(),
+                kind: BinOpKind::Add,
+                arg0: int_expr(1),
+                arg1: int_expr(2),
+            }))),
+        );
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call PyNumber_Add"),
             "operator lowering should use PyNumber_Add in rendered CLIF:\n{rendered}"
@@ -152,27 +192,17 @@ mod tests {
     #[test]
     fn render_specialized_jit_compare_calls_use_richcompare() {
         let blocks = [1usize as ObjPtr];
-        let plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(Box::new(
-            Operation::BinOp(BinOp {
+        let jit_data = test_single_block_data(
+            vec![],
+            ret_term(op_expr(Operation::BinOp(BinOp {
                 node_index: Default::default(),
                 range: Default::default(),
                 kind: BinOpKind::Lt,
-                arg0: DirectSimpleExprPlan::Int(1),
-                arg1: DirectSimpleExprPlan::Int(2),
-            }),
-        ))));
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+                arg0: int_expr(1),
+                arg1: int_expr(2),
+            }))),
+        );
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call PyObject_RichCompare"),
             "comparison lowering should use PyObject_RichCompare in rendered CLIF:\n{rendered}"
@@ -182,25 +212,15 @@ mod tests {
     #[test]
     fn render_specialized_jit_make_string_uses_decode_helper_directly() {
         let blocks = [1usize as ObjPtr];
-        let plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(Box::new(
-            Operation::MakeString(MakeString {
+        let jit_data = test_single_block_data(
+            vec![],
+            ret_term(op_expr(Operation::MakeString(MakeString {
                 node_index: Default::default(),
                 range: Default::default(),
-                arg0: DirectSimpleExprPlan::Bytes(b"hello".to_vec()),
-            }),
-        ))));
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+                arg0: bytes_expr(b"hello"),
+            }))),
+        );
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_decode_literal_bytes"),
             "MakeString lowering should use the direct decode helper:\n{rendered}"
@@ -214,28 +234,18 @@ mod tests {
     #[test]
     fn render_specialized_jit_pow_calls_use_pynumber_power() {
         let blocks = [1usize as ObjPtr];
-        let plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(Box::new(
-            Operation::TernaryOp(TernaryOp {
+        let jit_data = test_single_block_data(
+            vec![],
+            ret_term(op_expr(Operation::TernaryOp(TernaryOp {
                 node_index: Default::default(),
                 range: Default::default(),
                 kind: TernaryOpKind::Pow,
-                arg0: DirectSimpleExprPlan::Int(2),
-                arg1: DirectSimpleExprPlan::Int(3),
-                arg2: DirectSimpleExprPlan::Name(test_global_name("__dp_NONE")),
-            }),
-        ))));
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+                arg0: int_expr(2),
+                arg1: int_expr(3),
+                arg2: name_expr(test_global_name("__dp_NONE")),
+            }))),
+        );
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call PyNumber_Power"),
             "power lowering should use PyNumber_Power in rendered CLIF:\n{rendered}"
@@ -245,20 +255,9 @@ mod tests {
     #[test]
     fn render_specialized_jit_allocates_function_state_slots() {
         let blocks = [1usize as ObjPtr];
-        let mut plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Int(7)));
-        plan.slot_names = vec!["x".into(), "y".into()];
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+        let mut jit_data = test_single_block_data(vec![], ret_term(int_expr(7)));
+        jit_data.slot_names = vec!["x".into(), "y".into()];
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.matches("explicit_slot 8").count() >= 2,
             "slot-backed JIT plans should allocate explicit stack slots:\n{rendered}"
@@ -268,28 +267,12 @@ mod tests {
     #[test]
     fn render_specialized_jit_assignments_sync_function_state_slots() {
         let blocks = [1usize as ObjPtr];
-        let mut plan = test_single_block_plan(DirectSimpleBlockPlan {
-            ops: vec![DirectSimpleOpPlan::Assign(DirectSimpleAssignPlan {
-                target: test_name("x"),
-                value: DirectSimpleExprPlan::Int(7),
-            })],
-            term: DirectSimpleTermPlan::Ret {
-                value: DirectSimpleExprPlan::Name(test_name("x")),
-            },
-        });
-        plan.slot_names = vec!["x".into()];
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+        let mut jit_data = test_single_block_data(
+            vec![assign_stmt(test_name("x"), int_expr(7))],
+            ret_term(name_expr(test_name("x"))),
+        );
+        jit_data.slot_names = vec!["x".into()];
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("store.i64") || rendered.contains("stack_store"),
             "assignment-backed JIT plans should update mirrored function-state slots:\n{rendered}"
@@ -299,21 +282,8 @@ mod tests {
     #[test]
     fn render_specialized_jit_global_names_use_global_lookup_hook() {
         let blocks = [1usize as ObjPtr];
-        let plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Name(
-            test_global_name("x"),
-        )));
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+        let jit_data = test_single_block_data(vec![], ret_term(name_expr(test_global_name("x"))));
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_globals")
                 && rendered.contains("call dp_jit_load_name"),
@@ -324,26 +294,16 @@ mod tests {
     #[test]
     fn render_specialized_jit_load_global_intrinsic_uses_direct_helper() {
         let blocks = [1usize as ObjPtr];
-        let plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(Box::new(
-            Operation::LoadGlobal(LoadGlobal {
+        let jit_data = test_single_block_data(
+            vec![],
+            ret_term(op_expr(Operation::LoadGlobal(LoadGlobal {
                 node_index: Default::default(),
                 range: Default::default(),
-                arg0: DirectSimpleExprPlan::Int(1),
-                arg1: DirectSimpleExprPlan::Int(2),
-            }),
-        ))));
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+                arg0: int_expr(1),
+                arg1: int_expr(2),
+            }))),
+        );
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_load_global_obj"),
             "load_global intrinsic should use the direct JIT helper:\n{rendered}"
@@ -353,27 +313,17 @@ mod tests {
     #[test]
     fn render_specialized_jit_store_global_intrinsic_uses_direct_helper() {
         let blocks = [1usize as ObjPtr];
-        let plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(Box::new(
-            Operation::StoreGlobal(StoreGlobal {
+        let jit_data = test_single_block_data(
+            vec![],
+            ret_term(op_expr(Operation::StoreGlobal(StoreGlobal {
                 node_index: Default::default(),
                 range: Default::default(),
-                arg0: DirectSimpleExprPlan::Int(1),
-                arg1: DirectSimpleExprPlan::Int(2),
-                arg2: DirectSimpleExprPlan::Int(3),
-            }),
-        ))));
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+                arg0: int_expr(1),
+                arg1: int_expr(2),
+                arg2: int_expr(3),
+            }))),
+        );
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_store_global"),
             "store_global intrinsic should use the direct JIT helper:\n{rendered}"
@@ -383,22 +333,10 @@ mod tests {
     #[test]
     fn render_specialized_jit_closure_names_use_function_closure_cells() {
         let blocks = [1usize as ObjPtr];
-        let mut plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Name(
-            test_closure_cell_name("x", 2),
-        )));
-        plan.slot_names = vec!["x".into()];
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+        let mut jit_data =
+            test_single_block_data(vec![], ret_term(name_expr(test_closure_cell_name("x", 2))));
+        jit_data.slot_names = vec!["x".into()];
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell")
                 && rendered.contains("call dp_jit_load_cell"),
@@ -409,26 +347,18 @@ mod tests {
     #[test]
     fn render_specialized_jit_cell_ref_intrinsic_uses_function_closure_cells() {
         let blocks = [1usize as ObjPtr];
-        let mut plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(
-            Box::new(Operation::CellRef(CellRef {
-                node_index: Default::default(),
-                range: Default::default(),
-                arg0: DirectSimpleExprPlan::Name(test_closure_cell_name("x", 2)),
-            })),
-        )));
-        plan.slot_names = vec!["x".into()];
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+        let mut jit_data = test_single_block_data(
+            vec![],
+            ret_term(op_expr(Operation::CellRef(
+                dp_transform::block_py::CellRef {
+                    node_index: Default::default(),
+                    range: Default::default(),
+                    arg0: name_expr(test_closure_cell_name("x", 2)),
+                },
+            ))),
+        );
+        jit_data.slot_names = vec!["x".into()];
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell"),
             "cell_ref intrinsic should use callable-rooted closure cells:\n{rendered}"
@@ -442,29 +372,18 @@ mod tests {
     #[test]
     fn render_specialized_jit_cell_ref_on_captured_source_unwraps_wrapper_cell_once() {
         let blocks = [1usize as ObjPtr];
-        let mut plan = test_single_block_plan(test_ret_block_plan(DirectSimpleExprPlan::Op(
-            Box::new(Operation::CellRef(CellRef {
-                node_index: Default::default(),
-                range: Default::default(),
-                arg0: DirectSimpleExprPlan::Name(test_captured_cell_source_name(
-                    "_dp_classcell",
-                    2,
-                )),
-            })),
-        )));
-        plan.slot_names = vec!["_dp_classcell".into()];
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+        let mut jit_data = test_single_block_data(
+            vec![],
+            ret_term(op_expr(Operation::CellRef(
+                dp_transform::block_py::CellRef {
+                    node_index: Default::default(),
+                    range: Default::default(),
+                    arg0: name_expr(test_captured_cell_source_name("_dp_classcell", 2)),
+                },
+            ))),
+        );
+        jit_data.slot_names = vec!["_dp_classcell".into()];
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_closure_cell"),
             "captured cell sources should resolve through the callable closure:\n{rendered}"
@@ -478,56 +397,35 @@ mod tests {
     #[test]
     fn render_specialized_jit_delete_intrinsics_use_direct_helpers() {
         let blocks = [1usize as ObjPtr];
-        let mut plan = test_single_block_plan(DirectSimpleBlockPlan {
-            ops: vec![
-                DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(Operation::DelItem(
-                    DelItem {
-                        node_index: Default::default(),
-                        range: Default::default(),
-                        arg0: DirectSimpleExprPlan::Int(1),
-                        arg1: DirectSimpleExprPlan::Int(2),
-                    },
-                )))),
-                DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
-                    Operation::DelQuietly(DelQuietly {
-                        node_index: Default::default(),
-                        range: Default::default(),
-                        arg0: DirectSimpleExprPlan::Int(3),
-                        arg1: DirectSimpleExprPlan::Int(4),
-                    }),
-                ))),
-                DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(Operation::DelDeref(
-                    DelDeref {
-                        node_index: Default::default(),
-                        range: Default::default(),
-                        arg0: DirectSimpleExprPlan::Name(test_name("cell")),
-                    },
-                )))),
-                DirectSimpleOpPlan::Expr(DirectSimpleExprPlan::Op(Box::new(
-                    Operation::DelDerefQuietly(DelDerefQuietly {
-                        node_index: Default::default(),
-                        range: Default::default(),
-                        arg0: DirectSimpleExprPlan::Name(test_name("cell")),
-                    }),
-                ))),
+        let mut jit_data = test_single_block_data(
+            vec![
+                expr_stmt(op_expr(Operation::DelItem(DelItem {
+                    node_index: Default::default(),
+                    range: Default::default(),
+                    arg0: int_expr(1),
+                    arg1: int_expr(2),
+                }))),
+                expr_stmt(op_expr(Operation::DelQuietly(DelQuietly {
+                    node_index: Default::default(),
+                    range: Default::default(),
+                    arg0: int_expr(3),
+                    arg1: int_expr(4),
+                }))),
+                expr_stmt(op_expr(Operation::DelDeref(DelDeref {
+                    node_index: Default::default(),
+                    range: Default::default(),
+                    arg0: name_expr(test_name("cell")),
+                }))),
+                expr_stmt(op_expr(Operation::DelDerefQuietly(DelDerefQuietly {
+                    node_index: Default::default(),
+                    range: Default::default(),
+                    arg0: name_expr(test_name("cell")),
+                }))),
             ],
-            term: DirectSimpleTermPlan::Ret {
-                value: DirectSimpleExprPlan::Int(0),
-            },
-        });
-        plan.slot_names = vec!["cell".into()];
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+            ret_term(int_expr(0)),
+        );
+        jit_data.slot_names = vec!["cell".into()];
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_pyobject_delitem"),
             "delitem intrinsic should use the direct JIT helper:\n{rendered}"
@@ -549,45 +447,12 @@ mod tests {
     #[test]
     fn render_specialized_jit_direct_entry_uses_live_positional_defaults() {
         let blocks = [1usize as ObjPtr];
-        let mut plan = ClifPlan {
-            entry_params: vec![
-                ClifBindingParam {
-                    name: "x".into(),
-                    kind: ClifBindingParamKind::PositionalOrKeyword,
-                    has_default: false,
-                },
-                ClifBindingParam {
-                    name: "y".into(),
-                    kind: ClifBindingParamKind::PositionalOrKeyword,
-                    has_default: true,
-                },
-            ],
-            entry_param_names: vec!["x".into(), "y".into()],
-            entry_param_default_sources: vec![
-                None,
-                Some(ClifEntryParamDefaultSource::Positional(0)),
-            ],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec!["x".into(), "y".into()],
-            blocks: vec![],
-        };
-        plan.blocks.push(test_block(
-            "b0",
-            test_ret_block_plan(DirectSimpleExprPlan::Name(test_name("y"))),
-        ));
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+        let mut jit_data = test_single_block_data(vec![], ret_term(name_expr(test_name("y"))));
+        jit_data.entry_param_names = vec!["x".into(), "y".into()];
+        jit_data.entry_param_default_sources =
+            vec![None, Some(ClifEntryParamDefaultSource::Positional(0))];
+        jit_data.slot_names = vec!["x".into(), "y".into()];
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_positional_default"),
             "direct entry lowering should source omitted positional defaults from the callable:\n{rendered}"
@@ -597,40 +462,30 @@ mod tests {
     #[test]
     fn render_specialized_jit_direct_entry_uses_live_kwonly_defaults() {
         let blocks = [1usize as ObjPtr];
-        let mut plan = ClifPlan {
-            entry_params: vec![ClifBindingParam {
-                name: "x".into(),
-                kind: ClifBindingParamKind::KeywordOnly,
-                has_default: true,
-            }],
-            entry_param_names: vec!["x".into()],
-            entry_param_default_sources: vec![Some(ClifEntryParamDefaultSource::KeywordOnly(
-                "x".into(),
-            ))],
-            ambient_param_names: vec![],
-            owned_cell_slot_names: vec![],
-            slot_names: vec!["x".into()],
-            blocks: vec![],
-        };
-        plan.blocks.push(test_block(
-            "b0",
-            test_ret_block_plan(DirectSimpleExprPlan::Name(test_name("x"))),
-        ));
-        let rendered = unsafe {
-            render_cranelift_run_bb_specialized_with_cfg(
-                &blocks,
-                &plan,
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-        }
-        .expect("specialized JIT CLIF render should succeed")
-        .clif;
+        let mut jit_data = test_single_block_data(vec![], ret_term(name_expr(test_name("x"))));
+        jit_data.entry_param_names = vec!["x".into()];
+        jit_data.entry_param_default_sources =
+            vec![Some(ClifEntryParamDefaultSource::KeywordOnly("x".into()))];
+        jit_data.slot_names = vec!["x".into()];
+        let rendered = render_test_jit_data(&jit_data, &blocks);
         assert!(
             rendered.contains("call dp_jit_function_kwonly_default"),
             "direct entry lowering should source omitted kwonly defaults from the callable:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_delete_stmt_updates_function_state_slots() {
+        let blocks = [1usize as ObjPtr];
+        let mut jit_data =
+            test_single_block_data(vec![delete_stmt(test_name("x"))], ret_term(int_expr(0)));
+        jit_data.slot_names = vec!["x".into()];
+        let rendered = render_test_jit_data(&jit_data, &blocks);
+        assert!(
+            rendered.contains("store.i64")
+                || rendered.contains("stack_store")
+                || rendered.contains("store notrap"),
+            "delete-backed JIT plans should update mirrored function-state slots:\n{rendered}"
         );
     }
 }

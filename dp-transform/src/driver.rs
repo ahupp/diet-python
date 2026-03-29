@@ -192,7 +192,9 @@ pub(crate) fn rewrite_module_with_tracker(
             passes::lower_try_jump_exception_flow(&name_binding)
         });
     let bb_codegen: BlockPyModule<CodegenBlockPyPass> = pass_tracker.run_pass("bb_codegen", || {
-        passes::normalize_bb_module_strings(&bb_prepared)
+        let mut bb_codegen = passes::normalize_bb_module_strings(&bb_prepared);
+        passes::relabel_dense_bb_module(&mut bb_codegen);
+        bb_codegen
     });
 
     let bb_traced: BlockPyModule<CodegenBlockPyPass> =
@@ -207,7 +209,7 @@ pub(crate) fn rewrite_module_with_tracker(
         };
 
     pass_tracker.record_timing("validate", || {
-        passes::validate_prepared_bb_module(&bb_traced).map_err(anyhow::Error::msg)
+        crate::block_py::validate_module(&bb_traced).map_err(anyhow::Error::msg)
     })?;
 
     Ok(bb_traced)

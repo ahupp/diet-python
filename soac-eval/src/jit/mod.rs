@@ -9,10 +9,11 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use dp_transform::block_py::{
-    BlockPyModule, LocatedName, NameLocation, operation as blockpy_intrinsics,
+    AbruptKind, BlockArg, BlockPyModule, BlockPyStmt, BlockPyTerm, CodegenBlockPyExpr,
+    CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyKeywordArg, LocatedCodegenBlockPyExpr,
+    LocatedName, NameLocation, operation as blockpy_intrinsics,
 };
 use dp_transform::passes::CodegenBlockPyPass;
-use ruff_python_ast as ast;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ptr;
@@ -24,12 +25,9 @@ mod planning;
 mod specialized_helpers;
 
 pub use planning::{
-    BlockExcArgSource, BlockExcDispatchPlan, ClifBindingParam, ClifBindingParamKind, ClifBlockPlan,
-    ClifEntryParamDefaultSource, ClifPlan, DirectSimpleAssignPlan, DirectSimpleBlockArgPlan,
-    DirectSimpleBlockPlan, DirectSimpleCallPart, DirectSimpleDeletePlan,
-    DirectSimpleDeleteTargetPlan, DirectSimpleExprPlan, DirectSimpleOpPlan, DirectSimpleTermPlan,
-    JitFunctionInfo, build_direct_simple_block_plans, lookup_blockpy_function, lookup_clif_plan,
-    lookup_registered_jit_function, register_clif_module_plans,
+    BlockExcArgSource, BlockExcDispatchPlan, ClifBindingParam, ClifEntryParamDefaultSource,
+    JitFunctionInfo, lookup_blockpy_function, lookup_registered_jit_function,
+    register_clif_module_plans,
 };
 pub use specialized_helpers::ObjPtr;
 use specialized_helpers::{dp_jit_decref, register_specialized_jit_symbols};
@@ -48,9 +46,11 @@ struct GlobalIncrementalCacheStore<'a> {
 #[derive(Clone)]
 struct SpecializedJitBlockData {
     label: String,
+    full_param_names: Vec<String>,
     runtime_param_names: Vec<String>,
     exc_dispatch: Option<BlockExcDispatchPlan>,
-    plan: DirectSimpleBlockPlan,
+    ops: Vec<BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>>,
+    term: BlockPyTerm<LocatedCodegenBlockPyExpr>,
 }
 
 #[derive(Clone)]
@@ -376,13 +376,13 @@ enum CompiledRunnerEntry {
     },
 }
 
-fn direct_simple_expr_is_borrowable(
-    expr: &DirectSimpleExprPlan,
+fn codegen_expr_is_borrowable(
+    expr: &LocatedCodegenBlockPyExpr,
     local_names: &[String],
     function_state_slots: &FunctionStateSlots,
 ) -> bool {
     match expr {
-        DirectSimpleExprPlan::Name(name) => {
+        CodegenBlockPyExpr::Name(name) => {
             if matches!(
                 name.location,
                 NameLocation::OwnedCell { .. }
@@ -396,84 +396,42 @@ fn direct_simple_expr_is_borrowable(
                 .any(|candidate| candidate == name.id.as_str())
                 || function_state_slots.has_name(name.id.as_str())
         }
-        DirectSimpleExprPlan::Int(_)
-        | DirectSimpleExprPlan::Float(_)
-        | DirectSimpleExprPlan::Bytes(_)
-        | DirectSimpleExprPlan::Op(_)
-        | DirectSimpleExprPlan::Call { .. } => false,
+        CodegenBlockPyExpr::Literal(_)
+        | CodegenBlockPyExpr::Op(_)
+        | CodegenBlockPyExpr::Call(_) => false,
     }
 }
 
-enum DirectSimpleCallCallee<'a> {
-    Name(&'a str),
-    Op(&'a blockpy_intrinsics::Operation<DirectSimpleExprPlan>),
-}
-
-impl DirectSimpleCallCallee<'_> {
-    fn name(&self) -> &str {
-        match self {
-            DirectSimpleCallCallee::Name(name) => name,
-            DirectSimpleCallCallee::Op(operation) => operation.helper_name(),
-        }
-    }
-}
-
-fn direct_simple_call_positional_args<'a>(
-    expr: &'a DirectSimpleExprPlan,
-) -> Option<(DirectSimpleCallCallee<'a>, Vec<&'a DirectSimpleExprPlan>)> {
-    let (callee, parts) = match expr {
-        DirectSimpleExprPlan::Call { func, parts } => {
-            let DirectSimpleExprPlan::Name(func_name) = func.as_ref() else {
-                return None;
-            };
-            (
-                DirectSimpleCallCallee::Name(func_name.id.as_str()),
-                parts.as_slice(),
-            )
-        }
-        DirectSimpleExprPlan::Op(operation) => {
-            return Some((
-                DirectSimpleCallCallee::Op(operation.as_ref()),
-                operation.call_args(),
-            ));
-        }
-        _ => return None,
-    };
-    let mut args = Vec::with_capacity(parts.len());
-    for part in parts {
-        let DirectSimpleCallPart::Pos(value) = part else {
-            return None;
-        };
-        args.push(value);
-    }
-    Some((callee, args))
-}
-
-fn direct_simple_expr_const_string(expr: &DirectSimpleExprPlan) -> Option<String> {
+fn codegen_expr_const_string(expr: &LocatedCodegenBlockPyExpr) -> Option<String> {
     match expr {
-        DirectSimpleExprPlan::Bytes(bytes) => String::from_utf8(bytes.clone()).ok(),
-        DirectSimpleExprPlan::Op(operation) => match operation.as_ref() {
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
+            String::from_utf8(bytes.value.clone()).ok()
+        }
+        CodegenBlockPyExpr::Op(operation) => match operation.as_ref() {
             blockpy_intrinsics::Operation::MakeString(op) => {
-                let DirectSimpleExprPlan::Bytes(bytes) = &op.arg0 else {
+                let CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) =
+                    &op.arg0
+                else {
                     return None;
                 };
-                String::from_utf8(bytes.clone()).ok()
+                String::from_utf8(bytes.value.clone()).ok()
             }
             _ => None,
         },
-        DirectSimpleExprPlan::Call { .. } => {
-            let (callee, args) = direct_simple_call_positional_args(expr)?;
-            if args.len() != 1 {
-                return None;
-            }
-            let func_name = callee.name();
-            if func_name != "str" {
-                return None;
-            }
-            let DirectSimpleExprPlan::Bytes(bytes) = args[0] else {
+        CodegenBlockPyExpr::Call(call) => {
+            let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() else {
                 return None;
             };
-            String::from_utf8(bytes.clone()).ok()
+            if func_name.id.as_str() != "str" || call.args.len() != 1 || !call.keywords.is_empty() {
+                return None;
+            }
+            let CoreBlockPyCallArg::Positional(CodegenBlockPyExpr::Literal(
+                CodegenBlockPyLiteral::BytesLiteral(bytes),
+            )) = &call.args[0]
+            else {
+                return None;
+            };
+            String::from_utf8(bytes.value.clone()).ok()
         }
         _ => None,
     }
@@ -485,16 +443,6 @@ fn intern_bytes_literal(literal_pool: &mut Vec<Box<[u8]>>, bytes: &[u8]) -> (*co
     let len = boxed.len() as i64;
     literal_pool.push(boxed);
     (ptr, len)
-}
-
-fn compat_global_name(id: &str) -> LocatedName {
-    LocatedName {
-        id: id.into(),
-        ctx: ast::ExprContext::Load,
-        range: Default::default(),
-        node_index: Default::default(),
-        location: NameLocation::Global,
-    }
 }
 
 struct DirectSimpleEmitConsts {
@@ -539,7 +487,7 @@ struct DirectSimpleEmitCtx {
     function_state_slots: FunctionStateSlots,
 }
 
-struct DirectSimpleIntrinsicEmitState<'a, 'b, 'c, 'd> {
+struct CodegenIntrinsicEmitState<'a, 'b, 'c, 'd> {
     fb: &'a mut FunctionBuilder<'b>,
     local_names: &'c [String],
     local_values: &'c [ir::Value],
@@ -672,34 +620,32 @@ fn delete_local_value(
     Ok(())
 }
 
-impl DirectSimpleIntrinsicEmitState<'_, '_, '_, '_> {
-    fn positional_args_for_operation<'a>(
-        &self,
-        helper_name: &str,
-        parts: &'a [DirectSimpleCallPart],
-    ) -> Vec<&'a DirectSimpleExprPlan> {
-        let mut args = Vec::with_capacity(parts.len());
-        for part in parts {
-            let DirectSimpleCallPart::Pos(value) = part else {
-                panic!(
-                    "operation {} received non-positional args in JIT plan",
-                    helper_name
-                );
-            };
-            args.push(value);
-        }
-        args
+impl<'a, 'b, 'c, 'd> intrinsics::OperationEmitState<'b, LocatedCodegenBlockPyExpr>
+    for CodegenIntrinsicEmitState<'a, 'b, 'c, 'd>
+{
+    fn ctx(&self) -> &DirectSimpleEmitCtx {
+        self.ctx
     }
 
-    fn emit_arg_values(&mut self, args: &[&DirectSimpleExprPlan]) -> Vec<(ir::Value, bool)> {
+    fn fb(&mut self) -> &mut FunctionBuilder<'b> {
+        self.fb
+    }
+
+    fn literal_pool(&mut self) -> &mut Vec<Box<[u8]>> {
+        self.literal_pool
+    }
+
+    fn import_func(&mut self, spec: &'static ImportSpec) -> ir::FuncRef {
+        self.func_imports
+            .get_or_panic(self.jit_module, &mut self.fb.func, spec)
+    }
+
+    fn emit_arg_values(&mut self, args: &[&LocatedCodegenBlockPyExpr]) -> Vec<(ir::Value, bool)> {
         let mut arg_values = Vec::with_capacity(args.len());
         for arg in args {
-            let borrowed_arg = direct_simple_expr_is_borrowable(
-                arg,
-                self.local_names,
-                &self.ctx.function_state_slots,
-            );
-            let value = emit_direct_simple_expr(
+            let borrowed_arg =
+                codegen_expr_is_borrowable(arg, self.local_names, &self.ctx.function_state_slots);
+            let value = emit_codegen_expr(
                 self.fb,
                 arg,
                 self.local_names,
@@ -713,11 +659,6 @@ impl DirectSimpleIntrinsicEmitState<'_, '_, '_, '_> {
             arg_values.push((value, borrowed_arg));
         }
         arg_values
-    }
-
-    fn import_func(&mut self, spec: &'static ImportSpec) -> ir::FuncRef {
-        self.func_imports
-            .get_or_panic(self.jit_module, &mut self.fb.func, spec)
     }
 
     fn release_arg_values(&mut self, arg_values: &[(ir::Value, bool)]) {
@@ -748,34 +689,21 @@ impl DirectSimpleIntrinsicEmitState<'_, '_, '_, '_> {
         self.fb.block_params(value_ok_block)[0]
     }
 
-    fn emit_owned_func_call(
-        &mut self,
-        func_ref: ir::FuncRef,
-        args: &[&DirectSimpleExprPlan],
-    ) -> ir::Value {
-        let arg_values = self.emit_arg_values(args);
-        let values = arg_values
-            .iter()
-            .map(|(value, _)| *value)
-            .collect::<Vec<_>>();
-        let call_inst = self.fb.ins().call(func_ref, &values);
-        self.release_arg_values(&arg_values);
-        self.finish_owned_result(self.fb.inst_results(call_inst)[0])
+    fn emit_owned_bool_from_i32_result(&mut self, result: ir::Value) -> ir::Value {
+        emit_owned_bool_from_i32_result(self.fb, result, self.ctx)
     }
 
-    fn emit_bool_func_call(
-        &mut self,
-        func_ref: ir::FuncRef,
-        args: &[&DirectSimpleExprPlan],
-    ) -> ir::Value {
-        let arg_values = self.emit_arg_values(args);
-        let values = arg_values
-            .iter()
-            .map(|(value, _)| *value)
-            .collect::<Vec<_>>();
-        let call_inst = self.fb.ins().call(func_ref, &values);
-        self.release_arg_values(&arg_values);
-        emit_owned_bool_from_i32_result(self.fb, self.fb.inst_results(call_inst)[0], self.ctx)
+    fn emit_owned_bool_from_cond(&mut self, cond: ir::Value) -> ir::Value {
+        emit_owned_bool_from_cond(self.fb, cond, self.ctx)
+    }
+
+    fn constant_bytes<'expr>(&self, expr: &'expr LocatedCodegenBlockPyExpr) -> Option<&'expr [u8]> {
+        match expr {
+            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
+                Some(bytes.value.as_slice())
+            }
+            _ => None,
+        }
     }
 }
 
@@ -1036,9 +964,9 @@ fn emit_owned_bool_from_i32_result(
     emit_owned_bool_from_cond(fb, is_true, ctx)
 }
 
-fn emit_direct_simple_expr(
+fn emit_codegen_expr(
     fb: &mut FunctionBuilder<'_>,
-    expr: &DirectSimpleExprPlan,
+    expr: &LocatedCodegenBlockPyExpr,
     local_names: &[String],
     local_values: &[ir::Value],
     ctx: &DirectSimpleEmitCtx,
@@ -1050,7 +978,6 @@ fn emit_direct_simple_expr(
     let incref_ref = ctx.incref_ref;
     let decref_ref = ctx.decref_ref;
     let py_call_ref = ctx.py_call_positional_three_ref;
-    let make_int_ref = ctx.make_int_ref;
     let step_null_block = ctx.consts.step_null_block;
     let ptr_ty = ctx.consts.ptr_ty;
     let i64_ty = ctx.consts.i64_ty;
@@ -1075,10 +1002,10 @@ fn emit_direct_simple_expr(
     let tuple_set_item_ref = ctx.tuple_set_item_ref;
 
     match expr {
-        DirectSimpleExprPlan::Name(name) => {
+        CodegenBlockPyExpr::Name(name) => {
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
             match name.location {
-                NameLocation::Local { slot: _ } => {
+                NameLocation::Local { .. } => {
                     if let Some(slot_index) = local_names
                         .iter()
                         .position(|candidate| candidate == name.id.as_str())
@@ -1172,58 +1099,47 @@ fn emit_direct_simple_expr(
                 }
             }
         }
-        DirectSimpleExprPlan::Int(value) => {
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(number)) => {
             assert!(
                 !borrowed,
-                "direct simple plan must not use borrowed int expression"
+                "codegen number literal must not use borrowed expression"
             );
-            let null_ptr = fb.ins().iconst(ptr_ty, 0);
-            let int_const = fb.ins().iconst(i64_ty, *value);
-            let int_inst = fb.ins().call(make_int_ref, &[int_const]);
-            let int_value = fb.inst_results(int_inst)[0];
-            let int_is_null = fb
-                .ins()
-                .icmp(ir::condcodes::IntCC::Equal, int_value, null_ptr);
-            let int_ok_block = fb.create_block();
-            fb.append_block_param(int_ok_block, ptr_ty);
-            fb.ins().brif(
-                int_is_null,
-                step_null_block,
-                &step_null_block_args(ctx),
-                int_ok_block,
-                &[ir::BlockArg::Value(int_value)],
-            );
-            fb.switch_to_block(int_ok_block);
-            fb.block_params(int_ok_block)[0]
+            match &number.value {
+                dp_transform::block_py::CoreNumberLiteralValue::Int(value) => {
+                    let value = value.as_i64().unwrap_or_else(|| {
+                        panic!(
+                            "oversized integer literal reached direct JIT codegen: {}",
+                            value
+                        )
+                    });
+                    emit_owned_int_constant(fb, value, ctx)
+                }
+                dp_transform::block_py::CoreNumberLiteralValue::Float(value) => {
+                    let null_ptr = fb.ins().iconst(ptr_ty, 0);
+                    let float_const = fb.ins().f64const(*value);
+                    let float_inst = fb.ins().call(make_float_ref, &[float_const]);
+                    let float_value = fb.inst_results(float_inst)[0];
+                    let float_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, float_value, null_ptr);
+                    let float_ok_block = fb.create_block();
+                    fb.append_block_param(float_ok_block, ptr_ty);
+                    fb.ins().brif(
+                        float_is_null,
+                        step_null_block,
+                        &step_null_block_args(ctx),
+                        float_ok_block,
+                        &[ir::BlockArg::Value(float_value)],
+                    );
+                    fb.switch_to_block(float_ok_block);
+                    fb.block_params(float_ok_block)[0]
+                }
+            }
         }
-        DirectSimpleExprPlan::Float(value) => {
-            assert!(
-                !borrowed,
-                "direct simple plan must not use borrowed float expression"
-            );
-            let null_ptr = fb.ins().iconst(ptr_ty, 0);
-            let float_const = fb.ins().f64const(*value);
-            let float_inst = fb.ins().call(make_float_ref, &[float_const]);
-            let float_value = fb.inst_results(float_inst)[0];
-            let float_is_null = fb
-                .ins()
-                .icmp(ir::condcodes::IntCC::Equal, float_value, null_ptr);
-            let float_ok_block = fb.create_block();
-            fb.append_block_param(float_ok_block, ptr_ty);
-            fb.ins().brif(
-                float_is_null,
-                step_null_block,
-                &step_null_block_args(ctx),
-                float_ok_block,
-                &[ir::BlockArg::Value(float_value)],
-            );
-            fb.switch_to_block(float_ok_block);
-            fb.block_params(float_ok_block)[0]
-        }
-        DirectSimpleExprPlan::Bytes(bytes) => {
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
             assert!(!borrowed, "bytes literal must produce owned references");
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
-            let (data_ptr, data_len) = intern_bytes_literal(literal_pool, bytes.as_slice());
+            let (data_ptr, data_len) = intern_bytes_literal(literal_pool, bytes.value.as_slice());
             let data_ptr_val = fb.ins().iconst(ptr_ty, data_ptr as i64);
             let data_len_val = fb.ins().iconst(i64_ty, data_len);
             let value_inst = fb.ins().call(make_bytes_ref, &[data_ptr_val, data_len_val]);
@@ -1241,16 +1157,12 @@ fn emit_direct_simple_expr(
             fb.switch_to_block(value_ok_block);
             fb.block_params(value_ok_block)[0]
         }
-        DirectSimpleExprPlan::Op(operation) => {
+        CodegenBlockPyExpr::Op(operation) => {
             assert!(
                 !borrowed,
-                "direct simple plan must not use borrowed operation expression"
+                "codegen operation expression must not use borrowed result"
             );
-            let mut parts = Vec::new();
-            for arg in operation.clone().into_call_args() {
-                parts.push(DirectSimpleCallPart::Pos(arg));
-            }
-            let mut intrinsic_state = DirectSimpleIntrinsicEmitState {
+            let mut intrinsic_state = CodegenIntrinsicEmitState {
                 fb,
                 local_names,
                 local_values,
@@ -1259,62 +1171,178 @@ fn emit_direct_simple_expr(
                 jit_module,
                 func_imports,
             };
-            if let Some(value) = intrinsics::emit_operation_direct_simple(
-                operation.as_ref(),
-                &mut intrinsic_state,
-                &parts,
-            ) {
+            let operation_ref = operation.as_ref();
+            let args = operation_ref.call_args();
+            if let Some(value) =
+                intrinsics::emit_operation(operation_ref, &mut intrinsic_state, args.as_slice())
+            {
                 return value;
             }
-            let fallback = DirectSimpleExprPlan::Call {
-                func: Box::new(DirectSimpleExprPlan::Name(compat_global_name(
-                    operation.helper_name(),
-                ))),
-                parts,
-            };
-            emit_direct_simple_expr(
-                intrinsic_state.fb,
-                &fallback,
-                intrinsic_state.local_names,
-                intrinsic_state.local_values,
-                intrinsic_state.ctx,
-                intrinsic_state.literal_pool,
-                false,
-                intrinsic_state.jit_module,
-                intrinsic_state.func_imports,
-            )
-        }
-        DirectSimpleExprPlan::Call { func, parts } => {
-            assert!(
-                !borrowed,
-                "direct simple plan must not use borrowed call expression"
-            );
-            let null_ptr = fb.ins().iconst(ptr_ty, 0);
-            let mut simple_args: Vec<&DirectSimpleExprPlan> = Vec::new();
-            let mut simple_keywords: Vec<(&str, &DirectSimpleExprPlan)> = Vec::new();
-            let mut has_unpack = false;
-            for part in parts {
-                match part {
-                    DirectSimpleCallPart::Pos(value) => simple_args.push(value),
-                    DirectSimpleCallPart::Kw { name, value } => {
-                        simple_keywords.push((name.as_str(), value))
-                    }
-                    DirectSimpleCallPart::Star(_) | DirectSimpleCallPart::KwStar(_) => {
-                        has_unpack = true;
+            match operation_ref {
+                blockpy_intrinsics::Operation::CellRef(op) => {
+                    let CodegenBlockPyExpr::Name(cell_name) = &op.arg0 else {
+                        panic!(
+                            "__dp_cell_ref should lower to a located name arg, got {:?}",
+                            op.arg0
+                        );
+                    };
+                    match cell_name.location {
+                        NameLocation::OwnedCell { .. }
+                        | NameLocation::ClosureCell { .. }
+                        | NameLocation::CapturedCellSource { .. } => emit_raw_cell_object_for_name(
+                            intrinsic_state.fb,
+                            cell_name,
+                            intrinsic_state.local_names,
+                            intrinsic_state.local_values,
+                            intrinsic_state.ctx,
+                        ),
+                        _ => {
+                            panic!(
+                                "__dp_cell_ref should target a cell-backed name, got {} at {:?}",
+                                cell_name.id, cell_name.location
+                            );
+                        }
                     }
                 }
+                blockpy_intrinsics::Operation::LoadCell(op) => {
+                    let CodegenBlockPyExpr::Name(cell_name) = &op.arg0 else {
+                        panic!(
+                            "__dp_load_cell should lower to a located name arg, got {:?}",
+                            op.arg0
+                        );
+                    };
+                    let raw_cell = emit_raw_cell_object_for_name(
+                        intrinsic_state.fb,
+                        cell_name,
+                        intrinsic_state.local_names,
+                        intrinsic_state.local_values,
+                        intrinsic_state.ctx,
+                    );
+                    let null_ptr = intrinsic_state
+                        .fb
+                        .ins()
+                        .iconst(intrinsic_state.ctx.consts.ptr_ty, 0);
+                    let value_inst = intrinsic_state
+                        .fb
+                        .ins()
+                        .call(intrinsic_state.ctx.load_cell_ref, &[raw_cell]);
+                    let value = intrinsic_state.fb.inst_results(value_inst)[0];
+                    intrinsic_state
+                        .fb
+                        .ins()
+                        .call(intrinsic_state.ctx.decref_ref, &[raw_cell]);
+                    let value_is_null =
+                        intrinsic_state
+                            .fb
+                            .ins()
+                            .icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
+                    let value_ok_block = intrinsic_state.fb.create_block();
+                    intrinsic_state
+                        .fb
+                        .append_block_param(value_ok_block, intrinsic_state.ctx.consts.ptr_ty);
+                    intrinsic_state.fb.ins().brif(
+                        value_is_null,
+                        intrinsic_state.ctx.consts.step_null_block,
+                        &step_null_block_args(intrinsic_state.ctx),
+                        value_ok_block,
+                        &[ir::BlockArg::Value(value)],
+                    );
+                    intrinsic_state.fb.switch_to_block(value_ok_block);
+                    intrinsic_state.fb.block_params(value_ok_block)[0]
+                }
+                blockpy_intrinsics::Operation::StoreCell(op) => {
+                    let CodegenBlockPyExpr::Name(cell_name) = &op.arg0 else {
+                        panic!(
+                            "__dp_store_cell should lower to a located name arg, got {:?}",
+                            op.arg0
+                        );
+                    };
+                    let raw_cell = emit_raw_cell_object_for_name(
+                        intrinsic_state.fb,
+                        cell_name,
+                        intrinsic_state.local_names,
+                        intrinsic_state.local_values,
+                        intrinsic_state.ctx,
+                    );
+                    let value_borrowed = codegen_expr_is_borrowable(
+                        &op.arg1,
+                        intrinsic_state.local_names,
+                        &intrinsic_state.ctx.function_state_slots,
+                    );
+                    let value_obj = emit_codegen_expr(
+                        intrinsic_state.fb,
+                        &op.arg1,
+                        intrinsic_state.local_names,
+                        intrinsic_state.local_values,
+                        intrinsic_state.ctx,
+                        intrinsic_state.literal_pool,
+                        value_borrowed,
+                        intrinsic_state.jit_module,
+                        intrinsic_state.func_imports,
+                    );
+                    let call_inst = intrinsic_state
+                        .fb
+                        .ins()
+                        .call(intrinsic_state.ctx.store_cell_ref, &[raw_cell, value_obj]);
+                    intrinsic_state
+                        .fb
+                        .ins()
+                        .call(intrinsic_state.ctx.decref_ref, &[raw_cell]);
+                    if !value_borrowed {
+                        intrinsic_state
+                            .fb
+                            .ins()
+                            .call(intrinsic_state.ctx.decref_ref, &[value_obj]);
+                    }
+                    let call_value = intrinsic_state.fb.inst_results(call_inst)[0];
+                    intrinsics::OperationEmitState::finish_owned_result(
+                        &mut intrinsic_state,
+                        call_value,
+                    )
+                }
+                _ => panic!(
+                    "operation {} should have been handled by direct emitter",
+                    operation_ref.helper_name()
+                ),
             }
-            let args: Vec<&DirectSimpleExprPlan> = simple_args.clone();
-            let keywords: Vec<(&str, &DirectSimpleExprPlan)> = simple_keywords.clone();
-            if let DirectSimpleExprPlan::Name(func_name) = func.as_ref() {
+        }
+        CodegenBlockPyExpr::Call(call) => {
+            assert!(
+                !borrowed,
+                "codegen call expression must not use borrowed result"
+            );
+            let null_ptr = fb.ins().iconst(ptr_ty, 0);
+            let mut simple_args: Vec<&LocatedCodegenBlockPyExpr> = Vec::new();
+            let mut simple_keywords: Vec<(&str, &LocatedCodegenBlockPyExpr)> = Vec::new();
+            let mut has_unpack = false;
+            for arg in &call.args {
+                match arg {
+                    CoreBlockPyCallArg::Positional(value) => simple_args.push(value),
+                    CoreBlockPyCallArg::Starred(_) => has_unpack = true,
+                }
+            }
+            for keyword in &call.keywords {
+                match keyword {
+                    CoreBlockPyKeywordArg::Named { arg, value } => {
+                        simple_keywords.push((arg.as_str(), value))
+                    }
+                    CoreBlockPyKeywordArg::Starred(_) => has_unpack = true,
+                }
+            }
+            let args = simple_args.clone();
+            let keywords = simple_keywords.clone();
+
+            if let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() {
                 if !has_unpack
                     && simple_keywords.is_empty()
                     && func_name.id.as_str() == "str"
                     && simple_args.len() == 1
                 {
-                    if let DirectSimpleExprPlan::Bytes(bytes) = simple_args[0] {
+                    if let CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) =
+                        simple_args[0]
+                    {
                         let (data_ptr, data_len) =
-                            intern_bytes_literal(literal_pool, bytes.as_slice());
+                            intern_bytes_literal(literal_pool, bytes.value.as_slice());
                         let data_ptr_val = fb.ins().iconst(ptr_ty, data_ptr as i64);
                         let data_len_val = fb.ins().iconst(i64_ty, data_len);
                         let value_inst = fb
@@ -1346,15 +1374,16 @@ fn emit_direct_simple_expr(
                     return block_const;
                 }
             }
+
             if has_unpack {
-                let callable_is_borrowed = direct_simple_expr_is_borrowable(
-                    func.as_ref(),
+                let callable_is_borrowed = codegen_expr_is_borrowable(
+                    call.func.as_ref(),
                     local_names,
                     &ctx.function_state_slots,
                 );
-                let callable = emit_direct_simple_expr(
+                let callable = emit_codegen_expr(
                     fb,
-                    func.as_ref(),
+                    call.func.as_ref(),
                     local_names,
                     local_values,
                     ctx,
@@ -1405,12 +1434,7 @@ fn emit_direct_simple_expr(
                 fb.switch_to_block(args_list_ok);
                 let args_list = fb.block_params(args_list_ok)[0];
 
-                let needs_kwargs = parts.iter().any(|part| {
-                    matches!(
-                        part,
-                        DirectSimpleCallPart::Kw { .. } | DirectSimpleCallPart::KwStar(_)
-                    )
-                });
+                let needs_kwargs = !call.keywords.is_empty();
                 let kwargs_obj = if needs_kwargs {
                     let dict_name_bytes = b"__dp_dict";
                     let dict_name_ptr = fb.ins().iconst(ptr_ty, dict_name_bytes.as_ptr() as i64);
@@ -1456,103 +1480,104 @@ fn emit_direct_simple_expr(
                     None
                 };
 
-                for part in parts {
-                    match part {
-                        DirectSimpleCallPart::Pos(value_expr)
-                        | DirectSimpleCallPart::Star(value_expr) => {
-                            let method_name = match part {
-                                DirectSimpleCallPart::Pos(_) => b"append".as_slice(),
-                                _ => b"extend".as_slice(),
-                            };
-                            let (method_ptr, method_len) =
-                                intern_bytes_literal(literal_pool, method_name);
-                            let method_ptr_val = fb.ins().iconst(ptr_ty, method_ptr as i64);
-                            let method_len_val = fb.ins().iconst(i64_ty, method_len);
-                            let method_name_inst = fb
-                                .ins()
-                                .call(decode_literal_bytes_ref, &[method_ptr_val, method_len_val]);
-                            let method_name_obj = fb.inst_results(method_name_inst)[0];
-                            let method_name_is_null = fb.ins().icmp(
-                                ir::condcodes::IntCC::Equal,
-                                method_name_obj,
-                                null_ptr,
-                            );
-                            let method_name_ok = fb.create_block();
-                            fb.append_block_param(method_name_ok, ptr_ty);
-                            fb.ins().brif(
-                                method_name_is_null,
-                                step_null_block,
-                                &step_null_block_args(ctx),
-                                method_name_ok,
-                                &[ir::BlockArg::Value(method_name_obj)],
-                            );
-                            fb.switch_to_block(method_name_ok);
-                            let method_name_obj = fb.block_params(method_name_ok)[0];
-                            let method_inst = fb
-                                .ins()
-                                .call(pyobject_getattr_ref, &[args_list, method_name_obj]);
-                            fb.ins().call(decref_ref, &[method_name_obj]);
-                            let method_obj = fb.inst_results(method_inst)[0];
-                            let method_is_null =
-                                fb.ins()
-                                    .icmp(ir::condcodes::IntCC::Equal, method_obj, null_ptr);
-                            let method_ok = fb.create_block();
-                            fb.append_block_param(method_ok, ptr_ty);
-                            fb.ins().brif(
-                                method_is_null,
-                                step_null_block,
-                                &step_null_block_args(ctx),
-                                method_ok,
-                                &[ir::BlockArg::Value(method_obj)],
-                            );
-                            fb.switch_to_block(method_ok);
-                            let method_obj = fb.block_params(method_ok)[0];
-                            let value_borrowed = direct_simple_expr_is_borrowable(
-                                value_expr,
-                                local_names,
-                                &ctx.function_state_slots,
-                            );
-                            let value_obj = emit_direct_simple_expr(
-                                fb,
-                                value_expr,
-                                local_names,
-                                local_values,
-                                ctx,
-                                literal_pool,
-                                value_borrowed,
-                                jit_module,
-                                func_imports,
-                            );
-                            let call_inst = fb.ins().call(
-                                py_call_ref,
-                                &[method_obj, value_obj, null_ptr, null_ptr, null_ptr],
-                            );
-                            if !value_borrowed {
-                                fb.ins().call(decref_ref, &[value_obj]);
-                            }
-                            fb.ins().call(decref_ref, &[method_obj]);
-                            let call_value = fb.inst_results(call_inst)[0];
-                            let call_is_null =
-                                fb.ins()
-                                    .icmp(ir::condcodes::IntCC::Equal, call_value, null_ptr);
-                            let call_ok = fb.create_block();
-                            fb.append_block_param(call_ok, ptr_ty);
-                            fb.ins().brif(
-                                call_is_null,
-                                step_null_block,
-                                &step_null_block_args(ctx),
-                                call_ok,
-                                &[ir::BlockArg::Value(call_value)],
-                            );
-                            fb.switch_to_block(call_ok);
-                            let call_value = fb.block_params(call_ok)[0];
-                            fb.ins().call(decref_ref, &[call_value]);
+                for arg in &call.args {
+                    let (value_expr, method_name) = match arg {
+                        CoreBlockPyCallArg::Positional(value_expr) => {
+                            (value_expr, b"append".as_slice())
                         }
-                        DirectSimpleCallPart::Kw { name, value } => {
+                        CoreBlockPyCallArg::Starred(value_expr) => {
+                            (value_expr, b"extend".as_slice())
+                        }
+                    };
+                    let (method_ptr, method_len) = intern_bytes_literal(literal_pool, method_name);
+                    let method_ptr_val = fb.ins().iconst(ptr_ty, method_ptr as i64);
+                    let method_len_val = fb.ins().iconst(i64_ty, method_len);
+                    let method_name_inst = fb
+                        .ins()
+                        .call(decode_literal_bytes_ref, &[method_ptr_val, method_len_val]);
+                    let method_name_obj = fb.inst_results(method_name_inst)[0];
+                    let method_name_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, method_name_obj, null_ptr);
+                    let method_name_ok = fb.create_block();
+                    fb.append_block_param(method_name_ok, ptr_ty);
+                    fb.ins().brif(
+                        method_name_is_null,
+                        step_null_block,
+                        &step_null_block_args(ctx),
+                        method_name_ok,
+                        &[ir::BlockArg::Value(method_name_obj)],
+                    );
+                    fb.switch_to_block(method_name_ok);
+                    let method_name_obj = fb.block_params(method_name_ok)[0];
+                    let method_inst = fb
+                        .ins()
+                        .call(pyobject_getattr_ref, &[args_list, method_name_obj]);
+                    fb.ins().call(decref_ref, &[method_name_obj]);
+                    let method_obj = fb.inst_results(method_inst)[0];
+                    let method_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, method_obj, null_ptr);
+                    let method_ok = fb.create_block();
+                    fb.append_block_param(method_ok, ptr_ty);
+                    fb.ins().brif(
+                        method_is_null,
+                        step_null_block,
+                        &step_null_block_args(ctx),
+                        method_ok,
+                        &[ir::BlockArg::Value(method_obj)],
+                    );
+                    fb.switch_to_block(method_ok);
+                    let method_obj = fb.block_params(method_ok)[0];
+                    let value_borrowed = codegen_expr_is_borrowable(
+                        value_expr,
+                        local_names,
+                        &ctx.function_state_slots,
+                    );
+                    let value_obj = emit_codegen_expr(
+                        fb,
+                        value_expr,
+                        local_names,
+                        local_values,
+                        ctx,
+                        literal_pool,
+                        value_borrowed,
+                        jit_module,
+                        func_imports,
+                    );
+                    let call_inst = fb.ins().call(
+                        py_call_ref,
+                        &[method_obj, value_obj, null_ptr, null_ptr, null_ptr],
+                    );
+                    if !value_borrowed {
+                        fb.ins().call(decref_ref, &[value_obj]);
+                    }
+                    fb.ins().call(decref_ref, &[method_obj]);
+                    let call_value = fb.inst_results(call_inst)[0];
+                    let call_is_null =
+                        fb.ins()
+                            .icmp(ir::condcodes::IntCC::Equal, call_value, null_ptr);
+                    let call_ok = fb.create_block();
+                    fb.append_block_param(call_ok, ptr_ty);
+                    fb.ins().brif(
+                        call_is_null,
+                        step_null_block,
+                        &step_null_block_args(ctx),
+                        call_ok,
+                        &[ir::BlockArg::Value(call_value)],
+                    );
+                    fb.switch_to_block(call_ok);
+                    let call_value = fb.block_params(call_ok)[0];
+                    fb.ins().call(decref_ref, &[call_value]);
+                }
+
+                for keyword in &call.keywords {
+                    match keyword {
+                        CoreBlockPyKeywordArg::Named { arg, value } => {
                             let kwargs_obj =
-                                kwargs_obj.expect("kwargs object must exist for kw part");
+                                kwargs_obj.expect("kwargs object must exist for named kw part");
                             let (key_ptr, key_len) =
-                                intern_bytes_literal(literal_pool, name.as_bytes());
+                                intern_bytes_literal(literal_pool, arg.as_str().as_bytes());
                             let key_ptr_val = fb.ins().iconst(ptr_ty, key_ptr as i64);
                             let key_len_val = fb.ins().iconst(i64_ty, key_len);
                             let key_inst = fb
@@ -1573,12 +1598,12 @@ fn emit_direct_simple_expr(
                             );
                             fb.switch_to_block(key_ok);
                             let key_obj = fb.block_params(key_ok)[0];
-                            let value_borrowed = direct_simple_expr_is_borrowable(
+                            let value_borrowed = codegen_expr_is_borrowable(
                                 value,
                                 local_names,
                                 &ctx.function_state_slots,
                             );
-                            let value_obj = emit_direct_simple_expr(
+                            let value_obj = emit_codegen_expr(
                                 fb,
                                 value,
                                 local_names,
@@ -1621,7 +1646,7 @@ fn emit_direct_simple_expr(
                             fb.switch_to_block(set_ok);
                             fb.ins().call(decref_ref, &[set_value]);
                         }
-                        DirectSimpleCallPart::KwStar(value_expr) => {
+                        CoreBlockPyKeywordArg::Starred(value_expr) => {
                             let kwargs_obj =
                                 kwargs_obj.expect("kwargs object must exist for kwstar part");
                             let (update_ptr, update_len) =
@@ -1667,12 +1692,12 @@ fn emit_direct_simple_expr(
                             );
                             fb.switch_to_block(update_ok);
                             let update_obj = fb.block_params(update_ok)[0];
-                            let value_borrowed = direct_simple_expr_is_borrowable(
+                            let value_borrowed = codegen_expr_is_borrowable(
                                 value_expr,
                                 local_names,
                                 &ctx.function_state_slots,
                             );
-                            let value_obj = emit_direct_simple_expr(
+                            let value_obj = emit_codegen_expr(
                                 fb,
                                 value_expr,
                                 local_names,
@@ -1786,11 +1811,14 @@ fn emit_direct_simple_expr(
                 fb.switch_to_block(call_ok_block);
                 return fb.block_params(call_ok_block)[0];
             }
-            if let DirectSimpleExprPlan::Name(func_name) = func.as_ref() {
+
+            if let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() {
                 if keywords.is_empty() && func_name.id.as_str() == "str" && args.len() == 1 {
-                    if let DirectSimpleExprPlan::Bytes(bytes) = &args[0] {
+                    if let CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) =
+                        &args[0]
+                    {
                         let (data_ptr, data_len) =
-                            intern_bytes_literal(literal_pool, bytes.as_slice());
+                            intern_bytes_literal(literal_pool, bytes.value.as_slice());
                         let data_ptr_val = fb.ins().iconst(ptr_ty, data_ptr as i64);
                         let data_len_val = fb.ins().iconst(i64_ty, data_len);
                         let value_inst = fb
@@ -1839,12 +1867,12 @@ fn emit_direct_simple_expr(
                         let mut arg_values: Vec<ir::Value> = Vec::with_capacity(args.len());
                         let mut borrowed_args: Vec<bool> = Vec::with_capacity(args.len());
                         for arg in &args {
-                            let borrowed_arg = direct_simple_expr_is_borrowable(
+                            let borrowed_arg = codegen_expr_is_borrowable(
                                 arg,
                                 local_names,
                                 &ctx.function_state_slots,
                             );
-                            let value = emit_direct_simple_expr(
+                            let value = emit_codegen_expr(
                                 fb,
                                 arg,
                                 local_names,
@@ -1870,15 +1898,15 @@ fn emit_direct_simple_expr(
                         return tuple_value;
                     }
                     if func_name.id.as_str() == "__dp_load_deleted_name" && args.len() == 2 {
-                        if let Some(name) = direct_simple_expr_const_string(args[0]) {
+                        if let Some(name) = codegen_expr_const_string(args[0]) {
                             let (name_ptr, name_len) =
                                 intern_bytes_literal(literal_pool, name.as_bytes());
-                            let value_borrowed = direct_simple_expr_is_borrowable(
+                            let value_borrowed = codegen_expr_is_borrowable(
                                 args[1],
                                 local_names,
                                 &ctx.function_state_slots,
                             );
-                            let value_obj = emit_direct_simple_expr(
+                            let value_obj = emit_codegen_expr(
                                 fb,
                                 args[1],
                                 local_names,
@@ -1925,7 +1953,7 @@ fn emit_direct_simple_expr(
                     if is_direct_cell_call {
                         if matches!((func_name.id.as_str(), args.len()), ("__dp_cell_ref", 1)) {
                             let cell_expr = &args[0];
-                            let DirectSimpleExprPlan::Name(cell_name) = cell_expr else {
+                            let CodegenBlockPyExpr::Name(cell_name) = cell_expr else {
                                 panic!(
                                     "__dp_cell_ref should lower to a located name arg, got {:?}",
                                     cell_expr
@@ -1963,7 +1991,7 @@ fn emit_direct_simple_expr(
                                     "__dp_load_cell" | "__dp_store_cell"
                                 );
                             if raw_cell_arg {
-                                let DirectSimpleExprPlan::Name(cell_name) = arg else {
+                                let CodegenBlockPyExpr::Name(cell_name) = arg else {
                                     panic!(
                                         "{} should lower to a located name arg, got {:?}",
                                         func_name.id.as_str(),
@@ -1992,12 +2020,12 @@ fn emit_direct_simple_expr(
                                     }
                                 }
                             }
-                            let borrowed_arg = direct_simple_expr_is_borrowable(
+                            let borrowed_arg = codegen_expr_is_borrowable(
                                 arg,
                                 local_names,
                                 &ctx.function_state_slots,
                             );
-                            let value = emit_direct_simple_expr(
+                            let value = emit_codegen_expr(
                                 fb,
                                 arg,
                                 local_names,
@@ -2045,23 +2073,24 @@ fn emit_direct_simple_expr(
                     }
                 }
             }
-            let callable = emit_direct_simple_expr(
+
+            let callable = emit_codegen_expr(
                 fb,
-                func.as_ref(),
+                call.func.as_ref(),
                 local_names,
                 local_values,
                 ctx,
                 literal_pool,
-                direct_simple_expr_is_borrowable(
-                    func.as_ref(),
+                codegen_expr_is_borrowable(
+                    call.func.as_ref(),
                     local_names,
                     &ctx.function_state_slots,
                 ),
                 jit_module,
                 func_imports,
             );
-            let callable_is_borrowed = direct_simple_expr_is_borrowable(
-                func.as_ref(),
+            let callable_is_borrowed = codegen_expr_is_borrowable(
+                call.func.as_ref(),
                 local_names,
                 &ctx.function_state_slots,
             );
@@ -2069,13 +2098,10 @@ fn emit_direct_simple_expr(
                 let mut arg_values = [null_ptr, null_ptr, null_ptr];
                 let mut arg_borrowed = [true, true, true];
                 for (idx, arg) in args.iter().enumerate() {
-                    let borrowed_arg = direct_simple_expr_is_borrowable(
-                        arg,
-                        local_names,
-                        &ctx.function_state_slots,
-                    );
+                    let borrowed_arg =
+                        codegen_expr_is_borrowable(arg, local_names, &ctx.function_state_slots);
                     arg_borrowed[idx] = borrowed_arg;
-                    arg_values[idx] = emit_direct_simple_expr(
+                    arg_values[idx] = emit_codegen_expr(
                         fb,
                         arg,
                         local_names,
@@ -2142,8 +2168,8 @@ fn emit_direct_simple_expr(
             let mut tuple_items: Vec<(ir::Value, bool)> = Vec::with_capacity(args.len());
             for arg in args {
                 let borrowed_arg =
-                    direct_simple_expr_is_borrowable(arg, local_names, &ctx.function_state_slots);
-                let value = emit_direct_simple_expr(
+                    codegen_expr_is_borrowable(arg, local_names, &ctx.function_state_slots);
+                let value = emit_codegen_expr(
                     fb,
                     arg,
                     local_names,
@@ -2273,12 +2299,12 @@ fn emit_direct_simple_expr(
                     fb.switch_to_block(key_ok);
                     let key_obj = fb.block_params(key_ok)[0];
 
-                    let value_borrowed = direct_simple_expr_is_borrowable(
+                    let value_borrowed = codegen_expr_is_borrowable(
                         value_expr,
                         local_names,
                         &ctx.function_state_slots,
                     );
-                    let value_obj = emit_direct_simple_expr(
+                    let value_obj = emit_codegen_expr(
                         fb,
                         value_expr,
                         local_names,
@@ -2352,17 +2378,52 @@ fn emit_direct_simple_expr(
     }
 }
 
-fn emit_prepare_target_args(
+fn abrupt_kind_tag(kind: AbruptKind) -> i64 {
+    match kind {
+        AbruptKind::Fallthrough => 0,
+        AbruptKind::Return => 1,
+        AbruptKind::Exception => 2,
+        AbruptKind::Break => 3,
+        AbruptKind::Continue => 4,
+    }
+}
+
+fn emit_owned_int_constant(
+    fb: &mut FunctionBuilder<'_>,
+    value: i64,
+    ctx: &DirectSimpleEmitCtx,
+) -> ir::Value {
+    let null_ptr = fb.ins().iconst(ctx.consts.ptr_ty, 0);
+    let int_const = fb.ins().iconst(ctx.consts.i64_ty, value);
+    let int_inst = fb.ins().call(ctx.make_int_ref, &[int_const]);
+    let int_value = fb.inst_results(int_inst)[0];
+    let int_is_null = fb
+        .ins()
+        .icmp(ir::condcodes::IntCC::Equal, int_value, null_ptr);
+    let int_ok_block = fb.create_block();
+    fb.append_block_param(int_ok_block, ctx.consts.ptr_ty);
+    fb.ins().brif(
+        int_is_null,
+        ctx.consts.step_null_block,
+        &step_null_block_args(ctx),
+        int_ok_block,
+        &[ir::BlockArg::Value(int_value)],
+    );
+    fb.switch_to_block(int_ok_block);
+    fb.block_params(int_ok_block)[0]
+}
+
+fn emit_prepare_target_args_codegen(
     fb: &mut FunctionBuilder<'_>,
     target_params: &[String],
     full_target_params: Option<&[String]>,
-    explicit_args: Option<&[DirectSimpleBlockArgPlan]>,
+    explicit_args: Option<&[BlockArg]>,
     local_names: &[String],
     local_values: &[ir::Value],
     ctx: &DirectSimpleEmitCtx,
-    literal_pool: &mut Vec<Box<[u8]>>,
-    jit_module: &mut JITModule,
-    func_imports: &mut FuncBuildImports<'_>,
+    _literal_pool: &mut Vec<Box<[u8]>>,
+    _jit_module: &mut JITModule,
+    _func_imports: &mut FuncBuildImports<'_>,
 ) -> Option<Vec<ir::BlockArg>> {
     let mut args = Vec::with_capacity(target_params.len());
     let mut forwarded_local_indices = HashMap::new();
@@ -2387,7 +2448,7 @@ fn emit_prepare_target_args(
                 .and_then(|offset| args.get(offset))
         }) {
             let value = match explicit_arg {
-                DirectSimpleBlockArgPlan::Name(source_name) => {
+                BlockArg::Name(source_name) => {
                     if let Some(value_index) = local_names
                         .iter()
                         .position(|candidate| candidate == source_name)
@@ -2413,22 +2474,14 @@ fn emit_prepare_target_args(
                         return None;
                     }
                 }
-                DirectSimpleBlockArgPlan::Expr(expr) => emit_direct_simple_expr(
-                    fb,
-                    expr,
-                    local_names,
-                    local_values,
-                    ctx,
-                    literal_pool,
-                    false,
-                    jit_module,
-                    func_imports,
-                ),
-                DirectSimpleBlockArgPlan::None => {
+                BlockArg::None => {
                     fb.ins().call(ctx.incref_ref, &[ctx.consts.none_const]);
                     ctx.consts.none_const
                 }
-                DirectSimpleBlockArgPlan::CurrentException => return None,
+                BlockArg::CurrentException => return None,
+                BlockArg::AbruptKind(kind) => {
+                    emit_owned_int_constant(fb, abrupt_kind_tag(*kind), ctx)
+                }
             };
             args.push(ir::BlockArg::Value(value));
             continue;
@@ -2460,17 +2513,17 @@ fn emit_prepare_target_args(
     Some(args)
 }
 
-fn emit_explicit_target_slot_writes(
+fn emit_explicit_target_slot_writes_codegen(
     fb: &mut FunctionBuilder<'_>,
     full_target_params: &[String],
     runtime_target_params: &[String],
-    explicit_args: &[DirectSimpleBlockArgPlan],
+    explicit_args: &[BlockArg],
     local_names: &[String],
     local_values: &[ir::Value],
     ctx: &DirectSimpleEmitCtx,
-    literal_pool: &mut Vec<Box<[u8]>>,
-    jit_module: &mut JITModule,
-    func_imports: &mut FuncBuildImports<'_>,
+    _literal_pool: &mut Vec<Box<[u8]>>,
+    _jit_module: &mut JITModule,
+    _func_imports: &mut FuncBuildImports<'_>,
 ) -> Option<()> {
     let explicit_start = full_target_params.len().saturating_sub(explicit_args.len());
     for (offset, arg) in explicit_args.iter().enumerate() {
@@ -2479,7 +2532,7 @@ fn emit_explicit_target_slot_writes(
             continue;
         }
         let (value, owned_value) = match arg {
-            DirectSimpleBlockArgPlan::Name(source_name) => {
+            BlockArg::Name(source_name) => {
                 if let Some(index) = local_names
                     .iter()
                     .position(|candidate| candidate == source_name)
@@ -2498,22 +2551,12 @@ fn emit_explicit_target_slot_writes(
                     return None;
                 }
             }
-            DirectSimpleBlockArgPlan::Expr(expr) => (
-                emit_direct_simple_expr(
-                    fb,
-                    expr,
-                    local_names,
-                    local_values,
-                    ctx,
-                    literal_pool,
-                    false,
-                    jit_module,
-                    func_imports,
-                ),
+            BlockArg::None => (ctx.consts.none_const, false),
+            BlockArg::CurrentException => return None,
+            BlockArg::AbruptKind(kind) => (
+                emit_owned_int_constant(fb, abrupt_kind_tag(*kind), ctx),
                 true,
             ),
-            DirectSimpleBlockArgPlan::None => (ctx.consts.none_const, false),
-            DirectSimpleBlockArgPlan::CurrentException => return None,
         };
         ctx.function_state_slots
             .replace_cloned_value(
@@ -2623,9 +2666,9 @@ fn emit_truthy_from_owned(
     )
 }
 
-fn emit_direct_simple_ops(
+fn emit_codegen_ops(
     fb: &mut FunctionBuilder<'_>,
-    ops: &[DirectSimpleOpPlan],
+    ops: &[BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>],
     local_names: &mut Vec<String>,
     local_values: &mut Vec<ir::Value>,
     function_state_slots: &FunctionStateSlots,
@@ -2636,8 +2679,8 @@ fn emit_direct_simple_ops(
 ) -> Result<(), String> {
     for op in ops {
         match op {
-            DirectSimpleOpPlan::Assign(assign) => {
-                let value = emit_direct_simple_expr(
+            BlockPyStmt::Assign(assign) => {
+                let value = emit_codegen_expr(
                     fb,
                     &assign.value,
                     local_names,
@@ -2660,8 +2703,8 @@ fn emit_direct_simple_ops(
                     emit_ctx.decref_ref,
                 );
             }
-            DirectSimpleOpPlan::Expr(expr) => {
-                let value = emit_direct_simple_expr(
+            BlockPyStmt::Expr(expr) => {
+                let value = emit_codegen_expr(
                     fb,
                     expr,
                     local_names,
@@ -2674,22 +2717,392 @@ fn emit_direct_simple_ops(
                 );
                 fb.ins().call(emit_ctx.decref_ref, &[value]);
             }
-            DirectSimpleOpPlan::Delete(delete_plan) => {
-                for target in &delete_plan.targets {
-                    let DirectSimpleDeleteTargetPlan::LocalName(name) = target;
-                    delete_local_value(
+            BlockPyStmt::Delete(delete_stmt) => {
+                delete_local_value(
+                    fb,
+                    local_names,
+                    local_values,
+                    delete_stmt.target.id.as_str(),
+                    function_state_slots,
+                    emit_ctx.consts.deleted_const,
+                    emit_ctx.consts.ptr_ty,
+                    emit_ctx.incref_ref,
+                    emit_ctx.decref_ref,
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn emit_codegen_term(
+    fb: &mut FunctionBuilder<'_>,
+    block_label: &str,
+    term: &BlockPyTerm<LocatedCodegenBlockPyExpr>,
+    exec_blocks: &[ir::Block],
+    runtime_block_param_names: &[Vec<String>],
+    full_block_param_names: &[Vec<String>],
+    local_names: &[String],
+    local_values: &[ir::Value],
+    emit_ctx: &DirectSimpleEmitCtx,
+    literal_pool: &mut Vec<Box<[u8]>>,
+    jit_module: &mut JITModule,
+    func_imports: &mut FuncBuildImports<'_>,
+    is_true_ref: ir::FuncRef,
+    pyobject_to_i64_ref: ir::FuncRef,
+    raise_exc_ref: ir::FuncRef,
+) -> Result<(), String> {
+    let decref_ref = emit_ctx.decref_ref;
+    let i64_ty = emit_ctx.consts.i64_ty;
+    let i32_ty = ir::types::I32;
+    let load_name_ref = emit_ctx.load_name_ref;
+    let ptr_ty = emit_ctx.consts.ptr_ty;
+    let block_const = emit_ctx.consts.block_const;
+    let null_ptr = fb.ins().iconst(ptr_ty, 0);
+
+    match term {
+        BlockPyTerm::Jump(target_label) => {
+            let target_index = target_label.target.index();
+            let target_params = &runtime_block_param_names[target_index];
+            let full_target_params = &full_block_param_names[target_index];
+            emit_explicit_target_slot_writes_codegen(
+                fb,
+                full_target_params,
+                target_params,
+                &target_label.args,
+                local_names,
+                local_values,
+                emit_ctx,
+                literal_pool,
+                jit_module,
+                func_imports,
+            )
+            .ok_or_else(|| {
+                format!("missing local mapping for jump slot updates in block {block_label}")
+            })?;
+            let mut jump_args = Vec::with_capacity(target_params.len());
+            jump_args.extend(
+                emit_prepare_target_args_codegen(
+                    fb,
+                    target_params,
+                    Some(full_target_params),
+                    Some(&target_label.args),
+                    local_names,
+                    local_values,
+                    emit_ctx,
+                    literal_pool,
+                    jit_module,
+                    func_imports,
+                )
+                .ok_or_else(|| {
+                    format!("missing local mapping for jump block params in block {block_label}")
+                })?,
+            );
+            emit_decref_unforwarded_locals(
+                fb,
+                local_values,
+                local_names,
+                target_params,
+                decref_ref,
+            );
+            fb.ins().jump(exec_blocks[target_index], &jump_args);
+        }
+        BlockPyTerm::IfTerm(if_term) => {
+            let test_value = emit_codegen_expr(
+                fb,
+                &if_term.test,
+                local_names,
+                local_values,
+                emit_ctx,
+                literal_pool,
+                false,
+                jit_module,
+                func_imports,
+            );
+            let is_true = emit_truthy_from_owned(
+                fb,
+                test_value,
+                is_true_ref,
+                decref_ref,
+                emit_ctx.consts.step_null_block,
+                &emit_ctx.consts.step_null_args,
+                i32_ty,
+            );
+
+            let then_branch = fb.create_block();
+            let else_branch = fb.create_block();
+            fb.ins().brif(is_true, then_branch, &[], else_branch, &[]);
+
+            fb.switch_to_block(then_branch);
+            let then_index = if_term.then_label.index();
+            let then_params = &runtime_block_param_names[then_index];
+            let mut then_jump_args = Vec::with_capacity(then_params.len());
+            then_jump_args.extend(
+                emit_prepare_target_args_codegen(
+                    fb,
+                    then_params,
+                    None,
+                    None,
+                    local_names,
+                    local_values,
+                    emit_ctx,
+                    literal_pool,
+                    jit_module,
+                    func_imports,
+                )
+                .ok_or_else(|| {
+                    format!(
+                        "missing local mapping for then-branch block params in block {block_label}"
+                    )
+                })?,
+            );
+            emit_decref_unforwarded_locals(fb, local_values, local_names, then_params, decref_ref);
+            fb.ins().jump(exec_blocks[then_index], &then_jump_args);
+
+            fb.switch_to_block(else_branch);
+            let else_index = if_term.else_label.index();
+            let else_params = &runtime_block_param_names[else_index];
+            let mut else_jump_args = Vec::with_capacity(else_params.len());
+            else_jump_args.extend(
+                emit_prepare_target_args_codegen(
+                    fb,
+                    else_params,
+                    None,
+                    None,
+                    local_names,
+                    local_values,
+                    emit_ctx,
+                    literal_pool,
+                    jit_module,
+                    func_imports,
+                )
+                .ok_or_else(|| {
+                    format!(
+                        "missing local mapping for else-branch block params in block {block_label}"
+                    )
+                })?,
+            );
+            emit_decref_unforwarded_locals(fb, local_values, local_names, else_params, decref_ref);
+            fb.ins().jump(exec_blocks[else_index], &else_jump_args);
+        }
+        BlockPyTerm::BranchTable(branch) => {
+            let index_obj = emit_codegen_expr(
+                fb,
+                &branch.index,
+                local_names,
+                local_values,
+                emit_ctx,
+                literal_pool,
+                false,
+                jit_module,
+                func_imports,
+            );
+            let index_i64_inst = fb.ins().call(pyobject_to_i64_ref, &[index_obj]);
+            let index_i64 = fb.inst_results(index_i64_inst)[0];
+            fb.ins().call(decref_ref, &[index_obj]);
+            let index_error = fb.ins().iconst(i64_ty, i64::MIN);
+            let is_error = fb
+                .ins()
+                .icmp(ir::condcodes::IntCC::Equal, index_i64, index_error);
+            let dispatch_block = fb.create_block();
+            fb.append_block_param(dispatch_block, i64_ty);
+            fb.ins().brif(
+                is_error,
+                emit_ctx.consts.step_null_block,
+                &block_arg_values(&emit_ctx.consts.step_null_args),
+                dispatch_block,
+                &[ir::BlockArg::Value(index_i64)],
+            );
+
+            let default_block = fb.create_block();
+            let mut switch = Switch::new();
+            let mut case_blocks = Vec::with_capacity(branch.targets.len());
+            for (case_index, _) in branch.targets.iter().enumerate() {
+                let case_block = fb.create_block();
+                switch.set_entry(case_index as u128, case_block);
+                case_blocks.push(case_block);
+            }
+
+            fb.switch_to_block(dispatch_block);
+            let dispatch_value = fb.block_params(dispatch_block)[0];
+            switch.emit(fb, dispatch_value, default_block);
+
+            for (target_label, case_block) in branch.targets.iter().zip(case_blocks.iter()) {
+                fb.switch_to_block(*case_block);
+                let target_index = target_label.index();
+                let target_params = &runtime_block_param_names[target_index];
+                let mut case_jump_args = Vec::with_capacity(target_params.len());
+                case_jump_args.extend(
+                    emit_prepare_target_args_codegen(
                         fb,
+                        target_params,
+                        None,
+                        None,
                         local_names,
                         local_values,
-                        name.id.as_str(),
-                        function_state_slots,
-                        emit_ctx.consts.deleted_const,
-                        emit_ctx.consts.ptr_ty,
-                        emit_ctx.incref_ref,
-                        emit_ctx.decref_ref,
-                    )?;
-                }
+                        emit_ctx,
+                        literal_pool,
+                        jit_module,
+                        func_imports,
+                    )
+                    .ok_or_else(|| {
+                        format!(
+                            "missing local mapping for br_table case block params in block {block_label}"
+                        )
+                    })?,
+                );
+                emit_decref_unforwarded_locals(
+                    fb,
+                    local_values,
+                    local_names,
+                    target_params,
+                    decref_ref,
+                );
+                fb.ins().jump(exec_blocks[target_index], &case_jump_args);
             }
+
+            fb.switch_to_block(default_block);
+            let default_index = branch.default_label.index();
+            let default_params = &runtime_block_param_names[default_index];
+            let mut default_jump_args = Vec::with_capacity(default_params.len());
+            default_jump_args.extend(
+                emit_prepare_target_args_codegen(
+                    fb,
+                    default_params,
+                    None,
+                    None,
+                    local_names,
+                    local_values,
+                    emit_ctx,
+                    literal_pool,
+                    jit_module,
+                    func_imports,
+                )
+                .ok_or_else(|| {
+                    format!(
+                        "missing local mapping for br_table default block params in block {block_label}"
+                    )
+                })?,
+            );
+            emit_decref_unforwarded_locals(
+                fb,
+                local_values,
+                local_names,
+                default_params,
+                decref_ref,
+            );
+            fb.ins()
+                .jump(exec_blocks[default_index], &default_jump_args);
+        }
+        BlockPyTerm::Return(value) => {
+            let ret_value = emit_codegen_expr(
+                fb,
+                value,
+                local_names,
+                local_values,
+                emit_ctx,
+                literal_pool,
+                false,
+                jit_module,
+                func_imports,
+            );
+            for value in local_values {
+                fb.ins().call(decref_ref, &[*value]);
+            }
+            emit_ctx
+                .function_state_slots
+                .decref_all(fb, ptr_ty, decref_ref);
+            fb.ins().return_(&[ret_value]);
+        }
+        BlockPyTerm::Raise(raise_stmt) => {
+            let (raise_name_ptr, raise_name_len) =
+                intern_bytes_literal(literal_pool, b"__dp_raise_from");
+            let raise_name_ptr_val = fb.ins().iconst(ptr_ty, raise_name_ptr as i64);
+            let raise_name_len_val = fb.ins().iconst(i64_ty, raise_name_len);
+            let raise_fn_inst = fb.ins().call(
+                load_name_ref,
+                &[block_const, raise_name_ptr_val, raise_name_len_val],
+            );
+            let raise_fn = fb.inst_results(raise_fn_inst)[0];
+            let raise_fn_null = fb
+                .ins()
+                .icmp(ir::condcodes::IntCC::Equal, raise_fn, null_ptr);
+            let raise_fn_ok = fb.create_block();
+            fb.append_block_param(raise_fn_ok, ptr_ty);
+            fb.ins().brif(
+                raise_fn_null,
+                emit_ctx.consts.step_null_block,
+                &step_null_block_args(emit_ctx),
+                raise_fn_ok,
+                &[ir::BlockArg::Value(raise_fn)],
+            );
+
+            fb.switch_to_block(raise_fn_ok);
+            let rfo_raise_fn = fb.block_params(raise_fn_ok)[0];
+            let exc_value = if let Some(exc_expr) = raise_stmt.exc.as_ref() {
+                emit_codegen_expr(
+                    fb,
+                    exc_expr,
+                    local_names,
+                    local_values,
+                    emit_ctx,
+                    literal_pool,
+                    false,
+                    jit_module,
+                    func_imports,
+                )
+            } else {
+                fb.ins()
+                    .call(emit_ctx.incref_ref, &[emit_ctx.consts.none_const]);
+                emit_ctx.consts.none_const
+            };
+            fb.ins()
+                .call(emit_ctx.incref_ref, &[emit_ctx.consts.none_const]);
+            let cause_value = emit_ctx.consts.none_const;
+            let raise_call_inst = fb.ins().call(
+                emit_ctx.py_call_positional_three_ref,
+                &[rfo_raise_fn, exc_value, cause_value, null_ptr, null_ptr],
+            );
+            let raise_exc_obj = fb.inst_results(raise_call_inst)[0];
+            fb.ins().call(decref_ref, &[cause_value]);
+            fb.ins().call(decref_ref, &[exc_value]);
+            fb.ins().call(decref_ref, &[rfo_raise_fn]);
+            let raise_exc_null =
+                fb.ins()
+                    .icmp(ir::condcodes::IntCC::Equal, raise_exc_obj, null_ptr);
+            let raise_exc_ok = fb.create_block();
+            fb.append_block_param(raise_exc_ok, ptr_ty);
+            fb.ins().brif(
+                raise_exc_null,
+                emit_ctx.consts.step_null_block,
+                &step_null_block_args(emit_ctx),
+                raise_exc_ok,
+                &[ir::BlockArg::Value(raise_exc_obj)],
+            );
+
+            fb.switch_to_block(raise_exc_ok);
+            let reo_exc_obj = fb.block_params(raise_exc_ok)[0];
+            let raise_inst = fb.ins().call(raise_exc_ref, &[reo_exc_obj]);
+            let raise_rc = fb.inst_results(raise_inst)[0];
+            fb.ins().call(decref_ref, &[reo_exc_obj]);
+            let raise_rc_fail = fb.create_block();
+            let raise_rc_ok = fb.create_block();
+            let raise_ok = fb.ins().icmp_imm(ir::condcodes::IntCC::Equal, raise_rc, 0);
+            fb.ins()
+                .brif(raise_ok, raise_rc_ok, &[], raise_rc_fail, &[]);
+
+            fb.switch_to_block(raise_rc_fail);
+            fb.ins().jump(
+                emit_ctx.consts.step_null_block,
+                &step_null_block_args(emit_ctx),
+            );
+
+            fb.switch_to_block(raise_rc_ok);
+            emit_decref_unforwarded_locals(fb, local_values, local_names, &[], decref_ref);
+            fb.ins().jump(
+                emit_ctx.consts.step_null_block,
+                &step_null_block_args(emit_ctx),
+            );
         }
     }
     Ok(())
@@ -2934,7 +3347,6 @@ fn build_cranelift_run_bb_specialized_function(
 
     let ptr_ty = jit_module.target_config().pointer_type();
     let i64_ty = ir::types::I64;
-    let i32_ty = ir::types::I32;
     let mut module_imports = ModuleFuncImports::new();
 
     let mut main_sig = jit_module.make_signature();
@@ -2958,6 +3370,11 @@ fn build_cranelift_run_bb_specialized_function(
             .blocks
             .iter()
             .map(|block| block.runtime_param_names.clone())
+            .collect::<Vec<_>>();
+        let full_block_param_names = jit_data
+            .blocks
+            .iter()
+            .map(|block| block.full_param_names.clone())
             .collect::<Vec<_>>();
         let mut cleanup_null_blocks = Vec::with_capacity(block_count);
         for _ in 0..block_count {
@@ -3290,13 +3707,13 @@ fn build_cranelift_run_bb_specialized_function(
                 tuple_set_item_ref,
                 function_state_slots: function_state_slots.clone(),
             };
-            let block_plan = &jit_data.blocks[index].plan;
+            let block_data = &jit_data.blocks[index];
             let mut local_names = Vec::new();
             let mut local_values = Vec::new();
 
-            emit_direct_simple_ops(
+            emit_codegen_ops(
                 &mut fb,
-                &block_plan.ops,
+                &block_data.ops,
                 &mut local_names,
                 &mut local_values,
                 &function_state_slots,
@@ -3306,385 +3723,23 @@ fn build_cranelift_run_bb_specialized_function(
                 &mut func_imports,
             )?;
 
-            match &block_plan.term {
-                DirectSimpleTermPlan::Jump {
-                    target_index,
-                    target_params: _,
-                    full_target_params,
-                    target_args,
-                } => {
-                    let target_params = &runtime_block_param_names[*target_index];
-                    emit_explicit_target_slot_writes(
-                        &mut fb,
-                        full_target_params,
-                        target_params,
-                        target_args,
-                        &local_names,
-                        &local_values,
-                        &emit_ctx,
-                        &mut literal_pool,
-                        jit_module,
-                        &mut func_imports,
-                    )
-                    .ok_or_else(|| {
-                        format!(
-                            "missing local mapping for jump slot updates in block {}",
-                            jit_data.blocks[index].label
-                        )
-                    })?;
-                    let mut jump_args = Vec::with_capacity(target_params.len());
-                    jump_args.extend(
-                        emit_prepare_target_args(
-                            &mut fb,
-                            target_params,
-                            Some(full_target_params),
-                            Some(target_args),
-                            &local_names,
-                            &local_values,
-                            &emit_ctx,
-                            &mut literal_pool,
-                            jit_module,
-                            &mut func_imports,
-                        )
-                        .ok_or_else(|| {
-                            format!(
-                                "missing local mapping for jump block params in block {}",
-                                jit_data.blocks[index].label
-                            )
-                        })?,
-                    );
-                    emit_decref_unforwarded_locals(
-                        &mut fb,
-                        &local_values,
-                        &local_names,
-                        target_params,
-                        decref_ref,
-                    );
-                    fb.ins().jump(exec_blocks[*target_index], &jump_args);
-                }
-                DirectSimpleTermPlan::BrIf {
-                    test,
-                    then_index,
-                    then_params: _,
-                    else_index,
-                    else_params: _,
-                } => {
-                    let test_value = emit_direct_simple_expr(
-                        &mut fb,
-                        test,
-                        &local_names,
-                        &local_values,
-                        &emit_ctx,
-                        &mut literal_pool,
-                        false,
-                        jit_module,
-                        &mut func_imports,
-                    );
-                    let is_true = emit_truthy_from_owned(
-                        &mut fb,
-                        test_value,
-                        is_true_ref,
-                        decref_ref,
-                        emit_ctx.consts.step_null_block,
-                        &emit_ctx.consts.step_null_args,
-                        i32_ty,
-                    );
-
-                    let then_branch = fb.create_block();
-                    let else_branch = fb.create_block();
-                    fb.ins().brif(is_true, then_branch, &[], else_branch, &[]);
-
-                    fb.switch_to_block(then_branch);
-                    let then_params = &runtime_block_param_names[*then_index];
-                    let mut then_jump_args = Vec::with_capacity(then_params.len());
-                    then_jump_args.extend(
-                        emit_prepare_target_args(
-                            &mut fb,
-                            then_params,
-                            None,
-                            None,
-                            &local_names,
-                            &local_values,
-                            &emit_ctx,
-                            &mut literal_pool,
-                            jit_module,
-                            &mut func_imports,
-                        )
-                        .ok_or_else(|| {
-                            format!(
-                                "missing local mapping for then-branch block params in block {}",
-                                jit_data.blocks[index].label
-                            )
-                        })?,
-                    );
-                    emit_decref_unforwarded_locals(
-                        &mut fb,
-                        &local_values,
-                        &local_names,
-                        then_params,
-                        decref_ref,
-                    );
-                    fb.ins().jump(exec_blocks[*then_index], &then_jump_args);
-
-                    fb.switch_to_block(else_branch);
-                    let else_params = &runtime_block_param_names[*else_index];
-                    let mut else_jump_args = Vec::with_capacity(else_params.len());
-                    else_jump_args.extend(
-                        emit_prepare_target_args(
-                            &mut fb,
-                            else_params,
-                            None,
-                            None,
-                            &local_names,
-                            &local_values,
-                            &emit_ctx,
-                            &mut literal_pool,
-                            jit_module,
-                            &mut func_imports,
-                        )
-                        .ok_or_else(|| {
-                            format!(
-                                "missing local mapping for else-branch block params in block {}",
-                                jit_data.blocks[index].label
-                            )
-                        })?,
-                    );
-                    emit_decref_unforwarded_locals(
-                        &mut fb,
-                        &local_values,
-                        &local_names,
-                        else_params,
-                        decref_ref,
-                    );
-                    fb.ins().jump(exec_blocks[*else_index], &else_jump_args);
-                }
-                DirectSimpleTermPlan::BrTable {
-                    index: table_index_expr,
-                    targets,
-                    default_index,
-                    default_params: _,
-                } => {
-                    let index_obj = emit_direct_simple_expr(
-                        &mut fb,
-                        table_index_expr,
-                        &local_names,
-                        &local_values,
-                        &emit_ctx,
-                        &mut literal_pool,
-                        false,
-                        jit_module,
-                        &mut func_imports,
-                    );
-                    let index_i64_inst = fb.ins().call(pyobject_to_i64_ref, &[index_obj]);
-                    let index_i64 = fb.inst_results(index_i64_inst)[0];
-                    fb.ins().call(decref_ref, &[index_obj]);
-                    let index_error = fb.ins().iconst(i64_ty, i64::MIN);
-                    let is_error =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, index_i64, index_error);
-                    let dispatch_block = fb.create_block();
-                    fb.append_block_param(dispatch_block, i64_ty);
-                    fb.ins().brif(
-                        is_error,
-                        emit_ctx.consts.step_null_block,
-                        &block_arg_values(&emit_ctx.consts.step_null_args),
-                        dispatch_block,
-                        &[ir::BlockArg::Value(index_i64)],
-                    );
-
-                    let default_block = fb.create_block();
-                    let mut switch = Switch::new();
-                    let mut case_blocks = Vec::with_capacity(targets.len());
-                    for (case_index, _) in targets.iter().enumerate() {
-                        let case_block = fb.create_block();
-                        switch.set_entry(case_index as u128, case_block);
-                        case_blocks.push(case_block);
-                    }
-
-                    fb.switch_to_block(dispatch_block);
-                    let dispatch_value = fb.block_params(dispatch_block)[0];
-                    switch.emit(&mut fb, dispatch_value, default_block);
-
-                    for ((target_index, _), case_block) in targets.iter().zip(case_blocks.iter()) {
-                        fb.switch_to_block(*case_block);
-                        let target_params = &runtime_block_param_names[*target_index];
-                        let mut case_jump_args = Vec::with_capacity(target_params.len());
-                        case_jump_args.extend(
-                                    emit_prepare_target_args(
-                                    &mut fb,
-                                    target_params,
-                                    None,
-                                    None,
-                                    &local_names,
-                                    &local_values,
-                                    &emit_ctx,
-                                    &mut literal_pool,
-                                    jit_module,
-                                    &mut func_imports,
-                                    )
-                                    .ok_or_else(|| {
-                                        format!(
-                                            "missing local mapping for br_table case block params in block {}",
-                                            jit_data.blocks[index].label
-                                        )
-                                    })?,
-                                );
-                        emit_decref_unforwarded_locals(
-                            &mut fb,
-                            &local_values,
-                            &local_names,
-                            target_params,
-                            decref_ref,
-                        );
-                        fb.ins().jump(exec_blocks[*target_index], &case_jump_args);
-                    }
-
-                    fb.switch_to_block(default_block);
-                    let default_params = &runtime_block_param_names[*default_index];
-                    let mut default_jump_args = Vec::with_capacity(default_params.len());
-                    default_jump_args.extend(
-                                emit_prepare_target_args(
-                                    &mut fb,
-                                    default_params,
-                                    None,
-                                    None,
-                                    &local_names,
-                                    &local_values,
-                                    &emit_ctx,
-                                    &mut literal_pool,
-                                    jit_module,
-                                    &mut func_imports,
-                                )
-                                .ok_or_else(|| {
-                                    format!(
-                                        "missing local mapping for br_table default block params in block {}",
-                                        jit_data.blocks[index].label
-                                    )
-                                })?,
-                            );
-                    emit_decref_unforwarded_locals(
-                        &mut fb,
-                        &local_values,
-                        &local_names,
-                        default_params,
-                        decref_ref,
-                    );
-                    fb.ins()
-                        .jump(exec_blocks[*default_index], &default_jump_args);
-                }
-                DirectSimpleTermPlan::Ret { value } => {
-                    let ret_value = emit_direct_simple_expr(
-                        &mut fb,
-                        value,
-                        &local_names,
-                        &local_values,
-                        &emit_ctx,
-                        &mut literal_pool,
-                        false,
-                        jit_module,
-                        &mut func_imports,
-                    );
-                    for value in &local_values {
-                        fb.ins().call(decref_ref, &[*value]);
-                    }
-                    function_state_slots.decref_all(&mut fb, ptr_ty, decref_ref);
-                    fb.ins().return_(&[ret_value]);
-                }
-                DirectSimpleTermPlan::Raise { exc } => {
-                    let (raise_name_ptr, raise_name_len) =
-                        intern_bytes_literal(&mut literal_pool, b"__dp_raise_from");
-                    let raise_name_ptr_val = fb.ins().iconst(ptr_ty, raise_name_ptr as i64);
-                    let raise_name_len_val = fb.ins().iconst(i64_ty, raise_name_len);
-                    let raise_fn_inst = fb.ins().call(
-                        load_name_ref,
-                        &[block_const, raise_name_ptr_val, raise_name_len_val],
-                    );
-                    let raise_fn = fb.inst_results(raise_fn_inst)[0];
-                    let raise_fn_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, raise_fn, null_ptr);
-                    let raise_fn_ok = fb.create_block();
-                    fb.append_block_param(raise_fn_ok, ptr_ty);
-                    fb.ins().brif(
-                        raise_fn_null,
-                        emit_ctx.consts.step_null_block,
-                        &step_null_block_args(&emit_ctx),
-                        raise_fn_ok,
-                        &[ir::BlockArg::Value(raise_fn)],
-                    );
-
-                    fb.switch_to_block(raise_fn_ok);
-                    let rfo_raise_fn = fb.block_params(raise_fn_ok)[0];
-                    let exc_value = if let Some(exc_expr) = exc.as_ref() {
-                        emit_direct_simple_expr(
-                            &mut fb,
-                            exc_expr,
-                            &local_names,
-                            &local_values,
-                            &emit_ctx,
-                            &mut literal_pool,
-                            false,
-                            jit_module,
-                            &mut func_imports,
-                        )
-                    } else {
-                        fb.ins().call(incref_ref, &[none_const]);
-                        none_const
-                    };
-                    fb.ins().call(incref_ref, &[none_const]);
-                    let cause_value = none_const;
-                    let raise_call_inst = fb.ins().call(
-                        py_call_positional_three_ref,
-                        &[rfo_raise_fn, exc_value, cause_value, null_ptr, null_ptr],
-                    );
-                    let raise_exc_obj = fb.inst_results(raise_call_inst)[0];
-                    fb.ins().call(decref_ref, &[cause_value]);
-                    fb.ins().call(decref_ref, &[exc_value]);
-                    fb.ins().call(decref_ref, &[rfo_raise_fn]);
-                    let raise_exc_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, raise_exc_obj, null_ptr);
-                    let raise_exc_ok = fb.create_block();
-                    fb.append_block_param(raise_exc_ok, ptr_ty);
-                    fb.ins().brif(
-                        raise_exc_null,
-                        emit_ctx.consts.step_null_block,
-                        &step_null_block_args(&emit_ctx),
-                        raise_exc_ok,
-                        &[ir::BlockArg::Value(raise_exc_obj)],
-                    );
-
-                    fb.switch_to_block(raise_exc_ok);
-                    let reo_exc_obj = fb.block_params(raise_exc_ok)[0];
-                    let raise_inst = fb.ins().call(raise_exc_ref, &[reo_exc_obj]);
-                    let raise_rc = fb.inst_results(raise_inst)[0];
-                    fb.ins().call(decref_ref, &[reo_exc_obj]);
-                    let raise_rc_fail = fb.create_block();
-                    let raise_rc_ok = fb.create_block();
-                    let raise_ok = fb.ins().icmp_imm(ir::condcodes::IntCC::Equal, raise_rc, 0);
-                    fb.ins()
-                        .brif(raise_ok, raise_rc_ok, &[], raise_rc_fail, &[]);
-
-                    fb.switch_to_block(raise_rc_fail);
-                    fb.ins().jump(
-                        emit_ctx.consts.step_null_block,
-                        &step_null_block_args(&emit_ctx),
-                    );
-
-                    fb.switch_to_block(raise_rc_ok);
-                    emit_decref_unforwarded_locals(
-                        &mut fb,
-                        &local_values,
-                        &local_names,
-                        &[],
-                        decref_ref,
-                    );
-                    fb.ins().jump(
-                        emit_ctx.consts.step_null_block,
-                        &step_null_block_args(&emit_ctx),
-                    );
-                }
-            }
+            emit_codegen_term(
+                &mut fb,
+                block_data.label.as_str(),
+                &block_data.term,
+                &exec_blocks,
+                &runtime_block_param_names,
+                &full_block_param_names,
+                &local_names,
+                &local_values,
+                &emit_ctx,
+                &mut literal_pool,
+                jit_module,
+                &mut func_imports,
+                is_true_ref,
+                pyobject_to_i64_ref,
+                raise_exc_ref,
+            )?;
             continue;
         }
 
@@ -3796,9 +3851,9 @@ fn build_cranelift_run_bb_specialized_function(
     ))
 }
 
-pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
+unsafe fn render_cranelift_run_bb_specialized_data_with_cfg(
     blocks: &[ObjPtr],
-    plan: &ClifPlan,
+    jit_data: &SpecializedJitData,
     true_obj: ObjPtr,
     false_obj: ObjPtr,
     deleted_obj: ObjPtr,
@@ -3811,11 +3866,10 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut jit_module = JITModule::new(builder);
-    let jit_data = specialized_jit_data_from_plan(plan);
     let (ctx, _, _literal_pool, import_id_to_symbol) = build_cranelift_run_bb_specialized_function(
         &mut jit_module,
         blocks,
-        &jit_data,
+        jit_data,
         ptr::null_mut(),
         true_obj,
         false_obj,
@@ -3842,6 +3896,26 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
         cfg_dot,
         vcode_disasm,
     })
+}
+
+pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
+    blocks: &[ObjPtr],
+    function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
+    info: &JitFunctionInfo,
+    true_obj: ObjPtr,
+    false_obj: ObjPtr,
+    deleted_obj: ObjPtr,
+    empty_tuple_obj: ObjPtr,
+) -> Result<RenderedSpecializedClif, String> {
+    let jit_data = specialized_jit_data_from_function(function, info);
+    render_cranelift_run_bb_specialized_data_with_cfg(
+        blocks,
+        &jit_data,
+        true_obj,
+        false_obj,
+        deleted_obj,
+        empty_tuple_obj,
+    )
 }
 
 fn render_compiled_clif_and_vcode_disasm(
@@ -3877,30 +3951,10 @@ fn render_compiled_clif_and_vcode_disasm(
     Ok((clif, cfg_dot, vcode_disasm))
 }
 
-fn specialized_jit_data_from_plan(plan: &ClifPlan) -> SpecializedJitData {
-    SpecializedJitData {
-        entry_param_names: plan.entry_param_names.clone(),
-        entry_param_default_sources: plan.entry_param_default_sources.clone(),
-        owned_cell_slot_names: plan.owned_cell_slot_names.clone(),
-        slot_names: plan.slot_names.clone(),
-        blocks: plan
-            .blocks
-            .iter()
-            .map(|block| SpecializedJitBlockData {
-                label: block.label.clone(),
-                runtime_param_names: block.runtime_param_names.clone(),
-                exc_dispatch: block.exc_dispatch.clone(),
-                plan: block.plan.clone(),
-            })
-            .collect(),
-    }
-}
-
 fn specialized_jit_data_from_function(
     function: &dp_transform::block_py::BlockPyFunction<CodegenBlockPyPass>,
     info: &JitFunctionInfo,
 ) -> SpecializedJitData {
-    let block_plans = build_direct_simple_block_plans(function);
     SpecializedJitData {
         entry_param_names: info.entry_param_names.clone(),
         entry_param_default_sources: info.entry_param_default_sources.clone(),
@@ -3910,12 +3964,13 @@ fn specialized_jit_data_from_function(
             .blocks
             .iter()
             .zip(info.blocks.iter())
-            .zip(block_plans)
-            .map(|((block, block_info), plan)| SpecializedJitBlockData {
+            .map(|(block, block_info)| SpecializedJitBlockData {
                 label: block.label.to_string(),
+                full_param_names: block.param_name_vec(),
                 runtime_param_names: block_info.runtime_param_names.clone(),
                 exc_dispatch: block_info.exc_dispatch.clone(),
-                plan,
+                ops: block.body.clone(),
+                term: block.term.clone(),
             })
             .collect(),
     }

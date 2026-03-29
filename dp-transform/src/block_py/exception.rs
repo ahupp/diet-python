@@ -14,7 +14,7 @@ fn expr_name(id: &str) -> ExprName {
 
 pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
     blocks: &mut [CfgBlock<StructuredBlockPyStmt<E>, BlockPyTerm<E>>],
-    finally_target: &str,
+    finally_target: &BlockPyLabel,
     payload_name: &str,
 ) where
     E: From<Expr>,
@@ -41,7 +41,7 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
         // for the finally entry, including its exception slot, must continue to
         // forward by name once dataflow adds them as block params later.
         block.term = BlockPyTerm::Jump(BlockPyEdge::with_args(
-            BlockPyLabel::from(finally_target.to_string()),
+            finally_target.clone(),
             vec![BlockArg::AbruptKind(AbruptKind::Return), payload_arg],
         ));
     }

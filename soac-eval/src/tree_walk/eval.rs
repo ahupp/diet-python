@@ -1,4 +1,5 @@
-use crate::jit::{self, ClifBindingParam, ClifBindingParamKind, JitFunctionInfo};
+use crate::jit::{self, ClifBindingParam, JitFunctionInfo};
+use dp_transform::block_py::ParamKind;
 use dp_transform::passes::CodegenBlockPyPass;
 use log::info;
 use pyo3::ffi;
@@ -200,16 +201,16 @@ unsafe fn build_binding_metadata(
             return set_type_error("duplicate parameter name in CLIF plan metadata");
         }
         match param.kind {
-            ClifBindingParamKind::PositionalOnly | ClifBindingParamKind::PositionalOrKeyword => {
+            ParamKind::PosOnly | ParamKind::Any => {
                 positional_param_indices.push(index);
             }
-            ClifBindingParamKind::VarArgs => {
+            ParamKind::VarArg => {
                 varargs_param = Some(index);
             }
-            ClifBindingParamKind::VarKeyword => {
+            ParamKind::KwArg => {
                 varkw_param = Some(index);
             }
-            ClifBindingParamKind::KeywordOnly => {}
+            ParamKind::KwOnly => {}
         }
     }
 
@@ -527,7 +528,7 @@ unsafe fn build_function_bound_args(
         if let Some(&param_index) = binding.param_lookup.get(key_name.as_str()) {
             let param = &binding.params[param_index];
             match param.kind {
-                ClifBindingParamKind::PositionalOnly | ClifBindingParamKind::VarArgs => {
+                ParamKind::PosOnly | ParamKind::VarArg => {
                     if !has_varkw {
                         cleanup_state_values(&mut bound_args);
                         let msg = format!(
@@ -542,7 +543,7 @@ unsafe fn build_function_bound_args(
                         return Err(());
                     }
                 }
-                ClifBindingParamKind::PositionalOrKeyword | ClifBindingParamKind::KeywordOnly => {
+                ParamKind::Any | ParamKind::KwOnly => {
                     if assigned[param_index] {
                         cleanup_state_values(&mut bound_args);
                         let msg = format!(
@@ -552,17 +553,10 @@ unsafe fn build_function_bound_args(
                         let _ = set_type_error::<()>(&msg);
                         return Err(());
                     }
-                    if param.kind == ClifBindingParamKind::VarKeyword {
-                        if ffi::PyDict_SetItem(varkw_dict, key, value) != 0 {
-                            cleanup_state_values(&mut bound_args);
-                            return Err(());
-                        }
-                    } else {
-                        bound_arg_value_from_borrowed(&mut bound_args, param_index, value);
-                        assigned[param_index] = true;
-                    }
+                    bound_arg_value_from_borrowed(&mut bound_args, param_index, value);
+                    assigned[param_index] = true;
                 }
-                ClifBindingParamKind::VarKeyword => {
+                ParamKind::KwArg => {
                     if !varkw_dict.is_null() && ffi::PyDict_SetItem(varkw_dict, key, value) != 0 {
                         cleanup_state_values(&mut bound_args);
                         return Err(());
@@ -590,7 +584,7 @@ unsafe fn build_function_bound_args(
             continue;
         }
         match param.kind {
-            ClifBindingParamKind::VarArgs | ClifBindingParamKind::VarKeyword => {}
+            ParamKind::VarArg | ParamKind::KwArg => {}
             _ => {
                 if param.has_default {
                     assigned[param_index] = true;

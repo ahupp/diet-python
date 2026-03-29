@@ -74,7 +74,7 @@ where
         ));
     }
     if let Some(exc_edge) = &block.exc_edge {
-        lines.push(format!("exc_target: {}", exc_edge.target.as_str()));
+        lines.push(format!("exc_target: {}", exc_edge.target));
     }
     if let Some(exc_name) = block.exception_param() {
         lines.push(format!("exc_name: {exc_name}"));
@@ -199,7 +199,7 @@ impl BlockPyFormatter {
         P: BlockPyPrettyPrinter,
     {
         let block = &function.blocks[block_index];
-        self.line(format!("block {}:", block.label.as_str()));
+        self.line(format!("block {}:", block.label));
         self.with_indent(|this| {
             for line in P::block_metadata_lines(block) {
                 this.line(line);
@@ -345,7 +345,7 @@ impl BlockPyFormatter {
                                 referenced_labels,
                             );
                         } else {
-                            this.line(format!("jump {}", then_label.as_str()));
+                            this.line(format!("jump {}", then_label));
                         }
                     });
                     this.line("else:");
@@ -363,7 +363,7 @@ impl BlockPyFormatter {
                                 referenced_labels,
                             );
                         } else {
-                            this.line(format!("jump {}", else_label.as_str()));
+                            this.line(format!("jump {}", else_label));
                         }
                     });
                 });
@@ -372,7 +372,7 @@ impl BlockPyFormatter {
                 "branch_table {} -> [{}] default {}",
                 render_inline_expr(&branch.index),
                 join_labels(&branch.targets),
-                branch.default_label.as_str(),
+                branch.default_label,
             )),
             BlockPyTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
             BlockPyTerm::Return(value) => {
@@ -401,7 +401,7 @@ impl BlockPyFormatter {
                 "branch_table {} -> [{}] default {}",
                 render_inline_expr(&branch.index),
                 join_labels(&branch.targets),
-                branch.default_label.as_str(),
+                branch.default_label,
             )),
             BlockPyTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
             BlockPyTerm::Return(value) => {
@@ -601,18 +601,18 @@ fn format_parameters(parameters: &ParamSpec) -> String {
 fn join_labels(labels: &[BlockPyLabel]) -> String {
     labels
         .iter()
-        .map(|label| label.as_str())
+        .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join(", ")
 }
 
 fn render_edge(edge: &BlockPyEdge) -> String {
     if edge.args.is_empty() {
-        return edge.as_str().to_string();
+        return edge.target.to_string();
     }
     format!(
         "{}({})",
-        edge.as_str(),
+        edge.target,
         edge.args
             .iter()
             .map(render_block_arg)
@@ -686,7 +686,7 @@ impl BlockRenderLayout {
             .blocks
             .iter()
             .enumerate()
-            .map(|(index, block)| (block.label.as_str().to_string(), index))
+            .map(|(index, block)| (block.label, index))
             .collect::<HashMap<_, _>>();
 
         let successors = function
@@ -743,17 +743,12 @@ fn sort_block_indices_by_label<P>(indices: &mut [usize], function: &BlockPyFunct
 where
     P: BlockPyPrettyPrinter,
 {
-    indices.sort_by(|left, right| {
-        function.blocks[*left]
-            .label
-            .as_str()
-            .cmp(function.blocks[*right].label.as_str())
-    });
+    indices.sort_by_key(|index| function.blocks[*index].label);
 }
 
 fn compute_inline_if_term_targets<P>(
     function: &BlockPyFunction<P>,
-    label_to_index: &HashMap<String, usize>,
+    label_to_index: &HashMap<BlockPyLabel, usize>,
     predecessors: &[Vec<usize>],
     immediate_dominators: &[Option<usize>],
 ) -> (HashMap<(usize, IfBranchKind), usize>, HashSet<usize>)
@@ -773,8 +768,8 @@ where
             continue;
         };
 
-        let then_target = label_to_index.get(then_label.as_str()).copied();
-        let else_target = label_to_index.get(else_label.as_str()).copied();
+        let then_target = label_to_index.get(then_label).copied();
+        let else_target = label_to_index.get(else_label).copied();
 
         if let Some(target_index) = then_target {
             if can_inline_if_term_target(
@@ -822,7 +817,7 @@ fn can_inline_if_term_target(
 
 fn choose_entry_block_index<P>(
     _function: &BlockPyFunction<P>,
-    _label_to_index: &HashMap<String, usize>,
+    _label_to_index: &HashMap<BlockPyLabel, usize>,
     _predecessors: &[Vec<usize>],
 ) -> usize
 where
@@ -833,7 +828,7 @@ where
 
 fn collect_top_level_successors_from_block<P>(
     block: &PassBlock<P>,
-    label_to_index: &HashMap<String, usize>,
+    label_to_index: &HashMap<BlockPyLabel, usize>,
 ) -> Vec<usize>
 where
     P: BlockPyPass,
@@ -852,7 +847,7 @@ where
 
 fn collect_top_level_successors_from_stmts<S, E, N>(
     stmts: &[S],
-    label_to_index: &HashMap<String, usize>,
+    label_to_index: &HashMap<BlockPyLabel, usize>,
     seen: &mut HashSet<usize>,
     out: &mut Vec<usize>,
 ) where
@@ -891,7 +886,7 @@ fn collect_top_level_successors_from_stmts<S, E, N>(
 
 fn collect_top_level_successors_from_term(
     term: &BlockPyTerm<impl Clone + Into<Expr>>,
-    label_to_index: &HashMap<String, usize>,
+    label_to_index: &HashMap<BlockPyLabel, usize>,
     seen: &mut HashSet<usize>,
     out: &mut Vec<usize>,
 ) {
@@ -919,11 +914,11 @@ fn collect_top_level_successors_from_term(
 
 fn push_top_level_successor(
     label: &BlockPyLabel,
-    label_to_index: &HashMap<String, usize>,
+    label_to_index: &HashMap<BlockPyLabel, usize>,
     seen: &mut HashSet<usize>,
     out: &mut Vec<usize>,
 ) {
-    let Some(successor_index) = label_to_index.get(label.as_str()) else {
+    let Some(successor_index) = label_to_index.get(label) else {
         return;
     };
     if seen.insert(*successor_index) {

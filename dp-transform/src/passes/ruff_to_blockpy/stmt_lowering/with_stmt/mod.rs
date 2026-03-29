@@ -156,9 +156,9 @@ pub(crate) fn lower_with_stmt_sequence<F>(
     name_gen: &FunctionNameGen,
     _needs_finally_return_flow: bool,
     lower_sequence: &mut F,
-) -> String
+) -> BlockPyLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> String,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
 {
     if with_stmt.items.is_empty() {
         let jump_label = if linear.is_empty() {

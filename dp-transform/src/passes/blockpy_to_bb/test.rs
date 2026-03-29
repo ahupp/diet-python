@@ -13,7 +13,7 @@ use std::collections::HashMap;
 #[test]
 fn linearizes_structured_if_stmt_into_explicit_blocks() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
-        label: BlockPyLabel::from("start"),
+        label: BlockPyLabel::from(0u32),
         body: vec![
             StructuredBlockPyStmt::Assign(BlockPyAssign {
                 target: LocatedName::from(ast::ExprName {
@@ -104,7 +104,7 @@ fn core_string_expr(value: &str) -> LocatedCoreBlockPyExpr {
 #[test]
 fn rewrites_current_exception_placeholders_in_final_core_blocks() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
-        label: BlockPyLabel::from("start"),
+        label: BlockPyLabel::from(0u32),
         body: vec![StructuredBlockPyStmt::Expr(core_call_expr(
             "__dp_current_exception",
             Vec::new(),
@@ -155,7 +155,7 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
 #[test]
 fn rewrites_current_exception_inside_intrinsic_helper_args() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
-        label: BlockPyLabel::from("start"),
+        label: BlockPyLabel::from(0u32),
         body: Vec::new(),
         term: BlockPyTerm::Return(CoreBlockPyExpr::Op(Box::new(Operation::GetAttr(GetAttr {
             node_index: ast::AtomicNodeIndex::default(),
@@ -206,7 +206,7 @@ fn exception_edges_seed_hidden_try_exception_locals_from_current_exception() {
         >,
     > = vec![
         crate::block_py::CfgBlock {
-            label: BlockPyLabel::from("source"),
+            label: BlockPyLabel::from(0u32),
             body: Vec::new(),
             term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
                 <LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
@@ -215,16 +215,14 @@ fn exception_edges_seed_hidden_try_exception_locals_from_current_exception() {
                 name: "_dp_outer_exc".to_string(),
                 role: crate::block_py::BlockParamRole::Exception,
             }],
-            exc_edge: Some(crate::block_py::BlockPyEdge::new(BlockPyLabel::from(
-                "target",
-            ))),
+            exc_edge: Some(crate::block_py::BlockPyEdge::new(BlockPyLabel::from(1u32))),
         },
         crate::block_py::CfgBlock {
-            label: BlockPyLabel::from("target"),
+            label: BlockPyLabel::from(1u32),
             body: Vec::new(),
             term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Jump(
                 crate::block_py::BlockPyEdge::with_args(
-                    BlockPyLabel::from("after"),
+                    BlockPyLabel::from(2u32),
                     vec![
                         crate::block_py::BlockArg::AbruptKind(
                             crate::block_py::AbruptKind::Exception,
@@ -246,7 +244,7 @@ fn exception_edges_seed_hidden_try_exception_locals_from_current_exception() {
             exc_edge: None,
         },
         crate::block_py::CfgBlock {
-            label: BlockPyLabel::from("after"),
+            label: BlockPyLabel::from(2u32),
             body: Vec::new(),
             term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
                 <LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),

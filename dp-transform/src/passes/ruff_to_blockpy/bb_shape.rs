@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 pub(crate) fn lower_structured_blocks_to_bb_blocks<E, N>(
     blocks: &[crate::block_py::CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
-    block_params: &HashMap<String, Vec<String>>,
+    block_params: &HashMap<crate::block_py::BlockPyLabel, Vec<String>>,
 ) -> Vec<crate::block_py::CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>>
 where
     E: Clone + Into<crate::block_py::Expr>,
@@ -23,10 +23,9 @@ where
         .iter()
         .map(|block| {
             let exc_edge = linear_exception_edges
-                .get(block.label.as_str())
+                .get(&block.label)
                 .cloned()
                 .flatten()
-                .map(crate::block_py::BlockPyLabel::from)
                 .map(BlockPyEdge::new);
             let ops = block
                 .body
@@ -39,7 +38,7 @@ where
                 .map(ToString::to_string)
                 .collect::<HashSet<_>>();
             let mut params = linear_block_params
-                .get(block.label.as_str())
+                .get(&block.label)
                 .cloned()
                 .unwrap_or_default()
                 .into_iter()
@@ -105,7 +104,7 @@ pub(crate) fn populate_exception_edge_args<E, N>(
     let label_to_index = blocks
         .iter()
         .enumerate()
-        .map(|(index, block)| (block.label.as_str().to_string(), index))
+        .map(|(index, block)| (block.label.clone(), index))
         .collect::<HashMap<_, _>>();
     for block_index in 0..blocks.len() {
         let Some(exc_target_label) = blocks[block_index]
@@ -115,7 +114,7 @@ pub(crate) fn populate_exception_edge_args<E, N>(
         else {
             continue;
         };
-        let Some(target_index) = label_to_index.get(exc_target_label.as_str()).copied() else {
+        let Some(target_index) = label_to_index.get(&exc_target_label).copied() else {
             continue;
         };
         let source_params = blocks[block_index].param_name_vec();
@@ -159,13 +158,13 @@ pub(crate) fn populate_exception_edge_args<E, N>(
 
 pub(crate) fn lowered_exception_edges<S, T>(
     blocks: &[crate::block_py::CfgBlock<S, T>],
-) -> HashMap<String, Option<String>> {
+) -> HashMap<crate::block_py::BlockPyLabel, Option<crate::block_py::BlockPyLabel>> {
     blocks
         .iter()
         .map(|block| {
             (
-                block.label.as_str().to_string(),
-                block.exc_edge.as_ref().map(|edge| edge.target.to_string()),
+                block.label.clone(),
+                block.exc_edge.as_ref().map(|edge| edge.target.clone()),
             )
         })
         .collect()

@@ -10,20 +10,15 @@ use std::collections::{HashMap, HashSet};
 
 fn blockpy_successors<E, N>(
     block: &CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>,
-) -> Vec<String> {
+) -> Vec<BlockPyLabel> {
     match &block.term {
-        BlockPyTerm::Jump(target) => vec![target.as_str().to_string()],
-        BlockPyTerm::IfTerm(if_term) => vec![
-            if_term.then_label.as_str().to_string(),
-            if_term.else_label.as_str().to_string(),
-        ],
+        BlockPyTerm::Jump(target) => vec![target.target.clone()],
+        BlockPyTerm::IfTerm(if_term) => {
+            vec![if_term.then_label.clone(), if_term.else_label.clone()]
+        }
         BlockPyTerm::BranchTable(branch) => {
-            let mut out = branch
-                .targets
-                .iter()
-                .map(|label| label.as_str().to_string())
-                .collect::<Vec<_>>();
-            out.push(branch.default_label.as_str().to_string());
+            let mut out = branch.targets.clone();
+            out.push(branch.default_label.clone());
             out
         }
         BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => Vec::new(),
@@ -31,11 +26,11 @@ fn blockpy_successors<E, N>(
 }
 
 fn fresh_linearized_if_label(
-    base: &BlockPyLabel,
+    _base: &BlockPyLabel,
     counter: &mut usize,
-    suffix: &str,
+    _suffix: &str,
 ) -> BlockPyLabel {
-    let label = BlockPyLabel::from(format!("{}_{}_{}", base.as_str(), suffix, *counter));
+    let label = BlockPyLabel::from_index(*counter);
     *counter += 1;
     label
 }
@@ -100,11 +95,11 @@ fn linearize_blockpy_if_sequence<E, N>(
     exc_edge: Option<super::BlockPyEdge>,
     block_params: Vec<String>,
     declared_params: Vec<BlockParam>,
-    exc_target: Option<String>,
+    exc_target: Option<BlockPyLabel>,
     next_label_id: &mut usize,
     out_blocks: &mut Vec<CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>>,
-    out_block_params: &mut HashMap<String, Vec<String>>,
-    out_exception_edges: &mut HashMap<String, Option<String>>,
+    out_block_params: &mut HashMap<BlockPyLabel, Vec<String>>,
+    out_exception_edges: &mut HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 ) where
     E: Clone + Into<Expr>,
     N: BlockPyNameLike,
@@ -113,8 +108,8 @@ fn linearize_blockpy_if_sequence<E, N>(
         .iter()
         .position(|stmt| matches!(stmt, StructuredBlockPyStmt::If(_)))
     else {
-        out_block_params.insert(label.as_str().to_string(), block_params.clone());
-        out_exception_edges.insert(label.as_str().to_string(), exc_target);
+        out_block_params.insert(label.clone(), block_params.clone());
+        out_exception_edges.insert(label.clone(), exc_target);
         out_blocks.push(CfgBlock {
             label,
             body,
@@ -142,8 +137,8 @@ fn linearize_blockpy_if_sequence<E, N>(
         Some(fresh_linearized_if_label(&label, next_label_id, "if_join"))
     };
 
-    out_block_params.insert(label.as_str().to_string(), block_params);
-    out_exception_edges.insert(label.as_str().to_string(), exc_target.clone());
+    out_block_params.insert(label.clone(), block_params);
+    out_exception_edges.insert(label.clone(), exc_target.clone());
     out_blocks.push(CfgBlock {
         label: label.clone(),
         body,
@@ -153,7 +148,7 @@ fn linearize_blockpy_if_sequence<E, N>(
             else_label: else_label.clone(),
         }),
         params: params_for_linearized_names(
-            out_block_params.get(label.as_str()).unwrap(),
+            out_block_params.get(&label).unwrap(),
             &declared_params,
         ),
         exc_edge: exc_edge.clone(),
@@ -161,7 +156,7 @@ fn linearize_blockpy_if_sequence<E, N>(
 
     let branch_fallthrough = join_label
         .clone()
-        .map(|label| BlockPyTerm::Jump(label.into()))
+        .map(|next_label| BlockPyTerm::Jump(next_label.into()))
         .unwrap_or_else(|| final_term.clone());
     linearize_blockpy_fragment(
         then_label,
@@ -214,11 +209,11 @@ fn linearize_blockpy_fragment<E, N>(
     exc_edge: Option<super::BlockPyEdge>,
     block_params: Vec<String>,
     declared_params: Vec<BlockParam>,
-    exc_target: Option<String>,
+    exc_target: Option<BlockPyLabel>,
     next_label_id: &mut usize,
     out_blocks: &mut Vec<CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>>,
-    out_block_params: &mut HashMap<String, Vec<String>>,
-    out_exception_edges: &mut HashMap<String, Option<String>>,
+    out_block_params: &mut HashMap<BlockPyLabel, Vec<String>>,
+    out_exception_edges: &mut HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 ) where
     E: Clone + Into<Expr>,
     N: BlockPyNameLike,
@@ -240,12 +235,12 @@ fn linearize_blockpy_fragment<E, N>(
 
 pub(crate) fn linearize_structured_ifs<E, N>(
     blocks: &[CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
-    block_params: &HashMap<String, Vec<String>>,
-    exception_edges: &HashMap<String, Option<String>>,
+    block_params: &HashMap<BlockPyLabel, Vec<String>>,
+    exception_edges: &HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 ) -> (
     Vec<CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>>,
-    HashMap<String, Vec<String>>,
-    HashMap<String, Option<String>>,
+    HashMap<BlockPyLabel, Vec<String>>,
+    HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 )
 where
     E: Clone + Into<Expr>,
@@ -254,21 +249,20 @@ where
     let mut out_blocks = Vec::new();
     let mut out_block_params = HashMap::new();
     let mut out_exception_edges = HashMap::new();
-    let mut next_label_id = 0usize;
+    let mut next_label_id = blocks
+        .iter()
+        .map(|block| block.label.index())
+        .max()
+        .map(|index| index + 1)
+        .unwrap_or(0);
     for block in blocks {
-        let mut params = block_params
-            .get(block.label.as_str())
-            .cloned()
-            .unwrap_or_default();
+        let mut params = block_params.get(&block.label).cloned().unwrap_or_default();
         for name in block.bb_param_names() {
             if !params.iter().any(|existing| existing == name) {
                 params.push(name.to_string());
             }
         }
-        let exc_target = exception_edges
-            .get(block.label.as_str())
-            .cloned()
-            .unwrap_or(None);
+        let exc_target = exception_edges.get(&block.label).cloned().unwrap_or(None);
         linearize_blockpy_if_sequence(
             block.label.clone(),
             block.body.clone(),
@@ -292,7 +286,7 @@ pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E, N>(
     E: Clone + ImplicitNoneExpr,
     N: BlockPyNameLike,
 {
-    let trivial_ret_none_terms: HashMap<String, BlockPyTerm<E>> = blocks
+    let trivial_ret_none_terms: HashMap<BlockPyLabel, BlockPyTerm<E>> = blocks
         .iter()
         .filter(|block| {
             block.body.is_empty()
@@ -301,16 +295,16 @@ pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E, N>(
                     _ => false,
                 }
         })
-        .map(|block| (block.label.as_str().to_string(), block.term.clone()))
+        .map(|block| (block.label.clone(), block.term.clone()))
         .collect();
 
     for block in blocks.iter_mut() {
         let jump_target = match &block.term {
-            BlockPyTerm::Jump(target) => Some(target.as_str().to_string()),
+            BlockPyTerm::Jump(target) => Some(target.target.clone()),
             _ => None,
         };
         if let Some(target) = jump_target {
-            if let Some(term) = trivial_ret_none_terms.get(target.as_str()) {
+            if let Some(term) = trivial_ret_none_terms.get(&target) {
                 block.term = term.clone();
             }
         }
@@ -329,9 +323,9 @@ pub(crate) fn fold_constant_brif_blockpy(
             }) => match test {
                 Expr::BooleanLiteral(boolean) => {
                     if boolean.value {
-                        Some(then_label.as_str().to_string())
+                        Some(then_label.clone())
                     } else {
-                        Some(else_label.as_str().to_string())
+                        Some(else_label.clone())
                     }
                 }
                 _ => None,
@@ -339,30 +333,30 @@ pub(crate) fn fold_constant_brif_blockpy(
             _ => None,
         };
         if let Some(target) = jump_target {
-            block.term = BlockPyTerm::Jump(BlockPyLabel::from(target).into());
+            block.term = BlockPyTerm::Jump(target.into());
         }
     }
 }
 
 pub(crate) fn prune_unreachable_blockpy_blocks<E>(
-    entry_label: &str,
-    extra_roots: &[String],
+    entry_label: BlockPyLabel,
+    extra_roots: &[BlockPyLabel],
     blocks: &mut Vec<CfgBlock<StructuredBlockPyStmt<E>, BlockPyTerm<E>>>,
 ) {
-    let index_by_label: HashMap<String, usize> = blocks
+    let index_by_label: HashMap<BlockPyLabel, usize> = blocks
         .iter()
         .enumerate()
-        .map(|(idx, block)| (block.label.as_str().to_string(), idx))
+        .map(|(idx, block)| (block.label.clone(), idx))
         .collect();
 
-    let mut worklist = vec![entry_label.to_string()];
+    let mut worklist = vec![entry_label];
     worklist.extend(extra_roots.iter().cloned());
     let mut reachable = HashSet::new();
     while let Some(label) = worklist.pop() {
         if !reachable.insert(label.clone()) {
             continue;
         }
-        let Some(idx) = index_by_label.get(label.as_str()) else {
+        let Some(idx) = index_by_label.get(&label) else {
             continue;
         };
         for succ in blockpy_successors(&blocks[*idx]) {
@@ -370,5 +364,70 @@ pub(crate) fn prune_unreachable_blockpy_blocks<E>(
         }
     }
 
-    blocks.retain(|block| reachable.contains(block.label.as_str()));
+    blocks.retain(|block| reachable.contains(&block.label));
+}
+
+pub(crate) fn relabel_blockpy_blocks_dense<S, T>(blocks: &mut [CfgBlock<S, T>])
+where
+    T: RelabelBlockTargets,
+{
+    let relabel = blocks
+        .iter()
+        .enumerate()
+        .map(|(index, block)| (block.label, BlockPyLabel::from_index(index)))
+        .collect::<HashMap<_, _>>();
+
+    for block in blocks.iter_mut() {
+        block.label = relabel
+            .get(&block.label)
+            .expect("dense relabel should cover every block")
+            .clone();
+        block.term.relabel_targets(&relabel);
+        if let Some(exc_edge) = &mut block.exc_edge {
+            exc_edge.target = relabel
+                .get(&exc_edge.target)
+                .expect("dense relabel should cover every exception target")
+                .clone();
+        }
+    }
+}
+
+pub(crate) trait RelabelBlockTargets {
+    fn relabel_targets(&mut self, relabel: &HashMap<BlockPyLabel, BlockPyLabel>);
+}
+
+impl<E> RelabelBlockTargets for BlockPyTerm<E> {
+    fn relabel_targets(&mut self, relabel: &HashMap<BlockPyLabel, BlockPyLabel>) {
+        match self {
+            BlockPyTerm::Jump(edge) => {
+                edge.target = relabel
+                    .get(&edge.target)
+                    .expect("dense relabel should cover every jump target")
+                    .clone();
+            }
+            BlockPyTerm::IfTerm(if_term) => {
+                if_term.then_label = relabel
+                    .get(&if_term.then_label)
+                    .expect("dense relabel should cover every then target")
+                    .clone();
+                if_term.else_label = relabel
+                    .get(&if_term.else_label)
+                    .expect("dense relabel should cover every else target")
+                    .clone();
+            }
+            BlockPyTerm::BranchTable(branch) => {
+                for target in &mut branch.targets {
+                    *target = relabel
+                        .get(target)
+                        .expect("dense relabel should cover every br_table target")
+                        .clone();
+                }
+                branch.default_label = relabel
+                    .get(&branch.default_label)
+                    .expect("dense relabel should cover every br_table default target")
+                    .clone();
+            }
+            BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
+        }
+    }
 }

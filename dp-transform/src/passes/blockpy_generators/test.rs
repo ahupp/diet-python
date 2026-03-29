@@ -4,8 +4,8 @@ use super::{
 };
 use crate::block_py::{
     BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
-    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyTerm,
-    ClosureInit, ClosureLayout, ClosureSlot, FunctionId, FunctionName,
+    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyLabel,
+    BlockPyTerm, ClosureInit, ClosureLayout, ClosureSlot, FunctionId, FunctionName,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::py_expr;
@@ -29,7 +29,7 @@ fn blockpy_make_dp_tuple(items: Vec<Expr>) -> Expr {
 }
 
 fn build_closure_backed_generator_factory_block(
-    factory_label: &str,
+    _factory_label: &str,
     visible_function_id: FunctionId,
     resume_function_id: FunctionId,
     resume_state_order: &[String],
@@ -80,7 +80,7 @@ fn build_closure_backed_generator_factory_block(
         generator_expr
     };
 
-    let mut block = BlockPyCfgBlockBuilder::new(factory_label.into());
+    let mut block = BlockPyCfgBlockBuilder::new(BlockPyLabel::from(0u32));
     block.set_term(BlockPyTerm::Return(return_value.into()));
     block.finish(None)
 }
@@ -317,7 +317,7 @@ fn builds_closure_backed_generator_factory_block() {
         false,
     );
 
-    assert_eq!(block.label.as_str(), "_dp_bb_demo_factory");
+    assert_eq!(block.label, BlockPyLabel::from(0u32));
     assert!(block.body.is_empty(), "{block:?}");
     assert!(matches!(block.term, BlockPyTerm::Return(_)));
 }

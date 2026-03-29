@@ -69,6 +69,10 @@ fn test_context() -> Context {
     Context::new("")
 }
 
+fn label(index: u32) -> BlockPyLabel {
+    BlockPyLabel::from(index)
+}
+
 #[test]
 fn lowers_post_simplification_control_flow() {
     let blockpy = wrapped_blockpy(
@@ -357,28 +361,24 @@ def f(xs):
     let entry = lower_for_stmt_sequence(
         for_stmt.clone(),
         &[],
-        RegionTargets::new("cont".to_string(), None),
+        RegionTargets::new(label(99), None),
         Vec::new(),
         &mut blocks,
         "_dp_iter_0",
         "_dp_tmp_0",
-        BlockPyLabel::from("_dp_bb_demo_0"),
-        BlockPyLabel::from("_dp_bb_demo_0"),
-        BlockPyLabel::from("_dp_bb_demo_1"),
-        BlockPyLabel::from("_dp_bb_demo_2"),
+        label(0),
+        label(0),
+        label(1),
+        label(2),
         vec![py_stmt!("x = _dp_tmp_0"), py_stmt!("_dp_tmp_0 = None")],
         &mut |_stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
             targets.normal_cont
         },
     );
 
-    assert_eq!(entry, "_dp_bb_demo_2");
-    assert!(blocks
-        .iter()
-        .any(|block| block.label.as_str() == "_dp_bb_demo_1"));
-    assert!(blocks
-        .iter()
-        .any(|block| block.label.as_str() == "_dp_bb_demo_2"));
+    assert_eq!(entry, label(2));
+    assert!(blocks.iter().any(|block| block.label == label(1)));
+    assert!(blocks.iter().any(|block| block.label == label(2)));
 }
 
 #[test]
@@ -407,7 +407,7 @@ def f(ctx, value):
     let entry = lower_with_stmt_sequence(
         with_stmt.clone(),
         &[],
-        RegionTargets::new("cont".to_string(), None),
+        RegionTargets::new(label(99), None),
         Vec::new(),
         &mut blocks,
         &name_gen,
@@ -428,7 +428,7 @@ def f(ctx, value):
         },
     );
 
-    assert_eq!(entry, "cont");
+    assert_eq!(entry, label(99));
     assert!(blocks.is_empty());
     assert!(saw_try_stmt);
     assert!(saw_with_ok_assign);
@@ -461,27 +461,28 @@ def f():
     let entry = lower_try_stmt_sequence(
         try_stmt.clone(),
         &[],
-        RegionTargets::new("cont".to_string(), None),
+        RegionTargets::new(label(99), None),
         Vec::new(),
         &mut blocks,
-        BlockPyLabel::from("_dp_bb_demo_legacy"),
+        &name_gen,
+        label(0),
         try_plan,
         &mut |_expanded: &[Stmt], targets: RegionTargets, blocks: &mut Vec<BlockPyBlock>| {
-            let label = format!("lowered_{}", blocks.len());
+            let label = BlockPyLabel::from(100u32 + blocks.len() as u32);
             blocks.push(
                 crate::passes::ruff_to_blockpy::compat::compat_block_from_blockpy_with_exc_target(
-                    BlockPyLabel::from(label.clone()),
+                    label,
                     Vec::new(),
-                    BlockPyTerm::Jump(BlockPyEdge::new(BlockPyLabel::from(targets.normal_cont))),
-                    targets.active_exc.as_deref(),
+                    BlockPyTerm::Jump(BlockPyEdge::new(targets.normal_cont)),
+                    targets.active_exc.as_ref(),
                 ),
             );
             label
         },
     );
 
-    assert!(!entry.is_empty());
-    let Some(try_entry_block) = blocks.iter().find(|block| block.label.as_str() == entry) else {
+    assert!(blocks.iter().any(|block| block.label == entry));
+    let Some(try_entry_block) = blocks.iter().find(|block| block.label == entry) else {
         panic!("expected try entry block");
     };
     let BlockPyTerm::Jump(try_body_edge) = &try_entry_block.term else {
@@ -489,7 +490,7 @@ def f():
     };
     let Some(body_block) = blocks
         .iter()
-        .find(|block| block.label.as_str() == try_body_edge.as_str())
+        .find(|block| block.label == try_body_edge.target)
     else {
         panic!("expected try body block");
     };
@@ -497,11 +498,9 @@ def f():
         .exc_edge
         .as_ref()
         .expect("try body block must carry except edge");
-    assert_ne!(exc_edge.target.as_str(), try_body_edge.as_str());
+    assert_ne!(exc_edge.target, try_body_edge.target);
     assert!(
-        blocks
-            .iter()
-            .any(|block| block.label.as_str() == exc_edge.target.as_str()),
+        blocks.iter().any(|block| block.label == exc_edge.target),
         "except edge target should resolve to another block"
     );
 }
@@ -513,20 +512,20 @@ fn expanded_stmt_helper_returns_expanded_entry_without_linear_prefix() {
     let entry = lower_expanded_stmt_sequence(
         vec![py_stmt!("pass")],
         &[],
-        RegionTargets::new("cont".to_string(), None),
+        RegionTargets::new(label(99), None),
         Vec::new(),
         &mut blocks,
         None,
         &mut |expanded: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
             assert_eq!(expanded.len(), 1);
-            assert_eq!(targets.normal_cont, "cont");
+            assert_eq!(targets.normal_cont, label(99));
             saw_expanded = true;
-            "expanded_entry".to_string()
+            label(100)
         },
     );
 
     assert!(saw_expanded);
-    assert_eq!(entry, "expanded_entry");
+    assert_eq!(entry, label(100));
     assert!(blocks.is_empty());
 }
 
@@ -536,21 +535,21 @@ fn expanded_stmt_helper_emits_linear_jump_prefix() {
     let entry = lower_expanded_stmt_sequence(
         vec![py_stmt!("pass")],
         &[],
-        RegionTargets::new("cont".to_string(), None),
+        RegionTargets::new(label(99), None),
         vec![py_stmt!("x = 1")],
         &mut blocks,
-        Some(BlockPyLabel::from("prefix")),
+        Some(label(10)),
         &mut |_expanded: &[Stmt], _targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
-            "expanded_entry".to_string()
+            label(11)
         },
     );
 
-    assert_eq!(entry, "prefix");
+    assert_eq!(entry, label(10));
     assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].label.as_str(), "prefix");
+    assert_eq!(blocks[0].label, label(10));
     assert!(matches!(
         &blocks[0].term,
-        BlockPyTerm::Jump(label) if label.as_str() == "expanded_entry"
+        BlockPyTerm::Jump(edge) if edge.target == label(11)
     ));
 }
 
@@ -565,26 +564,26 @@ fn if_stmt_helper_lowers_both_branches_via_callback() {
     let entry = lower_if_stmt_sequence(
         &context,
         &mut blocks,
-        BlockPyLabel::from("if_label"),
+        label(10),
         vec![py_stmt!("prefix = 0")],
         py_expr!("flag"),
         &then_body,
         &else_body,
-        "rest".to_string(),
-        &RegionTargets::new("rest".to_string(), None),
+        label(99),
+        &RegionTargets::new(label(99), None),
         &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
             calls.push((stmts.len(), targets.normal_cont.clone()));
-            format!("branch_{}", calls.len())
+            label(200 + calls.len() as u32)
         },
     );
 
-    assert_eq!(entry, "if_label");
+    assert_eq!(entry, label(10));
     assert_eq!(
-        calls,
-        vec![
-            (then_body.len(), "rest".to_string()),
-            (else_body.len(), "rest".to_string())
-        ]
+        calls
+            .into_iter()
+            .map(|(len, label)| (len, label))
+            .collect::<Vec<_>>(),
+        vec![(then_body.len(), label(99)), (else_body.len(), label(99))]
     );
     assert_eq!(blocks.len(), 1);
     assert!(matches!(blocks[0].term, BlockPyTerm::IfTerm(_)));
@@ -595,17 +594,17 @@ fn sequence_jump_helper_emits_jump_block() {
     let mut blocks = Vec::new();
     let entry = emit_sequence_jump_block(
         &mut blocks,
-        BlockPyLabel::from("jump_label"),
+        label(10),
         vec![py_stmt!("prefix = 0")],
-        "target".to_string(),
+        label(11).into(),
         None,
     );
 
-    assert_eq!(entry, "jump_label");
+    assert_eq!(entry, label(10));
     assert_eq!(blocks.len(), 1);
     assert!(matches!(
         &blocks[0].term,
-        BlockPyTerm::Jump(label) if label.as_str() == "target"
+        BlockPyTerm::Jump(edge) if edge.target == label(11)
     ));
 }
 
@@ -616,14 +615,14 @@ fn sequence_return_helper_emits_return_block() {
     let entry = emit_sequence_return_block_with_expr_setup(
         &context,
         &mut blocks,
-        BlockPyLabel::from("ret_label"),
+        label(10),
         vec![py_stmt!("prefix = 0")],
         Some(py_expr!("value")),
         None,
     )
     .expect("sequence return helper should lower");
 
-    assert_eq!(entry, "ret_label");
+    assert_eq!(entry, label(10));
     assert_eq!(blocks.len(), 1);
     assert!(matches!(blocks[0].term, BlockPyTerm::Return(_)));
 }
@@ -635,7 +634,7 @@ fn sequence_raise_helper_emits_raise_block() {
     let entry = emit_sequence_raise_block_with_expr_setup(
         &context,
         &mut blocks,
-        BlockPyLabel::from("raise_label"),
+        label(10),
         vec![py_stmt!("prefix = 0")],
         BlockPyRaise {
             exc: Some(py_expr!("exc").into()),
@@ -644,7 +643,7 @@ fn sequence_raise_helper_emits_raise_block() {
     )
     .expect("sequence raise helper should lower");
 
-    assert_eq!(entry, "raise_label");
+    assert_eq!(entry, label(10));
     assert_eq!(blocks.len(), 1);
     assert!(matches!(
         blocks[0].term,
@@ -678,23 +677,26 @@ y = 3
         &context,
         if_stmt.clone(),
         &remaining,
-        RegionTargets::new("cont".to_string(), None),
+        RegionTargets::new(label(99), None),
         vec![py_stmt!("prefix = 0")],
         &mut blocks,
-        BlockPyLabel::from("if_label"),
+        label(10),
         &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
             calls.push((stmts.len(), targets.normal_cont.clone()));
-            format!("branch_{}", calls.len())
+            label(200 + calls.len() as u32)
         },
     );
 
-    assert_eq!(entry, "if_label");
+    assert_eq!(entry, label(10));
     assert_eq!(
-        calls,
+        calls
+            .into_iter()
+            .map(|(len, label)| (len, label))
+            .collect::<Vec<_>>(),
         vec![
-            (remaining.len(), "cont".to_string()),
-            (1, "branch_1".to_string()),
-            (1, "branch_1".to_string())
+            (remaining.len(), label(99)),
+            (1, label(201)),
+            (1, label(201))
         ]
     );
     assert_eq!(blocks.len(), 1);
@@ -714,14 +716,14 @@ fn while_stmt_helper_lowers_loop_and_else_via_callbacks() {
     let entry = lower_while_stmt_sequence(
         &context,
         &mut blocks,
-        BlockPyLabel::from("_dp_bb_loop_fn_0"),
-        Some(BlockPyLabel::from("_dp_bb_loop_fn_1")),
+        label(0),
+        Some(label(1)),
         vec![py_stmt!("prefix = 0")],
         py_expr!("flag"),
         &body,
         &else_body,
         &remaining,
-        RegionTargets::new("cont".to_string(), None),
+        RegionTargets::new(label(99), None),
         &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
             if let Some(loop_labels) = targets.loop_labels {
                 loop_calls.push((
@@ -729,33 +731,32 @@ fn while_stmt_helper_lowers_loop_and_else_via_callbacks() {
                     targets.normal_cont.clone(),
                     loop_labels.break_label,
                 ));
-                "loop_body".to_string()
+                label(250)
             } else {
                 sequence_calls.push((stmts.len(), targets.normal_cont.clone()));
-                format!("seq_{}", sequence_calls.len())
+                label(200 + sequence_calls.len() as u32)
             }
         },
     );
 
-    assert_eq!(entry, "_dp_bb_loop_fn_1");
+    assert_eq!(entry, label(1));
     assert_eq!(
-        sequence_calls,
-        vec![
-            (remaining.len(), "cont".to_string()),
-            (else_body.len(), "seq_1".to_string())
-        ]
+        sequence_calls
+            .into_iter()
+            .map(|(len, label)| (len, label))
+            .collect::<Vec<_>>(),
+        vec![(remaining.len(), label(99)), (else_body.len(), label(201))]
     );
     assert_eq!(
-        loop_calls,
-        vec![(
-            body.len(),
-            "_dp_bb_loop_fn_0".to_string(),
-            "seq_1".to_string()
-        )]
+        loop_calls
+            .into_iter()
+            .map(|(len, normal, break_label)| (len, normal, break_label))
+            .collect::<Vec<_>>(),
+        vec![(body.len(), label(0), label(201))]
     );
     assert_eq!(blocks.len(), 2);
-    assert_eq!(blocks[0].label.as_str(), "_dp_bb_loop_fn_0");
-    assert_eq!(blocks[1].label.as_str(), "_dp_bb_loop_fn_1");
+    assert_eq!(blocks[0].label, label(0));
+    assert_eq!(blocks[1].label, label(1));
 }
 
 #[test]
@@ -785,11 +786,11 @@ y = 3
         &context,
         while_stmt.clone(),
         &remaining,
-        RegionTargets::new("cont".to_string(), None),
+        RegionTargets::new(label(99), None),
         vec![py_stmt!("prefix = 0")],
         &mut blocks,
-        BlockPyLabel::from("_dp_bb_loop_fn_0"),
-        Some(BlockPyLabel::from("_dp_bb_loop_fn_1")),
+        label(0),
+        Some(label(1)),
         &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
             if let Some(loop_labels) = targets.loop_labels {
                 loop_calls.push((
@@ -797,29 +798,32 @@ y = 3
                     targets.normal_cont.clone(),
                     loop_labels.break_label,
                 ));
-                "loop_body".to_string()
+                label(250)
             } else {
                 sequence_calls.push((stmts.len(), targets.normal_cont.clone()));
-                format!("seq_{}", sequence_calls.len())
+                label(200 + sequence_calls.len() as u32)
             }
         },
     );
 
-    assert_eq!(entry, "_dp_bb_loop_fn_1");
+    assert_eq!(entry, label(1));
     assert_eq!(
-        sequence_calls,
-        vec![
-            (remaining.len(), "cont".to_string()),
-            (1, "seq_1".to_string())
-        ]
+        sequence_calls
+            .into_iter()
+            .map(|(len, label)| (len, label))
+            .collect::<Vec<_>>(),
+        vec![(remaining.len(), label(99)), (1, label(201))]
     );
     assert_eq!(
-        loop_calls,
-        vec![(1, "_dp_bb_loop_fn_0".to_string(), "seq_1".to_string())]
+        loop_calls
+            .into_iter()
+            .map(|(len, normal, break_label)| (len, normal, break_label))
+            .collect::<Vec<_>>(),
+        vec![(1, label(0), label(201))]
     );
     assert_eq!(blocks.len(), 2);
-    assert_eq!(blocks[0].label.as_str(), "_dp_bb_loop_fn_0");
-    assert_eq!(blocks[1].label.as_str(), "_dp_bb_loop_fn_1");
+    assert_eq!(blocks[0].label, label(0));
+    assert_eq!(blocks[1].label, label(1));
 }
 
 #[test]
@@ -833,8 +837,14 @@ def gen(it):
     let rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
     assert!(rendered.contains("branch_table"));
     assert!(rendered.contains("__dp_exception_matches"), "{rendered}");
-    assert!(rendered.contains("yield_from_throw_lookup"), "{rendered}");
-    assert!(rendered.contains("yield_from_except"), "{rendered}");
+    assert!(
+        rendered.contains("getattr(_dp_yieldfrom, \"throw\", __dp_NONE)"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("exc_param: _dp_yield_from_exc_"),
+        "{rendered}"
+    );
     assert!(
         !rendered.contains("__dp_generator_yield_from_step"),
         "{rendered}"
@@ -892,7 +902,7 @@ async def outer(inner):
                     if name.id.as_str() == "StopIteration"
             ) =>
             {
-                Some(block.label.as_str().to_string())
+                Some(block.label.clone())
             }
             _ => None,
         })
@@ -904,7 +914,7 @@ async def outer(inner):
     for label in stop_iteration_raise_labels {
         assert_eq!(
             lowered_exception_edges(&resume.blocks)
-                .get(label.as_str())
+                .get(&label)
                 .cloned()
                 .flatten(),
             None,

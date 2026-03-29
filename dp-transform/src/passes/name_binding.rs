@@ -1662,7 +1662,7 @@ fn refresh_bb_callable_block_params(
                 .map(ToString::to_string)
                 .collect::<HashSet<_>>();
             let mut params = block_params
-                .get(block.label.as_str())
+                .get(&block.label)
                 .cloned()
                 .unwrap_or_default()
                 .into_iter()

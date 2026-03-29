@@ -1108,7 +1108,12 @@ def delegator():
     let yield_from_except = resume_function
         .blocks
         .iter()
-        .find(|block| block.label.as_str().starts_with("yield_from_except_"))
+        .find(|block| {
+            block
+                .params
+                .iter()
+                .any(|param| param.name.starts_with("_dp_yield_from_exc_"))
+        })
         .expect("expected synthesized yield_from_except block");
 
     assert!(
@@ -2573,10 +2578,6 @@ def f():
             .label_str()
     );
     assert_ne!(f.entry_block().label_str(), "start", "{f:?}");
-    assert!(
-        !f.blocks.iter().any(|block| block.label == "_dp_bb_f_0"),
-        "{f:?}"
-    );
 }
 
 #[test]
@@ -2669,15 +2670,7 @@ class Field:
             .iter()
             .find(|func| func.names.bind_name.contains("_dp_genexpr"))
             .unwrap_or_else(|| panic!("missing prepared genexpr helper in {name}"));
-        for label in ["_dp_bb__dp_genexpr_1_44", "_dp_bb__dp_genexpr_1_45"] {
-            if let Some(block) = prepared_gen
-                .blocks
-                .iter()
-                .find(|block| block.label == label)
-            {
-                eprintln!("==== {name} PREPARED {label} ====\n{block:#?}");
-            }
-        }
+        eprintln!("==== {name} PREPARED ====\n{prepared_gen:#?}");
     }
 }
 

@@ -40,6 +40,10 @@ fn test_name_gen() -> crate::block_py::FunctionNameGen {
     module_name_gen.next_function_name_gen()
 }
 
+fn label(index: u32) -> BlockPyLabel {
+    BlockPyLabel::from(index)
+}
+
 fn function_by_bind_name<'a, P>(
     module: &'a BlockPyModule<P>,
     bind_name: &str,
@@ -153,12 +157,12 @@ async def no_lying():
     let inlined_labels = layout
         .inlined_blocks
         .iter()
-        .map(|index| function.blocks[*index].label.as_str().to_string())
+        .map(|index| function.blocks[*index].label.to_string())
         .collect::<HashSet<_>>();
 
     let missing_labels = collect_referenced_labels_from_blocks::<RuffBlockPyPass>(&function.blocks)
         .into_iter()
-        .map(|label| label.as_str().to_string())
+        .map(|label| label.to_string())
         .filter(|label| !inlined_labels.contains(label))
         .filter(|label| !rendered.contains(format!("block {label}:").as_str()))
         .collect::<Vec<_>>();
@@ -176,7 +180,7 @@ fn renders_public_closure_metadata_in_function_header() {
             kind: BlockPyFunctionKind::Function,
             params: empty_param_spec(),
             blocks: vec![CfgBlock {
-                label: "gen_start".into(),
+                label: label(0),
                 body: vec![],
                 term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
@@ -220,38 +224,38 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
         params: empty_param_spec(),
         blocks: vec![
             CfgBlock {
-                label: "start".into(),
+                label: label(0),
                 body: vec![],
                 term: BlockPyTerm::IfTerm(BlockPyIfTerm {
                     test: parse_ruff_blockpy_expr("cond"),
-                    then_label: "then".into(),
-                    else_label: "else".into(),
+                    then_label: label(1),
+                    else_label: label(2),
                 }),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
-                label: "then".into(),
+                label: label(1),
                 body: vec![StructuredBlockPyStmt::Expr(parse_ruff_blockpy_expr(
                     "then_side_effect()",
                 ))
                 .into()],
-                term: BlockPyTerm::Jump("after".into()),
+                term: BlockPyTerm::Jump(label(3).into()),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
-                label: "else".into(),
+                label: label(2),
                 body: vec![StructuredBlockPyStmt::Expr(parse_ruff_blockpy_expr(
                     "else_side_effect()",
                 ))
                 .into()],
-                term: BlockPyTerm::Jump("after".into()),
+                term: BlockPyTerm::Jump(label(3).into()),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
-                label: "after".into(),
+                label: label(3),
                 body: vec![StructuredBlockPyStmt::Expr(parse_ruff_blockpy_expr("finish()")).into()],
                 term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
@@ -266,10 +270,10 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
         callable_defs: vec![function],
     });
 
-    assert!(rendered.contains("    block start:\n"));
-    assert!(rendered.contains("        block after:\n"));
+    assert!(rendered.contains("    block bb0:\n"));
+    assert!(rendered.contains("        block bb3:\n"));
     assert!(rendered.contains(
-            "        if_term cond:\n            then:\n                block then:\n                    then_side_effect()\n                    jump after\n            else:\n                block else:\n                    else_side_effect()\n                    jump after\n        block after:\n            finish()\n            return __dp_NONE\n"
+            "        if_term cond:\n            then:\n                block bb1:\n                    then_side_effect()\n                    jump bb3\n            else:\n                block bb2:\n                    else_side_effect()\n                    jump bb3\n        block bb3:\n            finish()\n            return __dp_NONE\n"
         ));
 }
 
@@ -303,35 +307,35 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
         params: empty_param_spec(),
         blocks: vec![
             CfgBlock {
-                label: "start".into(),
+                label: label(0),
                 body: vec![],
-                term: BlockPyTerm::Jump("zeta".into()),
+                term: BlockPyTerm::Jump(label(4).into()),
                 params: Vec::new(),
-                exc_edge: Some(BlockPyEdge::new("alpha".into())),
+                exc_edge: Some(BlockPyEdge::new(label(1))),
             },
             CfgBlock {
-                label: "zeta".into(),
-                body: vec![],
-                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
-                params: Vec::new(),
-                exc_edge: None,
-            },
-            CfgBlock {
-                label: "alpha".into(),
+                label: label(4),
                 body: vec![],
                 term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
-                label: "omega".into(),
+                label: label(1),
                 body: vec![],
                 term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
-                label: "beta".into(),
+                label: label(3),
+                body: vec![],
+                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
+                params: Vec::new(),
+                exc_edge: None,
+            },
+            CfgBlock {
+                label: label(2),
                 body: vec![],
                 term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
@@ -346,10 +350,10 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
         callable_defs: vec![function],
     });
 
-    let alpha_pos = rendered.find("block alpha:").expect("alpha block");
-    let zeta_pos = rendered.find("block zeta:").expect("zeta block");
-    let beta_pos = rendered.find("block beta:").expect("beta block");
-    let omega_pos = rendered.find("block omega:").expect("omega block");
+    let alpha_pos = rendered.find("block bb1:").expect("bb1 block");
+    let zeta_pos = rendered.find("block bb4:").expect("bb4 block");
+    let beta_pos = rendered.find("block bb2:").expect("bb2 block");
+    let omega_pos = rendered.find("block bb3:").expect("bb3 block");
 
     assert!(zeta_pos < alpha_pos, "{rendered}");
     assert!(beta_pos < omega_pos, "{rendered}");
@@ -358,38 +362,30 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
 #[test]
 fn collects_referenced_labels_from_nested_if_fragments_via_visitor() {
     let referenced = collect_referenced_labels_from_blocks::<StructuredExprPass>(&[CfgBlock {
-        label: "start".into(),
+        label: label(0),
         body: vec![StructuredBlockPyStmt::If(crate::block_py::BlockPyIf {
             test: parse_blockpy_expr("cond"),
             body: BlockPyCfgFragment {
                 body: Vec::new(),
-                term: Some(BlockPyTerm::Jump("then_target".into())),
+                term: Some(BlockPyTerm::Jump(label(1).into())),
             },
             orelse: BlockPyCfgFragment {
                 body: Vec::new(),
                 term: Some(BlockPyTerm::BranchTable(super::super::BlockPyBranchTable {
                     index: parse_blockpy_expr("index"),
-                    targets: vec!["else_a".into(), "else_b".into()],
-                    default_label: "else_default".into(),
+                    targets: vec![label(2), label(3)],
+                    default_label: label(4),
                 })),
             },
         })],
-        term: BlockPyTerm::Jump("body_target".into()),
+        term: BlockPyTerm::Jump(label(5).into()),
         params: Vec::new(),
-        exc_edge: Some(BlockPyEdge::new("except_target".into())),
+        exc_edge: Some(BlockPyEdge::new(label(6))),
     }]);
 
-    let expected = [
-        "then_target",
-        "else_a",
-        "else_b",
-        "else_default",
-        "body_target",
-        "except_target",
-    ]
-    .into_iter()
-    .map(BlockPyLabel::from)
-    .collect::<HashSet<_>>();
+    let expected = [label(1), label(2), label(3), label(4), label(5), label(6)]
+        .into_iter()
+        .collect::<HashSet<_>>();
 
     assert_eq!(referenced, expected);
 }
@@ -405,9 +401,9 @@ fn renders_bb_block_metadata_with_shared_layout() {
             params: empty_param_spec(),
             blocks: vec![
                 PassBlock::<ResolvedStorageBlockPyPass> {
-                    label: "start".into(),
+                    label: label(0),
                     body: vec![],
-                    term: BlockPyTerm::Jump("except".into()),
+                    term: BlockPyTerm::Jump(label(1).into()),
                     params: vec![
                         BlockParam {
                             name: "err".to_string(),
@@ -418,10 +414,10 @@ fn renders_bb_block_metadata_with_shared_layout() {
                             role: BlockParamRole::Local,
                         },
                     ],
-                    exc_edge: Some(BlockPyEdge::new("except".into())),
+                    exc_edge: Some(BlockPyEdge::new(label(1))),
                 },
                 PassBlock::<ResolvedStorageBlockPyPass> {
-                    label: "except".into(),
+                    label: label(1),
                     body: vec![],
                     term: BlockPyTerm::Return(
                         <crate::block_py::LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(
@@ -442,9 +438,9 @@ fn renders_bb_block_metadata_with_shared_layout() {
 
     assert!(rendered.contains("function f():"), "{rendered}");
     assert!(rendered.contains("function_id: 0"), "{rendered}");
-    assert!(rendered.contains("block start:"), "{rendered}");
+    assert!(rendered.contains("block bb0:"), "{rendered}");
     assert!(rendered.contains("params: [err, x]"), "{rendered}");
-    assert!(rendered.contains("exc_target: except"), "{rendered}");
+    assert!(rendered.contains("exc_target: bb1"), "{rendered}");
     assert!(rendered.contains("exc_name: err"), "{rendered}");
-    assert!(rendered.contains("jump except"), "{rendered}");
+    assert!(rendered.contains("jump bb1"), "{rendered}");
 }

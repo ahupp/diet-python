@@ -1,7 +1,7 @@
 use super::{
     BlockArg, BlockPyAssign, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyIf,
-    BlockPyIfTerm, BlockPyNameLike, BlockPyRaise, BlockPyTerm, CfgBlock, IntoStructuredBlockPyStmt,
-    StructuredBlockPyStmt,
+    BlockPyIfTerm, BlockPyLabel, BlockPyNameLike, BlockPyRaise, BlockPyTerm, CfgBlock,
+    IntoStructuredBlockPyStmt, StructuredBlockPyStmt,
 };
 use crate::passes::ast_symbol_analysis::{collect_assigned_names, load_names_in_expr};
 use crate::transformer::{walk_expr, Transformer};
@@ -11,17 +11,17 @@ use std::collections::{HashMap, HashSet};
 pub(crate) fn compute_block_params_blockpy<S, E, N>(
     blocks: &[CfgBlock<S, BlockPyTerm<E>>],
     state_order: &[String],
-    extra_successors: &HashMap<String, Vec<String>>,
-) -> HashMap<String, Vec<String>>
+    extra_successors: &HashMap<BlockPyLabel, Vec<BlockPyLabel>>,
+) -> HashMap<BlockPyLabel, Vec<String>>
 where
     S: IntoStructuredBlockPyStmt<E, N>,
     E: Clone + Into<Expr>,
     N: BlockPyNameLike,
 {
-    let label_to_index: HashMap<&str, usize> = blocks
+    let label_to_index: HashMap<BlockPyLabel, usize> = blocks
         .iter()
         .enumerate()
-        .map(|(idx, block)| (block.label.as_str(), idx))
+        .map(|(idx, block)| (block.label.clone(), idx))
         .collect();
     let analyses: Vec<(HashSet<String>, HashSet<String>)> =
         blocks.iter().map(analyze_blockpy_use_def).collect();
@@ -40,7 +40,7 @@ where
                         blocks,
                         &label_to_index,
                         &live_in,
-                        target.as_str(),
+                        target.target.clone(),
                         &target.args,
                     );
                 }
@@ -55,7 +55,7 @@ where
                         blocks,
                         &label_to_index,
                         &live_in,
-                        then_label.as_str(),
+                        then_label.clone(),
                         no_args,
                     );
                     extend_successor_live_in(
@@ -63,7 +63,7 @@ where
                         blocks,
                         &label_to_index,
                         &live_in,
-                        else_label.as_str(),
+                        else_label.clone(),
                         no_args,
                     );
                 }
@@ -79,7 +79,7 @@ where
                             blocks,
                             &label_to_index,
                             &live_in,
-                            target.as_str(),
+                            target.clone(),
                             no_args,
                         );
                     }
@@ -88,15 +88,15 @@ where
                         blocks,
                         &label_to_index,
                         &live_in,
-                        default_label.as_str(),
+                        default_label.clone(),
                         no_args,
                     );
                 }
                 BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
             }
-            if let Some(extra) = extra_successors.get(block.label.as_str()) {
+            if let Some(extra) = extra_successors.get(&block.label) {
                 for succ in extra {
-                    if let Some(succ_idx) = label_to_index.get(succ.as_str()) {
+                    if let Some(succ_idx) = label_to_index.get(succ) {
                         out.extend(live_in[*succ_idx].iter().cloned());
                     }
                 }
@@ -123,19 +123,17 @@ where
             .filter(|name| live_in[idx].contains(name.as_str()))
             .cloned()
             .collect::<Vec<_>>();
-        params.insert(block.label.as_str().to_string(), ordered);
+        params.insert(block.label.clone(), ordered);
     }
     params
 }
 
 pub(crate) fn merge_declared_block_params<S, T>(
     blocks: &[CfgBlock<S, T>],
-    block_params: &mut HashMap<String, Vec<String>>,
+    block_params: &mut HashMap<BlockPyLabel, Vec<String>>,
 ) {
     for block in blocks {
-        let params = block_params
-            .entry(block.label.as_str().to_string())
-            .or_default();
+        let params = block_params.entry(block.label.clone()).or_default();
         for param_name in block
             .exception_param()
             .into_iter()
@@ -226,12 +224,12 @@ where
 fn extend_successor_live_in<S, T>(
     out: &mut HashSet<String>,
     blocks: &[CfgBlock<S, T>],
-    label_to_index: &HashMap<&str, usize>,
+    label_to_index: &HashMap<BlockPyLabel, usize>,
     live_in: &[HashSet<String>],
-    target_label: &str,
+    target_label: BlockPyLabel,
     edge_args: &[BlockArg],
 ) {
-    let Some(succ_idx) = label_to_index.get(target_label).copied() else {
+    let Some(succ_idx) = label_to_index.get(&target_label).copied() else {
         return;
     };
     let succ_block = &blocks[succ_idx];

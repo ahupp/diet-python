@@ -13,10 +13,9 @@ impl BlockPyPass for StructuredExprPass {
 
 #[test]
 fn block_builder_sets_explicit_term() {
-    let mut block: BlockPyBlockBuilder<Expr> =
-        BlockPyBlockBuilder::new(BlockPyLabel::from("start"));
+    let mut block: BlockPyBlockBuilder<Expr> = BlockPyBlockBuilder::new(BlockPyLabel::from(0u32));
     block.push_stmt(StructuredBlockPyStmt::Expr(py_expr!("x")));
-    block.set_term(BlockPyTerm::Jump(BlockPyLabel::from("after").into()));
+    block.set_term(BlockPyTerm::Jump(BlockPyLabel::from(1u32).into()));
     let block = block.finish(None);
 
     assert_eq!(block.body.len(), 1);
@@ -26,8 +25,7 @@ fn block_builder_sets_explicit_term() {
 
 #[test]
 fn block_builder_without_term_uses_implicit_none_return_value() {
-    let mut block: BlockPyBlockBuilder<Expr> =
-        BlockPyBlockBuilder::new(BlockPyLabel::from("start"));
+    let mut block: BlockPyBlockBuilder<Expr> = BlockPyBlockBuilder::new(BlockPyLabel::from(0u32));
     block.push_stmt(StructuredBlockPyStmt::Expr(py_expr!("x")));
     let block = block.finish(None);
 
@@ -165,7 +163,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
         }
 
         fn visit_label(&mut self, label: &BlockPyLabel) {
-            self.trace.push(format!("label:{}", label.as_str()));
+            self.trace.push(format!("label:{label}"));
         }
 
         fn visit_expr(&mut self, expr: &PassExpr<StructuredExprPass>) {
@@ -185,7 +183,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             params: ParamSpec::default(),
             blocks: vec![
                 CfgBlock {
-                    label: BlockPyLabel::from("start"),
+                    label: BlockPyLabel::from(0u32),
                     body: vec![
                         StructuredBlockPyStmt::Assign(BlockPyAssign {
                             target: name_expr("target"),
@@ -208,14 +206,14 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
                     ],
                     term: BlockPyTerm::IfTerm(BlockPyIfTerm {
                         test: py_expr!("block_term_test"),
-                        then_label: BlockPyLabel::from("then"),
-                        else_label: BlockPyLabel::from("else"),
+                        then_label: BlockPyLabel::from(1u32),
+                        else_label: BlockPyLabel::from(2u32),
                     }),
                     params: Vec::new(),
                     exc_edge: None,
                 },
                 CfgBlock {
-                    label: BlockPyLabel::from("done"),
+                    label: BlockPyLabel::from(3u32),
                     body: vec![StructuredBlockPyStmt::Delete(BlockPyDelete {
                         target: name_expr("trash"),
                     })],
@@ -238,7 +236,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
         vec![
             "module",
             "fn:f",
-            "block:start",
+            "block:bb0",
             "stmt:assign",
             "expr:assign_one",
             "stmt:if",
@@ -257,9 +255,9 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             "expr:after_if",
             "term:if",
             "expr:block_term_test",
-            "label:then",
-            "label:else",
-            "block:done",
+            "label:bb1",
+            "label:bb2",
+            "block:bb3",
             "stmt:delete",
             "term:return",
             "expr:final_return",
@@ -300,7 +298,7 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
             kind: BlockPyFunctionKind::Function,
             params: ParamSpec::default(),
             blocks: vec![CfgBlock {
-                label: BlockPyLabel::from("start"),
+                label: BlockPyLabel::from(0u32),
                 body: vec![BlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Await(
                     CoreBlockPyAwait {
                         node_index: ast::AtomicNodeIndex::default(),

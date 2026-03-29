@@ -15,7 +15,7 @@ fn test_name_gen() -> crate::block_py::FunctionNameGen {
 #[test]
 fn lowers_await_to_yield_from_await_iter() {
     let structured_block = make_eval_order_explicit_in_core_block(CfgBlock {
-        label: BlockPyLabel("start".to_string()),
+        label: BlockPyLabel::from(0u32),
         body: Vec::new(),
         term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
             "await foo()"

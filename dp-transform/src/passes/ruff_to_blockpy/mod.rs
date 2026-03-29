@@ -107,7 +107,7 @@ pub(crate) enum StmtSequenceDriveResult {
 
 pub(crate) fn attach_exception_edges_to_blocks<E>(
     blocks: Vec<crate::block_py::BlockPyBlock<E>>,
-    exception_edges: &HashMap<String, Option<String>>,
+    exception_edges: &HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 ) -> Vec<LoweredBlockPyBlock<E>> {
     blocks
         .into_iter()
@@ -117,17 +117,16 @@ pub(crate) fn attach_exception_edges_to_blocks<E>(
             term: block.term,
             params: block.params,
             exc_edge: exception_edges
-                .get(block.label.as_str())
+                .get(&block.label)
                 .cloned()
                 .flatten()
-                .map(BlockPyLabel::from)
                 .map(BlockPyEdge::new),
         })
         .collect()
 }
 
 fn append_closure_storage_aliases(
-    block_params: &mut HashMap<String, Vec<String>>,
+    block_params: &mut HashMap<BlockPyLabel, Vec<String>>,
     layout: &ClosureLayout,
 ) {
     let logical_name_by_storage = layout
@@ -172,7 +171,7 @@ where
 pub(crate) fn recompute_lowered_block_params<P>(
     function: &BlockPyFunction<P>,
     include_closure_storage_aliases: bool,
-) -> HashMap<String, Vec<String>>
+) -> HashMap<BlockPyLabel, Vec<String>>
 where
     P: BlockPyPass,
 {
@@ -189,7 +188,7 @@ where
 pub(crate) fn recompute_lowered_block_params_for_blocks<S, E, N>(
     param_names: &[String],
     blocks: &[CfgBlock<S, BlockPyTerm<E>>],
-) -> HashMap<String, Vec<String>>
+) -> HashMap<BlockPyLabel, Vec<String>>
 where
     S: IntoStructuredBlockPyStmt<E, N>,
     E: Clone + Into<Expr>,
@@ -431,7 +430,7 @@ where
 #[allow(clippy::too_many_arguments)]
 fn lower_structured_semantic_blocks_to_bb_blocks(
     blocks: &[CfgBlock<StructuredBlockPyStmt, BlockPyTerm>],
-    block_params: &HashMap<String, Vec<String>>,
+    block_params: &HashMap<BlockPyLabel, Vec<String>>,
 ) -> Vec<CfgBlock<BlockPyStmt<RuffExpr, ast::ExprName>, BlockPyTerm<RuffExpr>>> {
     let exception_edges = lowered_exception_edges(blocks);
     let (linear_blocks, linear_block_params, linear_exception_edges) =
@@ -440,10 +439,9 @@ fn lower_structured_semantic_blocks_to_bb_blocks(
         .iter()
         .map(|block| {
             let exc_edge = linear_exception_edges
-                .get(block.label.as_str())
+                .get(&block.label)
                 .cloned()
                 .flatten()
-                .map(crate::block_py::BlockPyLabel::from)
                 .map(BlockPyEdge::new);
             let ops = block
                 .body
@@ -456,7 +454,7 @@ fn lower_structured_semantic_blocks_to_bb_blocks(
                 .map(ToString::to_string)
                 .collect::<HashSet<_>>();
             let mut params = linear_block_params
-                .get(block.label.as_str())
+                .get(&block.label)
                 .cloned()
                 .unwrap_or_default()
                 .into_iter()
@@ -496,11 +494,11 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
     let entry_label = lower_stmt_sequence_with_state(
         context,
         runtime_input_body,
-        RegionTargets::new(end_label.to_string(), None),
+        RegionTargets::new(end_label.clone(), None),
         &mut blocks,
         &name_gen,
     );
-    move_entry_block_to_front(&mut blocks, entry_label.as_str());
+    move_entry_block_to_front(&mut blocks, entry_label.clone());
     for block in &blocks {
         assert_blockpy_block_normalized(block);
     }
@@ -515,11 +513,11 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
         closure_layout: None,
         semantic: semantic.clone(),
     };
-    let needs_end_block = entry_label == end_label.as_str()
+    let needs_end_block = entry_label == end_label
         || structured_callable_def
             .blocks
             .iter()
-            .any(|block| block_references_label(block, end_label.as_str()));
+            .any(|block| block_references_label(block, &end_label));
     if needs_end_block {
         structured_callable_def.blocks.push(CfgBlock {
             label: end_label,
@@ -534,10 +532,10 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
     let extra_roots = structured_callable_def
         .blocks
         .iter()
-        .filter_map(|block| block.exc_edge.as_ref().map(|edge| edge.target.to_string()))
+        .filter_map(|block| block.exc_edge.as_ref().map(|edge| edge.target.clone()))
         .collect::<Vec<_>>();
     prune_unreachable_blockpy_blocks(
-        entry_label.as_str(),
+        entry_label,
         &extra_roots,
         &mut structured_callable_def.blocks,
     );
@@ -698,29 +696,32 @@ pub(crate) struct LoopContext {
 
 #[derive(Clone)]
 pub(crate) struct LoopLabels {
-    pub break_label: String,
-    pub continue_label: String,
+    pub break_label: BlockPyLabel,
+    pub continue_label: BlockPyLabel,
 }
 
 #[derive(Clone)]
 pub(crate) struct RegionTargets {
-    pub normal_cont: String,
+    pub normal_cont: BlockPyLabel,
     pub loop_labels: Option<LoopLabels>,
-    pub active_exc: Option<String>,
+    pub active_exc: Option<BlockPyLabel>,
 }
 
 impl RegionTargets {
-    pub(crate) fn new(normal_cont: String, active_exc: Option<String>) -> Self {
+    pub(crate) fn new(
+        normal_cont: impl Into<BlockPyLabel>,
+        active_exc: Option<BlockPyLabel>,
+    ) -> Self {
         Self {
-            normal_cont,
+            normal_cont: normal_cont.into(),
             loop_labels: None,
             active_exc,
         }
     }
 
-    pub(crate) fn nested(&self, normal_cont: String) -> Self {
+    pub(crate) fn nested(&self, normal_cont: impl Into<BlockPyLabel>) -> Self {
         Self {
-            normal_cont,
+            normal_cont: normal_cont.into(),
             loop_labels: self.loop_labels.clone(),
             active_exc: self.active_exc.clone(),
         }
@@ -728,11 +729,11 @@ impl RegionTargets {
 
     pub(crate) fn nested_with_loop(
         &self,
-        normal_cont: String,
+        normal_cont: impl Into<BlockPyLabel>,
         loop_labels: Option<LoopLabels>,
     ) -> Self {
         Self {
-            normal_cont,
+            normal_cont: normal_cont.into(),
             loop_labels,
             active_exc: self.active_exc.clone(),
         }
