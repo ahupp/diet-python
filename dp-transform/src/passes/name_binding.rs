@@ -3,16 +3,16 @@ use crate::block_py::{
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
     BlockPyCellBindingKind, BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction,
     BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap, BlockPyNameLike, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm, CellRef, ClosureInit, ClosureSlot, CoreBlockPyCall,
+    BlockPyStmt, BlockPyTerm, CellRef, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyCall,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, DelDeref, DelDerefQuietly, DelItem, DelQuietly,
-    LoadCell, LoadGlobal, LocatedName, MakeCell, NameLocation, Operation, SetItem, StoreCell,
-    StoreGlobal, StructuredBlockPyStmt,
+    FunctionId, LoadCell, LoadGlobal, LocatedName, MakeCell, MakeFunction, NameLocation, Operation,
+    SetItem, StoreCell, StoreGlobal,
 };
 use crate::passes::ruff_to_blockpy::{
-    compute_closure_layout_from_semantics, populate_exception_edge_args,
-    recompute_lowered_block_params, rewrite_current_exception_in_core_blocks,
-    should_include_closure_storage_aliases,
+    build_closure_layout_from_capture_names, compute_closure_layout_from_semantics,
+    populate_exception_edge_args, recompute_lowered_block_params,
+    rewrite_current_exception_in_core_blocks, should_include_closure_storage_aliases,
 };
 use crate::passes::{CoreBlockPyPass, ResolvedStorageBlockPyPass};
 use ruff_python_ast::{self as ast, ExprName};
@@ -38,6 +38,22 @@ fn core_string_expr(
     }))
 }
 
+fn core_int_expr(
+    value: usize,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+) -> CoreBlockPyExpr {
+    let text = value.to_string();
+    CoreBlockPyExpr::Literal(CoreBlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+        node_index,
+        range,
+        value: CoreNumberLiteralValue::Int(
+            ast::Int::from_str_radix(text.as_str(), 10, text.as_str())
+                .expect("function id should round-trip through Int"),
+        ),
+    }))
+}
+
 fn globals_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
@@ -49,8 +65,8 @@ fn op_expr(operation: Operation<CoreBlockPyExpr>) -> CoreBlockPyExpr {
     CoreBlockPyExpr::Op(Box::new(operation))
 }
 
-fn op_stmt(operation: Operation<CoreBlockPyExpr>) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
-    StructuredBlockPyStmt::Expr(op_expr(operation))
+fn op_stmt(operation: Operation<CoreBlockPyExpr>) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
+    BlockPyStmt::Expr(op_expr(operation))
 }
 
 fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
@@ -112,7 +128,7 @@ fn rewrite_cell_ref_expr(
 
 fn rewrite_global_binding_assign(
     assign: BlockPyAssign<CoreBlockPyExpr>,
-) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
+) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     let node_index = assign.target.node_index.clone();
     let range = assign.target.range;
     let bind_name = assign.target.id.to_string();
@@ -127,7 +143,7 @@ fn rewrite_global_binding_assign(
 
 fn rewrite_class_namespace_binding_assign(
     assign: BlockPyAssign<CoreBlockPyExpr>,
-) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
+) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     let node_index = assign.target.node_index.clone();
     let range = assign.target.range;
     let bind_name = assign.target.id.to_string();
@@ -143,7 +159,7 @@ fn rewrite_class_namespace_binding_assign(
 fn rewrite_cell_binding_assign(
     assign: BlockPyAssign<CoreBlockPyExpr>,
     semantic: &BlockPyCallableSemanticInfo,
-) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
+) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     let node_index = assign.target.node_index.clone();
     let range = assign.target.range;
     op_stmt(Operation::StoreCell(StoreCell {
@@ -158,7 +174,7 @@ fn rewrite_global_binding_delete_by_name(
     bind_name: &str,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
-) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
+) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     op_stmt(Operation::DelItem(DelItem {
         node_index: node_index.clone(),
         range,
@@ -170,7 +186,7 @@ fn rewrite_global_binding_delete_by_name(
 fn rewrite_binding_delete(
     target: ExprName,
     semantic: &BlockPyCallableSemanticInfo,
-) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
+) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     let node_index = target.node_index.clone();
     let range = target.range;
     let bind_name = target.id.to_string();
@@ -182,7 +198,7 @@ fn rewrite_binding_delete(
         }));
     }
     match semantic.binding_target_for_name(bind_name.as_str(), BlockPyBindingPurpose::Store) {
-        BindingTarget::Local => StructuredBlockPyStmt::Assign(BlockPyAssign {
+        BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
             target: ast::ExprName {
                 id: target.id,
                 ctx: ast::ExprContext::Store,
@@ -455,7 +471,7 @@ fn rewrite_class_name_load_cell(
 fn rewrite_quiet_delete_marker(
     name: ExprName,
     semantic: &BlockPyCallableSemanticInfo,
-) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
+) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     let node_index = name.node_index.clone();
     let range = name.range;
     match semantic.binding_kind(name.id.as_str()) {
@@ -466,7 +482,7 @@ fn rewrite_quiet_delete_marker(
         })),
         _ => match semantic.binding_target_for_name(name.id.as_str(), BlockPyBindingPurpose::Store)
         {
-            BindingTarget::Local => StructuredBlockPyStmt::Assign(BlockPyAssign {
+            BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
                 target: ast::ExprName {
                     id: name.id,
                     ctx: ast::ExprContext::Store,
@@ -549,6 +565,15 @@ fn cell_ref_marker_target(expr: &CoreBlockPyExpr) -> Option<String> {
     Some(literal.value.clone())
 }
 
+fn make_function_kind_name(kind: BlockPyFunctionKind) -> &'static str {
+    match kind {
+        BlockPyFunctionKind::Function => "function",
+        BlockPyFunctionKind::Coroutine => "coroutine",
+        BlockPyFunctionKind::Generator => "generator",
+        BlockPyFunctionKind::AsyncGenerator => "async_generator",
+    }
+}
+
 fn cell_load_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
@@ -567,7 +592,7 @@ fn build_local_cell_init_assign(
     storage_name: &str,
     logical_name: &str,
     is_parameter: bool,
-) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
+) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     let node_index = compat_node_index();
     let range = compat_range();
     let init_expr = if is_parameter {
@@ -580,7 +605,7 @@ fn build_local_cell_init_assign(
     } else {
         deleted_sentinel_expr(node_index.clone(), range)
     };
-    StructuredBlockPyStmt::Assign(BlockPyAssign {
+    BlockPyStmt::Assign(BlockPyAssign {
         target: ast::ExprName {
             id: storage_name.into(),
             ctx: ast::ExprContext::Store,
@@ -634,10 +659,10 @@ fn closure_slot_init_expr(slot: &ClosureSlot) -> CoreBlockPyExpr {
 
 fn build_closure_slot_cell_init_assign(
     slot: &ClosureSlot,
-) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
+) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     let node_index = compat_node_index();
     let range = compat_range();
-    StructuredBlockPyStmt::Assign(BlockPyAssign {
+    BlockPyStmt::Assign(BlockPyAssign {
         target: ast::ExprName {
             id: slot.storage_name.as_str().into(),
             ctx: ast::ExprContext::Store,
@@ -769,9 +794,58 @@ fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
 
 struct NameBindingMapper<'a> {
     semantic: &'a BlockPyCallableSemanticInfo,
+    callee_make_function_capture_names: &'a HashMap<crate::block_py::FunctionId, Vec<String>>,
 }
 
-impl NameBindingMapper<'_> {}
+impl NameBindingMapper<'_> {
+    fn materialize_make_function_expr(&self, op: MakeFunction<CoreBlockPyExpr>) -> CoreBlockPyExpr {
+        let captures = self
+            .callee_make_function_capture_names
+            .get(&op.function_id)
+            .into_iter()
+            .flat_map(|capture_names| capture_names.iter())
+            .map(|logical_name| {
+                core_positional_call_expr_with_meta(
+                    "__dp_tuple",
+                    op.node_index.clone(),
+                    op.range,
+                    vec![
+                        core_string_expr(logical_name.clone(), op.node_index.clone(), op.range),
+                        rewrite_cell_ref_expr(
+                            logical_name.as_str(),
+                            self.semantic,
+                            op.node_index.clone(),
+                            op.range,
+                        ),
+                    ],
+                )
+            })
+            .collect::<Vec<_>>();
+        let captures_expr = core_positional_call_expr_with_meta(
+            "__dp_tuple",
+            op.node_index.clone(),
+            op.range,
+            captures,
+        );
+        core_positional_call_expr_with_meta(
+            "__dp_make_function",
+            op.node_index.clone(),
+            op.range,
+            vec![
+                core_int_expr(op.function_id.0, op.node_index.clone(), op.range),
+                core_string_expr(
+                    make_function_kind_name(op.kind).to_string(),
+                    op.node_index.clone(),
+                    op.range,
+                ),
+                captures_expr,
+                self.map_expr(op.arg0),
+                self.map_expr(op.arg1),
+                self.map_expr(op.arg2),
+            ],
+        )
+    }
+}
 
 fn rewrite_binding_assign_by_name(
     name: String,
@@ -779,7 +853,7 @@ fn rewrite_binding_assign_by_name(
     semantic: &BlockPyCallableSemanticInfo,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
-) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
+) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     let assign = BlockPyAssign {
         target: ast::ExprName {
             id: name.clone().into(),
@@ -817,46 +891,27 @@ fn rewrite_binding_assign_by_name(
             }
             rewrite_class_namespace_binding_assign(assign)
         }
-        BindingTarget::Local => StructuredBlockPyStmt::Assign(assign),
+        BindingTarget::Local => BlockPyStmt::Assign(assign),
     }
 }
 
 impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_> {
     fn map_stmt(
         &self,
-        stmt: StructuredBlockPyStmt<CoreBlockPyExpr>,
-    ) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
+        stmt: BlockPyStmt<CoreBlockPyExpr, ExprName>,
+    ) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
         match stmt {
-            StructuredBlockPyStmt::Expr(expr) => {
+            BlockPyStmt::Expr(expr) => {
                 if let Some(name) = quiet_delete_marker_target(&expr) {
                     return rewrite_quiet_delete_marker(name, self.semantic);
                 }
-                StructuredBlockPyStmt::Expr(self.map_expr(expr))
+                BlockPyStmt::Expr(self.map_expr(expr))
             }
-            StructuredBlockPyStmt::Assign(assign) => self.map_assign(assign),
-            StructuredBlockPyStmt::Delete(delete) => {
+            BlockPyStmt::Assign(assign) => self.map_assign(assign),
+            BlockPyStmt::Delete(delete) => {
                 rewrite_binding_delete(delete.target, self.semantic)
             }
-            StructuredBlockPyStmt::If(_) => {
-                unreachable!("structured if should not reach name_binding")
-            }
         }
-    }
-
-    fn map_assign(
-        &self,
-        assign: BlockPyAssign<CoreBlockPyExpr>,
-    ) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
-        if is_local_cell_init_assign(&assign) {
-            return StructuredBlockPyStmt::Assign(assign);
-        }
-        rewrite_binding_assign_by_name(
-            assign.target.id.to_string(),
-            self.map_expr(assign.value),
-            self.semantic,
-            assign.target.node_index,
-            assign.target.range,
-        )
     }
 
     fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
@@ -905,7 +960,10 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 let (node_index, range) = expr_meta(&expr);
                 rewrite_cell_ref_expr(target_name.as_str(), self.semantic, node_index, range)
             }
-            CoreBlockPyExpr::Op(operation) => self.map_nested_expr(CoreBlockPyExpr::Op(operation)),
+            CoreBlockPyExpr::Op(operation) => match *operation {
+                Operation::MakeFunction(op) => self.materialize_make_function_expr(op),
+                other => self.map_nested_expr(CoreBlockPyExpr::Op(Box::new(other))),
+            },
             CoreBlockPyExpr::Call(CoreBlockPyCall {
                 node_index,
                 range,
@@ -934,6 +992,24 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 }))
             }
         }
+    }
+}
+
+impl NameBindingMapper<'_> {
+    fn map_assign(
+        &self,
+        assign: BlockPyAssign<CoreBlockPyExpr>,
+    ) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
+        if is_local_cell_init_assign(&assign) {
+            return BlockPyStmt::Assign(assign);
+        }
+        rewrite_binding_assign_by_name(
+            assign.target.id.to_string(),
+            self.map_expr(assign.value),
+            self.semantic,
+            assign.target.node_index,
+            assign.target.range,
+        )
     }
 }
 
@@ -1632,6 +1708,246 @@ fn locate_names_in_callable(
     .map_fn(callable)
 }
 
+fn collect_make_function_callee_ids_in_expr(expr: &CoreBlockPyExpr, out: &mut Vec<FunctionId>) {
+    match expr {
+        CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
+        CoreBlockPyExpr::Op(operation) => {
+            if let Operation::MakeFunction(op) = operation.as_ref() {
+                out.push(op.function_id);
+                return;
+            }
+            operation.walk_args(&mut |arg| collect_make_function_callee_ids_in_expr(arg, out));
+        }
+        CoreBlockPyExpr::Call(call) => {
+            collect_make_function_callee_ids_in_expr(call.func.as_ref(), out);
+            for arg in &call.args {
+                if let CoreBlockPyCallArg::Positional(expr) = arg {
+                    collect_make_function_callee_ids_in_expr(expr, out);
+                }
+            }
+            for keyword in &call.keywords {
+                match keyword {
+                    crate::block_py::CoreBlockPyKeywordArg::Named { value, .. }
+                    | crate::block_py::CoreBlockPyKeywordArg::Starred(value) => {
+                        collect_make_function_callee_ids_in_expr(value, out);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn collect_make_function_callee_ids(
+    callable: &BlockPyFunction<CoreBlockPyPass>,
+) -> Vec<FunctionId> {
+    let mut out = Vec::new();
+    for block in &callable.blocks {
+        for stmt in &block.body {
+            collect_make_function_callee_ids_in_stmt(stmt, &mut out);
+        }
+        collect_make_function_callee_ids_in_term(&block.term, &mut out);
+    }
+    out.sort_by_key(|id| id.0);
+    out.dedup();
+    out
+}
+
+fn collect_make_function_callee_ids_in_stmt(
+    stmt: &BlockPyStmt<CoreBlockPyExpr, ExprName>,
+    out: &mut Vec<FunctionId>,
+) {
+    match stmt {
+        BlockPyStmt::Assign(assign) => {
+            collect_make_function_callee_ids_in_expr(&assign.value, out);
+        }
+        BlockPyStmt::Expr(expr) => collect_make_function_callee_ids_in_expr(expr, out),
+        BlockPyStmt::Delete(_) => {}
+    }
+}
+
+fn collect_make_function_callee_ids_in_term(
+    term: &BlockPyTerm<CoreBlockPyExpr>,
+    out: &mut Vec<FunctionId>,
+) {
+    match term {
+        BlockPyTerm::Jump(_) => {}
+        BlockPyTerm::IfTerm(if_term) => {
+            collect_make_function_callee_ids_in_expr(&if_term.test, out)
+        }
+        BlockPyTerm::BranchTable(branch) => {
+            collect_make_function_callee_ids_in_expr(&branch.index, out)
+        }
+        BlockPyTerm::Raise(raise_stmt) => {
+            if let Some(exc) = &raise_stmt.exc {
+                collect_make_function_callee_ids_in_expr(exc, out);
+            }
+        }
+        BlockPyTerm::Return(expr) => collect_make_function_callee_ids_in_expr(expr, out),
+    }
+}
+
+fn compute_callable_closure_layout_for_name_binding(
+    function_id: FunctionId,
+    callable_by_id: &HashMap<FunctionId, &BlockPyFunction<CoreBlockPyPass>>,
+    make_function_callees: &HashMap<FunctionId, Vec<FunctionId>>,
+    memo: &mut HashMap<FunctionId, Option<ClosureLayout>>,
+    visiting: &mut HashSet<FunctionId>,
+) -> Option<ClosureLayout> {
+    if let Some(layout) = memo.get(&function_id) {
+        return layout.clone();
+    }
+    let callable = callable_by_id
+        .get(&function_id)
+        .unwrap_or_else(|| panic!("missing callable for function id {:?}", function_id));
+    if let Some(layout) = callable.closure_layout.clone() {
+        memo.insert(function_id, Some(layout.clone()));
+        return Some(layout);
+    }
+    if !visiting.insert(function_id) {
+        return compute_closure_layout_from_semantics(callable);
+    }
+
+    let base_layout = compute_closure_layout_from_semantics(callable);
+    let mut capture_names = base_layout
+        .as_ref()
+        .map(|layout| {
+            layout
+                .freevars
+                .iter()
+                .map(|slot| slot.logical_name.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let base_cellvar_names = base_layout
+        .as_ref()
+        .map(|layout| {
+            layout
+                .cellvars
+                .iter()
+                .map(|slot| slot.logical_name.clone())
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let base_cellvar_storage_names = base_layout
+        .as_ref()
+        .map(|layout| {
+            layout
+                .cellvars
+                .iter()
+                .map(|slot| slot.storage_name.clone())
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+    if let Some(callee_ids) = make_function_callees.get(&function_id) {
+        for callee_id in callee_ids {
+            let Some(callee_layout) = compute_callable_closure_layout_for_name_binding(
+                *callee_id,
+                callable_by_id,
+                make_function_callees,
+                memo,
+                visiting,
+            ) else {
+                continue;
+            };
+            for slot in &callee_layout.freevars {
+                let capture_source_name = callable
+                    .semantic
+                    .cell_capture_source_name(slot.logical_name.as_str());
+                if base_cellvar_names.contains(slot.logical_name.as_str())
+                    || base_cellvar_storage_names.contains(capture_source_name.as_str())
+                {
+                    continue;
+                }
+                capture_names.push(slot.logical_name.clone());
+            }
+        }
+    }
+    visiting.remove(&function_id);
+
+    let param_name_set = callable.params.names().into_iter().collect::<HashSet<_>>();
+    let mut local_cell_slots = callable
+        .semantic
+        .owned_cell_storage_names()
+        .into_iter()
+        .collect::<Vec<_>>();
+    local_cell_slots.sort();
+    let layout = build_closure_layout_from_capture_names(
+        callable,
+        capture_names,
+        &param_name_set,
+        &local_cell_slots,
+    );
+    memo.insert(function_id, layout.clone());
+    layout
+}
+
+fn ensure_module_closure_layouts(
+    callable_defs: Vec<BlockPyFunction<CoreBlockPyPass>>,
+) -> Vec<BlockPyFunction<CoreBlockPyPass>> {
+    let computed_layouts = {
+        let callable_by_id = callable_defs
+            .iter()
+            .map(|callable| (callable.function_id, callable))
+            .collect::<HashMap<_, _>>();
+        let make_function_callees = callable_defs
+            .iter()
+            .map(|callable| {
+                (
+                    callable.function_id,
+                    collect_make_function_callee_ids(callable),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let mut memo = HashMap::new();
+        let mut visiting = HashSet::new();
+        for function_id in callable_by_id.keys().copied().collect::<Vec<_>>() {
+            compute_callable_closure_layout_for_name_binding(
+                function_id,
+                &callable_by_id,
+                &make_function_callees,
+                &mut memo,
+                &mut visiting,
+            );
+        }
+        memo
+    };
+
+    callable_defs
+        .into_iter()
+        .map(|mut callable| {
+            if callable.closure_layout.is_none() {
+                callable.closure_layout = computed_layouts
+                    .get(&callable.function_id)
+                    .cloned()
+                    .flatten();
+            }
+            callable
+        })
+        .collect()
+}
+
+fn compute_module_make_function_capture_names(
+    callable_defs: &[BlockPyFunction<CoreBlockPyPass>],
+) -> HashMap<FunctionId, Vec<String>> {
+    callable_defs
+        .iter()
+        .map(|callable| {
+            let capture_names = callable
+                .closure_layout
+                .as_ref()
+                .map(|layout| {
+                    layout
+                        .freevars
+                        .iter()
+                        .map(|slot| slot.logical_name.clone())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            (callable.function_id, capture_names)
+        })
+        .collect()
+}
+
 fn refresh_bb_callable_block_params(
     callable: BlockPyFunction<ResolvedStorageBlockPyPass>,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
@@ -1693,14 +2009,13 @@ fn refresh_bb_callable_block_params(
 }
 
 fn lower_name_binding_callable(
-    mut callable: BlockPyFunction<CoreBlockPyPass>,
+    callable: BlockPyFunction<CoreBlockPyPass>,
+    callee_make_function_capture_names: &HashMap<crate::block_py::FunctionId, Vec<String>>,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
-    if callable.closure_layout.is_none() {
-        callable.closure_layout = compute_closure_layout_from_semantics(&callable);
-    }
     let semantic = callable.semantic.clone();
     let mut lowered = NameBindingMapper {
         semantic: &semantic,
+        callee_make_function_capture_names,
     }
     .map_fn(callable);
     prepend_owned_cell_init_preamble(&mut lowered);
@@ -1731,5 +2046,15 @@ fn lower_name_binding_callable(
 pub(crate) fn lower_name_binding_in_core_blockpy_module(
     module: BlockPyModule<CoreBlockPyPass>,
 ) -> BlockPyModule<ResolvedStorageBlockPyPass> {
-    module.map_callable_defs(lower_name_binding_callable)
+    let callable_defs = ensure_module_closure_layouts(module.callable_defs);
+    let callee_make_function_capture_names =
+        compute_module_make_function_capture_names(&callable_defs);
+    BlockPyModule {
+        callable_defs: callable_defs
+            .into_iter()
+            .map(|callable| {
+                lower_name_binding_callable(callable, &callee_make_function_capture_names)
+            })
+            .collect(),
+    }
 }

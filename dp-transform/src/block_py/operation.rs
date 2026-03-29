@@ -1,3 +1,4 @@
+use super::{BlockPyFunctionKind, FunctionId};
 use ruff_python_ast as ast;
 use ruff_text_size::TextRange;
 
@@ -310,6 +311,17 @@ pub struct CellRef<E> {
 }
 
 #[derive(Debug, Clone)]
+pub struct MakeFunction<E> {
+    pub node_index: ast::AtomicNodeIndex,
+    pub range: TextRange,
+    pub function_id: FunctionId,
+    pub kind: BlockPyFunctionKind,
+    pub arg0: E,
+    pub arg1: E,
+    pub arg2: E,
+}
+
+#[derive(Debug, Clone)]
 pub struct StoreCell<E> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: TextRange,
@@ -356,6 +368,7 @@ pub enum Operation<E> {
     MakeCell(MakeCell<E>),
     MakeString(MakeString<E>),
     CellRef(CellRef<E>),
+    MakeFunction(MakeFunction<E>),
     StoreCell(StoreCell<E>),
     DelQuietly(DelQuietly<E>),
     DelDerefQuietly(DelDerefQuietly<E>),
@@ -380,6 +393,7 @@ impl<E> Operation<E> {
             Self::MakeCell(_) => "__dp_make_cell",
             Self::MakeString(_) => "__dp_decode_literal_bytes",
             Self::CellRef(_) => "__dp_cell_ref",
+            Self::MakeFunction(_) => "__dp_make_function",
             Self::StoreCell(_) => "__dp_store_cell",
             Self::DelQuietly(_) => "__dp_del_quietly",
             Self::DelDerefQuietly(_) => "__dp_del_deref_quietly",
@@ -404,6 +418,7 @@ impl<E> Operation<E> {
             Self::MakeCell(op) => &op.node_index,
             Self::MakeString(op) => &op.node_index,
             Self::CellRef(op) => &op.node_index,
+            Self::MakeFunction(op) => &op.node_index,
             Self::StoreCell(op) => &op.node_index,
             Self::DelQuietly(op) => &op.node_index,
             Self::DelDerefQuietly(op) => &op.node_index,
@@ -428,6 +443,7 @@ impl<E> Operation<E> {
             Self::MakeCell(op) => op.range,
             Self::MakeString(op) => op.range,
             Self::CellRef(op) => op.range,
+            Self::MakeFunction(op) => op.range,
             Self::StoreCell(op) => op.range,
             Self::DelQuietly(op) => op.range,
             Self::DelDerefQuietly(op) => op.range,
@@ -529,6 +545,15 @@ impl<E> Operation<E> {
                 node_index: op.node_index,
                 range: op.range,
                 arg0: f(op.arg0),
+            }),
+            Self::MakeFunction(op) => Operation::MakeFunction(MakeFunction {
+                node_index: op.node_index,
+                range: op.range,
+                function_id: op.function_id,
+                kind: op.kind,
+                arg0: f(op.arg0),
+                arg1: f(op.arg1),
+                arg2: f(op.arg2),
             }),
             Self::StoreCell(op) => Operation::StoreCell(StoreCell {
                 node_index: op.node_index,
@@ -653,6 +678,15 @@ impl<E> Operation<E> {
                 range: op.range,
                 arg0: f(op.arg0)?,
             }),
+            Self::MakeFunction(op) => Operation::MakeFunction(MakeFunction {
+                node_index: op.node_index,
+                range: op.range,
+                function_id: op.function_id,
+                kind: op.kind,
+                arg0: f(op.arg0)?,
+                arg1: f(op.arg1)?,
+                arg2: f(op.arg2)?,
+            }),
             Self::StoreCell(op) => Operation::StoreCell(StoreCell {
                 node_index: op.node_index,
                 range: op.range,
@@ -729,6 +763,11 @@ impl<E> Operation<E> {
             Self::MakeCell(op) => f(&op.arg0),
             Self::MakeString(op) => f(&op.arg0),
             Self::CellRef(op) => f(&op.arg0),
+            Self::MakeFunction(op) => {
+                f(&op.arg0);
+                f(&op.arg1);
+                f(&op.arg2);
+            }
             Self::StoreCell(op) => {
                 f(&op.arg0);
                 f(&op.arg1);
@@ -793,6 +832,11 @@ impl<E> Operation<E> {
             Self::MakeCell(op) => f(&mut op.arg0),
             Self::MakeString(op) => f(&mut op.arg0),
             Self::CellRef(op) => f(&mut op.arg0),
+            Self::MakeFunction(op) => {
+                f(&mut op.arg0);
+                f(&mut op.arg1);
+                f(&mut op.arg2);
+            }
             Self::StoreCell(op) => {
                 f(&mut op.arg0);
                 f(&mut op.arg1);
@@ -860,6 +904,11 @@ impl<E> Operation<E> {
             Self::MakeCell(op) => out.push(op.arg0),
             Self::MakeString(op) => out.push(op.arg0),
             Self::CellRef(op) => out.push(op.arg0),
+            Self::MakeFunction(op) => {
+                out.push(op.arg0);
+                out.push(op.arg1);
+                out.push(op.arg2);
+            }
             Self::StoreCell(op) => {
                 out.push(op.arg0);
                 out.push(op.arg1);
@@ -928,6 +977,11 @@ impl<E> Operation<E> {
             Self::MakeCell(op) => out.push(&op.arg0),
             Self::MakeString(op) => out.push(&op.arg0),
             Self::CellRef(op) => out.push(&op.arg0),
+            Self::MakeFunction(op) => {
+                out.push(&op.arg0);
+                out.push(&op.arg1);
+                out.push(&op.arg2);
+            }
             Self::StoreCell(op) => {
                 out.push(&op.arg0);
                 out.push(&op.arg1);

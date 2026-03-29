@@ -957,7 +957,7 @@ def outer():
 #     function_id: 1
 #     block bb1:
 #         x = 5
-#         inner = __dp_make_function(0, "function", __dp_tuple(__dp_tuple("x", __dp_cell_ref("x"))), __dp_tuple(), __dp_globals(), None)
+#         inner = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return inner()
 
 # function _dp_module_init():
@@ -1023,7 +1023,7 @@ def outer():
 #     function_id: 1
 #     block bb1:
 #         x = 5
-#         inner = __dp_make_function(0, "function", __dp_tuple(__dp_tuple("x", __dp_cell_ref("x"))), __dp_tuple(), __dp_globals(), None)
+#         inner = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return inner()
 
 # function _dp_module_init():

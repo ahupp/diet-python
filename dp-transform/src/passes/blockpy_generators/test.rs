@@ -32,29 +32,14 @@ fn build_closure_backed_generator_factory_block(
     _factory_label: &str,
     visible_function_id: FunctionId,
     resume_function_id: FunctionId,
-    resume_state_order: &[String],
-    layout: &ClosureLayout,
+    _resume_state_order: &[String],
+    _layout: &ClosureLayout,
     is_coroutine: bool,
     is_async_generator: bool,
 ) -> crate::block_py::BlockPyBlock<Expr> {
-    let closure_bindings = resume_closure_bindings(layout, resume_state_order);
-    let captures = blockpy_make_dp_tuple(
-        closure_bindings
-            .runtime_state_bindings
-            .iter()
-            .map(|(name, value_name)| {
-                blockpy_make_dp_tuple(vec![
-                    py_expr!("{value:literal}", value = name.as_str()),
-                    py_expr!("__dp_cell_ref({name:literal})", name = value_name.as_str()),
-                ])
-            })
-            .collect(),
-    );
-
     let resume_entry = py_expr!(
-            "__dp_make_function({function_id:literal}, \"function\", {captures:expr}, __dp_tuple(), __dp_globals(), None)",
+            "__dp_make_function({function_id:literal}, \"function\", __dp_tuple(), __dp_tuple(), __dp_globals(), None)",
             function_id = resume_function_id.0,
-            captures = captures,
         );
 
     let generator_expr = if is_async_generator {

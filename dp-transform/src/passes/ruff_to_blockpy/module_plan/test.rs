@@ -551,9 +551,7 @@ fn lowering_nonlocal_inner_captures_outer_cell() {
             callable_defs: vec![outer.clone()],
         });
     assert!(
-            rendered.contains(
-                "__dp_make_function(0, \"function\", __dp_tuple(__dp_tuple(\"x\", __dp_cell_ref(\"x\")))"
-            ),
-            "{rendered}"
-        );
+        rendered.contains("__dp_make_function(0, \"function\", __dp_tuple(),"),
+        "{rendered}"
+    );
 }

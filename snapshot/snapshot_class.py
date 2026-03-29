@@ -159,7 +159,7 @@ def outer():
 #     function_id: 2
 #     block bb1:
 #         x = "outer"
-#         _dp_class_ns_Inner = __dp_make_function(0, "function", __dp_tuple(__dp_tuple("x", __dp_cell_ref("x"))), __dp_tuple(), __dp_globals(), None)
+#         _dp_class_ns_Inner = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         _dp_define_class_Inner = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
 #         Inner = _dp_define_class_Inner(_dp_class_ns_Inner, globals())
 #         return Inner.y
@@ -195,7 +195,7 @@ class X:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "X")
-#         f = __dp_make_function(0, "function", __dp_tuple(__dp_tuple("__class__", __dp_cell_ref("__class__"))), __dp_tuple(), __dp_globals(), None)
+#         f = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
 #         return __dp_NONE
 
 # function _dp_define_class_X(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):

@@ -7,7 +7,7 @@ use crate::block_py::{
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
     CellRef, CfgBlock, ClosureInit, ClosureLayout, ClosureSlot, CoreBlockPyExpr,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId, FunctionName,
-    IntoStructuredBlockPyStmt, ModuleNameGen, Operation, StructuredBlockPyStmt,
+    IntoStructuredBlockPyStmt, MakeFunction, ModuleNameGen, Operation, StructuredBlockPyStmt,
 };
 use crate::passes::ast_to_ast::expr_utils::make_dp_tuple;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
@@ -199,6 +199,24 @@ fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
         node_index: ast::AtomicNodeIndex::default(),
         range: Default::default(),
         arg0: core_string(logical_name),
+    }))
+}
+
+fn core_make_function(
+    function_id: FunctionId,
+    kind: BlockPyFunctionKind,
+    param_defaults: CoreBlockPyExpr,
+    module_globals: CoreBlockPyExpr,
+    annotate_fn: CoreBlockPyExpr,
+) -> CoreBlockPyExpr {
+    core_operation_expr(Operation::MakeFunction(MakeFunction {
+        node_index: ast::AtomicNodeIndex::default(),
+        range: Default::default(),
+        function_id,
+        kind,
+        arg0: param_defaults,
+        arg1: module_globals,
+        arg2: annotate_fn,
     }))
 }
 
@@ -430,27 +448,17 @@ fn generator_resume_declared_param_indices(
 fn build_factory_block(
     visible_function_id: FunctionId,
     resume_function_id: FunctionId,
-    closure_bindings: &ResumeClosureBindings,
     kind: BlockPyFunctionKind,
 ) -> BlockPyBlock<CoreBlockPyExpr> {
     let mut block = BlockPyCfgBlockBuilder::new(BlockPyLabel::from_index(0));
 
-    let all_bindings = closure_bindings.all_bindings().cloned().collect::<Vec<_>>();
-    let captures = all_bindings
-        .iter()
-        .map(|(name, value_name)| {
-            make_dp_tuple(vec![
-                py_expr!("{value:literal}", value = name.as_str()),
-                Expr::from(core_cell_ref(value_name.as_str())),
-            ])
-        })
-        .collect::<Vec<_>>();
-
-    let resume_entry = core_expr_without_yield(py_expr!(
-        "__dp_make_function({function_id:literal}, \"function\", {captures:expr}, __dp_tuple(), __dp_globals(), None)",
-        function_id = resume_function_id.0,
-        captures = make_dp_tuple(captures),
-    ));
+    let resume_entry = core_make_function(
+        resume_function_id,
+        BlockPyFunctionKind::Function,
+        core_call("__dp_tuple", Vec::new()),
+        core_call("__dp_globals", Vec::new()),
+        core_none(),
+    );
 
     let factory_value = match kind {
         BlockPyFunctionKind::Generator => core_call(
@@ -1502,12 +1510,8 @@ pub(crate) fn lower_generator_like_function(
     let closure_bindings = resume_closure_bindings(&closure_layout, &resume_binding_names);
     let resume_closure_layout = build_resume_closure_layout(&closure_layout, &closure_bindings);
 
-    let factory_block = build_factory_block(
-        callable.function_id,
-        resume_function_id,
-        &closure_bindings,
-        callable.kind,
-    );
+    let factory_block =
+        build_factory_block(callable.function_id, resume_function_id, callable.kind);
 
     let mut resume_semantic = callable.semantic.clone();
     augment_resume_semantic_for_standard_name_binding(&mut resume_semantic, &closure_bindings);

@@ -592,6 +592,7 @@ pub(super) fn emit_operation<'fb, E>(
         }
         blockpy_intrinsics::Operation::MakeString(_) => emit_make_string(helper_name, state, args),
         blockpy_intrinsics::Operation::CellRef(_) => None,
+        blockpy_intrinsics::Operation::MakeFunction(_) => None,
         blockpy_intrinsics::Operation::StoreCell(_) => None,
         blockpy_intrinsics::Operation::DelQuietly(_) => Some(emit_positional_owned_call(
             helper_name,

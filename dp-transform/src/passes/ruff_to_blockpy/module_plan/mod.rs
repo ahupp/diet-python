@@ -149,14 +149,11 @@ fn closure_freevar_capture_items(capture_names: &[String]) -> Vec<(String, Expr)
 
 fn build_lowered_function_instantiation_expr(
     function_id: crate::block_py::FunctionId,
-    capture_names: &[String],
     decorator_exprs: Vec<Expr>,
     param_defaults: &[Expr],
     annotate_fn_expr: Expr,
     kind: BlockPyFunctionKind,
 ) -> Expr {
-    let captures = closure_freevar_capture_items(capture_names);
-    let capture_expr = capture_items_to_expr(&captures);
     let param_defaults_expr = param_defaults_to_expr(param_defaults);
     let kind_name = match kind {
         BlockPyFunctionKind::Function => "function",
@@ -168,7 +165,7 @@ fn build_lowered_function_instantiation_expr(
         "__dp_make_function({function_id:literal}, {kind:literal}, {closure:expr}, {param_defaults:expr}, {module_globals:expr}, {annotate_fn:expr})",
         function_id = function_id.0,
         kind = kind_name,
-        closure = capture_expr.clone(),
+        closure = py_expr!("__dp_tuple()"),
         param_defaults = param_defaults_expr.clone(),
         module_globals = py_expr!("__dp_globals()"),
         annotate_fn = annotate_fn_expr.clone(),
@@ -189,13 +186,10 @@ fn rewrite_function_def_stmt_via_blockpy(
     let name_gen = module_name_gen.next_function_name_gen();
     let lowered_plan =
         try_lower_function_to_blockpy_bundle(context, func, callable_semantic, name_gen);
-    let capture_names =
-        crate::passes::ruff_to_blockpy::semantic_capture_names_for_instantiation(&lowered_plan);
     let bind_name = lowered_plan.names.bind_name.clone();
     let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let decorated = build_lowered_function_instantiation_expr(
         lowered_plan.function_id,
-        &capture_names,
         rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
         &param_defaults,
         py_expr!("None"),

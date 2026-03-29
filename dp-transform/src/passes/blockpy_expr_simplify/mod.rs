@@ -172,6 +172,33 @@ fn lower_core_call_keywords(
         .collect()
 }
 
+fn make_function_kind_from_literal(expr: &Expr) -> Option<crate::block_py::BlockPyFunctionKind> {
+    let Expr::StringLiteral(node) = expr else {
+        return None;
+    };
+    match node.value.to_str() {
+        "function" => Some(crate::block_py::BlockPyFunctionKind::Function),
+        "coroutine" => Some(crate::block_py::BlockPyFunctionKind::Coroutine),
+        "generator" => Some(crate::block_py::BlockPyFunctionKind::Generator),
+        "async_generator" => Some(crate::block_py::BlockPyFunctionKind::AsyncGenerator),
+        _ => None,
+    }
+}
+
+fn make_function_id_from_literal(expr: &Expr) -> Option<crate::block_py::FunctionId> {
+    let Expr::NumberLiteral(node) = expr else {
+        return None;
+    };
+    let ast::Number::Int(value) = &node.value else {
+        return None;
+    };
+    value
+        .to_string()
+        .parse()
+        .ok()
+        .map(crate::block_py::FunctionId)
+}
+
 fn lower_core_call_expr_with_meta(
     func: Expr,
     node_index: ast::AtomicNodeIndex,
@@ -181,6 +208,24 @@ fn lower_core_call_expr_with_meta(
 ) -> CoreBlockPyExprWithAwaitAndYield {
     if keywords.is_empty() {
         if let Expr::Name(name) = &func {
+            if name.id.as_str() == "__dp_make_function" && args.len() == 6 {
+                if let (Some(function_id), Some(kind)) = (
+                    make_function_id_from_literal(&args[0]),
+                    make_function_kind_from_literal(&args[1]),
+                ) {
+                    return core_operation_expr(operation::Operation::MakeFunction(
+                        operation::MakeFunction {
+                            node_index,
+                            range,
+                            function_id,
+                            kind,
+                            arg0: CoreBlockPyExprWithAwaitAndYield::from(args[3].clone()),
+                            arg1: CoreBlockPyExprWithAwaitAndYield::from(args[4].clone()),
+                            arg2: CoreBlockPyExprWithAwaitAndYield::from(args[5].clone()),
+                        },
+                    ));
+                }
+            }
             let mut operation_args = Vec::with_capacity(args.len());
             let mut saw_starred = false;
             for arg in &args {

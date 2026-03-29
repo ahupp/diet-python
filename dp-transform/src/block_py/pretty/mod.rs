@@ -518,10 +518,31 @@ pub(crate) fn bb_expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> Str
             }
             format!("{}({})", bb_expr_text(&call.func), parts.join(", "))
         }
-        CoreBlockPyExpr::Op(operation) => helper_call_text(
-            operation.helper_name(),
-            operation.call_args().iter().map(|arg| bb_expr_text(*arg)),
-        ),
+        CoreBlockPyExpr::Op(operation) => match operation.as_ref() {
+            crate::block_py::Operation::MakeFunction(op) => {
+                let kind = match op.kind {
+                    crate::block_py::BlockPyFunctionKind::Function => "\"function\"",
+                    crate::block_py::BlockPyFunctionKind::Coroutine => "\"coroutine\"",
+                    crate::block_py::BlockPyFunctionKind::Generator => "\"generator\"",
+                    crate::block_py::BlockPyFunctionKind::AsyncGenerator => "\"async_generator\"",
+                };
+                helper_call_text(
+                    "__dp_make_function",
+                    [
+                        op.function_id.0.to_string(),
+                        kind.to_string(),
+                        "__dp_tuple()".to_string(),
+                        bb_expr_text(&op.arg0),
+                        bb_expr_text(&op.arg1),
+                        bb_expr_text(&op.arg2),
+                    ],
+                )
+            }
+            other => helper_call_text(
+                other.helper_name(),
+                other.call_args().iter().map(|arg| bb_expr_text(*arg)),
+            ),
+        },
     }
 }
 

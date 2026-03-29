@@ -1221,6 +1221,12 @@ fn emit_codegen_expr(
                 func_imports,
             };
             let operation_ref = operation.as_ref();
+            if matches!(
+                operation_ref,
+                blockpy_intrinsics::Operation::MakeFunction(_)
+            ) {
+                panic!("MakeFunction should lower to a regular call before codegen");
+            }
             let args = operation_ref.call_args();
             if let Some(value) =
                 intrinsics::emit_operation(operation_ref, &mut intrinsic_state, args.as_slice())

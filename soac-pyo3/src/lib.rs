@@ -492,7 +492,6 @@ fn build_wrapped_entry<'py>(
         }
     }
     let closure = PyTuple::new(py, closure_cells)?;
-    let closure_slot_names = PyTuple::new(py, captured_names)?;
     let qualname = PyString::new(py, qualname);
     let func = unsafe {
         let ptr = ffi::PyFunction_NewWithQualName(
@@ -508,7 +507,10 @@ fn build_wrapped_entry<'py>(
     if unsafe { ffi::PyFunction_SetClosure(func.as_ptr(), closure.as_ptr()) } != 0 {
         return Err(PyErr::fetch(py));
     }
-    func.setattr("__dp_closure_slot_names__", &closure_slot_names)?;
+    func.setattr(
+        "__dp_closure_slot_names__",
+        PyTuple::new(py, captured_names)?,
+    )?;
     let kwdefaults = PyDict::new(py);
     kwdefaults.set_item("__dp_entry", raw_entry)?;
     if unsafe { ffi::PyFunction_SetKwDefaults(func.as_ptr(), kwdefaults.as_ptr()) } != 0 {

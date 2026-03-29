@@ -408,15 +408,40 @@ where
     );
     capture_names.sort();
     capture_names.dedup();
+    build_closure_layout_from_capture_names(
+        callable_def,
+        capture_names,
+        &param_name_set,
+        &local_cell_slots,
+    )
+}
+
+pub(crate) fn build_closure_layout_from_capture_names<P>(
+    callable_def: &BlockPyFunction<P>,
+    mut capture_names: Vec<String>,
+    param_name_set: &HashSet<String>,
+    local_cell_slots: &[String],
+) -> Option<ClosureLayout>
+where
+    P: BlockPyPass,
+    P::Expr: Clone + Into<Expr>,
+{
+    fn is_runtime_closure_name(name: &str) -> bool {
+        matches!(name, "_dp_pc" | "_dp_yieldfrom") || name.starts_with("_dp_try_abrupt_kind_")
+    }
+
+    capture_names.sort();
+    capture_names.dedup();
     let local_cell_slots = local_cell_slots
-        .into_iter()
+        .iter()
         .filter(|storage_name| {
             let logical_name = callable_def
                 .semantic
                 .logical_name_for_cell_storage(storage_name.as_str())
-                .unwrap_or_else(|| storage_name.clone());
+                .unwrap_or_else(|| (*storage_name).clone());
             !is_runtime_closure_name(logical_name.as_str())
         })
+        .cloned()
         .collect::<Vec<_>>();
 
     if capture_names.is_empty() && local_cell_slots.is_empty() {

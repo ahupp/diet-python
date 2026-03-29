@@ -1650,7 +1650,7 @@ def outer():
     let blockpy_rendered = lowered.blockpy_text();
     assert!(
         blockpy_rendered.contains("__dp_make_function(")
-            && blockpy_rendered.contains("__dp_tuple(__dp_tuple(\"x\", __dp_cell_ref(\"x\")))"),
+            && blockpy_rendered.contains("__dp_make_function(0, \"function\", __dp_tuple(),"),
         "{blockpy_rendered}"
     );
 }

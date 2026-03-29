@@ -84,11 +84,7 @@ where
     fn map_block(&self, block: PassBlock<PIn>) -> PassBlock<POut> {
         CfgBlock {
             label: block.label,
-            body: block
-                .body
-                .into_iter()
-                .map(|stmt| self.map_stmt(stmt.into_structured_stmt()).into())
-                .collect(),
+            body: block.body.into_iter().map(|stmt| self.map_stmt(stmt)).collect(),
             term: self.map_term(block.term),
             params: block.params,
             exc_edge: block.exc_edge,
@@ -109,13 +105,20 @@ where
             body: fragment
                 .body
                 .into_iter()
-                .map(|stmt| self.map_stmt(stmt))
+                .map(|stmt| self.map_structured_stmt(stmt))
                 .collect(),
             term: fragment.term.map(|term| self.map_term(term)),
         }
     }
 
     fn map_stmt(
+        &self,
+        stmt: PIn::Stmt,
+    ) -> POut::Stmt {
+        self.map_structured_stmt(stmt.into_structured_stmt()).into()
+    }
+
+    fn map_structured_stmt(
         &self,
         stmt: StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
     ) -> StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>> {
@@ -246,10 +249,7 @@ where
             body: block
                 .body
                 .into_iter()
-                .map(|stmt| {
-                    self.try_map_stmt(stmt.into_structured_stmt())
-                        .map(Into::into)
-                })
+                .map(|stmt| self.try_map_stmt(stmt))
                 .collect::<Result<_, _>>()?,
             term: self.try_map_term(block.term)?,
             params: block.params,
@@ -274,7 +274,7 @@ where
             body: fragment
                 .body
                 .into_iter()
-                .map(|stmt| self.try_map_stmt(stmt))
+                .map(|stmt| self.try_map_structured_stmt(stmt))
                 .collect::<Result<_, _>>()?,
             term: fragment
                 .term
@@ -284,6 +284,14 @@ where
     }
 
     fn try_map_stmt(
+        &self,
+        stmt: PIn::Stmt,
+    ) -> Result<POut::Stmt, Self::Error> {
+        self.try_map_structured_stmt(stmt.into_structured_stmt())
+            .map(Into::into)
+    }
+
+    fn try_map_structured_stmt(
         &self,
         stmt: StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
     ) -> Result<StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>>, Self::Error> {
@@ -408,12 +416,15 @@ impl From<CoreBlockPyExprWithAwaitAndYield> for Expr {
     fn from(value: CoreBlockPyExprWithAwaitAndYield) -> Self {
         match value {
             CoreBlockPyExprWithAwaitAndYield::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExprWithAwaitAndYield::Op(operation) => helper_call_to_ast(
-                operation.helper_name(),
-                operation.node_index().clone(),
-                operation.range(),
-                operation.into_call_args(),
-            ),
+            CoreBlockPyExprWithAwaitAndYield::Op(operation) => match *operation {
+                Operation::MakeFunction(op) => make_function_call_to_ast(op),
+                other => helper_call_to_ast(
+                    other.helper_name(),
+                    other.node_index().clone(),
+                    other.range(),
+                    other.into_call_args(),
+                ),
+            },
             CoreBlockPyExprWithAwaitAndYield::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -447,12 +458,15 @@ impl From<CoreBlockPyExprWithYield> for Expr {
     fn from(value: CoreBlockPyExprWithYield) -> Self {
         match value {
             CoreBlockPyExprWithYield::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExprWithYield::Op(operation) => helper_call_to_ast(
-                operation.helper_name(),
-                operation.node_index().clone(),
-                operation.range(),
-                operation.into_call_args(),
-            ),
+            CoreBlockPyExprWithYield::Op(operation) => match *operation {
+                Operation::MakeFunction(op) => make_function_call_to_ast(op),
+                other => helper_call_to_ast(
+                    other.helper_name(),
+                    other.node_index().clone(),
+                    other.range(),
+                    other.into_call_args(),
+                ),
+            },
             CoreBlockPyExprWithYield::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -479,12 +493,15 @@ impl<N: Into<ast::ExprName>> From<CoreBlockPyExpr<N>> for Expr {
     fn from(value: CoreBlockPyExpr<N>) -> Self {
         match value {
             CoreBlockPyExpr::Literal(literal) => core_literal_to_expr(literal),
-            CoreBlockPyExpr::Op(operation) => helper_call_to_ast(
-                operation.helper_name(),
-                operation.node_index().clone(),
-                operation.range(),
-                operation.into_call_args(),
-            ),
+            CoreBlockPyExpr::Op(operation) => match *operation {
+                Operation::MakeFunction(op) => make_function_call_to_ast(op),
+                other => helper_call_to_ast(
+                    other.helper_name(),
+                    other.node_index().clone(),
+                    other.range(),
+                    other.into_call_args(),
+                ),
+            },
             CoreBlockPyExpr::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -501,12 +518,15 @@ impl<N: Into<ast::ExprName>> From<CodegenBlockPyExpr<N>> for Expr {
     fn from(value: CodegenBlockPyExpr<N>) -> Self {
         match value {
             CodegenBlockPyExpr::Literal(literal) => codegen_literal_to_expr(literal),
-            CodegenBlockPyExpr::Op(operation) => helper_call_to_ast(
-                operation.helper_name(),
-                operation.node_index().clone(),
-                operation.range(),
-                operation.into_call_args(),
-            ),
+            CodegenBlockPyExpr::Op(operation) => match *operation {
+                Operation::MakeFunction(op) => make_function_call_to_ast(op),
+                other => helper_call_to_ast(
+                    other.helper_name(),
+                    other.node_index().clone(),
+                    other.range(),
+                    other.into_call_args(),
+                ),
+            },
             CodegenBlockPyExpr::Call(node) => call_like_to_ast(
                 Expr::from(*node.func),
                 node.node_index,
@@ -606,6 +626,36 @@ fn helper_call_to_ast<E: Into<Expr>>(
     )
 }
 
+fn make_function_kind_literal(kind: BlockPyFunctionKind) -> Expr {
+    let value = match kind {
+        BlockPyFunctionKind::Function => "function",
+        BlockPyFunctionKind::Coroutine => "coroutine",
+        BlockPyFunctionKind::Generator => "generator",
+        BlockPyFunctionKind::AsyncGenerator => "async_generator",
+    };
+    py_expr!("{value:literal}", value = value)
+}
+
+fn make_function_call_to_ast<E: Into<Expr>>(operation: MakeFunction<E>) -> Expr {
+    call_like_to_ast(
+        Expr::Name(helper_name_expr("__dp_make_function")),
+        operation.node_index,
+        operation.range,
+        vec![
+            CoreBlockPyCallArg::Positional(py_expr!(
+                "{value:literal}",
+                value = operation.function_id.0
+            )),
+            CoreBlockPyCallArg::Positional(make_function_kind_literal(operation.kind)),
+            CoreBlockPyCallArg::Positional(py_expr!("__dp_tuple()")),
+            CoreBlockPyCallArg::Positional(operation.arg0.into()),
+            CoreBlockPyCallArg::Positional(operation.arg1.into()),
+            CoreBlockPyCallArg::Positional(operation.arg2.into()),
+        ],
+        Vec::new(),
+    )
+}
+
 fn call_args_to_ast<E: Into<Expr>>(args: Vec<CoreBlockPyCallArg<E>>) -> Box<[Expr]> {
     args.into_iter()
         .map(|arg| match arg {
@@ -694,7 +744,7 @@ impl TryFrom<StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>>
     fn try_from(
         value: StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
     ) -> Result<Self, Self::Error> {
-        ElideAwaitExprTryMap.try_map_stmt(value)
+        ElideAwaitExprTryMap.try_map_structured_stmt(value)
     }
 }
 
@@ -809,7 +859,7 @@ impl TryFrom<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>
     fn try_from(
         value: StructuredBlockPyStmt<CoreBlockPyExprWithYield>,
     ) -> Result<Self, Self::Error> {
-        ElideYieldExprTryMap.try_map_stmt(value)
+        ElideYieldExprTryMap.try_map_structured_stmt(value)
     }
 }
 
