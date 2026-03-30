@@ -1082,10 +1082,7 @@ fn emit_yield_from_site(
     let caught_exc_name = state.fresh_temp("yield_from_exc");
     prefix.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
         target: expr_name("_dp_yieldfrom"),
-        value: core_expr_without_yield(py_expr!(
-            "iter({value:expr})",
-            value = Expr::from(value_expr)
-        )),
+        value: core_call("iter", vec![value_expr]),
     }));
     prefix.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
         target: expr_name("_dp_pc"),

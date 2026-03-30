@@ -1,5 +1,6 @@
 use super::*;
 
+use crate::block_py::pretty::BlockPyDebugExprText;
 use crate::block_py::BlockPyModule;
 
 fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExprWithAwaitAndYield {
@@ -26,8 +27,6 @@ use crate::block_py::{
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::RuffBlockPyPass;
 use crate::py_expr;
-use crate::ruff_ast_to_string;
-use ruff_python_ast::Expr;
 use ruff_python_parser::parse_expression;
 
 #[test]
@@ -195,7 +194,7 @@ fn core_blockpy_expr_reuses_shared_tuple_splat_intrinsic_shape() {
         panic!("expected operation-shaped reduced tuple expr");
     };
     assert_eq!(call.helper_name(), "__dp_add");
-    let rendered = ruff_ast_to_string(&Expr::from(CoreBlockPyExprWithAwaitAndYield::Op(call)));
+    let rendered = CoreBlockPyExprWithAwaitAndYield::Op(call).debug_expr_text();
     assert!(rendered.contains("__dp_tuple_from_iter(xs)"), "{rendered}");
 }
 
@@ -215,7 +214,7 @@ fn core_blockpy_expr_reuses_shared_tuple_splat_for_list_and_set() {
         let [CoreBlockPyCallArg::Positional(tupleish)] = &call.args[..] else {
             panic!("expected one positional arg for {expr}");
         };
-        let rendered = ruff_ast_to_string(&tupleish.to_expr());
+        let rendered = tupleish.debug_expr_text();
         assert!(rendered.contains("__dp_tuple_from_iter(xs)"), "{rendered}");
     }
 }

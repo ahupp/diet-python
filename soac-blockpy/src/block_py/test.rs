@@ -49,14 +49,13 @@ fn stmt_fragment_can_carry_optional_term() {
 }
 
 #[test]
-fn core_blockpy_expr_wraps_and_rewrites_expr() {
-    let mut expr = CoreBlockPyExprWithAwaitAndYield::from(py_expr!("x"));
-    expr.rewrite_mut(|expr| *expr = py_expr!("y"));
+fn core_blockpy_expr_wraps_name_expr() {
+    let expr = CoreBlockPyExprWithAwaitAndYield::from(py_expr!("y"));
 
-    let Expr::Name(name) = expr.to_expr() else {
-        panic!("expected name expr after rewrite");
-    };
-    assert_eq!(name.id.as_str(), "y");
+    assert!(matches!(
+        expr,
+        CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "y"
+    ));
 }
 
 #[test]

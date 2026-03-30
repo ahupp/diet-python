@@ -12,7 +12,7 @@ pub(crate) fn lower_structured_blocks_to_bb_blocks<E, N>(
     blocks: &[crate::block_py::CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
 ) -> Vec<crate::block_py::CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>>
 where
-    E: Clone + Into<crate::block_py::Expr>,
+    E: Clone,
     N: BlockPyNameLike,
 {
     let exception_edges = lowered_exception_edges(blocks);

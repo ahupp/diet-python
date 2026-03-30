@@ -72,6 +72,41 @@ fn probe_bb_exprs<N: BlockPyNameLike>(probe: &mut ExprShapeProbe, expr: &Codegen
     }
 }
 
+fn collect_helper_like_names_in_expr<N: BlockPyNameLike>(
+    out: &mut Vec<String>,
+    expr: &CodegenBlockPyExpr<N>,
+) {
+    match expr {
+        CodegenBlockPyExpr::Name(_) | CodegenBlockPyExpr::Literal(_) => {}
+        CodegenBlockPyExpr::Op(operation) => {
+            out.push(operation.helper_name().to_string());
+            operation.walk_args(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::Call(call) => {
+            if let CodegenBlockPyExpr::Name(name) = &*call.func {
+                out.push(name.id_str().to_string());
+            }
+            collect_helper_like_names_in_expr(out, &call.func);
+            for arg in &call.args {
+                match arg {
+                    crate::block_py::CoreBlockPyCallArg::Positional(value)
+                    | crate::block_py::CoreBlockPyCallArg::Starred(value) => {
+                        collect_helper_like_names_in_expr(out, value);
+                    }
+                }
+            }
+            for kw in &call.keywords {
+                match kw {
+                    crate::block_py::CoreBlockPyKeywordArg::Named { value, .. }
+                    | crate::block_py::CoreBlockPyKeywordArg::Starred(value) => {
+                        collect_helper_like_names_in_expr(out, value);
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn probe_bb_term_exprs<N: BlockPyNameLike>(
     probe: &mut ExprShapeProbe,
     term: &BlockPyTerm<CodegenBlockPyExpr<N>>,
@@ -145,21 +180,55 @@ def f(obj, mapping, key, value):
     let prepared = lower_try_jump_exception_flow(&bb_module);
     let normalized = normalize_bb_module_strings(&prepared);
 
-    let mut text = String::new();
+    let mut helper_names = Vec::new();
     for function in normalized.callable_defs {
         for block in &function.blocks {
-            text.push_str(&crate::block_py::pretty::bb_stmts_text(&block.body));
+            for stmt in &block.body {
+                match stmt {
+                    BlockPyStmt::Assign(assign) => {
+                        collect_helper_like_names_in_expr(&mut helper_names, &assign.value);
+                    }
+                    BlockPyStmt::Expr(expr) => {
+                        collect_helper_like_names_in_expr(&mut helper_names, expr);
+                    }
+                    BlockPyStmt::Delete(_) => {}
+                }
+            }
         }
     }
 
-    assert!(text.contains("__dp_getattr"), "{text}");
-    assert!(text.contains("__dp_setattr"), "{text}");
-    assert!(text.contains("__dp_getitem"), "{text}");
-    assert!(text.contains("__dp_setitem"), "{text}");
-    assert!(!text.contains("PyObject_GetAttr"), "{text}");
-    assert!(!text.contains("PyObject_SetAttr"), "{text}");
-    assert!(!text.contains("PyObject_GetItem"), "{text}");
-    assert!(!text.contains("PyObject_SetItem"), "{text}");
+    assert!(
+        helper_names.iter().any(|name| name == "__dp_getattr"),
+        "{helper_names:?}"
+    );
+    assert!(
+        helper_names.iter().any(|name| name == "__dp_setattr"),
+        "{helper_names:?}"
+    );
+    assert!(
+        helper_names.iter().any(|name| name == "__dp_getitem"),
+        "{helper_names:?}"
+    );
+    assert!(
+        helper_names.iter().any(|name| name == "__dp_setitem"),
+        "{helper_names:?}"
+    );
+    assert!(
+        !helper_names.iter().any(|name| name == "PyObject_GetAttr"),
+        "{helper_names:?}"
+    );
+    assert!(
+        !helper_names.iter().any(|name| name == "PyObject_SetAttr"),
+        "{helper_names:?}"
+    );
+    assert!(
+        !helper_names.iter().any(|name| name == "PyObject_GetItem"),
+        "{helper_names:?}"
+    );
+    assert!(
+        !helper_names.iter().any(|name| name == "PyObject_SetItem"),
+        "{helper_names:?}"
+    );
 }
 
 #[test]

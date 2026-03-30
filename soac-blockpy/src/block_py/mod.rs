@@ -119,15 +119,15 @@ impl From<RuffExpr> for ast::Expr {
     }
 }
 
-pub trait MapExpr<T>: Clone + fmt::Debug + Into<Expr> + Sized {
+pub trait MapExpr<T>: Clone + fmt::Debug + Sized {
     fn map_expr(self, f: &mut impl FnMut(Self) -> T) -> T;
 }
 
-pub trait TryMapExpr<T, Error>: Clone + fmt::Debug + Into<Expr> + Sized {
+pub trait TryMapExpr<T, Error>: Clone + fmt::Debug + Sized {
     fn try_map_expr(self, f: &mut impl FnMut(Self) -> Result<T, Error>) -> Result<T, Error>;
 }
 
-pub trait BlockPyExprLike: Clone + fmt::Debug + Into<Expr> + MapExpr<Self> {
+pub trait BlockPyExprLike: Clone + fmt::Debug + MapExpr<Self> {
     fn walk_child_exprs<F>(&self, f: &mut F)
     where
         F: FnMut(&Self),
@@ -179,7 +179,7 @@ impl MapExpr<RuffExpr> for RuffExpr {
     }
 }
 
-impl<T> BlockPyExprLike for T where T: Clone + fmt::Debug + Into<Expr> + MapExpr<Self> {}
+impl<T> BlockPyExprLike for T where T: Clone + fmt::Debug + MapExpr<Self> {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LocatedName {
@@ -1862,7 +1862,7 @@ pub fn count_ruff_blockpy_blocks(module: &BlockPyModule<RuffBlockPyPass>) -> usi
 fn count_structured_blockpy_blocks_in_list<S, E, N>(blocks: &[CfgBlock<S, BlockPyTerm<E>>]) -> usize
 where
     S: IntoStructuredBlockPyStmt<E, N>,
-    E: Clone + Into<Expr> + std::fmt::Debug,
+    E: Clone + std::fmt::Debug,
     N: BlockPyNameLike,
 {
     blocks
@@ -1877,7 +1877,7 @@ where
 fn count_structured_blockpy_blocks_in_stmts<S, E, N>(stmts: &[S]) -> usize
 where
     S: IntoStructuredBlockPyStmt<E, N>,
-    E: Clone + Into<Expr> + std::fmt::Debug,
+    E: Clone + std::fmt::Debug,
     N: BlockPyNameLike,
 {
     stmts
@@ -1898,7 +1898,7 @@ fn count_structured_blockpy_blocks_in_fragment<E, N>(
     fragment: &BlockPyCfgFragment<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>,
 ) -> usize
 where
-    E: Clone + Into<Expr> + std::fmt::Debug,
+    E: Clone + std::fmt::Debug,
     N: BlockPyNameLike,
 {
     count_structured_blockpy_blocks_in_stmts(&fragment.body)

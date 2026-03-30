@@ -527,11 +527,8 @@ fn function_kind_name(kind: BlockPyFunctionKind) -> &'static str {
     }
 }
 
-fn render_inline_expr<E>(expr: &E) -> String
-where
-    E: Clone + Into<Expr>,
-{
-    ruff_ast_to_string(&expr.clone().into())
+fn render_ruff_inline_expr(expr: &Expr) -> String {
+    ruff_ast_to_string(expr)
         .lines()
         .map(str::trim)
         .collect::<Vec<_>>()
@@ -804,13 +801,13 @@ where
 
 impl BlockPyDebugExprText for Expr {
     fn debug_expr_text(&self) -> String {
-        render_inline_expr(self)
+        render_ruff_inline_expr(self)
     }
 }
 
 impl BlockPyDebugExprText for RuffExpr {
     fn debug_expr_text(&self) -> String {
-        render_inline_expr(&self.0)
+        render_ruff_inline_expr(&self.0)
     }
 }
 
@@ -839,7 +836,7 @@ pub(crate) fn core_bb_stmt_text<N: BlockPyNameLike>(
 #[cfg(test)]
 pub(crate) fn bb_stmt_text<E, N>(stmt: &BlockPyStmt<E, N>) -> String
 where
-    E: Clone + Into<Expr> + std::fmt::Debug,
+    E: BlockPyDebugExprText,
     N: BlockPyNameLike,
 {
     match stmt {
@@ -847,10 +844,10 @@ where
             format!(
                 "{} = {}",
                 assign.target.pretty_id(),
-                render_inline_expr(&assign.value)
+                assign.value.debug_expr_text()
             )
         }
-        BlockPyStmt::Expr(expr) => render_inline_expr(expr),
+        BlockPyStmt::Expr(expr) => expr.debug_expr_text(),
         BlockPyStmt::Delete(delete) => format!("del {}", delete.target.pretty_id()),
     }
 }
@@ -858,7 +855,7 @@ where
 #[cfg(test)]
 pub(crate) fn bb_stmts_text<E, N>(stmts: &[BlockPyStmt<E, N>]) -> String
 where
-    E: Clone + Into<Expr> + std::fmt::Debug,
+    E: BlockPyDebugExprText,
     N: BlockPyNameLike,
 {
     let mut out = String::new();
@@ -1140,7 +1137,7 @@ fn collect_top_level_successors_from_stmts<S, E, N>(
     out: &mut Vec<usize>,
 ) where
     S: IntoStructuredBlockPyStmt<E, N>,
-    E: Clone + Into<Expr> + std::fmt::Debug,
+    E: Clone + std::fmt::Debug,
     N: BlockPyNameLike,
 {
     for stmt in stmts {
@@ -1173,7 +1170,7 @@ fn collect_top_level_successors_from_stmts<S, E, N>(
 }
 
 fn collect_top_level_successors_from_term(
-    term: &BlockPyTerm<impl Clone + Into<Expr>>,
+    term: &BlockPyTerm<impl Clone>,
     label_to_index: &HashMap<BlockPyLabel, usize>,
     seen: &mut HashSet<usize>,
     out: &mut Vec<usize>,

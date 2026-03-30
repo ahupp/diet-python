@@ -56,7 +56,7 @@ fn linearize_blockpy_if_sequence<E, N>(
     out_block_params: &mut HashMap<BlockPyLabel, Vec<String>>,
     out_exception_edges: &mut HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 ) where
-    E: Clone + Into<Expr>,
+    E: Clone,
     N: BlockPyNameLike,
 {
     let Some(if_index) = body
@@ -167,7 +167,7 @@ fn linearize_blockpy_fragment<E, N>(
     out_block_params: &mut HashMap<BlockPyLabel, Vec<String>>,
     out_exception_edges: &mut HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 ) where
-    E: Clone + Into<Expr>,
+    E: Clone,
     N: BlockPyNameLike,
 {
     linearize_blockpy_if_sequence(
@@ -195,7 +195,7 @@ pub(crate) fn linearize_structured_ifs<E, N>(
     HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 )
 where
-    E: Clone + Into<Expr>,
+    E: Clone,
     N: BlockPyNameLike,
 {
     let mut out_blocks = Vec::new();
