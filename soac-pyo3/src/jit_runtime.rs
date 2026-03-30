@@ -6,7 +6,7 @@ use pyo3::exceptions::{
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyFunction, PyModule, PyString, PyTuple};
-use soac_blockpy::block_py::{BlockPyFunction, ParamKind};
+use soac_blockpy::block_py::{BlockPyFunction, FunctionId, ParamKind};
 use soac_blockpy::lower_python_to_blockpy;
 use soac_blockpy::pass_tracker::NoopPassTracker;
 use soac_blockpy::passes::CodegenBlockPyPass;
@@ -74,10 +74,10 @@ fn register_clif_vectorcall_raw(
     py: Python<'_>,
     func: &Bound<'_, PyAny>,
     module_name: &str,
-    function_id: usize,
+    function_id: FunctionId,
 ) -> PyResult<()> {
     unsafe {
-        soac_eval::tree_walk::register_clif_vectorcall(func.as_ptr(), module_name, function_id)
+        soac_eval::tree_walk::register_clif_vectorcall(func.as_ptr(), module_name, function_id.0)
             .map_err(|_| {
                 if ffi::PyErr_Occurred().is_null() {
                     PyRuntimeError::new_err("failed to register CLIF vectorcall")
@@ -99,7 +99,7 @@ fn maybe_eager_compile_clif_entry(
     py: Python<'_>,
     func: &Bound<'_, PyAny>,
     module_name: &str,
-    plan_name: &str,
+    function_id: FunctionId,
 ) -> PyResult<()> {
     if !eager_clif_compile_requested() {
         return Ok(());
@@ -118,14 +118,15 @@ fn maybe_eager_compile_clif_entry(
         Ok(()) => {
             let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
             info!(
-                "soac_jit_eager_compile module={} qualname={} elapsed_ms={elapsed_ms:.3}",
-                module_name, plan_name
+                "soac_jit_eager_compile module={} function_id={} elapsed_ms={elapsed_ms:.3}",
+                module_name, function_id.0
             );
             Ok(())
         }
         Err(err) if err.is_instance_of::<PyNotImplementedError>(py) => Err(err),
         Err(err) => Err(PyRuntimeError::new_err(format!(
-            "failed to eagerly compile CLIF entry for {module_name}.{plan_name}: {err}"
+            "failed to eagerly compile CLIF entry for {module_name} function_id={}: {err}",
+            function_id.0
         ))),
     }
 }
@@ -134,14 +135,14 @@ fn register_lazy_clif_vectorcall(
     py: Python<'_>,
     func: &Bound<'_, PyAny>,
     module_name: &str,
-    function_id: usize,
-    plan_name: &str,
+    function_id: FunctionId,
 ) -> PyResult<()> {
     match register_clif_vectorcall_raw(py, func, module_name, function_id) {
-        Ok(()) => maybe_eager_compile_clif_entry(py, func, module_name, plan_name),
+        Ok(()) => maybe_eager_compile_clif_entry(py, func, module_name, function_id),
         Err(err) if err.is_instance_of::<PyNotImplementedError>(py) => Err(err),
         Err(err) => Err(PyRuntimeError::new_err(format!(
-            "failed to register lazy CLIF vectorcall for {module_name}.{plan_name}: {err}"
+            "failed to register lazy CLIF vectorcall for {module_name} function_id={}: {err}",
+            function_id.0
         ))),
     }
 }
@@ -555,18 +556,9 @@ fn instantiate_closure_backed_entry<'py>(
     entry_name: &str,
     qualname: &str,
 ) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
-    let plan_name = function
-        .function_id
-        .plan_qualname(function.names.qualname.as_str());
     let (captured_names, closure_values) = build_capture_map(py, captures)?;
     let raw_entry = make_lazy_clif_entry(py, dp, entry_name, module_globals)?;
-    register_lazy_clif_vectorcall(
-        py,
-        &raw_entry,
-        module_name,
-        function.function_id.0,
-        plan_name.as_str(),
-    )?;
+    register_lazy_clif_vectorcall(py, &raw_entry, module_name, function.function_id)?;
     let entry = build_wrapped_entry(
         py,
         dp,
