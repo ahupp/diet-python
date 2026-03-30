@@ -15,4 +15,4 @@ packages = ["soac"]
 "" = "src"
 
 [dependency-groups]
-dev = ["pytest>=8,<9", "pytest-xdist>=3,<4"]
+dev = ["pytest>=8,<9"]

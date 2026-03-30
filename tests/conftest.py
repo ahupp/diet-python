@@ -20,7 +20,6 @@ if str(PYTHON_SRC) not in sys.path:
 from soac import import_hook
 from tests import _integration
 import pytest
-from _pytest.reports import CollectReport, TestReport
 
 _MODULES_DIR = Path(__file__).resolve().parent / "integration_modules"
 
@@ -102,18 +101,6 @@ def pytest_runtest_makereport(item, call):
             rep.outcome = "skipped"
             rep.wasxfail = f"unsupported: {exc or 'not supported'}"
             rep.longrepr = None
-
-
-@pytest.hookimpl(tryfirst=True)
-def pytest_report_to_serializable(config, report: TestReport | CollectReport):
-    data = report._to_json()
-    # xdist can choke on some synthetic xfail reports with native repr entries.
-    # The controller only needs the xfail marker here, not the original traceback.
-    if getattr(report, "wasxfail", None):
-        data["longrepr"] = None
-    data["$report_type"] = report.__class__.__name__
-    return data
-
 
 @pytest.fixture(autouse=True)
 def _integration_failure_context(request):
