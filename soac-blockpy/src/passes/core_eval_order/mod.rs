@@ -1,6 +1,6 @@
 use crate::block_py::BlockPyAssign;
 use crate::block_py::{
-    expr_any, map_call_args_with, map_keyword_args_with, BlockPyBranchTable, BlockPyCfgFragment,
+    expr_any, map_call_args_by, map_keyword_args_by, BlockPyBranchTable, BlockPyCfgFragment,
     BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyTerm, CfgBlock,
     CoreBlockPyAwait, CoreBlockPyCall, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
     CoreBlockPyYield, CoreBlockPyYieldFrom, IntoStructuredBlockPyStmt, StructuredBlockPyStmt,
@@ -73,10 +73,10 @@ fn make_eval_order_explicit_in_core_expr(
                 func: Box::new(hoist_core_expr_if_contains_suspend(
                     *call.func, out, cleanup,
                 )),
-                args: map_call_args_with(call.args, |value| {
+                args: map_call_args_by(call.args, |value| {
                     hoist_core_expr_if_contains_suspend(value, out, cleanup)
                 }),
-                keywords: map_keyword_args_with(call.keywords, |value| {
+                keywords: map_keyword_args_by(call.keywords, |value| {
                     hoist_core_expr_if_contains_suspend(value, out, cleanup)
                 }),
             })
@@ -300,10 +300,10 @@ fn make_eval_order_explicit_in_core_expr_without_await(
             func: Box::new(hoist_core_expr_without_await_to_atom(
                 *call.func, out, cleanup,
             )),
-            args: map_call_args_with(call.args, |value| {
+            args: map_call_args_by(call.args, |value| {
                 hoist_core_expr_without_await_to_atom(value, out, cleanup)
             }),
-            keywords: map_keyword_args_with(call.keywords, |value| {
+            keywords: map_keyword_args_by(call.keywords, |value| {
                 hoist_core_expr_without_await_to_atom(value, out, cleanup)
             }),
         }),
