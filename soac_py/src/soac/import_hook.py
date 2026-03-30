@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import builtins
 import importlib.machinery
 import importlib.util
 import os
@@ -87,13 +86,7 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
         return _create_module_from_path(self.path)
 
     def exec_module(self, module):
-        module.__dict__.setdefault("__builtins__", builtins.__dict__)
-        try:
-            init = _soac_ext.build_module_init(module)
-        except Exception as err:
-            raise ImportError(f"diet-python failed for {self.path}: {err}") from err
-        if init is not None:
-            init()
+        _soac_ext.exec_module(module)
         return None
 
 
@@ -103,10 +96,16 @@ class DietPythonFinder(importlib.machinery.PathFinder):
     @classmethod
     def find_spec(cls, fullname, path=None, target=None):
         spec = super().find_spec(fullname, path, target)
-        if fullname == "encodings" or fullname.startswith("encodings."):
-            return spec
+        return cls.wrap_spec(spec)
+
+    @classmethod
+    def wrap_spec(cls, spec):
+        if spec is None:
+            return None
+        fullname = spec.name
         if (
-            spec
+            fullname != "encodings"
+            and not fullname.startswith("encodings.")
             and isinstance(spec.loader, importlib.machinery.SourceFileLoader)
             and spec.origin
             and _should_transform(spec.origin)
@@ -134,19 +133,30 @@ def install():
         sys.meta_path.insert(0, DietPythonFinder)
 
 
-def _resolve_target(target: str) -> tuple[str, Path]:
+def _resolve_target(target: str) -> importlib.machinery.ModuleSpec:
     if os.sep in target or target.endswith(".py"):
         path = Path(target)
         if not path.is_file():
             raise SystemExit(f"soac.import_hook: file not found: {target}")
-        return path.stem, path.resolve()
+        path = path.resolve()
+        if path.name == "__init__.py":
+            spec = importlib.util.spec_from_file_location(
+                path.parent.name,
+                path,
+                submodule_search_locations=[str(path.parent)],
+            )
+        else:
+            spec = importlib.util.spec_from_file_location(path.stem, path)
+        if spec is None or spec.loader is None or spec.origin is None:
+            raise SystemExit(f"soac.import_hook: could not resolve spec for file: {target}")
+        return spec
 
     spec = importlib.util.find_spec(target)
-    if spec is None or spec.origin is None:
+    if spec is None or spec.loader is None or spec.origin is None:
         raise SystemExit(f"soac.import_hook: module not found: {target}")
     if spec.origin in {"built-in", "frozen"}:
         raise SystemExit(f"soac.import_hook: cannot execute built-in module: {target}")
-    return target, Path(spec.origin).resolve()
+    return spec
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -157,9 +167,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("args", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
 
-    module_name, path = _resolve_target(args.module)
+    spec = DietPythonFinder.wrap_spec(_resolve_target(args.module))
+    assert spec is not None
+    module_name = spec.name
+    path = Path(spec.origin).resolve()
     run_name = "__main__"
-    if path.name == "__init__.py":
+    if spec.submodule_search_locations is not None:
         package = module_name
     else:
         package = module_name.rpartition(".")[0]
@@ -167,22 +180,15 @@ def main(argv: list[str] | None = None) -> int:
 
     install()
     sys.argv = [str(path), *args.args]
-    source = path.read_text(encoding="utf-8")
-    module = _create_module_from_source(str(path), source)
-    module.__file__ = str(path)
+    module = importlib.util.module_from_spec(spec)
     module.__name__ = run_name
     module.__package__ = package
     sys.modules[run_name] = module
     if module_name != run_name:
         sys.modules[module_name] = module
     sys.argv[0] = str(path)
-    module.__dict__.setdefault("__builtins__", builtins.__dict__)
-    try:
-        init = _soac_ext.build_module_init(module)
-    except Exception as err:
-        raise ImportError(f"diet-python failed for {path}: {err}") from err
-    if init is not None:
-        init()
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
 
     return 0
 

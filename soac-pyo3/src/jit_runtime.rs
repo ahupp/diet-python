@@ -623,13 +623,13 @@ fn create_module(py: Python<'_>, source: &str) -> PyResult<Py<PyAny>> {
 }
 
 #[pyfunction]
-fn build_module_init(py: Python<'_>, module: Py<PyAny>) -> PyResult<Py<PyAny>> {
+fn exec_module(py: Python<'_>, module: Py<PyAny>) -> PyResult<()> {
     let module = module.bind(py);
-    let module_name = resolve_module_name_from_module(module.as_any(), "module init construction")?;
+    let module_name = resolve_module_name_from_module(module.as_any(), "module execution")?;
     let module_globals = module.getattr("__dict__")?;
     let lowered_module = SoacExtModule::lowered_module(module.as_any()).map_err(|err| {
         PyTypeError::new_err(format!(
-            "JIT basic-block module init construction requires an _soac_ext-created module: {err}"
+            "JIT basic-block module execution requires an _soac_ext-created module: {err}"
         ))
     })?;
     register_blockpy_module_plans(&module_name, &lowered_module)?;
@@ -647,7 +647,8 @@ fn build_module_init(py: Python<'_>, module: Py<PyAny>) -> PyResult<Py<PyAny>> {
         &module_globals,
         none.bind(py),
     )?;
-    Ok(module_init)
+    module_init.call0(py)?;
+    Ok(())
 }
 
 #[pyfunction]
@@ -687,7 +688,7 @@ fn make_bb_generator(
 
 pub(crate) fn add_module_functions(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(create_module, module)?)?;
-    module.add_function(wrap_pyfunction!(build_module_init, module)?)?;
+    module.add_function(wrap_pyfunction!(exec_module, module)?)?;
     module.add_function(wrap_pyfunction!(make_bb_function, module)?)?;
     module.add_function(wrap_pyfunction!(make_bb_generator, module)?)?;
     Ok(())
