@@ -40,8 +40,8 @@ To apply the transform automatically when modules are imported, install the
 provided import hook:
 
 ```python
-import diet_import_hook
-diet_import_hook.install()
+from soac import import_hook
+import_hook.install()
 ```
 
 After calling `install()`, any subsequent imports will be rewritten using the

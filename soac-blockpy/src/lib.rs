@@ -1,4 +1,4 @@
-use crate::block_py::BlockPyModule;
+use crate::block_py::{BlockPyModule, ModuleNameGen};
 use crate::driver::rewrite_module_with_tracker;
 use crate::pass_tracker::{NoopPassTracker, PassTracker, RecordingPassTracker};
 use crate::passes::CodegenBlockPyPass;
@@ -81,6 +81,7 @@ pub struct LoweringResult<P = RecordingPassTracker> {
 
 fn lower_python_to_blockpy_with_tracker<P>(
     source: &str,
+    module_name_gen: ModuleNameGen,
     mut pass_tracker: P,
 ) -> Result<LoweringResult<P>>
 where
@@ -90,7 +91,7 @@ where
     namegen::reset_namegen_state();
     let total_start = Instant::now();
 
-    let codegen_module = rewrite_module_with_tracker(source, &mut pass_tracker)?;
+    let codegen_module = rewrite_module_with_tracker(source, module_name_gen, &mut pass_tracker)?;
 
     Ok(LoweringResult {
         total_time: total_start.elapsed(),
@@ -99,12 +100,15 @@ where
     })
 }
 
-pub fn lower_python_to_blockpy_recorded(source: &str) -> Result<LoweringResult> {
-    lower_python_to_blockpy_with_tracker(source, RecordingPassTracker::new())
+pub fn lower_python_to_blockpy_for_testing(source: &str) -> Result<LoweringResult> {
+    lower_python_to_blockpy_with_tracker(source, ModuleNameGen::new(0), RecordingPassTracker::new())
 }
 
-pub fn lower_python_to_blockpy(source: &str) -> Result<LoweringResult<NoopPassTracker>> {
-    lower_python_to_blockpy_with_tracker(source, NoopPassTracker::new())
+pub fn lower_python_to_blockpy(
+    source: &str,
+    module_name_gen: ModuleNameGen,
+) -> Result<LoweringResult<NoopPassTracker>> {
+    lower_python_to_blockpy_with_tracker(source, module_name_gen, NoopPassTracker::new())
 }
 
 pub trait ToRuffAst {

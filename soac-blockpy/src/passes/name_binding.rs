@@ -19,7 +19,7 @@ use ruff_python_ast::{self as ast, ExprName};
 use std::collections::{HashMap, HashSet};
 
 fn is_internal_symbol(name: &str) -> bool {
-    name.starts_with("_dp_") || name.starts_with("__dp_") || name == "__dp__"
+    name.starts_with("_dp_") || name.starts_with("__dp_") || name == "runtime"
 }
 
 fn should_late_bind_name(name: &str, semantic: &BlockPyCallableSemanticInfo) -> bool {

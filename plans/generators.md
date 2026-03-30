@@ -22,7 +22,7 @@ The current code already has three useful pieces we should reuse instead of inve
 
 1. `BlockPyModule<CoreBlockPyPassWithoutAwait>` is the exact pre-generator input boundary we want.
 2. `blockpy_generators::build_blockpy_closure_layout(...)` already computes the closure/runtime-cell layout we need for closure-backed resumptions.
-3. `__dp__.py` already has the closure-backed runtime objects:
+3. `soac_py/src/soac/runtime.py` already has the closure-backed runtime objects:
    - `def_hidden_resume_fn(...)`
    - `make_closure_generator(...)`
    - `make_coroutine_from_generator(...)`
@@ -87,7 +87,7 @@ Step-by-step plan
    - After normal completion, set `_dp_pc` to a terminal PC so repeated resumes stay exhausted.
 
 7. Lower `yield from` with a small dedicated runtime helper instead of re-encoding all of PEP 380 in CFG.
-   - Add one helper in `__dp__.py` for sync-generator/coroutine delegation:
+   - Add one helper in `soac_py/src/soac/runtime.py` for sync-generator/coroutine delegation:
      - step the delegated iterator using `next` / `send` / `throw`
      - return whether the delegate completed and the yielded/final value
    - In the CFG lowering:
@@ -100,7 +100,7 @@ Step-by-step plan
 8. Stage async-generator support after the sync generator/coroutine path is stable.
    - The same outer factory + resume split applies.
    - The hidden resume function needs `_dp_transport_sent` threaded through its state order.
-   - Async-generator `yield` lowering needs a dedicated transport/yield helper in `__dp__.py`, because `_DpAsyncGenSend` interprets `_dp_yieldfrom` specially.
+   - Async-generator `yield` lowering needs a dedicated transport/yield helper in `soac_py/src/soac/runtime.py`, because `_DpAsyncGenSend` interprets `_dp_yieldfrom` specially.
    - Keep this as a second implementation slice if the sync/coroutine path lands cleanly first.
 
 9. Test in layers.
@@ -125,5 +125,3 @@ Implementation order for the actual code change
 4. Add the small sync `yield from` runtime helper and wire it into the generator-expansion path.
 5. Re-run the focused generator tests.
 6. Extend the same machinery to async generators once the sync/coroutine slice is stable.
-
-

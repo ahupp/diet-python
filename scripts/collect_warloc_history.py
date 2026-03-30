@@ -16,7 +16,7 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DIET_PYTHON_RUNTIME = "__dp__.py"
+DIET_PYTHON_RUNTIME = "soac_py/src/soac/runtime.py"
 PROJECT_TESTS_DIR = "tests"
 VENDOR_DIR = "vendor"
 DEFAULT_REVSET = "..@"

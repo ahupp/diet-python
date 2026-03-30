@@ -3,13 +3,13 @@ use crate::block_py::{
     validate_module, AbruptKind, BlockArg, BlockPyBindingKind, BlockPyCellBindingKind, BlockPyEdge,
     BlockPyLabel, BlockPyTerm, LocatedCoreBlockPyExpr, ResolvedStorageBlock, StorageLayout,
 };
-use crate::lower_python_to_blockpy_recorded;
+use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::CodegenBlockPyPass;
 
 fn tracked_name_binding_module(
     source: &str,
 ) -> crate::block_py::BlockPyModule<crate::passes::ResolvedStorageBlockPyPass> {
-    lower_python_to_blockpy_recorded(source)
+    lower_python_to_blockpy_for_testing(source)
         .expect("lowering must succeed")
         .pass_tracker
         .pass_name_binding()

@@ -146,7 +146,7 @@ fn find_python_build_lib_dir(python_home: &Path) -> Option<PathBuf> {
     None
 }
 
-fn ensure_repo_root_on_sys_path(py: Python<'_>, repo_root: &Path) -> Result<(), ApiError> {
+fn ensure_python_support_paths(py: Python<'_>, repo_root: &Path) -> Result<(), ApiError> {
     let sys = PyModule::import(py, "sys").map_err(|err| ApiError::internal(err.to_string()))?;
     let path = sys
         .getattr("path")
@@ -154,21 +154,27 @@ fn ensure_repo_root_on_sys_path(py: Python<'_>, repo_root: &Path) -> Result<(), 
     let path = path
         .cast::<PyList>()
         .map_err(|err| ApiError::internal(err.to_string()))?;
-    let repo_root = repo_root.to_string_lossy();
-    let already_present = path.iter().any(|item| {
-        item.extract::<String>()
-            .map(|value| value == repo_root)
-            .unwrap_or(false)
-    });
-    if !already_present {
-        path.insert(0, repo_root.as_ref())
-            .map_err(|err| ApiError::internal(err.to_string()))?;
+    let support_paths = [
+        repo_root.to_path_buf(),
+        repo_root.join("soac_py").join("src"),
+    ];
+    for support_path in support_paths.iter().rev() {
+        let support_path = support_path.to_string_lossy();
+        let already_present = path.iter().any(|item| {
+            item.extract::<String>()
+                .map(|value| value == support_path)
+                .unwrap_or(false)
+        });
+        if !already_present {
+            path.insert(0, support_path.as_ref())
+                .map_err(|err| ApiError::internal(err.to_string()))?;
+        }
     }
     Ok(())
 }
 
 fn lower_source_recorded(source: &str) -> Result<soac_blockpy::LoweringResult, ApiError> {
-    soac_blockpy::lower_python_to_blockpy_recorded(source)
+    soac_blockpy::lower_python_to_blockpy_for_testing(source)
         .map_err(|err| ApiError::internal(err.to_string()))
 }
 
@@ -262,8 +268,8 @@ pub fn render_registered_jit_clif(
         .ok_or_else(|| format!("no specialized JIT plan for {module_name}.fn#{function_id}"))?;
     prepare_python();
     let rendered = Python::attach(|py| {
-        ensure_repo_root_on_sys_path(py, repo_root).map_err(|err| err.error)?;
-        PyModule::import(py, "__dp__").map_err(|err| err.to_string())?;
+        ensure_python_support_paths(py, repo_root).map_err(|err| err.error)?;
+        PyModule::import(py, "soac.runtime").map_err(|err| err.to_string())?;
         let builtins = PyModule::import(py, "builtins").map_err(|err| err.to_string())?;
         let deleted_obj = builtins
             .getattr("__dp_DELETED")

@@ -76,7 +76,7 @@ fn is_dp_call(expr: &Expr, name: &str) -> bool {
     }
     matches!(
         value.as_ref(),
-        Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "__dp__"
+        Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "runtime"
     )
 }
 

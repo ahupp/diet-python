@@ -1,7 +1,7 @@
 
 import sys
 
-dp = __import__("__dp__")
+from soac import runtime as dp
 
 def exercise():
     original_limit = sys.getrecursionlimit()

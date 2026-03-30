@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-import diet_import_hook
+from soac import import_hook
 
 
 def _write(path: Path, source: str) -> None:
@@ -22,7 +22,7 @@ def test_circular_relative_import(tmp_path: Path) -> None:
     _write(pkg / "b.py", "from . import a\n")
 
     sys.path.insert(0, str(tmp_path))
-    diet_import_hook.install()
+    import_hook.install()
 
     try:
         module = importlib.import_module("pkg.a")

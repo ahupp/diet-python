@@ -6,8 +6,14 @@ subsequent imports are transformed before execution.
 """
 
 import os
+import sys
+from pathlib import Path
 
-import diet_import_hook
+PYTHON_SRC = Path(__file__).resolve().parent / "soac_py" / "src"
+if str(PYTHON_SRC) not in sys.path:
+    sys.path.insert(0, str(PYTHON_SRC))
+
+from soac import import_hook
 
 
 def _patch_test_environment():
@@ -143,7 +149,7 @@ def _patch_test_environment():
 
 if os.environ.get("DIET_PYTHON_INSTALL_HOOK") == "1":
     try:
-        diet_import_hook.install()
+        import_hook.install()
     except ImportError:
         # Subinterpreters may not be able to load the extension module.
         # Keep startup alive so those tests can run without transformed imports.

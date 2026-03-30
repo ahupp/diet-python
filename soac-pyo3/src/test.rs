@@ -14,7 +14,7 @@ fn panic_payload_to_string(payload: Box<dyn Any + Send>) -> String {
 }
 
 fn parse_and_lower(source: &str) -> Result<soac_blockpy::LoweringResult, String> {
-    match std::panic::catch_unwind(|| soac_blockpy::lower_python_to_blockpy_recorded(source)) {
+    match std::panic::catch_unwind(|| soac_blockpy::lower_python_to_blockpy_for_testing(source)) {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(err)) => Err(err.to_string()),
         Err(payload) => Err(panic_payload_to_string(payload)),
@@ -22,7 +22,7 @@ fn parse_and_lower(source: &str) -> Result<soac_blockpy::LoweringResult, String>
 }
 
 fn parse_and_lower_runtime_style(source: &str) -> Result<soac_blockpy::LoweringResult, String> {
-    match std::panic::catch_unwind(|| soac_blockpy::lower_python_to_blockpy_recorded(source)) {
+    match std::panic::catch_unwind(|| soac_blockpy::lower_python_to_blockpy_for_testing(source)) {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(err)) => Err(err.to_string()),
         Err(payload) => Err(panic_payload_to_string(payload)),

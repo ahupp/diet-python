@@ -3,7 +3,7 @@ use crate::block_py::{BlockParam, BlockParamRole};
 use crate::block_py::{
     BlockPyAssign, ClosureInit, ClosureSlot, LocatedName, NameLocation, RuffExpr, StorageLayout,
 };
-use crate::lower_python_to_blockpy_recorded;
+use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
 use ruff_python_ast as ast;
 use ruff_python_parser::parse_expression;
@@ -18,7 +18,7 @@ impl BlockPyPass for StructuredExprPass {
 }
 
 fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
-    lower_python_to_blockpy_recorded(source)
+    lower_python_to_blockpy_for_testing(source)
         .expect("expected lowered semantic BlockPy module")
         .pass_tracker
         .pass_semantic_blockpy()
@@ -132,7 +132,7 @@ fn bb_text_renders_located_names_with_resolved_locations() {
 
 #[test]
 fn transformed_lowering_result_exposes_module_init_blockpy() {
-    let blockpy = lower_python_to_blockpy_recorded(
+    let blockpy = lower_python_to_blockpy_for_testing(
         r#"
 def classify(n):
     if n < 0:

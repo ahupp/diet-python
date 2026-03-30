@@ -20,7 +20,7 @@ def import_without_transform(tmp_path: Path) -> bool:
     try:
         sys.modules.pop(module_name, None)
         module = importlib.import_module(module_name)
-        return "__dp__" in module.__dict__
+        return "runtime" in module.__dict__
     finally:
         sys.modules.pop(module_name, None)
         if sys.path and sys.path[0] == str(tmp_path):

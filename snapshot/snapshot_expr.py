@@ -208,7 +208,7 @@ x = (i for i in it)
 #             jump bb3
 #             block bb3(_dp_iter_3: Local):
 #                 _dp_tmp_4 = __dp_next_or_sentinel(_dp_iter_3)
-#                 if_term __dp_is_(_dp_tmp_4, __dp__.ITER_COMPLETE):
+#                 if_term __dp_is_(_dp_tmp_4, runtime.ITER_COMPLETE):
 #                     then:
 #                         block bb4:
 #                             return __dp_NONE
@@ -312,7 +312,7 @@ x = [i for i in it]
 #         jump bb1
 #         block bb1(_dp_tmp_1: Local, _dp_iter_0_0: Local):
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
+#             if_term __dp_is_(_dp_tmp_0_1, runtime.ITER_COMPLETE):
 #                 then:
 #                     block bb4(_dp_tmp_1: Local):
 #                         return _dp_tmp_1
@@ -347,7 +347,7 @@ x = {i for i in it}
 #         jump bb1
 #         block bb1(_dp_tmp_1: Local, _dp_iter_0_0: Local):
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
+#             if_term __dp_is_(_dp_tmp_0_1, runtime.ITER_COMPLETE):
 #                 then:
 #                     block bb4(_dp_tmp_1: Local):
 #                         return _dp_tmp_1
@@ -382,7 +382,7 @@ x = {k: v for k, v in it}
 #         jump bb1
 #         block bb1(_dp_tmp_1: Local, _dp_iter_0_0: Local):
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term __dp_is_(_dp_tmp_0_1, __dp__.ITER_COMPLETE):
+#             if_term __dp_is_(_dp_tmp_0_1, runtime.ITER_COMPLETE):
 #                 then:
 #                     block bb4(_dp_tmp_1: Local):
 #                         return _dp_tmp_1

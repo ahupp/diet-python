@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soac"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.setuptools]
+packages = ["soac"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[dependency-groups]
+dev = ["pytest>=8,<9", "pytest-xdist>=3,<4"]

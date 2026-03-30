@@ -120,7 +120,7 @@ update-venv: ensure-cpython
   (
     cd "$REPO_ROOT"
     VIRTUAL_ENV="$VENV_DIR" PATH="$VENV_DIR/bin:$PATH" \
-      uv sync --group dev --frozen --active
+      uv sync --project "$REPO_ROOT/soac_py" --group dev --frozen --active
   )
 
 build-extension build="debug": ensure-cpython
@@ -307,7 +307,7 @@ perf-pystone-jit-warm loops="500000" output_prefix="logs/pystone_jit_perf_warm":
   REPORT_CALLGRAPH="${OUTPUT_PREFIX}_callgraph.txt"
   PYO3_RELEASE_LIB="$REPO_ROOT/target/release/libdiet_python.so"
   PYO3_STAGING_DIR="$(mktemp -d)"
-  PYTHONPATH_PREFIX="${REPO_ROOT}:${PYO3_STAGING_DIR}"
+  PYTHONPATH_PREFIX="${REPO_ROOT}:${REPO_ROOT}/soac_py/src:${REPO_ROOT}/scripts:${PYO3_STAGING_DIR}"
 
   cleanup() {
     rm -rf "$PYO3_STAGING_DIR"
@@ -349,7 +349,7 @@ perf-pystone-jit-warm loops="500000" output_prefix="logs/pystone_jit_perf_warm":
     WARMUP_LOOPS="${WARMUP_LOOPS}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH="${PYTHONPATH_PREFIX}${PYTHONPATH:+:${PYTHONPATH}}" \
-    "$CPYTHON_BIN" -c 'import os; from diet_import_hook import install; install(); import pystone; warmup_loops = int(os.environ["WARMUP_LOOPS"]); loops = int(os.environ["LOOPS"]); warmup_loops > 0 and pystone.pystones(warmup_loops); pystone.main(loops)' \
+    "$CPYTHON_BIN" -c 'import os; from soac.import_hook import install; install(); import pystone; warmup_loops = int(os.environ["WARMUP_LOOPS"]); loops = int(os.environ["LOOPS"]); warmup_loops > 0 and pystone.pystones(warmup_loops); pystone.main(loops)' \
     >"${RUN_LOG}" 2>&1
 
   perf report \
@@ -526,7 +526,7 @@ benchmark loops="1000000": (update-venv) (build-extension "release")
   cd "$REPO_ROOT"
 
   echo "jit transformed"
-  "$VENV_DIR/bin/python" -m diet_import_hook.exec pystone.py "{{loops}}"
+  "$VENV_DIR/bin/python" -m soac.import_hook scripts/pystone.py "{{loops}}"
 
   echo "stock cpython"
-  "$VENV_DIR/bin/python" pystone.py "{{loops}}"
+  "$VENV_DIR/bin/python" scripts/pystone.py "{{loops}}"

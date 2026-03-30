@@ -269,7 +269,7 @@ pub(crate) fn emit_for_loop_blocks(
     ));
 
     let exhausted_test = py_expr!(
-        "__dp_is_({value:expr}, __dp__.ITER_COMPLETE)",
+        "__dp_is_({value:expr}, runtime.ITER_COMPLETE)",
         value = tmp_expr
     );
     let check_body = if is_async {

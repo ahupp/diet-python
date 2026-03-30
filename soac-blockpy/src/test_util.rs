@@ -4,7 +4,7 @@ use ruff_python_ast::{comparable::ComparableStmt, Stmt};
 use ruff_python_parser::parse_module;
 
 use crate::fixture::parse_fixture;
-use crate::{lower_python_to_blockpy_recorded, ruff_ast_to_string};
+use crate::{lower_python_to_blockpy_for_testing, ruff_ast_to_string};
 use similar::TextDiff;
 
 fn expected_output_for_mode(expected: &str) -> &str {
@@ -19,7 +19,7 @@ pub(crate) fn assert_transform_eq_ex(actual: &str, expected: &str) {
     let expected_for_mode = expected_output_for_mode(expected);
     let mut expected_normalized = expected_for_mode.trim_matches('\n').to_string();
     expected_normalized.push('\n');
-    let module = lower_python_to_blockpy_recorded(actual).unwrap();
+    let module = lower_python_to_blockpy_for_testing(actual).unwrap();
     let actual_module = module
         .pass_tracker
         .pass_ast_to_ast()
@@ -100,7 +100,7 @@ pub(crate) fn run_transform_fixture_tests(fixture: &str) {
 }
 
 fn blockpy_output_for_snapshot(actual: &str) -> String {
-    let mut output = lower_python_to_blockpy_recorded(actual)
+    let mut output = lower_python_to_blockpy_for_testing(actual)
         .map(|result| {
             crate::block_py::pretty::blockpy_module_to_string(
                 result

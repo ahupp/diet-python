@@ -283,7 +283,7 @@ where
     matches!(
         &args[0],
         CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(base))
-            if base.id_str() == "__dp__"
+            if base.id_str() == "runtime"
     ) && expr_static_str(match &args[1] {
         CoreBlockPyCallArg::Positional(value) => value,
         CoreBlockPyCallArg::Starred(_) => return false,
@@ -302,7 +302,7 @@ where
     };
     matches!(
         arg0.as_ref(),
-        CoreBlockPyExpr::Name(base) if base.id_str() == "__dp__"
+        CoreBlockPyExpr::Name(base) if base.id_str() == "runtime"
     ) && arg1 == attr_name
 }
 

@@ -6,10 +6,10 @@ use crate::block_py::{
 };
 use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
 use crate::py_expr;
-use crate::{lower_python_to_blockpy_recorded, LoweringResult};
+use crate::{lower_python_to_blockpy_for_testing, LoweringResult};
 
 fn tracked_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
-    lower_python_to_blockpy_recorded(source)
+    lower_python_to_blockpy_for_testing(source)
         .expect("transform should succeed")
         .pass_tracker
         .pass_semantic_blockpy()
@@ -20,7 +20,7 @@ fn tracked_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
 fn tracked_name_binding_module(
     source: &str,
 ) -> anyhow::Result<Option<BlockPyModule<ResolvedStorageBlockPyPass>>> {
-    Ok(lower_python_to_blockpy_recorded(source)?
+    Ok(lower_python_to_blockpy_for_testing(source)?
         .pass_tracker
         .pass_name_binding()
         .cloned())
@@ -35,7 +35,7 @@ impl TrackedLowering {
     fn new(source: &str) -> Self {
         let blockpy_module = tracked_semantic_blockpy(source);
         Self {
-            result: lower_python_to_blockpy_recorded(source).expect("transform should succeed"),
+            result: lower_python_to_blockpy_for_testing(source).expect("transform should succeed"),
             blockpy_module,
         }
     }
@@ -2637,7 +2637,8 @@ class Field:
 "#;
 
     for (name, source) in [("pass", pass_source), ("fail", fail_source)] {
-        let lowered = lower_python_to_blockpy_recorded(source).expect("transform should succeed");
+        let lowered =
+            lower_python_to_blockpy_for_testing(source).expect("transform should succeed");
         let blockpy = lowered
             .pass_tracker
             .get::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
@@ -2952,7 +2953,7 @@ def f():
 
 #[test]
 fn matches_dp_lookup_call_with_decoded_name_arg() {
-    let expr = py_expr!("__dp_getattr(__dp__, __dp_decode_literal_bytes(b\"current_exception\"))");
+    let expr = py_expr!("__dp_getattr(runtime, __dp_decode_literal_bytes(b\"current_exception\"))");
     assert!(crate::block_py::exception::is_dp_lookup_call(
         &expr,
         "current_exception",

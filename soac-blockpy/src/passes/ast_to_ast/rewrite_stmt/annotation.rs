@@ -127,7 +127,7 @@ pub(crate) fn build_annotate_fn(entries: Vec<(String, Expr, String)>, name: &str
                 .collect()
         )
     );
-    // Capture __dp__ at definition time so annotationlib fake-globals execution in
+    // Capture runtime at definition time so annotationlib fake-globals execution in
     // FORWARDREF/STRING modes cannot replace runtime helpers/builtins used by this thunk.
     // Format values in Python 3.15's annotationlib are:
     // VALUE=1, VALUE_WITH_FAKE_GLOBALS=2, FORWARDREF=3, STRING=4.
@@ -136,7 +136,7 @@ pub(crate) fn build_annotate_fn(entries: Vec<(String, Expr, String)>, name: &str
     // VALUE_WITH_FAKE_GLOBALS fallback with its stringifier globals.
     py_stmt!(
         r#"
-def {annotate_name:id}(_dp_format, _dp=__dp__):
+def {annotate_name:id}(_dp_format, _dp=runtime):
     if _dp.eq(_dp_format, 4):
         return {string_dict:expr}
     if _dp.gt(_dp_format, 2):

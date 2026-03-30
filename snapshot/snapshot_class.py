@@ -40,7 +40,7 @@ class C:
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
 #         x = 1
 #         m = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
-#         __annotate_func__ = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(__dp__), __dp_globals(), None)
+#         __annotate_func__ = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(runtime), __dp_globals(), None)
 #         return __dp_NONE
 
 # function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):

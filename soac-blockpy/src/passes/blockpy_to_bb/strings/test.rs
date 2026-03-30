@@ -3,7 +3,7 @@ use crate::{
     block_py::{
         BlockPyNameLike, BlockPyStmt, BlockPyTerm, CodegenBlockPyExpr, CodegenBlockPyLiteral,
     },
-    lower_python_to_blockpy_recorded,
+    lower_python_to_blockpy_for_testing,
     passes::lower_try_jump_exception_flow,
 };
 use std::cell::Cell;
@@ -11,7 +11,7 @@ use std::cell::Cell;
 fn tracked_name_binding_module(
     source: &str,
 ) -> crate::block_py::BlockPyModule<crate::passes::ResolvedStorageBlockPyPass> {
-    lower_python_to_blockpy_recorded(source)
+    lower_python_to_blockpy_for_testing(source)
         .expect("transform should succeed")
         .pass_tracker
         .pass_name_binding()

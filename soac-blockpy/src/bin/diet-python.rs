@@ -1,7 +1,7 @@
 use std::{env, fs, process};
 
 use serde_json::json;
-use soac_blockpy::{lower_python_to_blockpy_recorded, ruff_ast_to_string};
+use soac_blockpy::{lower_python_to_blockpy_for_testing, ruff_ast_to_string};
 
 const USAGE: &str = "usage: diet-python [--timing] <python-file>";
 
@@ -46,7 +46,7 @@ fn main() {
         }
     };
 
-    let result = match lower_python_to_blockpy_recorded(&source) {
+    let result = match lower_python_to_blockpy_for_testing(&source) {
         Ok(result) => result,
         Err(err) => {
             eprintln!("failed to parse {}: {}", path, err);

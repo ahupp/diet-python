@@ -41,11 +41,11 @@ def _dp_tuple_from_iter_helper(value):
 
 
 def __deepcopy__(memo):
-    # Modules are not pickleable; keep __dp__ as a singleton during deepcopy().
+    # Modules are not pickleable; keep runtime as a singleton during deepcopy().
     return sys.modules[__name__]
 
 
-builtins.__dp__ = sys.modules[__name__]
+builtins.runtime = sys.modules[__name__]
 builtins.__dp_getattr = builtins.getattr
 _dp_typing = builtins.__import__("typing")
 _dp_templatelib = builtins.__import__(

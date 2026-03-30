@@ -1,4 +1,4 @@
-"""Ensure the transform rewrites `del` to `__dp__.delattr` correctly."""
+"""Ensure the transform rewrites `del` to `runtime.delattr` correctly."""
 
 
 class Example:

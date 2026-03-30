@@ -9,7 +9,7 @@ use log::{log_enabled, trace, Level};
 use soac_blockpy::block_py::{count_ruff_blockpy_blocks, BlockPyModule};
 use soac_blockpy::fixture::{parse_fixture, render_fixture, FixtureBlock};
 use soac_blockpy::passes::CodegenBlockPyPass;
-use soac_blockpy::{init_logging, lower_python_to_blockpy_recorded};
+use soac_blockpy::{init_logging, lower_python_to_blockpy_for_testing};
 
 struct SnapshotSummaryRow {
     case_name: String,
@@ -288,7 +288,7 @@ fn regenerate_fixture(path: &Path, summary: &mut Vec<SnapshotSummaryRow>) -> Res
         }
         let case_name = qualified_case_name(path, block)?;
         let snapshot_result = with_suppressed_panic_hook(|| {
-            let transformed = lower_python_to_blockpy_recorded(&block.input)
+            let transformed = lower_python_to_blockpy_for_testing(&block.input)
                 .map_err(|err| format!("{}: {}", path.display(), err))?;
             Ok(render_blockpy_snapshot(block.input.as_str(), &transformed))
         });

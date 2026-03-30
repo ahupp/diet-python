@@ -1,18 +1,24 @@
+from __future__ import annotations
 
-import importlib.machinery
+import argparse
 import builtins
-import linecache
+import importlib.machinery
+import importlib.util
 import os
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[3]
 _PYO3_TRANSFORM = None
+
+
 def _integration_only_enabled() -> bool:
     # Read dynamically so tests can toggle this per import context.
     return os.environ.get("DIET_PYTHON_INTEGRATION_ONLY") == "1"
+
 
 def _run_module_init(module) -> None:
     init = getattr(module, "_dp_module_init", None)
@@ -38,7 +44,6 @@ def _build_module_init(path: str, module):
         init = transformer.build_module_init(
             original_source,
             module.__dict__,
-            True,
         )
     except SyntaxError as err:
         if err.filename is None:
@@ -61,7 +66,6 @@ def _get_pyo3_transform():
             ) from err
         _PYO3_TRANSFORM = transform
     return _PYO3_TRANSFORM
-
 
 
 def _is_integration_module(resolved: Path) -> bool:
@@ -142,13 +146,14 @@ def install():
     # Ensure the transform module is loaded before we intercept stdlib imports.
     _get_pyo3_transform()
     try:
-        import __dp__ as _dp_module
-        hook_fn = getattr(_dp_module, "_ensure_annotationlib_import_hook", None)
+        from . import runtime as runtime_module
+
+        hook_fn = getattr(runtime_module, "_ensure_annotationlib_import_hook", None)
         if hook_fn is not None:
             hook_fn()
         transform = _get_pyo3_transform()
-        _dp_module._jit_make_bb_function = getattr(transform, "make_bb_function", None)
-        _dp_module._jit_make_bb_generator = getattr(transform, "make_bb_generator", None)
+        runtime_module._jit_make_bb_function = getattr(transform, "make_bb_function", None)
+        runtime_module._jit_make_bb_generator = getattr(transform, "make_bb_generator", None)
     except Exception:
         pass
 
@@ -167,3 +172,65 @@ def install():
             break
     else:
         sys.meta_path.insert(0, DietPythonFinder)
+
+
+def _resolve_target(target: str) -> tuple[str, Path]:
+    if os.sep in target or target.endswith(".py"):
+        path = Path(target)
+        if not path.is_file():
+            raise SystemExit(f"soac.import_hook: file not found: {target}")
+        return path.stem, path.resolve()
+
+    spec = importlib.util.find_spec(target)
+    if spec is None or spec.origin is None:
+        raise SystemExit(f"soac.import_hook: module not found: {target}")
+    if spec.origin in {"built-in", "frozen"}:
+        raise SystemExit(f"soac.import_hook: cannot execute built-in module: {target}")
+    return target, Path(spec.origin).resolve()
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Execute a module via transformed source + module init"
+    )
+    parser.add_argument("module", help="Module name or path to a .py file")
+    parser.add_argument("args", nargs=argparse.REMAINDER)
+    args = parser.parse_args(argv)
+
+    module_name, path = _resolve_target(args.module)
+    run_name = "__main__"
+    if path.name == "__init__.py":
+        package = module_name
+    else:
+        package = module_name.rpartition(".")[0]
+    package = package or None
+
+    install()
+    transform = _get_pyo3_transform()
+    sys.argv = [str(path), *args.args]
+    source = path.read_text(encoding="utf-8")
+    module = types.ModuleType(run_name)
+    module.__file__ = str(path)
+    module.__name__ = run_name
+    module.__package__ = package
+    sys.modules[run_name] = module
+    if module_name != run_name:
+        sys.modules[module_name] = module
+    sys.argv[0] = str(path)
+    module.__dict__.setdefault("__builtins__", builtins.__dict__)
+    init = transform.build_module_init(source, module.__dict__)
+    if callable(init):
+        module._dp_module_init = init
+    init = getattr(module, "_dp_module_init", None)
+    if callable(init):
+        init()
+        try:
+            delattr(module, "_dp_module_init")
+        except Exception:
+            pass
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

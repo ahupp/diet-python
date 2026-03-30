@@ -6,7 +6,7 @@ use crate::block_py::{
     BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCellBindingKind,
     BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyModule, ModuleNameGen,
 };
-use crate::lower_python_to_blockpy_recorded;
+use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::semantic::SemanticAstState;
 use crate::passes::RuffBlockPyPass;
@@ -14,7 +14,7 @@ use ruff_python_ast::Stmt;
 use ruff_python_parser::parse_module;
 
 fn tracked_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
-    lower_python_to_blockpy_recorded(source)
+    lower_python_to_blockpy_for_testing(source)
         .unwrap()
         .pass_tracker
         .pass_semantic_blockpy()
@@ -33,7 +33,12 @@ fn lower_test_module_plan(
         ) {
             crate::driver::wrap_module_init(&mut semantic_state, &mut module);
         }
-    rewrite_ast_to_lowered_blockpy_module_plan_with_module(context, module, &semantic_state)
+    rewrite_ast_to_lowered_blockpy_module_plan_with_module(
+        context,
+        module,
+        &semantic_state,
+        ModuleNameGen::new(0),
+    )
 }
 
 #[test]

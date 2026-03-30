@@ -2,6 +2,7 @@
 cpython-venv
 /web/pkg
 *.pyc
+*.egg-info/
 cpython-install-*/
 cpython_test_run.log
 .diet_python_cache

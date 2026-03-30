@@ -1,5 +1,5 @@
 use crate::block_py::pretty::BlockPyPrettyPrint;
-use crate::block_py::BlockPyModule;
+use crate::block_py::{BlockPyModule, ModuleNameGen};
 use crate::pass_tracker::PassTracker;
 use crate::passes::ast_to_ast::ast_rewrite::rewrite_with_pass;
 use crate::passes::ast_to_ast::context::Context;
@@ -74,6 +74,7 @@ fn lower_core_blockpy_with_await_and_yield(
 
 pub(crate) fn rewrite_module_with_tracker(
     source: &str,
+    module_name_gen: ModuleNameGen,
     pass_tracker: &mut impl PassTracker,
 ) -> Result<BlockPyModule<CodegenBlockPyPass>> {
     let module =
@@ -137,6 +138,7 @@ pub(crate) fn rewrite_module_with_tracker(
                 &context,
                 module,
                 &semantic_state,
+                module_name_gen,
             )
         });
 

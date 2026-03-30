@@ -4,7 +4,7 @@ use crate::block_py::{
     BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
     BlockPyTerm, CoreBlockPyExpr, StructuredBlockPyStmt,
 };
-use crate::lower_python_to_blockpy_recorded;
+use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ruff_to_blockpy::stmt_sequences::{
     lower_for_stmt_sequence, lower_if_stmt_sequence, lower_if_stmt_sequence_from_stmt,
@@ -20,7 +20,7 @@ fn test_name_gen() -> FunctionNameGen {
 }
 
 fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
-    lower_python_to_blockpy_recorded(source)
+    lower_python_to_blockpy_for_testing(source)
         .unwrap()
         .pass_tracker
         .pass_semantic_blockpy()
@@ -29,7 +29,7 @@ fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
 }
 
 fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
-    lower_python_to_blockpy_recorded(source)
+    lower_python_to_blockpy_for_testing(source)
         .unwrap()
         .pass_tracker
         .pass_semantic_blockpy()
@@ -38,7 +38,7 @@ fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
 }
 
 fn wrapped_core_blockpy(source: &str) -> BlockPyModule<CoreBlockPyPass> {
-    lower_python_to_blockpy_recorded(source)
+    lower_python_to_blockpy_for_testing(source)
         .unwrap()
         .pass_tracker
         .pass_core_blockpy()

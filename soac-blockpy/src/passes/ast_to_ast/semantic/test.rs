@@ -1,7 +1,7 @@
 use super::{
     SemanticAstState, SemanticBindingKind, SemanticBindingUse, SemanticScope, SemanticScopeKind,
 };
-use crate::lower_python_to_blockpy_recorded;
+use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_class_def::class_body::rewrite_class_body_scopes;
 use ruff_python_ast::{self as ast, Stmt};
@@ -440,7 +440,7 @@ fn semantic_state_keeps_nested_class_binding_shape_transformable() {
         "def get_member():\n",
         "    return getattr(Container, \"Member\", None)\n",
     );
-    let _ = lower_python_to_blockpy_recorded(source).expect("transform should succeed");
+    let _ = lower_python_to_blockpy_for_testing(source).expect("transform should succeed");
 }
 
 #[test]
@@ -457,5 +457,5 @@ fn semantic_state_keeps_genexpr_iter_once_shape_transformable() {
         "def run():\n",
         "    return list(x for x in Iterable())\n",
     );
-    let _ = lower_python_to_blockpy_recorded(source).expect("transform should succeed");
+    let _ = lower_python_to_blockpy_for_testing(source).expect("transform should succeed");
 }

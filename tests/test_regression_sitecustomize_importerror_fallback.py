@@ -8,7 +8,7 @@ def test_sitecustomize_ignores_install_importerror(monkeypatch):
     def _boom():
         raise ImportError("diet-python pyo3 module is required but could not be imported")
 
-    monkeypatch.setattr(sitecustomize.diet_import_hook, "install", _boom)
+    monkeypatch.setattr(sitecustomize.import_hook, "install", _boom)
 
     # Regression: this used to bubble up and print "Error in sitecustomize".
     importlib.reload(sitecustomize)

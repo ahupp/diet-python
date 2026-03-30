@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-dp = __import__("__dp__")
+from soac import runtime as dp
 
 
 def exercise():

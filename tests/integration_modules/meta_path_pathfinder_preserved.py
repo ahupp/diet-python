@@ -4,11 +4,11 @@ import textwrap
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-import diet_import_hook
+from soac import import_hook
 
 
 def import_with_filtered_meta_path() -> bool:
-    diet_import_hook.install()
+    import_hook.install()
     original_meta_path = list(sys.meta_path)
     try:
         sys.meta_path[:] = [

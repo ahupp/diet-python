@@ -10,10 +10,13 @@ from types import ModuleType
 from typing import Iterator
 
 ROOT = Path(__file__).resolve().parent.parent
+PYTHON_SRC = ROOT / "soac_py" / "src"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+if str(PYTHON_SRC) not in sys.path:
+    sys.path.insert(0, str(PYTHON_SRC))
 
-import diet_import_hook
+from soac import import_hook
 
 _VALIDATE_DELIMITER = "# diet-python: validate"
 
@@ -105,12 +108,11 @@ def render_transformed_source(module_path: Path) -> str:
         raise ImportError(
             f"diet-python could not read source for {module_path}: {err}"
         ) from err
-    transformer = diet_import_hook._get_pyo3_transform()
+    transformer = import_hook._get_pyo3_transform()
     try:
         return transformer.transform_source_with_name(
             source,
             module_path.stem,
-            True,
         )
     except SyntaxError as err:
         if err.filename is None:
@@ -124,14 +126,14 @@ def render_transformed_source(module_path: Path) -> str:
 def _disable_import_hook() -> Iterator[None]:
     removed_indexes: list[int] = []
     for index in range(len(sys.meta_path) - 1, -1, -1):
-        if sys.meta_path[index] is diet_import_hook.DietPythonFinder:
+        if sys.meta_path[index] is import_hook.DietPythonFinder:
             removed_indexes.append(index)
             sys.meta_path.pop(index)
     try:
         yield
     finally:
         for index in reversed(removed_indexes):
-            sys.meta_path.insert(index, diet_import_hook.DietPythonFinder)
+            sys.meta_path.insert(index, import_hook.DietPythonFinder)
 
 
 @contextmanager
@@ -161,7 +163,7 @@ def _load_module(
             os.environ["DIET_PYTHON_MODE"] = "transform"
             if prior_integration_only is None:
                 os.environ["DIET_PYTHON_INTEGRATION_ONLY"] = "1"
-            diet_import_hook.install()
+            import_hook.install()
             sys.modules.pop(full_name, None)
             sys.modules.pop(package_name, None)
             module = importlib.import_module(full_name)

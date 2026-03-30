@@ -11,7 +11,7 @@
 </style>
 <rect class="frame" x="0" y="0" width="1200" height="360" rx="18" />
 <text class="title" x="28" y="34">End-of-Day LOC</text>
-<text class="subtitle" x="28" y="58">Repository code LOC plus top-level __dp__.py, and total Python LOC under tests/.</text>
+<text class="subtitle" x="28" y="58">Repository code LOC plus soac_py/src/soac/runtime.py, and total Python LOC under tests/.</text>
 <circle cx="970" cy="30" r="5" fill="#7fd4ff" />
 <text class="legend" x="984" y="34">Code LOC</text>
 <circle cx="970" cy="50" r="5" fill="#ffd166" />

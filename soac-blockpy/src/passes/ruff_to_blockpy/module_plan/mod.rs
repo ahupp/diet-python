@@ -39,12 +39,13 @@ pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
     context: &Context,
     mut module: Suite,
     semantic_state: &SemanticAstState,
+    module_name_gen: ModuleNameGen,
 ) -> BlockPyModule<RuffBlockPyPass> {
     crate::passes::ast_to_ast::simplify::flatten(&mut module);
     let mut rewriter = BlockPyModuleRewriter {
         context,
         semantic_state,
-        module_name_gen: ModuleNameGen::new(0),
+        module_name_gen,
         function_scope_stack: Vec::new(),
         callable_defs: Vec::new(),
     };

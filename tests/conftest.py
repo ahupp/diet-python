@@ -11,10 +11,13 @@ from types import ModuleType
 os.environ.setdefault("DIET_PYTHON_VALIDATE_MIN_AST", "1")
 
 ROOT = Path(__file__).resolve().parent.parent
+PYTHON_SRC = ROOT / "soac_py" / "src"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+if str(PYTHON_SRC) not in sys.path:
+    sys.path.insert(0, str(PYTHON_SRC))
 
-import diet_import_hook
+from soac import import_hook
 from tests import _integration
 import pytest
 from _pytest.reports import CollectReport, TestReport
@@ -44,7 +47,7 @@ def _print_integration_failure_context(module_path: Path) -> None:
 
 @contextmanager
 def _load_integration_module(module_name: str) -> Iterator[ModuleType]:
-    diet_import_hook.install()
+    import_hook.install()
     module_dir = str(_MODULES_DIR)
     module_path = _MODULES_DIR / f"{module_name}.py"
     if not module_path.exists():

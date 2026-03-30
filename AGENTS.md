@@ -11,7 +11,7 @@
 - **MUST FOLLOW**: Always preserve behavior in the transformed code, particularly evaluation order.
 - **MUST FOLLOW**: When traversing the AST, always use an impl of `crate::transformer::Transformer`.
 - **MUST FOLLOW**: When referring to a specific line or block of code, name the enclosing function, struct, trait, or other code item first, then give the full path with line number. Preferred format: `in <item>, at <path>:<line>`.
-- **NOTE**: Prefer adding behavior at transform time rather than runtime in `__dp__.py` whenever possible.
+- **NOTE**: Prefer adding behavior at transform time rather than runtime in `soac_py/src/soac/runtime.py` whenever possible.
 - **MUST FOLLOW**: If a change requires adding a compatibility interface for a Python standard type/function, or patching one, stop and describe the reason before implementing.
 - **MUST FOLLOW**: When changing implementation details, do not keep compatibility stubs/interfaces around; assume transformed inputs are regenerated each time.
 
@@ -43,11 +43,9 @@
 - **MUST FOLLOW**: For each logical change, update the top commit description with `jj describe -m "<message>" @`, then create a new commit with `jj new` before starting the next logical change.
 - **MUST FOLLOW**: After each logical change, run `jj diff --stat` and show a concise summary of the size and location of the change.
 - **MUST FOLLOW**: When completing one step in a multi-stage plan, explain the next concrete step. If stopping instead of continuing, explicitly say the current line is done and then describe the next suggested plan.
-- **MUST FOLLOW**: If a user request starts with `TODO`, add it to the `## Codex TODO Intake` section of `TODO.md`.
-- **MUST FOLLOW**: When a user asks a question and the response does not involve code changes, add the question and answer to the `# QA` section of `TODO.md` with a date/timestamp.
-- **MUST FOLLOW**: If a response to a `TODO` request includes a plan or other useful information, include that in the corresponding `TODO.md` entry.
-- **MUST FOLLOW**: When a TODO is completed, move it from `## Codex TODO Intake` to `## Completed` in `TODO.md` and include a brief description of the work done.
-- **MUST FOLLOW**: At the end of each completed response for a `TODO` request, list the TODOs one per line and include a summary of the last response.
+- **MUST FOLLOW**: Only record something in `TODO.md` when the user explicitly asks you to plan something.
+- **MUST FOLLOW**: For each such planning request, create a new heading in `TODO.md` of the form `## {plan description}` and put the plan details under that heading.
+- **MUST FOLLOW**: Do not record regular questions, ordinary implementation requests, or their answers in `TODO.md` unless the user explicitly asked for a plan.
 - **MUST FOLLOW**: When a `jj describe` message needs multiple paragraphs or sections, pass actual newlines, not literal `\n`. Use shell multiline quoting, for example:
   `jj describe -m "$(cat <<'EOF'
   Summary line

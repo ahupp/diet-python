@@ -22,15 +22,7 @@ fn is_cell_object(obj: *mut ffi::PyObject) -> bool {
 }
 
 fn import_dp_module<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyModule>> {
-    PyModule::import(py, "__dp__")
-}
-
-fn lower_source_for_codegen(
-    source: &str,
-    ensure: Option<bool>,
-) -> PyResult<soac_blockpy::LoweringResult<NoopPassTracker>> {
-    let _ = ensure;
-    lower_python_to_blockpy(source).map_err(lowering_error_to_pyerr)
+    PyModule::import(py, "soac.runtime")
 }
 
 pub(crate) fn register_lowered_module_plans<P>(
@@ -633,11 +625,13 @@ fn build_module_init(
     py: Python<'_>,
     source: &str,
     module_globals: Py<PyAny>,
-    ensure: Option<bool>,
 ) -> PyResult<Py<PyAny>> {
     let module_globals = module_globals.bind(py);
     let module_name = resolve_module_name(&module_globals, "module init construction")?;
-    let output = lower_source_for_codegen(source, ensure)?;
+    let session = soac_eval::CompileSession::new();
+    let output: soac_blockpy::LoweringResult<NoopPassTracker> =
+        lower_python_to_blockpy(source, session.module_name_gen())
+            .map_err(lowering_error_to_pyerr)?;
     register_lowered_module_plans(&output, &module_name)?;
     let function = lookup_module_init_function(&output, &module_name)?;
     let dp = import_dp_module(py)?;

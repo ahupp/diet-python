@@ -1,3 +1,4 @@
+use soac_blockpy::block_py::ModuleNameGen;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 static NEXT_COMPILE_SESSION_ID: AtomicU32 = AtomicU32::new(1);
@@ -29,6 +30,10 @@ impl CompileSession {
 
     pub fn id(self) -> CompileSessionId {
         self.id
+    }
+
+    pub fn module_name_gen(self) -> ModuleNameGen {
+        ModuleNameGen::new(0)
     }
 }
 

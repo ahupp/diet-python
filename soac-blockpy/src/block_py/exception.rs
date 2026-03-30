@@ -97,7 +97,7 @@ pub(crate) fn is_dp_lookup_call(func: &Expr, attr_name: &str) -> bool {
     if let Expr::Attribute(attr) = func {
         if attr.attr.as_str() == attr_name {
             if let Expr::Name(module) = attr.value.as_ref() {
-                return module.id.as_str() == "__dp__";
+                return module.id.as_str() == "runtime";
             }
         }
     }
@@ -113,7 +113,7 @@ pub(crate) fn is_dp_lookup_call(func: &Expr, attr_name: &str) -> bool {
         }
         let base_matches = matches!(
             &call.arguments.args[0],
-            Expr::Name(base) if base.id.as_str() == "__dp__"
+            Expr::Name(base) if base.id.as_str() == "runtime"
         );
         if !base_matches {
             return false;

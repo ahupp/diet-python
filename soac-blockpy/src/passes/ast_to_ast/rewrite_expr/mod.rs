@@ -556,7 +556,7 @@ def {func:id}({param:id}):
 {iter_name:id} = {iter:expr}
 while True:
     {target_tmp:id} = await __dp_anext_or_sentinel({iter_name:id})
-    if {target_tmp:id} is __dp__.ITER_COMPLETE:
+    if {target_tmp:id} is runtime.ITER_COMPLETE:
         break
     else:
         {target:expr} = {target_tmp:id}
@@ -587,7 +587,7 @@ async for {target:expr} in {iter:expr}:
 {iter_name:id} = {iter:expr}
 while True:
     {target_tmp:id} = __dp_next_or_sentinel({iter_name:id})
-    if {target_tmp:id} is __dp__.ITER_COMPLETE:
+    if {target_tmp:id} is runtime.ITER_COMPLETE:
         break
     else:
         {target:expr} = {target_tmp:id}

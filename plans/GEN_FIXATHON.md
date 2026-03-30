@@ -76,7 +76,7 @@ Proposed fix:
 - Normalize async-generator completion/protocol exceptions at the awaitable boundary instead of letting them leak out raw.
 
 Landed fix:
-- Runtime updates in `__dp__.py`
+- Runtime updates in `soac_py/src/soac/runtime.py`
 
 Status:
 - fixed
@@ -121,7 +121,7 @@ Landed fix:
   - `soac-eval/src/jit/mod.rs`
 - async-generator completion updates in:
   - `soac-blockpy/src/passes/blockpy_generators/mod.rs`
-  - `__dp__.py`
+  - `soac_py/src/soac/runtime.py`
 
 Status:
 - fixed
@@ -143,7 +143,7 @@ Proposed fix:
 - Fix the JIT refcount imbalance around vectorcall-built argument tuples.
 
 Landed fix:
-- Runtime cleanup in `__dp__.py`
+- Runtime cleanup in `soac_py/src/soac/runtime.py`
 - JIT refcount fixes in `soac-eval/src/jit/mod.rs`
 
 Status:
@@ -172,7 +172,7 @@ Landed fix:
 - Removed the JIT `__dp_eval_` / `__dp_exec_` shortcut in `soac-eval/src/jit/mod.rs`
 - Included ambient values in JIT locals synthesis in `soac-eval/src/jit/mod.rs`
 - Rewrote one-argument `exec(...)` / `eval(...)` to pass `None, __dp_locals()` in `soac-blockpy/src/passes/ast_to_ast/rewrite_names.rs`
-- Kept `_default_visible_locals(...)` support in `__dp__.py`
+- Kept `_default_visible_locals(...)` support in `soac_py/src/soac/runtime.py`
 
 Status:
 - fixed

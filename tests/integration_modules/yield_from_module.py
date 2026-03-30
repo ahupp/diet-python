@@ -29,8 +29,8 @@ def validate_module(module):
     import builtins
 
     if __dp_integration_transformed__:
-        assert "__dp__" not in module.__dict__
-        assert hasattr(builtins, "__dp__")
+        assert "runtime" not in module.__dict__
+        assert hasattr(builtins, "runtime")
 
     gen = module.delegator()
 
