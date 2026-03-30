@@ -506,14 +506,13 @@ fn instantiate_bb_function(
     annotate_fn: &Bound<'_, PyAny>,
 ) -> PyResult<Py<PyAny>> {
     let signature = build_bb_signature(py, function, param_defaults)?;
-    let (raw_entry, entry, _plan_name) = instantiate_closure_backed_entry(
+    let (raw_entry, entry) = instantiate_closure_backed_entry(
         py,
         dp,
         module_name,
         function,
         captures,
         module_globals,
-        "function instantiation",
         function.names.display_name.as_str(),
         function.names.qualname.as_str(),
     )?;
@@ -546,22 +545,6 @@ fn instantiate_bb_function(
     Ok(entry.unbind())
 }
 
-fn ensure_bb_plan(
-    module_name: &str,
-    function: &BlockPyFunction<CodegenBlockPyPass>,
-    operation: &str,
-) -> PyResult<String> {
-    let plan_name = function
-        .function_id
-        .plan_qualname(function.names.qualname.as_str());
-    if soac_eval::jit::lookup_blockpy_function(module_name, function.function_id.0).is_none() {
-        return Err(PyRuntimeError::new_err(format!(
-            "JIT basic-block {operation} requires a registered plan, but none is available for {module_name}.{plan_name}"
-        )));
-    }
-    Ok(plan_name)
-}
-
 fn instantiate_closure_backed_entry<'py>(
     py: Python<'py>,
     dp: &Bound<'py, PyModule>,
@@ -569,11 +552,12 @@ fn instantiate_closure_backed_entry<'py>(
     function: &BlockPyFunction<CodegenBlockPyPass>,
     captures: &Bound<'py, PyAny>,
     module_globals: &Bound<'py, PyAny>,
-    operation: &str,
     entry_name: &str,
     qualname: &str,
-) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>, String)> {
-    let plan_name = ensure_bb_plan(module_name, function, operation)?;
+) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+    let plan_name = function
+        .function_id
+        .plan_qualname(function.names.qualname.as_str());
     let (captured_names, closure_values) = build_capture_map(py, captures)?;
     let raw_entry = make_lazy_clif_entry(py, dp, entry_name, module_globals)?;
     register_lazy_clif_vectorcall(
@@ -592,7 +576,7 @@ fn instantiate_closure_backed_entry<'py>(
         &captured_names,
         &closure_values,
     )?;
-    Ok((raw_entry, entry, plan_name))
+    Ok((raw_entry, entry))
 }
 
 #[pyfunction]
