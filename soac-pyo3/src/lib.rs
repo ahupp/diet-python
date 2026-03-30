@@ -43,7 +43,7 @@ fn transform_source_with_name(source: &str, module_name: &str) -> PyResult<Strin
 }
 
 #[pymodule]
-fn diet_python(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _soac_ext(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     soac_blockpy::init_logging();
     module.add_function(wrap_pyfunction!(transform_source_with_name, module)?)?;
     jit_runtime::add_module_functions(module)?;

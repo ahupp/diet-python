@@ -10,22 +10,22 @@ import tempfile
 from pathlib import Path
 
 try:
-    import diet_python
+    import _soac_ext
 except Exception as err:
-    diet_python = None
-    _DIET_PYTHON_IMPORT_ERROR = err
+    _soac_ext = None
+    _SOAC_EXT_IMPORT_ERROR = err
 else:
-    _DIET_PYTHON_IMPORT_ERROR = None
+    _SOAC_EXT_IMPORT_ERROR = None
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-def _raise_missing_diet_python() -> None:
+def _raise_missing_soac_ext() -> None:
     raise ImportError(
-        "diet-python extension is required but could not be imported; "
+        "soac native extension '_soac_ext' is required but could not be imported; "
         "run 'just build-all' or 'just build-extension <debug|release>'"
-    ) from _DIET_PYTHON_IMPORT_ERROR
+    ) from _SOAC_EXT_IMPORT_ERROR
 
 
 def _integration_only_enabled() -> bool:
@@ -34,10 +34,10 @@ def _integration_only_enabled() -> bool:
 
 
 def _create_module_from_source(path: str, source: str):
-    if diet_python is None:
-        _raise_missing_diet_python()
+    if _soac_ext is None:
+        _raise_missing_soac_ext()
     try:
-        return diet_python.create_module(source)
+        return _soac_ext.create_module(source)
     except SyntaxError as err:
         if err.filename is None:
             err.filename = path
@@ -56,10 +56,10 @@ def _create_module_from_path(path: str):
 
 
 def _run_module_init(path: str, module) -> None:
-    if diet_python is None:
-        _raise_missing_diet_python()
+    if _soac_ext is None:
+        _raise_missing_soac_ext()
     try:
-        init = diet_python.build_module_init(module)
+        init = _soac_ext.build_module_init(module)
     except Exception as err:
         raise ImportError(f"diet-python failed for {path}: {err}") from err
     if init is None:
@@ -140,8 +140,8 @@ class DietPythonFinder(importlib.machinery.PathFinder):
 def install():
     """Install the diet-python import hook."""
     # Ensure the transform module is loaded before we intercept stdlib imports.
-    if diet_python is None:
-        _raise_missing_diet_python()
+    if _soac_ext is None:
+        _raise_missing_soac_ext()
 
     existing_typing = sys.modules.get("typing")
     if existing_typing is not None:

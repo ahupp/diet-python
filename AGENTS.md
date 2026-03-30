@@ -23,9 +23,9 @@
 - **NOTE**: Set `DIET_PYTHON_INTEGRATION_ONLY=1` to only transform integration test modules (skip transforming all imports).
 - To inspect the transformed output of some code, run `cargo run --bin diet-python file_with_code.py`, which prints output to stdout.
 - *MUST FOLLOW* when fixing a bug that fails a cpython test case *always* add a minimal reproducing integration test to reproduce it first.
-- **MUST FOLLOW**: Prefer `Justfile` recipes over invoking interpreters or test runners directly. `just pytest`, `just test-all`, and `just py ...` are the authoritative transformed-runtime entrypoints because they select the interpreter/environment that can import the built `diet_python` extension.
+- **MUST FOLLOW**: Prefer `Justfile` recipes over invoking interpreters or test runners directly. `just pytest`, `just test-all`, and `just py ...` are the authoritative transformed-runtime entrypoints because they select the interpreter/environment that can import the built `_soac_ext` extension.
 - CPython source for tests is vendored at `vendor/cpython` (the scripts use `vendor/cpython/python`).
-- **MUST FOLLOW**: Only use `vendor/cpython/python` directly when there is no `Justfile` recipe for the task, or when you are explicitly debugging raw CPython behavior rather than the built `diet_python` extension path.
+- **MUST FOLLOW**: Only use `vendor/cpython/python` directly when there is no `Justfile` recipe for the task, or when you are explicitly debugging raw CPython behavior rather than the built `_soac_ext` extension path.
 - **NOTE**: For `just run-cpython-tests 0 -f <file>`, pass an absolute path for `<file>` since regrtest runs from `vendor/cpython`.
 - **NOTE**: In sandboxed environments, set `--tempdir /tmp/<dir>` when running CPython tests; default worker temp dirs under `/home/adam/project/cpython/build/...` can fail with permission errors.
 - **NOTE**: After interrupting CPython test runs, clean stale workers before retrying (`pkill -f test.libregrtest.worker`).

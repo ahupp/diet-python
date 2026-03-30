@@ -10,7 +10,7 @@ use soac_blockpy::block_py::{BlockPyFunction, BlockPyModule, FunctionId, ParamKi
 use soac_blockpy::lower_python_to_blockpy;
 use soac_blockpy::pass_tracker::NoopPassTracker;
 use soac_blockpy::passes::CodegenBlockPyPass;
-use soac_eval::module_type::DietPythonModule;
+use soac_eval::module_type::SoacExtModule;
 use std::time::Instant;
 
 unsafe extern "C" {
@@ -619,7 +619,7 @@ fn create_module(py: Python<'_>, source: &str) -> PyResult<Py<PyAny>> {
     let output: soac_blockpy::LoweringResult<NoopPassTracker> =
         lower_python_to_blockpy(source, session.module_name_gen())
             .map_err(lowering_error_to_pyerr)?;
-    DietPythonModule::new(py, "__diet_python_pending__", output.codegen_module)
+    SoacExtModule::new(py, "__soac_ext_pending__", output.codegen_module)
 }
 
 #[pyfunction]
@@ -627,9 +627,9 @@ fn build_module_init(py: Python<'_>, module: Py<PyAny>) -> PyResult<Py<PyAny>> {
     let module = module.bind(py);
     let module_name = resolve_module_name_from_module(module.as_any(), "module init construction")?;
     let module_globals = module.getattr("__dict__")?;
-    let lowered_module = DietPythonModule::lowered_module(module.as_any()).map_err(|err| {
+    let lowered_module = SoacExtModule::lowered_module(module.as_any()).map_err(|err| {
         PyTypeError::new_err(format!(
-            "JIT basic-block module init construction requires a diet_python-created module: {err}"
+            "JIT basic-block module init construction requires an _soac_ext-created module: {err}"
         ))
     })?;
     register_blockpy_module_plans(&module_name, &lowered_module)?;

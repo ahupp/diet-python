@@ -12,7 +12,7 @@ from typing import NamedTuple
 import warnings
 
 try:
-    from diet_python import (
+    from _soac_ext import (
         make_bb_function as _jit_make_bb_function,
         make_bb_generator as _jit_make_bb_generator,
     )

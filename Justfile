@@ -76,8 +76,8 @@ uninstall-extension: ensure-venv
   export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   SITE_PACKAGES="$("$VENV_DIR/bin/python" -c 'import sysconfig; print(sysconfig.get_path("platlib"))')"
   if [[ -d "$SITE_PACKAGES" ]]; then
-    find "$SITE_PACKAGES" -maxdepth 1 -type f -name 'diet_python*.so' -delete
-    find "$SITE_PACKAGES" -maxdepth 1 -type l -name 'diet_python*.so' -delete
+    find "$SITE_PACKAGES" -maxdepth 1 -type f -name '_soac_ext*.so' -delete
+    find "$SITE_PACKAGES" -maxdepth 1 -type l -name '_soac_ext*.so' -delete
   fi
 
 [private]
@@ -97,7 +97,7 @@ install-extension build="debug": ensure-venv ensure-cpython
     ARTIFACT_DIR="$REPO_ROOT/target/debug"
   fi
 
-  SOURCE_EXT="$ARTIFACT_DIR/libdiet_python.so"
+  SOURCE_EXT="$ARTIFACT_DIR/lib_soac_ext.so"
   if [[ ! -f "$SOURCE_EXT" ]]; then
     echo "extension not found at $SOURCE_EXT" >&2
     exit 1
@@ -105,7 +105,7 @@ install-extension build="debug": ensure-venv ensure-cpython
 
   SITE_PACKAGES="$("$VENV_DIR/bin/python" -c 'import sysconfig; print(sysconfig.get_path("platlib"))')"
   EXT_SUFFIX="$("$VENV_DIR/bin/python" -c 'import importlib.machinery; print(importlib.machinery.EXTENSION_SUFFIXES[0])')"
-  TARGET_EXT="$SITE_PACKAGES/diet_python$EXT_SUFFIX"
+  TARGET_EXT="$SITE_PACKAGES/_soac_ext$EXT_SUFFIX"
 
   mkdir -p "$SITE_PACKAGES"
   just uninstall-extension
@@ -305,7 +305,7 @@ perf-pystone-jit-warm loops="500000" output_prefix="logs/pystone_jit_perf_warm":
   REPORT_DSO="${OUTPUT_PREFIX}_by_dso.txt"
   REPORT_DSO_SYMBOLS="${OUTPUT_PREFIX}_by_dso_symbol.txt"
   REPORT_CALLGRAPH="${OUTPUT_PREFIX}_callgraph.txt"
-  PYO3_RELEASE_LIB="$REPO_ROOT/target/release/libdiet_python.so"
+  PYO3_RELEASE_LIB="$REPO_ROOT/target/release/lib_soac_ext.so"
   PYO3_STAGING_DIR="$(mktemp -d)"
   PYTHONPATH_PREFIX="${REPO_ROOT}:${REPO_ROOT}/soac_py/src:${REPO_ROOT}/scripts:${PYO3_STAGING_DIR}"
 
@@ -337,7 +337,7 @@ perf-pystone-jit-warm loops="500000" output_prefix="logs/pystone_jit_perf_warm":
     exit 1
   fi
 
-  ln -sf "$PYO3_RELEASE_LIB" "$PYO3_STAGING_DIR/diet_python.so"
+  ln -sf "$PYO3_RELEASE_LIB" "$PYO3_STAGING_DIR/_soac_ext.so"
 
   perf record \
     --call-graph "${PERF_CALL_GRAPH}" \
@@ -393,7 +393,7 @@ _pytest-run *args='': ensure-venv
   # This is the authoritative transformed-runtime pytest entrypoint.
   # Prefer `just pytest ...` over invoking `python -m pytest` directly:
   # the recipe selects the interpreter/environment that can import the
-  # built `diet_python` extension and applies the expected test settings.
+  # built `_soac_ext` extension and applies the expected test settings.
 
   set -- {{args}}
   if [ "$#" -eq 0 ]; then
