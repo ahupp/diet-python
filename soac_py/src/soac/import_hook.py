@@ -19,9 +19,9 @@ def _integration_only_enabled() -> bool:
     return os.environ.get("DIET_PYTHON_INTEGRATION_ONLY") == "1"
 
 
-def _create_module_from_source(path: str, source: str):
+def _create_module_from_source(path: str, source: str, spec):
     try:
-        return _soac_ext.create_module(source)
+        return _soac_ext.create_module(source, spec)
     except SyntaxError as err:
         if err.filename is None:
             err.filename = path
@@ -30,13 +30,13 @@ def _create_module_from_source(path: str, source: str):
         raise ImportError(f"diet-python failed for {path}: {err}") from err
 
 
-def _create_module_from_path(path: str):
+def _create_module_from_path(path: str, spec):
     try:
         with open(path, "r", encoding="utf-8") as file:
             source = file.read()
     except OSError as err:
         raise ImportError(f"diet-python could not read source for {path}: {err}") from err
-    return _create_module_from_source(path, source)
+    return _create_module_from_source(path, source, spec)
 
 
 def _is_integration_module(resolved: Path) -> bool:
@@ -83,7 +83,7 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
     """Loader that applies the diet-python transform before executing a module."""
 
     def create_module(self, spec):
-        return _create_module_from_path(self.path)
+        return _create_module_from_path(self.path, spec)
 
     def exec_module(self, module):
         _soac_ext.exec_module(module)
@@ -172,17 +172,11 @@ def main(argv: list[str] | None = None) -> int:
     module_name = spec.name
     path = Path(spec.origin).resolve()
     run_name = "__main__"
-    if spec.submodule_search_locations is not None:
-        package = module_name
-    else:
-        package = module_name.rpartition(".")[0]
-    package = package or None
 
     install()
     sys.argv = [str(path), *args.args]
     module = importlib.util.module_from_spec(spec)
     module.__name__ = run_name
-    module.__package__ = package
     sys.modules[run_name] = module
     if module_name != run_name:
         sys.modules[module_name] = module

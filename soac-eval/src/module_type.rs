@@ -8,6 +8,9 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 static SOAC_EXT_MODULE_TYPE: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+// These module objects are instances of a dynamic Python ModuleType subclass,
+// not a #[pyclass] with embedded Rust storage, so the lowered BlockPyModule
+// lives in a side table keyed by module object identity.
 static LOWERED_MODULE_REGISTRY: OnceLock<Mutex<HashMap<usize, BlockPyModule<CodegenBlockPyPass>>>> =
     OnceLock::new();
 
@@ -41,10 +44,25 @@ pub struct SoacExtModule;
 impl SoacExtModule {
     pub fn new(
         py: Python<'_>,
-        module_name: &str,
+        spec: &Bound<'_, PyAny>,
         lowered_module: BlockPyModule<CodegenBlockPyPass>,
     ) -> PyResult<Py<PyAny>> {
+        let module_name = spec
+            .getattr("name")?
+            .extract::<String>()
+            .map_err(|_| PyTypeError::new_err("expected a module spec with a string 'name'"))?;
         let module = soac_ext_module_type(py)?.call1((module_name,))?;
+        module.setattr("__spec__", spec)?;
+        module.setattr("__package__", spec.getattr("parent")?)?;
+        module.setattr("__loader__", spec.getattr("loader")?)?;
+        let origin = spec.getattr("origin")?;
+        if !origin.is_none() {
+            module.setattr("__file__", origin)?;
+        }
+        let submodule_search_locations = spec.getattr("submodule_search_locations")?;
+        if !submodule_search_locations.is_none() {
+            module.setattr("__path__", submodule_search_locations)?;
+        }
         lowered_module_registry()
             .lock()
             .map_err(|_| PyRuntimeError::new_err("failed to lock lowered module registry"))?

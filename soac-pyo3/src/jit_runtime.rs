@@ -614,12 +614,12 @@ fn make_bb_function(
 }
 
 #[pyfunction]
-fn create_module(py: Python<'_>, source: &str) -> PyResult<Py<PyAny>> {
+fn create_module(py: Python<'_>, source: &str, spec: Py<PyAny>) -> PyResult<Py<PyAny>> {
     let session = soac_eval::CompileSession::new();
     let output: soac_blockpy::LoweringResult<NoopPassTracker> =
         lower_python_to_blockpy(source, session.module_name_gen())
             .map_err(lowering_error_to_pyerr)?;
-    SoacExtModule::new(py, "__soac_ext_pending__", output.codegen_module)
+    SoacExtModule::new(py, spec.bind(py).as_any(), output.codegen_module)
 }
 
 #[pyfunction]
