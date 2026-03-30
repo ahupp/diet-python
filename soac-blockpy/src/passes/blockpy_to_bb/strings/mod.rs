@@ -1,6 +1,6 @@
 use crate::block_py::{
-    core_operation_expr, BlockPyModule, BlockPyModuleMap, CoreBlockPyLiteral,
-    LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, MakeString,
+    core_operation_expr, BlockPyModule, BlockPyModuleMap, CoreBlockPyLiteral, HasMeta,
+    LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, MakeString, Operation, WithMeta,
 };
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 
@@ -16,11 +16,10 @@ impl BlockPyModuleMap<ResolvedStorageBlockPyPass, CodegenBlockPyPass> for Codege
     fn map_expr(&self, expr: LocatedCoreBlockPyExpr) -> LocatedCodegenBlockPyExpr {
         match expr {
             LocatedCoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(node)) => {
-                core_operation_expr(crate::block_py::Operation::MakeString(MakeString {
-                    node_index: node.node_index.clone(),
-                    range: node.range,
-                    arg0: node.value.into_bytes(),
-                }))
+                let meta = node.meta();
+                core_operation_expr(
+                    Operation::new(MakeString::new(node.value.into_bytes())).with_meta(meta),
+                )
             }
             _ => self.map_nested_expr(expr),
         }

@@ -150,10 +150,10 @@ fn try_map_fragment_with<PIn, POut, M>(
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+    PIn::Stmt: IntoStructuredBlockPyStmt<PIn::Expr, PIn::Name>,
     M: BlockPyModuleTryMap<PIn, POut> + ?Sized,
-    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, M::Error>,
-    PassName<POut>: From<PassName<PIn>>,
+    PIn::Expr: TryMapExpr<POut::Expr, M::Error>,
+    POut::Name: From<PIn::Name>,
     StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
     Ok(BlockPyCfgFragment {
@@ -173,9 +173,9 @@ pub(crate) trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    PassExpr<PIn>: MapExpr<PassExpr<POut>>,
-    PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
-    PassName<POut>: From<PassName<PIn>>,
+    PIn::Expr: MapExpr<POut::Expr>,
+    PIn::Stmt: IntoStructuredBlockPyStmt<PIn::Expr, PIn::Name>,
+    POut::Name: From<PIn::Name>,
     StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
     fn map_module(&self, module: BlockPyModule<PIn>) -> BlockPyModule<POut> {
@@ -224,7 +224,7 @@ where
         map_structured_stmt_with(self, stmt.into_structured_stmt()).into()
     }
 
-    fn map_term(&self, term: BlockPyTerm<PassExpr<PIn>>) -> BlockPyTerm<PassExpr<POut>> {
+    fn map_term(&self, term: BlockPyTerm<PIn::Expr>) -> BlockPyTerm<POut::Expr> {
         match term {
             BlockPyTerm::Jump(edge) => BlockPyTerm::Jump(BlockPyEdge {
                 target: edge.target,
@@ -247,29 +247,15 @@ where
         }
     }
 
-    fn map_call_args(
-        &self,
-        args: Vec<CoreBlockPyCallArg<PassExpr<PIn>>>,
-    ) -> Vec<CoreBlockPyCallArg<PassExpr<POut>>> {
-        map_call_args_with(args, |expr| self.map_expr(expr))
+    fn map_name(&self, name: PIn::Name) -> POut::Name {
+        <POut::Name as From<PIn::Name>>::from(name)
     }
 
-    fn map_keyword_args(
-        &self,
-        keywords: Vec<CoreBlockPyKeywordArg<PassExpr<PIn>>>,
-    ) -> Vec<CoreBlockPyKeywordArg<PassExpr<POut>>> {
-        map_keyword_args_with(keywords, |expr| self.map_expr(expr))
-    }
-
-    fn map_name(&self, name: PassName<PIn>) -> PassName<POut> {
-        <PassName<POut> as From<PassName<PIn>>>::from(name)
-    }
-
-    fn map_nested_expr(&self, expr: PassExpr<PIn>) -> PassExpr<POut> {
+    fn map_nested_expr(&self, expr: PIn::Expr) -> POut::Expr {
         expr.map_expr(&mut |child| self.map_expr(child))
     }
 
-    fn map_expr(&self, expr: PassExpr<PIn>) -> PassExpr<POut> {
+    fn map_expr(&self, expr: PIn::Expr) -> POut::Expr {
         self.map_nested_expr(expr)
     }
 }
@@ -278,9 +264,9 @@ pub(crate) trait BlockPyModuleTryMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, Self::Error>,
-    PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
-    PassName<POut>: From<PassName<PIn>>,
+    PIn::Expr: TryMapExpr<POut::Expr, Self::Error>,
+    PIn::Stmt: IntoStructuredBlockPyStmt<PIn::Expr, PIn::Name>,
+    POut::Name: From<PIn::Name>,
     StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
     type Error;
@@ -363,29 +349,15 @@ where
         }
     }
 
-    fn try_map_call_args(
-        &self,
-        args: Vec<CoreBlockPyCallArg<PassExpr<PIn>>>,
-    ) -> Result<Vec<CoreBlockPyCallArg<PassExpr<POut>>>, Self::Error> {
-        try_map_call_args_with(args, |expr| self.try_map_expr(expr))
+    fn try_map_name(&self, name: PIn::Name) -> Result<POut::Name, Self::Error> {
+        Ok(<POut::Name as From<PIn::Name>>::from(name))
     }
 
-    fn try_map_keyword_args(
-        &self,
-        keywords: Vec<CoreBlockPyKeywordArg<PassExpr<PIn>>>,
-    ) -> Result<Vec<CoreBlockPyKeywordArg<PassExpr<POut>>>, Self::Error> {
-        try_map_keyword_args_with(keywords, |expr| self.try_map_expr(expr))
-    }
-
-    fn try_map_name(&self, name: PassName<PIn>) -> Result<PassName<POut>, Self::Error> {
-        Ok(<PassName<POut> as From<PassName<PIn>>>::from(name))
-    }
-
-    fn try_map_nested_expr(&self, expr: PassExpr<PIn>) -> Result<PassExpr<POut>, Self::Error> {
+    fn try_map_nested_expr(&self, expr: PIn::Expr) -> Result<POut::Expr, Self::Error> {
         expr.try_map_expr(&mut |child| self.try_map_expr(child))
     }
 
-    fn try_map_expr(&self, expr: PassExpr<PIn>) -> Result<PassExpr<POut>, Self::Error> {
+    fn try_map_expr(&self, expr: PIn::Expr) -> Result<POut::Expr, Self::Error> {
         self.try_map_nested_expr(expr)
     }
 }
@@ -400,9 +372,9 @@ where
     ) -> BlockPyModule<POut>
     where
         POut: BlockPyPass,
-        PassExpr<PIn>: MapExpr<PassExpr<POut>>,
-        PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
-        PassName<POut>: From<PassName<PIn>>,
+        PIn::Expr: MapExpr<POut::Expr>,
+        PIn::Stmt: IntoStructuredBlockPyStmt<PIn::Expr, PIn::Name>,
+        POut::Name: From<PIn::Name>,
         StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
     {
         mapper.map_module(self)
@@ -649,95 +621,98 @@ fn cell_ref_target_to_ast<N: Into<ast::ExprName>>(
 }
 
 fn operation_to_ast<E: Into<Expr>, N: Into<ast::ExprName>>(operation: Operation<E, N>) -> Expr {
-    match operation {
-        Operation::MakeFunction(op) => make_function_call_to_ast(op),
-        Operation::GetAttr(op) => helper_call_to_ast(
+    let Operation { meta, detail } = operation;
+    let node_index = meta.node_index.clone();
+    let range = meta.range;
+    match detail {
+        OperationDetail::MakeFunction(op) => make_function_call_to_ast(meta, op),
+        OperationDetail::GetAttr(op) => helper_call_to_ast(
             "__dp_getattr",
-            op.node_index.clone(),
-            op.range,
+            node_index.clone(),
+            range,
             vec![
                 (*op.arg0).into(),
-                string_literal_expr(op.arg1, op.node_index, op.range),
+                string_literal_expr(op.arg1, node_index, range),
             ],
         ),
-        Operation::SetAttr(op) => helper_call_to_ast(
+        OperationDetail::SetAttr(op) => helper_call_to_ast(
             "__dp_setattr",
-            op.node_index.clone(),
-            op.range,
+            node_index.clone(),
+            range,
             vec![
                 (*op.arg0).into(),
-                string_literal_expr(op.arg1, op.node_index.clone(), op.range),
+                string_literal_expr(op.arg1, node_index.clone(), range),
                 (*op.arg2).into(),
             ],
         ),
-        Operation::LoadGlobal(op) => helper_call_to_ast(
+        OperationDetail::LoadGlobal(op) => helper_call_to_ast(
             "__dp_load_global",
-            op.node_index.clone(),
-            op.range,
+            node_index.clone(),
+            range,
             vec![
                 (*op.arg0).into(),
-                string_literal_expr(op.arg1, op.node_index, op.range),
+                string_literal_expr(op.arg1, node_index, range),
             ],
         ),
-        Operation::StoreGlobal(op) => helper_call_to_ast(
+        OperationDetail::StoreGlobal(op) => helper_call_to_ast(
             "__dp_store_global",
-            op.node_index.clone(),
-            op.range,
+            node_index.clone(),
+            range,
             vec![
                 (*op.arg0).into(),
-                string_literal_expr(op.arg1, op.node_index.clone(), op.range),
+                string_literal_expr(op.arg1, node_index.clone(), range),
                 (*op.arg2).into(),
             ],
         ),
-        Operation::LoadCell(op) => helper_call_to_ast(
+        OperationDetail::LoadCell(op) => helper_call_to_ast(
             "__dp_load_cell",
-            op.node_index,
-            op.range,
+            node_index,
+            range,
             vec![Expr::Name(op.arg0.into())],
         ),
-        Operation::MakeString(op) => helper_call_to_ast(
+        OperationDetail::MakeString(op) => helper_call_to_ast(
             "__dp_decode_literal_bytes",
-            op.node_index.clone(),
-            op.range,
-            vec![bytes_literal_expr(op.arg0, op.node_index, op.range)],
+            node_index.clone(),
+            range,
+            vec![bytes_literal_expr(op.arg0, node_index, range)],
         ),
-        Operation::CellRef(op) => helper_call_to_ast(
+        OperationDetail::CellRef(op) => helper_call_to_ast(
             "__dp_cell_ref",
-            op.node_index.clone(),
-            op.range,
-            vec![cell_ref_target_to_ast(op.arg0, op.node_index, op.range)],
+            node_index.clone(),
+            range,
+            vec![cell_ref_target_to_ast(op.arg0, node_index, range)],
         ),
-        Operation::StoreCell(op) => helper_call_to_ast(
+        OperationDetail::StoreCell(op) => helper_call_to_ast(
             "__dp_store_cell",
-            op.node_index,
-            op.range,
+            node_index,
+            range,
             vec![Expr::Name(op.arg0.into()), (*op.arg1).into()],
         ),
-        Operation::DelQuietly(op) => helper_call_to_ast(
+        OperationDetail::DelQuietly(op) => helper_call_to_ast(
             "__dp_del_quietly",
-            op.node_index.clone(),
-            op.range,
+            node_index.clone(),
+            range,
             vec![
                 (*op.arg0).into(),
-                string_literal_expr(op.arg1, op.node_index, op.range),
+                string_literal_expr(op.arg1, node_index, range),
             ],
         ),
-        Operation::DelDerefQuietly(op) => helper_call_to_ast(
+        OperationDetail::DelDerefQuietly(op) => helper_call_to_ast(
             "__dp_del_deref_quietly",
-            op.node_index,
-            op.range,
+            node_index,
+            range,
             vec![Expr::Name(op.arg0.into())],
         ),
-        Operation::DelDeref(op) => helper_call_to_ast(
+        OperationDetail::DelDeref(op) => helper_call_to_ast(
             "__dp_del_deref",
-            op.node_index,
-            op.range,
+            node_index,
+            range,
             vec![Expr::Name(op.arg0.into())],
         ),
         other => helper_call_to_ast(
             other.helper_name(),
-            other.node_index().clone(),
-            other.range(),
+            meta.node_index,
+            meta.range,
             other.into_call_args(),
         ),
     }
@@ -753,11 +728,11 @@ fn make_function_kind_literal(kind: BlockPyFunctionKind) -> Expr {
     py_expr!("{value:literal}", value = value)
 }
 
-fn make_function_call_to_ast<E: Into<Expr>>(operation: MakeFunction<E>) -> Expr {
+fn make_function_call_to_ast<E: Into<Expr>>(meta: Meta, operation: MakeFunction<E>) -> Expr {
     call_like_to_ast(
         Expr::Name(helper_name_expr("__dp_make_function")),
-        operation.node_index,
-        operation.range,
+        meta.node_index,
+        meta.range,
         vec![
             CoreBlockPyCallArg::Positional(py_expr!(
                 "{value:literal}",

@@ -1,7 +1,15 @@
 pub use self::meta::{HasMeta, Meta, WithMeta};
 use self::operation as block_py_operation;
 pub use self::param_specs::{Param, ParamDefaultSource, ParamKind, ParamSpec};
-use crate::passes::ast_to_ast::scope_helpers::cell_name;
+pub(crate) use self::semantics::{
+    build_storage_layout_from_capture_names, compute_storage_layout_from_semantics,
+    derive_effective_binding_for_name, BlockPySemanticExprNode,
+};
+pub use self::semantics::{
+    BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
+    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyClassBodyFallback,
+    BlockPyEffectiveBinding, ClosureInit, ClosureSlot, StorageLayout,
+};
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass, RuffBlockPyPass};
 use crate::py_expr;
 pub use operation::{
@@ -13,7 +21,6 @@ pub use operation::{
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
 use ruff_text_size::TextRange;
-use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 pub(crate) mod cfg;
@@ -25,6 +32,7 @@ mod name_gen;
 pub mod operation;
 pub(crate) mod param_specs;
 pub mod pretty;
+pub(crate) mod semantics;
 pub(crate) mod state;
 pub(crate) mod validate;
 pub(crate) use convert::BlockPyModuleMap;
@@ -240,111 +248,6 @@ impl From<LocatedName> for ast::ExprName {
             node_index: value.node_index,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BindingTarget {
-    Local,
-    ModuleGlobal,
-    ClassNamespace,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BlockPyCellBindingKind {
-    Owner,
-    Capture,
-}
-
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
-pub enum BlockPyBindingKind {
-    #[default]
-    Local,
-    Global,
-    Cell(BlockPyCellBindingKind),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct StorageLayout {
-    pub freevars: Vec<ClosureSlot>,
-    pub cellvars: Vec<ClosureSlot>,
-    pub runtime_cells: Vec<ClosureSlot>,
-    pub stack_slots: Vec<String>,
-}
-
-impl StorageLayout {
-    pub fn freevar_slot(&self, slot: u32) -> Option<&ClosureSlot> {
-        self.freevars.get(slot as usize)
-    }
-
-    pub fn local_cell_slot(&self, slot: u32) -> Option<&ClosureSlot> {
-        self.cellvars
-            .iter()
-            .chain(self.runtime_cells.iter())
-            .nth(slot as usize)
-    }
-
-    pub fn local_cell_storage_names(&self) -> Vec<String> {
-        self.cellvars
-            .iter()
-            .chain(self.runtime_cells.iter())
-            .map(|slot| slot.storage_name.clone())
-            .collect()
-    }
-
-    pub fn has_freevar_storage_name(&self, storage_name: &str) -> bool {
-        self.freevars
-            .iter()
-            .any(|slot| slot.storage_name == storage_name)
-    }
-
-    pub fn has_cellvar_storage_name(&self, storage_name: &str) -> bool {
-        self.cellvars
-            .iter()
-            .any(|slot| slot.storage_name == storage_name)
-    }
-
-    pub fn has_storage_name(&self, storage_name: &str) -> bool {
-        self.has_freevar_storage_name(storage_name)
-            || self.has_cellvar_storage_name(storage_name)
-            || self
-                .runtime_cells
-                .iter()
-                .any(|slot| slot.storage_name == storage_name)
-    }
-
-    pub fn stack_slots(&self) -> &[String] {
-        &self.stack_slots
-    }
-
-    pub fn set_stack_slots(&mut self, stack_slots: Vec<String>) {
-        self.stack_slots = stack_slots;
-    }
-
-    pub fn ensure_stack_slot(&mut self, name: impl Into<String>) {
-        let name = name.into();
-        if self.stack_slots.iter().any(|existing| existing == &name) {
-            return;
-        }
-        self.stack_slots.push(name);
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClosureSlot {
-    pub logical_name: String,
-    pub storage_name: String,
-    pub init: ClosureInit,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ClosureInit {
-    InheritedCapture,
-    Parameter,
-    DeletedSentinel,
-    RuntimePcUnstarted,
-    RuntimeAbruptKindFallthrough,
-    RuntimeNone,
-    Deferred,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -1119,283 +1022,6 @@ impl FunctionName {
             display_name: display_name.into(),
             qualname: qualname.into(),
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
-pub enum BlockPyCallableScopeKind {
-    #[default]
-    Function,
-    Class,
-    Module,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BlockPyClassBodyFallback {
-    Global,
-    Cell,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BlockPyEffectiveBinding {
-    Local,
-    Global,
-    Cell(BlockPyCellBindingKind),
-    ClassBody(BlockPyClassBodyFallback),
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BlockPyBindingPurpose {
-    Load,
-    Store,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct BlockPyCallableSemanticInfo {
-    pub names: FunctionName,
-    pub scope_kind: BlockPyCallableScopeKind,
-    pub bindings: HashMap<String, BlockPyBindingKind>,
-    pub local_defs: HashSet<String>,
-    pub cell_storage_names: HashMap<String, String>,
-    pub cell_capture_source_names: HashMap<String, String>,
-    pub owned_cell_source_names: HashSet<String>,
-    pub semantic_internal_names: HashSet<String>,
-    pub type_param_names: HashSet<String>,
-    pub effective_load_bindings: HashMap<String, BlockPyEffectiveBinding>,
-    pub effective_store_bindings: HashMap<String, BlockPyEffectiveBinding>,
-}
-
-pub(crate) fn derive_effective_binding_for_name(
-    name: &str,
-    binding: BlockPyBindingKind,
-    scope_kind: BlockPyCallableScopeKind,
-    type_param_names: &HashSet<String>,
-    purpose: BlockPyBindingPurpose,
-    honor_internal_name: bool,
-) -> BlockPyEffectiveBinding {
-    if is_internal_symbol(name) && !honor_internal_name {
-        return BlockPyEffectiveBinding::Local;
-    }
-    match purpose {
-        BlockPyBindingPurpose::Load => match (scope_kind, binding) {
-            (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Cell(_)) => {
-                BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Cell)
-            }
-            (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Local)
-            | (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Global) => {
-                BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global)
-            }
-            (_, BlockPyBindingKind::Global) => BlockPyEffectiveBinding::Global,
-            (_, BlockPyBindingKind::Cell(kind)) => BlockPyEffectiveBinding::Cell(kind),
-            (_, BlockPyBindingKind::Local) => BlockPyEffectiveBinding::Local,
-        },
-        BlockPyBindingPurpose::Store => {
-            if scope_kind == BlockPyCallableScopeKind::Class && type_param_names.contains(name) {
-                return match binding {
-                    BlockPyBindingKind::Local => BlockPyEffectiveBinding::Local,
-                    BlockPyBindingKind::Global => BlockPyEffectiveBinding::Global,
-                    BlockPyBindingKind::Cell(kind) => BlockPyEffectiveBinding::Cell(kind),
-                };
-            }
-            match (scope_kind, binding) {
-                (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Local) => {
-                    BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global)
-                }
-                (_, BlockPyBindingKind::Global) => BlockPyEffectiveBinding::Global,
-                (_, BlockPyBindingKind::Cell(kind)) => BlockPyEffectiveBinding::Cell(kind),
-                (_, BlockPyBindingKind::Local) => BlockPyEffectiveBinding::Local,
-            }
-        }
-    }
-}
-
-impl BlockPyCallableSemanticInfo {
-    pub fn honors_internal_binding(&self, name: &str) -> bool {
-        !is_internal_symbol(name) || self.semantic_internal_names.contains(name)
-    }
-
-    pub fn binding_kind(&self, name: &str) -> Option<BlockPyBindingKind> {
-        self.bindings.get(name).copied()
-    }
-
-    pub fn has_local_def(&self, name: &str) -> bool {
-        self.local_defs.contains(name)
-    }
-
-    pub fn effective_binding(
-        &self,
-        name: &str,
-        purpose: BlockPyBindingPurpose,
-    ) -> Option<BlockPyEffectiveBinding> {
-        match purpose {
-            BlockPyBindingPurpose::Load => self.effective_load_bindings.get(name).copied(),
-            BlockPyBindingPurpose::Store => self.effective_store_bindings.get(name).copied(),
-        }
-    }
-
-    pub fn insert_binding(
-        &mut self,
-        name: impl Into<String>,
-        binding: BlockPyBindingKind,
-        honor_internal_name: bool,
-        cell_storage_name: Option<String>,
-    ) {
-        let name = name.into();
-        self.bindings.insert(name.clone(), binding);
-        if let Some(cell_storage_name) = cell_storage_name {
-            self.cell_storage_names
-                .insert(name.clone(), cell_storage_name.clone());
-            self.cell_capture_source_names
-                .insert(name.clone(), cell_storage_name);
-        }
-        if honor_internal_name {
-            self.semantic_internal_names.insert(name.clone());
-        }
-        self.effective_load_bindings.insert(
-            name.clone(),
-            derive_effective_binding_for_name(
-                name.as_str(),
-                binding,
-                self.scope_kind,
-                &self.type_param_names,
-                BlockPyBindingPurpose::Load,
-                honor_internal_name,
-            ),
-        );
-        self.effective_store_bindings.insert(
-            name.clone(),
-            derive_effective_binding_for_name(
-                name.as_str(),
-                binding,
-                self.scope_kind,
-                &self.type_param_names,
-                BlockPyBindingPurpose::Store,
-                honor_internal_name,
-            ),
-        );
-    }
-
-    pub fn resolved_load_binding_kind(&self, name: &str) -> BlockPyBindingKind {
-        if let Some(binding) = self.binding_kind(name) {
-            if self.honors_internal_binding(name) {
-                return binding;
-            }
-        }
-        if is_internal_symbol(name) {
-            return BlockPyBindingKind::Local;
-        }
-        BlockPyBindingKind::Global
-    }
-
-    pub fn is_cell_binding(&self, name: &str) -> bool {
-        matches!(self.binding_kind(name), Some(BlockPyBindingKind::Cell(_)))
-    }
-
-    pub fn cell_storage_name(&self, name: &str) -> String {
-        self.cell_storage_names
-            .get(name)
-            .cloned()
-            .unwrap_or_else(|| cell_name(name))
-    }
-
-    pub fn cell_capture_source_name(&self, name: &str) -> String {
-        self.cell_capture_source_names
-            .get(name)
-            .cloned()
-            .unwrap_or_else(|| cell_name(name))
-    }
-
-    pub fn cell_ref_source_name(&self, name: &str) -> String {
-        if self.is_cell_binding(name) {
-            self.cell_storage_name(name)
-        } else {
-            self.cell_capture_source_name(name)
-        }
-    }
-
-    pub fn logical_name_for_cell_capture_source(&self, storage_name: &str) -> Option<String> {
-        self.cell_capture_source_names
-            .iter()
-            .find_map(|(logical_name, current_storage_name)| {
-                (current_storage_name == storage_name).then(|| logical_name.clone())
-            })
-            .or_else(|| self.logical_name_for_cell_storage(storage_name))
-    }
-
-    pub fn binding_target_for_name(
-        &self,
-        name: &str,
-        purpose: BlockPyBindingPurpose,
-    ) -> BindingTarget {
-        if let Some(binding) = self.effective_binding(name, purpose) {
-            if self.honors_internal_binding(name) {
-                return match binding {
-                    BlockPyEffectiveBinding::Global => BindingTarget::ModuleGlobal,
-                    BlockPyEffectiveBinding::ClassBody(_) => BindingTarget::ClassNamespace,
-                    BlockPyEffectiveBinding::Local | BlockPyEffectiveBinding::Cell(_) => {
-                        BindingTarget::Local
-                    }
-                };
-            }
-        }
-        if is_internal_symbol(name) {
-            return BindingTarget::Local;
-        }
-        match self.effective_binding(name, purpose) {
-            Some(BlockPyEffectiveBinding::Global) => BindingTarget::ModuleGlobal,
-            Some(BlockPyEffectiveBinding::ClassBody(_)) => BindingTarget::ClassNamespace,
-            _ => BindingTarget::Local,
-        }
-    }
-
-    pub fn owned_cell_storage_names(&self) -> HashSet<String> {
-        let mut names = self
-            .bindings
-            .iter()
-            .filter_map(|(name, binding)| {
-                matches!(
-                    binding,
-                    BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner)
-                )
-                .then(|| self.cell_storage_name(name.as_str()))
-            })
-            .collect::<HashSet<_>>();
-        names.extend(self.owned_cell_source_names.iter().cloned());
-        names
-    }
-
-    pub fn captured_cell_logical_names(&self) -> Vec<String> {
-        let mut names = self
-            .bindings
-            .iter()
-            .filter_map(|(name, binding)| {
-                matches!(
-                    binding,
-                    BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
-                )
-                .then(|| name.clone())
-            })
-            .collect::<Vec<_>>();
-        names.sort();
-        names
-    }
-
-    pub fn local_cell_storage_names(&self) -> HashSet<String> {
-        if !matches!(self.scope_kind, BlockPyCallableScopeKind::Function) {
-            return HashSet::new();
-        }
-        self.owned_cell_storage_names()
-    }
-
-    pub fn logical_name_for_cell_storage(&self, storage_name: &str) -> Option<String> {
-        if let Some(logical_name) = storage_name.strip_prefix("_dp_cell_") {
-            return Some(logical_name.to_string());
-        }
-        self.cell_storage_names
-            .iter()
-            .find_map(|(logical_name, current_storage_name)| {
-                (current_storage_name == storage_name).then(|| logical_name.clone())
-            })
     }
 }
 

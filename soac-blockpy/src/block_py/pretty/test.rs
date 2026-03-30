@@ -156,6 +156,26 @@ def classify(n):
 }
 
 #[test]
+fn debug_blockpy_render_uses_blockpy_expr_text_for_core_ops() {
+    let blockpy = lower_python_to_blockpy_for_testing(
+        r#"
+def tweak(x):
+    x += 1
+    return x
+"#,
+    )
+    .unwrap()
+    .pass_tracker
+    .pass_core_blockpy()
+    .expect("core_blockpy pass should be tracked")
+    .clone();
+    let rendered = blockpy_module_to_debug_string(&blockpy);
+
+    assert!(rendered.contains("InplaceBinOp(Add,"), "{rendered}");
+    assert!(!rendered.contains("__dp_iadd"), "{rendered}");
+}
+
+#[test]
 fn renders_generator_kind_without_internal_metadata() {
     let blockpy = wrapped_blockpy(
         r#"
@@ -448,7 +468,7 @@ fn renders_bb_block_metadata_with_shared_layout() {
                         },
                         BlockParam {
                             name: "x".to_string(),
-                            role: BlockParamRole::Local,
+                            role: BlockParamRole::AbruptPayload,
                         },
                     ],
                     exc_edge: Some(BlockPyEdge::new(label(1))),
@@ -476,7 +496,7 @@ fn renders_bb_block_metadata_with_shared_layout() {
     assert!(rendered.contains("function f():"), "{rendered}");
     assert!(rendered.contains("function_id: 0"), "{rendered}");
     assert!(
-        rendered.contains("block bb0(err: Exception, x: Local):"),
+        rendered.contains("block bb0(err: Exception, x: AbruptPayload):"),
         "{rendered}"
     );
     assert!(rendered.contains("exc_target: bb1"), "{rendered}");

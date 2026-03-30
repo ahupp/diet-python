@@ -1,10 +1,10 @@
 use crate::block_py::{
     core_operation_expr, core_positional_call_expr_with_meta, BlockPyFunction, BlockPyModule,
-    LocatedCodegenBlockPyExpr, LocatedName, MakeString, NameLocation, StructuredBlockPyStmt,
+    LocatedCodegenBlockPyExpr, LocatedName, MakeString, Meta, NameLocation, StructuredBlockPyStmt,
+    WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
 use ruff_python_ast::{self as ast};
-use ruff_text_size::TextRange;
 use std::collections::HashMap;
 use std::env;
 
@@ -76,14 +76,6 @@ pub(crate) fn instrument_bb_module_for_trace(
                 .insert(0, StructuredBlockPyStmt::Expr(trace_expr).into());
         }
     }
-}
-
-fn compat_node_index() -> ast::AtomicNodeIndex {
-    ast::AtomicNodeIndex::default()
-}
-
-fn compat_range() -> TextRange {
-    TextRange::default()
 }
 
 struct PreparedTraceNameLocator {
@@ -165,11 +157,12 @@ impl PreparedTraceNameLocator {
         } else {
             NameLocation::Global
         };
+        let meta = Meta::synthetic();
         LocatedName {
             id: id.into(),
             ctx: ast::ExprContext::Load,
-            range: compat_range(),
-            node_index: compat_node_index(),
+            range: meta.range,
+            node_index: meta.node_index,
             location,
         }
     }
@@ -179,15 +172,15 @@ fn helper_call_expr(
     helper_name: &str,
     args: Vec<LocatedCodegenBlockPyExpr>,
 ) -> LocatedCodegenBlockPyExpr {
-    core_positional_call_expr_with_meta(helper_name, compat_node_index(), compat_range(), args)
+    let meta = Meta::synthetic();
+    core_positional_call_expr_with_meta(helper_name, meta.node_index, meta.range, args)
 }
 
 fn string_literal_expr(value: &str) -> LocatedCodegenBlockPyExpr {
-    core_operation_expr(crate::block_py::Operation::MakeString(MakeString {
-        node_index: compat_node_index(),
-        range: compat_range(),
-        arg0: value.as_bytes().to_vec(),
-    }))
+    core_operation_expr(
+        crate::block_py::Operation::new(MakeString::new(value.as_bytes().to_vec()))
+            .with_meta(Meta::synthetic()),
+    )
 }
 
 fn tuple_expr(values: Vec<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyExpr {

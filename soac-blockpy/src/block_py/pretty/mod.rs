@@ -1,8 +1,10 @@
 use super::{
-    AbruptKind, BlockArg, BlockParamRole, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
+    BlockArg, BlockParamRole, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyNameLike, BlockPyPass,
-    BlockPyRaise, BlockPyTerm, CfgBlock, Expr, IntoStructuredBlockPyStmt, PassBlock, PassExpr,
-    StructuredBlockPyStmt,
+    BlockPyRaise, BlockPyTerm, CfgBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral,
+    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral, Expr,
+    IntoStructuredBlockPyStmt, PassBlock, PassExpr, RuffExpr, StructuredBlockPyStmt,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
@@ -11,9 +13,10 @@ use crate::passes::{
 };
 use crate::ruff_ast_to_string;
 use std::collections::{HashMap, HashSet};
+use std::marker::PhantomData;
 
 #[cfg(test)]
-use super::{BlockPyStmt, CoreBlockPyExpr, CoreBlockPyLiteral};
+use super::BlockPyStmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum IfBranchKind {
@@ -91,14 +94,23 @@ where
 
 pub(crate) trait BlockPyPrettyPrint {
     fn pretty_print(&self) -> String;
+
+    fn debug_pretty_print(&self) -> String {
+        self.pretty_print()
+    }
 }
 
 impl<P> BlockPyPrettyPrint for BlockPyModule<P>
 where
     P: BlockPyPrettyPrinter,
+    P::Expr: BlockPyDebugExprText,
     P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
 {
     fn pretty_print(&self) -> String {
+        blockpy_module_to_string(self)
+    }
+
+    fn debug_pretty_print(&self) -> String {
         blockpy_module_to_string(self)
     }
 }
@@ -106,24 +118,60 @@ where
 pub(crate) fn blockpy_module_to_string<P>(module: &BlockPyModule<P>) -> String
 where
     P: BlockPyPrettyPrinter,
+    P::Expr: BlockPyDebugExprText,
     P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
 {
-    let mut formatter = BlockPyFormatter::default();
+    let mut formatter = BlockPyFormatter::<DebugInlineExprRenderer>::default();
     formatter.write_module(module);
     formatter.finish()
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn blockpy_module_to_debug_string<P>(module: &BlockPyModule<P>) -> String
+where
+    P: BlockPyPrettyPrinter,
+    P::Expr: BlockPyDebugExprText,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+{
+    blockpy_module_to_string(module)
 }
 
 pub fn render_ruff_blockpy_module(module: &BlockPyModule<RuffBlockPyPass>) -> String {
     blockpy_module_to_string(module)
 }
 
-#[derive(Default)]
-struct BlockPyFormatter {
-    out: String,
-    indent: usize,
+trait InlineExprRenderer<E> {
+    fn render(expr: &E) -> String;
 }
 
-impl BlockPyFormatter {
+struct DebugInlineExprRenderer;
+
+impl<E> InlineExprRenderer<E> for DebugInlineExprRenderer
+where
+    E: BlockPyDebugExprText,
+{
+    fn render(expr: &E) -> String {
+        expr.debug_expr_text()
+    }
+}
+
+struct BlockPyFormatter<R> {
+    out: String,
+    indent: usize,
+    _renderer: PhantomData<R>,
+}
+
+impl<R> Default for BlockPyFormatter<R> {
+    fn default() -> Self {
+        Self {
+            out: String::new(),
+            indent: 0,
+            _renderer: PhantomData,
+        }
+    }
+}
+
+impl<R> BlockPyFormatter<R> {
     fn finish(mut self) -> String {
         if self.out.is_empty() {
             self.line("; empty BlockPy module");
@@ -135,6 +183,7 @@ impl BlockPyFormatter {
     where
         P: BlockPyPrettyPrinter,
         P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+        R: InlineExprRenderer<PassExpr<P>>,
     {
         for function in &module.callable_defs {
             if !self.out.is_empty() {
@@ -148,6 +197,7 @@ impl BlockPyFormatter {
     where
         P: BlockPyPrettyPrinter,
         P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+        R: InlineExprRenderer<PassExpr<P>>,
     {
         let params = format_parameters(&function.params);
         let referenced_labels = collect_referenced_labels_from_blocks::<P>(&function.blocks);
@@ -206,6 +256,7 @@ impl BlockPyFormatter {
     ) where
         P: BlockPyPrettyPrinter,
         P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+        R: InlineExprRenderer<PassExpr<P>>,
     {
         let block = &function.blocks[block_index];
         self.line(render_block_header(block));
@@ -239,6 +290,7 @@ impl BlockPyFormatter {
     ) where
         P: BlockPyPrettyPrinter,
         P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+        R: InlineExprRenderer<PassExpr<P>>,
     {
         if block.body.is_empty() {
             self.write_term(
@@ -263,8 +315,9 @@ impl BlockPyFormatter {
     fn write_stmt_list<S, E, N>(&mut self, stmts: &[S], referenced_labels: &HashSet<BlockPyLabel>)
     where
         S: IntoStructuredBlockPyStmt<E, N>,
-        E: Clone + Into<Expr> + std::fmt::Debug,
+        E: Clone + std::fmt::Debug,
         N: BlockPyNameLike,
+        R: InlineExprRenderer<E>,
     {
         for stmt in stmts {
             let stmt = stmt.clone().into_structured_stmt();
@@ -277,8 +330,9 @@ impl BlockPyFormatter {
         fragment: &BlockPyCfgFragment<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        E: Clone + Into<Expr> + std::fmt::Debug,
+        E: Clone + std::fmt::Debug,
         N: BlockPyNameLike,
+        R: InlineExprRenderer<E>,
     {
         if fragment.body.is_empty() && fragment.term.is_none() {
             self.line("pass");
@@ -295,21 +349,22 @@ impl BlockPyFormatter {
         stmt: &StructuredBlockPyStmt<E, N>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        E: Clone + Into<Expr> + std::fmt::Debug,
+        E: Clone + std::fmt::Debug,
         N: BlockPyNameLike,
+        R: InlineExprRenderer<E>,
     {
         match stmt {
             StructuredBlockPyStmt::Assign(assign) => self.line(format!(
                 "{} = {}",
                 assign.target.pretty_id(),
-                render_inline_expr(&assign.value)
+                R::render(&assign.value)
             )),
-            StructuredBlockPyStmt::Expr(expr) => self.line(render_inline_expr(expr)),
+            StructuredBlockPyStmt::Expr(expr) => self.line(R::render(expr)),
             StructuredBlockPyStmt::Delete(delete) => {
                 self.line(format!("del {}", delete.target.pretty_id()))
             }
             StructuredBlockPyStmt::If(if_stmt) => {
-                self.line(format!("if {}:", render_inline_expr(&if_stmt.test)));
+                self.line(format!("if {}:", R::render(&if_stmt.test)));
                 self.with_indent(|this| this.write_stmt_fragment(&if_stmt.body, referenced_labels));
                 if !if_stmt.orelse.body.is_empty() || if_stmt.orelse.term.is_some() {
                     self.line("else:");
@@ -331,6 +386,7 @@ impl BlockPyFormatter {
     ) where
         P: BlockPyPrettyPrinter,
         P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+        R: InlineExprRenderer<PassExpr<P>>,
     {
         match term {
             BlockPyTerm::Jump(edge) => self.line(format!("jump {}", render_edge(edge))),
@@ -339,7 +395,7 @@ impl BlockPyFormatter {
                 then_label,
                 else_label,
             }) => {
-                self.line(format!("if_term {}:", render_inline_expr(test)));
+                self.line(format!("if_term {}:", R::render(test)));
                 self.with_indent(|this| {
                     this.line("then:");
                     this.with_indent(|this| {
@@ -381,43 +437,39 @@ impl BlockPyFormatter {
             }
             BlockPyTerm::BranchTable(branch) => self.line(format!(
                 "branch_table {} -> [{}] default {}",
-                render_inline_expr(&branch.index),
+                R::render(&branch.index),
                 join_labels(&branch.targets),
                 branch.default_label,
             )),
             BlockPyTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
-            BlockPyTerm::Return(value) => {
-                self.line(format!("return {}", render_inline_expr(value)))
-            }
+            BlockPyTerm::Return(value) => self.line(format!("return {}", R::render(value))),
         }
     }
 
     fn write_raise<E>(&mut self, raise_stmt: &BlockPyRaise<E>)
     where
-        E: Clone + Into<Expr>,
+        R: InlineExprRenderer<E>,
     {
         match &raise_stmt.exc {
-            Some(exc) => self.line(format!("raise {}", render_inline_expr(exc))),
+            Some(exc) => self.line(format!("raise {}", R::render(exc))),
             None => self.line("raise"),
         }
     }
 
     fn write_term_inline<E>(&mut self, term: &BlockPyTerm<E>)
     where
-        E: Clone + Into<Expr>,
+        R: InlineExprRenderer<E>,
     {
         match term {
             BlockPyTerm::Jump(edge) => self.line(format!("jump {}", render_edge(edge))),
             BlockPyTerm::BranchTable(branch) => self.line(format!(
                 "branch_table {} -> [{}] default {}",
-                render_inline_expr(&branch.index),
+                R::render(&branch.index),
                 join_labels(&branch.targets),
                 branch.default_label,
             )),
             BlockPyTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
-            BlockPyTerm::Return(value) => {
-                self.line(format!("return {}", render_inline_expr(value)))
-            }
+            BlockPyTerm::Return(value) => self.line(format!("return {}", R::render(value))),
             BlockPyTerm::IfTerm(_) => {
                 panic!("IfTerm is only valid as a top-level block terminator");
             }
@@ -486,130 +538,285 @@ where
         .join(" ")
 }
 
-#[cfg(test)]
-pub(crate) fn bb_expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> String {
-    fn bytes_text(value: &[u8]) -> String {
-        let mut out = String::from("b\"");
-        for &byte in value {
-            for escaped in std::ascii::escape_default(byte) {
-                out.push(escaped as char);
-            }
-        }
-        out.push('"');
-        out
-    }
+pub(crate) trait BlockPyDebugExprText {
+    fn debug_expr_text(&self) -> String;
+}
 
-    fn cell_ref_target_text<N: BlockPyNameLike>(
-        target: &crate::block_py::CellRefTarget<N>,
-    ) -> String {
-        match target {
-            crate::block_py::CellRefTarget::LogicalName(name) => format!("{name:?}"),
-            crate::block_py::CellRefTarget::Name(name) => name.pretty_id(),
+fn bytes_text(value: &[u8]) -> String {
+    let mut out = String::from("b\"");
+    for &byte in value {
+        for escaped in std::ascii::escape_default(byte) {
+            out.push(escaped as char);
         }
     }
+    out.push('"');
+    out
+}
 
-    match expr {
-        CoreBlockPyExpr::Name(name) => name.pretty_id(),
-        CoreBlockPyExpr::Literal(literal) => match literal {
-            CoreBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value),
-            CoreBlockPyLiteral::BytesLiteral(literal) => bytes_text(&literal.value),
-            CoreBlockPyLiteral::NumberLiteral(literal) => match &literal.value {
-                super::CoreNumberLiteralValue::Int(value) => value.to_string(),
-                super::CoreNumberLiteralValue::Float(value) => value.to_string(),
-            },
-        },
-        CoreBlockPyExpr::Call(call) => {
-            let mut parts = Vec::new();
-            for arg in &call.args {
-                parts.push(match arg {
-                    super::CoreBlockPyCallArg::Positional(value) => bb_expr_text(value),
-                    super::CoreBlockPyCallArg::Starred(value) => {
-                        format!("*{}", bb_expr_text(value))
-                    }
-                });
-            }
-            for keyword in &call.keywords {
-                parts.push(match keyword {
-                    super::CoreBlockPyKeywordArg::Named { arg, value } => {
-                        format!("{}={}", arg.id, bb_expr_text(value))
-                    }
-                    super::CoreBlockPyKeywordArg::Starred(value) => {
-                        format!("**{}", bb_expr_text(value))
-                    }
-                });
-            }
-            format!("{}({})", bb_expr_text(&call.func), parts.join(", "))
-        }
-        CoreBlockPyExpr::Op(operation) => match operation.as_ref() {
-            crate::block_py::Operation::MakeFunction(op) => {
-                let kind = match op.kind {
-                    crate::block_py::BlockPyFunctionKind::Function => "\"function\"",
-                    crate::block_py::BlockPyFunctionKind::Coroutine => "\"coroutine\"",
-                    crate::block_py::BlockPyFunctionKind::Generator => "\"generator\"",
-                    crate::block_py::BlockPyFunctionKind::AsyncGenerator => "\"async_generator\"",
-                };
-                helper_call_text(
-                    "__dp_make_function",
-                    [
-                        op.function_id.0.to_string(),
-                        kind.to_string(),
-                        "__dp_tuple()".to_string(),
-                        bb_expr_text(&op.arg0),
-                        bb_expr_text(&op.arg1),
-                        bb_expr_text(&op.arg2),
-                    ],
-                )
-            }
-            other => helper_call_text(
-                other.helper_name(),
-                match other {
-                    crate::block_py::Operation::GetAttr(op) => {
-                        vec![bb_expr_text(&op.arg0), format!("{:?}", op.arg1)]
-                    }
-                    crate::block_py::Operation::SetAttr(op) => vec![
-                        bb_expr_text(&op.arg0),
-                        format!("{:?}", op.arg1),
-                        bb_expr_text(&op.arg2),
-                    ],
-                    crate::block_py::Operation::LoadGlobal(op) => {
-                        vec![bb_expr_text(&op.arg0), format!("{:?}", op.arg1)]
-                    }
-                    crate::block_py::Operation::StoreGlobal(op) => vec![
-                        bb_expr_text(&op.arg0),
-                        format!("{:?}", op.arg1),
-                        bb_expr_text(&op.arg2),
-                    ],
-                    crate::block_py::Operation::LoadCell(op) => vec![op.arg0.pretty_id()],
-                    crate::block_py::Operation::MakeString(op) => vec![bytes_text(&op.arg0)],
-                    crate::block_py::Operation::CellRef(op) => {
-                        vec![cell_ref_target_text(&op.arg0)]
-                    }
-                    crate::block_py::Operation::StoreCell(op) => {
-                        vec![op.arg0.pretty_id(), bb_expr_text(&op.arg1)]
-                    }
-                    crate::block_py::Operation::DelQuietly(op) => {
-                        vec![bb_expr_text(&op.arg0), format!("{:?}", op.arg1)]
-                    }
-                    crate::block_py::Operation::DelDerefQuietly(op) => vec![op.arg0.pretty_id()],
-                    crate::block_py::Operation::DelDeref(op) => vec![op.arg0.pretty_id()],
-                    _ => other
-                        .call_args()
-                        .iter()
-                        .map(|arg| bb_expr_text(*arg))
-                        .collect(),
-                },
-            ),
-        },
+fn cell_ref_target_text<N: BlockPyNameLike>(target: &crate::block_py::CellRefTarget<N>) -> String {
+    match target {
+        crate::block_py::CellRefTarget::LogicalName(name) => format!("{name:?}"),
+        crate::block_py::CellRefTarget::Name(name) => name.pretty_id(),
     }
 }
 
-#[cfg(test)]
-fn helper_call_text(helper_name: &str, args: impl IntoIterator<Item = String>) -> String {
+fn debug_tuple_text(name: &str, fields: impl IntoIterator<Item = String>) -> String {
     format!(
         "{}({})",
-        helper_name,
-        args.into_iter().collect::<Vec<_>>().join(", ")
+        name,
+        fields.into_iter().collect::<Vec<_>>().join(", ")
     )
+}
+
+fn render_number_literal_text(value: &super::CoreNumberLiteralValue) -> String {
+    match value {
+        super::CoreNumberLiteralValue::Int(value) => value.to_string(),
+        super::CoreNumberLiteralValue::Float(value) => value.to_string(),
+    }
+}
+
+fn render_core_literal_text(literal: &CoreBlockPyLiteral) -> String {
+    match literal {
+        CoreBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value),
+        CoreBlockPyLiteral::BytesLiteral(literal) => bytes_text(&literal.value),
+        CoreBlockPyLiteral::NumberLiteral(literal) => render_number_literal_text(&literal.value),
+    }
+}
+
+fn render_codegen_literal_text(literal: &CodegenBlockPyLiteral) -> String {
+    match literal {
+        CodegenBlockPyLiteral::BytesLiteral(literal) => bytes_text(&literal.value),
+        CodegenBlockPyLiteral::NumberLiteral(literal) => render_number_literal_text(&literal.value),
+    }
+}
+
+fn render_call_text<E: BlockPyDebugExprText>(call: &CoreBlockPyCall<E>) -> String {
+    let mut parts = Vec::new();
+    for arg in &call.args {
+        parts.push(match arg {
+            CoreBlockPyCallArg::Positional(value) => value.debug_expr_text(),
+            CoreBlockPyCallArg::Starred(value) => format!("*{}", value.debug_expr_text()),
+        });
+    }
+    for keyword in &call.keywords {
+        parts.push(match keyword {
+            CoreBlockPyKeywordArg::Named { arg, value } => {
+                format!("{}={}", arg.id, value.debug_expr_text())
+            }
+            CoreBlockPyKeywordArg::Starred(value) => {
+                format!("**{}", value.debug_expr_text())
+            }
+        });
+    }
+    format!("{}({})", call.func.debug_expr_text(), parts.join(", "))
+}
+
+fn render_operation_detail_debug_text<E, N>(
+    detail: &crate::block_py::OperationDetail<E, N>,
+) -> String
+where
+    E: BlockPyDebugExprText,
+    N: BlockPyNameLike,
+{
+    match detail {
+        crate::block_py::OperationDetail::MakeFunction(op) => debug_tuple_text(
+            "MakeFunction",
+            [
+                op.function_id.0.to_string(),
+                format!("{:?}", op.kind),
+                op.arg0.debug_expr_text(),
+                op.arg1.debug_expr_text(),
+                op.arg2.debug_expr_text(),
+            ],
+        ),
+        crate::block_py::OperationDetail::GetAttr(op) => debug_tuple_text(
+            "GetAttr",
+            [op.arg0.debug_expr_text(), format!("{:?}", op.arg1)],
+        ),
+        crate::block_py::OperationDetail::SetAttr(op) => debug_tuple_text(
+            "SetAttr",
+            [
+                op.arg0.debug_expr_text(),
+                format!("{:?}", op.arg1),
+                op.arg2.debug_expr_text(),
+            ],
+        ),
+        crate::block_py::OperationDetail::LoadGlobal(op) => debug_tuple_text(
+            "LoadGlobal",
+            [op.arg0.debug_expr_text(), format!("{:?}", op.arg1)],
+        ),
+        crate::block_py::OperationDetail::StoreGlobal(op) => debug_tuple_text(
+            "StoreGlobal",
+            [
+                op.arg0.debug_expr_text(),
+                format!("{:?}", op.arg1),
+                op.arg2.debug_expr_text(),
+            ],
+        ),
+        crate::block_py::OperationDetail::LoadCell(op) => {
+            debug_tuple_text("LoadCell", [op.arg0.pretty_id()])
+        }
+        crate::block_py::OperationDetail::MakeString(op) => {
+            debug_tuple_text("MakeString", [bytes_text(&op.arg0)])
+        }
+        crate::block_py::OperationDetail::CellRef(op) => {
+            debug_tuple_text("CellRef", [cell_ref_target_text(&op.arg0)])
+        }
+        crate::block_py::OperationDetail::StoreCell(op) => debug_tuple_text(
+            "StoreCell",
+            [op.arg0.pretty_id(), op.arg1.debug_expr_text()],
+        ),
+        crate::block_py::OperationDetail::DelQuietly(op) => debug_tuple_text(
+            "DelQuietly",
+            [op.arg0.debug_expr_text(), format!("{:?}", op.arg1)],
+        ),
+        crate::block_py::OperationDetail::DelDerefQuietly(op) => {
+            debug_tuple_text("DelDerefQuietly", [op.arg0.pretty_id()])
+        }
+        crate::block_py::OperationDetail::DelDeref(op) => {
+            debug_tuple_text("DelDeref", [op.arg0.pretty_id()])
+        }
+        crate::block_py::OperationDetail::BinOp(op) => debug_tuple_text(
+            "BinOp",
+            [
+                format!("{:?}", op.kind),
+                op.arg0.debug_expr_text(),
+                op.arg1.debug_expr_text(),
+            ],
+        ),
+        crate::block_py::OperationDetail::UnaryOp(op) => debug_tuple_text(
+            "UnaryOp",
+            [format!("{:?}", op.kind), op.arg0.debug_expr_text()],
+        ),
+        crate::block_py::OperationDetail::InplaceBinOp(op) => debug_tuple_text(
+            "InplaceBinOp",
+            [
+                format!("{:?}", op.kind),
+                op.arg0.debug_expr_text(),
+                op.arg1.debug_expr_text(),
+            ],
+        ),
+        crate::block_py::OperationDetail::TernaryOp(op) => debug_tuple_text(
+            "TernaryOp",
+            [
+                format!("{:?}", op.kind),
+                op.arg0.debug_expr_text(),
+                op.arg1.debug_expr_text(),
+                op.arg2.debug_expr_text(),
+            ],
+        ),
+        crate::block_py::OperationDetail::GetItem(op) => debug_tuple_text(
+            "GetItem",
+            [op.arg0.debug_expr_text(), op.arg1.debug_expr_text()],
+        ),
+        crate::block_py::OperationDetail::SetItem(op) => debug_tuple_text(
+            "SetItem",
+            [
+                op.arg0.debug_expr_text(),
+                op.arg1.debug_expr_text(),
+                op.arg2.debug_expr_text(),
+            ],
+        ),
+        crate::block_py::OperationDetail::DelItem(op) => debug_tuple_text(
+            "DelItem",
+            [op.arg0.debug_expr_text(), op.arg1.debug_expr_text()],
+        ),
+        crate::block_py::OperationDetail::MakeCell(op) => {
+            debug_tuple_text("MakeCell", [op.arg0.debug_expr_text()])
+        }
+    }
+}
+
+impl<N> BlockPyDebugExprText for CoreBlockPyExpr<N>
+where
+    N: BlockPyNameLike,
+{
+    fn debug_expr_text(&self) -> String {
+        match self {
+            CoreBlockPyExpr::Name(name) => name.pretty_id(),
+            CoreBlockPyExpr::Literal(literal) => render_core_literal_text(literal),
+            CoreBlockPyExpr::Call(call) => render_call_text(call),
+            CoreBlockPyExpr::Op(operation) => {
+                render_operation_detail_debug_text(operation.detail())
+            }
+        }
+    }
+}
+
+impl BlockPyDebugExprText for CoreBlockPyExprWithYield {
+    fn debug_expr_text(&self) -> String {
+        match self {
+            CoreBlockPyExprWithYield::Name(name) => name.pretty_id(),
+            CoreBlockPyExprWithYield::Literal(literal) => render_core_literal_text(literal),
+            CoreBlockPyExprWithYield::Call(call) => render_call_text(call),
+            CoreBlockPyExprWithYield::Op(operation) => {
+                render_operation_detail_debug_text(operation.detail())
+            }
+            CoreBlockPyExprWithYield::Yield(yield_expr) => match &yield_expr.value {
+                Some(value) => format!("yield {}", value.debug_expr_text()),
+                None => "yield".to_string(),
+            },
+            CoreBlockPyExprWithYield::YieldFrom(yield_from_expr) => {
+                format!("yield from {}", yield_from_expr.value.debug_expr_text())
+            }
+        }
+    }
+}
+
+impl BlockPyDebugExprText for CoreBlockPyExprWithAwaitAndYield {
+    fn debug_expr_text(&self) -> String {
+        match self {
+            CoreBlockPyExprWithAwaitAndYield::Name(name) => name.pretty_id(),
+            CoreBlockPyExprWithAwaitAndYield::Literal(literal) => render_core_literal_text(literal),
+            CoreBlockPyExprWithAwaitAndYield::Call(call) => render_call_text(call),
+            CoreBlockPyExprWithAwaitAndYield::Op(operation) => {
+                render_operation_detail_debug_text(operation.detail())
+            }
+            CoreBlockPyExprWithAwaitAndYield::Await(await_expr) => {
+                format!("await {}", await_expr.value.debug_expr_text())
+            }
+            CoreBlockPyExprWithAwaitAndYield::Yield(yield_expr) => match &yield_expr.value {
+                Some(value) => format!("yield {}", value.debug_expr_text()),
+                None => "yield".to_string(),
+            },
+            CoreBlockPyExprWithAwaitAndYield::YieldFrom(yield_from_expr) => {
+                format!("yield from {}", yield_from_expr.value.debug_expr_text())
+            }
+        }
+    }
+}
+
+impl<N> BlockPyDebugExprText for CodegenBlockPyExpr<N>
+where
+    N: BlockPyNameLike,
+{
+    fn debug_expr_text(&self) -> String {
+        match self {
+            CodegenBlockPyExpr::Name(name) => name.pretty_id(),
+            CodegenBlockPyExpr::Literal(literal) => render_codegen_literal_text(literal),
+            CodegenBlockPyExpr::Call(call) => render_call_text(call),
+            CodegenBlockPyExpr::Op(operation) => {
+                render_operation_detail_debug_text(operation.detail())
+            }
+        }
+    }
+}
+
+impl BlockPyDebugExprText for Expr {
+    fn debug_expr_text(&self) -> String {
+        render_inline_expr(self)
+    }
+}
+
+impl BlockPyDebugExprText for RuffExpr {
+    fn debug_expr_text(&self) -> String {
+        render_inline_expr(&self.0)
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn bb_expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> String {
+    expr.debug_expr_text()
 }
 
 #[cfg(test)]
@@ -717,18 +924,7 @@ fn render_edge(edge: &BlockPyEdge) -> String {
 }
 
 fn render_block_arg(arg: &BlockArg) -> String {
-    match arg {
-        BlockArg::Name(name) => name.clone(),
-        BlockArg::None => "None".to_string(),
-        BlockArg::CurrentException => "<current_exception>".to_string(),
-        BlockArg::AbruptKind(kind) => match kind {
-            AbruptKind::Fallthrough => "Fallthrough".to_string(),
-            AbruptKind::Return => "Return".to_string(),
-            AbruptKind::Exception => "Exception".to_string(),
-            AbruptKind::Break => "Break".to_string(),
-            AbruptKind::Continue => "Continue".to_string(),
-        },
-    }
+    format!("{arg:?}")
 }
 
 fn render_blockpy_block_metadata<S, T, E, N>(block: &CfgBlock<S, T>) -> Vec<String>
@@ -756,13 +952,8 @@ fn render_block_header<S, T>(block: &CfgBlock<S, T>) -> String {
     }
 }
 
-fn render_block_param_role(role: BlockParamRole) -> &'static str {
-    match role {
-        BlockParamRole::Local => "Local",
-        BlockParamRole::Exception => "Exception",
-        BlockParamRole::AbruptKind => "AbruptKind",
-        BlockParamRole::AbruptPayload => "AbruptPayload",
-    }
+fn render_block_param_role(role: BlockParamRole) -> String {
+    format!("{role:?}")
 }
 
 #[derive(Debug)]
@@ -802,7 +993,7 @@ impl BlockRenderLayout {
             .map(|block| collect_top_level_successors_from_block::<P>(block, &label_to_index))
             .collect::<Vec<_>>();
         let predecessors = collect_predecessors(&successors);
-        let entry_index = choose_entry_block_index(function, &label_to_index, &predecessors);
+        let entry_index = 0;
         let discovery_order = collect_discovery_order(entry_index, &successors);
         let reachable = discovery_order.iter().copied().collect::<HashSet<_>>();
         let dominators =
@@ -920,17 +1111,6 @@ fn can_inline_if_term_target(
     immediate_dominators[target_index] == Some(parent_index)
         && predecessors[target_index].len() == 1
         && predecessors[target_index][0] == parent_index
-}
-
-fn choose_entry_block_index<P>(
-    _function: &BlockPyFunction<P>,
-    _label_to_index: &HashMap<BlockPyLabel, usize>,
-    _predecessors: &[Vec<usize>],
-) -> usize
-where
-    P: BlockPyPrettyPrinter,
-{
-    0
 }
 
 fn collect_top_level_successors_from_block<P>(

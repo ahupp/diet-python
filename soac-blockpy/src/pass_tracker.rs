@@ -17,6 +17,7 @@ struct TrackedPass {
     name: String,
     value: Box<dyn Any>,
     render_text: Option<fn(&dyn Any) -> String>,
+    render_debug_text: Option<fn(&dyn Any) -> String>,
 }
 
 #[derive(Default)]
@@ -58,6 +59,16 @@ where
         .downcast_ref::<T>()
         .expect("tracked pass renderer type should match stored value")
         .pretty_print()
+}
+
+fn render_tracked_pass_debug_value<T>(value: &dyn Any) -> String
+where
+    T: Any + BlockPyPrettyPrint,
+{
+    value
+        .downcast_ref::<T>()
+        .expect("tracked pass renderer type should match stored value")
+        .debug_pretty_print()
 }
 
 impl NoopPassTracker {
@@ -139,6 +150,12 @@ impl RecordingPassTracker {
         pass.render_text.map(|render| render(pass.value.as_ref()))
     }
 
+    pub fn render_pass_debug_text(&self, name: &str) -> Option<String> {
+        let pass = self.passes.iter().find(|pass| pass.name == name)?;
+        pass.render_debug_text
+            .map(|render| render(pass.value.as_ref()))
+    }
+
     pub fn pass_timings(&self) -> impl Iterator<Item = PassTiming> + '_ {
         self.timings.iter().cloned()
     }
@@ -155,6 +172,7 @@ impl PassTracker for RecordingPassTracker {
             name: name.to_string(),
             value: Box::new(value.clone()),
             render_text: Some(render_tracked_pass_value::<T>),
+            render_debug_text: Some(render_tracked_pass_debug_value::<T>),
         });
         value
     }

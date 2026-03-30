@@ -1,4 +1,4 @@
-use super::{BlockPyFunctionKind, FunctionId};
+use super::{BlockPyFunctionKind, FunctionId, HasMeta, Meta, WithMeta};
 use ruff_python_ast as ast;
 use ruff_text_size::TextRange;
 
@@ -192,8 +192,6 @@ pub trait OperationNode<E>: Sized {
     type Mapped<T, M>;
 
     fn name(&self) -> &'static str;
-    fn node_index(&self) -> &ast::AtomicNodeIndex;
-    fn range(&self) -> TextRange;
     fn walk_expr_args(&self, f: &mut impl FnMut(&E));
     fn walk_expr_args_mut(&mut self, f: &mut impl FnMut(&mut E));
     fn into_expr_args(self) -> Vec<E>;
@@ -222,11 +220,7 @@ pub trait OperationNode<E>: Sized {
 
 macro_rules! define_operation_node {
     (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident,) => {
-        $($mapped_ctor)+ {
-            node_index: $self.node_index,
-            range: $self.range,
-            $($out)*
-        }
+        $($mapped_ctor)+ { $($out)* }
     };
     (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident, $field:ident : $ty:ty => expr, $($rest:tt)*) => {
         define_operation_node!(
@@ -274,11 +268,7 @@ macro_rules! define_operation_node {
     };
 
     (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident,) => {
-        Ok($($mapped_ctor)+ {
-            node_index: $self.node_index,
-            range: $self.range,
-            $($out)*
-        })
+        Ok($($mapped_ctor)+ { $($out)* })
     };
     (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident, $field:ident : $ty:ty => expr, $($rest:tt)*) => {
         define_operation_node!(
@@ -387,9 +377,13 @@ macro_rules! define_operation_node {
     ) => {
         #[derive(Debug, Clone)]
         $vis struct $name $(<$($struct_gen),*>)? {
-            pub node_index: ast::AtomicNodeIndex,
-            pub range: TextRange,
             $(pub $field: $ty,)*
+        }
+
+        impl$(<$($struct_gen),*>)? $name $(<$($struct_gen),*>)? {
+            pub fn new($($field: $ty),*) -> Self {
+                Self { $($field,)* }
+            }
         }
 
         impl<$($impl_gen),*> OperationNode<E> for $name $(<$($struct_gen),*>)? {
@@ -399,14 +393,6 @@ macro_rules! define_operation_node {
             fn name(&self) -> &'static str {
                 let $self_ident = self;
                 $name_expr
-            }
-
-            fn node_index(&self) -> &ast::AtomicNodeIndex {
-                &self.node_index
-            }
-
-            fn range(&self) -> TextRange {
-                self.range
             }
 
             fn walk_expr_args(&self, f: &mut impl FnMut(&E)) {
@@ -464,6 +450,7 @@ macro_rules! define_operation_node {
                 )
             }
         }
+
     };
 }
 
@@ -727,7 +714,7 @@ define_operation_node! {
 }
 
 #[derive(Debug, Clone)]
-pub enum Operation<E, N = E> {
+pub enum OperationDetail<E, N = E> {
     BinOp(BinOp<E>),
     UnaryOp(UnaryOp<E>),
     InplaceBinOp(InplaceBinOp<E>),
@@ -750,7 +737,72 @@ pub enum Operation<E, N = E> {
     DelDeref(DelDeref<N>),
 }
 
-impl<E, N> Operation<E, N> {
+macro_rules! impl_expr_operation_detail_from {
+    ($($name:ident),* $(,)?) => {
+        $(
+            impl<E, N> From<$name<E>> for OperationDetail<E, N> {
+                fn from(value: $name<E>) -> Self {
+                    Self::$name(value)
+                }
+            }
+        )*
+    };
+}
+
+impl_expr_operation_detail_from!(
+    BinOp,
+    UnaryOp,
+    InplaceBinOp,
+    TernaryOp,
+    GetAttr,
+    SetAttr,
+    GetItem,
+    SetItem,
+    DelItem,
+    LoadGlobal,
+    StoreGlobal,
+    MakeCell,
+    MakeFunction,
+    DelQuietly,
+);
+
+impl<E, N> From<LoadCell<N>> for OperationDetail<E, N> {
+    fn from(value: LoadCell<N>) -> Self {
+        Self::LoadCell(value)
+    }
+}
+
+impl<E, N> From<MakeString> for OperationDetail<E, N> {
+    fn from(value: MakeString) -> Self {
+        Self::MakeString(value)
+    }
+}
+
+impl<E, N> From<CellRef<N>> for OperationDetail<E, N> {
+    fn from(value: CellRef<N>) -> Self {
+        Self::CellRef(value)
+    }
+}
+
+impl<E, N> From<StoreCell<N, E>> for OperationDetail<E, N> {
+    fn from(value: StoreCell<N, E>) -> Self {
+        Self::StoreCell(value)
+    }
+}
+
+impl<E, N> From<DelDerefQuietly<N>> for OperationDetail<E, N> {
+    fn from(value: DelDerefQuietly<N>) -> Self {
+        Self::DelDerefQuietly(value)
+    }
+}
+
+impl<E, N> From<DelDeref<N>> for OperationDetail<E, N> {
+    fn from(value: DelDeref<N>) -> Self {
+        Self::DelDeref(value)
+    }
+}
+
+impl<E, N> OperationDetail<E, N> {
     pub fn helper_name(&self) -> &'static str {
         match self {
             Self::BinOp(op) => op.name(),
@@ -776,78 +828,28 @@ impl<E, N> Operation<E, N> {
         }
     }
 
-    pub fn node_index(&self) -> &ast::AtomicNodeIndex {
+    pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> OperationDetail<T, N> {
         match self {
-            Self::BinOp(op) => op.node_index(),
-            Self::UnaryOp(op) => op.node_index(),
-            Self::InplaceBinOp(op) => op.node_index(),
-            Self::TernaryOp(op) => op.node_index(),
-            Self::GetAttr(op) => op.node_index(),
-            Self::SetAttr(op) => op.node_index(),
-            Self::GetItem(op) => op.node_index(),
-            Self::SetItem(op) => op.node_index(),
-            Self::DelItem(op) => op.node_index(),
-            Self::LoadGlobal(op) => op.node_index(),
-            Self::StoreGlobal(op) => op.node_index(),
-            Self::LoadCell(op) => <LoadCell<N> as OperationNode<E>>::node_index(op),
-            Self::MakeCell(op) => op.node_index(),
-            Self::MakeString(op) => <MakeString as OperationNode<E>>::node_index(op),
-            Self::CellRef(op) => <CellRef<N> as OperationNode<E>>::node_index(op),
-            Self::MakeFunction(op) => op.node_index(),
-            Self::StoreCell(op) => op.node_index(),
-            Self::DelQuietly(op) => op.node_index(),
-            Self::DelDerefQuietly(op) => <DelDerefQuietly<N> as OperationNode<E>>::node_index(op),
-            Self::DelDeref(op) => <DelDeref<N> as OperationNode<E>>::node_index(op),
-        }
-    }
-
-    pub fn range(&self) -> TextRange {
-        match self {
-            Self::BinOp(op) => op.range(),
-            Self::UnaryOp(op) => op.range(),
-            Self::InplaceBinOp(op) => op.range(),
-            Self::TernaryOp(op) => op.range(),
-            Self::GetAttr(op) => op.range(),
-            Self::SetAttr(op) => op.range(),
-            Self::GetItem(op) => op.range(),
-            Self::SetItem(op) => op.range(),
-            Self::DelItem(op) => op.range(),
-            Self::LoadGlobal(op) => op.range(),
-            Self::StoreGlobal(op) => op.range(),
-            Self::LoadCell(op) => <LoadCell<N> as OperationNode<E>>::range(op),
-            Self::MakeCell(op) => op.range(),
-            Self::MakeString(op) => <MakeString as OperationNode<E>>::range(op),
-            Self::CellRef(op) => <CellRef<N> as OperationNode<E>>::range(op),
-            Self::MakeFunction(op) => op.range(),
-            Self::StoreCell(op) => op.range(),
-            Self::DelQuietly(op) => op.range(),
-            Self::DelDerefQuietly(op) => <DelDerefQuietly<N> as OperationNode<E>>::range(op),
-            Self::DelDeref(op) => <DelDeref<N> as OperationNode<E>>::range(op),
-        }
-    }
-
-    pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> Operation<T, N> {
-        match self {
-            Self::BinOp(op) => Operation::BinOp(op.map_expr(f)),
-            Self::UnaryOp(op) => Operation::UnaryOp(op.map_expr(f)),
-            Self::InplaceBinOp(op) => Operation::InplaceBinOp(op.map_expr(f)),
-            Self::TernaryOp(op) => Operation::TernaryOp(op.map_expr(f)),
-            Self::GetAttr(op) => Operation::GetAttr(op.map_expr(f)),
-            Self::SetAttr(op) => Operation::SetAttr(op.map_expr(f)),
-            Self::GetItem(op) => Operation::GetItem(op.map_expr(f)),
-            Self::SetItem(op) => Operation::SetItem(op.map_expr(f)),
-            Self::DelItem(op) => Operation::DelItem(op.map_expr(f)),
-            Self::LoadGlobal(op) => Operation::LoadGlobal(op.map_expr(f)),
-            Self::StoreGlobal(op) => Operation::StoreGlobal(op.map_expr(f)),
-            Self::LoadCell(op) => Operation::LoadCell(op.map_expr(f)),
-            Self::MakeCell(op) => Operation::MakeCell(op.map_expr(f)),
-            Self::MakeString(op) => Operation::MakeString(op.map_expr(f)),
-            Self::CellRef(op) => Operation::CellRef(op.map_expr(f)),
-            Self::MakeFunction(op) => Operation::MakeFunction(op.map_expr(f)),
-            Self::StoreCell(op) => Operation::StoreCell(op.map_expr(f)),
-            Self::DelQuietly(op) => Operation::DelQuietly(op.map_expr(f)),
-            Self::DelDerefQuietly(op) => Operation::DelDerefQuietly(op.map_expr(f)),
-            Self::DelDeref(op) => Operation::DelDeref(op.map_expr(f)),
+            Self::BinOp(op) => OperationDetail::BinOp(op.map_expr(f)),
+            Self::UnaryOp(op) => OperationDetail::UnaryOp(op.map_expr(f)),
+            Self::InplaceBinOp(op) => OperationDetail::InplaceBinOp(op.map_expr(f)),
+            Self::TernaryOp(op) => OperationDetail::TernaryOp(op.map_expr(f)),
+            Self::GetAttr(op) => OperationDetail::GetAttr(op.map_expr(f)),
+            Self::SetAttr(op) => OperationDetail::SetAttr(op.map_expr(f)),
+            Self::GetItem(op) => OperationDetail::GetItem(op.map_expr(f)),
+            Self::SetItem(op) => OperationDetail::SetItem(op.map_expr(f)),
+            Self::DelItem(op) => OperationDetail::DelItem(op.map_expr(f)),
+            Self::LoadGlobal(op) => OperationDetail::LoadGlobal(op.map_expr(f)),
+            Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.map_expr(f)),
+            Self::LoadCell(op) => OperationDetail::LoadCell(op.map_expr(f)),
+            Self::MakeCell(op) => OperationDetail::MakeCell(op.map_expr(f)),
+            Self::MakeString(op) => OperationDetail::MakeString(op.map_expr(f)),
+            Self::CellRef(op) => OperationDetail::CellRef(op.map_expr(f)),
+            Self::MakeFunction(op) => OperationDetail::MakeFunction(op.map_expr(f)),
+            Self::StoreCell(op) => OperationDetail::StoreCell(op.map_expr(f)),
+            Self::DelQuietly(op) => OperationDetail::DelQuietly(op.map_expr(f)),
+            Self::DelDerefQuietly(op) => OperationDetail::DelDerefQuietly(op.map_expr(f)),
+            Self::DelDeref(op) => OperationDetail::DelDeref(op.map_expr(f)),
         }
     }
 
@@ -855,58 +857,58 @@ impl<E, N> Operation<E, N> {
         self,
         f_expr: &mut impl FnMut(E) -> T,
         f_name: &mut impl FnMut(N) -> M,
-    ) -> Operation<T, M> {
+    ) -> OperationDetail<T, M> {
         match self {
-            Self::BinOp(op) => Operation::BinOp(op.map_expr(f_expr)),
-            Self::UnaryOp(op) => Operation::UnaryOp(op.map_expr(f_expr)),
-            Self::InplaceBinOp(op) => Operation::InplaceBinOp(op.map_expr(f_expr)),
-            Self::TernaryOp(op) => Operation::TernaryOp(op.map_expr(f_expr)),
-            Self::GetAttr(op) => Operation::GetAttr(op.map_expr(f_expr)),
-            Self::SetAttr(op) => Operation::SetAttr(op.map_expr(f_expr)),
-            Self::GetItem(op) => Operation::GetItem(op.map_expr(f_expr)),
-            Self::SetItem(op) => Operation::SetItem(op.map_expr(f_expr)),
-            Self::DelItem(op) => Operation::DelItem(op.map_expr(f_expr)),
-            Self::LoadGlobal(op) => Operation::LoadGlobal(op.map_expr(f_expr)),
-            Self::StoreGlobal(op) => Operation::StoreGlobal(op.map_expr(f_expr)),
-            Self::LoadCell(op) => Operation::LoadCell(op.map_expr_and_name(f_expr, f_name)),
-            Self::MakeCell(op) => Operation::MakeCell(op.map_expr(f_expr)),
-            Self::MakeString(op) => Operation::MakeString(op.map_expr(f_expr)),
-            Self::CellRef(op) => Operation::CellRef(op.map_expr_and_name(f_expr, f_name)),
-            Self::MakeFunction(op) => Operation::MakeFunction(op.map_expr(f_expr)),
-            Self::StoreCell(op) => Operation::StoreCell(op.map_expr_and_name(f_expr, f_name)),
-            Self::DelQuietly(op) => Operation::DelQuietly(op.map_expr(f_expr)),
+            Self::BinOp(op) => OperationDetail::BinOp(op.map_expr(f_expr)),
+            Self::UnaryOp(op) => OperationDetail::UnaryOp(op.map_expr(f_expr)),
+            Self::InplaceBinOp(op) => OperationDetail::InplaceBinOp(op.map_expr(f_expr)),
+            Self::TernaryOp(op) => OperationDetail::TernaryOp(op.map_expr(f_expr)),
+            Self::GetAttr(op) => OperationDetail::GetAttr(op.map_expr(f_expr)),
+            Self::SetAttr(op) => OperationDetail::SetAttr(op.map_expr(f_expr)),
+            Self::GetItem(op) => OperationDetail::GetItem(op.map_expr(f_expr)),
+            Self::SetItem(op) => OperationDetail::SetItem(op.map_expr(f_expr)),
+            Self::DelItem(op) => OperationDetail::DelItem(op.map_expr(f_expr)),
+            Self::LoadGlobal(op) => OperationDetail::LoadGlobal(op.map_expr(f_expr)),
+            Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.map_expr(f_expr)),
+            Self::LoadCell(op) => OperationDetail::LoadCell(op.map_expr_and_name(f_expr, f_name)),
+            Self::MakeCell(op) => OperationDetail::MakeCell(op.map_expr(f_expr)),
+            Self::MakeString(op) => OperationDetail::MakeString(op.map_expr(f_expr)),
+            Self::CellRef(op) => OperationDetail::CellRef(op.map_expr_and_name(f_expr, f_name)),
+            Self::MakeFunction(op) => OperationDetail::MakeFunction(op.map_expr(f_expr)),
+            Self::StoreCell(op) => OperationDetail::StoreCell(op.map_expr_and_name(f_expr, f_name)),
+            Self::DelQuietly(op) => OperationDetail::DelQuietly(op.map_expr(f_expr)),
             Self::DelDerefQuietly(op) => {
-                Operation::DelDerefQuietly(op.map_expr_and_name(f_expr, f_name))
+                OperationDetail::DelDerefQuietly(op.map_expr_and_name(f_expr, f_name))
             }
-            Self::DelDeref(op) => Operation::DelDeref(op.map_expr_and_name(f_expr, f_name)),
+            Self::DelDeref(op) => OperationDetail::DelDeref(op.map_expr_and_name(f_expr, f_name)),
         }
     }
 
     pub fn try_map_expr<T, Error>(
         self,
         f: &mut impl FnMut(E) -> Result<T, Error>,
-    ) -> Result<Operation<T, N>, Error> {
+    ) -> Result<OperationDetail<T, N>, Error> {
         Ok(match self {
-            Self::BinOp(op) => Operation::BinOp(op.try_map_expr(f)?),
-            Self::UnaryOp(op) => Operation::UnaryOp(op.try_map_expr(f)?),
-            Self::InplaceBinOp(op) => Operation::InplaceBinOp(op.try_map_expr(f)?),
-            Self::TernaryOp(op) => Operation::TernaryOp(op.try_map_expr(f)?),
-            Self::GetAttr(op) => Operation::GetAttr(op.try_map_expr(f)?),
-            Self::SetAttr(op) => Operation::SetAttr(op.try_map_expr(f)?),
-            Self::GetItem(op) => Operation::GetItem(op.try_map_expr(f)?),
-            Self::SetItem(op) => Operation::SetItem(op.try_map_expr(f)?),
-            Self::DelItem(op) => Operation::DelItem(op.try_map_expr(f)?),
-            Self::LoadGlobal(op) => Operation::LoadGlobal(op.try_map_expr(f)?),
-            Self::StoreGlobal(op) => Operation::StoreGlobal(op.try_map_expr(f)?),
-            Self::LoadCell(op) => Operation::LoadCell(op.try_map_expr(f)?),
-            Self::MakeCell(op) => Operation::MakeCell(op.try_map_expr(f)?),
-            Self::MakeString(op) => Operation::MakeString(op.try_map_expr(f)?),
-            Self::CellRef(op) => Operation::CellRef(op.try_map_expr(f)?),
-            Self::MakeFunction(op) => Operation::MakeFunction(op.try_map_expr(f)?),
-            Self::StoreCell(op) => Operation::StoreCell(op.try_map_expr(f)?),
-            Self::DelQuietly(op) => Operation::DelQuietly(op.try_map_expr(f)?),
-            Self::DelDerefQuietly(op) => Operation::DelDerefQuietly(op.try_map_expr(f)?),
-            Self::DelDeref(op) => Operation::DelDeref(op.try_map_expr(f)?),
+            Self::BinOp(op) => OperationDetail::BinOp(op.try_map_expr(f)?),
+            Self::UnaryOp(op) => OperationDetail::UnaryOp(op.try_map_expr(f)?),
+            Self::InplaceBinOp(op) => OperationDetail::InplaceBinOp(op.try_map_expr(f)?),
+            Self::TernaryOp(op) => OperationDetail::TernaryOp(op.try_map_expr(f)?),
+            Self::GetAttr(op) => OperationDetail::GetAttr(op.try_map_expr(f)?),
+            Self::SetAttr(op) => OperationDetail::SetAttr(op.try_map_expr(f)?),
+            Self::GetItem(op) => OperationDetail::GetItem(op.try_map_expr(f)?),
+            Self::SetItem(op) => OperationDetail::SetItem(op.try_map_expr(f)?),
+            Self::DelItem(op) => OperationDetail::DelItem(op.try_map_expr(f)?),
+            Self::LoadGlobal(op) => OperationDetail::LoadGlobal(op.try_map_expr(f)?),
+            Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.try_map_expr(f)?),
+            Self::LoadCell(op) => OperationDetail::LoadCell(op.try_map_expr(f)?),
+            Self::MakeCell(op) => OperationDetail::MakeCell(op.try_map_expr(f)?),
+            Self::MakeString(op) => OperationDetail::MakeString(op.try_map_expr(f)?),
+            Self::CellRef(op) => OperationDetail::CellRef(op.try_map_expr(f)?),
+            Self::MakeFunction(op) => OperationDetail::MakeFunction(op.try_map_expr(f)?),
+            Self::StoreCell(op) => OperationDetail::StoreCell(op.try_map_expr(f)?),
+            Self::DelQuietly(op) => OperationDetail::DelQuietly(op.try_map_expr(f)?),
+            Self::DelDerefQuietly(op) => OperationDetail::DelDerefQuietly(op.try_map_expr(f)?),
+            Self::DelDeref(op) => OperationDetail::DelDeref(op.try_map_expr(f)?),
         })
     }
 
@@ -914,30 +916,38 @@ impl<E, N> Operation<E, N> {
         self,
         f_expr: &mut impl FnMut(E) -> Result<T, Error>,
         f_name: &mut impl FnMut(N) -> Result<M, Error>,
-    ) -> Result<Operation<T, M>, Error> {
+    ) -> Result<OperationDetail<T, M>, Error> {
         Ok(match self {
-            Self::BinOp(op) => Operation::BinOp(op.try_map_expr(f_expr)?),
-            Self::UnaryOp(op) => Operation::UnaryOp(op.try_map_expr(f_expr)?),
-            Self::InplaceBinOp(op) => Operation::InplaceBinOp(op.try_map_expr(f_expr)?),
-            Self::TernaryOp(op) => Operation::TernaryOp(op.try_map_expr(f_expr)?),
-            Self::GetAttr(op) => Operation::GetAttr(op.try_map_expr(f_expr)?),
-            Self::SetAttr(op) => Operation::SetAttr(op.try_map_expr(f_expr)?),
-            Self::GetItem(op) => Operation::GetItem(op.try_map_expr(f_expr)?),
-            Self::SetItem(op) => Operation::SetItem(op.try_map_expr(f_expr)?),
-            Self::DelItem(op) => Operation::DelItem(op.try_map_expr(f_expr)?),
-            Self::LoadGlobal(op) => Operation::LoadGlobal(op.try_map_expr(f_expr)?),
-            Self::StoreGlobal(op) => Operation::StoreGlobal(op.try_map_expr(f_expr)?),
-            Self::LoadCell(op) => Operation::LoadCell(op.try_map_expr_and_name(f_expr, f_name)?),
-            Self::MakeCell(op) => Operation::MakeCell(op.try_map_expr(f_expr)?),
-            Self::MakeString(op) => Operation::MakeString(op.try_map_expr(f_expr)?),
-            Self::CellRef(op) => Operation::CellRef(op.try_map_expr_and_name(f_expr, f_name)?),
-            Self::MakeFunction(op) => Operation::MakeFunction(op.try_map_expr(f_expr)?),
-            Self::StoreCell(op) => Operation::StoreCell(op.try_map_expr_and_name(f_expr, f_name)?),
-            Self::DelQuietly(op) => Operation::DelQuietly(op.try_map_expr(f_expr)?),
-            Self::DelDerefQuietly(op) => {
-                Operation::DelDerefQuietly(op.try_map_expr_and_name(f_expr, f_name)?)
+            Self::BinOp(op) => OperationDetail::BinOp(op.try_map_expr(f_expr)?),
+            Self::UnaryOp(op) => OperationDetail::UnaryOp(op.try_map_expr(f_expr)?),
+            Self::InplaceBinOp(op) => OperationDetail::InplaceBinOp(op.try_map_expr(f_expr)?),
+            Self::TernaryOp(op) => OperationDetail::TernaryOp(op.try_map_expr(f_expr)?),
+            Self::GetAttr(op) => OperationDetail::GetAttr(op.try_map_expr(f_expr)?),
+            Self::SetAttr(op) => OperationDetail::SetAttr(op.try_map_expr(f_expr)?),
+            Self::GetItem(op) => OperationDetail::GetItem(op.try_map_expr(f_expr)?),
+            Self::SetItem(op) => OperationDetail::SetItem(op.try_map_expr(f_expr)?),
+            Self::DelItem(op) => OperationDetail::DelItem(op.try_map_expr(f_expr)?),
+            Self::LoadGlobal(op) => OperationDetail::LoadGlobal(op.try_map_expr(f_expr)?),
+            Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.try_map_expr(f_expr)?),
+            Self::LoadCell(op) => {
+                OperationDetail::LoadCell(op.try_map_expr_and_name(f_expr, f_name)?)
             }
-            Self::DelDeref(op) => Operation::DelDeref(op.try_map_expr_and_name(f_expr, f_name)?),
+            Self::MakeCell(op) => OperationDetail::MakeCell(op.try_map_expr(f_expr)?),
+            Self::MakeString(op) => OperationDetail::MakeString(op.try_map_expr(f_expr)?),
+            Self::CellRef(op) => {
+                OperationDetail::CellRef(op.try_map_expr_and_name(f_expr, f_name)?)
+            }
+            Self::MakeFunction(op) => OperationDetail::MakeFunction(op.try_map_expr(f_expr)?),
+            Self::StoreCell(op) => {
+                OperationDetail::StoreCell(op.try_map_expr_and_name(f_expr, f_name)?)
+            }
+            Self::DelQuietly(op) => OperationDetail::DelQuietly(op.try_map_expr(f_expr)?),
+            Self::DelDerefQuietly(op) => {
+                OperationDetail::DelDerefQuietly(op.try_map_expr_and_name(f_expr, f_name)?)
+            }
+            Self::DelDeref(op) => {
+                OperationDetail::DelDeref(op.try_map_expr_and_name(f_expr, f_name)?)
+            }
         })
     }
 
@@ -1039,5 +1049,112 @@ impl<E, N> Operation<E, N> {
             Self::DelDerefQuietly(_) => Vec::new(),
             Self::DelDeref(_) => Vec::new(),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Operation<E, N = E> {
+    pub meta: Meta,
+    pub detail: OperationDetail<E, N>,
+}
+
+impl<E, N> Operation<E, N> {
+    pub fn new(detail: impl Into<OperationDetail<E, N>>) -> Self {
+        Self {
+            meta: Meta::synthetic(),
+            detail: detail.into(),
+        }
+    }
+
+    pub fn detail(&self) -> &OperationDetail<E, N> {
+        &self.detail
+    }
+
+    pub fn detail_mut(&mut self) -> &mut OperationDetail<E, N> {
+        &mut self.detail
+    }
+
+    pub fn into_detail(self) -> OperationDetail<E, N> {
+        self.detail
+    }
+
+    pub fn helper_name(&self) -> &'static str {
+        self.detail.helper_name()
+    }
+
+    pub fn node_index(&self) -> &ast::AtomicNodeIndex {
+        &self.meta.node_index
+    }
+
+    pub fn range(&self) -> TextRange {
+        self.meta.range
+    }
+
+    pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> Operation<T, N> {
+        Operation {
+            meta: self.meta,
+            detail: self.detail.map_expr(f),
+        }
+    }
+
+    pub fn map_expr_and_name<T, M>(
+        self,
+        f_expr: &mut impl FnMut(E) -> T,
+        f_name: &mut impl FnMut(N) -> M,
+    ) -> Operation<T, M> {
+        Operation {
+            meta: self.meta,
+            detail: self.detail.map_expr_and_name(f_expr, f_name),
+        }
+    }
+
+    pub fn try_map_expr<T, Error>(
+        self,
+        f: &mut impl FnMut(E) -> Result<T, Error>,
+    ) -> Result<Operation<T, N>, Error> {
+        Ok(Operation {
+            meta: self.meta,
+            detail: self.detail.try_map_expr(f)?,
+        })
+    }
+
+    pub fn try_map_expr_and_name<T, M, Error>(
+        self,
+        f_expr: &mut impl FnMut(E) -> Result<T, Error>,
+        f_name: &mut impl FnMut(N) -> Result<M, Error>,
+    ) -> Result<Operation<T, M>, Error> {
+        Ok(Operation {
+            meta: self.meta,
+            detail: self.detail.try_map_expr_and_name(f_expr, f_name)?,
+        })
+    }
+
+    pub fn walk_args(&self, f: &mut impl FnMut(&E)) {
+        self.detail.walk_args(f)
+    }
+
+    pub fn walk_args_mut(&mut self, f: &mut impl FnMut(&mut E)) {
+        self.detail.walk_args_mut(f)
+    }
+
+    pub fn into_call_args(self) -> Vec<E> {
+        self.detail.into_call_args()
+    }
+
+    pub fn call_args(&self) -> Vec<&E> {
+        self.detail.call_args()
+    }
+}
+
+impl<E, N> WithMeta for Operation<E, N> {
+    fn with_meta(mut self, meta: Meta) -> Self {
+        self.meta = meta;
+        self
+    }
+}
+
+impl<E, N> HasMeta for Operation<E, N> {
+    fn meta(&self) -> Meta {
+        self.meta.clone()
     }
 }

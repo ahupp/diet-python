@@ -198,7 +198,7 @@ fn render_inspector_payload(source: &str, output: &soac_blockpy::LoweringResult)
     for name in output.pass_tracker.pass_names() {
         let text = output
             .pass_tracker
-            .render_pass_text(name)
+            .render_pass_debug_text(name)
             .unwrap_or_else(|| format!("; no text renderer for pass {name}"));
         steps.push(json!({
             "key": name,
@@ -385,7 +385,7 @@ mod test {
                     .uri("/api/inspect_pipeline")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        json!({"source": "def classify(n):\n    return n\n"}).to_string(),
+                        json!({"source": "def classify(n):\n    return n + 1\n"}).to_string(),
                     ))
                     .unwrap(),
             )
@@ -401,6 +401,16 @@ mod test {
             payload["functions"][0]["entryLabel"]
                 .as_str()
                 .is_some_and(|entry_label| !entry_label.is_empty())
+        );
+        let step_texts = payload["steps"]
+            .as_array()
+            .expect("steps should be an array")
+            .iter()
+            .filter_map(|step| step["text"].as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            step_texts.iter().any(|text| text.contains("BinOp(Add,")),
+            "{payload}"
         );
     }
 
