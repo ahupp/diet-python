@@ -11,6 +11,15 @@ import types as _types
 from typing import NamedTuple
 import warnings
 
+try:
+    from diet_python import (
+        make_bb_function as _jit_make_bb_function,
+        make_bb_generator as _jit_make_bb_generator,
+    )
+except Exception:
+    _jit_make_bb_function = None
+    _jit_make_bb_generator = None
+
 next = builtins.next
 iter = builtins.iter
 aiter = builtins.aiter
@@ -480,11 +489,6 @@ def _attach_throw_context_from_state(state, exc):
                         break
     except Exception:
         pass
-
-
-_jit_make_bb_function = None
-_jit_make_bb_generator = None
-
 
 class _DpGenerator:
     __slots__ = (

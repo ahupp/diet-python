@@ -142,15 +142,6 @@ def install():
     # Ensure the transform module is loaded before we intercept stdlib imports.
     if diet_python is None:
         _raise_missing_diet_python()
-    try:
-        from . import runtime as runtime_module
-
-        runtime_module._jit_make_bb_function = getattr(diet_python, "make_bb_function", None)
-        runtime_module._jit_make_bb_generator = getattr(
-            diet_python, "make_bb_generator", None
-        )
-    except Exception:
-        pass
 
     existing_typing = sys.modules.get("typing")
     if existing_typing is not None:
