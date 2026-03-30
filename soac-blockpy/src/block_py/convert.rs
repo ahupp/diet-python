@@ -124,32 +124,19 @@ where
         stmt: StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
     ) -> StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>> {
         match stmt {
-            StructuredBlockPyStmt::Assign(assign) => self.map_assign(assign),
+            StructuredBlockPyStmt::Assign(assign) => StructuredBlockPyStmt::Assign(BlockPyAssign {
+                target: self.map_name(assign.target),
+                value: self.map_expr(assign.value),
+            }),
             StructuredBlockPyStmt::Expr(expr) => StructuredBlockPyStmt::Expr(self.map_expr(expr)),
-            StructuredBlockPyStmt::Delete(delete) => {
-                StructuredBlockPyStmt::Delete(self.map_delete(delete))
-            }
+            StructuredBlockPyStmt::Delete(delete) => StructuredBlockPyStmt::Delete(BlockPyDelete {
+                target: self.map_name(delete.target),
+            }),
             StructuredBlockPyStmt::If(if_stmt) => StructuredBlockPyStmt::If(BlockPyIf {
                 test: self.map_expr(if_stmt.test),
                 body: self.map_fragment(if_stmt.body),
                 orelse: self.map_fragment(if_stmt.orelse),
             }),
-        }
-    }
-
-    fn map_assign(
-        &self,
-        assign: BlockPyAssign<PassExpr<PIn>, PassName<PIn>>,
-    ) -> StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>> {
-        StructuredBlockPyStmt::Assign(BlockPyAssign {
-            target: self.map_name(assign.target),
-            value: self.map_expr(assign.value),
-        })
-    }
-
-    fn map_delete(&self, delete: BlockPyDelete<PassName<PIn>>) -> BlockPyDelete<PassName<POut>> {
-        BlockPyDelete {
-            target: self.map_name(delete.target),
         }
     }
 
