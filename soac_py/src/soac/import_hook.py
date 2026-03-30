@@ -142,9 +142,6 @@ def install():
     try:
         from . import runtime as runtime_module
 
-        hook_fn = getattr(runtime_module, "_ensure_annotationlib_import_hook", None)
-        if hook_fn is not None:
-            hook_fn()
         transform = _get_pyo3_transform()
         runtime_module._jit_make_bb_function = getattr(transform, "make_bb_function", None)
         runtime_module._jit_make_bb_generator = getattr(transform, "make_bb_generator", None)
