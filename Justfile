@@ -202,7 +202,6 @@ run-cpython-tests jobs="0" *args='': build-all ensure-cpython ensure-venv
     )
 
     DIET_PYTHON_INSTALL_HOOK=1 \
-    DIET_PYTHON_TEST_PATCHES=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH="$PYTHONPATH_PREFIX${PYTHONPATH:+:$PYTHONPATH}" \
     "${TEST_CMD[@]}"
