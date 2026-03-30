@@ -6,9 +6,7 @@ use crate::block_py::{
     CoreBlockPyYield, CoreBlockPyYieldFrom, IntoStructuredBlockPyStmt, StructuredBlockPyStmt,
 };
 use crate::namegen::fresh_name;
-use crate::passes::ruff_to_blockpy::{
-    lower_structured_blocks_to_bb_blocks, recompute_lowered_block_params_for_blocks,
-};
+use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
 use crate::passes::CoreBlockPyPassWithYield;
 use crate::py_expr;
 use ruff_python_ast as ast;
@@ -480,7 +478,6 @@ pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
         storage_layout,
         semantic,
     } = callable_def;
-    let param_names = params.names();
     let structured_blocks = blocks
         .into_iter()
         .map(|block| CfgBlock {
@@ -496,14 +493,13 @@ pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
         })
         .map(make_eval_order_explicit_in_core_block_without_await)
         .collect::<Vec<_>>();
-    let block_params = recompute_lowered_block_params_for_blocks(&param_names, &structured_blocks);
     BlockPyFunction {
         function_id,
         name_gen,
         names,
         kind,
         params,
-        blocks: lower_structured_blocks_to_bb_blocks(&structured_blocks, &block_params),
+        blocks: lower_structured_blocks_to_bb_blocks(&structured_blocks),
         doc,
         storage_layout,
         semantic,

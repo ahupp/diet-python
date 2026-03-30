@@ -41,23 +41,6 @@ fn lower_function_try_jump_exception_flow(
     function
 }
 
-fn bb_params_from_names(
-    param_names: Vec<String>,
-    exception_name: Option<&str>,
-) -> Vec<crate::block_py::BlockParam> {
-    param_names
-        .into_iter()
-        .map(|name| crate::block_py::BlockParam {
-            role: if exception_name == Some(name.as_str()) {
-                crate::block_py::BlockParamRole::Exception
-            } else {
-                crate::block_py::BlockParamRole::Local
-            },
-            name,
-        })
-        .collect()
-}
-
 fn split_exception_blocks_for_expr_checks(
     function: &mut BlockPyFunction<ResolvedStorageBlockPyPass>,
 ) {
@@ -72,18 +55,15 @@ fn split_exception_blocks_for_expr_checks(
             continue;
         }
 
-        let mut known_names = block.param_name_vec();
+        let segment_params = block.bb_params().cloned().collect::<Vec<_>>();
         let mut current_label = block.label;
         let exc_edge = block.exc_edge.clone();
-        let edge_exc_name = block.exception_param().map(ToString::to_string);
         let mut ops = block.body.into_iter().peekable();
-        let mut segment_start_names = known_names.clone();
 
         let mut segment_ops: Vec<BlockPyStmt> = Vec::new();
         while let Some(op) = ops.next() {
             let ends_segment = op_updates_exception_state(&op) && ops.peek().is_some();
             segment_ops.push(op.clone());
-            apply_op_effect_to_known_names(&op, &mut known_names);
 
             if ends_segment {
                 let next_label = unique_exc_split_label(&mut used_labels, fresh_index);
@@ -92,14 +72,10 @@ fn split_exception_blocks_for_expr_checks(
                     label: current_label,
                     body: std::mem::take(&mut segment_ops),
                     term: BlockPyTerm::Jump(next_label.into()),
-                    params: bb_params_from_names(
-                        segment_start_names.clone(),
-                        edge_exc_name.as_deref(),
-                    ),
+                    params: segment_params.clone(),
                     exc_edge: exc_edge.clone(),
                 });
                 current_label = next_label;
-                segment_start_names = known_names.clone();
             }
 
             if ops.peek().is_none() {
@@ -107,10 +83,7 @@ fn split_exception_blocks_for_expr_checks(
                     label: current_label,
                     body: std::mem::take(&mut segment_ops),
                     term: block.term.clone(),
-                    params: bb_params_from_names(
-                        segment_start_names.clone(),
-                        edge_exc_name.as_deref(),
-                    ),
+                    params: segment_params.clone(),
                     exc_edge: exc_edge.clone(),
                 });
             }
@@ -135,33 +108,6 @@ fn unique_exc_split_label(
             return candidate;
         }
         index += 1;
-    }
-}
-
-fn apply_op_effect_to_known_names(op: &BlockPyStmt, known_names: &mut Vec<String>) {
-    match op {
-        BlockPyStmt::Assign(assign) => {
-            let target = assign.target.id.to_string();
-            for target_name in [Some(target.as_str()), target.strip_prefix("_dp_cell_")]
-                .into_iter()
-                .flatten()
-            {
-                if !known_names.iter().any(|name| name == target_name) {
-                    known_names.push(target_name.to_string());
-                }
-            }
-        }
-        BlockPyStmt::Expr(_) => {}
-        BlockPyStmt::Delete(delete) => {
-            let target_name = delete.target.id.to_string();
-            known_names.retain(|existing| {
-                existing != &target_name
-                    && target_name
-                        .strip_prefix("_dp_cell_")
-                        .map(|logical_name| existing != logical_name)
-                        .unwrap_or(true)
-            });
-        }
     }
 }
 

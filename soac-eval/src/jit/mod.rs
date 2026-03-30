@@ -404,8 +404,8 @@ fn codegen_expr_const_string(expr: &LocatedCodegenBlockPyExpr) -> Option<String>
         CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
             String::from_utf8(bytes.value.clone()).ok()
         }
-        CodegenBlockPyExpr::Op(operation) => match operation.as_ref() {
-            blockpy_intrinsics::Operation::MakeString(op) => {
+        CodegenBlockPyExpr::Op(operation) => match operation.as_ref().detail() {
+            blockpy_intrinsics::OperationDetail::MakeString(op) => {
                 String::from_utf8(op.arg0.clone()).ok()
             }
             _ => None,
@@ -516,6 +516,25 @@ impl StackSlots {
             .iter()
             .position(|candidate| candidate == name)
             .map(|index| self.slots[index])
+    }
+
+    fn slot_for_block_arg_name(&self, name: &str) -> Option<ir::StackSlot> {
+        self.slot_for_name(name).or_else(|| {
+            if !is_try_exception_alias_name(name) {
+                return None;
+            }
+            let mut matches = self
+                .names
+                .iter()
+                .enumerate()
+                .filter(|(_, candidate)| is_try_exception_alias_name(candidate));
+            let first = matches.next().map(|(index, _)| self.slots[index]);
+            debug_assert!(
+                matches.next().is_none(),
+                "expected at most one current-exception stack slot"
+            );
+            first
+        })
     }
 
     fn has_name(&self, name: &str) -> bool {
@@ -698,12 +717,37 @@ fn load_stack_slot_value(
     borrowed: bool,
     incref_ref: ir::FuncRef,
 ) -> Option<ir::Value> {
-    let slot = stack_slots.slot_for_name(name)?;
+    let slot = stack_slots.slot_for_block_arg_name(name)?;
     let value = fb.ins().stack_load(ptr_ty, slot, 0);
     if !borrowed {
         fb.ins().call(incref_ref, &[value]);
     }
     Some(value)
+}
+
+fn is_try_exception_alias_name(name: &str) -> bool {
+    name.starts_with("_dp_try_exc_")
+}
+
+fn local_name_index_for_block_arg(name: &str, local_names: &[String]) -> Option<usize> {
+    local_names
+        .iter()
+        .position(|candidate| candidate == name)
+        .or_else(|| {
+            if !is_try_exception_alias_name(name) {
+                return None;
+            }
+            let mut matches = local_names
+                .iter()
+                .enumerate()
+                .filter(|(_, candidate)| is_try_exception_alias_name(candidate));
+            let first = matches.next().map(|(index, _)| index);
+            debug_assert!(
+                matches.next().is_none(),
+                "expected at most one current-exception block param"
+            );
+            first
+        })
 }
 
 fn block_arg_values(values: &[ir::Value]) -> Vec<ir::BlockArg> {
@@ -1157,8 +1201,8 @@ fn emit_codegen_expr(
             };
             let operation_ref = operation.as_ref();
             if matches!(
-                operation_ref,
-                blockpy_intrinsics::Operation::MakeFunction(_)
+                operation_ref.detail(),
+                blockpy_intrinsics::OperationDetail::MakeFunction(_)
             ) {
                 panic!("MakeFunction should lower to a regular call before codegen");
             }
@@ -1168,8 +1212,8 @@ fn emit_codegen_expr(
             {
                 return value;
             }
-            match operation_ref {
-                blockpy_intrinsics::Operation::CellRef(op) => {
+            match operation_ref.detail() {
+                blockpy_intrinsics::OperationDetail::CellRef(op) => {
                     let blockpy_intrinsics::CellRefTarget::Name(cell_name) = &op.arg0 else {
                         panic!(
                             "__dp_cell_ref should lower to a resolved name arg, got {:?}",
@@ -1194,7 +1238,7 @@ fn emit_codegen_expr(
                         }
                     }
                 }
-                blockpy_intrinsics::Operation::LoadCell(op) => {
+                blockpy_intrinsics::OperationDetail::LoadCell(op) => {
                     let cell_name = &op.arg0;
                     let raw_cell = emit_raw_cell_object_for_name(
                         intrinsic_state.fb,
@@ -1235,7 +1279,7 @@ fn emit_codegen_expr(
                     intrinsic_state.fb.switch_to_block(value_ok_block);
                     intrinsic_state.fb.block_params(value_ok_block)[0]
                 }
-                blockpy_intrinsics::Operation::StoreCell(op) => {
+                blockpy_intrinsics::OperationDetail::StoreCell(op) => {
                     let cell_name = &op.arg0;
                     let raw_cell = emit_raw_cell_object_for_name(
                         intrinsic_state.fb,
@@ -1280,7 +1324,7 @@ fn emit_codegen_expr(
                         call_value,
                     )
                 }
-                blockpy_intrinsics::Operation::DelDeref(op) => {
+                blockpy_intrinsics::OperationDetail::DelDeref(op) => {
                     let raw_cell = emit_raw_cell_object_for_name(
                         intrinsic_state.fb,
                         &op.arg0,
@@ -1290,7 +1334,7 @@ fn emit_codegen_expr(
                     );
                     intrinsics::emit_del_deref_raw_cell(raw_cell, false, &mut intrinsic_state)
                 }
-                blockpy_intrinsics::Operation::DelDerefQuietly(op) => {
+                blockpy_intrinsics::OperationDetail::DelDerefQuietly(op) => {
                     let raw_cell = emit_raw_cell_object_for_name(
                         intrinsic_state.fb,
                         &op.arg0,
@@ -2420,9 +2464,8 @@ fn emit_prepare_target_args_codegen(
         }) {
             let value = match explicit_arg {
                 BlockArg::Name(source_name) => {
-                    if let Some(value_index) = local_names
-                        .iter()
-                        .position(|candidate| candidate == source_name)
+                    if let Some(value_index) =
+                        local_name_index_for_block_arg(source_name, local_names)
                     {
                         let value = local_values[value_index];
                         let forwarded_count =
@@ -2504,10 +2547,7 @@ fn emit_explicit_target_slot_writes_codegen(
         }
         let (value, owned_value) = match arg {
             BlockArg::Name(source_name) => {
-                if let Some(index) = local_names
-                    .iter()
-                    .position(|candidate| candidate == source_name)
-                {
+                if let Some(index) = local_name_index_for_block_arg(source_name, local_names) {
                     (local_values[index], false)
                 } else if let Some(value) = load_stack_slot_value(
                     fb,

@@ -37,9 +37,9 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
                 value: ret_value,
             }));
         let payload_arg = BlockArg::Name(payload_name.to_string());
-        // Only bind the synthetic abrupt slots explicitly. Any ordinary live-ins
-        // for the finally entry, including its exception slot, must continue to
-        // forward by name once dataflow adds them as block params later.
+        // Only bind the synthetic abrupt slots explicitly. The finally entry's
+        // current-exception slot continues to forward separately as its declared
+        // exception block parameter.
         block.term = BlockPyTerm::Jump(BlockPyEdge::with_args(
             finally_target.clone(),
             vec![BlockArg::AbruptKind(AbruptKind::Return), payload_arg],

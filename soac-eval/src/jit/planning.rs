@@ -20,11 +20,7 @@ pub struct PlanKey {
 static BB_FUNCTION_REGISTRY: OnceLock<Mutex<FunctionRegistry>> = OnceLock::new();
 
 pub fn jit_param_names_for_block(block: &CodegenBlock) -> Vec<String> {
-    block
-        .exception_param()
-        .into_iter()
-        .map(ToString::to_string)
-        .collect()
+    block.bb_param_names().map(ToString::to_string).collect()
 }
 
 pub fn exc_dispatch_plan(

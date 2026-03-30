@@ -4,8 +4,8 @@ use soac_blockpy::block_py::{
     BlockPyTerm, CellRefTarget, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
     CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref,
     DelDerefQuietly, DelItem, DelQuietly, FunctionName, LoadGlobal, LocatedCodegenBlockPyExpr,
-    LocatedName, MakeString, ModuleNameGen, NameLocation, Operation, Param, ParamKind, ParamSpec,
-    StorageLayout, StoreGlobal, TernaryOp, TernaryOpKind,
+    LocatedName, MakeString, Meta, ModuleNameGen, NameLocation, Operation, Param, ParamKind,
+    ParamSpec, StorageLayout, StoreGlobal, TernaryOp, TernaryOpKind, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
@@ -218,8 +218,8 @@ mod tests {
         let mut function = test_function();
         set_stack_slots(&mut function, &["current", "acc"]);
         let mut source = test_source_block(&function, vec![], ret_term(int_expr(7)));
-        source.ensure_param("current", BlockParamRole::Local);
-        source.ensure_param("acc", BlockParamRole::Local);
+        source.ensure_param("current", BlockParamRole::AbruptKind);
+        source.ensure_param("acc", BlockParamRole::AbruptPayload);
         let function = with_test_blocks(function, vec![source]);
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
@@ -242,13 +242,14 @@ mod tests {
         let function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(Operation::BinOp(BinOp {
-                node_index: Default::default(),
-                range: Default::default(),
-                kind: BinOpKind::Add,
-                arg0: Box::new(int_expr(1)),
-                arg1: Box::new(int_expr(2)),
-            }))),
+            ret_term(op_expr(
+                Operation::new(BinOp {
+                    kind: BinOpKind::Add,
+                    arg0: Box::new(int_expr(1)),
+                    arg1: Box::new(int_expr(2)),
+                })
+                .with_meta(Meta::synthetic()),
+            )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
@@ -267,13 +268,14 @@ mod tests {
         let function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(Operation::BinOp(BinOp {
-                node_index: Default::default(),
-                range: Default::default(),
-                kind: BinOpKind::Lt,
-                arg0: Box::new(int_expr(1)),
-                arg1: Box::new(int_expr(2)),
-            }))),
+            ret_term(op_expr(
+                Operation::new(BinOp {
+                    kind: BinOpKind::Lt,
+                    arg0: Box::new(int_expr(1)),
+                    arg1: Box::new(int_expr(2)),
+                })
+                .with_meta(Meta::synthetic()),
+            )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
@@ -288,11 +290,12 @@ mod tests {
         let function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(Operation::MakeString(MakeString {
-                node_index: Default::default(),
-                range: Default::default(),
-                arg0: b"hello".to_vec(),
-            }))),
+            ret_term(op_expr(
+                Operation::new(MakeString {
+                    arg0: b"hello".to_vec(),
+                })
+                .with_meta(Meta::synthetic()),
+            )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
@@ -311,14 +314,15 @@ mod tests {
         let function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(Operation::TernaryOp(TernaryOp {
-                node_index: Default::default(),
-                range: Default::default(),
-                kind: TernaryOpKind::Pow,
-                arg0: Box::new(int_expr(2)),
-                arg1: Box::new(int_expr(3)),
-                arg2: Box::new(name_expr(test_global_name("__dp_NONE"))),
-            }))),
+            ret_term(op_expr(
+                Operation::new(TernaryOp {
+                    kind: TernaryOpKind::Pow,
+                    arg0: Box::new(int_expr(2)),
+                    arg1: Box::new(int_expr(3)),
+                    arg2: Box::new(name_expr(test_global_name("__dp_NONE"))),
+                })
+                .with_meta(Meta::synthetic()),
+            )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
@@ -377,12 +381,13 @@ mod tests {
         let function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(Operation::LoadGlobal(LoadGlobal {
-                node_index: Default::default(),
-                range: Default::default(),
-                arg0: Box::new(int_expr(1)),
-                arg1: "x".to_string(),
-            }))),
+            ret_term(op_expr(
+                Operation::new(LoadGlobal {
+                    arg0: Box::new(int_expr(1)),
+                    arg1: "x".to_string(),
+                })
+                .with_meta(Meta::synthetic()),
+            )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
@@ -397,13 +402,14 @@ mod tests {
         let function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(Operation::StoreGlobal(StoreGlobal {
-                node_index: Default::default(),
-                range: Default::default(),
-                arg0: Box::new(int_expr(1)),
-                arg1: "x".to_string(),
-                arg2: Box::new(int_expr(3)),
-            }))),
+            ret_term(op_expr(
+                Operation::new(StoreGlobal {
+                    arg0: Box::new(int_expr(1)),
+                    arg1: "x".to_string(),
+                    arg2: Box::new(int_expr(3)),
+                })
+                .with_meta(Meta::synthetic()),
+            )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
@@ -435,13 +441,12 @@ mod tests {
         let mut function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(Operation::CellRef(
-                soac_blockpy::block_py::CellRef {
-                    node_index: Default::default(),
-                    range: Default::default(),
+            ret_term(op_expr(
+                Operation::new(soac_blockpy::block_py::CellRef {
                     arg0: CellRefTarget::Name(test_closure_cell_name("x", 2)),
-                },
-            ))),
+                })
+                .with_meta(Meta::synthetic()),
+            )),
         );
         set_stack_slots(&mut function, &["x"]);
         let rendered = render_test_jit_function(&function, &blocks);
@@ -461,13 +466,12 @@ mod tests {
         let mut function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(Operation::CellRef(
-                soac_blockpy::block_py::CellRef {
-                    node_index: Default::default(),
-                    range: Default::default(),
+            ret_term(op_expr(
+                Operation::new(soac_blockpy::block_py::CellRef {
                     arg0: CellRefTarget::Name(test_captured_cell_source_name("_dp_classcell", 2)),
-                },
-            ))),
+                })
+                .with_meta(Meta::synthetic()),
+            )),
         );
         function.storage_layout = Some(StorageLayout {
             freevars: vec![
@@ -509,28 +513,32 @@ mod tests {
         let mut function = with_single_test_block(
             test_function(),
             vec![
-                expr_stmt(op_expr(Operation::DelItem(DelItem {
-                    node_index: Default::default(),
-                    range: Default::default(),
-                    arg0: Box::new(int_expr(1)),
-                    arg1: Box::new(int_expr(2)),
-                }))),
-                expr_stmt(op_expr(Operation::DelQuietly(DelQuietly {
-                    node_index: Default::default(),
-                    range: Default::default(),
-                    arg0: Box::new(int_expr(3)),
-                    arg1: "x".to_string(),
-                }))),
-                expr_stmt(op_expr(Operation::DelDeref(DelDeref {
-                    node_index: Default::default(),
-                    range: Default::default(),
-                    arg0: test_closure_cell_name("cell", 2),
-                }))),
-                expr_stmt(op_expr(Operation::DelDerefQuietly(DelDerefQuietly {
-                    node_index: Default::default(),
-                    range: Default::default(),
-                    arg0: test_closure_cell_name("cell", 2),
-                }))),
+                expr_stmt(op_expr(
+                    Operation::new(DelItem {
+                        arg0: Box::new(int_expr(1)),
+                        arg1: Box::new(int_expr(2)),
+                    })
+                    .with_meta(Meta::synthetic()),
+                )),
+                expr_stmt(op_expr(
+                    Operation::new(DelQuietly {
+                        arg0: Box::new(int_expr(3)),
+                        arg1: "x".to_string(),
+                    })
+                    .with_meta(Meta::synthetic()),
+                )),
+                expr_stmt(op_expr(
+                    Operation::new(DelDeref {
+                        arg0: test_closure_cell_name("cell", 2),
+                    })
+                    .with_meta(Meta::synthetic()),
+                )),
+                expr_stmt(op_expr(
+                    Operation::new(DelDerefQuietly {
+                        arg0: test_closure_cell_name("cell", 2),
+                    })
+                    .with_meta(Meta::synthetic()),
+                )),
             ],
             ret_term(int_expr(0)),
         );

@@ -40,7 +40,7 @@ fn parses_all_and_params_variants() {
 
 #[test]
 fn instruments_matching_function_blocks() {
-    let source = "def f(x):\n    return x + 1\n\ndef g(y):\n    return y + 2\n";
+    let source = "def f(x):\n    try:\n        return x + 1\n    except Exception:\n        return 0\n\ndef g(y):\n    return y + 2\n";
     let bb_module = tracked_name_binding_module(source)
         .expect("transform should succeed")
         .expect("bb module should be available");
@@ -63,15 +63,20 @@ fn instruments_matching_function_blocks() {
         .iter()
         .find(|function| function.names.qualname == "g")
         .expect("missing g");
-    let f_trace = f
+    let f_trace_stmts = f
         .blocks
         .iter()
         .flat_map(|block| block.body.iter())
         .map(crate::block_py::pretty::bb_stmt_text)
-        .find(|stmt| stmt.contains("__dp_bb_trace_enter"))
-        .expect("missing trace op in f");
-    assert!(f_trace.contains("__dp_bb_trace_enter"));
-    assert!(f_trace.contains("x"));
+        .filter(|stmt| stmt.contains("__dp_bb_trace_enter"))
+        .collect::<Vec<_>>();
+    assert!(!f_trace_stmts.is_empty(), "missing trace op in f");
+    assert!(f_trace_stmts
+        .iter()
+        .any(|stmt| stmt.contains("__dp_bb_trace_enter")));
+    assert!(f_trace_stmts
+        .iter()
+        .any(|stmt| stmt.contains("_dp_try_exc")));
     let g_has_trace = g
         .blocks
         .iter()

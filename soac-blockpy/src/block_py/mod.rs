@@ -1,3 +1,4 @@
+pub use self::meta::{HasMeta, Meta, WithMeta};
 use self::operation as block_py_operation;
 pub use self::param_specs::{Param, ParamDefaultSource, ParamKind, ParamSpec};
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
@@ -6,11 +7,12 @@ use crate::py_expr;
 pub use operation::{
     BinOp, BinOpKind, CellRef, CellRefTarget, DelDeref, DelDerefQuietly, DelItem, DelQuietly,
     GetAttr, GetItem, InplaceBinOp, InplaceBinOpKind, LoadCell, LoadGlobal, MakeCell, MakeFunction,
-    MakeString, Operation, SetAttr, SetItem, StoreCell, StoreGlobal, TernaryOp, TernaryOpKind,
-    UnaryOp, UnaryOpKind,
+    MakeString, Operation, OperationDetail, SetAttr, SetItem, StoreCell, StoreGlobal, TernaryOp,
+    TernaryOpKind, UnaryOp, UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
+use ruff_text_size::TextRange;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
@@ -18,6 +20,7 @@ pub(crate) mod cfg;
 mod convert;
 pub(crate) mod dataflow;
 pub(crate) mod exception;
+mod meta;
 mod name_gen;
 pub mod operation;
 pub(crate) mod param_specs;
@@ -89,7 +92,7 @@ pub trait BlockPyNameLike: Clone + fmt::Debug + From<ast::ExprName> + Into<ast::
     fn pretty_id(&self) -> String {
         self.id_str().to_string()
     }
-    fn range(&self) -> ruff_text_size::TextRange;
+    fn range(&self) -> TextRange;
     fn node_index(&self) -> ast::AtomicNodeIndex;
 }
 
@@ -376,11 +379,8 @@ impl<S, T> CfgBlock<S, T> {
 
     pub fn set_exception_param(&mut self, name: impl Into<String>) {
         let name = name.into();
-        for param in &mut self.params {
-            if param.role == BlockParamRole::Exception && param.name != name {
-                param.role = BlockParamRole::Local;
-            }
-        }
+        self.params
+            .retain(|param| param.role != BlockParamRole::Exception || param.name == name);
         if let Some(param) = self.params.iter_mut().find(|param| param.name == name) {
             param.role = BlockParamRole::Exception;
             return;
@@ -409,7 +409,6 @@ impl<S, T> CfgBlock<S, T> {
     pub fn bb_params(&self) -> impl Iterator<Item = &BlockParam> {
         [
             BlockParamRole::Exception,
-            BlockParamRole::Local,
             BlockParamRole::AbruptKind,
             BlockParamRole::AbruptPayload,
         ]
@@ -1662,21 +1661,15 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
 
     pub fn with_exc_param(mut self, exc_param: Option<String>) -> Self {
         if let Some(exc_param) = exc_param {
+            self.params
+                .retain(|param| param.role != BlockParamRole::Exception || param.name == exc_param);
             if self.params.iter().any(|param| param.name == exc_param) {
                 for param in &mut self.params {
-                    if param.role == BlockParamRole::Exception && param.name != exc_param {
-                        param.role = BlockParamRole::Local;
-                    }
                     if param.name == exc_param {
                         param.role = BlockParamRole::Exception;
                     }
                 }
             } else {
-                for param in &mut self.params {
-                    if param.role == BlockParamRole::Exception {
-                        param.role = BlockParamRole::Local;
-                    }
-                }
                 self.params.push(BlockParam {
                     name: exc_param,
                     role: BlockParamRole::Exception,
@@ -1972,7 +1965,6 @@ pub enum AbruptKind {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum BlockParamRole {
-    Local,
     Exception,
     AbruptKind,
     AbruptPayload,

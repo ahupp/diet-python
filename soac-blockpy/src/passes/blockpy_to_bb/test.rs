@@ -1,14 +1,13 @@
 use crate::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmtFragment, BlockPyTerm,
     CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, CoreStringLiteral,
-    GetAttr, LocatedCoreBlockPyExpr, LocatedName, Operation, StructuredBlockPyStmt,
+    GetAttr, LocatedCoreBlockPyExpr, LocatedName, Operation, StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     lower_structured_located_blocks_to_bb_blocks, populate_exception_edge_args,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
-use std::collections::HashMap;
 
 #[test]
 fn linearizes_structured_if_stmt_into_explicit_blocks() {
@@ -56,16 +55,13 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
         exc_edge: None,
     };
 
-    let blocks = lower_structured_located_blocks_to_bb_blocks(
-        &[crate::block_py::CfgBlock {
-            label: block.label,
-            body: block.body,
-            term: block.term,
-            params: block.params,
-            exc_edge: None,
-        }],
-        &HashMap::new(),
-    );
+    let blocks = lower_structured_located_blocks_to_bb_blocks(&[crate::block_py::CfgBlock {
+        label: block.label,
+        body: block.body,
+        term: block.term,
+        params: block.params,
+        exc_edge: None,
+    }]);
 
     assert_eq!(blocks.len(), 4, "{blocks:?}");
     assert!(matches!(blocks[0].term, BlockPyTerm::IfTerm(_)));
@@ -117,16 +113,13 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
         exc_edge: None,
     };
 
-    let lowered = lower_structured_located_blocks_to_bb_blocks(
-        &[crate::block_py::CfgBlock {
-            label: block.label,
-            body: block.body,
-            term: block.term,
-            params: block.params,
-            exc_edge: None,
-        }],
-        &HashMap::new(),
-    );
+    let lowered = lower_structured_located_blocks_to_bb_blocks(&[crate::block_py::CfgBlock {
+        label: block.label,
+        body: block.body,
+        term: block.term,
+        params: block.params,
+        exc_edge: None,
+    }]);
     let block = &lowered[0];
 
     let crate::block_py::BlockPyStmt::Expr(body_expr) = &block.body[0] else {
@@ -157,12 +150,16 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
         label: BlockPyLabel::from(0u32),
         body: Vec::new(),
-        term: BlockPyTerm::Return(CoreBlockPyExpr::Op(Box::new(Operation::GetAttr(GetAttr {
-            node_index: ast::AtomicNodeIndex::default(),
-            range: TextRange::default(),
-            arg0: Box::new(core_call_expr("__dp_current_exception", Vec::new())),
-            arg1: "value".to_string(),
-        })))),
+        term: BlockPyTerm::Return(CoreBlockPyExpr::Op(Box::new(
+            Operation::new(GetAttr {
+                arg0: Box::new(core_call_expr("__dp_current_exception", Vec::new())),
+                arg1: "value".to_string(),
+            })
+            .with_meta(crate::block_py::Meta::new(
+                ast::AtomicNodeIndex::default(),
+                TextRange::default(),
+            )),
+        ))),
         params: vec![crate::block_py::BlockParam {
             name: "_dp_try_exc_0".to_string(),
             role: crate::block_py::BlockParamRole::Exception,
@@ -170,22 +167,21 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         exc_edge: None,
     };
 
-    let lowered = lower_structured_located_blocks_to_bb_blocks(
-        &[crate::block_py::CfgBlock {
-            label: block.label,
-            body: block.body,
-            term: block.term,
-            params: block.params,
-            exc_edge: None,
-        }],
-        &HashMap::new(),
-    );
+    let lowered = lower_structured_located_blocks_to_bb_blocks(&[crate::block_py::CfgBlock {
+        label: block.label,
+        body: block.body,
+        term: block.term,
+        params: block.params,
+        exc_edge: None,
+    }]);
     let block = &lowered[0];
 
     let BlockPyTerm::Return(CoreBlockPyExpr::Op(operation)) = &block.term else {
         panic!("expected operation return expr");
     };
-    let Operation::GetAttr(GetAttr { arg0, arg1, .. }) = operation.as_ref() else {
+    let crate::block_py::OperationDetail::GetAttr(GetAttr { arg0, arg1, .. }) =
+        operation.as_ref().detail()
+    else {
         panic!("expected getattr operation");
     };
     assert!(matches!(
@@ -236,7 +232,7 @@ fn exception_edges_seed_hidden_try_exception_locals_from_current_exception() {
                 },
                 crate::block_py::BlockParam {
                     name: "_dp_try_exc_payload".to_string(),
-                    role: crate::block_py::BlockParamRole::Local,
+                    role: crate::block_py::BlockParamRole::AbruptPayload,
                 },
             ],
             exc_edge: None,

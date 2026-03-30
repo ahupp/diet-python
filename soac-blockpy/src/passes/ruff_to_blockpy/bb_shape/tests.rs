@@ -10,21 +10,19 @@ use crate::block_py::{
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
-use std::collections::HashMap;
 
 pub(crate) fn lower_structured_core_blocks_to_bb_blocks<N>(
     blocks: &[CfgBlock<
         StructuredBlockPyStmt<CoreBlockPyExpr<N>, N>,
         BlockPyTerm<CoreBlockPyExpr<N>>,
     >],
-    block_params: &HashMap<BlockPyLabel, Vec<String>>,
 ) -> Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr<N>, N>, BlockPyTerm<CoreBlockPyExpr<N>>>>
 where
     N: BlockPyNameLike,
 {
     let mut normalized_blocks = blocks.to_vec();
     rewrite_current_exception_in_core_blocks_structured(&mut normalized_blocks);
-    lower_structured_blocks_to_bb_blocks(&normalized_blocks, block_params)
+    lower_structured_blocks_to_bb_blocks(&normalized_blocks)
 }
 
 pub(crate) fn lower_structured_located_blocks_to_bb_blocks(
@@ -32,9 +30,8 @@ pub(crate) fn lower_structured_located_blocks_to_bb_blocks(
         StructuredBlockPyStmt<CoreBlockPyExpr<LocatedName>, LocatedName>,
         BlockPyTerm<LocatedCoreBlockPyExpr>,
     >],
-    block_params: &HashMap<BlockPyLabel, Vec<String>>,
 ) -> Vec<ResolvedStorageBlock> {
-    lower_structured_core_blocks_to_bb_blocks(blocks, block_params)
+    lower_structured_core_blocks_to_bb_blocks(blocks)
 }
 
 fn rewrite_current_exception_in_core_blocks_structured<N>(
@@ -134,7 +131,7 @@ fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
         exc_edge: None,
     }];
 
-    let lowered = lower_structured_core_blocks_to_bb_blocks(&blocks, &HashMap::new());
+    let lowered = lower_structured_core_blocks_to_bb_blocks(&blocks);
 
     assert_eq!(lowered.len(), 3, "{lowered:?}");
     let BlockPyTerm::IfTerm(BlockPyIfTerm {

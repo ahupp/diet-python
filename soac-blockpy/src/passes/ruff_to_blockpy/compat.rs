@@ -96,7 +96,40 @@ pub(crate) fn set_region_exc_param(
     exc_param: &str,
 ) {
     for block in &mut blocks[region.clone()] {
+        let old_exc_param = block.exception_param().map(ToString::to_string);
         block.set_exception_param(exc_param.to_string());
+        if let Some(old_exc_param) = old_exc_param {
+            if old_exc_param != exc_param {
+                rename_exception_edge_args(block, old_exc_param.as_str(), exc_param);
+            }
+        }
+    }
+}
+
+fn rename_exception_edge_args(
+    block: &mut LoweredBlockPyBlock,
+    old_exc_param: &str,
+    new_exc_param: &str,
+) {
+    fn rewrite_edge_args(
+        args: &mut [crate::block_py::BlockArg],
+        old_exc_param: &str,
+        new_exc_param: &str,
+    ) {
+        for arg in args {
+            if let crate::block_py::BlockArg::Name(name) = arg {
+                if name == old_exc_param {
+                    *name = new_exc_param.to_string();
+                }
+            }
+        }
+    }
+
+    if let BlockPyTerm::Jump(edge) = &mut block.term {
+        rewrite_edge_args(&mut edge.args, old_exc_param, new_exc_param);
+    }
+    if let Some(edge) = &mut block.exc_edge {
+        rewrite_edge_args(&mut edge.args, old_exc_param, new_exc_param);
     }
 }
 

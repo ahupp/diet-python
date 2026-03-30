@@ -14,7 +14,6 @@ pub(crate) struct TryPlan {
     pub finally_dispatch_label: Option<BlockPyLabel>,
     pub finally_return_label: Option<BlockPyLabel>,
     pub finally_raise_label: Option<BlockPyLabel>,
-    pub finally_exc_name: Option<String>,
 }
 
 pub(crate) fn build_try_plan(
@@ -48,12 +47,6 @@ pub(crate) fn build_try_plan(
     } else {
         None
     };
-    let finally_exc_name = if has_finally {
-        Some(name_gen.next_tmp_name("try_exc").to_string())
-    } else {
-        None
-    };
-
     TryPlan {
         except_exc_name,
         finally_abrupt_kind_name,
@@ -61,7 +54,6 @@ pub(crate) fn build_try_plan(
         finally_dispatch_label,
         finally_return_label,
         finally_raise_label,
-        finally_exc_name,
     }
 }
 
@@ -155,14 +147,14 @@ where
             blocks.push(block);
             normal_label
         });
-        let finally_exception_entry = try_plan.finally_exc_name.as_ref().map(|finally_exc_name| {
+        let finally_exception_entry = try_plan.finally_abrupt_kind_name.as_ref().map(|_| {
             let exception_label = name_gen.next_block_name();
             let mut block =
                 BlockPyCfgBlockBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new(exception_label)
-                    .with_exc_param(Some(finally_exc_name.clone()));
+                    .with_exc_param(Some(try_plan.except_exc_name.clone()));
             let args = vec![
                 BlockArg::AbruptKind(AbruptKind::Exception),
-                BlockArg::Name(finally_exc_name.clone()),
+                BlockArg::Name(try_plan.except_exc_name.clone()),
             ];
             block.set_term(BlockPyTerm::Jump(BlockPyEdge::with_args(
                 finally_label,
@@ -325,11 +317,12 @@ pub(crate) fn finalize_try_regions(
             try_plan.except_exc_name.as_str(),
         );
     }
-    if let (Some(finally_region_range), Some(finally_exc_name)) = (
-        lowered_try.finally_region_range.as_ref(),
-        try_plan.finally_exc_name.as_ref(),
-    ) {
-        set_region_exc_param(blocks, finally_region_range, finally_exc_name.as_str());
+    if let Some(finally_region_range) = lowered_try.finally_region_range.as_ref() {
+        set_region_exc_param(
+            blocks,
+            finally_region_range,
+            try_plan.except_exc_name.as_str(),
+        );
     }
     emit_try_jump_entry(
         blocks,

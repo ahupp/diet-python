@@ -7,13 +7,12 @@ use crate::block_py::{
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
     CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, FunctionId, FunctionName, IntoStructuredBlockPyStmt, MakeFunction,
-    ModuleNameGen, Operation, StorageLayout, StructuredBlockPyStmt,
+    Meta, ModuleNameGen, Operation, StorageLayout, StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{
     attach_exception_edges_to_blocks, compute_storage_layout_from_semantics,
-    lowered_exception_edges, recompute_lowered_block_params,
-    should_include_closure_storage_aliases,
+    lowered_exception_edges,
 };
 use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithYield};
 use crate::py_expr;
@@ -191,15 +190,16 @@ fn core_make_function(
     module_globals: CoreBlockPyExpr,
     annotate_fn: CoreBlockPyExpr,
 ) -> CoreBlockPyExpr {
-    core_operation_expr(Operation::MakeFunction(MakeFunction {
-        node_index: ast::AtomicNodeIndex::default(),
-        range: Default::default(),
-        function_id,
-        kind,
-        arg0: Box::new(param_defaults),
-        arg1: Box::new(module_globals),
-        arg2: Box::new(annotate_fn),
-    }))
+    core_operation_expr(
+        Operation::new(MakeFunction::new(
+            function_id,
+            kind,
+            Box::new(param_defaults),
+            Box::new(module_globals),
+            Box::new(annotate_fn),
+        ))
+        .with_meta(Meta::synthetic()),
+    )
 }
 
 fn is_generator_like(kind: BlockPyFunctionKind) -> bool {
@@ -419,6 +419,8 @@ fn generator_resume_declared_param_indices(
         .enumerate()
         .filter(|(_, param)| {
             param.role == BlockParamRole::Exception
+                || param.role == BlockParamRole::AbruptKind
+                || param.role == BlockParamRole::AbruptPayload
                 || resume_abi_names.contains(param.name.as_str())
         })
         .map(|(index, _)| index)
@@ -1235,17 +1237,14 @@ fn emit_yield_from_site(
         Some(call_except_label.clone()),
     );
     let mut except_params = params.clone();
+    except_params
+        .retain(|param| param.role != BlockParamRole::Exception || param.name == caught_exc_name);
     if let Some(existing) = except_params
         .iter_mut()
         .find(|param| param.name == caught_exc_name)
     {
         existing.role = BlockParamRole::Exception;
     } else {
-        for param in &mut except_params {
-            if param.role == BlockParamRole::Exception {
-                param.role = BlockParamRole::Local;
-            }
-        }
         except_params.push(BlockParam {
             name: caught_exc_name.clone(),
             role: BlockParamRole::Exception,
@@ -1453,21 +1452,13 @@ fn lower_resume_blocks(
 }
 
 fn ordered_resume_binding_names(
-    callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
+    _callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
     persistent_state_order: &[String],
 ) -> Vec<String> {
     let mut seen = HashSet::new();
     persistent_state_order
         .iter()
         .cloned()
-        .chain(
-            recompute_lowered_block_params(
-                callable,
-                should_include_closure_storage_aliases(callable),
-            )
-            .into_values()
-            .flatten(),
-        )
         .filter(|name| seen.insert(name.clone()))
         .collect()
 }

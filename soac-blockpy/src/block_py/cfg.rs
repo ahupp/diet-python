@@ -1,9 +1,6 @@
 use super::{
-    BlockParam, BlockParamRole, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike,
-    BlockPyTerm, CfgBlock, ImplicitNoneExpr, StructuredBlockPyStmt,
-};
-use crate::block_py::dataflow::{
-    assigned_names_in_blockpy_fragment, assigned_names_in_blockpy_stmts,
+    BlockParam, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike, BlockPyTerm,
+    CfgBlock, ImplicitNoneExpr, StructuredBlockPyStmt,
 };
 use ruff_python_ast::Expr;
 use std::collections::{HashMap, HashSet};
@@ -35,56 +32,14 @@ fn fresh_linearized_if_label(
     label
 }
 
-fn extend_ordered_state(base: &[String], assigned: HashSet<String>) -> Vec<String> {
-    let mut out = base.to_vec();
-    let mut assigned = assigned.into_iter().collect::<Vec<_>>();
-    assigned.sort();
-    for name in assigned {
-        if !out.iter().any(|existing| existing == &name) {
-            out.push(name);
-        }
-    }
-    out
-}
-
-fn conservative_state_after_prefix<E, N>(
-    base: &[String],
-    body: &[StructuredBlockPyStmt<E, N>],
-) -> Vec<String>
-where
-    E: Clone + Into<Expr>,
-    N: BlockPyNameLike,
-{
-    extend_ordered_state(base, assigned_names_in_blockpy_stmts(body))
-}
-
-fn conservative_state_after_if_branches<E, N>(
-    base: &[String],
-    if_stmt: &super::BlockPyStructuredIf<E, N>,
-) -> Vec<String>
-where
-    E: Clone + Into<Expr>,
-    N: BlockPyNameLike,
-{
-    let mut assigned = assigned_names_in_blockpy_fragment(&if_stmt.body);
-    assigned.extend(assigned_names_in_blockpy_fragment(&if_stmt.orelse));
-    extend_ordered_state(base, assigned)
-}
-
 fn params_for_linearized_names(
     param_names: &[String],
     declared_params: &[BlockParam],
 ) -> Vec<BlockParam> {
-    param_names
+    declared_params
         .iter()
-        .map(|name| BlockParam {
-            name: name.clone(),
-            role: declared_params
-                .iter()
-                .find(|param| param.name == *name)
-                .map(|param| param.role)
-                .unwrap_or(BlockParamRole::Local),
-        })
+        .filter(|param| param_names.iter().any(|name| name == &param.name))
+        .cloned()
         .collect()
 }
 
@@ -126,9 +81,6 @@ fn linearize_blockpy_if_sequence<E, N>(
         Some(StructuredBlockPyStmt::If(if_stmt)) => if_stmt,
         _ => unreachable!("expected structured BlockPy if at split point"),
     };
-    let available_before_if = conservative_state_after_prefix(&block_params, &body);
-    let join_block_params = conservative_state_after_if_branches(&available_before_if, &if_stmt);
-
     let then_label = fresh_linearized_if_label(&label, next_label_id, "if_then");
     let else_label = fresh_linearized_if_label(&label, next_label_id, "if_else");
     let join_label = if rest.is_empty() {
@@ -137,7 +89,7 @@ fn linearize_blockpy_if_sequence<E, N>(
         Some(fresh_linearized_if_label(&label, next_label_id, "if_join"))
     };
 
-    out_block_params.insert(label.clone(), block_params);
+    out_block_params.insert(label.clone(), block_params.clone());
     out_exception_edges.insert(label.clone(), exc_target.clone());
     out_blocks.push(CfgBlock {
         label: label.clone(),
@@ -163,7 +115,7 @@ fn linearize_blockpy_if_sequence<E, N>(
         if_stmt.body,
         branch_fallthrough.clone(),
         exc_edge.clone(),
-        available_before_if.clone(),
+        block_params.clone(),
         declared_params.clone(),
         exc_target.clone(),
         next_label_id,
@@ -176,7 +128,7 @@ fn linearize_blockpy_if_sequence<E, N>(
         if_stmt.orelse,
         branch_fallthrough,
         exc_edge.clone(),
-        available_before_if.clone(),
+        block_params.clone(),
         declared_params.clone(),
         exc_target.clone(),
         next_label_id,
@@ -191,7 +143,7 @@ fn linearize_blockpy_if_sequence<E, N>(
             rest,
             final_term,
             exc_edge,
-            join_block_params,
+            block_params,
             declared_params,
             exc_target,
             next_label_id,

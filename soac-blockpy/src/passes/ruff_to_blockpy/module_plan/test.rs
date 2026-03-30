@@ -483,11 +483,12 @@ fn lowering_recursive_local_function_finally_return_preserves_liveins() {
             callable_defs: vec![exercise.clone()],
         });
     assert!(
-        rendered.contains("jump ") && rendered.contains("(Return, _dp_try_abrupt_payload_"),
+        rendered.contains("jump ")
+            && rendered.contains("(AbruptKind(Return), Name(\"_dp_try_abrupt_payload_"),
         "{rendered}"
     );
     assert!(
-        !rendered.contains("(None, Return, _dp_try_abrupt_payload_"),
+        !rendered.contains("(None, AbruptKind(Return), Name(\"_dp_try_abrupt_payload_"),
         "{rendered}"
     );
 }

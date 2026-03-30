@@ -1,8 +1,8 @@
 use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::operation;
 use crate::block_py::{
-    BlockArg, BlockParam, BlockParamRole, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike, BlockPyStmt,
-    BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, StructuredBlockPyStmt,
+    BlockArg, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike, BlockPyStmt, BlockPyTerm,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, StructuredBlockPyStmt,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
@@ -10,15 +10,14 @@ use std::collections::{HashMap, HashSet};
 
 pub(crate) fn lower_structured_blocks_to_bb_blocks<E, N>(
     blocks: &[crate::block_py::CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
-    block_params: &HashMap<crate::block_py::BlockPyLabel, Vec<String>>,
 ) -> Vec<crate::block_py::CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>>
 where
     E: Clone + Into<crate::block_py::Expr>,
     N: BlockPyNameLike,
 {
     let exception_edges = lowered_exception_edges(blocks);
-    let (linear_blocks, linear_block_params, linear_exception_edges) =
-        linearize_structured_ifs(blocks, block_params, &exception_edges);
+    let (linear_blocks, _linear_block_params, linear_exception_edges) =
+        linearize_structured_ifs(blocks, &HashMap::new(), &exception_edges);
     let mut bb_blocks = linear_blocks
         .iter()
         .map(|block| {
@@ -33,27 +32,11 @@ where
                 .into_iter()
                 .map(BlockPyStmt::from)
                 .collect::<Vec<_>>();
-            let semantic_param_names = block
-                .param_names()
-                .map(ToString::to_string)
-                .collect::<HashSet<_>>();
-            let mut params = linear_block_params
-                .get(&block.label)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|param| !semantic_param_names.contains(param))
-                .map(|name| BlockParam {
-                    name,
-                    role: BlockParamRole::Local,
-                })
-                .collect::<Vec<_>>();
-            params.extend(block.bb_params().cloned());
             crate::block_py::CfgBlock {
                 label: block.label.clone(),
                 body: ops,
                 term: block.term.clone(),
-                params,
+                params: block.bb_params().cloned().collect(),
                 exc_edge,
             }
         })
@@ -297,7 +280,9 @@ fn is_dp_getattr_operation<N>(
 where
     N: BlockPyNameLike,
 {
-    let operation::Operation::GetAttr(operation::GetAttr { arg0, arg1, .. }) = operation else {
+    let operation::OperationDetail::GetAttr(operation::GetAttr { arg0, arg1, .. }) =
+        operation.detail()
+    else {
         return false;
     };
     matches!(

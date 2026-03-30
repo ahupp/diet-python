@@ -2,17 +2,12 @@ use crate::block_py::cfg::{
     fold_constant_brif_blockpy, fold_jumps_to_trivial_none_return_blockpy,
     linearize_structured_ifs, prune_unreachable_blockpy_blocks,
 };
-use crate::block_py::dataflow::{
-    analyze_blockpy_use_def, compute_block_params_blockpy,
-    extend_state_order_with_declared_block_params, loaded_names_in_blockpy_block,
-    merge_declared_block_params,
-};
+use crate::block_py::dataflow::{analyze_blockpy_use_def, loaded_names_in_blockpy_block};
 use crate::block_py::exception::{
     contains_return_stmt_in_body, contains_return_stmt_in_handlers,
     rewrite_region_returns_to_finally_blockpy,
 };
 use crate::block_py::param_specs::ParamSpec;
-use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     assert_blockpy_block_normalized, convert_blockpy_term_expr, move_entry_block_to_front,
     BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm, BlockPyFunction,
@@ -122,102 +117,6 @@ pub(crate) fn attach_exception_edges_to_blocks<E>(
                 .map(BlockPyEdge::new),
         })
         .collect()
-}
-
-fn append_closure_storage_aliases(
-    block_params: &mut HashMap<BlockPyLabel, Vec<String>>,
-    layout: &StorageLayout,
-) {
-    let logical_name_by_storage = layout
-        .cellvars
-        .iter()
-        .chain(layout.runtime_cells.iter())
-        .filter(|slot| slot.logical_name != slot.storage_name)
-        .map(|slot| (slot.storage_name.as_str(), slot.logical_name.as_str()))
-        .collect::<HashMap<_, _>>();
-    for params in block_params.values_mut() {
-        let mut logical_aliases = Vec::new();
-        for param_name in params.iter() {
-            let Some(logical_name) = logical_name_by_storage.get(param_name.as_str()).copied()
-            else {
-                continue;
-            };
-            if params.iter().any(|existing| existing == logical_name)
-                || logical_aliases
-                    .iter()
-                    .any(|existing| existing == logical_name)
-            {
-                continue;
-            }
-            logical_aliases.push(logical_name.to_string());
-        }
-        params.extend(logical_aliases);
-    }
-}
-
-pub(crate) fn should_include_closure_storage_aliases<P>(function: &BlockPyFunction<P>) -> bool
-where
-    P: BlockPyPass,
-{
-    matches!(
-        function.kind,
-        BlockPyFunctionKind::Coroutine
-            | BlockPyFunctionKind::Generator
-            | BlockPyFunctionKind::AsyncGenerator
-    ) || function.names.fn_name == "_dp_resume"
-}
-
-pub(crate) fn recompute_lowered_block_params<P>(
-    function: &BlockPyFunction<P>,
-    include_closure_storage_aliases: bool,
-) -> HashMap<BlockPyLabel, Vec<String>>
-where
-    P: BlockPyPass,
-    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
-{
-    let mut block_params =
-        recompute_lowered_block_params_for_blocks(&function.params.names(), &function.blocks);
-    if include_closure_storage_aliases {
-        if let Some(layout) = function.storage_layout.as_ref() {
-            append_closure_storage_aliases(&mut block_params, layout);
-        }
-    }
-    block_params
-}
-
-pub(crate) fn recompute_lowered_block_params_for_blocks<S, E, N>(
-    param_names: &[String],
-    blocks: &[CfgBlock<S, BlockPyTerm<E>>],
-) -> HashMap<BlockPyLabel, Vec<String>>
-where
-    S: IntoStructuredBlockPyStmt<E, N>,
-    E: Clone + Into<Expr>,
-    N: BlockPyNameLike,
-{
-    let mut state_vars = collect_state_vars(param_names, blocks);
-    for block in blocks {
-        let Some(exc_param) = block.exception_param() else {
-            continue;
-        };
-        if !state_vars.iter().any(|existing| existing == exc_param) {
-            state_vars.push(exc_param.to_string());
-        }
-    }
-    extend_state_order_with_declared_block_params(blocks, &mut state_vars);
-
-    let mut extra_successors = HashMap::new();
-    for (source, target) in lowered_exception_edges(blocks) {
-        let Some(target) = target else {
-            continue;
-        };
-        extra_successors
-            .entry(source)
-            .or_insert_with(Vec::new)
-            .push(target);
-    }
-    let mut block_params = compute_block_params_blockpy(blocks, &state_vars, &extra_successors);
-    merge_declared_block_params(blocks, &mut block_params);
-    block_params
 }
 
 pub(crate) fn compute_storage_layout_from_semantics<P>(
@@ -491,11 +390,10 @@ where
 #[allow(clippy::too_many_arguments)]
 fn lower_structured_semantic_blocks_to_bb_blocks(
     blocks: &[CfgBlock<StructuredBlockPyStmt, BlockPyTerm>],
-    block_params: &HashMap<BlockPyLabel, Vec<String>>,
 ) -> Vec<CfgBlock<BlockPyStmt<RuffExpr, ast::ExprName>, BlockPyTerm<RuffExpr>>> {
     let exception_edges = lowered_exception_edges(blocks);
-    let (linear_blocks, linear_block_params, linear_exception_edges) =
-        linearize_structured_ifs(blocks, block_params, &exception_edges);
+    let (linear_blocks, _linear_block_params, linear_exception_edges) =
+        linearize_structured_ifs(blocks, &HashMap::new(), &exception_edges);
     let mut bb_blocks = linear_blocks
         .iter()
         .map(|block| {
@@ -510,27 +408,11 @@ fn lower_structured_semantic_blocks_to_bb_blocks(
                 .into_iter()
                 .map(BlockPyStmt::from)
                 .collect::<Vec<_>>();
-            let semantic_param_names = block
-                .param_names()
-                .map(ToString::to_string)
-                .collect::<HashSet<_>>();
-            let mut params = linear_block_params
-                .get(&block.label)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|param| !semantic_param_names.contains(param))
-                .map(|name| crate::block_py::BlockParam {
-                    name,
-                    role: crate::block_py::BlockParamRole::Local,
-                })
-                .collect::<Vec<_>>();
-            params.extend(block.bb_params().cloned());
             crate::block_py::CfgBlock {
                 label: block.label.clone(),
                 body: ops,
                 term: convert_blockpy_term_expr(block.term.clone()),
-                params,
+                params: block.bb_params().cloned().collect(),
                 exc_edge,
             }
         })
@@ -605,11 +487,7 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
             &mut structured_callable_def.blocks,
         );
     }
-    let block_params = recompute_lowered_block_params(&structured_callable_def, false);
-    let blocks = lower_structured_semantic_blocks_to_bb_blocks(
-        &structured_callable_def.blocks,
-        &block_params,
-    );
+    let blocks = lower_structured_semantic_blocks_to_bb_blocks(&structured_callable_def.blocks);
     BlockPyFunction {
         function_id: structured_callable_def.function_id,
         name_gen: structured_callable_def.name_gen,
