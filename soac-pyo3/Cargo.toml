@@ -9,7 +9,7 @@ path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-soac-blockpy = { path = "../dp-transform" }
+soac-blockpy = { path = "../soac-blockpy" }
 soac-eval = { path = "../soac-eval" }
 pyo3 = { workspace = true, features = ["extension-module"] }
 log = "0.4"

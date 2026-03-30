@@ -8,7 +8,7 @@ build = "build.rs"
 doctest = false
 
 [dependencies]
-soac-blockpy = { path = "../dp-transform" }
+soac-blockpy = { path = "../soac-blockpy" }
 ruff_python_ast = { workspace = true }
 pyo3 = { workspace = true, features = ["extension-module"] }
 log = "0.4"

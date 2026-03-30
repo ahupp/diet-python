@@ -34,7 +34,7 @@ Proposed fix:
 
 Landed fix:
 - Removed the special-case path and reused `desugar_structured_with_stmt_for_blockpy(...)`.
-- Main file: `dp-transform/src/passes/ruff_to_blockpy/stmt_lowering/with_stmt.rs`
+- Main file: `soac-blockpy/src/passes/ruff_to_blockpy/stmt_lowering/with_stmt.rs`
 
 Status:
 - fixed
@@ -54,9 +54,9 @@ Proposed fix:
 
 Landed fix:
 - Tightened finally exception/live-in handling in:
-  - `dp-transform/src/block_py/exception.rs`
-  - `dp-transform/src/passes/ruff_to_blockpy/try_regions.rs`
-  - `dp-transform/src/passes/ruff_to_blockpy/module_plan.rs`
+  - `soac-blockpy/src/block_py/exception.rs`
+  - `soac-blockpy/src/passes/ruff_to_blockpy/try_regions.rs`
+  - `soac-blockpy/src/passes/ruff_to_blockpy/module_plan.rs`
 
 Status:
 - fixed
@@ -94,7 +94,7 @@ Proposed fix:
 - Emit synthetic completion raises in a fresh block with `exc_target = None`.
 
 Landed fix:
-- Added a dedicated completion-raise block in `dp-transform/src/passes/blockpy_generators/mod.rs`
+- Added a dedicated completion-raise block in `soac-blockpy/src/passes/blockpy_generators/mod.rs`
 
 Status:
 - fixed
@@ -120,7 +120,7 @@ Landed fix:
   - `soac-eval/src/jit/planning.rs`
   - `soac-eval/src/jit/mod.rs`
 - async-generator completion updates in:
-  - `dp-transform/src/passes/blockpy_generators/mod.rs`
+  - `soac-blockpy/src/passes/blockpy_generators/mod.rs`
   - `__dp__.py`
 
 Status:
@@ -171,7 +171,7 @@ Proposed fix:
 Landed fix:
 - Removed the JIT `__dp_eval_` / `__dp_exec_` shortcut in `soac-eval/src/jit/mod.rs`
 - Included ambient values in JIT locals synthesis in `soac-eval/src/jit/mod.rs`
-- Rewrote one-argument `exec(...)` / `eval(...)` to pass `None, __dp_locals()` in `dp-transform/src/passes/ast_to_ast/rewrite_names.rs`
+- Rewrote one-argument `exec(...)` / `eval(...)` to pass `None, __dp_locals()` in `soac-blockpy/src/passes/ast_to_ast/rewrite_names.rs`
 - Kept `_default_visible_locals(...)` support in `__dp__.py`
 
 Status:
@@ -190,7 +190,7 @@ Proposed fix:
 - Stop emitting local cell-sync statements for nested `ClassDef`.
 
 Landed fix:
-- Removed `ClassDef` from `stmt_cell_sync_stmts()` in `dp-transform/src/passes/ast_to_ast/rewrite_names.rs`
+- Removed `ClassDef` from `stmt_cell_sync_stmts()` in `soac-blockpy/src/passes/ast_to_ast/rewrite_names.rs`
 - Added a focused unit test for the stale-sync shape
 
 Status:

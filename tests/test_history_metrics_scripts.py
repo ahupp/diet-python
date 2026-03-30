@@ -169,7 +169,7 @@ def test_warloc_total_from_by_file_jsonl_ignores_vendor_files():
             json.dumps(
                 {
                     "scope": "file",
-                    "file": "./dp-transform/src/lib.rs",
+                    "file": "./soac-blockpy/src/lib.rs",
                     "file_count": 1,
                     "code_lines": 10,
                     "test_lines": 2,
