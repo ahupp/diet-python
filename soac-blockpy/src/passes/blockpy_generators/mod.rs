@@ -1,19 +1,17 @@
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
-    core_operation_expr, core_positional_call_expr_with_meta, BlockParam, BlockParamRole,
-    BlockPyAssign, BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable,
-    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, FunctionId, FunctionName, IntoStructuredBlockPyStmt, MakeFunction,
-    Meta, ModuleNameGen, Operation, StorageLayout, StructuredBlockPyStmt, WithMeta,
+    compute_storage_layout_from_semantics, core_operation_expr,
+    core_positional_call_expr_with_meta, BlockParam, BlockParamRole, BlockPyAssign,
+    BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable, BlockPyCallableSemanticInfo,
+    BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit,
+    ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
+    FunctionId, FunctionName, IntoStructuredBlockPyStmt, MakeFunction, Meta, ModuleNameGen,
+    Operation, StorageLayout, StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
-use crate::passes::ruff_to_blockpy::{
-    attach_exception_edges_to_blocks, compute_storage_layout_from_semantics,
-    lowered_exception_edges,
-};
+use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
 use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithYield};
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr, ExprName};

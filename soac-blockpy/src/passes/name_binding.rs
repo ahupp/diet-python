@@ -1,4 +1,5 @@
 use crate::block_py::{
+    build_storage_layout_from_capture_names, compute_storage_layout_from_semantics,
     core_positional_call_expr_with_meta, BindingTarget, BlockPyAssign, BlockPyBindingKind,
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
     BlockPyCellBindingKind, BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction,
@@ -10,7 +11,6 @@ use crate::block_py::{
     Operation, OperationDetail, SetItem, StorageLayout, StoreCell, StoreGlobal, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
-    build_storage_layout_from_capture_names, compute_storage_layout_from_semantics,
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
 };
 use crate::passes::{CoreBlockPyPass, ResolvedStorageBlockPyPass};

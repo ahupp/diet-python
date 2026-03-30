@@ -3,8 +3,8 @@ use super::{
     BlockPyModuleRewriter, FunctionScopeFrame,
 };
 use crate::block_py::{
-    BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCellBindingKind,
-    BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyModule, ModuleNameGen,
+    BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyClassBodyFallback,
+    BlockPyEffectiveBinding, BlockPyModule, ModuleNameGen,
 };
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::ast_to_ast::context::Context;

@@ -1,5 +1,7 @@
 use super::dataflow::{assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term};
-use super::{BlockPyNameLike, BlockPyTerm, CfgBlock, Expr, IntoStructuredBlockPyStmt};
+use super::{
+    BlockPyNameLike, BlockPySemanticExprNode, BlockPyTerm, CfgBlock, IntoStructuredBlockPyStmt,
+};
 
 pub(crate) fn collect_state_vars<S, E, N>(
     param_names: &[String],
@@ -7,7 +9,7 @@ pub(crate) fn collect_state_vars<S, E, N>(
 ) -> Vec<String>
 where
     S: IntoStructuredBlockPyStmt<E, N>,
-    E: Clone + Into<Expr>,
+    E: BlockPySemanticExprNode,
     N: BlockPyNameLike,
 {
     let mut state = param_names.to_vec();

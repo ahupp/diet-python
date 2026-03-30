@@ -3,29 +3,6 @@ use ruff_python_ast::{self as ast, Expr, Stmt};
 use std::collections::HashSet;
 
 #[derive(Default)]
-struct LoadNameCollector {
-    names: HashSet<String>,
-}
-
-impl Transformer for LoadNameCollector {
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        if let Expr::Name(name) = expr {
-            if matches!(name.ctx, ast::ExprContext::Load) {
-                self.names.insert(name.id.to_string());
-            }
-        }
-        walk_expr(self, expr);
-    }
-}
-
-pub(crate) fn load_names_in_expr(expr: &Expr) -> HashSet<String> {
-    let mut expr = expr.clone();
-    let mut collector = LoadNameCollector::default();
-    collector.visit_expr(&mut expr);
-    collector.names
-}
-
-#[derive(Default)]
 struct CurrentScopeLoadNameCollector {
     names: HashSet<String>,
 }
@@ -164,7 +141,7 @@ pub(crate) fn collect_explicit_global_or_nonlocal_names(stmts: &[Stmt]) -> HashS
     collector.names
 }
 
-pub(crate) fn collect_assigned_names(target: &Expr, names: &mut HashSet<String>) {
+fn collect_assigned_names(target: &Expr, names: &mut HashSet<String>) {
     match target {
         Expr::Name(name) => {
             names.insert(name.id.to_string());

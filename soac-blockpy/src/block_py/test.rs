@@ -1,5 +1,5 @@
 use super::*;
-use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
+use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
 use crate::py_expr;
 
 #[derive(Debug, Clone)]
@@ -265,6 +265,44 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
         .into_iter()
         .map(str::to_string)
         .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn storage_layout_semantics_collects_structured_cell_ref_logical_names() {
+    let function = BlockPyFunction::<CoreBlockPyPass> {
+        function_id: FunctionId(0),
+        name_gen: test_name_gen(),
+        names: FunctionName::new("f", "f", "f", "f"),
+        kind: BlockPyFunctionKind::Function,
+        params: ParamSpec::default(),
+        blocks: vec![CfgBlock {
+            label: BlockPyLabel::from(0u32),
+            body: vec![BlockPyStmt::Expr(core_operation_expr(
+                Operation::new(CellRef::new(CellRefTarget::LogicalName(
+                    "captured".to_string(),
+                )))
+                .with_meta(Meta::synthetic()),
+            ))],
+            term: BlockPyTerm::Return(<CoreBlockPyExpr as ImplicitNoneExpr>::implicit_none_expr()),
+            params: Vec::new(),
+            exc_edge: None,
+        }],
+        doc: None,
+        storage_layout: None,
+        semantic: BlockPyCallableSemanticInfo::default(),
+    };
+
+    let layout = compute_storage_layout_from_semantics(&function)
+        .expect("structured cell ref should capture");
+
+    assert_eq!(
+        layout.freevars,
+        vec![ClosureSlot {
+            logical_name: "captured".to_string(),
+            storage_name: "_dp_cell_captured".to_string(),
+            init: ClosureInit::InheritedCapture,
+        }]
     );
 }
 
