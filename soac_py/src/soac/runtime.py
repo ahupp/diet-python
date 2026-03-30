@@ -11,14 +11,10 @@ import types as _types
 from typing import NamedTuple
 import warnings
 
-try:
-    from _soac_ext import (
-        make_bb_function as _jit_make_bb_function,
-        make_bb_generator as _jit_make_bb_generator,
-    )
-except Exception:
-    _jit_make_bb_function = None
-    _jit_make_bb_generator = None
+from . import _soac_ext
+
+_jit_make_bb_function = _soac_ext.make_bb_function
+_jit_make_bb_generator = _soac_ext.make_bb_generator
 
 next = builtins.next
 iter = builtins.iter
@@ -1187,10 +1183,6 @@ def make_function(
     module_globals=None,
     annotate_fn=None,
 ):
-    if _jit_make_bb_function is None:
-        raise RuntimeError(
-            "JIT basic-block function instantiation requires a registered Rust constructor"
-        )
     func = _jit_make_bb_function(
         function_id,
         captures,
@@ -1205,10 +1197,6 @@ def make_function(
 
 
 def make_closure_generator(function_id, resume, module_globals=None):
-    if _jit_make_bb_generator is None:
-        raise RuntimeError(
-            "JIT basic-block generator construction requires a registered Rust constructor"
-        )
     return _jit_make_bb_generator(function_id, resume, module_globals, async_gen=False)
 
 
@@ -1217,10 +1205,6 @@ def make_coroutine_from_generator(gen):
 
 
 def make_closure_async_generator(function_id, resume, module_globals=None):
-    if _jit_make_bb_generator is None:
-        raise RuntimeError(
-            "JIT basic-block async generator construction requires a registered Rust constructor"
-        )
     return _jit_make_bb_generator(function_id, resume, module_globals, async_gen=True)
 
 

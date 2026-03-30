@@ -9,23 +9,10 @@ import sys
 import tempfile
 from pathlib import Path
 
-try:
-    import _soac_ext
-except Exception as err:
-    _soac_ext = None
-    _SOAC_EXT_IMPORT_ERROR = err
-else:
-    _SOAC_EXT_IMPORT_ERROR = None
+from . import _soac_ext
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-
-
-def _raise_missing_soac_ext() -> None:
-    raise ImportError(
-        "soac native extension '_soac_ext' is required but could not be imported; "
-        "run 'just build-all' or 'just build-extension <debug|release>'"
-    ) from _SOAC_EXT_IMPORT_ERROR
 
 
 def _integration_only_enabled() -> bool:
@@ -34,8 +21,6 @@ def _integration_only_enabled() -> bool:
 
 
 def _create_module_from_source(path: str, source: str):
-    if _soac_ext is None:
-        _raise_missing_soac_ext()
     try:
         return _soac_ext.create_module(source)
     except SyntaxError as err:
@@ -56,8 +41,6 @@ def _create_module_from_path(path: str):
 
 
 def _run_module_init(path: str, module) -> None:
-    if _soac_ext is None:
-        _raise_missing_soac_ext()
     try:
         init = _soac_ext.build_module_init(module)
     except Exception as err:
@@ -139,10 +122,6 @@ class DietPythonFinder(importlib.machinery.PathFinder):
 
 def install():
     """Install the diet-python import hook."""
-    # Ensure the transform module is loaded before we intercept stdlib imports.
-    if _soac_ext is None:
-        _raise_missing_soac_ext()
-
     existing_typing = sys.modules.get("typing")
     if existing_typing is not None:
         loader = getattr(getattr(existing_typing, "__spec__", None), "loader", None)

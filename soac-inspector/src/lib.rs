@@ -146,6 +146,26 @@ fn find_python_build_lib_dir(python_home: &Path) -> Option<PathBuf> {
     None
 }
 
+fn find_venv_site_packages(repo_root: &Path) -> Option<PathBuf> {
+    let lib_dir = repo_root.join(".venv").join("lib");
+    let entries = std::fs::read_dir(lib_dir).ok()?;
+    for entry in entries {
+        let path = entry.ok()?.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = path.file_name().and_then(|name| name.to_str())?;
+        if !name.starts_with("python") {
+            continue;
+        }
+        let site_packages = path.join("site-packages");
+        if site_packages.is_dir() {
+            return Some(site_packages);
+        }
+    }
+    None
+}
+
 fn ensure_python_support_paths(py: Python<'_>, repo_root: &Path) -> Result<(), ApiError> {
     let sys = PyModule::import(py, "sys").map_err(|err| ApiError::internal(err.to_string()))?;
     let path = sys
@@ -157,6 +177,8 @@ fn ensure_python_support_paths(py: Python<'_>, repo_root: &Path) -> Result<(), A
     let support_paths = [
         repo_root.to_path_buf(),
         repo_root.join("soac_py").join("src"),
+        find_venv_site_packages(repo_root)
+            .ok_or_else(|| ApiError::internal("repo venv site-packages not found".to_string()))?,
     ];
     for support_path in support_paths.iter().rev() {
         let support_path = support_path.to_string_lossy();
