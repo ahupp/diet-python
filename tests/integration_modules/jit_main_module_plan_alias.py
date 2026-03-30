@@ -28,9 +28,8 @@ def validate_module(module):
     sys.modules.pop("__main__", None)
     try:
         namespace = runpy.run_module("dp_main_alias_pkg", run_name="__main__")
-        if "VALUE" not in namespace and "_dp_module_init" in namespace:
-            namespace["_dp_module_init"]()
         assert namespace["VALUE"] == 7
+        assert "_dp_module_init" not in namespace
     finally:
         if sys.path and sys.path[0] == str(tmp):
             sys.path.pop(0)

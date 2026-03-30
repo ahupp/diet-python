@@ -1,0 +1,73 @@
+use pyo3::exceptions::{PyRuntimeError, PyTypeError};
+use pyo3::prelude::*;
+use pyo3::sync::PyOnceLock;
+use pyo3::types::{PyAnyMethods, PyDict, PyModule, PyTuple, PyType};
+use soac_blockpy::block_py::BlockPyModule;
+use soac_blockpy::passes::CodegenBlockPyPass;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
+static DIET_PYTHON_MODULE_TYPE: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+static LOWERED_MODULE_REGISTRY: OnceLock<Mutex<HashMap<usize, BlockPyModule<CodegenBlockPyPass>>>> =
+    OnceLock::new();
+
+fn lowered_module_registry() -> &'static Mutex<HashMap<usize, BlockPyModule<CodegenBlockPyPass>>> {
+    LOWERED_MODULE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn module_registry_key(module: &Bound<'_, PyAny>) -> usize {
+    module.as_ptr() as usize
+}
+
+fn diet_python_module_type<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyType>> {
+    let module_type = DIET_PYTHON_MODULE_TYPE.get_or_try_init(py, || -> PyResult<Py<PyType>> {
+        let builtins = PyModule::import(py, "builtins")?;
+        let type_fn = builtins.getattr("type")?;
+        let types = PyModule::import(py, "types")?;
+        let module_type = types.getattr("ModuleType")?;
+        let bases = PyTuple::new(py, [module_type])?;
+        let namespace = PyDict::new(py);
+        namespace.set_item("__module__", "diet_python")?;
+        namespace.set_item("__qualname__", "DietPythonModule")?;
+        let cls = type_fn.call1(("DietPythonModule", bases, namespace))?;
+        let cls = cls.cast_into::<PyType>()?;
+        Ok(cls.unbind())
+    })?;
+    Ok(module_type.bind(py).clone())
+}
+
+pub struct DietPythonModule;
+
+impl DietPythonModule {
+    pub fn new(
+        py: Python<'_>,
+        module_name: &str,
+        lowered_module: BlockPyModule<CodegenBlockPyPass>,
+    ) -> PyResult<Py<PyAny>> {
+        let module = diet_python_module_type(py)?.call1((module_name,))?;
+        lowered_module_registry()
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("failed to lock lowered module registry"))?
+            .insert(module_registry_key(&module), lowered_module);
+        Ok(module.unbind())
+    }
+
+    pub fn lowered_module(
+        module: &Bound<'_, PyAny>,
+    ) -> PyResult<BlockPyModule<CodegenBlockPyPass>> {
+        let module_type = diet_python_module_type(module.py())?;
+        if !module.is_instance(module_type.as_any())? {
+            return Err(PyTypeError::new_err(
+                "expected a diet_python-created module instance",
+            ));
+        }
+        lowered_module_registry()
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("failed to lock lowered module registry"))?
+            .get(&module_registry_key(module))
+            .cloned()
+            .ok_or_else(|| {
+                PyRuntimeError::new_err("missing lowered module for custom module instance")
+            })
+    }
+}

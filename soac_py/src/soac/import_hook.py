@@ -7,7 +7,6 @@ import importlib.util
 import os
 import sys
 import tempfile
-import types
 from pathlib import Path
 
 
@@ -20,38 +19,36 @@ def _integration_only_enabled() -> bool:
     return os.environ.get("DIET_PYTHON_INTEGRATION_ONLY") == "1"
 
 
-def _run_module_init(module) -> None:
-    init = getattr(module, "_dp_module_init", None)
-    if init is None:
-        return
-    try:
-        init()
-    finally:
-        try:
-            delattr(module, "_dp_module_init")
-        except Exception:
-            pass
-
-
-def _build_module_init(path: str, module):
-    try:
-        with open(path, "r", encoding="utf-8") as file:
-            original_source = file.read()
-    except OSError as err:
-        raise ImportError(f"diet-python could not read source for {path}: {err}") from err
+def _create_module_from_source(path: str, source: str):
     transformer = _get_pyo3_transform()
     try:
-        init = transformer.build_module_init(
-            original_source,
-            module.__dict__,
-        )
+        return transformer.create_module(source)
     except SyntaxError as err:
         if err.filename is None:
             err.filename = path
         raise
     except Exception as err:
         raise ImportError(f"diet-python failed for {path}: {err}") from err
-    return init
+
+
+def _create_module_from_path(path: str):
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            source = file.read()
+    except OSError as err:
+        raise ImportError(f"diet-python could not read source for {path}: {err}") from err
+    return _create_module_from_source(path, source)
+
+
+def _run_module_init(path: str, module) -> None:
+    transformer = _get_pyo3_transform()
+    try:
+        init = transformer.build_module_init(module)
+    except Exception as err:
+        raise ImportError(f"diet-python failed for {path}: {err}") from err
+    if init is None:
+        return
+    init()
 
 
 def _get_pyo3_transform():
@@ -112,14 +109,11 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
     """Loader that applies the diet-python transform before executing a module."""
 
     def create_module(self, spec):
-        return None
+        return _create_module_from_path(self.path)
 
     def exec_module(self, module):
         module.__dict__.setdefault("__builtins__", builtins.__dict__)
-        init = _build_module_init(self.path, module)
-        if init is not None:
-            module._dp_module_init = init
-        _run_module_init(module)
+        _run_module_init(self.path, module)
         return None
 
 
@@ -206,10 +200,9 @@ def main(argv: list[str] | None = None) -> int:
     package = package or None
 
     install()
-    transform = _get_pyo3_transform()
     sys.argv = [str(path), *args.args]
     source = path.read_text(encoding="utf-8")
-    module = types.ModuleType(run_name)
+    module = _create_module_from_source(str(path), source)
     module.__file__ = str(path)
     module.__name__ = run_name
     module.__package__ = package
@@ -218,16 +211,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.modules[module_name] = module
     sys.argv[0] = str(path)
     module.__dict__.setdefault("__builtins__", builtins.__dict__)
-    init = transform.build_module_init(source, module.__dict__)
-    if callable(init):
-        module._dp_module_init = init
-    init = getattr(module, "_dp_module_init", None)
-    if callable(init):
-        init()
-        try:
-            delattr(module, "_dp_module_init")
-        except Exception:
-            pass
+    _run_module_init(str(path), module)
 
     return 0
 

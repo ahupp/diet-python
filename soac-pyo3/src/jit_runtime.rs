@@ -6,10 +6,11 @@ use pyo3::exceptions::{
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyFunction, PyModule, PyString, PyTuple};
-use soac_blockpy::block_py::{BlockPyFunction, FunctionId, ParamKind};
+use soac_blockpy::block_py::{BlockPyFunction, BlockPyModule, FunctionId, ParamKind};
 use soac_blockpy::lower_python_to_blockpy;
 use soac_blockpy::pass_tracker::NoopPassTracker;
 use soac_blockpy::passes::CodegenBlockPyPass;
+use soac_eval::module_type::DietPythonModule;
 use std::time::Instant;
 
 unsafe extern "C" {
@@ -29,21 +30,24 @@ pub(crate) fn register_lowered_module_plans<P>(
     output: &soac_blockpy::LoweringResult<P>,
     module_name: &str,
 ) -> PyResult<()> {
-    soac_eval::jit::register_clif_module_plans(module_name, &output.codegen_module).map_err(
-        |err| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "failed to register BB plans for {module_name}: {err}"
-            ))
-        },
-    )?;
+    register_blockpy_module_plans(module_name, &output.codegen_module)
+}
+
+fn register_blockpy_module_plans(
+    module_name: &str,
+    module: &BlockPyModule<CodegenBlockPyPass>,
+) -> PyResult<()> {
+    soac_eval::jit::register_clif_module_plans(module_name, module).map_err(|err| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!(
+            "failed to register BB plans for {module_name}: {err}"
+        ))
+    })?;
     if module_name.ends_with(".__main__") && module_name != "__main__" {
-        soac_eval::jit::register_clif_module_plans("__main__", &output.codegen_module).map_err(
-            |err| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!(
-                    "failed to register BB plans alias for __main__ from {module_name}: {err}"
-                ))
-            },
-        )?;
+        soac_eval::jit::register_clif_module_plans("__main__", module).map_err(|err| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "failed to register BB plans alias for __main__ from {module_name}: {err}"
+            ))
+        })?;
     }
     Ok(())
 }
@@ -232,11 +236,11 @@ fn lookup_bb_function(
     })
 }
 
-fn lookup_module_init_function<P>(
-    output: &soac_blockpy::LoweringResult<P>,
+fn lookup_module_init_function(
+    module: &BlockPyModule<CodegenBlockPyPass>,
     module_name: &str,
 ) -> PyResult<BlockPyFunction<CodegenBlockPyPass>> {
-    (&output.codegen_module)
+    module
         .callable_defs
         .iter()
         .find(|function| function.names.bind_name == "_dp_module_init")
@@ -246,6 +250,19 @@ fn lookup_module_init_function<P>(
                 "JIT basic-block module init failed to resolve lowered _dp_module_init for {module_name}"
             ))
         })
+}
+
+fn resolve_module_name_from_module(module: &Bound<'_, PyAny>, operation: &str) -> PyResult<String> {
+    let module_name_obj = module.getattr("__name__").map_err(|_| {
+        PyRuntimeError::new_err(format!(
+            "JIT basic-block {operation} requires module.__name__"
+        ))
+    })?;
+    module_name_obj.extract::<String>().map_err(|_| {
+        PyRuntimeError::new_err(format!(
+            "JIT basic-block {operation} requires module.__name__ to be a str"
+        ))
+    })
 }
 
 fn build_capture_map<'py>(
@@ -597,19 +614,26 @@ fn make_bb_function(
 }
 
 #[pyfunction]
-fn build_module_init(
-    py: Python<'_>,
-    source: &str,
-    module_globals: Py<PyAny>,
-) -> PyResult<Py<PyAny>> {
-    let module_globals = module_globals.bind(py);
-    let module_name = resolve_module_name(&module_globals, "module init construction")?;
+fn create_module(py: Python<'_>, source: &str) -> PyResult<Py<PyAny>> {
     let session = soac_eval::CompileSession::new();
     let output: soac_blockpy::LoweringResult<NoopPassTracker> =
         lower_python_to_blockpy(source, session.module_name_gen())
             .map_err(lowering_error_to_pyerr)?;
-    register_lowered_module_plans(&output, &module_name)?;
-    let function = lookup_module_init_function(&output, &module_name)?;
+    DietPythonModule::new(py, "__diet_python_pending__", output.codegen_module)
+}
+
+#[pyfunction]
+fn build_module_init(py: Python<'_>, module: Py<PyAny>) -> PyResult<Py<PyAny>> {
+    let module = module.bind(py);
+    let module_name = resolve_module_name_from_module(module.as_any(), "module init construction")?;
+    let module_globals = module.getattr("__dict__")?;
+    let lowered_module = DietPythonModule::lowered_module(module.as_any()).map_err(|err| {
+        PyTypeError::new_err(format!(
+            "JIT basic-block module init construction requires a diet_python-created module: {err}"
+        ))
+    })?;
+    register_blockpy_module_plans(&module_name, &lowered_module)?;
+    let function = lookup_module_init_function(&lowered_module, &module_name)?;
     let dp = import_dp_module(py)?;
     let empty = PyTuple::empty(py);
     let none = py.None();
@@ -662,6 +686,7 @@ fn make_bb_generator(
 }
 
 pub(crate) fn add_module_functions(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(create_module, module)?)?;
     module.add_function(wrap_pyfunction!(build_module_init, module)?)?;
     module.add_function(wrap_pyfunction!(make_bb_function, module)?)?;
     module.add_function(wrap_pyfunction!(make_bb_generator, module)?)?;
