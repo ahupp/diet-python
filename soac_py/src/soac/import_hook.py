@@ -40,16 +40,6 @@ def _create_module_from_path(path: str):
     return _create_module_from_source(path, source)
 
 
-def _run_module_init(path: str, module) -> None:
-    try:
-        init = _soac_ext.build_module_init(module)
-    except Exception as err:
-        raise ImportError(f"diet-python failed for {path}: {err}") from err
-    if init is None:
-        return
-    init()
-
-
 def _is_integration_module(resolved: Path) -> bool:
     try:
         resolved.relative_to(REPO_ROOT / "tests" / "integration_modules")
@@ -98,7 +88,12 @@ class DietPythonLoader(importlib.machinery.SourceFileLoader):
 
     def exec_module(self, module):
         module.__dict__.setdefault("__builtins__", builtins.__dict__)
-        _run_module_init(self.path, module)
+        try:
+            init = _soac_ext.build_module_init(module)
+        except Exception as err:
+            raise ImportError(f"diet-python failed for {self.path}: {err}") from err
+        if init is not None:
+            init()
         return None
 
 
@@ -182,7 +177,12 @@ def main(argv: list[str] | None = None) -> int:
         sys.modules[module_name] = module
     sys.argv[0] = str(path)
     module.__dict__.setdefault("__builtins__", builtins.__dict__)
-    _run_module_init(str(path), module)
+    try:
+        init = _soac_ext.build_module_init(module)
+    except Exception as err:
+        raise ImportError(f"diet-python failed for {path}: {err}") from err
+    if init is not None:
+        init()
 
     return 0
 
