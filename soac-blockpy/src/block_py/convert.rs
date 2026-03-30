@@ -7,7 +7,7 @@ use ruff_python_ast::{
     StringLiteralValue,
 };
 
-pub(crate) fn map_call_args_by<EIn, EOut>(
+pub(crate) fn map_call_args_with<EIn, EOut>(
     args: Vec<CoreBlockPyCallArg<EIn>>,
     mut map_expr: impl FnMut(EIn) -> EOut,
 ) -> Vec<CoreBlockPyCallArg<EOut>> {
@@ -16,7 +16,7 @@ pub(crate) fn map_call_args_by<EIn, EOut>(
         .collect()
 }
 
-pub(crate) fn map_keyword_args_by<EIn, EOut>(
+pub(crate) fn map_keyword_args_with<EIn, EOut>(
     keywords: Vec<CoreBlockPyKeywordArg<EIn>>,
     mut map_expr: impl FnMut(EIn) -> EOut,
 ) -> Vec<CoreBlockPyKeywordArg<EOut>> {
@@ -26,7 +26,7 @@ pub(crate) fn map_keyword_args_by<EIn, EOut>(
         .collect()
 }
 
-pub(crate) fn try_map_call_args_by<EIn, EOut, Error>(
+pub(crate) fn try_map_call_args_with<EIn, EOut, Error>(
     args: Vec<CoreBlockPyCallArg<EIn>>,
     mut map_expr: impl FnMut(EIn) -> Result<EOut, Error>,
 ) -> Result<Vec<CoreBlockPyCallArg<EOut>>, Error> {
@@ -35,7 +35,7 @@ pub(crate) fn try_map_call_args_by<EIn, EOut, Error>(
         .collect()
 }
 
-pub(crate) fn try_map_keyword_args_by<EIn, EOut, Error>(
+pub(crate) fn try_map_keyword_args_with<EIn, EOut, Error>(
     keywords: Vec<CoreBlockPyKeywordArg<EIn>>,
     mut map_expr: impl FnMut(EIn) -> Result<EOut, Error>,
 ) -> Result<Vec<CoreBlockPyKeywordArg<EOut>>, Error> {
@@ -43,68 +43,6 @@ pub(crate) fn try_map_keyword_args_by<EIn, EOut, Error>(
         .into_iter()
         .map(|keyword| keyword.try_map_expr(&mut map_expr))
         .collect()
-}
-
-pub(crate) fn map_call_args<PIn, POut>(
-    mapper: &(impl BlockPyModuleMap<PIn, POut> + ?Sized),
-    args: Vec<CoreBlockPyCallArg<PassExpr<PIn>>>,
-) -> Vec<CoreBlockPyCallArg<PassExpr<POut>>>
-where
-    PIn: BlockPyPass,
-    POut: BlockPyPass,
-    PassExpr<PIn>: MapExpr<PassExpr<POut>>,
-    PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
-    PassName<POut>: From<PassName<PIn>>,
-    StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
-{
-    map_call_args_by(args, |expr| mapper.map_expr(expr))
-}
-
-pub(crate) fn map_keyword_args<PIn, POut>(
-    mapper: &(impl BlockPyModuleMap<PIn, POut> + ?Sized),
-    keywords: Vec<CoreBlockPyKeywordArg<PassExpr<PIn>>>,
-) -> Vec<CoreBlockPyKeywordArg<PassExpr<POut>>>
-where
-    PIn: BlockPyPass,
-    POut: BlockPyPass,
-    PassExpr<PIn>: MapExpr<PassExpr<POut>>,
-    PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
-    PassName<POut>: From<PassName<PIn>>,
-    StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
-{
-    map_keyword_args_by(keywords, |expr| mapper.map_expr(expr))
-}
-
-pub(crate) fn try_map_call_args<PIn, POut, M>(
-    mapper: &M,
-    args: Vec<CoreBlockPyCallArg<PassExpr<PIn>>>,
-) -> Result<Vec<CoreBlockPyCallArg<PassExpr<POut>>>, M::Error>
-where
-    PIn: BlockPyPass,
-    POut: BlockPyPass,
-    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, M::Error>,
-    PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
-    PassName<POut>: From<PassName<PIn>>,
-    StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
-    M: BlockPyModuleTryMap<PIn, POut> + ?Sized,
-{
-    try_map_call_args_by(args, |expr| mapper.try_map_expr(expr))
-}
-
-pub(crate) fn try_map_keyword_args<PIn, POut, M>(
-    mapper: &M,
-    keywords: Vec<CoreBlockPyKeywordArg<PassExpr<PIn>>>,
-) -> Result<Vec<CoreBlockPyKeywordArg<PassExpr<POut>>>, M::Error>
-where
-    PIn: BlockPyPass,
-    POut: BlockPyPass,
-    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, M::Error>,
-    PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
-    PassName<POut>: From<PassName<PIn>>,
-    StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
-    M: BlockPyModuleTryMap<PIn, POut> + ?Sized,
-{
-    try_map_keyword_args_by(keywords, |expr| mapper.try_map_expr(expr))
 }
 
 fn map_structured_stmt_with<PIn, POut>(
@@ -309,6 +247,20 @@ where
         }
     }
 
+    fn map_call_args(
+        &self,
+        args: Vec<CoreBlockPyCallArg<PassExpr<PIn>>>,
+    ) -> Vec<CoreBlockPyCallArg<PassExpr<POut>>> {
+        map_call_args_with(args, |expr| self.map_expr(expr))
+    }
+
+    fn map_keyword_args(
+        &self,
+        keywords: Vec<CoreBlockPyKeywordArg<PassExpr<PIn>>>,
+    ) -> Vec<CoreBlockPyKeywordArg<PassExpr<POut>>> {
+        map_keyword_args_with(keywords, |expr| self.map_expr(expr))
+    }
+
     fn map_name(&self, name: PassName<PIn>) -> PassName<POut> {
         <PassName<POut> as From<PassName<PIn>>>::from(name)
     }
@@ -409,6 +361,20 @@ where
             })),
             BlockPyTerm::Return(value) => Ok(BlockPyTerm::Return(self.try_map_expr(value)?)),
         }
+    }
+
+    fn try_map_call_args(
+        &self,
+        args: Vec<CoreBlockPyCallArg<PassExpr<PIn>>>,
+    ) -> Result<Vec<CoreBlockPyCallArg<PassExpr<POut>>>, Self::Error> {
+        try_map_call_args_with(args, |expr| self.try_map_expr(expr))
+    }
+
+    fn try_map_keyword_args(
+        &self,
+        keywords: Vec<CoreBlockPyKeywordArg<PassExpr<PIn>>>,
+    ) -> Result<Vec<CoreBlockPyKeywordArg<PassExpr<POut>>>, Self::Error> {
+        try_map_keyword_args_with(keywords, |expr| self.try_map_expr(expr))
     }
 
     fn try_map_name(&self, name: PassName<PIn>) -> Result<PassName<POut>, Self::Error> {
@@ -969,8 +935,8 @@ impl From<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(Self::from(*call.func)),
-                args: map_call_args_by(call.args, Self::from),
-                keywords: map_keyword_args_by(call.keywords, Self::from),
+                args: map_call_args_with(call.args, Self::from),
+                keywords: map_keyword_args_with(call.keywords, Self::from),
             }),
             CoreBlockPyExprWithYield::Yield(yield_expr) => Self::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,
@@ -1082,8 +1048,8 @@ impl From<CoreBlockPyExpr> for CoreBlockPyExprWithYield {
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(Self::from(*call.func)),
-                args: map_call_args_by(call.args, Self::from),
-                keywords: map_keyword_args_by(call.keywords, Self::from),
+                args: map_call_args_with(call.args, Self::from),
+                keywords: map_keyword_args_with(call.keywords, Self::from),
             }),
         }
     }

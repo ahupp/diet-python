@@ -28,7 +28,7 @@ pub(crate) use convert::BlockPyModuleMap;
 #[cfg(test)]
 pub(crate) use convert::BlockPyModuleTryMap;
 pub(crate) use convert::{
-    map_call_args_by, map_keyword_args_by, try_map_call_args_by, try_map_keyword_args_by,
+    map_call_args_with, map_keyword_args_with, try_map_call_args_with, try_map_keyword_args_with,
 };
 pub use name_gen::{FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
@@ -583,8 +583,8 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYi
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(f(*call.func)),
-                args: map_call_args_by(call.args, &mut *f),
-                keywords: map_keyword_args_by(call.keywords, &mut *f),
+                args: map_call_args_with(call.args, &mut *f),
+                keywords: map_keyword_args_with(call.keywords, &mut *f),
             }),
             Self::Await(await_expr) => Self::Await(CoreBlockPyAwait {
                 node_index: await_expr.node_index,
@@ -620,8 +620,8 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(f(*call.func)),
-                args: map_call_args_by(call.args, &mut *f),
-                keywords: map_keyword_args_by(call.keywords, &mut *f),
+                args: map_call_args_with(call.args, &mut *f),
+                keywords: map_keyword_args_with(call.keywords, &mut *f),
             }),
             Self::Await(await_expr) => CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
                 node_index: await_expr.node_index.clone(),
@@ -666,8 +666,8 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(f(*call.func)?),
-                args: try_map_call_args_by(call.args, &mut *f)?,
-                keywords: try_map_keyword_args_by(call.keywords, &mut *f)?,
+                args: try_map_call_args_with(call.args, &mut *f)?,
+                keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
             })),
             Self::Await(_) => Err(self),
             Self::Yield(yield_expr) => Ok(CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
@@ -722,8 +722,8 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(f(*call.func)),
-                args: map_call_args_by(call.args, &mut *f),
-                keywords: map_keyword_args_by(call.keywords, &mut *f),
+                args: map_call_args_with(call.args, &mut *f),
+                keywords: map_keyword_args_with(call.keywords, &mut *f),
             }),
             Self::Yield(yield_expr) => Self::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,
@@ -754,8 +754,8 @@ impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWi
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(f(*call.func)?),
-                args: try_map_call_args_by(call.args, &mut *f)?,
-                keywords: try_map_keyword_args_by(call.keywords, &mut *f)?,
+                args: try_map_call_args_with(call.args, &mut *f)?,
+                keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
             })),
             Self::Yield(_) | Self::YieldFrom(_) => Err(self),
         }
@@ -799,8 +799,8 @@ where
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(f(*call.func)),
-                args: map_call_args_by(call.args, &mut *f),
-                keywords: map_keyword_args_by(call.keywords, &mut *f),
+                args: map_call_args_with(call.args, &mut *f),
+                keywords: map_keyword_args_with(call.keywords, &mut *f),
             }),
         }
     }
@@ -825,8 +825,8 @@ where
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(f(*call.func)?),
-                args: try_map_call_args_by(call.args, &mut *f)?,
-                keywords: try_map_keyword_args_by(call.keywords, &mut *f)?,
+                args: try_map_call_args_with(call.args, &mut *f)?,
+                keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
             })),
         }
     }
@@ -880,8 +880,8 @@ where
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(f(*call.func)),
-                args: map_call_args_by(call.args, &mut *f),
-                keywords: map_keyword_args_by(call.keywords, &mut *f),
+                args: map_call_args_with(call.args, &mut *f),
+                keywords: map_keyword_args_with(call.keywords, &mut *f),
             }),
         }
     }
@@ -906,8 +906,8 @@ where
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(f(*call.func)?),
-                args: try_map_call_args_by(call.args, &mut *f)?,
-                keywords: try_map_keyword_args_by(call.keywords, &mut *f)?,
+                args: try_map_call_args_with(call.args, &mut *f)?,
+                keywords: try_map_keyword_args_with(call.keywords, &mut *f)?,
             })),
         }
     }
@@ -932,8 +932,8 @@ where
                 node_index: call.node_index,
                 range: call.range,
                 func: Box::new(f(*call.func)),
-                args: map_call_args_by(call.args, &mut *f),
-                keywords: map_keyword_args_by(call.keywords, &mut *f),
+                args: map_call_args_with(call.args, &mut *f),
+                keywords: map_keyword_args_with(call.keywords, &mut *f),
             }),
         }
     }
