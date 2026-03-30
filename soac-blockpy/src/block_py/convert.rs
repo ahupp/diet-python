@@ -45,6 +45,126 @@ pub(crate) fn try_map_keyword_args_with<EIn, EOut, Error>(
         .collect()
 }
 
+fn map_structured_stmt_with<PIn, POut>(
+    mapper: &(impl BlockPyModuleMap<PIn, POut> + ?Sized),
+    stmt: StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+) -> StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>>
+where
+    PIn: BlockPyPass,
+    POut: BlockPyPass,
+    PassExpr<PIn>: MapExpr<PassExpr<POut>>,
+    PassName<POut>: From<PassName<PIn>>,
+    StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
+{
+    match stmt {
+        StructuredBlockPyStmt::Assign(assign) => StructuredBlockPyStmt::Assign(BlockPyAssign {
+            target: mapper.map_name(assign.target),
+            value: mapper.map_expr(assign.value),
+        }),
+        StructuredBlockPyStmt::Expr(expr) => StructuredBlockPyStmt::Expr(mapper.map_expr(expr)),
+        StructuredBlockPyStmt::Delete(delete) => StructuredBlockPyStmt::Delete(BlockPyDelete {
+            target: mapper.map_name(delete.target),
+        }),
+        StructuredBlockPyStmt::If(if_stmt) => StructuredBlockPyStmt::If(BlockPyIf {
+            test: mapper.map_expr(if_stmt.test),
+            body: map_fragment_with(mapper, if_stmt.body),
+            orelse: map_fragment_with(mapper, if_stmt.orelse),
+        }),
+    }
+}
+
+fn map_fragment_with<PIn, POut>(
+    mapper: &(impl BlockPyModuleMap<PIn, POut> + ?Sized),
+    fragment: BlockPyCfgFragment<
+        StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+        BlockPyTerm<PassExpr<PIn>>,
+    >,
+) -> BlockPyCfgFragment<
+    StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>>,
+    BlockPyTerm<PassExpr<POut>>,
+>
+where
+    PIn: BlockPyPass,
+    POut: BlockPyPass,
+    PassExpr<PIn>: MapExpr<PassExpr<POut>>,
+    PassName<POut>: From<PassName<PIn>>,
+    StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
+{
+    BlockPyCfgFragment {
+        body: fragment
+            .body
+            .into_iter()
+            .map(|stmt| map_structured_stmt_with(mapper, stmt))
+            .collect(),
+        term: fragment.term.map(|term| mapper.map_term(term)),
+    }
+}
+
+fn try_map_structured_stmt_with<PIn, POut, M>(
+    mapper: &M,
+    stmt: StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+) -> Result<StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>>, M::Error>
+where
+    PIn: BlockPyPass,
+    POut: BlockPyPass,
+    M: BlockPyModuleTryMap<PIn, POut> + ?Sized,
+    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, M::Error>,
+    PassName<POut>: From<PassName<PIn>>,
+    StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
+{
+    match stmt {
+        StructuredBlockPyStmt::Assign(assign) => Ok(StructuredBlockPyStmt::Assign(BlockPyAssign {
+            target: mapper.try_map_name(assign.target)?,
+            value: mapper.try_map_expr(assign.value)?,
+        })),
+        StructuredBlockPyStmt::Expr(expr) => {
+            Ok(StructuredBlockPyStmt::Expr(mapper.try_map_expr(expr)?))
+        }
+        StructuredBlockPyStmt::Delete(delete) => Ok(StructuredBlockPyStmt::Delete(BlockPyDelete {
+            target: mapper.try_map_name(delete.target)?,
+        })),
+        StructuredBlockPyStmt::If(if_stmt) => Ok(StructuredBlockPyStmt::If(BlockPyIf {
+            test: mapper.try_map_expr(if_stmt.test)?,
+            body: try_map_fragment_with(mapper, if_stmt.body)?,
+            orelse: try_map_fragment_with(mapper, if_stmt.orelse)?,
+        })),
+    }
+}
+
+fn try_map_fragment_with<PIn, POut, M>(
+    mapper: &M,
+    fragment: BlockPyCfgFragment<
+        StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+        BlockPyTerm<PassExpr<PIn>>,
+    >,
+) -> Result<
+    BlockPyCfgFragment<
+        StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>>,
+        BlockPyTerm<PassExpr<POut>>,
+    >,
+    M::Error,
+>
+where
+    PIn: BlockPyPass,
+    POut: BlockPyPass,
+    M: BlockPyModuleTryMap<PIn, POut> + ?Sized,
+    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, M::Error>,
+    PassName<POut>: From<PassName<PIn>>,
+    StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
+{
+    Ok(BlockPyCfgFragment {
+        body: fragment
+            .body
+            .into_iter()
+            .map(|stmt| try_map_structured_stmt_with(mapper, stmt))
+            .collect::<Result<_, _>>()?,
+        term: fragment
+            .term
+            .map(|term| mapper.try_map_term(term))
+            .transpose()?,
+    })
+}
+
 pub trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
@@ -95,49 +215,8 @@ where
         }
     }
 
-    fn map_fragment(
-        &self,
-        fragment: BlockPyCfgFragment<
-            StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
-            BlockPyTerm<PassExpr<PIn>>,
-        >,
-    ) -> BlockPyCfgFragment<
-        StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>>,
-        BlockPyTerm<PassExpr<POut>>,
-    > {
-        BlockPyCfgFragment {
-            body: fragment
-                .body
-                .into_iter()
-                .map(|stmt| self.map_structured_stmt(stmt))
-                .collect(),
-            term: fragment.term.map(|term| self.map_term(term)),
-        }
-    }
-
     fn map_stmt(&self, stmt: PIn::Stmt) -> POut::Stmt {
-        self.map_structured_stmt(stmt.into_structured_stmt()).into()
-    }
-
-    fn map_structured_stmt(
-        &self,
-        stmt: StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
-    ) -> StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>> {
-        match stmt {
-            StructuredBlockPyStmt::Assign(assign) => StructuredBlockPyStmt::Assign(BlockPyAssign {
-                target: self.map_name(assign.target),
-                value: self.map_expr(assign.value),
-            }),
-            StructuredBlockPyStmt::Expr(expr) => StructuredBlockPyStmt::Expr(self.map_expr(expr)),
-            StructuredBlockPyStmt::Delete(delete) => StructuredBlockPyStmt::Delete(BlockPyDelete {
-                target: self.map_name(delete.target),
-            }),
-            StructuredBlockPyStmt::If(if_stmt) => StructuredBlockPyStmt::If(BlockPyIf {
-                test: self.map_expr(if_stmt.test),
-                body: self.map_fragment(if_stmt.body),
-                orelse: self.map_fragment(if_stmt.orelse),
-            }),
-        }
+        map_structured_stmt_with(self, stmt.into_structured_stmt()).into()
     }
 
     fn map_term(&self, term: BlockPyTerm<PassExpr<PIn>>) -> BlockPyTerm<PassExpr<POut>> {
@@ -245,62 +324,8 @@ where
         })
     }
 
-    fn try_map_fragment(
-        &self,
-        fragment: BlockPyCfgFragment<
-            StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
-            BlockPyTerm<PassExpr<PIn>>,
-        >,
-    ) -> Result<
-        BlockPyCfgFragment<
-            StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>>,
-            BlockPyTerm<PassExpr<POut>>,
-        >,
-        Self::Error,
-    > {
-        Ok(BlockPyCfgFragment {
-            body: fragment
-                .body
-                .into_iter()
-                .map(|stmt| self.try_map_structured_stmt(stmt))
-                .collect::<Result<_, _>>()?,
-            term: fragment
-                .term
-                .map(|term| self.try_map_term(term))
-                .transpose()?,
-        })
-    }
-
     fn try_map_stmt(&self, stmt: PIn::Stmt) -> Result<POut::Stmt, Self::Error> {
-        self.try_map_structured_stmt(stmt.into_structured_stmt())
-            .map(Into::into)
-    }
-
-    fn try_map_structured_stmt(
-        &self,
-        stmt: StructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
-    ) -> Result<StructuredBlockPyStmt<PassExpr<POut>, PassName<POut>>, Self::Error> {
-        match stmt {
-            StructuredBlockPyStmt::Assign(assign) => {
-                Ok(StructuredBlockPyStmt::Assign(BlockPyAssign {
-                    target: self.try_map_name(assign.target)?,
-                    value: self.try_map_expr(assign.value)?,
-                }))
-            }
-            StructuredBlockPyStmt::Expr(expr) => {
-                Ok(StructuredBlockPyStmt::Expr(self.try_map_expr(expr)?))
-            }
-            StructuredBlockPyStmt::Delete(delete) => {
-                Ok(StructuredBlockPyStmt::Delete(BlockPyDelete {
-                    target: self.try_map_name(delete.target)?,
-                }))
-            }
-            StructuredBlockPyStmt::If(if_stmt) => Ok(StructuredBlockPyStmt::If(BlockPyIf {
-                test: self.try_map_expr(if_stmt.test)?,
-                body: self.try_map_fragment(if_stmt.body)?,
-                orelse: self.try_map_fragment(if_stmt.orelse)?,
-            })),
-        }
+        try_map_structured_stmt_with(self, stmt.into_structured_stmt()).map(Into::into)
     }
 
     fn try_map_term(
@@ -825,7 +850,7 @@ impl TryFrom<StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>>
     fn try_from(
         value: StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
     ) -> Result<Self, Self::Error> {
-        ElideAwaitExprTryMap.try_map_structured_stmt(value)
+        try_map_structured_stmt_with(&ElideAwaitExprTryMap, value)
     }
 }
 
@@ -859,7 +884,7 @@ impl
             BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
         >,
     ) -> Result<Self, Self::Error> {
-        ElideAwaitExprTryMap.try_map_fragment(value)
+        try_map_fragment_with(&ElideAwaitExprTryMap, value)
     }
 }
 
@@ -940,7 +965,7 @@ impl TryFrom<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>
     fn try_from(
         value: StructuredBlockPyStmt<CoreBlockPyExprWithYield>,
     ) -> Result<Self, Self::Error> {
-        ElideYieldExprTryMap.try_map_structured_stmt(value)
+        try_map_structured_stmt_with(&ElideYieldExprTryMap, value)
     }
 }
 
@@ -968,7 +993,7 @@ impl
             BlockPyTerm<CoreBlockPyExprWithYield>,
         >,
     ) -> Result<Self, Self::Error> {
-        ElideYieldExprTryMap.try_map_fragment(value)
+        try_map_fragment_with(&ElideYieldExprTryMap, value)
     }
 }
 
