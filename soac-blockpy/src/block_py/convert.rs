@@ -53,6 +53,7 @@ where
     PIn: BlockPyPass,
     POut: BlockPyPass,
     PassExpr<PIn>: MapExpr<PassExpr<POut>>,
+    PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
     PassName<POut>: From<PassName<PIn>>,
     StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
@@ -87,6 +88,7 @@ where
     PIn: BlockPyPass,
     POut: BlockPyPass,
     PassExpr<PIn>: MapExpr<PassExpr<POut>>,
+    PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
     PassName<POut>: From<PassName<PIn>>,
     StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
@@ -107,6 +109,7 @@ fn try_map_structured_stmt_with<PIn, POut, M>(
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
+    PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
     M: BlockPyModuleTryMap<PIn, POut> + ?Sized,
     PassExpr<PIn>: TryMapExpr<PassExpr<POut>, M::Error>,
     PassName<POut>: From<PassName<PIn>>,
@@ -147,6 +150,7 @@ fn try_map_fragment_with<PIn, POut, M>(
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
+    PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
     M: BlockPyModuleTryMap<PIn, POut> + ?Sized,
     PassExpr<PIn>: TryMapExpr<PassExpr<POut>, M::Error>,
     PassName<POut>: From<PassName<PIn>>,
@@ -165,11 +169,12 @@ where
     })
 }
 
-pub trait BlockPyModuleMap<PIn, POut>
+pub(crate) trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
     PassExpr<PIn>: MapExpr<PassExpr<POut>>,
+    PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
     PassName<POut>: From<PassName<PIn>>,
     StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
@@ -269,11 +274,12 @@ where
     }
 }
 
-pub trait BlockPyModuleTryMap<PIn, POut>
+pub(crate) trait BlockPyModuleTryMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
     PassExpr<PIn>: TryMapExpr<PassExpr<POut>, Self::Error>,
+    PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
     PassName<POut>: From<PassName<PIn>>,
     StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
 {
@@ -388,20 +394,25 @@ impl<PIn> BlockPyModule<PIn>
 where
     PIn: BlockPyPass,
 {
-    pub fn map_module<POut>(self, mapper: &impl BlockPyModuleMap<PIn, POut>) -> BlockPyModule<POut>
+    pub(crate) fn map_module<POut>(
+        self,
+        mapper: &impl BlockPyModuleMap<PIn, POut>,
+    ) -> BlockPyModule<POut>
     where
         POut: BlockPyPass,
         PassExpr<PIn>: MapExpr<PassExpr<POut>>,
+        PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
         PassName<POut>: From<PassName<PIn>>,
         StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
     {
         mapper.map_module(self)
     }
 
-    pub fn try_map_module<POut, M>(self, mapper: &M) -> Result<BlockPyModule<POut>, M::Error>
+    pub(crate) fn try_map_module<POut, M>(self, mapper: &M) -> Result<BlockPyModule<POut>, M::Error>
     where
         POut: BlockPyPass,
         PassExpr<PIn>: TryMapExpr<PassExpr<POut>, M::Error>,
+        PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
         PassName<POut>: From<PassName<PIn>>,
         StructuredBlockPyStmt<POut::Expr, POut::Name>: Into<POut::Stmt>,
         M: BlockPyModuleTryMap<PIn, POut>,

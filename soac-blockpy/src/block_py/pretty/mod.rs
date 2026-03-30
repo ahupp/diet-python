@@ -21,7 +21,7 @@ enum IfBranchKind {
     Else,
 }
 
-pub trait BlockPyPrettyPrinter: BlockPyPass {
+pub(crate) trait BlockPyPrettyPrinter: BlockPyPass {
     fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String>
     where
         Self: Sized;
@@ -89,26 +89,32 @@ where
     lines
 }
 
-pub trait BlockPyPrettyPrint {
+pub(crate) trait BlockPyPrettyPrint {
     fn pretty_print(&self) -> String;
 }
 
 impl<P> BlockPyPrettyPrint for BlockPyModule<P>
 where
     P: BlockPyPrettyPrinter,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
 {
     fn pretty_print(&self) -> String {
         blockpy_module_to_string(self)
     }
 }
 
-pub fn blockpy_module_to_string<P>(module: &BlockPyModule<P>) -> String
+pub(crate) fn blockpy_module_to_string<P>(module: &BlockPyModule<P>) -> String
 where
     P: BlockPyPrettyPrinter,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
 {
     let mut formatter = BlockPyFormatter::default();
     formatter.write_module(module);
     formatter.finish()
+}
+
+pub fn render_ruff_blockpy_module(module: &BlockPyModule<RuffBlockPyPass>) -> String {
+    blockpy_module_to_string(module)
 }
 
 #[derive(Default)]
@@ -128,6 +134,7 @@ impl BlockPyFormatter {
     fn write_module<P>(&mut self, module: &BlockPyModule<P>)
     where
         P: BlockPyPrettyPrinter,
+        P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
     {
         for function in &module.callable_defs {
             if !self.out.is_empty() {
@@ -140,6 +147,7 @@ impl BlockPyFormatter {
     fn write_function<P>(&mut self, function: &BlockPyFunction<P>)
     where
         P: BlockPyPrettyPrinter,
+        P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
     {
         let params = format_parameters(&function.params);
         let referenced_labels = collect_referenced_labels_from_blocks::<P>(&function.blocks);
@@ -197,6 +205,7 @@ impl BlockPyFormatter {
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         P: BlockPyPrettyPrinter,
+        P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
     {
         let block = &function.blocks[block_index];
         self.line(render_block_header(block));
@@ -229,6 +238,7 @@ impl BlockPyFormatter {
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         P: BlockPyPrettyPrinter,
+        P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
     {
         if block.body.is_empty() {
             self.write_term(
@@ -320,6 +330,7 @@ impl BlockPyFormatter {
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         P: BlockPyPrettyPrinter,
+        P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
     {
         match term {
             BlockPyTerm::Jump(edge) => self.line(format!("jump {}", render_edge(edge))),
@@ -766,6 +777,7 @@ impl BlockRenderLayout {
     fn new<P>(function: &BlockPyFunction<P>) -> Self
     where
         P: BlockPyPrettyPrinter,
+        P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
     {
         let block_count = function.blocks.len();
         if block_count == 0 {
@@ -927,6 +939,7 @@ fn collect_top_level_successors_from_block<P>(
 ) -> Vec<usize>
 where
     P: BlockPyPass,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
 {
     let mut successors = Vec::new();
     let mut seen = HashSet::new();
@@ -1141,6 +1154,7 @@ fn compute_immediate_dominators(
 fn collect_referenced_labels_from_blocks<P>(blocks: &[PassBlock<P>]) -> HashSet<BlockPyLabel>
 where
     P: BlockPyPass,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
 {
     #[derive(Default)]
     struct ReferencedLabelCollector {
@@ -1150,6 +1164,7 @@ where
     impl<P> super::BlockPyModuleVisitor<P> for ReferencedLabelCollector
     where
         P: BlockPyPass,
+        P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
     {
         fn visit_label(&mut self, label: &BlockPyLabel) {
             self.referenced.insert(label.clone());

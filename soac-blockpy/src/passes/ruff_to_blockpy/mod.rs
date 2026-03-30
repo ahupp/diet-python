@@ -18,7 +18,7 @@ use crate::block_py::{
     BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm, BlockPyFunction,
     BlockPyFunctionKind, BlockPyLabel, BlockPyNameLike, BlockPyPass, BlockPyStmt, BlockPyTerm,
     CfgBlock, ClosureInit, ClosureSlot, FunctionName, FunctionNameGen, IntoStructuredBlockPyStmt,
-    RuffExpr, StorageLayout, StructuredBlockPyStmt,
+    PassExpr, PassName, RuffExpr, StorageLayout, StructuredBlockPyStmt,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -173,6 +173,7 @@ pub(crate) fn recompute_lowered_block_params<P>(
 ) -> HashMap<BlockPyLabel, Vec<String>>
 where
     P: BlockPyPass,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
 {
     let mut block_params =
         recompute_lowered_block_params_for_blocks(&function.params.names(), &function.blocks);
@@ -225,6 +226,7 @@ pub(crate) fn compute_storage_layout_from_semantics<P>(
 where
     P: BlockPyPass,
     P::Expr: Clone + Into<Expr>,
+    P::Stmt: Clone + IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
 {
     fn is_runtime_closure_name(name: &str) -> bool {
         matches!(name, "_dp_pc" | "_dp_yieldfrom") || name.starts_with("_dp_try_abrupt_kind_")

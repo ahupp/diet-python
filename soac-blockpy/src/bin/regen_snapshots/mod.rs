@@ -6,12 +6,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use log::{log_enabled, trace, Level};
-use soac_blockpy::block_py::{
-    BlockPyCfgFragment, BlockPyModule, BlockPyTerm, CfgBlock, Expr, IntoStructuredBlockPyStmt,
-    StructuredBlockPyStmt,
-};
+use soac_blockpy::block_py::{count_ruff_blockpy_blocks, BlockPyModule};
 use soac_blockpy::fixture::{parse_fixture, render_fixture, FixtureBlock};
-use soac_blockpy::passes::{CodegenBlockPyPass, RuffBlockPyPass};
+use soac_blockpy::passes::CodegenBlockPyPass;
 use soac_blockpy::{init_logging, lower_python_to_blockpy_recorded};
 
 struct SnapshotSummaryRow {
@@ -82,9 +79,9 @@ fn render_blockpy_snapshot(
 ) -> (String, usize, usize) {
     let blockpy = result.pass_tracker.pass_semantic_blockpy();
     let blockpy_rendered = blockpy
-        .map(soac_blockpy::block_py::pretty::blockpy_module_to_string)
+        .map(soac_blockpy::block_py::pretty::render_ruff_blockpy_module)
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
-    let blockpy_blocks = blockpy.map(count_blockpy_blocks).unwrap_or(0);
+    let blockpy_blocks = blockpy.map(count_ruff_blockpy_blocks).unwrap_or(0);
     let clif_blocks = count_clif_blocks(&result.codegen_module);
     (blockpy_rendered, blockpy_blocks, clif_blocks)
 }
@@ -125,65 +122,6 @@ fn with_suppressed_panic_hook<T>(f: impl FnOnce() -> Result<T, String>) -> Resul
     match result {
         Ok(result) => result,
         Err(payload) => Err(format!("panic: {}", panic_payload_message(payload))),
-    }
-}
-
-fn count_blockpy_blocks(module: &BlockPyModule<RuffBlockPyPass>) -> usize {
-    module
-        .callable_defs
-        .iter()
-        .map(|function| count_blockpy_blocks_in_list(&function.blocks))
-        .sum()
-}
-
-fn count_blockpy_blocks_in_list<S, E>(blocks: &[CfgBlock<S, BlockPyTerm<E>>]) -> usize
-where
-    E: Clone + Into<Expr> + std::fmt::Debug,
-    S: IntoStructuredBlockPyStmt<E, ruff_python_ast::ExprName>,
-{
-    blocks
-        .iter()
-        .map(|block| {
-            1 + count_blockpy_blocks_in_stmts(&block.body)
-                + count_blockpy_blocks_in_term(&block.term)
-        })
-        .sum()
-}
-
-fn count_blockpy_blocks_in_stmts<S, E>(stmts: &[S]) -> usize
-where
-    E: Clone + Into<Expr> + std::fmt::Debug,
-    S: IntoStructuredBlockPyStmt<E, ruff_python_ast::ExprName>,
-{
-    stmts
-        .iter()
-        .map(|stmt| match stmt.clone().into_structured_stmt() {
-            StructuredBlockPyStmt::If(if_stmt) => {
-                count_blockpy_blocks_in_stmt_fragment(&if_stmt.body)
-                    + count_blockpy_blocks_in_stmt_fragment(&if_stmt.orelse)
-            }
-            _ => 0,
-        })
-        .sum()
-}
-
-fn count_blockpy_blocks_in_stmt_fragment<E>(
-    fragment: &BlockPyCfgFragment<StructuredBlockPyStmt<E>, soac_blockpy::block_py::BlockPyTerm<E>>,
-) -> usize
-where
-    E: Clone + Into<Expr> + std::fmt::Debug,
-{
-    count_blockpy_blocks_in_stmts(&fragment.body)
-        + fragment
-            .term
-            .as_ref()
-            .map_or(0, count_blockpy_blocks_in_term)
-}
-
-fn count_blockpy_blocks_in_term<E>(term: &soac_blockpy::block_py::BlockPyTerm<E>) -> usize {
-    match term {
-        soac_blockpy::block_py::BlockPyTerm::IfTerm(_) => 0,
-        _ => 0,
     }
 }
 

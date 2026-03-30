@@ -1,7 +1,7 @@
 use self::operation as block_py_operation;
 pub use self::param_specs::{Param, ParamDefaultSource, ParamKind, ParamSpec};
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
-use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
+use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass, RuffBlockPyPass};
 use crate::py_expr;
 pub use operation::{
     BinOp, BinOpKind, CellRef, CellRefTarget, DelDeref, DelDerefQuietly, DelItem, DelQuietly,
@@ -24,10 +24,12 @@ pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod state;
 pub(crate) mod validate;
+pub(crate) use convert::BlockPyModuleMap;
+#[cfg(test)]
+pub(crate) use convert::BlockPyModuleTryMap;
 pub(crate) use convert::{
     map_call_args_with, map_keyword_args_with, try_map_call_args_with, try_map_keyword_args_with,
 };
-pub use convert::{BlockPyModuleMap, BlockPyModuleTryMap};
 pub use name_gen::{FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
 
@@ -1469,27 +1471,27 @@ pub trait BlockPyNormalizedStmt {
     fn assert_blockpy_normalized(&self);
 }
 
-pub trait IntoStructuredBlockPyStmt<E, N>: Clone + fmt::Debug {
+pub(crate) trait IntoStructuredBlockPyStmt<E, N>: Clone + fmt::Debug {
     fn into_structured_stmt(self) -> StructuredBlockPyStmt<E, N>;
 }
 
 pub trait BlockPyPass: Clone + fmt::Debug {
     type Name: BlockPyNameLike;
     type Expr: BlockPyExprLike;
-    type Stmt: BlockPyNormalizedStmt + IntoStructuredBlockPyStmt<Self::Expr, Self::Name>;
+    type Stmt: BlockPyNormalizedStmt + Clone + fmt::Debug;
 }
 
 pub type PassExpr<P> = <P as BlockPyPass>::Expr;
 pub type PassName<P> = <P as BlockPyPass>::Name;
-pub type StructuredPassStmt<P> = StructuredBlockPyStmt<PassExpr<P>, PassName<P>>;
+pub(crate) type StructuredPassStmt<P> = StructuredBlockPyStmt<PassExpr<P>, PassName<P>>;
 pub type PassBlock<P> = CfgBlock<<P as BlockPyPass>::Stmt, BlockPyTerm<PassExpr<P>>>;
 pub type ResolvedStorageBlock = PassBlock<ResolvedStorageBlockPyPass>;
 pub type CodegenBlock = PassBlock<CodegenBlockPyPass>;
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
-pub type BlockPyBlock<E = Expr, N = ExprName> =
+pub(crate) type BlockPyBlock<E = Expr, N = ExprName> =
     BlockPyCfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
-pub type BlockPyStructuredIf<E = Expr, N = ExprName> =
+pub(crate) type BlockPyStructuredIf<E = Expr, N = ExprName> =
     BlockPyIf<E, StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
 
 pub trait BlockPyJumpTerm<L> {
@@ -1550,7 +1552,7 @@ pub struct BlockPyCfgFragment<S, T> {
     pub term: Option<T>,
 }
 
-pub type BlockPyStmtFragment<E = Expr, N = ExprName> =
+pub(crate) type BlockPyStmtFragment<E = Expr, N = ExprName> =
     BlockPyCfgFragment<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
 
 impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragment<S, T> {
@@ -1588,7 +1590,7 @@ pub struct BlockPyCfgFragmentBuilder<S, T> {
     term: Option<T>,
 }
 
-pub type BlockPyStmtFragmentBuilder<E = Expr, N = ExprName> =
+pub(crate) type BlockPyStmtFragmentBuilder<E = Expr, N = ExprName> =
     BlockPyCfgFragmentBuilder<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
 
 impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
@@ -1643,7 +1645,7 @@ pub struct BlockPyCfgBlockBuilder<S, T> {
     fragment: BlockPyCfgFragmentBuilder<S, T>,
 }
 
-pub type BlockPyBlockBuilder<E = Expr, N = ExprName> =
+pub(crate) type BlockPyBlockBuilder<E = Expr, N = ExprName> =
     BlockPyCfgBlockBuilder<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
 
 impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
@@ -1730,7 +1732,7 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
 }
 
 #[derive(Debug, Clone)]
-pub enum StructuredBlockPyStmt<E = Expr, N = ExprName> {
+pub(crate) enum StructuredBlockPyStmt<E = Expr, N = ExprName> {
     Assign(BlockPyAssign<E, N>),
     Expr(E),
     Delete(BlockPyDelete<N>),
@@ -1752,7 +1754,7 @@ impl<E: std::fmt::Debug, N: std::fmt::Debug> BlockPyNormalizedStmt for Structure
     }
 }
 
-pub fn convert_blockpy_stmt_expr<EIn, EOut, N>(
+pub(crate) fn convert_blockpy_stmt_expr<EIn, EOut, N>(
     value: StructuredBlockPyStmt<EIn, N>,
 ) -> StructuredBlockPyStmt<EOut, N>
 where
@@ -1862,7 +1864,7 @@ pub struct BlockPyDelete<N = ExprName> {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyIf<E = Expr, S = StructuredBlockPyStmt<E>, T = BlockPyTerm<E>> {
+pub(crate) struct BlockPyIf<E = Expr, S = StructuredBlockPyStmt<E>, T = BlockPyTerm<E>> {
     pub test: E,
     pub body: BlockPyCfgFragment<S, T>,
     pub orelse: BlockPyCfgFragment<S, T>,
@@ -1887,7 +1889,7 @@ pub struct BlockPyRaise<E = Expr> {
     pub exc: Option<E>,
 }
 
-pub fn convert_blockpy_fragment_expr<EIn, EOut, N>(
+pub(crate) fn convert_blockpy_fragment_expr<EIn, EOut, N>(
     value: BlockPyCfgFragment<StructuredBlockPyStmt<EIn, N>, BlockPyTerm<EIn>>,
 ) -> BlockPyCfgFragment<StructuredBlockPyStmt<EOut, N>, BlockPyTerm<EOut>>
 where
@@ -1982,10 +1984,11 @@ pub struct BlockParam {
     pub role: BlockParamRole,
 }
 
-pub trait BlockPyModuleVisitor<P>
+pub(crate) trait BlockPyModuleVisitor<P>
 where
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
 {
     fn visit_module(&mut self, module: &BlockPyModule<P>) {
         walk_module(self, module);
@@ -2023,33 +2026,36 @@ where
     }
 }
 
-pub fn walk_module<V, P>(visitor: &mut V, module: &BlockPyModule<P>)
+pub(crate) fn walk_module<V, P>(visitor: &mut V, module: &BlockPyModule<P>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
 {
     for function in &module.callable_defs {
         visitor.visit_fn(function);
     }
 }
 
-pub fn walk_fn<V, P>(visitor: &mut V, func: &BlockPyFunction<P>)
+pub(crate) fn walk_fn<V, P>(visitor: &mut V, func: &BlockPyFunction<P>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
 {
     for block in &func.blocks {
         visitor.visit_block(block);
     }
 }
 
-pub fn walk_block<V, P>(visitor: &mut V, block: &PassBlock<P>)
+pub(crate) fn walk_block<V, P>(visitor: &mut V, block: &PassBlock<P>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
 {
     for stmt in &block.body {
         let stmt = stmt.clone().into_structured_stmt();
@@ -2061,13 +2067,14 @@ where
     visitor.visit_term(&block.term);
 }
 
-pub fn walk_fragment<V, P>(
+pub(crate) fn walk_fragment<V, P>(
     visitor: &mut V,
     fragment: &BlockPyCfgFragment<StructuredPassStmt<P>, BlockPyTerm<PassExpr<P>>>,
 ) where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
 {
     for stmt in &fragment.body {
         visitor.visit_stmt(stmt);
@@ -2077,11 +2084,12 @@ pub fn walk_fragment<V, P>(
     }
 }
 
-pub fn walk_stmt<V, P>(visitor: &mut V, stmt: &StructuredPassStmt<P>)
+pub(crate) fn walk_stmt<V, P>(visitor: &mut V, stmt: &StructuredPassStmt<P>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
 {
     match stmt {
         StructuredBlockPyStmt::Assign(assign) => visitor.visit_expr(&assign.value),
@@ -2095,21 +2103,23 @@ where
     }
 }
 
-pub fn walk_label<V, P>(visitor: &mut V, label: &BlockPyLabel)
+pub(crate) fn walk_label<V, P>(visitor: &mut V, label: &BlockPyLabel)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
 {
     let _ = visitor;
     let _ = label;
 }
 
-pub fn walk_term<V, P>(visitor: &mut V, term: &BlockPyTerm<PassExpr<P>>)
+pub(crate) fn walk_term<V, P>(visitor: &mut V, term: &BlockPyTerm<PassExpr<P>>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
 {
     match term {
         BlockPyTerm::Jump(edge) => {
@@ -2136,11 +2146,12 @@ where
     }
 }
 
-pub fn walk_expr<V, P>(visitor: &mut V, expr: &PassExpr<P>)
+pub(crate) fn walk_expr<V, P>(visitor: &mut V, expr: &PassExpr<P>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
+    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
 {
     let _ = expr.clone().map_expr(&mut |child| {
         visitor.visit_expr(&child);
@@ -2214,8 +2225,78 @@ impl<PIn> BlockPyModule<PIn>
 where
     PIn: BlockPyPass,
 {
-    pub fn visit_module(&self, visitor: &mut impl BlockPyModuleVisitor<PIn>) {
+    pub(crate) fn visit_module(&self, visitor: &mut impl BlockPyModuleVisitor<PIn>)
+    where
+        PIn::Stmt: IntoStructuredBlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+    {
         visitor.visit_module(self);
+    }
+}
+
+pub fn count_ruff_blockpy_blocks(module: &BlockPyModule<RuffBlockPyPass>) -> usize {
+    module
+        .callable_defs
+        .iter()
+        .map(|function| count_structured_blockpy_blocks_in_list(&function.blocks))
+        .sum()
+}
+
+fn count_structured_blockpy_blocks_in_list<S, E, N>(blocks: &[CfgBlock<S, BlockPyTerm<E>>]) -> usize
+where
+    S: IntoStructuredBlockPyStmt<E, N>,
+    E: Clone + Into<Expr> + std::fmt::Debug,
+    N: BlockPyNameLike,
+{
+    blocks
+        .iter()
+        .map(|block| {
+            1 + count_structured_blockpy_blocks_in_stmts(&block.body)
+                + count_structured_blockpy_blocks_in_term(&block.term)
+        })
+        .sum()
+}
+
+fn count_structured_blockpy_blocks_in_stmts<S, E, N>(stmts: &[S]) -> usize
+where
+    S: IntoStructuredBlockPyStmt<E, N>,
+    E: Clone + Into<Expr> + std::fmt::Debug,
+    N: BlockPyNameLike,
+{
+    stmts
+        .iter()
+        .map(|stmt| match stmt.clone().into_structured_stmt() {
+            StructuredBlockPyStmt::If(if_stmt) => {
+                count_structured_blockpy_blocks_in_fragment(&if_stmt.body)
+                    + count_structured_blockpy_blocks_in_fragment(&if_stmt.orelse)
+            }
+            StructuredBlockPyStmt::Assign(_)
+            | StructuredBlockPyStmt::Expr(_)
+            | StructuredBlockPyStmt::Delete(_) => 0,
+        })
+        .sum()
+}
+
+fn count_structured_blockpy_blocks_in_fragment<E, N>(
+    fragment: &BlockPyCfgFragment<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>,
+) -> usize
+where
+    E: Clone + Into<Expr> + std::fmt::Debug,
+    N: BlockPyNameLike,
+{
+    count_structured_blockpy_blocks_in_stmts(&fragment.body)
+        + fragment
+            .term
+            .as_ref()
+            .map_or(0, count_structured_blockpy_blocks_in_term)
+}
+
+fn count_structured_blockpy_blocks_in_term<E>(term: &BlockPyTerm<E>) -> usize {
+    match term {
+        BlockPyTerm::IfTerm(_) => 0,
+        BlockPyTerm::Jump(_)
+        | BlockPyTerm::BranchTable(_)
+        | BlockPyTerm::Raise(_)
+        | BlockPyTerm::Return(_) => 0,
     }
 }
 

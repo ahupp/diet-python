@@ -1,16 +1,23 @@
 use crate::block_py::{
-    BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyTerm, PassBlock,
+    BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyTerm,
+    IntoStructuredBlockPyStmt, PassBlock, PassExpr, PassName,
 };
 use crate::passes::ruff_to_blockpy::compute_storage_layout_from_semantics;
 
-pub fn validate_module<P: BlockPyPass>(module: &BlockPyModule<P>) -> Result<(), String> {
+pub(crate) fn validate_module<P: BlockPyPass>(module: &BlockPyModule<P>) -> Result<(), String>
+where
+    P::Stmt: Clone + IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
+{
     for function in &module.callable_defs {
         validate_function(function)?;
     }
     Ok(())
 }
 
-fn validate_function<P: BlockPyPass>(function: &BlockPyFunction<P>) -> Result<(), String> {
+fn validate_function<P: BlockPyPass>(function: &BlockPyFunction<P>) -> Result<(), String>
+where
+    P::Stmt: Clone + IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
+{
     let qualname = function.names.qualname.as_str();
     validate_storage_layout_scoping(function, qualname)?;
     for (index, block) in function.blocks.iter().enumerate() {
@@ -108,7 +115,10 @@ fn validate_function<P: BlockPyPass>(function: &BlockPyFunction<P>) -> Result<()
 fn validate_storage_layout_scoping<P: BlockPyPass>(
     function: &BlockPyFunction<P>,
     qualname: &str,
-) -> Result<(), String> {
+) -> Result<(), String>
+where
+    P::Stmt: Clone + IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
+{
     let expected_layout = compute_storage_layout_from_semantics(function);
 
     let Some(layout) = function.storage_layout.as_ref() else {
