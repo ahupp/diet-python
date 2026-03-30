@@ -9,9 +9,23 @@ import sys
 import tempfile
 from pathlib import Path
 
+try:
+    import diet_python
+except Exception as err:
+    diet_python = None
+    _DIET_PYTHON_IMPORT_ERROR = err
+else:
+    _DIET_PYTHON_IMPORT_ERROR = None
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-_PYO3_TRANSFORM = None
+
+
+def _raise_missing_diet_python() -> None:
+    raise ImportError(
+        "diet-python extension is required but could not be imported; "
+        "run 'just build-all' or 'just build-extension <debug|release>'"
+    ) from _DIET_PYTHON_IMPORT_ERROR
 
 
 def _integration_only_enabled() -> bool:
@@ -20,9 +34,10 @@ def _integration_only_enabled() -> bool:
 
 
 def _create_module_from_source(path: str, source: str):
-    transformer = _get_pyo3_transform()
+    if diet_python is None:
+        _raise_missing_diet_python()
     try:
-        return transformer.create_module(source)
+        return diet_python.create_module(source)
     except SyntaxError as err:
         if err.filename is None:
             err.filename = path
@@ -41,28 +56,15 @@ def _create_module_from_path(path: str):
 
 
 def _run_module_init(path: str, module) -> None:
-    transformer = _get_pyo3_transform()
+    if diet_python is None:
+        _raise_missing_diet_python()
     try:
-        init = transformer.build_module_init(module)
+        init = diet_python.build_module_init(module)
     except Exception as err:
         raise ImportError(f"diet-python failed for {path}: {err}") from err
     if init is None:
         return
     init()
-
-
-def _get_pyo3_transform():
-    global _PYO3_TRANSFORM
-    if _PYO3_TRANSFORM is None:
-        try:
-            import diet_python as transform
-        except Exception as err:
-            raise ImportError(
-                "diet-python extension is required but could not be imported; "
-                "run 'just build-all' or 'just build-extension <debug|release>'"
-            ) from err
-        _PYO3_TRANSFORM = transform
-    return _PYO3_TRANSFORM
 
 
 def _is_integration_module(resolved: Path) -> bool:
@@ -138,13 +140,15 @@ class DietPythonFinder(importlib.machinery.PathFinder):
 def install():
     """Install the diet-python import hook."""
     # Ensure the transform module is loaded before we intercept stdlib imports.
-    _get_pyo3_transform()
+    if diet_python is None:
+        _raise_missing_diet_python()
     try:
         from . import runtime as runtime_module
 
-        transform = _get_pyo3_transform()
-        runtime_module._jit_make_bb_function = getattr(transform, "make_bb_function", None)
-        runtime_module._jit_make_bb_generator = getattr(transform, "make_bb_generator", None)
+        runtime_module._jit_make_bb_function = getattr(diet_python, "make_bb_function", None)
+        runtime_module._jit_make_bb_generator = getattr(
+            diet_python, "make_bb_generator", None
+        )
     except Exception:
         pass
 
