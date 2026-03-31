@@ -52,3 +52,35 @@ fn rewrite_assignment_target_unpack_uses_native_subscript_ast() {
     assert!(rendered.contains("[0]"), "{rendered}");
     assert!(rendered.contains("__dp_list("), "{rendered}");
 }
+
+#[test]
+fn rewrite_assignment_target_uses_native_store_targets() {
+    let cases = [("obj[idx]", "[idx] = value"), ("obj.attr", ".attr = value")];
+
+    for (target_src, expected) in cases {
+        let target = *ruff_python_parser::parse_expression(target_src)
+            .unwrap()
+            .into_syntax()
+            .body;
+        let rhs = py_expr!("value");
+        let mut out = Vec::new();
+        let mut next_temp_id = 0usize;
+        let mut next_temp = |prefix: &str| {
+            let name = format!("_dp_{prefix}_{next_temp_id}");
+            next_temp_id += 1;
+            name
+        };
+
+        rewrite_assignment_target(target, rhs, &mut out, &mut next_temp);
+
+        let rendered = out
+            .iter()
+            .map(crate::ruff_ast_to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(!rendered.contains("__dp_setitem("), "{rendered}");
+        assert!(!rendered.contains("__dp_setattr("), "{rendered}");
+        assert!(rendered.contains(expected), "{rendered}");
+    }
+}

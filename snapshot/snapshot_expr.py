@@ -378,12 +378,12 @@ x = {k: v for k, v in it}
 
 # ==
 
-# function _dp_dictcomp_3(_dp_iter_2):
+# function _dp_dictcomp_5(_dp_iter_4):
 #     function_id: 0
 #     display_name: <dictcomp>
 #     block bb3:
 #         _dp_tmp_1 = __dp_dict()
-#         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
+#         _dp_iter_0_0 = __dp_iter(_dp_iter_4)
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
@@ -401,14 +401,19 @@ x = {k: v for k, v in it}
 #                         del _dp_tmp_0_1
 #                         jump bb5
 #                         block bb5:
-#                             SetItem(_dp_tmp_1, k, v)
+#                             _dp_dictcomp_key_2 = k
+#                             _dp_dictcomp_value_3 = v
+#                             _dp_assign_value_6 = _dp_dictcomp_value_3
+#                             _dp_assign_obj_7 = __dp_load_deleted_name("_dp_tmp_1", _dp_tmp_1)
+#                             _dp_assign_index_8 = _dp_dictcomp_key_2
+#                             SetItem(_dp_assign_obj_7, _dp_assign_index_8, _dp_assign_value_6)
 #                             jump bb1
 
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         _dp_dictcomp_3 = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
-#         x = _dp_dictcomp_3(it)
+#         _dp_dictcomp_5 = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
+#         x = _dp_dictcomp_5(it)
 #         return __dp_NONE
 
 # attribute_non_chain

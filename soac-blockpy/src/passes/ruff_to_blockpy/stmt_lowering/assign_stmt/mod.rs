@@ -302,7 +302,7 @@ pub(super) fn rewrite_assignment_target<F>(
         Expr::List(list) => rewrite_unpack_target(list.elts, rhs, out, next_temp),
         Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
             out.push(py_stmt!(
-                "__dp_setitem({obj:expr}, {key:expr}, {rhs:expr})",
+                "{obj:expr}[{key:expr}] = {rhs:expr}",
                 obj = with_target_object_expr(*value),
                 key = *slice,
                 rhs = rhs,
@@ -310,7 +310,7 @@ pub(super) fn rewrite_assignment_target<F>(
         }
         Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
             out.push(py_stmt!(
-                "__dp_setattr({obj:expr}, {name:literal}, {rhs:expr})",
+                "{obj:expr}.{name:id} = {rhs:expr}",
                 obj = with_target_object_expr(*value),
                 name = attr.as_str(),
                 rhs = rhs,

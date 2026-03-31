@@ -466,12 +466,12 @@ zs = {k: v for k, v in items}
 #                             GetAttr(_dp_tmp_4, "add")(x)
 #                             jump bb1
 
-# function _dp_dictcomp_9(_dp_iter_8):
+# function _dp_dictcomp_11(_dp_iter_10):
 #     function_id: 2
 #     display_name: <dictcomp>
 #     block bb3:
 #         _dp_tmp_7 = __dp_dict()
-#         _dp_iter_2_0 = __dp_iter(_dp_iter_8)
+#         _dp_iter_2_0 = __dp_iter(_dp_iter_10)
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_2_1 = __dp_next_or_sentinel(_dp_iter_2_0)
@@ -489,7 +489,12 @@ zs = {k: v for k, v in items}
 #                         del _dp_tmp_2_1
 #                         jump bb5
 #                         block bb5:
-#                             SetItem(_dp_tmp_7, k, v)
+#                             _dp_dictcomp_key_8 = k
+#                             _dp_dictcomp_value_9 = v
+#                             _dp_assign_value_12 = _dp_dictcomp_value_9
+#                             _dp_assign_obj_13 = __dp_load_deleted_name("_dp_tmp_7", _dp_tmp_7)
+#                             _dp_assign_index_14 = _dp_dictcomp_key_8
+#                             SetItem(_dp_assign_obj_13, _dp_assign_index_14, _dp_assign_value_12)
 #                             jump bb1
 
 # function _dp_module_init():
@@ -499,8 +504,8 @@ zs = {k: v for k, v in items}
 #         xs = _dp_listcomp_3(it)
 #         _dp_setcomp_6 = MakeFunction(1, Function, __dp_tuple(), __dp_NONE)
 #         ys = _dp_setcomp_6(it)
-#         _dp_dictcomp_9 = MakeFunction(2, Function, __dp_tuple(), __dp_NONE)
-#         zs = _dp_dictcomp_9(items)
+#         _dp_dictcomp_11 = MakeFunction(2, Function, __dp_tuple(), __dp_NONE)
+#         zs = _dp_dictcomp_11(items)
 #         return __dp_NONE
 
 # comprehension_in_function

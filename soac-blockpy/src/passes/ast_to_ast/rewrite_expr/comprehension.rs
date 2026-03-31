@@ -325,12 +325,26 @@ fn lower_function(
             let key_expr = rename_loads(elt_or_key, &renames);
             let value_expr =
                 rename_loads(value.expect("dict comprehension expects value"), &renames);
-            vec![py_stmt!(
-                "__dp_setitem({result:id}, {key:expr}, {value:expr})",
-                result = result_name.as_str(),
-                key = key_expr,
-                value = value_expr,
-            )]
+            let key_name = context.fresh("dictcomp_key");
+            let value_name = context.fresh("dictcomp_value");
+            vec![
+                py_stmt!(
+                    "{name:id} = {value:expr}",
+                    name = key_name.as_str(),
+                    value = key_expr,
+                ),
+                py_stmt!(
+                    "{name:id} = {value:expr}",
+                    name = value_name.as_str(),
+                    value = value_expr,
+                ),
+                py_stmt!(
+                    "{result:id}[{key:id}] = {value:id}",
+                    result = result_name.as_str(),
+                    key = key_name.as_str(),
+                    value = value_name.as_str(),
+                ),
+            ]
         }
         InlineCompKind::List => {
             let elt_expr = rename_loads(elt_or_key, &renames);
