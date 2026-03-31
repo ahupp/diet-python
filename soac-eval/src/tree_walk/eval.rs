@@ -3,7 +3,7 @@ use log::info;
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
-use soac_blockpy::block_py::{ParamKind, ParamSpec};
+use soac_blockpy::block_py::ParamKind;
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::any::Any;
 use std::cell::RefCell;
@@ -42,19 +42,9 @@ thread_local! {
     };
 }
 
-#[derive(Debug)]
-struct BindingMetadata {
-    callable_name: String,
-    params: ParamSpec,
-    deleted_obj: *mut ffi::PyObject,
-}
-
 struct ClifFunctionData {
     function: soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
-    module_name: String,
-    qualname: String,
     module_runtime: jit::ModuleRuntimeContext,
-    binding: BindingMetadata,
     compiled_handle: *mut c_void,
     compiled_vectorcall_handle: *mut c_void,
     compiled_vectorcall_entry: Option<jit::VectorcallEntryFn>,
@@ -67,18 +57,11 @@ fn set_type_error<T>(msg: &str) -> Result<T, ()> {
     Err(())
 }
 
-unsafe fn free_binding_metadata(binding: BindingMetadata) {
-    if !binding.deleted_obj.is_null() {
-        ffi::Py_DECREF(binding.deleted_obj);
-    }
-}
-
 unsafe fn free_clif_function_data(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
     let data = unsafe { Box::from_raw(ptr as *mut ClifFunctionData) };
-    unsafe { free_binding_metadata(data.binding) };
     unsafe { jit::free_cranelift_run_bb_specialized_cached(data.compiled_handle) };
     unsafe { jit::free_cranelift_vectorcall_trampoline(data.compiled_vectorcall_handle) };
 }
@@ -111,23 +94,6 @@ unsafe fn py_string(obj: *mut ffi::PyObject) -> Result<String, ()> {
     }
     let bytes = std::slice::from_raw_parts(ptr as *const u8, len as usize);
     Ok(String::from_utf8_lossy(bytes).into_owned())
-}
-
-unsafe fn py_attr_string(obj: *mut ffi::PyObject, attr: &[u8], fallback: &str) -> String {
-    let value = ffi::PyObject_GetAttrString(obj, attr.as_ptr() as *const c_char);
-    if value.is_null() {
-        ffi::PyErr_Clear();
-        return fallback.to_string();
-    }
-    let result = match py_string(value) {
-        Ok(name) => name,
-        Err(()) => {
-            ffi::PyErr_Clear();
-            fallback.to_string()
-        }
-    };
-    ffi::Py_DECREF(value);
-    result
 }
 
 unsafe fn lookup_deleted_sentinel() -> Result<*mut ffi::PyObject, ()> {
@@ -280,25 +246,8 @@ pub unsafe fn build_module_runtime_context_for_module(
     Ok(module_runtime)
 }
 
-unsafe fn build_binding_metadata(
-    function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
-    callable_name: String,
-    deleted_obj: *mut ffi::PyObject,
-) -> Result<BindingMetadata, ()> {
-    if deleted_obj.is_null() {
-        return set_type_error("CLIF vectorcall requires a deleted sentinel");
-    }
-
-    ffi::Py_INCREF(deleted_obj);
-    Ok(BindingMetadata {
-        callable_name,
-        params: function.params.clone(),
-        deleted_obj,
-    })
-}
-
 unsafe fn make_clif_function_data(
-    callable: *mut ffi::PyObject,
+    _callable: *mut ffi::PyObject,
     module_name: &str,
     function_id: usize,
     module_runtime: jit::ModuleRuntimeContext,
@@ -317,19 +266,9 @@ unsafe fn make_clif_function_data(
         }
         return Err(());
     };
-    let callable_name = py_attr_string(callable, b"__qualname__\0", "<function>");
-    let binding = build_binding_metadata(
-        &blockpy_function,
-        callable_name,
-        module_runtime.vmctx.deleted_obj as *mut ffi::PyObject,
-    )?;
-
     let clif_data = Box::new(ClifFunctionData {
         function: blockpy_function,
-        module_name: module_name.to_string(),
-        qualname: format!("fn#{function_id}"),
         module_runtime,
-        binding,
         compiled_handle: ptr::null_mut(),
         compiled_vectorcall_handle: ptr::null_mut(),
         compiled_vectorcall_entry: None,
@@ -393,8 +332,8 @@ unsafe fn ensure_clif_vectorcall_compiled(
         let elapsed_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
         info!(
             "soac_jit_precompile module={} qualname={} blocks={} elapsed_ms={elapsed_ms:.3}",
-            data.module_name,
-            data.qualname,
+            data.module_runtime.shared_module_state_owner.module_name,
+            data.function.names.qualname,
             data.function.blocks.len(),
         );
     }
@@ -458,7 +397,7 @@ unsafe fn build_function_bound_args(
     args: *const *mut ffi::PyObject,
     nargsf: usize,
     kwnames: *mut ffi::PyObject,
-    binding: &BindingMetadata,
+    function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
 ) -> Result<Vec<*mut ffi::PyObject>, ()> {
     if callable.is_null() {
         ffi::PyErr_SetString(
@@ -467,24 +406,26 @@ unsafe fn build_function_bound_args(
         );
         return Err(());
     }
+    let params = &function.params;
+    let callable_name = function.names.display_name.as_str();
     let nargs = ffi::PyVectorcall_NARGS(nargsf) as usize;
     let nkw = if kwnames.is_null() {
         0
     } else {
         ffi::PyTuple_GET_SIZE(kwnames) as usize
     };
-    let mut bound_args = vec![ptr::null_mut(); binding.params.len()];
-    let mut assigned = vec![false; binding.params.len()];
-    let positional_param_indices = binding.params.positional_param_indices();
+    let mut bound_args = vec![ptr::null_mut(); params.len()];
+    let mut assigned = vec![false; params.len()];
+    let positional_param_indices = params.positional_param_indices();
     let positional_capacity = positional_param_indices.len();
-    let varargs_param = binding.params.vararg_index();
-    let varkw_param = binding.params.kwarg_index();
+    let varargs_param = params.vararg_index();
+    let varkw_param = params.kwarg_index();
 
     if varargs_param.is_none() && nargs > positional_capacity {
         cleanup_state_values(&mut bound_args);
         let msg = format!(
             "{}() takes {} positional argument{} but {} {} given",
-            binding.callable_name,
+            callable_name,
             positional_capacity,
             if positional_capacity == 1 { "" } else { "s" },
             nargs,
@@ -574,15 +515,15 @@ unsafe fn build_function_bound_args(
                 return Err(());
             }
         };
-        if let Some(param_index) = binding.params.param_index(key_name.as_str()) {
-            let param = &binding.params.params[param_index];
+        if let Some(param_index) = params.param_index(key_name.as_str()) {
+            let param = &params.params[param_index];
             match param.kind {
                 ParamKind::PosOnly | ParamKind::VarArg => {
                     if !has_varkw {
                         cleanup_state_values(&mut bound_args);
                         let msg = format!(
                             "{}() got an unexpected keyword argument '{}'",
-                            binding.callable_name, key_name
+                            callable_name, key_name
                         );
                         let _ = set_type_error::<()>(&msg);
                         return Err(());
@@ -597,7 +538,7 @@ unsafe fn build_function_bound_args(
                         cleanup_state_values(&mut bound_args);
                         let msg = format!(
                             "{}() got multiple values for argument '{}'",
-                            binding.callable_name, key_name
+                            callable_name, key_name
                         );
                         let _ = set_type_error::<()>(&msg);
                         return Err(());
@@ -621,14 +562,14 @@ unsafe fn build_function_bound_args(
             cleanup_state_values(&mut bound_args);
             let msg = format!(
                 "{}() got an unexpected keyword argument '{}'",
-                binding.callable_name, key_name
+                callable_name, key_name
             );
             let _ = set_type_error::<()>(&msg);
             return Err(());
         }
     }
 
-    for (param_index, param) in binding.params.iter().enumerate() {
+    for (param_index, param) in params.iter().enumerate() {
         if assigned[param_index] {
             continue;
         }
@@ -642,7 +583,7 @@ unsafe fn build_function_bound_args(
                 cleanup_state_values(&mut bound_args);
                 let msg = format!(
                     "{}() missing required argument '{}'",
-                    binding.callable_name, param.name
+                    callable_name, param.name
                 );
                 let _ = set_type_error::<()>(&msg);
                 return Err(());
@@ -709,7 +650,7 @@ unsafe extern "C" fn bind_direct_args_from_vectorcall(
             args as *const *mut ffi::PyObject,
             nargsf,
             kwnames as *mut ffi::PyObject,
-            &data.binding,
+            &data.function,
         ) {
             Ok(value) => value,
             Err(()) => return 0,
