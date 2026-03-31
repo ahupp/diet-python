@@ -724,7 +724,7 @@ fn push_completion_raise_block(
 }
 
 fn is_resume_exc_test() -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!("__dp_is_not(_dp_resume_exc, __dp_NO_DEFAULT)"))
+    core_expr_without_yield(py_expr!("_dp_resume_exc is not __dp_NO_DEFAULT"))
 }
 
 fn is_send_none_test() -> CoreBlockPyExpr {
@@ -736,7 +736,7 @@ fn is_name_none_test(name: &str) -> CoreBlockPyExpr {
 }
 
 fn is_name_not_none_test(name: &str) -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!("__dp_is_not({name:id}, None)", name = name))
+    core_expr_without_yield(py_expr!("{name:id} is not None", name = name))
 }
 
 fn is_resume_generator_exit_test() -> CoreBlockPyExpr {

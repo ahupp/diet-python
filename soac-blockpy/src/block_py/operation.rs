@@ -24,7 +24,6 @@ pub enum BinOpKind {
     Ge,
     Contains,
     Is,
-    IsNot,
 }
 
 impl BinOpKind {
@@ -50,7 +49,6 @@ impl BinOpKind {
             "__dp_ge" => Self::Ge,
             "__dp_contains" => Self::Contains,
             "__dp_is_" => Self::Is,
-            "__dp_is_not" => Self::IsNot,
             _ => return None,
         })
     }

@@ -320,17 +320,12 @@ fn emit_richcompare<'fb, E>(
 }
 
 fn emit_identity_compare<'fb, E>(
-    expect_equal: bool,
     state: &mut impl OperationEmitState<'fb, E>,
     args: &[&E],
 ) -> ir::Value {
     let arg_values = state.emit_arg_values(&args);
     let cond = state.fb().ins().icmp(
-        if expect_equal {
-            ir::condcodes::IntCC::Equal
-        } else {
-            ir::condcodes::IntCC::NotEqual
-        },
+        ir::condcodes::IntCC::Equal,
         arg_values[0].0,
         arg_values[1].0,
     );
@@ -461,8 +456,7 @@ fn emit_binop<'fb, E>(
         blockpy_intrinsics::BinOpKind::Contains => {
             emit_positional_bool_call(&PYSEQUENCE_CONTAINS_IMPORT, state, args)
         }
-        blockpy_intrinsics::BinOpKind::Is => emit_identity_compare(true, state, args),
-        blockpy_intrinsics::BinOpKind::IsNot => emit_identity_compare(false, state, args),
+        blockpy_intrinsics::BinOpKind::Is => emit_identity_compare(state, args),
     }
 }
 

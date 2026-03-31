@@ -232,9 +232,12 @@ fn compare_expr_from_ast_with_meta(
         ast::CmpOp::Is => {
             binop_expr_with_meta(node_index, range, operation::BinOpKind::Is, left, right)
         }
-        ast::CmpOp::IsNot => {
-            binop_expr_with_meta(node_index, range, operation::BinOpKind::IsNot, left, right)
-        }
+        ast::CmpOp::IsNot => unary_op_expr_with_meta(
+            node_index.clone(),
+            range,
+            operation::UnaryOpKind::Not,
+            binop_expr_with_meta(node_index, range, operation::BinOpKind::Is, left, right),
+        ),
         ast::CmpOp::In => binop_expr_with_meta(
             node_index,
             range,

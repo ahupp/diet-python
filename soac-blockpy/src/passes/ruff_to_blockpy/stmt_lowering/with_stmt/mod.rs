@@ -98,7 +98,7 @@ try:
 except BaseException:
     {ok_name:id} = False
     {reraise_name:id} = await __dp_asynccontextmanager_exit({exit_name:id}, __dp_exc_info())
-    if __dp_is_not({reraise_name:id}, None):
+    if {reraise_name:id} is not None:
         raise {reraise_name:id}
 finally:
     if {ok_name:id}:

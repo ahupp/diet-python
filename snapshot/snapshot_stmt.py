@@ -815,7 +815,7 @@ async def run():
 #         exc_param: _dp_try_exc_0_0
 #         _dp_with_ok_2 = __dp_FALSE
 #         _dp_with_reraise_3 = await __dp_asynccontextmanager_exit(_dp_with_exit_1, __dp_exc_info())
-#         if_term BinOp(IsNot, _dp_with_reraise_3, __dp_NONE):
+#         if_term UnaryOp(Not, BinOp(Is, _dp_with_reraise_3, __dp_NONE)):
 #             then:
 #                 jump bb12
 #             else:
