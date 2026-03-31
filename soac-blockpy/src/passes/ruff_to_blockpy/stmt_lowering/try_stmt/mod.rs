@@ -226,17 +226,18 @@ impl StmtLowerer for ast::StmtTry {
     }
 }
 
-pub(crate) fn lower_star_try_stmt_sequence<F>(
+pub(crate) fn lower_star_try_stmt_sequence<F, E>(
     try_stmt: ast::StmtTry,
     remaining_stmts: &[Stmt],
     targets: RegionTargets,
     linear: Vec<Stmt>,
-    blocks: &mut Vec<BlockPyBlock>,
+    blocks: &mut Vec<LoweredBlockPyBlock<E>>,
     jump_label: Option<BlockPyLabel>,
     lower_sequence: &mut F,
 ) -> BlockPyLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
+    E: From<Expr> + crate::block_py::ImplicitNoneExpr + std::fmt::Debug,
 {
     let rewritten_try = match rewrite_try_stmt(try_stmt) {
         Rewrite::Unmodified(stmt) => stmt_to_stmts(stmt),
@@ -253,19 +254,20 @@ where
     )
 }
 
-pub(crate) fn lower_try_stmt_sequence<F>(
+pub(crate) fn lower_try_stmt_sequence<F, E>(
     try_stmt: ast::StmtTry,
     remaining_stmts: &[Stmt],
     targets: RegionTargets,
     linear: Vec<Stmt>,
-    blocks: &mut Vec<BlockPyBlock>,
+    blocks: &mut Vec<LoweredBlockPyBlock<E>>,
     name_gen: &FunctionNameGen,
     label: BlockPyLabel,
     try_plan: TryPlan,
     lower_sequence: &mut F,
 ) -> BlockPyLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
+    E: From<Expr> + crate::block_py::ImplicitNoneExpr + std::fmt::Debug,
 {
     let rest_entry = lower_sequence(remaining_stmts, targets.clone(), blocks);
 

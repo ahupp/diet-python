@@ -16,6 +16,7 @@ use crate::block_py::{
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
+use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, RuffBlockPyPass};
 use crate::ruff_ast_to_string;
 use crate::template::is_simple;
@@ -36,14 +37,18 @@ pub(crate) use bb_shape::lower_structured_located_blocks_to_bb_blocks;
 pub(crate) use bb_shape::{
     lower_structured_blocks_to_bb_blocks, lowered_exception_edges, populate_exception_edge_args,
     rewrite_current_exception_in_core_blocks,
+    rewrite_current_exception_in_core_blocks_with_await_and_yield,
 };
 pub(crate) use module_plan::rewrite_ast_to_core_blockpy_module_plan_with_module;
 
 pub(crate) use compat::{
-    compat_block_from_blockpy, compat_block_from_blockpy_with_exc_target, emit_for_loop_blocks,
-    emit_if_branch_block_with_expr_setup, emit_sequence_jump_block,
-    emit_sequence_raise_block_with_expr_setup, emit_sequence_return_block_with_expr_setup,
-    emit_simple_while_blocks_with_expr_setup,
+    compat_block_from_blockpy, compat_block_from_blockpy_with_exc_target,
+    compat_block_from_blockpy_with_exc_target_and_expr, emit_for_loop_blocks,
+    emit_if_branch_block_with_expr_setup, emit_if_branch_block_with_expr_setup_and_expr,
+    emit_sequence_jump_block, emit_sequence_raise_block_with_expr_setup,
+    emit_sequence_raise_block_with_expr_setup_and_expr, emit_sequence_return_block_with_expr_setup,
+    emit_sequence_return_block_with_expr_setup_and_expr, emit_simple_while_blocks_with_expr_setup,
+    emit_simple_while_blocks_with_expr_setup_and_expr,
 };
 pub(crate) use stmt_lowering::{
     build_for_target_assign_body, lower_star_try_stmt_sequence, lower_try_stmt_sequence,
@@ -242,6 +247,71 @@ pub(crate) fn build_blockpy_callable_def_from_runtime_input(
         doc: structured_callable_def.doc,
         storage_layout: None,
         semantic: structured_callable_def.semantic,
+    }
+}
+
+pub(crate) fn build_core_blockpy_callable_def_from_runtime_input(
+    context: &Context,
+    name_gen: FunctionNameGen,
+    names: FunctionName,
+    params: ParamSpec,
+    runtime_input_body: &[Stmt],
+    doc: Option<String>,
+    end_label: BlockPyLabel,
+    blockpy_kind: BlockPyFunctionKind,
+    semantic: &BlockPyCallableSemanticInfo,
+) -> BlockPyFunction<CoreBlockPyPassWithAwaitAndYield> {
+    let function_id = name_gen.function_id();
+    let mut blocks = Vec::new();
+    let entry_label =
+        lower_stmt_sequence_with_state::<crate::block_py::CoreBlockPyExprWithAwaitAndYield>(
+            context,
+            runtime_input_body,
+            RegionTargets::new(end_label.clone(), None),
+            &mut blocks,
+            &name_gen,
+        );
+    move_entry_block_to_front(&mut blocks, entry_label.clone());
+    for block in &blocks {
+        assert_blockpy_block_normalized(block);
+    }
+    let needs_end_block = entry_label == end_label
+        || blocks
+            .iter()
+            .any(|block| block_references_label(block, &end_label));
+    if needs_end_block {
+        blocks.push(CfgBlock {
+            label: end_label,
+            body: Vec::new(),
+            term: BlockPyTerm::implicit_function_return(),
+            params: Vec::new(),
+            exc_edge: None,
+        });
+    }
+    fold_jumps_to_trivial_none_return_blockpy(&mut blocks);
+    let extra_roots = blocks
+        .iter()
+        .filter_map(|block| block.exc_edge.as_ref().map(|edge| edge.target.clone()))
+        .collect::<Vec<_>>();
+    prune_unreachable_blockpy_blocks(entry_label, &extra_roots, &mut blocks);
+    let mut blocks = blocks
+        .into_iter()
+        .map(make_eval_order_explicit_in_core_block)
+        .collect::<Vec<_>>();
+    let mut blocks = lower_structured_blocks_to_bb_blocks(&blocks);
+    if matches!(blockpy_kind, BlockPyFunctionKind::Function) {
+        rewrite_current_exception_in_core_blocks_with_await_and_yield(&mut blocks[..]);
+    }
+    BlockPyFunction {
+        function_id,
+        name_gen,
+        names,
+        kind: blockpy_kind,
+        params,
+        blocks,
+        doc,
+        storage_layout: None,
+        semantic: semantic.clone(),
     }
 }
 

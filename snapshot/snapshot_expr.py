@@ -204,18 +204,22 @@ x = (i for i in it)
 #         _dp_iter_3 = _dp_iter_2
 #         jump bb1
 #         block bb1:
-#             jump bb3
-#             block bb3:
-#                 _dp_tmp_4 = __dp_next_or_sentinel(_dp_iter_3)
-#                 if_term BinOp(Is, _dp_tmp_4, GetAttr(runtime, "ITER_COMPLETE")):
-#                     then:
-#                         block bb4:
-#                             return __dp_NONE
-#                     else:
-#                         block bb5:
-#                             i = _dp_tmp_4
-#                             yield i
-#                             jump bb1
+#             if_term __dp_TRUE:
+#                 then:
+#                     block bb3:
+#                         _dp_tmp_4 = __dp_next_or_sentinel(_dp_iter_3)
+#                         if_term BinOp(Is, _dp_tmp_4, GetAttr(runtime, "ITER_COMPLETE")):
+#                             then:
+#                                 block bb4:
+#                                     return __dp_NONE
+#                             else:
+#                                 block bb5:
+#                                     i = _dp_tmp_4
+#                                     yield i
+#                                     jump bb1
+#                 else:
+#                     block bb0:
+#                         return __dp_NONE
 
 # function _dp_module_init():
 #     function_id: 1

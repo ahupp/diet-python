@@ -7,13 +7,15 @@ use crate::passes::ast_to_ast::body::{split_docstring, Suite};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_stmt;
 use crate::passes::ast_to_ast::semantic::{SemanticAstState, SemanticScope};
-use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, RuffBlockPyPass};
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt, py_stmt_typed};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
-use super::build_blockpy_callable_def_from_runtime_input;
+use super::{
+    build_blockpy_callable_def_from_runtime_input,
+    build_core_blockpy_callable_def_from_runtime_input,
+};
 mod callable_semantic;
 use callable_semantic::callable_semantic_info;
 
@@ -162,12 +164,23 @@ fn try_lower_function_to_core_blockpy_bundle(
     callable_semantic: &BlockPyCallableSemanticInfo,
     name_gen: FunctionNameGen,
 ) -> BlockPyFunction<CoreBlockPyPassWithAwaitAndYield> {
-    simplify_blockpy_callable_def_exprs(try_lower_function_to_blockpy_bundle(
+    let (docstring, lowered_input_body) = split_docstring(&func.body);
+    let lowered_input_body = lowered_input_body.to_vec();
+    let (param_spec, _param_defaults) = collect_param_spec_and_defaults(&func.parameters);
+
+    let end_label = name_gen.next_block_name();
+
+    build_core_blockpy_callable_def_from_runtime_input(
         context,
-        func,
-        callable_semantic,
         name_gen,
-    ))
+        callable_semantic.names.clone(),
+        param_spec,
+        &lowered_input_body,
+        docstring,
+        end_label,
+        function_kind(func),
+        callable_semantic,
+    )
 }
 
 fn build_lowered_function_instantiation_expr(

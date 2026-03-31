@@ -615,6 +615,8 @@ fn reduce_core_tuple_splat(elts: Vec<Expr>) -> CoreBlockPyExprWithAwaitAndYield 
 
 impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
     fn from(value: Expr) -> Self {
+        let mut value = value;
+        lower_string_templates_in_expr(&mut value);
         match value {
             Expr::Call(node) => lower_core_call_expr_with_meta(
                 *node.func,

@@ -2,7 +2,8 @@ use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::operation;
 use crate::block_py::{
     BlockArg, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike, BlockPyStmt, BlockPyTerm,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, StructuredBlockPyStmt,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyLiteral,
+    StructuredBlockPyStmt,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
@@ -64,6 +65,34 @@ pub(crate) fn rewrite_current_exception_in_core_blocks<N>(
     }
 }
 
+pub(crate) fn rewrite_current_exception_in_core_blocks_with_await_and_yield(
+    blocks: &mut [crate::block_py::CfgBlock<
+        BlockPyStmt<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>,
+        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    >],
+) {
+    for block in blocks {
+        let Some(exc_name) = block.exception_param().map(ToString::to_string) else {
+            continue;
+        };
+        for stmt in &mut block.body {
+            match stmt {
+                BlockPyStmt::Assign(assign) => {
+                    rewrite_current_exception_in_expr_with_await_and_yield(
+                        &mut assign.value,
+                        exc_name.as_str(),
+                    );
+                }
+                BlockPyStmt::Expr(expr) => {
+                    rewrite_current_exception_in_expr_with_await_and_yield(expr, exc_name.as_str())
+                }
+                BlockPyStmt::Delete(_) => {}
+            }
+        }
+        rewrite_current_exception_in_term_with_await_and_yield(&mut block.term, exc_name.as_str());
+    }
+}
+
 fn rewrite_current_exception_in_bb_stmt<N>(
     stmt: &mut BlockPyStmt<CoreBlockPyExpr<N>, N>,
     exc_name: &str,
@@ -79,6 +108,140 @@ fn rewrite_current_exception_in_bb_stmt<N>(
         }
         BlockPyStmt::Delete(_) => {}
     }
+}
+
+fn rewrite_current_exception_in_term_with_await_and_yield(
+    term: &mut BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    exc_name: &str,
+) {
+    match term {
+        BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
+            rewrite_current_exception_in_expr_with_await_and_yield(test, exc_name);
+        }
+        BlockPyTerm::BranchTable(branch) => {
+            rewrite_current_exception_in_expr_with_await_and_yield(&mut branch.index, exc_name);
+        }
+        BlockPyTerm::Raise(raise_stmt) => {
+            if let Some(exc) = raise_stmt.exc.as_mut() {
+                rewrite_current_exception_in_expr_with_await_and_yield(exc, exc_name);
+            } else {
+                raise_stmt.exc = Some(CoreBlockPyExprWithAwaitAndYield::Name(ast::ExprName {
+                    id: exc_name.into(),
+                    ctx: ast::ExprContext::Load,
+                    range: Default::default(),
+                    node_index: ast::AtomicNodeIndex::default(),
+                }));
+            }
+        }
+        BlockPyTerm::Return(value) => {
+            rewrite_current_exception_in_expr_with_await_and_yield(value, exc_name);
+        }
+        BlockPyTerm::Jump(_) => {}
+    }
+}
+
+fn rewrite_current_exception_in_expr_with_await_and_yield(
+    expr: &mut CoreBlockPyExprWithAwaitAndYield,
+    exc_name: &str,
+) {
+    match expr {
+        CoreBlockPyExprWithAwaitAndYield::Call(call) => {
+            rewrite_current_exception_in_expr_with_await_and_yield(call.func.as_mut(), exc_name);
+            for arg in &mut call.args {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg.expr_mut(), exc_name);
+            }
+            for keyword in &mut call.keywords {
+                rewrite_current_exception_in_expr_with_await_and_yield(
+                    keyword.expr_mut(),
+                    exc_name,
+                );
+            }
+        }
+        CoreBlockPyExprWithAwaitAndYield::Op(operation) => {
+            operation.walk_args_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            });
+        }
+        CoreBlockPyExprWithAwaitAndYield::Await(await_expr) => {
+            rewrite_current_exception_in_expr_with_await_and_yield(
+                await_expr.value.as_mut(),
+                exc_name,
+            );
+        }
+        CoreBlockPyExprWithAwaitAndYield::Yield(yield_expr) => {
+            if let Some(value) = yield_expr.value.as_mut() {
+                rewrite_current_exception_in_expr_with_await_and_yield(value.as_mut(), exc_name);
+            }
+        }
+        CoreBlockPyExprWithAwaitAndYield::YieldFrom(yield_from) => {
+            rewrite_current_exception_in_expr_with_await_and_yield(
+                yield_from.value.as_mut(),
+                exc_name,
+            );
+        }
+        CoreBlockPyExprWithAwaitAndYield::Name(_)
+        | CoreBlockPyExprWithAwaitAndYield::Literal(_) => {}
+    }
+
+    if is_current_exception_call_with_await_and_yield(expr) {
+        *expr = current_exception_name_expr_with_await_and_yield(exc_name);
+    } else if is_exc_info_call_with_await_and_yield(expr) {
+        *expr = current_exception_info_expr_with_await_and_yield(exc_name);
+    }
+}
+
+fn is_current_exception_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
+    let CoreBlockPyExprWithAwaitAndYield::Call(call) = expr else {
+        return false;
+    };
+    call.args.is_empty()
+        && call.keywords.is_empty()
+        && matches!(
+            call.func.as_ref(),
+            CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "__dp_current_exception"
+        )
+}
+
+fn is_exc_info_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
+    let CoreBlockPyExprWithAwaitAndYield::Call(call) = expr else {
+        return false;
+    };
+    call.args.is_empty()
+        && call.keywords.is_empty()
+        && matches!(
+            call.func.as_ref(),
+            CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "__dp_exc_info"
+        )
+}
+
+fn current_exception_name_expr_with_await_and_yield(
+    exc_name: &str,
+) -> CoreBlockPyExprWithAwaitAndYield {
+    CoreBlockPyExprWithAwaitAndYield::Name(ast::ExprName {
+        id: exc_name.into(),
+        ctx: ast::ExprContext::Load,
+        range: compat_range(),
+        node_index: compat_node_index(),
+    })
+}
+
+fn current_exception_info_expr_with_await_and_yield(
+    exc_name: &str,
+) -> CoreBlockPyExprWithAwaitAndYield {
+    CoreBlockPyExprWithAwaitAndYield::Call(crate::block_py::CoreBlockPyCall {
+        node_index: compat_node_index(),
+        range: compat_range(),
+        func: Box::new(CoreBlockPyExprWithAwaitAndYield::Name(ast::ExprName {
+            id: "__dp_exc_info_from_exception".into(),
+            ctx: ast::ExprContext::Load,
+            range: compat_range(),
+            node_index: compat_node_index(),
+        })),
+        args: vec![CoreBlockPyCallArg::Positional(
+            current_exception_name_expr_with_await_and_yield(exc_name),
+        )],
+        keywords: Vec::new(),
+    })
 }
 
 pub(crate) fn populate_exception_edge_args<E, N>(

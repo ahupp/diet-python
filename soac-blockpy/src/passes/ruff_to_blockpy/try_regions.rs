@@ -89,8 +89,8 @@ pub(crate) struct LoweredTryRegions {
     pub finally_label: Option<BlockPyLabel>,
 }
 
-pub(crate) fn lower_try_regions<F>(
-    blocks: &mut Vec<BlockPyBlock>,
+pub(crate) fn lower_try_regions<F, E>(
+    blocks: &mut Vec<LoweredBlockPyBlock<E>>,
     name_gen: &FunctionNameGen,
     try_plan: &TryPlan,
     rest_entry: &BlockPyLabel,
@@ -103,7 +103,8 @@ pub(crate) fn lower_try_regions<F>(
     lower_sequence: &mut F,
 ) -> LoweredTryRegions
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
+    E: crate::block_py::ImplicitNoneExpr + From<Expr> + std::fmt::Debug,
 {
     let finally_label = if let Some(finally_body) = finally_body {
         let finally_region_start = blocks.len();
@@ -127,8 +128,9 @@ where
         }
         let finally_normal_entry = try_plan.finally_abrupt_kind_name.as_ref().map(|_| {
             let normal_label = name_gen.next_block_name();
-            let mut block =
-                BlockPyCfgBlockBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new(normal_label);
+            let mut block = BlockPyCfgBlockBuilder::<StructuredBlockPyStmt<E>, BlockPyTerm<E>>::new(
+                normal_label,
+            );
             let mut args = Vec::new();
             args.push(BlockArg::AbruptKind(AbruptKind::Fallthrough));
             args.push(BlockArg::None);
@@ -150,8 +152,10 @@ where
         let finally_exception_entry = try_plan.finally_abrupt_kind_name.as_ref().map(|_| {
             let exception_label = name_gen.next_block_name();
             let mut block =
-                BlockPyCfgBlockBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new(exception_label)
-                    .with_exc_param(Some(try_plan.except_exc_name.clone()));
+                BlockPyCfgBlockBuilder::<StructuredBlockPyStmt<E>, BlockPyTerm<E>>::new(
+                    exception_label,
+                )
+                .with_exc_param(Some(try_plan.except_exc_name.clone()));
             let args = vec![
                 BlockArg::AbruptKind(AbruptKind::Exception),
                 BlockArg::Name(try_plan.except_exc_name.clone()),
@@ -278,14 +282,17 @@ where
     }
 }
 
-pub(crate) fn finalize_try_regions(
-    blocks: &mut Vec<BlockPyBlock>,
+pub(crate) fn finalize_try_regions<E>(
+    blocks: &mut Vec<LoweredBlockPyBlock<E>>,
     label: BlockPyLabel,
     linear: Vec<Stmt>,
     try_plan: TryPlan,
     lowered_try: LoweredTryRegions,
     active_exc_target: Option<BlockPyLabel>,
-) -> BlockPyLabel {
+) -> BlockPyLabel
+where
+    E: crate::block_py::ImplicitNoneExpr + From<Expr> + std::fmt::Debug,
+{
     if let Some(finally_target) = lowered_try.finally_label.as_ref() {
         let payload_name = try_plan
             .finally_abrupt_payload_name
@@ -333,8 +340,8 @@ pub(crate) fn finalize_try_regions(
     )
 }
 
-pub(crate) fn emit_finally_abrupt_dispatch_blocks(
-    blocks: &mut Vec<BlockPyBlock>,
+pub(crate) fn emit_finally_abrupt_dispatch_blocks<E>(
+    blocks: &mut Vec<LoweredBlockPyBlock<E>>,
     finally_return_label: BlockPyLabel,
     finally_raise_label: BlockPyLabel,
     finally_dispatch_label: BlockPyLabel,
@@ -342,14 +349,16 @@ pub(crate) fn emit_finally_abrupt_dispatch_blocks(
     kind_name: &str,
     rest_entry: BlockPyLabel,
     active_exc_target: Option<BlockPyLabel>,
-) {
-    blocks.push(compat_block_from_blockpy_with_exc_target(
+) where
+    E: crate::block_py::ImplicitNoneExpr + From<Expr> + std::fmt::Debug,
+{
+    blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         finally_return_label.clone(),
         Vec::new(),
         BlockPyTerm::Return(py_expr!("{name:id}", name = payload_name).into()),
         active_exc_target.as_ref(),
     ));
-    blocks.push(compat_block_from_blockpy_with_exc_target(
+    blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         finally_raise_label.clone(),
         Vec::new(),
         BlockPyTerm::Raise(BlockPyRaise {
@@ -357,7 +366,7 @@ pub(crate) fn emit_finally_abrupt_dispatch_blocks(
         }),
         active_exc_target.as_ref(),
     ));
-    blocks.push(compat_block_from_blockpy_with_exc_target(
+    blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         finally_dispatch_label.clone(),
         Vec::new(),
         BlockPyTerm::BranchTable(BlockPyBranchTable {
@@ -373,14 +382,17 @@ pub(crate) fn emit_finally_abrupt_dispatch_blocks(
     ));
 }
 
-pub(crate) fn emit_try_jump_entry(
-    blocks: &mut Vec<BlockPyBlock>,
+pub(crate) fn emit_try_jump_entry<E>(
+    blocks: &mut Vec<LoweredBlockPyBlock<E>>,
     label: BlockPyLabel,
     linear: Vec<Stmt>,
     body_label: BlockPyLabel,
     active_exc_target: Option<BlockPyLabel>,
-) -> BlockPyLabel {
-    blocks.push(compat_block_from_blockpy_with_exc_target(
+) -> BlockPyLabel
+where
+    E: crate::block_py::ImplicitNoneExpr + From<Expr> + std::fmt::Debug,
+{
+    blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         label.clone(),
         linear,
         BlockPyTerm::Jump(body_label.into()),
@@ -389,11 +401,11 @@ pub(crate) fn emit_try_jump_entry(
     label
 }
 
-pub(crate) fn block_references_label(
-    block: &crate::block_py::CfgBlock<StructuredBlockPyStmt, BlockPyTerm>,
+pub(crate) fn block_references_label<E>(
+    block: &crate::block_py::CfgBlock<StructuredBlockPyStmt<E>, BlockPyTerm<E>>,
     label: &BlockPyLabel,
 ) -> bool {
-    fn stmt_references_label(stmt: &StructuredBlockPyStmt, label: &BlockPyLabel) -> bool {
+    fn stmt_references_label<E>(stmt: &StructuredBlockPyStmt<E>, label: &BlockPyLabel) -> bool {
         match stmt {
             StructuredBlockPyStmt::If(if_stmt) => {
                 stmt_fragment_references_label(&if_stmt.body, label)
@@ -403,12 +415,15 @@ pub(crate) fn block_references_label(
         }
     }
 
-    fn stmt_list_references_label(stmts: &[StructuredBlockPyStmt], label: &BlockPyLabel) -> bool {
+    fn stmt_list_references_label<E>(
+        stmts: &[StructuredBlockPyStmt<E>],
+        label: &BlockPyLabel,
+    ) -> bool {
         stmts.iter().any(|stmt| stmt_references_label(stmt, label))
     }
 
-    fn stmt_fragment_references_label(
-        fragment: &crate::block_py::BlockPyCfgFragment<StructuredBlockPyStmt, BlockPyTerm>,
+    fn stmt_fragment_references_label<E>(
+        fragment: &crate::block_py::BlockPyCfgFragment<StructuredBlockPyStmt<E>, BlockPyTerm<E>>,
         label: &BlockPyLabel,
     ) -> bool {
         stmt_list_references_label(&fragment.body, label)
@@ -418,7 +433,7 @@ pub(crate) fn block_references_label(
                 .is_some_and(|term| term_references_label(term, label))
     }
 
-    fn term_references_label(term: &BlockPyTerm, label: &BlockPyLabel) -> bool {
+    fn term_references_label<E>(term: &BlockPyTerm<E>, label: &BlockPyLabel) -> bool {
         match term {
             BlockPyTerm::Jump(target) => &target.target == label,
             BlockPyTerm::IfTerm(if_term) => {

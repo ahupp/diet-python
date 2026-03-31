@@ -589,7 +589,7 @@ fn if_stmt_helper_lowers_both_branches_via_callback() {
 #[test]
 fn sequence_jump_helper_emits_jump_block() {
     let mut blocks = Vec::new();
-    let entry = emit_sequence_jump_block(
+    let entry = emit_sequence_jump_block::<Expr>(
         &mut blocks,
         label(10),
         vec![py_stmt!("prefix = 0")],

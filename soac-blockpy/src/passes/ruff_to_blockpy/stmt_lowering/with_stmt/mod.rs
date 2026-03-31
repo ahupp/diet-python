@@ -147,18 +147,19 @@ finally:
     lowered_body
 }
 
-pub(crate) fn lower_with_stmt_sequence<F>(
+pub(crate) fn lower_with_stmt_sequence<F, E>(
     with_stmt: ast::StmtWith,
     remaining_stmts: &[Stmt],
     targets: RegionTargets,
     linear: Vec<Stmt>,
-    blocks: &mut Vec<BlockPyBlock>,
+    blocks: &mut Vec<LoweredBlockPyBlock<E>>,
     name_gen: &FunctionNameGen,
     _needs_finally_return_flow: bool,
     lower_sequence: &mut F,
 ) -> BlockPyLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<BlockPyBlock>) -> BlockPyLabel,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
+    E: From<Expr> + crate::block_py::ImplicitNoneExpr + std::fmt::Debug,
 {
     if with_stmt.items.is_empty() {
         let jump_label = if linear.is_empty() {
