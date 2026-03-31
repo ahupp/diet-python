@@ -9,10 +9,10 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use soac_blockpy::block_py::{
-    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm, CodegenBlock,
-    CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyKeywordArg,
-    LocatedCodegenBlockPyExpr, LocatedName, NameLocation, ParamDefaultSource, StorageLayout,
-    operation as blockpy_intrinsics,
+    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm, CellLocation,
+    CodegenBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg,
+    CoreBlockPyKeywordArg, LocatedCodegenBlockPyExpr, LocatedName, NameLocation,
+    ParamDefaultSource, StorageLayout, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::borrow::Cow;
@@ -830,13 +830,36 @@ fn emit_raw_cell_object_for_name(
     local_values: &[ir::Value],
     ctx: &JitEmitCtx,
 ) -> ir::Value {
+    let Some(location) = name.cell_location() else {
+        panic!(
+            "raw cell access should target a cell-backed name, got {} at {:?}",
+            name.id, name.location
+        );
+    };
+    emit_raw_cell_object_for_location(
+        fb,
+        location,
+        name.id.as_str(),
+        local_names,
+        local_values,
+        ctx,
+    )
+}
+
+fn emit_raw_cell_object_for_location(
+    fb: &mut FunctionBuilder<'_>,
+    location: CellLocation,
+    debug_name: &str,
+    local_names: &[String],
+    local_values: &[ir::Value],
+    ctx: &JitEmitCtx,
+) -> ir::Value {
     let ptr_ty = ctx.consts.ptr_ty;
     let i64_ty = ctx.consts.i64_ty;
     let null_ptr = fb.ins().iconst(ptr_ty, 0);
 
-    match name.cell_location() {
-        Some(location) if location.is_owned() => {
-            let slot = location.slot();
+    match location {
+        CellLocation::Owned(slot) => {
             let closure_slot = ctx
                 .storage_layout
                 .as_ref()
@@ -844,7 +867,7 @@ fn emit_raw_cell_object_for_name(
                 .unwrap_or_else(|| {
                     panic!(
                         "missing owned cell slot mapping for {} at local cell slot {}",
-                        name.id, slot
+                        debug_name, slot
                     )
                 });
             let mut candidate_names = vec![closure_slot.storage_name.as_str()];
@@ -873,11 +896,10 @@ fn emit_raw_cell_object_for_name(
             }
             panic!(
                 "missing owned cell {} in direct JIT state via names {:?} (slot {slot})",
-                name.id, candidate_names
+                debug_name, candidate_names
             );
         }
-        Some(location) if location.is_closure() || location.is_captured_source() => {
-            let slot = location.slot();
+        CellLocation::Closure(slot) | CellLocation::CapturedSource(slot) => {
             let slot_value = fb.ins().iconst(i64_ty, slot as i64);
             let raw_cell_inst = fb.ins().call(
                 ctx.function_closure_cell_ref,
@@ -898,12 +920,6 @@ fn emit_raw_cell_object_for_name(
             );
             fb.switch_to_block(raw_cell_ok_block);
             fb.block_params(raw_cell_ok_block)[0]
-        }
-        _ => {
-            panic!(
-                "raw cell access should target a cell-backed name, got {} at {:?}",
-                name.id, name.location
-            );
         }
     }
 }
@@ -1263,27 +1279,21 @@ fn emit_codegen_expr(
                 return value;
             }
             match operation_ref.detail() {
+                blockpy_intrinsics::OperationDetail::CellRefForName(op) => {
+                    panic!(
+                        "__dp_cell_ref should lower to a resolved cell ref before codegen, got {:?}",
+                        op.logical_name
+                    );
+                }
                 blockpy_intrinsics::OperationDetail::CellRef(op) => {
-                    let blockpy_intrinsics::CellRefTarget::Name(cell_name) = &op.target else {
-                        panic!(
-                            "__dp_cell_ref should lower to a resolved name arg, got {:?}",
-                            op.target
-                        );
-                    };
-                    if cell_name.cell_location().is_some() {
-                        emit_raw_cell_object_for_name(
-                            intrinsic_state.fb,
-                            cell_name,
-                            intrinsic_state.local_names,
-                            intrinsic_state.local_values,
-                            intrinsic_state.ctx,
-                        )
-                    } else {
-                        panic!(
-                            "__dp_cell_ref should target a cell-backed name, got {} at {:?}",
-                            cell_name.id, cell_name.location
-                        );
-                    }
+                    emit_raw_cell_object_for_location(
+                        intrinsic_state.fb,
+                        op.location,
+                        "__dp_cell_ref",
+                        intrinsic_state.local_names,
+                        intrinsic_state.local_values,
+                        intrinsic_state.ctx,
+                    )
                 }
                 blockpy_intrinsics::OperationDetail::LoadLocal(op) => emit_codegen_local_name_load(
                     intrinsic_state.fb,

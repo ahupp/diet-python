@@ -186,7 +186,7 @@ class X:
 #     function_id: 0
 #     block bb1:
 #         del __class__
-#         __dp_call_super(super, CellRef("__class__"), x)
+#         __dp_call_super(super, CellRefForName("__class__"), x)
 #         return __dp_NONE
 
 # function _dp_class_ns_X(_dp_class_ns, _dp_classcell_arg):

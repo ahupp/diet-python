@@ -1,4 +1,4 @@
-use super::operation::{CellRefTarget, OperationDetail};
+use super::operation::OperationDetail;
 use super::{
     is_internal_symbol, walk_linear_block, walk_linear_expr, walk_linear_stmt, BlockPyFunction,
     BlockPyLinearModuleVisitor, BlockPyLinearPass, BlockPyNameLike, BlockPyPass, BlockPyStmt,
@@ -439,11 +439,6 @@ where
         OperationDetail::StoreCell(op) => f(op.cell.id_str()),
         OperationDetail::DelDeref(op) => f(op.cell.id_str()),
         OperationDetail::DelDerefQuietly(op) => f(op.cell.id_str()),
-        OperationDetail::CellRef(op) => {
-            if let CellRefTarget::Name(name) = &op.target {
-                f(name.id_str());
-            }
-        }
         _ => {}
     }
 }
@@ -454,10 +449,8 @@ fn walk_operation_cell_ref_logical_names<E, N>(
 ) where
     N: BlockPyNameLike,
 {
-    if let OperationDetail::CellRef(op) = detail {
-        if let CellRefTarget::LogicalName(name) = &op.target {
-            f(name);
-        }
+    if let OperationDetail::CellRefForName(op) = detail {
+        f(op.logical_name.as_str());
     }
 }
 

@@ -1,4 +1,4 @@
-use super::{BlockPyFunctionKind, FunctionId, HasMeta, Meta, WithMeta};
+use super::{BlockPyFunctionKind, CellLocation, FunctionId, HasMeta, Meta, WithMeta};
 use ruff_python_ast as ast;
 use ruff_text_size::TextRange;
 
@@ -195,18 +195,6 @@ macro_rules! define_operation_node {
             $($rest)*
         )
     };
-    (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident, $field:ident : $ty:ty => name_target, $($rest:tt)*) => {
-        define_operation_node!(
-            @build_mapped
-            [$($mapped_ctor)+]
-            [$($out)* $field: $self.$field.map_name($f_name),]
-            $self,
-            $f_expr,
-            $f_name,
-            $($rest)*
-        )
-    };
-
     (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident,) => {
         Ok($($mapped_ctor)+ { $($out)* })
     };
@@ -243,23 +231,6 @@ macro_rules! define_operation_node {
             $($rest)*
         )
     };
-    (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident, $field:ident : $ty:ty => name_target, $($rest:tt)*) => {
-        define_operation_node!(
-            @build_try_mapped
-            [$($mapped_ctor)+]
-            [$($out)*
-                $field: match $self.$field {
-                    CellRefTarget::LogicalName(name) => CellRefTarget::LogicalName(name),
-                    CellRefTarget::Name(name) => CellRefTarget::Name($f_name(name)?),
-                },
-            ]
-            $self,
-            $f_expr,
-            $f_name,
-            $($rest)*
-        )
-    };
-
     (@walk_expr_fields $self:ident, $f:ident,) => {};
     (@walk_expr_fields $self:ident, $f:ident, $field:ident : $ty:ty => expr, $($rest:tt)*) => {
         $f(&$self.$field);
@@ -271,10 +242,6 @@ macro_rules! define_operation_node {
     (@walk_expr_fields $self:ident, $f:ident, $field:ident : $ty:ty => value, $($rest:tt)*) => {
         define_operation_node!(@walk_expr_fields $self, $f, $($rest)*);
     };
-    (@walk_expr_fields $self:ident, $f:ident, $field:ident : $ty:ty => name_target, $($rest:tt)*) => {
-        define_operation_node!(@walk_expr_fields $self, $f, $($rest)*);
-    };
-
     (@walk_expr_fields_mut $self:ident, $f:ident,) => {};
     (@walk_expr_fields_mut $self:ident, $f:ident, $field:ident : $ty:ty => expr, $($rest:tt)*) => {
         $f(&mut $self.$field);
@@ -286,10 +253,6 @@ macro_rules! define_operation_node {
     (@walk_expr_fields_mut $self:ident, $f:ident, $field:ident : $ty:ty => value, $($rest:tt)*) => {
         define_operation_node!(@walk_expr_fields_mut $self, $f, $($rest)*);
     };
-    (@walk_expr_fields_mut $self:ident, $f:ident, $field:ident : $ty:ty => name_target, $($rest:tt)*) => {
-        define_operation_node!(@walk_expr_fields_mut $self, $f, $($rest)*);
-    };
-
     (@into_expr_fields $out:ident, $self:ident,) => {};
     (@into_expr_fields $out:ident, $self:ident, $field:ident : $ty:ty => expr, $($rest:tt)*) => {
         $out.push(*$self.$field);
@@ -301,10 +264,6 @@ macro_rules! define_operation_node {
     (@into_expr_fields $out:ident, $self:ident, $field:ident : $ty:ty => value, $($rest:tt)*) => {
         define_operation_node!(@into_expr_fields $out, $self, $($rest)*);
     };
-    (@into_expr_fields $out:ident, $self:ident, $field:ident : $ty:ty => name_target, $($rest:tt)*) => {
-        define_operation_node!(@into_expr_fields $out, $self, $($rest)*);
-    };
-
     (
         $vis:vis struct $name:ident $(<$($struct_gen:ident),*>)? {
             impl<$($impl_gen:ident),*>;
@@ -386,21 +345,6 @@ macro_rules! define_operation_node {
         }
 
     };
-}
-
-#[derive(Debug, Clone)]
-pub enum CellRefTarget<N> {
-    LogicalName(String),
-    Name(N),
-}
-
-impl<N> CellRefTarget<N> {
-    pub fn map_name<T>(self, f: &mut impl FnMut(N) -> T) -> CellRefTarget<T> {
-        match self {
-            Self::LogicalName(name) => CellRefTarget::LogicalName(name),
-            Self::Name(name) => CellRefTarget::Name(f(name)),
-        }
-    }
 }
 
 define_operation_node! {
@@ -582,12 +526,22 @@ define_operation_node! {
 }
 
 define_operation_node! {
-    pub struct CellRef<N> {
-        impl<E, N>;
-        name_type = [N];
-        mapped_type<T, M> = [CellRef<M>];
-        mapped_ctor<T, M> = [CellRef::<M>];
-        target: CellRefTarget<N> => name_target,
+    pub struct CellRefForName {
+        impl<E>;
+        name_type = [()];
+        mapped_type<T, M> = [CellRefForName];
+        mapped_ctor<T, M> = [CellRefForName];
+        logical_name: String => value,
+    }
+}
+
+define_operation_node! {
+    pub struct CellRef {
+        impl<E>;
+        name_type = [()];
+        mapped_type<T, M> = [CellRef];
+        mapped_ctor<T, M> = [CellRef];
+        location: CellLocation => value,
     }
 }
 
@@ -664,7 +618,8 @@ pub enum OperationDetail<E, N = E> {
     LoadCell(LoadCell<N>),
     MakeCell(MakeCell<E>),
     MakeString(MakeString),
-    CellRef(CellRef<N>),
+    CellRefForName(CellRefForName),
+    CellRef(CellRef),
     MakeFunction(MakeFunction<E>),
     StoreCell(StoreCell<N, E>),
     DelQuietly(DelQuietly<E>),
@@ -691,6 +646,7 @@ impl<E, N> OperationDetail<E, N> {
             Self::LoadCell(op) => OperationDetail::LoadCell(op.map_expr(f)),
             Self::MakeCell(op) => OperationDetail::MakeCell(op.map_expr(f)),
             Self::MakeString(op) => OperationDetail::MakeString(op.map_expr(f)),
+            Self::CellRefForName(op) => OperationDetail::CellRefForName(op.map_expr(f)),
             Self::CellRef(op) => OperationDetail::CellRef(op.map_expr(f)),
             Self::MakeFunction(op) => OperationDetail::MakeFunction(op.map_expr(f)),
             Self::StoreCell(op) => OperationDetail::StoreCell(op.map_expr(f)),
@@ -722,7 +678,8 @@ impl<E, N> OperationDetail<E, N> {
             Self::LoadCell(op) => OperationDetail::LoadCell(op.map_expr_and_name(f_expr, f_name)),
             Self::MakeCell(op) => OperationDetail::MakeCell(op.map_expr(f_expr)),
             Self::MakeString(op) => OperationDetail::MakeString(op.map_expr(f_expr)),
-            Self::CellRef(op) => OperationDetail::CellRef(op.map_expr_and_name(f_expr, f_name)),
+            Self::CellRefForName(op) => OperationDetail::CellRefForName(op.map_expr(f_expr)),
+            Self::CellRef(op) => OperationDetail::CellRef(op.map_expr(f_expr)),
             Self::MakeFunction(op) => OperationDetail::MakeFunction(op.map_expr(f_expr)),
             Self::StoreCell(op) => OperationDetail::StoreCell(op.map_expr_and_name(f_expr, f_name)),
             Self::DelQuietly(op) => OperationDetail::DelQuietly(op.map_expr(f_expr)),
@@ -754,6 +711,7 @@ impl<E, N> OperationDetail<E, N> {
             Self::LoadCell(op) => OperationDetail::LoadCell(op.try_map_expr(f)?),
             Self::MakeCell(op) => OperationDetail::MakeCell(op.try_map_expr(f)?),
             Self::MakeString(op) => OperationDetail::MakeString(op.try_map_expr(f)?),
+            Self::CellRefForName(op) => OperationDetail::CellRefForName(op.try_map_expr(f)?),
             Self::CellRef(op) => OperationDetail::CellRef(op.try_map_expr(f)?),
             Self::MakeFunction(op) => OperationDetail::MakeFunction(op.try_map_expr(f)?),
             Self::StoreCell(op) => OperationDetail::StoreCell(op.try_map_expr(f)?),
@@ -791,9 +749,8 @@ impl<E, N> OperationDetail<E, N> {
             }
             Self::MakeCell(op) => OperationDetail::MakeCell(op.try_map_expr(f_expr)?),
             Self::MakeString(op) => OperationDetail::MakeString(op.try_map_expr(f_expr)?),
-            Self::CellRef(op) => {
-                OperationDetail::CellRef(op.try_map_expr_and_name(f_expr, f_name)?)
-            }
+            Self::CellRefForName(op) => OperationDetail::CellRefForName(op.try_map_expr(f_expr)?),
+            Self::CellRef(op) => OperationDetail::CellRef(op.try_map_expr(f_expr)?),
             Self::MakeFunction(op) => OperationDetail::MakeFunction(op.try_map_expr(f_expr)?),
             Self::StoreCell(op) => {
                 OperationDetail::StoreCell(op.try_map_expr_and_name(f_expr, f_name)?)
@@ -826,6 +783,7 @@ impl<E, N> OperationDetail<E, N> {
             Self::LoadCell(op) => op.walk_expr_args(f),
             Self::MakeCell(op) => op.walk_expr_args(f),
             Self::MakeString(op) => op.walk_expr_args(f),
+            Self::CellRefForName(op) => op.walk_expr_args(f),
             Self::CellRef(op) => op.walk_expr_args(f),
             Self::MakeFunction(op) => op.walk_expr_args(f),
             Self::StoreCell(op) => op.walk_expr_args(f),
@@ -853,6 +811,7 @@ impl<E, N> OperationDetail<E, N> {
             Self::LoadCell(op) => op.walk_expr_args_mut(f),
             Self::MakeCell(op) => op.walk_expr_args_mut(f),
             Self::MakeString(op) => op.walk_expr_args_mut(f),
+            Self::CellRefForName(op) => op.walk_expr_args_mut(f),
             Self::CellRef(op) => op.walk_expr_args_mut(f),
             Self::MakeFunction(op) => op.walk_expr_args_mut(f),
             Self::StoreCell(op) => op.walk_expr_args_mut(f),

@@ -4,12 +4,12 @@ use crate::block_py::{
     BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
     BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyClassBodyFallback,
     BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap,
-    BlockPyNameLike, BlockPyRaise, BlockPyStmt, BlockPyTerm, CellRef, CellRefTarget, ClosureInit,
-    ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
-    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, DelDeref, DelDerefQuietly,
-    DelItem, DelQuietly, FunctionId, HasMeta, LoadCell, LoadGlobal, LoadLocal, LocatedName,
-    MakeCell, MakeFunction, NameLocation, Operation, OperationDetail, SetItem, StorageLayout,
-    StoreCell, StoreGlobal, WithMeta,
+    BlockPyNameLike, BlockPyRaise, BlockPyStmt, BlockPyTerm, CellLocation, CellRef, CellRefForName,
+    ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
+    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, DelDeref,
+    DelDerefQuietly, DelItem, DelQuietly, FunctionId, HasMeta, LoadCell, LoadGlobal, LoadLocal,
+    LocatedName, MakeCell, MakeFunction, NameLocation, Operation, OperationDetail, SetItem,
+    StorageLayout, StoreCell, StoreGlobal, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -203,17 +203,13 @@ fn should_rewrite_raw_name_load(name: &str, semantic: &BlockPyCallableSemanticIn
 
 fn rewrite_cell_ref_expr(
     logical_name: &str,
-    semantic: &BlockPyCallableSemanticInfo,
+    _semantic: &BlockPyCallableSemanticInfo,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
     op_expr(
-        Operation::new(CellRef::new(CellRefTarget::Name(cell_named_expr(
-            semantic.cell_ref_source_name(logical_name).as_str(),
-            node_index.clone(),
-            range,
-        ))))
-        .with_meta(crate::block_py::Meta::new(node_index.clone(), range)),
+        Operation::new(CellRefForName::new(logical_name.to_string()))
+            .with_meta(crate::block_py::Meta::new(node_index.clone(), range)),
     )
 }
 
@@ -497,6 +493,7 @@ fn rewrite_deleted_name_loads_in_expr(
                 OperationDetail::LoadCell(_)
                 | OperationDetail::DelDeref(_)
                 | OperationDetail::DelDerefQuietly(_)
+                | OperationDetail::CellRefForName(_)
                 | OperationDetail::CellRef(_) => {}
                 OperationDetail::StoreCell(_) => {
                     with_helper_arg_mut(expr, 1, &mut |value_expr| {
@@ -691,13 +688,11 @@ fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
 
 fn cell_ref_marker_target(expr: &CoreBlockPyExpr) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::CellRef(CellRef { target, .. }) = operation.detail() else {
+    let OperationDetail::CellRefForName(CellRefForName { logical_name, .. }) = operation.detail()
+    else {
         return None;
     };
-    match target {
-        CellRefTarget::LogicalName(name) => Some(name.clone()),
-        CellRefTarget::Name(_) => None,
-    }
+    Some(logical_name.clone())
 }
 
 fn make_function_kind_name(kind: BlockPyFunctionKind) -> &'static str {
@@ -1838,6 +1833,59 @@ struct NameLocator<'a> {
 }
 
 impl NameLocator<'_> {
+    fn resolve_raw_cell_location(&self, name_text: &str) -> CellLocation {
+        if let Some(storage_name) =
+            resolve_captured_cell_source_storage_name(self.semantic, name_text)
+        {
+            let slot = self
+                .captured_cell_slots
+                .get(storage_name.as_str())
+                .copied()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing closure slot for captured raw cell source {name_text} via storage name {storage_name}"
+                    )
+                });
+            return CellLocation::CapturedSource(slot);
+        }
+
+        if let Some((storage_name, binding_kind)) = self.cell_bindings.get(name_text) {
+            return match binding_kind {
+                BlockPyCellBindingKind::Owner => {
+                    let slot = self
+                        .owned_cell_slots
+                        .get(storage_name.as_str())
+                        .copied()
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "missing owned cell slot for raw cell target {name_text} via storage name {storage_name}"
+                            )
+                        });
+                    CellLocation::Owned(slot)
+                }
+                BlockPyCellBindingKind::Capture => {
+                    let slot = self
+                        .captured_cell_slots
+                        .get(storage_name.as_str())
+                        .copied()
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "missing closure slot for raw captured cell target {name_text} via storage name {storage_name}"
+                            )
+                        });
+                    CellLocation::CapturedSource(slot)
+                }
+            };
+        }
+
+        panic!("raw cell target {name_text} did not resolve to a cell-backed location");
+    }
+
+    fn resolve_cell_ref_location(&self, logical_name: &str) -> CellLocation {
+        let source_name = self.semantic.cell_ref_source_name(logical_name);
+        self.resolve_raw_cell_location(source_name.as_str())
+    }
+
     fn locate_name(&self, name: ExprName) -> LocatedName {
         let name_text = name.id.to_string();
         let location = if self.exception_param_names.contains(name_text.as_str()) {
@@ -1918,48 +1966,9 @@ impl NameLocator<'_> {
 
     fn mark_raw_cell_name(&self, name: LocatedName) -> LocatedName {
         let name_text = name.id.to_string();
-        if let Some(storage_name) =
-            resolve_captured_cell_source_storage_name(self.semantic, name_text.as_str())
-        {
-            let slot = self
-                .captured_cell_slots
-                .get(storage_name.as_str())
-                .copied()
-                .unwrap_or_else(|| {
-                    panic!(
-                        "missing closure slot for captured raw cell source {name_text} via storage name {storage_name}"
-                    )
-                });
-            return name.with_location(NameLocation::captured_source_cell(slot));
-        }
-
-        if let Some((storage_name, binding_kind)) = self.cell_bindings.get(name_text.as_str()) {
-            return match binding_kind {
-                BlockPyCellBindingKind::Owner => {
-                    let slot = self
-                        .owned_cell_slots
-                        .get(storage_name.as_str())
-                        .copied()
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "missing owned cell slot for raw cell target {name_text} via storage name {storage_name}"
-                            )
-                        });
-                    name.with_location(NameLocation::owned_cell(slot))
-                }
-                BlockPyCellBindingKind::Capture => {
-                    let slot = self
-                        .captured_cell_slots
-                        .get(storage_name.as_str())
-                        .copied()
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "missing closure slot for raw captured cell target {name_text} via storage name {storage_name}"
-                            )
-                        });
-                    name.with_location(NameLocation::captured_source_cell(slot))
-                }
-            };
+        if name.location.is_global() {
+            let location = self.resolve_raw_cell_location(name_text.as_str());
+            return name.with_location(NameLocation::Cell(location));
         }
 
         match name.cell_location() {
@@ -1995,6 +2004,17 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                 let CoreBlockPyExpr::Op(operation) = &mut expr else {
                     unreachable!("op expression should remain op after nested mapping")
                 };
+                let resolved_cell_ref_location = match operation.detail() {
+                    OperationDetail::CellRefForName(op) => {
+                        Some(self.resolve_cell_ref_location(op.logical_name.as_str()))
+                    }
+                    _ => None,
+                };
+                if let Some(location) = resolved_cell_ref_location {
+                    let meta = operation.meta.clone();
+                    *operation = Operation::new(CellRef::new(location)).with_meta(meta);
+                    return expr;
+                }
                 match operation.detail_mut() {
                     OperationDetail::LoadName(op) => {
                         op.name = self.locate_name(op.name.clone().into());
@@ -2002,11 +2022,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                     OperationDetail::LoadLocal(op) => {
                         op.name = self.locate_name(op.name.clone().into());
                     }
-                    OperationDetail::CellRef(op) => {
-                        if let CellRefTarget::Name(name) = &mut op.target {
-                            *name = self.mark_raw_cell_name(name.clone());
-                        }
-                    }
+                    OperationDetail::CellRefForName(_) => unreachable!("handled above"),
                     OperationDetail::LoadCell(op) => {
                         op.cell = self.mark_raw_cell_name(op.cell.clone());
                     }

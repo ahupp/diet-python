@@ -13,7 +13,7 @@ pub use self::semantics::{
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 pub use operation::{
-    BinOp, BinOpKind, CellRef, CellRefTarget, DelDeref, DelDerefQuietly, DelItem, DelQuietly,
+    BinOp, BinOpKind, CellRef, CellRefForName, DelDeref, DelDerefQuietly, DelItem, DelQuietly,
     GetAttr, GetItem, InplaceBinOp, InplaceBinOpKind, LoadCell, LoadGlobal, LoadLocal, LoadName,
     MakeCell, MakeFunction, MakeString, Operation, OperationDetail, SetAttr, SetItem, StoreCell,
     StoreGlobal, TernaryOp, TernaryOpKind, UnaryOp, UnaryOpKind,

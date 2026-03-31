@@ -580,13 +580,6 @@ fn bytes_text(value: &[u8]) -> String {
     out
 }
 
-fn cell_ref_target_text<N: BlockPyNameLike>(target: &crate::block_py::CellRefTarget<N>) -> String {
-    match target {
-        crate::block_py::CellRefTarget::LogicalName(name) => format!("{name:?}"),
-        crate::block_py::CellRefTarget::Name(name) => name.pretty_id(),
-    }
-}
-
 fn debug_tuple_text(name: &str, fields: impl IntoIterator<Item = String>) -> String {
     format!(
         "{}({})",
@@ -687,8 +680,11 @@ where
         crate::block_py::OperationDetail::MakeString(op) => {
             debug_tuple_text("MakeString", [bytes_text(&op.bytes)])
         }
+        crate::block_py::OperationDetail::CellRefForName(op) => {
+            debug_tuple_text("CellRefForName", [format!("{:?}", op.logical_name)])
+        }
         crate::block_py::OperationDetail::CellRef(op) => {
-            debug_tuple_text("CellRef", [cell_ref_target_text(&op.target)])
+            debug_tuple_text("CellRef", [op.location.pretty_id()])
         }
         crate::block_py::OperationDetail::StoreCell(op) => debug_tuple_text(
             "StoreCell",

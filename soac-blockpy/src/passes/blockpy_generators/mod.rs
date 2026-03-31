@@ -6,8 +6,8 @@ use crate::block_py::{
     try_lower_core_expr_without_yield, BlockParam, BlockParamRole, BlockPyAssign,
     BlockPyBindingKind, BlockPyBranchTable, BlockPyCallableSemanticInfo, BlockPyCellBindingKind,
     BlockPyCfgBlockBuilder, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel,
-    BlockPyRaise, BlockPyStmt, BlockPyTerm, CellRef, CellRefTarget, CfgBlock, ClosureInit,
-    ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
     MakeFunction, Meta, ModuleNameGen, Operation, StorageLayout, WithMeta,
 };
@@ -219,10 +219,7 @@ fn core_runtime_attr(attr: &str) -> CoreBlockPyExpr {
 
 fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
     core_operation_expr(
-        Operation::new(CellRef::new(CellRefTarget::LogicalName(
-            logical_name.to_string(),
-        )))
-        .with_meta(Meta::synthetic()),
+        Operation::new(CellRefForName::new(logical_name.to_string())).with_meta(Meta::synthetic()),
     )
 }
 

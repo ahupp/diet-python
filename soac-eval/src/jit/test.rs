@@ -1,7 +1,7 @@
 use super::*;
 use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyStmt,
-    BlockPyTerm, CellRefTarget, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
+    BlockPyTerm, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
     CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref,
     DelDerefQuietly, DelItem, DelQuietly, FunctionName, LoadGlobal, LocatedCodegenBlockPyExpr,
     LocatedName, MakeString, Meta, ModuleNameGen, NameLocation, Operation, Param, ParamKind,
@@ -434,7 +434,7 @@ mod tests {
             vec![],
             ret_term(op_expr(
                 Operation::new(soac_blockpy::block_py::CellRef {
-                    target: CellRefTarget::Name(test_closure_cell_name("x", 2)),
+                    location: CellLocation::Closure(2),
                 })
                 .with_meta(Meta::synthetic()),
             )),
@@ -459,7 +459,7 @@ mod tests {
             vec![],
             ret_term(op_expr(
                 Operation::new(soac_blockpy::block_py::CellRef {
-                    target: CellRefTarget::Name(test_captured_cell_source_name("_dp_classcell", 2)),
+                    location: CellLocation::CapturedSource(2),
                 })
                 .with_meta(Meta::synthetic()),
             )),

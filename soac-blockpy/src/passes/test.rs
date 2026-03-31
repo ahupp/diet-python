@@ -558,7 +558,7 @@ fn method_super_uses_cell_ref_marker_for_classcell() {
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
     assert!(
-        core_rendered.contains("_dp_eval_1 = CellRef(\"__class__\")"),
+        core_rendered.contains("_dp_eval_1 = CellRefForName(\"__class__\")"),
         "{core_rendered}"
     );
     assert!(

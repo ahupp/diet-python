@@ -444,8 +444,8 @@ fn non_operator_operation_from_helper_call(
             Box::new(args.next()?),
         ))
         .with_meta(meta),
-        "__dp_cell_ref" => operation::Operation::new(operation::CellRef::new(
-            operation::CellRefTarget::LogicalName(string_arg_from_core_expr(args.next()?)?),
+        "__dp_cell_ref" => operation::Operation::new(operation::CellRefForName::new(
+            string_arg_from_core_expr(args.next()?)?,
         ))
         .with_meta(meta),
         _ => return None,

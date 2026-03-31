@@ -668,6 +668,7 @@ pub(super) fn emit_operation<'fb, E, N>(
             Some(emit_make_cell(state, &[op.initial_value.as_ref()]))
         }
         blockpy_intrinsics::OperationDetail::MakeString(op) => Some(emit_make_string(op, state)),
+        blockpy_intrinsics::OperationDetail::CellRefForName(_) => None,
         blockpy_intrinsics::OperationDetail::CellRef(_) => None,
         blockpy_intrinsics::OperationDetail::MakeFunction(_) => None,
         blockpy_intrinsics::OperationDetail::StoreCell(_) => None,
