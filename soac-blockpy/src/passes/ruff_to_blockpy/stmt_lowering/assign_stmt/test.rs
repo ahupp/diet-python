@@ -27,3 +27,28 @@ fn stmt_assign_to_blockpy_emits_direct_core_setitem() {
     assert!(rendered.contains("SetItem("), "{rendered}");
     assert!(!rendered.contains("__dp_setitem"), "{rendered}");
 }
+
+#[test]
+fn rewrite_assignment_target_unpack_uses_native_subscript_ast() {
+    let target = py_expr!("a, *b");
+    let rhs = py_expr!("value");
+    let mut out = Vec::new();
+    let mut next_temp_id = 0usize;
+    let mut next_temp = |prefix: &str| {
+        let name = format!("_dp_{prefix}_{next_temp_id}");
+        next_temp_id += 1;
+        name
+    };
+
+    rewrite_assignment_target(target, rhs, &mut out, &mut next_temp);
+
+    let rendered = out
+        .iter()
+        .map(crate::ruff_ast_to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(!rendered.contains("__dp_getitem("), "{rendered}");
+    assert!(rendered.contains("[0]"), "{rendered}");
+    assert!(rendered.contains("__dp_list("), "{rendered}");
+}

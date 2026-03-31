@@ -365,7 +365,7 @@ where
                 rewrite_assignment_target(
                     *value,
                     py_expr!(
-                        "__dp_list(__dp_getitem({tmp:expr}, {idx:literal}))",
+                        "__dp_list({tmp:expr}[{idx:literal}])",
                         tmp = unpacked_tmp.clone(),
                         idx = idx as i64,
                     ),
@@ -377,7 +377,7 @@ where
                 rewrite_assignment_target(
                     other,
                     py_expr!(
-                        "__dp_getitem({tmp:expr}, {idx:literal})",
+                        "{tmp:expr}[{idx:literal}]",
                         tmp = unpacked_tmp.clone(),
                         idx = idx as i64,
                     ),

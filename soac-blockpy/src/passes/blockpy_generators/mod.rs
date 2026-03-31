@@ -757,10 +757,7 @@ fn stop_iteration_match_test(exc_name: &str) -> CoreBlockPyExpr {
 }
 
 fn current_exception_value_expr(exc_name: &str) -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!(
-        "__dp_getattr({exc_name:id}, \"value\")",
-        exc_name = exc_name,
-    ))
+    core_expr_without_yield(py_expr!("{exc_name:id}.value", exc_name = exc_name))
 }
 
 struct ResumeLoweringState {

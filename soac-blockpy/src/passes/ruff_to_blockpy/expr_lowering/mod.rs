@@ -1,6 +1,6 @@
 use crate::block_py::{
-    core_operation_expr, core_positional_call_expr_with_meta, operation,
-    BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield, Meta, WithMeta,
+    core_operation_expr, core_positional_call_expr_with_meta, operation, BlockPyFunctionKind,
+    BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield, FunctionId, Meta, WithMeta,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::LoopContext;
@@ -14,6 +14,10 @@ mod named_expr;
 mod recursive;
 
 pub(crate) trait RuffToBlockPyExpr: From<Expr> + std::fmt::Debug + Clone + Sized {
+    fn from_lowered_expr(expr: Expr) -> Self {
+        expr.into()
+    }
+
     fn helper_call(
         node_index: ast::AtomicNodeIndex,
         range: TextRange,
@@ -239,6 +243,10 @@ impl RuffToBlockPyExpr for Expr {
 }
 
 impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
+    fn from_lowered_expr(expr: Expr) -> Self {
+        lower_make_function_expr(&expr).unwrap_or_else(|| expr.into())
+    }
+
     fn helper_call(
         node_index: ast::AtomicNodeIndex,
         range: TextRange,
@@ -392,9 +400,12 @@ pub(crate) trait BlockPySetupExprLowerer {
     where
         E: RuffToBlockPyExpr,
     {
-        Ok(self
-            .lower_expr_ast_into(expr, out, loop_ctx, next_label_id)?
-            .into())
+        Ok(E::from_lowered_expr(self.lower_expr_ast_into(
+            expr,
+            out,
+            loop_ctx,
+            next_label_id,
+        )?))
     }
 }
 
@@ -416,6 +427,59 @@ where
     E: RuffToBlockPyExpr,
 {
     AstSetupExprLowerer.lower_expr_into(expr, out, loop_ctx, next_label_id)
+}
+
+fn make_function_kind_from_literal(expr: &Expr) -> Option<BlockPyFunctionKind> {
+    let Expr::StringLiteral(string) = expr else {
+        return None;
+    };
+    Some(match string.value.to_str() {
+        "function" => BlockPyFunctionKind::Function,
+        "coroutine" => BlockPyFunctionKind::Coroutine,
+        "generator" => BlockPyFunctionKind::Generator,
+        "async_generator" => BlockPyFunctionKind::AsyncGenerator,
+        _ => return None,
+    })
+}
+
+fn make_function_id_from_literal(expr: &Expr) -> Option<FunctionId> {
+    let Expr::NumberLiteral(number) = expr else {
+        return None;
+    };
+    let ast::Number::Int(value) = &number.value else {
+        return None;
+    };
+    value.to_string().parse().ok().map(FunctionId)
+}
+
+fn lower_make_function_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwaitAndYield> {
+    let Expr::Call(call) = expr else {
+        return None;
+    };
+    if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 5 {
+        return None;
+    }
+    let Expr::Name(name) = call.func.as_ref() else {
+        return None;
+    };
+    if name.id.as_str() != "__dp_make_function" {
+        return None;
+    }
+    let function_id = make_function_id_from_literal(&call.arguments.args[0])?;
+    let kind = make_function_kind_from_literal(&call.arguments.args[1])?;
+    Some(core_operation_expr(
+        operation::Operation::new(operation::MakeFunction::new(
+            function_id,
+            kind,
+            Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
+                call.arguments.args[3].clone(),
+            )),
+            Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
+                call.arguments.args[4].clone(),
+            )),
+        ))
+        .with_meta(Meta::new(call.node_index.clone(), call.range)),
+    ))
 }
 
 pub(crate) fn fresh_setup_name(prefix: &str) -> String {
