@@ -23,6 +23,7 @@
 - **NOTE**: Set `DIET_PYTHON_INTEGRATION_ONLY=1` to only transform integration test modules (skip transforming all imports).
 - To inspect the transformed output of some code, run `cargo run --bin diet-python file_with_code.py`, which prints output to stdout.
 - *MUST FOLLOW* when fixing a bug that fails a cpython test case *always* add a minimal reproducing integration test to reproduce it first.
+- **MUST FOLLOW**: If a bug is caused by a structurally recognizable invalid emitted BlockPy or BB state, add a check for that state to `validate_module` so future regressions fail during validation instead of only at runtime or in the JIT.
 - **MUST FOLLOW**: Prefer `Justfile` recipes over invoking interpreters or test runners directly. `just pytest`, `just test-all`, and `just py ...` are the authoritative transformed-runtime entrypoints because they select the interpreter/environment that can import the built `_soac_ext` extension.
 - CPython source for tests is vendored at `vendor/cpython` (the scripts use `vendor/cpython/python`).
 - **MUST FOLLOW**: Only use `vendor/cpython/python` directly when there is no `Justfile` recipe for the task, or when you are explicitly debugging raw CPython behavior rather than the built `_soac_ext` extension path.
