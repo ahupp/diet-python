@@ -1858,67 +1858,8 @@ pub fn count_ruff_blockpy_blocks(module: &BlockPyModule<RuffBlockPyPass>) -> usi
     module
         .callable_defs
         .iter()
-        .map(|function| count_structured_blockpy_blocks_in_list(&function.blocks))
+        .map(|function| function.blocks.len())
         .sum()
-}
-
-fn count_structured_blockpy_blocks_in_list<S, E, N>(blocks: &[CfgBlock<S, BlockPyTerm<E>>]) -> usize
-where
-    S: IntoStructuredBlockPyStmt<E, N>,
-    E: Clone + std::fmt::Debug,
-    N: BlockPyNameLike,
-{
-    blocks
-        .iter()
-        .map(|block| {
-            1 + count_structured_blockpy_blocks_in_stmts(&block.body)
-                + count_structured_blockpy_blocks_in_term(&block.term)
-        })
-        .sum()
-}
-
-fn count_structured_blockpy_blocks_in_stmts<S, E, N>(stmts: &[S]) -> usize
-where
-    S: IntoStructuredBlockPyStmt<E, N>,
-    E: Clone + std::fmt::Debug,
-    N: BlockPyNameLike,
-{
-    stmts
-        .iter()
-        .map(|stmt| match stmt.clone().into_structured_stmt() {
-            StructuredBlockPyStmt::If(if_stmt) => {
-                count_structured_blockpy_blocks_in_fragment(&if_stmt.body)
-                    + count_structured_blockpy_blocks_in_fragment(&if_stmt.orelse)
-            }
-            StructuredBlockPyStmt::Assign(_)
-            | StructuredBlockPyStmt::Expr(_)
-            | StructuredBlockPyStmt::Delete(_) => 0,
-        })
-        .sum()
-}
-
-fn count_structured_blockpy_blocks_in_fragment<E, N>(
-    fragment: &BlockPyCfgFragment<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>,
-) -> usize
-where
-    E: Clone + std::fmt::Debug,
-    N: BlockPyNameLike,
-{
-    count_structured_blockpy_blocks_in_stmts(&fragment.body)
-        + fragment
-            .term
-            .as_ref()
-            .map_or(0, count_structured_blockpy_blocks_in_term)
-}
-
-fn count_structured_blockpy_blocks_in_term<E>(term: &BlockPyTerm<E>) -> usize {
-    match term {
-        BlockPyTerm::IfTerm(_) => 0,
-        BlockPyTerm::Jump(_)
-        | BlockPyTerm::BranchTable(_)
-        | BlockPyTerm::Raise(_)
-        | BlockPyTerm::Return(_) => 0,
-    }
 }
 
 #[cfg(test)]

@@ -1,8 +1,31 @@
 use super::{
     BlockPyAssign, BlockPyBranchTable, BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm,
-    BlockPyNameLike, BlockPyRaise, BlockPySemanticExprNode, BlockPyTerm, StructuredBlockPyStmt,
+    BlockPyNameLike, BlockPyRaise, BlockPySemanticExprNode, BlockPyStmt, BlockPyTerm,
+    StructuredBlockPyStmt,
 };
 use std::collections::HashSet;
+
+pub(super) fn assigned_names_in_linear_blockpy_stmt<E, N>(
+    stmt: &BlockPyStmt<E, N>,
+) -> HashSet<String>
+where
+    E: BlockPySemanticExprNode,
+    N: BlockPyNameLike,
+{
+    match stmt {
+        BlockPyStmt::Assign(BlockPyAssign { target, value }) => {
+            let mut names = HashSet::from([target.id_str().to_string()]);
+            collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
+            names
+        }
+        BlockPyStmt::Expr(expr) => {
+            let mut names = HashSet::new();
+            collect_named_expr_target_names_in_blockpy_expr(expr, &mut names);
+            names
+        }
+        BlockPyStmt::Delete(_) => HashSet::new(),
+    }
+}
 
 pub(super) fn assigned_names_in_blockpy_stmt<E, N>(
     stmt: &StructuredBlockPyStmt<E, N>,

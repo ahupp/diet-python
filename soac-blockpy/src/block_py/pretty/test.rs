@@ -8,15 +8,6 @@ use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
 use ruff_python_ast as ast;
 use ruff_python_parser::parse_expression;
 
-#[derive(Debug, Clone)]
-struct StructuredExprPass;
-
-impl BlockPyPass for StructuredExprPass {
-    type Name = ruff_python_ast::ExprName;
-    type Expr = Expr;
-    type Stmt = StructuredBlockPyStmt<Self::Expr>;
-}
-
 fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
     lower_python_to_blockpy_for_testing(source)
         .expect("expected lowered semantic BlockPy module")
@@ -418,16 +409,16 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
 
 #[test]
 fn collects_referenced_labels_from_nested_if_fragments_via_visitor() {
-    let referenced = collect_referenced_labels_from_blocks::<StructuredExprPass>(&[CfgBlock {
+    let referenced = collect_referenced_labels_from_structured_blocks(&[CfgBlock {
         label: label(0),
         body: vec![StructuredBlockPyStmt::If(crate::block_py::BlockPyIf {
             test: parse_blockpy_expr("cond"),
             body: BlockPyCfgFragment {
-                body: Vec::new(),
+                body: Vec::<StructuredBlockPyStmt<Expr>>::new(),
                 term: Some(BlockPyTerm::Jump(label(1).into())),
             },
             orelse: BlockPyCfgFragment {
-                body: Vec::new(),
+                body: Vec::<StructuredBlockPyStmt<Expr>>::new(),
                 term: Some(BlockPyTerm::BranchTable(super::super::BlockPyBranchTable {
                     index: parse_blockpy_expr("index"),
                     targets: vec![label(2), label(3)],

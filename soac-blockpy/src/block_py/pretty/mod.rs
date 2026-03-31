@@ -1,10 +1,10 @@
 use super::{
     BlockArg, BlockParamRole, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyNameLike, BlockPyPass,
-    BlockPyRaise, BlockPyTerm, CfgBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral,
     CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral, Expr,
-    IntoStructuredBlockPyStmt, PassBlock, PassExpr, RuffExpr, StructuredBlockPyStmt,
+    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral, Expr, PassBlock, PassExpr,
+    RuffExpr, StructuredBlockPyStmt,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
@@ -14,9 +14,6 @@ use crate::passes::{
 use crate::ruff_ast_to_string;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-
-#[cfg(test)]
-use super::BlockPyStmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum IfBranchKind {
@@ -104,7 +101,7 @@ impl<P> BlockPyPrettyPrint for BlockPyModule<P>
 where
     P: BlockPyPrettyPrinter,
     P::Expr: BlockPyDebugExprText,
-    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, P::Name>>,
 {
     fn pretty_print(&self) -> String {
         blockpy_module_to_string(self)
@@ -119,7 +116,7 @@ pub(crate) fn blockpy_module_to_string<P>(module: &BlockPyModule<P>) -> String
 where
     P: BlockPyPrettyPrinter,
     P::Expr: BlockPyDebugExprText,
-    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, P::Name>>,
 {
     let mut formatter = BlockPyFormatter::<DebugInlineExprRenderer>::default();
     formatter.write_module(module);
@@ -131,7 +128,7 @@ pub(crate) fn blockpy_module_to_debug_string<P>(module: &BlockPyModule<P>) -> St
 where
     P: BlockPyPrettyPrinter,
     P::Expr: BlockPyDebugExprText,
-    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, P::Name>>,
 {
     blockpy_module_to_string(module)
 }
@@ -182,7 +179,7 @@ impl<R> BlockPyFormatter<R> {
     fn write_module<P>(&mut self, module: &BlockPyModule<P>)
     where
         P: BlockPyPrettyPrinter,
-        P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+        P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, P::Name>>,
         R: InlineExprRenderer<PassExpr<P>>,
     {
         for function in &module.callable_defs {
@@ -196,7 +193,7 @@ impl<R> BlockPyFormatter<R> {
     fn write_function<P>(&mut self, function: &BlockPyFunction<P>)
     where
         P: BlockPyPrettyPrinter,
-        P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+        P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, P::Name>>,
         R: InlineExprRenderer<PassExpr<P>>,
     {
         let params = format_parameters(&function.params);
@@ -255,7 +252,7 @@ impl<R> BlockPyFormatter<R> {
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         P: BlockPyPrettyPrinter,
-        P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+        P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, P::Name>>,
         R: InlineExprRenderer<PassExpr<P>>,
     {
         let block = &function.blocks[block_index];
@@ -289,7 +286,7 @@ impl<R> BlockPyFormatter<R> {
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         P: BlockPyPrettyPrinter,
-        P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+        P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, P::Name>>,
         R: InlineExprRenderer<PassExpr<P>>,
     {
         if block.body.is_empty() {
@@ -302,7 +299,7 @@ impl<R> BlockPyFormatter<R> {
             );
             return;
         }
-        self.write_stmt_list(&block.body, referenced_labels);
+        self.write_linear_stmt_list(&block.body, referenced_labels);
         self.write_term(
             function,
             render_layout,
@@ -312,16 +309,18 @@ impl<R> BlockPyFormatter<R> {
         );
     }
 
-    fn write_stmt_list<S, E, N>(&mut self, stmts: &[S], referenced_labels: &HashSet<BlockPyLabel>)
-    where
-        S: IntoStructuredBlockPyStmt<E, N>,
+    fn write_linear_stmt_list<S, E, N>(
+        &mut self,
+        stmts: &[S],
+        referenced_labels: &HashSet<BlockPyLabel>,
+    ) where
+        S: Clone + Into<BlockPyStmt<E, N>>,
         E: Clone + std::fmt::Debug,
         N: BlockPyNameLike,
         R: InlineExprRenderer<E>,
     {
         for stmt in stmts {
-            let stmt = stmt.clone().into_structured_stmt();
-            self.write_stmt(&stmt, referenced_labels);
+            self.write_linear_stmt(&stmt.clone().into(), referenced_labels);
         }
     }
 
@@ -338,13 +337,49 @@ impl<R> BlockPyFormatter<R> {
             self.line("pass");
             return;
         }
-        self.write_stmt_list(&fragment.body, referenced_labels);
+        self.write_structured_stmt_list(&fragment.body, referenced_labels);
         if let Some(term) = &fragment.term {
             self.write_term_inline(term);
         }
     }
 
-    fn write_stmt<E, N>(
+    fn write_structured_stmt_list<E, N>(
+        &mut self,
+        stmts: &[StructuredBlockPyStmt<E, N>],
+        referenced_labels: &HashSet<BlockPyLabel>,
+    ) where
+        E: Clone + std::fmt::Debug,
+        N: BlockPyNameLike,
+        R: InlineExprRenderer<E>,
+    {
+        for stmt in stmts {
+            self.write_structured_stmt(stmt, referenced_labels);
+        }
+    }
+
+    fn write_linear_stmt<E, N>(
+        &mut self,
+        stmt: &BlockPyStmt<E, N>,
+        _referenced_labels: &HashSet<BlockPyLabel>,
+    ) where
+        E: Clone + std::fmt::Debug,
+        N: BlockPyNameLike,
+        R: InlineExprRenderer<E>,
+    {
+        match stmt {
+            BlockPyStmt::Assign(assign) => self.line(format!(
+                "{} = {}",
+                assign.target.pretty_id(),
+                R::render(&assign.value)
+            )),
+            BlockPyStmt::Expr(expr) => self.line(R::render(expr)),
+            BlockPyStmt::Delete(delete) => {
+                self.line(format!("del {}", delete.target.pretty_id()));
+            }
+        }
+    }
+
+    fn write_structured_stmt<E, N>(
         &mut self,
         stmt: &StructuredBlockPyStmt<E, N>,
         referenced_labels: &HashSet<BlockPyLabel>,
@@ -385,7 +420,7 @@ impl<R> BlockPyFormatter<R> {
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         P: BlockPyPrettyPrinter,
-        P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+        P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, P::Name>>,
         R: InlineExprRenderer<PassExpr<P>>,
     {
         match term {
@@ -924,11 +959,7 @@ fn render_block_arg(arg: &BlockArg) -> String {
     format!("{arg:?}")
 }
 
-fn render_blockpy_block_metadata<S, T, E, N>(block: &CfgBlock<S, T>) -> Vec<String>
-where
-    S: IntoStructuredBlockPyStmt<E, N>,
-    N: BlockPyNameLike,
-{
+fn render_blockpy_block_metadata<S, T>(block: &CfgBlock<S, T>) -> Vec<String> {
     let mut lines = Vec::new();
     if let Some(exc_param) = block.exception_param() {
         lines.push(format!("exc_param: {exc_param}"));
@@ -965,7 +996,7 @@ impl BlockRenderLayout {
     fn new<P>(function: &BlockPyFunction<P>) -> Self
     where
         P: BlockPyPrettyPrinter,
-        P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+        P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, P::Name>>,
     {
         let block_count = function.blocks.len();
         if block_count == 0 {
@@ -1116,11 +1147,11 @@ fn collect_top_level_successors_from_block<P>(
 ) -> Vec<usize>
 where
     P: BlockPyPass,
-    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, P::Name>>,
 {
     let mut successors = Vec::new();
     let mut seen = HashSet::new();
-    collect_top_level_successors_from_stmts(
+    collect_top_level_successors_from_linear_stmts(
         &block.body,
         label_to_index,
         &mut seen,
@@ -1130,43 +1161,18 @@ where
     successors
 }
 
-fn collect_top_level_successors_from_stmts<S, E, N>(
+fn collect_top_level_successors_from_linear_stmts<S, E, N>(
     stmts: &[S],
     label_to_index: &HashMap<BlockPyLabel, usize>,
     seen: &mut HashSet<usize>,
     out: &mut Vec<usize>,
 ) where
-    S: IntoStructuredBlockPyStmt<E, N>,
-    E: Clone + std::fmt::Debug,
-    N: BlockPyNameLike,
+    S: Clone + Into<BlockPyStmt<E, N>>,
 {
-    for stmt in stmts {
-        match stmt.clone().into_structured_stmt() {
-            StructuredBlockPyStmt::If(if_stmt) => {
-                collect_top_level_successors_from_stmts(
-                    &if_stmt.body.body,
-                    label_to_index,
-                    seen,
-                    out,
-                );
-                if let Some(term) = &if_stmt.body.term {
-                    collect_top_level_successors_from_term(term, label_to_index, seen, out);
-                }
-                collect_top_level_successors_from_stmts(
-                    &if_stmt.orelse.body,
-                    label_to_index,
-                    seen,
-                    out,
-                );
-                if let Some(term) = &if_stmt.orelse.term {
-                    collect_top_level_successors_from_term(term, label_to_index, seen, out);
-                }
-            }
-            StructuredBlockPyStmt::Assign(_)
-            | StructuredBlockPyStmt::Expr(_)
-            | StructuredBlockPyStmt::Delete(_) => {}
-        }
-    }
+    let _ = stmts;
+    let _ = label_to_index;
+    let _ = seen;
+    let _ = out;
 }
 
 fn collect_top_level_successors_from_term(
@@ -1331,28 +1337,79 @@ fn compute_immediate_dominators(
 fn collect_referenced_labels_from_blocks<P>(blocks: &[PassBlock<P>]) -> HashSet<BlockPyLabel>
 where
     P: BlockPyPass,
-    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
+    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, P::Name>>,
 {
-    #[derive(Default)]
-    struct ReferencedLabelCollector {
-        referenced: HashSet<BlockPyLabel>,
+    let mut referenced = HashSet::new();
+    for block in blocks {
+        if let Some(exc_edge) = &block.exc_edge {
+            referenced.insert(exc_edge.target);
+        }
+        collect_referenced_labels_from_term(&block.term, &mut referenced);
     }
+    referenced
+}
 
-    impl<P> super::BlockPyModuleVisitor<P> for ReferencedLabelCollector
-    where
-        P: BlockPyPass,
-        P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, P::Name>,
-    {
-        fn visit_label(&mut self, label: &BlockPyLabel) {
-            self.referenced.insert(label.clone());
+#[cfg(test)]
+fn collect_referenced_labels_from_structured_blocks<E, N>(
+    blocks: &[CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
+) -> HashSet<BlockPyLabel>
+where
+    E: Clone + std::fmt::Debug,
+    N: BlockPyNameLike,
+{
+    let mut referenced = HashSet::new();
+    for block in blocks {
+        if let Some(exc_edge) = &block.exc_edge {
+            referenced.insert(exc_edge.target);
+        }
+        collect_referenced_labels_from_structured_stmts(&block.body, &mut referenced);
+        collect_referenced_labels_from_term(&block.term, &mut referenced);
+    }
+    referenced
+}
+
+#[cfg(test)]
+fn collect_referenced_labels_from_structured_stmts<E, N>(
+    stmts: &[StructuredBlockPyStmt<E, N>],
+    out: &mut HashSet<BlockPyLabel>,
+) where
+    E: Clone + std::fmt::Debug,
+    N: BlockPyNameLike,
+{
+    for stmt in stmts {
+        if let StructuredBlockPyStmt::If(if_stmt) = stmt {
+            collect_referenced_labels_from_structured_stmts(&if_stmt.body.body, out);
+            if let Some(term) = &if_stmt.body.term {
+                collect_referenced_labels_from_term(term, out);
+            }
+            collect_referenced_labels_from_structured_stmts(&if_stmt.orelse.body, out);
+            if let Some(term) = &if_stmt.orelse.term {
+                collect_referenced_labels_from_term(term, out);
+            }
         }
     }
+}
 
-    let mut visitor = ReferencedLabelCollector::default();
-    for block in blocks {
-        super::walk_block::<ReferencedLabelCollector, P>(&mut visitor, block);
+fn collect_referenced_labels_from_term(
+    term: &BlockPyTerm<impl Clone>,
+    out: &mut HashSet<BlockPyLabel>,
+) {
+    match term {
+        BlockPyTerm::Jump(edge) => {
+            out.insert(edge.target);
+        }
+        BlockPyTerm::IfTerm(if_term) => {
+            out.insert(if_term.then_label);
+            out.insert(if_term.else_label);
+        }
+        BlockPyTerm::BranchTable(branch) => {
+            for label in &branch.targets {
+                out.insert(*label);
+            }
+            out.insert(branch.default_label);
+        }
+        BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
     }
-    visitor.referenced
 }
 
 #[cfg(test)]
