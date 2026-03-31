@@ -497,10 +497,6 @@ fn non_operator_operation_from_helper_call(
             Box::new(args.next()?),
         ))
         .with_meta(meta),
-        "__dp_load_cell" => operation::Operation::new(operation::LoadCell::new(
-            name_arg_from_core_expr(args.next()?)?,
-        ))
-        .with_meta(meta),
         "__dp_make_cell" => {
             operation::Operation::new(operation::MakeCell::new(Box::new(args.next()?)))
                 .with_meta(meta)
@@ -513,22 +509,9 @@ fn non_operator_operation_from_helper_call(
             operation::CellRefTarget::LogicalName(string_arg_from_core_expr(args.next()?)?),
         ))
         .with_meta(meta),
-        "__dp_store_cell" => operation::Operation::new(operation::StoreCell::new(
-            name_arg_from_core_expr(args.next()?)?,
-            Box::new(args.next()?),
-        ))
-        .with_meta(meta),
         "__dp_del_quietly" => operation::Operation::new(operation::DelQuietly::new(
             Box::new(args.next()?),
             string_arg_from_core_expr(args.next()?)?,
-        ))
-        .with_meta(meta),
-        "__dp_del_deref_quietly" => operation::Operation::new(operation::DelDerefQuietly::new(
-            name_arg_from_core_expr(args.next()?)?,
-        ))
-        .with_meta(meta),
-        "__dp_del_deref" => operation::Operation::new(operation::DelDeref::new(
-            name_arg_from_core_expr(args.next()?)?,
         ))
         .with_meta(meta),
         _ => return None,
