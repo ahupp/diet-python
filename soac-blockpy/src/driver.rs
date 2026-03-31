@@ -125,7 +125,7 @@ pub(crate) fn rewrite_module_with_tracker(
        interact with the block structure like walrus, and those that short circuit like bool ops.
 
        "def" is replaced by a call to
-       `__dp_make_function(function_id, kind, closure, param_defaults, module_globals, annotate_fn)`.
+       `__dp_make_function(function_id, kind, closure, param_defaults, annotate_fn)`.
 
        try/except are replaced by an exception handling block, and each block in the `try` has exc_edge
        set to that handler.  except block has it's own exc_edge to ensure exceptions in except

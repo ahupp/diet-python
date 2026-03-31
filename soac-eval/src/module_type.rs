@@ -4,24 +4,25 @@ use pyo3::prelude::*;
 use pyo3::types::PyAnyMethods;
 use soac_blockpy::block_py::BlockPyModule;
 use soac_blockpy::passes::CodegenBlockPyPass;
-use std::collections::HashMap;
 use std::ffi::{c_int, c_void};
 use std::mem::MaybeUninit;
 use std::ptr;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Arc;
 
 pub struct SoacExtModuleDataRef<'a> {
-    pub lowered_module: &'a BlockPyModule<CodegenBlockPyPass>,
-    pub module_name: &'a str,
-    pub package_name: &'a str,
+    pub shared_state: &'a SharedModuleState,
+}
+
+pub struct SharedModuleState {
+    pub lowered_module: BlockPyModule<CodegenBlockPyPass>,
+    pub module_name: String,
+    pub package_name: String,
 }
 
 #[repr(C)]
 struct SoacExtModuleState {
     initialized: bool,
-    lowered_module: MaybeUninit<BlockPyModule<CodegenBlockPyPass>>,
-    module_name: MaybeUninit<String>,
-    package_name: MaybeUninit<String>,
+    shared_state: MaybeUninit<Arc<SharedModuleState>>,
 }
 
 impl SoacExtModuleState {
@@ -36,9 +37,11 @@ impl SoacExtModuleState {
                 "transformed module state was unexpectedly initialized twice",
             ));
         }
-        self.lowered_module.write(lowered_module);
-        self.module_name.write(module_name);
-        self.package_name.write(package_name);
+        self.shared_state.write(Arc::new(SharedModuleState {
+            lowered_module,
+            module_name,
+            package_name,
+        }));
         self.initialized = true;
         Ok(())
     }
@@ -47,11 +50,7 @@ impl SoacExtModuleState {
         if !self.initialized {
             return;
         }
-        unsafe {
-            ptr::drop_in_place(self.lowered_module.as_mut_ptr());
-            ptr::drop_in_place(self.module_name.as_mut_ptr());
-            ptr::drop_in_place(self.package_name.as_mut_ptr());
-        }
+        unsafe { ptr::drop_in_place(self.shared_state.as_mut_ptr()) };
         self.initialized = false;
     }
 
@@ -62,51 +61,17 @@ impl SoacExtModuleState {
             ));
         }
         Ok(SoacExtModuleDataRef {
-            lowered_module: unsafe { self.lowered_module.assume_init_ref() },
-            module_name: unsafe { self.module_name.assume_init_ref().as_str() },
-            package_name: unsafe { self.package_name.assume_init_ref().as_str() },
+            shared_state: unsafe { self.shared_state.assume_init_ref().as_ref() },
         })
     }
-}
 
-fn globals_to_module_registry() -> &'static Mutex<HashMap<usize, usize>> {
-    static REGISTRY: OnceLock<Mutex<HashMap<usize, usize>>> = OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-unsafe fn register_module_globals_dict(module: *mut ffi::PyObject) -> PyResult<()> {
-    let globals = unsafe { ffi::PyModule_GetDict(module) };
-    if globals.is_null() {
-        if unsafe { ffi::PyErr_Occurred() }.is_null() {
+    unsafe fn clone_shared_state(&self) -> PyResult<Arc<SharedModuleState>> {
+        if !self.initialized {
             return Err(PyRuntimeError::new_err(
-                "failed to fetch module globals for transformed module",
+                "missing transformed-module lowering data in module state",
             ));
         }
-        return Err(PyErr::fetch(Python::assume_attached()));
-    }
-    let mut registry = globals_to_module_registry()
-        .lock()
-        .expect("transformed-module globals registry mutex poisoned");
-    registry.insert(globals as usize, module as usize);
-    Ok(())
-}
-
-unsafe fn unregister_module_globals_dict(module: *mut ffi::PyObject) {
-    let globals = unsafe { ffi::PyModule_GetDict(module) };
-    if globals.is_null() {
-        unsafe { ffi::PyErr_Clear() };
-        return;
-    }
-    let mut registry = globals_to_module_registry()
-        .lock()
-        .expect("transformed-module globals registry mutex poisoned");
-    let globals_key = globals as usize;
-    if registry
-        .get(&globals_key)
-        .copied()
-        .is_some_and(|registered| registered == module as usize)
-    {
-        registry.remove(&globals_key);
+        Ok(unsafe { self.shared_state.assume_init_ref().clone() })
     }
 }
 
@@ -121,7 +86,6 @@ unsafe extern "C" fn soac_ext_module_clear(module: *mut ffi::PyObject) -> c_int 
 
 unsafe extern "C" fn soac_ext_module_free(module: *mut c_void) {
     unsafe {
-        unregister_module_globals_dict(module.cast());
         soac_ext_module_clear(module.cast());
     }
 }
@@ -166,21 +130,6 @@ fn soac_ext_module_state(module: &Bound<'_, PyAny>) -> PyResult<*mut SoacExtModu
     }
 }
 
-unsafe fn raw_soac_ext_module_state(
-    module: *mut ffi::PyObject,
-) -> Result<*mut SoacExtModuleState, &'static str> {
-    let module_def = unsafe { ffi::PyModule_GetDef(module) };
-    if module_def != soac_ext_module_def() {
-        return Err("expected a module created via _soac_ext.create_module");
-    }
-    let state = unsafe { ffi::PyModule_GetState(module) }.cast::<SoacExtModuleState>();
-    if state.is_null() {
-        Err("missing _soac_ext module state for transformed module")
-    } else {
-        Ok(state)
-    }
-}
-
 pub struct SoacExtModule;
 
 impl SoacExtModule {
@@ -209,7 +158,6 @@ impl SoacExtModule {
         let state = soac_ext_module_state(&module)?;
         unsafe {
             (*state).init(lowered_module, module_name, package_name)?;
-            register_module_globals_dict(module.as_ptr())?;
         }
         Ok(module.unbind())
     }
@@ -222,19 +170,8 @@ impl SoacExtModule {
         unsafe { f((*state).data()?) }
     }
 
-    pub unsafe fn raw_state_ptr(module: *mut ffi::PyObject) -> Result<*mut c_void, &'static str> {
-        Ok(unsafe { raw_soac_ext_module_state(module) }?.cast::<c_void>())
-    }
-
-    pub unsafe fn raw_module_ptr_for_globals(
-        globals: *mut ffi::PyObject,
-    ) -> Option<*mut ffi::PyObject> {
-        let registry = globals_to_module_registry()
-            .lock()
-            .expect("transformed-module globals registry mutex poisoned");
-        registry
-            .get(&(globals as usize))
-            .copied()
-            .map(|module| module as *mut ffi::PyObject)
+    pub fn clone_shared_state(module: &Bound<'_, PyAny>) -> PyResult<Arc<SharedModuleState>> {
+        let state = soac_ext_module_state(module)?;
+        unsafe { (*state).clone_shared_state() }
     }
 }

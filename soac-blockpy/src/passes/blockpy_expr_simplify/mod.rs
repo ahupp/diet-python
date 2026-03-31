@@ -558,7 +558,7 @@ fn lower_core_call_expr_with_meta(
 ) -> CoreBlockPyExprWithAwaitAndYield {
     if keywords.is_empty() {
         if let Expr::Name(name) = &func {
-            if name.id.as_str() == "__dp_make_function" && args.len() == 6 {
+            if name.id.as_str() == "__dp_make_function" && args.len() == 5 {
                 if let (Some(function_id), Some(kind)) = (
                     make_function_id_from_literal(&args[0]),
                     make_function_kind_from_literal(&args[1]),
@@ -569,7 +569,6 @@ fn lower_core_call_expr_with_meta(
                             kind,
                             Box::new(CoreBlockPyExprWithAwaitAndYield::from(args[3].clone())),
                             Box::new(CoreBlockPyExprWithAwaitAndYield::from(args[4].clone())),
-                            Box::new(CoreBlockPyExprWithAwaitAndYield::from(args[5].clone())),
                         ))
                         .with_meta(Meta::new(node_index, range)),
                     );

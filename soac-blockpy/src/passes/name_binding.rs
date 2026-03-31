@@ -963,7 +963,6 @@ impl NameBindingMapper<'_> {
                 captures_expr,
                 self.map_expr(*op.arg0),
                 self.map_expr(*op.arg1),
-                self.map_expr(*op.arg2),
             ],
         )
     }

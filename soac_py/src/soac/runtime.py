@@ -1180,14 +1180,12 @@ def make_function(
     kind,
     captures,
     param_defaults,
-    module_globals=None,
     annotate_fn=None,
 ):
     func = _jit_make_bb_function(
         function_id,
         captures,
         param_defaults,
-        module_globals,
         annotate_fn,
     )
     if kind == "coroutine":
@@ -1196,16 +1194,16 @@ def make_function(
     return func
 
 
-def make_closure_generator(function_id, resume, module_globals=None):
-    return _jit_make_bb_generator(function_id, resume, module_globals, async_gen=False)
+def make_closure_generator(function_id, resume):
+    return _jit_make_bb_generator(function_id, resume, async_gen=False)
 
 
 def make_coroutine_from_generator(gen):
     return _DpCoroutine(gen)
 
 
-def make_closure_async_generator(function_id, resume, module_globals=None):
-    return _jit_make_bb_generator(function_id, resume, module_globals, async_gen=True)
+def make_closure_async_generator(function_id, resume):
+    return _jit_make_bb_generator(function_id, resume, async_gen=True)
 
 
 def decode_literal_bytes(value):

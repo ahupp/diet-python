@@ -189,7 +189,6 @@ fn core_make_function(
     function_id: FunctionId,
     kind: BlockPyFunctionKind,
     param_defaults: CoreBlockPyExpr,
-    module_globals: CoreBlockPyExpr,
     annotate_fn: CoreBlockPyExpr,
 ) -> CoreBlockPyExpr {
     core_operation_expr(
@@ -197,7 +196,6 @@ fn core_make_function(
             function_id,
             kind,
             Box::new(param_defaults),
-            Box::new(module_globals),
             Box::new(annotate_fn),
         ))
         .with_meta(Meta::synthetic()),
@@ -441,7 +439,6 @@ fn build_factory_block(
         resume_function_id,
         BlockPyFunctionKind::Function,
         core_call("__dp_tuple", Vec::new()),
-        core_call("__dp_globals", Vec::new()),
         core_none(),
     );
 
@@ -451,7 +448,6 @@ fn build_factory_block(
             vec![
                 core_expr_without_yield(py_expr!("{value:literal}", value = visible_function_id.0)),
                 resume_entry,
-                core_expr_without_yield(py_expr!("__dp_globals()")),
             ],
         ),
         BlockPyFunctionKind::Coroutine => core_call(
@@ -464,7 +460,6 @@ fn build_factory_block(
                         value = visible_function_id.0
                     )),
                     resume_entry,
-                    core_expr_without_yield(py_expr!("__dp_globals()")),
                 ],
             )],
         ),
@@ -473,7 +468,6 @@ fn build_factory_block(
             vec![
                 core_expr_without_yield(py_expr!("{value:literal}", value = visible_function_id.0)),
                 resume_entry,
-                core_expr_without_yield(py_expr!("__dp_globals()")),
             ],
         ),
         BlockPyFunctionKind::Function => {

@@ -39,8 +39,8 @@ class C:
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
 #         x = 1
-#         m = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
-#         __annotate_func__ = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(runtime), __dp_globals(), None)
+#         m = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
+#         __annotate_func__ = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(runtime), None)
 #         return __dp_NONE
 
 # function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
@@ -52,8 +52,8 @@ class C:
 # function _dp_module_init():
 #     function_id: 4
 #     block bb1:
-#         _dp_class_ns_C = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
-#         _dp_define_class_C = __dp_make_function(3, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
+#         _dp_class_ns_C = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(), None)
+#         _dp_define_class_C = __dp_make_function(3, "function", __dp_tuple(), __dp_tuple(None), None)
 #         C = _dp_define_class_C(_dp_class_ns_C, globals())
 #         return __dp_NONE
 
@@ -78,7 +78,7 @@ class Wrapper:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "Wrapper")
-#         open = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple("r", "utf8"), __dp_globals(), None)
+#         open = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple("r", "utf8"), None)
 #         return __dp_NONE
 
 # function _dp_define_class_Wrapper(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
@@ -90,8 +90,8 @@ class Wrapper:
 # function _dp_module_init():
 #     function_id: 3
 #     block bb1:
-#         _dp_class_ns_Wrapper = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
-#         _dp_define_class_Wrapper = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
+#         _dp_class_ns_Wrapper = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(), None)
+#         _dp_define_class_Wrapper = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(None), None)
 #         Wrapper = _dp_define_class_Wrapper(_dp_class_ns_Wrapper, globals())
 #         return __dp_NONE
 
@@ -121,8 +121,8 @@ class D(Base):
 # function _dp_module_init():
 #     function_id: 2
 #     block bb1:
-#         _dp_class_ns_D = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
-#         _dp_define_class_D = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
+#         _dp_class_ns_D = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
+#         _dp_define_class_D = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(None), None)
 #         D = _dp_define_class_D(_dp_class_ns_D, globals())
 #         return __dp_NONE
 
@@ -159,15 +159,15 @@ def outer():
 #     function_id: 2
 #     block bb1:
 #         x = "outer"
-#         _dp_class_ns_Inner = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
-#         _dp_define_class_Inner = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
+#         _dp_class_ns_Inner = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
+#         _dp_define_class_Inner = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(None), None)
 #         Inner = _dp_define_class_Inner(_dp_class_ns_Inner, globals())
 #         return Inner.y
 
 # function _dp_module_init():
 #     function_id: 3
 #     block bb1:
-#         outer = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
+#         outer = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(), None)
 #         return __dp_NONE
 
 # class_super_empty_classcell
@@ -195,7 +195,7 @@ class X:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "X")
-#         f = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
+#         f = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
 #         return __dp_NONE
 
 # function _dp_define_class_X(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
@@ -207,8 +207,8 @@ class X:
 # function _dp_module_init():
 #     function_id: 3
 #     block bb1:
-#         _dp_class_ns_X = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
-#         _dp_define_class_X = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
+#         _dp_class_ns_X = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(), None)
+#         _dp_define_class_X = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(None), None)
 #         X = _dp_define_class_X(_dp_class_ns_X, globals())
 #         return __dp_NONE
 
@@ -242,8 +242,8 @@ class A:
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "A")
-#         _dp_class_ns_B = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
-#         _dp_define_class_B = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
+#         _dp_class_ns_B = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
+#         _dp_define_class_B = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(None), None)
 #         B = _dp_define_class_B(_dp_class_ns_B, _dp_class_ns)
 #         return __dp_NONE
 
@@ -256,8 +256,8 @@ class A:
 # function _dp_module_init():
 #     function_id: 4
 #     block bb1:
-#         _dp_class_ns_A = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
-#         _dp_define_class_A = __dp_make_function(3, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
+#         _dp_class_ns_A = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(), None)
+#         _dp_define_class_A = __dp_make_function(3, "function", __dp_tuple(), __dp_tuple(None), None)
 #         A = _dp_define_class_A(_dp_class_ns_A, globals())
 #         return __dp_NONE
 
@@ -294,8 +294,8 @@ def foo():
 #         _dp_classcell = _dp_classcell_arg
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
 #         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "foo.<locals>.A")
-#         _dp_class_ns_B = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
-#         _dp_define_class_B = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
+#         _dp_class_ns_B = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
+#         _dp_define_class_B = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(None), None)
 #         B = _dp_define_class_B(_dp_class_ns_B, _dp_class_ns)
 #         return __dp_NONE
 
@@ -308,13 +308,13 @@ def foo():
 # function foo():
 #     function_id: 4
 #     block bb1:
-#         _dp_class_ns_A = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
-#         _dp_define_class_A = __dp_make_function(3, "function", __dp_tuple(), __dp_tuple(None), __dp_globals(), None)
+#         _dp_class_ns_A = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(), None)
+#         _dp_define_class_A = __dp_make_function(3, "function", __dp_tuple(), __dp_tuple(None), None)
 #         A = _dp_define_class_A(_dp_class_ns_A, globals())
 #         return __dp_NONE
 
 # function _dp_module_init():
 #     function_id: 5
 #     block bb1:
-#         foo = __dp_make_function(4, "function", __dp_tuple(), __dp_tuple(), __dp_globals(), None)
+#         foo = __dp_make_function(4, "function", __dp_tuple(), __dp_tuple(), None)
 #         return __dp_NONE

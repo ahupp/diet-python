@@ -658,7 +658,6 @@ where
                 format!("{:?}", op.kind),
                 op.arg0.debug_expr_text(),
                 op.arg1.debug_expr_text(),
-                op.arg2.debug_expr_text(),
             ],
         ),
         crate::block_py::OperationDetail::GetAttr(op) => debug_tuple_text(

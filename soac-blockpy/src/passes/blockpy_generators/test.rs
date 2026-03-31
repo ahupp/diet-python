@@ -38,19 +38,19 @@ fn build_closure_backed_generator_factory_block(
     is_async_generator: bool,
 ) -> crate::block_py::BlockPyBlock<Expr> {
     let resume_entry = py_expr!(
-            "__dp_make_function({function_id:literal}, \"function\", __dp_tuple(), __dp_tuple(), __dp_globals(), None)",
-            function_id = resume_function_id.0,
-        );
+        "__dp_make_function({function_id:literal}, \"function\", __dp_tuple(), __dp_tuple(), None)",
+        function_id = resume_function_id.0,
+    );
 
     let generator_expr = if is_async_generator {
         py_expr!(
-                "__dp_make_closure_async_generator({function_id:literal}, {resume:expr}, __dp_globals())",
-                function_id = visible_function_id.0,
-                resume = resume_entry,
-            )
+            "__dp_make_closure_async_generator({function_id:literal}, {resume:expr})",
+            function_id = visible_function_id.0,
+            resume = resume_entry,
+        )
     } else {
         py_expr!(
-            "__dp_make_closure_generator({function_id:literal}, {resume:expr}, __dp_globals())",
+            "__dp_make_closure_generator({function_id:literal}, {resume:expr})",
             function_id = visible_function_id.0,
             resume = resume_entry,
         )

@@ -601,7 +601,6 @@ define_operation_node! {
         kind: BlockPyFunctionKind => value,
         arg0: Box<E> => expr,
         arg1: Box<E> => expr,
-        arg2: Box<E> => expr,
     }
 }
 

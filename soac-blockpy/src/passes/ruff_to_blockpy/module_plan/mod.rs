@@ -131,12 +131,11 @@ fn build_lowered_function_instantiation_expr(
         BlockPyFunctionKind::AsyncGenerator => "async_generator",
     };
     let base_function_expr = py_expr!(
-        "__dp_make_function({function_id:literal}, {kind:literal}, {closure:expr}, {param_defaults:expr}, {module_globals:expr}, {annotate_fn:expr})",
+        "__dp_make_function({function_id:literal}, {kind:literal}, {closure:expr}, {param_defaults:expr}, {annotate_fn:expr})",
         function_id = function_id.0,
         kind = kind_name,
         closure = py_expr!("__dp_tuple()"),
         param_defaults = param_defaults_expr.clone(),
-        module_globals = py_expr!("__dp_globals()"),
         annotate_fn = annotate_fn_expr.clone(),
     );
     rewrite_stmt::decorator::rewrite_exprs(decorator_exprs, base_function_expr)

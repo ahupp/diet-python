@@ -31,11 +31,11 @@ pub use planning::{
 };
 pub use specialized_helpers::ObjPtr;
 use specialized_helpers::{dp_jit_decref, register_specialized_jit_symbols};
-pub use vmctx::JitModuleVmCtx;
 use vmctx::{
     DELETED_OBJ_OFFSET, EMPTY_TUPLE_OBJ_OFFSET, FALSE_OBJ_OFFSET, GLOBALS_OBJ_OFFSET,
     NONE_OBJ_OFFSET, TRUE_OBJ_OFFSET,
 };
+pub use vmctx::{JitModuleVmCtx, ModuleRuntimeContext};
 
 static INCREMENTAL_CLIF_CACHE: OnceLock<Mutex<HashMap<Vec<u8>, Vec<u8>>>> = OnceLock::new();
 static NEXT_IMPORT_SPEC_ID: AtomicUsize = AtomicUsize::new(0);

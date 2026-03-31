@@ -79,16 +79,22 @@ fn register_clif_vectorcall_raw(
     func: &Bound<'_, PyAny>,
     module_name: &str,
     function_id: FunctionId,
+    module_runtime: soac_eval::jit::ModuleRuntimeContext,
 ) -> PyResult<()> {
     unsafe {
-        soac_eval::tree_walk::register_clif_vectorcall(func.as_ptr(), module_name, function_id.0)
-            .map_err(|_| {
-                if ffi::PyErr_Occurred().is_null() {
-                    PyRuntimeError::new_err("failed to register CLIF vectorcall")
-                } else {
-                    PyErr::fetch(py)
-                }
-            })
+        soac_eval::tree_walk::register_clif_vectorcall(
+            func.as_ptr(),
+            module_name,
+            function_id.0,
+            module_runtime,
+        )
+        .map_err(|_| {
+            if ffi::PyErr_Occurred().is_null() {
+                PyRuntimeError::new_err("failed to register CLIF vectorcall")
+            } else {
+                PyErr::fetch(py)
+            }
+        })
     }
 }
 
@@ -140,8 +146,19 @@ fn register_lazy_clif_vectorcall(
     func: &Bound<'_, PyAny>,
     module_name: &str,
     function_id: FunctionId,
+    module_runtime: &soac_eval::jit::ModuleRuntimeContext,
 ) -> PyResult<()> {
-    match register_clif_vectorcall_raw(py, func, module_name, function_id) {
+    let owned_runtime =
+        unsafe { soac_eval::tree_walk::clone_module_runtime_context(module_runtime) }.map_err(
+            |_| {
+                if unsafe { ffi::PyErr_Occurred() }.is_null() {
+                    PyRuntimeError::new_err("failed to clone module runtime context")
+                } else {
+                    PyErr::fetch(py)
+                }
+            },
+        )?;
+    match register_clif_vectorcall_raw(py, func, module_name, function_id, owned_runtime) {
         Ok(()) => maybe_eager_compile_clif_entry(py, func, module_name, function_id),
         Err(err) if err.is_instance_of::<PyNotImplementedError>(py) => Err(err),
         Err(err) => Err(PyRuntimeError::new_err(format!(
@@ -238,6 +255,36 @@ fn resolve_module_package(module_globals: &Bound<'_, PyAny>, operation: &str) ->
             "JIT basic-block {operation} requires module_globals['__package__'] to be a str"
         ))
     })
+}
+
+fn module_globals_from_runtime<'py>(
+    py: Python<'py>,
+    module_runtime: &soac_eval::jit::ModuleRuntimeContext,
+    operation: &str,
+) -> PyResult<Bound<'py, PyAny>> {
+    let globals_ptr = module_runtime.vmctx.globals_obj as *mut ffi::PyObject;
+    if globals_ptr.is_null() {
+        return Err(PyRuntimeError::new_err(format!(
+            "JIT basic-block {operation} requires module runtime globals"
+        )));
+    }
+    Ok(unsafe { Bound::from_borrowed_ptr(py, globals_ptr) })
+}
+
+fn module_name_from_runtime(
+    module_runtime: &soac_eval::jit::ModuleRuntimeContext,
+    operation: &str,
+) -> PyResult<String> {
+    let module_name = module_runtime
+        .shared_module_state_owner
+        .module_name
+        .as_str();
+    if module_name.is_empty() {
+        return Err(PyRuntimeError::new_err(format!(
+            "JIT basic-block {operation} requires shared module state"
+        )));
+    }
+    Ok(module_name.to_string())
 }
 
 fn lookup_bb_function(
@@ -525,6 +572,7 @@ fn instantiate_bb_function(
     param_defaults: &Bound<'_, PyAny>,
     module_globals: &Bound<'_, PyAny>,
     annotate_fn: &Bound<'_, PyAny>,
+    module_runtime: &soac_eval::jit::ModuleRuntimeContext,
 ) -> PyResult<Py<PyAny>> {
     let signature = build_bb_signature(py, function, param_defaults)?;
     let (raw_entry, entry) = instantiate_closure_backed_entry(
@@ -534,6 +582,7 @@ fn instantiate_bb_function(
         function,
         captures,
         module_globals,
+        module_runtime,
         function.names.display_name.as_str(),
         function.names.qualname.as_str(),
     )?;
@@ -573,12 +622,19 @@ fn instantiate_closure_backed_entry<'py>(
     function: &BlockPyFunction<CodegenBlockPyPass>,
     captures: &Bound<'py, PyAny>,
     module_globals: &Bound<'py, PyAny>,
+    module_runtime: &soac_eval::jit::ModuleRuntimeContext,
     entry_name: &str,
     qualname: &str,
 ) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
     let (captured_names, closure_values) = build_capture_map(py, captures)?;
     let raw_entry = make_lazy_clif_entry(py, dp, entry_name, module_globals)?;
-    register_lazy_clif_vectorcall(py, &raw_entry, module_name, function.function_id)?;
+    register_lazy_clif_vectorcall(
+        py,
+        &raw_entry,
+        module_name,
+        function.function_id,
+        module_runtime,
+    )?;
     let entry = build_wrapped_entry(
         py,
         dp,
@@ -597,23 +653,37 @@ fn make_bb_function(
     function_id: usize,
     captures: Py<PyAny>,
     param_defaults: Py<PyAny>,
-    module_globals: Py<PyAny>,
     annotate_fn: Py<PyAny>,
 ) -> PyResult<Py<PyAny>> {
     let dp = import_dp_module(py)?;
-    let module_globals = module_globals.bind(py);
-    let module_name = resolve_module_name(&module_globals, "function instantiation")?;
-    let function = lookup_bb_function(&module_name, function_id, "function instantiation")?;
-    instantiate_bb_function(
-        py,
-        &dp,
-        &module_name,
-        &function,
-        captures.bind(py).as_any(),
-        param_defaults.bind(py).as_any(),
-        &module_globals,
-        annotate_fn.bind(py),
-    )
+    unsafe {
+        soac_eval::tree_walk::with_current_module_runtime_context(|module_runtime| {
+            let module_globals =
+                module_globals_from_runtime(py, module_runtime, "function instantiation")?;
+            let module_name = module_name_from_runtime(module_runtime, "function instantiation")?;
+            let function = lookup_bb_function(&module_name, function_id, "function instantiation")?;
+            instantiate_bb_function(
+                py,
+                &dp,
+                &module_name,
+                &function,
+                captures.bind(py).as_any(),
+                param_defaults.bind(py).as_any(),
+                &module_globals,
+                annotate_fn.bind(py),
+                module_runtime,
+            )
+        })
+        .map_err(|_| {
+            if ffi::PyErr_Occurred().is_null() {
+                PyRuntimeError::new_err(
+                    "function instantiation requires an active module runtime context",
+                )
+            } else {
+                PyErr::fetch(py)
+            }
+        })?
+    }
 }
 
 #[pyfunction]
@@ -632,19 +702,32 @@ fn exec_module(py: Python<'_>, module: Py<PyAny>) -> PyResult<()> {
     SoacExtModule::with_data(module.as_any(), |module_data| {
         let module_name = resolve_module_name(&module_globals, "module execution")?;
         assert_eq!(
-            module_name, module_data.module_name,
+            module_name, module_data.shared_state.module_name,
             "module.__dict__['__name__'] did not match the module spec captured at create_module time"
         );
         let package_name = resolve_module_package(&module_globals, "module execution")?;
         assert_eq!(
-            package_name, module_data.package_name,
+            package_name, module_data.shared_state.package_name,
             "module.__dict__['__package__'] did not match the module spec captured at create_module time"
         );
-        register_blockpy_module_plans(&module_name, &module_data.lowered_module)?;
-        let function = lookup_module_init_function(&module_data.lowered_module, &module_name)?;
+        register_blockpy_module_plans(&module_name, &module_data.shared_state.lowered_module)?;
+        let function =
+            lookup_module_init_function(&module_data.shared_state.lowered_module, &module_name)?;
         let dp = import_dp_module(py)?;
         let empty = PyTuple::empty(py);
         let none = py.None();
+        let mut module_runtime = unsafe {
+            soac_eval::tree_walk::build_module_runtime_context_for_module(module.as_ptr())
+        }
+        .map_err(|_| {
+            if unsafe { ffi::PyErr_Occurred() }.is_null() {
+                PyRuntimeError::new_err(
+                    "failed to build module runtime context for module execution",
+                )
+            } else {
+                PyErr::fetch(py)
+            }
+        })?;
         let module_init = instantiate_bb_function(
             py,
             &dp,
@@ -654,45 +737,63 @@ fn exec_module(py: Python<'_>, module: Py<PyAny>) -> PyResult<()> {
             empty.as_any(),
             &module_globals,
             none.bind(py),
+            &module_runtime,
         )?;
-        module_init.call0(py)?;
+        let result = unsafe {
+            soac_eval::tree_walk::with_active_module_runtime_context(
+                std::ptr::addr_of_mut!(module_runtime),
+                || module_init.call0(py),
+            )
+        };
+        result?;
         Ok(())
     })
 }
 
 #[pyfunction]
-#[pyo3(signature = (function_id, resume, module_globals, async_gen=false))]
+#[pyo3(signature = (function_id, resume, async_gen=false))]
 fn make_bb_generator(
     py: Python<'_>,
     function_id: usize,
     resume: Py<PyAny>,
-    module_globals: Py<PyAny>,
     async_gen: bool,
 ) -> PyResult<Py<PyAny>> {
     let dp = import_dp_module(py)?;
-    let module_globals = module_globals.bind(py);
     let operation = if async_gen {
         "async generator construction"
     } else {
         "generator construction"
     };
-    let module_name = resolve_module_name(&module_globals, operation)?;
-    let function = lookup_bb_function(&module_name, function_id, operation)?;
-    let name = function.names.display_name.clone();
-    let qualname = function.names.qualname.clone();
-    let code = build_generator_code(py, &dp, async_gen, name.as_str(), qualname.as_str())?;
-    let kwargs = PyDict::new(py);
-    kwargs.set_item("resume", resume.bind(py))?;
-    kwargs.set_item("name", name.as_str())?;
-    kwargs.set_item("qualname", qualname.as_str())?;
-    kwargs.set_item("code", code)?;
-    let cls_name = if async_gen {
-        "_DpClosureAsyncGenerator"
-    } else {
-        "_DpClosureGenerator"
-    };
-    let generator = dp.getattr(cls_name)?.call((), Some(&kwargs))?;
-    Ok(generator.unbind())
+    unsafe {
+        soac_eval::tree_walk::with_current_module_runtime_context(|module_runtime| {
+            let module_name = module_name_from_runtime(module_runtime, operation)?;
+            let function = lookup_bb_function(&module_name, function_id, operation)?;
+            let name = function.names.display_name.clone();
+            let qualname = function.names.qualname.clone();
+            let code = build_generator_code(py, &dp, async_gen, name.as_str(), qualname.as_str())?;
+            let kwargs = PyDict::new(py);
+            kwargs.set_item("resume", resume.bind(py))?;
+            kwargs.set_item("name", name.as_str())?;
+            kwargs.set_item("qualname", qualname.as_str())?;
+            kwargs.set_item("code", code)?;
+            let cls_name = if async_gen {
+                "_DpClosureAsyncGenerator"
+            } else {
+                "_DpClosureGenerator"
+            };
+            let generator = dp.getattr(cls_name)?.call((), Some(&kwargs))?;
+            Ok(generator.unbind())
+        })
+        .map_err(|_| {
+            if ffi::PyErr_Occurred().is_null() {
+                PyRuntimeError::new_err(format!(
+                    "{operation} requires an active module runtime context"
+                ))
+            } else {
+                PyErr::fetch(py)
+            }
+        })?
+    }
 }
 
 pub(crate) fn add_module_functions(module: &Bound<'_, PyModule>) -> PyResult<()> {
