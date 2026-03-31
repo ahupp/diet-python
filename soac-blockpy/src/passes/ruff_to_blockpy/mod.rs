@@ -38,7 +38,10 @@ pub(crate) use bb_shape::{
     lower_structured_blocks_to_bb_blocks, lowered_exception_edges, populate_exception_edge_args,
     rewrite_current_exception_in_core_blocks,
 };
-pub(crate) use module_plan::rewrite_ast_to_lowered_blockpy_module_plan_with_module;
+pub(crate) use module_plan::{
+    rewrite_ast_to_core_blockpy_module_plan_with_module,
+    rewrite_ast_to_lowered_blockpy_module_plan_with_module,
+};
 
 pub(crate) use compat::{
     compat_block_from_blockpy, compat_block_from_blockpy_with_exc_target, emit_for_loop_blocks,
@@ -73,13 +76,12 @@ pub(crate) fn rewrite_ast_to_core_blockpy_module_with_module(
     semantic_state: &crate::passes::ast_to_ast::semantic::SemanticAstState,
     module_name_gen: crate::block_py::ModuleNameGen,
 ) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
-    let semantic_module = rewrite_ast_to_lowered_blockpy_module_plan_with_module(
+    rewrite_ast_to_core_blockpy_module_plan_with_module(
         context,
         module,
         semantic_state,
         module_name_gen,
-    );
-    lower_blockpy_module_exprs_to_core(semantic_module)
+    )
 }
 
 #[derive(Debug, Clone)]
