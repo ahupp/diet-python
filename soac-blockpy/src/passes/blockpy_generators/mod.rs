@@ -685,19 +685,11 @@ fn completion_raise(
 fn push_completion_raise_block(
     state: &mut ResumeLoweringState,
     label: BlockPyLabel,
-    mut body: Vec<LinearCoreStmt>,
+    body: Vec<LinearCoreStmt>,
     value: Option<CoreBlockPyExpr>,
     params: Vec<BlockParam>,
     exc_target: Option<BlockPyLabel>,
 ) {
-    body.push(BlockPyStmt::Assign(BlockPyAssign {
-        target: expr_name("_dp_pc"),
-        value: core_literal_int(0),
-    }));
-    body.push(BlockPyStmt::Assign(BlockPyAssign {
-        target: expr_name("_dp_yieldfrom"),
-        value: core_none(),
-    }));
     let completion_label = state.fresh_label("resume_complete");
     state.push_block(
         BlockPyBlock {
@@ -1475,16 +1467,7 @@ fn lower_resume_blocks(
     blocks.append(&mut state.blocks);
     blocks.push(LinearCoreBlock {
         label: state.exhausted_label.clone(),
-        body: vec![
-            BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name("_dp_pc"),
-                value: core_literal_int(0),
-            }),
-            BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name("_dp_yieldfrom"),
-                value: core_none(),
-            }),
-        ],
+        body: Vec::new(),
         term: completion_raise(state.kind, None),
         params: Vec::new(),
         exc_edge: None,

@@ -429,24 +429,6 @@ def raise_uncaught_async_generator_exception(exc):
     raise exc
 
 
-def _dp_closed_generator_resume(_gen, _send_value, _resume_exc):
-    raise StopIteration
-
-
-def _dp_closed_async_generator_resume(_gen, _send_value, _resume_exc, _transport_sent):
-    raise _DpAsyncGenComplete
-
-
-def _dp_clear_owner_state(owner, *, async_gen):
-    if hasattr(owner, "_pc"):
-        owner._pc = 0
-    if hasattr(owner, "gi_frame"):
-        owner.gi_frame = None
-    owner._dp_resume = (
-        _dp_closed_async_generator_resume if async_gen else _dp_closed_generator_resume
-    )
-
-
 def _dp_is_cancelled_error(exc):
     asyncio_mod = sys.modules.get("asyncio")
     if asyncio_mod is None:
@@ -459,6 +441,11 @@ def _dp_reraise_control_flow(exc):
     if isinstance(exc, GeneratorExit) or _dp_is_cancelled_error(exc):
         raise exc.with_traceback(None)
     raise exc
+
+
+def _dp_mark_closed(owner):
+    owner._dp_closed = True
+    owner._dp_resume = None
 
 
 def _attach_throw_context_from_state(state, exc):
@@ -488,6 +475,7 @@ def _attach_throw_context_from_state(state, exc):
 class _DpClosureGenerator:
     __slots__ = (
         "_dp_resume",
+        "_dp_closed",
         "__name__",
         "__qualname__",
         "gi_code",
@@ -502,6 +490,7 @@ class _DpClosureGenerator:
         code,
     ):
         self._dp_resume = resume
+        self._dp_closed = False
         self.__name__ = name
         self.__qualname__ = qualname
         self.gi_code = code
@@ -513,10 +502,12 @@ class _DpClosureGenerator:
         return self.send(None)
 
     def send(self, value):
+        if self._dp_closed:
+            raise StopIteration
         try:
             return self._dp_resume(self, value, NO_DEFAULT)
         except BaseException as exc:
-            _dp_clear_owner_state(self, async_gen=False)
+            _dp_mark_closed(self)
             _dp_reraise_control_flow(exc)
 
     def throw(self, typ=None, val=None, tb=None):
@@ -525,14 +516,18 @@ class _DpClosureGenerator:
                 "DpGen.throw() does not support value/traceback in this mode"
             )
         exc = raise_from(typ, None)
+        if self._dp_closed:
+            _dp_reraise_control_flow(exc)
         _attach_throw_context_from_state(self, exc)
         try:
             return self._dp_resume(self, NO_DEFAULT, exc)
         except BaseException as exc:
-            _dp_clear_owner_state(self, async_gen=False)
+            _dp_mark_closed(self)
             _dp_reraise_control_flow(exc)
 
     def close(self):
+        if self._dp_closed:
+            return None
         try:
             self.throw(GeneratorExit)
         except (GeneratorExit, StopIteration):
@@ -592,6 +587,7 @@ class _DpCoroutine(_abc.Coroutine):
 class _DpClosureAsyncGenerator:
     __slots__ = (
         "_dp_resume",
+        "_dp_closed",
         "__name__",
         "__qualname__",
         "ag_code",
@@ -606,6 +602,7 @@ class _DpClosureAsyncGenerator:
         code,
     ):
         self._dp_resume = resume
+        self._dp_closed = False
         self.__name__ = name
         self.__qualname__ = qualname
         self.ag_code = code
@@ -676,6 +673,13 @@ class _DpAsyncGenSend:
         return self.send(None)
 
     def _dp_step(self, transport_sent):
+        if self._dp_gen._dp_closed:
+            self._dp_done = True
+            resume_exc = self._dp_resume_exc
+            self._dp_resume_exc = NO_DEFAULT
+            if resume_exc is NO_DEFAULT:
+                raise StopAsyncIteration
+            raise StopIteration(None)
         step_send_value = (
             transport_sent
             if _current_yieldfrom(self._dp_gen) is not None
@@ -691,12 +695,12 @@ class _DpAsyncGenSend:
         except _DpAsyncGenComplete:
             self._dp_done = True
             self._dp_resume_exc = NO_DEFAULT
-            _dp_clear_owner_state(self._dp_gen, async_gen=True)
+            _dp_mark_closed(self._dp_gen)
             raise StopAsyncIteration
         except BaseException as exc:
             self._dp_done = True
             self._dp_resume_exc = NO_DEFAULT
-            _dp_clear_owner_state(self._dp_gen, async_gen=True)
+            _dp_mark_closed(self._dp_gen)
             if _dp_is_cancelled_error(exc) or isinstance(exc, GeneratorExit):
                 _dp_reraise_control_flow(exc)
             raise_uncaught_async_generator_exception(exc)
