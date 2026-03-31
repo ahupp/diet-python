@@ -3,12 +3,11 @@ use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     compute_storage_layout_from_semantics, core_operation_expr,
     core_positional_call_expr_with_meta, BlockParam, BlockParamRole, BlockPyAssign,
-    BlockPyBindingKind, BlockPyBlock, BlockPyBranchTable, BlockPyCallableSemanticInfo,
-    BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit,
-    ClosureSlot, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
-    FunctionId, FunctionName, IntoStructuredBlockPyStmt, MakeFunction, Meta, ModuleNameGen,
-    Operation, StorageLayout, StructuredBlockPyStmt, WithMeta,
+    BlockPyBindingKind, BlockPyBranchTable, BlockPyCallableSemanticInfo, BlockPyCellBindingKind,
+    BlockPyCfgBlockBuilder, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyExpr,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, ExprTryMap, FunctionId,
+    FunctionName, MakeFunction, Meta, ModuleNameGen, Operation, StorageLayout, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -49,6 +48,12 @@ const ASYNC_GENERATOR_RESUME_ABI_PARAMS: [ResumeAbiParam; 4] = [
     ResumeAbiParam::ResumeExc,
     ResumeAbiParam::TransportSent,
 ];
+
+type LinearYieldStmt = BlockPyStmt<CoreBlockPyExprWithYield, ExprName>;
+type LinearCoreStmt = BlockPyStmt<CoreBlockPyExpr, ExprName>;
+type LinearYieldBlock = CfgBlock<LinearYieldStmt, BlockPyTerm<CoreBlockPyExprWithYield>>;
+type LinearCoreBlock = CfgBlock<LinearCoreStmt, BlockPyTerm<CoreBlockPyExpr>>;
+type BlockPyBlock = LinearCoreBlock;
 
 fn resume_abi_params(kind: BlockPyFunctionKind) -> &'static [ResumeAbiParam] {
     match kind {
@@ -429,8 +434,9 @@ fn build_factory_block(
     visible_function_id: FunctionId,
     resume_function_id: FunctionId,
     kind: BlockPyFunctionKind,
-) -> BlockPyBlock<CoreBlockPyExpr> {
-    let mut block = BlockPyCfgBlockBuilder::new(BlockPyLabel::from_index(0));
+) -> LinearCoreBlock {
+    let mut block: BlockPyCfgBlockBuilder<LinearCoreStmt, BlockPyTerm<CoreBlockPyExpr>> =
+        BlockPyCfgBlockBuilder::new(BlockPyLabel::from_index(0));
 
     let resume_entry = core_make_function(
         resume_function_id,
@@ -480,21 +486,6 @@ fn build_factory_block(
     block.finish(None)
 }
 
-fn flatten_core_blocks(
-    blocks: Vec<CfgBlock<StructuredBlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>,
-) -> Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr, ExprName>, BlockPyTerm<CoreBlockPyExpr>>> {
-    blocks
-        .into_iter()
-        .map(|block| CfgBlock {
-            label: block.label,
-            body: block.body.into_iter().map(BlockPyStmt::from).collect(),
-            term: block.term,
-            params: block.params,
-            exc_edge: block.exc_edge,
-        })
-        .collect()
-}
-
 fn resume_param_spec(kind: BlockPyFunctionKind) -> ParamSpec {
     ParamSpec {
         params: resume_abi_params(kind)
@@ -509,7 +500,7 @@ fn resume_param_spec(kind: BlockPyFunctionKind) -> ParamSpec {
 }
 
 fn fresh_resume_dispatch_label(
-    blocks: &[CfgBlock<StructuredBlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>],
+    blocks: &[LinearCoreBlock],
     exhausted_label: &BlockPyLabel,
 ) -> BlockPyLabel {
     let max_index = blocks
@@ -537,15 +528,15 @@ enum YieldSite {
     ReturnYieldFrom(CoreBlockPyExprWithYield),
 }
 
-fn stmt_yield_site(stmt: &StructuredBlockPyStmt<CoreBlockPyExprWithYield>) -> Option<YieldSite> {
+fn stmt_yield_site(stmt: &LinearYieldStmt) -> Option<YieldSite> {
     match stmt {
-        StructuredBlockPyStmt::Expr(CoreBlockPyExprWithYield::Yield(yield_expr)) => {
+        BlockPyStmt::Expr(CoreBlockPyExprWithYield::Yield(yield_expr)) => {
             Some(YieldSite::ExprYield(yield_expr.value.as_deref().cloned()))
         }
-        StructuredBlockPyStmt::Expr(CoreBlockPyExprWithYield::YieldFrom(yield_from)) => {
+        BlockPyStmt::Expr(CoreBlockPyExprWithYield::YieldFrom(yield_from)) => {
             Some(YieldSite::ExprYieldFrom((*yield_from.value).clone()))
         }
-        StructuredBlockPyStmt::Assign(assign) => match &assign.value {
+        BlockPyStmt::Assign(assign) => match &assign.value {
             CoreBlockPyExprWithYield::Yield(yield_expr) => Some(YieldSite::AssignYield {
                 target: assign.target.clone(),
                 value: yield_expr.value.as_deref().cloned(),
@@ -556,9 +547,7 @@ fn stmt_yield_site(stmt: &StructuredBlockPyStmt<CoreBlockPyExprWithYield>) -> Op
             }),
             _ => None,
         },
-        StructuredBlockPyStmt::Delete(_)
-        | StructuredBlockPyStmt::If(_)
-        | StructuredBlockPyStmt::Expr(_) => None,
+        BlockPyStmt::Delete(_) | BlockPyStmt::Expr(_) => None,
     }
 }
 
@@ -574,20 +563,22 @@ fn term_yield_site(term: &BlockPyTerm<CoreBlockPyExprWithYield>) -> Option<Yield
     }
 }
 
-fn lower_stmt_no_yield(
-    stmt: StructuredBlockPyStmt<CoreBlockPyExprWithYield>,
-) -> StructuredBlockPyStmt<CoreBlockPyExpr> {
-    stmt.clone().try_into().unwrap_or_else(|_| {
-        panic!(
-            "generator lowering expected yield-like sites to be split before stmt conversion: {stmt:?}"
-        )
-    })
+fn lower_stmt_no_yield(stmt: LinearYieldStmt) -> LinearCoreStmt {
+    ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass>::new()
+        .try_map_stmt(stmt.clone())
+        .unwrap_or_else(|_| {
+            panic!(
+                "generator lowering expected yield-like sites to be split before stmt conversion: {stmt:?}"
+            )
+        })
 }
 
 fn lower_term_no_yield(
     term: BlockPyTerm<CoreBlockPyExprWithYield>,
 ) -> BlockPyTerm<CoreBlockPyExpr> {
-    term.clone().try_into().unwrap_or_else(|_| {
+    ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass>::new()
+        .try_map_term(term.clone())
+        .unwrap_or_else(|_| {
         panic!(
             "generator lowering expected yield-like sites to be split before term conversion: {term:?}"
         )
@@ -627,16 +618,16 @@ fn completion_raise(
 fn push_completion_raise_block(
     state: &mut ResumeLoweringState,
     label: BlockPyLabel,
-    mut body: Vec<StructuredBlockPyStmt<CoreBlockPyExpr>>,
+    mut body: Vec<LinearCoreStmt>,
     value: Option<CoreBlockPyExpr>,
     params: Vec<BlockParam>,
     exc_target: Option<BlockPyLabel>,
 ) {
-    body.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
+    body.push(BlockPyStmt::Assign(BlockPyAssign {
         target: expr_name("_dp_pc"),
         value: core_literal_int(0),
     }));
-    body.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
+    body.push(BlockPyStmt::Assign(BlockPyAssign {
         target: expr_name("_dp_yieldfrom"),
         value: core_none(),
     }));
@@ -705,7 +696,7 @@ struct ResumeLoweringState {
     kind: BlockPyFunctionKind,
     next_label_id: usize,
     next_resume_pc: usize,
-    blocks: Vec<BlockPyBlock<CoreBlockPyExpr>>,
+    blocks: Vec<LinearCoreBlock>,
     exception_edges: HashMap<BlockPyLabel, Option<BlockPyLabel>>,
     target_arg_indices: HashMap<BlockPyLabel, Vec<usize>>,
     resume_targets: Vec<(usize, BlockPyLabel)>,
@@ -757,11 +748,7 @@ impl ResumeLoweringState {
         name
     }
 
-    fn push_block(
-        &mut self,
-        block: BlockPyBlock<CoreBlockPyExpr>,
-        exc_target: Option<BlockPyLabel>,
-    ) {
+    fn push_block(&mut self, block: LinearCoreBlock, exc_target: Option<BlockPyLabel>) {
         self.exception_edges.insert(block.label.clone(), exc_target);
         self.blocks.push(block);
     }
@@ -786,7 +773,7 @@ impl ResumeLoweringState {
 fn lower_resume_fragment(
     state: &mut ResumeLoweringState,
     label: BlockPyLabel,
-    body: Vec<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>,
+    body: Vec<LinearYieldStmt>,
     term: BlockPyTerm<CoreBlockPyExprWithYield>,
     params: Vec<BlockParam>,
     exc_target: Option<BlockPyLabel>,
@@ -866,9 +853,9 @@ fn lower_resume_fragment(
 fn emit_yield_site(
     state: &mut ResumeLoweringState,
     label: BlockPyLabel,
-    prefix: &mut Vec<StructuredBlockPyStmt<CoreBlockPyExpr>>,
+    prefix: &mut Vec<LinearCoreStmt>,
     site: YieldSite,
-    tail_body: Vec<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>,
+    tail_body: Vec<LinearYieldStmt>,
     tail_term: BlockPyTerm<CoreBlockPyExprWithYield>,
     params: Vec<BlockParam>,
     exc_target: Option<BlockPyLabel>,
@@ -876,11 +863,11 @@ fn emit_yield_site(
     match site {
         YieldSite::ExprYield(value) => {
             let (resume_pc, resume_label) = state.fresh_resume_target("yield_resume");
-            prefix.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
+            prefix.push(BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name("_dp_pc"),
                 value: core_literal_int(resume_pc),
             }));
-            prefix.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
+            prefix.push(BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name("_dp_yieldfrom"),
                 value: core_none(),
             }));
@@ -906,11 +893,11 @@ fn emit_yield_site(
         }
         YieldSite::AssignYield { target, value } => {
             let (resume_pc, resume_label) = state.fresh_resume_target("yield_resume");
-            prefix.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
+            prefix.push(BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name("_dp_pc"),
                 value: core_literal_int(resume_pc),
             }));
-            prefix.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
+            prefix.push(BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name("_dp_yieldfrom"),
                 value: core_none(),
             }));
@@ -936,11 +923,11 @@ fn emit_yield_site(
         }
         YieldSite::ReturnYield(value) => {
             let (resume_pc, resume_label) = state.fresh_resume_target("yield_return_resume");
-            prefix.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
+            prefix.push(BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name("_dp_pc"),
                 value: core_literal_int(resume_pc),
             }));
-            prefix.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
+            prefix.push(BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name("_dp_yieldfrom"),
                 value: core_none(),
             }));
@@ -998,7 +985,7 @@ fn emit_resume_after_yield(
     state: &mut ResumeLoweringState,
     resume_label: BlockPyLabel,
     assign_target: Option<ExprName>,
-    mut tail_body: Vec<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>,
+    mut tail_body: Vec<LinearYieldStmt>,
     tail_term: BlockPyTerm<CoreBlockPyExprWithYield>,
     params: Vec<BlockParam>,
     exc_target: Option<BlockPyLabel>,
@@ -1032,7 +1019,7 @@ fn emit_resume_after_yield(
     if let Some(target) = assign_target {
         tail_body.insert(
             0,
-            StructuredBlockPyStmt::Assign(BlockPyAssign {
+            BlockPyStmt::Assign(BlockPyAssign {
                 target,
                 value: CoreBlockPyExprWithYield::Name(expr_name("_dp_send_value")),
             }),
@@ -1052,10 +1039,10 @@ fn emit_resume_after_yield(
 fn emit_yield_from_site(
     state: &mut ResumeLoweringState,
     label: BlockPyLabel,
-    prefix: &mut Vec<StructuredBlockPyStmt<CoreBlockPyExpr>>,
+    prefix: &mut Vec<LinearCoreStmt>,
     value: CoreBlockPyExprWithYield,
     assign_target: Option<ExprName>,
-    mut tail_body: Vec<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>,
+    mut tail_body: Vec<LinearYieldStmt>,
     tail_term: BlockPyTerm<CoreBlockPyExprWithYield>,
     params: Vec<BlockParam>,
     exc_target: Option<BlockPyLabel>,
@@ -1080,11 +1067,11 @@ fn emit_yield_from_site(
     let throw_name = state.fresh_temp("yield_from_throw");
     let close_name = state.fresh_temp("yield_from_close");
     let caught_exc_name = state.fresh_temp("yield_from_exc");
-    prefix.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
+    prefix.push(BlockPyStmt::Assign(BlockPyAssign {
         target: expr_name("_dp_yieldfrom"),
         value: core_call("iter", vec![value_expr]),
     }));
-    prefix.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
+    prefix.push(BlockPyStmt::Assign(BlockPyAssign {
         target: expr_name("_dp_pc"),
         value: core_literal_int(delegate_pc),
     }));
@@ -1132,7 +1119,7 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: next_call_label,
-            body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
+            body: vec![BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name(yielded_value_name.as_str()),
                 value: core_expr_without_yield(py_expr!("next(_dp_yieldfrom)")),
             })],
@@ -1145,7 +1132,7 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: send_call_label,
-            body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
+            body: vec![BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name(yielded_value_name.as_str()),
                 value: core_expr_without_yield(py_expr!("_dp_yieldfrom.send(_dp_send_value)")),
             })],
@@ -1172,7 +1159,7 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: close_lookup_label,
-            body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
+            body: vec![BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name(close_name.as_str()),
                 value: core_expr_without_yield(py_expr!("getattr(_dp_yieldfrom, \"close\", None)")),
             })],
@@ -1189,9 +1176,10 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: close_call_label,
-            body: vec![StructuredBlockPyStmt::Expr(core_expr_without_yield(
-                py_expr!("{close:id}()", close = close_name.as_str(),),
-            ))],
+            body: vec![BlockPyStmt::Expr(core_expr_without_yield(py_expr!(
+                "{close:id}()",
+                close = close_name.as_str(),
+            )))],
             term: BlockPyTerm::Jump(raise_resume_exc_label.clone().into()),
             params: params.clone(),
             exc_edge: None,
@@ -1201,7 +1189,7 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: throw_lookup_label,
-            body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
+            body: vec![BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name(throw_name.as_str()),
                 value: core_expr_without_yield(py_expr!("getattr(_dp_yieldfrom, \"throw\", None)")),
             })],
@@ -1218,7 +1206,7 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: throw_call_label,
-            body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
+            body: vec![BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name(yielded_value_name.as_str()),
                 value: core_expr_without_yield(py_expr!(
                     "{throw_fn:id}(_dp_resume_exc)",
@@ -1262,7 +1250,7 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: stopiter_label,
-            body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
+            body: vec![BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name(yielded_value_name.as_str()),
                 value: current_exception_value_expr(),
             })],
@@ -1287,7 +1275,7 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: yielded_label,
-            body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
+            body: vec![BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name("_dp_pc"),
                 value: core_literal_int(delegate_pc),
             })],
@@ -1310,7 +1298,7 @@ fn emit_yield_from_site(
 
     tail_body.insert(
         0,
-        StructuredBlockPyStmt::Assign(BlockPyAssign {
+        BlockPyStmt::Assign(BlockPyAssign {
             target: expr_name("_dp_yieldfrom"),
             value: CoreBlockPyExprWithYield::Name(expr_name("__dp_NONE")),
         }),
@@ -1318,7 +1306,7 @@ fn emit_yield_from_site(
     if let Some(target) = assign_target {
         tail_body.insert(
             1,
-            StructuredBlockPyStmt::Assign(BlockPyAssign {
+            BlockPyStmt::Assign(BlockPyAssign {
                 target,
                 value: CoreBlockPyExprWithYield::Name(expr_name(yielded_value_name.as_str())),
             }),
@@ -1327,7 +1315,7 @@ fn emit_yield_from_site(
     {
         tail_body.insert(
             1,
-            StructuredBlockPyStmt::Assign(BlockPyAssign {
+            BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name("_dp_yield_from_value"),
                 value: CoreBlockPyExprWithYield::Name(expr_name(yielded_value_name.as_str())),
             }),
@@ -1339,7 +1327,7 @@ fn emit_yield_from_site(
 fn lower_resume_blocks(
     callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
 ) -> (
-    Vec<CfgBlock<StructuredBlockPyStmt<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>>,
+    Vec<LinearCoreBlock>,
     HashMap<BlockPyLabel, Option<BlockPyLabel>>,
     BlockPyLabel,
 ) {
@@ -1358,13 +1346,9 @@ fn lower_resume_blocks(
         .blocks
         .iter()
         .cloned()
-        .map(|block| BlockPyBlock {
+        .map(|block| LinearYieldBlock {
             label: block.label,
-            body: block
-                .body
-                .into_iter()
-                .map(|stmt| stmt.into_structured_stmt())
-                .collect(),
+            body: block.body,
             term: block.term,
             params: block.params,
             exc_edge: None,
@@ -1407,7 +1391,7 @@ fn lower_resume_blocks(
         targets[*pc] = label.clone();
     }
 
-    let mut blocks = vec![BlockPyBlock {
+    let mut blocks = vec![LinearCoreBlock {
         label: dispatch_label.clone(),
         body: Vec::new(),
         term: BlockPyTerm::BranchTable(BlockPyBranchTable {
@@ -1419,14 +1403,14 @@ fn lower_resume_blocks(
         exc_edge: None,
     }];
     blocks.append(&mut state.blocks);
-    blocks.push(BlockPyBlock {
+    blocks.push(LinearCoreBlock {
         label: state.exhausted_label.clone(),
         body: vec![
-            StructuredBlockPyStmt::Assign(BlockPyAssign {
+            BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name("_dp_pc"),
                 value: core_literal_int(0),
             }),
-            StructuredBlockPyStmt::Assign(BlockPyAssign {
+            BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name("_dp_yieldfrom"),
                 value: core_none(),
             }),
@@ -1499,10 +1483,10 @@ pub(crate) fn lower_generator_like_function(
         names: names.clone(),
         kind,
         params: params.clone(),
-        blocks: flatten_core_blocks(attach_exception_edges_to_blocks(
+        blocks: attach_exception_edges_to_blocks(
             vec![factory_block.clone()],
             &HashMap::from([(factory_block.label.clone(), None)]),
-        )),
+        ),
         doc,
         storage_layout: Some(storage_layout.clone()),
         semantic: semantic.clone(),
@@ -1521,7 +1505,7 @@ pub(crate) fn lower_generator_like_function(
         names: resume_names,
         kind: BlockPyFunctionKind::Function,
         params: resume_params.clone(),
-        blocks: flatten_core_blocks(resume_blocks.clone()),
+        blocks: resume_blocks.clone(),
         doc: None,
         storage_layout: Some(resume_storage_layout),
         semantic: resume_semantic,

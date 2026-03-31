@@ -35,12 +35,12 @@ pub mod pretty;
 pub(crate) mod semantics;
 pub(crate) mod state;
 pub(crate) mod validate;
-pub(crate) use convert::BlockPyModuleMap;
 #[cfg(test)]
 pub(crate) use convert::BlockPyModuleTryMap;
 pub(crate) use convert::{
     map_call_args_with, map_keyword_args_with, try_map_call_args_with, try_map_keyword_args_with,
 };
+pub(crate) use convert::{BlockPyModuleMap, ExprTryMap};
 pub use name_gen::{FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
 

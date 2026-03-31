@@ -3,7 +3,7 @@ mod strings;
 
 use super::blockpy_generators::lower_generator_like_function;
 use super::core_eval_order::make_eval_order_explicit_in_core_callable_def_without_await;
-use crate::block_py::{BlockPyFunctionKind, BlockPyModule, ModuleNameGen};
+use crate::block_py::{BlockPyFunctionKind, BlockPyModule, ExprTryMap, ModuleNameGen};
 use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithYield};
 
 pub use exception_pass::lower_try_jump_exception_flow;
@@ -27,12 +27,16 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
         match callable.kind {
             BlockPyFunctionKind::Function => {
                 let qualname = callable.names.qualname.clone();
-                callable_defs.push(callable.try_into().unwrap_or_else(|_| {
-                        panic!(
-                            "core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for {}",
-                            qualname
-                        )
-                    }));
+                callable_defs.push(
+                    ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass>::new()
+                        .try_map_fn(callable)
+                        .unwrap_or_else(|_| {
+                            panic!(
+                                "core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for {}",
+                                qualname
+                            )
+                        }),
+                );
             }
             BlockPyFunctionKind::Generator
             | BlockPyFunctionKind::Coroutine

@@ -97,10 +97,10 @@ pub(crate) enum StmtSequenceDriveResult {
     },
 }
 
-pub(crate) fn attach_exception_edges_to_blocks<E>(
-    blocks: Vec<crate::block_py::BlockPyBlock<E>>,
+pub(crate) fn attach_exception_edges_to_blocks<S, E>(
+    blocks: Vec<CfgBlock<S, BlockPyTerm<E>>>,
     exception_edges: &HashMap<BlockPyLabel, Option<BlockPyLabel>>,
-) -> Vec<LoweredBlockPyBlock<E>> {
+) -> Vec<CfgBlock<S, BlockPyTerm<E>>> {
     blocks
         .into_iter()
         .map(|block| CfgBlock {
