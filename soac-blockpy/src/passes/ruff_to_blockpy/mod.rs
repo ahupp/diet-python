@@ -16,7 +16,6 @@ use crate::block_py::{
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
-use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, RuffBlockPyPass};
 use crate::ruff_ast_to_string;
 use crate::template::is_simple;
@@ -38,10 +37,7 @@ pub(crate) use bb_shape::{
     lower_structured_blocks_to_bb_blocks, lowered_exception_edges, populate_exception_edge_args,
     rewrite_current_exception_in_core_blocks,
 };
-pub(crate) use module_plan::{
-    rewrite_ast_to_core_blockpy_module_plan_with_module,
-    rewrite_ast_to_lowered_blockpy_module_plan_with_module,
-};
+pub(crate) use module_plan::rewrite_ast_to_core_blockpy_module_plan_with_module;
 
 pub(crate) use compat::{
     compat_block_from_blockpy, compat_block_from_blockpy_with_exc_target, emit_for_loop_blocks,
@@ -63,12 +59,6 @@ pub(crate) use try_regions::{
 
 pub(crate) type LoweredBlockPyBlock<E = Expr> = CfgBlock<StructuredBlockPyStmt<E>, BlockPyTerm<E>>;
 pub(crate) type BlockPyBlock<E = Expr> = LoweredBlockPyBlock<E>;
-
-pub(crate) fn lower_blockpy_module_exprs_to_core(
-    module: BlockPyModule<RuffBlockPyPass>,
-) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
-    module.map_callable_defs(simplify_blockpy_callable_def_exprs)
-}
 
 pub(crate) fn rewrite_ast_to_core_blockpy_module_with_module(
     context: &Context,

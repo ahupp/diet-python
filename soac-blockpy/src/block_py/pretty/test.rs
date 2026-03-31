@@ -1,19 +1,20 @@
 use super::*;
 use crate::block_py::{BlockParam, BlockParamRole};
 use crate::block_py::{
-    BlockPyAssign, ClosureInit, ClosureSlot, LocatedName, NameLocation, RuffExpr, StorageLayout,
+    BlockPyAssign, ClosureInit, ClosureSlot, CoreBlockPyExprWithAwaitAndYield, LocatedName,
+    NameLocation, StorageLayout,
 };
 use crate::lower_python_to_blockpy_for_testing;
-use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
+use crate::passes::{CoreBlockPyPassWithAwaitAndYield, ResolvedStorageBlockPyPass};
 use ruff_python_ast as ast;
 use ruff_python_parser::parse_expression;
 
-fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
+fn wrapped_blockpy(source: &str) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
     lower_python_to_blockpy_for_testing(source)
-        .expect("expected lowered semantic BlockPy module")
+        .expect("expected lowered core BlockPy module")
         .pass_tracker
-        .pass_semantic_blockpy()
-        .expect("semantic_blockpy pass should be tracked")
+        .pass_core_blockpy_with_await_and_yield()
+        .expect("core_blockpy_with_await_and_yield pass should be tracked")
         .clone()
 }
 
@@ -21,7 +22,7 @@ fn parse_blockpy_expr(source: &str) -> Expr {
     (*parse_expression(source).unwrap().into_syntax().body).into()
 }
 
-fn parse_ruff_blockpy_expr(source: &str) -> RuffExpr {
+fn parse_core_blockpy_expr(source: &str) -> CoreBlockPyExprWithAwaitAndYield {
     parse_blockpy_expr(source).into()
 }
 
@@ -94,7 +95,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
 
 #[test]
 fn renders_empty_module_marker() {
-    let empty_module: BlockPyModule<RuffBlockPyPass> = BlockPyModule {
+    let empty_module: BlockPyModule<CoreBlockPyPassWithAwaitAndYield> = BlockPyModule {
         callable_defs: Vec::new(),
     };
     let rendered = blockpy_module_to_string(&empty_module);
@@ -133,8 +134,8 @@ def classify(n):
     )
     .unwrap()
     .pass_tracker
-    .pass_semantic_blockpy()
-    .expect("semantic_blockpy pass should be tracked")
+    .pass_core_blockpy_with_await_and_yield()
+    .expect("core_blockpy_with_await_and_yield pass should be tracked")
     .clone();
     let rendered = blockpy_module_to_string(&blockpy);
 
@@ -204,15 +205,16 @@ async def no_lying():
         .map(|index| function.blocks[*index].label.to_string())
         .collect::<HashSet<_>>();
 
-    let missing_labels = collect_referenced_labels_from_blocks::<RuffBlockPyPass>(&function.blocks)
-        .into_iter()
-        .map(|label| label.to_string())
-        .filter(|label| !inlined_labels.contains(label))
-        .filter(|label| {
-            !rendered.contains(format!("block {label}:").as_str())
-                && !rendered.contains(format!("block {label}(").as_str())
-        })
-        .collect::<Vec<_>>();
+    let missing_labels =
+        collect_referenced_labels_from_blocks::<CoreBlockPyPassWithAwaitAndYield>(&function.blocks)
+            .into_iter()
+            .map(|label| label.to_string())
+            .filter(|label| !inlined_labels.contains(label))
+            .filter(|label| {
+                !rendered.contains(format!("block {label}:").as_str())
+                    && !rendered.contains(format!("block {label}(").as_str())
+            })
+            .collect::<Vec<_>>();
 
     assert!(missing_labels.is_empty(), "{rendered}");
 }
@@ -220,7 +222,7 @@ async def no_lying():
 #[test]
 fn renders_public_closure_metadata_in_function_header() {
     let rendered = blockpy_module_to_string(&BlockPyModule {
-        callable_defs: vec![BlockPyFunction::<RuffBlockPyPass> {
+        callable_defs: vec![BlockPyFunction::<CoreBlockPyPassWithAwaitAndYield> {
             function_id: crate::block_py::FunctionId(0),
             name_gen: test_name_gen(),
             names: crate::block_py::FunctionName::new("gen", "gen", "gen", "gen"),
@@ -229,7 +231,7 @@ fn renders_public_closure_metadata_in_function_header() {
             blocks: vec![CfgBlock {
                 label: label(0),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             }],
@@ -264,7 +266,7 @@ fn renders_public_closure_metadata_in_function_header() {
 
 #[test]
 fn renders_followup_blocks_under_their_owning_entry_block() {
-    let function: BlockPyFunction<RuffBlockPyPass> = BlockPyFunction {
+    let function: BlockPyFunction<CoreBlockPyPassWithAwaitAndYield> = BlockPyFunction {
         function_id: crate::block_py::FunctionId(0),
         name_gen: test_name_gen(),
         names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
@@ -275,7 +277,7 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
                 label: label(0),
                 body: vec![],
                 term: BlockPyTerm::IfTerm(BlockPyIfTerm {
-                    test: parse_ruff_blockpy_expr("cond"),
+                    test: parse_core_blockpy_expr("cond"),
                     then_label: label(1),
                     else_label: label(2),
                 }),
@@ -284,7 +286,7 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
             },
             CfgBlock {
                 label: label(1),
-                body: vec![StructuredBlockPyStmt::Expr(parse_ruff_blockpy_expr(
+                body: vec![StructuredBlockPyStmt::Expr(parse_core_blockpy_expr(
                     "then_side_effect()",
                 ))
                 .into()],
@@ -294,7 +296,7 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
             },
             CfgBlock {
                 label: label(2),
-                body: vec![StructuredBlockPyStmt::Expr(parse_ruff_blockpy_expr(
+                body: vec![StructuredBlockPyStmt::Expr(parse_core_blockpy_expr(
                     "else_side_effect()",
                 ))
                 .into()],
@@ -304,8 +306,8 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
             },
             CfgBlock {
                 label: label(3),
-                body: vec![StructuredBlockPyStmt::Expr(parse_ruff_blockpy_expr("finish()")).into()],
-                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
+                body: vec![StructuredBlockPyStmt::Expr(parse_core_blockpy_expr("finish()")).into()],
+                term: BlockPyTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
@@ -347,7 +349,7 @@ def choose(a, b):
 
 #[test]
 fn sorts_rendered_root_and_child_blocks_by_label() {
-    let function: BlockPyFunction<RuffBlockPyPass> = BlockPyFunction {
+    let function: BlockPyFunction<CoreBlockPyPassWithAwaitAndYield> = BlockPyFunction {
         function_id: crate::block_py::FunctionId(0),
         name_gen: test_name_gen(),
         names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
@@ -364,28 +366,28 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
             CfgBlock {
                 label: label(4),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: label(1),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: label(3),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: label(2),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_ruff_blockpy_expr("__dp_NONE")),
+                term: BlockPyTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },

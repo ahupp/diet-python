@@ -9,12 +9,10 @@ use crate::passes::ast_to_ast::{
     body::Suite, rewrite_future_annotations, rewrite_stmt, semantic::SemanticAstState,
 };
 use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
-use crate::passes::ruff_to_blockpy::{
-    lower_blockpy_module_exprs_to_core, rewrite_ast_to_lowered_blockpy_module_plan_with_module,
-};
+use crate::passes::ruff_to_blockpy::rewrite_ast_to_core_blockpy_module_with_module;
 use crate::passes::{
     self, CodegenBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield,
-    CoreBlockPyPassWithYield, ResolvedStorageBlockPyPass, RuffBlockPyPass,
+    CoreBlockPyPassWithYield, ResolvedStorageBlockPyPass,
 };
 use crate::{ParseError, Result};
 use ruff_python_ast::{self as ast, Stmt};
@@ -127,29 +125,14 @@ pub(crate) fn rewrite_module_with_tracker(
        still jump to finally.
     */
 
-    let semantic_blockpy: BlockPyModule<RuffBlockPyPass> =
-        pass_tracker.run_pass("semantic_blockpy", || {
-            rewrite_ast_to_lowered_blockpy_module_plan_with_module(
+    let core_blockpy: BlockPyModule<CoreBlockPyPassWithAwaitAndYield> =
+        pass_tracker.run_pass("core_blockpy_with_await_and_yield", || {
+            rewrite_ast_to_core_blockpy_module_with_module(
                 &context,
                 module,
                 &semantic_state,
                 module_name_gen,
             )
-        });
-
-    /*
-    Simplify expressions:
-      - replace operators with intrinsic calls, so that something like:
-            `a[1] + b[2]`
-
-        becomes:
-            ```
-            __dp_add(__dp_getitem(a, 1), __dp_getitem(b, 2))
-            ```
-    */
-    let core_blockpy: BlockPyModule<CoreBlockPyPassWithAwaitAndYield> = pass_tracker
-        .run_pass("core_blockpy_with_await_and_yield", || {
-            lower_blockpy_module_exprs_to_core(semantic_blockpy)
         });
 
     /*

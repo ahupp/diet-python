@@ -1,7 +1,4 @@
-use super::{
-    callable_semantic_info, rewrite_ast_to_lowered_blockpy_module_plan_with_module,
-    BlockPyModuleRewriter, FunctionScopeFrame,
-};
+use super::{callable_semantic_info, BlockPyModuleRewriter, FunctionScopeFrame};
 use crate::block_py::{
     BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyClassBodyFallback,
     BlockPyEffectiveBinding, BlockPyModule, ModuleNameGen,
@@ -9,26 +6,26 @@ use crate::block_py::{
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::semantic::SemanticAstState;
-use crate::passes::ruff_to_blockpy::{
-    lower_blockpy_module_exprs_to_core, rewrite_ast_to_core_blockpy_module_with_module,
-};
-use crate::passes::RuffBlockPyPass;
+use crate::passes::ruff_to_blockpy::rewrite_ast_to_core_blockpy_module_with_module;
+use crate::passes::CoreBlockPyPassWithAwaitAndYield;
 use ruff_python_ast::Stmt;
 use ruff_python_parser::parse_module;
 
-fn tracked_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
+fn tracked_core_blockpy_with_await_and_yield(
+    source: &str,
+) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
     lower_python_to_blockpy_for_testing(source)
         .unwrap()
         .pass_tracker
-        .pass_semantic_blockpy()
-        .expect("semantic_blockpy pass should be tracked")
+        .pass_core_blockpy_with_await_and_yield()
+        .expect("core_blockpy_with_await_and_yield pass should be tracked")
         .clone()
 }
 
 fn lower_test_module_plan(
     context: &Context,
     mut module: Vec<Stmt>,
-) -> BlockPyModule<RuffBlockPyPass> {
+) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
     crate::passes::ast_to_ast::simplify::flatten(&mut module);
     let mut semantic_state = SemanticAstState::from_ruff(&mut module);
     if !module.iter().any(
@@ -36,48 +33,12 @@ fn lower_test_module_plan(
         ) {
             crate::driver::wrap_module_init(&mut semantic_state, &mut module);
         }
-    rewrite_ast_to_lowered_blockpy_module_plan_with_module(
+    rewrite_ast_to_core_blockpy_module_with_module(
         context,
         module,
         &semantic_state,
         ModuleNameGen::new(0),
     )
-}
-
-#[test]
-fn direct_core_entrypoint_matches_staged_semantic_then_core_lowering() {
-    let source = concat!(
-        "def f(xs):\n",
-        "    y = xs[0]\n",
-        "    if y:\n",
-        "        return y + 1\n",
-        "    return 0\n",
-    );
-    let context = Context::new(source);
-    let mut module = parse_module(source).unwrap().into_syntax().body;
-    crate::passes::ast_to_ast::simplify::flatten(&mut module);
-    let semantic_state = SemanticAstState::from_ruff(&mut module);
-    let mut semantic_state = semantic_state;
-    crate::driver::wrap_module_init(&mut semantic_state, &mut module);
-
-    let staged_semantic = rewrite_ast_to_lowered_blockpy_module_plan_with_module(
-        &context,
-        module.clone(),
-        &semantic_state,
-        ModuleNameGen::new(0),
-    );
-    let staged_core = lower_blockpy_module_exprs_to_core(staged_semantic);
-    let direct_core = rewrite_ast_to_core_blockpy_module_with_module(
-        &context,
-        module,
-        &semantic_state,
-        ModuleNameGen::new(0),
-    );
-
-    assert_eq!(
-        crate::block_py::pretty::blockpy_module_to_string(&staged_core),
-        crate::block_py::pretty::blockpy_module_to_string(&direct_core),
-    );
 }
 
 #[test]
@@ -89,7 +50,7 @@ fn callable_semantic_info_uses_logical_storage_for_cell_captures() {
         "        return x\n",
         "    return inner\n",
     );
-    let blockpy_module = tracked_semantic_blockpy(source);
+    let blockpy_module = tracked_core_blockpy_with_await_and_yield(source);
     let inner = blockpy_module
         .callable_defs
         .iter()
@@ -121,7 +82,7 @@ fn callable_semantic_info_maps_classcell_capture_source_back_to_dunder_class() {
         "            return __class__\n",
         "        return g\n",
     );
-    let blockpy_module = tracked_semantic_blockpy(source);
+    let blockpy_module = tracked_core_blockpy_with_await_and_yield(source);
     let f = blockpy_module
         .callable_defs
         .iter()
@@ -215,7 +176,7 @@ fn recursive_local_function_bindings_are_cell_owned_in_parent_scope() {
 #[test]
 fn callable_semantic_info_tracks_bind_and_qualname_for_class_helper_override() {
     let source = "class Box:\n    value = 1\n";
-    let blockpy_module = tracked_semantic_blockpy(source);
+    let blockpy_module = tracked_core_blockpy_with_await_and_yield(source);
     let class_helper = blockpy_module
         .callable_defs
         .iter()
@@ -229,7 +190,7 @@ fn callable_semantic_info_tracks_bind_and_qualname_for_class_helper_override() {
 #[test]
 fn callable_semantic_info_marks_class_helper_as_owning_classcell() {
     let source = "class Box:\n    pass\n";
-    let blockpy_module = tracked_semantic_blockpy(source);
+    let blockpy_module = tracked_core_blockpy_with_await_and_yield(source);
     let class_helper = blockpy_module
         .callable_defs
         .iter()
@@ -252,7 +213,7 @@ fn callable_semantic_info_marks_class_helper_as_owning_classcell() {
 #[test]
 fn callable_semantic_info_distinguishes_class_type_params_from_class_body_locals() {
     let source = "class Box[T]:\n    value = T\n";
-    let blockpy_module = tracked_semantic_blockpy(source);
+    let blockpy_module = tracked_core_blockpy_with_await_and_yield(source);
     let class_helper = blockpy_module
         .callable_defs
         .iter()
@@ -307,7 +268,7 @@ fn callable_semantic_info_keeps_class_attrs_out_of_cell_bindings() {
         "            return x\n",
         "    return Inner\n",
     );
-    let blockpy_module = tracked_semantic_blockpy(source);
+    let blockpy_module = tracked_core_blockpy_with_await_and_yield(source);
     let class_helper = blockpy_module
         .callable_defs
         .iter()
@@ -335,7 +296,7 @@ fn callable_semantic_info_records_class_cell_fallback_for_outer_reads() {
         "        value = x\n",
         "    return Box\n",
     );
-    let blockpy_module = tracked_semantic_blockpy(source);
+    let blockpy_module = tracked_core_blockpy_with_await_and_yield(source);
     let class_helper = blockpy_module
         .callable_defs
         .iter()
@@ -445,10 +406,7 @@ fn lowering_recursive_local_function_with_finally_keeps_plain_binding_before_nam
         crate::block_py::pretty::blockpy_module_to_string(&crate::block_py::BlockPyModule {
             callable_defs: vec![exercise.clone()],
         });
-    assert!(
-        rendered.contains("recurse = __dp_make_function"),
-        "{rendered}"
-    );
+    assert!(rendered.contains("recurse = MakeFunction"), "{rendered}");
     assert!(
         !rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
         "{rendered}"
@@ -566,7 +524,7 @@ fn lowering_nonlocal_inner_captures_outer_cell() {
             callable_defs: vec![outer.clone()],
         });
     assert!(
-        rendered.contains("__dp_make_function(0, \"function\", __dp_tuple(),"),
+        rendered.contains("inner = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)"),
         "{rendered}"
     );
 }

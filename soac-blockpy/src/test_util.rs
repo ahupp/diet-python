@@ -105,8 +105,8 @@ fn blockpy_output_for_snapshot(actual: &str) -> String {
             crate::block_py::pretty::blockpy_module_to_string(
                 result
                     .pass_tracker
-                    .pass_semantic_blockpy()
-                    .expect("semantic_blockpy pass should be tracked"),
+                    .pass_core_blockpy_with_await_and_yield()
+                    .expect("core_blockpy_with_await_and_yield pass should be tracked"),
             )
         })
         .unwrap()

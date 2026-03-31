@@ -11,7 +11,7 @@ use crate::passes::ruff_to_blockpy::stmt_sequences::{
     lower_while_stmt_sequence, lower_while_stmt_sequence_from_stmt, plan_stmt_sequence_head,
 };
 use crate::passes::ruff_to_blockpy::try_regions::build_try_plan;
-use crate::passes::{CoreBlockPyPass, RuffBlockPyPass};
+use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield};
 use stmt_lowering::lower_stmt_into;
 
 fn test_name_gen() -> FunctionNameGen {
@@ -19,22 +19,19 @@ fn test_name_gen() -> FunctionNameGen {
     module_name_gen.next_function_name_gen()
 }
 
-fn wrapped_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
+fn wrapped_blockpy(source: &str) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
     lower_python_to_blockpy_for_testing(source)
         .unwrap()
         .pass_tracker
-        .pass_semantic_blockpy()
-        .expect("semantic_blockpy pass should be tracked")
+        .pass_core_blockpy_with_await_and_yield()
+        .expect("core_blockpy_with_await_and_yield pass should be tracked")
         .clone()
 }
 
-fn wrapped_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
-    lower_python_to_blockpy_for_testing(source)
-        .unwrap()
-        .pass_tracker
-        .pass_semantic_blockpy()
-        .expect("semantic_blockpy pass should be tracked")
-        .clone()
+fn wrapped_core_blockpy_with_await_and_yield(
+    source: &str,
+) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
+    wrapped_blockpy(source)
 }
 
 fn wrapped_core_blockpy(source: &str) -> BlockPyModule<CoreBlockPyPass> {
@@ -103,7 +100,7 @@ def f(x, ys):
 
 #[test]
 fn lowers_async_for_structurally() {
-    let blockpy = wrapped_semantic_blockpy(
+    let blockpy = wrapped_core_blockpy_with_await_and_yield(
         r#"
 async def f(xs):
     async for x in xs:

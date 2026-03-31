@@ -1,7 +1,9 @@
 use crate::block_py::pretty::BlockPyPrettyPrint;
 use crate::block_py::BlockPyModule;
 use crate::passes::ast_to_ast::body::Suite;
-use crate::passes::{CoreBlockPyPass, ResolvedStorageBlockPyPass, RuffBlockPyPass};
+use crate::passes::{
+    CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, ResolvedStorageBlockPyPass,
+};
 use ruff_python_ast::{self as ast, ModModule};
 use ruff_text_size::TextRange;
 use std::any::Any;
@@ -133,12 +135,16 @@ impl RecordingPassTracker {
             })
     }
 
-    pub fn pass_semantic_blockpy(&self) -> Option<&BlockPyModule<RuffBlockPyPass>> {
-        self.get::<BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
-    }
-
     pub fn pass_core_blockpy(&self) -> Option<&BlockPyModule<CoreBlockPyPass>> {
         self.get::<BlockPyModule<CoreBlockPyPass>>("core_blockpy")
+    }
+
+    pub fn pass_core_blockpy_with_await_and_yield(
+        &self,
+    ) -> Option<&BlockPyModule<CoreBlockPyPassWithAwaitAndYield>> {
+        self.get::<BlockPyModule<CoreBlockPyPassWithAwaitAndYield>>(
+            "core_blockpy_with_await_and_yield",
+        )
     }
 
     pub fn pass_name_binding(&self) -> Option<&BlockPyModule<ResolvedStorageBlockPyPass>> {

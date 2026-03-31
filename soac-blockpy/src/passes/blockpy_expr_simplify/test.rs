@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::block_py::pretty::BlockPyDebugExprText;
-use crate::block_py::{BinOpKind, BlockPyModule, OperationDetail, TernaryOpKind, UnaryOpKind};
+use crate::block_py::{BinOpKind, OperationDetail, TernaryOpKind, UnaryOpKind};
 
 fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExprWithAwaitAndYield {
     let mut setup = CoreStmtBuilder::new();
@@ -13,19 +13,10 @@ fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExprWith
     lowered
 }
 
-pub(crate) fn simplify_blockpy_module_exprs(
-    module: BlockPyModule<RuffBlockPyPass>,
-) -> TestCoreBlockPyModule {
-    crate::passes::ruff_to_blockpy::lower_blockpy_module_exprs_to_core(module)
-}
-
-type TestCoreBlockPyModule = BlockPyModule<CoreBlockPyPassWithAwaitAndYield>;
-
 use crate::block_py::{
     CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
 };
 use crate::lower_python_to_blockpy_for_testing;
-use crate::passes::RuffBlockPyPass;
 use crate::py_expr;
 use ruff_python_parser::parse_expression;
 
@@ -45,19 +36,15 @@ def f(x):
         return 1
     return 2
 "#;
-    let blockpy = lower_python_to_blockpy_for_testing(source)
+    let core = lower_python_to_blockpy_for_testing(source)
         .unwrap()
         .pass_tracker
-        .get::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .pass_core_blockpy_with_await_and_yield()
         .cloned()
-        .expect("expected lowered semantic BlockPy module");
-    let core = simplify_blockpy_module_exprs(blockpy.clone());
-    let semantic_rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
+        .expect("expected lowered core BlockPy module");
     let core_rendered = crate::block_py::pretty::blockpy_module_to_string(&core);
 
-    assert!(semantic_rendered.contains("function f(x):"));
     assert!(core_rendered.contains("function f(x):"));
-    assert!(semantic_rendered.contains("return 1"));
     assert!(core_rendered.contains("return 1"));
 }
 
@@ -287,7 +274,7 @@ fn semantic_expr_simplify_panics_on_nested_helper_scoped_expr_leak() {
 }
 
 #[test]
-fn semantic_blockpy_keeps_function_defaults_out_of_blockpy_ir() {
+fn core_blockpy_keeps_function_defaults_out_of_blockpy_ir() {
     let source = r#"
 def f(*, d={"metaclass": Meta}, **kw):
     return d
@@ -295,12 +282,12 @@ def f(*, d={"metaclass": Meta}, **kw):
     let blockpy = lower_python_to_blockpy_for_testing(source)
         .unwrap()
         .pass_tracker
-        .get::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+        .pass_core_blockpy_with_await_and_yield()
         .cloned()
-        .expect("expected lowered semantic BlockPy module");
+        .expect("expected lowered core BlockPy module");
     let rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
 
     assert!(rendered.contains("function f(*, d, **kw):"), "{rendered}");
     assert!(!rendered.contains("function f(*, d={"), "{rendered}");
-    assert!(rendered.contains("__dp_make_function("), "{rendered}");
+    assert!(rendered.contains("MakeFunction("), "{rendered}");
 }

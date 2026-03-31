@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use log::{log_enabled, trace, Level};
-use soac_blockpy::block_py::{count_ruff_blockpy_blocks, BlockPyModule};
+use soac_blockpy::block_py::BlockPyModule;
 use soac_blockpy::fixture::{parse_fixture, render_fixture, FixtureBlock};
 use soac_blockpy::passes::CodegenBlockPyPass;
 use soac_blockpy::{init_logging, lower_python_to_blockpy_for_testing};
@@ -77,11 +77,21 @@ fn render_blockpy_snapshot(
     _source: &str,
     result: &soac_blockpy::LoweringResult,
 ) -> (String, usize, usize) {
-    let blockpy = result.pass_tracker.pass_semantic_blockpy();
-    let blockpy_rendered = blockpy
-        .map(soac_blockpy::block_py::pretty::render_ruff_blockpy_module)
+    let core_blockpy = result.pass_tracker.pass_core_blockpy_with_await_and_yield();
+    let blockpy_rendered = result
+        .pass_tracker
+        .render_pass_text("core_blockpy_with_await_and_yield")
         .unwrap_or_else(|| "; no BlockPy module emitted".to_string());
-    let blockpy_blocks = blockpy.map(count_ruff_blockpy_blocks).unwrap_or(0);
+    let blockpy_blocks = core_blockpy
+        .as_ref()
+        .map(|module| {
+            module
+                .callable_defs
+                .iter()
+                .map(|function| function.blocks.len())
+                .sum()
+        })
+        .unwrap_or(0);
     let clif_blocks = count_clif_blocks(&result.codegen_module);
     (blockpy_rendered, blockpy_blocks, clif_blocks)
 }

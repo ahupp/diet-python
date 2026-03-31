@@ -31,7 +31,7 @@ from pkg.mod import name as alias
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_import_1 = __dp_import_("pkg.mod", __spec__, ["name"])
+#         _dp_import_1 = __dp_import_("pkg.mod", __spec__, __dp_list(__dp_tuple("name")))
 #         alias = __dp_import_attr(_dp_import_1, "name")
 #         return __dp_NONE
 
@@ -53,7 +53,7 @@ def f():
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         f = dec(__dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None))
+#         f = dec(MakeFunction(0, Function, __dp_tuple(), __dp_NONE))
 #         return __dp_NONE
 
 # assign_attr
@@ -65,7 +65,7 @@ obj.x = 1
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
+#         SetAttr(__dp_load_deleted_name("obj", obj), "x", 1)
 #         return __dp_NONE
 
 # assign_subscript
@@ -77,7 +77,7 @@ obj[i] = v
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         __dp_setitem(__dp_load_deleted_name("obj", obj), i, v)
+#         SetItem(__dp_load_deleted_name("obj", obj), i, v)
 #         return __dp_NONE
 
 # assign_tuple_unpack
@@ -89,9 +89,9 @@ a, b = it
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, True))
-#         a = __dp_getitem(_dp_tmp_1, 0)
-#         b = __dp_getitem(_dp_tmp_1, 1)
+#         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(__dp_TRUE, __dp_TRUE))
+#         a = GetItem(_dp_tmp_1, 0)
+#         b = GetItem(_dp_tmp_1, 1)
 #         del _dp_tmp_1
 #         return __dp_NONE
 
@@ -104,9 +104,9 @@ a, *b = it
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(True, False))
-#         a = __dp_getitem(_dp_tmp_1, 0)
-#         b = __dp_list(__dp_getitem(_dp_tmp_1, 1))
+#         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(__dp_TRUE, __dp_FALSE))
+#         a = GetItem(_dp_tmp_1, 0)
+#         b = __dp_list(GetItem(_dp_tmp_1, 1))
 #         del _dp_tmp_1
 #         return __dp_NONE
 
@@ -133,25 +133,25 @@ x: int = 1
 # function __annotate__(_dp_format, _dp):
 #     function_id: 0
 #     block bb1:
-#         if_term _dp.eq(_dp_format, 4):
+#         if_term GetAttr(_dp, "eq")(_dp_format, 4):
 #             then:
 #                 block bb5:
-#                     return _dp.dict(__dp_tuple(("x", "int")))
+#                     return GetAttr(_dp, "dict")(__dp_tuple(__dp_tuple("x", "int")))
 #             else:
 #                 block bb2:
-#                     if_term _dp.gt(_dp_format, 2):
+#                     if_term GetAttr(_dp, "gt")(_dp_format, 2):
 #                         then:
 #                             block bb4:
-#                                 raise _dp.builtins.NotImplementedError
+#                                 raise GetAttr(GetAttr(_dp, "builtins"), "NotImplementedError")
 #                         else:
 #                             block bb3:
-#                                 return _dp.dict(__dp_tuple(("x", int)))
+#                                 return GetAttr(_dp, "dict")(__dp_tuple(__dp_tuple("x", int)))
 
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
 #         x = 1
-#         __annotate__ = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(runtime), None)
+#         __annotate__ = MakeFunction(0, Function, __dp_tuple(runtime), __dp_NONE)
 #         return __dp_NONE
 
 # ann_assign_attr
@@ -163,7 +163,7 @@ obj.x: int = 1
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", 1)
+#         SetAttr(__dp_load_deleted_name("obj", obj), "x", 1)
 #         return __dp_NONE
 
 # aug_assign_attr
@@ -175,7 +175,7 @@ obj.x += 1
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         __dp_setattr(__dp_load_deleted_name("obj", obj), "x", __dp_iadd(obj.x, 1))
+#         SetAttr(__dp_load_deleted_name("obj", obj), "x", InplaceBinOp(Add, GetAttr(obj, "x"), 1))
 #         return __dp_NONE
 
 # delete_mixed
@@ -188,7 +188,7 @@ del obj.x, obj[i], x
 #     function_id: 0
 #     block bb1:
 #         __dp_delattr(obj, "x")
-#         __dp_delitem(obj, i)
+#         DelItem(obj, i)
 #         del x
 #         return __dp_NONE
 
@@ -204,7 +204,7 @@ assert cond
 #         if_term __debug__:
 #             then:
 #                 block bb2:
-#                     if_term not cond:
+#                     if_term UnaryOp(Not, cond):
 #                         then:
 #                             block bb3:
 #                                 raise __dp_AssertionError
@@ -227,7 +227,7 @@ assert cond, "oops"
 #         if_term __debug__:
 #             then:
 #                 block bb2:
-#                     if_term not cond:
+#                     if_term UnaryOp(Not, cond):
 #                         then:
 #                             block bb3:
 #                                 raise __dp_AssertionError("oops")
@@ -279,7 +279,7 @@ else:
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term __dp_is_(_dp_tmp_0_1, runtime.ITER_COMPLETE):
+#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
 #                 then:
 #                     block bb4:
 #                         done()
@@ -287,7 +287,7 @@ else:
 #                 else:
 #                     block bb2:
 #                         x = _dp_tmp_0_1
-#                         _dp_tmp_0_1 = None
+#                         _dp_tmp_0_1 = __dp_NONE
 #                         jump bb5
 #                         block bb5:
 #                             body()
@@ -327,7 +327,7 @@ with cm as x:
 #     block bb4:
 #         _dp_with_exit_1 = __dp_contextmanager_get_exit(cm)
 #         x = __dp_contextmanager_enter(cm)
-#         _dp_with_ok_2 = True
+#         _dp_with_ok_2 = __dp_TRUE
 #         jump bb13
 #         block bb13:
 #             body()
@@ -340,13 +340,13 @@ with cm as x:
 #                         then:
 #                             block bb7(_dp_try_exc_0_0: Exception):
 #                                 exc_param: _dp_try_exc_0_0
-#                                 __dp_contextmanager_exit(_dp_with_exit_1, None)
+#                                 __dp_contextmanager_exit(_dp_with_exit_1, __dp_NONE)
 #                                 jump bb6
 #                         else:
 #                             jump bb6
 #                     block bb6(_dp_try_exc_0_0: Exception):
 #                         exc_param: _dp_try_exc_0_0
-#                         _dp_with_exit_1 = None
+#                         _dp_with_exit_1 = __dp_NONE
 #                         jump bb1
 #                         block bb1:
 #                             branch_table _dp_try_abrupt_kind_0_1 -> [bb0, bb2, bb3] default bb0
@@ -368,7 +368,7 @@ with cm as x:
 #                 jump bb12
 #     block bb11(_dp_try_exc_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0
-#         _dp_with_ok_2 = False
+#         _dp_with_ok_2 = __dp_FALSE
 #         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info_from_exception(_dp_try_exc_0_0))
 #         jump bb8
 #     block bb12(_dp_try_exc_0_0: Exception):
@@ -394,7 +394,7 @@ def inner():
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         inner = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
+#         inner = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
 #         return __dp_NONE
 
 # comprehension_global
@@ -409,22 +409,22 @@ zs = {k: v for k, v in items}
 #     function_id: 0
 #     display_name: <listcomp>
 #     block bb3:
-#         _dp_tmp_1 = []
+#         _dp_tmp_1 = __dp_list(__dp_tuple())
 #         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term __dp_is_(_dp_tmp_0_1, runtime.ITER_COMPLETE):
+#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
 #                 then:
 #                     block bb4:
 #                         return _dp_tmp_1
 #                 else:
 #                     block bb2:
 #                         x = _dp_tmp_0_1
-#                         _dp_tmp_0_1 = None
+#                         _dp_tmp_0_1 = __dp_NONE
 #                         jump bb5
 #                         block bb5:
-#                             _dp_tmp_1.append(x)
+#                             GetAttr(_dp_tmp_1, "append")(x)
 #                             jump bb1
 
 # function _dp_setcomp_6(_dp_iter_5):
@@ -436,52 +436,52 @@ zs = {k: v for k, v in items}
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_1_1 = __dp_next_or_sentinel(_dp_iter_1_0)
-#             if_term __dp_is_(_dp_tmp_1_1, runtime.ITER_COMPLETE):
+#             if_term BinOp(Is, _dp_tmp_1_1, GetAttr(runtime, "ITER_COMPLETE")):
 #                 then:
 #                     block bb4:
 #                         return _dp_tmp_4
 #                 else:
 #                     block bb2:
 #                         x = _dp_tmp_1_1
-#                         _dp_tmp_1_1 = None
+#                         _dp_tmp_1_1 = __dp_NONE
 #                         jump bb5
 #                         block bb5:
-#                             _dp_tmp_4.add(x)
+#                             GetAttr(_dp_tmp_4, "add")(x)
 #                             jump bb1
 
 # function _dp_dictcomp_9(_dp_iter_8):
 #     function_id: 2
 #     display_name: <dictcomp>
 #     block bb3:
-#         _dp_tmp_7 = {}
+#         _dp_tmp_7 = __dp_dict()
 #         _dp_iter_2_0 = __dp_iter(_dp_iter_8)
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_2_1 = __dp_next_or_sentinel(_dp_iter_2_0)
-#             if_term __dp_is_(_dp_tmp_2_1, runtime.ITER_COMPLETE):
+#             if_term BinOp(Is, _dp_tmp_2_1, GetAttr(runtime, "ITER_COMPLETE")):
 #                 then:
 #                     block bb4:
 #                         return _dp_tmp_7
 #                 else:
 #                     block bb2:
-#                         _dp_tmp_2_2 = __dp_unpack(_dp_tmp_2_1, __dp_tuple(True, True))
-#                         k = __dp_getitem(_dp_tmp_2_2, 0)
-#                         v = __dp_getitem(_dp_tmp_2_2, 1)
+#                         _dp_tmp_2_2 = __dp_unpack(_dp_tmp_2_1, __dp_tuple(__dp_TRUE, __dp_TRUE))
+#                         k = GetItem(_dp_tmp_2_2, 0)
+#                         v = GetItem(_dp_tmp_2_2, 1)
 #                         del _dp_tmp_2_2
-#                         _dp_tmp_2_1 = None
+#                         _dp_tmp_2_1 = __dp_NONE
 #                         jump bb5
 #                         block bb5:
-#                             __dp_setitem(_dp_tmp_7, k, v)
+#                             SetItem(_dp_tmp_7, k, v)
 #                             jump bb1
 
 # function _dp_module_init():
 #     function_id: 3
 #     block bb1:
-#         _dp_listcomp_3 = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
+#         _dp_listcomp_3 = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
 #         xs = _dp_listcomp_3(it)
-#         _dp_setcomp_6 = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(), None)
+#         _dp_setcomp_6 = MakeFunction(1, Function, __dp_tuple(), __dp_NONE)
 #         ys = _dp_setcomp_6(it)
-#         _dp_dictcomp_9 = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(), None)
+#         _dp_dictcomp_9 = MakeFunction(2, Function, __dp_tuple(), __dp_NONE)
 #         zs = _dp_dictcomp_9(items)
 #         return __dp_NONE
 
@@ -498,25 +498,25 @@ def f():
 #     function_id: 0
 #     display_name: <listcomp>
 #     block bb3:
-#         _dp_tmp_1 = []
+#         _dp_tmp_1 = __dp_list(__dp_tuple())
 #         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term __dp_is_(_dp_tmp_0_1, runtime.ITER_COMPLETE):
+#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
 #                 then:
 #                     block bb4:
 #                         return _dp_tmp_1
 #                 else:
 #                     block bb2:
 #                         x = _dp_tmp_0_1
-#                         _dp_tmp_0_1 = None
+#                         _dp_tmp_0_1 = __dp_NONE
 #                         jump bb5
 #                         block bb5:
-#                             if_term __dp_gt(x, 0):
+#                             if_term BinOp(Gt, x, 0):
 #                                 then:
 #                                     block bb6:
-#                                         _dp_tmp_1.append(x)
+#                                         GetAttr(_dp_tmp_1, "append")(x)
 #                                         jump bb1
 #                                 else:
 #                                     jump bb1
@@ -524,13 +524,13 @@ def f():
 # function f():
 #     function_id: 1
 #     block bb1:
-#         _dp_listcomp_3 = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
+#         _dp_listcomp_3 = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
 #         return _dp_listcomp_3(it)
 
 # function _dp_module_init():
 #     function_id: 2
 #     block bb1:
-#         f = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(), None)
+#         f = MakeFunction(1, Function, __dp_tuple(), __dp_NONE)
 #         return __dp_NONE
 
 # comprehension_in_class_body
@@ -546,31 +546,31 @@ class C:
 #     function_id: 0
 #     display_name: <listcomp>
 #     block bb3:
-#         _dp_tmp_1 = []
+#         _dp_tmp_1 = __dp_list(__dp_tuple())
 #         _dp_iter_0_0 = __dp_iter(_dp_iter_2)
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term __dp_is_(_dp_tmp_0_1, runtime.ITER_COMPLETE):
+#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
 #                 then:
 #                     block bb4:
 #                         return _dp_tmp_1
 #                 else:
 #                     block bb2:
 #                         x = _dp_tmp_0_1
-#                         _dp_tmp_0_1 = None
+#                         _dp_tmp_0_1 = __dp_NONE
 #                         jump bb5
 #                         block bb5:
-#                             _dp_tmp_1.append(x)
+#                             GetAttr(_dp_tmp_1, "append")(x)
 #                             jump bb1
 
 # function _dp_class_ns_C(_dp_class_ns, _dp_classcell_arg):
 #     function_id: 1
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
-#         __dp_setitem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
-#         _dp_listcomp_3 = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
+#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
+#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
+#         _dp_listcomp_3 = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
 #         xs = _dp_listcomp_3(it)
 #         return __dp_NONE
 
@@ -578,13 +578,13 @@ class C:
 #     function_id: 2
 #     block bb1:
 #         _dp_class_ns = _dp_class_ns_outer
-#         return __dp_create_class("C", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, False, 3, ())
+#         return __dp_create_class("C", _dp_class_ns_fn, __dp_tuple(), _dp_prepare_dict, __dp_FALSE, 3, __dp_tuple())
 
 # function _dp_module_init():
 #     function_id: 3
 #     block bb1:
-#         _dp_class_ns_C = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(), None)
-#         _dp_define_class_C = __dp_make_function(2, "function", __dp_tuple(), __dp_tuple(None), None)
+#         _dp_class_ns_C = MakeFunction(1, Function, __dp_tuple(), __dp_NONE)
+#         _dp_define_class_C = MakeFunction(2, Function, __dp_tuple(__dp_NONE), __dp_NONE)
 #         C = _dp_define_class_C(_dp_class_ns_C, globals())
 #         return __dp_NONE
 
@@ -600,12 +600,12 @@ with a as x, b as y:
 #     block bb4:
 #         _dp_with_exit_4 = __dp_contextmanager_get_exit(a)
 #         x = __dp_contextmanager_enter(a)
-#         _dp_with_ok_5 = True
+#         _dp_with_ok_5 = __dp_TRUE
 #         jump bb16
 #         block bb16:
 #             _dp_with_exit_1 = __dp_contextmanager_get_exit(b)
 #             y = __dp_contextmanager_enter(b)
-#             _dp_with_ok_2 = True
+#             _dp_with_ok_2 = __dp_TRUE
 #             jump bb25
 #             block bb25:
 #                 body()
@@ -618,13 +618,13 @@ with a as x, b as y:
 #                             then:
 #                                 block bb19(_dp_try_exc_0_3: Exception):
 #                                     exc_param: _dp_try_exc_0_3
-#                                     __dp_contextmanager_exit(_dp_with_exit_1, None)
+#                                     __dp_contextmanager_exit(_dp_with_exit_1, __dp_NONE)
 #                                     jump bb18
 #                             else:
 #                                 jump bb18
 #                         block bb18(_dp_try_exc_0_3: Exception):
 #                             exc_param: _dp_try_exc_0_3
-#                             _dp_with_exit_1 = None
+#                             _dp_with_exit_1 = __dp_NONE
 #                             jump bb13
 #                             block bb13:
 #                                 branch_table _dp_try_abrupt_kind_0_4 -> [bb8, bb14, bb15] default bb8
@@ -634,13 +634,13 @@ with a as x, b as y:
 #                                         then:
 #                                             block bb7(_dp_try_exc_0_0: Exception):
 #                                                 exc_param: _dp_try_exc_0_0
-#                                                 __dp_contextmanager_exit(_dp_with_exit_4, None)
+#                                                 __dp_contextmanager_exit(_dp_with_exit_4, __dp_NONE)
 #                                                 jump bb6
 #                                         else:
 #                                             jump bb6
 #                                     block bb6(_dp_try_exc_0_0: Exception):
 #                                         exc_param: _dp_try_exc_0_0
-#                                         _dp_with_exit_4 = None
+#                                         _dp_with_exit_4 = __dp_NONE
 #                                         jump bb1
 #                                         block bb1:
 #                                             branch_table _dp_try_abrupt_kind_0_1 -> [bb0, bb2, bb3] default bb0
@@ -669,7 +669,7 @@ with a as x, b as y:
 #                 jump bb12
 #     block bb11(_dp_try_exc_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0
-#         _dp_with_ok_5 = False
+#         _dp_with_ok_5 = __dp_FALSE
 #         __dp_contextmanager_exit(_dp_with_exit_4, __dp_exc_info_from_exception(_dp_try_exc_0_0))
 #         jump bb8
 #     block bb12(_dp_try_exc_0_0: Exception):
@@ -687,7 +687,7 @@ with a as x, b as y:
 #                 jump bb24
 #     block bb23(_dp_try_exc_0_3: Exception):
 #         exc_param: _dp_try_exc_0_3
-#         _dp_with_ok_2 = False
+#         _dp_with_ok_2 = __dp_FALSE
 #         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info_from_exception(_dp_try_exc_0_3))
 #         jump bb20
 #     block bb24(_dp_try_exc_0_3: Exception):
@@ -711,14 +711,14 @@ async def run():
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = await __dp_anext_or_sentinel(_dp_iter_0_0)
-#             if_term __dp_is_(_dp_tmp_0_1, runtime.ITER_COMPLETE):
+#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
 #                 then:
 #                     block bb0:
 #                         return __dp_NONE
 #                 else:
 #                     block bb2:
 #                         x = _dp_tmp_0_1
-#                         _dp_tmp_0_1 = None
+#                         _dp_tmp_0_1 = __dp_NONE
 #                         jump bb4
 #                         block bb4:
 #                             body()
@@ -727,7 +727,7 @@ async def run():
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         run = __dp_make_function(0, "coroutine", __dp_tuple(), __dp_tuple(), None)
+#         run = MakeFunction(0, Coroutine, __dp_tuple(), __dp_NONE)
 #         return __dp_NONE
 
 # async_with
@@ -745,7 +745,7 @@ async def run():
 #     block bb4:
 #         _dp_with_exit_1 = __dp_asynccontextmanager_get_aexit(cm)
 #         x = await __dp_asynccontextmanager_aenter(cm)
-#         _dp_with_ok_2 = True
+#         _dp_with_ok_2 = __dp_TRUE
 #         jump bb14
 #         block bb14:
 #             body()
@@ -758,13 +758,13 @@ async def run():
 #                         then:
 #                             block bb7(_dp_try_exc_0_0: Exception):
 #                                 exc_param: _dp_try_exc_0_0
-#                                 await __dp_asynccontextmanager_exit(_dp_with_exit_1, None)
+#                                 await __dp_asynccontextmanager_exit(_dp_with_exit_1, __dp_NONE)
 #                                 jump bb6
 #                         else:
 #                             jump bb6
 #                     block bb6(_dp_try_exc_0_0: Exception):
 #                         exc_param: _dp_try_exc_0_0
-#                         _dp_with_exit_1 = None
+#                         _dp_with_exit_1 = __dp_NONE
 #                         jump bb1
 #                         block bb1:
 #                             branch_table _dp_try_abrupt_kind_0_1 -> [bb0, bb2, bb3] default bb0
@@ -786,9 +786,9 @@ async def run():
 #                 jump bb13
 #     block bb11(_dp_try_exc_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0
-#         _dp_with_ok_2 = False
+#         _dp_with_ok_2 = __dp_FALSE
 #         _dp_with_reraise_3 = await __dp_asynccontextmanager_exit(_dp_with_exit_1, __dp_exc_info())
-#         if_term __dp_is_not(_dp_with_reraise_3, None):
+#         if_term BinOp(IsNot, _dp_with_reraise_3, __dp_NONE):
 #             then:
 #                 jump bb12
 #             else:
@@ -803,7 +803,7 @@ async def run():
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         run = __dp_make_function(0, "coroutine", __dp_tuple(), __dp_tuple(), None)
+#         run = MakeFunction(0, Coroutine, __dp_tuple(), __dp_NONE)
 #         return __dp_NONE
 
 # match_simple
@@ -820,7 +820,7 @@ match value:
 #     function_id: 0
 #     block bb1:
 #         _dp_match_1 = value
-#         if_term __dp_eq(_dp_match_1, 1):
+#         if_term BinOp(Eq, _dp_match_1, 1):
 #             then:
 #                 block bb2:
 #                     one()
@@ -848,7 +848,7 @@ def gen():
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         gen = __dp_make_function(0, "generator", __dp_tuple(), __dp_tuple(), None)
+#         gen = MakeFunction(0, Generator, __dp_tuple(), __dp_NONE)
 #         return __dp_NONE
 
 # yield_from
@@ -869,7 +869,7 @@ def gen():
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         gen = __dp_make_function(0, "generator", __dp_tuple(), __dp_tuple(), None)
+#         gen = MakeFunction(0, Generator, __dp_tuple(), __dp_NONE)
 #         return __dp_NONE
 
 # with_exit_suppresses_exception
@@ -885,7 +885,7 @@ with Suppress():
 #         _dp_tmp_4 = Suppress()
 #         _dp_with_exit_1 = __dp_contextmanager_get_exit(_dp_tmp_4)
 #         __dp_contextmanager_enter(_dp_tmp_4)
-#         _dp_with_ok_2 = True
+#         _dp_with_ok_2 = __dp_TRUE
 #         jump bb13
 #         block bb13:
 #             raise RuntimeError("boom")
@@ -906,12 +906,12 @@ with Suppress():
 #                 jump bb6
 #     block bb6(_dp_try_exc_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0
-#         _dp_with_exit_1 = None
-#         _dp_tmp_4 = None
+#         _dp_with_exit_1 = __dp_NONE
+#         _dp_tmp_4 = __dp_NONE
 #         jump bb1
 #     block bb7(_dp_try_exc_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0
-#         __dp_contextmanager_exit(_dp_with_exit_1, None)
+#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_NONE)
 #         jump bb6
 #     block bb8:
 #         jump bb5(AbruptKind(Fallthrough), None)
@@ -927,7 +927,7 @@ with Suppress():
 #                 jump bb12
 #     block bb11(_dp_try_exc_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0
-#         _dp_with_ok_2 = False
+#         _dp_with_ok_2 = __dp_FALSE
 #         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info_from_exception(_dp_try_exc_0_0))
 #         jump bb8
 #     block bb12(_dp_try_exc_0_0: Exception):
@@ -957,13 +957,13 @@ def outer():
 #     function_id: 1
 #     block bb1:
 #         x = 5
-#         inner = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
+#         inner = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
 #         return inner()
 
 # function _dp_module_init():
 #     function_id: 2
 #     block bb1:
-#         outer = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(), None)
+#         outer = MakeFunction(1, Function, __dp_tuple(), __dp_NONE)
 #         return __dp_NONE
 
 # bb_if_else_function
@@ -982,8 +982,8 @@ def choose(a, b):
 # function choose(a, b):
 #     function_id: 0
 #     block bb1:
-#         total = a + b
-#         if_term __dp_gt(total, 5):
+#         total = BinOp(Add, a, b)
+#         if_term BinOp(Gt, total, 5):
 #             then:
 #                 block bb2:
 #                     return a
@@ -994,7 +994,7 @@ def choose(a, b):
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         choose = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
+#         choose = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
 #         return __dp_NONE
 
 # closure_cell_nonlocal
@@ -1023,13 +1023,13 @@ def outer():
 #     function_id: 1
 #     block bb1:
 #         x = 5
-#         inner = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
+#         inner = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
 #         return inner()
 
 # function _dp_module_init():
 #     function_id: 2
 #     block bb1:
-#         outer = __dp_make_function(1, "function", __dp_tuple(), __dp_tuple(), None)
+#         outer = MakeFunction(1, Function, __dp_tuple(), __dp_NONE)
 #         return __dp_NONE
 
 # plain try / catch
@@ -1086,7 +1086,7 @@ def complicated(a):
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term __dp_is_(_dp_tmp_0_1, runtime.ITER_COMPLETE):
+#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
 #                 then:
 #                     block bb4:
 #                         print("finsihed")
@@ -1094,12 +1094,12 @@ def complicated(a):
 #                 else:
 #                     block bb2:
 #                         i = _dp_tmp_0_1
-#                         _dp_tmp_0_1 = None
+#                         _dp_tmp_0_1 = __dp_NONE
 #                         jump bb5
 #                         block bb5:
 #                             jump bb9
 #                             block bb9:
-#                                 j = i + 1
+#                                 j = BinOp(Add, i, 1)
 #                                 yield j
 #                                 jump bb1
 #     block bb6(_dp_try_exc_0_2: Exception):
@@ -1120,5 +1120,5 @@ def complicated(a):
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         complicated = __dp_make_function(0, "generator", __dp_tuple(), __dp_tuple(), None)
+#         complicated = MakeFunction(0, Generator, __dp_tuple(), __dp_NONE)
 #         return __dp_NONE

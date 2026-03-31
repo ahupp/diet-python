@@ -464,8 +464,10 @@ mod test {
             )
             .await
             .expect("clif request should succeed");
-        assert_eq!(clif_response.status(), StatusCode::OK);
-        let payload: Value = serde_json::from_str(&response_text(clif_response).await).unwrap();
+        let clif_status = clif_response.status();
+        let clif_text = response_text(clif_response).await;
+        assert_eq!(clif_status, StatusCode::OK, "{clif_text}");
+        let payload: Value = serde_json::from_str(&clif_text).unwrap();
         assert!(payload["clif"].as_str().unwrap().contains("function"));
         assert!(payload["cfgDot"].as_str().unwrap().contains("digraph"));
         assert!(

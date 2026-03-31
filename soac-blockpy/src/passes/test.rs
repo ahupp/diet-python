@@ -4,16 +4,18 @@ use crate::block_py::{
     BlockPyModule, BlockPyNameLike, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
     ResolvedStorageBlock,
 };
-use crate::passes::{ResolvedStorageBlockPyPass, RuffBlockPyPass};
+use crate::passes::{CoreBlockPyPassWithAwaitAndYield, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 use crate::{lower_python_to_blockpy_for_testing, LoweringResult};
 
-fn tracked_semantic_blockpy(source: &str) -> BlockPyModule<RuffBlockPyPass> {
+fn tracked_core_blockpy_with_await_and_yield(
+    source: &str,
+) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
     lower_python_to_blockpy_for_testing(source)
         .expect("transform should succeed")
         .pass_tracker
-        .pass_semantic_blockpy()
-        .expect("semantic_blockpy pass should be tracked")
+        .pass_core_blockpy_with_await_and_yield()
+        .expect("core_blockpy_with_await_and_yield pass should be tracked")
         .clone()
 }
 
@@ -28,32 +30,24 @@ fn tracked_name_binding_module(
 
 struct TrackedLowering {
     result: LoweringResult,
-    blockpy_module: BlockPyModule<RuffBlockPyPass>,
+    blockpy_module: BlockPyModule<CoreBlockPyPassWithAwaitAndYield>,
 }
 
 impl TrackedLowering {
     fn new(source: &str) -> Self {
-        let blockpy_module = tracked_semantic_blockpy(source);
+        let blockpy_module = tracked_core_blockpy_with_await_and_yield(source);
         Self {
             result: lower_python_to_blockpy_for_testing(source).expect("transform should succeed"),
             blockpy_module,
         }
     }
 
-    fn blockpy_module(&self) -> BlockPyModule<RuffBlockPyPass> {
+    fn blockpy_module(&self) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
         self.blockpy_module.clone()
     }
 
     fn blockpy_text(&self) -> String {
         crate::block_py::pretty::blockpy_module_to_string(&self.blockpy_module())
-    }
-
-    fn semantic_blockpy_text(&self) -> String {
-        self.pass_text("semantic_blockpy")
-    }
-
-    fn core_blockpy_with_await_and_yield_text(&self) -> String {
-        self.pass_text("core_blockpy_with_await_and_yield")
     }
 
     fn core_blockpy_with_yield_text(&self) -> String {
@@ -114,9 +108,9 @@ fn expr_text<N: BlockPyNameLike>(expr: &CoreBlockPyExpr<N>) -> String {
 }
 
 fn callable_def_by_name<'a>(
-    blockpy_module: &'a BlockPyModule<RuffBlockPyPass>,
+    blockpy_module: &'a BlockPyModule<CoreBlockPyPassWithAwaitAndYield>,
     bind_name: &str,
-) -> &'a BlockPyFunction<RuffBlockPyPass> {
+) -> &'a BlockPyFunction<CoreBlockPyPassWithAwaitAndYield> {
     blockpy_module
         .callable_defs
         .iter()
@@ -144,7 +138,7 @@ fn block_uses_text(block: &ResolvedStorageBlock, needle: &str) -> bool {
 }
 
 #[test]
-fn semantic_blockpy_keeps_plain_coroutines_without_fake_yield_marker() {
+fn core_blockpy_with_await_keeps_plain_coroutines_without_fake_yield_marker() {
     let source = r#"
 async def foo():
     return 1
@@ -154,24 +148,21 @@ async def classify():
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let rendered = lowered.pass_text("semantic_blockpy");
+    let rendered = lowered.blockpy_text();
     assert!(rendered.contains("coroutine classify():"), "{rendered}");
-    assert!(rendered.contains("return await foo()"), "{rendered}");
+    assert!(rendered.contains("await foo()"), "{rendered}");
     assert!(!rendered.contains("yield __dp_NONE"), "{rendered}");
 }
 
 #[test]
-fn rewritten_ruff_ast_can_keep_fstring_while_core_blockpy_expr_simplify_handles_it() {
+fn core_blockpy_lowers_fstring_before_bb_lowering() {
     let source = r#"
 def fmt(value):
     return f"{value=}"
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let blockpy = lowered.blockpy_text();
-    assert!(blockpy.contains("f\"{value=}\""), "{blockpy}");
-
-    let core_blockpy = lowered.core_blockpy_with_await_and_yield_text();
+    let core_blockpy = lowered.blockpy_text();
     assert!(core_blockpy.contains("\"value=\""), "{core_blockpy}");
     assert!(
         core_blockpy.contains("__dp_repr(value)")
@@ -204,17 +195,14 @@ def fmt(value):
 }
 
 #[test]
-fn rewritten_ruff_ast_can_keep_tstring_while_core_blockpy_expr_simplify_handles_it() {
+fn core_blockpy_lowers_tstring_before_bb_lowering() {
     let source = r#"
 def fmt(value):
     return t"{value}"
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let blockpy = lowered.blockpy_text();
-    assert!(blockpy.contains("t\"{value}\""), "{blockpy}");
-
-    let core_blockpy = lowered.core_blockpy_with_await_and_yield_text();
+    let core_blockpy = lowered.blockpy_text();
     assert!(
         core_blockpy.contains("__dp_templatelib_Interpolation(value, \"value\", __dp_NONE, \"\")"),
         "{core_blockpy}"
@@ -742,7 +730,7 @@ class Box:
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let semantic_rendered = lowered.pass_text("semantic_blockpy");
+    let semantic_rendered = lowered.blockpy_text();
     assert!(
         !semantic_rendered.contains("__dp_store_global(__dp_globals(), \"caught\""),
         "{semantic_rendered}"
@@ -782,7 +770,7 @@ def outer():
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let semantic_rendered = lowered.pass_text("semantic_blockpy");
+    let semantic_rendered = lowered.blockpy_text();
     assert!(
         !semantic_rendered.contains("__dp_store_cell(_dp_cell_x, __dp_current_exception())"),
         "{semantic_rendered}"
@@ -819,7 +807,7 @@ class Box:
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let semantic_rendered = lowered.pass_text("semantic_blockpy");
+    let semantic_rendered = lowered.blockpy_text();
     assert!(
         !semantic_rendered
             .contains("__dp_setitem(_dp_class_ns, \"caught\", __dp_current_exception())"),
@@ -1557,7 +1545,7 @@ except Exception as exc:
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let semantic_rendered = lowered.pass_text("semantic_blockpy");
+    let semantic_rendered = lowered.blockpy_text();
     assert!(
         !semantic_rendered.contains("__dp_store_global(__dp_globals(), \"exc\""),
         "{semantic_rendered}"
@@ -1649,8 +1637,10 @@ def outer():
     let lowered = TrackedLowering::new(source);
     let blockpy_rendered = lowered.blockpy_text();
     assert!(
-        blockpy_rendered.contains("__dp_make_function(")
-            && blockpy_rendered.contains("__dp_make_function(0, \"function\", __dp_tuple(),"),
+        blockpy_rendered.contains("function outer.<locals>.inner():")
+            && blockpy_rendered
+                .contains("inner = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)")
+            && blockpy_rendered.contains("del x"),
         "{blockpy_rendered}"
     );
 }
@@ -1889,7 +1879,7 @@ def choose():
         "{blockpy_rendered}"
     );
     assert!(
-        blockpy_rendered.contains("return f(__dp_make_function("),
+        blockpy_rendered.contains("return f(MakeFunction("),
         "{blockpy_rendered}"
     );
 }
@@ -1908,7 +1898,7 @@ async def agen():
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let semantic_blockpy_rendered = lowered.semantic_blockpy_text();
+    let semantic_blockpy_rendered = lowered.blockpy_text();
     assert!(
         semantic_blockpy_rendered.contains("await Once()"),
         "{semantic_blockpy_rendered}"
@@ -1943,7 +1933,7 @@ async def run():
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let semantic_blockpy_rendered = lowered.semantic_blockpy_text();
+    let semantic_blockpy_rendered = lowered.blockpy_text();
     assert!(
         semantic_blockpy_rendered.contains("await Once()"),
         "{semantic_blockpy_rendered}"
@@ -1974,7 +1964,7 @@ async def agen(cm):
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let semantic_blockpy_rendered = lowered.semantic_blockpy_text();
+    let semantic_blockpy_rendered = lowered.blockpy_text();
     assert!(
         semantic_blockpy_rendered.contains("await __dp_asynccontextmanager_aenter"),
         "{semantic_blockpy_rendered}"
@@ -2012,7 +2002,7 @@ async def run(cm):
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let semantic_blockpy_rendered = lowered.semantic_blockpy_text();
+    let semantic_blockpy_rendered = lowered.blockpy_text();
     assert!(
         semantic_blockpy_rendered.contains("await __dp_asynccontextmanager_aenter"),
         "{semantic_blockpy_rendered}"
@@ -2548,7 +2538,7 @@ async def run():
 "#;
 
     let lowered = TrackedLowering::new(source);
-    let semantic_blockpy_rendered = lowered.semantic_blockpy_text();
+    let semantic_blockpy_rendered = lowered.blockpy_text();
     assert!(
         semantic_blockpy_rendered.contains("await __dp_anext_or_sentinel"),
         "{semantic_blockpy_rendered}"
@@ -2643,9 +2633,9 @@ class Field:
             lower_python_to_blockpy_for_testing(source).expect("transform should succeed");
         let blockpy = lowered
             .pass_tracker
-            .get::<crate::block_py::BlockPyModule<RuffBlockPyPass>>("semantic_blockpy")
+            .pass_core_blockpy_with_await_and_yield()
             .cloned()
-            .expect("expected lowered semantic BlockPy module");
+            .expect("expected lowered core BlockPy module");
         let blockpy_rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
         eprintln!("==== {name} BLOCKPY ====\n{blockpy_rendered}");
 
