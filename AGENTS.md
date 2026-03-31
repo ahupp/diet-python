@@ -45,7 +45,6 @@
 - **MUST FOLLOW**: When completing one step in a multi-stage plan, explain the next concrete step. If stopping instead of continuing, explicitly say the current line is done and then describe the next suggested plan.
 - **MUST FOLLOW**: Only record something in `TODO.md` when the user explicitly asks you to plan something.
 - **MUST FOLLOW**: For each such planning request, create a new heading in `TODO.md` of the form `## {plan description}` and put the plan details under that heading.
-- **MUST FOLLOW**: Do not record regular questions, ordinary implementation requests, or their answers in `TODO.md` unless the user explicitly asked for a plan.
 - **MUST FOLLOW**: When a `jj describe` message needs multiple paragraphs or sections, pass actual newlines, not literal `\n`. Use shell multiline quoting, for example:
   `jj describe -m "$(cat <<'EOF'
   Summary line
