@@ -10,6 +10,49 @@
   - Once closure generator factories construct `_DpClosureGenerator` / `_DpClosureAsyncGenerator` directly, they should stop rebuilding `.__code__.replace(...)` on every factory call.
   - The follow-up is to materialize those code objects once during module init and reference them as module constants from the generated factory blocks.
 
+## Make ordinary function creation native
+
+- Planning note:
+  - Ordinary function creation still round-trips through transformed Python via `__dp_make_function(...)` in `soac-blockpy/src/passes/ruff_to_blockpy/module_plan/mod.rs`, `runtime.make_function(...)` in `soac_py/src/soac/runtime.py`, and `_soac_ext.make_bb_function(...)` in `soac-pyo3/src/jit_runtime.rs`.
+  - That path is the remaining reason we keep `with_current_module_runtime_context(...)` / active-runtime TLS in `soac-eval/src/tree_walk/eval.rs`.
+  - The clean end state is for `MakeFunction` to remain a native operation through later lowering and evaluation instead of being materialized back into a Python helper call in `soac-blockpy/src/passes/name_binding.rs`.
+  - A safe implementation order is:
+    - keep `OperationDetail::MakeFunction(...)` alive after `name_binding` instead of rewriting it into `__dp_make_function(...)`;
+    - teach the tree-walk/native execution path to instantiate ordinary functions directly from `MakeFunction`, using the already-explicit `ModuleRuntimeContext`;
+    - make the JIT/codegen path either lower `MakeFunction` to a dedicated native helper or reject it at one later, explicit boundary instead of asserting it should already be a call;
+    - once no runtime path needs `_soac_ext.make_bb_function(...)`, remove `runtime.make_function(...)`, the `_jit_make_bb_function` export, and `with_current_module_runtime_context(...)`.
+  - The main invariant to preserve is evaluation order around decorator application, closure capture materialization, defaults, and annotation hooks.
+
+## Remove the Operation Name Generic
+
+- Planning note:
+  - `OperationDetail<E, N>` in `soac-blockpy/src/block_py/operation.rs` still carries a generic name payload even though the operations are already splitting into two categories:
+    - unresolved source-level name references such as `LoadName`, which can just carry a `String`;
+    - resolved storage references such as `LoadCell`, `StoreCell`, `DelDeref`, and `DelDerefQuietly`, which should point at an explicit resolved cell slot instead of a name-shaped payload.
+  - The current generic mainly exists so the same operation structs can carry `ExprName` earlier and `LocatedName` later, but for the cell ops that is already mixing two different concepts: “source/logical name text” and “resolved storage slot.”
+  - `LocatedName` itself is probably too broad for the end state. A cleaner split is:
+    - keep a small `LocalLocation(u32)` for resolved local-slot identity;
+    - split the current cell-related `NameLocation` cases into a dedicated `CellLocation` enum for owned/closure/captured-source cell slots;
+    - stop using one omnibus location enum for both local slots and cell storage.
+  - A good split is:
+    - `LoadName` keeps unresolved source text and becomes `LoadName { name: String }`;
+    - `LoadLocal` should be evaluated separately, but it is also a better fit for a resolved `LocalLocation` than for a name-generic payload;
+    - `LoadCell`, `StoreCell`, `DelDeref`, and `DelDerefQuietly` become slot-based, using one explicit cell-slot type instead of a generic `N`;
+    - `CellRef` needs a separate decision because it currently serves two roles via `CellRefTarget`: a logical-name marker during earlier lowering and a resolved cell reference later.
+  - A safe implementation order is:
+    - split `LocatedName` / `NameLocation` first so the resolved-slot domain is explicit: a `LocalLocation(u32)` for locals and a `CellLocation` enum for the cell families;
+    - introduce explicit resolved slot types for operations, probably near those location types in `soac-blockpy/src/block_py/mod.rs` or a narrower new module, so the operation layer does not reuse `ExprName`/`LocatedName` for slot identity;
+    - change `LoadName` first to store `String` directly and remove its dependence on the `N` generic, since that part is already conceptually name-text only;
+    - convert `LoadLocal` to carry `LocalLocation`, and `LoadCell`, `StoreCell`, `DelDeref`, and `DelDerefQuietly` to carry the resolved `CellLocation`/cell-slot type, moving the remaining logical-name-to-slot resolution fully into `name_binding`;
+    - then decide `CellRef` explicitly:
+      - either split it into an early logical marker op and a later resolved cell-ref op,
+      - or keep `CellRefTarget::{LogicalName, Slot}` as the one place where the phase boundary is represented;
+    - once those ops no longer need `N`, collapse `OperationDetail<E, N>` toward `OperationDetail<E>` and clean up the `map_expr_and_name` / `try_map_expr_and_name` machinery that only exists to thread the name generic through.
+  - The key audit points before doing that are:
+    - `raw_load_name(...)` and other helper paths in `soac-blockpy/src/passes/name_binding.rs` that currently expect `LoadName(op).name` to be an `ExprName`;
+    - the `LocatedName` projection in `NameLocator::map_name(...)`, which currently maps operation-carried names the same way as statement targets;
+    - pretty-printing and tests that still assume operation-carried names stay in the same generic space as statement names.
+
 ## Replace *Expr::Name with LoadName operation
 
 - Planning note:
