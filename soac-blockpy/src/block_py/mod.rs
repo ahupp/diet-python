@@ -10,7 +10,7 @@ pub use self::semantics::{
     BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyClassBodyFallback,
     BlockPyEffectiveBinding, ClosureInit, ClosureSlot, StorageLayout,
 };
-use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass, RuffBlockPyPass};
+use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 pub use operation::{
     BinOp, BinOpKind, CellRef, CellRefTarget, DelDeref, DelDerefQuietly, DelItem, DelQuietly,
@@ -1762,14 +1762,6 @@ impl<E: ImplicitNoneExpr> BlockPyFallthroughTerm<BlockPyLabel> for BlockPyTerm<E
     fn implicit_function_return() -> Self {
         Self::Return(E::implicit_none_expr())
     }
-}
-
-pub fn count_ruff_blockpy_blocks(module: &BlockPyModule<RuffBlockPyPass>) -> usize {
-    module
-        .callable_defs
-        .iter()
-        .map(|function| function.blocks.len())
-        .sum()
 }
 
 #[cfg(test)]

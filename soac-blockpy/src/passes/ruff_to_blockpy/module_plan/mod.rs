@@ -7,15 +7,12 @@ use crate::passes::ast_to_ast::body::{split_docstring, Suite};
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::rewrite_stmt;
 use crate::passes::ast_to_ast::semantic::{SemanticAstState, SemanticScope};
-use crate::passes::{CoreBlockPyPassWithAwaitAndYield, RuffBlockPyPass};
+use crate::passes::CoreBlockPyPassWithAwaitAndYield;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
 use crate::{py_expr, py_stmt, py_stmt_typed};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
-use super::{
-    build_blockpy_callable_def_from_runtime_input,
-    build_core_blockpy_callable_def_from_runtime_input,
-};
+use super::build_core_blockpy_callable_def_from_runtime_input;
 mod callable_semantic;
 use callable_semantic::callable_semantic_info;
 
@@ -25,15 +22,7 @@ struct FunctionScopeFrame {
     hoisted_to_parent: Vec<Stmt>,
 }
 
-struct BlockPyModuleRewriter<'a> {
-    context: &'a Context,
-    semantic_state: SemanticAstState,
-    module_name_gen: ModuleNameGen,
-    function_scope_stack: Vec<FunctionScopeFrame>,
-    callable_defs: Vec<BlockPyFunction<RuffBlockPyPass>>,
-}
-
-struct BlockPyModuleRewriterWithPass<'a, P: BlockPyPass> {
+struct BlockPyModuleRewriter<'a, P: BlockPyPass> {
     context: &'a Context,
     semantic_state: SemanticAstState,
     module_name_gen: ModuleNameGen,
@@ -52,27 +41,6 @@ struct YieldFamilyDetector {
     found: bool,
 }
 
-pub(crate) fn rewrite_ast_to_lowered_blockpy_module_plan_with_module(
-    context: &Context,
-    mut module: Suite,
-    semantic_state: &SemanticAstState,
-    module_name_gen: ModuleNameGen,
-) -> BlockPyModule<RuffBlockPyPass> {
-    crate::passes::ast_to_ast::simplify::flatten(&mut module);
-    let mut rewriter = BlockPyModuleRewriter {
-        context,
-        semantic_state: semantic_state.clone(),
-        module_name_gen,
-        function_scope_stack: Vec::new(),
-        callable_defs: Vec::new(),
-    };
-    let module_init = BlockPyModuleRewriter::root_module_init_stmt(&mut module);
-    rewriter.lower_root_function_def(module_init);
-    BlockPyModule {
-        callable_defs: rewriter.callable_defs,
-    }
-}
-
 pub(crate) fn rewrite_ast_to_core_blockpy_module_plan_with_module(
     context: &Context,
     mut module: Suite,
@@ -80,7 +48,7 @@ pub(crate) fn rewrite_ast_to_core_blockpy_module_plan_with_module(
     module_name_gen: ModuleNameGen,
 ) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
     crate::passes::ast_to_ast::simplify::flatten(&mut module);
-    let mut rewriter = BlockPyModuleRewriterWithPass {
+    let mut rewriter = BlockPyModuleRewriter {
         context,
         semantic_state: semantic_state.clone(),
         module_name_gen,
@@ -89,7 +57,7 @@ pub(crate) fn rewrite_ast_to_core_blockpy_module_plan_with_module(
         lower_function_to_blockpy: try_lower_function_to_core_blockpy_bundle,
     };
     let module_init =
-        BlockPyModuleRewriterWithPass::<CoreBlockPyPassWithAwaitAndYield>::root_module_init_stmt(
+        BlockPyModuleRewriter::<CoreBlockPyPassWithAwaitAndYield>::root_module_init_stmt(
             &mut module,
         );
     rewriter.lower_root_function_def(module_init);
@@ -131,31 +99,6 @@ fn function_kind(func: &ast::StmtFunctionDef) -> BlockPyFunctionKind {
         (true, false) => BlockPyFunctionKind::Coroutine,
         (true, true) => BlockPyFunctionKind::AsyncGenerator,
     }
-}
-
-fn try_lower_function_to_blockpy_bundle(
-    context: &Context,
-    func: &ast::StmtFunctionDef,
-    callable_semantic: &BlockPyCallableSemanticInfo,
-    name_gen: FunctionNameGen,
-) -> BlockPyFunction<RuffBlockPyPass> {
-    let (docstring, lowered_input_body) = split_docstring(&func.body);
-    let lowered_input_body = lowered_input_body.to_vec();
-    let (param_spec, _param_defaults) = collect_param_spec_and_defaults(&func.parameters);
-
-    let end_label = name_gen.next_block_name();
-
-    build_blockpy_callable_def_from_runtime_input(
-        context,
-        name_gen,
-        callable_semantic.names.clone(),
-        param_spec,
-        &lowered_input_body,
-        docstring,
-        end_label,
-        function_kind(func),
-        callable_semantic,
-    )
 }
 
 fn try_lower_function_to_core_blockpy_bundle(
@@ -209,44 +152,6 @@ fn build_lowered_function_instantiation_expr(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn rewrite_function_def_stmt_via_blockpy(
-    context: &Context,
-    parent_hoisted: &mut Vec<Stmt>,
-    func: &mut ast::StmtFunctionDef,
-    callable_semantic: &BlockPyCallableSemanticInfo,
-    function_hoisted: Vec<Stmt>,
-    module_name_gen: &mut ModuleNameGen,
-    callable_defs: &mut Vec<BlockPyFunction<RuffBlockPyPass>>,
-) -> Vec<Stmt> {
-    let name_gen = module_name_gen.next_function_name_gen();
-    let lowered_plan =
-        try_lower_function_to_blockpy_bundle(context, func, callable_semantic, name_gen);
-    let bind_name = lowered_plan.names.bind_name.clone();
-    let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
-    let decorated = build_lowered_function_instantiation_expr(
-        lowered_plan.function_id,
-        rewrite_stmt::decorator::collect_exprs(&func.decorator_list),
-        &param_defaults,
-        py_expr!("None"),
-        lowered_plan.kind,
-    );
-    let binding_stmt = vec![py_stmt!(
-        "{name:id} = {value:expr}",
-        name = bind_name.as_str(),
-        value = decorated
-    )];
-    callable_defs.push(lowered_plan);
-    if bind_name.starts_with("_dp_class_ns_") || bind_name.starts_with("_dp_define_class_") {
-        let mut replacement = function_hoisted;
-        replacement.extend(binding_stmt);
-        replacement
-    } else {
-        parent_hoisted.extend(function_hoisted);
-        binding_stmt
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
 fn rewrite_function_def_stmt_via_blockpy_with_pass<P: BlockPyPass>(
     context: &Context,
     parent_hoisted: &mut Vec<Stmt>,
@@ -289,7 +194,7 @@ fn rewrite_function_def_stmt_via_blockpy_with_pass<P: BlockPyPass>(
     }
 }
 
-impl BlockPyModuleRewriter<'_> {
+impl<P: BlockPyPass> BlockPyModuleRewriter<'_, P> {
     fn lower_lambda_expr(&mut self, lambda: &mut ast::ExprLambda) -> Expr {
         let lambda_scope = self
             .semantic_state
@@ -327,7 +232,7 @@ def {func:id}():
             }
         }
 
-        let lowered_plan = try_lower_function_to_blockpy_bundle(
+        let lowered_plan = (self.lower_function_to_blockpy)(
             self.context,
             &func_def,
             &state.callable_semantic,
@@ -407,140 +312,6 @@ def {func:id}():
             state.hoisted_to_parent.is_empty(),
             "root _dp_module_init should not produce hoisted statements"
         );
-        let name_gen = self.module_name_gen.next_function_name_gen();
-        let lowered_plan = try_lower_function_to_blockpy_bundle(
-            self.context,
-            func,
-            &state.callable_semantic,
-            name_gen,
-        );
-        self.callable_defs.push(lowered_plan);
-    }
-
-    fn rewrite_visited_function_def(
-        &mut self,
-        func: &mut ast::StmtFunctionDef,
-        state: FunctionScopeFrame,
-    ) -> Vec<Stmt> {
-        let parent_frame = self
-            .function_scope_stack
-            .last_mut()
-            .expect("nested function rewrite should always have a parent hoist buffer");
-        let parent_hoisted = &mut parent_frame.hoisted_to_parent;
-        rewrite_function_def_stmt_via_blockpy(
-            self.context,
-            parent_hoisted,
-            func,
-            &state.callable_semantic,
-            state.hoisted_to_parent,
-            &mut self.module_name_gen,
-            &mut self.callable_defs,
-        )
-    }
-}
-
-impl<P: BlockPyPass> BlockPyModuleRewriterWithPass<'_, P> {
-    fn lower_lambda_expr(&mut self, lambda: &mut ast::ExprLambda) -> Expr {
-        let lambda_scope = self
-            .semantic_state
-            .lambda_scope(lambda)
-            .expect("missing preserved lambda scope while lowering lambda");
-        let func_name = self.context.fresh("lambda");
-        let mut func_def: ast::StmtFunctionDef = py_stmt_typed!(
-            r#"
-def {func:id}():
-    pass
-"#,
-            func = func_name.as_str(),
-        );
-        if let Some(parameters) = lambda.parameters.take() {
-            func_def.parameters = parameters;
-        }
-        let body = std::mem::replace(&mut *lambda.body, py_expr!("None"));
-        func_def.body = vec![py_stmt!("return {value:expr}", value = body)];
-
-        let state = self.walk_function_def_with_explicit_scope(&mut func_def, Some(lambda_scope));
-        if let Some(parent_frame) = self.function_scope_stack.last_mut() {
-            for (name, binding) in &state.callable_semantic.bindings {
-                if matches!(
-                    binding,
-                    BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
-                ) && parent_frame.callable_semantic.local_defs.contains(name)
-                {
-                    parent_frame.callable_semantic.insert_binding(
-                        name.clone(),
-                        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner),
-                        false,
-                        None,
-                    );
-                }
-            }
-        }
-
-        let lowered_plan = (self.lower_function_to_blockpy)(
-            self.context,
-            &func_def,
-            &state.callable_semantic,
-            self.module_name_gen.next_function_name_gen(),
-        );
-        let (_, param_defaults) = collect_param_spec_and_defaults(&func_def.parameters);
-        let lowered_expr = build_lowered_function_instantiation_expr(
-            lowered_plan.function_id,
-            Vec::new(),
-            &param_defaults,
-            py_expr!("None"),
-            lowered_plan.kind,
-        );
-        self.callable_defs.push(lowered_plan);
-        lowered_expr
-    }
-
-    fn root_module_init_stmt<'a>(module: &'a mut Suite) -> &'a mut ast::StmtFunctionDef {
-        BlockPyModuleRewriter::root_module_init_stmt(module)
-    }
-
-    fn walk_function_def_with_scope(
-        &mut self,
-        func: &mut ast::StmtFunctionDef,
-    ) -> FunctionScopeFrame {
-        let function_scope = self.semantic_state.function_scope(func);
-        self.walk_function_def_with_explicit_scope(func, function_scope)
-    }
-
-    fn walk_function_def_with_explicit_scope(
-        &mut self,
-        func: &mut ast::StmtFunctionDef,
-        function_scope: Option<SemanticScope>,
-    ) -> FunctionScopeFrame {
-        let parent_scope = self
-            .function_scope_stack
-            .last()
-            .and_then(|frame| frame.scope.as_ref())
-            .cloned();
-        let callable_semantic = callable_semantic_info(
-            &self.semantic_state,
-            parent_scope.as_ref(),
-            function_scope.as_ref(),
-            Some(func),
-            &func.body,
-        );
-        self.function_scope_stack.push(FunctionScopeFrame {
-            scope: function_scope.clone(),
-            callable_semantic,
-            hoisted_to_parent: Vec::new(),
-        });
-        self.visit_body(&mut func.body);
-        self.function_scope_stack
-            .pop()
-            .expect("function scope stack should pop after walking function def")
-    }
-
-    fn lower_root_function_def(&mut self, func: &mut ast::StmtFunctionDef) {
-        let state = self.walk_function_def_with_scope(func);
-        assert!(
-            state.hoisted_to_parent.is_empty(),
-            "root _dp_module_init should not produce hoisted statements"
-        );
         let lowered_plan = (self.lower_function_to_blockpy)(
             self.context,
             func,
@@ -573,39 +344,7 @@ def {func:id}():
     }
 }
 
-impl Transformer for BlockPyModuleRewriter<'_> {
-    fn visit_body(&mut self, body: &mut Suite) {
-        let mut rewritten = Vec::with_capacity(body.len());
-        for stmt in std::mem::take(body) {
-            let mut stmt = stmt;
-            if let Stmt::FunctionDef(func) = &mut stmt {
-                let state = self.walk_function_def_with_scope(func);
-                let replacement = self.rewrite_visited_function_def(func, state);
-                rewritten.extend(replacement);
-                continue;
-            }
-
-            self.visit_stmt(&mut stmt);
-            rewritten.push(stmt);
-        }
-        *body = rewritten;
-    }
-
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        walk_stmt(self, stmt);
-    }
-
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        match expr {
-            Expr::Lambda(lambda) => {
-                *expr = self.lower_lambda_expr(lambda);
-            }
-            other => walk_expr(self, other),
-        }
-    }
-}
-
-impl<P: BlockPyPass> Transformer for BlockPyModuleRewriterWithPass<'_, P> {
+impl<P: BlockPyPass> Transformer for BlockPyModuleRewriter<'_, P> {
     fn visit_body(&mut self, body: &mut Suite) {
         let mut rewritten = Vec::with_capacity(body.len());
         for stmt in std::mem::take(body) {

@@ -12,18 +12,9 @@ mod trace;
 use crate::block_py::{cfg::relabel_blockpy_blocks_dense, BlockPyModule};
 use crate::block_py::{
     BlockPyPass, BlockPyStmt, CodegenBlockPyExpr, CoreBlockPyExpr,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, LocatedName, RuffExpr,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, LocatedName,
 };
 use ruff_python_ast as ast;
-
-#[derive(Debug, Clone)]
-pub struct RuffBlockPyPass;
-
-impl BlockPyPass for RuffBlockPyPass {
-    type Name = ast::ExprName;
-    type Expr = RuffExpr;
-    type Stmt = BlockPyStmt<Self::Expr, Self::Name>;
-}
 
 #[derive(Debug, Clone)]
 pub struct CoreBlockPyPassWithAwaitAndYield;

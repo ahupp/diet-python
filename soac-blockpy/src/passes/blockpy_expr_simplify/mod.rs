@@ -1,19 +1,14 @@
 use super::ast_to_ast::string_templates::lower_string_templates_in_expr;
-use super::core_eval_order::make_eval_order_explicit_in_core_block;
-use crate::block_py::structured::IntoStructuredBlockPyStmt;
 use crate::block_py::{
-    convert_blockpy_stmt_expr, convert_blockpy_term_expr, core_call_expr_with_meta,
-    core_positional_call_expr_with_meta, operation, BlockPyAssign, BlockPyBranchTable,
-    BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragment,
-    BlockPyStmtFragmentBuilder, BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyCallArg,
+    core_call_expr_with_meta, core_positional_call_expr_with_meta, operation, BlockPyAssign,
+    BlockPyBranchTable, BlockPyDelete, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragment,
+    BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCallArg,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyYield,
     CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
-    CoreStringLiteral, HasMeta, Meta, RuffExpr, StructuredBlockPyStmt, WithMeta,
+    CoreStringLiteral, HasMeta, Meta, StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::ast_to_ast::expr_utils::{make_binop, make_tuple};
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
-use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
-use crate::passes::{CoreBlockPyPassWithAwaitAndYield, RuffBlockPyPass};
 use crate::py_expr;
 use crate::transformer::{walk_expr, Transformer};
 use ruff_python_ast::{self as ast, Expr};
@@ -937,74 +932,6 @@ fn lower_semantic_term_into(builder: &mut CoreStmtBuilder, term: BlockPyTerm<Exp
             builder.extend(finish_expr_setup(setup));
             builder.set_term(BlockPyTerm::Return(value));
         }
-    }
-}
-
-fn lower_semantic_block<S>(
-    block: CfgBlock<S, BlockPyTerm<RuffExpr>>,
-) -> CfgBlock<
-    StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
-    BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
->
-where
-    S: IntoStructuredBlockPyStmt<RuffExpr, ast::ExprName>,
-{
-    let CfgBlock {
-        label,
-        body,
-        term,
-        params,
-        exc_edge,
-    } = block;
-    let mut builder = CoreStmtBuilder::new();
-    for stmt in body {
-        lower_semantic_stmt_into(
-            &mut builder,
-            convert_blockpy_stmt_expr(stmt.into_structured_stmt()),
-        );
-    }
-    lower_semantic_term_into(&mut builder, convert_blockpy_term_expr(term));
-    let fragment = builder.finish();
-    CfgBlock {
-        label,
-        body: fragment.body,
-        term: fragment
-            .term
-            .expect("semantic BlockPy block must lower to a core terminator"),
-        params,
-        exc_edge,
-    }
-}
-
-pub(crate) fn simplify_blockpy_callable_def_exprs(
-    callable_def: BlockPyFunction<RuffBlockPyPass>,
-) -> BlockPyFunction<CoreBlockPyPassWithAwaitAndYield> {
-    let BlockPyFunction {
-        function_id,
-        name_gen,
-        names,
-        kind,
-        params,
-        blocks,
-        doc,
-        storage_layout,
-        semantic,
-    } = callable_def;
-    let structured_blocks = blocks
-        .into_iter()
-        .map(lower_semantic_block)
-        .map(make_eval_order_explicit_in_core_block)
-        .collect::<Vec<_>>();
-    BlockPyFunction {
-        function_id,
-        name_gen,
-        names,
-        kind,
-        params,
-        blocks: lower_structured_blocks_to_bb_blocks(&structured_blocks),
-        doc,
-        storage_layout,
-        semantic,
     }
 }
 

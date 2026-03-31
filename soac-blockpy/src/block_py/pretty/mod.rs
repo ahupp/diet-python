@@ -9,7 +9,7 @@ use super::{
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
     CodegenBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield,
-    CoreBlockPyPassWithYield, ResolvedStorageBlockPyPass, RuffBlockPyPass,
+    CoreBlockPyPassWithYield, ResolvedStorageBlockPyPass,
 };
 use crate::ruff_ast_to_string;
 use std::collections::{HashMap, HashSet};
@@ -40,7 +40,6 @@ macro_rules! impl_default_blockpy_pretty_printer {
 }
 
 impl_default_blockpy_pretty_printer!(
-    RuffBlockPyPass,
     CoreBlockPyPassWithAwaitAndYield,
     CoreBlockPyPassWithYield,
     CoreBlockPyPass,
@@ -130,10 +129,6 @@ where
     P::Expr: BlockPyDebugExprText,
     P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, P::Name>>,
 {
-    blockpy_module_to_string(module)
-}
-
-pub fn render_ruff_blockpy_module(module: &BlockPyModule<RuffBlockPyPass>) -> String {
     blockpy_module_to_string(module)
 }
 
