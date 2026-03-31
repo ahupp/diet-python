@@ -17,13 +17,13 @@ use soac_blockpy::block_py::{
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 mod intrinsics;
 mod planning;
 mod specialized_helpers;
+mod vmctx;
 
 pub use planning::{
     BlockExcDispatchPlan, exc_dispatch_plan, jit_param_names_for_block, lookup_blockpy_function,
@@ -31,6 +31,11 @@ pub use planning::{
 };
 pub use specialized_helpers::ObjPtr;
 use specialized_helpers::{dp_jit_decref, register_specialized_jit_symbols};
+pub use vmctx::JitModuleVmCtx;
+use vmctx::{
+    DELETED_OBJ_OFFSET, EMPTY_TUPLE_OBJ_OFFSET, FALSE_OBJ_OFFSET, GLOBALS_OBJ_OFFSET,
+    NONE_OBJ_OFFSET, TRUE_OBJ_OFFSET,
+};
 
 static INCREMENTAL_CLIF_CACHE: OnceLock<Mutex<HashMap<Vec<u8>, Vec<u8>>>> = OnceLock::new();
 static NEXT_IMPORT_SPEC_ID: AtomicUsize = AtomicUsize::new(0);
@@ -129,11 +134,6 @@ static DP_JIT_MAKE_BYTES_IMPORT: ImportSpec = ImportSpec::new(
 static DP_JIT_LOAD_NAME_IMPORT: ImportSpec = ImportSpec::new(
     "dp_jit_load_name",
     &[SigType::Pointer, SigType::Pointer, SigType::I64],
-    &[SigType::Pointer],
-);
-static DP_JIT_FUNCTION_GLOBALS_IMPORT: ImportSpec = ImportSpec::new(
-    "dp_jit_function_globals",
-    &[SigType::Pointer],
     &[SigType::Pointer],
 );
 static DP_JIT_FUNCTION_CLOSURE_CELL_IMPORT: ImportSpec = ImportSpec::new(
@@ -493,6 +493,16 @@ fn intern_bytes_literal(literal_pool: &mut Vec<Box<[u8]>>, bytes: &[u8]) -> (*co
     (ptr, len)
 }
 
+fn load_vmctx_obj(
+    fb: &mut FunctionBuilder<'_>,
+    ptr_ty: ir::Type,
+    vmctx_value: ir::Value,
+    offset: i32,
+) -> ir::Value {
+    fb.ins()
+        .load(ptr_ty, ir::MemFlags::trusted(), vmctx_value, offset)
+}
+
 struct JitEmitConsts {
     step_null_block: ir::Block,
     step_null_args: Vec<ir::Value>,
@@ -515,7 +525,6 @@ struct JitEmitCtx {
     make_int_ref: ir::FuncRef,
     consts: JitEmitConsts,
     load_name_ref: ir::FuncRef,
-    function_globals_ref: ir::FuncRef,
     function_closure_cell_ref: ir::FuncRef,
     pyobject_getattr_ref: ir::FuncRef,
     pyobject_setattr_ref: ir::FuncRef,
@@ -1065,12 +1074,10 @@ fn emit_codegen_expr(
     let step_null_block = ctx.consts.step_null_block;
     let ptr_ty = ctx.consts.ptr_ty;
     let i64_ty = ctx.consts.i64_ty;
-    let callable_value = ctx.consts.callable_value;
     let deleted_const = ctx.consts.deleted_const;
     let empty_tuple_const = ctx.consts.empty_tuple_const;
     let block_const = ctx.consts.block_const;
     let load_name_ref = ctx.load_name_ref;
-    let function_globals_ref = ctx.function_globals_ref;
     let pyobject_getattr_ref = ctx.pyobject_getattr_ref;
     let pyobject_setitem_ref = ctx.pyobject_setitem_ref;
     let decode_literal_bytes_ref = ctx.decode_literal_bytes_ref;
@@ -1130,22 +1137,7 @@ fn emit_codegen_expr(
                     return emit_raw_cell_object_for_name(fb, name, local_names, local_values, ctx);
                 }
                 NameLocation::Global => {
-                    let globals_inst = fb.ins().call(function_globals_ref, &[callable_value]);
-                    let globals_value = fb.inst_results(globals_inst)[0];
-                    let globals_is_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, globals_value, null_ptr);
-                    let globals_ok_block = fb.create_block();
-                    fb.append_block_param(globals_ok_block, ptr_ty);
-                    fb.ins().brif(
-                        globals_is_null,
-                        step_null_block,
-                        &step_null_block_args(ctx),
-                        globals_ok_block,
-                        &[ir::BlockArg::Value(globals_value)],
-                    );
-                    fb.switch_to_block(globals_ok_block);
-                    let globals_obj = fb.block_params(globals_ok_block)[0];
+                    let globals_obj = block_const;
                     let (name_ptr, name_len) =
                         intern_bytes_literal(literal_pool, name.id.as_str().as_bytes());
                     let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
@@ -1154,7 +1146,6 @@ fn emit_codegen_expr(
                         .ins()
                         .call(load_name_ref, &[globals_obj, name_ptr_val, name_len_val]);
                     let value = fb.inst_results(value_inst)[0];
-                    fb.ins().call(decref_ref, &[globals_obj]);
                     let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
                     let value_ok_block = fb.create_block();
                     fb.append_block_param(value_ok_block, ptr_ty);
@@ -3467,12 +3458,6 @@ fn build_cranelift_run_bb_specialized_function(
     jit_module: &mut JITModule,
     blocks: &[ObjPtr],
     function: &BlockPyFunction<CodegenBlockPyPass>,
-    globals_obj: ObjPtr,
-    true_obj: ObjPtr,
-    false_obj: ObjPtr,
-    none_obj: ObjPtr,
-    deleted_obj: ObjPtr,
-    empty_tuple_obj: ObjPtr,
 ) -> Result<BuiltSpecializedFunction, String> {
     let block_count = function.blocks.len();
     if block_count == 0 {
@@ -3491,6 +3476,10 @@ fn build_cranelift_run_bb_specialized_function(
     let mut module_imports = ModuleFuncImports::new();
 
     let mut main_sig = jit_module.make_signature();
+    main_sig.params.push(ir::AbiParam::special(
+        ptr_ty,
+        ir::ArgumentPurpose::VMContext,
+    ));
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
     for _ in function.params.iter() {
         main_sig.params.push(ir::AbiParam::new(ptr_ty));
@@ -3544,6 +3533,7 @@ fn build_cranelift_run_bb_specialized_function(
             entry_block,
             "jit_entry",
             vec![
+                "vmctx".into(),
                 "callable".into(),
                 "entry_args".into(),
                 "ambient_args".into(),
@@ -3595,8 +3585,9 @@ fn build_cranelift_run_bb_specialized_function(
 
         fb.switch_to_block(entry_block);
         let entry_block_params = fb.block_params(entry_block).to_vec();
-        let callable = entry_block_params[0];
-        let direct_entry_args = entry_block_params[1..].to_vec();
+        let vmctx_value = entry_block_params[0];
+        let callable = entry_block_params[1];
+        let direct_entry_args = entry_block_params[2..].to_vec();
         let mut func_imports = FuncBuildImports::new(&mut module_imports);
         let incref_ref = func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_INCREF_IMPORT);
         let decref_ref = func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_DECREF_IMPORT);
@@ -3624,8 +3615,6 @@ fn build_cranelift_run_bb_specialized_function(
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_MAKE_FLOAT_IMPORT);
         let load_name_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_LOAD_NAME_IMPORT);
-        let function_globals_ref =
-            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_FUNCTION_GLOBALS_IMPORT);
         let function_closure_cell_ref = func_imports.get_or_panic(
             jit_module,
             &mut fb.func,
@@ -3671,7 +3660,7 @@ fn build_cranelift_run_bb_specialized_function(
         let tuple_set_item_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_TUPLE_SET_ITEM_IMPORT);
 
-        let entry_deleted_const = fb.ins().iconst(ptr_ty, deleted_obj as i64);
+        let entry_deleted_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, DELETED_OBJ_OFFSET);
         stack_slots.initialize_all_to_value(&mut fb, entry_deleted_const, incref_ref);
 
         let null_ptr = fb.ins().iconst(ptr_ty, 0);
@@ -3866,12 +3855,13 @@ fn build_cranelift_run_bb_specialized_function(
                     .expect("runtime block param missing from stack slots");
                 fb.ins().call(decref_ref, &[*param_value]);
             }
-            let block_const = fb.ins().iconst(ptr_ty, globals_obj as i64);
-            let none_const = fb.ins().iconst(ptr_ty, none_obj as i64);
-            let true_const = fb.ins().iconst(ptr_ty, true_obj as i64);
-            let false_const = fb.ins().iconst(ptr_ty, false_obj as i64);
-            let deleted_const = fb.ins().iconst(ptr_ty, deleted_obj as i64);
-            let empty_tuple_const = fb.ins().iconst(ptr_ty, empty_tuple_obj as i64);
+            let block_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, GLOBALS_OBJ_OFFSET);
+            let none_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, NONE_OBJ_OFFSET);
+            let true_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, TRUE_OBJ_OFFSET);
+            let false_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, FALSE_OBJ_OFFSET);
+            let deleted_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, DELETED_OBJ_OFFSET);
+            let empty_tuple_const =
+                load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, EMPTY_TUPLE_OBJ_OFFSET);
             let fast_step_null_block =
                 exception_dispatch_blocks[index].unwrap_or(cleanup_null_blocks[index]);
             let fast_step_null_args = Vec::new();
@@ -3895,7 +3885,6 @@ fn build_cranelift_run_bb_specialized_function(
                     block_const,
                 },
                 load_name_ref,
-                function_globals_ref,
                 function_closure_cell_ref,
                 pyobject_getattr_ref,
                 pyobject_setattr_ref,
@@ -3960,7 +3949,7 @@ fn build_cranelift_run_bb_specialized_function(
 
             fb.switch_to_block(dispatch_block);
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
-            let none_const = fb.ins().iconst(ptr_ty, none_obj as i64);
+            let none_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, NONE_OBJ_OFFSET);
             let dispatch_step_null_args = Vec::new();
 
             let raised_exc_inst = fb.ins().call(get_raised_exception_ref, &[]);
@@ -4062,10 +4051,6 @@ fn build_cranelift_run_bb_specialized_function(
 pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     blocks: &[ObjPtr],
     function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
-    true_obj: ObjPtr,
-    false_obj: ObjPtr,
-    deleted_obj: ObjPtr,
-    empty_tuple_obj: ObjPtr,
 ) -> Result<RenderedSpecializedClif, String> {
     if blocks.is_empty() {
         return Err("specialized JIT run_bb requires at least one block".to_string());
@@ -4074,17 +4059,7 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut jit_module = JITModule::new(builder);
-    let built = build_cranelift_run_bb_specialized_function(
-        &mut jit_module,
-        blocks,
-        function,
-        ptr::null_mut(),
-        true_obj,
-        false_obj,
-        ptr::null_mut(),
-        deleted_obj,
-        empty_tuple_obj,
-    )?;
+    let built = build_cranelift_run_bb_specialized_function(&mut jit_module, blocks, function)?;
     let mut out = String::new();
     out.push_str("; import fn aliases (Cranelift display id -> symbol)\n");
     let mut symbols: Vec<&'static str> = built.import_id_to_symbol.values().copied().collect();
@@ -4149,16 +4124,7 @@ fn render_compiled_clif_and_vcode_disasm(
 pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     blocks: &[ObjPtr],
     function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
-    globals_obj: ObjPtr,
-    true_obj: ObjPtr,
-    false_obj: ObjPtr,
-    none_obj: ObjPtr,
-    deleted_obj: ObjPtr,
-    empty_tuple_obj: ObjPtr,
 ) -> Result<ObjPtr, String> {
-    if globals_obj.is_null() {
-        return Err("invalid null globals object passed to specialized JIT run_bb".to_string());
-    }
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut compiled = Box::new(CompiledSpecializedRunner {
@@ -4166,17 +4132,8 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
         _literal_pool: Vec::new(),
         entry: None,
     });
-    let built = build_cranelift_run_bb_specialized_function(
-        &mut compiled._jit_module,
-        blocks,
-        function,
-        globals_obj,
-        true_obj,
-        false_obj,
-        none_obj,
-        deleted_obj,
-        empty_tuple_obj,
-    )?;
+    let built =
+        build_cranelift_run_bb_specialized_function(&mut compiled._jit_module, blocks, function)?;
     let mut ctx = built.ctx;
     let main_id = built.main_id;
     define_function_with_incremental_cache(
@@ -4224,10 +4181,14 @@ pub unsafe fn compile_cranelift_vectorcall_direct_trampoline(
         i64,
     ) -> i32,
     data_ptr: ObjPtr,
+    vmctx_ptr: ObjPtr,
     compiled_handle: ObjPtr,
 ) -> Result<(ObjPtr, VectorcallEntryFn), String> {
     if data_ptr.is_null() {
         return Err("invalid null vectorcall data pointer".to_string());
+    }
+    if vmctx_ptr.is_null() {
+        return Err("invalid null vectorcall vmctx pointer".to_string());
     }
     let (direct_code_ptr, param_count) = compiled_direct_runner_info(compiled_handle)?;
 
@@ -4256,6 +4217,10 @@ pub unsafe fn compile_cranelift_vectorcall_direct_trampoline(
     )?;
 
     let mut direct_sig = jit_module.make_signature();
+    direct_sig.params.push(ir::AbiParam::special(
+        ptr_ty,
+        ir::ArgumentPurpose::VMContext,
+    ));
     direct_sig.params.push(ir::AbiParam::new(ptr_ty));
     for _ in 0..param_count {
         direct_sig.params.push(ir::AbiParam::new(ptr_ty));
@@ -4328,7 +4293,9 @@ pub unsafe fn compile_cranelift_vectorcall_direct_trampoline(
 
         fb.switch_to_block(ok_block);
         let direct_sig_ref = fb.import_signature(direct_sig);
-        let mut call_args = Vec::with_capacity(param_count + 1);
+        let mut call_args = Vec::with_capacity(param_count + 2);
+        let vmctx_const = fb.ins().iconst(ptr_ty, vmctx_ptr as i64);
+        call_args.push(vmctx_const);
         call_args.push(callable_val);
         let mut owned_args = Vec::with_capacity(param_count);
         if let Some(slot) = bound_args_slot {

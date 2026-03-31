@@ -46,8 +46,7 @@ struct ClifFunctionData {
     function: soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
     module_name: String,
     qualname: String,
-    true_obj: *mut ffi::PyObject,
-    false_obj: *mut ffi::PyObject,
+    module_vmctx: jit::JitModuleVmCtx,
     binding: BindingMetadata,
     compiled_handle: *mut c_void,
     compiled_vectorcall_handle: *mut c_void,
@@ -75,13 +74,8 @@ unsafe fn free_clif_function_data(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
-    let data = unsafe { Box::from_raw(ptr as *mut ClifFunctionData) };
-    if !data.true_obj.is_null() {
-        unsafe { ffi::Py_DECREF(data.true_obj) };
-    }
-    if !data.false_obj.is_null() {
-        unsafe { ffi::Py_DECREF(data.false_obj) };
-    }
+    let mut data = unsafe { Box::from_raw(ptr as *mut ClifFunctionData) };
+    unsafe { free_module_vmctx(&mut data.module_vmctx) };
     unsafe { free_binding_metadata(data.binding) };
     unsafe { jit::free_cranelift_run_bb_specialized_cached(data.compiled_handle) };
     unsafe { jit::free_cranelift_vectorcall_trampoline(data.compiled_vectorcall_handle) };
@@ -149,6 +143,141 @@ unsafe fn lookup_deleted_sentinel() -> Result<*mut ffi::PyObject, ()> {
     Ok(deleted_obj)
 }
 
+unsafe fn try_lookup_named_module_object(
+    module_name: &str,
+) -> Result<Option<*mut ffi::PyObject>, ()> {
+    let modules = unsafe { ffi::PyImport_GetModuleDict() };
+    if modules.is_null() {
+        return Ok(None);
+    }
+    let module_name = match CString::new(module_name) {
+        Ok(value) => value,
+        Err(_) => {
+            return set_type_error("module name for CLIF registration contained an embedded nul");
+        }
+    };
+    let module = unsafe { ffi::PyDict_GetItemString(modules, module_name.as_ptr()) };
+    if module.is_null() {
+        return Ok(None);
+    }
+    Ok(Some(module))
+}
+
+unsafe fn try_lookup_module_object(
+    module_name_hint: &str,
+    globals_obj: *mut ffi::PyObject,
+) -> Result<Option<*mut ffi::PyObject>, ()> {
+    if !globals_obj.is_null() {
+        let globals_module_name = unsafe {
+            ffi::PyDict_GetItemString(globals_obj, b"__name__\0".as_ptr() as *const c_char)
+        };
+        if !globals_module_name.is_null() {
+            match unsafe { py_string(globals_module_name) } {
+                Ok(module_name) => {
+                    if let Some(module) =
+                        unsafe { try_lookup_named_module_object(module_name.as_str()) }?
+                    {
+                        return Ok(Some(module));
+                    }
+                }
+                Err(()) => unsafe { ffi::PyErr_Clear() },
+            }
+        }
+        let modules = unsafe { ffi::PyImport_GetModuleDict() };
+        if !modules.is_null() {
+            let mut pos: ffi::Py_ssize_t = 0;
+            let mut key = ptr::null_mut();
+            let mut value = ptr::null_mut();
+            while unsafe { ffi::PyDict_Next(modules, &mut pos, &mut key, &mut value) } != 0 {
+                if unsafe { ffi::PyModule_Check(value) } == 0 {
+                    continue;
+                }
+                let candidate_globals = unsafe { ffi::PyModule_GetDict(value) };
+                if candidate_globals == globals_obj {
+                    return Ok(Some(value));
+                }
+            }
+        }
+    }
+    unsafe { try_lookup_named_module_object(module_name_hint) }
+}
+
+unsafe fn free_module_vmctx(vmctx: &mut jit::JitModuleVmCtx) {
+    decref_if_non_null(vmctx.module_obj as *mut ffi::PyObject);
+    decref_if_non_null(vmctx.globals_obj as *mut ffi::PyObject);
+    decref_if_non_null(vmctx.true_obj as *mut ffi::PyObject);
+    decref_if_non_null(vmctx.false_obj as *mut ffi::PyObject);
+    decref_if_non_null(vmctx.none_obj as *mut ffi::PyObject);
+    decref_if_non_null(vmctx.deleted_obj as *mut ffi::PyObject);
+    decref_if_non_null(vmctx.empty_tuple_obj as *mut ffi::PyObject);
+    vmctx.module_obj = ptr::null_mut();
+    vmctx.module_state = ptr::null_mut();
+    vmctx.globals_obj = ptr::null_mut();
+    vmctx.true_obj = ptr::null_mut();
+    vmctx.false_obj = ptr::null_mut();
+    vmctx.none_obj = ptr::null_mut();
+    vmctx.deleted_obj = ptr::null_mut();
+    vmctx.empty_tuple_obj = ptr::null_mut();
+}
+
+unsafe fn build_module_vmctx(
+    module_name: &str,
+    globals_obj: *mut ffi::PyObject,
+) -> Result<jit::JitModuleVmCtx, ()> {
+    let py = Python::assume_attached();
+    if globals_obj.is_null() {
+        return set_runtime_error("missing function globals while registering CLIF vectorcall");
+    }
+    let module = unsafe { try_lookup_module_object(module_name, globals_obj) }?;
+    let module_state = module
+        .and_then(|module| unsafe { crate::module_type::SoacExtModule::raw_state_ptr(module).ok() })
+        .unwrap_or(ptr::null_mut());
+    unsafe {
+        ffi::Py_INCREF(globals_obj);
+    }
+    let mut vmctx = jit::JitModuleVmCtx {
+        module_obj: module.map_or(ptr::null_mut(), |value| value as *mut c_void),
+        module_state,
+        globals_obj: globals_obj as *mut c_void,
+        true_obj: ptr::null_mut(),
+        false_obj: ptr::null_mut(),
+        none_obj: ptr::null_mut(),
+        deleted_obj: ptr::null_mut(),
+        empty_tuple_obj: ptr::null_mut(),
+    };
+    if let Some(module) = module {
+        unsafe { ffi::Py_INCREF(module) };
+    }
+    let true_obj = unsafe { ffi::PyBool_FromLong(1) };
+    if true_obj.is_null() {
+        unsafe { free_module_vmctx(&mut vmctx) };
+        return Err(());
+    }
+    vmctx.true_obj = true_obj as *mut c_void;
+    let false_obj = unsafe { ffi::PyBool_FromLong(0) };
+    if false_obj.is_null() {
+        unsafe { free_module_vmctx(&mut vmctx) };
+        return Err(());
+    }
+    vmctx.false_obj = false_obj as *mut c_void;
+    let none_obj = py.None().as_ptr();
+    unsafe { ffi::Py_INCREF(none_obj) };
+    vmctx.none_obj = none_obj as *mut c_void;
+    let deleted_obj = match unsafe { lookup_deleted_sentinel() } {
+        Ok(value) => value,
+        Err(()) => {
+            unsafe { free_module_vmctx(&mut vmctx) };
+            return Err(());
+        }
+    };
+    unsafe { ffi::Py_INCREF(deleted_obj) };
+    vmctx.deleted_obj = deleted_obj as *mut c_void;
+    let empty_tuple_obj = PyTuple::empty(py).as_ptr();
+    unsafe { ffi::Py_INCREF(empty_tuple_obj) };
+    vmctx.empty_tuple_obj = empty_tuple_obj as *mut c_void;
+    Ok(vmctx)
+}
+
 unsafe fn build_binding_metadata(
     function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
     callable_name: String,
@@ -185,22 +314,24 @@ unsafe fn make_clif_function_data(
         }
         return Err(());
     };
-    let true_obj = ffi::PyBool_FromLong(1);
-    if true_obj.is_null() {
+    let globals_obj = ffi::PyFunction_GetGlobals(callable);
+    if globals_obj.is_null() {
         return Err(());
     }
-    let false_obj = ffi::PyBool_FromLong(0);
-    if false_obj.is_null() {
-        ffi::Py_DECREF(true_obj);
-        return Err(());
-    }
-    let deleted_obj = lookup_deleted_sentinel()?;
+    let module_vmctx = match unsafe { build_module_vmctx(module_name, globals_obj) } {
+        Ok(value) => value,
+        Err(()) => return Err(()),
+    };
     let callable_name = py_attr_string(callable, b"__qualname__\0", "<function>");
-    let binding = match build_binding_metadata(&blockpy_function, callable_name, deleted_obj) {
+    let binding = match build_binding_metadata(
+        &blockpy_function,
+        callable_name,
+        module_vmctx.deleted_obj as *mut ffi::PyObject,
+    ) {
         Ok(value) => value,
         Err(()) => {
-            ffi::Py_DECREF(true_obj);
-            ffi::Py_DECREF(false_obj);
+            let mut module_vmctx = module_vmctx;
+            unsafe { free_module_vmctx(&mut module_vmctx) };
             return Err(());
         }
     };
@@ -209,8 +340,7 @@ unsafe fn make_clif_function_data(
         function: blockpy_function,
         module_name: module_name.to_string(),
         qualname: format!("fn#{function_id}"),
-        true_obj,
-        false_obj,
+        module_vmctx,
         binding,
         compiled_handle: ptr::null_mut(),
         compiled_vectorcall_handle: ptr::null_mut(),
@@ -248,27 +378,16 @@ unsafe fn clif_vectorcall_data(
 }
 
 unsafe fn ensure_clif_vectorcall_compiled(
-    py: Python<'_>,
+    _py: Python<'_>,
     callable: *mut ffi::PyObject,
     data: &mut ClifFunctionData,
 ) -> Result<(), ()> {
     if data.compiled_handle.is_null() {
-        let globals_obj = ffi::PyFunction_GetGlobals(callable);
-        if globals_obj.is_null() {
-            return Err(());
-        }
-        let empty_tuple_obj = PyTuple::empty(py);
         let compile_start = Instant::now();
         let block_ptrs = vec![ptr::null_mut::<c_void>(); data.function.blocks.len()];
         data.compiled_handle = match jit::compile_cranelift_run_bb_specialized_cached(
             block_ptrs.as_slice(),
             &data.function,
-            globals_obj as *mut c_void,
-            data.true_obj as *mut c_void,
-            data.false_obj as *mut c_void,
-            py.None().as_ptr() as *mut c_void,
-            data.binding.deleted_obj as *mut c_void,
-            empty_tuple_obj.as_ptr() as *mut c_void,
         ) {
             Ok(handle) => handle,
             Err(err) => {
@@ -295,6 +414,7 @@ unsafe fn ensure_clif_vectorcall_compiled(
         let (handle, entry) = match jit::compile_cranelift_vectorcall_direct_trampoline(
             bind_direct_args_from_vectorcall,
             data as *mut ClifFunctionData as *mut c_void,
+            ptr::addr_of!(data.module_vmctx) as *mut c_void,
             data.compiled_handle,
         ) {
             Ok(value) => value,

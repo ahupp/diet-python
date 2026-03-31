@@ -4,7 +4,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyList, PyModule, PyTuple};
+use pyo3::types::{PyList, PyModule};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use soac_blockpy::block_py::BlockPyFunction;
@@ -292,21 +292,10 @@ pub fn render_registered_jit_clif(
     let rendered = Python::attach(|py| {
         ensure_python_support_paths(py, repo_root).map_err(|err| err.error)?;
         PyModule::import(py, "soac.runtime").map_err(|err| err.to_string())?;
-        let builtins = PyModule::import(py, "builtins").map_err(|err| err.to_string())?;
-        let deleted_obj = builtins
-            .getattr("__dp_DELETED")
-            .map_err(|err| err.to_string())?;
-        let empty_tuple = PyTuple::empty(py);
-        let true_obj = PyBool::new(py, true).as_ptr() as *mut c_void;
-        let false_obj = PyBool::new(py, false).as_ptr() as *mut c_void;
         unsafe {
             jit::render_cranelift_run_bb_specialized_with_cfg(
                 &vec![std::ptr::null_mut::<c_void>(); function.blocks.len()],
                 &function,
-                true_obj,
-                false_obj,
-                deleted_obj.as_ptr() as *mut c_void,
-                empty_tuple.as_ptr() as *mut c_void,
             )
         }
     })?;

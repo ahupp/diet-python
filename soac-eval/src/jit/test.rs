@@ -169,18 +169,9 @@ mod tests {
             let mut builder = new_jit_builder().expect("test jit builder should construct");
             register_specialized_jit_symbols(&mut builder);
             let mut jit_module = JITModule::new(builder);
-            let built = build_cranelift_run_bb_specialized_function(
-                &mut jit_module,
-                blocks,
-                function,
-                std::ptr::null_mut(),
-                11usize as ObjPtr,
-                12usize as ObjPtr,
-                std::ptr::null_mut(),
-                13usize as ObjPtr,
-                14usize as ObjPtr,
-            )
-            .expect("specialized JIT build should succeed");
+            let built =
+                build_cranelift_run_bb_specialized_function(&mut jit_module, blocks, function)
+                    .expect("specialized JIT build should succeed");
             let (clif, _cfg_dot, _vcode_disasm) = render_compiled_clif_and_vcode_disasm(
                 &mut jit_module,
                 built.ctx,
@@ -223,7 +214,7 @@ mod tests {
         let function = with_test_blocks(function, vec![source]);
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
-            rendered.contains("; block jit_entry(callable: i64)"),
+            rendered.contains("; block jit_entry(vmctx: i64, callable: i64)"),
             "rendered CLIF should include named typed params on surviving post-opt block headers:\n{rendered}"
         );
         assert!(
@@ -231,7 +222,7 @@ mod tests {
             "rendered CLIF should still surface the semantic name for optimized blocks:\n{rendered}"
         );
         assert!(
-            rendered.contains("block0(v0: i64):"),
+            rendered.contains("block0(v0: i64, v1: i64):"),
             "rendered CLIF should keep the real Cranelift block header for round-tripping:\n{rendered}"
         );
     }
@@ -360,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn render_specialized_jit_global_names_use_global_lookup_hook() {
+    fn render_specialized_jit_global_names_load_from_vmctx_globals() {
         let blocks = [1usize as ObjPtr];
         let function = with_single_test_block(
             test_function(),
@@ -369,9 +360,9 @@ mod tests {
         );
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
-            rendered.contains("call dp_jit_function_globals")
+            !rendered.contains("call dp_jit_function_globals")
                 && rendered.contains("call dp_jit_load_name"),
-            "global located names should use callable-rooted globals lookup:\n{rendered}"
+            "global located names should load through vmctx-backed globals without a callable globals helper:\n{rendered}"
         );
     }
 

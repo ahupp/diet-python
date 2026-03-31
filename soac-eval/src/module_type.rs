@@ -122,6 +122,21 @@ fn soac_ext_module_state(module: &Bound<'_, PyAny>) -> PyResult<*mut SoacExtModu
     }
 }
 
+unsafe fn raw_soac_ext_module_state(
+    module: *mut ffi::PyObject,
+) -> Result<*mut SoacExtModuleState, &'static str> {
+    let module_def = unsafe { ffi::PyModule_GetDef(module) };
+    if module_def != soac_ext_module_def() {
+        return Err("expected a module created via _soac_ext.create_module");
+    }
+    let state = unsafe { ffi::PyModule_GetState(module) }.cast::<SoacExtModuleState>();
+    if state.is_null() {
+        Err("missing _soac_ext module state for transformed module")
+    } else {
+        Ok(state)
+    }
+}
+
 pub struct SoacExtModule;
 
 impl SoacExtModule {
@@ -160,5 +175,9 @@ impl SoacExtModule {
     ) -> PyResult<R> {
         let state = soac_ext_module_state(module)?;
         unsafe { f((*state).data()?) }
+    }
+
+    pub unsafe fn raw_state_ptr(module: *mut ffi::PyObject) -> Result<*mut c_void, &'static str> {
+        Ok(unsafe { raw_soac_ext_module_state(module) }?.cast::<c_void>())
     }
 }

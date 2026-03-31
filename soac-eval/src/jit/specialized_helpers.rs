@@ -272,32 +272,6 @@ unsafe fn raise_missing_function_default(name_ptr: *const u8, name_len: i64) {
     }
 }
 
-unsafe extern "C" fn function_globals_hook(callable: ObjPtr) -> ObjPtr {
-    let function = resolve_function_object(callable);
-    if function.is_null() {
-        return ptr::null_mut();
-    }
-    if ffi::PyFunction_Check(function as *mut ffi::PyObject) == 0 {
-        ffi::Py_DECREF(function as *mut ffi::PyObject);
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"dp_jit_function_globals expected a Python function\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-    let globals = ffi::PyFunction_GetGlobals(function as *mut ffi::PyObject);
-    ffi::Py_DECREF(function as *mut ffi::PyObject);
-    if globals.is_null() {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"PyFunction_GetGlobals returned null\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-    ffi::Py_INCREF(globals);
-    globals as ObjPtr
-}
-
 unsafe extern "C" fn function_positional_default_hook(
     callable: ObjPtr,
     name_ptr: *const u8,
@@ -1029,7 +1003,6 @@ mod test_only_export_stubs {
     panic_obj_export!(dp_jit_make_float(value: f64));
     panic_obj_export!(dp_jit_make_bytes(data_ptr: *const u8, data_len: i64));
     panic_obj_export!(dp_jit_load_name(block: ObjPtr, name_ptr: *const u8, name_len: i64));
-    panic_obj_export!(dp_jit_function_globals(callable: ObjPtr));
     panic_obj_export!(dp_jit_function_closure_cell(callable: ObjPtr, slot: i64));
     panic_obj_export!(dp_jit_function_positional_default(
         callable: ObjPtr,
@@ -1143,11 +1116,6 @@ pub unsafe extern "C" fn dp_jit_load_name(
     name_len: i64,
 ) -> ObjPtr {
     load_name_hook(block, name_ptr, name_len)
-}
-
-#[cfg(not(test))]
-pub unsafe extern "C" fn dp_jit_function_globals(callable: ObjPtr) -> ObjPtr {
-    function_globals_hook(callable)
 }
 
 #[cfg(not(test))]
@@ -1486,10 +1454,6 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol("dp_jit_make_float", dp_jit_make_float as *const u8);
     builder.symbol("dp_jit_make_bytes", dp_jit_make_bytes as *const u8);
     builder.symbol("dp_jit_load_name", dp_jit_load_name as *const u8);
-    builder.symbol(
-        "dp_jit_function_globals",
-        dp_jit_function_globals as *const u8,
-    );
     builder.symbol(
         "dp_jit_function_closure_cell",
         dp_jit_function_closure_cell as *const u8,
