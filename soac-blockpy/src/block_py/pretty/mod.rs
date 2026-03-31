@@ -631,12 +631,9 @@ fn render_call_text<E: BlockPyDebugExprText>(call: &CoreBlockPyCall<E>) -> Strin
     format!("{}({})", call.func.debug_expr_text(), parts.join(", "))
 }
 
-fn render_operation_detail_debug_text<E, N>(
-    detail: &crate::block_py::OperationDetail<E, N>,
-) -> String
+fn render_operation_detail_debug_text<E>(detail: &crate::block_py::OperationDetail<E>) -> String
 where
     E: BlockPyDebugExprText,
-    N: BlockPyNameLike,
 {
     match detail {
         crate::block_py::OperationDetail::MakeFunction(op) => debug_tuple_text(
@@ -672,8 +669,8 @@ where
                 op.value.debug_expr_text(),
             ],
         ),
-        crate::block_py::OperationDetail::LoadName(op) => op.name.pretty_id(),
-        crate::block_py::OperationDetail::LoadLocal(op) => op.name.pretty_id(),
+        crate::block_py::OperationDetail::LoadName(op) => op.name.clone(),
+        crate::block_py::OperationDetail::LoadLocal(op) => op.location.pretty_id(),
         crate::block_py::OperationDetail::LoadCell(op) => {
             debug_tuple_text("LoadCell", [op.location.pretty_id()])
         }

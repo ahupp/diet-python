@@ -428,23 +428,14 @@ fn walk_assigned_name_targets_in_expr(target: &Expr, f: &mut impl FnMut(&str)) {
     }
 }
 
-fn walk_operation_loaded_names<E, N>(detail: &OperationDetail<E, N>, f: &mut impl FnMut(&str))
-where
-    N: BlockPyNameLike,
-{
+fn walk_operation_loaded_names<E>(detail: &OperationDetail<E>, f: &mut impl FnMut(&str)) {
     match detail {
-        OperationDetail::LoadName(op) => f(op.name.id_str()),
-        OperationDetail::LoadLocal(op) => f(op.name.id_str()),
+        OperationDetail::LoadName(op) => f(op.name.as_str()),
         _ => {}
     }
 }
 
-fn walk_operation_cell_ref_logical_names<E, N>(
-    detail: &OperationDetail<E, N>,
-    f: &mut impl FnMut(&str),
-) where
-    N: BlockPyNameLike,
-{
+fn walk_operation_cell_ref_logical_names<E>(detail: &OperationDetail<E>, f: &mut impl FnMut(&str)) {
     if let OperationDetail::CellRefForName(op) = detail {
         f(op.logical_name.as_str());
     }

@@ -371,7 +371,7 @@ where
 
 fn operation_expr<N: BlockPyNameLike + Clone>(
     expr: &CoreBlockPyExpr<N>,
-) -> Option<&operation::Operation<CoreBlockPyExpr<N>, N>> {
+) -> Option<&operation::Operation<CoreBlockPyExpr<N>>> {
     match expr {
         CoreBlockPyExpr::Op(operation) => Some(operation),
         _ => None,
@@ -437,7 +437,7 @@ where
 }
 
 fn is_dp_getattr_operation<N>(
-    operation: &operation::Operation<CoreBlockPyExpr<N>, N>,
+    operation: &operation::Operation<CoreBlockPyExpr<N>>,
     attr_name: &str,
 ) -> bool
 where

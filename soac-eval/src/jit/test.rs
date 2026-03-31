@@ -76,9 +76,7 @@ mod tests {
         CodegenBlockPyExpr::Name(name)
     }
 
-    fn op_expr(
-        operation: Operation<LocatedCodegenBlockPyExpr, LocatedName>,
-    ) -> LocatedCodegenBlockPyExpr {
+    fn op_expr(operation: Operation<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyExpr {
         CodegenBlockPyExpr::Op(operation)
     }
 

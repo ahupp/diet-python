@@ -11,7 +11,7 @@ use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm, CellLocation,
     CodegenBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg,
-    CoreBlockPyKeywordArg, LocatedCodegenBlockPyExpr, LocatedName, NameLocation,
+    CoreBlockPyKeywordArg, LocalLocation, LocatedCodegenBlockPyExpr, LocatedName, NameLocation,
     ParamDefaultSource, StorageLayout, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
@@ -377,6 +377,7 @@ fn codegen_expr_is_borrowable(
     expr: &LocatedCodegenBlockPyExpr,
     local_names: &[String],
     stack_slots: &StackSlots,
+    storage_layout: Option<&StorageLayout>,
 ) -> bool {
     fn located_local_name_is_borrowable(
         name: &LocatedName,
@@ -397,33 +398,43 @@ fn codegen_expr_is_borrowable(
             located_local_name_is_borrowable(name, local_names, stack_slots)
         }
         CodegenBlockPyExpr::Op(operation) => match operation.detail() {
-            blockpy_intrinsics::OperationDetail::LoadLocal(op) => {
-                located_local_name_is_borrowable(&op.name, local_names, stack_slots)
-            }
+            blockpy_intrinsics::OperationDetail::LoadLocal(op) => storage_layout
+                .and_then(|layout| layout.stack_slots().get(op.location.slot() as usize))
+                .is_some_and(|name| {
+                    local_names.iter().any(|candidate| candidate == name)
+                        || stack_slots.has_name(name)
+                }),
             _ => false,
         },
         CodegenBlockPyExpr::Literal(_) | CodegenBlockPyExpr::Call(_) => false,
     }
 }
 
+fn local_name_for_location<'a>(
+    storage_layout: &'a StorageLayout,
+    location: LocalLocation,
+) -> &'a str {
+    storage_layout
+        .stack_slots()
+        .get(location.slot() as usize)
+        .map(String::as_str)
+        .unwrap_or_else(|| panic!("missing stack slot for local location {}", location.slot()))
+}
+
 fn emit_codegen_local_name_load(
     fb: &mut FunctionBuilder,
-    name: &LocatedName,
+    location: LocalLocation,
     local_names: &[String],
     local_values: &[ir::Value],
     ctx: &JitEmitCtx,
     borrowed: bool,
 ) -> ir::Value {
-    assert!(
-        name.local_location().is_some(),
-        "LoadLocal should carry a local name, got {} at {:?}",
-        name.id,
-        name.location
-    );
-    if let Some(slot_index) = local_names
-        .iter()
-        .position(|candidate| candidate == name.id.as_str())
-    {
+    let layout = ctx
+        .storage_layout
+        .as_ref()
+        .expect("LoadLocal should have storage layout during codegen");
+    let name = local_name_for_location(layout, location);
+    if let Some(slot_index) = local_names.iter().position(|candidate| candidate == name) {
         let slot_value = local_values[slot_index];
         if !borrowed {
             fb.ins().call(ctx.incref_ref, &[slot_value]);
@@ -433,14 +444,14 @@ fn emit_codegen_local_name_load(
     if let Some(slot_value) = load_stack_slot_value(
         fb,
         &ctx.stack_slots,
-        name.id.as_str(),
+        name,
         ctx.consts.ptr_ty,
         borrowed,
         ctx.incref_ref,
     ) {
         return slot_value;
     }
-    panic!("missing located local {} in direct JIT state", name.id);
+    panic!("missing local {name} in direct JIT state");
 }
 
 fn codegen_expr_const_string(expr: &LocatedCodegenBlockPyExpr) -> Option<String> {
@@ -478,7 +489,6 @@ fn codegen_expr_helper_name(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
         CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
         CodegenBlockPyExpr::Op(operation) => match operation.detail() {
             blockpy_intrinsics::OperationDetail::LoadGlobal(op) => Some(op.name.as_str()),
-            blockpy_intrinsics::OperationDetail::LoadLocal(op) => Some(op.name.id.as_str()),
             _ => None,
         },
         CodegenBlockPyExpr::Literal(_) | CodegenBlockPyExpr::Call(_) => None,
@@ -719,8 +729,12 @@ impl<'a, 'b, 'c, 'd> intrinsics::OperationEmitState<'b, LocatedCodegenBlockPyExp
     fn emit_arg_values(&mut self, args: &[&LocatedCodegenBlockPyExpr]) -> Vec<(ir::Value, bool)> {
         let mut arg_values = Vec::with_capacity(args.len());
         for arg in args {
-            let borrowed_arg =
-                codegen_expr_is_borrowable(arg, self.local_names, &self.ctx.stack_slots);
+            let borrowed_arg = codegen_expr_is_borrowable(
+                arg,
+                self.local_names,
+                &self.ctx.stack_slots,
+                self.ctx.storage_layout.as_ref(),
+            );
             let value = emit_codegen_expr(
                 self.fb,
                 arg,
@@ -1114,10 +1128,10 @@ fn emit_codegen_expr(
         CodegenBlockPyExpr::Name(name) => {
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
             match name.location {
-                NameLocation::Local(_) => {
+                NameLocation::Local(location) => {
                     return emit_codegen_local_name_load(
                         fb,
-                        name,
+                        location,
                         local_names,
                         local_values,
                         ctx,
@@ -1242,17 +1256,13 @@ fn emit_codegen_expr(
         }
         CodegenBlockPyExpr::Op(operation) => {
             if let blockpy_intrinsics::OperationDetail::LoadLocal(op) = operation.detail() {
-                let load_expr = CodegenBlockPyExpr::Name(op.name.clone());
-                return emit_codegen_expr(
+                return emit_codegen_local_name_load(
                     fb,
-                    &load_expr,
+                    op.location,
                     local_names,
                     local_values,
                     ctx,
-                    literal_pool,
                     borrowed,
-                    jit_module,
-                    func_imports,
                 );
             }
             assert!(
@@ -1297,7 +1307,7 @@ fn emit_codegen_expr(
                 }
                 blockpy_intrinsics::OperationDetail::LoadLocal(op) => emit_codegen_local_name_load(
                     intrinsic_state.fb,
-                    &op.name,
+                    op.location,
                     intrinsic_state.local_names,
                     intrinsic_state.local_values,
                     intrinsic_state.ctx,
@@ -1357,6 +1367,7 @@ fn emit_codegen_expr(
                         &op.value,
                         intrinsic_state.local_names,
                         &intrinsic_state.ctx.stack_slots,
+                        intrinsic_state.ctx.storage_layout.as_ref(),
                     );
                     let value_obj = emit_codegen_expr(
                         intrinsic_state.fb,
@@ -1489,8 +1500,12 @@ fn emit_codegen_expr(
             }
 
             if has_unpack {
-                let callable_is_borrowed =
-                    codegen_expr_is_borrowable(call.func.as_ref(), local_names, &ctx.stack_slots);
+                let callable_is_borrowed = codegen_expr_is_borrowable(
+                    call.func.as_ref(),
+                    local_names,
+                    &ctx.stack_slots,
+                    ctx.storage_layout.as_ref(),
+                );
                 let callable = emit_codegen_expr(
                     fb,
                     call.func.as_ref(),
@@ -1639,8 +1654,12 @@ fn emit_codegen_expr(
                     );
                     fb.switch_to_block(method_ok);
                     let method_obj = fb.block_params(method_ok)[0];
-                    let value_borrowed =
-                        codegen_expr_is_borrowable(value_expr, local_names, &ctx.stack_slots);
+                    let value_borrowed = codegen_expr_is_borrowable(
+                        value_expr,
+                        local_names,
+                        &ctx.stack_slots,
+                        ctx.storage_layout.as_ref(),
+                    );
                     let value_obj = emit_codegen_expr(
                         fb,
                         value_expr,
@@ -1705,8 +1724,12 @@ fn emit_codegen_expr(
                             );
                             fb.switch_to_block(key_ok);
                             let key_obj = fb.block_params(key_ok)[0];
-                            let value_borrowed =
-                                codegen_expr_is_borrowable(value, local_names, &ctx.stack_slots);
+                            let value_borrowed = codegen_expr_is_borrowable(
+                                value,
+                                local_names,
+                                &ctx.stack_slots,
+                                ctx.storage_layout.as_ref(),
+                            );
                             let value_obj = emit_codegen_expr(
                                 fb,
                                 value,
@@ -1800,6 +1823,7 @@ fn emit_codegen_expr(
                                 value_expr,
                                 local_names,
                                 &ctx.stack_slots,
+                                ctx.storage_layout.as_ref(),
                             );
                             let value_obj = emit_codegen_expr(
                                 fb,
@@ -1957,8 +1981,12 @@ fn emit_codegen_expr(
                         let mut arg_values: Vec<ir::Value> = Vec::with_capacity(args.len());
                         let mut borrowed_args: Vec<bool> = Vec::with_capacity(args.len());
                         for arg in &args {
-                            let borrowed_arg =
-                                codegen_expr_is_borrowable(arg, local_names, &ctx.stack_slots);
+                            let borrowed_arg = codegen_expr_is_borrowable(
+                                arg,
+                                local_names,
+                                &ctx.stack_slots,
+                                ctx.storage_layout.as_ref(),
+                            );
                             let value = emit_codegen_expr(
                                 fb,
                                 arg,
@@ -1988,8 +2016,12 @@ fn emit_codegen_expr(
                         if let Some(name) = codegen_expr_const_string(args[0]) {
                             let (name_ptr, name_len) =
                                 intern_bytes_literal(literal_pool, name.as_bytes());
-                            let value_borrowed =
-                                codegen_expr_is_borrowable(args[1], local_names, &ctx.stack_slots);
+                            let value_borrowed = codegen_expr_is_borrowable(
+                                args[1],
+                                local_names,
+                                &ctx.stack_slots,
+                                ctx.storage_layout.as_ref(),
+                            );
                             let value_obj = emit_codegen_expr(
                                 fb,
                                 args[1],
@@ -2092,8 +2124,12 @@ fn emit_codegen_expr(
                                     func_name.id, cell_name.id, cell_name.location
                                 );
                             }
-                            let borrowed_arg =
-                                codegen_expr_is_borrowable(arg, local_names, &ctx.stack_slots);
+                            let borrowed_arg = codegen_expr_is_borrowable(
+                                arg,
+                                local_names,
+                                &ctx.stack_slots,
+                                ctx.storage_layout.as_ref(),
+                            );
                             let value = emit_codegen_expr(
                                 fb,
                                 arg,
@@ -2150,18 +2186,31 @@ fn emit_codegen_expr(
                 local_values,
                 ctx,
                 literal_pool,
-                codegen_expr_is_borrowable(call.func.as_ref(), local_names, &ctx.stack_slots),
+                codegen_expr_is_borrowable(
+                    call.func.as_ref(),
+                    local_names,
+                    &ctx.stack_slots,
+                    ctx.storage_layout.as_ref(),
+                ),
                 jit_module,
                 func_imports,
             );
-            let callable_is_borrowed =
-                codegen_expr_is_borrowable(call.func.as_ref(), local_names, &ctx.stack_slots);
+            let callable_is_borrowed = codegen_expr_is_borrowable(
+                call.func.as_ref(),
+                local_names,
+                &ctx.stack_slots,
+                ctx.storage_layout.as_ref(),
+            );
             if keywords.is_empty() && args.len() <= 3 {
                 let mut arg_values = [null_ptr, null_ptr, null_ptr];
                 let mut arg_borrowed = [true, true, true];
                 for (idx, arg) in args.iter().enumerate() {
-                    let borrowed_arg =
-                        codegen_expr_is_borrowable(arg, local_names, &ctx.stack_slots);
+                    let borrowed_arg = codegen_expr_is_borrowable(
+                        arg,
+                        local_names,
+                        &ctx.stack_slots,
+                        ctx.storage_layout.as_ref(),
+                    );
                     arg_borrowed[idx] = borrowed_arg;
                     arg_values[idx] = emit_codegen_expr(
                         fb,
@@ -2229,7 +2278,12 @@ fn emit_codegen_expr(
             let call_args_tuple = fb.block_params(tuple_ok_block)[0];
             let mut tuple_items: Vec<(ir::Value, bool)> = Vec::with_capacity(args.len());
             for arg in args {
-                let borrowed_arg = codegen_expr_is_borrowable(arg, local_names, &ctx.stack_slots);
+                let borrowed_arg = codegen_expr_is_borrowable(
+                    arg,
+                    local_names,
+                    &ctx.stack_slots,
+                    ctx.storage_layout.as_ref(),
+                );
                 let value = emit_codegen_expr(
                     fb,
                     arg,
@@ -2360,8 +2414,12 @@ fn emit_codegen_expr(
                     fb.switch_to_block(key_ok);
                     let key_obj = fb.block_params(key_ok)[0];
 
-                    let value_borrowed =
-                        codegen_expr_is_borrowable(value_expr, local_names, &ctx.stack_slots);
+                    let value_borrowed = codegen_expr_is_borrowable(
+                        value_expr,
+                        local_names,
+                        &ctx.stack_slots,
+                        ctx.storage_layout.as_ref(),
+                    );
                     let value_obj = emit_codegen_expr(
                         fb,
                         value_expr,

@@ -82,13 +82,13 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithA
 }
 
 fn core_operation_expr(
-    operation: operation::Operation<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>,
+    operation: operation::Operation<CoreBlockPyExprWithAwaitAndYield>,
 ) -> CoreBlockPyExprWithAwaitAndYield {
     CoreBlockPyExprWithAwaitAndYield::Op(operation)
 }
 
 fn core_operation_expr_with_meta(
-    detail: impl Into<operation::OperationDetail<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>>,
+    detail: impl Into<operation::OperationDetail<CoreBlockPyExprWithAwaitAndYield>>,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExprWithAwaitAndYield {
@@ -353,7 +353,7 @@ fn operator_family_operation_from_helper_call(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
     args: Vec<CoreBlockPyExprWithAwaitAndYield>,
-) -> Option<operation::Operation<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>> {
+) -> Option<operation::Operation<CoreBlockPyExprWithAwaitAndYield>> {
     let mut args = args.into_iter();
     let meta = Meta::new(node_index, range);
     let operation = if let Some(kind) = operation::BinOpKind::from_helper_name(name) {
@@ -410,7 +410,7 @@ fn non_operator_operation_from_helper_call(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
     args: Vec<CoreBlockPyExprWithAwaitAndYield>,
-) -> Option<operation::Operation<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>> {
+) -> Option<operation::Operation<CoreBlockPyExprWithAwaitAndYield>> {
     let mut args = args.into_iter();
     let meta = Meta::new(node_index, range);
     let operation = match name {
@@ -464,7 +464,7 @@ fn operation_from_helper_call_name_and_args(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
     args: Vec<CoreBlockPyExprWithAwaitAndYield>,
-) -> Option<operation::Operation<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>> {
+) -> Option<operation::Operation<CoreBlockPyExprWithAwaitAndYield>> {
     operator_family_operation_from_helper_call(name, node_index.clone(), range, args.clone())
         .or_else(|| non_operator_operation_from_helper_call(name, node_index, range, args))
 }
@@ -753,7 +753,7 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                     Self::Name(node)
                 } else {
                     CoreBlockPyExprWithAwaitAndYield::Op(
-                        operation::Operation::new(operation::LoadName::new(node.clone()))
+                        operation::Operation::new(operation::LoadName::new(node.id.to_string()))
                             .with_meta(node.meta()),
                     )
                 }

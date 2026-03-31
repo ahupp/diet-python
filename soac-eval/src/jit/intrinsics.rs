@@ -612,8 +612,8 @@ pub(super) fn emit_del_deref_raw_cell<'fb, E>(
     state.finish_owned_result(result)
 }
 
-pub(super) fn emit_operation<'fb, E, N>(
-    operation: &blockpy_intrinsics::Operation<E, N>,
+pub(super) fn emit_operation<'fb, E>(
+    operation: &blockpy_intrinsics::Operation<E>,
     state: &mut impl OperationEmitState<'fb, E>,
 ) -> Option<ir::Value> {
     match operation.detail() {

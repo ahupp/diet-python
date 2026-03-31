@@ -18,7 +18,7 @@ fn is_raw_load_name_expr(expr: &CoreBlockPyExprWithAwaitAndYield, expected: &str
     matches!(
         expr,
         CoreBlockPyExprWithAwaitAndYield::Op(operation)
-            if matches!(operation.detail(), crate::block_py::OperationDetail::LoadName(op) if op.name.id.as_str() == expected)
+            if matches!(operation.detail(), crate::block_py::OperationDetail::LoadName(op) if op.name == expected)
     )
 }
 

@@ -8,8 +8,8 @@ use crate::block_py::{
     ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
     CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, DelDeref,
     DelDerefQuietly, DelItem, DelQuietly, FunctionId, HasMeta, LoadCell, LoadGlobal, LoadLocal,
-    LocatedName, MakeCell, MakeFunction, NameLocation, Operation, OperationDetail, SetItem,
-    StorageLayout, StoreCell, StoreGlobal, WithMeta,
+    LocalLocation, LocatedName, MakeCell, MakeFunction, NameLocation, Operation, OperationDetail,
+    SetItem, StorageLayout, StoreCell, StoreGlobal, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -61,13 +61,11 @@ fn globals_expr(
     core_positional_call_expr_with_meta("__dp_globals", node_index, range, Vec::new())
 }
 
-fn op_expr(operation: Operation<CoreBlockPyExpr, ExprName>) -> CoreBlockPyExpr {
+fn op_expr(operation: Operation<CoreBlockPyExpr>) -> CoreBlockPyExpr {
     CoreBlockPyExpr::Op(operation)
 }
 
-fn op_stmt(
-    operation: Operation<CoreBlockPyExpr, ExprName>,
-) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
+fn op_stmt(operation: Operation<CoreBlockPyExpr>) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     BlockPyStmt::Expr(op_expr(operation))
 }
 
@@ -83,9 +81,14 @@ fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
     )
 }
 
-fn rewrite_local_name_load(name: ExprName) -> CoreBlockPyExpr {
+fn rewrite_local_name_load(name: ExprName, resolver: &NameBindingMapper<'_>) -> CoreBlockPyExpr {
     let meta = name.meta();
-    op_expr(Operation::new(LoadLocal::new(name)).with_meta(meta))
+    op_expr(
+        Operation::new(LoadLocal::new(
+            resolver.resolve_raw_local_location(name.id.as_str()),
+        ))
+        .with_meta(meta),
+    )
 }
 
 fn cell_name_for_name(
@@ -147,10 +150,10 @@ fn rewrite_raw_cell_storage_name_load(
     ))
 }
 
-fn raw_load_name(expr: &CoreBlockPyExpr) -> Option<ExprName> {
+fn raw_load_name(expr: &CoreBlockPyExpr) -> Option<String> {
     match expr {
         CoreBlockPyExpr::Name(name) if matches!(name.ctx, ast::ExprContext::Load) => {
-            Some(name.clone())
+            Some(name.id.to_string())
         }
         CoreBlockPyExpr::Op(operation) => match operation.detail() {
             OperationDetail::LoadName(op) => Some(op.name.clone()),
@@ -165,6 +168,10 @@ fn rewrite_name_load(
     semantic: &BlockPyCallableSemanticInfo,
     resolver: &NameBindingMapper<'_>,
 ) -> CoreBlockPyExpr {
+    if is_internal_symbol(name.id.as_str()) && !semantic.honors_internal_binding(name.id.as_str()) {
+        return CoreBlockPyExpr::Name(name);
+    }
+
     if semantic.scope_kind == BlockPyCallableScopeKind::Class {
         return match semantic.effective_binding(name.id.as_str(), BlockPyBindingPurpose::Load) {
             Some(BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Cell)) => {
@@ -174,7 +181,7 @@ fn rewrite_name_load(
                 rewrite_cell_name_load(name, semantic, resolver)
             }
             Some(BlockPyEffectiveBinding::Global) => rewrite_global_name_load(name),
-            Some(BlockPyEffectiveBinding::Local) => rewrite_local_name_load(name),
+            Some(BlockPyEffectiveBinding::Local) => rewrite_local_name_load(name, resolver),
             Some(BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global)) | None => {
                 rewrite_class_name_load_global(name)
             }
@@ -184,7 +191,7 @@ fn rewrite_name_load(
     match semantic.resolved_load_binding_kind(name.id.as_str()) {
         BlockPyBindingKind::Cell(_) => rewrite_cell_name_load(name, semantic, resolver),
         BlockPyBindingKind::Global => rewrite_global_name_load(name),
-        BlockPyBindingKind::Local => rewrite_local_name_load(name),
+        BlockPyBindingKind::Local => rewrite_local_name_load(name, resolver),
     }
 }
 
@@ -355,9 +362,26 @@ fn rewrite_deleted_name_load_expr(
     )
 }
 
+fn wrap_deleted_name_load_expr(
+    logical_name: String,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    value: CoreBlockPyExpr,
+) -> CoreBlockPyExpr {
+    core_positional_call_expr_with_meta(
+        "__dp_load_deleted_name",
+        node_index.clone(),
+        range,
+        vec![
+            core_string_expr(logical_name, node_index.clone(), range),
+            value,
+        ],
+    )
+}
+
 fn operation_expr<N: BlockPyNameLike + Clone>(
     expr: &CoreBlockPyExpr<N>,
-) -> Option<&Operation<CoreBlockPyExpr<N>, N>> {
+) -> Option<&Operation<CoreBlockPyExpr<N>>> {
     match expr {
         CoreBlockPyExpr::Op(operation) => Some(operation),
         _ => None,
@@ -437,13 +461,21 @@ fn rewrite_deleted_name_loads_in_expr(
             let OperationDetail::LoadName(op) = operation.detail() else {
                 unreachable!("load-name guard should ensure LoadName detail");
             };
-            *expr = rewrite_deleted_name_load_expr(
-                op.name.clone(),
-                semantic,
-                resolver,
-                deleted_names,
-                always_unbound_names,
-            );
+            let always_unbound = always_unbound_names.contains(op.name.as_str());
+            let deleted = deleted_names.contains(op.name.as_str());
+            if always_unbound || deleted {
+                let meta = operation.meta.clone();
+                *expr = wrap_deleted_name_load_expr(
+                    op.name.clone(),
+                    meta.node_index.clone(),
+                    meta.range,
+                    if always_unbound {
+                        deleted_sentinel_expr(meta.node_index, meta.range)
+                    } else {
+                        expr.clone()
+                    },
+                );
+            }
         }
         CoreBlockPyExpr::Op(operation)
             if matches!(operation.detail(), OperationDetail::LoadLocal(_)) =>
@@ -451,13 +483,25 @@ fn rewrite_deleted_name_loads_in_expr(
             let OperationDetail::LoadLocal(op) = operation.detail() else {
                 unreachable!("load-local guard should ensure LoadLocal detail");
             };
-            *expr = rewrite_deleted_name_load_expr(
-                op.name.clone(),
-                semantic,
-                resolver,
-                deleted_names,
-                always_unbound_names,
-            );
+            let Some(logical_name) = logical_name_for_local_location(storage_layout, op.location)
+            else {
+                return;
+            };
+            let always_unbound = always_unbound_names.contains(logical_name.as_str());
+            let deleted = deleted_names.contains(logical_name.as_str());
+            if always_unbound || deleted {
+                let meta = operation.meta.clone();
+                *expr = wrap_deleted_name_load_expr(
+                    logical_name,
+                    meta.node_index.clone(),
+                    meta.range,
+                    if always_unbound {
+                        deleted_sentinel_expr(meta.node_index, meta.range)
+                    } else {
+                        expr.clone()
+                    },
+                );
+            }
         }
         CoreBlockPyExpr::Call(CoreBlockPyCall {
             func,
@@ -652,6 +696,7 @@ fn rewrite_quiet_delete_marker(
 }
 
 fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
+    let meta = expr.meta();
     let CoreBlockPyExpr::Call(CoreBlockPyCall {
         func,
         args,
@@ -685,11 +730,21 @@ fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
             ) =>
         {
             match &args[1] {
-                CoreBlockPyCallArg::Positional(expr) => raw_load_name(expr),
+                CoreBlockPyCallArg::Positional(expr) => raw_load_name(expr).map(|name| ExprName {
+                    id: name.into(),
+                    ctx: ast::ExprContext::Load,
+                    node_index: meta.node_index.clone(),
+                    range: meta.range,
+                }),
                 _ => None,
             }
         }
-        CoreBlockPyCallArg::Positional(expr) => raw_load_name(expr),
+        CoreBlockPyCallArg::Positional(expr) => raw_load_name(expr).map(|name| ExprName {
+            id: name.into(),
+            ctx: ast::ExprContext::Load,
+            node_index: meta.node_index,
+            range: meta.range,
+        }),
         _ => None,
     }
 }
@@ -886,6 +941,13 @@ fn logical_name_for_cell_location(
     semantic.logical_name_for_cell_storage(storage_name)
 }
 
+fn logical_name_for_local_location(
+    layout: &StorageLayout,
+    location: LocalLocation,
+) -> Option<String> {
+    layout.stack_slots().get(location.slot() as usize).cloned()
+}
+
 fn store_cell_deleted_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
@@ -944,18 +1006,26 @@ fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
     let OperationDetail::MakeCell(MakeCell { initial_value, .. }) = operation.detail() else {
         return false;
     };
-    matches!(raw_load_name(initial_value.as_ref()), Some(name) if name.id.as_str() == logical_name)
+    matches!(raw_load_name(initial_value.as_ref()), Some(name) if name == logical_name)
 }
 
 struct NameBindingMapper<'a> {
     semantic: &'a BlockPyCallableSemanticInfo,
     callee_make_function_capture_names: &'a HashMap<crate::block_py::FunctionId, Vec<String>>,
+    local_slots: HashMap<String, u32>,
     captured_cell_slots: HashMap<String, u32>,
     owned_cell_slots: HashMap<String, u32>,
     cell_bindings: HashMap<String, (String, BlockPyCellBindingKind)>,
 }
 
 impl NameBindingMapper<'_> {
+    fn resolve_raw_local_location(&self, name_text: &str) -> LocalLocation {
+        let slot = self.local_slots.get(name_text).copied().unwrap_or_else(|| {
+            panic!("missing local slot for raw local target {name_text}");
+        });
+        LocalLocation(slot)
+    }
+
     fn resolve_raw_cell_location(&self, name_text: &str) -> CellLocation {
         if let Some(storage_name) =
             resolve_captured_cell_source_storage_name(self.semantic, name_text)
@@ -1132,11 +1202,20 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
             CoreBlockPyExpr::Op(operation)
                 if matches!(operation.detail(), OperationDetail::LoadName(_)) =>
             {
-                let Operation { detail, .. } = operation;
+                let Operation { meta, detail } = operation;
                 let OperationDetail::LoadName(op) = detail else {
                     unreachable!("load-name guard should ensure LoadName detail");
                 };
-                rewrite_name_load(op.name, self.semantic, self)
+                rewrite_name_load(
+                    ExprName {
+                        id: op.name.into(),
+                        ctx: ast::ExprContext::Load,
+                        node_index: meta.node_index,
+                        range: meta.range,
+                    },
+                    self.semantic,
+                    self,
+                )
             }
             CoreBlockPyExpr::Name(name)
                 if matches!(name.ctx, ast::ExprContext::Load)
@@ -1185,7 +1264,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 if args.is_empty()
                     && keywords.is_empty()
                     && raw_load_name(func.as_ref()).as_ref().is_some_and(|name| {
-                        name.id.as_str() == "globals"
+                        name == "globals"
                             && self.semantic.resolved_load_binding_kind("globals")
                                 == BlockPyBindingKind::Global
                     })
@@ -1196,7 +1275,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                     && args.len() == 3
                     && raw_load_name(func.as_ref())
                         .as_ref()
-                        .is_some_and(|name| name.id.as_str() == "__dp_class_lookup_cell")
+                        .is_some_and(|name| name == "__dp_class_lookup_cell")
                 {
                     let mut mapped_args = Vec::with_capacity(3);
                     for (index, arg) in args.into_iter().enumerate() {
@@ -1378,7 +1457,7 @@ fn rewrite_raw_cell_loads_in_expr(
                 && call.args.len() == 3
                 && raw_load_name(call.func.as_ref())
                     .as_ref()
-                    .is_some_and(|name| name.id.as_str() == "__dp_class_lookup_cell")
+                    .is_some_and(|name| name == "__dp_class_lookup_cell")
             {
                 rewrite_raw_cell_loads_in_expr(call.func.as_mut(), semantic, resolver);
                 if let Some(arg) = call.args.get_mut(0) {
@@ -1517,7 +1596,7 @@ fn sync_exception_param_cell_in_block(
         Operation::new(StoreCell::new(
             resolver
                 .resolve_raw_cell_location(cell_storage_name_for_name(exc_name, semantic).as_str()),
-            Box::new(rewrite_local_name_load(exc_load)),
+            Box::new(rewrite_local_name_load(exc_load, resolver)),
         ))
         .with_meta(crate::block_py::Meta::new(node_index, range)),
     );
@@ -1617,10 +1696,7 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
         CoreBlockPyExpr::Op(operation) => {
             match operation.detail() {
                 OperationDetail::LoadName(op) => {
-                    names.insert(op.name.id.to_string());
-                }
-                OperationDetail::LoadLocal(op) => {
-                    names.insert(op.name.id.to_string());
+                    names.insert(op.name.clone());
                 }
                 _ => {}
             }
@@ -1931,9 +2007,11 @@ fn collect_local_slot_locations(
     compute_local_slot_locations_from_analysis(callable)
 }
 
-fn populate_stack_slots_in_storage_layout(callable: &mut BlockPyFunction<CoreBlockPyPass>) {
-    let stack_slots =
-        ordered_slot_names_from_local_slots(compute_local_slot_locations_from_analysis(callable));
+fn populate_stack_slots_in_storage_layout<P: crate::block_py::BlockPyPass>(
+    callable: &mut BlockPyFunction<P>,
+    local_slots: HashMap<String, u32>,
+) {
+    let stack_slots = ordered_slot_names_from_local_slots(local_slots);
     callable
         .storage_layout
         .get_or_insert_with(StorageLayout::default)
@@ -2144,16 +2222,6 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                     let meta = operation.meta.clone();
                     *operation = Operation::new(CellRef::new(location)).with_meta(meta);
                     return expr;
-                }
-                match operation.detail_mut() {
-                    OperationDetail::LoadName(op) => {
-                        op.name = self.locate_name(op.name.clone().into());
-                    }
-                    OperationDetail::LoadLocal(op) => {
-                        op.name = self.locate_name(op.name.clone().into());
-                    }
-                    OperationDetail::CellRefForName(_) => unreachable!("handled above"),
-                    _ => {}
                 }
                 expr
             }
@@ -2554,19 +2622,21 @@ fn lower_name_binding_callable(
     callee_make_function_capture_names: &HashMap<crate::block_py::FunctionId, Vec<String>>,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
     let semantic = callable.semantic.clone();
+    let local_slots = collect_local_slot_locations(&callable);
     let captured_cell_slots = collect_captured_cell_slot_locations(&callable);
     let owned_cell_slots = collect_owned_cell_slot_locations(&callable);
     let cell_bindings = collect_cell_bindings(&callable);
     let mapper = NameBindingMapper {
         semantic: &semantic,
         callee_make_function_capture_names,
+        local_slots: local_slots.clone(),
         captured_cell_slots,
         owned_cell_slots,
         cell_bindings,
     };
     let mut lowered = mapper.map_fn(callable);
     prepend_owned_cell_init_preamble(&mut lowered);
-    populate_stack_slots_in_storage_layout(&mut lowered);
+    populate_stack_slots_in_storage_layout(&mut lowered, local_slots);
     let storage_layout = lowered
         .storage_layout
         .as_ref()
