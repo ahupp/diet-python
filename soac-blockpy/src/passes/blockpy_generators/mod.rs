@@ -6,10 +6,10 @@ use crate::block_py::{
     try_lower_core_expr_without_yield, BlockParam, BlockParamRole, BlockPyAssign,
     BlockPyBindingKind, BlockPyBranchTable, BlockPyCallableSemanticInfo, BlockPyCellBindingKind,
     BlockPyCfgBlockBuilder, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel,
-    BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
-    CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName, MakeFunction, Meta, ModuleNameGen,
-    Operation, StorageLayout, WithMeta,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, CellRef, CellRefTarget, CfgBlock, ClosureInit,
+    ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
+    MakeFunction, Meta, ModuleNameGen, Operation, StorageLayout, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -214,6 +214,15 @@ fn core_call_expr(
 
 fn core_runtime_attr(attr: &str) -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("runtime.{attr:id}", attr = attr))
+}
+
+fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
+    core_operation_expr(
+        Operation::new(CellRef::new(CellRefTarget::LogicalName(
+            logical_name.to_string(),
+        )))
+        .with_meta(Meta::synthetic()),
+    )
 }
 
 fn core_generator_code(async_gen: bool, name: &str, qualname: &str) -> CoreBlockPyExpr {
@@ -509,6 +518,7 @@ fn build_factory_block(
                         visible_names.qualname.as_str(),
                     ),
                 ),
+                ("yieldfrom_cell", core_cell_ref("_dp_yieldfrom")),
             ],
         ),
         BlockPyFunctionKind::AsyncGenerator => core_call_expr(
@@ -532,6 +542,7 @@ fn build_factory_block(
                         visible_names.qualname.as_str(),
                     ),
                 ),
+                ("yieldfrom_cell", core_cell_ref("_dp_yieldfrom")),
             ],
         ),
         BlockPyFunctionKind::Function => {

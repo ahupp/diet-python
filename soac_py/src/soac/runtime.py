@@ -390,11 +390,18 @@ def _resume_closure_contents(cell):
     return value
 
 
-def _current_yieldfrom(owner):
-    value = __dp_load_local_raw(owner, "_dp_yieldfrom")
+def _yieldfrom_cell_value(cell):
+    try:
+        value = cell.cell_contents
+    except ValueError:
+        return None
     if value is DELETED:
         return None
     return value
+
+
+def _current_yieldfrom(owner):
+    return _yieldfrom_cell_value(owner._yieldfrom_cell)
 
 
 def __dp_load_local_raw(gen, name):
@@ -477,6 +484,7 @@ class _DpClosureGenerator:
     __slots__ = (
         "_dp_resume",
         "_dp_closed",
+        "_yieldfrom_cell",
         "__name__",
         "__qualname__",
         "gi_code",
@@ -489,9 +497,11 @@ class _DpClosureGenerator:
         name,
         qualname,
         code,
+        yieldfrom_cell,
     ):
         self._dp_resume = resume
         self._dp_closed = False
+        self._yieldfrom_cell = yieldfrom_cell
         self.__name__ = name
         self.__qualname__ = qualname
         self.gi_code = code
@@ -536,10 +546,10 @@ class _DpClosureGenerator:
 
 
 class _DpCoroutine(_abc.Coroutine):
-    __slots__ = ("_dp_gen",)
+    __slots__ = ("_gen",)
 
     def __init__(self, gen):
-        self._dp_gen = gen
+        self._gen = gen
 
     def __await__(self):
         return self
@@ -551,19 +561,19 @@ class _DpCoroutine(_abc.Coroutine):
         return self.send(None)
 
     def send(self, value):
-        return self._dp_gen.send(value)
+        return self._gen.send(value)
 
     def throw(self, typ, val=None, tb=None):
-        return self._dp_gen.throw(
+        return self._gen.throw(
             _normalize_throw_exc(typ, val, tb, where="DpCoroutine.throw()")
         )
 
     def close(self):
-        return self._dp_gen.close()
+        return self._gen.close()
 
     @property
     def cr_frame(self):
-        return getattr(self._dp_gen, "gi_frame", None)
+        return getattr(self._gen, "gi_frame", None)
 
     @property
     def cr_running(self):
@@ -571,17 +581,18 @@ class _DpCoroutine(_abc.Coroutine):
 
     @property
     def cr_code(self):
-        return self._dp_gen.gi_code
+        return self._gen.gi_code
 
     @property
     def cr_await(self):
-        return self._dp_gen.gi_yieldfrom
+        return self._gen.gi_yieldfrom
 
 
 class _DpClosureAsyncGenerator:
     __slots__ = (
         "_dp_resume",
         "_dp_closed",
+        "_yieldfrom_cell",
         "__name__",
         "__qualname__",
         "ag_code",
@@ -594,9 +605,11 @@ class _DpClosureAsyncGenerator:
         name,
         qualname,
         code,
+        yieldfrom_cell,
     ):
         self._dp_resume = resume
         self._dp_closed = False
+        self._yieldfrom_cell = yieldfrom_cell
         self.__name__ = name
         self.__qualname__ = qualname
         self.ag_code = code
