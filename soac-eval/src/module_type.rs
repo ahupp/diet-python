@@ -67,14 +67,6 @@ impl SoacExtModuleState {
     }
 }
 
-unsafe extern "C" fn soac_ext_module_traverse(
-    _module: *mut ffi::PyObject,
-    _visit: ffi::visitproc,
-    _arg: *mut c_void,
-) -> c_int {
-    0
-}
-
 unsafe extern "C" fn soac_ext_module_clear(module: *mut ffi::PyObject) -> c_int {
     let state = unsafe { ffi::PyModule_GetState(module) }.cast::<SoacExtModuleState>();
     if state.is_null() {
@@ -97,7 +89,8 @@ static mut SOAC_EXT_MODULE_DEF: ffi::PyModuleDef = ffi::PyModuleDef {
     m_size: std::mem::size_of::<SoacExtModuleState>() as ffi::Py_ssize_t,
     m_methods: ptr::null_mut(),
     m_slots: ptr::null_mut(),
-    m_traverse: Some(soac_ext_module_traverse),
+    // This state stores only Rust-owned lowering data and strings, not PyObject refs.
+    m_traverse: None,
     m_clear: Some(soac_ext_module_clear),
     m_free: Some(soac_ext_module_free),
 };
