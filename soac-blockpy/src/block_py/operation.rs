@@ -862,60 +862,6 @@ impl<E, N> OperationDetail<E, N> {
             Self::DelDeref(op) => op.walk_expr_args_mut(f),
         }
     }
-
-    pub fn into_call_args(self) -> Vec<E> {
-        match self {
-            Self::BinOp(op) => op.into_expr_args(),
-            Self::UnaryOp(op) => op.into_expr_args(),
-            Self::InplaceBinOp(op) => op.into_expr_args(),
-            Self::TernaryOp(op) => op.into_expr_args(),
-            Self::GetAttr(op) => op.into_expr_args(),
-            Self::SetAttr(op) => op.into_expr_args(),
-            Self::GetItem(op) => op.into_expr_args(),
-            Self::SetItem(op) => op.into_expr_args(),
-            Self::DelItem(op) => op.into_expr_args(),
-            Self::LoadGlobal(op) => op.into_expr_args(),
-            Self::StoreGlobal(op) => op.into_expr_args(),
-            Self::LoadName(op) => op.into_expr_args(),
-            Self::LoadLocal(op) => op.into_expr_args(),
-            Self::LoadCell(op) => op.into_expr_args(),
-            Self::MakeCell(op) => op.into_expr_args(),
-            Self::MakeString(op) => op.into_expr_args(),
-            Self::CellRef(op) => op.into_expr_args(),
-            Self::MakeFunction(op) => op.into_expr_args(),
-            Self::StoreCell(op) => op.into_expr_args(),
-            Self::DelQuietly(op) => op.into_expr_args(),
-            Self::DelDerefQuietly(op) => op.into_expr_args(),
-            Self::DelDeref(op) => op.into_expr_args(),
-        }
-    }
-
-    pub fn call_args(&self) -> Vec<&E> {
-        match self {
-            Self::BinOp(op) => vec![op.arg0.as_ref(), op.arg1.as_ref()],
-            Self::UnaryOp(op) => vec![op.arg0.as_ref()],
-            Self::InplaceBinOp(op) => vec![op.arg0.as_ref(), op.arg1.as_ref()],
-            Self::TernaryOp(op) => vec![op.arg0.as_ref(), op.arg1.as_ref(), op.arg2.as_ref()],
-            Self::GetAttr(op) => vec![op.arg0.as_ref()],
-            Self::SetAttr(op) => vec![op.arg0.as_ref(), op.arg2.as_ref()],
-            Self::GetItem(op) => vec![op.arg0.as_ref(), op.arg1.as_ref()],
-            Self::SetItem(op) => vec![op.arg0.as_ref(), op.arg1.as_ref(), op.arg2.as_ref()],
-            Self::DelItem(op) => vec![op.arg0.as_ref(), op.arg1.as_ref()],
-            Self::LoadGlobal(op) => vec![op.arg0.as_ref()],
-            Self::StoreGlobal(op) => vec![op.arg0.as_ref(), op.arg2.as_ref()],
-            Self::LoadName(_) => Vec::new(),
-            Self::LoadLocal(_) => Vec::new(),
-            Self::LoadCell(_) => Vec::new(),
-            Self::MakeCell(op) => vec![op.arg0.as_ref()],
-            Self::MakeString(_) => Vec::new(),
-            Self::CellRef(_) => Vec::new(),
-            Self::MakeFunction(op) => vec![op.arg0.as_ref(), op.arg1.as_ref(), op.arg2.as_ref()],
-            Self::StoreCell(op) => vec![op.arg1.as_ref()],
-            Self::DelQuietly(op) => vec![op.arg0.as_ref()],
-            Self::DelDerefQuietly(_) => Vec::new(),
-            Self::DelDeref(_) => Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -997,14 +943,6 @@ impl<E, N> Operation<E, N> {
 
     pub fn walk_args_mut(&mut self, f: &mut impl FnMut(&mut E)) {
         self.detail.walk_args_mut(f)
-    }
-
-    pub fn into_call_args(self) -> Vec<E> {
-        self.detail.into_call_args()
-    }
-
-    pub fn call_args(&self) -> Vec<&E> {
-        self.detail.call_args()
     }
 }
 

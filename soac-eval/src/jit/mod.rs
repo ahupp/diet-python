@@ -1263,10 +1263,7 @@ fn emit_codegen_expr(
             ) {
                 panic!("MakeFunction should lower to a regular call before codegen");
             }
-            let args = operation_ref.call_args();
-            if let Some(value) =
-                intrinsics::emit_operation(operation_ref, &mut intrinsic_state, args.as_slice())
-            {
+            if let Some(value) = intrinsics::emit_operation(operation_ref, &mut intrinsic_state) {
                 return value;
             }
             match operation_ref.detail() {

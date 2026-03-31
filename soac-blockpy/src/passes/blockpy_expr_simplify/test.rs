@@ -73,8 +73,10 @@ fn expr_simplify_recurses_bottom_up_for_operator_family() {
         outer.detail(),
         OperationDetail::UnaryOp(op) if op.kind == UnaryOpKind::Neg
     ));
-    let outer_args = outer.clone().into_call_args();
-    let [CoreBlockPyExprWithAwaitAndYield::Op(inner)] = &outer_args[..] else {
+    let OperationDetail::UnaryOp(op) = outer.detail() else {
+        unreachable!("neg guard should ensure unary op");
+    };
+    let CoreBlockPyExprWithAwaitAndYield::Op(inner) = op.arg0.as_ref() else {
         panic!("expected __dp_neg to receive one lowered op arg");
     };
     assert!(matches!(
@@ -190,7 +192,14 @@ fn core_blockpy_expr_rewrites_ipow_helper_to_pow_operation() {
         call.detail(),
         OperationDetail::TernaryOp(op) if op.kind == TernaryOpKind::Pow
     ));
-    assert_eq!(call.call_args().len(), 3);
+    let OperationDetail::TernaryOp(op) = call.detail() else {
+        unreachable!("pow guard should ensure ternary op");
+    };
+    let _left = op.arg0.as_ref();
+    let _right = op.arg1.as_ref();
+    assert!(
+        matches!(op.arg2.as_ref(), CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "__dp_NONE")
+    );
 }
 
 #[test]

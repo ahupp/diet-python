@@ -621,34 +621,48 @@ pub(super) fn emit_del_deref_raw_cell<'fb, E>(
 pub(super) fn emit_operation<'fb, E, N>(
     operation: &blockpy_intrinsics::Operation<E, N>,
     state: &mut impl OperationEmitState<'fb, E>,
-    args: &[&E],
 ) -> Option<ir::Value> {
     match operation.detail() {
-        blockpy_intrinsics::OperationDetail::BinOp(op) => Some(emit_binop(op.kind, state, args)),
+        blockpy_intrinsics::OperationDetail::BinOp(op) => Some(emit_binop(
+            op.kind,
+            state,
+            &[op.arg0.as_ref(), op.arg1.as_ref()],
+        )),
         blockpy_intrinsics::OperationDetail::UnaryOp(op) => {
-            Some(emit_unary_op(op.kind, state, args))
+            Some(emit_unary_op(op.kind, state, &[op.arg0.as_ref()]))
         }
-        blockpy_intrinsics::OperationDetail::InplaceBinOp(op) => {
-            Some(emit_inplace_binop(op.kind, state, args))
-        }
-        blockpy_intrinsics::OperationDetail::TernaryOp(op) => {
-            Some(emit_ternary_op(op.kind, state, args))
-        }
+        blockpy_intrinsics::OperationDetail::InplaceBinOp(op) => Some(emit_inplace_binop(
+            op.kind,
+            state,
+            &[op.arg0.as_ref(), op.arg1.as_ref()],
+        )),
+        blockpy_intrinsics::OperationDetail::TernaryOp(op) => Some(emit_ternary_op(
+            op.kind,
+            state,
+            &[op.arg0.as_ref(), op.arg1.as_ref(), op.arg2.as_ref()],
+        )),
         blockpy_intrinsics::OperationDetail::GetAttr(op) => Some(emit_getattr(op, state)),
         blockpy_intrinsics::OperationDetail::SetAttr(op) => Some(emit_setattr(op, state)),
-        blockpy_intrinsics::OperationDetail::GetItem(_) => Some(emit_getitem(state, args)),
-        blockpy_intrinsics::OperationDetail::SetItem(_) => Some(emit_setitem(state, args)),
-        blockpy_intrinsics::OperationDetail::DelItem(_) => Some(emit_positional_owned_call(
+        blockpy_intrinsics::OperationDetail::GetItem(op) => {
+            Some(emit_getitem(state, &[op.arg0.as_ref(), op.arg1.as_ref()]))
+        }
+        blockpy_intrinsics::OperationDetail::SetItem(op) => Some(emit_setitem(
+            state,
+            &[op.arg0.as_ref(), op.arg1.as_ref(), op.arg2.as_ref()],
+        )),
+        blockpy_intrinsics::OperationDetail::DelItem(op) => Some(emit_positional_owned_call(
             &DP_JIT_PYOBJECT_DELITEM_IMPORT,
             state,
-            args,
+            &[op.arg0.as_ref(), op.arg1.as_ref()],
         )),
         blockpy_intrinsics::OperationDetail::LoadGlobal(op) => Some(emit_load_global(op, state)),
         blockpy_intrinsics::OperationDetail::StoreGlobal(op) => Some(emit_store_global(op, state)),
         blockpy_intrinsics::OperationDetail::LoadName(_) => None,
         blockpy_intrinsics::OperationDetail::LoadLocal(_) => None,
         blockpy_intrinsics::OperationDetail::LoadCell(_) => None,
-        blockpy_intrinsics::OperationDetail::MakeCell(_) => Some(emit_make_cell(state, args)),
+        blockpy_intrinsics::OperationDetail::MakeCell(op) => {
+            Some(emit_make_cell(state, &[op.arg0.as_ref()]))
+        }
         blockpy_intrinsics::OperationDetail::MakeString(op) => Some(emit_make_string(op, state)),
         blockpy_intrinsics::OperationDetail::CellRef(_) => None,
         blockpy_intrinsics::OperationDetail::MakeFunction(_) => None,

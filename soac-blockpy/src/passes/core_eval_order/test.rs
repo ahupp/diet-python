@@ -136,9 +136,11 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
         call.detail(),
         OperationDetail::InplaceBinOp(op) if op.kind == InplaceBinOpKind::Add
     ));
-    let call_args = call.clone().into_call_args();
+    let OperationDetail::InplaceBinOp(op) = call.detail() else {
+        unreachable!("iadd guard should ensure inplace binop");
+    };
     assert!(matches!(
-        &call_args[1],
+        op.arg1.as_ref(),
         CoreBlockPyExprWithAwaitAndYield::Name(_)
     ));
     assert!(matches!(lowered.body[2], StructuredBlockPyStmt::Delete(_)));
