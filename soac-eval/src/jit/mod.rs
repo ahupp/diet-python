@@ -1344,10 +1344,9 @@ fn emit_codegen_expr(
                     );
                     intrinsics::emit_del_deref_raw_cell(raw_cell, true, &mut intrinsic_state)
                 }
-                _ => panic!(
-                    "operation {} should have been handled by direct emitter",
-                    operation_ref.helper_name()
-                ),
+                _ => {
+                    panic!("operation {operation_ref:?} should have been handled by direct emitter")
+                }
             }
         }
         CodegenBlockPyExpr::Call(call) => {
