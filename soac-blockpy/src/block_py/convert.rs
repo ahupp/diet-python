@@ -64,17 +64,17 @@ where
     }
 }
 
-fn try_map_stmt_with<PIn, POut, M>(
+fn try_map_stmt_with<PIn: BlockPyPass, POut: BlockPyPass, M>(
     mapper: &M,
-    stmt: BlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
-) -> Result<BlockPyStmt<PassExpr<POut>, PassName<POut>>, M::Error>
+    stmt: BlockPyStmt<PIn::Expr, PIn::Name>,
+) -> Result<BlockPyStmt<POut::Expr, POut::Name>, M::Error>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
     M: BlockPyModuleTryMap<PIn, POut> + ?Sized,
-    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, M::Error>,
+    PIn::Expr: TryMapExpr<POut::Expr, M::Error>,
     PIn::Stmt: Into<BlockPyStmt<PIn::Expr, PIn::Name>>,
-    PassName<POut>: From<PassName<PIn>>,
+    POut::Name: From<PIn::Name>,
     POut::Stmt: From<BlockPyStmt<POut::Expr, POut::Name>>,
 {
     match stmt {
