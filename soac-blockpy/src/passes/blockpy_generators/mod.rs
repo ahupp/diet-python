@@ -225,6 +225,20 @@ fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
     )
 }
 
+fn exception_context_names(callable: &BlockPyFunction<CoreBlockPyPassWithYield>) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut seen = HashSet::new();
+    for block in &callable.blocks {
+        let Some(name) = block.exception_param() else {
+            continue;
+        };
+        if seen.insert(name.to_string()) {
+            names.push(name.to_string());
+        }
+    }
+    names
+}
+
 fn core_generator_code(async_gen: bool, name: &str, qualname: &str) -> CoreBlockPyExpr {
     let template_attr = if async_gen {
         "_dp_async_gen_code_template"
@@ -485,6 +499,7 @@ fn build_factory_block(
     visible_names: &FunctionName,
     resume_function_id: FunctionId,
     kind: BlockPyFunctionKind,
+    exception_context_names: &[String],
 ) -> LinearCoreBlock {
     let mut block: BlockPyCfgBlockBuilder<LinearCoreStmt, BlockPyTerm<CoreBlockPyExpr>> =
         BlockPyCfgBlockBuilder::new(BlockPyLabel::from_index(0));
@@ -494,6 +509,13 @@ fn build_factory_block(
         BlockPyFunctionKind::Function,
         core_call("__dp_tuple", Vec::new()),
         core_none(),
+    );
+    let context_cells = core_call(
+        "__dp_tuple",
+        exception_context_names
+            .iter()
+            .map(|name| core_cell_ref(name.as_str()))
+            .collect(),
     );
 
     let generator = match kind {
@@ -519,6 +541,7 @@ fn build_factory_block(
                     ),
                 ),
                 ("yieldfrom_cell", core_cell_ref("_dp_yieldfrom")),
+                ("context_cells", context_cells.clone()),
             ],
         ),
         BlockPyFunctionKind::AsyncGenerator => core_call_expr(
@@ -543,6 +566,7 @@ fn build_factory_block(
                     ),
                 ),
                 ("yieldfrom_cell", core_cell_ref("_dp_yieldfrom")),
+                ("context_cells", context_cells),
             ],
         ),
         BlockPyFunctionKind::Function => {
@@ -1517,6 +1541,7 @@ pub(crate) fn lower_generator_like_function(
     let resume_name_gen = module_name_gen.next_function_name_gen();
     let resume_function_id = resume_name_gen.function_id();
     let storage_layout = build_generator_storage_layout(&callable);
+    let exception_context_names = exception_context_names(&callable);
     let persistent_state_order = persistent_generator_state_order(&storage_layout);
     let resume_binding_names = ordered_resume_binding_names(&callable, &persistent_state_order);
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
@@ -1535,7 +1560,8 @@ pub(crate) fn lower_generator_like_function(
         ..
     } = callable;
 
-    let factory_block = build_factory_block(&names, resume_function_id, kind);
+    let factory_block =
+        build_factory_block(&names, resume_function_id, kind, &exception_context_names);
 
     let mut resume_semantic = semantic.clone();
     augment_resume_semantic_for_standard_name_binding(&mut resume_semantic, &closure_bindings);

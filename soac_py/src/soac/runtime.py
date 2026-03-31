@@ -375,21 +375,6 @@ def _resume_closure_value(owner, name):
     return _MISSING
 
 
-def _resume_closure_contents(cell):
-    try:
-        value = cell.cell_contents
-    except ValueError:
-        return _MISSING
-    if isinstance(value, _types.CellType):
-        try:
-            return value.cell_contents
-        except ValueError:
-            return DELETED
-    if type(cell) is _types.CellType:
-        return value
-    return value
-
-
 def _yieldfrom_cell_value(cell):
     try:
         value = cell.cell_contents
@@ -460,23 +445,11 @@ def _attach_throw_context_from_state(state, exc):
     if exc.__context__ is not None:
         return
     try:
-        frame = getattr(state, "gi_frame", None)
-        if isinstance(frame, dict):
-            for candidate in reversed(list(frame.values())):
-                if isinstance(candidate, BaseException):
-                    exc.__context__ = candidate
-                    break
-        if exc.__context__ is None:
-            resume = getattr(state, "_dp_resume", None)
-            closure = getattr(resume, "__closure__", None)
-            if closure is not None:
-                for cell in reversed(tuple(closure)):
-                    candidate = _resume_closure_contents(cell)
-                    if candidate is _MISSING or candidate is DELETED:
-                        continue
-                    if isinstance(candidate, BaseException):
-                        exc.__context__ = candidate
-                        break
+        for cell in reversed(tuple(state._context_cells)):
+            candidate = _yieldfrom_cell_value(cell)
+            if isinstance(candidate, BaseException):
+                exc.__context__ = candidate
+                break
     except Exception:
         pass
 
@@ -485,6 +458,7 @@ class _DpClosureGenerator:
         "_dp_resume",
         "_dp_closed",
         "_yieldfrom_cell",
+        "_context_cells",
         "__name__",
         "__qualname__",
         "gi_code",
@@ -498,10 +472,12 @@ class _DpClosureGenerator:
         qualname,
         code,
         yieldfrom_cell,
+        context_cells,
     ):
         self._dp_resume = resume
         self._dp_closed = False
         self._yieldfrom_cell = yieldfrom_cell
+        self._context_cells = context_cells
         self.__name__ = name
         self.__qualname__ = qualname
         self.gi_code = code
@@ -593,6 +569,7 @@ class _DpClosureAsyncGenerator:
         "_dp_resume",
         "_dp_closed",
         "_yieldfrom_cell",
+        "_context_cells",
         "__name__",
         "__qualname__",
         "ag_code",
@@ -606,10 +583,12 @@ class _DpClosureAsyncGenerator:
         qualname,
         code,
         yieldfrom_cell,
+        context_cells,
     ):
         self._dp_resume = resume
         self._dp_closed = False
         self._yieldfrom_cell = yieldfrom_cell
+        self._context_cells = context_cells
         self.__name__ = name
         self.__qualname__ = qualname
         self.ag_code = code
