@@ -248,11 +248,18 @@ pub unsafe fn build_module_runtime_context_for_module(
 
 unsafe fn make_clif_function_data(
     _callable: *mut ffi::PyObject,
-    module_name: &str,
     function_id: usize,
     module_runtime: jit::ModuleRuntimeContext,
 ) -> Result<*mut c_void, ()> {
-    let Some(blockpy_function) = jit::lookup_blockpy_function(module_name, function_id) else {
+    let Some(blockpy_function) = module_runtime
+        .shared_module_state_owner
+        .lookup_function(soac_blockpy::block_py::FunctionId(function_id))
+        .cloned()
+    else {
+        let module_name = module_runtime
+            .shared_module_state_owner
+            .module_name
+            .as_str();
         let msg = format!(
             "no specialized JIT plan found: module={module_name:?} function_id={function_id:?}"
         );
@@ -750,7 +757,6 @@ unsafe extern "C" fn lazy_clif_vectorcall(
 
 pub unsafe fn register_clif_vectorcall(
     function: *mut ffi::PyObject,
-    module_name: &str,
     function_id: usize,
     module_runtime: jit::ModuleRuntimeContext,
 ) -> Result<(), ()> {
@@ -773,7 +779,7 @@ pub unsafe fn register_clif_vectorcall(
         return Ok(());
     }
 
-    let data_ptr = make_clif_function_data(function, module_name, function_id, module_runtime)?;
+    let data_ptr = make_clif_function_data(function, function_id, module_runtime)?;
     let capsule = ffi::PyCapsule_New(
         data_ptr,
         CLIF_VECTORCALL_CAPSULE_NAME.as_ptr() as *const c_char,

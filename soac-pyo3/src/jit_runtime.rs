@@ -77,24 +77,18 @@ fn make_lazy_clif_entry<'py>(
 fn register_clif_vectorcall_raw(
     py: Python<'_>,
     func: &Bound<'_, PyAny>,
-    module_name: &str,
     function_id: FunctionId,
     module_runtime: soac_eval::jit::ModuleRuntimeContext,
 ) -> PyResult<()> {
     unsafe {
-        soac_eval::tree_walk::register_clif_vectorcall(
-            func.as_ptr(),
-            module_name,
-            function_id.0,
-            module_runtime,
-        )
-        .map_err(|_| {
-            if ffi::PyErr_Occurred().is_null() {
-                PyRuntimeError::new_err("failed to register CLIF vectorcall")
-            } else {
-                PyErr::fetch(py)
-            }
-        })
+        soac_eval::tree_walk::register_clif_vectorcall(func.as_ptr(), function_id.0, module_runtime)
+            .map_err(|_| {
+                if ffi::PyErr_Occurred().is_null() {
+                    PyRuntimeError::new_err("failed to register CLIF vectorcall")
+                } else {
+                    PyErr::fetch(py)
+                }
+            })
     }
 }
 
@@ -108,7 +102,7 @@ fn eager_clif_compile_requested() -> bool {
 fn maybe_eager_compile_clif_entry(
     py: Python<'_>,
     func: &Bound<'_, PyAny>,
-    module_name: &str,
+    module_runtime: &soac_eval::jit::ModuleRuntimeContext,
     function_id: FunctionId,
 ) -> PyResult<()> {
     if !eager_clif_compile_requested() {
@@ -129,14 +123,15 @@ fn maybe_eager_compile_clif_entry(
             let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
             info!(
                 "soac_jit_eager_compile module={} function_id={} elapsed_ms={elapsed_ms:.3}",
-                module_name, function_id.0
+                module_runtime.shared_module_state_owner.module_name, function_id.0
             );
             Ok(())
         }
         Err(err) if err.is_instance_of::<PyNotImplementedError>(py) => Err(err),
         Err(err) => Err(PyRuntimeError::new_err(format!(
-            "failed to eagerly compile CLIF entry for {module_name} function_id={}: {err}",
-            function_id.0
+            "failed to eagerly compile CLIF entry for {module_name} function_id={function_id}: {err}",
+            module_name = module_runtime.shared_module_state_owner.module_name,
+            function_id = function_id.0
         ))),
     }
 }
@@ -144,7 +139,6 @@ fn maybe_eager_compile_clif_entry(
 fn register_lazy_clif_vectorcall(
     py: Python<'_>,
     func: &Bound<'_, PyAny>,
-    module_name: &str,
     function_id: FunctionId,
     module_runtime: &soac_eval::jit::ModuleRuntimeContext,
 ) -> PyResult<()> {
@@ -158,12 +152,13 @@ fn register_lazy_clif_vectorcall(
                 }
             },
         )?;
-    match register_clif_vectorcall_raw(py, func, module_name, function_id, owned_runtime) {
-        Ok(()) => maybe_eager_compile_clif_entry(py, func, module_name, function_id),
+    match register_clif_vectorcall_raw(py, func, function_id, owned_runtime) {
+        Ok(()) => maybe_eager_compile_clif_entry(py, func, module_runtime, function_id),
         Err(err) if err.is_instance_of::<PyNotImplementedError>(py) => Err(err),
         Err(err) => Err(PyRuntimeError::new_err(format!(
-            "failed to register lazy CLIF vectorcall for {module_name} function_id={}: {err}",
-            function_id.0
+            "failed to register lazy CLIF vectorcall for {module_name} function_id={function_id}: {err}",
+            module_name = module_runtime.shared_module_state_owner.module_name,
+            function_id = function_id.0
         ))),
     }
 }
@@ -288,13 +283,15 @@ fn module_name_from_runtime(
 }
 
 fn lookup_bb_function(
-    module_name: &str,
-    function_id: usize,
+    shared_state: &soac_eval::module_type::SharedModuleState,
+    function_id: FunctionId,
     operation: &str,
 ) -> PyResult<BlockPyFunction<CodegenBlockPyPass>> {
-    soac_eval::jit::lookup_blockpy_function(module_name, function_id).ok_or_else(|| {
+    shared_state.lookup_function(function_id).cloned().ok_or_else(|| {
         PyRuntimeError::new_err(format!(
-            "JIT basic-block {operation} failed to resolve static function metadata for {module_name}.fn#{function_id}"
+            "JIT basic-block {operation} failed to resolve static function metadata for {}.fn#{}",
+            shared_state.module_name,
+            function_id.0
         ))
     })
 }
@@ -618,7 +615,7 @@ fn instantiate_bb_function(
 fn instantiate_closure_backed_entry<'py>(
     py: Python<'py>,
     dp: &Bound<'py, PyModule>,
-    module_name: &str,
+    _module_name: &str,
     function: &BlockPyFunction<CodegenBlockPyPass>,
     captures: &Bound<'py, PyAny>,
     module_globals: &Bound<'py, PyAny>,
@@ -628,13 +625,7 @@ fn instantiate_closure_backed_entry<'py>(
 ) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
     let (captured_names, closure_values) = build_capture_map(py, captures)?;
     let raw_entry = make_lazy_clif_entry(py, dp, entry_name, module_globals)?;
-    register_lazy_clif_vectorcall(
-        py,
-        &raw_entry,
-        module_name,
-        function.function_id,
-        module_runtime,
-    )?;
+    register_lazy_clif_vectorcall(py, &raw_entry, function.function_id, module_runtime)?;
     let entry = build_wrapped_entry(
         py,
         dp,
@@ -661,7 +652,11 @@ fn make_bb_function(
             let module_globals =
                 module_globals_from_runtime(py, module_runtime, "function instantiation")?;
             let module_name = module_name_from_runtime(module_runtime, "function instantiation")?;
-            let function = lookup_bb_function(&module_name, function_id, "function instantiation")?;
+            let function = lookup_bb_function(
+                &module_runtime.shared_module_state_owner,
+                FunctionId(function_id),
+                "function instantiation",
+            )?;
             instantiate_bb_function(
                 py,
                 &dp,
@@ -766,8 +761,11 @@ fn make_bb_generator(
     };
     unsafe {
         soac_eval::tree_walk::with_current_module_runtime_context(|module_runtime| {
-            let module_name = module_name_from_runtime(module_runtime, operation)?;
-            let function = lookup_bb_function(&module_name, function_id, operation)?;
+            let function = lookup_bb_function(
+                &module_runtime.shared_module_state_owner,
+                FunctionId(function_id),
+                operation,
+            )?;
             let name = function.names.display_name.clone();
             let qualname = function.names.qualname.clone();
             let code = build_generator_code(py, &dp, async_gen, name.as_str(), qualname.as_str())?;

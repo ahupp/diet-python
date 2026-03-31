@@ -13,6 +13,7 @@
 - **MUST FOLLOW**: When referring to a specific line or block of code, name the enclosing function, struct, trait, or other code item first, then give the full path with line number. Preferred format: `in <item>, at <path>:<line>`.
 - **NOTE**: Prefer adding behavior at transform time rather than runtime in `soac_py/src/soac/runtime.py` whenever possible.
 - **MUST FOLLOW**: If a change requires adding a compatibility interface for a Python standard type/function, or patching one, stop and describe the reason before implementing.
+- **MUST FOLLOW**: If a proposed change would add new thread-local state or mutable global state, stop and explain why that state is necessary before implementing.
 - **MUST FOLLOW**: When changing implementation details, do not keep compatibility stubs/interfaces around; assume transformed inputs are regenerated each time.
 - **MUST FOLLOW**: If the user rejects a proposed approach, extract the underlying design principle behind that rejection, propose it explicitly as a general rule, and only add it to `AGENTS.md` if the user approves that rule.
 

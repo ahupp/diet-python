@@ -2,8 +2,9 @@ use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::PyAnyMethods;
-use soac_blockpy::block_py::BlockPyModule;
+use soac_blockpy::block_py::{BlockPyFunction, BlockPyModule, FunctionId};
 use soac_blockpy::passes::CodegenBlockPyPass;
+use std::collections::HashMap;
 use std::ffi::{c_int, c_void};
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -17,6 +18,37 @@ pub struct SharedModuleState {
     pub lowered_module: BlockPyModule<CodegenBlockPyPass>,
     pub module_name: String,
     pub package_name: String,
+    function_index_by_id: HashMap<FunctionId, usize>,
+}
+
+impl SharedModuleState {
+    pub fn lookup_function(
+        &self,
+        function_id: FunctionId,
+    ) -> Option<&BlockPyFunction<CodegenBlockPyPass>> {
+        let function_index = self.function_index_by_id.get(&function_id).copied()?;
+        let function = self.lowered_module.callable_defs.get(function_index)?;
+        assert_eq!(function.function_id, function_id);
+        Some(function)
+    }
+}
+
+fn build_function_index_by_id(
+    module: &BlockPyModule<CodegenBlockPyPass>,
+) -> PyResult<HashMap<FunctionId, usize>> {
+    let mut function_index_by_id = HashMap::with_capacity(module.callable_defs.len());
+    for (function_index, function) in module.callable_defs.iter().enumerate() {
+        if function_index_by_id
+            .insert(function.function_id, function_index)
+            .is_some()
+        {
+            return Err(PyRuntimeError::new_err(format!(
+                "duplicate function id {} in shared module state ({})",
+                function.function_id.0, function.names.qualname
+            )));
+        }
+    }
+    Ok(function_index_by_id)
 }
 
 #[repr(C)]
@@ -37,10 +69,12 @@ impl SoacExtModuleState {
                 "transformed module state was unexpectedly initialized twice",
             ));
         }
+        let function_index_by_id = build_function_index_by_id(&lowered_module)?;
         self.shared_state.write(Arc::new(SharedModuleState {
             lowered_module,
             module_name,
             package_name,
+            function_index_by_id,
         }));
         self.initialized = true;
         Ok(())
