@@ -440,6 +440,15 @@ def _dp_mark_closed(owner):
     owner._dp_resume = None
 
 
+def _normalize_throw_exc(typ, val=None, tb=None, *, where, state=None):
+    if val is not None or tb is not None:
+        raise TypeError(f"{where} does not support value/traceback in this mode")
+    exc = raise_from(typ, None)
+    if state is not None:
+        _attach_throw_context_from_state(state, exc)
+    return exc
+
+
 def _attach_throw_context_from_state(state, exc):
     if exc.__context__ is not None:
         return
@@ -503,14 +512,9 @@ class _DpClosureGenerator:
             _dp_reraise_control_flow(exc)
 
     def throw(self, typ=None, val=None, tb=None):
-        if val is not None or tb is not None:
-            raise TypeError(
-                "DpGen.throw() does not support value/traceback in this mode"
-            )
-        exc = raise_from(typ, None)
+        exc = _normalize_throw_exc(typ, val, tb, where="DpGen.throw()", state=self)
         if self._dp_closed:
             _dp_reraise_control_flow(exc)
-        _attach_throw_context_from_state(self, exc)
         try:
             return self._dp_resume(self, NO_DEFAULT, exc)
         except BaseException as exc:
@@ -550,11 +554,9 @@ class _DpCoroutine(_abc.Coroutine):
         return self._dp_gen.send(value)
 
     def throw(self, typ, val=None, tb=None):
-        if val is not None or tb is not None:
-            raise TypeError(
-                "DpCoroutine.throw() does not support value/traceback in this mode"
-            )
-        return self._dp_gen.throw(typ)
+        return self._dp_gen.throw(
+            _normalize_throw_exc(typ, val, tb, where="DpCoroutine.throw()")
+        )
 
     def close(self):
         return self._dp_gen.close()
@@ -622,12 +624,7 @@ class _DpClosureAsyncGenerator:
         return _DpAsyncGenSend(self, value, NO_DEFAULT)
 
     def athrow(self, typ=None, val=None, tb=None):
-        if val is not None or tb is not None:
-            raise TypeError(
-                "DpAsyncGen.athrow() does not support value/traceback in this mode"
-            )
-        exc = raise_from(typ, None)
-        _attach_throw_context_from_state(self, exc)
+        exc = _normalize_throw_exc(typ, val, tb, where="DpAsyncGen.athrow()", state=self)
         return _DpAsyncGenSend(self, NO_DEFAULT, exc)
 
     async def aclose(self):
@@ -636,15 +633,6 @@ class _DpClosureAsyncGenerator:
         except (GeneratorExit, StopAsyncIteration):
             return None
         raise RuntimeError("async generator ignored GeneratorExit")
-
-
-def _normalize_throw_args(typ, val=None, tb=None):
-    if val is not None or tb is not None:
-        raise TypeError(
-            "DpAsyncGenSend.throw() does not support value/traceback in this mode"
-        )
-    return raise_from(typ, None)
-
 
 class _DpAsyncGenSend:
     __slots__ = ("_dp_gen", "_dp_value", "_dp_resume_exc", "_dp_done")
@@ -722,8 +710,10 @@ class _DpAsyncGenSend:
 
     def throw(self, typ, val=None, tb=None):
         if self._dp_done:
-            raise _normalize_throw_args(typ, val, tb)
-        self._dp_resume_exc = _normalize_throw_args(typ, val, tb)
+            raise _normalize_throw_exc(typ, val, tb, where="DpAsyncGenSend.throw()")
+        self._dp_resume_exc = _normalize_throw_exc(
+            typ, val, tb, where="DpAsyncGenSend.throw()"
+        )
         return self._dp_step(None)
 
     def close(self):
