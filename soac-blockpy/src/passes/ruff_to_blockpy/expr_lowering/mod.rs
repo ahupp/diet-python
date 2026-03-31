@@ -244,7 +244,7 @@ impl RuffToBlockPyExpr for Expr {
 
 impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
     fn from_lowered_expr(expr: Expr) -> Self {
-        lower_make_function_expr(&expr).unwrap_or_else(|| expr.into())
+        lower_direct_core_helper_expr(&expr).unwrap_or_else(|| expr.into())
     }
 
     fn helper_call(
@@ -452,34 +452,123 @@ fn make_function_id_from_literal(expr: &Expr) -> Option<FunctionId> {
     value.to_string().parse().ok().map(FunctionId)
 }
 
-fn lower_make_function_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwaitAndYield> {
+fn string_literal_value(expr: &Expr) -> Option<String> {
+    let Expr::StringLiteral(string) = expr else {
+        return None;
+    };
+    Some(string.value.to_str().to_string())
+}
+
+fn lowered_helper_call<'a>(
+    expr: &'a Expr,
+    expected_name: &str,
+    arity: usize,
+) -> Option<&'a ast::ExprCall> {
     let Expr::Call(call) = expr else {
         return None;
     };
-    if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 5 {
+    if !call.arguments.keywords.is_empty() || call.arguments.args.len() != arity {
         return None;
     }
     let Expr::Name(name) = call.func.as_ref() else {
         return None;
     };
-    if name.id.as_str() != "__dp_make_function" {
+    if name.id.as_str() != expected_name {
         return None;
     }
-    let function_id = make_function_id_from_literal(&call.arguments.args[0])?;
-    let kind = make_function_kind_from_literal(&call.arguments.args[1])?;
-    Some(core_operation_expr(
-        operation::Operation::new(operation::MakeFunction::new(
-            function_id,
-            kind,
-            Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
-                call.arguments.args[3].clone(),
-            )),
-            Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
-                call.arguments.args[4].clone(),
-            )),
-        ))
-        .with_meta(Meta::new(call.node_index.clone(), call.range)),
-    ))
+    Some(call)
+}
+
+fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwaitAndYield> {
+    if let Some(call) = lowered_helper_call(expr, "__dp_make_function", 5) {
+        let function_id = make_function_id_from_literal(&call.arguments.args[0])?;
+        let kind = make_function_kind_from_literal(&call.arguments.args[1])?;
+        return Some(core_operation_expr(
+            operation::Operation::new(operation::MakeFunction::new(
+                function_id,
+                kind,
+                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
+                    call.arguments.args[3].clone(),
+                )),
+                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
+                    call.arguments.args[4].clone(),
+                )),
+            ))
+            .with_meta(Meta::new(call.node_index.clone(), call.range)),
+        ));
+    }
+
+    if let Some(call) = lowered_helper_call(expr, "__dp_store_global", 3) {
+        return Some(core_operation_expr(
+            operation::Operation::new(operation::StoreGlobal::new(
+                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
+                    call.arguments.args[0].clone(),
+                )),
+                string_literal_value(&call.arguments.args[1])?,
+                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
+                    call.arguments.args[2].clone(),
+                )),
+            ))
+            .with_meta(Meta::new(call.node_index.clone(), call.range)),
+        ));
+    }
+
+    if let Some(call) = lowered_helper_call(expr, "__dp_cell_ref", 1) {
+        return Some(core_operation_expr(
+            operation::Operation::new(operation::CellRefForName::new(string_literal_value(
+                &call.arguments.args[0],
+            )?))
+            .with_meta(Meta::new(call.node_index.clone(), call.range)),
+        ));
+    }
+
+    if let Some(call) = lowered_helper_call(expr, "__dp_setitem", 3) {
+        return Some(core_operation_expr(
+            operation::Operation::new(operation::SetItem::new(
+                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
+                    call.arguments.args[0].clone(),
+                )),
+                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
+                    call.arguments.args[1].clone(),
+                )),
+                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
+                    call.arguments.args[2].clone(),
+                )),
+            ))
+            .with_meta(Meta::new(call.node_index.clone(), call.range)),
+        ));
+    }
+
+    if let Some(call) = lowered_helper_call(expr, "__dp_setattr", 3) {
+        return Some(core_operation_expr(
+            operation::Operation::new(operation::SetAttr::new(
+                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
+                    call.arguments.args[0].clone(),
+                )),
+                string_literal_value(&call.arguments.args[1])?,
+                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
+                    call.arguments.args[2].clone(),
+                )),
+            ))
+            .with_meta(Meta::new(call.node_index.clone(), call.range)),
+        ));
+    }
+
+    if let Some(call) = lowered_helper_call(expr, "__dp_delitem", 2) {
+        return Some(core_operation_expr(
+            operation::Operation::new(operation::DelItem::new(
+                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
+                    call.arguments.args[0].clone(),
+                )),
+                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
+                    call.arguments.args[1].clone(),
+                )),
+            ))
+            .with_meta(Meta::new(call.node_index.clone(), call.range)),
+        ));
+    }
+
+    None
 }
 
 pub(crate) fn fresh_setup_name(prefix: &str) -> String {
