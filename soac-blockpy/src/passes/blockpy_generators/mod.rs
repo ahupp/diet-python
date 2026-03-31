@@ -1,14 +1,15 @@
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
-    compute_storage_layout_from_semantics, core_operation_expr,
+    compute_storage_layout_from_semantics, core_call_expr_with_meta, core_operation_expr,
     core_positional_call_expr_with_meta, try_lower_core_expr_without_await,
     try_lower_core_expr_without_yield, BlockParam, BlockParamRole, BlockPyAssign,
     BlockPyBindingKind, BlockPyBranchTable, BlockPyCallableSemanticInfo, BlockPyCellBindingKind,
     BlockPyCfgBlockBuilder, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel,
-    BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyExpr,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, ExprTryMap, FunctionId,
-    FunctionName, MakeFunction, Meta, ModuleNameGen, Operation, StorageLayout, WithMeta,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyCallArg,
+    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
+    CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName, MakeFunction, Meta, ModuleNameGen,
+    Operation, StorageLayout, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -176,6 +177,10 @@ fn core_none() -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("None"))
 }
 
+fn core_string_literal(value: &str) -> CoreBlockPyExpr {
+    core_expr_without_yield(py_expr!("{value:literal}", value = value))
+}
+
 fn core_call(func_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
     core_positional_call_expr_with_meta(
         func_name,
@@ -183,6 +188,46 @@ fn core_call(func_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
         Default::default(),
         args,
     )
+}
+
+fn core_call_expr(
+    func: CoreBlockPyExpr,
+    args: Vec<CoreBlockPyExpr>,
+    keywords: Vec<(&str, CoreBlockPyExpr)>,
+) -> CoreBlockPyExpr {
+    core_call_expr_with_meta(
+        func,
+        ast::AtomicNodeIndex::default(),
+        Default::default(),
+        args.into_iter()
+            .map(CoreBlockPyCallArg::Positional)
+            .collect(),
+        keywords
+            .into_iter()
+            .map(|(arg, value)| CoreBlockPyKeywordArg::Named {
+                arg: ast::Identifier::new(arg, Default::default()),
+                value,
+            })
+            .collect(),
+    )
+}
+
+fn core_runtime_attr(attr: &str) -> CoreBlockPyExpr {
+    core_expr_without_yield(py_expr!("runtime.{attr:id}", attr = attr))
+}
+
+fn core_generator_code(async_gen: bool, name: &str, qualname: &str) -> CoreBlockPyExpr {
+    let template_attr = if async_gen {
+        "_dp_async_gen_code_template"
+    } else {
+        "_dp_gen_code_template"
+    };
+    core_expr_without_yield(py_expr!(
+        "runtime.{template_attr:id}.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal})",
+        template_attr = template_attr,
+        name = name,
+        qualname = qualname,
+    ))
 }
 
 fn core_make_function(
@@ -428,7 +473,7 @@ fn generator_resume_declared_param_indices(
 }
 
 fn build_factory_block(
-    visible_function_id: FunctionId,
+    visible_names: &FunctionName,
     resume_function_id: FunctionId,
     kind: BlockPyFunctionKind,
 ) -> LinearCoreBlock {
@@ -442,34 +487,64 @@ fn build_factory_block(
         core_none(),
     );
 
+    let generator = match kind {
+        BlockPyFunctionKind::Generator | BlockPyFunctionKind::Coroutine => core_call_expr(
+            core_runtime_attr("_DpClosureGenerator"),
+            Vec::new(),
+            vec![
+                ("resume", resume_entry),
+                (
+                    "name",
+                    core_string_literal(visible_names.display_name.as_str()),
+                ),
+                (
+                    "qualname",
+                    core_string_literal(visible_names.qualname.as_str()),
+                ),
+                (
+                    "code",
+                    core_generator_code(
+                        false,
+                        visible_names.display_name.as_str(),
+                        visible_names.qualname.as_str(),
+                    ),
+                ),
+            ],
+        ),
+        BlockPyFunctionKind::AsyncGenerator => core_call_expr(
+            core_runtime_attr("_DpClosureAsyncGenerator"),
+            Vec::new(),
+            vec![
+                ("resume", resume_entry),
+                (
+                    "name",
+                    core_string_literal(visible_names.display_name.as_str()),
+                ),
+                (
+                    "qualname",
+                    core_string_literal(visible_names.qualname.as_str()),
+                ),
+                (
+                    "code",
+                    core_generator_code(
+                        true,
+                        visible_names.display_name.as_str(),
+                        visible_names.qualname.as_str(),
+                    ),
+                ),
+            ],
+        ),
+        BlockPyFunctionKind::Function => {
+            unreachable!("plain functions do not use generator factories")
+        }
+    };
     let factory_value = match kind {
-        BlockPyFunctionKind::Generator => core_call(
-            "__dp_make_closure_generator",
-            vec![
-                core_expr_without_yield(py_expr!("{value:literal}", value = visible_function_id.0)),
-                resume_entry,
-            ],
+        BlockPyFunctionKind::Coroutine => core_call_expr(
+            core_runtime_attr("_DpCoroutine"),
+            vec![generator],
+            Vec::new(),
         ),
-        BlockPyFunctionKind::Coroutine => core_call(
-            "__dp_make_coroutine_from_generator",
-            vec![core_call(
-                "__dp_make_closure_generator",
-                vec![
-                    core_expr_without_yield(py_expr!(
-                        "{value:literal}",
-                        value = visible_function_id.0
-                    )),
-                    resume_entry,
-                ],
-            )],
-        ),
-        BlockPyFunctionKind::AsyncGenerator => core_call(
-            "__dp_make_closure_async_generator",
-            vec![
-                core_expr_without_yield(py_expr!("{value:literal}", value = visible_function_id.0)),
-                resume_entry,
-            ],
-        ),
+        BlockPyFunctionKind::Generator | BlockPyFunctionKind::AsyncGenerator => generator,
         BlockPyFunctionKind::Function => {
             unreachable!("plain functions do not use generator factories")
         }
@@ -1455,12 +1530,6 @@ pub(crate) fn lower_generator_like_function(
     let closure_bindings = resume_closure_bindings(&storage_layout, &resume_binding_names);
     let resume_storage_layout = build_resume_storage_layout(&storage_layout, &closure_bindings);
 
-    let factory_block =
-        build_factory_block(callable.function_id, resume_function_id, callable.kind);
-
-    let mut resume_semantic = callable.semantic.clone();
-    augment_resume_semantic_for_standard_name_binding(&mut resume_semantic, &closure_bindings);
-
     let BlockPyFunction {
         function_id,
         name_gen,
@@ -1471,6 +1540,11 @@ pub(crate) fn lower_generator_like_function(
         semantic,
         ..
     } = callable;
+
+    let factory_block = build_factory_block(&names, resume_function_id, kind);
+
+    let mut resume_semantic = semantic.clone();
+    augment_resume_semantic_for_standard_name_binding(&mut resume_semantic, &closure_bindings);
 
     let visible_function = BlockPyFunction {
         function_id,

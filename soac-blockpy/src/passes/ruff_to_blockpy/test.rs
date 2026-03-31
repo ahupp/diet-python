@@ -133,7 +133,7 @@ def gen(n):
         "{rendered}"
     );
     assert!(
-        rendered.contains("return __dp_make_closure_generator"),
+        rendered.contains("return GetAttr(runtime, \"_DpClosureGenerator\")"),
         "{rendered}"
     );
     assert!(rendered.contains("branch_table"), "{rendered}");
@@ -869,7 +869,7 @@ async def agen(n):
         "{rendered}"
     );
     assert!(
-        rendered.contains("return __dp_make_closure_async_generator"),
+        rendered.contains("return GetAttr(runtime, \"_DpClosureAsyncGenerator\")"),
         "{rendered}"
     );
     assert!(rendered.contains("branch_table"), "{rendered}");

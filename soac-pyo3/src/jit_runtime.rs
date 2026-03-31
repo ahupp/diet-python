@@ -451,26 +451,6 @@ fn build_bb_signature<'py>(
     Ok(signature_obj.unbind())
 }
 
-fn build_generator_code<'py>(
-    py: Python<'py>,
-    dp: &Bound<'py, PyModule>,
-    async_gen: bool,
-    name: &str,
-    qualname: &str,
-) -> PyResult<Bound<'py, PyAny>> {
-    let template_name = if async_gen {
-        "_dp_async_gen_code_template"
-    } else {
-        "_dp_gen_code_template"
-    };
-    let template = dp.getattr(template_name)?;
-    let code = template.getattr("__code__")?;
-    let kwargs = PyDict::new(py);
-    kwargs.set_item("co_name", name)?;
-    kwargs.set_item("co_qualname", qualname)?;
-    code.call_method("replace", (), Some(&kwargs))
-}
-
 fn build_wrapped_entry<'py>(
     py: Python<'py>,
     dp: &Bound<'py, PyModule>,
@@ -745,59 +725,9 @@ fn exec_module(py: Python<'_>, module: Py<PyAny>) -> PyResult<()> {
     })
 }
 
-#[pyfunction]
-#[pyo3(signature = (function_id, resume, async_gen=false))]
-fn make_bb_generator(
-    py: Python<'_>,
-    function_id: usize,
-    resume: Py<PyAny>,
-    async_gen: bool,
-) -> PyResult<Py<PyAny>> {
-    let dp = import_dp_module(py)?;
-    let operation = if async_gen {
-        "async generator construction"
-    } else {
-        "generator construction"
-    };
-    unsafe {
-        soac_eval::tree_walk::with_current_module_runtime_context(|module_runtime| {
-            let function = lookup_bb_function(
-                &module_runtime.shared_module_state_owner,
-                FunctionId(function_id),
-                operation,
-            )?;
-            let name = function.names.display_name.clone();
-            let qualname = function.names.qualname.clone();
-            let code = build_generator_code(py, &dp, async_gen, name.as_str(), qualname.as_str())?;
-            let kwargs = PyDict::new(py);
-            kwargs.set_item("resume", resume.bind(py))?;
-            kwargs.set_item("name", name.as_str())?;
-            kwargs.set_item("qualname", qualname.as_str())?;
-            kwargs.set_item("code", code)?;
-            let cls_name = if async_gen {
-                "_DpClosureAsyncGenerator"
-            } else {
-                "_DpClosureGenerator"
-            };
-            let generator = dp.getattr(cls_name)?.call((), Some(&kwargs))?;
-            Ok(generator.unbind())
-        })
-        .map_err(|_| {
-            if ffi::PyErr_Occurred().is_null() {
-                PyRuntimeError::new_err(format!(
-                    "{operation} requires an active module runtime context"
-                ))
-            } else {
-                PyErr::fetch(py)
-            }
-        })?
-    }
-}
-
 pub(crate) fn add_module_functions(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(create_module, module)?)?;
     module.add_function(wrap_pyfunction!(exec_module, module)?)?;
     module.add_function(wrap_pyfunction!(make_bb_function, module)?)?;
-    module.add_function(wrap_pyfunction!(make_bb_generator, module)?)?;
     Ok(())
 }

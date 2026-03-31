@@ -14,7 +14,6 @@ import warnings
 from . import _soac_ext
 
 _jit_make_bb_function = _soac_ext.make_bb_function
-_jit_make_bb_generator = _soac_ext.make_bb_generator
 
 next = builtins.next
 iter = builtins.iter
@@ -1192,18 +1191,6 @@ def make_function(
         func._is_coroutine = coroutines._is_coroutine
 
     return func
-
-
-def make_closure_generator(function_id, resume):
-    return _jit_make_bb_generator(function_id, resume, async_gen=False)
-
-
-def make_coroutine_from_generator(gen):
-    return _DpCoroutine(gen)
-
-
-def make_closure_async_generator(function_id, resume):
-    return _jit_make_bb_generator(function_id, resume, async_gen=True)
 
 
 def decode_literal_bytes(value):

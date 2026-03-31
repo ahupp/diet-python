@@ -30,7 +30,7 @@ fn blockpy_make_dp_tuple(items: Vec<Expr>) -> Expr {
 
 fn build_closure_backed_generator_factory_block(
     _factory_label: &str,
-    visible_function_id: FunctionId,
+    visible_names: &FunctionName,
     resume_function_id: FunctionId,
     _resume_state_order: &[String],
     _layout: &StorageLayout,
@@ -44,23 +44,22 @@ fn build_closure_backed_generator_factory_block(
 
     let generator_expr = if is_async_generator {
         py_expr!(
-            "__dp_make_closure_async_generator({function_id:literal}, {resume:expr})",
-            function_id = visible_function_id.0,
+            "runtime._DpClosureAsyncGenerator(resume={resume:expr}, name={name:literal}, qualname={qualname:literal}, code=runtime._dp_async_gen_code_template.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal}))",
             resume = resume_entry,
+            name = visible_names.display_name.as_str(),
+            qualname = visible_names.qualname.as_str(),
         )
     } else {
         py_expr!(
-            "__dp_make_closure_generator({function_id:literal}, {resume:expr})",
-            function_id = visible_function_id.0,
+            "runtime._DpClosureGenerator(resume={resume:expr}, name={name:literal}, qualname={qualname:literal}, code=runtime._dp_gen_code_template.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal}))",
             resume = resume_entry,
+            name = visible_names.display_name.as_str(),
+            qualname = visible_names.qualname.as_str(),
         )
     };
 
     let return_value = if is_coroutine {
-        py_expr!(
-            "__dp_make_coroutine_from_generator({gen:expr})",
-            gen = generator_expr
-        )
+        py_expr!("runtime._DpCoroutine({gen:expr})", gen = generator_expr)
     } else {
         generator_expr
     };
@@ -293,7 +292,7 @@ fn builds_closure_backed_generator_factory_block() {
 
     let block = build_closure_backed_generator_factory_block(
         "_dp_bb_demo_factory",
-        FunctionId(1),
+        &FunctionName::new("gen", "gen", "gen", "gen"),
         FunctionId(0),
         &[
             "_dp_cell_captured".to_string(),

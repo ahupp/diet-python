@@ -4,6 +4,12 @@
 - Reserved for user requests that start with `TODO`.
 - Add one entry per request and include any plan or relevant response summary with it.
 
+## Construct generator code object during module init
+
+- Planning note:
+  - Once closure generator factories construct `_DpClosureGenerator` / `_DpClosureAsyncGenerator` directly, they should stop rebuilding `.__code__.replace(...)` on every factory call.
+  - The follow-up is to materialize those code objects once during module init and reference them as module constants from the generated factory blocks.
+
 ## Replace *Expr::Name with LoadName operation
 
 - Planning note:
