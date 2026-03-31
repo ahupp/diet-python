@@ -58,7 +58,7 @@ pub struct ResolvedStorageBlockPyPass;
 impl BlockPyPass for ResolvedStorageBlockPyPass {
     type Name = LocatedName;
     type Expr = CoreBlockPyExpr<Self::Name>;
-    type Stmt = BlockPyStmt;
+    type Stmt = BlockPyStmt<Self::Expr, Self::Name>;
 }
 
 #[derive(Debug, Clone)]

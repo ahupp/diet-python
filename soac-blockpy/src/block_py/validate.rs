@@ -1,11 +1,12 @@
 use crate::block_py::{
-    compute_storage_layout_from_semantics, BlockArg, BlockPyFunction, BlockPyLabel, BlockPyModule,
-    BlockPyPass, BlockPySemanticExprNode, BlockPyStmt, BlockPyTerm, PassBlock, PassExpr, PassName,
+    compute_storage_layout_from_semantics, BlockArg, BlockPyFunction, BlockPyLabel,
+    BlockPyLinearPass, BlockPyModule, BlockPyPass, BlockPySemanticExprNode, BlockPyTerm, PassBlock,
+    PassExpr, PassName,
 };
 
 pub(crate) fn validate_module<P: BlockPyPass>(module: &BlockPyModule<P>) -> Result<(), String>
 where
-    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
+    P: BlockPyLinearPass,
     PassExpr<P>: BlockPySemanticExprNode,
 {
     for function in &module.callable_defs {
@@ -16,7 +17,7 @@ where
 
 fn validate_function<P: BlockPyPass>(function: &BlockPyFunction<P>) -> Result<(), String>
 where
-    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
+    P: BlockPyLinearPass,
     PassExpr<P>: BlockPySemanticExprNode,
 {
     let qualname = function.names.qualname.as_str();
@@ -118,7 +119,7 @@ fn validate_storage_layout_scoping<P: BlockPyPass>(
     qualname: &str,
 ) -> Result<(), String>
 where
-    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
+    P: BlockPyLinearPass,
     PassExpr<P>: BlockPySemanticExprNode,
 {
     let expected_layout = compute_storage_layout_from_semantics(function);

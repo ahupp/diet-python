@@ -1116,6 +1116,13 @@ pub type PassBlock<P> = CfgBlock<<P as BlockPyPass>::Stmt, BlockPyTerm<PassExpr<
 pub type ResolvedStorageBlock = PassBlock<ResolvedStorageBlockPyPass>;
 pub type CodegenBlock = PassBlock<CodegenBlockPyPass>;
 
+pub(crate) trait BlockPyLinearPass:
+    BlockPyPass<Stmt = BlockPyStmt<PassExpr<Self>, PassName<Self>>>
+{
+}
+
+impl<P> BlockPyLinearPass for P where P: BlockPyPass<Stmt = BlockPyStmt<PassExpr<P>, PassName<P>>> {}
+
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
 pub(crate) type BlockPyBlock<E = Expr, N = ExprName> =
     BlockPyCfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
@@ -1607,9 +1614,8 @@ pub struct BlockParam {
 
 pub(crate) trait BlockPyLinearModuleVisitor<P>
 where
-    P: BlockPyPass,
+    P: BlockPyLinearPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
-    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
 {
     fn visit_module(&mut self, module: &BlockPyModule<P>) {
         walk_linear_module(self, module);
@@ -1643,9 +1649,8 @@ where
 pub(crate) fn walk_linear_module<V, P>(visitor: &mut V, module: &BlockPyModule<P>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyPass,
+    P: BlockPyLinearPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
-    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
 {
     for function in &module.callable_defs {
         visitor.visit_fn(function);
@@ -1655,9 +1660,8 @@ where
 pub(crate) fn walk_linear_fn<V, P>(visitor: &mut V, func: &BlockPyFunction<P>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyPass,
+    P: BlockPyLinearPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
-    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
 {
     for block in &func.blocks {
         visitor.visit_block(block);
@@ -1667,12 +1671,11 @@ where
 pub(crate) fn walk_linear_block<V, P>(visitor: &mut V, block: &PassBlock<P>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyPass,
+    P: BlockPyLinearPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
-    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
 {
     for stmt in &block.body {
-        visitor.visit_stmt(&stmt.clone().into());
+        visitor.visit_stmt(stmt);
     }
     if let Some(exc_edge) = &block.exc_edge {
         visitor.visit_label(&exc_edge.target);
@@ -1683,9 +1686,8 @@ where
 pub(crate) fn walk_linear_stmt<V, P>(visitor: &mut V, stmt: &BlockPyStmt<PassExpr<P>, PassName<P>>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyPass,
+    P: BlockPyLinearPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
-    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
 {
     match stmt {
         BlockPyStmt::Assign(assign) => visitor.visit_expr(&assign.value),
@@ -1697,9 +1699,8 @@ where
 pub(crate) fn walk_linear_label<V, P>(visitor: &mut V, label: &BlockPyLabel)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyPass,
+    P: BlockPyLinearPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
-    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
 {
     let _ = visitor;
     let _ = label;
@@ -1708,9 +1709,8 @@ where
 pub(crate) fn walk_linear_term<V, P>(visitor: &mut V, term: &BlockPyTerm<PassExpr<P>>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyPass,
+    P: BlockPyLinearPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
-    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
 {
     match term {
         BlockPyTerm::Jump(edge) => {
@@ -1740,9 +1740,8 @@ where
 pub(crate) fn walk_linear_expr<V, P>(visitor: &mut V, expr: &PassExpr<P>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyPass,
+    P: BlockPyLinearPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
-    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
 {
     let _ = expr.clone().map_expr(&mut |child| {
         visitor.visit_expr(&child);

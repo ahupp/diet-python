@@ -1,8 +1,8 @@
 use super::operation::{CellRefTarget, OperationDetail};
 use super::{
     is_internal_symbol, walk_linear_block, walk_linear_expr, walk_linear_stmt, BlockPyFunction,
-    BlockPyLinearModuleVisitor, BlockPyNameLike, BlockPyPass, BlockPyStmt, CoreBlockPyCall,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    BlockPyLinearModuleVisitor, BlockPyLinearPass, BlockPyNameLike, BlockPyPass, BlockPyStmt,
+    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyLiteral, FunctionName, MapExpr, PassBlock, PassExpr,
     PassName, RuffExpr,
 };
@@ -742,9 +742,8 @@ struct StorageLayoutSemanticCollector {
 
 impl<P> BlockPyLinearModuleVisitor<P> for StorageLayoutSemanticCollector
 where
-    P: BlockPyPass,
+    P: BlockPyLinearPass,
     PassExpr<P>: BlockPySemanticExprNode,
-    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
 {
     fn visit_block(&mut self, block: &PassBlock<P>) {
         if let Some(exc_param) = block.exception_param() {
@@ -791,9 +790,8 @@ pub(crate) fn compute_storage_layout_from_semantics<P>(
     callable_def: &BlockPyFunction<P>,
 ) -> Option<StorageLayout>
 where
-    P: BlockPyPass,
+    P: BlockPyLinearPass,
     PassExpr<P>: BlockPySemanticExprNode,
-    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
 {
     let normalize_capture_name = |name: &str| {
         callable_def
