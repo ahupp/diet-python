@@ -629,38 +629,35 @@ fn create_module(py: Python<'_>, source: &str, spec: Py<PyAny>) -> PyResult<Py<P
 fn exec_module(py: Python<'_>, module: Py<PyAny>) -> PyResult<()> {
     let module = module.bind(py);
     let module_globals = module.getattr("__dict__")?;
-    let module_data = SoacExtModule::data(module.as_any()).map_err(|err| {
-        PyTypeError::new_err(format!(
-            "JIT basic-block module execution requires an _soac_ext-created module: {err}"
-        ))
-    })?;
-    let module_name = resolve_module_name(&module_globals, "module execution")?;
-    assert_eq!(
-        module_name, module_data.module_name,
-        "module.__dict__['__name__'] did not match the module spec captured at create_module time"
-    );
-    let package_name = resolve_module_package(&module_globals, "module execution")?;
-    assert_eq!(
-        package_name, module_data.package_name,
-        "module.__dict__['__package__'] did not match the module spec captured at create_module time"
-    );
-    register_blockpy_module_plans(&module_name, &module_data.lowered_module)?;
-    let function = lookup_module_init_function(&module_data.lowered_module, &module_name)?;
-    let dp = import_dp_module(py)?;
-    let empty = PyTuple::empty(py);
-    let none = py.None();
-    let module_init = instantiate_bb_function(
-        py,
-        &dp,
-        &module_name,
-        &function,
-        empty.as_any(),
-        empty.as_any(),
-        &module_globals,
-        none.bind(py),
-    )?;
-    module_init.call0(py)?;
-    Ok(())
+    SoacExtModule::with_data(module.as_any(), |module_data| {
+        let module_name = resolve_module_name(&module_globals, "module execution")?;
+        assert_eq!(
+            module_name, module_data.module_name,
+            "module.__dict__['__name__'] did not match the module spec captured at create_module time"
+        );
+        let package_name = resolve_module_package(&module_globals, "module execution")?;
+        assert_eq!(
+            package_name, module_data.package_name,
+            "module.__dict__['__package__'] did not match the module spec captured at create_module time"
+        );
+        register_blockpy_module_plans(&module_name, &module_data.lowered_module)?;
+        let function = lookup_module_init_function(&module_data.lowered_module, &module_name)?;
+        let dp = import_dp_module(py)?;
+        let empty = PyTuple::empty(py);
+        let none = py.None();
+        let module_init = instantiate_bb_function(
+            py,
+            &dp,
+            &module_name,
+            &function,
+            empty.as_any(),
+            empty.as_any(),
+            &module_globals,
+            none.bind(py),
+        )?;
+        module_init.call0(py)?;
+        Ok(())
+    })
 }
 
 #[pyfunction]

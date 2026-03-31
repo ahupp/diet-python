@@ -35,7 +35,7 @@ def validate_module(module):
                 assert isinstance(
                     transformed_typing.__spec__.loader, import_hook.DietPythonLoader
                 ), "typing should be transformed"
-            assert type(module) is not ModuleType, "transformed modules should use the custom module type"
+            assert type(module) is ModuleType, "transformed modules should use a real module object"
             assert "_dp_module_init" not in module.__dict__, "_dp_module_init should not leak into module globals"
             assert "runtime" not in module.__dict__, "runtime should not be injected into module globals"
             assert hasattr(builtins, "runtime"), "runtime should be available via builtins"
