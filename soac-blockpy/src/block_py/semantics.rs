@@ -1,10 +1,10 @@
 use super::operation::{CellRefTarget, OperationDetail};
 use super::{
-    is_internal_symbol, walk_block, walk_expr, walk_stmt, BlockPyFunction, BlockPyModuleVisitor,
-    BlockPyNameLike, BlockPyPass, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyLiteral, FunctionName,
-    IntoStructuredBlockPyStmt, MapExpr, PassBlock, PassExpr, PassName, RuffExpr,
-    StructuredBlockPyStmt,
+    is_internal_symbol, walk_linear_block, walk_linear_expr, walk_linear_stmt, BlockPyFunction,
+    BlockPyLinearModuleVisitor, BlockPyNameLike, BlockPyPass, BlockPyStmt, CoreBlockPyCall,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, CoreBlockPyLiteral, FunctionName, MapExpr, PassBlock, PassExpr,
+    PassName, RuffExpr,
 };
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use ruff_python_ast::{self as ast, Expr};
@@ -740,33 +740,33 @@ struct StorageLayoutSemanticCollector {
     cell_ref_logical_names: HashSet<String>,
 }
 
-impl<P> BlockPyModuleVisitor<P> for StorageLayoutSemanticCollector
+impl<P> BlockPyLinearModuleVisitor<P> for StorageLayoutSemanticCollector
 where
     P: BlockPyPass,
     PassExpr<P>: BlockPySemanticExprNode,
-    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
+    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
 {
     fn visit_block(&mut self, block: &PassBlock<P>) {
         if let Some(exc_param) = block.exception_param() {
             self.used_names.insert(exc_param.to_string());
         }
-        walk_block::<Self, P>(self, block);
+        walk_linear_block::<Self, P>(self, block);
     }
 
-    fn visit_stmt(&mut self, stmt: &StructuredBlockPyStmt<PassExpr<P>, PassName<P>>) {
+    fn visit_stmt(&mut self, stmt: &BlockPyStmt<PassExpr<P>, PassName<P>>) {
         match stmt {
-            StructuredBlockPyStmt::Assign(assign) => {
+            BlockPyStmt::Assign(assign) => {
                 self.defined_names
                     .insert(assign.target.id_str().to_string());
             }
-            StructuredBlockPyStmt::Delete(delete) => {
+            BlockPyStmt::Delete(delete) => {
                 let name = delete.target.id_str().to_string();
                 self.used_names.insert(name.clone());
                 self.deleted_names.insert(name);
             }
-            StructuredBlockPyStmt::Expr(_) | StructuredBlockPyStmt::If(_) => {}
+            BlockPyStmt::Expr(_) => {}
         }
-        walk_stmt::<Self, P>(self, stmt);
+        walk_linear_stmt::<Self, P>(self, stmt);
     }
 
     fn visit_expr(&mut self, expr: &PassExpr<P>) {
@@ -779,7 +779,7 @@ where
         expr.walk_root_cell_ref_logical_names(&mut |name| {
             self.cell_ref_logical_names.insert(name.to_string());
         });
-        walk_expr::<Self, P>(self, expr);
+        walk_linear_expr::<Self, P>(self, expr);
     }
 }
 
@@ -793,7 +793,7 @@ pub(crate) fn compute_storage_layout_from_semantics<P>(
 where
     P: BlockPyPass,
     PassExpr<P>: BlockPySemanticExprNode,
-    P::Stmt: IntoStructuredBlockPyStmt<PassExpr<P>, PassName<P>>,
+    P::Stmt: Clone + Into<BlockPyStmt<PassExpr<P>, PassName<P>>>,
 {
     let normalize_capture_name = |name: &str| {
         callable_def
