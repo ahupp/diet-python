@@ -38,13 +38,17 @@ pub(crate) use bb_shape::{
 };
 pub(crate) use module_plan::rewrite_ast_to_core_blockpy_module_plan_with_module;
 
+#[cfg(test)]
 pub(crate) use compat::{
     compat_block_from_blockpy, compat_block_from_blockpy_with_exc_target,
+    emit_if_branch_block_with_expr_setup, emit_sequence_raise_block_with_expr_setup,
+    emit_sequence_return_block_with_expr_setup, emit_simple_while_blocks_with_expr_setup,
+};
+pub(crate) use compat::{
     compat_block_from_blockpy_with_exc_target_and_expr, emit_for_loop_blocks,
-    emit_if_branch_block_with_expr_setup, emit_if_branch_block_with_expr_setup_and_expr,
-    emit_sequence_jump_block, emit_sequence_raise_block_with_expr_setup,
-    emit_sequence_raise_block_with_expr_setup_and_expr, emit_sequence_return_block_with_expr_setup,
-    emit_sequence_return_block_with_expr_setup_and_expr, emit_simple_while_blocks_with_expr_setup,
+    emit_if_branch_block_with_expr_setup_and_expr, emit_sequence_jump_block,
+    emit_sequence_raise_block_with_expr_setup_and_expr,
+    emit_sequence_return_block_with_expr_setup_and_expr,
     emit_simple_while_blocks_with_expr_setup_and_expr,
 };
 pub(crate) use expr_lowering::RuffToBlockPyExpr;

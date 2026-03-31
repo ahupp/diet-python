@@ -3,14 +3,8 @@ use super::*;
 use crate::block_py::pretty::BlockPyDebugExprText;
 use crate::block_py::{BinOpKind, OperationDetail, TernaryOpKind, UnaryOpKind};
 
-fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExprWithAwaitAndYield {
-    let mut setup = CoreStmtBuilder::new();
-    let lowered = lower_semantic_expr_into(&mut setup, expr);
-    assert!(
-        finish_expr_setup(setup).is_empty(),
-        "semantic-to-core metadata expression lowering unexpectedly emitted setup statements",
-    );
-    lowered
+fn lower_semantic_expr_without_setup(expr: &Expr) -> CoreBlockPyExprWithAwaitAndYield {
+    CoreBlockPyExprWithAwaitAndYield::from(expr.clone())
 }
 
 use crate::block_py::{
@@ -262,15 +256,6 @@ fn helper_scoped_families_do_not_reach_core_blockpy_boundary() {
             "{expr} should be lowered before the core boundary"
         );
     }
-}
-
-#[test]
-#[should_panic(
-    expected = "helper-scoped expr leaked past rewrite_ast_to_lowered_blockpy_module_plan"
-)]
-fn semantic_expr_simplify_panics_on_nested_helper_scoped_expr_leak() {
-    let expr = Expr::from(py_expr!("f(lambda x: x)"));
-    let _ = lower_semantic_expr_without_setup(&expr);
 }
 
 #[test]

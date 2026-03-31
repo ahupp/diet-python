@@ -19,6 +19,7 @@ fn with_exc_meta<E>(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn compat_block_from_blockpy(
     label: BlockPyLabel,
     body: Vec<Stmt>,
@@ -27,6 +28,7 @@ pub(crate) fn compat_block_from_blockpy(
     compat_block_from_blockpy_with_exc_target(label, body, term, None)
 }
 
+#[cfg(test)]
 pub(crate) fn compat_block_from_blockpy_with_exc_target(
     label: BlockPyLabel,
     body: Vec<Stmt>,
@@ -58,6 +60,7 @@ where
     with_exc_meta(block.finish(None), exc_target)
 }
 
+#[cfg(test)]
 fn compat_block_builder_with_expr_setup(
     context: &Context,
     body: Vec<Stmt>,
@@ -80,6 +83,7 @@ where
     Ok(out)
 }
 
+#[cfg(test)]
 pub(crate) fn compat_if_jump_block_with_expr_setup_and_exc_target(
     context: &Context,
     label: BlockPyLabel,
@@ -191,6 +195,7 @@ where
     label
 }
 
+#[cfg(test)]
 pub(crate) fn emit_sequence_return_block_with_expr_setup(
     context: &Context,
     blocks: &mut Vec<LoweredBlockPyBlock>,
@@ -242,6 +247,7 @@ where
     Ok(label)
 }
 
+#[cfg(test)]
 pub(crate) fn emit_sequence_raise_block_with_expr_setup(
     context: &Context,
     blocks: &mut Vec<LoweredBlockPyBlock>,
@@ -294,6 +300,7 @@ where
     Ok(label)
 }
 
+#[cfg(test)]
 pub(crate) fn emit_if_branch_block_with_expr_setup(
     context: &Context,
     blocks: &mut Vec<LoweredBlockPyBlock>,
@@ -336,6 +343,7 @@ where
     Ok(label)
 }
 
+#[cfg(test)]
 pub(crate) fn emit_simple_while_blocks_with_expr_setup(
     context: &Context,
     blocks: &mut Vec<LoweredBlockPyBlock>,

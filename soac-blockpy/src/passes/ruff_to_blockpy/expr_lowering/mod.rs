@@ -60,6 +60,7 @@ pub(crate) trait RuffToBlockPyExpr: From<Expr> + std::fmt::Debug + Clone + Sized
     ) -> Self;
 }
 
+#[cfg(test)]
 fn inplace_helper_name(op: ast::Operator) -> &'static str {
     match op {
         ast::Operator::Add => "iadd",
@@ -96,6 +97,7 @@ fn inplace_kind(op: ast::Operator) -> Option<operation::InplaceBinOpKind> {
     })
 }
 
+#[cfg(test)]
 impl RuffToBlockPyExpr for Expr {
     fn lower_augassign_value(
         _node_index: ast::AtomicNodeIndex,
