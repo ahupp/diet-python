@@ -10,13 +10,14 @@ use crate::block_py::param_specs::ParamSpec;
 use crate::block_py::{
     assert_blockpy_block_normalized, convert_blockpy_term_expr, move_entry_block_to_front,
     BlockPyCallableSemanticInfo, BlockPyEdge, BlockPyFallthroughTerm, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyLabel, BlockPyPass, BlockPyStmt, BlockPyTerm, CfgBlock,
-    FunctionName, FunctionNameGen, RuffExpr, StructuredBlockPyStmt,
+    BlockPyFunctionKind, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyStmt, BlockPyTerm,
+    CfgBlock, FunctionName, FunctionNameGen, RuffExpr, StructuredBlockPyStmt,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
-use crate::passes::RuffBlockPyPass;
+use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
+use crate::passes::{CoreBlockPyPassWithAwaitAndYield, RuffBlockPyPass};
 use crate::ruff_ast_to_string;
 use crate::template::is_simple;
 use crate::transformer::{walk_expr, Transformer};
@@ -59,6 +60,27 @@ pub(crate) use try_regions::{
 
 pub(crate) type LoweredBlockPyBlock<E = Expr> = CfgBlock<StructuredBlockPyStmt<E>, BlockPyTerm<E>>;
 pub(crate) type BlockPyBlock<E = Expr> = LoweredBlockPyBlock<E>;
+
+pub(crate) fn lower_blockpy_module_exprs_to_core(
+    module: BlockPyModule<RuffBlockPyPass>,
+) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
+    module.map_callable_defs(simplify_blockpy_callable_def_exprs)
+}
+
+pub(crate) fn rewrite_ast_to_core_blockpy_module_with_module(
+    context: &Context,
+    module: Vec<Stmt>,
+    semantic_state: &crate::passes::ast_to_ast::semantic::SemanticAstState,
+    module_name_gen: crate::block_py::ModuleNameGen,
+) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
+    let semantic_module = rewrite_ast_to_lowered_blockpy_module_plan_with_module(
+        context,
+        module,
+        semantic_state,
+        module_name_gen,
+    );
+    lower_blockpy_module_exprs_to_core(semantic_module)
+}
 
 #[derive(Debug, Clone)]
 struct StructuredRuffBlockPyPass;

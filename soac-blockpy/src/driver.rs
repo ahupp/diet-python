@@ -8,9 +8,10 @@ use crate::passes::ast_to_ast::rewrite_expr::ScopedHelperExprPass;
 use crate::passes::ast_to_ast::{
     body::Suite, rewrite_future_annotations, rewrite_stmt, semantic::SemanticAstState,
 };
-use crate::passes::blockpy_expr_simplify::simplify_blockpy_callable_def_exprs;
 use crate::passes::core_await_lower::lower_awaits_in_core_blockpy_module;
-use crate::passes::ruff_to_blockpy::rewrite_ast_to_lowered_blockpy_module_plan_with_module;
+use crate::passes::ruff_to_blockpy::{
+    lower_blockpy_module_exprs_to_core, rewrite_ast_to_lowered_blockpy_module_plan_with_module,
+};
 use crate::passes::{
     self, CodegenBlockPyPass, CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield,
     CoreBlockPyPassWithYield, ResolvedStorageBlockPyPass, RuffBlockPyPass,
@@ -64,12 +65,6 @@ fn rewrite_ast_to_ast_module(context: &Context, mut module: Suite) -> AstToAstPa
         module,
         semantic_state,
     }
-}
-
-fn lower_core_blockpy_with_await_and_yield(
-    module: BlockPyModule<RuffBlockPyPass>,
-) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
-    module.map_callable_defs(simplify_blockpy_callable_def_exprs)
 }
 
 pub(crate) fn rewrite_module_with_tracker(
@@ -154,7 +149,7 @@ pub(crate) fn rewrite_module_with_tracker(
     */
     let core_blockpy: BlockPyModule<CoreBlockPyPassWithAwaitAndYield> = pass_tracker
         .run_pass("core_blockpy_with_await_and_yield", || {
-            lower_core_blockpy_with_await_and_yield(semantic_blockpy)
+            lower_blockpy_module_exprs_to_core(semantic_blockpy)
         });
 
     /*

@@ -9,6 +9,9 @@ use crate::block_py::{
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ast_to_ast::semantic::SemanticAstState;
+use crate::passes::ruff_to_blockpy::{
+    lower_blockpy_module_exprs_to_core, rewrite_ast_to_core_blockpy_module_with_module,
+};
 use crate::passes::RuffBlockPyPass;
 use ruff_python_ast::Stmt;
 use ruff_python_parser::parse_module;
@@ -39,6 +42,42 @@ fn lower_test_module_plan(
         &semantic_state,
         ModuleNameGen::new(0),
     )
+}
+
+#[test]
+fn direct_core_entrypoint_matches_staged_semantic_then_core_lowering() {
+    let source = concat!(
+        "def f(xs):\n",
+        "    y = xs[0]\n",
+        "    if y:\n",
+        "        return y + 1\n",
+        "    return 0\n",
+    );
+    let context = Context::new(source);
+    let mut module = parse_module(source).unwrap().into_syntax().body;
+    crate::passes::ast_to_ast::simplify::flatten(&mut module);
+    let semantic_state = SemanticAstState::from_ruff(&mut module);
+    let mut semantic_state = semantic_state;
+    crate::driver::wrap_module_init(&mut semantic_state, &mut module);
+
+    let staged_semantic = rewrite_ast_to_lowered_blockpy_module_plan_with_module(
+        &context,
+        module.clone(),
+        &semantic_state,
+        ModuleNameGen::new(0),
+    );
+    let staged_core = lower_blockpy_module_exprs_to_core(staged_semantic);
+    let direct_core = rewrite_ast_to_core_blockpy_module_with_module(
+        &context,
+        module,
+        &semantic_state,
+        ModuleNameGen::new(0),
+    );
+
+    assert_eq!(
+        crate::block_py::pretty::blockpy_module_to_string(&staged_core),
+        crate::block_py::pretty::blockpy_module_to_string(&direct_core),
+    );
 }
 
 #[test]

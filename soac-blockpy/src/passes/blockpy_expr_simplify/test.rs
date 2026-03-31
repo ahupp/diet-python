@@ -16,7 +16,7 @@ fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExprWith
 pub(crate) fn simplify_blockpy_module_exprs(
     module: BlockPyModule<RuffBlockPyPass>,
 ) -> TestCoreBlockPyModule {
-    module.map_callable_defs(simplify_blockpy_callable_def_exprs)
+    crate::passes::ruff_to_blockpy::lower_blockpy_module_exprs_to_core(module)
 }
 
 type TestCoreBlockPyModule = BlockPyModule<CoreBlockPyPassWithAwaitAndYield>;
