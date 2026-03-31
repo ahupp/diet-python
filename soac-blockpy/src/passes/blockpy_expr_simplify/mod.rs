@@ -376,23 +376,6 @@ fn string_arg_from_core_expr(expr: CoreBlockPyExprWithAwaitAndYield) -> Option<S
     Some(literal.value)
 }
 
-fn bytes_arg_from_core_expr(expr: CoreBlockPyExprWithAwaitAndYield) -> Option<Vec<u8>> {
-    let CoreBlockPyExprWithAwaitAndYield::Literal(
-        crate::block_py::CoreBlockPyLiteral::BytesLiteral(literal),
-    ) = expr
-    else {
-        return None;
-    };
-    Some(literal.value)
-}
-
-fn name_arg_from_core_expr(expr: CoreBlockPyExprWithAwaitAndYield) -> Option<ast::ExprName> {
-    let CoreBlockPyExprWithAwaitAndYield::Name(name) = expr else {
-        return None;
-    };
-    Some(name)
-}
-
 fn operator_family_operation_from_helper_call(
     name: &str,
     node_index: ast::AtomicNodeIndex,
@@ -486,32 +469,14 @@ fn non_operator_operation_from_helper_call(
             Box::new(args.next()?),
         ))
         .with_meta(meta),
-        "__dp_load_global" => operation::Operation::new(operation::LoadGlobal::new(
-            Box::new(args.next()?),
-            string_arg_from_core_expr(args.next()?)?,
-        ))
-        .with_meta(meta),
         "__dp_store_global" => operation::Operation::new(operation::StoreGlobal::new(
             Box::new(args.next()?),
             string_arg_from_core_expr(args.next()?)?,
             Box::new(args.next()?),
         ))
         .with_meta(meta),
-        "__dp_make_cell" => {
-            operation::Operation::new(operation::MakeCell::new(Box::new(args.next()?)))
-                .with_meta(meta)
-        }
-        "__dp_decode_literal_bytes" => operation::Operation::new(operation::MakeString::new(
-            bytes_arg_from_core_expr(args.next()?)?,
-        ))
-        .with_meta(meta),
         "__dp_cell_ref" => operation::Operation::new(operation::CellRef::new(
             operation::CellRefTarget::LogicalName(string_arg_from_core_expr(args.next()?)?),
-        ))
-        .with_meta(meta),
-        "__dp_del_quietly" => operation::Operation::new(operation::DelQuietly::new(
-            Box::new(args.next()?),
-            string_arg_from_core_expr(args.next()?)?,
         ))
         .with_meta(meta),
         _ => return None,
