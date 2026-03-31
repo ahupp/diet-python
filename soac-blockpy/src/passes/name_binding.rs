@@ -1,15 +1,15 @@
 use crate::block_py::{
     build_storage_layout_from_capture_names, compute_storage_layout_from_semantics,
-    core_positional_call_expr_with_meta, BindingTarget, BlockPyAssign, BlockPyBindingKind,
-    BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
-    BlockPyCellBindingKind, BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap, BlockPyNameLike, BlockPyRaise,
-    BlockPyStmt, BlockPyTerm, CellRef, CellRefTarget, ClosureInit, ClosureSlot, CoreBlockPyCall,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, CoreNumberLiteral,
-    CoreNumberLiteralValue, CoreStringLiteral, DelDeref, DelDerefQuietly, DelItem, DelQuietly,
-    FunctionId, HasMeta, LoadCell, LoadGlobal, LoadLocal, LocatedName, MakeCell, MakeFunction,
-    NameLocation, Operation, OperationDetail, SetItem, StorageLayout, StoreCell, StoreGlobal,
-    WithMeta,
+    core_positional_call_expr_with_meta, BindingTarget, BlockArg, BlockPyAssign,
+    BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
+    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyClassBodyFallback,
+    BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap,
+    BlockPyNameLike, BlockPyRaise, BlockPyStmt, BlockPyTerm, CellRef, CellRefTarget, ClosureInit,
+    ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
+    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, DelDeref, DelDerefQuietly,
+    DelItem, DelQuietly, FunctionId, HasMeta, LoadCell, LoadGlobal, LoadLocal, LocatedName,
+    MakeCell, MakeFunction, NameLocation, Operation, OperationDetail, SetItem, StorageLayout,
+    StoreCell, StoreGlobal, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -2349,6 +2349,7 @@ fn refresh_bb_callable_block_params(
         })
         .collect::<Vec<_>>();
     populate_exception_edge_args(&mut blocks);
+    populate_jump_edge_args(&mut blocks);
     BlockPyFunction {
         function_id,
         name_gen,
@@ -2359,6 +2360,59 @@ fn refresh_bb_callable_block_params(
         doc,
         storage_layout,
         semantic,
+    }
+}
+
+fn populate_jump_edge_args(
+    blocks: &mut [crate::block_py::CfgBlock<
+        BlockPyStmt<crate::block_py::LocatedCoreBlockPyExpr, LocatedName>,
+        BlockPyTerm<crate::block_py::LocatedCoreBlockPyExpr>,
+    >],
+) {
+    let label_to_index = blocks
+        .iter()
+        .enumerate()
+        .map(|(index, block)| (block.label, index))
+        .collect::<HashMap<_, _>>();
+    for block_index in 0..blocks.len() {
+        let BlockPyTerm::Jump(edge) = &blocks[block_index].term else {
+            continue;
+        };
+        let Some(target_index) = label_to_index.get(&edge.target).copied() else {
+            continue;
+        };
+        let target_params = blocks[target_index].params.clone();
+        if target_params.is_empty() {
+            continue;
+        }
+        let source_params = blocks[block_index].params.clone();
+        let explicit_args = edge.args.clone();
+        let explicit_start = target_params.len().saturating_sub(explicit_args.len());
+        let new_args = target_params
+            .iter()
+            .enumerate()
+            .map(|(param_index, target_param)| {
+                if param_index >= explicit_start {
+                    return explicit_args[param_index - explicit_start].clone();
+                }
+                if source_params
+                    .iter()
+                    .any(|source_param| source_param.name == target_param.name)
+                {
+                    return BlockArg::Name(target_param.name.clone());
+                }
+                if let Some(source_same_role) = source_params
+                    .iter()
+                    .find(|source_param| source_param.role == target_param.role)
+                {
+                    return BlockArg::Name(source_same_role.name.clone());
+                }
+                BlockArg::None
+            })
+            .collect::<Vec<_>>();
+        if let BlockPyTerm::Jump(edge) = &mut blocks[block_index].term {
+            edge.args = new_args;
+        }
     }
 }
 

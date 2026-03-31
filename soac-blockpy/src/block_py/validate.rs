@@ -1,7 +1,7 @@
 use crate::block_py::{
-    compute_storage_layout_from_semantics, BlockArg, BlockPyFunction, BlockPyLabel,
-    BlockPyLinearPass, BlockPyModule, BlockPyPass, BlockPySemanticExprNode, BlockPyTerm, PassBlock,
-    PassExpr,
+    compute_storage_layout_from_semantics, BlockArg, BlockParam, BlockPyEdge, BlockPyFunction,
+    BlockPyLabel, BlockPyLinearPass, BlockPyModule, BlockPyPass, BlockPySemanticExprNode,
+    BlockPyTerm, PassBlock, PassExpr,
 };
 
 pub(crate) fn validate_module<P: BlockPyPass>(module: &BlockPyModule<P>) -> Result<(), String>
@@ -66,45 +66,39 @@ where
         }
         match &block.term {
             BlockPyTerm::Jump(target) => {
-                lookup_known_block(
-                    function,
-                    target.target,
-                    qualname,
-                    block.label,
-                    "jump target",
-                )?;
+                validate_non_exception_edge(function, block, target, qualname, "jump target")?;
             }
             BlockPyTerm::IfTerm(if_term) => {
-                lookup_known_block(
+                validate_non_exception_edge(
                     function,
-                    if_term.then_label,
+                    block,
+                    &BlockPyEdge::new(if_term.then_label),
                     qualname,
-                    block.label,
                     "then target",
                 )?;
-                lookup_known_block(
+                validate_non_exception_edge(
                     function,
-                    if_term.else_label,
+                    block,
+                    &BlockPyEdge::new(if_term.else_label),
                     qualname,
-                    block.label,
                     "else target",
                 )?;
             }
             BlockPyTerm::BranchTable(branch) => {
                 for target in &branch.targets {
-                    lookup_known_block(
+                    validate_non_exception_edge(
                         function,
-                        *target,
+                        block,
+                        &BlockPyEdge::new(*target),
                         qualname,
-                        block.label,
                         "br_table target",
                     )?;
                 }
-                lookup_known_block(
+                validate_non_exception_edge(
                     function,
-                    branch.default_label,
+                    block,
+                    &BlockPyEdge::new(branch.default_label),
                     qualname,
-                    block.label,
                     "br_table default target",
                 )?;
             }
@@ -112,6 +106,116 @@ where
         }
     }
     Ok(())
+}
+
+fn validate_non_exception_edge<P: BlockPyPass>(
+    function: &BlockPyFunction<P>,
+    source_block: &PassBlock<P>,
+    edge: &BlockPyEdge,
+    qualname: &str,
+    label_kind: &str,
+) -> Result<(), String> {
+    let target_block = lookup_known_block(
+        function,
+        edge.target,
+        qualname,
+        source_block.label,
+        label_kind,
+    )?;
+    validate_edge_param_forwarding::<P>(
+        source_block,
+        target_block,
+        edge.args.as_slice(),
+        qualname,
+        label_kind,
+    )
+}
+
+fn validate_edge_param_forwarding<P: BlockPyPass>(
+    source_block: &PassBlock<P>,
+    target_block: &PassBlock<P>,
+    explicit_args: &[BlockArg],
+    qualname: &str,
+    label_kind: &str,
+) -> Result<(), String> {
+    if explicit_args.len() > target_block.params.len() {
+        return Err(format!(
+            "{} from {}:{} has {} explicit edge args for target {} with {} full params",
+            label_kind,
+            qualname,
+            source_block.label,
+            explicit_args.len(),
+            target_block.label,
+            target_block.params.len()
+        ));
+    }
+
+    let explicit_start = target_block
+        .params
+        .len()
+        .saturating_sub(explicit_args.len());
+    for target_param in target_block.params.iter().take(explicit_start) {
+        let Some(source_same_role) = source_block
+            .params
+            .iter()
+            .find(|source_param| source_param.role == target_param.role)
+        else {
+            continue;
+        };
+        if source_same_role.name != target_param.name {
+            return Err(format!(
+                "{} from {}:{} reaches target {} with implicit forwarding for param {} ({:?}), but source only has same-role param {}; add an explicit edge arg",
+                label_kind,
+                qualname,
+                source_block.label,
+                target_block.label,
+                target_param.name,
+                target_param.role,
+                source_same_role.name,
+            ));
+        }
+    }
+
+    for (target_param, source_arg) in target_block
+        .params
+        .iter()
+        .skip(explicit_start)
+        .zip(explicit_args.iter())
+    {
+        validate_explicit_edge_arg::<P>(
+            source_block,
+            target_block,
+            target_param,
+            source_arg,
+            qualname,
+            label_kind,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn validate_explicit_edge_arg<P: BlockPyPass>(
+    source_block: &PassBlock<P>,
+    target_block: &PassBlock<P>,
+    target_param: &BlockParam,
+    source_arg: &BlockArg,
+    qualname: &str,
+    label_kind: &str,
+) -> Result<(), String> {
+    match (target_param.role, source_arg) {
+        (_, BlockArg::Name(_) | BlockArg::None) => Ok(()),
+        (crate::block_py::BlockParamRole::Exception, BlockArg::CurrentException) => Ok(()),
+        (crate::block_py::BlockParamRole::AbruptKind, BlockArg::AbruptKind(_)) => Ok(()),
+        (_, BlockArg::AbruptKind(kind)) => Err(format!(
+            "{} from {}:{} uses abrupt-kind edge arg {:?} for target param {}",
+            label_kind, qualname, source_block.label, kind, target_param.name
+        )),
+        (_, BlockArg::CurrentException) => Err(format!(
+            "{} from {}:{} uses current-exception edge arg for non-exception target param {} on target {}",
+            label_kind, qualname, source_block.label, target_param.name, target_block.label
+        )),
+    }
 }
 
 fn validate_storage_layout_scoping<P: BlockPyPass>(

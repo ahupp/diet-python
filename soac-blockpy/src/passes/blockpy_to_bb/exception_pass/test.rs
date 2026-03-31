@@ -1,7 +1,8 @@
 use super::lower_try_jump_exception_flow;
 use crate::block_py::{
-    validate_module, AbruptKind, BlockArg, BlockPyBindingKind, BlockPyCellBindingKind, BlockPyEdge,
-    BlockPyLabel, BlockPyTerm, LocatedCoreBlockPyExpr, ResolvedStorageBlock, StorageLayout,
+    validate_module, AbruptKind, BlockArg, BlockParam, BlockParamRole, BlockPyBindingKind,
+    BlockPyCellBindingKind, BlockPyEdge, BlockPyLabel, BlockPyTerm, CodegenBlock,
+    LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, ResolvedStorageBlock, StorageLayout,
 };
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::CodegenBlockPyPass;
@@ -154,6 +155,44 @@ def f():
         err.contains("exception dispatch")
             && err.contains("abrupt-kind edge arg")
             && err.contains("target param"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn rejects_jump_that_implicitly_drops_renamed_exception_param() {
+    let source = r#"
+def f():
+    return 1
+"#;
+    let mut module = tracked_codegen_module(source);
+    let function = module
+        .callable_defs
+        .first_mut()
+        .expect("must contain function");
+    function.blocks[0].set_exception_param("_dp_yield_from_exc");
+    let target = BlockPyLabel::from_index(function.blocks.len());
+    function.blocks.push(CodegenBlock {
+        label: target,
+        body: vec![],
+        term: BlockPyTerm::<LocatedCodegenBlockPyExpr>::Return(
+            <LocatedCodegenBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+        ),
+        params: vec![BlockParam {
+            name: "_dp_try_exc".to_string(),
+            role: BlockParamRole::Exception,
+        }],
+        exc_edge: None,
+    });
+    function.blocks[0].term = BlockPyTerm::Jump(BlockPyEdge::new(target));
+
+    let err =
+        validate_module(&module).expect_err("must reject implicit renamed exception forwarding");
+    assert!(
+        err.contains("jump target")
+            && err.contains("_dp_try_exc")
+            && err.contains("_dp_yield_from_exc")
+            && err.contains("explicit edge arg"),
         "unexpected error: {err}"
     );
 }
