@@ -482,11 +482,10 @@ fn lower_generator_expr(
 
     let outer_async = first_gen.is_async;
     let iter_expr = first_gen.iter.clone();
-    let iter_lowered = lower_expr_nested(context, iter_expr);
     let iter_value = if outer_async {
-        py_expr!("__dp_aiter({iter:expr})", iter = iter_lowered.expr.clone())
+        py_expr!("__dp_aiter({iter:expr})", iter = iter_expr.clone())
     } else {
-        py_expr!("__dp_iter({iter:expr})", iter = iter_lowered.expr.clone())
+        py_expr!("__dp_iter({iter:expr})", iter = iter_expr.clone())
     };
 
     let func_name = context.fresh("genexpr");
@@ -629,7 +628,6 @@ if False:
             name = name.as_str()
         ));
     }
-    prefix.extend(iter_lowered.stmts);
     prefix.push(func_def.into());
 
     let call_expr = py_expr!(

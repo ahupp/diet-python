@@ -141,23 +141,21 @@ fn collect_store_names(target: &Expr) -> HashSet<String> {
 
 struct LoweredGenerator {
     target: Expr,
-    iter: LoweredExpr,
-    ifs: Vec<LoweredExpr>,
+    iter: Expr,
+    ifs: Vec<Expr>,
     is_async: bool,
 }
 
-fn wrap_ifs(mut body: Vec<Stmt>, ifs: Vec<LoweredExpr>) -> Vec<Stmt> {
-    for lowered in ifs.into_iter().rev() {
-        let mut block = lowered.stmts;
-        block.push(py_stmt!(
+fn wrap_ifs(mut body: Vec<Stmt>, ifs: Vec<Expr>) -> Vec<Stmt> {
+    for test in ifs.into_iter().rev() {
+        body = vec![py_stmt!(
             r#"
 if {test:expr}:
     {body:stmt}
 "#,
-            test = lowered.expr,
+            test = test,
             body = body,
-        ));
-        body = block;
+        )];
     }
     body
 }
@@ -288,8 +286,7 @@ fn lower_function(
     let first_gen = generators
         .first()
         .expect("comprehension expects at least one generator");
-    let iter_lowered = super::lower_expr_nested(context, first_gen.iter.clone());
-    let iter_call = iter_lowered.expr.clone();
+    let iter_call = first_gen.iter.clone();
 
     let result_name = context.fresh("tmp");
     let result_expr = py_expr!("{name:id}", name = result_name.as_str());
@@ -304,7 +301,6 @@ fn lower_function(
 
     for gen in generators {
         let iter_expr = rename_loads(gen.iter, &renames);
-        let iter_lowered = super::lower_expr_nested(context, iter_expr);
 
         let mut target_expr = gen.target;
         let bound_here = collect_store_names(&target_expr);
@@ -313,13 +309,12 @@ fn lower_function(
 
         let mut ifs = Vec::with_capacity(gen.ifs.len());
         for if_expr in gen.ifs {
-            let if_expr = rename_loads(if_expr, &renames);
-            ifs.push(super::lower_expr_nested(context, if_expr));
+            ifs.push(rename_loads(if_expr, &renames));
         }
 
         lowered_gens.push(LoweredGenerator {
             target: target_expr,
-            iter: iter_lowered,
+            iter: iter_expr,
             ifs,
             is_async: gen.is_async,
         });
@@ -330,39 +325,28 @@ fn lower_function(
             let key_expr = rename_loads(elt_or_key, &renames);
             let value_expr =
                 rename_loads(value.expect("dict comprehension expects value"), &renames);
-            let lowered_key = super::lower_expr_nested(context, key_expr);
-            let lowered_value = super::lower_expr_nested(context, value_expr);
-            let mut body = lowered_key.stmts;
-            body.extend(lowered_value.stmts);
-            body.push(py_stmt!(
+            vec![py_stmt!(
                 "__dp_setitem({result:id}, {key:expr}, {value:expr})",
                 result = result_name.as_str(),
-                key = lowered_key.expr,
-                value = lowered_value.expr,
-            ));
-            body
+                key = key_expr,
+                value = value_expr,
+            )]
         }
         InlineCompKind::List => {
             let elt_expr = rename_loads(elt_or_key, &renames);
-            let lowered_elt = super::lower_expr_nested(context, elt_expr);
-            let mut body = lowered_elt.stmts;
-            body.push(py_stmt!(
+            vec![py_stmt!(
                 "{result:id}.append({value:expr})",
                 result = result_name.as_str(),
-                value = lowered_elt.expr,
-            ));
-            body
+                value = elt_expr,
+            )]
         }
         InlineCompKind::Set => {
             let elt_expr = rename_loads(elt_or_key, &renames);
-            let lowered_elt = super::lower_expr_nested(context, elt_expr);
-            let mut body = lowered_elt.stmts;
-            body.push(py_stmt!(
+            vec![py_stmt!(
                 "{result:id}.add({value:expr})",
                 result = result_name.as_str(),
-                value = lowered_elt.expr,
-            ));
-            body
+                value = elt_expr,
+            )]
         }
     };
 
@@ -400,7 +384,7 @@ def {func:id}({param:id}):
         let iter_expr = if is_outermost {
             iter_param_expr.clone()
         } else {
-            gen.iter.expr
+            gen.iter
         };
         let for_stmt = if gen.is_async {
             py_stmt!(
@@ -426,8 +410,7 @@ for {target:expr} in {iter:expr}:
         if is_outermost {
             body = vec![for_stmt];
         } else {
-            body = gen.iter.stmts;
-            body.push(for_stmt);
+            body = vec![for_stmt];
         }
     }
 
@@ -475,7 +458,6 @@ if False:
             name = name.as_str()
         ));
     }
-    prefix.extend(iter_lowered.stmts);
     prefix.push(func_def.into());
     let call_expr = py_expr!(
         "{func:id}({iter:expr})",
