@@ -402,43 +402,43 @@ fn operator_family_operation_from_helper_call(
     let mut args = args.into_iter();
     let meta = Meta::new(node_index, range);
     let operation = if let Some(kind) = operation::BinOpKind::from_helper_name(name) {
-        let arg0 = args.next()?;
-        let arg1 = args.next()?;
+        let left = args.next()?;
+        let right = args.next()?;
         if args.next().is_some() {
             return None;
         }
-        operation::Operation::new(operation::BinOp::new(kind, Box::new(arg0), Box::new(arg1)))
+        operation::Operation::new(operation::BinOp::new(kind, Box::new(left), Box::new(right)))
             .with_meta(meta)
     } else if let Some(kind) = operation::UnaryOpKind::from_helper_name(name) {
-        let arg0 = args.next()?;
+        let operand = args.next()?;
         if args.next().is_some() {
             return None;
         }
-        operation::Operation::new(operation::UnaryOp::new(kind, Box::new(arg0))).with_meta(meta)
+        operation::Operation::new(operation::UnaryOp::new(kind, Box::new(operand))).with_meta(meta)
     } else if let Some(kind) = operation::InplaceBinOpKind::from_helper_name(name) {
-        let arg0 = args.next()?;
-        let arg1 = args.next()?;
+        let left = args.next()?;
+        let right = args.next()?;
         if args.next().is_some() {
             return None;
         }
         operation::Operation::new(operation::InplaceBinOp::new(
             kind,
-            Box::new(arg0),
-            Box::new(arg1),
+            Box::new(left),
+            Box::new(right),
         ))
         .with_meta(meta)
     } else if let Some(kind) = operation::TernaryOpKind::from_helper_name(name) {
-        let arg0 = args.next()?;
-        let arg1 = args.next()?;
-        let arg2 = args.next()?;
+        let base = args.next()?;
+        let exponent = args.next()?;
+        let modulus = args.next()?;
         if args.next().is_some() {
             return None;
         }
         operation::Operation::new(operation::TernaryOp::new(
             kind,
-            Box::new(arg0),
-            Box::new(arg1),
-            Box::new(arg2),
+            Box::new(base),
+            Box::new(exponent),
+            Box::new(modulus),
         ))
         .with_meta(meta)
     } else {

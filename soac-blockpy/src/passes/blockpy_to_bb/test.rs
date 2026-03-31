@@ -152,8 +152,8 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         body: Vec::new(),
         term: BlockPyTerm::Return(CoreBlockPyExpr::Op(
             Operation::new(GetAttr {
-                arg0: Box::new(core_call_expr("__dp_current_exception", Vec::new())),
-                arg1: "value".to_string(),
+                value: Box::new(core_call_expr("__dp_current_exception", Vec::new())),
+                attr: "value".to_string(),
             })
             .with_meta(crate::block_py::Meta::new(
                 ast::AtomicNodeIndex::default(),
@@ -179,15 +179,15 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     let BlockPyTerm::Return(CoreBlockPyExpr::Op(operation)) = &block.term else {
         panic!("expected operation return expr");
     };
-    let crate::block_py::OperationDetail::GetAttr(GetAttr { arg0, arg1, .. }) = operation.detail()
+    let crate::block_py::OperationDetail::GetAttr(GetAttr { value, attr, .. }) = operation.detail()
     else {
         panic!("expected getattr operation");
     };
     assert!(matches!(
-        arg0.as_ref(),
+        value.as_ref(),
         CoreBlockPyExpr::Name(name) if name.id.as_str() == "_dp_try_exc_0"
     ));
-    assert_eq!(arg1, "value");
+    assert_eq!(attr, "value");
 }
 
 #[test]

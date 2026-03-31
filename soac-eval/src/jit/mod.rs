@@ -398,7 +398,7 @@ fn codegen_expr_is_borrowable(
         }
         CodegenBlockPyExpr::Op(operation) => match operation.detail() {
             blockpy_intrinsics::OperationDetail::LoadLocal(op) => {
-                located_local_name_is_borrowable(&op.arg0, local_names, stack_slots)
+                located_local_name_is_borrowable(&op.name, local_names, stack_slots)
             }
             _ => false,
         },
@@ -450,7 +450,7 @@ fn codegen_expr_const_string(expr: &LocatedCodegenBlockPyExpr) -> Option<String>
         }
         CodegenBlockPyExpr::Op(operation) => match operation.detail() {
             blockpy_intrinsics::OperationDetail::MakeString(op) => {
-                String::from_utf8(op.arg0.clone()).ok()
+                String::from_utf8(op.bytes.clone()).ok()
             }
             _ => None,
         },
@@ -477,8 +477,8 @@ fn codegen_expr_helper_name(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
     match expr {
         CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
         CodegenBlockPyExpr::Op(operation) => match operation.detail() {
-            blockpy_intrinsics::OperationDetail::LoadGlobal(op) => Some(op.arg1.as_str()),
-            blockpy_intrinsics::OperationDetail::LoadLocal(op) => Some(op.arg0.id.as_str()),
+            blockpy_intrinsics::OperationDetail::LoadGlobal(op) => Some(op.name.as_str()),
+            blockpy_intrinsics::OperationDetail::LoadLocal(op) => Some(op.name.id.as_str()),
             _ => None,
         },
         CodegenBlockPyExpr::Literal(_) | CodegenBlockPyExpr::Call(_) => None,
@@ -1221,7 +1221,7 @@ fn emit_codegen_expr(
         }
         CodegenBlockPyExpr::Op(operation) => {
             if let blockpy_intrinsics::OperationDetail::LoadLocal(op) = operation.detail() {
-                let load_expr = CodegenBlockPyExpr::Name(op.arg0.clone());
+                let load_expr = CodegenBlockPyExpr::Name(op.name.clone());
                 return emit_codegen_expr(
                     fb,
                     &load_expr,
@@ -1259,10 +1259,10 @@ fn emit_codegen_expr(
             }
             match operation_ref.detail() {
                 blockpy_intrinsics::OperationDetail::CellRef(op) => {
-                    let blockpy_intrinsics::CellRefTarget::Name(cell_name) = &op.arg0 else {
+                    let blockpy_intrinsics::CellRefTarget::Name(cell_name) = &op.target else {
                         panic!(
                             "__dp_cell_ref should lower to a resolved name arg, got {:?}",
-                            op.arg0
+                            op.target
                         );
                     };
                     match cell_name.location {
@@ -1285,14 +1285,14 @@ fn emit_codegen_expr(
                 }
                 blockpy_intrinsics::OperationDetail::LoadLocal(op) => emit_codegen_local_name_load(
                     intrinsic_state.fb,
-                    &op.arg0,
+                    &op.name,
                     intrinsic_state.local_names,
                     intrinsic_state.local_values,
                     intrinsic_state.ctx,
                     borrowed,
                 ),
                 blockpy_intrinsics::OperationDetail::LoadCell(op) => {
-                    let cell_name = &op.arg0;
+                    let cell_name = &op.cell;
                     let raw_cell = emit_raw_cell_object_for_name(
                         intrinsic_state.fb,
                         cell_name,
@@ -1333,7 +1333,7 @@ fn emit_codegen_expr(
                     intrinsic_state.fb.block_params(value_ok_block)[0]
                 }
                 blockpy_intrinsics::OperationDetail::StoreCell(op) => {
-                    let cell_name = &op.arg0;
+                    let cell_name = &op.cell;
                     let raw_cell = emit_raw_cell_object_for_name(
                         intrinsic_state.fb,
                         cell_name,
@@ -1342,13 +1342,13 @@ fn emit_codegen_expr(
                         intrinsic_state.ctx,
                     );
                     let value_borrowed = codegen_expr_is_borrowable(
-                        &op.arg1,
+                        &op.value,
                         intrinsic_state.local_names,
                         &intrinsic_state.ctx.stack_slots,
                     );
                     let value_obj = emit_codegen_expr(
                         intrinsic_state.fb,
-                        &op.arg1,
+                        &op.value,
                         intrinsic_state.local_names,
                         intrinsic_state.local_values,
                         intrinsic_state.ctx,
@@ -1380,7 +1380,7 @@ fn emit_codegen_expr(
                 blockpy_intrinsics::OperationDetail::DelDeref(op) => {
                     let raw_cell = emit_raw_cell_object_for_name(
                         intrinsic_state.fb,
-                        &op.arg0,
+                        &op.cell,
                         intrinsic_state.local_names,
                         intrinsic_state.local_values,
                         intrinsic_state.ctx,
@@ -1390,7 +1390,7 @@ fn emit_codegen_expr(
                 blockpy_intrinsics::OperationDetail::DelDerefQuietly(op) => {
                     let raw_cell = emit_raw_cell_object_for_name(
                         intrinsic_state.fb,
-                        &op.arg0,
+                        &op.cell,
                         intrinsic_state.local_names,
                         intrinsic_state.local_values,
                         intrinsic_state.ctx,

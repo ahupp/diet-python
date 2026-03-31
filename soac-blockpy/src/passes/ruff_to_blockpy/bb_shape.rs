@@ -280,15 +280,15 @@ fn is_dp_getattr_operation<N>(
 where
     N: BlockPyNameLike,
 {
-    let operation::OperationDetail::GetAttr(operation::GetAttr { arg0, arg1, .. }) =
+    let operation::OperationDetail::GetAttr(operation::GetAttr { value, attr, .. }) =
         operation.detail()
     else {
         return false;
     };
     matches!(
-        arg0.as_ref(),
+        value.as_ref(),
         CoreBlockPyExpr::Name(base) if base.id_str() == "runtime"
-    ) && arg1 == attr_name
+    ) && attr == attr_name
 }
 
 fn expr_static_str<N>(expr: &CoreBlockPyExpr<N>) -> Option<String>

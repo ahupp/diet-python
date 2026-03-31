@@ -140,7 +140,7 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
         unreachable!("iadd guard should ensure inplace binop");
     };
     assert!(matches!(
-        op.arg1.as_ref(),
+        op.right.as_ref(),
         CoreBlockPyExprWithAwaitAndYield::Name(_)
     ));
     assert!(matches!(lowered.body[2], StructuredBlockPyStmt::Delete(_)));

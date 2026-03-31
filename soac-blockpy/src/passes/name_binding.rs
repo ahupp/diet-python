@@ -157,7 +157,7 @@ fn raw_load_name(expr: &CoreBlockPyExpr) -> Option<ExprName> {
             Some(name.clone())
         }
         CoreBlockPyExpr::Op(operation) => match operation.detail() {
-            OperationDetail::LoadName(op) => Some(op.arg0.clone()),
+            OperationDetail::LoadName(op) => Some(op.name.clone()),
             _ => None,
         },
         _ => None,
@@ -440,7 +440,7 @@ fn rewrite_deleted_name_loads_in_expr(
                 unreachable!("load-name guard should ensure LoadName detail");
             };
             *expr = rewrite_deleted_name_load_expr(
-                op.arg0.clone(),
+                op.name.clone(),
                 semantic,
                 deleted_names,
                 always_unbound_names,
@@ -453,7 +453,7 @@ fn rewrite_deleted_name_loads_in_expr(
                 unreachable!("load-local guard should ensure LoadLocal detail");
             };
             *expr = rewrite_deleted_name_load_expr(
-                op.arg0.clone(),
+                op.name.clone(),
                 semantic,
                 deleted_names,
                 always_unbound_names,
@@ -691,10 +691,10 @@ fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
 
 fn cell_ref_marker_target(expr: &CoreBlockPyExpr) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::CellRef(CellRef { arg0, .. }) = operation.detail() else {
+    let OperationDetail::CellRef(CellRef { target, .. }) = operation.detail() else {
         return None;
     };
-    match arg0 {
+    match target {
         CellRefTarget::LogicalName(name) => Some(name.clone()),
         CellRefTarget::Name(_) => None,
     }
@@ -714,10 +714,10 @@ fn cell_load_logical_name(
     semantic: &BlockPyCallableSemanticInfo,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::LoadCell(LoadCell { arg0, .. }) = operation.detail() else {
+    let OperationDetail::LoadCell(LoadCell { cell, .. }) = operation.detail() else {
         return None;
     };
-    semantic.logical_name_for_cell_storage(arg0.id.as_str())
+    semantic.logical_name_for_cell_storage(cell.id.as_str())
 }
 
 fn build_local_cell_init_assign(
@@ -863,13 +863,13 @@ fn store_cell_deleted_logical_name(
     semantic: &BlockPyCallableSemanticInfo,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::StoreCell(StoreCell { arg0, arg1, .. }) = operation.detail() else {
+    let OperationDetail::StoreCell(StoreCell { cell, value, .. }) = operation.detail() else {
         return None;
     };
-    if !is_deleted_sentinel_expr(arg1) {
+    if !is_deleted_sentinel_expr(value) {
         return None;
     }
-    semantic.logical_name_for_cell_storage(arg0.id.as_str())
+    semantic.logical_name_for_cell_storage(cell.id.as_str())
 }
 
 fn del_deref_logical_name(
@@ -877,10 +877,10 @@ fn del_deref_logical_name(
     semantic: &BlockPyCallableSemanticInfo,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::DelDeref(DelDeref { arg0, .. }) = operation.detail() else {
+    let OperationDetail::DelDeref(DelDeref { cell, .. }) = operation.detail() else {
         return None;
     };
-    semantic.logical_name_for_cell_storage(arg0.id.as_str())
+    semantic.logical_name_for_cell_storage(cell.id.as_str())
 }
 
 fn store_cell_runtime_logical_name(
@@ -888,13 +888,13 @@ fn store_cell_runtime_logical_name(
     semantic: &BlockPyCallableSemanticInfo,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::StoreCell(StoreCell { arg0, arg1, .. }) = operation.detail() else {
+    let OperationDetail::StoreCell(StoreCell { cell, value, .. }) = operation.detail() else {
         return None;
     };
-    if is_deleted_sentinel_expr(arg1) {
+    if is_deleted_sentinel_expr(value) {
         return None;
     }
-    semantic.logical_name_for_cell_storage(arg0.id.as_str())
+    semantic.logical_name_for_cell_storage(cell.id.as_str())
 }
 
 fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
@@ -904,10 +904,10 @@ fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
     let Some(operation) = operation_expr(&assign.value) else {
         return false;
     };
-    let OperationDetail::MakeCell(MakeCell { arg0, .. }) = operation.detail() else {
+    let OperationDetail::MakeCell(MakeCell { initial_value, .. }) = operation.detail() else {
         return false;
     };
-    matches!(raw_load_name(arg0.as_ref()), Some(name) if name.id.as_str() == logical_name)
+    matches!(raw_load_name(initial_value.as_ref()), Some(name) if name.id.as_str() == logical_name)
 }
 
 struct NameBindingMapper<'a> {
@@ -961,8 +961,8 @@ impl NameBindingMapper<'_> {
                     meta.range,
                 ),
                 captures_expr,
-                self.map_expr(*op.arg0),
-                self.map_expr(*op.arg1),
+                self.map_expr(*op.param_defaults),
+                self.map_expr(*op.annotate_fn),
             ],
         )
     }
@@ -1048,7 +1048,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 let OperationDetail::LoadName(op) = detail else {
                     unreachable!("load-name guard should ensure LoadName detail");
                 };
-                rewrite_name_load(op.arg0, self.semantic)
+                rewrite_name_load(op.name, self.semantic)
             }
             CoreBlockPyExpr::Name(name)
                 if matches!(name.ctx, ast::ExprContext::Load)
@@ -1492,10 +1492,10 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
         CoreBlockPyExpr::Op(operation) => {
             match operation.detail() {
                 OperationDetail::LoadName(op) => {
-                    names.insert(op.arg0.id.to_string());
+                    names.insert(op.name.id.to_string());
                 }
                 OperationDetail::LoadLocal(op) => {
-                    names.insert(op.arg0.id.to_string());
+                    names.insert(op.name.id.to_string());
                 }
                 _ => {}
             }
@@ -1997,27 +1997,27 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                 };
                 match operation.detail_mut() {
                     OperationDetail::LoadName(op) => {
-                        op.arg0 = self.locate_name(op.arg0.clone().into());
+                        op.name = self.locate_name(op.name.clone().into());
                     }
                     OperationDetail::LoadLocal(op) => {
-                        op.arg0 = self.locate_name(op.arg0.clone().into());
+                        op.name = self.locate_name(op.name.clone().into());
                     }
                     OperationDetail::CellRef(op) => {
-                        if let CellRefTarget::Name(name) = &mut op.arg0 {
+                        if let CellRefTarget::Name(name) = &mut op.target {
                             *name = self.mark_raw_cell_name(name.clone());
                         }
                     }
                     OperationDetail::LoadCell(op) => {
-                        op.arg0 = self.mark_raw_cell_name(op.arg0.clone());
+                        op.cell = self.mark_raw_cell_name(op.cell.clone());
                     }
                     OperationDetail::StoreCell(op) => {
-                        op.arg0 = self.mark_raw_cell_name(op.arg0.clone());
+                        op.cell = self.mark_raw_cell_name(op.cell.clone());
                     }
                     OperationDetail::DelDeref(op) => {
-                        op.arg0 = self.mark_raw_cell_name(op.arg0.clone());
+                        op.cell = self.mark_raw_cell_name(op.cell.clone());
                     }
                     OperationDetail::DelDerefQuietly(op) => {
-                        op.arg0 = self.mark_raw_cell_name(op.arg0.clone());
+                        op.cell = self.mark_raw_cell_name(op.cell.clone());
                     }
                     _ => {}
                 }

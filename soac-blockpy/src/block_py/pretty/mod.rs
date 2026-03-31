@@ -656,106 +656,106 @@ where
             [
                 op.function_id.0.to_string(),
                 format!("{:?}", op.kind),
-                op.arg0.debug_expr_text(),
-                op.arg1.debug_expr_text(),
+                op.param_defaults.debug_expr_text(),
+                op.annotate_fn.debug_expr_text(),
             ],
         ),
         crate::block_py::OperationDetail::GetAttr(op) => debug_tuple_text(
             "GetAttr",
-            [op.arg0.debug_expr_text(), format!("{:?}", op.arg1)],
+            [op.value.debug_expr_text(), format!("{:?}", op.attr)],
         ),
         crate::block_py::OperationDetail::SetAttr(op) => debug_tuple_text(
             "SetAttr",
             [
-                op.arg0.debug_expr_text(),
-                format!("{:?}", op.arg1),
-                op.arg2.debug_expr_text(),
+                op.value.debug_expr_text(),
+                format!("{:?}", op.attr),
+                op.replacement.debug_expr_text(),
             ],
         ),
         crate::block_py::OperationDetail::LoadGlobal(op) => debug_tuple_text(
             "LoadGlobal",
-            [op.arg0.debug_expr_text(), format!("{:?}", op.arg1)],
+            [op.globals.debug_expr_text(), format!("{:?}", op.name)],
         ),
         crate::block_py::OperationDetail::StoreGlobal(op) => debug_tuple_text(
             "StoreGlobal",
             [
-                op.arg0.debug_expr_text(),
-                format!("{:?}", op.arg1),
-                op.arg2.debug_expr_text(),
+                op.globals.debug_expr_text(),
+                format!("{:?}", op.name),
+                op.value.debug_expr_text(),
             ],
         ),
-        crate::block_py::OperationDetail::LoadName(op) => op.arg0.pretty_id(),
-        crate::block_py::OperationDetail::LoadLocal(op) => op.arg0.pretty_id(),
+        crate::block_py::OperationDetail::LoadName(op) => op.name.pretty_id(),
+        crate::block_py::OperationDetail::LoadLocal(op) => op.name.pretty_id(),
         crate::block_py::OperationDetail::LoadCell(op) => {
-            debug_tuple_text("LoadCell", [op.arg0.pretty_id()])
+            debug_tuple_text("LoadCell", [op.cell.pretty_id()])
         }
         crate::block_py::OperationDetail::MakeString(op) => {
-            debug_tuple_text("MakeString", [bytes_text(&op.arg0)])
+            debug_tuple_text("MakeString", [bytes_text(&op.bytes)])
         }
         crate::block_py::OperationDetail::CellRef(op) => {
-            debug_tuple_text("CellRef", [cell_ref_target_text(&op.arg0)])
+            debug_tuple_text("CellRef", [cell_ref_target_text(&op.target)])
         }
         crate::block_py::OperationDetail::StoreCell(op) => debug_tuple_text(
             "StoreCell",
-            [op.arg0.pretty_id(), op.arg1.debug_expr_text()],
+            [op.cell.pretty_id(), op.value.debug_expr_text()],
         ),
         crate::block_py::OperationDetail::DelQuietly(op) => debug_tuple_text(
             "DelQuietly",
-            [op.arg0.debug_expr_text(), format!("{:?}", op.arg1)],
+            [op.value.debug_expr_text(), format!("{:?}", op.name)],
         ),
         crate::block_py::OperationDetail::DelDerefQuietly(op) => {
-            debug_tuple_text("DelDerefQuietly", [op.arg0.pretty_id()])
+            debug_tuple_text("DelDerefQuietly", [op.cell.pretty_id()])
         }
         crate::block_py::OperationDetail::DelDeref(op) => {
-            debug_tuple_text("DelDeref", [op.arg0.pretty_id()])
+            debug_tuple_text("DelDeref", [op.cell.pretty_id()])
         }
         crate::block_py::OperationDetail::BinOp(op) => debug_tuple_text(
             "BinOp",
             [
                 format!("{:?}", op.kind),
-                op.arg0.debug_expr_text(),
-                op.arg1.debug_expr_text(),
+                op.left.debug_expr_text(),
+                op.right.debug_expr_text(),
             ],
         ),
         crate::block_py::OperationDetail::UnaryOp(op) => debug_tuple_text(
             "UnaryOp",
-            [format!("{:?}", op.kind), op.arg0.debug_expr_text()],
+            [format!("{:?}", op.kind), op.operand.debug_expr_text()],
         ),
         crate::block_py::OperationDetail::InplaceBinOp(op) => debug_tuple_text(
             "InplaceBinOp",
             [
                 format!("{:?}", op.kind),
-                op.arg0.debug_expr_text(),
-                op.arg1.debug_expr_text(),
+                op.left.debug_expr_text(),
+                op.right.debug_expr_text(),
             ],
         ),
         crate::block_py::OperationDetail::TernaryOp(op) => debug_tuple_text(
             "TernaryOp",
             [
                 format!("{:?}", op.kind),
-                op.arg0.debug_expr_text(),
-                op.arg1.debug_expr_text(),
-                op.arg2.debug_expr_text(),
+                op.base.debug_expr_text(),
+                op.exponent.debug_expr_text(),
+                op.modulus.debug_expr_text(),
             ],
         ),
         crate::block_py::OperationDetail::GetItem(op) => debug_tuple_text(
             "GetItem",
-            [op.arg0.debug_expr_text(), op.arg1.debug_expr_text()],
+            [op.value.debug_expr_text(), op.index.debug_expr_text()],
         ),
         crate::block_py::OperationDetail::SetItem(op) => debug_tuple_text(
             "SetItem",
             [
-                op.arg0.debug_expr_text(),
-                op.arg1.debug_expr_text(),
-                op.arg2.debug_expr_text(),
+                op.value.debug_expr_text(),
+                op.index.debug_expr_text(),
+                op.replacement.debug_expr_text(),
             ],
         ),
         crate::block_py::OperationDetail::DelItem(op) => debug_tuple_text(
             "DelItem",
-            [op.arg0.debug_expr_text(), op.arg1.debug_expr_text()],
+            [op.value.debug_expr_text(), op.index.debug_expr_text()],
         ),
         crate::block_py::OperationDetail::MakeCell(op) => {
-            debug_tuple_text("MakeCell", [op.arg0.debug_expr_text()])
+            debug_tuple_text("MakeCell", [op.initial_value.debug_expr_text()])
         }
     }
 }

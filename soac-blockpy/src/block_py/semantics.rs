@@ -433,14 +433,14 @@ where
     N: BlockPyNameLike,
 {
     match detail {
-        OperationDetail::LoadName(op) => f(op.arg0.id_str()),
-        OperationDetail::LoadLocal(op) => f(op.arg0.id_str()),
-        OperationDetail::LoadCell(op) => f(op.arg0.id_str()),
-        OperationDetail::StoreCell(op) => f(op.arg0.id_str()),
-        OperationDetail::DelDeref(op) => f(op.arg0.id_str()),
-        OperationDetail::DelDerefQuietly(op) => f(op.arg0.id_str()),
+        OperationDetail::LoadName(op) => f(op.name.id_str()),
+        OperationDetail::LoadLocal(op) => f(op.name.id_str()),
+        OperationDetail::LoadCell(op) => f(op.cell.id_str()),
+        OperationDetail::StoreCell(op) => f(op.cell.id_str()),
+        OperationDetail::DelDeref(op) => f(op.cell.id_str()),
+        OperationDetail::DelDerefQuietly(op) => f(op.cell.id_str()),
         OperationDetail::CellRef(op) => {
-            if let CellRefTarget::Name(name) = &op.arg0 {
+            if let CellRefTarget::Name(name) = &op.target {
                 f(name.id_str());
             }
         }
@@ -455,7 +455,7 @@ fn walk_operation_cell_ref_logical_names<E, N>(
     N: BlockPyNameLike,
 {
     if let OperationDetail::CellRef(op) = detail {
-        if let CellRefTarget::LogicalName(name) = &op.arg0 {
+        if let CellRefTarget::LogicalName(name) = &op.target {
             f(name);
         }
     }

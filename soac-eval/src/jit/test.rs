@@ -236,8 +236,8 @@ mod tests {
             ret_term(op_expr(
                 Operation::new(BinOp {
                     kind: BinOpKind::Add,
-                    arg0: Box::new(int_expr(1)),
-                    arg1: Box::new(int_expr(2)),
+                    left: Box::new(int_expr(1)),
+                    right: Box::new(int_expr(2)),
                 })
                 .with_meta(Meta::synthetic()),
             )),
@@ -262,8 +262,8 @@ mod tests {
             ret_term(op_expr(
                 Operation::new(BinOp {
                     kind: BinOpKind::Lt,
-                    arg0: Box::new(int_expr(1)),
-                    arg1: Box::new(int_expr(2)),
+                    left: Box::new(int_expr(1)),
+                    right: Box::new(int_expr(2)),
                 })
                 .with_meta(Meta::synthetic()),
             )),
@@ -283,7 +283,7 @@ mod tests {
             vec![],
             ret_term(op_expr(
                 Operation::new(MakeString {
-                    arg0: b"hello".to_vec(),
+                    bytes: b"hello".to_vec(),
                 })
                 .with_meta(Meta::synthetic()),
             )),
@@ -308,9 +308,9 @@ mod tests {
             ret_term(op_expr(
                 Operation::new(TernaryOp {
                     kind: TernaryOpKind::Pow,
-                    arg0: Box::new(int_expr(2)),
-                    arg1: Box::new(int_expr(3)),
-                    arg2: Box::new(name_expr(test_global_name("__dp_NONE"))),
+                    base: Box::new(int_expr(2)),
+                    exponent: Box::new(int_expr(3)),
+                    modulus: Box::new(name_expr(test_global_name("__dp_NONE"))),
                 })
                 .with_meta(Meta::synthetic()),
             )),
@@ -374,8 +374,8 @@ mod tests {
             vec![],
             ret_term(op_expr(
                 Operation::new(LoadGlobal {
-                    arg0: Box::new(int_expr(1)),
-                    arg1: "x".to_string(),
+                    globals: Box::new(int_expr(1)),
+                    name: "x".to_string(),
                 })
                 .with_meta(Meta::synthetic()),
             )),
@@ -395,9 +395,9 @@ mod tests {
             vec![],
             ret_term(op_expr(
                 Operation::new(StoreGlobal {
-                    arg0: Box::new(int_expr(1)),
-                    arg1: "x".to_string(),
-                    arg2: Box::new(int_expr(3)),
+                    globals: Box::new(int_expr(1)),
+                    name: "x".to_string(),
+                    value: Box::new(int_expr(3)),
                 })
                 .with_meta(Meta::synthetic()),
             )),
@@ -434,7 +434,7 @@ mod tests {
             vec![],
             ret_term(op_expr(
                 Operation::new(soac_blockpy::block_py::CellRef {
-                    arg0: CellRefTarget::Name(test_closure_cell_name("x", 2)),
+                    target: CellRefTarget::Name(test_closure_cell_name("x", 2)),
                 })
                 .with_meta(Meta::synthetic()),
             )),
@@ -459,7 +459,7 @@ mod tests {
             vec![],
             ret_term(op_expr(
                 Operation::new(soac_blockpy::block_py::CellRef {
-                    arg0: CellRefTarget::Name(test_captured_cell_source_name("_dp_classcell", 2)),
+                    target: CellRefTarget::Name(test_captured_cell_source_name("_dp_classcell", 2)),
                 })
                 .with_meta(Meta::synthetic()),
             )),
@@ -506,27 +506,27 @@ mod tests {
             vec![
                 expr_stmt(op_expr(
                     Operation::new(DelItem {
-                        arg0: Box::new(int_expr(1)),
-                        arg1: Box::new(int_expr(2)),
+                        value: Box::new(int_expr(1)),
+                        index: Box::new(int_expr(2)),
                     })
                     .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
                     Operation::new(DelQuietly {
-                        arg0: Box::new(int_expr(3)),
-                        arg1: "x".to_string(),
+                        value: Box::new(int_expr(3)),
+                        name: "x".to_string(),
                     })
                     .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
                     Operation::new(DelDeref {
-                        arg0: test_closure_cell_name("cell", 2),
+                        cell: test_closure_cell_name("cell", 2),
                     })
                     .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
                     Operation::new(DelDerefQuietly {
-                        arg0: test_closure_cell_name("cell", 2),
+                        cell: test_closure_cell_name("cell", 2),
                     })
                     .with_meta(Meta::synthetic()),
                 )),

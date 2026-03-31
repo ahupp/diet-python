@@ -33,7 +33,7 @@ fn is_raw_load_name_expr(expr: &CoreBlockPyExprWithAwaitAndYield, expected: &str
     matches!(
         expr,
         CoreBlockPyExprWithAwaitAndYield::Op(operation)
-            if matches!(operation.detail(), crate::block_py::OperationDetail::LoadName(op) if op.arg0.id.as_str() == expected)
+            if matches!(operation.detail(), crate::block_py::OperationDetail::LoadName(op) if op.name.id.as_str() == expected)
     )
 }
 
@@ -76,7 +76,7 @@ fn expr_simplify_recurses_bottom_up_for_operator_family() {
     let OperationDetail::UnaryOp(op) = outer.detail() else {
         unreachable!("neg guard should ensure unary op");
     };
-    let CoreBlockPyExprWithAwaitAndYield::Op(inner) = op.arg0.as_ref() else {
+    let CoreBlockPyExprWithAwaitAndYield::Op(inner) = op.operand.as_ref() else {
         panic!("expected __dp_neg to receive one lowered op arg");
     };
     assert!(matches!(
@@ -195,10 +195,10 @@ fn core_blockpy_expr_rewrites_ipow_helper_to_pow_operation() {
     let OperationDetail::TernaryOp(op) = call.detail() else {
         unreachable!("pow guard should ensure ternary op");
     };
-    let _left = op.arg0.as_ref();
-    let _right = op.arg1.as_ref();
+    let _left = op.base.as_ref();
+    let _right = op.exponent.as_ref();
     assert!(
-        matches!(op.arg2.as_ref(), CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "__dp_NONE")
+        matches!(op.modulus.as_ref(), CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "__dp_NONE")
     );
 }
 

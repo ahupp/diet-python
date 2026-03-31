@@ -410,8 +410,8 @@ define_operation_node! {
         mapped_type<T, M> = [BinOp<T>];
         mapped_ctor<T, M> = [BinOp::<T>];
         kind: BinOpKind => value,
-        arg0: Box<E> => expr,
-        arg1: Box<E> => expr,
+        left: Box<E> => expr,
+        right: Box<E> => expr,
     }
 }
 
@@ -422,7 +422,7 @@ define_operation_node! {
         mapped_type<T, M> = [UnaryOp<T>];
         mapped_ctor<T, M> = [UnaryOp::<T>];
         kind: UnaryOpKind => value,
-        arg0: Box<E> => expr,
+        operand: Box<E> => expr,
     }
 }
 
@@ -433,8 +433,8 @@ define_operation_node! {
         mapped_type<T, M> = [InplaceBinOp<T>];
         mapped_ctor<T, M> = [InplaceBinOp::<T>];
         kind: InplaceBinOpKind => value,
-        arg0: Box<E> => expr,
-        arg1: Box<E> => expr,
+        left: Box<E> => expr,
+        right: Box<E> => expr,
     }
 }
 
@@ -445,9 +445,9 @@ define_operation_node! {
         mapped_type<T, M> = [TernaryOp<T>];
         mapped_ctor<T, M> = [TernaryOp::<T>];
         kind: TernaryOpKind => value,
-        arg0: Box<E> => expr,
-        arg1: Box<E> => expr,
-        arg2: Box<E> => expr,
+        base: Box<E> => expr,
+        exponent: Box<E> => expr,
+        modulus: Box<E> => expr,
     }
 }
 
@@ -457,8 +457,8 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [GetAttr<T>];
         mapped_ctor<T, M> = [GetAttr::<T>];
-        arg0: Box<E> => expr,
-        arg1: String => value,
+        value: Box<E> => expr,
+        attr: String => value,
     }
 }
 
@@ -468,9 +468,9 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [SetAttr<T>];
         mapped_ctor<T, M> = [SetAttr::<T>];
-        arg0: Box<E> => expr,
-        arg1: String => value,
-        arg2: Box<E> => expr,
+        value: Box<E> => expr,
+        attr: String => value,
+        replacement: Box<E> => expr,
     }
 }
 
@@ -480,8 +480,8 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [GetItem<T>];
         mapped_ctor<T, M> = [GetItem::<T>];
-        arg0: Box<E> => expr,
-        arg1: Box<E> => expr,
+        value: Box<E> => expr,
+        index: Box<E> => expr,
     }
 }
 
@@ -491,9 +491,9 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [SetItem<T>];
         mapped_ctor<T, M> = [SetItem::<T>];
-        arg0: Box<E> => expr,
-        arg1: Box<E> => expr,
-        arg2: Box<E> => expr,
+        value: Box<E> => expr,
+        index: Box<E> => expr,
+        replacement: Box<E> => expr,
     }
 }
 
@@ -503,8 +503,8 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [DelItem<T>];
         mapped_ctor<T, M> = [DelItem::<T>];
-        arg0: Box<E> => expr,
-        arg1: Box<E> => expr,
+        value: Box<E> => expr,
+        index: Box<E> => expr,
     }
 }
 
@@ -514,8 +514,8 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [LoadGlobal<T>];
         mapped_ctor<T, M> = [LoadGlobal::<T>];
-        arg0: Box<E> => expr,
-        arg1: String => value,
+        globals: Box<E> => expr,
+        name: String => value,
     }
 }
 
@@ -525,9 +525,9 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [StoreGlobal<T>];
         mapped_ctor<T, M> = [StoreGlobal::<T>];
-        arg0: Box<E> => expr,
-        arg1: String => value,
-        arg2: Box<E> => expr,
+        globals: Box<E> => expr,
+        name: String => value,
+        value: Box<E> => expr,
     }
 }
 
@@ -537,7 +537,7 @@ define_operation_node! {
         name_type = [N];
         mapped_type<T, M> = [LoadName<M>];
         mapped_ctor<T, M> = [LoadName::<M>];
-        arg0: N => name,
+        name: N => name,
     }
 }
 
@@ -547,7 +547,7 @@ define_operation_node! {
         name_type = [N];
         mapped_type<T, M> = [LoadLocal<M>];
         mapped_ctor<T, M> = [LoadLocal::<M>];
-        arg0: N => name,
+        name: N => name,
     }
 }
 
@@ -557,7 +557,7 @@ define_operation_node! {
         name_type = [N];
         mapped_type<T, M> = [LoadCell<M>];
         mapped_ctor<T, M> = [LoadCell::<M>];
-        arg0: N => name,
+        cell: N => name,
     }
 }
 
@@ -567,7 +567,7 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [MakeCell<T>];
         mapped_ctor<T, M> = [MakeCell::<T>];
-        arg0: Box<E> => expr,
+        initial_value: Box<E> => expr,
     }
 }
 
@@ -577,7 +577,7 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [MakeString];
         mapped_ctor<T, M> = [MakeString];
-        arg0: Vec<u8> => value,
+        bytes: Vec<u8> => value,
     }
 }
 
@@ -587,7 +587,7 @@ define_operation_node! {
         name_type = [N];
         mapped_type<T, M> = [CellRef<M>];
         mapped_ctor<T, M> = [CellRef::<M>];
-        arg0: CellRefTarget<N> => name_target,
+        target: CellRefTarget<N> => name_target,
     }
 }
 
@@ -599,8 +599,8 @@ define_operation_node! {
         mapped_ctor<T, M> = [MakeFunction::<T>];
         function_id: FunctionId => value,
         kind: BlockPyFunctionKind => value,
-        arg0: Box<E> => expr,
-        arg1: Box<E> => expr,
+        param_defaults: Box<E> => expr,
+        annotate_fn: Box<E> => expr,
     }
 }
 
@@ -610,8 +610,8 @@ define_operation_node! {
         name_type = [N];
         mapped_type<T, M> = [StoreCell<M, T>];
         mapped_ctor<T, M> = [StoreCell::<M, T>];
-        arg0: N => name,
-        arg1: Box<E> => expr,
+        cell: N => name,
+        value: Box<E> => expr,
     }
 }
 
@@ -621,8 +621,8 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [DelQuietly<T>];
         mapped_ctor<T, M> = [DelQuietly::<T>];
-        arg0: Box<E> => expr,
-        arg1: String => value,
+        value: Box<E> => expr,
+        name: String => value,
     }
 }
 
@@ -632,7 +632,7 @@ define_operation_node! {
         name_type = [N];
         mapped_type<T, M> = [DelDerefQuietly<M>];
         mapped_ctor<T, M> = [DelDerefQuietly::<M>];
-        arg0: N => name,
+        cell: N => name,
     }
 }
 
@@ -642,7 +642,7 @@ define_operation_node! {
         name_type = [N];
         mapped_type<T, M> = [DelDeref<M>];
         mapped_ctor<T, M> = [DelDeref::<M>];
-        arg0: N => name,
+        cell: N => name,
     }
 }
 

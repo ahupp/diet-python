@@ -342,8 +342,8 @@ fn emit_getattr<'fb, E>(
     op: &blockpy_intrinsics::GetAttr<E>,
     state: &mut impl OperationEmitState<'fb, E>,
 ) -> ir::Value {
-    let arg_values = state.emit_arg_values(&[&op.arg0]);
-    let attr_obj = state.emit_owned_string_constant(op.arg1.as_str());
+    let arg_values = state.emit_arg_values(&[&op.value]);
+    let attr_obj = state.emit_owned_string_constant(op.attr.as_str());
     let pyobject_getattr_ref = state.ctx().pyobject_getattr_ref;
     let decref_ref = state.ctx().decref_ref;
     let call_inst = state
@@ -360,8 +360,8 @@ fn emit_setattr<'fb, E>(
     op: &blockpy_intrinsics::SetAttr<E>,
     state: &mut impl OperationEmitState<'fb, E>,
 ) -> ir::Value {
-    let arg_values = state.emit_arg_values(&[&op.arg0, &op.arg2]);
-    let attr_obj = state.emit_owned_string_constant(op.arg1.as_str());
+    let arg_values = state.emit_arg_values(&[&op.value, &op.replacement]);
+    let attr_obj = state.emit_owned_string_constant(op.attr.as_str());
     let pyobject_setattr_ref = state.ctx().pyobject_setattr_ref;
     let decref_ref = state.ctx().decref_ref;
     let call_inst = state.fb().ins().call(
@@ -387,7 +387,7 @@ fn emit_make_string<'fb, E>(
     op: &blockpy_intrinsics::MakeString,
     state: &mut impl OperationEmitState<'fb, E>,
 ) -> ir::Value {
-    let bytes = op.arg0.as_slice();
+    let bytes = op.bytes.as_slice();
     let (data_ptr, data_len) = super::intern_bytes_literal(state.literal_pool(), bytes);
     let ptr_ty = state.ctx().consts.ptr_ty;
     let i64_ty = state.ctx().consts.i64_ty;
@@ -551,8 +551,8 @@ fn emit_load_global<'fb, E>(
     op: &blockpy_intrinsics::LoadGlobal<E>,
     state: &mut impl OperationEmitState<'fb, E>,
 ) -> ir::Value {
-    let arg_values = state.emit_arg_values(&[&op.arg0]);
-    let name_obj = state.emit_owned_string_constant(op.arg1.as_str());
+    let arg_values = state.emit_arg_values(&[&op.globals]);
+    let name_obj = state.emit_owned_string_constant(op.name.as_str());
     let func_ref = state.import_func(&DP_JIT_LOAD_GLOBAL_OBJ_IMPORT);
     let decref_ref = state.ctx().decref_ref;
     let call_inst = state
@@ -569,8 +569,8 @@ fn emit_store_global<'fb, E>(
     op: &blockpy_intrinsics::StoreGlobal<E>,
     state: &mut impl OperationEmitState<'fb, E>,
 ) -> ir::Value {
-    let arg_values = state.emit_arg_values(&[&op.arg0, &op.arg2]);
-    let name_obj = state.emit_owned_string_constant(op.arg1.as_str());
+    let arg_values = state.emit_arg_values(&[&op.globals, &op.value]);
+    let name_obj = state.emit_owned_string_constant(op.name.as_str());
     let func_ref = state.import_func(&DP_JIT_STORE_GLOBAL_IMPORT);
     let decref_ref = state.ctx().decref_ref;
     let call_inst = state
@@ -587,8 +587,8 @@ fn emit_del_quietly<'fb, E>(
     op: &blockpy_intrinsics::DelQuietly<E>,
     state: &mut impl OperationEmitState<'fb, E>,
 ) -> ir::Value {
-    let arg_values = state.emit_arg_values(&[&op.arg0]);
-    let name_obj = state.emit_owned_string_constant(op.arg1.as_str());
+    let arg_values = state.emit_arg_values(&[&op.value]);
+    let name_obj = state.emit_owned_string_constant(op.name.as_str());
     let func_ref = state.import_func(&DP_JIT_DEL_QUIETLY_IMPORT);
     let decref_ref = state.ctx().decref_ref;
     let call_inst = state
@@ -626,34 +626,38 @@ pub(super) fn emit_operation<'fb, E, N>(
         blockpy_intrinsics::OperationDetail::BinOp(op) => Some(emit_binop(
             op.kind,
             state,
-            &[op.arg0.as_ref(), op.arg1.as_ref()],
+            &[op.left.as_ref(), op.right.as_ref()],
         )),
         blockpy_intrinsics::OperationDetail::UnaryOp(op) => {
-            Some(emit_unary_op(op.kind, state, &[op.arg0.as_ref()]))
+            Some(emit_unary_op(op.kind, state, &[op.operand.as_ref()]))
         }
         blockpy_intrinsics::OperationDetail::InplaceBinOp(op) => Some(emit_inplace_binop(
             op.kind,
             state,
-            &[op.arg0.as_ref(), op.arg1.as_ref()],
+            &[op.left.as_ref(), op.right.as_ref()],
         )),
         blockpy_intrinsics::OperationDetail::TernaryOp(op) => Some(emit_ternary_op(
             op.kind,
             state,
-            &[op.arg0.as_ref(), op.arg1.as_ref(), op.arg2.as_ref()],
+            &[op.base.as_ref(), op.exponent.as_ref(), op.modulus.as_ref()],
         )),
         blockpy_intrinsics::OperationDetail::GetAttr(op) => Some(emit_getattr(op, state)),
         blockpy_intrinsics::OperationDetail::SetAttr(op) => Some(emit_setattr(op, state)),
         blockpy_intrinsics::OperationDetail::GetItem(op) => {
-            Some(emit_getitem(state, &[op.arg0.as_ref(), op.arg1.as_ref()]))
+            Some(emit_getitem(state, &[op.value.as_ref(), op.index.as_ref()]))
         }
         blockpy_intrinsics::OperationDetail::SetItem(op) => Some(emit_setitem(
             state,
-            &[op.arg0.as_ref(), op.arg1.as_ref(), op.arg2.as_ref()],
+            &[
+                op.value.as_ref(),
+                op.index.as_ref(),
+                op.replacement.as_ref(),
+            ],
         )),
         blockpy_intrinsics::OperationDetail::DelItem(op) => Some(emit_positional_owned_call(
             &DP_JIT_PYOBJECT_DELITEM_IMPORT,
             state,
-            &[op.arg0.as_ref(), op.arg1.as_ref()],
+            &[op.value.as_ref(), op.index.as_ref()],
         )),
         blockpy_intrinsics::OperationDetail::LoadGlobal(op) => Some(emit_load_global(op, state)),
         blockpy_intrinsics::OperationDetail::StoreGlobal(op) => Some(emit_store_global(op, state)),
@@ -661,7 +665,7 @@ pub(super) fn emit_operation<'fb, E, N>(
         blockpy_intrinsics::OperationDetail::LoadLocal(_) => None,
         blockpy_intrinsics::OperationDetail::LoadCell(_) => None,
         blockpy_intrinsics::OperationDetail::MakeCell(op) => {
-            Some(emit_make_cell(state, &[op.arg0.as_ref()]))
+            Some(emit_make_cell(state, &[op.initial_value.as_ref()]))
         }
         blockpy_intrinsics::OperationDetail::MakeString(op) => Some(emit_make_string(op, state)),
         blockpy_intrinsics::OperationDetail::CellRef(_) => None,
