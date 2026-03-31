@@ -8,7 +8,7 @@ pub(crate) fn lower_stmts_to_blockpy_stmts_with_context<E>(
     stmts: &[Stmt],
 ) -> Result<crate::block_py::BlockPyCfgFragment<StructuredBlockPyStmt<E>, BlockPyTerm<E>>, String>
 where
-    E: From<Expr> + std::fmt::Debug,
+    E: RuffToBlockPyExpr,
 {
     let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
         StructuredBlockPyStmt<E>,
@@ -25,7 +25,7 @@ pub(crate) fn lower_stmts_to_blockpy_stmts<E>(
     stmts: &[Stmt],
 ) -> Result<crate::block_py::BlockPyCfgFragment<StructuredBlockPyStmt<E>, BlockPyTerm<E>>, String>
 where
-    E: From<Expr> + std::fmt::Debug,
+    E: RuffToBlockPyExpr,
 {
     let context = Context::new("");
     lower_stmts_to_blockpy_stmts_with_context(&context, stmts)
@@ -94,7 +94,7 @@ pub(crate) fn lower_common_stmt_sequence_head<FSeq, E>(
 ) -> Option<BlockPyLabel>
 where
     FSeq: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     match plan {
         StmtSequenceHeadPlan::Raise(raise_stmt) => Some(
@@ -193,7 +193,7 @@ pub(crate) fn lower_for_stmt_sequence_head<F, E>(
 ) -> BlockPyLabel
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     let assign_label = name_gen.next_block_name();
     let setup_label = name_gen.next_block_name();
@@ -222,7 +222,7 @@ pub(crate) fn lower_stmt_sequence_with_state<E>(
     name_gen: &FunctionNameGen,
 ) -> BlockPyLabel
 where
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     if stmts.is_empty() {
         return targets.normal_cont;
@@ -443,7 +443,7 @@ pub(crate) fn lower_expanded_stmt_sequence<F, E>(
 ) -> BlockPyLabel
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     let mut expanded = desugared_stmts;
     expanded.extend_from_slice(remaining_stmts);
@@ -476,7 +476,7 @@ pub(crate) fn lower_if_stmt_sequence<F, E>(
 ) -> BlockPyLabel
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     let then_entry = lower_region(
         then_body,
@@ -521,7 +521,7 @@ pub(crate) fn lower_if_stmt_sequence_from_stmt<F, E>(
 ) -> BlockPyLabel
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     let then_body = &if_stmt.body.to_vec();
     let else_body = extract_if_else_body(&if_stmt);
@@ -566,7 +566,7 @@ pub(crate) fn lower_while_stmt_sequence<F, E>(
 ) -> BlockPyLabel
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     let rest_entry = lower_region(remaining_stmts, targets.clone(), blocks);
     let cond_false_entry = if else_body.is_empty() {
@@ -612,7 +612,7 @@ pub(crate) fn lower_while_stmt_sequence_from_stmt<F, E>(
 ) -> BlockPyLabel
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     let body = &while_stmt.body.to_vec();
     let else_body = &while_stmt.orelse.to_vec();
@@ -695,7 +695,7 @@ pub(crate) fn lower_for_stmt_sequence<F, E>(
 ) -> BlockPyLabel
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     let else_body = &for_stmt.orelse.to_vec();
     let (rest_entry, exhausted_entry) = lower_for_stmt_exit_entries(

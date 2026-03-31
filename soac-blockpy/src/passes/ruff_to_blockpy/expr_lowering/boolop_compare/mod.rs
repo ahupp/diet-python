@@ -1,4 +1,4 @@
-use super::BlockPySetupExprLowerer;
+use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
 use crate::block_py::{
     BlockPyAssign, BlockPyCfgFragment, BlockPyIf, BlockPyStmtFragmentBuilder, BlockPyTerm,
     StructuredBlockPyStmt,
@@ -48,7 +48,7 @@ pub(super) fn lower_boolop_into<L, E>(
 ) -> Result<Expr, String>
 where
     L: BlockPySetupExprLowerer + ?Sized,
-    E: From<Expr> + std::fmt::Debug,
+    E: RuffToBlockPyExpr,
 {
     let ast::ExprBoolOp { op, values, .. } = bool_op;
     let target = fresh_setup_name("target");
@@ -84,7 +84,7 @@ pub(super) fn lower_compare_into<L, E>(
 ) -> Result<Expr, String>
 where
     L: BlockPySetupExprLowerer + ?Sized,
-    E: From<Expr> + std::fmt::Debug,
+    E: RuffToBlockPyExpr,
 {
     let ast::ExprCompare {
         left,

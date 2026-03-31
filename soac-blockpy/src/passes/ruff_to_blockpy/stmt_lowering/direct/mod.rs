@@ -35,7 +35,7 @@ impl StmtLowerer for ast::StmtGlobal {
         _next_label_id: &mut usize,
     ) -> Result<(), String>
     where
-        E: From<Expr> + std::fmt::Debug,
+        E: RuffToBlockPyExpr,
     {
         Ok(())
     }
@@ -54,7 +54,7 @@ impl StmtLowerer for ast::StmtNonlocal {
         _next_label_id: &mut usize,
     ) -> Result<(), String>
     where
-        E: From<Expr> + std::fmt::Debug,
+        E: RuffToBlockPyExpr,
     {
         Ok(())
     }
@@ -73,7 +73,7 @@ impl StmtLowerer for ast::StmtPass {
         _next_label_id: &mut usize,
     ) -> Result<(), String>
     where
-        E: From<Expr> + std::fmt::Debug,
+        E: RuffToBlockPyExpr,
     {
         Ok(())
     }
@@ -92,7 +92,7 @@ impl StmtLowerer for ast::StmtExpr {
         next_label_id: &mut usize,
     ) -> Result<(), String>
     where
-        E: From<Expr> + std::fmt::Debug,
+        E: RuffToBlockPyExpr,
     {
         let value = crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
             (*self.value).clone(),
@@ -118,7 +118,7 @@ impl StmtLowerer for ast::StmtBreak {
         _next_label_id: &mut usize,
     ) -> Result<(), String>
     where
-        E: From<Expr> + std::fmt::Debug,
+        E: RuffToBlockPyExpr,
     {
         if let Some(loop_ctx) = loop_ctx {
             out.set_term(BlockPyTerm::Jump(loop_ctx.break_label.clone().into()));
@@ -142,7 +142,7 @@ impl StmtLowerer for ast::StmtContinue {
         _next_label_id: &mut usize,
     ) -> Result<(), String>
     where
-        E: From<Expr> + std::fmt::Debug,
+        E: RuffToBlockPyExpr,
     {
         if let Some(loop_ctx) = loop_ctx {
             out.set_term(BlockPyTerm::Jump(loop_ctx.continue_label.clone().into()));
@@ -166,7 +166,7 @@ impl StmtLowerer for ast::StmtReturn {
         next_label_id: &mut usize,
     ) -> Result<(), String>
     where
-        E: From<Expr> + std::fmt::Debug,
+        E: RuffToBlockPyExpr,
     {
         let value = match self.value.as_ref() {
             Some(value) => {
@@ -197,7 +197,7 @@ impl StmtLowerer for ast::StmtRaise {
         next_label_id: &mut usize,
     ) -> Result<(), String>
     where
-        E: From<Expr> + std::fmt::Debug,
+        E: RuffToBlockPyExpr,
     {
         if self.cause.is_some() {
             panic!("raise-from should be lowered before Ruff AST -> BlockPy conversion");

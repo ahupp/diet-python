@@ -104,7 +104,7 @@ pub(crate) fn lower_try_regions<F, E>(
 ) -> LoweredTryRegions
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
-    E: crate::block_py::ImplicitNoneExpr + From<Expr> + std::fmt::Debug,
+    E: crate::block_py::ImplicitNoneExpr + RuffToBlockPyExpr,
 {
     let finally_label = if let Some(finally_body) = finally_body {
         let finally_region_start = blocks.len();
@@ -291,7 +291,7 @@ pub(crate) fn finalize_try_regions<E>(
     active_exc_target: Option<BlockPyLabel>,
 ) -> BlockPyLabel
 where
-    E: crate::block_py::ImplicitNoneExpr + From<Expr> + std::fmt::Debug,
+    E: crate::block_py::ImplicitNoneExpr + RuffToBlockPyExpr,
 {
     if let Some(finally_target) = lowered_try.finally_label.as_ref() {
         let payload_name = try_plan
@@ -350,7 +350,7 @@ pub(crate) fn emit_finally_abrupt_dispatch_blocks<E>(
     rest_entry: BlockPyLabel,
     active_exc_target: Option<BlockPyLabel>,
 ) where
-    E: crate::block_py::ImplicitNoneExpr + From<Expr> + std::fmt::Debug,
+    E: crate::block_py::ImplicitNoneExpr + RuffToBlockPyExpr,
 {
     blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         finally_return_label.clone(),
@@ -390,7 +390,7 @@ pub(crate) fn emit_try_jump_entry<E>(
     active_exc_target: Option<BlockPyLabel>,
 ) -> BlockPyLabel
 where
-    E: crate::block_py::ImplicitNoneExpr + From<Expr> + std::fmt::Debug,
+    E: crate::block_py::ImplicitNoneExpr + RuffToBlockPyExpr,
 {
     blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         label.clone(),

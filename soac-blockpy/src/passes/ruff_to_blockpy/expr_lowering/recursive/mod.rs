@@ -1,4 +1,4 @@
-use super::BlockPySetupExprLowerer;
+use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
 use crate::block_py::BlockPyStmtFragmentBuilder;
 use crate::passes::ruff_to_blockpy::expr_lowering::boolop_compare::{
     lower_boolop_into, lower_compare_into,
@@ -17,7 +17,7 @@ pub(super) fn lower_expr_ast_recursive<L, E>(
 ) -> Result<Expr, String>
 where
     L: BlockPySetupExprLowerer + ?Sized,
-    E: From<Expr> + std::fmt::Debug,
+    E: RuffToBlockPyExpr,
 {
     match expr {
         Expr::BoolOp(bool_op) => lower_boolop_into(lowerer, bool_op, out, loop_ctx, next_label_id),

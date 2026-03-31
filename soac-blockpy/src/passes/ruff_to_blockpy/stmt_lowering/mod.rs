@@ -32,7 +32,7 @@ pub(super) fn lower_stmt_via_simplify<T, E>(
 ) -> Result<(), String>
 where
     T: StmtLowerer + Clone,
-    E: From<Expr> + std::fmt::Debug,
+    E: RuffToBlockPyExpr,
 {
     for simplified in stmt.clone().simplify_ast(context) {
         lower_stmt_into_with_expr(context, &simplified, out, loop_ctx, next_label_id)?;
@@ -48,7 +48,7 @@ pub(crate) fn lower_nested_stmt_into_with_expr<E>(
     next_label_id: &mut usize,
 ) -> Result<(), String>
 where
-    E: From<Expr> + std::fmt::Debug,
+    E: RuffToBlockPyExpr,
 {
     if should_simplify_nested_stmt_head(stmt) {
         for simplified in simplify_stmt_head_ast_for_blockpy(context, stmt.clone()) {
@@ -94,7 +94,7 @@ pub(super) trait StmtLowerer {
         _next_label_id: &mut usize,
     ) -> Result<(), String>
     where
-        E: From<Expr> + std::fmt::Debug,
+        E: RuffToBlockPyExpr,
     {
         panic!(
             "{} should have already been reduced before BlockPy lowering",
@@ -118,7 +118,7 @@ macro_rules! impl_unreduced_stmt_lowerer {
                 _next_label_id: &mut usize,
             ) -> Result<(), String>
             where
-                E: From<Expr> + std::fmt::Debug,
+                E: RuffToBlockPyExpr,
             {
                 panic!($message);
             }
@@ -283,7 +283,7 @@ pub(crate) fn lower_stmt_into_with_expr<E>(
     next_label_id: &mut usize,
 ) -> Result<(), String>
 where
-    E: From<Expr> + std::fmt::Debug,
+    E: RuffToBlockPyExpr,
 {
     match stmt {
         Stmt::Global(stmt) => stmt.to_blockpy(context, out, loop_ctx, next_label_id),

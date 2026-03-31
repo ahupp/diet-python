@@ -13,7 +13,7 @@ impl StmtLowerer for ast::StmtImport {
         next_label_id: &mut usize,
     ) -> Result<(), String>
     where
-        E: From<Expr> + std::fmt::Debug,
+        E: RuffToBlockPyExpr,
     {
         lower_stmt_via_simplify(context, self, out, loop_ctx, next_label_id)
     }

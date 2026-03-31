@@ -216,7 +216,7 @@ impl StmtLowerer for ast::StmtAssign {
         next_label_id: &mut usize,
     ) -> Result<(), String>
     where
-        E: From<Expr> + std::fmt::Debug,
+        E: RuffToBlockPyExpr,
     {
         if self.targets.len() != 1 {
             return Err(assign_delete_error(

@@ -43,7 +43,7 @@ pub(crate) fn compat_block_from_blockpy_with_exc_target_and_expr<E>(
     exc_target: Option<&BlockPyLabel>,
 ) -> LoweredBlockPyBlock<E>
 where
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     let body = lower_stmts_to_blockpy_stmts::<E>(&body).unwrap_or_else(|err| {
         panic!("failed to convert compatibility block body to BlockPy: {err}")
@@ -70,7 +70,7 @@ fn compat_block_builder_with_expr_setup_and_expr<E>(
     body: Vec<Stmt>,
 ) -> Result<BlockPyStmtFragmentBuilder<E>, String>
 where
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     let mut out = BlockPyStmtFragmentBuilder::<E>::new();
     let mut next_label_id = 0usize;
@@ -104,7 +104,7 @@ pub(crate) fn compat_if_jump_block_with_expr_setup_and_exc_target_and_expr<E>(
     exc_target: Option<&BlockPyLabel>,
 ) -> Result<LoweredBlockPyBlock<E>, String>
 where
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     let mut out = compat_block_builder_with_expr_setup_and_expr::<E>(context, body)?;
     let mut next_label_id = 0usize;
@@ -180,7 +180,7 @@ pub(crate) fn emit_sequence_jump_block<E>(
     exc_target: Option<&BlockPyLabel>,
 ) -> BlockPyLabel
 where
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         label.clone(),
@@ -213,7 +213,7 @@ pub(crate) fn emit_sequence_return_block_with_expr_setup_and_expr<E>(
     exc_target: Option<&BlockPyLabel>,
 ) -> Result<BlockPyLabel, String>
 where
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     let mut out = compat_block_builder_with_expr_setup_and_expr::<E>(context, linear)?;
     let mut next_label_id = 0usize;
@@ -264,7 +264,7 @@ pub(crate) fn emit_sequence_raise_block_with_expr_setup_and_expr<E>(
     exc_target: Option<&BlockPyLabel>,
 ) -> Result<BlockPyLabel, String>
 where
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     let mut out = compat_block_builder_with_expr_setup_and_expr::<E>(context, linear)?;
     let mut next_label_id = 0usize;
@@ -320,7 +320,7 @@ pub(crate) fn emit_if_branch_block_with_expr_setup_and_expr<E>(
     exc_target: Option<&BlockPyLabel>,
 ) -> Result<BlockPyLabel, String>
 where
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     blocks.push(
         compat_if_jump_block_with_expr_setup_and_exc_target_and_expr(
@@ -372,7 +372,7 @@ pub(crate) fn emit_simple_while_blocks_with_expr_setup_and_expr<E>(
     exc_target: Option<&BlockPyLabel>,
 ) -> Result<BlockPyLabel, String>
 where
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     blocks.push(
         compat_if_jump_block_with_expr_setup_and_exc_target_and_expr(
@@ -415,7 +415,7 @@ pub(crate) fn emit_for_loop_blocks<E>(
     exc_target: Option<&BlockPyLabel>,
 ) -> BlockPyLabel
 where
-    E: From<Expr> + ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     let iter_expr = py_expr!("{iter:id}", iter = iter_name);
     let tmp_expr = py_expr!("{tmp:id}", tmp = tmp_name);

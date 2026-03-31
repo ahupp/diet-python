@@ -18,7 +18,7 @@ impl StmtLowerer for ast::StmtWith {
         next_label_id: &mut usize,
     ) -> Result<(), String>
     where
-        E: From<Expr> + std::fmt::Debug,
+        E: RuffToBlockPyExpr,
     {
         lower_stmt_via_simplify(context, self, out, loop_ctx, next_label_id)
     }
@@ -159,7 +159,7 @@ pub(crate) fn lower_with_stmt_sequence<F, E>(
 ) -> BlockPyLabel
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
-    E: From<Expr> + crate::block_py::ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + crate::block_py::ImplicitNoneExpr,
 {
     if with_stmt.items.is_empty() {
         let jump_label = if linear.is_empty() {

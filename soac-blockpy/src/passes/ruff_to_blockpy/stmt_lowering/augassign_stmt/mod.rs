@@ -1,4 +1,50 @@
 use super::*;
+use crate::block_py::HasMeta;
+
+fn temp_name(name: &str, ctx: ast::ExprContext) -> ast::ExprName {
+    ast::ExprName {
+        id: name.into(),
+        ctx,
+        range: Default::default(),
+        node_index: Default::default(),
+    }
+}
+
+fn temp_load_expr<E: RuffToBlockPyExpr>(name: &str) -> E {
+    Expr::Name(temp_name(name, ast::ExprContext::Load)).into()
+}
+
+fn bind_temp<E: RuffToBlockPyExpr>(
+    out: &mut BlockPyStmtFragmentBuilder<E>,
+    name: String,
+    value: E,
+) -> E {
+    out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
+        target: temp_name(&name, ast::ExprContext::Store),
+        value,
+    }));
+    temp_load_expr(&name)
+}
+
+fn lower_target_object_with_setup<E: RuffToBlockPyExpr>(
+    target_value: Expr,
+    out: &mut BlockPyStmtFragmentBuilder<E>,
+    loop_ctx: Option<&LoopContext>,
+    next_label_id: &mut usize,
+) -> Result<E, String> {
+    let meta = target_value.meta();
+    let maybe_name = target_value.as_name_expr().map(|name| name.id.to_string());
+    let value = crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+        target_value,
+        out,
+        loop_ctx,
+        next_label_id,
+    )?;
+    Ok(match maybe_name {
+        Some(name) => E::load_deleted_name(meta.node_index, meta.range, name, value),
+        None => value,
+    })
+}
 
 impl StmtLowerer for ast::StmtAugAssign {
     fn simplify_ast(self, context: &Context) -> Vec<Stmt> {
@@ -13,9 +59,135 @@ impl StmtLowerer for ast::StmtAugAssign {
         next_label_id: &mut usize,
     ) -> Result<(), String>
     where
-        E: From<Expr> + std::fmt::Debug,
+        E: RuffToBlockPyExpr,
     {
-        lower_stmt_via_simplify(context, self, out, loop_ctx, next_label_id)
+        let stmt = Stmt::AugAssign(self.clone());
+
+        match &*self.target {
+            Expr::Name(target) => {
+                let target_meta = self.target.meta();
+                let mut load_name = target.clone();
+                load_name.ctx = ast::ExprContext::Load;
+                let current_value = bind_temp(
+                    out,
+                    context.fresh("augassign_value"),
+                    Expr::Name(load_name).into(),
+                );
+                let rhs =
+                    crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+                        (*self.value).clone(),
+                        out,
+                        loop_ctx,
+                        next_label_id,
+                    )?;
+
+                out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
+                    target: target.clone(),
+                    value: E::lower_augassign_value(
+                        target_meta.node_index,
+                        target_meta.range,
+                        self.op,
+                        current_value,
+                        rhs,
+                    ),
+                }));
+                Ok(())
+            }
+            Expr::Attribute(target) => {
+                let object_value = lower_target_object_with_setup(
+                    (*target.value).clone(),
+                    out,
+                    loop_ctx,
+                    next_label_id,
+                )?;
+                let object_temp = bind_temp(out, context.fresh("augassign_obj"), object_value);
+                let current_value = bind_temp(
+                    out,
+                    context.fresh("augassign_value"),
+                    E::get_attr(
+                        target.node_index.clone(),
+                        target.range,
+                        object_temp.clone(),
+                        target.attr.to_string(),
+                    ),
+                );
+                let rhs =
+                    crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+                        (*self.value).clone(),
+                        out,
+                        loop_ctx,
+                        next_label_id,
+                    )?;
+
+                out.push_stmt(StructuredBlockPyStmt::Expr(E::set_attr(
+                    target.node_index.clone(),
+                    target.range,
+                    object_temp,
+                    target.attr.to_string(),
+                    E::lower_augassign_value(
+                        target.node_index.clone(),
+                        target.range,
+                        self.op,
+                        current_value,
+                        rhs,
+                    ),
+                )));
+                Ok(())
+            }
+            Expr::Subscript(target) => {
+                let object_value = lower_target_object_with_setup(
+                    (*target.value).clone(),
+                    out,
+                    loop_ctx,
+                    next_label_id,
+                )?;
+                let object_temp = bind_temp(out, context.fresh("augassign_obj"), object_value);
+                let index_value =
+                    crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+                        (*target.slice).clone(),
+                        out,
+                        loop_ctx,
+                        next_label_id,
+                    )?;
+                let index_temp = bind_temp(out, context.fresh("augassign_index"), index_value);
+                let current_value = bind_temp(
+                    out,
+                    context.fresh("augassign_value"),
+                    E::get_item(
+                        target.node_index.clone(),
+                        target.range,
+                        object_temp.clone(),
+                        index_temp.clone(),
+                    ),
+                );
+                let rhs =
+                    crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+                        (*self.value).clone(),
+                        out,
+                        loop_ctx,
+                        next_label_id,
+                    )?;
+
+                out.push_stmt(StructuredBlockPyStmt::Expr(E::set_item(
+                    target.node_index.clone(),
+                    target.range,
+                    object_temp,
+                    index_temp,
+                    E::lower_augassign_value(
+                        target.node_index.clone(),
+                        target.range,
+                        self.op,
+                        current_value,
+                        rhs,
+                    ),
+                )));
+                Ok(())
+            }
+            _ => Err(assign_delete_error(
+                "unsupported augmented assignment target reached BlockPy conversion",
+                &stmt,
+            )),
+        }
     }
 }
 

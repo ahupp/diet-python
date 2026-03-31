@@ -237,7 +237,7 @@ pub(crate) fn lower_star_try_stmt_sequence<F, E>(
 ) -> BlockPyLabel
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
-    E: From<Expr> + crate::block_py::ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + crate::block_py::ImplicitNoneExpr,
 {
     let rewritten_try = match rewrite_try_stmt(try_stmt) {
         Rewrite::Unmodified(stmt) => stmt_to_stmts(stmt),
@@ -267,7 +267,7 @@ pub(crate) fn lower_try_stmt_sequence<F, E>(
 ) -> BlockPyLabel
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
-    E: From<Expr> + crate::block_py::ImplicitNoneExpr + std::fmt::Debug,
+    E: RuffToBlockPyExpr + crate::block_py::ImplicitNoneExpr,
 {
     let rest_entry = lower_sequence(remaining_stmts, targets.clone(), blocks);
 

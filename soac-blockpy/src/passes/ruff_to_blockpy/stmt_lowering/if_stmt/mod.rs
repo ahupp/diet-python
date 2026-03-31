@@ -69,7 +69,7 @@ impl StmtLowerer for ast::StmtIf {
         next_label_id: &mut usize,
     ) -> Result<(), String>
     where
-        E: From<Expr> + std::fmt::Debug,
+        E: RuffToBlockPyExpr,
     {
         match simplify_stmt_head_ast_for_blockpy(context, Stmt::If(self.clone())).as_slice() {
             [Stmt::If(simplified_if)] => {
@@ -113,7 +113,7 @@ fn lower_nested_body_to_stmts_with_expr<E>(
     next_label_id: &mut usize,
 ) -> Result<crate::block_py::BlockPyCfgFragment<StructuredBlockPyStmt<E>, BlockPyTerm<E>>, String>
 where
-    E: From<Expr> + std::fmt::Debug,
+    E: RuffToBlockPyExpr,
 {
     let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
         StructuredBlockPyStmt<E>,
@@ -133,7 +133,7 @@ fn lower_orelse_to_stmts_with_expr<E>(
     next_label_id: &mut usize,
 ) -> Result<crate::block_py::BlockPyCfgFragment<StructuredBlockPyStmt<E>, BlockPyTerm<E>>, String>
 where
-    E: From<Expr> + std::fmt::Debug,
+    E: RuffToBlockPyExpr,
 {
     match clauses {
         [] => Ok(crate::block_py::BlockPyCfgFragment::<

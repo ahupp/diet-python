@@ -1,4 +1,4 @@
-use super::BlockPySetupExprLowerer;
+use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
 use crate::block_py::{
     BlockPyAssign, BlockPyIf, BlockPyStmtFragmentBuilder, StructuredBlockPyStmt,
 };
@@ -39,7 +39,7 @@ pub(super) fn lower_if_expr_into<L, E>(
 ) -> Result<Expr, String>
 where
     L: BlockPySetupExprLowerer + ?Sized,
-    E: From<Expr> + std::fmt::Debug,
+    E: RuffToBlockPyExpr,
 {
     let ast::ExprIf {
         test, body, orelse, ..

@@ -47,6 +47,7 @@ pub(crate) use compat::{
     emit_sequence_return_block_with_expr_setup_and_expr, emit_simple_while_blocks_with_expr_setup,
     emit_simple_while_blocks_with_expr_setup_and_expr,
 };
+pub(crate) use expr_lowering::RuffToBlockPyExpr;
 pub(crate) use stmt_lowering::{
     build_for_target_assign_body, lower_star_try_stmt_sequence, lower_try_stmt_sequence,
     lower_with_stmt_sequence,

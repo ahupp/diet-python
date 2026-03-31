@@ -1,4 +1,4 @@
-use super::BlockPySetupExprLowerer;
+use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
 use crate::block_py::{BlockPyAssign, BlockPyStmtFragmentBuilder, StructuredBlockPyStmt};
 use crate::passes::ruff_to_blockpy::LoopContext;
 use ruff_python_ast::{self as ast, Expr};
@@ -26,7 +26,7 @@ pub(super) fn lower_named_expr_into<L, E>(
 ) -> Result<Expr, String>
 where
     L: BlockPySetupExprLowerer + ?Sized,
-    E: From<Expr> + std::fmt::Debug,
+    E: RuffToBlockPyExpr,
 {
     let ast::ExprNamed { target, value, .. } = named_expr;
     let Expr::Name(target_name) = *target else {

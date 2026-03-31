@@ -1,5 +1,7 @@
-use super::super::{simplify_stmt_ast_once_for_blockpy, BlockPyStmtFragmentBuilder};
+use super::super::BlockPyStmtFragmentBuilder;
 use super::*;
+use crate::block_py::pretty::BlockPyDebugExprText;
+use crate::block_py::{CoreBlockPyExprWithAwaitAndYield, StructuredBlockPyStmt};
 use crate::passes::ast_to_ast::context::Context;
 
 #[test]
@@ -16,13 +18,13 @@ fn stmt_augassign_simplify_ast_desugars_before_blockpy_lowering() {
 }
 
 #[test]
-fn stmt_augassign_to_blockpy_uses_trait_owned_simplification_path() {
-    let stmt = py_stmt!("x += y");
+fn stmt_augassign_to_blockpy_emits_direct_core_operations() {
+    let stmt = py_stmt!("obj[idx] += y");
     let Stmt::AugAssign(aug_stmt) = stmt else {
         panic!("expected augassign stmt");
     };
     let context = Context::new("");
-    let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
+    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
     let mut next_label_id = 0usize;
 
     aug_stmt
@@ -30,8 +32,13 @@ fn stmt_augassign_to_blockpy_uses_trait_owned_simplification_path() {
         .expect("augassign lowering should succeed");
 
     let fragment = out.finish();
-    assert!(matches!(
-        fragment.body.as_slice(),
-        [StructuredBlockPyStmt::Assign(_)]
-    ));
+    let Some(StructuredBlockPyStmt::Expr(expr)) = fragment.body.last() else {
+        panic!("expected final expr stmt, got {fragment:?}");
+    };
+    let rendered = expr.debug_expr_text();
+
+    assert!(rendered.contains("SetItem("), "{rendered}");
+    assert!(rendered.contains("InplaceBinOp(Add,"), "{rendered}");
+    assert!(!rendered.contains("__dp_iadd"), "{rendered}");
+    assert!(!rendered.contains("__dp_setitem"), "{rendered}");
 }
