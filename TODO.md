@@ -114,6 +114,39 @@
     - Extend the existing `blockpy_expr_simplify` tests to cover direct lowering for the moved families and keep the current operation-kind assertions.
     - Re-run `just test-all` and specifically watch `core_eval_order`, `blockpy_expr_simplify`, and BB-string normalization tests for any behavioral drift from changed lowering order or metadata stamping.
 
+## Expose per-module constants to codegen
+
+- Planning note:
+  - There are two different constant/data channels that codegen needs, and they should stop sharing one access story:
+    - Python runtime constants: real `PyObject` values such as strings, bytes, large ints, kw-name tuples, and any other per-module objects that generated code wants to load or call against.
+    - Internal lowering data: Rust-only metadata such as `BlockPyModule<CodegenBlockPyPass>`, function tables, storage layouts, block plans, and any future compile-time descriptors.
+  - Today those are split inconsistently:
+    - Python constants are mostly re-materialized ad hoc in JIT codegen, for example `emit_owned_string_constant` and the bytes/int/float literal paths in `soac-eval/src/jit/intrinsics.rs` and `soac-eval/src/jit/mod.rs`.
+    - Internal data is stored per module in `_soac_ext` module state for the root `BlockPyModule`, but function-level lookup still escapes through the global `BB_FUNCTION_REGISTRY` in `soac-eval/src/jit/planning.rs`, keyed by `(module_name, function_id)`.
+  - The clean split is:
+    - `CompileSession` owns all internal lowering data and typed ids.
+    - `_soac_ext` module state owns the realized Python constant pool for that module, plus a typed handle back to the owning `CompileSession` / module id.
+    - Codegen consumes one explicit module-codegen context that can answer both “give me Python constant #k” and “give me internal function/module metadata for id X” without stringly global lookup.
+  - A safe implementation order is:
+    - Extend `CompileSession` from the current copyable id wrapper into an owning `Arc`-backed session object with typed registries such as `ModuleId`, `FunctionId`, and later `PythonConstId`.
+    - Move `BlockPyModule` / function-table ownership into that session. `create_module` should lower once, register the lowered module in the session, and store only `(session handle, module id, module/package names)` in `_soac_ext` module state.
+    - Replace `register_clif_module_plans` / `lookup_blockpy_function(module_name, function_id)` with session-scoped lookup APIs, so `make_bb_function`, `make_bb_generator`, and `exec_module` stop resolving through module-name strings and the global `BB_FUNCTION_REGISTRY`.
+    - Introduce an explicit Python constant pool in the codegen IR boundary:
+      - lower Python-constant-bearing sites to typed constant references instead of re-decoding from raw bytes or rebuilding names inline;
+      - start with string-ish cases that are already obvious, e.g. attribute names, global-name loads, bytes/string literals, and decode-literal helpers;
+      - handle larger or composite constants later, e.g. big ints, kw-name tuples, and any tuple/dict literal fragments that should become pooled objects.
+    - Realize that Python constant pool once per module in `_soac_ext` module state, not in the Rust-only `CompileSession`. That keeps Python references attached to the module object that owns their lifetime.
+    - Because module state would then hold `PyObject` references, reintroduce real `m_traverse` / `m_clear` handling in `soac-eval/src/module_type.rs` so GC can see and clear those Python constant references safely.
+    - Add a small runtime accessor layer for JIT codegen, for example “load python const by id from module state / owner”, instead of emitting bespoke bytes-to-string decode logic at every site.
+  - Design constraints to preserve:
+    - Keep evaluation order unchanged. Pooling a constant is only a representation change; it must not move side effects or accidentally share objects whose identity is supposed to be fresh.
+    - Keep pure Rust internal metadata separate from `PyObject` ownership. `CompileSession` should not become a hidden Python-GC root unless that is explicitly intended.
+    - Avoid using `module.__dict__` as the internal-data store. Module dict values are Python-visible runtime semantics; the internal registries should stay in typed session/module-state storage.
+  - Good first slice:
+    - session-own the lowered module/function lookup path first, replacing the global registry;
+    - then pool/load attribute-name and global-name strings through module state;
+    - only after that decide which remaining literal categories should stay as inline materialization fast paths versus moving into the module Python constant pool.
+
 ## Completed
 
 - Move completed TODO entries here and include a short description of the work done.
