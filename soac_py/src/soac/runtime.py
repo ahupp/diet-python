@@ -370,21 +370,17 @@ def _dp_mark_closed(owner):
     owner._resume_fn = None
 
 
-def _normalize_throw_exc(typ, val=None, tb=None, *, where, state=None):
+def _normalize_throw_exc(typ, val=None, tb=None, *, where, throw_context=None):
     if val is not None or tb is not None:
         raise TypeError(f"{where} does not support value/traceback in this mode")
     exc = raise_from(typ, None)
-    if state is not None:
-        _attach_throw_context_from_state(state, exc)
+    if exc.__context__ is None and isinstance(throw_context, BaseException):
+        exc.__context__ = throw_context
     return exc
 
 
-def _attach_throw_context_from_state(state, exc):
-    if exc.__context__ is not None:
-        return
-    candidate = _yieldfrom_cell_value(state._throw_context_cell)
-    if isinstance(candidate, BaseException):
-        exc.__context__ = candidate
+def _current_throw_context(owner):
+    return _yieldfrom_cell_value(owner._throw_context_cell)
 
 class _DpClosureGenerator:
     __slots__ = (
@@ -431,7 +427,13 @@ class _DpClosureGenerator:
             _dp_reraise_control_flow(exc)
 
     def throw(self, typ=None, val=None, tb=None):
-        exc = _normalize_throw_exc(typ, val, tb, where="DpGen.throw()", state=self)
+        exc = _normalize_throw_exc(
+            typ,
+            val,
+            tb,
+            where="DpGen.throw()",
+            throw_context=_current_throw_context(self),
+        )
         if self._is_closed:
             _dp_reraise_control_flow(exc)
         try:
@@ -549,7 +551,13 @@ class _DpClosureAsyncGenerator:
         return _DpAsyncGenSend(self, value, NO_DEFAULT)
 
     def athrow(self, typ=None, val=None, tb=None):
-        exc = _normalize_throw_exc(typ, val, tb, where="DpAsyncGen.athrow()", state=self)
+        exc = _normalize_throw_exc(
+            typ,
+            val,
+            tb,
+            where="DpAsyncGen.athrow()",
+            throw_context=_current_throw_context(self),
+        )
         return _DpAsyncGenSend(self, NO_DEFAULT, exc)
 
     async def aclose(self):
