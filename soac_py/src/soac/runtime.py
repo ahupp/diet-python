@@ -421,14 +421,6 @@ class _DpAsyncGenComplete(Exception):
 builtins.__dp_AsyncGenComplete = _DpAsyncGenComplete
 
 
-def raise_uncaught_async_generator_exception(exc):
-    if isinstance(exc, StopIteration):
-        raise RuntimeError("async generator raised StopIteration") from exc
-    if isinstance(exc, StopAsyncIteration):
-        raise RuntimeError("async generator raised StopAsyncIteration") from exc
-    raise exc
-
-
 def _dp_is_cancelled_error(exc):
     asyncio_mod = sys.modules.get("asyncio")
     if asyncio_mod is None:
@@ -703,7 +695,11 @@ class _DpAsyncGenSend:
             _dp_mark_closed(self._dp_gen)
             if _dp_is_cancelled_error(exc) or isinstance(exc, GeneratorExit):
                 _dp_reraise_control_flow(exc)
-            raise_uncaught_async_generator_exception(exc)
+            if isinstance(exc, StopIteration):
+                raise RuntimeError("async generator raised StopIteration") from exc
+            if isinstance(exc, StopAsyncIteration):
+                raise RuntimeError("async generator raised StopAsyncIteration") from exc
+            raise exc
         self._dp_resume_exc = NO_DEFAULT
         if _current_yieldfrom(self._dp_gen) is None:
             self._dp_done = True
