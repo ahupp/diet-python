@@ -12,6 +12,7 @@ use ruff_python_semantic::{
 };
 use ruff_text_size::{Ranged, TextRange};
 
+use crate::passes::ast_symbol_analysis::CurrentScopeNameTraversal;
 use crate::passes::ast_to_ast::body::Suite;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ast_to_ast::util::is_noarg_call;
@@ -393,62 +394,6 @@ fn uses_implicit_class_cell(body: &mut Suite) -> bool {
 impl Transformer for RuffScopeBindingCollector {
     fn visit_stmt(&mut self, stmt: &mut ast::Stmt) {
         match stmt {
-            ast::Stmt::Assign(assign) => {
-                for target in &assign.targets {
-                    collect_bound_target_names(target, &mut self.bound_names);
-                }
-                crate::transformer::walk_stmt(self, stmt);
-            }
-            ast::Stmt::AugAssign(aug) => {
-                collect_bound_target_names(aug.target.as_ref(), &mut self.bound_names);
-                crate::transformer::walk_stmt(self, stmt);
-            }
-            ast::Stmt::AnnAssign(ann) => {
-                collect_bound_target_names(ann.target.as_ref(), &mut self.bound_names);
-                crate::transformer::walk_stmt(self, stmt);
-            }
-            ast::Stmt::For(for_stmt) => {
-                collect_bound_target_names(for_stmt.target.as_ref(), &mut self.bound_names);
-                crate::transformer::walk_stmt(self, stmt);
-            }
-            ast::Stmt::With(with_stmt) => {
-                for item in &with_stmt.items {
-                    if let Some(optional_vars) = item.optional_vars.as_ref() {
-                        collect_bound_target_names(optional_vars.as_ref(), &mut self.bound_names);
-                    }
-                }
-                crate::transformer::walk_stmt(self, stmt);
-            }
-            ast::Stmt::Delete(delete_stmt) => {
-                for target in &delete_stmt.targets {
-                    collect_bound_target_names(target, &mut self.bound_names);
-                }
-                crate::transformer::walk_stmt(self, stmt);
-            }
-            ast::Stmt::Try(try_stmt) => {
-                for handler in &try_stmt.handlers {
-                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
-                    if let Some(name) = handler.name.as_ref() {
-                        self.bound_names.insert(name.id.to_string());
-                    }
-                }
-                crate::transformer::walk_stmt(self, stmt);
-            }
-            ast::Stmt::Import(import_stmt) => {
-                for alias in &import_stmt.names {
-                    self.bound_names
-                        .insert(import_binding_name(alias).to_string());
-                }
-            }
-            ast::Stmt::ImportFrom(import_stmt) => {
-                for alias in &import_stmt.names {
-                    if alias.name.as_str() == "*" {
-                        continue;
-                    }
-                    self.bound_names
-                        .insert(alias.asname.as_ref().unwrap_or(&alias.name).to_string());
-                }
-            }
             ast::Stmt::Global(global_stmt) => {
                 for name in &global_stmt.names {
                     self.explicit_globals
@@ -461,57 +406,12 @@ impl Transformer for RuffScopeBindingCollector {
                         .push((name.id.to_string(), name.range()));
                 }
             }
-            ast::Stmt::FunctionDef(func_def) => {
-                self.bound_names.insert(func_def.name.id.to_string());
-                for decorator in &mut func_def.decorator_list {
-                    self.visit_decorator(decorator);
-                }
-                if let Some(type_params) = func_def.type_params.as_mut() {
-                    self.visit_type_params(type_params);
-                }
-                self.visit_parameters(&mut func_def.parameters);
-                if let Some(returns) = func_def.returns.as_mut() {
-                    self.visit_annotation(returns);
-                }
-            }
-            ast::Stmt::ClassDef(class_def) => {
-                self.bound_names.insert(class_def.name.id.to_string());
-                for decorator in &mut class_def.decorator_list {
-                    self.visit_decorator(decorator);
-                }
-                if let Some(type_params) = class_def.type_params.as_mut() {
-                    self.visit_type_params(type_params);
-                }
-                if let Some(arguments) = class_def.arguments.as_mut() {
-                    self.visit_arguments(arguments);
-                }
-            }
-            _ => crate::transformer::walk_stmt(self, stmt),
+            _ => self.visit_current_scope_stmt_impl(stmt),
         }
     }
 
     fn visit_expr(&mut self, expr: &mut ast::Expr) {
-        match expr {
-            ast::Expr::Name(name) if matches!(name.ctx, ExprContext::Store) => {
-                self.bound_names.insert(name.id.to_string());
-                return;
-            }
-            ast::Expr::Name(name) if matches!(name.ctx, ExprContext::Load) => {
-                let id = name.id.as_str();
-                if !is_internal_symbol(id) {
-                    self.load_names.insert(id.to_string());
-                }
-                return;
-            }
-            ast::Expr::Named(named) => {
-                collect_bound_target_names(named.target.as_ref(), &mut self.bound_names);
-                self.visit_expr(named.value.as_mut());
-                return;
-            }
-            ast::Expr::Lambda(_) | ast::Expr::Generator(_) => return,
-            _ => {}
-        }
-        crate::transformer::walk_expr(self, expr);
+        self.visit_current_scope_expr_impl(expr);
     }
 
     fn visit_type_param(&mut self, type_param: &mut ast::TypeParam) {
@@ -527,31 +427,20 @@ impl Transformer for RuffScopeBindingCollector {
     }
 }
 
-fn collect_bound_target_names(expr: &ast::Expr, names: &mut HashSet<String>) {
-    match expr {
-        ast::Expr::Name(name) => {
-            names.insert(name.id.to_string());
-        }
-        ast::Expr::Tuple(tuple) => {
-            for elt in &tuple.elts {
-                collect_bound_target_names(elt, names);
-            }
-        }
-        ast::Expr::List(list) => {
-            for elt in &list.elts {
-                collect_bound_target_names(elt, names);
-            }
-        }
-        ast::Expr::Starred(starred) => collect_bound_target_names(starred.value.as_ref(), names),
-        _ => {}
+impl CurrentScopeNameTraversal for RuffScopeBindingCollector {
+    fn bound_names_mut(&mut self) -> &mut HashSet<String> {
+        &mut self.bound_names
     }
-}
 
-fn import_binding_name(alias: &ast::Alias) -> &str {
-    alias.asname.as_ref().map_or_else(
-        || alias.name.as_str().split('.').next().unwrap(),
-        |asname| asname.as_str(),
-    )
+    fn loaded_names_mut(&mut self) -> &mut HashSet<String> {
+        &mut self.load_names
+    }
+
+    fn record_loaded_name(&mut self, name: &str) {
+        if !is_internal_symbol(name) {
+            self.load_names.insert(name.to_string());
+        }
+    }
 }
 
 fn collect_scope_bindings(

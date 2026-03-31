@@ -68,3 +68,42 @@ fn collect_loaded_names_stays_in_current_scope() {
         assert!(!names.contains(skipped), "{names:?}");
     }
 }
+
+#[test]
+fn collect_loaded_names_includes_function_and_class_headers() {
+    let stmts = vec![
+        py_stmt!("@decorator(dep)\ndef fn(arg = default_value) -> result_ty:\n    return nested"),
+        py_stmt!("@class_deco(dep)\nclass Thing(base_expr):\n    member = nested"),
+    ];
+
+    let names = collect_loaded_names(&stmts);
+
+    for expected in [
+        "decorator",
+        "dep",
+        "default_value",
+        "result_ty",
+        "class_deco",
+        "base_expr",
+    ] {
+        assert!(names.contains(expected), "missing {expected} in {names:?}");
+    }
+    for skipped in ["nested", "member"] {
+        assert!(!names.contains(skipped), "{names:?}");
+    }
+}
+
+#[test]
+fn collect_bound_names_includes_imports_and_named_expr_targets() {
+    let stmts = vec![
+        py_stmt!("import pkg.sub"),
+        py_stmt!("from pkg import thing as alias"),
+        py_stmt!("if (captured := value):\n    pass"),
+    ];
+
+    let names = collect_bound_names(&stmts);
+
+    for expected in ["pkg", "alias", "captured"] {
+        assert!(names.contains(expected), "missing {expected} in {names:?}");
+    }
+}
