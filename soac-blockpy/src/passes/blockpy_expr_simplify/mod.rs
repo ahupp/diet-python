@@ -10,7 +10,7 @@ use crate::block_py::{
     CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
     CoreStringLiteral, Meta, RuffExpr, StructuredBlockPyStmt, WithMeta,
 };
-use crate::passes::ast_to_ast::expr_utils::{make_binop, make_tuple, make_unaryop};
+use crate::passes::ast_to_ast::expr_utils::{make_binop, make_tuple};
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, RuffBlockPyPass};
@@ -114,20 +114,183 @@ fn core_operation_expr(
     CoreBlockPyExprWithAwaitAndYield::Op(Box::new(operation))
 }
 
+fn core_operation_expr_with_meta(
+    detail: impl Into<operation::OperationDetail<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>>,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+) -> CoreBlockPyExprWithAwaitAndYield {
+    core_operation_expr(operation::Operation::new(detail).with_meta(Meta::new(node_index, range)))
+}
+
+fn unary_op_expr_with_meta(
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    kind: operation::UnaryOpKind,
+    operand: CoreBlockPyExprWithAwaitAndYield,
+) -> CoreBlockPyExprWithAwaitAndYield {
+    core_operation_expr_with_meta(
+        operation::UnaryOp::new(kind, Box::new(operand)),
+        node_index,
+        range,
+    )
+}
+
+fn binop_expr_with_meta(
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    kind: operation::BinOpKind,
+    left: CoreBlockPyExprWithAwaitAndYield,
+    right: CoreBlockPyExprWithAwaitAndYield,
+) -> CoreBlockPyExprWithAwaitAndYield {
+    core_operation_expr_with_meta(
+        operation::BinOp::new(kind, Box::new(left), Box::new(right)),
+        node_index,
+        range,
+    )
+}
+
+fn getattr_expr_with_meta(
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    value: CoreBlockPyExprWithAwaitAndYield,
+    attr: String,
+) -> CoreBlockPyExprWithAwaitAndYield {
+    core_operation_expr_with_meta(
+        operation::GetAttr::new(Box::new(value), attr),
+        node_index,
+        range,
+    )
+}
+
+fn getitem_expr_with_meta(
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    value: CoreBlockPyExprWithAwaitAndYield,
+    index: CoreBlockPyExprWithAwaitAndYield,
+) -> CoreBlockPyExprWithAwaitAndYield {
+    core_operation_expr_with_meta(
+        operation::GetItem::new(Box::new(value), Box::new(index)),
+        node_index,
+        range,
+    )
+}
+
+fn unary_op_expr_from_ast_with_meta(
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    op: ast::UnaryOp,
+    operand: CoreBlockPyExprWithAwaitAndYield,
+) -> CoreBlockPyExprWithAwaitAndYield {
+    let kind = match op {
+        ast::UnaryOp::Not => operation::UnaryOpKind::Not,
+        ast::UnaryOp::Invert => operation::UnaryOpKind::Invert,
+        ast::UnaryOp::USub => operation::UnaryOpKind::Neg,
+        ast::UnaryOp::UAdd => operation::UnaryOpKind::Pos,
+    };
+    unary_op_expr_with_meta(node_index, range, kind, operand)
+}
+
+fn binop_expr_from_ast_with_meta(
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    op: ast::Operator,
+    left: CoreBlockPyExprWithAwaitAndYield,
+    right: CoreBlockPyExprWithAwaitAndYield,
+) -> CoreBlockPyExprWithAwaitAndYield {
+    match op {
+        ast::Operator::Add => add_op_expr_with_meta(node_index, range, left, right),
+        ast::Operator::Pow => core_operation_expr_with_meta(
+            operation::TernaryOp::new(
+                operation::TernaryOpKind::Pow,
+                Box::new(left),
+                Box::new(right),
+                Box::new(core_builtin_name("__dp_NONE")),
+            ),
+            node_index,
+            range,
+        ),
+        _ => {
+            let kind = match op {
+                ast::Operator::Add => unreachable!("handled above"),
+                ast::Operator::Sub => operation::BinOpKind::Sub,
+                ast::Operator::Mult => operation::BinOpKind::Mul,
+                ast::Operator::MatMult => operation::BinOpKind::MatMul,
+                ast::Operator::Div => operation::BinOpKind::TrueDiv,
+                ast::Operator::Mod => operation::BinOpKind::Mod,
+                ast::Operator::Pow => unreachable!("handled above"),
+                ast::Operator::LShift => operation::BinOpKind::LShift,
+                ast::Operator::RShift => operation::BinOpKind::RShift,
+                ast::Operator::BitOr => operation::BinOpKind::Or,
+                ast::Operator::BitXor => operation::BinOpKind::Xor,
+                ast::Operator::BitAnd => operation::BinOpKind::And,
+                ast::Operator::FloorDiv => operation::BinOpKind::FloorDiv,
+            };
+            binop_expr_with_meta(node_index, range, kind, left, right)
+        }
+    }
+}
+
+fn compare_expr_from_ast_with_meta(
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    op: ast::CmpOp,
+    left: CoreBlockPyExprWithAwaitAndYield,
+    right: CoreBlockPyExprWithAwaitAndYield,
+) -> CoreBlockPyExprWithAwaitAndYield {
+    match op {
+        ast::CmpOp::Eq => {
+            binop_expr_with_meta(node_index, range, operation::BinOpKind::Eq, left, right)
+        }
+        ast::CmpOp::NotEq => {
+            binop_expr_with_meta(node_index, range, operation::BinOpKind::Ne, left, right)
+        }
+        ast::CmpOp::Lt => {
+            binop_expr_with_meta(node_index, range, operation::BinOpKind::Lt, left, right)
+        }
+        ast::CmpOp::LtE => {
+            binop_expr_with_meta(node_index, range, operation::BinOpKind::Le, left, right)
+        }
+        ast::CmpOp::Gt => {
+            binop_expr_with_meta(node_index, range, operation::BinOpKind::Gt, left, right)
+        }
+        ast::CmpOp::GtE => {
+            binop_expr_with_meta(node_index, range, operation::BinOpKind::Ge, left, right)
+        }
+        ast::CmpOp::Is => {
+            binop_expr_with_meta(node_index, range, operation::BinOpKind::Is, left, right)
+        }
+        ast::CmpOp::IsNot => {
+            binop_expr_with_meta(node_index, range, operation::BinOpKind::IsNot, left, right)
+        }
+        ast::CmpOp::In => binop_expr_with_meta(
+            node_index,
+            range,
+            operation::BinOpKind::Contains,
+            right,
+            left,
+        ),
+        ast::CmpOp::NotIn => unary_op_expr_with_meta(
+            node_index.clone(),
+            range,
+            operation::UnaryOpKind::Not,
+            binop_expr_with_meta(
+                node_index,
+                range,
+                operation::BinOpKind::Contains,
+                right,
+                left,
+            ),
+        ),
+    }
+}
+
 fn add_op_expr_with_meta(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
     left: CoreBlockPyExprWithAwaitAndYield,
     right: CoreBlockPyExprWithAwaitAndYield,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    core_operation_expr(
-        operation::Operation::new(operation::BinOp::new(
-            operation::BinOpKind::Add,
-            Box::new(left),
-            Box::new(right),
-        ))
-        .with_meta(Meta::new(node_index, range)),
-    )
+    binop_expr_with_meta(node_index, range, operation::BinOpKind::Add, left, right)
 }
 
 fn add_op_expr(
@@ -539,55 +702,31 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
             Expr::NoneLiteral(_) => core_builtin_name("__dp_NONE"),
             Expr::EllipsisLiteral(_) => core_builtin_name("__dp_Ellipsis"),
             Expr::Attribute(node) if matches!(node.ctx, ast::ExprContext::Load) => {
-                Self::from(py_expr!(
-                    "__dp_getattr({value:expr}, {attr:literal})",
-                    value = *node.value,
-                    attr = node.attr.id.as_str(),
-                ))
-            }
-            Expr::Subscript(node) if matches!(node.ctx, ast::ExprContext::Load) => {
-                Self::from(py_expr!(
-                    "__dp_getitem({value:expr}, {slice:expr})",
-                    value = *node.value,
-                    slice = *node.slice,
-                ))
-            }
-            Expr::UnaryOp(node) => {
-                let func_name = match node.op {
-                    ast::UnaryOp::Not => "not_",
-                    ast::UnaryOp::Invert => "invert",
-                    ast::UnaryOp::USub => "neg",
-                    ast::UnaryOp::UAdd => "pos",
-                };
-                Self::from(make_unaryop(func_name, *node.operand))
-            }
-            Expr::BinOp(node) => match node.op {
-                ast::Operator::Add => add_op_expr_with_meta(
+                let value = Self::from(*node.value);
+                getattr_expr_with_meta(
                     node.node_index,
                     node.range,
-                    Self::from(*node.left),
-                    Self::from(*node.right),
-                ),
-                _ => {
-                    let func_name = match node.op {
-                        ast::Operator::Add => unreachable!("handled above"),
-                        ast::Operator::Sub => "sub",
-                        ast::Operator::Mult => "mul",
-                        ast::Operator::MatMult => "matmul",
-                        ast::Operator::Div => "truediv",
-                        ast::Operator::Mod => "mod",
-                        ast::Operator::Pow => "pow",
-                        ast::Operator::LShift => "lshift",
-                        ast::Operator::RShift => "rshift",
-                        ast::Operator::BitOr => "or_",
-                        ast::Operator::BitXor => "xor",
-                        ast::Operator::BitAnd => "and_",
-                        ast::Operator::FloorDiv => "floordiv",
-                    };
-                    Self::from(make_binop(func_name, *node.left, *node.right))
-                }
-            },
+                    value,
+                    node.attr.id.as_str().to_string(),
+                )
+            }
+            Expr::Subscript(node) if matches!(node.ctx, ast::ExprContext::Load) => {
+                let value = Self::from(*node.value);
+                let index = Self::from(*node.slice);
+                getitem_expr_with_meta(node.node_index, node.range, value, index)
+            }
+            Expr::UnaryOp(node) => {
+                let operand = Self::from(*node.operand);
+                unary_op_expr_from_ast_with_meta(node.node_index, node.range, node.op, operand)
+            }
+            Expr::BinOp(node) => {
+                let left = Self::from(*node.left);
+                let right = Self::from(*node.right);
+                binop_expr_from_ast_with_meta(node.node_index, node.range, node.op, left, right)
+            }
             Expr::Compare(node) if node.ops.len() == 1 && node.comparators.len() == 1 => {
+                let node_index = node.node_index;
+                let range = node.range;
                 let left = *node.left;
                 let right = node
                     .comparators
@@ -595,26 +734,19 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                     .into_iter()
                     .next()
                     .expect("single compare comparator");
-                match node
+                let op = node
                     .ops
                     .into_vec()
                     .into_iter()
                     .next()
-                    .expect("single compare op")
-                {
-                    ast::CmpOp::Eq => Self::from(make_binop("eq", left, right)),
-                    ast::CmpOp::NotEq => Self::from(make_binop("ne", left, right)),
-                    ast::CmpOp::Lt => Self::from(make_binop("lt", left, right)),
-                    ast::CmpOp::LtE => Self::from(make_binop("le", left, right)),
-                    ast::CmpOp::Gt => Self::from(make_binop("gt", left, right)),
-                    ast::CmpOp::GtE => Self::from(make_binop("ge", left, right)),
-                    ast::CmpOp::Is => Self::from(make_binop("is_", left, right)),
-                    ast::CmpOp::IsNot => Self::from(make_binop("is_not", left, right)),
-                    ast::CmpOp::In => Self::from(make_binop("contains", right, left)),
-                    ast::CmpOp::NotIn => {
-                        Self::from(make_unaryop("not_", make_binop("contains", right, left)))
-                    }
-                }
+                    .expect("single compare op");
+                compare_expr_from_ast_with_meta(
+                    node_index,
+                    range,
+                    op,
+                    Self::from(left),
+                    Self::from(right),
+                )
             }
             Expr::Tuple(node) if matches!(node.ctx, ast::ExprContext::Load) => {
                 let tuple = if node.elts.iter().any(Expr::is_starred_expr) {

@@ -1,9 +1,7 @@
 use super::*;
 
 use crate::block_py::pretty::BlockPyDebugExprText;
-use crate::block_py::{
-    BinOpKind, BlockPyModule, InplaceBinOpKind, OperationDetail, TernaryOpKind, UnaryOpKind,
-};
+use crate::block_py::{BinOpKind, BlockPyModule, OperationDetail, TernaryOpKind, UnaryOpKind};
 
 fn lower_semantic_expr_without_setup(expr: &SemanticExpr) -> CoreBlockPyExprWithAwaitAndYield {
     let mut setup = CoreStmtBuilder::new();
