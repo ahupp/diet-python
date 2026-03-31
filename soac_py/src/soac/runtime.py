@@ -330,51 +330,6 @@ def truth(value):
     return bool(value)
 
 
-def _resolve_local_frame(owner):
-    frame = getattr(owner, "gi_frame", None)
-    if frame is not None:
-        return frame
-    return None
-
-
-def _resume_closure_value(owner, name):
-    resume = getattr(owner, "_dp_resume", None)
-    closure = getattr(resume, "__closure__", None)
-    code = getattr(resume, "__code__", None)
-    if closure is None or code is None:
-        return _MISSING
-    target_name = (
-        name
-        if name == "_dp_classcell" or name.startswith("_dp_cell_")
-        else f"_dp_cell_{name}"
-    )
-    for freevar, cell in zip(code.co_freevars, closure):
-        if freevar != target_name and freevar != name:
-            continue
-        try:
-            value = cell.cell_contents
-        except ValueError:
-            return DELETED
-        if freevar == name and target_name != name:
-            if isinstance(value, _types.CellType):
-                try:
-                    return value.cell_contents
-                except ValueError:
-                    return DELETED
-            return value
-        if target_name == name:
-            if isinstance(value, _types.CellType):
-                return value
-            return cell
-        if isinstance(value, _types.CellType):
-            try:
-                return value.cell_contents
-            except ValueError:
-                return DELETED
-        return value
-    return _MISSING
-
-
 def _yieldfrom_cell_value(cell):
     try:
         value = cell.cell_contents
@@ -387,23 +342,6 @@ def _yieldfrom_cell_value(cell):
 
 def _current_yieldfrom(owner):
     return _yieldfrom_cell_value(owner._yieldfrom_cell)
-
-
-def __dp_load_local_raw(gen, name):
-    frame = _resolve_local_frame(gen)
-    if isinstance(frame, dict):
-        if name.startswith("_dp_yield_from_iter_") and name not in frame:
-            return getattr(gen, "gi_yieldfrom", DELETED)
-        return frame.get(name, DELETED)
-    value = _resume_closure_value(gen, name)
-    if value is _MISSING and name.startswith("_dp_yield_from_iter_"):
-        return getattr(gen, "gi_yieldfrom", DELETED)
-    if value is _MISSING:
-        return DELETED
-    return value
-
-
-builtins.__dp_load_local_raw = __dp_load_local_raw
 
 
 class _DpAsyncGenComplete(Exception):
