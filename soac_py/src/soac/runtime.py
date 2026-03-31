@@ -341,7 +341,7 @@ def _yieldfrom_cell_value(cell):
 
 
 def _current_yieldfrom(owner):
-    return _yieldfrom_cell_value(owner._yieldfrom_cell)
+    return _yieldfrom_cell_value(owner._yield_from_cell)
 
 
 class _DpAsyncGenComplete(Exception):
@@ -366,8 +366,8 @@ def _dp_reraise_control_flow(exc):
 
 
 def _dp_mark_closed(owner):
-    owner._dp_closed = True
-    owner._dp_resume = None
+    owner._is_closed = True
+    owner._resume_fn = None
 
 
 def _normalize_throw_exc(typ, val=None, tb=None, *, where, state=None):
@@ -383,7 +383,7 @@ def _attach_throw_context_from_state(state, exc):
     if exc.__context__ is not None:
         return
     try:
-        for cell in reversed(tuple(state._context_cells)):
+        for cell in reversed(tuple(state._throw_context_cells)):
             candidate = _yieldfrom_cell_value(cell)
             if isinstance(candidate, BaseException):
                 exc.__context__ = candidate
@@ -393,10 +393,10 @@ def _attach_throw_context_from_state(state, exc):
 
 class _DpClosureGenerator:
     __slots__ = (
-        "_dp_resume",
-        "_dp_closed",
-        "_yieldfrom_cell",
-        "_context_cells",
+        "_resume_fn",
+        "_is_closed",
+        "_yield_from_cell",
+        "_throw_context_cells",
         "__name__",
         "__qualname__",
         "gi_code",
@@ -412,10 +412,10 @@ class _DpClosureGenerator:
         yieldfrom_cell,
         context_cells,
     ):
-        self._dp_resume = resume
-        self._dp_closed = False
-        self._yieldfrom_cell = yieldfrom_cell
-        self._context_cells = context_cells
+        self._resume_fn = resume
+        self._is_closed = False
+        self._yield_from_cell = yieldfrom_cell
+        self._throw_context_cells = context_cells
         self.__name__ = name
         self.__qualname__ = qualname
         self.gi_code = code
@@ -427,26 +427,26 @@ class _DpClosureGenerator:
         return self.send(None)
 
     def send(self, value):
-        if self._dp_closed:
+        if self._is_closed:
             raise StopIteration
         try:
-            return self._dp_resume(self, value, NO_DEFAULT)
+            return self._resume_fn(self, value, NO_DEFAULT)
         except BaseException as exc:
             _dp_mark_closed(self)
             _dp_reraise_control_flow(exc)
 
     def throw(self, typ=None, val=None, tb=None):
         exc = _normalize_throw_exc(typ, val, tb, where="DpGen.throw()", state=self)
-        if self._dp_closed:
+        if self._is_closed:
             _dp_reraise_control_flow(exc)
         try:
-            return self._dp_resume(self, NO_DEFAULT, exc)
+            return self._resume_fn(self, NO_DEFAULT, exc)
         except BaseException as exc:
             _dp_mark_closed(self)
             _dp_reraise_control_flow(exc)
 
     def close(self):
-        if self._dp_closed:
+        if self._is_closed:
             return None
         try:
             self.throw(GeneratorExit)
@@ -504,10 +504,10 @@ class _DpCoroutine(_abc.Coroutine):
 
 class _DpClosureAsyncGenerator:
     __slots__ = (
-        "_dp_resume",
-        "_dp_closed",
-        "_yieldfrom_cell",
-        "_context_cells",
+        "_resume_fn",
+        "_is_closed",
+        "_yield_from_cell",
+        "_throw_context_cells",
         "__name__",
         "__qualname__",
         "ag_code",
@@ -523,10 +523,10 @@ class _DpClosureAsyncGenerator:
         yieldfrom_cell,
         context_cells,
     ):
-        self._dp_resume = resume
-        self._dp_closed = False
-        self._yieldfrom_cell = yieldfrom_cell
-        self._context_cells = context_cells
+        self._resume_fn = resume
+        self._is_closed = False
+        self._yield_from_cell = yieldfrom_cell
+        self._throw_context_cells = context_cells
         self.__name__ = name
         self.__qualname__ = qualname
         self.ag_code = code
@@ -565,13 +565,13 @@ class _DpClosureAsyncGenerator:
         raise RuntimeError("async generator ignored GeneratorExit")
 
 class _DpAsyncGenSend:
-    __slots__ = ("_dp_gen", "_dp_value", "_dp_resume_exc", "_dp_done")
+    __slots__ = ("_generator", "_send_value", "_resume_exception", "_is_done")
 
     def __init__(self, gen, value, resume_exc):
-        self._dp_gen = gen
-        self._dp_value = value
-        self._dp_resume_exc = resume_exc
-        self._dp_done = False
+        self._generator = gen
+        self._send_value = value
+        self._resume_exception = resume_exc
+        self._is_done = False
 
     def __iter__(self):
         return self
@@ -583,34 +583,34 @@ class _DpAsyncGenSend:
         return self.send(None)
 
     def _dp_step(self, transport_sent):
-        if self._dp_gen._dp_closed:
-            self._dp_done = True
-            resume_exc = self._dp_resume_exc
-            self._dp_resume_exc = NO_DEFAULT
+        if self._generator._is_closed:
+            self._is_done = True
+            resume_exc = self._resume_exception
+            self._resume_exception = NO_DEFAULT
             if resume_exc is NO_DEFAULT:
                 raise StopAsyncIteration
             raise StopIteration(None)
         step_send_value = (
             transport_sent
-            if _current_yieldfrom(self._dp_gen) is not None
-            else self._dp_value
+            if _current_yieldfrom(self._generator) is not None
+            else self._send_value
         )
         try:
-            result = self._dp_gen._dp_resume(
-                self._dp_gen,
+            result = self._generator._resume_fn(
+                self._generator,
                 step_send_value,
-                self._dp_resume_exc,
+                self._resume_exception,
                 transport_sent,
             )
         except _DpAsyncGenComplete:
-            self._dp_done = True
-            self._dp_resume_exc = NO_DEFAULT
-            _dp_mark_closed(self._dp_gen)
+            self._is_done = True
+            self._resume_exception = NO_DEFAULT
+            _dp_mark_closed(self._generator)
             raise StopAsyncIteration
         except BaseException as exc:
-            self._dp_done = True
-            self._dp_resume_exc = NO_DEFAULT
-            _dp_mark_closed(self._dp_gen)
+            self._is_done = True
+            self._resume_exception = NO_DEFAULT
+            _dp_mark_closed(self._generator)
             if _dp_is_cancelled_error(exc) or isinstance(exc, GeneratorExit):
                 _dp_reraise_control_flow(exc)
             if isinstance(exc, StopIteration):
@@ -618,20 +618,20 @@ class _DpAsyncGenSend:
             if isinstance(exc, StopAsyncIteration):
                 raise RuntimeError("async generator raised StopAsyncIteration") from exc
             raise exc
-        self._dp_resume_exc = NO_DEFAULT
-        if _current_yieldfrom(self._dp_gen) is None:
-            self._dp_done = True
+        self._resume_exception = NO_DEFAULT
+        if _current_yieldfrom(self._generator) is None:
+            self._is_done = True
             raise StopIteration(result)
         return result
 
     def send(self, value):
-        if self._dp_done:
+        if self._is_done:
             raise StopIteration
         if (
             value is not None
-            and self._dp_value is None
-            and self._dp_resume_exc is NO_DEFAULT
-            and _current_yieldfrom(self._dp_gen) is None
+            and self._send_value is None
+            and self._resume_exception is NO_DEFAULT
+            and _current_yieldfrom(self._generator) is None
         ):
             raise TypeError(
                 "can't send non-None value to a just-started async generator"
@@ -639,9 +639,9 @@ class _DpAsyncGenSend:
         return self._dp_step(value)
 
     def throw(self, typ, val=None, tb=None):
-        if self._dp_done:
+        if self._is_done:
             raise _normalize_throw_exc(typ, val, tb, where="DpAsyncGenSend.throw()")
-        self._dp_resume_exc = _normalize_throw_exc(
+        self._resume_exception = _normalize_throw_exc(
             typ, val, tb, where="DpAsyncGenSend.throw()"
         )
         return self._dp_step(None)
