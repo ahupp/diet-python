@@ -5,18 +5,66 @@ use pyo3::types::PyAnyMethods;
 use soac_blockpy::block_py::BlockPyModule;
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::ffi::{c_int, c_void};
+use std::mem::MaybeUninit;
 use std::ptr;
 
-#[derive(Clone)]
-pub struct SoacExtModuleData {
-    pub lowered_module: BlockPyModule<CodegenBlockPyPass>,
-    pub module_name: String,
-    pub package_name: String,
+pub struct SoacExtModuleDataRef<'a> {
+    pub lowered_module: &'a BlockPyModule<CodegenBlockPyPass>,
+    pub module_name: &'a str,
+    pub package_name: &'a str,
 }
 
 #[repr(C)]
 struct SoacExtModuleState {
-    data: *mut SoacExtModuleData,
+    initialized: bool,
+    lowered_module: MaybeUninit<BlockPyModule<CodegenBlockPyPass>>,
+    module_name: MaybeUninit<String>,
+    package_name: MaybeUninit<String>,
+}
+
+impl SoacExtModuleState {
+    unsafe fn init(
+        &mut self,
+        lowered_module: BlockPyModule<CodegenBlockPyPass>,
+        module_name: String,
+        package_name: String,
+    ) -> PyResult<()> {
+        if self.initialized {
+            return Err(PyRuntimeError::new_err(
+                "transformed module state was unexpectedly initialized twice",
+            ));
+        }
+        self.lowered_module.write(lowered_module);
+        self.module_name.write(module_name);
+        self.package_name.write(package_name);
+        self.initialized = true;
+        Ok(())
+    }
+
+    unsafe fn clear(&mut self) {
+        if !self.initialized {
+            return;
+        }
+        unsafe {
+            ptr::drop_in_place(self.lowered_module.as_mut_ptr());
+            ptr::drop_in_place(self.module_name.as_mut_ptr());
+            ptr::drop_in_place(self.package_name.as_mut_ptr());
+        }
+        self.initialized = false;
+    }
+
+    unsafe fn data(&self) -> PyResult<SoacExtModuleDataRef<'_>> {
+        if !self.initialized {
+            return Err(PyRuntimeError::new_err(
+                "missing transformed-module lowering data in module state",
+            ));
+        }
+        Ok(SoacExtModuleDataRef {
+            lowered_module: unsafe { self.lowered_module.assume_init_ref() },
+            module_name: unsafe { self.module_name.assume_init_ref().as_str() },
+            package_name: unsafe { self.package_name.assume_init_ref().as_str() },
+        })
+    }
 }
 
 unsafe extern "C" fn soac_ext_module_traverse(
@@ -32,13 +80,7 @@ unsafe extern "C" fn soac_ext_module_clear(module: *mut ffi::PyObject) -> c_int 
     if state.is_null() {
         return 0;
     }
-    let data = unsafe { (*state).data };
-    if !data.is_null() {
-        unsafe {
-            drop(Box::from_raw(data));
-            (*state).data = ptr::null_mut();
-        }
-    }
+    unsafe { (*state).clear() };
     0
 }
 
@@ -114,33 +156,16 @@ impl SoacExtModule {
         }
         let state = soac_ext_module_state(&module)?;
         unsafe {
-            if !(*state).data.is_null() {
-                return Err(PyRuntimeError::new_err(
-                    "transformed module state was unexpectedly initialized twice",
-                ));
-            }
-            (*state).data = Box::into_raw(Box::new(SoacExtModuleData {
-                lowered_module,
-                module_name,
-                package_name,
-            }));
+            (*state).init(lowered_module, module_name, package_name)?;
         }
         Ok(module.unbind())
     }
 
     pub fn with_data<R>(
         module: &Bound<'_, PyAny>,
-        f: impl FnOnce(&SoacExtModuleData) -> PyResult<R>,
+        f: impl FnOnce(SoacExtModuleDataRef<'_>) -> PyResult<R>,
     ) -> PyResult<R> {
         let state = soac_ext_module_state(module)?;
-        unsafe {
-            let data = (*state).data;
-            if data.is_null() {
-                return Err(PyRuntimeError::new_err(
-                    "missing transformed-module lowering data in module state",
-                ));
-            }
-            f(&*data)
-        }
+        unsafe { f((*state).data()?) }
     }
 }
