@@ -224,6 +224,22 @@ fn resolve_module_name(module_globals: &Bound<'_, PyAny>, operation: &str) -> Py
     })
 }
 
+fn resolve_module_package(module_globals: &Bound<'_, PyAny>, operation: &str) -> PyResult<String> {
+    let globals = module_globals
+        .cast::<PyDict>()
+        .map_err(|_| PyTypeError::new_err("module_globals must be a dict"))?;
+    let Some(module_package_obj) = globals.get_item("__package__")? else {
+        return Err(PyRuntimeError::new_err(format!(
+            "JIT basic-block {operation} requires module_globals['__package__']"
+        )));
+    };
+    module_package_obj.extract::<String>().map_err(|_| {
+        PyRuntimeError::new_err(format!(
+            "JIT basic-block {operation} requires module_globals['__package__'] to be a str"
+        ))
+    })
+}
+
 fn lookup_bb_function(
     module_name: &str,
     function_id: usize,
@@ -250,19 +266,6 @@ fn lookup_module_init_function(
                 "JIT basic-block module init failed to resolve lowered _dp_module_init for {module_name}"
             ))
         })
-}
-
-fn resolve_module_name_from_module(module: &Bound<'_, PyAny>, operation: &str) -> PyResult<String> {
-    let module_name_obj = module.getattr("__name__").map_err(|_| {
-        PyRuntimeError::new_err(format!(
-            "JIT basic-block {operation} requires module.__name__"
-        ))
-    })?;
-    module_name_obj.extract::<String>().map_err(|_| {
-        PyRuntimeError::new_err(format!(
-            "JIT basic-block {operation} requires module.__name__ to be a str"
-        ))
-    })
 }
 
 fn build_capture_map<'py>(
@@ -625,15 +628,24 @@ fn create_module(py: Python<'_>, source: &str, spec: Py<PyAny>) -> PyResult<Py<P
 #[pyfunction]
 fn exec_module(py: Python<'_>, module: Py<PyAny>) -> PyResult<()> {
     let module = module.bind(py);
-    let module_name = resolve_module_name_from_module(module.as_any(), "module execution")?;
     let module_globals = module.getattr("__dict__")?;
-    let lowered_module = SoacExtModule::lowered_module(module.as_any()).map_err(|err| {
+    let module_data = SoacExtModule::data(module.as_any()).map_err(|err| {
         PyTypeError::new_err(format!(
             "JIT basic-block module execution requires an _soac_ext-created module: {err}"
         ))
     })?;
-    register_blockpy_module_plans(&module_name, &lowered_module)?;
-    let function = lookup_module_init_function(&lowered_module, &module_name)?;
+    let module_name = resolve_module_name(&module_globals, "module execution")?;
+    assert_eq!(
+        module_name, module_data.module_name,
+        "module.__dict__['__name__'] did not match the module spec captured at create_module time"
+    );
+    let package_name = resolve_module_package(&module_globals, "module execution")?;
+    assert_eq!(
+        package_name, module_data.package_name,
+        "module.__dict__['__package__'] did not match the module spec captured at create_module time"
+    );
+    register_blockpy_module_plans(&module_name, &module_data.lowered_module)?;
+    let function = lookup_module_init_function(&module_data.lowered_module, &module_name)?;
     let dp = import_dp_module(py)?;
     let empty = PyTuple::empty(py);
     let none = py.None();

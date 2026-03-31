@@ -169,17 +169,12 @@ def main(argv: list[str] | None = None) -> int:
 
     spec = DietPythonFinder.wrap_spec(_resolve_target(args.module))
     assert spec is not None
-    module_name = spec.name
     path = Path(spec.origin).resolve()
-    run_name = "__main__"
 
     install()
     sys.argv = [str(path), *args.args]
     module = importlib.util.module_from_spec(spec)
-    module.__name__ = run_name
-    sys.modules[run_name] = module
-    if module_name != run_name:
-        sys.modules[module_name] = module
+    sys.modules[spec.name] = module
     sys.argv[0] = str(path)
     assert spec.loader is not None
     spec.loader.exec_module(module)

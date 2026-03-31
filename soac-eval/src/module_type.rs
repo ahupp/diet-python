@@ -11,10 +11,10 @@ static SOAC_EXT_MODULE_TYPE: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 // These module objects are instances of a dynamic Python ModuleType subclass,
 // not a #[pyclass] with embedded Rust storage, so the lowered BlockPyModule
 // lives in a side table keyed by module object identity.
-static LOWERED_MODULE_REGISTRY: OnceLock<Mutex<HashMap<usize, BlockPyModule<CodegenBlockPyPass>>>> =
+static LOWERED_MODULE_REGISTRY: OnceLock<Mutex<HashMap<usize, SoacExtModuleData>>> =
     OnceLock::new();
 
-fn lowered_module_registry() -> &'static Mutex<HashMap<usize, BlockPyModule<CodegenBlockPyPass>>> {
+fn lowered_module_registry() -> &'static Mutex<HashMap<usize, SoacExtModuleData>> {
     LOWERED_MODULE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -41,6 +41,13 @@ fn soac_ext_module_type<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyType>> {
 
 pub struct SoacExtModule;
 
+#[derive(Clone)]
+pub struct SoacExtModuleData {
+    pub lowered_module: BlockPyModule<CodegenBlockPyPass>,
+    pub module_name: String,
+    pub package_name: String,
+}
+
 impl SoacExtModule {
     pub fn new(
         py: Python<'_>,
@@ -51,28 +58,26 @@ impl SoacExtModule {
             .getattr("name")?
             .extract::<String>()
             .map_err(|_| PyTypeError::new_err("expected a module spec with a string 'name'"))?;
-        let module = soac_ext_module_type(py)?.call1((module_name,))?;
-        module.setattr("__spec__", spec)?;
-        module.setattr("__package__", spec.getattr("parent")?)?;
-        module.setattr("__loader__", spec.getattr("loader")?)?;
-        let origin = spec.getattr("origin")?;
-        if !origin.is_none() {
-            module.setattr("__file__", origin)?;
-        }
-        let submodule_search_locations = spec.getattr("submodule_search_locations")?;
-        if !submodule_search_locations.is_none() {
-            module.setattr("__path__", submodule_search_locations)?;
-        }
+        let package_name = spec
+            .getattr("parent")?
+            .extract::<String>()
+            .map_err(|_| PyTypeError::new_err("expected a module spec with a string 'parent'"))?;
+        let module = soac_ext_module_type(py)?.call1((module_name.as_str(),))?;
         lowered_module_registry()
             .lock()
             .map_err(|_| PyRuntimeError::new_err("failed to lock lowered module registry"))?
-            .insert(module_registry_key(&module), lowered_module);
+            .insert(
+                module_registry_key(&module),
+                SoacExtModuleData {
+                    lowered_module,
+                    module_name,
+                    package_name,
+                },
+            );
         Ok(module.unbind())
     }
 
-    pub fn lowered_module(
-        module: &Bound<'_, PyAny>,
-    ) -> PyResult<BlockPyModule<CodegenBlockPyPass>> {
+    pub fn data(module: &Bound<'_, PyAny>) -> PyResult<SoacExtModuleData> {
         let module_type = soac_ext_module_type(module.py())?;
         if !module.is_instance(module_type.as_any())? {
             return Err(PyTypeError::new_err(
