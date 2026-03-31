@@ -14,6 +14,7 @@
 - **NOTE**: Prefer adding behavior at transform time rather than runtime in `soac_py/src/soac/runtime.py` whenever possible.
 - **MUST FOLLOW**: If a change requires adding a compatibility interface for a Python standard type/function, or patching one, stop and describe the reason before implementing.
 - **MUST FOLLOW**: When changing implementation details, do not keep compatibility stubs/interfaces around; assume transformed inputs are regenerated each time.
+- **MUST FOLLOW**: If the user rejects a proposed approach, extract the underlying design principle behind that rejection, propose it explicitly as a general rule, and only add it to `AGENTS.md` if the user approves that rule.
 
 ## Tips
 - **MUST FOLLOW**: If a fixture error occurs, regenerate all fixtures by running `cargo run --bin regen_snapshots` with no file arguments.
