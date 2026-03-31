@@ -1,56 +1,138 @@
 use super::*;
-use crate::passes::ast_to_ast::ast_rewrite::Rewrite;
-use crate::passes::ast_to_ast::expr_utils::make_binop;
-use ruff_python_ast::Operator;
+use crate::block_py::HasMeta;
+use crate::passes::ast_to_ast::expr_utils::make_tuple;
 
-pub(crate) fn should_rewrite_assignment_targets(targets: &[Expr]) -> bool {
-    if targets.len() > 1 {
-        return true;
+fn rhs_temp_name(name: &str, ctx: ast::ExprContext) -> ast::ExprName {
+    ast::ExprName {
+        id: name.into(),
+        ctx,
+        range: Default::default(),
+        node_index: Default::default(),
     }
-
-    let Some(first) = targets.first() else {
-        return false;
-    };
-
-    !matches!(first, Expr::Name(_))
 }
 
-fn rewrite_stmt_target(context: &Context, target: Expr, rhs: Expr, out: &mut Vec<Stmt>) {
+pub(super) fn temp_load_expr<E: RuffToBlockPyExpr>(name: &str) -> E {
+    Expr::Name(rhs_temp_name(name, ast::ExprContext::Load)).into()
+}
+
+pub(super) fn bind_temp<E: RuffToBlockPyExpr>(
+    out: &mut BlockPyStmtFragmentBuilder<E>,
+    name: String,
+    value: E,
+) -> E {
+    out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
+        target: rhs_temp_name(&name, ast::ExprContext::Store),
+        value,
+    }));
+    temp_load_expr(&name)
+}
+
+pub(super) fn lower_target_object_with_setup<E: RuffToBlockPyExpr>(
+    target_value: Expr,
+    out: &mut BlockPyStmtFragmentBuilder<E>,
+    loop_ctx: Option<&LoopContext>,
+    next_label_id: &mut usize,
+) -> Result<E, String> {
+    let meta = target_value.meta();
+    let maybe_name = target_value.as_name_expr().map(|name| name.id.to_string());
+    let value = crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+        target_value,
+        out,
+        loop_ctx,
+        next_label_id,
+    )?;
+    Ok(match maybe_name {
+        Some(name) => E::load_deleted_name(meta.node_index, meta.range, name, value),
+        None => value,
+    })
+}
+
+fn lower_assignment_target_into<E>(
+    context: &Context,
+    target: Expr,
+    rhs: E,
+    out: &mut BlockPyStmtFragmentBuilder<E>,
+    loop_ctx: Option<&LoopContext>,
+    next_label_id: &mut usize,
+) -> Result<(), String>
+where
+    E: RuffToBlockPyExpr,
+{
     match target {
-        Expr::Tuple(tuple) => {
-            rewrite_unpack_target_stmt(context, tuple.elts, rhs, out, UnpackTargetKind::Tuple);
+        Expr::Tuple(tuple) => lower_unpack_target_into(
+            context,
+            tuple.elts,
+            rhs,
+            out,
+            loop_ctx,
+            next_label_id,
+            UnpackTargetKind::Tuple,
+        ),
+        Expr::List(list) => lower_unpack_target_into(
+            context,
+            list.elts,
+            rhs,
+            out,
+            loop_ctx,
+            next_label_id,
+            UnpackTargetKind::List,
+        ),
+        Expr::Subscript(ast::ExprSubscript {
+            value,
+            slice,
+            range,
+            node_index,
+            ..
+        }) => {
+            let object_value =
+                lower_target_object_with_setup(*value, out, loop_ctx, next_label_id)?;
+            let object_temp = bind_temp(out, context.fresh("assign_obj"), object_value);
+            let index_value =
+                crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+                    *slice,
+                    out,
+                    loop_ctx,
+                    next_label_id,
+                )?;
+            let index_temp = bind_temp(out, context.fresh("assign_index"), index_value);
+            out.push_stmt(StructuredBlockPyStmt::Expr(E::set_item(
+                node_index,
+                range,
+                object_temp,
+                index_temp,
+                rhs,
+            )));
+            Ok(())
         }
-        Expr::List(list) => {
-            rewrite_unpack_target_stmt(context, list.elts, rhs, out, UnpackTargetKind::List);
+        Expr::Attribute(ast::ExprAttribute {
+            value,
+            attr,
+            range,
+            node_index,
+            ..
+        }) => {
+            let object_value =
+                lower_target_object_with_setup(*value, out, loop_ctx, next_label_id)?;
+            let object_temp = bind_temp(out, context.fresh("assign_obj"), object_value);
+            out.push_stmt(StructuredBlockPyStmt::Expr(E::set_attr(
+                node_index,
+                range,
+                object_temp,
+                attr.to_string(),
+                rhs,
+            )));
+            Ok(())
         }
-        Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
-            let object_expr = with_target_object_expr(*value);
-            out.push(py_stmt!(
-                "__dp_setitem({value:expr}, {slice:expr}, {rhs:expr})",
-                value = object_expr,
-                slice = slice,
-                rhs = rhs,
-            ));
+        Expr::Name(name) => {
+            out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
+                target: name,
+                value: rhs,
+            }));
+            Ok(())
         }
-        Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
-            let object_expr = with_target_object_expr(*value);
-            out.push(py_stmt!(
-                "__dp_setattr({value:expr}, {name:literal}, {rhs:expr})",
-                value = object_expr,
-                name = attr.as_str(),
-                rhs = rhs
-            ));
-        }
-        Expr::Name(ast::ExprName { id, .. }) => {
-            out.push(py_stmt!(
-                "{name:id} = {rhs:expr}",
-                name = id.as_str(),
-                rhs = rhs
-            ));
-        }
-        other => {
-            panic!("unsupported assignment target: {other:?}");
-        }
+        other => Err(format!(
+            "unsupported assignment target reached BlockPy conversion: {other:?}"
+        )),
     }
 }
 
@@ -59,158 +141,109 @@ enum UnpackTargetKind {
     List,
 }
 
-fn rewrite_unpack_target_stmt(
+fn lower_unpack_target_into<E>(
     context: &Context,
     elts: Vec<Expr>,
-    value: Expr,
-    out: &mut Vec<Stmt>,
+    value: E,
+    out: &mut BlockPyStmtFragmentBuilder<E>,
+    loop_ctx: Option<&LoopContext>,
+    next_label_id: &mut usize,
     kind: UnpackTargetKind,
-) {
-    let tmp_expr = value;
+) -> Result<(), String>
+where
+    E: RuffToBlockPyExpr,
+{
     let mut starred_seen = false;
+    let mut spec_elts = Vec::new();
     for elt in &elts {
-        if let Expr::Starred(_) = elt {
-            if starred_seen {
-                panic!("unsupported starred assignment target");
-            }
-            starred_seen = true;
-        }
-    }
-
-    let unpacked_name = context.fresh("tmp");
-    let unpacked_tmp = py_expr!("{tmp:id}", tmp = unpacked_name.as_str());
-
-    let mut body_stmts = Vec::new();
-    let use_indexable_synthetic_tmp = !starred_seen
-        && matches!(
-            &tmp_expr,
-            Expr::Name(ast::ExprName { id, .. }) if id.as_str().starts_with("_dp_tmp_")
-        );
-
-    if starred_seen || !use_indexable_synthetic_tmp {
-        let mut spec_elts = Vec::new();
-        for elt in &elts {
-            if matches!(elt, Expr::Starred(_)) {
+        match elt {
+            Expr::Starred(_) => {
+                if starred_seen {
+                    return Err("unsupported starred assignment target".to_string());
+                }
+                starred_seen = true;
                 spec_elts.push(py_expr!("False"));
-            } else {
-                spec_elts.push(py_expr!("True"));
             }
+            _ => spec_elts.push(py_expr!("True")),
         }
-        let spec_expr = make_tuple(spec_elts);
-        body_stmts.push(py_stmt!(
-            "{tmp:id} = __dp_unpack({value:expr}, {spec:expr})",
-            tmp = unpacked_name.as_str(),
-            value = tmp_expr.clone(),
-            spec = spec_expr,
-        ));
-    } else {
-        body_stmts.push(py_stmt!(
-            "{tmp:id} = {value:expr}",
-            tmp = unpacked_name.as_str(),
-            value = tmp_expr.clone(),
-        ));
     }
 
-    for (i, elt) in elts.into_iter().enumerate() {
+    let spec_expr = make_tuple(spec_elts);
+    let unpack_meta = spec_expr.meta();
+    let unpacked_name = context.fresh("unpack");
+    let unpacked_value = E::helper_call(
+        unpack_meta.node_index,
+        unpack_meta.range,
+        "__dp_unpack",
+        vec![value, E::from(spec_expr)],
+    );
+    let unpacked_temp = bind_temp(out, unpacked_name.clone(), unpacked_value);
+
+    for (index, elt) in elts.into_iter().enumerate() {
+        let index_expr = E::from(py_expr!("{index:literal}", index = index as i64));
         match elt {
             Expr::Starred(ast::ExprStarred { value, .. }) => {
-                let star_value = py_expr!(
-                    "__dp_getitem({tmp:expr}, {idx:literal})",
-                    tmp = unpacked_tmp.clone(),
-                    idx = i,
+                let item_expr = E::get_item(
+                    Default::default(),
+                    Default::default(),
+                    unpacked_temp.clone(),
+                    index_expr,
                 );
                 let collection_expr = match kind {
-                    UnpackTargetKind::Tuple | UnpackTargetKind::List => {
-                        py_expr!("__dp_list({value:expr})", value = star_value)
-                    }
+                    UnpackTargetKind::Tuple | UnpackTargetKind::List => E::helper_call(
+                        Default::default(),
+                        Default::default(),
+                        "__dp_list",
+                        vec![item_expr],
+                    ),
                 };
-                rewrite_stmt_target(context, *value, collection_expr, &mut body_stmts);
+                lower_assignment_target_into(
+                    context,
+                    *value,
+                    collection_expr,
+                    out,
+                    loop_ctx,
+                    next_label_id,
+                )?;
             }
-            _ => {
-                let value = py_expr!(
-                    "__dp_getitem({tmp:expr}, {idx:literal})",
-                    tmp = unpacked_tmp.clone(),
-                    idx = i,
+            other => {
+                let item_expr = E::get_item(
+                    Default::default(),
+                    Default::default(),
+                    unpacked_temp.clone(),
+                    index_expr,
                 );
-                rewrite_stmt_target(context, elt, value, &mut body_stmts);
+                lower_assignment_target_into(
+                    context,
+                    other,
+                    item_expr,
+                    out,
+                    loop_ctx,
+                    next_label_id,
+                )?;
             }
         }
     }
 
-    body_stmts.push(py_stmt!("del {tmp:id}", tmp = unpacked_name.as_str()));
-    out.extend(body_stmts);
+    out.push_stmt(StructuredBlockPyStmt::Delete(BlockPyDelete {
+        target: rhs_temp_name(&unpacked_name, ast::ExprContext::Del),
+    }));
+
+    Ok(())
 }
 
-pub(crate) fn rewrite_assign_stmt(context: &Context, assign: ast::StmtAssign) -> Rewrite {
-    if !should_rewrite_assignment_targets(&assign.targets) {
-        return Rewrite::Unmodified(assign.into());
-    }
-
-    let ast::StmtAssign { targets, value, .. } = assign;
-    let mut stmts = Vec::new();
-    if targets.len() > 1 {
-        let lowered = context.maybe_placeholder_lowered(*value);
-        stmts.extend(lowered.stmts);
-        for target in targets {
-            stmts.push(py_stmt!(
-                "{target:expr} = {value:expr}",
-                target = target,
-                value = lowered.expr.clone()
-            ));
-        }
-    } else {
-        let target = targets.into_iter().next().unwrap();
-        rewrite_stmt_target(context, target, *value, &mut stmts);
-    }
-
-    Rewrite::Walk(stmts)
-}
-
-pub(crate) fn rewrite_augassign_stmt(context: &Context, aug_assign: ast::StmtAugAssign) -> Rewrite {
-    let ast::StmtAugAssign {
-        mut target,
-        op,
-        value,
-        ..
-    } = aug_assign;
-
-    let func_name = match op {
-        Operator::Add => "iadd",
-        Operator::Sub => "isub",
-        Operator::Mult => "imul",
-        Operator::MatMult => "imatmul",
-        Operator::Div => "itruediv",
-        Operator::Mod => "imod",
-        Operator::Pow => "ipow",
-        Operator::LShift => "ilshift",
-        Operator::RShift => "irshift",
-        Operator::BitOr => "ior",
-        Operator::BitXor => "ixor",
-        Operator::BitAnd => "iand",
-        Operator::FloorDiv => "ifloordiv",
-    };
-
-    match &mut *target {
-        Expr::Name(name) => name.ctx = ast::ExprContext::Load,
-        Expr::Attribute(attr) => attr.ctx = ast::ExprContext::Load,
-        Expr::Subscript(sub) => sub.ctx = ast::ExprContext::Load,
-        _ => {}
-    }
-
-    let call = make_binop(func_name, *target.clone(), *value);
-    let mut stmts = Vec::new();
-    rewrite_stmt_target(context, *target, call, &mut stmts);
-    Rewrite::Walk(stmts)
+fn should_bind_assignment_value(targets: &[Expr]) -> bool {
+    targets.len() > 1 || !matches!(targets, [Expr::Name(_)])
 }
 
 impl StmtLowerer for ast::StmtAssign {
-    fn simplify_ast(self, context: &Context) -> Vec<Stmt> {
-        stmts_from_rewrite(rewrite_assign_stmt(context, self))
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
+        single_stmt(self)
     }
 
     fn to_blockpy<E>(
         &self,
-        _context: &Context,
+        context: &Context,
         out: &mut BlockPyStmtFragmentBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
@@ -218,28 +251,28 @@ impl StmtLowerer for ast::StmtAssign {
     where
         E: RuffToBlockPyExpr,
     {
-        if self.targets.len() != 1 {
-            return Err(assign_delete_error(
-                "multi-target assignment reached BlockPy conversion",
-                &Stmt::Assign(self.clone()),
-            ));
-        }
-        let Some(target) = self.targets[0].as_name_expr().cloned() else {
-            return Err(assign_delete_error(
-                "non-name assignment target reached BlockPy conversion",
-                &Stmt::Assign(self.clone()),
-            ));
-        };
-        let value = crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
+        let mut value = crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
             (*self.value).clone(),
             out,
             loop_ctx,
             next_label_id,
         )?;
-        out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
-            target,
-            value,
-        }));
+
+        if should_bind_assignment_value(&self.targets) {
+            value = bind_temp(out, context.fresh("assign_value"), value);
+        }
+
+        for target in self.targets.iter().cloned() {
+            lower_assignment_target_into(
+                context,
+                target,
+                value.clone(),
+                out,
+                loop_ctx,
+                next_label_id,
+            )?;
+        }
+
         Ok(())
     }
 }
@@ -360,7 +393,7 @@ where
 
 pub(crate) fn build_for_target_assign_body<F>(
     target: &Expr,
-    tmp_expr: Expr,
+    rhs: Expr,
     tmp_name: &str,
     next_temp: &mut F,
 ) -> Vec<Stmt>
@@ -368,8 +401,10 @@ where
     F: FnMut(&str) -> String,
 {
     let mut out = Vec::new();
+    let tmp_expr = py_expr!("{tmp:id}", tmp = tmp_name);
+    out.push(py_stmt!("{tmp:id} = {rhs:expr}", tmp = tmp_name, rhs = rhs));
     rewrite_assignment_target(target.clone(), tmp_expr, &mut out, next_temp);
-    out.push(py_stmt!("{tmp:id} = None", tmp = tmp_name));
+    out.push(py_stmt!("del {tmp:id}", tmp = tmp_name));
     out
 }
 

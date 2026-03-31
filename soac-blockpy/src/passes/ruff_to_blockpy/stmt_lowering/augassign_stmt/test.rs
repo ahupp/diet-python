@@ -5,7 +5,7 @@ use crate::block_py::{CoreBlockPyExprWithAwaitAndYield, StructuredBlockPyStmt};
 use crate::passes::ast_to_ast::context::Context;
 
 #[test]
-fn stmt_augassign_simplify_ast_desugars_before_blockpy_lowering() {
+fn stmt_augassign_simplify_ast_keeps_stmt_for_direct_lowering() {
     let stmt = py_stmt!("x += y");
     let Stmt::AugAssign(aug_stmt) = stmt else {
         panic!("expected augassign stmt");
@@ -14,7 +14,7 @@ fn stmt_augassign_simplify_ast_desugars_before_blockpy_lowering() {
     let context = Context::new("");
     let simplified = simplify_stmt_ast_once_for_blockpy(&context, Stmt::AugAssign(aug_stmt));
 
-    assert!(!matches!(simplified.as_slice(), [Stmt::AugAssign(_)]));
+    assert!(matches!(simplified.as_slice(), [Stmt::AugAssign(_)]));
 }
 
 #[test]

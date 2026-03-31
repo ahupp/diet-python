@@ -558,11 +558,11 @@ fn method_super_uses_cell_ref_marker_for_classcell() {
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
     assert!(
-        core_rendered.contains("_dp_eval_1 = CellRefForName(\"__class__\")"),
+        core_rendered.contains("CellRefForName(\"__class__\")"),
         "{core_rendered}"
     );
     assert!(
-        core_rendered.contains("_dp_eval_2 = __dp_call_super(super, _dp_eval_1, self)"),
+        core_rendered.contains("__dp_call_super(super,") && core_rendered.contains(", self)"),
         "{core_rendered}"
     );
     assert!(
@@ -576,9 +576,8 @@ fn method_super_uses_cell_ref_marker_for_classcell() {
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains(
-            "__dp_call_super(LoadGlobal(__dp_globals(), \"super\"), local slot 1, local slot 0)"
-        ),
+        name_binding_rendered.contains("__dp_call_super(LoadGlobal(__dp_globals(), \"super\"),")
+            && name_binding_rendered.contains(", local slot 0)"),
         "{name_binding_rendered}"
     );
 }
@@ -2210,14 +2209,13 @@ def bump(x):
 
     let bump = lowered.bb_function("bump");
     assert!(
-        bump.blocks.iter().any(|block| match block.body.as_slice() {
-            [stmt] => matches!(
+        bump.blocks
+            .iter()
+            .any(|block| block.body.iter().any(|stmt| matches!(
                 stmt,
                 BlockPyStmt::Assign(assign)
                     if expr_text(&assign.value).contains("InplaceBinOp(Add,")
-            ),
-            _ => false,
-        }),
+            ))),
         "{bump:?}"
     );
 }

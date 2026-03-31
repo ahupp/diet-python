@@ -321,8 +321,9 @@ x = [i for i in it]
 #                         return _dp_tmp_1
 #                 else:
 #                     block bb2:
+#                         _dp_tmp_0_1 = _dp_tmp_0_1
 #                         i = _dp_tmp_0_1
-#                         _dp_tmp_0_1 = __dp_NONE
+#                         del _dp_tmp_0_1
 #                         jump bb5
 #                         block bb5:
 #                             GetAttr(_dp_tmp_1, "append")(i)
@@ -356,8 +357,9 @@ x = {i for i in it}
 #                         return _dp_tmp_1
 #                 else:
 #                     block bb2:
+#                         _dp_tmp_0_1 = _dp_tmp_0_1
 #                         i = _dp_tmp_0_1
-#                         _dp_tmp_0_1 = __dp_NONE
+#                         del _dp_tmp_0_1
 #                         jump bb5
 #                         block bb5:
 #                             GetAttr(_dp_tmp_1, "add")(i)
@@ -391,11 +393,12 @@ x = {k: v for k, v in it}
 #                         return _dp_tmp_1
 #                 else:
 #                     block bb2:
+#                         _dp_tmp_0_1 = _dp_tmp_0_1
 #                         _dp_tmp_0_2 = __dp_unpack(_dp_tmp_0_1, __dp_tuple(__dp_TRUE, __dp_TRUE))
 #                         k = GetItem(_dp_tmp_0_2, 0)
 #                         v = GetItem(_dp_tmp_0_2, 1)
 #                         del _dp_tmp_0_2
-#                         _dp_tmp_0_1 = __dp_NONE
+#                         del _dp_tmp_0_1
 #                         jump bb5
 #                         block bb5:
 #                             SetItem(_dp_tmp_1, k, v)

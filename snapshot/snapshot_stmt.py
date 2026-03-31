@@ -65,7 +65,9 @@ obj.x = 1
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         SetAttr(__dp_load_deleted_name("obj", obj), "x", 1)
+#         _dp_assign_value_1 = 1
+#         _dp_assign_obj_2 = __dp_load_deleted_name("obj", obj)
+#         SetAttr(_dp_assign_obj_2, "x", _dp_assign_value_1)
 #         return __dp_NONE
 
 # assign_subscript
@@ -77,7 +79,10 @@ obj[i] = v
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         SetItem(__dp_load_deleted_name("obj", obj), i, v)
+#         _dp_assign_value_1 = v
+#         _dp_assign_obj_2 = __dp_load_deleted_name("obj", obj)
+#         _dp_assign_index_3 = i
+#         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
 #         return __dp_NONE
 
 # assign_tuple_unpack
@@ -89,10 +94,11 @@ a, b = it
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(__dp_TRUE, __dp_TRUE))
-#         a = GetItem(_dp_tmp_1, 0)
-#         b = GetItem(_dp_tmp_1, 1)
-#         del _dp_tmp_1
+#         _dp_assign_value_1 = it
+#         _dp_unpack_2 = __dp_unpack(_dp_assign_value_1, __dp_tuple(__dp_TRUE, __dp_TRUE))
+#         a = GetItem(_dp_unpack_2, 0)
+#         b = GetItem(_dp_unpack_2, 1)
+#         del _dp_unpack_2
 #         return __dp_NONE
 
 # assign_star_unpack
@@ -104,10 +110,11 @@ a, *b = it
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_tmp_1 = __dp_unpack(it, __dp_tuple(__dp_TRUE, __dp_FALSE))
-#         a = GetItem(_dp_tmp_1, 0)
-#         b = __dp_list(GetItem(_dp_tmp_1, 1))
-#         del _dp_tmp_1
+#         _dp_assign_value_1 = it
+#         _dp_unpack_2 = __dp_unpack(_dp_assign_value_1, __dp_tuple(__dp_TRUE, __dp_FALSE))
+#         a = GetItem(_dp_unpack_2, 0)
+#         b = __dp_list(GetItem(_dp_unpack_2, 1))
+#         del _dp_unpack_2
 #         return __dp_NONE
 
 # assign_multi_targets
@@ -119,9 +126,9 @@ a = b = f()
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_tmp_1 = f()
-#         a = _dp_tmp_1
-#         b = _dp_tmp_1
+#         _dp_assign_value_1 = f()
+#         a = _dp_assign_value_1
+#         b = _dp_assign_value_1
 #         return __dp_NONE
 
 # ann_assign_simple
@@ -163,7 +170,9 @@ obj.x: int = 1
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         SetAttr(__dp_load_deleted_name("obj", obj), "x", 1)
+#         _dp_assign_value_1 = 1
+#         _dp_assign_obj_2 = __dp_load_deleted_name("obj", obj)
+#         SetAttr(_dp_assign_obj_2, "x", _dp_assign_value_1)
 #         return __dp_NONE
 
 # aug_assign_attr
@@ -175,7 +184,9 @@ obj.x += 1
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         SetAttr(__dp_load_deleted_name("obj", obj), "x", InplaceBinOp(Add, GetAttr(obj, "x"), 1))
+#         _dp_augassign_obj_1 = __dp_load_deleted_name("obj", obj)
+#         _dp_augassign_value_2 = GetAttr(_dp_augassign_obj_1, "x")
+#         SetAttr(_dp_augassign_obj_1, "x", InplaceBinOp(Add, _dp_augassign_value_2, 1))
 #         return __dp_NONE
 
 # delete_mixed
@@ -187,8 +198,11 @@ del obj.x, obj[i], x
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         __dp_delattr(obj, "x")
-#         DelItem(obj, i)
+#         _dp_delete_obj_1 = __dp_load_deleted_name("obj", obj)
+#         __dp_delattr(_dp_delete_obj_1, "x")
+#         _dp_delete_obj_2 = __dp_load_deleted_name("obj", obj)
+#         _dp_delete_index_3 = i
+#         DelItem(_dp_delete_obj_2, _dp_delete_index_3)
 #         del x
 #         return __dp_NONE
 
@@ -286,8 +300,9 @@ else:
 #                         return __dp_NONE
 #                 else:
 #                     block bb2:
+#                         _dp_tmp_0_1 = _dp_tmp_0_1
 #                         x = _dp_tmp_0_1
-#                         _dp_tmp_0_1 = __dp_NONE
+#                         del _dp_tmp_0_1
 #                         jump bb5
 #                         block bb5:
 #                             body()
@@ -420,8 +435,9 @@ zs = {k: v for k, v in items}
 #                         return _dp_tmp_1
 #                 else:
 #                     block bb2:
+#                         _dp_tmp_0_1 = _dp_tmp_0_1
 #                         x = _dp_tmp_0_1
-#                         _dp_tmp_0_1 = __dp_NONE
+#                         del _dp_tmp_0_1
 #                         jump bb5
 #                         block bb5:
 #                             GetAttr(_dp_tmp_1, "append")(x)
@@ -442,8 +458,9 @@ zs = {k: v for k, v in items}
 #                         return _dp_tmp_4
 #                 else:
 #                     block bb2:
+#                         _dp_tmp_1_1 = _dp_tmp_1_1
 #                         x = _dp_tmp_1_1
-#                         _dp_tmp_1_1 = __dp_NONE
+#                         del _dp_tmp_1_1
 #                         jump bb5
 #                         block bb5:
 #                             GetAttr(_dp_tmp_4, "add")(x)
@@ -464,11 +481,12 @@ zs = {k: v for k, v in items}
 #                         return _dp_tmp_7
 #                 else:
 #                     block bb2:
+#                         _dp_tmp_2_1 = _dp_tmp_2_1
 #                         _dp_tmp_2_2 = __dp_unpack(_dp_tmp_2_1, __dp_tuple(__dp_TRUE, __dp_TRUE))
 #                         k = GetItem(_dp_tmp_2_2, 0)
 #                         v = GetItem(_dp_tmp_2_2, 1)
 #                         del _dp_tmp_2_2
-#                         _dp_tmp_2_1 = __dp_NONE
+#                         del _dp_tmp_2_1
 #                         jump bb5
 #                         block bb5:
 #                             SetItem(_dp_tmp_7, k, v)
@@ -509,8 +527,9 @@ def f():
 #                         return _dp_tmp_1
 #                 else:
 #                     block bb2:
+#                         _dp_tmp_0_1 = _dp_tmp_0_1
 #                         x = _dp_tmp_0_1
-#                         _dp_tmp_0_1 = __dp_NONE
+#                         del _dp_tmp_0_1
 #                         jump bb5
 #                         block bb5:
 #                             if_term BinOp(Gt, x, 0):
@@ -557,8 +576,9 @@ class C:
 #                         return _dp_tmp_1
 #                 else:
 #                     block bb2:
+#                         _dp_tmp_0_1 = _dp_tmp_0_1
 #                         x = _dp_tmp_0_1
-#                         _dp_tmp_0_1 = __dp_NONE
+#                         del _dp_tmp_0_1
 #                         jump bb5
 #                         block bb5:
 #                             GetAttr(_dp_tmp_1, "append")(x)
@@ -568,8 +588,14 @@ class C:
 #     function_id: 1
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
+#         _dp_assign_value_4 = __name__
+#         _dp_assign_obj_5 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_6 = "__module__"
+#         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
+#         _dp_assign_value_7 = "C"
+#         _dp_assign_obj_8 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_9 = "__qualname__"
+#         SetItem(_dp_assign_obj_8, _dp_assign_index_9, _dp_assign_value_7)
 #         _dp_listcomp_3 = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
 #         xs = _dp_listcomp_3(it)
 #         return __dp_NONE
@@ -717,8 +743,9 @@ async def run():
 #                         return __dp_NONE
 #                 else:
 #                     block bb2:
+#                         _dp_tmp_0_1 = _dp_tmp_0_1
 #                         x = _dp_tmp_0_1
-#                         _dp_tmp_0_1 = __dp_NONE
+#                         del _dp_tmp_0_1
 #                         jump bb4
 #                         block bb4:
 #                             body()
@@ -1093,8 +1120,9 @@ def complicated(a):
 #                         return __dp_NONE
 #                 else:
 #                     block bb2:
+#                         _dp_tmp_0_1 = _dp_tmp_0_1
 #                         i = _dp_tmp_0_1
-#                         _dp_tmp_0_1 = __dp_NONE
+#                         del _dp_tmp_0_1
 #                         jump bb5
 #                         block bb5:
 #                             jump bb9

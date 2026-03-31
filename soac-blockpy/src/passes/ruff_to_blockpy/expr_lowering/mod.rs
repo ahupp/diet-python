@@ -14,6 +14,13 @@ mod named_expr;
 mod recursive;
 
 pub(crate) trait RuffToBlockPyExpr: From<Expr> + std::fmt::Debug + Clone + Sized {
+    fn helper_call(
+        node_index: ast::AtomicNodeIndex,
+        range: TextRange,
+        name: &'static str,
+        args: Vec<Self>,
+    ) -> Self;
+
     fn lower_augassign_value(
         node_index: ast::AtomicNodeIndex,
         range: TextRange,
@@ -57,6 +64,13 @@ pub(crate) trait RuffToBlockPyExpr: From<Expr> + std::fmt::Debug + Clone + Sized
         value: Self,
         index: Self,
         replacement: Self,
+    ) -> Self;
+
+    fn del_item(
+        node_index: ast::AtomicNodeIndex,
+        range: TextRange,
+        value: Self,
+        index: Self,
     ) -> Self;
 }
 
@@ -99,6 +113,30 @@ fn inplace_kind(op: ast::Operator) -> Option<operation::InplaceBinOpKind> {
 
 #[cfg(test)]
 impl RuffToBlockPyExpr for Expr {
+    fn helper_call(
+        node_index: ast::AtomicNodeIndex,
+        range: TextRange,
+        name: &'static str,
+        args: Vec<Self>,
+    ) -> Self {
+        Expr::Call(ast::ExprCall {
+            func: Box::new(Expr::Name(ast::ExprName {
+                id: name.into(),
+                ctx: ast::ExprContext::Load,
+                range,
+                node_index: node_index.clone(),
+            })),
+            arguments: ast::Arguments {
+                args: args.into(),
+                keywords: Vec::new().into(),
+                range,
+                node_index: node_index.clone(),
+            },
+            range,
+            node_index,
+        })
+    }
+
     fn lower_augassign_value(
         _node_index: ast::AtomicNodeIndex,
         _range: TextRange,
@@ -110,15 +148,19 @@ impl RuffToBlockPyExpr for Expr {
     }
 
     fn load_deleted_name(
-        _node_index: ast::AtomicNodeIndex,
-        _range: TextRange,
+        node_index: ast::AtomicNodeIndex,
+        range: TextRange,
         name: String,
         value: Self,
     ) -> Self {
-        py_expr!(
-            "__dp_load_deleted_name({name:literal}, {value:expr})",
-            name = name.as_str(),
-            value = value,
+        Self::helper_call(
+            node_index,
+            range,
+            "__dp_load_deleted_name",
+            vec![
+                Expr::from(py_expr!("{name:literal}", name = name)).into(),
+                value,
+            ],
         )
     }
 
@@ -138,17 +180,21 @@ impl RuffToBlockPyExpr for Expr {
     }
 
     fn set_attr(
-        _node_index: ast::AtomicNodeIndex,
-        _range: TextRange,
+        node_index: ast::AtomicNodeIndex,
+        range: TextRange,
         value: Self,
         attr: String,
         replacement: Self,
     ) -> Self {
-        py_expr!(
-            "__dp_setattr({value:expr}, {attr:literal}, {replacement:expr})",
-            value = value,
-            attr = attr.as_str(),
-            replacement = replacement,
+        Self::helper_call(
+            node_index,
+            range,
+            "__dp_setattr",
+            vec![
+                value,
+                Expr::from(py_expr!("{attr:literal}", attr = attr)).into(),
+                replacement,
+            ],
         )
     }
 
@@ -168,22 +214,40 @@ impl RuffToBlockPyExpr for Expr {
     }
 
     fn set_item(
-        _node_index: ast::AtomicNodeIndex,
-        _range: TextRange,
+        node_index: ast::AtomicNodeIndex,
+        range: TextRange,
         value: Self,
         index: Self,
         replacement: Self,
     ) -> Self {
-        py_expr!(
-            "__dp_setitem({value:expr}, {index:expr}, {replacement:expr})",
-            value = value,
-            index = index,
-            replacement = replacement,
+        Self::helper_call(
+            node_index,
+            range,
+            "__dp_setitem",
+            vec![value, index, replacement],
         )
+    }
+
+    fn del_item(
+        node_index: ast::AtomicNodeIndex,
+        range: TextRange,
+        value: Self,
+        index: Self,
+    ) -> Self {
+        Self::helper_call(node_index, range, "__dp_delitem", vec![value, index])
     }
 }
 
 impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
+    fn helper_call(
+        node_index: ast::AtomicNodeIndex,
+        range: TextRange,
+        name: &'static str,
+        args: Vec<Self>,
+    ) -> Self {
+        core_positional_call_expr_with_meta(name, node_index, range, args)
+    }
+
     fn lower_augassign_value(
         node_index: ast::AtomicNodeIndex,
         range: TextRange,
@@ -222,10 +286,10 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         name: String,
         value: Self,
     ) -> Self {
-        core_positional_call_expr_with_meta(
-            "__dp_load_deleted_name",
+        Self::helper_call(
             node_index,
             range,
+            "__dp_load_deleted_name",
             vec![
                 CoreBlockPyExprWithAwaitAndYield::from(py_expr!("{name:literal}", name = name)),
                 value,
@@ -288,6 +352,18 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
                 Box::new(replacement),
             ))
             .with_meta(Meta::new(node_index, range)),
+        )
+    }
+
+    fn del_item(
+        node_index: ast::AtomicNodeIndex,
+        range: TextRange,
+        value: Self,
+        index: Self,
+    ) -> Self {
+        core_operation_expr(
+            operation::Operation::new(operation::DelItem::new(Box::new(value), Box::new(index)))
+                .with_meta(Meta::new(node_index, range)),
         )
     }
 }

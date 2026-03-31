@@ -36,8 +36,14 @@ class C:
 #     function_id: 2
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "C")
+#         _dp_assign_value_1 = __name__
+#         _dp_assign_obj_2 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_3 = "__module__"
+#         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
+#         _dp_assign_value_4 = "C"
+#         _dp_assign_obj_5 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_6 = "__qualname__"
+#         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         x = 1
 #         m = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
 #         __annotate_func__ = MakeFunction(1, Function, __dp_tuple(runtime), __dp_NONE)
@@ -76,8 +82,14 @@ class Wrapper:
 #     function_id: 1
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "Wrapper")
+#         _dp_assign_value_1 = __name__
+#         _dp_assign_obj_2 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_3 = "__module__"
+#         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
+#         _dp_assign_value_4 = "Wrapper"
+#         _dp_assign_obj_5 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_6 = "__qualname__"
+#         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         open = MakeFunction(0, Function, __dp_tuple("r", "utf8"), __dp_NONE)
 #         return __dp_NONE
 
@@ -108,8 +120,14 @@ class D(Base):
 #     function_id: 0
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "D")
+#         _dp_assign_value_1 = __name__
+#         _dp_assign_obj_2 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_3 = "__module__"
+#         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
+#         _dp_assign_value_4 = "D"
+#         _dp_assign_obj_5 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_6 = "__qualname__"
+#         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         return __dp_NONE
 
 # function _dp_define_class_D(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
@@ -144,8 +162,14 @@ def outer():
 #     function_id: 0
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "outer.<locals>.Inner")
+#         _dp_assign_value_1 = __name__
+#         _dp_assign_obj_2 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_3 = "__module__"
+#         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
+#         _dp_assign_value_4 = "outer.<locals>.Inner"
+#         _dp_assign_obj_5 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_6 = "__qualname__"
+#         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         y = x
 #         return __dp_NONE
 
@@ -193,8 +217,14 @@ class X:
 #     function_id: 1
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "X")
+#         _dp_assign_value_1 = __name__
+#         _dp_assign_obj_2 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_3 = "__module__"
+#         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
+#         _dp_assign_value_4 = "X"
+#         _dp_assign_obj_5 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_6 = "__qualname__"
+#         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         f = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
 #         return __dp_NONE
 
@@ -226,8 +256,14 @@ class A:
 #     function_id: 0
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "A.B")
+#         _dp_assign_value_1 = __name__
+#         _dp_assign_obj_2 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_3 = "__module__"
+#         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
+#         _dp_assign_value_4 = "A.B"
+#         _dp_assign_obj_5 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_6 = "__qualname__"
+#         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         return __dp_NONE
 
 # function A._dp_define_class_B(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
@@ -240,8 +276,14 @@ class A:
 #     function_id: 2
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "A")
+#         _dp_assign_value_7 = __name__
+#         _dp_assign_obj_8 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_9 = "__module__"
+#         SetItem(_dp_assign_obj_8, _dp_assign_index_9, _dp_assign_value_7)
+#         _dp_assign_value_10 = "A"
+#         _dp_assign_obj_11 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_12 = "__qualname__"
+#         SetItem(_dp_assign_obj_11, _dp_assign_index_12, _dp_assign_value_10)
 #         _dp_class_ns_B = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
 #         _dp_define_class_B = MakeFunction(1, Function, __dp_tuple(__dp_NONE), __dp_NONE)
 #         B = _dp_define_class_B(_dp_class_ns_B, _dp_class_ns)
@@ -278,8 +320,14 @@ def foo():
 #     function_id: 0
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "B")
+#         _dp_assign_value_1 = __name__
+#         _dp_assign_obj_2 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_3 = "__module__"
+#         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
+#         _dp_assign_value_4 = "B"
+#         _dp_assign_obj_5 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_6 = "__qualname__"
+#         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         return __dp_NONE
 
 # function foo.<locals>.A._dp_define_class_B(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
@@ -292,8 +340,14 @@ def foo():
 #     function_id: 2
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__module__", __name__)
-#         SetItem(__dp_load_deleted_name("_dp_class_ns", _dp_class_ns), "__qualname__", "foo.<locals>.A")
+#         _dp_assign_value_7 = __name__
+#         _dp_assign_obj_8 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_9 = "__module__"
+#         SetItem(_dp_assign_obj_8, _dp_assign_index_9, _dp_assign_value_7)
+#         _dp_assign_value_10 = "foo.<locals>.A"
+#         _dp_assign_obj_11 = __dp_load_deleted_name("_dp_class_ns", _dp_class_ns)
+#         _dp_assign_index_12 = "__qualname__"
+#         SetItem(_dp_assign_obj_11, _dp_assign_index_12, _dp_assign_value_10)
 #         _dp_class_ns_B = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
 #         _dp_define_class_B = MakeFunction(1, Function, __dp_tuple(__dp_NONE), __dp_NONE)
 #         B = _dp_define_class_B(_dp_class_ns_B, _dp_class_ns)

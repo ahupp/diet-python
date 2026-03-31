@@ -1,54 +1,10 @@
+use super::assign_stmt::{bind_temp, lower_target_object_with_setup};
 use super::*;
 use crate::block_py::HasMeta;
 
-fn temp_name(name: &str, ctx: ast::ExprContext) -> ast::ExprName {
-    ast::ExprName {
-        id: name.into(),
-        ctx,
-        range: Default::default(),
-        node_index: Default::default(),
-    }
-}
-
-fn temp_load_expr<E: RuffToBlockPyExpr>(name: &str) -> E {
-    Expr::Name(temp_name(name, ast::ExprContext::Load)).into()
-}
-
-fn bind_temp<E: RuffToBlockPyExpr>(
-    out: &mut BlockPyStmtFragmentBuilder<E>,
-    name: String,
-    value: E,
-) -> E {
-    out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
-        target: temp_name(&name, ast::ExprContext::Store),
-        value,
-    }));
-    temp_load_expr(&name)
-}
-
-fn lower_target_object_with_setup<E: RuffToBlockPyExpr>(
-    target_value: Expr,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
-    loop_ctx: Option<&LoopContext>,
-    next_label_id: &mut usize,
-) -> Result<E, String> {
-    let meta = target_value.meta();
-    let maybe_name = target_value.as_name_expr().map(|name| name.id.to_string());
-    let value = crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup(
-        target_value,
-        out,
-        loop_ctx,
-        next_label_id,
-    )?;
-    Ok(match maybe_name {
-        Some(name) => E::load_deleted_name(meta.node_index, meta.range, name, value),
-        None => value,
-    })
-}
-
 impl StmtLowerer for ast::StmtAugAssign {
-    fn simplify_ast(self, context: &Context) -> Vec<Stmt> {
-        stmts_from_rewrite(super::assign_stmt::rewrite_augassign_stmt(context, self))
+    fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
+        single_stmt(self)
     }
 
     fn to_blockpy<E>(
