@@ -143,65 +143,6 @@ unsafe fn lookup_deleted_sentinel() -> Result<*mut ffi::PyObject, ()> {
     Ok(deleted_obj)
 }
 
-unsafe fn try_lookup_named_module_object(
-    module_name: &str,
-) -> Result<Option<*mut ffi::PyObject>, ()> {
-    let modules = unsafe { ffi::PyImport_GetModuleDict() };
-    if modules.is_null() {
-        return Ok(None);
-    }
-    let module_name = match CString::new(module_name) {
-        Ok(value) => value,
-        Err(_) => {
-            return set_type_error("module name for CLIF registration contained an embedded nul");
-        }
-    };
-    let module = unsafe { ffi::PyDict_GetItemString(modules, module_name.as_ptr()) };
-    if module.is_null() {
-        return Ok(None);
-    }
-    Ok(Some(module))
-}
-
-unsafe fn try_lookup_module_object(
-    module_name_hint: &str,
-    globals_obj: *mut ffi::PyObject,
-) -> Result<Option<*mut ffi::PyObject>, ()> {
-    if !globals_obj.is_null() {
-        let globals_module_name = unsafe {
-            ffi::PyDict_GetItemString(globals_obj, b"__name__\0".as_ptr() as *const c_char)
-        };
-        if !globals_module_name.is_null() {
-            match unsafe { py_string(globals_module_name) } {
-                Ok(module_name) => {
-                    if let Some(module) =
-                        unsafe { try_lookup_named_module_object(module_name.as_str()) }?
-                    {
-                        return Ok(Some(module));
-                    }
-                }
-                Err(()) => unsafe { ffi::PyErr_Clear() },
-            }
-        }
-        let modules = unsafe { ffi::PyImport_GetModuleDict() };
-        if !modules.is_null() {
-            let mut pos: ffi::Py_ssize_t = 0;
-            let mut key = ptr::null_mut();
-            let mut value = ptr::null_mut();
-            while unsafe { ffi::PyDict_Next(modules, &mut pos, &mut key, &mut value) } != 0 {
-                if unsafe { ffi::PyModule_Check(value) } == 0 {
-                    continue;
-                }
-                let candidate_globals = unsafe { ffi::PyModule_GetDict(value) };
-                if candidate_globals == globals_obj {
-                    return Ok(Some(value));
-                }
-            }
-        }
-    }
-    unsafe { try_lookup_named_module_object(module_name_hint) }
-}
-
 unsafe fn free_module_vmctx(vmctx: &mut jit::JitModuleVmCtx) {
     decref_if_non_null(vmctx.module_obj as *mut ffi::PyObject);
     decref_if_non_null(vmctx.globals_obj as *mut ffi::PyObject);
@@ -220,23 +161,27 @@ unsafe fn free_module_vmctx(vmctx: &mut jit::JitModuleVmCtx) {
     vmctx.empty_tuple_obj = ptr::null_mut();
 }
 
-unsafe fn build_module_vmctx(
-    module_name: &str,
-    globals_obj: *mut ffi::PyObject,
-) -> Result<jit::JitModuleVmCtx, ()> {
+unsafe fn build_module_vmctx(globals_obj: *mut ffi::PyObject) -> Result<jit::JitModuleVmCtx, ()> {
     let py = Python::assume_attached();
     if globals_obj.is_null() {
         return set_runtime_error("missing function globals while registering CLIF vectorcall");
     }
-    let module = unsafe { try_lookup_module_object(module_name, globals_obj) }?;
-    let module_state = module
-        .and_then(|module| unsafe { crate::module_type::SoacExtModule::raw_state_ptr(module).ok() })
-        .unwrap_or(ptr::null_mut());
+    let Some(module) =
+        (unsafe { crate::module_type::SoacExtModule::raw_module_ptr_for_globals(globals_obj) })
+    else {
+        return set_runtime_error(
+            "missing transformed module handle while registering CLIF vectorcall",
+        );
+    };
+    let module_state = unsafe { crate::module_type::SoacExtModule::raw_state_ptr(module) }
+        .map_err(|msg| {
+            let _ = set_runtime_error::<()>(msg);
+        })?;
     unsafe {
         ffi::Py_INCREF(globals_obj);
     }
     let mut vmctx = jit::JitModuleVmCtx {
-        module_obj: module.map_or(ptr::null_mut(), |value| value as *mut c_void),
+        module_obj: module as *mut c_void,
         module_state,
         globals_obj: globals_obj as *mut c_void,
         true_obj: ptr::null_mut(),
@@ -245,9 +190,7 @@ unsafe fn build_module_vmctx(
         deleted_obj: ptr::null_mut(),
         empty_tuple_obj: ptr::null_mut(),
     };
-    if let Some(module) = module {
-        unsafe { ffi::Py_INCREF(module) };
-    }
+    unsafe { ffi::Py_INCREF(module) };
     let true_obj = unsafe { ffi::PyBool_FromLong(1) };
     if true_obj.is_null() {
         unsafe { free_module_vmctx(&mut vmctx) };
@@ -318,7 +261,7 @@ unsafe fn make_clif_function_data(
     if globals_obj.is_null() {
         return Err(());
     }
-    let module_vmctx = match unsafe { build_module_vmctx(module_name, globals_obj) } {
+    let module_vmctx = match unsafe { build_module_vmctx(globals_obj) } {
         Ok(value) => value,
         Err(()) => return Err(()),
     };

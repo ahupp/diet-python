@@ -4,9 +4,11 @@ use pyo3::prelude::*;
 use pyo3::types::PyAnyMethods;
 use soac_blockpy::block_py::BlockPyModule;
 use soac_blockpy::passes::CodegenBlockPyPass;
+use std::collections::HashMap;
 use std::ffi::{c_int, c_void};
 use std::mem::MaybeUninit;
 use std::ptr;
+use std::sync::{Mutex, OnceLock};
 
 pub struct SoacExtModuleDataRef<'a> {
     pub lowered_module: &'a BlockPyModule<CodegenBlockPyPass>,
@@ -67,6 +69,47 @@ impl SoacExtModuleState {
     }
 }
 
+fn globals_to_module_registry() -> &'static Mutex<HashMap<usize, usize>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<usize, usize>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+unsafe fn register_module_globals_dict(module: *mut ffi::PyObject) -> PyResult<()> {
+    let globals = unsafe { ffi::PyModule_GetDict(module) };
+    if globals.is_null() {
+        if unsafe { ffi::PyErr_Occurred() }.is_null() {
+            return Err(PyRuntimeError::new_err(
+                "failed to fetch module globals for transformed module",
+            ));
+        }
+        return Err(PyErr::fetch(Python::assume_attached()));
+    }
+    let mut registry = globals_to_module_registry()
+        .lock()
+        .expect("transformed-module globals registry mutex poisoned");
+    registry.insert(globals as usize, module as usize);
+    Ok(())
+}
+
+unsafe fn unregister_module_globals_dict(module: *mut ffi::PyObject) {
+    let globals = unsafe { ffi::PyModule_GetDict(module) };
+    if globals.is_null() {
+        unsafe { ffi::PyErr_Clear() };
+        return;
+    }
+    let mut registry = globals_to_module_registry()
+        .lock()
+        .expect("transformed-module globals registry mutex poisoned");
+    let globals_key = globals as usize;
+    if registry
+        .get(&globals_key)
+        .copied()
+        .is_some_and(|registered| registered == module as usize)
+    {
+        registry.remove(&globals_key);
+    }
+}
+
 unsafe extern "C" fn soac_ext_module_clear(module: *mut ffi::PyObject) -> c_int {
     let state = unsafe { ffi::PyModule_GetState(module) }.cast::<SoacExtModuleState>();
     if state.is_null() {
@@ -78,6 +121,7 @@ unsafe extern "C" fn soac_ext_module_clear(module: *mut ffi::PyObject) -> c_int 
 
 unsafe extern "C" fn soac_ext_module_free(module: *mut c_void) {
     unsafe {
+        unregister_module_globals_dict(module.cast());
         soac_ext_module_clear(module.cast());
     }
 }
@@ -165,6 +209,7 @@ impl SoacExtModule {
         let state = soac_ext_module_state(&module)?;
         unsafe {
             (*state).init(lowered_module, module_name, package_name)?;
+            register_module_globals_dict(module.as_ptr())?;
         }
         Ok(module.unbind())
     }
@@ -179,5 +224,17 @@ impl SoacExtModule {
 
     pub unsafe fn raw_state_ptr(module: *mut ffi::PyObject) -> Result<*mut c_void, &'static str> {
         Ok(unsafe { raw_soac_ext_module_state(module) }?.cast::<c_void>())
+    }
+
+    pub unsafe fn raw_module_ptr_for_globals(
+        globals: *mut ffi::PyObject,
+    ) -> Option<*mut ffi::PyObject> {
+        let registry = globals_to_module_registry()
+            .lock()
+            .expect("transformed-module globals registry mutex poisoned");
+        registry
+            .get(&(globals as usize))
+            .copied()
+            .map(|module| module as *mut ffi::PyObject)
     }
 }
