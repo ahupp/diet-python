@@ -678,15 +678,17 @@ fn resume_exc_raise_term() -> BlockPyTerm<CoreBlockPyExpr> {
     })
 }
 
-fn stop_iteration_match_test() -> CoreBlockPyExpr {
+fn stop_iteration_match_test(exc_name: &str) -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!(
-        "__dp_exception_matches(__dp_current_exception(), StopIteration)"
+        "__dp_exception_matches({exc_name:id}, StopIteration)",
+        exc_name = exc_name,
     ))
 }
 
-fn current_exception_value_expr() -> CoreBlockPyExpr {
+fn current_exception_value_expr(exc_name: &str) -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!(
-        "__dp_getattr(__dp_current_exception(), \"value\")"
+        "__dp_getattr({exc_name:id}, \"value\")",
+        exc_name = exc_name,
     ))
 }
 
@@ -1237,7 +1239,7 @@ fn emit_yield_from_site(
             label: call_except_label.clone(),
             body: Vec::new(),
             term: BlockPyTerm::IfTerm(BlockPyIfTerm {
-                test: stop_iteration_match_test(),
+                test: stop_iteration_match_test(caught_exc_name.as_str()),
                 then_label: stopiter_label.clone(),
                 else_label: non_stopiter_label.clone(),
             }),
@@ -1251,7 +1253,7 @@ fn emit_yield_from_site(
             label: stopiter_label,
             body: vec![BlockPyStmt::Assign(BlockPyAssign {
                 target: expr_name(yielded_value_name.as_str()),
-                value: current_exception_value_expr(),
+                value: current_exception_value_expr(caught_exc_name.as_str()),
             })],
             term: BlockPyTerm::Jump(done_label.clone().into()),
             params: except_params.clone(),

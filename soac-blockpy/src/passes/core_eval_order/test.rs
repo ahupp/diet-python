@@ -11,6 +11,17 @@ fn test_name(id: &str) -> ast::ExprName {
     expr
 }
 
+fn is_name_like(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
+    match expr {
+        CoreBlockPyExprWithAwaitAndYield::Name(_) => true,
+        CoreBlockPyExprWithAwaitAndYield::Op(operation) => matches!(
+            operation.as_ref().detail(),
+            crate::block_py::OperationDetail::LoadName(_)
+        ),
+        _ => false,
+    }
+}
+
 #[test]
 fn eval_order_hoists_call_arguments_in_return_value_to_temps() {
     let block = BlockPyBlock {
@@ -28,10 +39,7 @@ fn eval_order_hoists_call_arguments_in_return_value_to_temps() {
     let BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Call(call)) = &lowered.term else {
         panic!("expected call expr");
     };
-    assert!(matches!(
-        call.func.as_ref(),
-        CoreBlockPyExprWithAwaitAndYield::Name(_)
-    ));
+    assert!(is_name_like(call.func.as_ref()));
     assert!(matches!(
         &call.args[0],
         CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
@@ -59,10 +67,7 @@ fn eval_order_hoists_return_value_to_temp() {
     let BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Call(call)) = lowered.term else {
         panic!("expected return of recursive call");
     };
-    assert!(matches!(
-        call.func.as_ref(),
-        CoreBlockPyExprWithAwaitAndYield::Name(_)
-    ));
+    assert!(is_name_like(call.func.as_ref()));
 }
 
 #[test]
@@ -88,10 +93,7 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
     let CoreBlockPyExprWithAwaitAndYield::Call(call) = &assign.value else {
         panic!("expected outer call");
     };
-    assert!(matches!(
-        call.func.as_ref(),
-        CoreBlockPyExprWithAwaitAndYield::Name(_)
-    ));
+    assert!(is_name_like(call.func.as_ref()));
     assert!(matches!(
         &call.args[0],
         CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))

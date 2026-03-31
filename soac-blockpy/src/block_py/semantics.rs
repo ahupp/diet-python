@@ -433,6 +433,8 @@ where
     N: BlockPyNameLike,
 {
     match detail {
+        OperationDetail::LoadName(op) => f(op.arg0.id_str()),
+        OperationDetail::LoadLocal(op) => f(op.arg0.id_str()),
         OperationDetail::LoadCell(op) => f(op.arg0.id_str()),
         OperationDetail::StoreCell(op) => f(op.arg0.id_str()),
         OperationDetail::DelDeref(op) => f(op.arg0.id_str()),

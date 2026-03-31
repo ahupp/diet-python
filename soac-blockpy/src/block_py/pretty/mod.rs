@@ -685,6 +685,8 @@ where
                 op.arg2.debug_expr_text(),
             ],
         ),
+        crate::block_py::OperationDetail::LoadName(op) => op.arg0.pretty_id(),
+        crate::block_py::OperationDetail::LoadLocal(op) => op.arg0.pretty_id(),
         crate::block_py::OperationDetail::LoadCell(op) => {
             debug_tuple_text("LoadCell", [op.arg0.pretty_id()])
         }

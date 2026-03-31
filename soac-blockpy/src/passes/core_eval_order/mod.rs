@@ -251,6 +251,10 @@ fn is_core_atom_without_await(expr: &CoreBlockPyExprWithYield) -> bool {
     matches!(
         expr,
         CoreBlockPyExprWithYield::Name(_) | CoreBlockPyExprWithYield::Literal(_)
+    ) || matches!(
+        expr,
+        CoreBlockPyExprWithYield::Op(operation)
+            if matches!(operation.as_ref().detail(), crate::block_py::OperationDetail::LoadName(_))
     )
 }
 

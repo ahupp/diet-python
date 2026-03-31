@@ -29,6 +29,14 @@ use crate::passes::RuffBlockPyPass;
 use crate::py_expr;
 use ruff_python_parser::parse_expression;
 
+fn is_raw_load_name_expr(expr: &CoreBlockPyExprWithAwaitAndYield, expected: &str) -> bool {
+    matches!(
+        expr,
+        CoreBlockPyExprWithAwaitAndYield::Op(operation)
+            if matches!(operation.as_ref().detail(), crate::block_py::OperationDetail::LoadName(op) if op.arg0.id.as_str() == expected)
+    )
+}
+
 #[test]
 fn expr_simplify_preserves_control_flow_but_reduces_exprs() {
     let source = r#"
@@ -77,9 +85,9 @@ fn expr_simplify_recurses_bottom_up_for_operator_family() {
 
 #[test]
 fn core_blockpy_expr_uses_reduced_variants_for_simple_shapes() {
-    assert!(matches!(
-        CoreBlockPyExprWithAwaitAndYield::from(py_expr!("x")),
-        CoreBlockPyExprWithAwaitAndYield::Name(_)
+    assert!(is_raw_load_name_expr(
+        &CoreBlockPyExprWithAwaitAndYield::from(py_expr!("x")),
+        "x"
     ));
     assert!(matches!(
         CoreBlockPyExprWithAwaitAndYield::from(py_expr!("1")),
@@ -110,9 +118,7 @@ fn core_blockpy_call_supports_star_args_and_kwargs() {
     else {
         panic!("expected reduced call expr");
     };
-    assert!(
-        matches!(&*call.func, CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "f")
-    );
+    assert!(is_raw_load_name_expr(call.func.as_ref(), "f"));
     assert_eq!(call.args.len(), 2);
     assert!(matches!(call.args[0], CoreBlockPyCallArg::Positional(_)));
     assert!(matches!(call.args[1], CoreBlockPyCallArg::Starred(_)));

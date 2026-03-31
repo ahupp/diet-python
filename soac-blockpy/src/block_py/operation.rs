@@ -532,6 +532,28 @@ define_operation_node! {
 }
 
 define_operation_node! {
+    pub struct LoadName<N> {
+        impl<E, N>;
+        name_type = [N];
+        mapped_type<T, M> = [LoadName<M>];
+        mapped_ctor<T, M> = [LoadName::<M>];
+        name(_op) = "__dp_load_name";
+        arg0: N => name,
+    }
+}
+
+define_operation_node! {
+    pub struct LoadLocal<N> {
+        impl<E, N>;
+        name_type = [N];
+        mapped_type<T, M> = [LoadLocal<M>];
+        mapped_ctor<T, M> = [LoadLocal::<M>];
+        name(_op) = "__dp_load_local";
+        arg0: N => name,
+    }
+}
+
+define_operation_node! {
     pub struct LoadCell<N> {
         impl<E, N>;
         name_type = [N];
@@ -640,6 +662,8 @@ pub enum OperationDetail<E, N = E> {
     DelItem(DelItem<E>),
     LoadGlobal(LoadGlobal<E>),
     StoreGlobal(StoreGlobal<E>),
+    LoadName(LoadName<N>),
+    LoadLocal(LoadLocal<N>),
     LoadCell(LoadCell<N>),
     MakeCell(MakeCell<E>),
     MakeString(MakeString),
@@ -683,6 +707,18 @@ impl_expr_operation_detail_from!(
 impl<E, N> From<LoadCell<N>> for OperationDetail<E, N> {
     fn from(value: LoadCell<N>) -> Self {
         Self::LoadCell(value)
+    }
+}
+
+impl<E, N> From<LoadName<N>> for OperationDetail<E, N> {
+    fn from(value: LoadName<N>) -> Self {
+        Self::LoadName(value)
+    }
+}
+
+impl<E, N> From<LoadLocal<N>> for OperationDetail<E, N> {
+    fn from(value: LoadLocal<N>) -> Self {
+        Self::LoadLocal(value)
     }
 }
 
@@ -730,6 +766,8 @@ impl<E, N> OperationDetail<E, N> {
             Self::DelItem(op) => OperationDetail::DelItem(op.map_expr(f)),
             Self::LoadGlobal(op) => OperationDetail::LoadGlobal(op.map_expr(f)),
             Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.map_expr(f)),
+            Self::LoadName(op) => OperationDetail::LoadName(op.map_expr(f)),
+            Self::LoadLocal(op) => OperationDetail::LoadLocal(op.map_expr(f)),
             Self::LoadCell(op) => OperationDetail::LoadCell(op.map_expr(f)),
             Self::MakeCell(op) => OperationDetail::MakeCell(op.map_expr(f)),
             Self::MakeString(op) => OperationDetail::MakeString(op.map_expr(f)),
@@ -759,6 +797,8 @@ impl<E, N> OperationDetail<E, N> {
             Self::DelItem(op) => OperationDetail::DelItem(op.map_expr(f_expr)),
             Self::LoadGlobal(op) => OperationDetail::LoadGlobal(op.map_expr(f_expr)),
             Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.map_expr(f_expr)),
+            Self::LoadName(op) => OperationDetail::LoadName(op.map_expr_and_name(f_expr, f_name)),
+            Self::LoadLocal(op) => OperationDetail::LoadLocal(op.map_expr_and_name(f_expr, f_name)),
             Self::LoadCell(op) => OperationDetail::LoadCell(op.map_expr_and_name(f_expr, f_name)),
             Self::MakeCell(op) => OperationDetail::MakeCell(op.map_expr(f_expr)),
             Self::MakeString(op) => OperationDetail::MakeString(op.map_expr(f_expr)),
@@ -789,6 +829,8 @@ impl<E, N> OperationDetail<E, N> {
             Self::DelItem(op) => OperationDetail::DelItem(op.try_map_expr(f)?),
             Self::LoadGlobal(op) => OperationDetail::LoadGlobal(op.try_map_expr(f)?),
             Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.try_map_expr(f)?),
+            Self::LoadName(op) => OperationDetail::LoadName(op.try_map_expr(f)?),
+            Self::LoadLocal(op) => OperationDetail::LoadLocal(op.try_map_expr(f)?),
             Self::LoadCell(op) => OperationDetail::LoadCell(op.try_map_expr(f)?),
             Self::MakeCell(op) => OperationDetail::MakeCell(op.try_map_expr(f)?),
             Self::MakeString(op) => OperationDetail::MakeString(op.try_map_expr(f)?),
@@ -818,6 +860,12 @@ impl<E, N> OperationDetail<E, N> {
             Self::DelItem(op) => OperationDetail::DelItem(op.try_map_expr(f_expr)?),
             Self::LoadGlobal(op) => OperationDetail::LoadGlobal(op.try_map_expr(f_expr)?),
             Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.try_map_expr(f_expr)?),
+            Self::LoadName(op) => {
+                OperationDetail::LoadName(op.try_map_expr_and_name(f_expr, f_name)?)
+            }
+            Self::LoadLocal(op) => {
+                OperationDetail::LoadLocal(op.try_map_expr_and_name(f_expr, f_name)?)
+            }
             Self::LoadCell(op) => {
                 OperationDetail::LoadCell(op.try_map_expr_and_name(f_expr, f_name)?)
             }
@@ -853,6 +901,8 @@ impl<E, N> OperationDetail<E, N> {
             Self::DelItem(op) => op.walk_expr_args(f),
             Self::LoadGlobal(op) => op.walk_expr_args(f),
             Self::StoreGlobal(op) => op.walk_expr_args(f),
+            Self::LoadName(op) => op.walk_expr_args(f),
+            Self::LoadLocal(op) => op.walk_expr_args(f),
             Self::LoadCell(op) => op.walk_expr_args(f),
             Self::MakeCell(op) => op.walk_expr_args(f),
             Self::MakeString(op) => op.walk_expr_args(f),
@@ -878,6 +928,8 @@ impl<E, N> OperationDetail<E, N> {
             Self::DelItem(op) => op.walk_expr_args_mut(f),
             Self::LoadGlobal(op) => op.walk_expr_args_mut(f),
             Self::StoreGlobal(op) => op.walk_expr_args_mut(f),
+            Self::LoadName(op) => op.walk_expr_args_mut(f),
+            Self::LoadLocal(op) => op.walk_expr_args_mut(f),
             Self::LoadCell(op) => op.walk_expr_args_mut(f),
             Self::MakeCell(op) => op.walk_expr_args_mut(f),
             Self::MakeString(op) => op.walk_expr_args_mut(f),
@@ -903,6 +955,8 @@ impl<E, N> OperationDetail<E, N> {
             Self::DelItem(op) => op.into_expr_args(),
             Self::LoadGlobal(op) => op.into_expr_args(),
             Self::StoreGlobal(op) => op.into_expr_args(),
+            Self::LoadName(op) => op.into_expr_args(),
+            Self::LoadLocal(op) => op.into_expr_args(),
             Self::LoadCell(op) => op.into_expr_args(),
             Self::MakeCell(op) => op.into_expr_args(),
             Self::MakeString(op) => op.into_expr_args(),
@@ -928,6 +982,8 @@ impl<E, N> OperationDetail<E, N> {
             Self::DelItem(op) => vec![op.arg0.as_ref(), op.arg1.as_ref()],
             Self::LoadGlobal(op) => vec![op.arg0.as_ref()],
             Self::StoreGlobal(op) => vec![op.arg0.as_ref(), op.arg2.as_ref()],
+            Self::LoadName(_) => Vec::new(),
+            Self::LoadLocal(_) => Vec::new(),
             Self::LoadCell(_) => Vec::new(),
             Self::MakeCell(op) => vec![op.arg0.as_ref()],
             Self::MakeString(_) => Vec::new(),

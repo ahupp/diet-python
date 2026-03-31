@@ -8,7 +8,7 @@ use crate::block_py::{
     BlockPyStmtFragmentBuilder, BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyCallArg,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyYield,
     CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
-    CoreStringLiteral, Meta, RuffExpr, StructuredBlockPyStmt, WithMeta,
+    CoreStringLiteral, HasMeta, Meta, RuffExpr, StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::ast_to_ast::expr_utils::{make_binop, make_tuple};
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
@@ -51,6 +51,10 @@ fn core_builtin_name(id: &str) -> CoreBlockPyExprWithAwaitAndYield {
         range: Default::default(),
         node_index: ast::AtomicNodeIndex::default(),
     })
+}
+
+fn is_internal_core_name(id: &str) -> bool {
+    id.starts_with("_dp_") || id.starts_with("__dp_") || id == "runtime"
 }
 
 pub(crate) trait PureCoreExprReducer {
@@ -823,7 +827,16 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                     .unwrap_or_else(|| py_expr!("None")),
             )),
             Expr::Dict(node) => reduce_core_blockpy_dict(node.items.into()),
-            Expr::Name(node) => Self::Name(node),
+            Expr::Name(node) => {
+                if is_internal_core_name(node.id.as_str()) {
+                    Self::Name(node)
+                } else {
+                    CoreBlockPyExprWithAwaitAndYield::Op(Box::new(
+                        operation::Operation::new(operation::LoadName::new(node.clone()))
+                            .with_meta(node.meta()),
+                    ))
+                }
+            }
             other => panic!(
                 "unexpected expr reached late core BlockPy boundary: {}",
                 crate::ruff_ast_to_string(&other)

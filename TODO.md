@@ -37,11 +37,6 @@
     - The likely real fix is either a non-string temp/id representation carried through the IR, or one late legalization/materialization pass that checks concrete Python names once.
 
 - Everything about annotation_export.rs needs revisiting.
-- Use Ruff for scope analysis and see if it can be computed once and preserved through transform layers.
-  - Planning note:
-    - The desired end state is to replace local repeated scope-analysis passes with Ruff’s scope analysis and carry that result through later transform phases instead of recomputing scope metadata.
-    - This likely requires identifying the current pass boundaries that invalidate or rebuild scope information, then either preserving Ruff scope objects directly or translating them once into a stable internal form.
-    - Keep the scope-analysis ownership explicit in the top-level pipeline so later passes consume preserved scope data rather than silently re-running analysis.
 - Move refcount management out of `soac-eval` and into a new explicit pass in `rewrite_module`.
   - Planning note:
     - The current JIT path in `soac-eval` still owns a large amount of `incref` / `decref` insertion and runtime helper wiring (`dp_jit_incref`, `dp_jit_decref`), which makes ownership of reference semantics backend-local instead of pipeline-visible.
@@ -170,3 +165,4 @@
 - Clean up the conversions and related glue in `block_py/mod.rs`.
 - Compute `ClosureLayout` in `name_binding`, and keep all closure data semantic before that.
 - Add a pass for specific storage decisions, closure slot offsets, and stack offsets.
+- Use Ruff for scope analysis and see if it can be computed once and preserved through transform layers.

@@ -378,25 +378,69 @@ fn codegen_expr_is_borrowable(
     local_names: &[String],
     stack_slots: &StackSlots,
 ) -> bool {
+    fn located_local_name_is_borrowable(
+        name: &LocatedName,
+        local_names: &[String],
+        stack_slots: &StackSlots,
+    ) -> bool {
+        if !matches!(name.location, NameLocation::Local { .. }) {
+            return false;
+        }
+        local_names
+            .iter()
+            .any(|candidate| candidate == name.id.as_str())
+            || stack_slots.has_name(name.id.as_str())
+    }
+
     match expr {
         CodegenBlockPyExpr::Name(name) => {
-            if matches!(
-                name.location,
-                NameLocation::OwnedCell { .. }
-                    | NameLocation::CapturedCellSource { .. }
-                    | NameLocation::ClosureCell { .. }
-            ) {
-                return false;
-            }
-            local_names
-                .iter()
-                .any(|candidate| candidate == name.id.as_str())
-                || stack_slots.has_name(name.id.as_str())
+            located_local_name_is_borrowable(name, local_names, stack_slots)
         }
-        CodegenBlockPyExpr::Literal(_)
-        | CodegenBlockPyExpr::Op(_)
-        | CodegenBlockPyExpr::Call(_) => false,
+        CodegenBlockPyExpr::Op(operation) => match operation.as_ref().detail() {
+            blockpy_intrinsics::OperationDetail::LoadLocal(op) => {
+                located_local_name_is_borrowable(&op.arg0, local_names, stack_slots)
+            }
+            _ => false,
+        },
+        CodegenBlockPyExpr::Literal(_) | CodegenBlockPyExpr::Call(_) => false,
     }
+}
+
+fn emit_codegen_local_name_load(
+    fb: &mut FunctionBuilder,
+    name: &LocatedName,
+    local_names: &[String],
+    local_values: &[ir::Value],
+    ctx: &JitEmitCtx,
+    borrowed: bool,
+) -> ir::Value {
+    assert!(
+        matches!(name.location, NameLocation::Local { .. }),
+        "LoadLocal should carry a local name, got {} at {:?}",
+        name.id,
+        name.location
+    );
+    if let Some(slot_index) = local_names
+        .iter()
+        .position(|candidate| candidate == name.id.as_str())
+    {
+        let slot_value = local_values[slot_index];
+        if !borrowed {
+            fb.ins().call(ctx.incref_ref, &[slot_value]);
+        }
+        return slot_value;
+    }
+    if let Some(slot_value) = load_stack_slot_value(
+        fb,
+        &ctx.stack_slots,
+        name.id.as_str(),
+        ctx.consts.ptr_ty,
+        borrowed,
+        ctx.incref_ref,
+    ) {
+        return slot_value;
+    }
+    panic!("missing located local {} in direct JIT state", name.id);
 }
 
 fn codegen_expr_const_string(expr: &LocatedCodegenBlockPyExpr) -> Option<String> {
@@ -426,6 +470,18 @@ fn codegen_expr_const_string(expr: &LocatedCodegenBlockPyExpr) -> Option<String>
             String::from_utf8(bytes.value.clone()).ok()
         }
         _ => None,
+    }
+}
+
+fn codegen_expr_helper_name(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
+    match expr {
+        CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
+        CodegenBlockPyExpr::Op(operation) => match operation.as_ref().detail() {
+            blockpy_intrinsics::OperationDetail::LoadGlobal(op) => Some(op.arg1.as_str()),
+            blockpy_intrinsics::OperationDetail::LoadLocal(op) => Some(op.arg0.id.as_str()),
+            _ => None,
+        },
+        CodegenBlockPyExpr::Literal(_) | CodegenBlockPyExpr::Call(_) => None,
     }
 }
 
@@ -1034,27 +1090,14 @@ fn emit_codegen_expr(
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
             match name.location {
                 NameLocation::Local { .. } => {
-                    if let Some(slot_index) = local_names
-                        .iter()
-                        .position(|candidate| candidate == name.id.as_str())
-                    {
-                        let slot_value = local_values[slot_index];
-                        if !borrowed {
-                            fb.ins().call(incref_ref, &[slot_value]);
-                        }
-                        return slot_value;
-                    }
-                    if let Some(slot_value) = load_stack_slot_value(
+                    return emit_codegen_local_name_load(
                         fb,
-                        &ctx.stack_slots,
-                        name.id.as_str(),
-                        ptr_ty,
+                        name,
+                        local_names,
+                        local_values,
+                        ctx,
                         borrowed,
-                        incref_ref,
-                    ) {
-                        return slot_value;
-                    }
-                    panic!("missing located local {} in direct JIT state", name.id);
+                    );
                 }
                 NameLocation::OwnedCell { .. } | NameLocation::ClosureCell { .. } => {
                     assert!(
@@ -1186,6 +1229,21 @@ fn emit_codegen_expr(
             fb.block_params(value_ok_block)[0]
         }
         CodegenBlockPyExpr::Op(operation) => {
+            if let blockpy_intrinsics::OperationDetail::LoadLocal(op) = operation.as_ref().detail()
+            {
+                let load_expr = CodegenBlockPyExpr::Name(op.arg0.clone());
+                return emit_codegen_expr(
+                    fb,
+                    &load_expr,
+                    local_names,
+                    local_values,
+                    ctx,
+                    literal_pool,
+                    borrowed,
+                    jit_module,
+                    func_imports,
+                );
+            }
             assert!(
                 !borrowed,
                 "codegen operation expression must not use borrowed result"
@@ -1238,6 +1296,14 @@ fn emit_codegen_expr(
                         }
                     }
                 }
+                blockpy_intrinsics::OperationDetail::LoadLocal(op) => emit_codegen_local_name_load(
+                    intrinsic_state.fb,
+                    &op.arg0,
+                    intrinsic_state.local_names,
+                    intrinsic_state.local_values,
+                    intrinsic_state.ctx,
+                    borrowed,
+                ),
                 blockpy_intrinsics::OperationDetail::LoadCell(op) => {
                     let cell_name = &op.arg0;
                     let raw_cell = emit_raw_cell_object_for_name(
@@ -1375,6 +1441,18 @@ fn emit_codegen_expr(
             let args = simple_args.clone();
             let keywords = simple_keywords.clone();
 
+            if !has_unpack
+                && simple_keywords.is_empty()
+                && simple_args.is_empty()
+                && matches!(
+                    codegen_expr_helper_name(call.func.as_ref()),
+                    Some("globals" | "__dp_globals")
+                )
+            {
+                fb.ins().call(incref_ref, &[block_const]);
+                return block_const;
+            }
+
             if let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() {
                 if !has_unpack
                     && simple_keywords.is_empty()
@@ -1406,15 +1484,6 @@ fn emit_codegen_expr(
                         fb.switch_to_block(value_ok_block);
                         return fb.block_params(value_ok_block)[0];
                     }
-                }
-                if !has_unpack
-                    && simple_keywords.is_empty()
-                    && simple_args.is_empty()
-                    && (func_name.id.as_str() == "globals"
-                        || func_name.id.as_str() == "__dp_globals")
-                {
-                    fb.ins().call(incref_ref, &[block_const]);
-                    return block_const;
                 }
             }
 
@@ -1879,22 +1948,8 @@ fn emit_codegen_expr(
                     && (func_name.id.as_str() == "globals"
                         || func_name.id.as_str() == "__dp_globals")
                 {
-                    let globals_inst = fb.ins().call(function_globals_ref, &[callable_value]);
-                    let globals_value = fb.inst_results(globals_inst)[0];
-                    let globals_is_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, globals_value, null_ptr);
-                    let globals_ok_block = fb.create_block();
-                    fb.append_block_param(globals_ok_block, ptr_ty);
-                    fb.ins().brif(
-                        globals_is_null,
-                        step_null_block,
-                        &step_null_block_args(ctx),
-                        globals_ok_block,
-                        &[ir::BlockArg::Value(globals_value)],
-                    );
-                    fb.switch_to_block(globals_ok_block);
-                    return fb.block_params(globals_ok_block)[0];
+                    fb.ins().call(incref_ref, &[block_const]);
+                    return block_const;
                 }
                 if keywords.is_empty() {
                     if func_name.id.as_str() == "__dp_tuple" {

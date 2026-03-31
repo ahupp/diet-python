@@ -645,6 +645,8 @@ pub(super) fn emit_operation<'fb, E, N>(
         )),
         blockpy_intrinsics::OperationDetail::LoadGlobal(op) => Some(emit_load_global(op, state)),
         blockpy_intrinsics::OperationDetail::StoreGlobal(op) => Some(emit_store_global(op, state)),
+        blockpy_intrinsics::OperationDetail::LoadName(_) => None,
+        blockpy_intrinsics::OperationDetail::LoadLocal(_) => None,
         blockpy_intrinsics::OperationDetail::LoadCell(_) => None,
         blockpy_intrinsics::OperationDetail::MakeCell(_) => Some(emit_make_cell(state, args)),
         blockpy_intrinsics::OperationDetail::MakeString(op) => Some(emit_make_string(op, state)),

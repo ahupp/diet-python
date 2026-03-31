@@ -14,9 +14,9 @@ use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass, RuffBlockPyP
 use crate::py_expr;
 pub use operation::{
     BinOp, BinOpKind, CellRef, CellRefTarget, DelDeref, DelDerefQuietly, DelItem, DelQuietly,
-    GetAttr, GetItem, InplaceBinOp, InplaceBinOpKind, LoadCell, LoadGlobal, MakeCell, MakeFunction,
-    MakeString, Operation, OperationDetail, SetAttr, SetItem, StoreCell, StoreGlobal, TernaryOp,
-    TernaryOpKind, UnaryOp, UnaryOpKind,
+    GetAttr, GetItem, InplaceBinOp, InplaceBinOpKind, LoadCell, LoadGlobal, LoadLocal, LoadName,
+    MakeCell, MakeFunction, MakeString, Operation, OperationDetail, SetAttr, SetItem, StoreCell,
+    StoreGlobal, TernaryOp, TernaryOpKind, UnaryOp, UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};

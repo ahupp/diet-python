@@ -57,7 +57,8 @@ fn core_blockpy_expr_wraps_name_expr() {
 
     assert!(matches!(
         expr,
-        CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "y"
+        CoreBlockPyExprWithAwaitAndYield::Op(operation)
+            if matches!(operation.as_ref().detail(), crate::block_py::OperationDetail::LoadName(op) if op.arg0.id.as_str() == "y")
     ));
 }
 
