@@ -335,8 +335,6 @@ def _yieldfrom_cell_value(cell):
         value = cell.cell_contents
     except ValueError:
         return None
-    if value is DELETED:
-        return None
     return value
 
 
