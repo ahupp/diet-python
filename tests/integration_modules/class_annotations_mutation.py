@@ -7,3 +7,8 @@ class M(type):
     o: type = object
 
 HINTS = get_type_hints(M)
+
+# diet-python: validate
+
+def validate_module(module):
+    raise AssertionError("class_annotations_mutation should fail to import")

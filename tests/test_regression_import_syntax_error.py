@@ -1,10 +1,6 @@
 import pytest
 
-from tests._integration import transformed_module
-
-
-def test_import_syntax_error_propagates(tmp_path):
-    source = "a = 1 b = 2"
+def test_import_syntax_error_propagates(run_integration_module):
     with pytest.raises(SyntaxError):
-        with transformed_module(tmp_path, "bad_syntax", source):
+        with run_integration_module("bad_syntax"):
             pass

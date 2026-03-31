@@ -9,3 +9,8 @@ class Container:
         return repr(Sub)
 
 VALUE = Container().make()
+
+# diet-python: validate
+
+def validate_module(module):
+    assert "Container.make.<locals>.Sub" in module.VALUE

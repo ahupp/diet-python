@@ -81,6 +81,16 @@ def test_integration_case(tmp_path: Path, case_path: Path, mode: str) -> None:
 
     sys.path.insert(0, str(MODULES_DIR))
     try:
+        if case_path.stem == "bad_syntax":
+            with pytest.raises(SyntaxError):
+                with integration_module(tmp_path, module_name, source, mode=mode):
+                    pass
+            return
+        if case_path.stem == "class_annotations_mutation":
+            with pytest.raises(NameError):
+                with integration_module(tmp_path, module_name, source, mode=mode):
+                    pass
+            return
         with integration_module(tmp_path, module_name, source, mode=mode) as module:
             exec_integration_validation(validate_source, module, case_path, mode=mode)
     finally:

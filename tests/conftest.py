@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import os
 import sys
 from collections.abc import Iterator
@@ -17,7 +16,6 @@ if str(ROOT) not in sys.path:
 if str(PYTHON_SRC) not in sys.path:
     sys.path.insert(0, str(PYTHON_SRC))
 
-from soac import import_hook
 from tests import _integration
 import pytest
 
@@ -45,27 +43,21 @@ def _print_integration_failure_context(module_path: Path) -> None:
 
 
 @contextmanager
-def _load_integration_module(module_name: str) -> Iterator[ModuleType]:
-    import_hook.install()
-    module_dir = str(_MODULES_DIR)
+def _load_integration_module(tmp_path: Path, module_name: str) -> Iterator[ModuleType]:
     module_path = _MODULES_DIR / f"{module_name}.py"
     if not module_path.exists():
         raise FileNotFoundError(
             f"Integration module '{module_name}' not found at {module_path}"
         )
-    _integration.register_integration_module(module_path)
-    sys.path.insert(0, module_dir)
+    source, _ = _integration.split_integration_case(module_path)
     try:
-        sys.modules.pop(module_name, None)
-        module = importlib.import_module(module_name)
-        yield module
+        with _integration.integration_module(
+            tmp_path, module_name, source, mode="transform"
+        ) as module:
+            yield module
     except Exception:
         _print_integration_failure_context(module_path)
         raise
-    finally:
-        sys.modules.pop(module_name, None)
-        if module_dir in sys.path:
-            sys.path.remove(module_dir)
 
 
 def pytest_configure(config):
@@ -83,8 +75,13 @@ def _is_unsupported_exception(exc: BaseException, longrepr_text: str | None = No
 
 
 @pytest.fixture
-def run_integration_module():
-    return _load_integration_module
+def run_integration_module(tmp_path: Path):
+    @contextmanager
+    def _runner(module_name: str) -> Iterator[ModuleType]:
+        with _load_integration_module(tmp_path, module_name) as module:
+            yield module
+
+    return _runner
 
 
 @pytest.hookimpl(hookwrapper=True, tryfirst=True)

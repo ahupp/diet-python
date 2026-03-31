@@ -1,26 +1,8 @@
 import pytest
 
-from tests._integration import transformed_module
-
-
-def test_functiontype_injects_dp_globals(tmp_path):
+def test_functiontype_injects_dp_globals(run_integration_module):
     pytest.xfail(
         "FunctionType(code, globals) drops hidden SOAC kwdefaults used by def_fn wrappers"
     )
-    source = """
-import types
-
-
-def make_inner():
-    def inner():
-        return 1 + 1
-    return inner
-
-
-def run():
-    inner_code = make_inner().__code__
-    func = types.FunctionType(inner_code, {})
-    return func()
-"""
-    with transformed_module(tmp_path, "functiontype_globals", source) as module:
+    with run_integration_module("functiontype_globals") as module:
         assert module.run() == 2
