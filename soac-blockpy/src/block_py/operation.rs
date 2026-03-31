@@ -537,7 +537,6 @@ define_operation_node! {
         name_type = [N];
         mapped_type<T, M> = [LoadName<M>];
         mapped_ctor<T, M> = [LoadName::<M>];
-        name(_op) = "__dp_load_name";
         arg0: N => name,
     }
 }
@@ -548,7 +547,6 @@ define_operation_node! {
         name_type = [N];
         mapped_type<T, M> = [LoadLocal<M>];
         mapped_ctor<T, M> = [LoadLocal::<M>];
-        name(_op) = "__dp_load_local";
         arg0: N => name,
     }
 }
