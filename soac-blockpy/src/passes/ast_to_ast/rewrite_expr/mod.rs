@@ -13,7 +13,6 @@ use crate::{
 use ruff_python_ast::Identifier;
 
 pub mod comprehension;
-pub mod string;
 
 fn lower_generator_expr(
     context: &Context,

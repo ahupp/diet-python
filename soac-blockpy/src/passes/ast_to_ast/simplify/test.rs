@@ -1,4 +1,4 @@
-use crate::passes::ast_to_ast::rewrite_expr::string::lower_string_templates_in_expr;
+use crate::passes::ast_to_ast::string_templates::lower_string_templates_in_expr;
 use crate::ruff_ast_to_string;
 use ruff_python_ast::{self as ast, Stmt};
 use ruff_python_parser::parse_module;

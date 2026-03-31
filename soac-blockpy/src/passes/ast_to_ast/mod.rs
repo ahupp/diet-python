@@ -10,4 +10,5 @@ pub(crate) mod rewrite_stmt;
 pub(crate) mod scope_helpers;
 pub(crate) mod semantic;
 pub(crate) mod simplify;
+pub(crate) mod string_templates;
 pub(crate) mod util;

@@ -1,4 +1,4 @@
-use super::ast_to_ast::rewrite_expr::string::lower_string_templates_in_expr;
+use super::ast_to_ast::string_templates::lower_string_templates_in_expr;
 use super::core_eval_order::make_eval_order_explicit_in_core_block;
 use crate::block_py::structured::IntoStructuredBlockPyStmt;
 use crate::block_py::{
