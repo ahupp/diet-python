@@ -150,7 +150,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
         label: BlockPyLabel::from(0u32),
         body: Vec::new(),
-        term: BlockPyTerm::Return(CoreBlockPyExpr::Op(Box::new(
+        term: BlockPyTerm::Return(CoreBlockPyExpr::Op(
             Operation::new(GetAttr {
                 arg0: Box::new(core_call_expr("__dp_current_exception", Vec::new())),
                 arg1: "value".to_string(),
@@ -159,7 +159,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
                 ast::AtomicNodeIndex::default(),
                 TextRange::default(),
             )),
-        ))),
+        )),
         params: vec![crate::block_py::BlockParam {
             name: "_dp_try_exc_0".to_string(),
             role: crate::block_py::BlockParamRole::Exception,
@@ -179,8 +179,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     let BlockPyTerm::Return(CoreBlockPyExpr::Op(operation)) = &block.term else {
         panic!("expected operation return expr");
     };
-    let crate::block_py::OperationDetail::GetAttr(GetAttr { arg0, arg1, .. }) =
-        operation.as_ref().detail()
+    let crate::block_py::OperationDetail::GetAttr(GetAttr { arg0, arg1, .. }) = operation.detail()
     else {
         panic!("expected getattr operation");
     };

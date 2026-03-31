@@ -15,7 +15,7 @@ fn is_name_like(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
     match expr {
         CoreBlockPyExprWithAwaitAndYield::Name(_) => true,
         CoreBlockPyExprWithAwaitAndYield::Op(operation) => matches!(
-            operation.as_ref().detail(),
+            operation.detail(),
             crate::block_py::OperationDetail::LoadName(_)
         ),
         _ => false,
@@ -136,7 +136,7 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
         call.detail(),
         OperationDetail::InplaceBinOp(op) if op.kind == InplaceBinOpKind::Add
     ));
-    let call_args = (*call.clone()).into_call_args();
+    let call_args = call.clone().into_call_args();
     assert!(matches!(
         &call_args[1],
         CoreBlockPyExprWithAwaitAndYield::Name(_)

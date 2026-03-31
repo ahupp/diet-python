@@ -210,7 +210,7 @@ fn operation_expr<N: BlockPyNameLike + Clone>(
     expr: &CoreBlockPyExpr<N>,
 ) -> Option<&operation::Operation<CoreBlockPyExpr<N>, N>> {
     match expr {
-        CoreBlockPyExpr::Op(operation) => Some(operation.as_ref()),
+        CoreBlockPyExpr::Op(operation) => Some(operation),
         _ => None,
     }
 }

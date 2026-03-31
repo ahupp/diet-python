@@ -115,7 +115,7 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithA
 fn core_operation_expr(
     operation: operation::Operation<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    CoreBlockPyExprWithAwaitAndYield::Op(Box::new(operation))
+    CoreBlockPyExprWithAwaitAndYield::Op(operation)
 }
 
 fn core_operation_expr_with_meta(
@@ -831,10 +831,10 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                 if is_internal_core_name(node.id.as_str()) {
                     Self::Name(node)
                 } else {
-                    CoreBlockPyExprWithAwaitAndYield::Op(Box::new(
+                    CoreBlockPyExprWithAwaitAndYield::Op(
                         operation::Operation::new(operation::LoadName::new(node.clone()))
                             .with_meta(node.meta()),
-                    ))
+                    )
                 }
             }
             other => panic!(

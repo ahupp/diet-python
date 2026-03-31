@@ -79,7 +79,7 @@ mod tests {
     fn op_expr(
         operation: Operation<LocatedCodegenBlockPyExpr, LocatedName>,
     ) -> LocatedCodegenBlockPyExpr {
-        CodegenBlockPyExpr::Op(Box::new(operation))
+        CodegenBlockPyExpr::Op(operation)
     }
 
     fn expr_stmt(

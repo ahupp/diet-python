@@ -62,7 +62,7 @@ fn globals_expr(
 }
 
 fn op_expr(operation: Operation<CoreBlockPyExpr, ExprName>) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Op(Box::new(operation))
+    CoreBlockPyExpr::Op(operation)
 }
 
 fn op_stmt(
@@ -364,7 +364,7 @@ fn operation_expr<N: BlockPyNameLike + Clone>(
     expr: &CoreBlockPyExpr<N>,
 ) -> Option<&Operation<CoreBlockPyExpr<N>, N>> {
     match expr {
-        CoreBlockPyExpr::Op(operation) => Some(operation.as_ref()),
+        CoreBlockPyExpr::Op(operation) => Some(operation),
         _ => None,
     }
 }
@@ -1043,9 +1043,9 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
     fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
         match expr {
             CoreBlockPyExpr::Op(operation)
-                if matches!(operation.as_ref().detail(), OperationDetail::LoadName(_)) =>
+                if matches!(operation.detail(), OperationDetail::LoadName(_)) =>
             {
-                let Operation { detail, .. } = *operation;
+                let Operation { detail, .. } = operation;
                 let OperationDetail::LoadName(op) = detail else {
                     unreachable!("load-name guard should ensure LoadName detail");
                 };
@@ -1077,15 +1077,15 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 )
             }
             CoreBlockPyExpr::Op(operation) => {
-                let Operation { meta, detail } = *operation;
+                let Operation { meta, detail } = operation;
                 match detail {
                     OperationDetail::MakeFunction(op) => {
                         self.materialize_make_function_expr(meta, op)
                     }
-                    other => self.map_nested_expr(CoreBlockPyExpr::Op(Box::new(Operation {
+                    other => self.map_nested_expr(CoreBlockPyExpr::Op(Operation {
                         meta,
                         detail: other,
-                    }))),
+                    })),
                 }
             }
             CoreBlockPyExpr::Call(CoreBlockPyCall {
@@ -2085,7 +2085,7 @@ fn collect_make_function_callee_ids_in_expr(expr: &CoreBlockPyExpr, out: &mut Ve
     match expr {
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
         CoreBlockPyExpr::Op(operation) => {
-            if let OperationDetail::MakeFunction(op) = operation.as_ref().detail() {
+            if let OperationDetail::MakeFunction(op) = operation.detail() {
                 out.push(op.function_id);
                 return;
             }

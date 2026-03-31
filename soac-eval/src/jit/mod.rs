@@ -396,7 +396,7 @@ fn codegen_expr_is_borrowable(
         CodegenBlockPyExpr::Name(name) => {
             located_local_name_is_borrowable(name, local_names, stack_slots)
         }
-        CodegenBlockPyExpr::Op(operation) => match operation.as_ref().detail() {
+        CodegenBlockPyExpr::Op(operation) => match operation.detail() {
             blockpy_intrinsics::OperationDetail::LoadLocal(op) => {
                 located_local_name_is_borrowable(&op.arg0, local_names, stack_slots)
             }
@@ -448,7 +448,7 @@ fn codegen_expr_const_string(expr: &LocatedCodegenBlockPyExpr) -> Option<String>
         CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
             String::from_utf8(bytes.value.clone()).ok()
         }
-        CodegenBlockPyExpr::Op(operation) => match operation.as_ref().detail() {
+        CodegenBlockPyExpr::Op(operation) => match operation.detail() {
             blockpy_intrinsics::OperationDetail::MakeString(op) => {
                 String::from_utf8(op.arg0.clone()).ok()
             }
@@ -476,7 +476,7 @@ fn codegen_expr_const_string(expr: &LocatedCodegenBlockPyExpr) -> Option<String>
 fn codegen_expr_helper_name(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
     match expr {
         CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
-        CodegenBlockPyExpr::Op(operation) => match operation.as_ref().detail() {
+        CodegenBlockPyExpr::Op(operation) => match operation.detail() {
             blockpy_intrinsics::OperationDetail::LoadGlobal(op) => Some(op.arg1.as_str()),
             blockpy_intrinsics::OperationDetail::LoadLocal(op) => Some(op.arg0.id.as_str()),
             _ => None,
@@ -1229,8 +1229,7 @@ fn emit_codegen_expr(
             fb.block_params(value_ok_block)[0]
         }
         CodegenBlockPyExpr::Op(operation) => {
-            if let blockpy_intrinsics::OperationDetail::LoadLocal(op) = operation.as_ref().detail()
-            {
+            if let blockpy_intrinsics::OperationDetail::LoadLocal(op) = operation.detail() {
                 let load_expr = CodegenBlockPyExpr::Name(op.arg0.clone());
                 return emit_codegen_expr(
                     fb,
@@ -1257,7 +1256,7 @@ fn emit_codegen_expr(
                 jit_module,
                 func_imports,
             };
-            let operation_ref = operation.as_ref();
+            let operation_ref = operation;
             if matches!(
                 operation_ref.detail(),
                 blockpy_intrinsics::OperationDetail::MakeFunction(_)

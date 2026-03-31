@@ -647,7 +647,7 @@ define_operation_node! {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::From)]
 pub enum OperationDetail<E, N = E> {
     BinOp(BinOp<E>),
     UnaryOp(UnaryOp<E>),
@@ -671,83 +671,6 @@ pub enum OperationDetail<E, N = E> {
     DelQuietly(DelQuietly<E>),
     DelDerefQuietly(DelDerefQuietly<N>),
     DelDeref(DelDeref<N>),
-}
-
-macro_rules! impl_expr_operation_detail_from {
-    ($($name:ident),* $(,)?) => {
-        $(
-            impl<E, N> From<$name<E>> for OperationDetail<E, N> {
-                fn from(value: $name<E>) -> Self {
-                    Self::$name(value)
-                }
-            }
-        )*
-    };
-}
-
-impl_expr_operation_detail_from!(
-    BinOp,
-    UnaryOp,
-    InplaceBinOp,
-    TernaryOp,
-    GetAttr,
-    SetAttr,
-    GetItem,
-    SetItem,
-    DelItem,
-    LoadGlobal,
-    StoreGlobal,
-    MakeCell,
-    MakeFunction,
-    DelQuietly,
-);
-
-impl<E, N> From<LoadCell<N>> for OperationDetail<E, N> {
-    fn from(value: LoadCell<N>) -> Self {
-        Self::LoadCell(value)
-    }
-}
-
-impl<E, N> From<LoadName<N>> for OperationDetail<E, N> {
-    fn from(value: LoadName<N>) -> Self {
-        Self::LoadName(value)
-    }
-}
-
-impl<E, N> From<LoadLocal<N>> for OperationDetail<E, N> {
-    fn from(value: LoadLocal<N>) -> Self {
-        Self::LoadLocal(value)
-    }
-}
-
-impl<E, N> From<MakeString> for OperationDetail<E, N> {
-    fn from(value: MakeString) -> Self {
-        Self::MakeString(value)
-    }
-}
-
-impl<E, N> From<CellRef<N>> for OperationDetail<E, N> {
-    fn from(value: CellRef<N>) -> Self {
-        Self::CellRef(value)
-    }
-}
-
-impl<E, N> From<StoreCell<N, E>> for OperationDetail<E, N> {
-    fn from(value: StoreCell<N, E>) -> Self {
-        Self::StoreCell(value)
-    }
-}
-
-impl<E, N> From<DelDerefQuietly<N>> for OperationDetail<E, N> {
-    fn from(value: DelDerefQuietly<N>) -> Self {
-        Self::DelDerefQuietly(value)
-    }
-}
-
-impl<E, N> From<DelDeref<N>> for OperationDetail<E, N> {
-    fn from(value: DelDeref<N>) -> Self {
-        Self::DelDeref(value)
-    }
 }
 
 impl<E, N> OperationDetail<E, N> {

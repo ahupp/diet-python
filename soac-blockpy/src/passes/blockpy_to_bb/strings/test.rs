@@ -43,7 +43,7 @@ fn probe_bb_exprs<N: BlockPyNameLike>(probe: &mut ExprShapeProbe, expr: &Codegen
             }
         }
         CodegenBlockPyExpr::Op(operation) => {
-            if let crate::block_py::OperationDetail::MakeString(op) = operation.as_ref().detail() {
+            if let crate::block_py::OperationDetail::MakeString(op) = operation.detail() {
                 probe.saw_make_string.set(true);
                 if !op.arg0.is_empty() {
                     probe.saw_make_string_bytes.set(true);

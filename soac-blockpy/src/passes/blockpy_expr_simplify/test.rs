@@ -33,7 +33,7 @@ fn is_raw_load_name_expr(expr: &CoreBlockPyExprWithAwaitAndYield, expected: &str
     matches!(
         expr,
         CoreBlockPyExprWithAwaitAndYield::Op(operation)
-            if matches!(operation.as_ref().detail(), crate::block_py::OperationDetail::LoadName(op) if op.arg0.id.as_str() == expected)
+            if matches!(operation.detail(), crate::block_py::OperationDetail::LoadName(op) if op.arg0.id.as_str() == expected)
     )
 }
 
@@ -73,7 +73,7 @@ fn expr_simplify_recurses_bottom_up_for_operator_family() {
         outer.detail(),
         OperationDetail::UnaryOp(op) if op.kind == UnaryOpKind::Neg
     ));
-    let outer_args = (*outer).clone().into_call_args();
+    let outer_args = outer.clone().into_call_args();
     let [CoreBlockPyExprWithAwaitAndYield::Op(inner)] = &outer_args[..] else {
         panic!("expected __dp_neg to receive one lowered op arg");
     };
