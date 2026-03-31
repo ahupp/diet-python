@@ -675,7 +675,7 @@ where
         crate::block_py::OperationDetail::LoadName(op) => op.name.pretty_id(),
         crate::block_py::OperationDetail::LoadLocal(op) => op.name.pretty_id(),
         crate::block_py::OperationDetail::LoadCell(op) => {
-            debug_tuple_text("LoadCell", [op.cell.pretty_id()])
+            debug_tuple_text("LoadCell", [op.location.pretty_id()])
         }
         crate::block_py::OperationDetail::MakeString(op) => {
             debug_tuple_text("MakeString", [bytes_text(&op.bytes)])
@@ -688,17 +688,17 @@ where
         }
         crate::block_py::OperationDetail::StoreCell(op) => debug_tuple_text(
             "StoreCell",
-            [op.cell.pretty_id(), op.value.debug_expr_text()],
+            [op.location.pretty_id(), op.value.debug_expr_text()],
         ),
         crate::block_py::OperationDetail::DelQuietly(op) => debug_tuple_text(
             "DelQuietly",
             [op.value.debug_expr_text(), format!("{:?}", op.name)],
         ),
         crate::block_py::OperationDetail::DelDerefQuietly(op) => {
-            debug_tuple_text("DelDerefQuietly", [op.cell.pretty_id()])
+            debug_tuple_text("DelDerefQuietly", [op.location.pretty_id()])
         }
         crate::block_py::OperationDetail::DelDeref(op) => {
-            debug_tuple_text("DelDeref", [op.cell.pretty_id()])
+            debug_tuple_text("DelDeref", [op.location.pretty_id()])
         }
         crate::block_py::OperationDetail::BinOp(op) => debug_tuple_text(
             "BinOp",

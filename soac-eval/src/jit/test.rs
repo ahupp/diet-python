@@ -520,13 +520,13 @@ mod tests {
                 )),
                 expr_stmt(op_expr(
                     Operation::new(DelDeref {
-                        cell: test_closure_cell_name("cell", 2),
+                        location: CellLocation::Closure(2),
                     })
                     .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
                     Operation::new(DelDerefQuietly {
-                        cell: test_closure_cell_name("cell", 2),
+                        location: CellLocation::Closure(2),
                     })
                     .with_meta(Meta::synthetic()),
                 )),

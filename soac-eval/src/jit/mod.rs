@@ -1304,10 +1304,10 @@ fn emit_codegen_expr(
                     borrowed,
                 ),
                 blockpy_intrinsics::OperationDetail::LoadCell(op) => {
-                    let cell_name = &op.cell;
-                    let raw_cell = emit_raw_cell_object_for_name(
+                    let raw_cell = emit_raw_cell_object_for_location(
                         intrinsic_state.fb,
-                        cell_name,
+                        op.location,
+                        "LoadCell",
                         intrinsic_state.local_names,
                         intrinsic_state.local_values,
                         intrinsic_state.ctx,
@@ -1345,10 +1345,10 @@ fn emit_codegen_expr(
                     intrinsic_state.fb.block_params(value_ok_block)[0]
                 }
                 blockpy_intrinsics::OperationDetail::StoreCell(op) => {
-                    let cell_name = &op.cell;
-                    let raw_cell = emit_raw_cell_object_for_name(
+                    let raw_cell = emit_raw_cell_object_for_location(
                         intrinsic_state.fb,
-                        cell_name,
+                        op.location,
+                        "StoreCell",
                         intrinsic_state.local_names,
                         intrinsic_state.local_values,
                         intrinsic_state.ctx,
@@ -1390,9 +1390,10 @@ fn emit_codegen_expr(
                     )
                 }
                 blockpy_intrinsics::OperationDetail::DelDeref(op) => {
-                    let raw_cell = emit_raw_cell_object_for_name(
+                    let raw_cell = emit_raw_cell_object_for_location(
                         intrinsic_state.fb,
-                        &op.cell,
+                        op.location,
+                        "DelDeref",
                         intrinsic_state.local_names,
                         intrinsic_state.local_values,
                         intrinsic_state.ctx,
@@ -1400,9 +1401,10 @@ fn emit_codegen_expr(
                     intrinsics::emit_del_deref_raw_cell(raw_cell, false, &mut intrinsic_state)
                 }
                 blockpy_intrinsics::OperationDetail::DelDerefQuietly(op) => {
-                    let raw_cell = emit_raw_cell_object_for_name(
+                    let raw_cell = emit_raw_cell_object_for_location(
                         intrinsic_state.fb,
-                        &op.cell,
+                        op.location,
+                        "DelDerefQuietly",
                         intrinsic_state.local_names,
                         intrinsic_state.local_values,
                         intrinsic_state.ctx,

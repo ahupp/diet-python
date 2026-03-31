@@ -496,12 +496,12 @@ define_operation_node! {
 }
 
 define_operation_node! {
-    pub struct LoadCell<N> {
-        impl<E, N>;
-        name_type = [N];
-        mapped_type<T, M> = [LoadCell<M>];
-        mapped_ctor<T, M> = [LoadCell::<M>];
-        cell: N => name,
+    pub struct LoadCell {
+        impl<E>;
+        name_type = [()];
+        mapped_type<T, M> = [LoadCell];
+        mapped_ctor<T, M> = [LoadCell];
+        location: CellLocation => value,
     }
 }
 
@@ -559,12 +559,12 @@ define_operation_node! {
 }
 
 define_operation_node! {
-    pub struct StoreCell<N, E> {
-        impl<E, N>;
-        name_type = [N];
-        mapped_type<T, M> = [StoreCell<M, T>];
-        mapped_ctor<T, M> = [StoreCell::<M, T>];
-        cell: N => name,
+    pub struct StoreCell<E> {
+        impl<E>;
+        name_type = [()];
+        mapped_type<T, M> = [StoreCell<T>];
+        mapped_ctor<T, M> = [StoreCell::<T>];
+        location: CellLocation => value,
         value: Box<E> => expr,
     }
 }
@@ -581,22 +581,22 @@ define_operation_node! {
 }
 
 define_operation_node! {
-    pub struct DelDerefQuietly<N> {
-        impl<E, N>;
-        name_type = [N];
-        mapped_type<T, M> = [DelDerefQuietly<M>];
-        mapped_ctor<T, M> = [DelDerefQuietly::<M>];
-        cell: N => name,
+    pub struct DelDerefQuietly {
+        impl<E>;
+        name_type = [()];
+        mapped_type<T, M> = [DelDerefQuietly];
+        mapped_ctor<T, M> = [DelDerefQuietly];
+        location: CellLocation => value,
     }
 }
 
 define_operation_node! {
-    pub struct DelDeref<N> {
-        impl<E, N>;
-        name_type = [N];
-        mapped_type<T, M> = [DelDeref<M>];
-        mapped_ctor<T, M> = [DelDeref::<M>];
-        cell: N => name,
+    pub struct DelDeref {
+        impl<E>;
+        name_type = [()];
+        mapped_type<T, M> = [DelDeref];
+        mapped_ctor<T, M> = [DelDeref];
+        location: CellLocation => value,
     }
 }
 
@@ -615,16 +615,16 @@ pub enum OperationDetail<E, N = E> {
     StoreGlobal(StoreGlobal<E>),
     LoadName(LoadName<N>),
     LoadLocal(LoadLocal<N>),
-    LoadCell(LoadCell<N>),
+    LoadCell(LoadCell),
     MakeCell(MakeCell<E>),
     MakeString(MakeString),
     CellRefForName(CellRefForName),
     CellRef(CellRef),
     MakeFunction(MakeFunction<E>),
-    StoreCell(StoreCell<N, E>),
+    StoreCell(StoreCell<E>),
     DelQuietly(DelQuietly<E>),
-    DelDerefQuietly(DelDerefQuietly<N>),
-    DelDeref(DelDeref<N>),
+    DelDerefQuietly(DelDerefQuietly),
+    DelDeref(DelDeref),
 }
 
 impl<E, N> OperationDetail<E, N> {
@@ -675,18 +675,16 @@ impl<E, N> OperationDetail<E, N> {
             Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.map_expr(f_expr)),
             Self::LoadName(op) => OperationDetail::LoadName(op.map_expr_and_name(f_expr, f_name)),
             Self::LoadLocal(op) => OperationDetail::LoadLocal(op.map_expr_and_name(f_expr, f_name)),
-            Self::LoadCell(op) => OperationDetail::LoadCell(op.map_expr_and_name(f_expr, f_name)),
+            Self::LoadCell(op) => OperationDetail::LoadCell(op.map_expr(f_expr)),
             Self::MakeCell(op) => OperationDetail::MakeCell(op.map_expr(f_expr)),
             Self::MakeString(op) => OperationDetail::MakeString(op.map_expr(f_expr)),
             Self::CellRefForName(op) => OperationDetail::CellRefForName(op.map_expr(f_expr)),
             Self::CellRef(op) => OperationDetail::CellRef(op.map_expr(f_expr)),
             Self::MakeFunction(op) => OperationDetail::MakeFunction(op.map_expr(f_expr)),
-            Self::StoreCell(op) => OperationDetail::StoreCell(op.map_expr_and_name(f_expr, f_name)),
+            Self::StoreCell(op) => OperationDetail::StoreCell(op.map_expr(f_expr)),
             Self::DelQuietly(op) => OperationDetail::DelQuietly(op.map_expr(f_expr)),
-            Self::DelDerefQuietly(op) => {
-                OperationDetail::DelDerefQuietly(op.map_expr_and_name(f_expr, f_name))
-            }
-            Self::DelDeref(op) => OperationDetail::DelDeref(op.map_expr_and_name(f_expr, f_name)),
+            Self::DelDerefQuietly(op) => OperationDetail::DelDerefQuietly(op.map_expr(f_expr)),
+            Self::DelDeref(op) => OperationDetail::DelDeref(op.map_expr(f_expr)),
         }
     }
 
@@ -744,24 +742,16 @@ impl<E, N> OperationDetail<E, N> {
             Self::LoadLocal(op) => {
                 OperationDetail::LoadLocal(op.try_map_expr_and_name(f_expr, f_name)?)
             }
-            Self::LoadCell(op) => {
-                OperationDetail::LoadCell(op.try_map_expr_and_name(f_expr, f_name)?)
-            }
+            Self::LoadCell(op) => OperationDetail::LoadCell(op.try_map_expr(f_expr)?),
             Self::MakeCell(op) => OperationDetail::MakeCell(op.try_map_expr(f_expr)?),
             Self::MakeString(op) => OperationDetail::MakeString(op.try_map_expr(f_expr)?),
             Self::CellRefForName(op) => OperationDetail::CellRefForName(op.try_map_expr(f_expr)?),
             Self::CellRef(op) => OperationDetail::CellRef(op.try_map_expr(f_expr)?),
             Self::MakeFunction(op) => OperationDetail::MakeFunction(op.try_map_expr(f_expr)?),
-            Self::StoreCell(op) => {
-                OperationDetail::StoreCell(op.try_map_expr_and_name(f_expr, f_name)?)
-            }
+            Self::StoreCell(op) => OperationDetail::StoreCell(op.try_map_expr(f_expr)?),
             Self::DelQuietly(op) => OperationDetail::DelQuietly(op.try_map_expr(f_expr)?),
-            Self::DelDerefQuietly(op) => {
-                OperationDetail::DelDerefQuietly(op.try_map_expr_and_name(f_expr, f_name)?)
-            }
-            Self::DelDeref(op) => {
-                OperationDetail::DelDeref(op.try_map_expr_and_name(f_expr, f_name)?)
-            }
+            Self::DelDerefQuietly(op) => OperationDetail::DelDerefQuietly(op.try_map_expr(f_expr)?),
+            Self::DelDeref(op) => OperationDetail::DelDeref(op.try_map_expr(f_expr)?),
         })
     }
 

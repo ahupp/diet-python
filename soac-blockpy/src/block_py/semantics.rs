@@ -435,10 +435,6 @@ where
     match detail {
         OperationDetail::LoadName(op) => f(op.name.id_str()),
         OperationDetail::LoadLocal(op) => f(op.name.id_str()),
-        OperationDetail::LoadCell(op) => f(op.cell.id_str()),
-        OperationDetail::StoreCell(op) => f(op.cell.id_str()),
-        OperationDetail::DelDeref(op) => f(op.cell.id_str()),
-        OperationDetail::DelDerefQuietly(op) => f(op.cell.id_str()),
         _ => {}
     }
 }

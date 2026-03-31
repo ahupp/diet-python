@@ -97,6 +97,10 @@ fn cell_name_for_name(
     cell_named_expr(semantic.cell_storage_name(name).as_str(), node_index, range)
 }
 
+fn cell_storage_name_for_name(name: &str, semantic: &BlockPyCallableSemanticInfo) -> String {
+    semantic.cell_storage_name(name)
+}
+
 fn cell_named_expr(
     storage_name: &str,
     node_index: ast::AtomicNodeIndex,
@@ -122,32 +126,24 @@ fn cell_expr_for_name(
 fn rewrite_cell_name_load(
     name: ExprName,
     semantic: &BlockPyCallableSemanticInfo,
+    resolver: &NameBindingMapper<'_>,
 ) -> CoreBlockPyExpr {
     let meta = name.meta();
-    op_expr(
-        Operation::new(LoadCell::new(cell_name_for_name(
-            name.id.as_str(),
-            semantic,
-            meta.node_index.clone(),
-            meta.range,
-        )))
-        .with_meta(meta),
-    )
+    let location = resolver
+        .resolve_raw_cell_location(cell_storage_name_for_name(name.id.as_str(), semantic).as_str());
+    op_expr(Operation::new(LoadCell::new(location)).with_meta(meta))
 }
 
 fn rewrite_raw_cell_storage_name_load(
     name: ExprName,
     semantic: &BlockPyCallableSemanticInfo,
+    resolver: &NameBindingMapper<'_>,
 ) -> Option<CoreBlockPyExpr> {
     let meta = name.meta();
     let storage_name = resolve_cell_storage_name(semantic, name.id.as_str())?;
+    let location = resolver.resolve_raw_cell_location(storage_name.as_str());
     Some(op_expr(
-        Operation::new(LoadCell::new(cell_named_expr(
-            storage_name.as_str(),
-            meta.node_index.clone(),
-            meta.range,
-        )))
-        .with_meta(meta),
+        Operation::new(LoadCell::new(location)).with_meta(meta),
     ))
 }
 
@@ -164,13 +160,19 @@ fn raw_load_name(expr: &CoreBlockPyExpr) -> Option<ExprName> {
     }
 }
 
-fn rewrite_name_load(name: ExprName, semantic: &BlockPyCallableSemanticInfo) -> CoreBlockPyExpr {
+fn rewrite_name_load(
+    name: ExprName,
+    semantic: &BlockPyCallableSemanticInfo,
+    resolver: &NameBindingMapper<'_>,
+) -> CoreBlockPyExpr {
     if semantic.scope_kind == BlockPyCallableScopeKind::Class {
         return match semantic.effective_binding(name.id.as_str(), BlockPyBindingPurpose::Load) {
             Some(BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Cell)) => {
                 rewrite_class_name_load_cell(name, semantic)
             }
-            Some(BlockPyEffectiveBinding::Cell(_)) => rewrite_cell_name_load(name, semantic),
+            Some(BlockPyEffectiveBinding::Cell(_)) => {
+                rewrite_cell_name_load(name, semantic, resolver)
+            }
             Some(BlockPyEffectiveBinding::Global) => rewrite_global_name_load(name),
             Some(BlockPyEffectiveBinding::Local) => rewrite_local_name_load(name),
             Some(BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global)) | None => {
@@ -180,7 +182,7 @@ fn rewrite_name_load(name: ExprName, semantic: &BlockPyCallableSemanticInfo) -> 
     }
 
     match semantic.resolved_load_binding_kind(name.id.as_str()) {
-        BlockPyBindingKind::Cell(_) => rewrite_cell_name_load(name, semantic),
+        BlockPyBindingKind::Cell(_) => rewrite_cell_name_load(name, semantic, resolver),
         BlockPyBindingKind::Global => rewrite_global_name_load(name),
         BlockPyBindingKind::Local => rewrite_local_name_load(name),
     }
@@ -250,15 +252,13 @@ fn rewrite_class_namespace_binding_assign(
 fn rewrite_cell_binding_assign(
     assign: BlockPyAssign<CoreBlockPyExpr>,
     semantic: &BlockPyCallableSemanticInfo,
+    resolver: &NameBindingMapper<'_>,
 ) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     let meta = assign.target.meta();
     op_stmt(
         Operation::new(StoreCell::new(
-            cell_name_for_name(
-                assign.target.id.as_str(),
-                semantic,
-                meta.node_index.clone(),
-                meta.range,
+            resolver.resolve_raw_cell_location(
+                cell_storage_name_for_name(assign.target.id.as_str(), semantic).as_str(),
             ),
             Box::new(assign.value),
         ))
@@ -287,16 +287,14 @@ fn rewrite_global_binding_delete_by_name(
 fn rewrite_binding_delete(
     target: ExprName,
     semantic: &BlockPyCallableSemanticInfo,
+    resolver: &NameBindingMapper<'_>,
 ) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     let meta = target.meta();
     let bind_name = target.id.to_string();
     if semantic.is_cell_binding(bind_name.as_str()) {
         return op_stmt(
-            Operation::new(DelDeref::new(cell_name_for_name(
-                bind_name.as_str(),
-                semantic,
-                meta.node_index.clone(),
-                meta.range,
+            Operation::new(DelDeref::new(resolver.resolve_raw_cell_location(
+                cell_storage_name_for_name(bind_name.as_str(), semantic).as_str(),
             )))
             .with_meta(meta),
         );
@@ -331,13 +329,14 @@ fn rewrite_binding_delete(
 fn rewrite_deleted_name_load_expr(
     name: ExprName,
     semantic: &BlockPyCallableSemanticInfo,
+    resolver: &NameBindingMapper<'_>,
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
 ) -> CoreBlockPyExpr {
     let always_unbound = always_unbound_names.contains(name.id.as_str());
     let deleted = deleted_names.contains(name.id.as_str());
     if !always_unbound && !deleted {
-        return rewrite_name_load(name, semantic);
+        return rewrite_name_load(name, semantic, resolver);
     }
     let node_index = name.node_index.clone();
     let range = name.range;
@@ -350,7 +349,7 @@ fn rewrite_deleted_name_load_expr(
             if always_unbound {
                 deleted_sentinel_expr(node_index, range)
             } else {
-                rewrite_name_load(name, semantic)
+                rewrite_name_load(name, semantic, resolver)
             },
         ],
     )
@@ -400,10 +399,12 @@ fn walk_helper_args_mut<N: BlockPyNameLike + Clone>(
 fn rewrite_deleted_name_loads_in_expr(
     expr: &mut CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
+    storage_layout: &StorageLayout,
+    resolver: &NameBindingMapper<'_>,
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
 ) {
-    if let Some(logical_name) = cell_load_logical_name(expr, semantic) {
+    if let Some(logical_name) = cell_load_logical_name(expr, semantic, storage_layout) {
         if deleted_names.contains(logical_name.as_str())
             || always_unbound_names.contains(logical_name.as_str())
         {
@@ -425,6 +426,7 @@ fn rewrite_deleted_name_loads_in_expr(
             *expr = rewrite_deleted_name_load_expr(
                 name.clone(),
                 semantic,
+                resolver,
                 deleted_names,
                 always_unbound_names,
             );
@@ -438,6 +440,7 @@ fn rewrite_deleted_name_loads_in_expr(
             *expr = rewrite_deleted_name_load_expr(
                 op.name.clone(),
                 semantic,
+                resolver,
                 deleted_names,
                 always_unbound_names,
             );
@@ -451,6 +454,7 @@ fn rewrite_deleted_name_loads_in_expr(
             *expr = rewrite_deleted_name_load_expr(
                 op.name.clone(),
                 semantic,
+                resolver,
                 deleted_names,
                 always_unbound_names,
             );
@@ -464,6 +468,8 @@ fn rewrite_deleted_name_loads_in_expr(
             rewrite_deleted_name_loads_in_expr(
                 func.as_mut(),
                 semantic,
+                storage_layout,
+                resolver,
                 deleted_names,
                 always_unbound_names,
             );
@@ -471,6 +477,8 @@ fn rewrite_deleted_name_loads_in_expr(
                 rewrite_deleted_name_loads_in_expr(
                     arg.expr_mut(),
                     semantic,
+                    storage_layout,
+                    resolver,
                     deleted_names,
                     always_unbound_names,
                 );
@@ -479,6 +487,8 @@ fn rewrite_deleted_name_loads_in_expr(
                 rewrite_deleted_name_loads_in_expr(
                     keyword.expr_mut(),
                     semantic,
+                    storage_layout,
+                    resolver,
                     deleted_names,
                     always_unbound_names,
                 );
@@ -500,6 +510,8 @@ fn rewrite_deleted_name_loads_in_expr(
                         rewrite_deleted_name_loads_in_expr(
                             value_expr,
                             semantic,
+                            storage_layout,
+                            resolver,
                             deleted_names,
                             always_unbound_names,
                         );
@@ -509,6 +521,8 @@ fn rewrite_deleted_name_loads_in_expr(
                     rewrite_deleted_name_loads_in_expr(
                         arg,
                         semantic,
+                        storage_layout,
+                        resolver,
                         deleted_names,
                         always_unbound_names,
                     )
@@ -596,17 +610,15 @@ fn rewrite_class_name_load_cell(
 fn rewrite_quiet_delete_marker(
     name: ExprName,
     semantic: &BlockPyCallableSemanticInfo,
+    resolver: &NameBindingMapper<'_>,
 ) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     let node_index = name.node_index.clone();
     let range = name.range;
     let meta = crate::block_py::Meta::new(node_index.clone(), range);
     match semantic.binding_kind(name.id.as_str()) {
         Some(BlockPyBindingKind::Cell(_)) => op_stmt(
-            Operation::new(DelDerefQuietly::new(cell_name_for_name(
-                name.id.as_str(),
-                semantic,
-                node_index,
-                range,
+            Operation::new(DelDerefQuietly::new(resolver.resolve_raw_cell_location(
+                cell_storage_name_for_name(name.id.as_str(), semantic).as_str(),
             )))
             .with_meta(meta),
         ),
@@ -707,12 +719,13 @@ fn make_function_kind_name(kind: BlockPyFunctionKind) -> &'static str {
 fn cell_load_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
+    storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::LoadCell(LoadCell { cell, .. }) = operation.detail() else {
+    let OperationDetail::LoadCell(LoadCell { location, .. }) = operation.detail() else {
         return None;
     };
-    semantic.logical_name_for_cell_storage(cell.id.as_str())
+    logical_name_for_cell_location(semantic, storage_layout, *location)
 }
 
 fn build_local_cell_init_assign(
@@ -853,43 +866,72 @@ fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPa
         .splice(0..0, init_stmts.into_iter().map(Into::into));
 }
 
+fn storage_name_for_cell_location(layout: &StorageLayout, location: CellLocation) -> Option<&str> {
+    match location {
+        CellLocation::Owned(slot) => layout
+            .local_cell_slot(slot)
+            .map(|slot| slot.storage_name.as_str()),
+        CellLocation::Closure(slot) | CellLocation::CapturedSource(slot) => layout
+            .freevar_slot(slot)
+            .map(|slot| slot.storage_name.as_str()),
+    }
+}
+
+fn logical_name_for_cell_location(
+    semantic: &BlockPyCallableSemanticInfo,
+    layout: &StorageLayout,
+    location: CellLocation,
+) -> Option<String> {
+    let storage_name = storage_name_for_cell_location(layout, location)?;
+    semantic.logical_name_for_cell_storage(storage_name)
+}
+
 fn store_cell_deleted_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
+    storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::StoreCell(StoreCell { cell, value, .. }) = operation.detail() else {
+    let OperationDetail::StoreCell(StoreCell {
+        location, value, ..
+    }) = operation.detail()
+    else {
         return None;
     };
     if !is_deleted_sentinel_expr(value) {
         return None;
     }
-    semantic.logical_name_for_cell_storage(cell.id.as_str())
+    logical_name_for_cell_location(semantic, storage_layout, *location)
 }
 
 fn del_deref_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
+    storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::DelDeref(DelDeref { cell, .. }) = operation.detail() else {
+    let OperationDetail::DelDeref(DelDeref { location, .. }) = operation.detail() else {
         return None;
     };
-    semantic.logical_name_for_cell_storage(cell.id.as_str())
+    logical_name_for_cell_location(semantic, storage_layout, *location)
 }
 
 fn store_cell_runtime_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
+    storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::StoreCell(StoreCell { cell, value, .. }) = operation.detail() else {
+    let OperationDetail::StoreCell(StoreCell {
+        location, value, ..
+    }) = operation.detail()
+    else {
         return None;
     };
     if is_deleted_sentinel_expr(value) {
         return None;
     }
-    semantic.logical_name_for_cell_storage(cell.id.as_str())
+    logical_name_for_cell_location(semantic, storage_layout, *location)
 }
 
 fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
@@ -908,9 +950,60 @@ fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
 struct NameBindingMapper<'a> {
     semantic: &'a BlockPyCallableSemanticInfo,
     callee_make_function_capture_names: &'a HashMap<crate::block_py::FunctionId, Vec<String>>,
+    captured_cell_slots: HashMap<String, u32>,
+    owned_cell_slots: HashMap<String, u32>,
+    cell_bindings: HashMap<String, (String, BlockPyCellBindingKind)>,
 }
 
 impl NameBindingMapper<'_> {
+    fn resolve_raw_cell_location(&self, name_text: &str) -> CellLocation {
+        if let Some(storage_name) =
+            resolve_captured_cell_source_storage_name(self.semantic, name_text)
+        {
+            let slot = self
+                .captured_cell_slots
+                .get(storage_name.as_str())
+                .copied()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing closure slot for captured raw cell source {name_text} via storage name {storage_name}"
+                    )
+                });
+            return CellLocation::CapturedSource(slot);
+        }
+
+        if let Some((storage_name, binding_kind)) = self.cell_bindings.get(name_text) {
+            return match binding_kind {
+                BlockPyCellBindingKind::Owner => {
+                    let slot = self
+                        .owned_cell_slots
+                        .get(storage_name.as_str())
+                        .copied()
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "missing owned cell slot for raw cell target {name_text} via storage name {storage_name}"
+                            )
+                        });
+                    CellLocation::Owned(slot)
+                }
+                BlockPyCellBindingKind::Capture => {
+                    let slot = self
+                        .captured_cell_slots
+                        .get(storage_name.as_str())
+                        .copied()
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "missing closure slot for raw captured cell target {name_text} via storage name {storage_name}"
+                            )
+                        });
+                    CellLocation::CapturedSource(slot)
+                }
+            };
+        }
+
+        panic!("raw cell target {name_text} did not resolve to a cell-backed location");
+    }
+
     fn materialize_make_function_expr(
         &self,
         meta: crate::block_py::Meta,
@@ -967,6 +1060,7 @@ fn rewrite_binding_assign_by_name(
     name: String,
     value: CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
+    resolver: &NameBindingMapper<'_>,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
@@ -983,16 +1077,13 @@ fn rewrite_binding_assign_by_name(
     if semantic.is_cell_binding(name.as_str()) {
         if is_deleted_sentinel_expr(&assign.value) {
             return op_stmt(
-                Operation::new(DelDeref::new(cell_name_for_name(
-                    name.as_str(),
-                    semantic,
-                    node_index.clone(),
-                    range,
+                Operation::new(DelDeref::new(resolver.resolve_raw_cell_location(
+                    cell_storage_name_for_name(name.as_str(), semantic).as_str(),
                 )))
                 .with_meta(meta),
             );
         }
-        return rewrite_cell_binding_assign(assign, semantic);
+        return rewrite_cell_binding_assign(assign, semantic, resolver);
     }
     match semantic.binding_target_for_name(name.as_str(), BlockPyBindingPurpose::Store) {
         BindingTarget::ModuleGlobal => {
@@ -1025,12 +1116,14 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
         match stmt {
             BlockPyStmt::Expr(expr) => {
                 if let Some(name) = quiet_delete_marker_target(&expr) {
-                    return rewrite_quiet_delete_marker(name, self.semantic);
+                    return rewrite_quiet_delete_marker(name, self.semantic, self);
                 }
                 BlockPyStmt::Expr(self.map_expr(expr))
             }
             BlockPyStmt::Assign(assign) => self.map_assign(assign),
-            BlockPyStmt::Delete(delete) => rewrite_binding_delete(delete.target, self.semantic),
+            BlockPyStmt::Delete(delete) => {
+                rewrite_binding_delete(delete.target, self.semantic, self)
+            }
         }
     }
 
@@ -1043,19 +1136,19 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 let OperationDetail::LoadName(op) = detail else {
                     unreachable!("load-name guard should ensure LoadName detail");
                 };
-                rewrite_name_load(op.name, self.semantic)
+                rewrite_name_load(op.name, self.semantic, self)
             }
             CoreBlockPyExpr::Name(name)
                 if matches!(name.ctx, ast::ExprContext::Load)
                     && resolve_cell_storage_name(self.semantic, name.id.as_str()).is_some() =>
             {
-                rewrite_raw_cell_storage_name_load(name, self.semantic)
+                rewrite_raw_cell_storage_name_load(name, self.semantic, self)
                     .expect("raw cell-storage load guard should ensure rewrite target")
             }
             CoreBlockPyExpr::Name(name)
                 if should_rewrite_raw_name_load(name.id.as_str(), self.semantic) =>
             {
-                rewrite_name_load(name, self.semantic)
+                rewrite_name_load(name, self.semantic, self)
             }
             CoreBlockPyExpr::Name(name) => CoreBlockPyExpr::Name(name),
             CoreBlockPyExpr::Literal(literal) => CoreBlockPyExpr::Literal(literal),
@@ -1148,6 +1241,7 @@ impl NameBindingMapper<'_> {
             assign.target.id.to_string(),
             self.map_expr(assign.value),
             self.semantic,
+            self,
             assign.target.node_index,
             assign.target.range,
         )
@@ -1157,6 +1251,7 @@ impl NameBindingMapper<'_> {
 fn collect_deleted_names_in_stmt(
     stmt: &BlockPyStmt<CoreBlockPyExpr, ExprName>,
     semantic: &BlockPyCallableSemanticInfo,
+    storage_layout: &StorageLayout,
     names: &mut HashSet<String>,
 ) {
     match stmt {
@@ -1167,10 +1262,10 @@ fn collect_deleted_names_in_stmt(
             names.insert(assign.target.id.to_string());
         }
         BlockPyStmt::Expr(expr) => {
-            if let Some(name) = store_cell_deleted_logical_name(expr, semantic) {
+            if let Some(name) = store_cell_deleted_logical_name(expr, semantic, storage_layout) {
                 names.insert(name);
             }
-            if let Some(name) = del_deref_logical_name(expr, semantic) {
+            if let Some(name) = del_deref_logical_name(expr, semantic, storage_layout) {
                 names.insert(name);
             }
         }
@@ -1182,6 +1277,8 @@ fn collect_deleted_names_in_stmt(
 fn rewrite_deleted_name_loads_in_stmt(
     stmt: &mut BlockPyStmt<CoreBlockPyExpr, ExprName>,
     semantic: &BlockPyCallableSemanticInfo,
+    storage_layout: &StorageLayout,
+    resolver: &NameBindingMapper<'_>,
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
 ) {
@@ -1190,13 +1287,20 @@ fn rewrite_deleted_name_loads_in_stmt(
             rewrite_deleted_name_loads_in_expr(
                 &mut assign.value,
                 semantic,
+                storage_layout,
+                resolver,
                 deleted_names,
                 always_unbound_names,
             );
         }
-        BlockPyStmt::Expr(expr) => {
-            rewrite_deleted_name_loads_in_expr(expr, semantic, deleted_names, always_unbound_names)
-        }
+        BlockPyStmt::Expr(expr) => rewrite_deleted_name_loads_in_expr(
+            expr,
+            semantic,
+            storage_layout,
+            resolver,
+            deleted_names,
+            always_unbound_names,
+        ),
         BlockPyStmt::Delete(_) => {}
     }
 }
@@ -1204,6 +1308,8 @@ fn rewrite_deleted_name_loads_in_stmt(
 fn rewrite_deleted_name_loads_in_term(
     term: &mut BlockPyTerm<CoreBlockPyExpr>,
     semantic: &BlockPyCallableSemanticInfo,
+    storage_layout: &StorageLayout,
+    resolver: &NameBindingMapper<'_>,
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
 ) {
@@ -1213,6 +1319,8 @@ fn rewrite_deleted_name_loads_in_term(
             rewrite_deleted_name_loads_in_expr(
                 &mut if_term.test,
                 semantic,
+                storage_layout,
+                resolver,
                 deleted_names,
                 always_unbound_names,
             );
@@ -1221,6 +1329,8 @@ fn rewrite_deleted_name_loads_in_term(
             rewrite_deleted_name_loads_in_expr(
                 &mut branch.index,
                 semantic,
+                storage_layout,
+                resolver,
                 deleted_names,
                 always_unbound_names,
             );
@@ -1230,20 +1340,28 @@ fn rewrite_deleted_name_loads_in_term(
                 rewrite_deleted_name_loads_in_expr(
                     exc,
                     semantic,
+                    storage_layout,
+                    resolver,
                     deleted_names,
                     always_unbound_names,
                 );
             }
         }
-        BlockPyTerm::Return(value) => {
-            rewrite_deleted_name_loads_in_expr(value, semantic, deleted_names, always_unbound_names)
-        }
+        BlockPyTerm::Return(value) => rewrite_deleted_name_loads_in_expr(
+            value,
+            semantic,
+            storage_layout,
+            resolver,
+            deleted_names,
+            always_unbound_names,
+        ),
     }
 }
 
 fn rewrite_raw_cell_loads_in_expr(
     expr: &mut CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
+    resolver: &NameBindingMapper<'_>,
 ) {
     match expr {
         CoreBlockPyExpr::Name(name)
@@ -1253,7 +1371,7 @@ fn rewrite_raw_cell_loads_in_expr(
                     Some(BlockPyBindingKind::Cell(_))
                 ) =>
         {
-            *expr = rewrite_cell_name_load(name.clone(), semantic);
+            *expr = rewrite_cell_name_load(name.clone(), semantic, resolver);
         }
         CoreBlockPyExpr::Call(call) => {
             if call.keywords.is_empty()
@@ -1262,25 +1380,26 @@ fn rewrite_raw_cell_loads_in_expr(
                     .as_ref()
                     .is_some_and(|name| name.id.as_str() == "__dp_class_lookup_cell")
             {
-                rewrite_raw_cell_loads_in_expr(call.func.as_mut(), semantic);
+                rewrite_raw_cell_loads_in_expr(call.func.as_mut(), semantic, resolver);
                 if let Some(arg) = call.args.get_mut(0) {
-                    rewrite_raw_cell_loads_in_expr(arg.expr_mut(), semantic);
+                    rewrite_raw_cell_loads_in_expr(arg.expr_mut(), semantic, resolver);
                 }
                 if let Some(arg) = call.args.get_mut(1) {
-                    rewrite_raw_cell_loads_in_expr(arg.expr_mut(), semantic);
+                    rewrite_raw_cell_loads_in_expr(arg.expr_mut(), semantic, resolver);
                 }
                 return;
             }
-            rewrite_raw_cell_loads_in_expr(call.func.as_mut(), semantic);
+            rewrite_raw_cell_loads_in_expr(call.func.as_mut(), semantic, resolver);
             for arg in &mut call.args {
-                rewrite_raw_cell_loads_in_expr(arg.expr_mut(), semantic);
+                rewrite_raw_cell_loads_in_expr(arg.expr_mut(), semantic, resolver);
             }
             for keyword in &mut call.keywords {
-                rewrite_raw_cell_loads_in_expr(keyword.expr_mut(), semantic);
+                rewrite_raw_cell_loads_in_expr(keyword.expr_mut(), semantic, resolver);
             }
         }
         CoreBlockPyExpr::Op(operation) => {
-            operation.walk_args_mut(&mut |arg| rewrite_raw_cell_loads_in_expr(arg, semantic));
+            operation
+                .walk_args_mut(&mut |arg| rewrite_raw_cell_loads_in_expr(arg, semantic, resolver));
         }
         CoreBlockPyExpr::Literal(_) => {}
         CoreBlockPyExpr::Name(_) => {}
@@ -1290,15 +1409,16 @@ fn rewrite_raw_cell_loads_in_expr(
 fn rewrite_raw_cell_loads_in_stmt(
     stmt: &mut BlockPyStmt<CoreBlockPyExpr, ExprName>,
     semantic: &BlockPyCallableSemanticInfo,
+    resolver: &NameBindingMapper<'_>,
 ) {
     match stmt {
         BlockPyStmt::Assign(assign) => {
             if is_local_cell_init_assign(assign) {
                 return;
             }
-            rewrite_raw_cell_loads_in_expr(&mut assign.value, semantic)
+            rewrite_raw_cell_loads_in_expr(&mut assign.value, semantic, resolver)
         }
-        BlockPyStmt::Expr(expr) => rewrite_raw_cell_loads_in_expr(expr, semantic),
+        BlockPyStmt::Expr(expr) => rewrite_raw_cell_loads_in_expr(expr, semantic, resolver),
         BlockPyStmt::Delete(_) => {}
     }
 }
@@ -1306,21 +1426,22 @@ fn rewrite_raw_cell_loads_in_stmt(
 fn rewrite_raw_cell_loads_in_term(
     term: &mut BlockPyTerm<CoreBlockPyExpr>,
     semantic: &BlockPyCallableSemanticInfo,
+    resolver: &NameBindingMapper<'_>,
 ) {
     match term {
         BlockPyTerm::Jump(_) => {}
         BlockPyTerm::IfTerm(if_term) => {
-            rewrite_raw_cell_loads_in_expr(&mut if_term.test, semantic);
+            rewrite_raw_cell_loads_in_expr(&mut if_term.test, semantic, resolver);
         }
         BlockPyTerm::BranchTable(branch) => {
-            rewrite_raw_cell_loads_in_expr(&mut branch.index, semantic);
+            rewrite_raw_cell_loads_in_expr(&mut branch.index, semantic, resolver);
         }
         BlockPyTerm::Raise(BlockPyRaise { exc }) => {
             if let Some(exc) = exc {
-                rewrite_raw_cell_loads_in_expr(exc, semantic);
+                rewrite_raw_cell_loads_in_expr(exc, semantic, resolver);
             }
         }
-        BlockPyTerm::Return(value) => rewrite_raw_cell_loads_in_expr(value, semantic),
+        BlockPyTerm::Return(value) => rewrite_raw_cell_loads_in_expr(value, semantic, resolver),
     }
 }
 
@@ -1365,6 +1486,7 @@ fn sync_exception_param_cell_in_block(
     >,
     normal_predecessor_exc_names: &[Option<String>],
     semantic: &BlockPyCallableSemanticInfo,
+    resolver: &NameBindingMapper<'_>,
 ) {
     let Some(exc_name) = block.exception_param() else {
         return;
@@ -1391,10 +1513,10 @@ fn sync_exception_param_cell_in_block(
         node_index: node_index.clone(),
         range,
     };
-    let cell_name = cell_name_for_name(exc_name, semantic, node_index.clone(), range);
     let sync_stmt = op_stmt(
         Operation::new(StoreCell::new(
-            cell_name,
+            resolver
+                .resolve_raw_cell_location(cell_storage_name_for_name(exc_name, semantic).as_str()),
             Box::new(rewrite_local_name_load(exc_load)),
         ))
         .with_meta(crate::block_py::Meta::new(node_index, range)),
@@ -1408,11 +1530,12 @@ fn collect_deleted_names_in_blocks(
         crate::block_py::BlockPyTerm<CoreBlockPyExpr>,
     >],
     semantic: &BlockPyCallableSemanticInfo,
+    storage_layout: &StorageLayout,
 ) -> HashSet<String> {
     let mut names = HashSet::new();
     for block in blocks {
         for stmt in &block.body {
-            collect_deleted_names_in_stmt(stmt, semantic, &mut names);
+            collect_deleted_names_in_stmt(stmt, semantic, storage_layout, &mut names);
         }
     }
     names
@@ -1421,6 +1544,7 @@ fn collect_deleted_names_in_blocks(
 fn collect_runtime_bound_local_names_in_stmt(
     stmt: &BlockPyStmt<CoreBlockPyExpr, ExprName>,
     semantic: &BlockPyCallableSemanticInfo,
+    storage_layout: &StorageLayout,
     names: &mut HashSet<String>,
 ) {
     match stmt {
@@ -1431,7 +1555,7 @@ fn collect_runtime_bound_local_names_in_stmt(
             names.insert(assign.target.id.to_string());
         }
         BlockPyStmt::Expr(expr) => {
-            if let Some(name) = store_cell_runtime_logical_name(expr, semantic) {
+            if let Some(name) = store_cell_runtime_logical_name(expr, semantic, storage_layout) {
                 names.insert(name);
             }
         }
@@ -1446,11 +1570,12 @@ fn collect_runtime_bound_local_names(
         crate::block_py::BlockPyTerm<CoreBlockPyExpr>,
     >],
     semantic: &BlockPyCallableSemanticInfo,
+    storage_layout: &StorageLayout,
 ) -> HashSet<String> {
     let mut names = HashSet::new();
     for block in blocks {
         for stmt in &block.body {
-            collect_runtime_bound_local_names_in_stmt(stmt, semantic, &mut names);
+            collect_runtime_bound_local_names_in_stmt(stmt, semantic, storage_layout, &mut names);
         }
     }
     names
@@ -1460,8 +1585,13 @@ fn collect_always_unbound_local_names(
     callable: &BlockPyFunction<CoreBlockPyPass>,
 ) -> HashSet<String> {
     let semantic = &callable.semantic;
+    let storage_layout = callable
+        .storage_layout
+        .as_ref()
+        .expect("name binding should have storage layout before local-name analysis");
     let param_names = callable.params.names().into_iter().collect::<HashSet<_>>();
-    let runtime_bound_names = collect_runtime_bound_local_names(&callable.blocks, semantic);
+    let runtime_bound_names =
+        collect_runtime_bound_local_names(&callable.blocks, semantic, storage_layout);
     semantic
         .local_defs
         .iter()
@@ -2023,18 +2153,6 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                         op.name = self.locate_name(op.name.clone().into());
                     }
                     OperationDetail::CellRefForName(_) => unreachable!("handled above"),
-                    OperationDetail::LoadCell(op) => {
-                        op.cell = self.mark_raw_cell_name(op.cell.clone());
-                    }
-                    OperationDetail::StoreCell(op) => {
-                        op.cell = self.mark_raw_cell_name(op.cell.clone());
-                    }
-                    OperationDetail::DelDeref(op) => {
-                        op.cell = self.mark_raw_cell_name(op.cell.clone());
-                    }
-                    OperationDetail::DelDerefQuietly(op) => {
-                        op.cell = self.mark_raw_cell_name(op.cell.clone());
-                    }
                     _ => {}
                 }
                 expr
@@ -2436,14 +2554,24 @@ fn lower_name_binding_callable(
     callee_make_function_capture_names: &HashMap<crate::block_py::FunctionId, Vec<String>>,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
     let semantic = callable.semantic.clone();
-    let mut lowered = NameBindingMapper {
+    let captured_cell_slots = collect_captured_cell_slot_locations(&callable);
+    let owned_cell_slots = collect_owned_cell_slot_locations(&callable);
+    let cell_bindings = collect_cell_bindings(&callable);
+    let mapper = NameBindingMapper {
         semantic: &semantic,
         callee_make_function_capture_names,
-    }
-    .map_fn(callable);
+        captured_cell_slots,
+        owned_cell_slots,
+        cell_bindings,
+    };
+    let mut lowered = mapper.map_fn(callable);
     prepend_owned_cell_init_preamble(&mut lowered);
     populate_stack_slots_in_storage_layout(&mut lowered);
-    let deleted_names = collect_deleted_names_in_blocks(&lowered.blocks, &semantic);
+    let storage_layout = lowered
+        .storage_layout
+        .as_ref()
+        .expect("name binding should have storage layout before cell-location analysis");
+    let deleted_names = collect_deleted_names_in_blocks(&lowered.blocks, &semantic, storage_layout);
     let always_unbound_names = collect_always_unbound_local_names(&lowered);
     if !deleted_names.is_empty() || !always_unbound_names.is_empty() {
         for block in &mut lowered.blocks {
@@ -2451,6 +2579,8 @@ fn lower_name_binding_callable(
                 rewrite_deleted_name_loads_in_stmt(
                     stmt,
                     &semantic,
+                    storage_layout,
+                    &mapper,
                     &deleted_names,
                     &always_unbound_names,
                 );
@@ -2458,6 +2588,8 @@ fn lower_name_binding_callable(
             rewrite_deleted_name_loads_in_term(
                 &mut block.term,
                 &semantic,
+                storage_layout,
+                &mapper,
                 &deleted_names,
                 &always_unbound_names,
             );
@@ -2470,11 +2602,11 @@ fn lower_name_binding_callable(
             .get(&block.label)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        sync_exception_param_cell_in_block(block, predecessor_exc_names, &semantic);
+        sync_exception_param_cell_in_block(block, predecessor_exc_names, &semantic, &mapper);
         for stmt in &mut block.body {
-            rewrite_raw_cell_loads_in_stmt(stmt, &semantic);
+            rewrite_raw_cell_loads_in_stmt(stmt, &semantic, &mapper);
         }
-        rewrite_raw_cell_loads_in_term(&mut block.term, &semantic);
+        rewrite_raw_cell_loads_in_term(&mut block.term, &semantic, &mapper);
     }
     let mut lowered = refresh_bb_callable_block_params(locate_names_in_callable(lowered));
     ensure_storage_layout_covers_block_params(&mut lowered);
