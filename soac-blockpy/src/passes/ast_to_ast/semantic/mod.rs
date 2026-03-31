@@ -391,6 +391,12 @@ fn uses_implicit_class_cell(body: &mut Suite) -> bool {
     detector.uses_class_cell
 }
 
+fn expr_uses_implicit_class_cell(expr: &mut ast::Expr) -> bool {
+    let mut detector = ImplicitClassCellUseDetector::default();
+    detector.visit_expr(expr);
+    detector.uses_class_cell
+}
+
 impl Transformer for RuffScopeBindingCollector {
     fn visit_stmt(&mut self, stmt: &mut ast::Stmt) {
         match stmt {
@@ -452,6 +458,12 @@ fn collect_scope_bindings(
         collector.visit_type_params(type_params);
     }
     collector.visit_body(body);
+    collector
+}
+
+fn collect_scope_expr_bindings(expr: &mut ast::Expr) -> RuffScopeBindingCollector {
+    let mut collector = RuffScopeBindingCollector::default();
+    collector.visit_expr(expr);
     collector
 }
 
@@ -590,6 +602,25 @@ impl RuffSemanticSnapshotBuilder {
     ) -> ScopePreparation {
         let collector = collect_scope_bindings(body, type_params);
         let uses_class_cell = uses_implicit_class_cell(body);
+        self.prepare_scope_from_collector(collector, uses_class_cell, parameters)
+    }
+
+    fn prepare_current_expr_scope(
+        &mut self,
+        expr: &mut ast::Expr,
+        parameters: &[(String, TextRange)],
+    ) -> ScopePreparation {
+        let collector = collect_scope_expr_bindings(expr);
+        let uses_class_cell = expr_uses_implicit_class_cell(expr);
+        self.prepare_scope_from_collector(collector, uses_class_cell, parameters)
+    }
+
+    fn prepare_scope_from_collector(
+        &mut self,
+        collector: RuffScopeBindingCollector,
+        uses_class_cell: bool,
+        parameters: &[(String, TextRange)],
+    ) -> ScopePreparation {
         let explicit_globals = collector
             .explicit_globals
             .iter()
@@ -719,7 +750,7 @@ impl RuffSemanticSnapshotBuilder {
     fn current_scope_is_function(&self) -> bool {
         matches!(
             self.semantic.current_scope().kind,
-            RuffScopeKind::Function(_)
+            RuffScopeKind::Function(_) | RuffScopeKind::Lambda(_)
         )
     }
 
@@ -915,6 +946,36 @@ impl Transformer for RuffSemanticSnapshotBuilder {
             _ => crate::transformer::walk_stmt(self, stmt),
         }
     }
+
+    fn visit_expr(&mut self, expr: &mut ast::Expr) {
+        match expr {
+            ast::Expr::Lambda(lambda) => {
+                let node_index = self.ensure_node_index(lambda);
+                let leaked_lambda = Box::leak(Box::new(lambda.clone()));
+                self.semantic
+                    .push_scope(RuffScopeKind::Lambda(leaked_lambda));
+                let parameters = lambda
+                    .parameters
+                    .as_deref()
+                    .map(parameter_refs)
+                    .unwrap_or_default();
+                let preparation =
+                    self.prepare_current_expr_scope(lambda.body.as_mut(), &parameters);
+                let scope_id = self.push_snapshot_scope(
+                    SemanticScopeKind::Function,
+                    "<lambda>",
+                    node_index,
+                    preparation,
+                );
+                let ruff_scope_id = self.semantic.scope_id;
+                self.scope_stack.push((scope_id, ruff_scope_id));
+                self.visit_expr(lambda.body.as_mut());
+                self.scope_stack.pop();
+                self.semantic.pop_scope();
+            }
+            _ => crate::transformer::walk_expr(self, expr),
+        }
+    }
 }
 
 fn parameter_refs(parameters: &ast::Parameters) -> Vec<(String, TextRange)> {
@@ -987,135 +1048,25 @@ impl SemanticAstState {
             })
     }
 
+    fn lambda_scope_id(&self, lambda: &ast::ExprLambda) -> Option<SemanticScopeId> {
+        self.inner
+            .snapshot
+            .scope(SemanticScopeId(0))
+            .function_children
+            .get(&lambda.node_index().load())
+            .copied()
+            .or_else(|| {
+                self.inner.snapshot.scopes.iter().find_map(|scope| {
+                    scope
+                        .function_children
+                        .get(&lambda.node_index().load())
+                        .copied()
+                })
+            })
+    }
+
     pub(crate) fn module_scope(&self) -> SemanticScope {
         self.scope(SemanticScopeId(0))
-    }
-
-    fn nested_function_capture_storage_name(
-        &self,
-        parent_scope_id: SemanticScopeId,
-        name: &str,
-    ) -> Option<Option<String>> {
-        let mut current = Some(parent_scope_id);
-        while let Some(scope_id) = current {
-            let scope = self.inner.snapshot.scope(scope_id);
-            match scope.kind {
-                SemanticScopeKind::Function => {
-                    if scope.local_defs.contains(name)
-                        || matches!(
-                            scope.bindings.get(name),
-                            Some(SemanticBindingKind::Nonlocal)
-                        )
-                    {
-                        return Some(scope.cell_storage_names.get(name).cloned());
-                    }
-                }
-                SemanticScopeKind::Module => return None,
-                SemanticScopeKind::Class => {}
-            }
-            current = scope.parent;
-        }
-        None
-    }
-
-    fn has_enclosing_class_scope(&self, parent_scope_id: SemanticScopeId) -> bool {
-        let mut current = Some(parent_scope_id);
-        while let Some(scope_id) = current {
-            let scope = self.inner.snapshot.scope(scope_id);
-            match scope.kind {
-                SemanticScopeKind::Class => return true,
-                SemanticScopeKind::Module => return false,
-                SemanticScopeKind::Function => current = scope.parent,
-            }
-        }
-        false
-    }
-
-    pub(crate) fn synthesize_lambda_scope(
-        &mut self,
-        parent_scope: &SemanticScope,
-        func_def: &mut StmtFunctionDef,
-    ) -> SemanticScope {
-        let parameters = parameter_refs(&func_def.parameters);
-        let collector =
-            collect_scope_bindings(&mut func_def.body, func_def.type_params.as_deref_mut());
-        debug_assert!(
-            collector.explicit_globals.is_empty() && collector.explicit_nonlocals.is_empty(),
-            "lambda body should not contain explicit global/nonlocal statements",
-        );
-        let mut body_for_class_cell = func_def.body.clone();
-        let uses_class_cell = uses_implicit_class_cell(&mut body_for_class_cell);
-
-        let mut bindings = HashMap::new();
-        let mut local_defs = HashSet::new();
-        let mut cell_storage_names = HashMap::new();
-
-        for (name, _) in &parameters {
-            set_semantic_binding(&mut bindings, name.as_str(), SemanticBindingKind::Local);
-            local_defs.insert(name.clone());
-        }
-        for name in &collector.bound_names {
-            set_semantic_binding(&mut bindings, name.as_str(), SemanticBindingKind::Local);
-            local_defs.insert(name.clone());
-        }
-        for name in collector.load_names {
-            if bindings.contains_key(name.as_str()) {
-                continue;
-            }
-            if let Some(storage_name) =
-                self.nested_function_capture_storage_name(parent_scope.scope_id, name.as_str())
-            {
-                set_semantic_binding(&mut bindings, name.as_str(), SemanticBindingKind::Nonlocal);
-                if let Some(storage_name) = storage_name {
-                    cell_storage_names.insert(name.clone(), storage_name);
-                }
-            } else {
-                set_semantic_binding(&mut bindings, name.as_str(), SemanticBindingKind::Global);
-            }
-        }
-
-        if uses_class_cell && self.has_enclosing_class_scope(parent_scope.scope_id) {
-            set_semantic_binding(&mut bindings, "__class__", SemanticBindingKind::Nonlocal);
-            cell_storage_names.insert("__class__".to_string(), "_dp_classcell".to_string());
-        }
-
-        let node_index = {
-            let mut provenance = self
-                .provenance
-                .lock()
-                .expect("semantic provenance mutex poisoned");
-            provenance.ensure_node_index(func_def)
-        };
-
-        let scope_id = {
-            let inner = Arc::make_mut(&mut self.inner);
-            let scope_id = SemanticScopeId(inner.snapshot.scopes.len());
-            inner.snapshot.scopes.push(SemanticScopeData {
-                kind: SemanticScopeKind::Function,
-                bindings,
-                local_defs: local_defs.clone(),
-                type_param_names: collector.type_param_names,
-                // Lambdas can contain nested lambdas; conservatively make
-                // lambda-local bindings cell-capable so nested captures remain valid.
-                local_cell_bindings: local_defs,
-                cell_storage_names,
-                parent: Some(parent_scope.scope_id),
-                qualname: child_qualname(parent_scope.data(), func_def.name.id.as_str()),
-                reuses_child_scopes: false,
-                function_children: HashMap::new(),
-                class_children: HashMap::new(),
-            });
-            inner
-                .snapshot
-                .scope_mut(parent_scope.scope_id)
-                .function_children
-                .insert(node_index, scope_id);
-            scope_id
-        };
-
-        let scope = self.scope(scope_id);
-        self.register_function_scope_override(func_def, scope.clone());
-        scope
     }
 
     pub(crate) fn synthesize_module_init_scope(
@@ -1182,6 +1133,11 @@ impl SemanticAstState {
 
     pub(crate) fn function_scope(&self, func_def: &StmtFunctionDef) -> Option<SemanticScope> {
         self.function_scope_id(func_def)
+            .map(|scope_id| self.scope(scope_id))
+    }
+
+    pub(crate) fn lambda_scope(&self, lambda: &ast::ExprLambda) -> Option<SemanticScope> {
+        self.lambda_scope_id(lambda)
             .map(|scope_id| self.scope(scope_id))
     }
 

@@ -180,14 +180,11 @@ fn rewrite_function_def_stmt_via_blockpy(
 }
 
 impl BlockPyModuleRewriter<'_> {
-    fn current_function_scope(&self) -> SemanticScope {
-        self.function_scope_stack
-            .last()
-            .and_then(|frame| frame.scope.clone())
-            .expect("expected current function scope while lowering lambda")
-    }
-
     fn lower_lambda_expr(&mut self, lambda: &mut ast::ExprLambda) -> Expr {
+        let lambda_scope = self
+            .semantic_state
+            .lambda_scope(lambda)
+            .expect("missing preserved lambda scope while lowering lambda");
         let func_name = self.context.fresh("lambda");
         let mut func_def: ast::StmtFunctionDef = py_stmt_typed!(
             r#"
@@ -202,10 +199,7 @@ def {func:id}():
         let body = std::mem::replace(&mut *lambda.body, py_expr!("None"));
         func_def.body = vec![py_stmt!("return {value:expr}", value = body)];
 
-        let parent_scope = self.current_function_scope();
-        self.semantic_state
-            .synthesize_lambda_scope(&parent_scope, &mut func_def);
-        let state = self.walk_function_def_with_scope(&mut func_def);
+        let state = self.walk_function_def_with_explicit_scope(&mut func_def, Some(lambda_scope));
         if let Some(parent_frame) = self.function_scope_stack.last_mut() {
             for (name, binding) in &state.callable_semantic.bindings {
                 if matches!(
@@ -266,6 +260,14 @@ def {func:id}():
         func: &mut ast::StmtFunctionDef,
     ) -> FunctionScopeFrame {
         let function_scope = self.semantic_state.function_scope(func);
+        self.walk_function_def_with_explicit_scope(func, function_scope)
+    }
+
+    fn walk_function_def_with_explicit_scope(
+        &mut self,
+        func: &mut ast::StmtFunctionDef,
+        function_scope: Option<SemanticScope>,
+    ) -> FunctionScopeFrame {
         let parent_scope = self
             .function_scope_stack
             .last()

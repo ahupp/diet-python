@@ -172,6 +172,34 @@ fn semantic_state_function_scope_tracks_parameters_and_globals() {
 }
 
 #[test]
+fn semantic_state_preserves_lambda_scope_bindings() {
+    let mut body = parse_module_body(concat!("def outer(x):\n", "    return lambda y: x + y\n",));
+    let semantic_state = SemanticAstState::from_ruff(&mut body);
+    let outer = find_function(&body, "outer");
+    let outer_scope = function_scope(&semantic_state, outer);
+    let Stmt::Return(return_stmt) = &outer.body[0] else {
+        panic!("expected return statement");
+    };
+    let Some(ast::Expr::Lambda(lambda)) = return_stmt.value.as_deref() else {
+        panic!("expected lambda return value");
+    };
+    let lambda_scope = semantic_state
+        .lambda_scope(lambda)
+        .expect("missing preserved lambda scope");
+
+    assert_eq!(lambda_scope.qualname(), "outer.<locals>.<lambda>");
+    assert_eq!(
+        lambda_scope.binding_in_scope("y", SemanticBindingUse::Load),
+        SemanticBindingKind::Local
+    );
+    assert_eq!(
+        lambda_scope.binding_in_scope("x", SemanticBindingUse::Load),
+        SemanticBindingKind::Nonlocal
+    );
+    assert!(outer_scope.has_local_def("x"));
+}
+
+#[test]
 fn semantic_state_named_expr_in_while_test_binds_local() {
     let mut body = parse_module_body(concat!(
         "def f(values):\n",
