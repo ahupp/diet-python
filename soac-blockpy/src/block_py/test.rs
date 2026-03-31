@@ -1,3 +1,6 @@
+use super::structured::{
+    walk_block, walk_fn, walk_fragment, walk_module, walk_stmt, walk_term, BlockPyModuleVisitor,
+};
 use super::*;
 use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
 use crate::py_expr;
@@ -228,7 +231,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
     };
 
     let mut visitor = TraceVisitor::default();
-    module.visit_module(&mut visitor);
+    visitor.visit_module(&module);
 
     assert_eq!(
         visitor.trace,

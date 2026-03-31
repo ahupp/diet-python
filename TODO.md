@@ -31,8 +31,7 @@
     - The current JIT path in `soac-eval` still owns a large amount of `incref` / `decref` insertion and runtime helper wiring (`dp_jit_incref`, `dp_jit_decref`), which makes ownership of reference semantics backend-local instead of pipeline-visible.
     - The desired end state is for refcount ownership to become an explicit lowered-module pass in `rewrite_module`, so later backends consume already-refcount-annotated IR instead of each backend re-deriving those rules.
     - A good first pass is to identify the minimal IR annotation or explicit stmt/term forms needed for retain/release edges, then move the current JIT-only reference-management decisions behind one driver-visible transform boundary.
-- Merge `ast_to_ast::semantic` and `block_py::semantics` and `ast_symbol_analysis`,
-  callable_semantic.rs, and shapre.rs
+- Merge `ast_to_ast::semantic` and `block_py::semantics` and `ast_symbol_analysis`, `dataflow`, and `callable_semantic.rs`
   - Planning note:
     - The current semantic facts are split across AST-side and BlockPy-side modules even though both are trying to model the same binding/storage/capture concepts at different points in the pipeline.
     - The desired end state is to have one semantic ownership point, with a clear boundary for what is still AST-shaped versus what has already been lowered to BlockPy, instead of duplicating concepts and helper logic across two modules.

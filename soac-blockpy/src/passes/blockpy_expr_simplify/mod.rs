@@ -1,5 +1,6 @@
 use super::ast_to_ast::rewrite_expr::string::lower_string_templates_in_expr;
 use super::core_eval_order::make_eval_order_explicit_in_core_block;
+use crate::block_py::structured::IntoStructuredBlockPyStmt;
 use crate::block_py::{
     convert_blockpy_stmt_expr, convert_blockpy_term_expr, core_call_expr_with_meta,
     core_positional_call_expr_with_meta, operation, BlockPyAssign, BlockPyBranchTable,
@@ -7,7 +8,7 @@ use crate::block_py::{
     BlockPyStmtFragmentBuilder, BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyCallArg,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyYield,
     CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
-    CoreStringLiteral, IntoStructuredBlockPyStmt, Meta, RuffExpr, StructuredBlockPyStmt, WithMeta,
+    CoreStringLiteral, Meta, RuffExpr, StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::ast_to_ast::expr_utils::{make_binop, make_tuple, make_unaryop};
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;

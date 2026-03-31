@@ -1,7 +1,7 @@
 use crate::block_py::{
     compute_storage_layout_from_semantics, BlockArg, BlockPyFunction, BlockPyLabel,
     BlockPyLinearPass, BlockPyModule, BlockPyPass, BlockPySemanticExprNode, BlockPyTerm, PassBlock,
-    PassExpr, PassName,
+    PassExpr,
 };
 
 pub(crate) fn validate_module<P: BlockPyPass>(module: &BlockPyModule<P>) -> Result<(), String>

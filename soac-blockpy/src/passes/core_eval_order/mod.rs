@@ -1,9 +1,10 @@
+use crate::block_py::structured::IntoStructuredBlockPyStmt;
 use crate::block_py::BlockPyAssign;
 use crate::block_py::{
     expr_any, map_call_args_with, map_keyword_args_with, BlockPyBranchTable, BlockPyCfgFragment,
     BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyTerm, CfgBlock,
     CoreBlockPyAwait, CoreBlockPyCall, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
-    CoreBlockPyYield, CoreBlockPyYieldFrom, IntoStructuredBlockPyStmt, StructuredBlockPyStmt,
+    CoreBlockPyYield, CoreBlockPyYieldFrom, StructuredBlockPyStmt,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
