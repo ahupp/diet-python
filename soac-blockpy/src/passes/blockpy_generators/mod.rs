@@ -2,7 +2,8 @@ use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     compute_storage_layout_from_semantics, core_operation_expr,
-    core_positional_call_expr_with_meta, BlockParam, BlockParamRole, BlockPyAssign,
+    core_positional_call_expr_with_meta, try_lower_core_expr_without_await,
+    try_lower_core_expr_without_yield, BlockParam, BlockParamRole, BlockPyAssign,
     BlockPyBindingKind, BlockPyBranchTable, BlockPyCallableSemanticInfo, BlockPyCellBindingKind,
     BlockPyCfgBlockBuilder, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel,
     BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyExpr,
@@ -157,11 +158,9 @@ fn expr_name(id: &str) -> ExprName {
 
 fn core_expr_without_yield(expr: Expr) -> CoreBlockPyExpr {
     let core = CoreBlockPyExprWithAwaitAndYield::from(expr);
-    let core_without_await: CoreBlockPyExprWithYield = core
-        .try_into()
+    let core_without_await = try_lower_core_expr_without_await(core)
         .unwrap_or_else(|_| panic!("generator helper expression unexpectedly contained await"));
-    core_without_await
-        .try_into()
+    try_lower_core_expr_without_yield(core_without_await)
         .unwrap_or_else(|_| panic!("generator helper expression unexpectedly contained yield"))
 }
 
@@ -564,7 +563,7 @@ fn term_yield_site(term: &BlockPyTerm<CoreBlockPyExprWithYield>) -> Option<Yield
 }
 
 fn lower_stmt_no_yield(stmt: LinearYieldStmt) -> LinearCoreStmt {
-    ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass>::new()
+    ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield>::without_yield()
         .try_map_stmt(stmt.clone())
         .unwrap_or_else(|_| {
             panic!(
@@ -576,7 +575,7 @@ fn lower_stmt_no_yield(stmt: LinearYieldStmt) -> LinearCoreStmt {
 fn lower_term_no_yield(
     term: BlockPyTerm<CoreBlockPyExprWithYield>,
 ) -> BlockPyTerm<CoreBlockPyExpr> {
-    ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass>::new()
+    ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield>::without_yield()
         .try_map_term(term.clone())
         .unwrap_or_else(|_| {
         panic!(
@@ -588,8 +587,7 @@ fn lower_term_no_yield(
 fn yield_value_expr(value: Option<CoreBlockPyExprWithYield>) -> CoreBlockPyExpr {
     value
         .map(|value| {
-            value
-                .try_into()
+            try_lower_core_expr_without_yield(value)
                 .unwrap_or_else(|_| panic!("yield payload unexpectedly contained nested yield"))
         })
         .unwrap_or_else(core_none)
@@ -809,7 +807,7 @@ fn lower_resume_fragment(
             &mut prefix,
             site,
             Vec::new(),
-            BlockPyTerm::Return(core_none().into()),
+            BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(expr_name("__dp_NONE"))),
             params,
             exc_target,
         );
@@ -826,9 +824,11 @@ fn lower_resume_fragment(
                 state,
                 label,
                 lowered_body,
-                Some(value.try_into().unwrap_or_else(|_| {
-                    panic!("generator lowering expected yield-free final return value")
-                })),
+                Some(
+                    try_lower_core_expr_without_yield(value).unwrap_or_else(|_| {
+                        panic!("generator lowering expected yield-free final return value")
+                    }),
+                ),
                 params,
                 exc_target,
             );
@@ -1060,8 +1060,7 @@ fn emit_yield_from_site(
     let call_except_label = state.fresh_label("yield_from_except");
     let stopiter_label = state.fresh_label("yield_from_stopiter");
     let non_stopiter_label = state.fresh_label("yield_from_non_stopiter");
-    let value_expr: CoreBlockPyExpr = value
-        .try_into()
+    let value_expr = try_lower_core_expr_without_yield(value)
         .unwrap_or_else(|_| panic!("yield from payload unexpectedly contained nested yield"));
     let yielded_value_name = state.fresh_temp("yield_from_value");
     let throw_name = state.fresh_temp("yield_from_throw");

@@ -31,7 +31,8 @@
     - The current JIT path in `soac-eval` still owns a large amount of `incref` / `decref` insertion and runtime helper wiring (`dp_jit_incref`, `dp_jit_decref`), which makes ownership of reference semantics backend-local instead of pipeline-visible.
     - The desired end state is for refcount ownership to become an explicit lowered-module pass in `rewrite_module`, so later backends consume already-refcount-annotated IR instead of each backend re-deriving those rules.
     - A good first pass is to identify the minimal IR annotation or explicit stmt/term forms needed for retain/release edges, then move the current JIT-only reference-management decisions behind one driver-visible transform boundary.
-- Merge `ast_to_ast::semantic` and `block_py::semantics` and `ast_symbol_analysis`
+- Merge `ast_to_ast::semantic` and `block_py::semantics` and `ast_symbol_analysis`,
+  callable_semantic.rs, and shapre.rs
   - Planning note:
     - The current semantic facts are split across AST-side and BlockPy-side modules even though both are trying to model the same binding/storage/capture concepts at different points in the pipeline.
     - The desired end state is to have one semantic ownership point, with a clear boundary for what is still AST-shaped versus what has already been lowered to BlockPy, instead of duplicating concepts and helper logic across two modules.
@@ -52,26 +53,12 @@
     - `blockpy_generators` still hand-constructs a large amount of BlockPy stmt/term/control-flow scaffolding, which makes generator lowering harder to read and keeps a lot of structural knowledge local to that pass.
     - A helper path from `py_stmt!`-style snippets into `BlockPyCfgFragment` could make generator construction less manual, especially for small setup/cleanup fragments and repeated control-flow shapes.
     - The main design question is whether that path would preserve the current guarantees around evaluation order, hidden temps, and explicit block structure, or whether it would just hide logic that should instead be expressed by more explicit BlockPy builders.
-- Should we linearize in the BlockPy pass so the whole block structure is uniform?
-  - Planning note:
-    - BlockPy still carries structured non-terminal `If` for a long stretch of the pipeline, and only later linearizes it into true block terminators.
-    - The likely simplification is to move `linearize_structured_ifs` earlier so downstream passes only need to reason about one CFG/block shape instead of both structured fragments and linearized blocks.
-    - A good first pass is to identify which post-BlockPy passes still recurse through structured `BlockPyStmt::If`, then check whether running linearization immediately after semantic/core BlockPy lowering would shrink those passes instead of complicating exception-edge or block-param handling.
+
 - Merge simplify into the BlockPy pass and run it bottom-up so it is one-shot.
   - Planning note:
     - `blockpy_expr_simplify` is currently a separate pass boundary after semantic BlockPy construction, even though conceptually it is just finishing the lowering of expressions into core BlockPy form.
     - The likely simplification is to fold that work into the BlockPy lowering pass itself and run expression reduction bottom-up, so expressions only cross one lowering seam instead of first building semantic BlockPy exprs and then revisiting them.
     - A good first pass is to list which invariants `blockpy_expr_simplify` currently enforces for later passes, then check whether those can be guaranteed directly during semantic BlockPy construction without losing the current clear boundary for invalid leaked expr shapes.
-- Add a pass for specific storage decisions, closure slot offsets, and stack offsets.
-  - Planning note:
-    - Several later stages still implicitly decide concrete storage/layout details such as which values live in cells, the ordering of closure slots, and stack/local slot numbering.
-    - A dedicated pass for those decisions would make the backend-facing layout explicit, instead of spreading that knowledge across generator lowering, closure construction, and codegen-adjacent logic.
-    - A good first pass is to identify which existing decisions are semantic versus purely physical layout, then choose one IR boundary where storage class, closure slot index, and stack/local offsets become fixed and immutable.
-- Compute `ClosureLayout` in `name_binding`, and keep all closure data semantic before that.
-  - Planning note:
-    - `ClosureLayout` currently crosses the semantic/storage boundary too early even though it mixes runtime storage layout with logical capture information.
-    - The desired end state is for pre-`name_binding` passes to carry only semantic closure facts, and for `name_binding` to materialize the first real `ClosureLayout` with a clear distinction between logical names and storage slots.
-    - Later passes that add new freevars, cellvars, or runtime closure cells should update `ClosureLayout` through one explicit API or validation hook, so layout drift cannot be introduced silently.
 - Remove the `_dp_resume` closure-layout refresh special case by making later closure-layout mutations explicit.
   - Planning note:
     - The current unconditional closure-layout refresh had to grow a special case for synthetic `_dp_resume` callables because their runtime closure layout is no longer derivable from ordinary semantic capture facts.
@@ -101,11 +88,7 @@
     - Many lowering paths still stamp emitted exprs/stmts/terms with `default()` node/range metadata, so provenance becomes inconsistent once code is synthesized across multiple transform boundaries.
     - The desired end state is to have one explicit story for where each emitted instruction’s source range comes from: original source span, enclosing source span, or a clearly-marked synthetic span.
     - A good first pass is to inventory the current `compat_*`, `Default::default()`, and synthetic-meta call sites, group them by kind of emission, and choose one boundary where source provenance becomes mandatory and validated for every emitted instruction.
-- Clean up the conversions and related glue in `block_py/mod.rs`.
-  - Planning note:
-    - `block_py/mod.rs` still carries a large amount of conversion glue between neighboring IR/pass shapes, including expression/statement/container conversions that make the file harder to navigate than the core BlockPy model itself.
-    - The desired end state is for `block_py/mod.rs` to mainly define the shared IR types and only the most fundamental traits/helpers, with conversion-heavy code moved closer to the pass boundary that owns it or folded into a smaller explicit conversion module.
-    - A good first pass is to inventory the `From`/`Into`/helper conversion blocks there, group them by source/target boundary, and then peel off one coherent cluster at a time so the file stops being the catch-all for unrelated stage transitions.
+
 ## Completed
 
 - Move completed TODO entries here and include a short description of the work done.
@@ -153,8 +136,17 @@
 - Remove the “start label” concept and always make the first block the callable entry block.
 - Determine if codegen_trace.rs and cfg_trace.rs are doing similar things, and merge if so.
 - Simplify should remove literals for true/false/none/ellipsis, replacing them with their _dp_ versions, remove that from codegen_normalize.  Remove those from the expr ast.
+- Should we linearize in the BlockPy pass so the whole block structure is uniform?
+- Clean up the conversions and related glue in `block_py/mod.rs`.
+- Compute `ClosureLayout` in `name_binding`, and keep all closure data semantic before that.
+- Add a pass for specific storage decisions, closure slot offsets, and stack offsets.
+
 
 # QA
+
+- 2026-03-30 19:21 PDT
+  - Question: What would the next change look like if the remaining expr-phase `TryFrom` impls were removed too?
+  - Answer: It would replace the trait-based expr narrowing with explicit named lowering helpers and explicit pass-boundary mappers. Today the remaining expr-phase `TryFrom` impls are in `/home/adam/project/diet-python/soac-blockpy/src/block_py/convert.rs:386` and `:394`: `TryFrom<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithYield` and `TryFrom<CoreBlockPyExprWithYield> for CoreBlockPyExpr`. They are currently used in two places: `ExprTryMap::try_map_expr`, at `/home/adam/project/diet-python/soac-blockpy/src/block_py/convert.rs:350`, which calls `expr.try_into()`, and a handful of direct generator helper sites in `/home/adam/project/diet-python/soac-blockpy/src/passes/blockpy_generators/mod.rs:157`, `:592`, `:829`, and `:1064`, which still use `try_into()` on expr payloads. The replacement shape would be: first add two explicit functions in `convert.rs` (or a nearby expr-transition module), for example `try_lower_core_expr_without_await(expr: CoreBlockPyExprWithAwaitAndYield) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>` and `try_lower_core_expr_without_yield(expr: CoreBlockPyExprWithYield) -> Result<CoreBlockPyExpr, CoreBlockPyExprWithYield>`. Those functions would own the current recursive logic from the `TryFrom` impls, meaning `value.try_map_expr(&mut |child| child.try_into())` would become `value.try_map_expr(&mut try_lower_core_expr_without_await)` or `...without_yield`. Second, `ExprTryMap<PIn, POut>` would stop depending on `POut::Expr: TryFrom<PIn::Expr>`. The simplest replacement is not another generic trait trick, but two tiny explicit mappers at the real pass boundaries: one mapper for `CoreBlockPyPassWithAwaitAndYield -> CoreBlockPyPassWithYield` whose `try_map_expr` calls `try_lower_core_expr_without_await`, and one mapper for `CoreBlockPyPassWithYield -> CoreBlockPyPass` whose `try_map_expr` calls `try_lower_core_expr_without_yield`. Third, the direct generator helper sites would switch from `.try_into()` to those named functions, which would make `core_expr_without_yield`, yield-payload lowering, and `yield from` payload lowering explicit about which boundary they are crossing. The net effect would be the same pattern as the earlier container cleanup: `convert.rs` would stop using Rust’s blanket conversion traits to encode phase transitions, and the only remaining expr transitions would be explicit named lowering operations at the two actual pass seams.
 
 - 2026-03-30 19:13 PDT
   - Question: Put another way: if the `From<>` impls between the various core BlockPy expr types were removed, what would break?

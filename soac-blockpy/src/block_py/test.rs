@@ -314,11 +314,13 @@ fn stmt_conversion_to_no_await_rejects_await() {
             value: Box::new(CoreBlockPyExprWithAwaitAndYield::Name(name_expr("x"))),
         }));
 
-    assert!(
-        ExprTryMap::<CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield>::new()
-            .try_map_stmt(stmt.into())
-            .is_err()
-    );
+    assert!(ExprTryMap::<
+        CoreBlockPyPassWithAwaitAndYield,
+        CoreBlockPyPassWithYield,
+        CoreBlockPyExprWithAwaitAndYield,
+    >::without_await()
+    .try_map_stmt(stmt.into())
+    .is_err());
 }
 
 #[test]
@@ -379,7 +381,7 @@ fn term_conversion_to_no_yield_rejects_nested_yield() {
     }));
 
     assert!(
-        ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass>::new()
+        ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield>::without_yield()
             .try_map_term(term)
             .is_err()
     );
