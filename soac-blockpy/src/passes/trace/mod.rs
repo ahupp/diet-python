@@ -147,13 +147,13 @@ impl PreparedTraceNameLocator {
 
     fn load_name(&self, id: &str) -> LocatedName {
         let location = if let Some(slot) = self.param_slots.get(id).copied() {
-            NameLocation::Local { slot }
+            NameLocation::local(slot)
         } else if let Some(location) = self.existing_locations.get(id).copied() {
             location
         } else if let Some(slot) = self.captured_cell_slots.get(id).copied() {
-            NameLocation::ClosureCell { slot }
+            NameLocation::closure_cell(slot)
         } else if let Some(slot) = self.owned_cell_slots.get(id).copied() {
-            NameLocation::OwnedCell { slot }
+            NameLocation::owned_cell(slot)
         } else {
             NameLocation::Global
         };

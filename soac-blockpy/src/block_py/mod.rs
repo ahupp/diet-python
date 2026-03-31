@@ -91,12 +91,106 @@ fn is_internal_symbol(name: &str) -> bool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LocalLocation(pub u32);
+
+impl LocalLocation {
+    pub fn slot(self) -> u32 {
+        self.0
+    }
+
+    pub fn pretty_id(self) -> String {
+        format!("local slot {}", self.slot())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CellLocation {
+    Owned(u32),
+    Closure(u32),
+    CapturedSource(u32),
+}
+
+impl CellLocation {
+    pub fn slot(self) -> u32 {
+        match self {
+            Self::Owned(slot) | Self::Closure(slot) | Self::CapturedSource(slot) => slot,
+        }
+    }
+
+    pub fn is_owned(self) -> bool {
+        matches!(self, Self::Owned(_))
+    }
+
+    pub fn is_closure(self) -> bool {
+        matches!(self, Self::Closure(_))
+    }
+
+    pub fn is_captured_source(self) -> bool {
+        matches!(self, Self::CapturedSource(_))
+    }
+
+    pub fn pretty_id(self) -> String {
+        match self {
+            Self::Owned(slot) => format!("owned cell slot {slot}"),
+            Self::Closure(slot) => format!("closure slot {slot}"),
+            Self::CapturedSource(slot) => format!("captured cell source slot {slot}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NameLocation {
-    Local { slot: u32 },
+    Local(LocalLocation),
     Global,
-    OwnedCell { slot: u32 },
-    ClosureCell { slot: u32 },
-    CapturedCellSource { slot: u32 },
+    Cell(CellLocation),
+}
+
+impl NameLocation {
+    pub fn local(slot: u32) -> Self {
+        Self::Local(LocalLocation(slot))
+    }
+
+    pub fn global() -> Self {
+        Self::Global
+    }
+
+    pub fn owned_cell(slot: u32) -> Self {
+        Self::Cell(CellLocation::Owned(slot))
+    }
+
+    pub fn closure_cell(slot: u32) -> Self {
+        Self::Cell(CellLocation::Closure(slot))
+    }
+
+    pub fn captured_source_cell(slot: u32) -> Self {
+        Self::Cell(CellLocation::CapturedSource(slot))
+    }
+
+    pub fn as_local(self) -> Option<LocalLocation> {
+        match self {
+            Self::Local(location) => Some(location),
+            Self::Global | Self::Cell(_) => None,
+        }
+    }
+
+    pub fn as_cell(self) -> Option<CellLocation> {
+        match self {
+            Self::Cell(location) => Some(location),
+            Self::Local(_) | Self::Global => None,
+        }
+    }
+
+    pub fn is_global(self) -> bool {
+        matches!(self, Self::Global)
+    }
+
+    pub fn pretty_id(self, unresolved_name: &str) -> String {
+        match self {
+            Self::Local(location) => location.pretty_id(),
+            Self::Global => unresolved_name.to_string(),
+            Self::Cell(location) => location.pretty_id(),
+        }
+    }
 }
 
 pub trait BlockPyNameLike: Clone + fmt::Debug + From<ast::ExprName> + Into<ast::ExprName> {
@@ -200,16 +294,16 @@ impl LocatedName {
         self
     }
 
+    pub fn local_location(&self) -> Option<LocalLocation> {
+        self.location.as_local()
+    }
+
+    pub fn cell_location(&self) -> Option<CellLocation> {
+        self.location.as_cell()
+    }
+
     pub fn resolved_pretty_id(&self) -> String {
-        match self.location {
-            NameLocation::Local { slot } => format!("local slot {slot}"),
-            NameLocation::Global => self.id.as_str().to_string(),
-            NameLocation::OwnedCell { slot } => format!("owned cell slot {slot}"),
-            NameLocation::ClosureCell { slot } => format!("closure slot {slot}"),
-            NameLocation::CapturedCellSource { slot } => {
-                format!("captured cell source slot {slot}")
-            }
-        }
+        self.location.pretty_id(self.id.as_str())
     }
 }
 

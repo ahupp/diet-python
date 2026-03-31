@@ -18,7 +18,7 @@ mod tests {
             ctx: ast::ExprContext::Load,
             range: Default::default(),
             node_index: Default::default(),
-            location: NameLocation::Local { slot: 0 },
+            location: NameLocation::local(0),
         }
     }
 
@@ -38,7 +38,7 @@ mod tests {
             ctx: ast::ExprContext::Load,
             range: Default::default(),
             node_index: Default::default(),
-            location: NameLocation::ClosureCell { slot },
+            location: NameLocation::closure_cell(slot),
         }
     }
 
@@ -48,7 +48,7 @@ mod tests {
             ctx: ast::ExprContext::Load,
             range: Default::default(),
             node_index: Default::default(),
-            location: NameLocation::CapturedCellSource { slot },
+            location: NameLocation::captured_source_cell(slot),
         }
     }
 

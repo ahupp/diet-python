@@ -1848,7 +1848,7 @@ impl NameLocator<'_> {
                 .unwrap_or_else(|| {
                     panic!("missing local slot for exception param {name_text}");
                 });
-            NameLocation::Local { slot }
+            NameLocation::local(slot)
         } else if let Some(storage_name) =
             resolve_captured_cell_source_storage_name(self.semantic, name_text.as_str())
         {
@@ -1861,7 +1861,7 @@ impl NameLocator<'_> {
                     "missing closure slot for captured cell source {name_text} via storage name {storage_name}"
                 )
             });
-            NameLocation::CapturedCellSource { slot }
+            NameLocation::captured_source_cell(slot)
         } else if let Some((storage_name, binding_kind)) =
             self.cell_bindings.get(name_text.as_str()).cloned()
         {
@@ -1869,7 +1869,7 @@ impl NameLocator<'_> {
                 BlockPyCellBindingKind::Owner => {
                     if name_text != storage_name {
                         if let Some(slot) = self.local_slots.get(name_text.as_str()).copied() {
-                            NameLocation::Local { slot }
+                            NameLocation::local(slot)
                         } else {
                             let slot = self
                                 .owned_cell_slots
@@ -1880,7 +1880,7 @@ impl NameLocator<'_> {
                                         "missing owned cell slot for storage name {storage_name} while locating {name_text}"
                                     )
                                 });
-                            NameLocation::OwnedCell { slot }
+                            NameLocation::owned_cell(slot)
                         }
                     } else {
                         let slot = self
@@ -1892,7 +1892,7 @@ impl NameLocator<'_> {
                                     "missing owned cell slot for storage name {storage_name} while locating {name_text}"
                                 )
                             });
-                        NameLocation::OwnedCell { slot }
+                        NameLocation::owned_cell(slot)
                     }
                 }
                 BlockPyCellBindingKind::Capture => {
@@ -1905,11 +1905,11 @@ impl NameLocator<'_> {
                                 "missing closure slot for storage name {storage_name} while locating {name_text}"
                             )
                         });
-                    NameLocation::ClosureCell { slot }
+                    NameLocation::closure_cell(slot)
                 }
             }
         } else if let Some(slot) = self.local_slots.get(name_text.as_str()).copied() {
-            NameLocation::Local { slot }
+            NameLocation::local(slot)
         } else {
             NameLocation::Global
         };
@@ -1930,7 +1930,7 @@ impl NameLocator<'_> {
                         "missing closure slot for captured raw cell source {name_text} via storage name {storage_name}"
                     )
                 });
-            return name.with_location(NameLocation::CapturedCellSource { slot });
+            return name.with_location(NameLocation::captured_source_cell(slot));
         }
 
         if let Some((storage_name, binding_kind)) = self.cell_bindings.get(name_text.as_str()) {
@@ -1945,7 +1945,7 @@ impl NameLocator<'_> {
                                 "missing owned cell slot for raw cell target {name_text} via storage name {storage_name}"
                             )
                         });
-                    name.with_location(NameLocation::OwnedCell { slot })
+                    name.with_location(NameLocation::owned_cell(slot))
                 }
                 BlockPyCellBindingKind::Capture => {
                     let slot = self
@@ -1957,14 +1957,14 @@ impl NameLocator<'_> {
                                 "missing closure slot for raw captured cell target {name_text} via storage name {storage_name}"
                             )
                         });
-                    name.with_location(NameLocation::CapturedCellSource { slot })
+                    name.with_location(NameLocation::captured_source_cell(slot))
                 }
             };
         }
 
-        match name.location {
-            NameLocation::ClosureCell { slot } => {
-                name.with_location(NameLocation::CapturedCellSource { slot })
+        match name.cell_location() {
+            Some(location) if location.is_closure() => {
+                name.with_location(NameLocation::captured_source_cell(location.slot()))
             }
             _ => name,
         }

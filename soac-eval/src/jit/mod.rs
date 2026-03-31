@@ -383,7 +383,7 @@ fn codegen_expr_is_borrowable(
         local_names: &[String],
         stack_slots: &StackSlots,
     ) -> bool {
-        if !matches!(name.location, NameLocation::Local { .. }) {
+        if name.local_location().is_none() {
             return false;
         }
         local_names
@@ -415,7 +415,7 @@ fn emit_codegen_local_name_load(
     borrowed: bool,
 ) -> ir::Value {
     assert!(
-        matches!(name.location, NameLocation::Local { .. }),
+        name.local_location().is_some(),
         "LoadLocal should carry a local name, got {} at {:?}",
         name.id,
         name.location
@@ -834,8 +834,9 @@ fn emit_raw_cell_object_for_name(
     let i64_ty = ctx.consts.i64_ty;
     let null_ptr = fb.ins().iconst(ptr_ty, 0);
 
-    match name.location {
-        NameLocation::OwnedCell { slot } => {
+    match name.cell_location() {
+        Some(location) if location.is_owned() => {
+            let slot = location.slot();
             let closure_slot = ctx
                 .storage_layout
                 .as_ref()
@@ -875,7 +876,8 @@ fn emit_raw_cell_object_for_name(
                 name.id, candidate_names
             );
         }
-        NameLocation::ClosureCell { slot } | NameLocation::CapturedCellSource { slot } => {
+        Some(location) if location.is_closure() || location.is_captured_source() => {
+            let slot = location.slot();
             let slot_value = fb.ins().iconst(i64_ty, slot as i64);
             let raw_cell_inst = fb.ins().call(
                 ctx.function_closure_cell_ref,
@@ -897,7 +899,7 @@ fn emit_raw_cell_object_for_name(
             fb.switch_to_block(raw_cell_ok_block);
             fb.block_params(raw_cell_ok_block)[0]
         }
-        NameLocation::Local { .. } | NameLocation::Global => {
+        _ => {
             panic!(
                 "raw cell access should target a cell-backed name, got {} at {:?}",
                 name.id, name.location
@@ -1096,7 +1098,7 @@ fn emit_codegen_expr(
         CodegenBlockPyExpr::Name(name) => {
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
             match name.location {
-                NameLocation::Local { .. } => {
+                NameLocation::Local(_) => {
                     return emit_codegen_local_name_load(
                         fb,
                         name,
@@ -1106,7 +1108,7 @@ fn emit_codegen_expr(
                         borrowed,
                     );
                 }
-                NameLocation::OwnedCell { .. } | NameLocation::ClosureCell { .. } => {
+                NameLocation::Cell(location) if location.is_owned() || location.is_closure() => {
                     assert!(
                         !borrowed,
                         "cell-backed name loads must produce owned references"
@@ -1129,12 +1131,15 @@ fn emit_codegen_expr(
                     fb.switch_to_block(value_ok_block);
                     return fb.block_params(value_ok_block)[0];
                 }
-                NameLocation::CapturedCellSource { .. } => {
+                NameLocation::Cell(location) if location.is_captured_source() => {
                     assert!(
                         !borrowed,
                         "captured cell source loads must produce owned references"
                     );
                     return emit_raw_cell_object_for_name(fb, name, local_names, local_values, ctx);
+                }
+                NameLocation::Cell(_) => {
+                    unreachable!("all cell location cases should be handled above");
                 }
                 NameLocation::Global => {
                     let globals_obj = block_const;
@@ -1265,22 +1270,19 @@ fn emit_codegen_expr(
                             op.target
                         );
                     };
-                    match cell_name.location {
-                        NameLocation::OwnedCell { .. }
-                        | NameLocation::ClosureCell { .. }
-                        | NameLocation::CapturedCellSource { .. } => emit_raw_cell_object_for_name(
+                    if cell_name.cell_location().is_some() {
+                        emit_raw_cell_object_for_name(
                             intrinsic_state.fb,
                             cell_name,
                             intrinsic_state.local_names,
                             intrinsic_state.local_values,
                             intrinsic_state.ctx,
-                        ),
-                        _ => {
-                            panic!(
-                                "__dp_cell_ref should target a cell-backed name, got {} at {:?}",
-                                cell_name.id, cell_name.location
-                            );
-                        }
+                        )
+                    } else {
+                        panic!(
+                            "__dp_cell_ref should target a cell-backed name, got {} at {:?}",
+                            cell_name.id, cell_name.location
+                        );
                     }
                 }
                 blockpy_intrinsics::OperationDetail::LoadLocal(op) => emit_codegen_local_name_load(
@@ -2029,29 +2031,23 @@ fn emit_codegen_expr(
                                     cell_expr
                                 );
                             };
-                            match cell_name.location {
-                                NameLocation::OwnedCell { .. }
-                                | NameLocation::ClosureCell { .. }
-                                | NameLocation::CapturedCellSource { .. } => {
-                                    assert!(
-                                        !borrowed,
-                                        "__dp_cell_ref should produce an owned cell object"
-                                    );
-                                    return emit_raw_cell_object_for_name(
-                                        fb,
-                                        cell_name,
-                                        local_names,
-                                        local_values,
-                                        ctx,
-                                    );
-                                }
-                                _ => {
-                                    panic!(
-                                        "__dp_cell_ref should target a cell-backed name, got {} at {:?}",
-                                        cell_name.id, cell_name.location
-                                    );
-                                }
+                            if cell_name.cell_location().is_some() {
+                                assert!(
+                                    !borrowed,
+                                    "__dp_cell_ref should produce an owned cell object"
+                                );
+                                return emit_raw_cell_object_for_name(
+                                    fb,
+                                    cell_name,
+                                    local_names,
+                                    local_values,
+                                    ctx,
+                                );
                             }
+                            panic!(
+                                "__dp_cell_ref should target a cell-backed name, got {} at {:?}",
+                                cell_name.id, cell_name.location
+                            );
                         }
                         let mut arg_values: Vec<(ir::Value, bool)> = Vec::with_capacity(args.len());
                         for (arg_index, arg) in args.iter().enumerate() {
@@ -2068,27 +2064,21 @@ fn emit_codegen_expr(
                                         arg
                                     );
                                 };
-                                match cell_name.location {
-                                    NameLocation::OwnedCell { .. }
-                                    | NameLocation::ClosureCell { .. }
-                                    | NameLocation::CapturedCellSource { .. } => {
-                                        let value = emit_raw_cell_object_for_name(
-                                            fb,
-                                            cell_name,
-                                            local_names,
-                                            local_values,
-                                            ctx,
-                                        );
-                                        arg_values.push((value, false));
-                                        continue;
-                                    }
-                                    _ => {
-                                        panic!(
-                                            "{} should target a cell-backed name, got {} at {:?}",
-                                            func_name.id, cell_name.id, cell_name.location
-                                        );
-                                    }
+                                if cell_name.cell_location().is_some() {
+                                    let value = emit_raw_cell_object_for_name(
+                                        fb,
+                                        cell_name,
+                                        local_names,
+                                        local_values,
+                                        ctx,
+                                    );
+                                    arg_values.push((value, false));
+                                    continue;
                                 }
+                                panic!(
+                                    "{} should target a cell-backed name, got {} at {:?}",
+                                    func_name.id, cell_name.id, cell_name.location
+                                );
                             }
                             let borrowed_arg =
                                 codegen_expr_is_borrowable(arg, local_names, &ctx.stack_slots);

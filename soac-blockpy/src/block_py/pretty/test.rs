@@ -104,12 +104,10 @@ fn renders_empty_module_marker() {
 
 #[test]
 fn bb_text_renders_located_names_with_resolved_locations() {
-    let closure_expr = CoreBlockPyExpr::Name(located_name(
-        "captured",
-        NameLocation::ClosureCell { slot: 2 },
-    ));
+    let closure_expr =
+        CoreBlockPyExpr::Name(located_name("captured", NameLocation::closure_cell(2)));
     let assign_stmt = BlockPyStmt::Assign(BlockPyAssign {
-        target: located_name("temp", NameLocation::Local { slot: 1 }),
+        target: located_name("temp", NameLocation::local(1)),
         value: closure_expr.clone(),
     });
     let global_expr = CoreBlockPyExpr::Name(located_name("answer", NameLocation::Global));
