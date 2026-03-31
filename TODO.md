@@ -104,6 +104,21 @@
     - The desired end state is to have one explicit story for where each emitted instruction’s source range comes from: original source span, enclosing source span, or a clearly-marked synthetic span.
     - A good first pass is to inventory the current `compat_*`, `Default::default()`, and synthetic-meta call sites, group them by kind of emission, and choose one boundary where source provenance becomes mandatory and validated for every emitted instruction.
 
+## Directly build Operations in simplify_expr
+
+- Planning note:
+  - Today `impl From<Expr> for CoreBlockPyExprWithAwaitAndYield` in `passes/blockpy_expr_simplify/mod.rs` is mixed. `Add` already builds a `BinOpKind::Add` operation directly, but `Attribute`, `Subscript`, `UnaryOp`, most `BinOp`, and simple `Compare` still synthesize helper-call syntax like `__dp_getattr(...)` or `__dp_lt(...)` and then immediately reparse that string name through `lower_core_call_expr_with_meta` and `operation_by_name_and_args`.
+  - The clean end state is for syntax-origin operator shapes to lower straight to `OperationDetail` values, while `operation_by_name_and_args` remains only for actual helper calls that enter the core boundary as calls, such as explicit `__dp_make_function(...)` or helper-shaped setup output from earlier passes.
+  - A safe implementation order is:
+    - Add direct constructor helpers in `blockpy_expr_simplify/mod.rs` for the operation families that still round-trip through helper strings, e.g. unary-op, binop, ternary-op, getattr, getitem, and simple compare helpers that take explicit kinds plus metadata.
+    - Rewrite the `Expr::Attribute`, `Expr::Subscript`, `Expr::UnaryOp`, non-`Add` `Expr::BinOp`, and single-op `Expr::Compare` arms in `impl From<Expr>` to call those constructors directly instead of `py_expr!`, `make_binop`, or `make_unaryop`.
+    - Keep evaluation order identical by continuing to lower child expressions in source order before constructing the `Operation`; for `In` and `NotIn`, preserve the existing operand reversal used by `Contains`, and keep `NotIn` as `UnaryOpKind::Not` wrapped around `BinOpKind::Contains`.
+    - After those syntax-origin arms are direct, shrink `operation_by_name_and_args` to the remaining helper-call-origin cases, and consider renaming it to make that narrower responsibility obvious.
+    - Leave tuple/list/set/dict/slice helper-call lowering alone in the first pass, since those are still intentionally represented as named calls today and are not part of the operation family being cleaned up here.
+  - Verification focus:
+    - Extend the existing `blockpy_expr_simplify` tests to cover direct lowering for the moved families and keep the current operation-kind assertions.
+    - Re-run `just test-all` and specifically watch `core_eval_order`, `blockpy_expr_simplify`, and BB-string normalization tests for any behavioral drift from changed lowering order or metadata stamping.
+
 ## Completed
 
 - Move completed TODO entries here and include a short description of the work done.

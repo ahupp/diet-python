@@ -1,6 +1,7 @@
 use super::*;
 use crate::block_py::{
     BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield,
+    InplaceBinOpKind, OperationDetail,
 };
 
 fn test_name(id: &str) -> ast::ExprName {
@@ -129,7 +130,10 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
     let CoreBlockPyExprWithAwaitAndYield::Op(call) = &assign.value else {
         panic!("expected iadd operation");
     };
-    assert_eq!(call.helper_name(), "__dp_iadd");
+    assert!(matches!(
+        call.detail(),
+        OperationDetail::InplaceBinOp(op) if op.kind == InplaceBinOpKind::Add
+    ));
     let call_args = (*call.clone()).into_call_args();
     assert!(matches!(
         &call_args[1],

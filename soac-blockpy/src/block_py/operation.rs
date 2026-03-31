@@ -28,32 +28,6 @@ pub enum BinOpKind {
 }
 
 impl BinOpKind {
-    pub fn helper_name(self) -> &'static str {
-        match self {
-            Self::Add => "__dp_add",
-            Self::Sub => "__dp_sub",
-            Self::Mul => "__dp_mul",
-            Self::MatMul => "__dp_matmul",
-            Self::TrueDiv => "__dp_truediv",
-            Self::FloorDiv => "__dp_floordiv",
-            Self::Mod => "__dp_mod",
-            Self::LShift => "__dp_lshift",
-            Self::RShift => "__dp_rshift",
-            Self::Or => "__dp_or_",
-            Self::Xor => "__dp_xor",
-            Self::And => "__dp_and_",
-            Self::Eq => "__dp_eq",
-            Self::Ne => "__dp_ne",
-            Self::Lt => "__dp_lt",
-            Self::Le => "__dp_le",
-            Self::Gt => "__dp_gt",
-            Self::Ge => "__dp_ge",
-            Self::Contains => "__dp_contains",
-            Self::Is => "__dp_is_",
-            Self::IsNot => "__dp_is_not",
-        }
-    }
-
     pub(crate) fn from_helper_name(name: &str) -> Option<Self> {
         Some(match name {
             "__dp_add" => Self::Add,
@@ -92,16 +66,6 @@ pub enum UnaryOpKind {
 }
 
 impl UnaryOpKind {
-    pub fn helper_name(self) -> &'static str {
-        match self {
-            Self::Pos => "__dp_pos",
-            Self::Neg => "__dp_neg",
-            Self::Invert => "__dp_invert",
-            Self::Not => "__dp_not_",
-            Self::Truth => "__dp_truth",
-        }
-    }
-
     pub(crate) fn from_helper_name(name: &str) -> Option<Self> {
         Some(match name {
             "__dp_pos" => Self::Pos,
@@ -131,23 +95,6 @@ pub enum InplaceBinOpKind {
 }
 
 impl InplaceBinOpKind {
-    pub fn helper_name(self) -> &'static str {
-        match self {
-            Self::Add => "__dp_iadd",
-            Self::Sub => "__dp_isub",
-            Self::Mul => "__dp_imul",
-            Self::MatMul => "__dp_imatmul",
-            Self::TrueDiv => "__dp_itruediv",
-            Self::FloorDiv => "__dp_ifloordiv",
-            Self::Mod => "__dp_imod",
-            Self::LShift => "__dp_ilshift",
-            Self::RShift => "__dp_irshift",
-            Self::Or => "__dp_ior",
-            Self::Xor => "__dp_ixor",
-            Self::And => "__dp_iand",
-        }
-    }
-
     pub(crate) fn from_helper_name(name: &str) -> Option<Self> {
         Some(match name {
             "__dp_iadd" => Self::Add,
@@ -173,12 +120,6 @@ pub enum TernaryOpKind {
 }
 
 impl TernaryOpKind {
-    pub fn helper_name(self) -> &'static str {
-        match self {
-            Self::Pow => "__dp_pow",
-        }
-    }
-
     pub(crate) fn from_helper_name(name: &str) -> Option<Self> {
         Some(match name {
             "__dp_pow" => Self::Pow,
@@ -191,7 +132,6 @@ pub trait OperationNode<E>: Sized {
     type Name;
     type Mapped<T, M>;
 
-    fn name(&self) -> &'static str;
     fn walk_expr_args(&self, f: &mut impl FnMut(&E));
     fn walk_expr_args_mut(&mut self, f: &mut impl FnMut(&mut E));
     fn into_expr_args(self) -> Vec<E>;
@@ -371,7 +311,6 @@ macro_rules! define_operation_node {
             name_type = [$($name_ty:tt)+];
             mapped_type<$mapped_expr:ident, $mapped_name:ident> = [$($mapped_ty:tt)+];
             mapped_ctor<$mapped_ctor_expr:ident, $mapped_ctor_name:ident> = [$($mapped_ctor:tt)+];
-            name($self_ident:ident) = $name_expr:expr;
             $( $field:ident : $ty:ty => $kind:ident ),* $(,)?
         }
     ) => {
@@ -389,11 +328,6 @@ macro_rules! define_operation_node {
         impl<$($impl_gen),*> OperationNode<E> for $name $(<$($struct_gen),*>)? {
             type Name = $($name_ty)+;
             type Mapped<$mapped_expr, $mapped_name> = $($mapped_ty)+;
-
-            fn name(&self) -> &'static str {
-                let $self_ident = self;
-                $name_expr
-            }
 
             fn walk_expr_args(&self, f: &mut impl FnMut(&E)) {
                 #[allow(unused_variables)]
@@ -475,7 +409,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [BinOp<T>];
         mapped_ctor<T, M> = [BinOp::<T>];
-        name(op) = op.kind.helper_name();
         kind: BinOpKind => value,
         arg0: Box<E> => expr,
         arg1: Box<E> => expr,
@@ -488,7 +421,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [UnaryOp<T>];
         mapped_ctor<T, M> = [UnaryOp::<T>];
-        name(op) = op.kind.helper_name();
         kind: UnaryOpKind => value,
         arg0: Box<E> => expr,
     }
@@ -500,7 +432,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [InplaceBinOp<T>];
         mapped_ctor<T, M> = [InplaceBinOp::<T>];
-        name(op) = op.kind.helper_name();
         kind: InplaceBinOpKind => value,
         arg0: Box<E> => expr,
         arg1: Box<E> => expr,
@@ -513,7 +444,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [TernaryOp<T>];
         mapped_ctor<T, M> = [TernaryOp::<T>];
-        name(op) = op.kind.helper_name();
         kind: TernaryOpKind => value,
         arg0: Box<E> => expr,
         arg1: Box<E> => expr,
@@ -527,7 +457,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [GetAttr<T>];
         mapped_ctor<T, M> = [GetAttr::<T>];
-        name(_op) = "__dp_getattr";
         arg0: Box<E> => expr,
         arg1: String => value,
     }
@@ -539,7 +468,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [SetAttr<T>];
         mapped_ctor<T, M> = [SetAttr::<T>];
-        name(_op) = "__dp_setattr";
         arg0: Box<E> => expr,
         arg1: String => value,
         arg2: Box<E> => expr,
@@ -552,7 +480,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [GetItem<T>];
         mapped_ctor<T, M> = [GetItem::<T>];
-        name(_op) = "__dp_getitem";
         arg0: Box<E> => expr,
         arg1: Box<E> => expr,
     }
@@ -564,7 +491,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [SetItem<T>];
         mapped_ctor<T, M> = [SetItem::<T>];
-        name(_op) = "__dp_setitem";
         arg0: Box<E> => expr,
         arg1: Box<E> => expr,
         arg2: Box<E> => expr,
@@ -577,7 +503,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [DelItem<T>];
         mapped_ctor<T, M> = [DelItem::<T>];
-        name(_op) = "__dp_delitem";
         arg0: Box<E> => expr,
         arg1: Box<E> => expr,
     }
@@ -589,7 +514,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [LoadGlobal<T>];
         mapped_ctor<T, M> = [LoadGlobal::<T>];
-        name(_op) = "__dp_load_global";
         arg0: Box<E> => expr,
         arg1: String => value,
     }
@@ -601,7 +525,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [StoreGlobal<T>];
         mapped_ctor<T, M> = [StoreGlobal::<T>];
-        name(_op) = "__dp_store_global";
         arg0: Box<E> => expr,
         arg1: String => value,
         arg2: Box<E> => expr,
@@ -614,7 +537,6 @@ define_operation_node! {
         name_type = [N];
         mapped_type<T, M> = [LoadCell<M>];
         mapped_ctor<T, M> = [LoadCell::<M>];
-        name(_op) = "__dp_load_cell";
         arg0: N => name,
     }
 }
@@ -625,7 +547,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [MakeCell<T>];
         mapped_ctor<T, M> = [MakeCell::<T>];
-        name(_op) = "__dp_make_cell";
         arg0: Box<E> => expr,
     }
 }
@@ -636,7 +557,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [MakeString];
         mapped_ctor<T, M> = [MakeString];
-        name(_op) = "__dp_decode_literal_bytes";
         arg0: Vec<u8> => value,
     }
 }
@@ -647,7 +567,6 @@ define_operation_node! {
         name_type = [N];
         mapped_type<T, M> = [CellRef<M>];
         mapped_ctor<T, M> = [CellRef::<M>];
-        name(_op) = "__dp_cell_ref";
         arg0: CellRefTarget<N> => name_target,
     }
 }
@@ -658,7 +577,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [MakeFunction<T>];
         mapped_ctor<T, M> = [MakeFunction::<T>];
-        name(_op) = "__dp_make_function";
         function_id: FunctionId => value,
         kind: BlockPyFunctionKind => value,
         arg0: Box<E> => expr,
@@ -673,7 +591,6 @@ define_operation_node! {
         name_type = [N];
         mapped_type<T, M> = [StoreCell<M, T>];
         mapped_ctor<T, M> = [StoreCell::<M, T>];
-        name(_op) = "__dp_store_cell";
         arg0: N => name,
         arg1: Box<E> => expr,
     }
@@ -685,7 +602,6 @@ define_operation_node! {
         name_type = [()];
         mapped_type<T, M> = [DelQuietly<T>];
         mapped_ctor<T, M> = [DelQuietly::<T>];
-        name(_op) = "__dp_del_quietly";
         arg0: Box<E> => expr,
         arg1: String => value,
     }
@@ -697,7 +613,6 @@ define_operation_node! {
         name_type = [N];
         mapped_type<T, M> = [DelDerefQuietly<M>];
         mapped_ctor<T, M> = [DelDerefQuietly::<M>];
-        name(_op) = "__dp_del_deref_quietly";
         arg0: N => name,
     }
 }
@@ -708,7 +623,6 @@ define_operation_node! {
         name_type = [N];
         mapped_type<T, M> = [DelDeref<M>];
         mapped_ctor<T, M> = [DelDeref::<M>];
-        name(_op) = "__dp_del_deref";
         arg0: N => name,
     }
 }
@@ -803,31 +717,6 @@ impl<E, N> From<DelDeref<N>> for OperationDetail<E, N> {
 }
 
 impl<E, N> OperationDetail<E, N> {
-    pub fn helper_name(&self) -> &'static str {
-        match self {
-            Self::BinOp(op) => op.name(),
-            Self::UnaryOp(op) => op.name(),
-            Self::InplaceBinOp(op) => op.name(),
-            Self::TernaryOp(op) => op.name(),
-            Self::GetAttr(op) => op.name(),
-            Self::SetAttr(op) => op.name(),
-            Self::GetItem(op) => op.name(),
-            Self::SetItem(op) => op.name(),
-            Self::DelItem(op) => op.name(),
-            Self::LoadGlobal(op) => op.name(),
-            Self::StoreGlobal(op) => op.name(),
-            Self::LoadCell(op) => <LoadCell<N> as OperationNode<E>>::name(op),
-            Self::MakeCell(op) => op.name(),
-            Self::MakeString(op) => <MakeString as OperationNode<E>>::name(op),
-            Self::CellRef(op) => <CellRef<N> as OperationNode<E>>::name(op),
-            Self::MakeFunction(op) => op.name(),
-            Self::StoreCell(op) => op.name(),
-            Self::DelQuietly(op) => op.name(),
-            Self::DelDerefQuietly(op) => <DelDerefQuietly<N> as OperationNode<E>>::name(op),
-            Self::DelDeref(op) => <DelDeref<N> as OperationNode<E>>::name(op),
-        }
-    }
-
     pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> OperationDetail<T, N> {
         match self {
             Self::BinOp(op) => OperationDetail::BinOp(op.map_expr(f)),
@@ -1076,10 +965,6 @@ impl<E, N> Operation<E, N> {
 
     pub fn into_detail(self) -> OperationDetail<E, N> {
         self.detail
-    }
-
-    pub fn helper_name(&self) -> &'static str {
-        self.detail.helper_name()
     }
 
     pub fn node_index(&self) -> &ast::AtomicNodeIndex {
