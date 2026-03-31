@@ -3,7 +3,6 @@ use crate::block_py::{
     BlockPyAssign, BlockPyCfgFragment, BlockPyIf, BlockPyStmtFragmentBuilder, BlockPyTerm,
     StructuredBlockPyStmt,
 };
-use crate::passes::ast_to_ast::expr_utils::{make_binop, make_unaryop};
 use crate::passes::ruff_to_blockpy::expr_lowering::fresh_setup_name;
 use crate::passes::ruff_to_blockpy::LoopContext;
 use crate::py_expr;
@@ -154,18 +153,13 @@ where
 }
 
 fn compare_expr(op: CmpOp, left: Expr, right: Expr) -> Expr {
-    match op {
-        CmpOp::Eq => make_binop("eq", left, right),
-        CmpOp::NotEq => make_binop("ne", left, right),
-        CmpOp::Lt => make_binop("lt", left, right),
-        CmpOp::LtE => make_binop("le", left, right),
-        CmpOp::Gt => make_binop("gt", left, right),
-        CmpOp::GtE => make_binop("ge", left, right),
-        CmpOp::Is => make_binop("is_", left, right),
-        CmpOp::IsNot => make_binop("is_not", left, right),
-        CmpOp::In => make_binop("contains", right, left),
-        CmpOp::NotIn => make_unaryop("not_", make_binop("contains", right, left)),
-    }
+    Expr::Compare(ast::ExprCompare {
+        left: Box::new(left),
+        ops: vec![op].into(),
+        comparators: vec![right].into(),
+        range: Default::default(),
+        node_index: Default::default(),
+    })
 }
 
 #[cfg(test)]
