@@ -35,12 +35,12 @@ format = builtins.format
 AssertionError = builtins.AssertionError
 
 
-def _dp_tuple_helper(*values):
+def _tuple_helper(*values):
     # __dp_tuple is strict variadic tuple construction for transformed code.
     return builtins.tuple(values)
 
 
-def _dp_tuple_from_iter_helper(value):
+def _tuple_from_iter_helper(value):
     return builtins.tuple(value)
 
 
@@ -349,7 +349,7 @@ class _DpAsyncGenComplete(Exception):
 builtins.__dp_AsyncGenComplete = _DpAsyncGenComplete
 
 
-def _dp_is_cancelled_error(exc):
+def _is_cancelled_error(exc):
     asyncio_mod = sys.modules.get("asyncio")
     if asyncio_mod is None:
         return False
@@ -357,13 +357,13 @@ def _dp_is_cancelled_error(exc):
     return cancelled_error is not None and isinstance(exc, cancelled_error)
 
 
-def _dp_reraise_control_flow(exc):
-    if isinstance(exc, GeneratorExit) or _dp_is_cancelled_error(exc):
+def _reraise_control_flow(exc):
+    if isinstance(exc, GeneratorExit) or _is_cancelled_error(exc):
         raise exc.with_traceback(None)
     raise exc
 
 
-def _dp_mark_closed(owner):
+def _mark_closed(owner):
     owner._is_closed = True
     owner._resume_fn = None
 
@@ -421,8 +421,8 @@ class _DpClosureGenerator:
         try:
             return self._resume_fn(self, value, NO_DEFAULT)
         except BaseException as exc:
-            _dp_mark_closed(self)
-            _dp_reraise_control_flow(exc)
+            _mark_closed(self)
+            _reraise_control_flow(exc)
 
     def throw(self, typ=None, val=None, tb=None):
         exc = _normalize_throw_exc(
@@ -433,12 +433,12 @@ class _DpClosureGenerator:
             throw_context=_current_throw_context(self),
         )
         if self._is_closed:
-            _dp_reraise_control_flow(exc)
+            _reraise_control_flow(exc)
         try:
             return self._resume_fn(self, NO_DEFAULT, exc)
         except BaseException as exc:
-            _dp_mark_closed(self)
-            _dp_reraise_control_flow(exc)
+            _mark_closed(self)
+            _reraise_control_flow(exc)
 
     def close(self):
         if self._is_closed:
@@ -583,7 +583,7 @@ class _DpAsyncGenSend:
     def __next__(self):
         return self.send(None)
 
-    def _dp_step(self, transport_sent):
+    def _step(self, transport_sent):
         if self._generator._is_closed:
             self._is_done = True
             resume_exc = self._resume_exception
@@ -606,14 +606,14 @@ class _DpAsyncGenSend:
         except _DpAsyncGenComplete:
             self._is_done = True
             self._resume_exception = NO_DEFAULT
-            _dp_mark_closed(self._generator)
+            _mark_closed(self._generator)
             raise StopAsyncIteration
         except BaseException as exc:
             self._is_done = True
             self._resume_exception = NO_DEFAULT
-            _dp_mark_closed(self._generator)
-            if _dp_is_cancelled_error(exc) or isinstance(exc, GeneratorExit):
-                _dp_reraise_control_flow(exc)
+            _mark_closed(self._generator)
+            if _is_cancelled_error(exc) or isinstance(exc, GeneratorExit):
+                _reraise_control_flow(exc)
             if isinstance(exc, StopIteration):
                 raise RuntimeError("async generator raised StopIteration") from exc
             if isinstance(exc, StopAsyncIteration):
@@ -637,7 +637,7 @@ class _DpAsyncGenSend:
             raise TypeError(
                 "can't send non-None value to a just-started async generator"
             )
-        return self._dp_step(value)
+        return self._step(value)
 
     def throw(self, typ, val=None, tb=None):
         if self._is_done:
@@ -645,7 +645,7 @@ class _DpAsyncGenSend:
         self._resume_exception = _normalize_throw_exc(
             typ, val, tb, where="DpAsyncGenSend.throw()"
         )
-        return self._dp_step(None)
+        return self._step(None)
 
     def close(self):
         return None
@@ -950,16 +950,16 @@ def code_with_freevars(names, is_async, is_generator):
     return code
 
 
-def _dp_entry_template(*args, **kwargs):
+def _entry_template(*args, **kwargs):
     raise RuntimeError("CLIF entry executed without vectorcall interception")
 
 
-def _dp_gen_code_template(_it):
+def code_template_gen(_it):
     while True:
         yield next(_it)
 
 
-async def _dp_async_gen_code_template():
+async def code_template_async_gen():
     if False:
         yield None
 
@@ -1278,23 +1278,16 @@ def import_star(name, spec, globals_dict, level=0):
 
 def _lookup_special_method(obj, name: str):
     cls = type(obj)
-    for base in cls.__mro__:
-        try:
-            descr = base.__dict__[name]
-        except KeyError:
-            continue
-        if hasattr(descr, "__get__"):
-            return descr.__get__(obj, cls)
-        return descr
-    raise AttributeError(name)
+    descr = _mro_getattr(cls, name)
+    if descr is _MISSING:
+        return _MISSING
+    if hasattr(descr, "__get__"):
+        return descr.__get__(obj, cls)
+    return descr
 
 
 def _has_special_method(obj, name: str) -> bool:
-    cls = type(obj)
-    for base in cls.__mro__:
-        if name in base.__dict__:
-            return True
-    return False
+    return _mro_getattr(type(obj), name) is not _MISSING
 
 
 def _missing_context_protocol_message(
@@ -1323,9 +1316,8 @@ def _missing_context_protocol_message(
 
 
 def contextmanager_enter(ctx):
-    try:
-        enter = _lookup_special_method(ctx, "__enter__")
-    except AttributeError as exc:
+    enter = _lookup_special_method(ctx, "__enter__")
+    if enter is _MISSING:
         message = _missing_context_protocol_message(
             ctx,
             "context manager",
@@ -1333,14 +1325,13 @@ def contextmanager_enter(ctx):
             ("__aenter__", "__aexit__"),
             " but it supports the asynchronous context manager protocol. Did you mean to use 'async with'?",
         )
-        raise TypeError(message) from exc
+        raise TypeError(message)
     return enter()
 
 
 def contextmanager_get_exit(cm):
-    try:
-        return _lookup_special_method(cm, "__exit__")
-    except AttributeError as exc:
+    exit_fn = _lookup_special_method(cm, "__exit__")
+    if exit_fn is _MISSING:
         message = _missing_context_protocol_message(
             cm,
             "context manager",
@@ -1348,7 +1339,8 @@ def contextmanager_get_exit(cm):
             ("__aenter__", "__aexit__"),
             " but it supports the asynchronous context manager protocol. Did you mean to use 'async with'?",
         )
-        raise TypeError(message) from exc
+        raise TypeError(message)
+    return exit_fn
 
 
 def contextmanager_exit(exit_fn, exc_info: tuple | None):
@@ -1405,9 +1397,8 @@ def _ensure_awaitable(awaitable, method_name: str, *, suppress_context: bool = T
 
 
 async def asynccontextmanager_aenter(ctx):
-    try:
-        aenter = _lookup_special_method(ctx, "__aenter__")
-    except AttributeError as exc:
+    aenter = _lookup_special_method(ctx, "__aenter__")
+    if aenter is _MISSING:
         message = _missing_context_protocol_message(
             ctx,
             "asynchronous context manager",
@@ -1415,15 +1406,14 @@ async def asynccontextmanager_aenter(ctx):
             ("__enter__", "__exit__"),
             " but it supports the context manager protocol. Did you mean to use 'with'?",
         )
-        raise TypeError(message) from exc
+        raise TypeError(message)
     await_iter = _ensure_awaitable(aenter(), "__aenter__")
     return await _AwaitIterWrapper(await_iter)
 
 
 def asynccontextmanager_get_aexit(acm):
-    try:
-        return _lookup_special_method(acm, "__aexit__")
-    except AttributeError as exc:
+    aexit = _lookup_special_method(acm, "__aexit__")
+    if aexit is _MISSING:
         message = _missing_context_protocol_message(
             acm,
             "asynchronous context manager",
@@ -1431,7 +1421,8 @@ def asynccontextmanager_get_aexit(acm):
             ("__enter__", "__exit__"),
             " but it supports the context manager protocol. Did you mean to use 'with'?",
         )
-        raise TypeError(message) from exc
+        raise TypeError(message)
+    return aexit
 
 
 async def asynccontextmanager_exit(exit_fn, exc_info: tuple | None):
@@ -1463,8 +1454,8 @@ def _inject_builtin_helper_aliases():
         if name.startswith("_"):
             continue
         if name == "tuple":
-            setattr(builtins, "__dp_tuple", _dp_tuple_helper)
-            setattr(builtins, "__dp_tuple_from_iter", _dp_tuple_from_iter_helper)
+            setattr(builtins, "__dp_tuple", _tuple_helper)
+            setattr(builtins, "__dp_tuple_from_iter", _tuple_from_iter_helper)
             continue
         if callable(value):
             setattr(builtins, f"__dp_{name}", value)

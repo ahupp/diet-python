@@ -61,7 +61,7 @@ fn make_lazy_clif_entry<'py>(
     let module_globals = module_globals
         .cast::<PyDict>()
         .map_err(|_| PyTypeError::new_err("module_globals must be a dict"))?;
-    let template = dp.getattr("_dp_entry_template")?;
+    let template = dp.getattr("_entry_template")?;
     let code = template.getattr("__code__")?;
     unsafe {
         let func = ffi::PyFunction_New(code.as_ptr(), module_globals.as_ptr());

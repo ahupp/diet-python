@@ -228,9 +228,9 @@ fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
 
 fn core_generator_code(async_gen: bool, name: &str, qualname: &str) -> CoreBlockPyExpr {
     let template_attr = if async_gen {
-        "_dp_async_gen_code_template"
+        "code_template_async_gen"
     } else {
-        "_dp_gen_code_template"
+        "code_template_gen"
     };
     core_expr_without_yield(py_expr!(
         "runtime.{template_attr:id}.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal})",
