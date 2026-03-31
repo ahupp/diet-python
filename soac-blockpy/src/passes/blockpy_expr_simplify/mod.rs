@@ -389,7 +389,7 @@ fn name_arg_from_core_expr(expr: CoreBlockPyExprWithAwaitAndYield) -> Option<ast
     Some(name)
 }
 
-fn operation_by_name_and_args(
+fn operator_family_operation_from_helper_call(
     name: &str,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
@@ -438,86 +438,111 @@ fn operation_by_name_and_args(
         ))
         .with_meta(meta)
     } else {
-        match name {
-            "__dp_getattr" => operation::Operation::new(operation::GetAttr::new(
-                Box::new(args.next()?),
-                string_arg_from_core_expr(args.next()?)?,
-            ))
-            .with_meta(meta),
-            "__dp_setattr" => operation::Operation::new(operation::SetAttr::new(
-                Box::new(args.next()?),
-                string_arg_from_core_expr(args.next()?)?,
-                Box::new(args.next()?),
-            ))
-            .with_meta(meta),
-            "__dp_getitem" => operation::Operation::new(operation::GetItem::new(
-                Box::new(args.next()?),
-                Box::new(args.next()?),
-            ))
-            .with_meta(meta),
-            "__dp_setitem" => operation::Operation::new(operation::SetItem::new(
-                Box::new(args.next()?),
-                Box::new(args.next()?),
-                Box::new(args.next()?),
-            ))
-            .with_meta(meta),
-            "__dp_delitem" => operation::Operation::new(operation::DelItem::new(
-                Box::new(args.next()?),
-                Box::new(args.next()?),
-            ))
-            .with_meta(meta),
-            "__dp_load_global" => operation::Operation::new(operation::LoadGlobal::new(
-                Box::new(args.next()?),
-                string_arg_from_core_expr(args.next()?)?,
-            ))
-            .with_meta(meta),
-            "__dp_store_global" => operation::Operation::new(operation::StoreGlobal::new(
-                Box::new(args.next()?),
-                string_arg_from_core_expr(args.next()?)?,
-                Box::new(args.next()?),
-            ))
-            .with_meta(meta),
-            "__dp_load_cell" => operation::Operation::new(operation::LoadCell::new(
-                name_arg_from_core_expr(args.next()?)?,
-            ))
-            .with_meta(meta),
-            "__dp_make_cell" => {
-                operation::Operation::new(operation::MakeCell::new(Box::new(args.next()?)))
-                    .with_meta(meta)
-            }
-            "__dp_decode_literal_bytes" => operation::Operation::new(operation::MakeString::new(
-                bytes_arg_from_core_expr(args.next()?)?,
-            ))
-            .with_meta(meta),
-            "__dp_cell_ref" => operation::Operation::new(operation::CellRef::new(
-                operation::CellRefTarget::LogicalName(string_arg_from_core_expr(args.next()?)?),
-            ))
-            .with_meta(meta),
-            "__dp_store_cell" => operation::Operation::new(operation::StoreCell::new(
-                name_arg_from_core_expr(args.next()?)?,
-                Box::new(args.next()?),
-            ))
-            .with_meta(meta),
-            "__dp_del_quietly" => operation::Operation::new(operation::DelQuietly::new(
-                Box::new(args.next()?),
-                string_arg_from_core_expr(args.next()?)?,
-            ))
-            .with_meta(meta),
-            "__dp_del_deref_quietly" => operation::Operation::new(operation::DelDerefQuietly::new(
-                name_arg_from_core_expr(args.next()?)?,
-            ))
-            .with_meta(meta),
-            "__dp_del_deref" => operation::Operation::new(operation::DelDeref::new(
-                name_arg_from_core_expr(args.next()?)?,
-            ))
-            .with_meta(meta),
-            _ => return None,
-        }
+        return None;
     };
     if args.next().is_some() {
         return None;
     }
     Some(operation)
+}
+
+fn non_operator_operation_from_helper_call(
+    name: &str,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    args: Vec<CoreBlockPyExprWithAwaitAndYield>,
+) -> Option<operation::Operation<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>> {
+    let mut args = args.into_iter();
+    let meta = Meta::new(node_index, range);
+    let operation = match name {
+        "__dp_getattr" => operation::Operation::new(operation::GetAttr::new(
+            Box::new(args.next()?),
+            string_arg_from_core_expr(args.next()?)?,
+        ))
+        .with_meta(meta),
+        "__dp_setattr" => operation::Operation::new(operation::SetAttr::new(
+            Box::new(args.next()?),
+            string_arg_from_core_expr(args.next()?)?,
+            Box::new(args.next()?),
+        ))
+        .with_meta(meta),
+        "__dp_getitem" => operation::Operation::new(operation::GetItem::new(
+            Box::new(args.next()?),
+            Box::new(args.next()?),
+        ))
+        .with_meta(meta),
+        "__dp_setitem" => operation::Operation::new(operation::SetItem::new(
+            Box::new(args.next()?),
+            Box::new(args.next()?),
+            Box::new(args.next()?),
+        ))
+        .with_meta(meta),
+        "__dp_delitem" => operation::Operation::new(operation::DelItem::new(
+            Box::new(args.next()?),
+            Box::new(args.next()?),
+        ))
+        .with_meta(meta),
+        "__dp_load_global" => operation::Operation::new(operation::LoadGlobal::new(
+            Box::new(args.next()?),
+            string_arg_from_core_expr(args.next()?)?,
+        ))
+        .with_meta(meta),
+        "__dp_store_global" => operation::Operation::new(operation::StoreGlobal::new(
+            Box::new(args.next()?),
+            string_arg_from_core_expr(args.next()?)?,
+            Box::new(args.next()?),
+        ))
+        .with_meta(meta),
+        "__dp_load_cell" => operation::Operation::new(operation::LoadCell::new(
+            name_arg_from_core_expr(args.next()?)?,
+        ))
+        .with_meta(meta),
+        "__dp_make_cell" => {
+            operation::Operation::new(operation::MakeCell::new(Box::new(args.next()?)))
+                .with_meta(meta)
+        }
+        "__dp_decode_literal_bytes" => operation::Operation::new(operation::MakeString::new(
+            bytes_arg_from_core_expr(args.next()?)?,
+        ))
+        .with_meta(meta),
+        "__dp_cell_ref" => operation::Operation::new(operation::CellRef::new(
+            operation::CellRefTarget::LogicalName(string_arg_from_core_expr(args.next()?)?),
+        ))
+        .with_meta(meta),
+        "__dp_store_cell" => operation::Operation::new(operation::StoreCell::new(
+            name_arg_from_core_expr(args.next()?)?,
+            Box::new(args.next()?),
+        ))
+        .with_meta(meta),
+        "__dp_del_quietly" => operation::Operation::new(operation::DelQuietly::new(
+            Box::new(args.next()?),
+            string_arg_from_core_expr(args.next()?)?,
+        ))
+        .with_meta(meta),
+        "__dp_del_deref_quietly" => operation::Operation::new(operation::DelDerefQuietly::new(
+            name_arg_from_core_expr(args.next()?)?,
+        ))
+        .with_meta(meta),
+        "__dp_del_deref" => operation::Operation::new(operation::DelDeref::new(
+            name_arg_from_core_expr(args.next()?)?,
+        ))
+        .with_meta(meta),
+        _ => return None,
+    };
+    if args.next().is_some() {
+        return None;
+    }
+    Some(operation)
+}
+
+fn operation_from_helper_call_name_and_args(
+    name: &str,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    args: Vec<CoreBlockPyExprWithAwaitAndYield>,
+) -> Option<operation::Operation<CoreBlockPyExprWithAwaitAndYield, ast::ExprName>> {
+    operator_family_operation_from_helper_call(name, node_index.clone(), range, args.clone())
+        .or_else(|| non_operator_operation_from_helper_call(name, node_index, range, args))
 }
 
 fn lower_core_call_expr_with_meta(
@@ -566,7 +591,7 @@ fn lower_core_call_expr_with_meta(
                 if helper_name == "__dp_pow" && operation_args.len() == 2 {
                     operation_args.push(core_builtin_name("__dp_NONE"));
                 }
-                if let Some(operation) = operation_by_name_and_args(
+                if let Some(operation) = operation_from_helper_call_name_and_args(
                     helper_name,
                     node_index.clone(),
                     range,

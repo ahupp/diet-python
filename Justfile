@@ -153,6 +153,7 @@ build-all: (update-venv) ensure-cpython ensure-shared-python
   cd "$REPO_ROOT"
   cargo build --quiet --workspace --tests
   just build-extension debug
+  just build-web-inspector-server
 
 
 
@@ -207,17 +208,17 @@ run-cpython-tests jobs="0" *args='': build-all ensure-cpython ensure-venv
     "${TEST_CMD[@]}"
   )
 
-build-web-inspector: ensure-cpython ensure-shared-python
+build-web-inspector-server: ensure-cpython ensure-shared-python
   #!/usr/bin/env bash
   set -euo pipefail
   export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-  echo "[1/3] Validating web inspector assets..."
-  TIMEFORMAT='[diet-python timing] build_web_inspector_s=%3R'
+  TIMEFORMAT='[diet-python timing] build_web_inspector_server_s=%3R'
   time {
     cd "$REPO_ROOT"
-    cargo test -p soac-inspector --lib
     cargo build -q -p soac-inspector --bin soac-inspector
   }
+
+build-web-inspector: build-web-inspector-server
 
 history-metrics-report history_jsonl="logs/warloc_history.jsonl" daily_jsonl="logs/warloc_history_daily.jsonl" html_output="web/history_metrics.html" revset="..@": ensure-cpython
   #!/usr/bin/env bash
@@ -456,6 +457,7 @@ regen-snapshots:
 
 test-all:
   #!/usr/bin/env bash
+  set -euo pipefail
   export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   cd "$REPO_ROOT"
   just uninstall-extension
@@ -480,36 +482,70 @@ test-all:
     exit "$status"
   fi
 
-  overall_status=0
+  run_parallel_step() {
+    local pid_var="$1"
+    local log_path="$2"
+    shift 2
+    (
+      local timing_name="$1"
+      shift
+      local start_s end_s elapsed_s status
+      start_s="$(date +%s.%N)"
+      set +e
+      "$@"
+      status=$?
+      set -e
+      end_s="$(date +%s.%N)"
+      elapsed_s="$(awk -v start="$start_s" -v end="$end_s" 'BEGIN { printf "%.3f", end - start }')"
+      printf '[diet-python timing] %s=%s\n' "$timing_name" "$elapsed_s"
+      exit "$status"
+    ) >"$log_path" 2>&1 &
+    printf -v "$pid_var" '%s' "$!"
+  }
 
-  TIMEFORMAT='[diet-python timing] cargo_test_s=%3R'
-  if time cargo test; then
-    :
-  else
-    status=$?
-    echo "[diet-python test-all] step failed: cargo-test (exit $status)" >&2
-    overall_status="$status"
-  fi
-
-  TIMEFORMAT='[diet-python timing] pytest_s=%3R'
-  if time just _pytest-run tests/; then
-    :
-  else
-    status=$?
-    echo "[diet-python test-all] step failed: pytest (exit $status)" >&2
-    if [ "$overall_status" -eq 0 ]; then
-      overall_status="$status"
+  cat_parallel_log() {
+    local label="$1"
+    local log_path="$2"
+    if [ -s "$log_path" ]; then
+      echo "[diet-python test-all] output: $label"
+      cat "$log_path"
     fi
+  }
+
+  overall_status=0
+  parallel_log_dir="$(mktemp -d)"
+  cargo_test_log="$parallel_log_dir/cargo-test.log"
+  pytest_log="$parallel_log_dir/pytest.log"
+
+  run_parallel_step cargo_test_pid "$cargo_test_log" cargo_test_s cargo test
+  run_parallel_step pytest_pid "$pytest_log" pytest_s just _pytest-run tests/
+
+  cargo_test_status=0
+  pytest_status=0
+
+  if wait "$cargo_test_pid"; then
+    cargo_test_status=0
+  else
+    cargo_test_status=$?
+  fi
+  if wait "$pytest_pid"; then
+    pytest_status=0
+  else
+    pytest_status=$?
   fi
 
-  TIMEFORMAT='[diet-python timing] build_web_inspector_s=%3R'
-  if time just build-web-inspector; then
-    :
-  else
-    status=$?
-    echo "[diet-python test-all] step failed: build-web-inspector (exit $status)" >&2
+  cat_parallel_log "cargo-test" "$cargo_test_log"
+  cat_parallel_log "pytest" "$pytest_log"
+
+  if [ "$cargo_test_status" -ne 0 ]; then
+    echo "[diet-python test-all] step failed: cargo-test (exit $cargo_test_status)" >&2
+    overall_status="$cargo_test_status"
+  fi
+
+  if [ "$pytest_status" -ne 0 ]; then
+    echo "[diet-python test-all] step failed: pytest (exit $pytest_status)" >&2
     if [ "$overall_status" -eq 0 ]; then
-      overall_status="$status"
+      overall_status="$pytest_status"
     fi
   fi
 
