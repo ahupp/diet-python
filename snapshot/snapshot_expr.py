@@ -188,8 +188,7 @@ x = lambda y: y + 1
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         _dp_lambda_1 = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
-#         x = _dp_lambda_1
+#         x = __dp_make_function(0, "function", __dp_tuple(), __dp_tuple(), None)
 #         return __dp_NONE
 
 # generator_expr

@@ -126,7 +126,7 @@ fn recursive_local_function_bindings_are_cell_owned_in_parent_scope() {
         .expect("missing outer scope");
     let mut rewriter = BlockPyModuleRewriter {
         context: &context,
-        semantic_state: &semantic_state,
+        semantic_state: semantic_state.clone(),
         module_name_gen: ModuleNameGen::new(0),
         function_scope_stack: vec![FunctionScopeFrame {
             scope: Some(outer_scope.clone()),

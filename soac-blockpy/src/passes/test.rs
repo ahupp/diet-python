@@ -1876,7 +1876,7 @@ def choose(xs):
 }
 
 #[test]
-fn scoped_helper_expr_pass_lowers_lambda_before_blockpy() {
+fn module_plan_lowers_lambda_before_blockpy() {
     let source = r#"
 def choose():
     return f(lambda x: x + 1)
@@ -1889,7 +1889,7 @@ def choose():
         "{blockpy_rendered}"
     );
     assert!(
-        blockpy_rendered.contains("return f(_dp_lambda"),
+        blockpy_rendered.contains("return f(__dp_make_function("),
         "{blockpy_rendered}"
     );
 }

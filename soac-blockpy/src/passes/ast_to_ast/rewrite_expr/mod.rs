@@ -423,30 +423,6 @@ fn lower_expr_impl(context: &Context, expr: Expr, allow_deferred: bool) -> Lower
     }
 }
 
-fn lower_lambda_expr(
-    context: &Context,
-    parameters: Option<ast::Parameters>,
-    body: Expr,
-) -> LoweredExpr {
-    let func_name = context.fresh("lambda");
-    let mut func_def: ast::StmtFunctionDef = py_stmt_typed!(
-        r#"
-def {func:id}():
-    pass
-"#,
-        func = func_name.as_str(),
-    );
-    if let Some(params) = parameters {
-        func_def.parameters = Box::new(params);
-    }
-    let return_stmt = py_stmt!("return {value:expr}", value = body);
-    func_def.body = vec![return_stmt];
-    LoweredExpr::modified(
-        py_expr!("{func:id}", func = func_name.as_str()),
-        vec![func_def.into()],
-    )
-}
-
 fn lower_generator_expr(
     context: &Context,
     mut elt: Expr,
@@ -883,9 +859,6 @@ impl ExprRewritePass for ScopedHelperExprPass {
                 generators,
                 ..
             }) => comprehension::lower_dict_comp(context, *key, *value, generators),
-            Expr::Lambda(ast::ExprLambda {
-                parameters, body, ..
-            }) => lower_lambda_expr(context, parameters.map(|params| *params), *body),
             Expr::Generator(ast::ExprGenerator {
                 elt, generators, ..
             }) => lower_generator_expr(context, *elt, generators),
