@@ -85,6 +85,7 @@ fn runtime_init(name: &str) -> Option<ClosureInit> {
             Some(ClosureInit::RuntimeAbruptKindFallthrough)
         }
         "_dp_yieldfrom" => Some(ClosureInit::RuntimeNone),
+        "_dp_throw_context" => Some(ClosureInit::RuntimeNone),
         _ => None,
     }
 }
@@ -225,20 +226,6 @@ fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
     )
 }
 
-fn exception_context_names(callable: &BlockPyFunction<CoreBlockPyPassWithYield>) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut seen = HashSet::new();
-    for block in &callable.blocks {
-        let Some(name) = block.exception_param() else {
-            continue;
-        };
-        if seen.insert(name.to_string()) {
-            names.push(name.to_string());
-        }
-    }
-    names
-}
-
 fn core_generator_code(async_gen: bool, name: &str, qualname: &str) -> CoreBlockPyExpr {
     let template_attr = if async_gen {
         "_dp_async_gen_code_template"
@@ -335,7 +322,7 @@ fn build_generator_storage_layout(
             state_vars.push(logical_name);
         }
     }
-    for runtime_name in ["_dp_pc", "_dp_yieldfrom"] {
+    for runtime_name in ["_dp_pc", "_dp_yieldfrom", "_dp_throw_context"] {
         if !state_vars.iter().any(|existing| existing == runtime_name) {
             state_vars.push(runtime_name.to_string());
         }
@@ -499,7 +486,6 @@ fn build_factory_block(
     visible_names: &FunctionName,
     resume_function_id: FunctionId,
     kind: BlockPyFunctionKind,
-    exception_context_names: &[String],
 ) -> LinearCoreBlock {
     let mut block: BlockPyCfgBlockBuilder<LinearCoreStmt, BlockPyTerm<CoreBlockPyExpr>> =
         BlockPyCfgBlockBuilder::new(BlockPyLabel::from_index(0));
@@ -510,14 +496,6 @@ fn build_factory_block(
         core_call("__dp_tuple", Vec::new()),
         core_none(),
     );
-    let context_cells = core_call(
-        "__dp_tuple",
-        exception_context_names
-            .iter()
-            .map(|name| core_cell_ref(name.as_str()))
-            .collect(),
-    );
-
     let generator = match kind {
         BlockPyFunctionKind::Generator | BlockPyFunctionKind::Coroutine => core_call_expr(
             core_runtime_attr("_DpClosureGenerator"),
@@ -541,7 +519,7 @@ fn build_factory_block(
                     ),
                 ),
                 ("yieldfrom_cell", core_cell_ref("_dp_yieldfrom")),
-                ("context_cells", context_cells.clone()),
+                ("throw_context_cell", core_cell_ref("_dp_throw_context")),
             ],
         ),
         BlockPyFunctionKind::AsyncGenerator => core_call_expr(
@@ -566,7 +544,7 @@ fn build_factory_block(
                     ),
                 ),
                 ("yieldfrom_cell", core_cell_ref("_dp_yieldfrom")),
-                ("context_cells", context_cells),
+                ("throw_context_cell", core_cell_ref("_dp_throw_context")),
             ],
         ),
         BlockPyFunctionKind::Function => {
@@ -844,7 +822,20 @@ impl ResumeLoweringState {
         name
     }
 
-    fn push_block(&mut self, block: LinearCoreBlock, exc_target: Option<BlockPyLabel>) {
+    fn push_block(&mut self, mut block: LinearCoreBlock, exc_target: Option<BlockPyLabel>) {
+        let active_exception = block
+            .params
+            .iter()
+            .find(|param| param.role == BlockParamRole::Exception)
+            .map(|param| core_name(param.name.as_str()))
+            .unwrap_or_else(core_none);
+        block.body.insert(
+            0,
+            BlockPyStmt::Assign(BlockPyAssign {
+                target: expr_name("_dp_throw_context"),
+                value: active_exception,
+            }),
+        );
         self.exception_edges.insert(block.label.clone(), exc_target);
         self.blocks.push(block);
     }
@@ -1541,7 +1532,6 @@ pub(crate) fn lower_generator_like_function(
     let resume_name_gen = module_name_gen.next_function_name_gen();
     let resume_function_id = resume_name_gen.function_id();
     let storage_layout = build_generator_storage_layout(&callable);
-    let exception_context_names = exception_context_names(&callable);
     let persistent_state_order = persistent_generator_state_order(&storage_layout);
     let resume_binding_names = ordered_resume_binding_names(&callable, &persistent_state_order);
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
@@ -1560,8 +1550,7 @@ pub(crate) fn lower_generator_like_function(
         ..
     } = callable;
 
-    let factory_block =
-        build_factory_block(&names, resume_function_id, kind, &exception_context_names);
+    let factory_block = build_factory_block(&names, resume_function_id, kind);
 
     let mut resume_semantic = semantic.clone();
     augment_resume_semantic_for_standard_name_binding(&mut resume_semantic, &closure_bindings);

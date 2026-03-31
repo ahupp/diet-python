@@ -382,21 +382,16 @@ def _normalize_throw_exc(typ, val=None, tb=None, *, where, state=None):
 def _attach_throw_context_from_state(state, exc):
     if exc.__context__ is not None:
         return
-    try:
-        for cell in reversed(tuple(state._throw_context_cells)):
-            candidate = _yieldfrom_cell_value(cell)
-            if isinstance(candidate, BaseException):
-                exc.__context__ = candidate
-                break
-    except Exception:
-        pass
+    candidate = _yieldfrom_cell_value(state._throw_context_cell)
+    if isinstance(candidate, BaseException):
+        exc.__context__ = candidate
 
 class _DpClosureGenerator:
     __slots__ = (
         "_resume_fn",
         "_is_closed",
         "_yield_from_cell",
-        "_throw_context_cells",
+        "_throw_context_cell",
         "__name__",
         "__qualname__",
         "gi_code",
@@ -410,12 +405,12 @@ class _DpClosureGenerator:
         qualname,
         code,
         yieldfrom_cell,
-        context_cells,
+        throw_context_cell,
     ):
         self._resume_fn = resume
         self._is_closed = False
         self._yield_from_cell = yieldfrom_cell
-        self._throw_context_cells = context_cells
+        self._throw_context_cell = throw_context_cell
         self.__name__ = name
         self.__qualname__ = qualname
         self.gi_code = code
@@ -507,7 +502,7 @@ class _DpClosureAsyncGenerator:
         "_resume_fn",
         "_is_closed",
         "_yield_from_cell",
-        "_throw_context_cells",
+        "_throw_context_cell",
         "__name__",
         "__qualname__",
         "ag_code",
@@ -521,12 +516,12 @@ class _DpClosureAsyncGenerator:
         qualname,
         code,
         yieldfrom_cell,
-        context_cells,
+        throw_context_cell,
     ):
         self._resume_fn = resume
         self._is_closed = False
         self._yield_from_cell = yieldfrom_cell
-        self._throw_context_cells = context_cells
+        self._throw_context_cell = throw_context_cell
         self.__name__ = name
         self.__qualname__ = qualname
         self.ag_code = code

@@ -44,14 +44,14 @@ fn build_closure_backed_generator_factory_block(
 
     let generator_expr = if is_async_generator {
         py_expr!(
-            "runtime._DpClosureAsyncGenerator(resume={resume:expr}, name={name:literal}, qualname={qualname:literal}, code=runtime._dp_async_gen_code_template.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal}))",
+            "runtime._DpClosureAsyncGenerator(resume={resume:expr}, name={name:literal}, qualname={qualname:literal}, code=runtime._dp_async_gen_code_template.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal}), yieldfrom_cell=__dp_cell_ref(\"_dp_yieldfrom\"), throw_context_cell=__dp_cell_ref(\"_dp_throw_context\"))",
             resume = resume_entry,
             name = visible_names.display_name.as_str(),
             qualname = visible_names.qualname.as_str(),
         )
     } else {
         py_expr!(
-            "runtime._DpClosureGenerator(resume={resume:expr}, name={name:literal}, qualname={qualname:literal}, code=runtime._dp_gen_code_template.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal}))",
+            "runtime._DpClosureGenerator(resume={resume:expr}, name={name:literal}, qualname={qualname:literal}, code=runtime._dp_gen_code_template.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal}), yieldfrom_cell=__dp_cell_ref(\"_dp_yieldfrom\"), throw_context_cell=__dp_cell_ref(\"_dp_throw_context\"))",
             resume = resume_entry,
             name = visible_names.display_name.as_str(),
             qualname = visible_names.qualname.as_str(),
