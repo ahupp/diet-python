@@ -458,6 +458,45 @@ fn emit_binop<'fb, E>(
         blockpy_intrinsics::BinOpKind::And => {
             emit_positional_owned_call(&PYNUMBER_AND_IMPORT, state, args)
         }
+        blockpy_intrinsics::BinOpKind::InplaceAdd => {
+            emit_positional_owned_call(&PYNUMBER_INPLACE_ADD_IMPORT, state, args)
+        }
+        blockpy_intrinsics::BinOpKind::InplaceSub => {
+            emit_positional_owned_call(&PYNUMBER_INPLACE_SUBTRACT_IMPORT, state, args)
+        }
+        blockpy_intrinsics::BinOpKind::InplaceMul => {
+            emit_positional_owned_call(&PYNUMBER_INPLACE_MULTIPLY_IMPORT, state, args)
+        }
+        blockpy_intrinsics::BinOpKind::InplaceMatMul => {
+            emit_positional_owned_call(&PYNUMBER_INPLACE_MATMUL_IMPORT, state, args)
+        }
+        blockpy_intrinsics::BinOpKind::InplaceTrueDiv => {
+            emit_positional_owned_call(&PYNUMBER_INPLACE_TRUE_DIVIDE_IMPORT, state, args)
+        }
+        blockpy_intrinsics::BinOpKind::InplaceFloorDiv => {
+            emit_positional_owned_call(&PYNUMBER_INPLACE_FLOOR_DIVIDE_IMPORT, state, args)
+        }
+        blockpy_intrinsics::BinOpKind::InplaceMod => {
+            emit_positional_owned_call(&PYNUMBER_INPLACE_REMAINDER_IMPORT, state, args)
+        }
+        blockpy_intrinsics::BinOpKind::InplacePow => {
+            emit_pow_like(&PYNUMBER_INPLACE_POWER_IMPORT, state, args)
+        }
+        blockpy_intrinsics::BinOpKind::InplaceLShift => {
+            emit_positional_owned_call(&PYNUMBER_INPLACE_LSHIFT_IMPORT, state, args)
+        }
+        blockpy_intrinsics::BinOpKind::InplaceRShift => {
+            emit_positional_owned_call(&PYNUMBER_INPLACE_RSHIFT_IMPORT, state, args)
+        }
+        blockpy_intrinsics::BinOpKind::InplaceOr => {
+            emit_positional_owned_call(&PYNUMBER_INPLACE_OR_IMPORT, state, args)
+        }
+        blockpy_intrinsics::BinOpKind::InplaceXor => {
+            emit_positional_owned_call(&PYNUMBER_INPLACE_XOR_IMPORT, state, args)
+        }
+        blockpy_intrinsics::BinOpKind::InplaceAnd => {
+            emit_positional_owned_call(&PYNUMBER_INPLACE_AND_IMPORT, state, args)
+        }
         blockpy_intrinsics::BinOpKind::Eq => emit_richcompare(ffi::Py_EQ, state, args),
         blockpy_intrinsics::BinOpKind::Ne => emit_richcompare(ffi::Py_NE, state, args),
         blockpy_intrinsics::BinOpKind::Lt => emit_richcompare(ffi::Py_LT, state, args),
@@ -491,54 +530,6 @@ fn emit_unary_op<'fb, E>(
         }
         blockpy_intrinsics::UnaryOpKind::Truth => {
             emit_positional_bool_call(&PYOBJECT_IS_TRUE_IMPORT, state, args)
-        }
-    }
-}
-
-fn emit_inplace_binop<'fb, E>(
-    kind: blockpy_intrinsics::InplaceBinOpKind,
-    state: &mut impl OperationEmitState<'fb, E>,
-    args: &[&E],
-) -> ir::Value {
-    match kind {
-        blockpy_intrinsics::InplaceBinOpKind::Add => {
-            emit_positional_owned_call(&PYNUMBER_INPLACE_ADD_IMPORT, state, args)
-        }
-        blockpy_intrinsics::InplaceBinOpKind::Sub => {
-            emit_positional_owned_call(&PYNUMBER_INPLACE_SUBTRACT_IMPORT, state, args)
-        }
-        blockpy_intrinsics::InplaceBinOpKind::Mul => {
-            emit_positional_owned_call(&PYNUMBER_INPLACE_MULTIPLY_IMPORT, state, args)
-        }
-        blockpy_intrinsics::InplaceBinOpKind::MatMul => {
-            emit_positional_owned_call(&PYNUMBER_INPLACE_MATMUL_IMPORT, state, args)
-        }
-        blockpy_intrinsics::InplaceBinOpKind::TrueDiv => {
-            emit_positional_owned_call(&PYNUMBER_INPLACE_TRUE_DIVIDE_IMPORT, state, args)
-        }
-        blockpy_intrinsics::InplaceBinOpKind::FloorDiv => {
-            emit_positional_owned_call(&PYNUMBER_INPLACE_FLOOR_DIVIDE_IMPORT, state, args)
-        }
-        blockpy_intrinsics::InplaceBinOpKind::Mod => {
-            emit_positional_owned_call(&PYNUMBER_INPLACE_REMAINDER_IMPORT, state, args)
-        }
-        blockpy_intrinsics::InplaceBinOpKind::Pow => {
-            emit_pow_like(&PYNUMBER_INPLACE_POWER_IMPORT, state, args)
-        }
-        blockpy_intrinsics::InplaceBinOpKind::LShift => {
-            emit_positional_owned_call(&PYNUMBER_INPLACE_LSHIFT_IMPORT, state, args)
-        }
-        blockpy_intrinsics::InplaceBinOpKind::RShift => {
-            emit_positional_owned_call(&PYNUMBER_INPLACE_RSHIFT_IMPORT, state, args)
-        }
-        blockpy_intrinsics::InplaceBinOpKind::Or => {
-            emit_positional_owned_call(&PYNUMBER_INPLACE_OR_IMPORT, state, args)
-        }
-        blockpy_intrinsics::InplaceBinOpKind::Xor => {
-            emit_positional_owned_call(&PYNUMBER_INPLACE_XOR_IMPORT, state, args)
-        }
-        blockpy_intrinsics::InplaceBinOpKind::And => {
-            emit_positional_owned_call(&PYNUMBER_INPLACE_AND_IMPORT, state, args)
         }
     }
 }
@@ -637,11 +628,6 @@ pub(super) fn emit_operation<'fb>(
         blockpy_intrinsics::OperationDetail::UnaryOp(op) => {
             Some(emit_unary_op(op.kind, state, &[op.operand.as_ref()]))
         }
-        blockpy_intrinsics::OperationDetail::InplaceBinOp(op) => Some(emit_inplace_binop(
-            op.kind,
-            state,
-            &[op.left.as_ref(), op.right.as_ref()],
-        )),
         blockpy_intrinsics::OperationDetail::Call(_) => None,
         blockpy_intrinsics::OperationDetail::GetAttr(op) => Some(emit_getattr(op, state)),
         blockpy_intrinsics::OperationDetail::SetAttr(op) => Some(emit_setattr(op, state)),

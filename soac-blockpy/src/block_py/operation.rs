@@ -27,6 +27,19 @@ pub enum BinOpKind {
     Ge,
     Contains,
     Is,
+    InplaceAdd,
+    InplaceSub,
+    InplaceMul,
+    InplaceMatMul,
+    InplaceTrueDiv,
+    InplaceFloorDiv,
+    InplaceMod,
+    InplacePow,
+    InplaceLShift,
+    InplaceRShift,
+    InplaceOr,
+    InplaceXor,
+    InplaceAnd,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
@@ -36,23 +49,6 @@ pub enum UnaryOpKind {
     Invert,
     Not,
     Truth,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub enum InplaceBinOpKind {
-    Add,
-    Sub,
-    Mul,
-    MatMul,
-    TrueDiv,
-    FloorDiv,
-    Mod,
-    Pow,
-    LShift,
-    RShift,
-    Or,
-    Xor,
-    And,
 }
 
 pub trait InstrOperationNode<I>: Sized
@@ -484,14 +480,6 @@ define_operation! {
     }
 }
 
-define_operation! {
-    pub struct InplaceBinOp<E> {
-        kind: InplaceBinOpKind,
-        left: Box<E>,
-        right: Box<E>,
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Call<E> {
     _meta: Meta,
@@ -872,7 +860,6 @@ define_operation! {
 pub enum OperationDetail<E: Instr> {
     BinOp(BinOp<E>),
     UnaryOp(UnaryOp<E>),
-    InplaceBinOp(InplaceBinOp<E>),
     Call(Call<E>),
     GetAttr(GetAttr<E>),
     SetAttr(SetAttr<E>),

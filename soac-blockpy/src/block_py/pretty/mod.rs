@@ -711,14 +711,6 @@ where
             "UnaryOp",
             [format!("{:?}", op.kind), op.operand.debug_expr_text()],
         ),
-        crate::block_py::OperationDetail::InplaceBinOp(op) => debug_tuple_text(
-            "InplaceBinOp",
-            [
-                format!("{:?}", op.kind),
-                op.left.debug_expr_text(),
-                op.right.debug_expr_text(),
-            ],
-        ),
         crate::block_py::OperationDetail::GetItem(op) => debug_tuple_text(
             "GetItem",
             [op.value.debug_expr_text(), op.index.debug_expr_text()],

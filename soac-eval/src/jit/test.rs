@@ -3,10 +3,9 @@ use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyModule,
     BlockPyStmt, BlockPyTerm, CellLocation, ClosureInit, ClosureSlot, CodegenBlock,
     CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral,
-    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, InplaceBinOp,
-    InplaceBinOpKind, Load, LocatedCodegenBlockPyExpr, LocatedName, MakeString, Meta,
-    ModuleNameGen, NameLocation, OperationDetail, Param, ParamKind, ParamSpec, StorageLayout,
-    Store, WithMeta,
+    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, Load,
+    LocatedCodegenBlockPyExpr, LocatedName, MakeString, Meta, ModuleNameGen, NameLocation,
+    OperationDetail, Param, ParamKind, ParamSpec, StorageLayout, Store, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
@@ -421,12 +420,8 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(InplaceBinOp::new(
-                    InplaceBinOpKind::Pow,
-                    int_expr(2),
-                    int_expr(3),
-                ))
-                .with_meta(Meta::synthetic()),
+                OperationDetail::from(BinOp::new(BinOpKind::InplacePow, int_expr(2), int_expr(3)))
+                    .with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);

@@ -186,7 +186,7 @@ obj.x += 1
 #     block bb1:
 #         _dp_augassign_obj_1 = load_deleted_name("obj", obj)
 #         _dp_augassign_value_2 = GetAttr(_dp_augassign_obj_1, "x")
-#         SetAttr(_dp_augassign_obj_1, "x", InplaceBinOp(Add, _dp_augassign_value_2, 1))
+#         SetAttr(_dp_augassign_obj_1, "x", BinOp(InplaceAdd, _dp_augassign_value_2, 1))
 #         return NONE
 
 # delete_mixed

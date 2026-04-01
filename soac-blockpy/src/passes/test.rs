@@ -2208,7 +2208,7 @@ def bump(x):
             .any(|block| block.body.iter().any(|stmt| matches!(
                 stmt,
                 BlockPyStmt::Assign(assign)
-                    if expr_text(&assign.value).contains("InplaceBinOp(Add,")
+                    if expr_text(&assign.value).contains("BinOp(InplaceAdd,")
             ))),
         "{bump:?}"
     );

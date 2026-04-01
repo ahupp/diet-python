@@ -93,21 +93,21 @@ pub(crate) trait RuffToBlockPyExpr: From<Expr> + std::fmt::Debug + Clone + Sized
     ) -> Self;
 }
 
-fn inplace_kind(op: ast::Operator) -> Option<operation::InplaceBinOpKind> {
+fn inplace_kind(op: ast::Operator) -> Option<operation::BinOpKind> {
     Some(match op {
-        ast::Operator::Add => operation::InplaceBinOpKind::Add,
-        ast::Operator::Sub => operation::InplaceBinOpKind::Sub,
-        ast::Operator::Mult => operation::InplaceBinOpKind::Mul,
-        ast::Operator::MatMult => operation::InplaceBinOpKind::MatMul,
-        ast::Operator::Div => operation::InplaceBinOpKind::TrueDiv,
-        ast::Operator::Mod => operation::InplaceBinOpKind::Mod,
-        ast::Operator::Pow => operation::InplaceBinOpKind::Pow,
-        ast::Operator::LShift => operation::InplaceBinOpKind::LShift,
-        ast::Operator::RShift => operation::InplaceBinOpKind::RShift,
-        ast::Operator::BitOr => operation::InplaceBinOpKind::Or,
-        ast::Operator::BitXor => operation::InplaceBinOpKind::Xor,
-        ast::Operator::BitAnd => operation::InplaceBinOpKind::And,
-        ast::Operator::FloorDiv => operation::InplaceBinOpKind::FloorDiv,
+        ast::Operator::Add => operation::BinOpKind::InplaceAdd,
+        ast::Operator::Sub => operation::BinOpKind::InplaceSub,
+        ast::Operator::Mult => operation::BinOpKind::InplaceMul,
+        ast::Operator::MatMult => operation::BinOpKind::InplaceMatMul,
+        ast::Operator::Div => operation::BinOpKind::InplaceTrueDiv,
+        ast::Operator::Mod => operation::BinOpKind::InplaceMod,
+        ast::Operator::Pow => operation::BinOpKind::InplacePow,
+        ast::Operator::LShift => operation::BinOpKind::InplaceLShift,
+        ast::Operator::RShift => operation::BinOpKind::InplaceRShift,
+        ast::Operator::BitOr => operation::BinOpKind::InplaceOr,
+        ast::Operator::BitXor => operation::BinOpKind::InplaceXor,
+        ast::Operator::BitAnd => operation::BinOpKind::InplaceAnd,
+        ast::Operator::FloorDiv => operation::BinOpKind::InplaceFloorDiv,
     })
 }
 
@@ -136,7 +136,7 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         let kind = inplace_kind(op)
             .expect("direct augassign lowering should support every Python inplace operator");
         core_operation_expr(
-            operation::OperationDetail::from(operation::InplaceBinOp::new(
+            operation::OperationDetail::from(operation::BinOp::new(
                 kind,
                 Box::new(left),
                 Box::new(right),

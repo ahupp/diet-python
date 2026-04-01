@@ -38,7 +38,7 @@ fn stmt_augassign_to_blockpy_emits_direct_core_operations() {
     let rendered = expr.debug_expr_text();
 
     assert!(rendered.contains("SetItem("), "{rendered}");
-    assert!(rendered.contains("InplaceBinOp(Add,"), "{rendered}");
+    assert!(rendered.contains("BinOp(InplaceAdd,"), "{rendered}");
     assert!(!rendered.contains("__dp_iadd"), "{rendered}");
     assert!(!rendered.contains("__dp_setitem"), "{rendered}");
 }
@@ -63,5 +63,5 @@ fn stmt_pow_augassign_to_blockpy_uses_inplace_pow() {
     };
     let rendered = assign.value.debug_expr_text();
 
-    assert!(rendered.contains("InplaceBinOp(Pow,"), "{rendered}");
+    assert!(rendered.contains("BinOp(InplacePow,"), "{rendered}");
 }

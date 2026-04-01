@@ -162,7 +162,7 @@ def tweak(x):
     .clone();
     let rendered = blockpy_module_to_debug_string(&blockpy);
 
-    assert!(rendered.contains("InplaceBinOp(Add,"), "{rendered}");
+    assert!(rendered.contains("BinOp(InplaceAdd,"), "{rendered}");
     assert!(!rendered.contains("__dp_iadd"), "{rendered}");
 }
 
