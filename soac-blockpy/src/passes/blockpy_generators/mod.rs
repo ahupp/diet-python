@@ -724,15 +724,42 @@ fn push_completion_raise_block(
 }
 
 fn is_resume_exc_test() -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!("_dp_resume_exc is not __dp_NO_DEFAULT"))
+    core_operation_expr(
+        Operation::new(crate::block_py::operation::UnaryOp::new(
+            crate::block_py::operation::UnaryOpKind::Not,
+            Box::new(core_operation_expr(
+                Operation::new(crate::block_py::operation::BinOp::new(
+                    crate::block_py::operation::BinOpKind::Is,
+                    Box::new(core_name("_dp_resume_exc")),
+                    Box::new(core_expr_without_yield(py_expr!("__dp_NO_DEFAULT"))),
+                ))
+                .with_meta(Meta::synthetic()),
+            )),
+        ))
+        .with_meta(Meta::synthetic()),
+    )
 }
 
 fn is_send_none_test() -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!("__dp_is_(_dp_send_value, None)"))
+    core_operation_expr(
+        Operation::new(crate::block_py::operation::BinOp::new(
+            crate::block_py::operation::BinOpKind::Is,
+            Box::new(core_name("_dp_send_value")),
+            Box::new(core_none()),
+        ))
+        .with_meta(Meta::synthetic()),
+    )
 }
 
 fn is_name_none_test(name: &str) -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!("__dp_is_({name:id}, None)", name = name))
+    core_operation_expr(
+        Operation::new(crate::block_py::operation::BinOp::new(
+            crate::block_py::operation::BinOpKind::Is,
+            Box::new(core_name(name)),
+            Box::new(core_none()),
+        ))
+        .with_meta(Meta::synthetic()),
+    )
 }
 
 fn is_name_not_none_test(name: &str) -> CoreBlockPyExpr {

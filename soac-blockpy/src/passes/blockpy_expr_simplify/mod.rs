@@ -8,7 +8,7 @@ use crate::block_py::{
     CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
     CoreStringLiteral, HasMeta, Meta, StructuredBlockPyStmt, WithMeta,
 };
-use crate::passes::ast_to_ast::expr_utils::{make_binop, make_tuple};
+use crate::passes::ast_to_ast::expr_utils::make_tuple;
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
@@ -37,7 +37,7 @@ impl PureCoreExprReducer for DefaultCoreExprReducer {
 }
 
 fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithAwaitAndYield {
-    let mut segments: Vec<Expr> = Vec::new();
+    let mut segments: Vec<CoreBlockPyExprWithAwaitAndYield> = Vec::new();
     let mut keyed_pairs = Vec::new();
 
     for item in items {
@@ -55,26 +55,44 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithA
             ast::DictItem { key: None, value } => {
                 if !keyed_pairs.is_empty() {
                     let tuple = make_tuple(std::mem::take(&mut keyed_pairs));
-                    segments.push(py_expr!("__dp_dict({tuple:expr})", tuple = tuple));
+                    segments.push(CoreBlockPyExprWithAwaitAndYield::from(py_expr!(
+                        "__dp_dict({tuple:expr})",
+                        tuple = tuple
+                    )));
                 }
-                segments.push(py_expr!("__dp_dict({mapping:expr})", mapping = value));
+                segments.push(CoreBlockPyExprWithAwaitAndYield::from(py_expr!(
+                    "__dp_dict({mapping:expr})",
+                    mapping = value
+                )));
             }
         }
     }
 
     if !keyed_pairs.is_empty() {
         let tuple = make_tuple(keyed_pairs);
-        segments.push(py_expr!("__dp_dict({tuple:expr})", tuple = tuple));
+        segments.push(CoreBlockPyExprWithAwaitAndYield::from(py_expr!(
+            "__dp_dict({tuple:expr})",
+            tuple = tuple
+        )));
     }
 
     let expr = match segments.len() {
-        0 => py_expr!("__dp_dict()"),
+        0 => CoreBlockPyExprWithAwaitAndYield::from(py_expr!("__dp_dict()")),
         _ => segments
             .into_iter()
-            .reduce(|left, right| make_binop("or_", left, right))
+            .reduce(|left, right| {
+                core_operation_expr(
+                    operation::Operation::new(operation::BinOp::new(
+                        operation::BinOpKind::Or,
+                        Box::new(left),
+                        Box::new(right),
+                    ))
+                    .with_meta(Meta::synthetic()),
+                )
+            })
             .expect("dict segments are non-empty"),
     };
-    CoreBlockPyExprWithAwaitAndYield::from(expr)
+    expr
 }
 
 fn core_operation_expr(
