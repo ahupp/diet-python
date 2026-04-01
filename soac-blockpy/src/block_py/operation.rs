@@ -58,15 +58,15 @@ pub enum TernaryOpKind {
     Pow,
 }
 
-pub trait ExprOperationNode<E>: Sized {
+pub trait InstrOperationNode<I>: Sized {
     type Mapped<T>;
 
-    fn visit_exprs(&self, f: &mut impl FnMut(&E));
-    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut E));
-    fn map_op<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>;
+    fn visit_exprs(&self, f: &mut impl FnMut(&I));
+    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut I));
+    fn map_op<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>;
     fn try_map_op<T, Error>(
         self,
-        f: &mut impl FnMut(E) -> Result<T, Error>,
+        f: &mut impl FnMut(I) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>;
 }
 
@@ -126,7 +126,7 @@ macro_rules! define_operation {
             }
         }
 
-        impl<$expr_ty> ExprOperationNode<$expr_ty> for $name<$expr_ty> {
+        impl<$expr_ty> InstrOperationNode<$expr_ty> for $name<$expr_ty> {
             type Mapped<T> = $name<T>;
 
             fn visit_exprs(&self, f: &mut impl FnMut(&$expr_ty)) {
@@ -208,7 +208,7 @@ macro_rules! define_operation {
             }
         }
 
-        impl<E> ExprOperationNode<E> for $name {
+        impl<E> InstrOperationNode<E> for $name {
             type Mapped<T> = $name;
 
             fn visit_exprs(&self, f: &mut impl FnMut(&E)) {
@@ -515,7 +515,7 @@ impl<E> WithMeta for Call<E> {
     }
 }
 
-impl<E> ExprOperationNode<E> for Call<E> {
+impl<E> InstrOperationNode<E> for Call<E> {
     type Mapped<T> = Call<T>;
 
     fn visit_exprs(&self, f: &mut impl FnMut(&E)) {

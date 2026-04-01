@@ -222,6 +222,10 @@ pub trait TryMapExpr<T, Error>: Clone + fmt::Debug + Sized {
     fn try_map_expr(self, f: &mut impl FnMut(Self) -> Result<T, Error>) -> Result<T, Error>;
 }
 
+pub trait Instr: Clone + fmt::Debug + Sized {
+    type Name: BlockPyNameLike;
+}
+
 pub trait BlockPyExprLike: Clone + fmt::Debug + MapExpr<Self> {
     fn walk_child_exprs<F>(&self, f: &mut F)
     where
@@ -544,6 +548,10 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
     }
 }
 
+impl Instr for CoreBlockPyExprWithAwaitAndYield {
+    type Name = ast::ExprName;
+}
+
 impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYield {
     fn map_expr(
         self,
@@ -651,6 +659,10 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
     }
 }
 
+impl Instr for CoreBlockPyExprWithYield {
+    type Name = ast::ExprName;
+}
+
 impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
     fn map_expr(
         self,
@@ -699,6 +711,10 @@ impl<N: BlockPyNameLike> CoreCallLikeExpr for CoreBlockPyExpr<N> {
     }
 }
 
+impl<N: BlockPyNameLike> Instr for CoreBlockPyExpr<N> {
+    type Name = N;
+}
+
 impl<NIn, NOut> MapExpr<CoreBlockPyExpr<NOut>> for CoreBlockPyExpr<NIn>
 where
     NIn: BlockPyNameLike,
@@ -740,6 +756,10 @@ impl CoreCallLikeExpr for CodegenBlockPyExpr {
     fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
         Self::Op(operation)
     }
+}
+
+impl Instr for CodegenBlockPyExpr {
+    type Name = LocatedName;
 }
 
 impl<NIn> MapExpr<CodegenBlockPyExpr> for CoreBlockPyExpr<NIn>
