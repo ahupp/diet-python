@@ -1,7 +1,7 @@
 use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
 use crate::block_py::{
-    BlockPyAssign, BlockPyCfgFragment, BlockPyIf, BlockPyStmtFragmentBuilder, BlockPyTerm,
-    StructuredBlockPyStmt,
+    BlockPyAssign, BlockPyCfgFragment, BlockPyIf, BlockPyStmtFragmentBuilder, BlockPyTerm, Instr,
+    InstrName, StructuredBlockPyStmtFor,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::fresh_setup_name;
 use crate::passes::ruff_to_blockpy::LoopContext;
@@ -21,19 +21,20 @@ fn load_name(name: &str) -> Expr {
     py_expr!("{name:id}", name = name)
 }
 
-fn assign_name<E>(target: &str, value: Expr) -> StructuredBlockPyStmt<E>
+fn assign_name<E>(target: &str, value: Expr) -> StructuredBlockPyStmtFor<E>
 where
-    E: From<Expr>,
+    E: From<Expr> + Instr,
+    InstrName<E>: From<ast::ExprName>,
 {
-    StructuredBlockPyStmt::Assign(BlockPyAssign {
-        target: store_name(target),
+    StructuredBlockPyStmtFor::Assign(BlockPyAssign {
+        target: store_name(target).into(),
         value: value.into(),
     })
 }
 
-fn empty_fragment<E>() -> BlockPyCfgFragment<StructuredBlockPyStmt<E>, BlockPyTerm<E>>
+fn empty_fragment<E>() -> BlockPyCfgFragment<StructuredBlockPyStmtFor<E>, BlockPyTerm<E>>
 where
-    E: std::fmt::Debug,
+    E: std::fmt::Debug + Instr,
 {
     BlockPyCfgFragment::from_stmts(Vec::new())
 }
@@ -64,7 +65,7 @@ where
             ast::BoolOp::And => load_name(&target),
             ast::BoolOp::Or => py_expr!("not {target:id}", target = target.as_str()),
         };
-        out.push_stmt(StructuredBlockPyStmt::If(BlockPyIf {
+        out.push_stmt(StructuredBlockPyStmtFor::If(BlockPyIf {
             test: test.into(),
             body: body.finish(),
             orelse: empty_fragment(),
@@ -142,7 +143,7 @@ where
             compare_expr(op, current_left.clone(), comparator_expr.clone()),
         ));
         current_left = comparator_expr;
-        out.push_stmt(StructuredBlockPyStmt::If(BlockPyIf {
+        out.push_stmt(StructuredBlockPyStmtFor::If(BlockPyIf {
             test: load_name(&target_name).into(),
             body: step_body.finish(),
             orelse: empty_fragment(),

@@ -4,7 +4,7 @@ use cranelift_codegen::ir;
 use cranelift_codegen::ir::InstBuilder;
 use cranelift_frontend::FunctionBuilder;
 use pyo3::ffi;
-use soac_blockpy::block_py::{BlockPyNameLike, Instr, LocatedCodegenBlockPyExpr};
+use soac_blockpy::block_py::{BlockPyNameLike, Instr, LocatedCodegenBlockPyExpr, NameLocation};
 
 pub(super) trait OperationEmitState<'fb, E> {
     fn ctx(&self) -> &JitEmitCtx<'_>;
@@ -539,23 +539,20 @@ fn emit_load<'fb>(
     state: &mut impl OperationEmitState<'fb, LocatedCodegenBlockPyExpr>,
 ) -> ir::Value {
     let name_obj = state.emit_owned_string_constant(op.name.id_str());
-    let func_ref = state.import_func(&DP_JIT_LOAD_GLOBAL_OBJ_IMPORT);
+    let func_ref = match op.name.location {
+        NameLocation::Global => state.import_func(&DP_JIT_LOAD_GLOBAL_OBJ_IMPORT),
+        NameLocation::RuntimeName => state.import_func(&DP_JIT_LOAD_RUNTIME_OBJ_IMPORT),
+        _ => unreachable!("emit_load only applies to global and runtime helper names"),
+    };
     let decref_ref = state.ctx().decref_ref;
-    let globals_obj = state.ctx().consts.block_const;
-    let call_inst = state.fb().ins().call(func_ref, &[globals_obj, name_obj]);
-    state.fb().ins().call(decref_ref, &[name_obj]);
-    let result = state.fb().inst_results(call_inst)[0];
-    state.finish_owned_result(result)
-}
-
-fn emit_load_runtime<'fb, E>(
-    op: &blockpy_intrinsics::LoadRuntime,
-    state: &mut impl OperationEmitState<'fb, E>,
-) -> ir::Value {
-    let name_obj = state.emit_owned_string_constant(op.name.as_str());
-    let func_ref = state.import_func(&DP_JIT_LOAD_RUNTIME_OBJ_IMPORT);
-    let decref_ref = state.ctx().decref_ref;
-    let call_inst = state.fb().ins().call(func_ref, &[name_obj]);
+    let call_inst = match op.name.location {
+        NameLocation::Global => {
+            let globals_obj = state.ctx().consts.block_const;
+            state.fb().ins().call(func_ref, &[globals_obj, name_obj])
+        }
+        NameLocation::RuntimeName => state.fb().ins().call(func_ref, &[name_obj]),
+        _ => unreachable!("emit_load only applies to global and runtime helper names"),
+    };
     state.fb().ins().call(decref_ref, &[name_obj]);
     let result = state.fb().inst_results(call_inst)[0];
     state.finish_owned_result(result)
@@ -647,10 +644,9 @@ pub(super) fn emit_operation<'fb>(
             state,
             &[op.value.as_ref(), op.index.as_ref()],
         )),
-        blockpy_intrinsics::OperationDetail::LoadRuntime(op) => Some(emit_load_runtime(op, state)),
-        blockpy_intrinsics::OperationDetail::Load(op) => {
-            op.name.location.is_global().then(|| emit_load(op, state))
-        }
+        blockpy_intrinsics::OperationDetail::Load(op) => (op.name.location.is_global()
+            || op.name.location.is_runtime_name())
+        .then(|| emit_load(op, state)),
         blockpy_intrinsics::OperationDetail::MakeCell(op) => {
             Some(emit_make_cell(state, &[op.initial_value.as_ref()]))
         }

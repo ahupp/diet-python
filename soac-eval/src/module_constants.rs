@@ -308,7 +308,10 @@ impl ModuleConstantCollector {
     fn collect_expr(&mut self, expr: &LocatedCodegenBlockPyExpr) {
         match expr {
             CodegenBlockPyExpr::Name(name) => {
-                if matches!(name.location, NameLocation::Global) {
+                if matches!(
+                    name.location,
+                    NameLocation::Global | NameLocation::RuntimeName
+                ) {
                     self.constants.intern_unicode_bytes(name.id.as_bytes());
                 }
             }
@@ -371,11 +374,8 @@ impl ModuleConstantCollector {
                             self.constants.intern_unicode_bytes(attr_bytes.as_slice());
                         }
                     }
-                    blockpy_intrinsics::OperationDetail::LoadRuntime(op) => {
-                        self.constants.intern_unicode_bytes(op.name.as_bytes());
-                    }
                     blockpy_intrinsics::OperationDetail::Load(op)
-                        if op.name.location.is_global() =>
+                        if op.name.location.is_global() || op.name.location.is_runtime_name() =>
                     {
                         self.constants
                             .intern_unicode_bytes(op.name.id_str().as_bytes());
@@ -454,8 +454,9 @@ fn helper_name_for_codegen_expr(expr: &LocatedCodegenBlockPyExpr) -> Option<&str
     match expr {
         CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
         CodegenBlockPyExpr::Op(operation) => match operation {
-            blockpy_intrinsics::OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
-            blockpy_intrinsics::OperationDetail::Load(op) if op.name.location.is_global() => {
+            blockpy_intrinsics::OperationDetail::Load(op)
+                if op.name.location.is_global() || op.name.location.is_runtime_name() =>
+            {
                 Some(op.name.id.as_str())
             }
             _ => None,

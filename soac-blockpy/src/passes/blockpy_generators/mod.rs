@@ -6,17 +6,18 @@ use crate::block_py::{
     try_lower_core_expr_without_await, try_lower_core_expr_without_yield, BlockArg, BlockParam,
     BlockParamRole, BlockPyAssign, BlockPyBindingKind, BlockPyBranchTable,
     BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyEdge,
-    BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
-    CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName, ImplicitNoneExpr, MakeFunction,
-    Meta, ModuleNameGen, OperationDetail, PassStmt, StorageLayout, WithMeta,
+    BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
+    ImplicitNoneExpr, MakeFunction, Meta, ModuleNameGen, OperationDetail, PassStmt, StorageLayout,
+    UnresolvedName, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
 use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithYield};
 use crate::py_expr;
-use ruff_python_ast::{self as ast, Expr, ExprName};
+use ruff_python_ast::{self as ast, Expr};
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 
@@ -152,11 +153,11 @@ pub(crate) fn build_blockpy_storage_layout(
     }
 }
 
-fn expr_name(id: &str) -> ExprName {
+fn expr_name(id: &str) -> UnresolvedName {
     let Expr::Name(expr) = py_expr!("{id:id}", id = id) else {
         unreachable!();
     };
-    expr
+    expr.into()
 }
 
 fn core_expr_without_yield(expr: Expr) -> CoreBlockPyExpr {
@@ -596,13 +597,13 @@ fn fresh_resume_dispatch_label(
 enum YieldSite {
     ExprYield(Option<CoreBlockPyExprWithYield>),
     AssignYield {
-        target: ExprName,
+        target: UnresolvedName,
         value: Option<CoreBlockPyExprWithYield>,
     },
     ReturnYield(Option<CoreBlockPyExprWithYield>),
     ExprYieldFrom(CoreBlockPyExprWithYield),
     AssignYieldFrom {
-        target: ExprName,
+        target: UnresolvedName,
         value: CoreBlockPyExprWithYield,
     },
     ReturnYieldFrom(CoreBlockPyExprWithYield),
@@ -1107,7 +1108,7 @@ fn emit_yield_site(
 fn emit_resume_after_yield(
     state: &mut ResumeLoweringState,
     resume_label: BlockPyLabel,
-    assign_target: Option<ExprName>,
+    assign_target: Option<UnresolvedName>,
     mut tail_body: Vec<LinearYieldStmt>,
     tail_term: BlockPyTerm<CoreBlockPyExprWithYield>,
     params: Vec<BlockParam>,
@@ -1164,7 +1165,7 @@ fn emit_yield_from_site(
     label: BlockPyLabel,
     prefix: &mut Vec<LinearCoreStmt>,
     value: CoreBlockPyExprWithYield,
-    assign_target: Option<ExprName>,
+    assign_target: Option<UnresolvedName>,
     mut tail_body: Vec<LinearYieldStmt>,
     tail_term: BlockPyTerm<CoreBlockPyExprWithYield>,
     params: Vec<BlockParam>,
@@ -1436,7 +1437,7 @@ fn emit_yield_from_site(
                 value: CoreBlockPyExprWithYield::Name(expr_name(yielded_value_name.as_str())),
             }),
         );
-    } else if matches!(tail_term, BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(ref name)) if name.id.as_str() == "_dp_yield_from_value")
+    } else if matches!(tail_term, BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(ref name)) if name.id_str() == "_dp_yield_from_value")
     {
         tail_body.insert(
             1,

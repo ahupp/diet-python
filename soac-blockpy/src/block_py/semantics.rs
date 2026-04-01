@@ -449,7 +449,6 @@ where
 {
     match detail {
         OperationDetail::Call(call) => call.func.as_ref().root_name_id(),
-        OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
         OperationDetail::Load(op) => Some(op.name.id_str()),
         _ => None,
     }
@@ -540,9 +539,9 @@ impl BlockPySemanticExprNode for Expr {
 
 impl BlockPySemanticExprNode for RuffExpr {
     fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
-        self.0.walk_child_exprs(&mut |child| {
-            let child = RuffExpr(child.clone());
+        let _ = self.clone().map_expr(&mut |child| {
             f(&child);
+            child
         });
     }
 
@@ -577,7 +576,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
 
     fn root_name_id(&self) -> Option<&str> {
         match self {
-            Self::Name(name) => Some(name.id.as_str()),
+            Self::Name(name) => Some(name.id_str()),
             Self::Op(operation) => operation_root_name_id(operation),
             _ => None,
         }
@@ -594,7 +593,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
 
     fn walk_root_loaded_names(&self, f: &mut impl FnMut(&str)) {
         match self {
-            Self::Name(name) => f(name.id.as_str()),
+            Self::Name(name) => f(name.id_str()),
             Self::Op(operation) => walk_operation_loaded_names(operation, f),
             _ => {}
         }
@@ -625,7 +624,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
 
     fn root_name_id(&self) -> Option<&str> {
         match self {
-            Self::Name(name) => Some(name.id.as_str()),
+            Self::Name(name) => Some(name.id_str()),
             Self::Op(operation) => operation_root_name_id(operation),
             _ => None,
         }
@@ -642,7 +641,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
 
     fn walk_root_loaded_names(&self, f: &mut impl FnMut(&str)) {
         match self {
-            Self::Name(name) => f(name.id.as_str()),
+            Self::Name(name) => f(name.id_str()),
             Self::Op(operation) => walk_operation_loaded_names(operation, f),
             _ => {}
         }

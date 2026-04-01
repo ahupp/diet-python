@@ -307,7 +307,9 @@ fn stmt_conversion_to_no_await_rejects_await() {
         StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Await(CoreBlockPyAwait {
             node_index: ast::AtomicNodeIndex::default(),
             range: ruff_text_size::TextRange::default(),
-            value: Box::new(CoreBlockPyExprWithAwaitAndYield::Name(name_expr("x"))),
+            value: Box::new(CoreBlockPyExprWithAwaitAndYield::Name(
+                name_expr("x").into(),
+            )),
         }));
 
     assert!(ExprTryMap::<
@@ -342,12 +344,14 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
                     CoreBlockPyAwait {
                         node_index: ast::AtomicNodeIndex::default(),
                         range: ruff_text_size::TextRange::default(),
-                        value: Box::new(CoreBlockPyExprWithAwaitAndYield::Name(name_expr("x"))),
+                        value: Box::new(CoreBlockPyExprWithAwaitAndYield::Name(
+                            name_expr("x").into(),
+                        )),
                     },
                 ))],
-                term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Name(name_expr(
-                    "__dp_NONE",
-                ))),
+                term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Name(
+                    name_expr("__dp_NONE").into(),
+                )),
                 params: Vec::new(),
                 exc_edge: None,
             }],
@@ -364,14 +368,16 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
 #[test]
 fn term_conversion_to_no_yield_rejects_nested_yield() {
     let term = BlockPyTerm::Return(core_call_expr_with_meta(
-        CoreBlockPyExprWithYield::Name(name_expr("f")),
+        CoreBlockPyExprWithYield::Name(name_expr("f").into()),
         ast::AtomicNodeIndex::default(),
         ruff_text_size::TextRange::default(),
         vec![CoreBlockPyCallArg::Positional(
             CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
                 node_index: ast::AtomicNodeIndex::default(),
                 range: ruff_text_size::TextRange::default(),
-                value: Some(Box::new(CoreBlockPyExprWithYield::Name(name_expr("x")))),
+                value: Some(Box::new(CoreBlockPyExprWithYield::Name(
+                    name_expr("x").into(),
+                ))),
             }),
         )],
         Vec::new(),

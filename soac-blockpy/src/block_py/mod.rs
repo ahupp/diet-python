@@ -14,8 +14,8 @@ use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 pub use operation::{
     BinOp, BinOpKind, Call, CellRef, CellRefForName, Del, DelItem, GetAttr, GetItem, Load,
-    LoadRuntime, MakeCell, MakeFunction, MakeString, OperationDetail, SetAttr, SetItem, Store,
-    UnaryOp, UnaryOpKind,
+    MakeCell, MakeFunction, MakeString, OperationDetail, SetAttr, SetItem, Store, UnaryOp,
+    UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
@@ -139,6 +139,7 @@ impl CellLocation {
 pub enum NameLocation {
     Local(LocalLocation),
     Global,
+    RuntimeName,
     Cell(CellLocation),
     Constant(u32),
 }
@@ -150,6 +151,10 @@ impl NameLocation {
 
     pub fn global() -> Self {
         Self::Global
+    }
+
+    pub fn runtime_name() -> Self {
+        Self::RuntimeName
     }
 
     pub fn owned_cell(slot: u32) -> Self {
@@ -171,21 +176,21 @@ impl NameLocation {
     pub fn as_local(self) -> Option<LocalLocation> {
         match self {
             Self::Local(location) => Some(location),
-            Self::Global | Self::Cell(_) | Self::Constant(_) => None,
+            Self::Global | Self::RuntimeName | Self::Cell(_) | Self::Constant(_) => None,
         }
     }
 
     pub fn as_cell(self) -> Option<CellLocation> {
         match self {
             Self::Cell(location) => Some(location),
-            Self::Local(_) | Self::Global | Self::Constant(_) => None,
+            Self::Local(_) | Self::Global | Self::RuntimeName | Self::Constant(_) => None,
         }
     }
 
     pub fn as_constant(self) -> Option<u32> {
         match self {
             Self::Constant(index) => Some(index),
-            Self::Local(_) | Self::Global | Self::Cell(_) => None,
+            Self::Local(_) | Self::Global | Self::RuntimeName | Self::Cell(_) => None,
         }
     }
 
@@ -193,10 +198,15 @@ impl NameLocation {
         matches!(self, Self::Global)
     }
 
+    pub fn is_runtime_name(self) -> bool {
+        matches!(self, Self::RuntimeName)
+    }
+
     pub fn pretty_id(self, unresolved_name: &str) -> String {
         match self {
             Self::Local(location) => location.pretty_id(),
             Self::Global => unresolved_name.to_string(),
+            Self::RuntimeName => unresolved_name.to_string(),
             Self::Cell(location) => location.pretty_id(),
             Self::Constant(index) => format!("constant slot {index}"),
         }
@@ -210,6 +220,12 @@ pub trait BlockPyNameLike: Clone + fmt::Debug + From<ast::ExprName> + Into<ast::
     }
     fn range(&self) -> TextRange;
     fn node_index(&self) -> ast::AtomicNodeIndex;
+    fn is_runtime_name(&self) -> bool {
+        false
+    }
+    fn is_runtime_symbol(&self, name: &str) -> bool {
+        self.is_runtime_name() && self.id_str() == name
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -289,6 +305,65 @@ impl Instr for Expr {
     type Name = ast::ExprName;
 }
 
+#[derive(Debug, Clone)]
+pub enum UnresolvedName {
+    ExprName(ast::ExprName),
+    RuntimeName(CoreStringLiteral),
+}
+
+impl BlockPyNameLike for UnresolvedName {
+    fn id_str(&self) -> &str {
+        match self {
+            Self::ExprName(name) => name.id.as_str(),
+            Self::RuntimeName(name) => name.value.as_str(),
+        }
+    }
+
+    fn range(&self) -> ruff_text_size::TextRange {
+        match self {
+            Self::ExprName(name) => name.range,
+            Self::RuntimeName(name) => name.range,
+        }
+    }
+
+    fn node_index(&self) -> ast::AtomicNodeIndex {
+        match self {
+            Self::ExprName(name) => name.node_index.clone(),
+            Self::RuntimeName(name) => name.node_index.clone(),
+        }
+    }
+
+    fn is_runtime_name(&self) -> bool {
+        matches!(self, Self::RuntimeName(_))
+    }
+}
+
+impl From<ast::ExprName> for UnresolvedName {
+    fn from(value: ast::ExprName) -> Self {
+        Self::ExprName(value)
+    }
+}
+
+impl From<UnresolvedName> for ast::ExprName {
+    fn from(value: UnresolvedName) -> Self {
+        match value {
+            UnresolvedName::ExprName(name) => name,
+            UnresolvedName::RuntimeName(name) => Self {
+                id: name.value.into(),
+                ctx: ast::ExprContext::Load,
+                range: name.range,
+                node_index: name.node_index,
+            },
+        }
+    }
+}
+
+impl MapExpr<RuffExpr> for RuffExpr {
+    fn map_expr(self, f: &mut impl FnMut(Self) -> RuffExpr) -> RuffExpr {
+        RuffExpr(self.0.map_expr(&mut |expr| f(RuffExpr(expr)).0))
+    }
+}
+
 impl<T> BlockPyExprLike for T where T: Clone + fmt::Debug + MapExpr<Self> {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -317,6 +392,10 @@ impl LocatedName {
     pub fn resolved_pretty_id(&self) -> String {
         self.location.pretty_id(self.id.as_str())
     }
+
+    pub fn is_runtime_name(&self) -> bool {
+        self.location.is_runtime_name()
+    }
 }
 
 impl BlockPyNameLike for LocatedName {
@@ -334,6 +413,10 @@ impl BlockPyNameLike for LocatedName {
 
     fn node_index(&self) -> ast::AtomicNodeIndex {
         self.node_index.clone()
+    }
+
+    fn is_runtime_name(&self) -> bool {
+        self.location.is_runtime_name()
     }
 }
 
@@ -356,6 +439,21 @@ impl From<LocatedName> for ast::ExprName {
             ctx: value.ctx,
             range: value.range,
             node_index: value.node_index,
+        }
+    }
+}
+
+impl From<UnresolvedName> for LocatedName {
+    fn from(value: UnresolvedName) -> Self {
+        match value {
+            UnresolvedName::ExprName(name) => Self::from(name),
+            UnresolvedName::RuntimeName(name) => Self {
+                id: name.value.into(),
+                ctx: ast::ExprContext::Load,
+                range: name.range,
+                node_index: name.node_index,
+                location: NameLocation::RuntimeName,
+            },
         }
     }
 }
@@ -470,7 +568,7 @@ impl<P: BlockPyPass> BlockPyModule<P> {
 
 #[derive(Debug, Clone)]
 pub enum CoreBlockPyExprWithAwaitAndYield {
-    Name(ast::ExprName),
+    Name(UnresolvedName),
     Literal(CoreBlockPyLiteral),
     Op(OperationDetail<Self>),
     Await(CoreBlockPyAwait<Self>),
@@ -480,7 +578,7 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
 
 #[derive(Debug, Clone)]
 pub enum CoreBlockPyExprWithYield {
-    Name(ast::ExprName),
+    Name(UnresolvedName),
     Literal(CoreBlockPyLiteral),
     Op(OperationDetail<Self>),
     Yield(CoreBlockPyYield<Self>),
@@ -488,7 +586,7 @@ pub enum CoreBlockPyExprWithYield {
 }
 
 #[derive(Debug, Clone)]
-pub enum CoreBlockPyExpr<N: BlockPyNameLike = ast::ExprName> {
+pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
     Name(N),
     Literal(CoreBlockPyLiteral),
     Op(OperationDetail<Self>),
@@ -555,10 +653,10 @@ pub(crate) trait CoreCallLikeExpr: Sized + Instr {
 }
 
 impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
-    type Name = ast::ExprName;
+    type Name = UnresolvedName;
 
     fn from_name(name: ast::ExprName) -> Self {
-        Self::Name(name)
+        Self::Name(name.into())
     }
 
     fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
@@ -567,7 +665,7 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
 }
 
 impl Instr for CoreBlockPyExprWithAwaitAndYield {
-    type Name = ast::ExprName;
+    type Name = UnresolvedName;
 }
 
 impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYield {
@@ -666,10 +764,10 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
 }
 
 impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
-    type Name = ast::ExprName;
+    type Name = UnresolvedName;
 
     fn from_name(name: ast::ExprName) -> Self {
-        Self::Name(name)
+        Self::Name(name.into())
     }
 
     fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
@@ -678,7 +776,7 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
 }
 
 impl Instr for CoreBlockPyExprWithYield {
-    type Name = ast::ExprName;
+    type Name = UnresolvedName;
 }
 
 impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
@@ -859,9 +957,12 @@ pub(crate) fn core_runtime_name_expr_with_meta<E: CoreCallLikeExpr>(
     name: &str,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
-) -> E {
+) -> E
+where
+    InstrName<E>: From<UnresolvedName>,
+{
     core_operation_expr(
-        block_py_operation::LoadRuntime::new(name.to_string())
+        block_py_operation::Load::new(runtime_symbol(name, node_index.clone(), range))
             .with_meta(Meta::new(node_index, range)),
     )
 }
@@ -895,7 +996,10 @@ pub(crate) fn core_runtime_named_call_expr_with_meta<E: CoreCallLikeExpr>(
     range: ruff_text_size::TextRange,
     args: Vec<CoreBlockPyCallArg<E>>,
     keywords: Vec<CoreBlockPyKeywordArg<E>>,
-) -> E {
+) -> E
+where
+    InstrName<E>: From<UnresolvedName>,
+{
     let func = core_runtime_name_expr_with_meta(func_name, node_index.clone(), range);
     core_call_expr_with_meta(func, node_index, range, args, keywords)
 }
@@ -905,7 +1009,10 @@ pub(crate) fn core_runtime_positional_call_expr_with_meta<E: CoreCallLikeExpr>(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
     args: Vec<E>,
-) -> E {
+) -> E
+where
+    InstrName<E>: From<UnresolvedName>,
+{
     core_runtime_named_call_expr_with_meta(
         func_name,
         node_index,
@@ -915,6 +1022,18 @@ pub(crate) fn core_runtime_positional_call_expr_with_meta<E: CoreCallLikeExpr>(
             .collect(),
         Vec::new(),
     )
+}
+
+pub(crate) fn runtime_symbol(
+    name: &str,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+) -> UnresolvedName {
+    UnresolvedName::RuntimeName(CoreStringLiteral {
+        node_index,
+        range,
+        value: name.to_string(),
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -1152,10 +1271,10 @@ pub(crate) trait BlockPyLinearizablePass:
 impl<P> BlockPyLinearizablePass for P where P: BlockPyPass<Stmt: Clone + Into<PassStmt<P>>> {}
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
-pub(crate) type BlockPyBlock<E = Expr, N = ExprName> =
+pub(crate) type BlockPyBlock<E = Expr, N = InstrName<E>> =
     BlockPyCfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
 pub(crate) type BlockPyBlockFor<I> = BlockPyCfgBlock<StructuredBlockPyStmtFor<I>, BlockPyTerm<I>>;
-pub(crate) type BlockPyStructuredIf<E = Expr, N = ExprName> =
+pub(crate) type BlockPyStructuredIf<E = Expr, N = InstrName<E>> =
     BlockPyIf<E, StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
 pub(crate) type BlockPyStructuredIfFor<I> =
     BlockPyIf<I, StructuredBlockPyStmtFor<I>, BlockPyTerm<I>>;
@@ -1251,7 +1370,7 @@ pub struct BlockPyCfgFragmentBuilder<S, T> {
     term: Option<T>,
 }
 
-pub(crate) type BlockPyStmtFragmentBuilder<E = Expr, N = ExprName> =
+pub(crate) type BlockPyStmtFragmentBuilder<E = Expr, N = InstrName<E>> =
     BlockPyCfgFragmentBuilder<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
 
 impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
@@ -1389,7 +1508,7 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum StructuredBlockPyStmt<E = Expr, N = ExprName> {
+pub(crate) enum StructuredBlockPyStmt<E = Expr, N = InstrName<E>> {
     Assign(BlockPyAssign<E, N>),
     Expr(E),
     Delete(BlockPyDelete<N>),
@@ -1433,7 +1552,7 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub enum BlockPyStmt<E = CoreBlockPyExpr<LocatedName>, N = LocatedName> {
+pub enum BlockPyStmt<E = CoreBlockPyExpr<LocatedName>, N = InstrName<E>> {
     Assign(BlockPyAssign<E, N>),
     Expr(E),
     Delete(BlockPyDelete<N>),
@@ -1471,7 +1590,7 @@ pub enum BlockPyTerm<E = Expr> {
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyAssign<E = Expr, N = ExprName> {
+pub struct BlockPyAssign<E = Expr, N = InstrName<E>> {
     pub target: N,
     pub value: E,
 }
@@ -1763,7 +1882,7 @@ impl ImplicitNoneExpr for CoreBlockPyExprWithAwaitAndYield {
         matches!(
             expr,
             CoreBlockPyExprWithAwaitAndYield::Op(operation)
-                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "NONE")
+                if matches!(operation, OperationDetail::Load(op) if op.name.is_runtime_symbol("NONE"))
         )
     }
 }
@@ -1777,12 +1896,15 @@ impl ImplicitNoneExpr for CoreBlockPyExprWithYield {
         matches!(
             expr,
             CoreBlockPyExprWithYield::Op(operation)
-                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "NONE")
+                if matches!(operation, OperationDetail::Load(op) if op.name.is_runtime_symbol("NONE"))
         )
     }
 }
 
-impl<N: BlockPyNameLike> ImplicitNoneExpr for CoreBlockPyExpr<N> {
+impl<N> ImplicitNoneExpr for CoreBlockPyExpr<N>
+where
+    N: BlockPyNameLike + From<UnresolvedName>,
+{
     fn implicit_none_expr() -> Self {
         core_runtime_name_expr_with_meta("NONE", Default::default(), Default::default())
     }
@@ -1791,7 +1913,7 @@ impl<N: BlockPyNameLike> ImplicitNoneExpr for CoreBlockPyExpr<N> {
         matches!(
             expr,
             CoreBlockPyExpr::Op(operation)
-                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "NONE")
+                if matches!(operation, OperationDetail::Load(op) if op.name.is_runtime_symbol("NONE"))
         )
     }
 }
@@ -1805,7 +1927,7 @@ impl ImplicitNoneExpr for CodegenBlockPyExpr {
         matches!(
             expr,
             CodegenBlockPyExpr::Op(operation)
-                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "NONE")
+                if matches!(operation, OperationDetail::Load(op) if op.name.is_runtime_symbol("NONE"))
         )
     }
 }

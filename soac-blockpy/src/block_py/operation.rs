@@ -71,7 +71,6 @@ where
         T: Instr,
         InstrName<T>: From<InstrName<I>>;
 }
-
 macro_rules! define_operation {
     (
         $vis:vis struct $name:ident<$expr_ty:ident> {
@@ -622,12 +621,6 @@ define_operation! {
     }
 }
 
-define_operation! {
-    pub struct LoadRuntime {
-        name: String,
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Load<I: Instr> {
     _meta: Meta,
@@ -855,7 +848,6 @@ define_operation! {
         annotate_fn: Box<E>,
     }
 }
-
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum OperationDetail<E: Instr> {
     BinOp(BinOp<E>),
@@ -866,7 +858,6 @@ pub enum OperationDetail<E: Instr> {
     GetItem(GetItem<E>),
     SetItem(SetItem<E>),
     DelItem(DelItem<E>),
-    LoadRuntime(LoadRuntime),
     Load(Load<E>),
     Store(Store<E>),
     Del(Del<E>),

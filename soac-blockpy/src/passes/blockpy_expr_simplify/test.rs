@@ -184,7 +184,7 @@ fn core_blockpy_expr_keeps_non_intrinsic_helper_families_as_named_calls() {
             matches!(
                 &*call.func,
                 CoreBlockPyExprWithAwaitAndYield::Op(operation)
-                    if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == helper_name)
+                    if matches!(operation, OperationDetail::Load(op) if op.name.is_runtime_symbol(helper_name))
             ),
             "{call:?}",
         );
@@ -221,7 +221,7 @@ fn core_blockpy_expr_reuses_shared_tuple_splat_for_list_and_set() {
         assert!(matches!(
             &*call.func,
             CoreBlockPyExprWithAwaitAndYield::Op(operation)
-                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == intrinsic)
+                if matches!(operation, OperationDetail::Load(op) if op.name.is_runtime_symbol(intrinsic))
         ));
         let [CoreBlockPyCallArg::Positional(tupleish)] = &call.args[..] else {
             panic!("expected one positional arg for {expr}");

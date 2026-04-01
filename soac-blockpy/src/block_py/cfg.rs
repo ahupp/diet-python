@@ -1,11 +1,11 @@
 use super::{
     BlockParam, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike, BlockPyTerm,
-    CfgBlock, ImplicitNoneExpr, StructuredBlockPyStmt,
+    CfgBlock, ImplicitNoneExpr, Instr, StructuredBlockPyStmt,
 };
 use ruff_python_ast::Expr;
 use std::collections::{HashMap, HashSet};
 
-fn blockpy_successors<E, N>(
+fn blockpy_successors<E: Instr, N>(
     block: &CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>,
 ) -> Vec<BlockPyLabel> {
     match &block.term {
@@ -56,7 +56,7 @@ fn linearize_blockpy_if_sequence<E, N>(
     out_block_params: &mut HashMap<BlockPyLabel, Vec<String>>,
     out_exception_edges: &mut HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 ) where
-    E: Clone,
+    E: Clone + Instr,
     N: BlockPyNameLike,
 {
     let Some(if_index) = body
@@ -167,7 +167,7 @@ fn linearize_blockpy_fragment<E, N>(
     out_block_params: &mut HashMap<BlockPyLabel, Vec<String>>,
     out_exception_edges: &mut HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 ) where
-    E: Clone,
+    E: Clone + Instr,
     N: BlockPyNameLike,
 {
     linearize_blockpy_if_sequence(
@@ -195,7 +195,7 @@ pub(crate) fn linearize_structured_ifs<E, N>(
     HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 )
 where
-    E: Clone,
+    E: Clone + Instr,
     N: BlockPyNameLike,
 {
     let mut out_blocks = Vec::new();
@@ -235,7 +235,7 @@ where
 pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E, N>(
     blocks: &mut [CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
 ) where
-    E: Clone + ImplicitNoneExpr,
+    E: Clone + ImplicitNoneExpr + Instr,
     N: BlockPyNameLike,
 {
     let trivial_ret_none_terms: HashMap<BlockPyLabel, BlockPyTerm<E>> = blocks
@@ -290,7 +290,7 @@ pub(crate) fn fold_constant_brif_blockpy(
     }
 }
 
-pub(crate) fn prune_unreachable_blockpy_blocks<E>(
+pub(crate) fn prune_unreachable_blockpy_blocks<E: Instr>(
     entry_label: BlockPyLabel,
     extra_roots: &[BlockPyLabel],
     blocks: &mut Vec<CfgBlock<StructuredBlockPyStmt<E>, BlockPyTerm<E>>>,

@@ -689,7 +689,7 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
             Expr::Name(node) => {
                 if is_synthetic_local_core_name(node.id.as_str()) || node.id.as_str() == "__soac__"
                 {
-                    Self::Name(node)
+                    Self::Name(node.into())
                 } else {
                     let meta = node.meta();
                     CoreBlockPyExprWithAwaitAndYield::Op(

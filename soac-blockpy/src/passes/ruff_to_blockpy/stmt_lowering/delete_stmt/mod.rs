@@ -58,7 +58,9 @@ where
             Ok(())
         }
         Expr::Name(target) => {
-            out.push_stmt(StructuredBlockPyStmt::Delete(BlockPyDelete { target }));
+            out.push_stmt(StructuredBlockPyStmt::Delete(BlockPyDelete {
+                target: target.into(),
+            }));
             Ok(())
         }
         other => Err(assign_delete_error(

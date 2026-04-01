@@ -1,6 +1,9 @@
 use super::stmt_lowering::lower_stmt_into_with_expr;
 use super::*;
-use crate::block_py::{BlockPyRaise, BlockPyTerm, Expr, ImplicitNoneExpr, StructuredBlockPyStmt};
+use crate::block_py::{
+    BlockPyRaise, BlockPyTerm, Expr, ImplicitNoneExpr, Instr,
+    StructuredBlockPyStmtFor as StructuredBlockPyStmt,
+};
 use crate::passes::ast_to_ast::context::Context;
 
 pub(crate) fn lower_stmts_to_blockpy_stmts_with_context<E>(
@@ -640,7 +643,7 @@ pub(crate) fn lower_for_stmt_exit_entries<F, E>(
 ) -> (BlockPyLabel, BlockPyLabel)
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
-    E: ImplicitNoneExpr,
+    E: ImplicitNoneExpr + Instr,
 {
     let rest_entry = lower_region(remaining_stmts, targets.clone(), blocks);
     let exhausted_entry = if else_body.is_empty() {
@@ -661,7 +664,7 @@ pub(crate) fn lower_for_stmt_body_entry<F, E>(
 ) -> BlockPyLabel
 where
     F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
-    E: ImplicitNoneExpr,
+    E: ImplicitNoneExpr + Instr,
 {
     let body_entry = lower_region(
         body,

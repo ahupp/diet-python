@@ -1,24 +1,22 @@
 use super::*;
 use crate::block_py::{
     BinOp, BinOpKind, BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyCallArg,
-    CoreBlockPyExprWithAwaitAndYield, OperationDetail,
+    CoreBlockPyExprWithAwaitAndYield, OperationDetail, StructuredBlockPyStmtFor, UnresolvedName,
 };
 
-fn test_name(id: &str) -> ast::ExprName {
+fn test_name(id: &str) -> UnresolvedName {
     let ast::Expr::Name(expr) = crate::py_expr!("{id:id}", id = id) else {
         unreachable!();
     };
-    expr
+    expr.into()
 }
 
 fn is_name_like(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
     match expr {
         CoreBlockPyExprWithAwaitAndYield::Name(_) => true,
-        CoreBlockPyExprWithAwaitAndYield::Op(operation) => matches!(
-            operation,
-            crate::block_py::OperationDetail::Load(_)
-                | crate::block_py::OperationDetail::LoadRuntime(_)
-        ),
+        CoreBlockPyExprWithAwaitAndYield::Op(operation) => {
+            matches!(operation, crate::block_py::OperationDetail::Load(_))
+        }
         _ => false,
     }
 }
@@ -83,8 +81,8 @@ fn eval_order_hoists_return_value_to_temp() {
 fn eval_order_hoists_nested_call_in_assignment_rhs() {
     let block = BlockPyBlock {
         label: BlockPyLabel::from(0u32),
-        body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
-            target: fresh_eval_name(),
+        body: vec![StructuredBlockPyStmtFor::Assign(BlockPyAssign {
+            target: fresh_eval_name().into(),
             value: CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("f(g(x))")),
         })],
         term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
@@ -96,7 +94,7 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
 
     let lowered = make_eval_order_explicit_in_core_block(block);
     assert_eq!(lowered.body.len(), 1);
-    let StructuredBlockPyStmt::Assign(assign) = &lowered.body[0] else {
+    let StructuredBlockPyStmtFor::Assign(assign) = &lowered.body[0] else {
         panic!("expected rewritten assignment");
     };
     let CoreBlockPyExprWithAwaitAndYield::Op(operation) = &assign.value else {
@@ -117,7 +115,7 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
 fn eval_order_hoists_await_in_assignment_call_argument() {
     let block = BlockPyBlock {
         label: BlockPyLabel::from(0u32),
-        body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
+        body: vec![StructuredBlockPyStmtFor::Assign(BlockPyAssign {
             target: test_name("total"),
             value: CoreBlockPyExprWithAwaitAndYield::Op(OperationDetail::from(BinOp::new(
                 BinOpKind::InplaceAdd,
@@ -134,14 +132,14 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
 
     let lowered = make_eval_order_explicit_in_core_block(block);
     assert_eq!(lowered.body.len(), 3);
-    let StructuredBlockPyStmt::Assign(temp_assign) = &lowered.body[0] else {
+    let StructuredBlockPyStmtFor::Assign(temp_assign) = &lowered.body[0] else {
         panic!("expected hoisted await temp assignment");
     };
     assert!(matches!(
         temp_assign.value,
         CoreBlockPyExprWithAwaitAndYield::Await(_)
     ));
-    let StructuredBlockPyStmt::Assign(assign) = &lowered.body[1] else {
+    let StructuredBlockPyStmtFor::Assign(assign) = &lowered.body[1] else {
         panic!("expected rewritten assignment");
     };
     let CoreBlockPyExprWithAwaitAndYield::Op(call) = &assign.value else {
@@ -158,14 +156,17 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
         op.right.as_ref(),
         CoreBlockPyExprWithAwaitAndYield::Name(_)
     ));
-    assert!(matches!(lowered.body[2], StructuredBlockPyStmt::Delete(_)));
+    assert!(matches!(
+        lowered.body[2],
+        StructuredBlockPyStmtFor::Delete(_)
+    ));
 }
 
 #[test]
 fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
     let block = BlockPyBlock {
         label: BlockPyLabel::from(0u32),
-        body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
+        body: vec![StructuredBlockPyStmtFor::Assign(BlockPyAssign {
             target: test_name("total"),
             value: CoreBlockPyExprWithYield::Op(OperationDetail::from(BinOp::new(
                 BinOpKind::InplaceAdd,
@@ -184,14 +185,14 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
 
     let lowered = make_eval_order_explicit_in_core_block_without_await(block);
     assert_eq!(lowered.body.len(), 3);
-    let StructuredBlockPyStmt::Assign(temp_assign) = &lowered.body[0] else {
+    let StructuredBlockPyStmtFor::Assign(temp_assign) = &lowered.body[0] else {
         panic!("expected hoisted yield-from temp assignment");
     };
     assert!(matches!(
         temp_assign.value,
         CoreBlockPyExprWithYield::YieldFrom(_)
     ));
-    let StructuredBlockPyStmt::Assign(assign) = &lowered.body[1] else {
+    let StructuredBlockPyStmtFor::Assign(assign) = &lowered.body[1] else {
         panic!("expected rewritten assignment");
     };
     let CoreBlockPyExprWithYield::Op(operation) = &assign.value else {
@@ -204,5 +205,8 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
         op.right.as_ref(),
         CoreBlockPyExprWithYield::Name(_)
     ));
-    assert!(matches!(lowered.body[2], StructuredBlockPyStmt::Delete(_)));
+    assert!(matches!(
+        lowered.body[2],
+        StructuredBlockPyStmtFor::Delete(_)
+    ));
 }

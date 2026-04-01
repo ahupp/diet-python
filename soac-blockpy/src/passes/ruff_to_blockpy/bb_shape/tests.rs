@@ -95,7 +95,7 @@ fn expr_name(name: &str, ctx: ast::ExprContext) -> ast::ExprName {
 }
 
 fn core_name_expr(name: &str) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Name(expr_name(name, ast::ExprContext::Load))
+    CoreBlockPyExpr::Name(expr_name(name, ast::ExprContext::Load).into())
 }
 
 #[test]
@@ -112,13 +112,13 @@ fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
             ),
             body: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Assign(
                 BlockPyAssign {
-                    target: expr_name("x", ast::ExprContext::Store),
+                    target: expr_name("x", ast::ExprContext::Store).into(),
                     value: core_name_expr("a"),
                 },
             )]),
             orelse: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Assign(
                 BlockPyAssign {
-                    target: expr_name("x", ast::ExprContext::Store),
+                    target: expr_name("x", ast::ExprContext::Store).into(),
                     value: core_name_expr("b"),
                 },
             )]),
@@ -141,5 +141,5 @@ fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
     else {
         panic!("expected rewritten current-exception test");
     };
-    assert_eq!(name.id.as_str(), "_dp_try_exc_0");
+    assert_eq!(name.id_str(), "_dp_try_exc_0");
 }

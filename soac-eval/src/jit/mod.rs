@@ -484,8 +484,9 @@ fn codegen_expr_helper_name(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
     match expr {
         CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
         CodegenBlockPyExpr::Op(operation) => match operation {
-            blockpy_intrinsics::OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
-            blockpy_intrinsics::OperationDetail::Load(op) if op.name.location.is_global() => {
+            blockpy_intrinsics::OperationDetail::Load(op)
+                if op.name.location.is_global() || op.name.location.is_runtime_name() =>
+            {
                 Some(op.name.id.as_str())
             }
             _ => None,
@@ -1145,6 +1146,7 @@ fn emit_codegen_expr(
     let empty_tuple_const = ctx.consts.empty_tuple_const;
     let block_const = ctx.consts.block_const;
     let load_global_obj_ref = ctx.load_global_obj_ref;
+    let load_runtime_obj_ref = ctx.load_runtime_obj_ref;
     let pyobject_getattr_ref = ctx.pyobject_getattr_ref;
     let pyobject_setitem_ref = ctx.pyobject_setitem_ref;
     let load_deleted_name_ref = ctx.load_deleted_name_ref;
@@ -1219,6 +1221,29 @@ fn emit_codegen_expr(
                         ctx,
                     );
                     let value_inst = fb.ins().call(load_global_obj_ref, &[globals_obj, name_obj]);
+                    fb.ins().call(decref_ref, &[name_obj]);
+                    let value = fb.inst_results(value_inst)[0];
+                    let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
+                    let value_ok_block = fb.create_block();
+                    fb.append_block_param(value_ok_block, ptr_ty);
+                    fb.ins().brif(
+                        value_is_null,
+                        step_null_block,
+                        &step_null_block_args(ctx),
+                        value_ok_block,
+                        &[ir::BlockArg::Value(value)],
+                    );
+                    fb.switch_to_block(value_ok_block);
+                    return fb.block_params(value_ok_block)[0];
+                }
+                NameLocation::RuntimeName => {
+                    let name_obj = emit_owned_module_constant(
+                        fb,
+                        ctx.module_constants
+                            .require_unicode_constant_id(name.id.as_str()),
+                        ctx,
+                    );
+                    let value_inst = fb.ins().call(load_runtime_obj_ref, &[name_obj]);
                     fb.ins().call(decref_ref, &[name_obj]);
                     let value = fb.inst_results(value_inst)[0];
                     let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);

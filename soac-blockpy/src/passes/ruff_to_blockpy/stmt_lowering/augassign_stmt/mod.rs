@@ -38,7 +38,7 @@ impl StmtLowerer for ast::StmtAugAssign {
                     )?;
 
                 out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
-                    target: target.clone(),
+                    target: target.clone().into(),
                     value: E::lower_augassign_value(
                         target_meta.node_index,
                         target_meta.range,

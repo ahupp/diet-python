@@ -1,6 +1,7 @@
 use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
 use crate::block_py::{
-    BlockPyAssign, BlockPyIf, BlockPyStmtFragmentBuilder, StructuredBlockPyStmt,
+    BlockPyAssign, BlockPyIf, BlockPyStmtFragmentBuilder, Instr, InstrName,
+    StructuredBlockPyStmtFor,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::fresh_setup_name;
 use crate::passes::ruff_to_blockpy::LoopContext;
@@ -20,12 +21,13 @@ fn load_name(name: &str) -> Expr {
     py_expr!("{name:id}", name = name)
 }
 
-fn assign_name<E>(target: &str, value: Expr) -> StructuredBlockPyStmt<E>
+fn assign_name<E>(target: &str, value: Expr) -> StructuredBlockPyStmtFor<E>
 where
-    E: From<Expr>,
+    E: From<Expr> + Instr,
+    InstrName<E>: From<ast::ExprName>,
 {
-    StructuredBlockPyStmt::Assign(BlockPyAssign {
-        target: store_name(target),
+    StructuredBlockPyStmtFor::Assign(BlockPyAssign {
+        target: store_name(target).into(),
         value: value.into(),
     })
 }
@@ -56,7 +58,7 @@ where
         lowerer.lower_expr_ast_into(*orelse, &mut orelse_out, loop_ctx, next_label_id)?;
     orelse_out.push_stmt(assign_name(&target, orelse_value));
 
-    out.push_stmt(StructuredBlockPyStmt::If(BlockPyIf {
+    out.push_stmt(StructuredBlockPyStmtFor::If(BlockPyIf {
         test: test.into(),
         body: body_out.finish(),
         orelse: orelse_out.finish(),

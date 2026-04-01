@@ -1,6 +1,6 @@
 use super::{
     AbruptKind, BlockArg, BlockPyAssign, BlockPyEdge, BlockPyLabel, BlockPyTerm, CfgBlock,
-    ImplicitNoneExpr, StructuredBlockPyStmt,
+    ImplicitNoneExpr, Instr, StructuredBlockPyStmt,
 };
 #[cfg(test)]
 use crate::passes::ast_to_ast::util::is_dp_helper_lookup_expr;
@@ -19,7 +19,7 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
     finally_target: &BlockPyLabel,
     payload_name: &str,
 ) where
-    E: ImplicitNoneExpr,
+    E: ImplicitNoneExpr + Instr,
 {
     for block in blocks.iter_mut() {
         let ret_value = match std::mem::replace(
@@ -35,7 +35,7 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
         block
             .body
             .push(StructuredBlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name(payload_name),
+                target: expr_name(payload_name).into(),
                 value: ret_value,
             }));
         let payload_arg = BlockArg::Name(payload_name.to_string());

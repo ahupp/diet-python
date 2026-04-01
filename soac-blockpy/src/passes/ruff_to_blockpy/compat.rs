@@ -1,13 +1,13 @@
 use super::*;
 use crate::block_py::{
     BlockPyCfgBlockBuilder, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmtFragmentBuilder,
-    BlockPyTerm, Expr, ImplicitNoneExpr, StructuredBlockPyStmt,
+    BlockPyTerm, Expr, ImplicitNoneExpr, Instr, StructuredBlockPyStmtFor,
 };
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ruff_to_blockpy::stmt_lowering::lower_nested_stmt_into_with_expr;
 
-fn with_exc_meta<E>(
-    block: crate::block_py::CfgBlock<StructuredBlockPyStmt<E>, BlockPyTerm<E>>,
+fn with_exc_meta<E: Instr>(
+    block: crate::block_py::CfgBlock<StructuredBlockPyStmtFor<E>, BlockPyTerm<E>>,
     exc_target: Option<&BlockPyLabel>,
 ) -> LoweredBlockPyBlock<E> {
     crate::block_py::CfgBlock {
@@ -35,7 +35,8 @@ where
         body.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block = BlockPyCfgBlockBuilder::<StructuredBlockPyStmt<E>, BlockPyTerm<E>>::new(label);
+    let mut block =
+        BlockPyCfgBlockBuilder::<StructuredBlockPyStmtFor<E>, BlockPyTerm<E>>::new(label);
     block.extend(body.body);
     block.set_term(term);
     with_exc_meta(block.finish(None), exc_target)
@@ -81,7 +82,8 @@ where
         fragment.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block = BlockPyCfgBlockBuilder::<StructuredBlockPyStmt<E>, BlockPyTerm<E>>::new(label);
+    let mut block =
+        BlockPyCfgBlockBuilder::<StructuredBlockPyStmtFor<E>, BlockPyTerm<E>>::new(label);
     block.extend(fragment.body);
     block.set_term(BlockPyTerm::IfTerm(BlockPyIfTerm {
         test,
@@ -91,7 +93,7 @@ where
     Ok(with_exc_meta(block.finish(None), exc_target))
 }
 
-pub(crate) fn set_region_exc_param<E>(
+pub(crate) fn set_region_exc_param<E: Instr>(
     blocks: &mut [LoweredBlockPyBlock<E>],
     region: &std::ops::Range<usize>,
     exc_param: &str,
@@ -107,7 +109,7 @@ pub(crate) fn set_region_exc_param<E>(
     }
 }
 
-fn rename_exception_edge_args<E>(
+fn rename_exception_edge_args<E: Instr>(
     block: &mut LoweredBlockPyBlock<E>,
     old_exc_param: &str,
     new_exc_param: &str,
@@ -182,7 +184,7 @@ where
         "compatibility block body should not contain its own terminator"
     );
     let mut block =
-        BlockPyCfgBlockBuilder::<StructuredBlockPyStmt<E>, BlockPyTerm<E>>::new(label.clone());
+        BlockPyCfgBlockBuilder::<StructuredBlockPyStmtFor<E>, BlockPyTerm<E>>::new(label.clone());
     block.extend(fragment.body);
     block.set_term(BlockPyTerm::Return(
         value.unwrap_or_else(E::implicit_none_expr),
@@ -223,7 +225,7 @@ where
         "compatibility block body should not contain its own terminator"
     );
     let mut block =
-        BlockPyCfgBlockBuilder::<StructuredBlockPyStmt<E>, BlockPyTerm<E>>::new(label.clone());
+        BlockPyCfgBlockBuilder::<StructuredBlockPyStmtFor<E>, BlockPyTerm<E>>::new(label.clone());
     block.extend(fragment.body);
     block.set_term(BlockPyTerm::Raise(exc));
     blocks.push(with_exc_meta(block.finish(None), exc_target));

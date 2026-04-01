@@ -2,7 +2,7 @@ use super::{
     BlockPyNameLike, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyAwait, CoreBlockPyExpr,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyLiteral,
     CoreBlockPyYield, CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreStringLiteral,
-    LocatedName, RuffExpr,
+    LocatedName, RuffExpr, UnresolvedName,
 };
 use ruff_python_ast::{self as ast, HasNodeIndex};
 use ruff_text_size::{Ranged, TextRange};
@@ -53,6 +53,12 @@ impl HasMeta for RuffExpr {
 impl HasMeta for LocatedName {
     fn meta(&self) -> Meta {
         Meta::new(self.node_index.clone(), self.range)
+    }
+}
+
+impl HasMeta for UnresolvedName {
+    fn meta(&self) -> Meta {
+        Meta::new(self.node_index(), self.range())
     }
 }
 

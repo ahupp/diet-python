@@ -34,7 +34,7 @@ where
     };
     let value = lowerer.lower_expr_ast_into(*value, out, loop_ctx, next_label_id)?;
     out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
-        target: into_store_name(target_name.clone()),
+        target: into_store_name(target_name.clone()).into(),
         value: value.into(),
     }));
     Ok(into_load_name(target_name))

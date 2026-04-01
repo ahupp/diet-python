@@ -1,7 +1,7 @@
 use crate::block_py::{
     core_operation_expr, core_runtime_positional_call_expr_with_meta, operation,
     BlockPyFunctionKind, BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyLiteral, CoreStringLiteral, FunctionId, Meta, WithMeta,
+    CoreBlockPyLiteral, CoreStringLiteral, FunctionId, Instr, Meta, WithMeta,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::LoopContext;
@@ -28,7 +28,9 @@ fn string_literal_expr(
     ))
 }
 
-pub(crate) trait RuffToBlockPyExpr: From<Expr> + std::fmt::Debug + Clone + Sized {
+pub(crate) trait RuffToBlockPyExpr:
+    From<Expr> + Instr + std::fmt::Debug + Clone + Sized
+{
     fn from_lowered_expr(expr: Expr) -> Self {
         expr.into()
     }

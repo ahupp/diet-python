@@ -305,7 +305,7 @@ impl<R> BlockPyFormatter<R> {
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         S: Clone + Into<BlockPyStmt<E, N>>,
-        E: Clone + std::fmt::Debug,
+        E: Clone + std::fmt::Debug + Instr,
         N: BlockPyNameLike,
         R: InlineExprRenderer<E>,
     {
@@ -319,7 +319,7 @@ impl<R> BlockPyFormatter<R> {
         fragment: &BlockPyCfgFragment<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        E: Clone + std::fmt::Debug,
+        E: Clone + std::fmt::Debug + Instr,
         N: BlockPyNameLike,
         R: InlineExprRenderer<E>,
     {
@@ -338,7 +338,7 @@ impl<R> BlockPyFormatter<R> {
         stmts: &[StructuredBlockPyStmt<E, N>],
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        E: Clone + std::fmt::Debug,
+        E: Clone + std::fmt::Debug + Instr,
         N: BlockPyNameLike,
         R: InlineExprRenderer<E>,
     {
@@ -352,7 +352,7 @@ impl<R> BlockPyFormatter<R> {
         stmt: &BlockPyStmt<E, N>,
         _referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        E: Clone + std::fmt::Debug,
+        E: Clone + std::fmt::Debug + Instr,
         N: BlockPyNameLike,
         R: InlineExprRenderer<E>,
     {
@@ -374,7 +374,7 @@ impl<R> BlockPyFormatter<R> {
         stmt: &StructuredBlockPyStmt<E, N>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        E: Clone + std::fmt::Debug,
+        E: Clone + std::fmt::Debug + Instr,
         N: BlockPyNameLike,
         R: InlineExprRenderer<E>,
     {
@@ -629,7 +629,7 @@ fn render_call_text<E: BlockPyDebugExprText>(call: &Call<E>) -> String {
 fn render_store_debug_text<N, E>(name: &N, value: &E) -> String
 where
     N: crate::block_py::BlockPyNameLike,
-    E: BlockPyDebugExprText,
+    E: BlockPyDebugExprText + Instr,
 {
     let resolved_name = name.pretty_id();
     if resolved_name == name.id_str() {
@@ -684,7 +684,6 @@ where
                 op.replacement.debug_expr_text(),
             ],
         ),
-        crate::block_py::OperationDetail::LoadRuntime(op) => op.name.clone(),
         crate::block_py::OperationDetail::Load(op) => op.name.pretty_id(),
         crate::block_py::OperationDetail::Store(op) => {
             render_store_debug_text(&op.name, op.value.as_ref())
@@ -834,7 +833,7 @@ pub(crate) fn core_bb_stmt_text<N: BlockPyNameLike>(
 #[cfg(test)]
 pub(crate) fn bb_stmt_text<E, N>(stmt: &BlockPyStmt<E, N>) -> String
 where
-    E: BlockPyDebugExprText,
+    E: BlockPyDebugExprText + Instr,
     N: BlockPyNameLike,
 {
     match stmt {
@@ -853,7 +852,7 @@ where
 #[cfg(test)]
 pub(crate) fn bb_stmts_text<E, N>(stmts: &[BlockPyStmt<E, N>]) -> String
 where
-    E: BlockPyDebugExprText,
+    E: BlockPyDebugExprText + Instr,
     N: BlockPyNameLike,
 {
     let mut out = String::new();
@@ -1314,7 +1313,7 @@ fn collect_referenced_labels_from_structured_blocks<E, N>(
     blocks: &[CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
 ) -> HashSet<BlockPyLabel>
 where
-    E: Clone + std::fmt::Debug,
+    E: Clone + std::fmt::Debug + Instr,
     N: BlockPyNameLike,
 {
     let mut referenced = HashSet::new();
@@ -1333,7 +1332,7 @@ fn collect_referenced_labels_from_structured_stmts<E, N>(
     stmts: &[StructuredBlockPyStmt<E, N>],
     out: &mut HashSet<BlockPyLabel>,
 ) where
-    E: Clone + std::fmt::Debug,
+    E: Clone + std::fmt::Debug + Instr,
     N: BlockPyNameLike,
 {
     for stmt in stmts {

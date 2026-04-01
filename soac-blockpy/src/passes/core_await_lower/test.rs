@@ -1,9 +1,9 @@
 use super::*;
 
 use crate::block_py::{
-    BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyStmt,
-    BlockPyTerm, CfgBlock, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
-    FunctionName,
+    BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel,
+    BlockPyNameLike, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, FunctionName,
 };
 use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
 
@@ -57,7 +57,7 @@ fn lowers_await_to_yield_from_await_iter() {
     let BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(return_name)) = &block.term else {
         panic!("expected return of lowered await temp");
     };
-    assert_eq!(return_name.id, await_assign.target.id);
+    assert_eq!(return_name.id_str(), await_assign.target.id_str());
     let CoreBlockPyExprWithYield::YieldFrom(yield_from) = &await_assign.value else {
         panic!("expected lowered await yield from");
     };
@@ -72,6 +72,6 @@ fn lowers_await_to_yield_from_await_iter() {
     };
     assert!(matches!(
         operation,
-        crate::block_py::OperationDetail::LoadRuntime(op) if op.name == "await_iter"
+        crate::block_py::OperationDetail::Load(op) if op.name.is_runtime_symbol("await_iter")
     ));
 }

@@ -4,7 +4,7 @@ use crate::block_py::{
     expr_any, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyFunction, BlockPyIf,
     BlockPyIfTerm, BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
-    CoreBlockPyYieldFrom, StructuredBlockPyStmt,
+    CoreBlockPyYieldFrom, Instr, StructuredBlockPyStmtFor,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
@@ -33,18 +33,18 @@ fn expr_contains_suspend(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
 
 fn hoist_core_expr_if_contains_suspend(
     expr: CoreBlockPyExprWithAwaitAndYield,
-    out: &mut Vec<StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>>,
+    out: &mut Vec<StructuredBlockPyStmtFor<CoreBlockPyExprWithAwaitAndYield>>,
     cleanup: &mut Vec<ast::ExprName>,
 ) -> CoreBlockPyExprWithAwaitAndYield {
     let expr = make_eval_order_explicit_in_core_expr(expr, out, cleanup);
     if expr_contains_suspend(&expr) {
         let target = fresh_eval_name();
-        out.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
-            target: target.clone(),
+        out.push(StructuredBlockPyStmtFor::Assign(BlockPyAssign {
+            target: target.clone().into(),
             value: expr,
         }));
         cleanup.push(target.clone());
-        CoreBlockPyExprWithAwaitAndYield::Name(target)
+        CoreBlockPyExprWithAwaitAndYield::Name(target.into())
     } else {
         expr
     }
@@ -52,7 +52,7 @@ fn hoist_core_expr_if_contains_suspend(
 
 fn make_eval_order_explicit_in_core_expr(
     expr: CoreBlockPyExprWithAwaitAndYield,
-    out: &mut Vec<StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>>,
+    out: &mut Vec<StructuredBlockPyStmtFor<CoreBlockPyExprWithAwaitAndYield>>,
     cleanup: &mut Vec<ast::ExprName>,
 ) -> CoreBlockPyExprWithAwaitAndYield {
     match expr {
@@ -96,21 +96,24 @@ fn make_eval_order_explicit_in_core_expr(
     }
 }
 
-fn append_stmt_cleanup<E>(out: &mut Vec<StructuredBlockPyStmt<E>>, cleanup: Vec<ast::ExprName>) {
+fn append_stmt_cleanup<E>(out: &mut Vec<StructuredBlockPyStmtFor<E>>, cleanup: Vec<ast::ExprName>)
+where
+    E: Instr,
+{
     for temp in cleanup.into_iter().rev() {
-        out.push(StructuredBlockPyStmt::Delete(BlockPyDelete {
-            target: temp,
+        out.push(StructuredBlockPyStmtFor::Delete(BlockPyDelete {
+            target: temp.into(),
         }));
     }
 }
 
 fn make_eval_order_explicit_in_core_fragment(
     fragment: BlockPyCfgFragment<
-        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        StructuredBlockPyStmtFor<CoreBlockPyExprWithAwaitAndYield>,
         BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
     >,
 ) -> BlockPyCfgFragment<
-    StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+    StructuredBlockPyStmtFor<CoreBlockPyExprWithAwaitAndYield>,
     BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
 > {
     let mut body = Vec::new();
@@ -124,37 +127,39 @@ fn make_eval_order_explicit_in_core_fragment(
 }
 
 fn make_eval_order_explicit_in_core_stmt(
-    stmt: StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
-    out: &mut Vec<StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>>,
+    stmt: StructuredBlockPyStmtFor<CoreBlockPyExprWithAwaitAndYield>,
+    out: &mut Vec<StructuredBlockPyStmtFor<CoreBlockPyExprWithAwaitAndYield>>,
 ) {
     match stmt {
-        StructuredBlockPyStmt::Assign(assign) => {
+        StructuredBlockPyStmtFor::Assign(assign) => {
             let mut setup = Vec::new();
             let mut cleanup = Vec::new();
             let value =
                 make_eval_order_explicit_in_core_expr(assign.value, &mut setup, &mut cleanup);
             out.extend(setup);
-            out.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
+            out.push(StructuredBlockPyStmtFor::Assign(BlockPyAssign {
                 target: assign.target,
                 value,
             }));
             append_stmt_cleanup(out, cleanup);
         }
-        StructuredBlockPyStmt::Expr(expr) => {
+        StructuredBlockPyStmtFor::Expr(expr) => {
             let mut setup = Vec::new();
             let mut cleanup = Vec::new();
             let expr = make_eval_order_explicit_in_core_expr(expr, &mut setup, &mut cleanup);
             out.extend(setup);
-            out.push(StructuredBlockPyStmt::Expr(expr));
+            out.push(StructuredBlockPyStmtFor::Expr(expr));
             append_stmt_cleanup(out, cleanup);
         }
-        StructuredBlockPyStmt::Delete(delete) => out.push(StructuredBlockPyStmt::Delete(delete)),
-        StructuredBlockPyStmt::If(if_stmt) => {
+        StructuredBlockPyStmtFor::Delete(delete) => {
+            out.push(StructuredBlockPyStmtFor::Delete(delete))
+        }
+        StructuredBlockPyStmtFor::If(if_stmt) => {
             let mut setup = Vec::new();
             let mut cleanup = Vec::new();
             let test = hoist_core_expr_if_contains_suspend(if_stmt.test, &mut setup, &mut cleanup);
             out.extend(setup);
-            out.push(StructuredBlockPyStmt::If(BlockPyIf {
+            out.push(StructuredBlockPyStmtFor::If(BlockPyIf {
                 test,
                 body: make_eval_order_explicit_in_core_fragment(if_stmt.body),
                 orelse: make_eval_order_explicit_in_core_fragment(if_stmt.orelse),
@@ -166,7 +171,7 @@ fn make_eval_order_explicit_in_core_stmt(
 
 fn make_eval_order_explicit_in_core_term(
     term: BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
-    out: &mut Vec<StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>>,
+    out: &mut Vec<StructuredBlockPyStmtFor<CoreBlockPyExprWithAwaitAndYield>>,
 ) -> BlockPyTerm<CoreBlockPyExprWithAwaitAndYield> {
     match term {
         BlockPyTerm::Jump(edge) => BlockPyTerm::Jump(edge),
@@ -201,11 +206,11 @@ fn make_eval_order_explicit_in_core_term(
 
 pub(crate) fn make_eval_order_explicit_in_core_block(
     block: CfgBlock<
-        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        StructuredBlockPyStmtFor<CoreBlockPyExprWithAwaitAndYield>,
         BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
     >,
 ) -> CfgBlock<
-    StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+    StructuredBlockPyStmtFor<CoreBlockPyExprWithAwaitAndYield>,
     BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
 > {
     let CfgBlock {
@@ -236,11 +241,7 @@ fn is_core_atom_without_await(expr: &CoreBlockPyExprWithYield) -> bool {
     ) || matches!(
         expr,
         CoreBlockPyExprWithYield::Op(operation)
-            if matches!(
-                operation,
-                crate::block_py::OperationDetail::Load(_)
-                    | crate::block_py::OperationDetail::LoadRuntime(_)
-            )
+            if matches!(operation, crate::block_py::OperationDetail::Load(_))
     )
 }
 
@@ -255,7 +256,7 @@ fn expr_contains_yield(expr: &CoreBlockPyExprWithYield) -> bool {
 
 fn hoist_core_expr_without_await_to_atom(
     expr: CoreBlockPyExprWithYield,
-    out: &mut Vec<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>,
+    out: &mut Vec<StructuredBlockPyStmtFor<CoreBlockPyExprWithYield>>,
     cleanup: &mut Vec<ast::ExprName>,
 ) -> CoreBlockPyExprWithYield {
     let expr = make_eval_order_explicit_in_core_expr_without_await(expr, out, cleanup);
@@ -263,18 +264,18 @@ fn hoist_core_expr_without_await_to_atom(
         expr
     } else {
         let target = fresh_eval_name();
-        out.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
-            target: target.clone(),
+        out.push(StructuredBlockPyStmtFor::Assign(BlockPyAssign {
+            target: target.clone().into(),
             value: expr,
         }));
         cleanup.push(target.clone());
-        CoreBlockPyExprWithYield::Name(target)
+        CoreBlockPyExprWithYield::Name(target.into())
     }
 }
 
 fn make_eval_order_explicit_in_core_expr_without_await(
     expr: CoreBlockPyExprWithYield,
-    out: &mut Vec<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>,
+    out: &mut Vec<StructuredBlockPyStmtFor<CoreBlockPyExprWithYield>>,
     cleanup: &mut Vec<ast::ExprName>,
 ) -> CoreBlockPyExprWithYield {
     match expr {
@@ -307,11 +308,11 @@ fn make_eval_order_explicit_in_core_expr_without_await(
 }
 
 fn make_eval_order_explicit_in_core_stmt_without_await(
-    stmt: StructuredBlockPyStmt<CoreBlockPyExprWithYield>,
-    out: &mut Vec<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>,
+    stmt: StructuredBlockPyStmtFor<CoreBlockPyExprWithYield>,
+    out: &mut Vec<StructuredBlockPyStmtFor<CoreBlockPyExprWithYield>>,
 ) {
     match stmt {
-        StructuredBlockPyStmt::Assign(assign) => {
+        StructuredBlockPyStmtFor::Assign(assign) => {
             let mut setup = Vec::new();
             let mut cleanup = Vec::new();
             let value = if expr_contains_yield(&assign.value) {
@@ -324,13 +325,13 @@ fn make_eval_order_explicit_in_core_stmt_without_await(
                 assign.value
             };
             out.extend(setup);
-            out.push(StructuredBlockPyStmt::Assign(BlockPyAssign {
+            out.push(StructuredBlockPyStmtFor::Assign(BlockPyAssign {
                 target: assign.target,
                 value,
             }));
             append_stmt_cleanup(out, cleanup);
         }
-        StructuredBlockPyStmt::Expr(expr) => {
+        StructuredBlockPyStmtFor::Expr(expr) => {
             let mut setup = Vec::new();
             let mut cleanup = Vec::new();
             let expr = if expr_contains_yield(&expr) {
@@ -339,17 +340,19 @@ fn make_eval_order_explicit_in_core_stmt_without_await(
                 expr
             };
             out.extend(setup);
-            out.push(StructuredBlockPyStmt::Expr(expr));
+            out.push(StructuredBlockPyStmtFor::Expr(expr));
             append_stmt_cleanup(out, cleanup);
         }
-        StructuredBlockPyStmt::Delete(delete) => out.push(StructuredBlockPyStmt::Delete(delete)),
-        StructuredBlockPyStmt::If(if_stmt) => {
+        StructuredBlockPyStmtFor::Delete(delete) => {
+            out.push(StructuredBlockPyStmtFor::Delete(delete))
+        }
+        StructuredBlockPyStmtFor::If(if_stmt) => {
             let mut setup = Vec::new();
             let mut cleanup = Vec::new();
             let test =
                 hoist_core_expr_without_await_to_atom(if_stmt.test, &mut setup, &mut cleanup);
             out.extend(setup);
-            out.push(StructuredBlockPyStmt::If(BlockPyIf {
+            out.push(StructuredBlockPyStmtFor::If(BlockPyIf {
                 test,
                 body: make_eval_order_explicit_in_core_fragment_without_await(if_stmt.body),
                 orelse: make_eval_order_explicit_in_core_fragment_without_await(if_stmt.orelse),
@@ -361,11 +364,11 @@ fn make_eval_order_explicit_in_core_stmt_without_await(
 
 fn make_eval_order_explicit_in_core_fragment_without_await(
     fragment: BlockPyCfgFragment<
-        StructuredBlockPyStmt<CoreBlockPyExprWithYield>,
+        StructuredBlockPyStmtFor<CoreBlockPyExprWithYield>,
         BlockPyTerm<CoreBlockPyExprWithYield>,
     >,
 ) -> BlockPyCfgFragment<
-    StructuredBlockPyStmt<CoreBlockPyExprWithYield>,
+    StructuredBlockPyStmtFor<CoreBlockPyExprWithYield>,
     BlockPyTerm<CoreBlockPyExprWithYield>,
 > {
     let mut body = Vec::new();
@@ -380,7 +383,7 @@ fn make_eval_order_explicit_in_core_fragment_without_await(
 
 fn make_eval_order_explicit_in_core_term_without_await(
     term: BlockPyTerm<CoreBlockPyExprWithYield>,
-    out: &mut Vec<StructuredBlockPyStmt<CoreBlockPyExprWithYield>>,
+    out: &mut Vec<StructuredBlockPyStmtFor<CoreBlockPyExprWithYield>>,
 ) -> BlockPyTerm<CoreBlockPyExprWithYield> {
     match term {
         BlockPyTerm::Jump(_) => term,
@@ -416,11 +419,13 @@ fn make_eval_order_explicit_in_core_term_without_await(
 
 pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
     block: CfgBlock<
-        StructuredBlockPyStmt<CoreBlockPyExprWithYield>,
+        StructuredBlockPyStmtFor<CoreBlockPyExprWithYield>,
         BlockPyTerm<CoreBlockPyExprWithYield>,
     >,
-) -> CfgBlock<StructuredBlockPyStmt<CoreBlockPyExprWithYield>, BlockPyTerm<CoreBlockPyExprWithYield>>
-{
+) -> CfgBlock<
+    StructuredBlockPyStmtFor<CoreBlockPyExprWithYield>,
+    BlockPyTerm<CoreBlockPyExprWithYield>,
+> {
     let CfgBlock {
         label,
         body: input_body,

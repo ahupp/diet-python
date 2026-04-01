@@ -1,6 +1,6 @@
 use crate::block_py::{
-    pretty::BlockPyDebugExprText, BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield,
-    StructuredBlockPyStmt,
+    pretty::BlockPyDebugExprText, BlockPyNameLike, BlockPyStmtFragmentBuilder,
+    CoreBlockPyExprWithAwaitAndYield, StructuredBlockPyStmt,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::py_expr;
@@ -19,5 +19,5 @@ fn named_expr_lowering_emits_blockpy_assign_directly() {
     let [StructuredBlockPyStmt::Assign(assign)] = &fragment.body[..] else {
         panic!("expected one direct assign stmt, got {fragment:?}");
     };
-    assert_eq!(assign.target.id.as_str(), "x");
+    assert_eq!(assign.target.id_str(), "x");
 }

@@ -21,7 +21,7 @@ pub(super) fn bind_temp<E: RuffToBlockPyExpr>(
     value: E,
 ) -> E {
     out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
-        target: rhs_temp_name(&name, ast::ExprContext::Store),
+        target: rhs_temp_name(&name, ast::ExprContext::Store).into(),
         value,
     }));
     temp_load_expr(&name)
@@ -125,7 +125,7 @@ where
         }
         Expr::Name(name) => {
             out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
-                target: name,
+                target: name.into(),
                 value: rhs,
             }));
             Ok(())
@@ -226,7 +226,7 @@ where
     }
 
     out.push_stmt(StructuredBlockPyStmt::Delete(BlockPyDelete {
-        target: rhs_temp_name(&unpacked_name, ast::ExprContext::Del),
+        target: rhs_temp_name(&unpacked_name, ast::ExprContext::Del).into(),
     }));
 
     Ok(())
