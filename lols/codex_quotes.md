@@ -6,3 +6,5 @@ That lols/async_with.txt dump is the right model: it already shows yield from lo
 
 
   * What Still Needs To Survive
+
+  * I found that only part of the IR rewrite landed before compaction.
