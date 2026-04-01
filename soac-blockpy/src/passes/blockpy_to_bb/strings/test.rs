@@ -7,7 +7,6 @@ use crate::{
     lower_python_to_blockpy_for_testing,
     passes::lower_try_jump_exception_flow,
 };
-use std::cell::Cell;
 
 fn tracked_name_binding_module(
     source: &str,
@@ -20,38 +19,29 @@ fn tracked_name_binding_module(
         .clone()
 }
 
-struct ExprShapeProbe {
-    saw_make_string: Cell<bool>,
-    saw_make_string_bytes: Cell<bool>,
-}
-
-impl ExprShapeProbe {
-    fn new() -> Self {
-        Self {
-            saw_make_string: Cell::new(false),
-            saw_make_string_bytes: Cell::new(false),
-        }
-    }
-}
-
-fn probe_bb_exprs(probe: &mut ExprShapeProbe, expr: &CodegenBlockPyExpr) {
+fn expr_contains_literal(expr: &CodegenBlockPyExpr) -> bool {
     match expr {
-        CodegenBlockPyExpr::Name(_) => {}
-        CodegenBlockPyExpr::Literal(literal) => {
-            if matches!(literal, CodegenBlockPyLiteral::BytesLiteral(_)) {
-                probe.saw_make_string_bytes.set(true);
-            }
-        }
+        CodegenBlockPyExpr::Name(_) => false,
+        CodegenBlockPyExpr::Literal(_) => true,
         CodegenBlockPyExpr::Op(operation) => {
-            if let crate::block_py::OperationDetail::MakeString(op) = operation {
-                probe.saw_make_string.set(true);
-                if !op.bytes.is_empty() {
-                    probe.saw_make_string_bytes.set(true);
+            let mut saw_literal = false;
+            operation.walk_args(&mut |arg| {
+                if expr_contains_literal(arg) {
+                    saw_literal = true;
                 }
-            }
-            operation.walk_args(&mut |arg| probe_bb_exprs(probe, arg));
+            });
+            saw_literal
         }
     }
+}
+
+fn module_constants_contain_string(exprs: &[CodegenBlockPyExpr]) -> bool {
+    exprs.iter().any(|expr| {
+        matches!(
+            expr,
+            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(_))
+        )
+    })
 }
 
 fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockPyExpr) {
@@ -75,39 +65,8 @@ fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockP
     }
 }
 
-fn probe_bb_term_exprs(probe: &mut ExprShapeProbe, term: &BlockPyTerm<CodegenBlockPyExpr>) {
-    match term {
-        BlockPyTerm::Jump(_) => {}
-        BlockPyTerm::IfTerm(if_term) => probe_bb_exprs(probe, &if_term.test),
-        BlockPyTerm::BranchTable(branch) => probe_bb_exprs(probe, &branch.index),
-        BlockPyTerm::Raise(raise_stmt) => {
-            if let Some(exc) = raise_stmt.exc.as_ref() {
-                probe_bb_exprs(probe, exc);
-            }
-        }
-        BlockPyTerm::Return(value) => probe_bb_exprs(probe, value),
-    }
-}
-
-fn probe_bb_stmt_exprs(
-    probe: &mut ExprShapeProbe,
-    stmt: &BlockPyStmt<CodegenBlockPyExpr, LocatedName>,
-) {
-    match stmt {
-        BlockPyStmt::Assign(assign) => probe_bb_exprs(probe, &assign.value),
-        BlockPyStmt::Expr(expr) => probe_bb_exprs(probe, expr),
-        BlockPyStmt::Delete(_) => {}
-    }
-}
-
-fn probe_module_constant_exprs(probe: &mut ExprShapeProbe, exprs: &[CodegenBlockPyExpr]) {
-    for expr in exprs {
-        probe_bb_exprs(probe, expr);
-    }
-}
-
 #[test]
-fn lowers_attributes_and_string_literals_for_codegen() {
+fn keeps_string_literals_in_module_constants_and_out_of_executable_codegen() {
     let source = r#"
 def f():
     x = __dp_store_global(globals(), "classify", __dp_ret("ok"))
@@ -117,25 +76,54 @@ def f():
     let prepared = lower_try_jump_exception_flow(&bb_module);
     let normalized = normalize_bb_module_strings(&prepared);
 
-    let mut probe = ExprShapeProbe::new();
-    probe_module_constant_exprs(&mut probe, &normalized.module_constants);
+    assert!(
+        module_constants_contain_string(&normalized.module_constants),
+        "expected normalized module constants to retain string literals"
+    );
+
     for function in normalized.callable_defs {
         for block in &function.blocks {
-            for op in &block.body {
-                probe_bb_stmt_exprs(&mut probe, &op);
+            for stmt in &block.body {
+                match stmt {
+                    BlockPyStmt::Assign(assign) => assert!(
+                        !expr_contains_literal(&assign.value),
+                        "assign value should not retain executable literals: {:?}",
+                        assign.value
+                    ),
+                    BlockPyStmt::Expr(expr) => assert!(
+                        !expr_contains_literal(expr),
+                        "expr stmt should not retain executable literals: {expr:?}"
+                    ),
+                    BlockPyStmt::Delete(_) => {}
+                }
             }
-            probe_bb_term_exprs(&mut probe, &block.term);
+            match &block.term {
+                BlockPyTerm::Jump(_) => {}
+                BlockPyTerm::IfTerm(if_term) => assert!(
+                    !expr_contains_literal(&if_term.test),
+                    "if test should not retain executable literals: {:?}",
+                    if_term.test
+                ),
+                BlockPyTerm::BranchTable(branch) => assert!(
+                    !expr_contains_literal(&branch.index),
+                    "branch index should not retain executable literals: {:?}",
+                    branch.index
+                ),
+                BlockPyTerm::Raise(raise_stmt) => {
+                    if let Some(exc) = &raise_stmt.exc {
+                        assert!(
+                            !expr_contains_literal(exc),
+                            "raise value should not retain executable literals: {exc:?}"
+                        );
+                    }
+                }
+                BlockPyTerm::Return(value) => assert!(
+                    !expr_contains_literal(value),
+                    "return value should not retain executable literals: {value:?}"
+                ),
+            }
         }
     }
-
-    assert!(
-        probe.saw_make_string.get(),
-        "a MakeString operation should be present"
-    );
-    assert!(
-        probe.saw_make_string_bytes.get(),
-        "MakeString should carry utf-8 byte payloads"
-    );
 }
 
 #[test]
@@ -204,22 +192,14 @@ def f(obj, mapping, key, value):
 }
 
 #[test]
-fn lowers_surrogate_escaped_string_literals_for_codegen() {
+fn preserves_surrogate_escaped_string_literals_in_module_constants() {
     let source = "def f():\n    return \"\\udca7\" \"b\"\n";
     let bb_module = tracked_name_binding_module(source);
     let prepared = lower_try_jump_exception_flow(&bb_module);
     let normalized = normalize_bb_module_strings(&prepared);
 
-    let mut probe = ExprShapeProbe::new();
-    probe_module_constant_exprs(&mut probe, &normalized.module_constants);
-    for function in normalized.callable_defs {
-        for block in &function.blocks {
-            for op in &block.body {
-                probe_bb_stmt_exprs(&mut probe, &op);
-            }
-            probe_bb_term_exprs(&mut probe, &block.term);
-        }
-    }
-
-    assert!(probe.saw_make_string.get(), "expected MakeString operation");
+    assert!(
+        module_constants_contain_string(&normalized.module_constants),
+        "expected surrogate-escaped string to remain in module constants"
+    );
 }

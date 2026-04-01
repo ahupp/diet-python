@@ -147,14 +147,13 @@ fn getattr_expr_with_meta(
     value: CoreBlockPyExprWithAwaitAndYield,
     attr: String,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    let attr_expr =
-        CoreBlockPyExprWithAwaitAndYield::Literal(CoreBlockPyLiteral::StringLiteral(
-            CoreStringLiteral {
-                node_index: node_index.clone(),
-                range,
-                value: attr,
-            },
-        ));
+    let attr_expr = CoreBlockPyExprWithAwaitAndYield::Literal(CoreBlockPyLiteral::StringLiteral(
+        CoreStringLiteral {
+            node_index: node_index.clone(),
+            range,
+            value: attr,
+        },
+    ));
     core_operation_expr_with_meta(
         operation::GetAttr::new(Box::new(value), Box::new(attr_expr)),
         node_index,

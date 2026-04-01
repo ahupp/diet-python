@@ -1,11 +1,12 @@
 use super::*;
 use soac_blockpy::block_py::{
-    BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyStmt,
-    BlockPyTerm, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
-    CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelItem,
-    DelLocation, DelName, FunctionName, InplaceBinOp, InplaceBinOpKind, LoadName,
-    LocatedCodegenBlockPyExpr, LocatedName, MakeString, Meta, ModuleNameGen, NameLocation,
-    OperationDetail, Param, ParamKind, ParamSpec, StorageLayout, StoreName, WithMeta,
+    BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyModule,
+    BlockPyStmt, BlockPyTerm, CellLocation, ClosureInit, ClosureSlot, CodegenBlock,
+    CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral,
+    CoreNumberLiteralValue, CoreStringLiteral, DelItem, DelLocation, DelName, FunctionName,
+    HasMeta, InplaceBinOp, InplaceBinOpKind, LoadLocation, LoadName, LocatedCodegenBlockPyExpr,
+    LocatedName, Meta, ModuleNameGen, NameLocation, OperationDetail, Param, ParamKind, ParamSpec,
+    StorageLayout, StoreName, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
@@ -69,6 +70,14 @@ mod tests {
             node_index: Default::default(),
             range: Default::default(),
             value: value.to_vec(),
+        }))
+    }
+
+    fn string_expr(value: &str) -> LocatedCodegenBlockPyExpr {
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(CoreStringLiteral {
+            node_index: Default::default(),
+            range: Default::default(),
+            value: value.to_string(),
         }))
     }
 
@@ -159,13 +168,72 @@ mod tests {
         with_test_blocks(function, vec![block])
     }
 
+    #[derive(Default)]
+    struct TestLiteralExtractor {
+        module_constants: Vec<LocatedCodegenBlockPyExpr>,
+    }
+
+    impl TestLiteralExtractor {
+        fn extract_function(&mut self, function: &mut BlockPyFunction<CodegenBlockPyPass>) {
+            for block in &mut function.blocks {
+                for stmt in &mut block.body {
+                    match stmt {
+                        BlockPyStmt::Assign(assign) => self.extract_expr(&mut assign.value),
+                        BlockPyStmt::Expr(expr) => self.extract_expr(expr),
+                        BlockPyStmt::Delete(_) => {}
+                    }
+                }
+                match &mut block.term {
+                    BlockPyTerm::Jump(_) => {}
+                    BlockPyTerm::IfTerm(if_term) => self.extract_expr(&mut if_term.test),
+                    BlockPyTerm::BranchTable(branch_table) => {
+                        self.extract_expr(&mut branch_table.index)
+                    }
+                    BlockPyTerm::Raise(raise_stmt) => {
+                        if let Some(exc) = &mut raise_stmt.exc {
+                            self.extract_expr(exc);
+                        }
+                    }
+                    BlockPyTerm::Return(value) => self.extract_expr(value),
+                }
+            }
+        }
+
+        fn extract_expr(&mut self, expr: &mut LocatedCodegenBlockPyExpr) {
+            if matches!(expr, CodegenBlockPyExpr::Literal(_)) {
+                let meta = expr.meta();
+                let index = u32::try_from(self.module_constants.len())
+                    .expect("test module constant count should fit in u32");
+                let literal = std::mem::replace(
+                    expr,
+                    CodegenBlockPyExpr::Op(
+                        OperationDetail::from(LoadLocation::new(NameLocation::Constant(index)))
+                            .with_meta(meta),
+                    ),
+                );
+                self.module_constants.push(literal);
+                return;
+            }
+            if let CodegenBlockPyExpr::Op(operation) = expr {
+                operation.walk_args_mut(&mut |child| self.extract_expr(child));
+            }
+        }
+    }
+
     fn render_test_jit_function(
         function: &BlockPyFunction<CodegenBlockPyPass>,
         blocks: &[ObjPtr],
     ) -> String {
+        let mut function = function.clone();
+        let mut extractor = TestLiteralExtractor::default();
+        extractor.extract_function(&mut function);
+        let module = BlockPyModule {
+            callable_defs: vec![function.clone()],
+            module_constants: extractor.module_constants,
+        };
         let module_constants =
-            crate::module_constants::ModuleCodegenConstants::collect_from_functions([function]);
-        render_test_jit_function_with_constants(function, blocks, &module_constants)
+            crate::module_constants::ModuleCodegenConstants::collect_from_module(&module);
+        render_test_jit_function_with_constants(&function, blocks, &module_constants)
     }
 
     fn render_test_jit_function_with_constants(
@@ -280,24 +348,18 @@ mod tests {
     }
 
     #[test]
-    fn render_specialized_jit_make_string_uses_module_constant_loader() {
+    fn render_specialized_jit_string_literals_use_module_constant_loader() {
         let blocks = [1usize as ObjPtr];
-        let function = with_single_test_block(
-            test_function(),
-            vec![],
-            ret_term(op_expr(
-                OperationDetail::from(MakeString::new(b"hello".to_vec()))
-                    .with_meta(Meta::synthetic()),
-            )),
-        );
+        let function =
+            with_single_test_block(test_function(), vec![], ret_term(string_expr("hello")));
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call dp_jit_load_module_constant"),
-            "MakeString lowering should load a module constant:\n{rendered}"
+            "string literal lowering should load a module constant:\n{rendered}"
         );
         assert!(
             !rendered.contains("call dp_jit_decode_literal_bytes"),
-            "MakeString lowering should not decode literal bytes directly anymore:\n{rendered}"
+            "string literal lowering should not decode literal bytes directly anymore:\n{rendered}"
         );
     }
 

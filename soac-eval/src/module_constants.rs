@@ -310,8 +310,7 @@ impl ModuleConstantCollector {
                 }
             }
             CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
-                self.constants
-                    .intern_unicode_bytes(string.value.as_bytes());
+                self.constants.intern_unicode_bytes(string.value.as_bytes());
             }
             CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(number)) => {
                 match &number.value {

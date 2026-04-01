@@ -1,4 +1,6 @@
-use crate::block_py::{BlockPyModule, BlockPyModuleMap, LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr};
+use crate::block_py::{
+    BlockPyModule, BlockPyModuleMap, LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr,
+};
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 
 pub fn normalize_bb_module_strings(

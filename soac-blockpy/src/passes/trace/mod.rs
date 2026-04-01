@@ -182,15 +182,15 @@ fn string_literal_expr(
     value: &str,
 ) -> LocatedCodegenBlockPyExpr {
     let meta = Meta::synthetic();
-    let index =
-        u32::try_from(module_constants.len()).expect("trace module constant count should fit in u32");
-    module_constants.push(CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(
-        CoreStringLiteral {
+    let index = u32::try_from(module_constants.len())
+        .expect("trace module constant count should fit in u32");
+    module_constants.push(CodegenBlockPyExpr::Literal(
+        CodegenBlockPyLiteral::StringLiteral(CoreStringLiteral {
             node_index: meta.node_index.clone(),
             range: meta.range,
             value: value.to_string(),
-        },
-    )));
+        }),
+    ));
     core_operation_expr(
         crate::block_py::OperationDetail::from(crate::block_py::LoadLocation::new(
             NameLocation::Constant(index),

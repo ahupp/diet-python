@@ -142,8 +142,8 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         body: Vec::new(),
         term: BlockPyTerm::Return(CoreBlockPyExpr::Op(
             OperationDetail::from(GetAttr::new(
-                core_call_expr("current_exception", Vec::new()),
-                "value".to_string(),
+                Box::new(core_call_expr("current_exception", Vec::new())),
+                Box::new(core_string_expr("value")),
             ))
             .with_meta(crate::block_py::Meta::new(
                 ast::AtomicNodeIndex::default(),
@@ -176,7 +176,11 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         value.as_ref(),
         CoreBlockPyExpr::Name(name) if name.id.as_str() == "_dp_try_exc_0"
     ));
-    assert_eq!(attr, "value");
+    assert!(matches!(
+        attr.as_ref(),
+        CoreBlockPyExpr::Literal(crate::block_py::CoreBlockPyLiteral::StringLiteral(literal))
+            if literal.value == "value"
+    ));
 }
 
 #[test]

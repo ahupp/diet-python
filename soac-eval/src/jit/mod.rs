@@ -446,9 +446,14 @@ fn codegen_expr_const_string(
     module_constants: &ModuleCodegenConstants,
 ) -> Option<String> {
     match expr {
+        CodegenBlockPyExpr::Name(_) => None,
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
+            Some(string.value.clone())
+        }
         CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
             String::from_utf8(bytes.value.clone()).ok()
         }
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(_)) => None,
         CodegenBlockPyExpr::Op(blockpy_intrinsics::OperationDetail::LoadLocation(op)) => {
             op.location.as_constant().and_then(|index| {
                 module_constants.constant_string_value(ModuleConstantId(index as usize))
@@ -465,20 +470,13 @@ fn codegen_expr_const_string(
                 {
                     return None;
                 }
-                let CoreBlockPyCallArg::Positional(CodegenBlockPyExpr::Literal(
-                    CodegenBlockPyLiteral::BytesLiteral(bytes),
-                )) = &call.args[0]
-                else {
+                let CoreBlockPyCallArg::Positional(arg) = &call.args[0] else {
                     return None;
                 };
-                String::from_utf8(bytes.value.clone()).ok()
-            }
-            blockpy_intrinsics::OperationDetail::MakeString(op) => {
-                String::from_utf8(op.bytes.clone()).ok()
+                codegen_expr_const_string(arg, module_constants)
             }
             _ => None,
         },
-        _ => None,
     }
 }
 
@@ -1236,46 +1234,8 @@ fn emit_codegen_expr(
                 }
             }
         }
-        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(number)) => {
-            assert!(
-                !borrowed,
-                "codegen number literal must not use borrowed expression"
-            );
-            match &number.value {
-                soac_blockpy::block_py::CoreNumberLiteralValue::Int(value) => {
-                    if let Some(value) = value.as_i64() {
-                        emit_owned_module_constant(
-                            fb,
-                            ctx.module_constants.require_int_constant_id(value),
-                            ctx,
-                        )
-                    } else {
-                        let value_text = value.to_string();
-                        emit_owned_module_constant(
-                            fb,
-                            ctx.module_constants
-                                .require_big_int_constant_id(value_text.as_str()),
-                            ctx,
-                        )
-                    }
-                }
-                soac_blockpy::block_py::CoreNumberLiteralValue::Float(value) => {
-                    emit_owned_module_constant(
-                        fb,
-                        ctx.module_constants.require_float_constant_id(*value),
-                        ctx,
-                    )
-                }
-            }
-        }
-        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
-            assert!(!borrowed, "bytes literal must produce owned references");
-            emit_owned_module_constant(
-                fb,
-                ctx.module_constants
-                    .require_bytes_constant_id(bytes.value.as_slice()),
-                ctx,
-            )
+        CodegenBlockPyExpr::Literal(literal) => {
+            panic!("literal should be extracted into a constant slot before codegen: {literal:?}")
         }
         CodegenBlockPyExpr::Op(operation)
             if !matches!(operation, blockpy_intrinsics::OperationDetail::Call(_)) =>

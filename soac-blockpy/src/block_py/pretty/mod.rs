@@ -599,6 +599,7 @@ fn render_core_literal_text(literal: &CoreBlockPyLiteral) -> String {
 
 fn render_codegen_literal_text(literal: &CodegenBlockPyLiteral) -> String {
     match literal {
+        CodegenBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value),
         CodegenBlockPyLiteral::BytesLiteral(literal) => bytes_text(&literal.value),
         CodegenBlockPyLiteral::NumberLiteral(literal) => render_number_literal_text(&literal.value),
     }
