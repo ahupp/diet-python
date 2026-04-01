@@ -4,7 +4,7 @@ use super::{
     BlockPyLinearModuleVisitor, BlockPyLinearPass, BlockPyNameLike, BlockPyPass, BlockPyStmt, Call,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyLiteral, FunctionName, MapExpr, PassBlock, PassExpr,
-    PassName, RuffExpr,
+    RuffExpr,
 };
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use ruff_python_ast::{self as ast, Expr};
@@ -771,7 +771,7 @@ where
         walk_linear_block::<Self, P>(self, block);
     }
 
-    fn visit_stmt(&mut self, stmt: &BlockPyStmt<PassExpr<P>, PassName<P>>) {
+    fn visit_stmt(&mut self, stmt: &crate::block_py::PassStmt<P>) {
         match stmt {
             BlockPyStmt::Assign(assign) => {
                 self.defined_names

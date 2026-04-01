@@ -1105,22 +1105,29 @@ pub trait BlockPyPass: Clone + fmt::Debug {
 
 pub type PassExpr<P> = <P as BlockPyPass>::Expr;
 pub type PassName<P> = <PassExpr<P> as Instr>::Name;
-pub type PassBlock<P> = CfgBlock<<P as BlockPyPass>::Stmt, BlockPyTerm<PassExpr<P>>>;
+pub type InstrName<I> = <I as Instr>::Name;
+pub type PassTerm<P> = BlockPyTerm<PassExpr<P>>;
+pub type BlockPyStmtFor<I> = BlockPyStmt<I, InstrName<I>>;
+pub(crate) type StructuredBlockPyStmtFor<I> = StructuredBlockPyStmt<I, InstrName<I>>;
+pub type PassStmt<P> = BlockPyStmtFor<PassExpr<P>>;
+pub(crate) type PassStructuredStmt<P> = StructuredBlockPyStmtFor<PassExpr<P>>;
+pub(crate) type PassStructuredFragment<P> = BlockPyCfgFragment<PassStructuredStmt<P>, PassTerm<P>>;
+pub type PassBlock<P> = CfgBlock<<P as BlockPyPass>::Stmt, PassTerm<P>>;
 pub type ResolvedStorageBlock = PassBlock<ResolvedStorageBlockPyPass>;
 pub type CodegenBlock = PassBlock<CodegenBlockPyPass>;
 
-pub(crate) trait BlockPyLinearPass:
-    BlockPyPass<Stmt = BlockPyStmt<PassExpr<Self>, PassName<Self>>>
-{
-}
+pub(crate) trait BlockPyLinearPass: BlockPyPass<Stmt = PassStmt<Self>> {}
 
-impl<P> BlockPyLinearPass for P where P: BlockPyPass<Stmt = BlockPyStmt<PassExpr<P>, PassName<P>>> {}
+impl<P> BlockPyLinearPass for P where P: BlockPyPass<Stmt = PassStmt<P>> {}
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
 pub(crate) type BlockPyBlock<E = Expr, N = ExprName> =
     BlockPyCfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
+pub(crate) type BlockPyBlockFor<I> = BlockPyCfgBlock<StructuredBlockPyStmtFor<I>, BlockPyTerm<I>>;
 pub(crate) type BlockPyStructuredIf<E = Expr, N = ExprName> =
     BlockPyIf<E, StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
+pub(crate) type BlockPyStructuredIfFor<I> =
+    BlockPyIf<I, StructuredBlockPyStmtFor<I>, BlockPyTerm<I>>;
 
 pub trait BlockPyJumpTerm<L> {
     fn jump_term(target: L) -> Self;
@@ -1175,6 +1182,8 @@ pub struct BlockPyCfgFragment<S, T> {
 
 pub(crate) type BlockPyStmtFragment<E = Expr, N = ExprName> =
     BlockPyCfgFragment<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
+pub(crate) type BlockPyStmtFragmentFor<I> =
+    BlockPyCfgFragment<StructuredBlockPyStmtFor<I>, BlockPyTerm<I>>;
 
 impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragment<S, T> {
     pub fn assert_normalized(&self) {
@@ -1268,6 +1277,8 @@ pub struct BlockPyCfgBlockBuilder<S, T> {
 
 pub(crate) type BlockPyBlockBuilder<E = Expr, N = ExprName> =
     BlockPyCfgBlockBuilder<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
+pub(crate) type BlockPyBlockBuilderFor<I> =
+    BlockPyCfgBlockBuilder<StructuredBlockPyStmtFor<I>, BlockPyTerm<I>>;
 
 impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
     BlockPyCfgBlockBuilder<S, T>
@@ -1576,7 +1587,7 @@ where
         walk_linear_block(self, block);
     }
 
-    fn visit_stmt(&mut self, stmt: &BlockPyStmt<PassExpr<P>, PassName<P>>) {
+    fn visit_stmt(&mut self, stmt: &PassStmt<P>) {
         walk_linear_stmt(self, stmt);
     }
 
@@ -1630,7 +1641,7 @@ where
     visitor.visit_term(&block.term);
 }
 
-pub(crate) fn walk_linear_stmt<V, P>(visitor: &mut V, stmt: &BlockPyStmt<PassExpr<P>, PassName<P>>)
+pub(crate) fn walk_linear_stmt<V, P>(visitor: &mut V, stmt: &PassStmt<P>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyLinearPass,

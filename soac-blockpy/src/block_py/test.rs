@@ -10,7 +10,7 @@ struct StructuredExprPass;
 
 impl BlockPyPass for StructuredExprPass {
     type Expr = Expr;
-    type Stmt = StructuredBlockPyStmt<Self::Expr>;
+    type Stmt = PassStructuredStmt<Self>;
 }
 
 #[test]
@@ -132,16 +132,13 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
 
         fn visit_fragment(
             &mut self,
-            fragment: &BlockPyCfgFragment<
-                <StructuredExprPass as BlockPyPass>::Stmt,
-                BlockPyTerm<PassExpr<StructuredExprPass>>,
-            >,
+            fragment: &PassStructuredFragment<StructuredExprPass>,
         ) {
             self.trace.push("fragment".to_string());
             walk_fragment(self, fragment);
         }
 
-        fn visit_stmt(&mut self, stmt: &StructuredBlockPyStmt<PassExpr<StructuredExprPass>>) {
+        fn visit_stmt(&mut self, stmt: &PassStructuredStmt<StructuredExprPass>) {
             let kind = match stmt {
                 StructuredBlockPyStmt::Assign(_) => "assign",
                 StructuredBlockPyStmt::Expr(_) => "expr",
@@ -152,7 +149,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             walk_stmt(self, stmt);
         }
 
-        fn visit_term(&mut self, term: &BlockPyTerm<PassExpr<StructuredExprPass>>) {
+        fn visit_term(&mut self, term: &PassTerm<StructuredExprPass>) {
             let kind = match term {
                 BlockPyTerm::Jump(_) => "jump",
                 BlockPyTerm::IfTerm(_) => "if",
