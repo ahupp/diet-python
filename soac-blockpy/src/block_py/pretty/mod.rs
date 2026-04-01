@@ -626,9 +626,40 @@ fn render_call_text<E: BlockPyDebugExprText>(call: &Call<E>) -> String {
     format!("{}({})", call.func.debug_expr_text(), parts.join(", "))
 }
 
+fn render_store_debug_text<N, E>(name: &N, value: &E) -> String
+where
+    N: crate::block_py::BlockPyNameLike,
+    E: BlockPyDebugExprText,
+{
+    let resolved_name = name.pretty_id();
+    if resolved_name == name.id_str() {
+        debug_tuple_text(
+            "StoreName",
+            [format!("{:?}", name.id_str()), value.debug_expr_text()],
+        )
+    } else {
+        debug_tuple_text("StoreLocation", [resolved_name, value.debug_expr_text()])
+    }
+}
+
+fn render_del_debug_text<N>(name: &N, quietly: bool) -> String
+where
+    N: crate::block_py::BlockPyNameLike,
+{
+    let resolved_name = name.pretty_id();
+    if resolved_name == name.id_str() {
+        debug_tuple_text(
+            "DelName",
+            [format!("{:?}", name.id_str()), format!("{quietly:?}")],
+        )
+    } else {
+        debug_tuple_text("DelLocation", [resolved_name, format!("{quietly:?}")])
+    }
+}
+
 fn render_operation_detail_debug_text<E>(detail: &crate::block_py::OperationDetail<E>) -> String
 where
-    E: BlockPyDebugExprText,
+    E: crate::block_py::Instr + BlockPyDebugExprText,
 {
     match detail {
         crate::block_py::OperationDetail::MakeFunction(op) => debug_tuple_text(
@@ -654,36 +685,17 @@ where
             ],
         ),
         crate::block_py::OperationDetail::LoadRuntime(op) => op.name.clone(),
-        crate::block_py::OperationDetail::LoadName(op) => op.name.clone(),
-        crate::block_py::OperationDetail::StoreName(op) => debug_tuple_text(
-            "StoreName",
-            [format!("{:?}", op.name), op.value.debug_expr_text()],
-        ),
-        crate::block_py::OperationDetail::DelName(op) => debug_tuple_text(
-            "DelName",
-            [format!("{:?}", op.name), format!("{:?}", op.quietly)],
-        ),
-        crate::block_py::OperationDetail::LoadLocation(op) => op.location.pretty_id("<global>"),
+        crate::block_py::OperationDetail::Load(op) => op.name.pretty_id(),
+        crate::block_py::OperationDetail::Store(op) => {
+            render_store_debug_text(&op.name, op.value.as_ref())
+        }
+        crate::block_py::OperationDetail::Del(op) => render_del_debug_text(&op.name, op.quietly),
         crate::block_py::OperationDetail::CellRefForName(op) => {
             debug_tuple_text("CellRefForName", [format!("{:?}", op.logical_name)])
         }
         crate::block_py::OperationDetail::CellRef(op) => {
             debug_tuple_text("CellRef", [op.location.pretty_id()])
         }
-        crate::block_py::OperationDetail::StoreLocation(op) => debug_tuple_text(
-            "StoreLocation",
-            [
-                op.location.pretty_id("<global>"),
-                op.value.debug_expr_text(),
-            ],
-        ),
-        crate::block_py::OperationDetail::DelLocation(op) => debug_tuple_text(
-            "DelLocation",
-            [
-                op.location.pretty_id("<global>"),
-                format!("{:?}", op.quietly),
-            ],
-        ),
         crate::block_py::OperationDetail::BinOp(op) => debug_tuple_text(
             "BinOp",
             [

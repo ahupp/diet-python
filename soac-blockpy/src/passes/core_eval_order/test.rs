@@ -16,7 +16,7 @@ fn is_name_like(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
         CoreBlockPyExprWithAwaitAndYield::Name(_) => true,
         CoreBlockPyExprWithAwaitAndYield::Op(operation) => matches!(
             operation,
-            crate::block_py::OperationDetail::LoadName(_)
+            crate::block_py::OperationDetail::Load(_)
                 | crate::block_py::OperationDetail::LoadRuntime(_)
         ),
         _ => false,

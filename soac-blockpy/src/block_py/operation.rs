@@ -1,6 +1,6 @@
 use super::{
     BlockPyFunctionKind, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg, FunctionId,
-    HasMeta, Meta, NameLocation, WithMeta,
+    HasMeta, Instr, InstrName, Meta, WithMeta,
 };
 use soac_macros::{with_match_default, DelegateMatchDefault};
 
@@ -55,16 +55,25 @@ pub enum InplaceBinOpKind {
     And,
 }
 
-pub trait InstrOperationNode<I>: Sized {
-    type Mapped<T>;
+pub trait InstrOperationNode<I>: Sized
+where
+    I: Instr,
+{
+    type Mapped<T: Instr>;
 
     fn visit_exprs(&self, f: &mut impl FnMut(&I));
     fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut I));
-    fn map_op<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>;
+    fn map_op<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>;
     fn try_map_op<T, Error>(
         self,
         f: &mut impl FnMut(I) -> Result<T, Error>,
-    ) -> Result<Self::Mapped<T>, Error>;
+    ) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>;
 }
 
 macro_rules! define_operation {
@@ -96,12 +105,12 @@ macro_rules! define_operation {
         [$($ctor_init:tt)*]
     ) => {
         #[derive(Debug, Clone)]
-        $vis struct $name<$expr_ty> {
+        $vis struct $name<$expr_ty: Instr> {
             _meta: Meta,
             $($struct_fields)*
         }
 
-        impl<$expr_ty> $name<$expr_ty> {
+        impl<$expr_ty: Instr> $name<$expr_ty> {
             pub fn new($($ctor_args)*) -> Self {
                 Self {
                     _meta: Meta::default(),
@@ -110,21 +119,21 @@ macro_rules! define_operation {
             }
         }
 
-        impl<$expr_ty> HasMeta for $name<$expr_ty> {
+        impl<$expr_ty: Instr> HasMeta for $name<$expr_ty> {
             fn meta(&self) -> Meta {
                 self._meta.clone()
             }
         }
 
-        impl<$expr_ty> WithMeta for $name<$expr_ty> {
+        impl<$expr_ty: Instr> WithMeta for $name<$expr_ty> {
             fn with_meta(mut self, meta: Meta) -> Self {
                 self._meta = meta;
                 self
             }
         }
 
-        impl<$expr_ty> InstrOperationNode<$expr_ty> for $name<$expr_ty> {
-            type Mapped<T> = $name<T>;
+        impl<$expr_ty: Instr> InstrOperationNode<$expr_ty> for $name<$expr_ty> {
+            type Mapped<T: Instr> = $name<T>;
 
             fn visit_exprs(&self, f: &mut impl FnMut(&$expr_ty)) {
                 #[allow(unused_variables)]
@@ -138,7 +147,11 @@ macro_rules! define_operation {
                 define_operation!(@visit_expr_fields_mut self, f, $($raw_fields)*);
             }
 
-            fn map_op<T>(self, f: &mut impl FnMut($expr_ty) -> T) -> Self::Mapped<T> {
+            fn map_op<T>(self, f: &mut impl FnMut($expr_ty) -> T) -> Self::Mapped<T>
+            where
+                T: Instr,
+                InstrName<T>: From<InstrName<$expr_ty>>,
+            {
                 #[allow(unused_variables)]
                 let _ = &f;
                 define_operation!(@build_mapped [$name::<T>] [] self, f, $($raw_fields)*)
@@ -147,7 +160,11 @@ macro_rules! define_operation {
             fn try_map_op<T, Error>(
                 self,
                 f: &mut impl FnMut($expr_ty) -> Result<T, Error>,
-            ) -> Result<Self::Mapped<T>, Error> {
+            ) -> Result<Self::Mapped<T>, Error>
+            where
+                T: Instr,
+                InstrName<T>: From<InstrName<$expr_ty>>,
+            {
                 #[allow(unused_variables)]
                 let _ = &f;
                 define_operation!(@build_try_mapped [$name::<T>] [] self, f, $($raw_fields)*)
@@ -205,8 +222,8 @@ macro_rules! define_operation {
             }
         }
 
-        impl<E> InstrOperationNode<E> for $name {
-            type Mapped<T> = $name;
+        impl<E: Instr> InstrOperationNode<E> for $name {
+            type Mapped<T: Instr> = $name;
 
             fn visit_exprs(&self, f: &mut impl FnMut(&E)) {
                 let _ = &f;
@@ -216,7 +233,11 @@ macro_rules! define_operation {
                 let _ = &f;
             }
 
-            fn map_op<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T> {
+            fn map_op<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
+            where
+                T: Instr,
+                InstrName<T>: From<InstrName<E>>,
+            {
                 let _ = &f;
                 self
             }
@@ -224,7 +245,11 @@ macro_rules! define_operation {
             fn try_map_op<T, Error>(
                 self,
                 f: &mut impl FnMut(E) -> Result<T, Error>,
-            ) -> Result<Self::Mapped<T>, Error> {
+            ) -> Result<Self::Mapped<T>, Error>
+            where
+                T: Instr,
+                InstrName<T>: From<InstrName<E>>,
+            {
                 let _ = &f;
                 Ok(self)
             }
@@ -503,8 +528,8 @@ impl<E> WithMeta for Call<E> {
     }
 }
 
-impl<E> InstrOperationNode<E> for Call<E> {
-    type Mapped<T> = Call<T>;
+impl<E: Instr> InstrOperationNode<E> for Call<E> {
+    type Mapped<T: Instr> = Call<T>;
 
     fn visit_exprs(&self, f: &mut impl FnMut(&E)) {
         f(&self.func);
@@ -526,7 +551,11 @@ impl<E> InstrOperationNode<E> for Call<E> {
         }
     }
 
-    fn map_op<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T> {
+    fn map_op<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<E>>,
+    {
         Call {
             _meta: self._meta,
             func: Box::new(f(*self.func)),
@@ -546,7 +575,11 @@ impl<E> InstrOperationNode<E> for Call<E> {
     fn try_map_op<T, Error>(
         self,
         f: &mut impl FnMut(E) -> Result<T, Error>,
-    ) -> Result<Self::Mapped<T>, Error> {
+    ) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<E>>,
+    {
         Ok(Call {
             _meta: self._meta,
             func: Box::new(f(*self.func)?),
@@ -607,29 +640,198 @@ define_operation! {
     }
 }
 
-define_operation! {
-    pub struct LoadName {
-        name: String,
+#[derive(Debug, Clone)]
+pub struct Load<I: Instr> {
+    _meta: Meta,
+    pub name: InstrName<I>,
+}
+
+impl<I: Instr> Load<I> {
+    pub fn new(name: impl Into<InstrName<I>>) -> Self {
+        Self {
+            _meta: Meta::default(),
+            name: name.into(),
+        }
     }
 }
 
-define_operation! {
-    pub struct StoreName<E> {
-        name: String,
-        value: Box<E>,
+impl<I: Instr> HasMeta for Load<I> {
+    fn meta(&self) -> Meta {
+        self._meta.clone()
     }
 }
 
-define_operation! {
-    pub struct DelName {
-        name: String,
-        quietly: bool,
+impl<I: Instr> WithMeta for Load<I> {
+    fn with_meta(mut self, meta: Meta) -> Self {
+        self._meta = meta;
+        self
     }
 }
 
-define_operation! {
-    pub struct LoadLocation {
-        location: NameLocation,
+impl<I: Instr> InstrOperationNode<I> for Load<I> {
+    type Mapped<T: Instr> = Load<T>;
+
+    fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
+
+    fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+
+    fn map_op<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        Load {
+            _meta: self._meta,
+            name: <T as Instr>::Name::from(self.name),
+        }
+    }
+
+    fn try_map_op<T, Error>(
+        self,
+        _f: &mut impl FnMut(I) -> Result<T, Error>,
+    ) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        Ok(Load {
+            _meta: self._meta,
+            name: <T as Instr>::Name::from(self.name),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Store<I: Instr> {
+    _meta: Meta,
+    pub name: InstrName<I>,
+    pub value: Box<I>,
+}
+
+impl<I: Instr> Store<I> {
+    pub fn new(name: impl Into<InstrName<I>>, value: impl Into<Box<I>>) -> Self {
+        Self {
+            _meta: Meta::default(),
+            name: name.into(),
+            value: value.into(),
+        }
+    }
+}
+
+impl<I: Instr> HasMeta for Store<I> {
+    fn meta(&self) -> Meta {
+        self._meta.clone()
+    }
+}
+
+impl<I: Instr> WithMeta for Store<I> {
+    fn with_meta(mut self, meta: Meta) -> Self {
+        self._meta = meta;
+        self
+    }
+}
+
+impl<I: Instr> InstrOperationNode<I> for Store<I> {
+    type Mapped<T: Instr> = Store<T>;
+
+    fn visit_exprs(&self, f: &mut impl FnMut(&I)) {
+        f(&self.value);
+    }
+
+    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut I)) {
+        f(&mut self.value);
+    }
+
+    fn map_op<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        Store {
+            _meta: self._meta,
+            name: <T as Instr>::Name::from(self.name),
+            value: Box::new(f(*self.value)),
+        }
+    }
+
+    fn try_map_op<T, Error>(
+        self,
+        f: &mut impl FnMut(I) -> Result<T, Error>,
+    ) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        Ok(Store {
+            _meta: self._meta,
+            name: <T as Instr>::Name::from(self.name),
+            value: Box::new(f(*self.value)?),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Del<I: Instr> {
+    _meta: Meta,
+    pub name: InstrName<I>,
+    pub quietly: bool,
+}
+
+impl<I: Instr> Del<I> {
+    pub fn new(name: impl Into<InstrName<I>>, quietly: bool) -> Self {
+        Self {
+            _meta: Meta::default(),
+            name: name.into(),
+            quietly,
+        }
+    }
+}
+
+impl<I: Instr> HasMeta for Del<I> {
+    fn meta(&self) -> Meta {
+        self._meta.clone()
+    }
+}
+
+impl<I: Instr> WithMeta for Del<I> {
+    fn with_meta(mut self, meta: Meta) -> Self {
+        self._meta = meta;
+        self
+    }
+}
+
+impl<I: Instr> InstrOperationNode<I> for Del<I> {
+    type Mapped<T: Instr> = Del<T>;
+
+    fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
+
+    fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+
+    fn map_op<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        Del {
+            _meta: self._meta,
+            name: <T as Instr>::Name::from(self.name),
+            quietly: self.quietly,
+        }
+    }
+
+    fn try_map_op<T, Error>(
+        self,
+        _f: &mut impl FnMut(I) -> Result<T, Error>,
+    ) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        Ok(Del {
+            _meta: self._meta,
+            name: <T as Instr>::Name::from(self.name),
+            quietly: self.quietly,
+        })
     }
 }
 
@@ -660,22 +862,8 @@ define_operation! {
     }
 }
 
-define_operation! {
-    pub struct StoreLocation<E> {
-        location: NameLocation,
-        value: Box<E>,
-    }
-}
-
-define_operation! {
-    pub struct DelLocation {
-        location: NameLocation,
-        quietly: bool,
-    }
-}
-
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
-pub enum OperationDetail<E> {
+pub enum OperationDetail<E: Instr> {
     BinOp(BinOp<E>),
     UnaryOp(UnaryOp<E>),
     InplaceBinOp(InplaceBinOp<E>),
@@ -686,20 +874,17 @@ pub enum OperationDetail<E> {
     SetItem(SetItem<E>),
     DelItem(DelItem<E>),
     LoadRuntime(LoadRuntime),
-    LoadName(LoadName),
-    StoreName(StoreName<E>),
-    DelName(DelName),
-    LoadLocation(LoadLocation),
+    Load(Load<E>),
+    Store(Store<E>),
+    Del(Del<E>),
     MakeCell(MakeCell<E>),
     CellRefForName(CellRefForName),
     CellRef(CellRef),
     MakeFunction(MakeFunction<E>),
-    StoreLocation(StoreLocation<E>),
-    DelLocation(DelLocation),
 }
 
 #[with_match_default]
-impl<E> HasMeta for OperationDetail<E> {
+impl<E: Instr> HasMeta for OperationDetail<E> {
     fn meta(&self) -> Meta {
         match self {
             match_rest(op) => op.meta(),
@@ -708,8 +893,12 @@ impl<E> HasMeta for OperationDetail<E> {
 }
 
 #[with_match_default]
-impl<E> OperationDetail<E> {
-    pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> OperationDetail<T> {
+impl<E: Instr> OperationDetail<E> {
+    pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> OperationDetail<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<E>>,
+    {
         match self {
             match_rest(op) => op.map_op(f).into(),
         }
@@ -718,7 +907,11 @@ impl<E> OperationDetail<E> {
     pub fn try_map_expr<T, Error>(
         self,
         f: &mut impl FnMut(E) -> Result<T, Error>,
-    ) -> Result<OperationDetail<T>, Error> {
+    ) -> Result<OperationDetail<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<E>>,
+    {
         Ok(match self {
             match_rest(op) => op.try_map_op(f)?.into(),
         })
@@ -738,10 +931,9 @@ impl<E> OperationDetail<E> {
 }
 
 #[with_match_default]
-impl<E> WithMeta for OperationDetail<E> {
+impl<E: Instr> WithMeta for OperationDetail<E> {
     fn with_meta(self, meta: Meta) -> Self {
         match self {
-            Self::DelLocation(op) => Self::DelLocation(op.with_meta(meta)),
             match_rest(op) => op.with_meta(meta.clone()).into(),
         }
     }

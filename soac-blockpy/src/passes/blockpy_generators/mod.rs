@@ -3,14 +3,14 @@ use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     compute_storage_layout_from_semantics, core_call_expr_with_meta, core_operation_expr,
     core_runtime_name_expr_with_meta, core_runtime_positional_call_expr_with_meta,
-    try_lower_core_expr_without_await, try_lower_core_expr_without_yield, BlockParam,
+    try_lower_core_expr_without_await, try_lower_core_expr_without_yield, BlockArg, BlockParam,
     BlockParamRole, BlockPyAssign, BlockPyBindingKind, BlockPyBranchTable,
-    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
-    CellRefForName, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap,
-    FunctionId, FunctionName, ImplicitNoneExpr, MakeFunction, Meta, ModuleNameGen, OperationDetail,
-    PassStmt, StorageLayout, WithMeta,
+    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyEdge,
+    BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt,
+    BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyCallArg,
+    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
+    CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName, ImplicitNoneExpr, MakeFunction,
+    Meta, ModuleNameGen, OperationDetail, PassStmt, StorageLayout, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -725,6 +725,13 @@ fn push_completion_raise_block(
     );
 }
 
+fn explicit_jump_args_for_params(params: &[BlockParam]) -> Vec<BlockArg> {
+    params
+        .iter()
+        .map(|param| BlockArg::Name(param.name.clone()))
+        .collect()
+}
+
 fn is_resume_exc_test() -> CoreBlockPyExpr {
     core_operation_expr(
         OperationDetail::from(crate::block_py::operation::UnaryOp::new(
@@ -1369,7 +1376,10 @@ fn emit_yield_from_site(
                 target: expr_name(yielded_value_name.as_str()),
                 value: current_exception_value_expr(caught_exc_name.as_str()),
             })],
-            term: BlockPyTerm::Jump(done_label.clone().into()),
+            term: BlockPyTerm::Jump(BlockPyEdge::with_args(
+                done_label.clone(),
+                explicit_jump_args_for_params(&params),
+            )),
             params: except_params.clone(),
             exc_edge: None,
         },

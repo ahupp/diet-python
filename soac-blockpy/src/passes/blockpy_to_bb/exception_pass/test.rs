@@ -2,9 +2,8 @@ use super::lower_try_jump_exception_flow;
 use crate::block_py::{
     validate_module, AbruptKind, BlockArg, BlockParam, BlockParamRole, BlockPyBindingKind,
     BlockPyCellBindingKind, BlockPyEdge, BlockPyLabel, BlockPyTerm, CodegenBlock, CoreBlockPyExpr,
-    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, LoadLocation,
-    LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, NameLocation, OperationDetail,
-    ResolvedStorageBlock, StorageLayout,
+    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, LocatedCodegenBlockPyExpr,
+    LocatedCoreBlockPyExpr, NameLocation, OperationDetail, ResolvedStorageBlock, StorageLayout,
 };
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::CodegenBlockPyPass;
@@ -36,10 +35,11 @@ fn is_return_of_number_constant(term: &BlockPyTerm<LocatedCoreBlockPyExpr>) -> b
                 ..
             },
         ))) => true,
-        BlockPyTerm::Return(CoreBlockPyExpr::Op(OperationDetail::LoadLocation(LoadLocation {
-            location: NameLocation::Constant(_),
-            ..
-        }))) => true,
+        BlockPyTerm::Return(CoreBlockPyExpr::Op(OperationDetail::Load(op)))
+            if matches!(op.name.location, NameLocation::Constant(_)) =>
+        {
+            true
+        }
         _ => false,
     }
 }

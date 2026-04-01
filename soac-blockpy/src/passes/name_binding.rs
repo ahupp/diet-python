@@ -6,10 +6,9 @@ use crate::block_py::{
     BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap,
     BlockPyNameLike, BlockPyRaise, BlockPyStmt, BlockPyTerm, Call, CellLocation, CellRef,
     CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, DelItem,
-    DelLocation, DelName, FunctionId, HasMeta, LoadLocation, LoadName, LoadRuntime, LocalLocation,
-    LocatedCoreBlockPyExpr, LocatedName, MakeCell, MakeFunction, NameLocation, OperationDetail,
-    SetItem, StorageLayout, StoreLocation, StoreName, WithMeta,
+    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem,
+    FunctionId, HasMeta, Load, LoadRuntime, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
+    MakeCell, MakeFunction, NameLocation, OperationDetail, SetItem, StorageLayout, Store, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -73,25 +72,24 @@ fn op_stmt(operation: OperationDetail<CoreBlockPyExpr>) -> CoreStmt {
 }
 
 fn constant_location_expr(meta: crate::block_py::Meta, index: u32) -> LocatedCoreBlockPyExpr {
-    CoreBlockPyExpr::Op(
-        OperationDetail::from(LoadLocation::new(NameLocation::Constant(index))).with_meta(meta),
-    )
+    let name = LocatedName::from(ast::ExprName {
+        id: "__dp_constant".into(),
+        ctx: ast::ExprContext::Load,
+        node_index: meta.node_index.clone(),
+        range: meta.range,
+    })
+    .with_location(NameLocation::Constant(index));
+    CoreBlockPyExpr::Op(OperationDetail::from(Load::new(name)).with_meta(meta))
 }
 
 fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
     let meta = name.meta();
-    let bind_name = name.id.to_string();
-    op_expr(OperationDetail::from(LoadName::new(bind_name)).with_meta(meta))
+    op_expr(OperationDetail::from(Load::new(name)).with_meta(meta))
 }
 
 fn rewrite_local_name_load(name: ExprName, resolver: &NameBindingMapper<'_>) -> CoreBlockPyExpr {
-    let meta = name.meta();
-    op_expr(
-        OperationDetail::from(LoadLocation::new(NameLocation::Local(
-            resolver.resolve_raw_local_location(name.id.as_str()),
-        )))
-        .with_meta(meta),
-    )
+    let _ = resolver;
+    rewrite_global_name_load(name)
 }
 
 fn cell_name_for_name(
@@ -134,10 +132,8 @@ fn rewrite_cell_name_load(
     semantic: &BlockPyCallableSemanticInfo,
     resolver: &NameBindingMapper<'_>,
 ) -> CoreBlockPyExpr {
-    let meta = name.meta();
-    let location = resolver
-        .resolve_raw_cell_location(cell_storage_name_for_name(name.id.as_str(), semantic).as_str());
-    op_expr(OperationDetail::from(LoadLocation::new(NameLocation::Cell(location))).with_meta(meta))
+    let _ = (semantic, resolver);
+    rewrite_global_name_load(name)
 }
 
 fn rewrite_raw_cell_storage_name_load(
@@ -145,12 +141,9 @@ fn rewrite_raw_cell_storage_name_load(
     semantic: &BlockPyCallableSemanticInfo,
     resolver: &NameBindingMapper<'_>,
 ) -> Option<CoreBlockPyExpr> {
-    let meta = name.meta();
-    let storage_name = resolve_cell_storage_name(semantic, name.id.as_str())?;
-    let location = resolver.resolve_raw_cell_location(storage_name.as_str());
-    Some(op_expr(
-        OperationDetail::from(LoadLocation::new(NameLocation::Cell(location))).with_meta(meta),
-    ))
+    let _ = (semantic, resolver);
+    resolve_cell_storage_name(semantic, name.id.as_str())?;
+    Some(rewrite_global_name_load(name))
 }
 
 fn raw_load_name<N>(expr: &CoreBlockPyExpr<N>) -> Option<String>
@@ -161,7 +154,7 @@ where
         CoreBlockPyExpr::Name(name) => Some(name.id_str().to_string()),
         CoreBlockPyExpr::Op(operation) => match operation {
             OperationDetail::LoadRuntime(op) => Some(op.name.clone()),
-            OperationDetail::LoadName(op) => Some(op.name.clone()),
+            OperationDetail::Load(op) => Some(op.name.id_str().to_string()),
             _ => None,
         },
         _ => None,
@@ -201,7 +194,7 @@ fn rewrite_name_load(
 }
 
 fn should_rewrite_raw_name_load(name: &str, semantic: &BlockPyCallableSemanticInfo) -> bool {
-    if !is_internal_symbol(name) && should_late_bind_name(name, semantic) {
+    if should_late_bind_name(name, semantic) {
         return true;
     }
 
@@ -229,9 +222,8 @@ fn rewrite_cell_ref_expr(
 
 fn rewrite_global_binding_assign(assign: BlockPyAssign<CoreBlockPyExpr>) -> CoreStmt {
     let meta = assign.target.meta();
-    let bind_name = assign.target.id.to_string();
     op_stmt(
-        OperationDetail::from(StoreName::new(bind_name, Box::new(assign.value))).with_meta(meta),
+        OperationDetail::from(Store::new(assign.target, Box::new(assign.value))).with_meta(meta),
     )
 }
 
@@ -257,16 +249,8 @@ fn rewrite_cell_binding_assign(
     semantic: &BlockPyCallableSemanticInfo,
     resolver: &NameBindingMapper<'_>,
 ) -> CoreStmt {
-    let meta = assign.target.meta();
-    op_stmt(
-        OperationDetail::from(StoreLocation::new(
-            NameLocation::Cell(resolver.resolve_raw_cell_location(
-                cell_storage_name_for_name(assign.target.id.as_str(), semantic).as_str(),
-            )),
-            Box::new(assign.value),
-        ))
-        .with_meta(meta),
-    )
+    let _ = (semantic, resolver);
+    rewrite_global_binding_assign(assign)
 }
 
 fn rewrite_global_binding_delete_by_name(
@@ -275,8 +259,16 @@ fn rewrite_global_binding_delete_by_name(
     range: ruff_text_size::TextRange,
 ) -> CoreStmt {
     op_stmt(
-        OperationDetail::from(DelName::new(bind_name.to_string(), false))
-            .with_meta(crate::block_py::Meta::new(node_index.clone(), range)),
+        OperationDetail::from(Del::new(
+            ast::ExprName {
+                id: bind_name.into(),
+                ctx: ast::ExprContext::Del,
+                node_index: node_index.clone(),
+                range,
+            },
+            false,
+        ))
+        .with_meta(crate::block_py::Meta::new(node_index.clone(), range)),
     )
 }
 
@@ -288,15 +280,8 @@ fn rewrite_binding_delete(
     let meta = target.meta();
     let bind_name = target.id.to_string();
     if semantic.is_cell_binding(bind_name.as_str()) {
-        return op_stmt(
-            OperationDetail::from(DelLocation::new(
-                NameLocation::Cell(resolver.resolve_raw_cell_location(
-                    cell_storage_name_for_name(bind_name.as_str(), semantic).as_str(),
-                )),
-                false,
-            ))
-            .with_meta(meta),
-        );
+        let _ = resolver;
+        return op_stmt(OperationDetail::from(Del::new(target, false)).with_meta(meta));
     }
     match semantic.binding_target_for_name(bind_name.as_str(), BlockPyBindingPurpose::Store) {
         BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
@@ -456,16 +441,16 @@ fn rewrite_deleted_name_loads_in_expr(
                 always_unbound_names,
             );
         }
-        CoreBlockPyExpr::Op(operation) if matches!(operation, OperationDetail::LoadName(_)) => {
+        CoreBlockPyExpr::Op(operation) if matches!(operation, OperationDetail::Load(_)) => {
             let meta = operation.meta();
-            let OperationDetail::LoadName(op) = operation else {
-                unreachable!("load-name guard should ensure LoadName detail");
+            let OperationDetail::Load(op) = operation else {
+                unreachable!("load guard should ensure Load detail");
             };
-            let always_unbound = always_unbound_names.contains(op.name.as_str());
-            let deleted = deleted_names.contains(op.name.as_str());
+            let always_unbound = always_unbound_names.contains(op.name.id_str());
+            let deleted = deleted_names.contains(op.name.id_str());
             if always_unbound || deleted {
                 *expr = wrap_deleted_name_load_expr(
-                    op.name.clone(),
+                    op.name.id_str().to_string(),
                     meta.node_index.clone(),
                     meta.range,
                     if always_unbound {
@@ -474,39 +459,34 @@ fn rewrite_deleted_name_loads_in_expr(
                         expr.clone()
                     },
                 );
-            }
-        }
-        CoreBlockPyExpr::Op(operation)
-            if matches!(
-                operation,
-                OperationDetail::LoadLocation(LoadLocation {
-                    location: NameLocation::Local(_),
-                    ..
-                })
-            ) =>
-        {
-            let OperationDetail::LoadLocation(op) = operation else {
-                unreachable!("load-location guard should ensure LoadLocation detail");
-            };
-            let Some(logical_name) =
-                logical_name_for_local_location(storage_layout, op.location.as_local().unwrap())
-            else {
                 return;
-            };
-            let always_unbound = always_unbound_names.contains(logical_name.as_str());
-            let deleted = deleted_names.contains(logical_name.as_str());
-            if always_unbound || deleted {
-                let meta = operation.meta();
-                *expr = wrap_deleted_name_load_expr(
-                    logical_name,
-                    meta.node_index.clone(),
-                    meta.range,
-                    if always_unbound {
-                        deleted_sentinel_expr(meta.node_index, meta.range)
-                    } else {
-                        expr.clone()
-                    },
-                );
+            }
+            if matches!(op.name.ctx, ast::ExprContext::Load) {
+                if let Some(location) = resolver
+                    .local_slots
+                    .get(op.name.id_str())
+                    .copied()
+                    .map(LocalLocation)
+                {
+                    if let Some(logical_name) =
+                        logical_name_for_local_location(storage_layout, location)
+                    {
+                        let always_unbound = always_unbound_names.contains(logical_name.as_str());
+                        let deleted = deleted_names.contains(logical_name.as_str());
+                        if always_unbound || deleted {
+                            *expr = wrap_deleted_name_load_expr(
+                                logical_name,
+                                meta.node_index.clone(),
+                                meta.range,
+                                if always_unbound {
+                                    deleted_sentinel_expr(meta.node_index, meta.range)
+                                } else {
+                                    expr.clone()
+                                },
+                            );
+                        }
+                    }
+                }
             }
         }
         CoreBlockPyExpr::Op(_) => {
@@ -514,12 +494,11 @@ fn rewrite_deleted_name_loads_in_expr(
                 unreachable!("op-like branch should have operation view");
             };
             match operation {
-                OperationDetail::LoadName(_) => {}
-                OperationDetail::LoadLocation(_)
-                | OperationDetail::DelLocation(_)
+                OperationDetail::Load(_)
+                | OperationDetail::Del(_)
                 | OperationDetail::CellRefForName(_)
                 | OperationDetail::CellRef(_) => {}
-                OperationDetail::StoreName(_) | OperationDetail::StoreLocation(_) => {
+                OperationDetail::Store(_) => {
                     with_helper_arg_mut(expr, 1, &mut |value_expr| {
                         rewrite_deleted_name_loads_in_expr(
                             value_expr,
@@ -651,15 +630,10 @@ fn rewrite_quiet_delete_marker(
     let range = name.range;
     let meta = crate::block_py::Meta::new(node_index.clone(), range);
     match semantic.binding_kind(name.id.as_str()) {
-        Some(BlockPyBindingKind::Cell(_)) => op_stmt(
-            OperationDetail::from(DelLocation::new(
-                NameLocation::Cell(resolver.resolve_raw_cell_location(
-                    cell_storage_name_for_name(name.id.as_str(), semantic).as_str(),
-                )),
-                true,
-            ))
-            .with_meta(meta),
-        ),
+        Some(BlockPyBindingKind::Cell(_)) => {
+            let _ = resolver;
+            op_stmt(OperationDetail::from(Del::new(name, true)).with_meta(meta))
+        }
         _ => match semantic.binding_target_for_name(name.id.as_str(), BlockPyBindingPurpose::Store)
         {
             BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
@@ -671,9 +645,9 @@ fn rewrite_quiet_delete_marker(
                 },
                 value: deleted_sentinel_expr(node_index, range),
             }),
-            BindingTarget::ModuleGlobal => op_stmt(
-                OperationDetail::from(DelName::new(name.id.to_string(), true)).with_meta(meta),
-            ),
+            BindingTarget::ModuleGlobal => {
+                op_stmt(OperationDetail::from(Del::new(name, true)).with_meta(meta))
+            }
             BindingTarget::ClassNamespace => op_stmt(
                 OperationDetail::from(DelItem::new(
                     Box::new(class_namespace_expr(node_index.clone(), range)),
@@ -776,13 +750,13 @@ fn make_function_kind_name(kind: BlockPyFunctionKind) -> &'static str {
 fn cell_load_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
-    storage_layout: &StorageLayout,
+    _storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::LoadLocation(LoadLocation { location, .. }) = operation else {
+    let OperationDetail::Load(op) = operation else {
         return None;
     };
-    logical_name_for_cell_location(semantic, storage_layout, location.as_cell()?)
+    logical_name_for_cell_bound_name(semantic, op.name.id_str())
 }
 
 fn build_local_cell_init_assign(
@@ -948,58 +922,60 @@ fn logical_name_for_local_location(
     layout.stack_slots().get(location.slot() as usize).cloned()
 }
 
+fn logical_name_for_cell_bound_name(
+    semantic: &BlockPyCallableSemanticInfo,
+    name: &str,
+) -> Option<String> {
+    if semantic.is_cell_binding(name) {
+        return Some(name.to_string());
+    }
+    let storage_name = resolve_cell_storage_name(semantic, name)?;
+    semantic.logical_name_for_cell_storage(storage_name.as_str())
+}
+
 fn store_cell_deleted_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
-    storage_layout: &StorageLayout,
+    _storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::StoreLocation(StoreLocation {
-        location, value, ..
-    }) = operation
-    else {
+    let OperationDetail::Store(op) = operation else {
         return None;
     };
-    if !is_deleted_sentinel_expr(value) {
+    if !is_deleted_sentinel_expr(&op.value) {
         return None;
     }
-    logical_name_for_cell_location(semantic, storage_layout, location.as_cell()?)
+    logical_name_for_cell_bound_name(semantic, op.name.id_str())
 }
 
 fn del_deref_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
-    storage_layout: &StorageLayout,
+    _storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::DelLocation(DelLocation {
-        location, quietly, ..
-    }) = operation
-    else {
+    let OperationDetail::Del(op) = operation else {
         return None;
     };
-    if *quietly {
+    if op.quietly {
         return None;
     }
-    logical_name_for_cell_location(semantic, storage_layout, location.as_cell()?)
+    logical_name_for_cell_bound_name(semantic, op.name.id_str())
 }
 
 fn store_cell_runtime_logical_name(
     expr: &CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
-    storage_layout: &StorageLayout,
+    _storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::StoreLocation(StoreLocation {
-        location, value, ..
-    }) = operation
-    else {
+    let OperationDetail::Store(op) = operation else {
         return None;
     };
-    if is_deleted_sentinel_expr(value) {
+    if is_deleted_sentinel_expr(&op.value) {
         return None;
     }
-    logical_name_for_cell_location(semantic, storage_layout, location.as_cell()?)
+    logical_name_for_cell_bound_name(semantic, op.name.id_str())
 }
 
 fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
@@ -1152,14 +1128,9 @@ fn rewrite_binding_assign_by_name(
     };
     if semantic.is_cell_binding(name.as_str()) {
         if is_deleted_sentinel_expr(&assign.value) {
+            let _ = resolver;
             return op_stmt(
-                OperationDetail::from(DelLocation::new(
-                    NameLocation::Cell(resolver.resolve_raw_cell_location(
-                        cell_storage_name_for_name(name.as_str(), semantic).as_str(),
-                    )),
-                    false,
-                ))
-                .with_meta(meta),
+                OperationDetail::from(Del::new(assign.target.clone(), false)).with_meta(meta),
             );
         }
         return rewrite_cell_binding_assign(assign, semantic, resolver);
@@ -1205,22 +1176,13 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
 
     fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
         match expr {
-            CoreBlockPyExpr::Op(operation) if matches!(operation, OperationDetail::LoadName(_)) => {
+            CoreBlockPyExpr::Op(operation) if matches!(operation, OperationDetail::Load(_)) => {
                 let meta = operation.meta();
                 let detail = operation;
-                let OperationDetail::LoadName(op) = detail else {
-                    unreachable!("load-name guard should ensure LoadName detail");
+                let OperationDetail::Load(op) = detail else {
+                    unreachable!("load guard should ensure Load detail");
                 };
-                rewrite_name_load(
-                    ExprName {
-                        id: op.name.into(),
-                        ctx: ast::ExprContext::Load,
-                        node_index: meta.node_index,
-                        range: meta.range,
-                    },
-                    self.semantic,
-                    self,
-                )
+                rewrite_name_load(op.name, self.semantic, self)
             }
             CoreBlockPyExpr::Name(name)
                 if matches!(name.ctx, ast::ExprContext::Load)
@@ -1577,10 +1539,13 @@ fn sync_exception_param_cell_in_block(
         range,
     };
     let sync_stmt = op_stmt(
-        OperationDetail::from(StoreLocation::new(
-            NameLocation::Cell(resolver.resolve_raw_cell_location(
-                cell_storage_name_for_name(exc_name, semantic).as_str(),
-            )),
+        OperationDetail::from(Store::new(
+            ast::ExprName {
+                id: exc_name.into(),
+                ctx: ast::ExprContext::Store,
+                node_index: node_index.clone(),
+                range,
+            },
             Box::new(rewrite_local_name_load(exc_load, resolver)),
         ))
         .with_meta(crate::block_py::Meta::new(node_index, range)),
@@ -1680,8 +1645,8 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
         CoreBlockPyExpr::Literal(_) => {}
         CoreBlockPyExpr::Op(operation) => {
             match operation {
-                OperationDetail::LoadName(op) => {
-                    names.insert(op.name.clone());
+                OperationDetail::Load(op) => {
+                    names.insert(op.name.id_str().to_string());
                 }
                 _ => {}
             }
@@ -2143,8 +2108,14 @@ impl NameLocator<'_> {
     fn mark_raw_cell_name(&self, name: LocatedName) -> LocatedName {
         let name_text = name.id.to_string();
         if name.location.is_global() {
-            let location = self.resolve_raw_cell_location(name_text.as_str());
-            return name.with_location(NameLocation::Cell(location));
+            if resolve_captured_cell_source_storage_name(self.semantic, name_text.as_str())
+                .is_some()
+                || self.cell_bindings.contains_key(name_text.as_str())
+            {
+                let location = self.resolve_raw_cell_location(name_text.as_str());
+                return name.with_location(NameLocation::Cell(location));
+            }
+            return name;
         }
 
         match name.cell_location() {
@@ -2180,6 +2151,18 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                 let operation = operation_expr_mut(&mut expr)
                     .expect("op expression should remain op after nested mapping");
                 let meta = operation.meta();
+                match operation {
+                    OperationDetail::Load(op) => {
+                        op.name = self.mark_raw_cell_name(self.locate_name(op.name.clone().into()));
+                    }
+                    OperationDetail::Store(op) => {
+                        op.name = self.mark_raw_cell_name(self.locate_name(op.name.clone().into()));
+                    }
+                    OperationDetail::Del(op) => {
+                        op.name = self.mark_raw_cell_name(self.locate_name(op.name.clone().into()));
+                    }
+                    _ => {}
+                }
                 if let OperationDetail::CellRefForName(op) = operation {
                     let location = self.resolve_cell_ref_location(op.logical_name.as_str());
                     *operation = OperationDetail::from(CellRef::new(location)).with_meta(meta);

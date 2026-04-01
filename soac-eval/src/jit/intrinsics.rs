@@ -4,6 +4,7 @@ use cranelift_codegen::ir;
 use cranelift_codegen::ir::InstBuilder;
 use cranelift_frontend::FunctionBuilder;
 use pyo3::ffi;
+use soac_blockpy::block_py::{BlockPyNameLike, Instr, LocatedCodegenBlockPyExpr};
 
 pub(super) trait OperationEmitState<'fb, E> {
     fn ctx(&self) -> &JitEmitCtx<'_>;
@@ -356,7 +357,7 @@ fn emit_identity_compare<'fb, E>(
     state.emit_owned_bool_from_cond(cond)
 }
 
-fn emit_getattr<'fb, E>(
+fn emit_getattr<'fb, E: Instr>(
     op: &blockpy_intrinsics::GetAttr<E>,
     state: &mut impl OperationEmitState<'fb, E>,
 ) -> ir::Value {
@@ -371,7 +372,7 @@ fn emit_getattr<'fb, E>(
     state.finish_owned_result(result)
 }
 
-fn emit_setattr<'fb, E>(
+fn emit_setattr<'fb, E: Instr>(
     op: &blockpy_intrinsics::SetAttr<E>,
     state: &mut impl OperationEmitState<'fb, E>,
 ) -> ir::Value {
@@ -531,11 +532,11 @@ fn emit_inplace_binop<'fb, E>(
     }
 }
 
-fn emit_load_name<'fb, E>(
-    op: &blockpy_intrinsics::LoadName,
-    state: &mut impl OperationEmitState<'fb, E>,
+fn emit_load<'fb>(
+    op: &blockpy_intrinsics::Load<LocatedCodegenBlockPyExpr>,
+    state: &mut impl OperationEmitState<'fb, LocatedCodegenBlockPyExpr>,
 ) -> ir::Value {
-    let name_obj = state.emit_owned_string_constant(op.name.as_str());
+    let name_obj = state.emit_owned_string_constant(op.name.id_str());
     let func_ref = state.import_func(&DP_JIT_LOAD_GLOBAL_OBJ_IMPORT);
     let decref_ref = state.ctx().decref_ref;
     let globals_obj = state.ctx().consts.block_const;
@@ -558,12 +559,12 @@ fn emit_load_runtime<'fb, E>(
     state.finish_owned_result(result)
 }
 
-fn emit_store_name<'fb, E>(
-    op: &blockpy_intrinsics::StoreName<E>,
-    state: &mut impl OperationEmitState<'fb, E>,
+fn emit_store<'fb>(
+    op: &blockpy_intrinsics::Store<LocatedCodegenBlockPyExpr>,
+    state: &mut impl OperationEmitState<'fb, LocatedCodegenBlockPyExpr>,
 ) -> ir::Value {
     let arg_values = state.emit_arg_values(&[&op.value]);
-    let name_obj = state.emit_owned_string_constant(op.name.as_str());
+    let name_obj = state.emit_owned_string_constant(op.name.id_str());
     let func_ref = state.import_func(&DP_JIT_STORE_GLOBAL_IMPORT);
     let decref_ref = state.ctx().decref_ref;
     let globals_obj = state.ctx().consts.block_const;
@@ -577,11 +578,11 @@ fn emit_store_name<'fb, E>(
     state.finish_owned_result(result)
 }
 
-fn emit_del_name<'fb, E>(
-    op: &blockpy_intrinsics::DelName,
-    state: &mut impl OperationEmitState<'fb, E>,
+fn emit_del<'fb>(
+    op: &blockpy_intrinsics::Del<LocatedCodegenBlockPyExpr>,
+    state: &mut impl OperationEmitState<'fb, LocatedCodegenBlockPyExpr>,
 ) -> ir::Value {
-    let name_obj = state.emit_owned_string_constant(op.name.as_str());
+    let name_obj = state.emit_owned_string_constant(op.name.id_str());
     let func_ref = if op.quietly {
         state.import_func(&DP_JIT_DEL_QUIETLY_IMPORT)
     } else {
@@ -612,9 +613,9 @@ pub(super) fn emit_del_deref_raw_cell<'fb, E>(
     state.finish_owned_result(result)
 }
 
-pub(super) fn emit_operation<'fb, E>(
-    operation: &blockpy_intrinsics::OperationDetail<E>,
-    state: &mut impl OperationEmitState<'fb, E>,
+pub(super) fn emit_operation<'fb>(
+    operation: &blockpy_intrinsics::OperationDetail<LocatedCodegenBlockPyExpr>,
+    state: &mut impl OperationEmitState<'fb, LocatedCodegenBlockPyExpr>,
 ) -> Option<ir::Value> {
     match operation {
         blockpy_intrinsics::OperationDetail::BinOp(op) => Some(emit_binop(
@@ -650,17 +651,20 @@ pub(super) fn emit_operation<'fb, E>(
             &[op.value.as_ref(), op.index.as_ref()],
         )),
         blockpy_intrinsics::OperationDetail::LoadRuntime(op) => Some(emit_load_runtime(op, state)),
-        blockpy_intrinsics::OperationDetail::LoadName(op) => Some(emit_load_name(op, state)),
-        blockpy_intrinsics::OperationDetail::StoreName(op) => Some(emit_store_name(op, state)),
-        blockpy_intrinsics::OperationDetail::DelName(op) => Some(emit_del_name(op, state)),
-        blockpy_intrinsics::OperationDetail::LoadLocation(_) => None,
+        blockpy_intrinsics::OperationDetail::Load(op) => {
+            op.name.location.is_global().then(|| emit_load(op, state))
+        }
         blockpy_intrinsics::OperationDetail::MakeCell(op) => {
             Some(emit_make_cell(state, &[op.initial_value.as_ref()]))
         }
         blockpy_intrinsics::OperationDetail::CellRefForName(_) => None,
         blockpy_intrinsics::OperationDetail::CellRef(_) => None,
         blockpy_intrinsics::OperationDetail::MakeFunction(_) => None,
-        blockpy_intrinsics::OperationDetail::StoreLocation(_) => None,
-        blockpy_intrinsics::OperationDetail::DelLocation(_) => None,
+        blockpy_intrinsics::OperationDetail::Store(op) => {
+            op.name.location.is_global().then(|| emit_store(op, state))
+        }
+        blockpy_intrinsics::OperationDetail::Del(op) => {
+            op.name.location.is_global().then(|| emit_del(op, state))
+        }
     }
 }

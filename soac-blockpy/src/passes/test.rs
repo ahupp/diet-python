@@ -96,6 +96,25 @@ fn function_by_name<'a>(
         .unwrap_or_else(|| panic!("missing lowered function {bind_name}; got {:?}", bb_module))
 }
 
+#[test]
+fn debug_await_inside_except_raise_name_binding() {
+    let source = r#"
+import asyncio
+
+async def inner():
+    return False
+
+async def check():
+    try:
+        raise ValueError("boom")
+    except Exception:
+        await inner()
+        raise
+"#;
+
+    println!("{}", TrackedLowering::new(source).name_binding_text());
+}
+
 fn slot_by_name<'a>(slots: &'a [ClosureSlot], logical_name: &str) -> &'a ClosureSlot {
     slots
         .iter()

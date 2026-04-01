@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::block_py::pretty::BlockPyDebugExprText;
-use crate::block_py::{BinOpKind, OperationDetail, UnaryOpKind};
+use crate::block_py::{BinOpKind, BlockPyNameLike, OperationDetail, UnaryOpKind};
 
 fn lower_semantic_expr_without_setup(expr: &Expr) -> CoreBlockPyExprWithAwaitAndYield {
     CoreBlockPyExprWithAwaitAndYield::from(expr.clone())
@@ -18,7 +18,7 @@ fn is_raw_load_name_expr(expr: &CoreBlockPyExprWithAwaitAndYield, expected: &str
     matches!(
         expr,
         CoreBlockPyExprWithAwaitAndYield::Op(operation)
-            if matches!(operation, crate::block_py::OperationDetail::LoadName(op) if op.name == expected)
+            if matches!(operation, crate::block_py::OperationDetail::Load(op) if op.name.id_str() == expected)
     )
 }
 

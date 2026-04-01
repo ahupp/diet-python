@@ -383,9 +383,9 @@ fn codegen_expr_is_borrowable(
             located_local_name_is_borrowable(name, local_names, stack_slots)
         }
         CodegenBlockPyExpr::Op(operation) => match operation {
-            blockpy_intrinsics::OperationDetail::LoadLocation(op) => op
-                .location
-                .as_local()
+            blockpy_intrinsics::OperationDetail::Load(op) => op
+                .name
+                .local_location()
                 .and_then(|location| storage_layout?.stack_slots().get(location.slot() as usize))
                 .is_some_and(|name| {
                     local_names.iter().any(|candidate| candidate == name)
@@ -419,7 +419,7 @@ fn emit_codegen_local_name_load(
     let layout = ctx
         .storage_layout
         .as_ref()
-        .expect("LoadLocation local slot should have storage layout during codegen");
+        .expect("Load local slot should have storage layout during codegen");
     let name = local_name_for_location(layout, location);
     if let Some(slot_index) = local_names.iter().position(|candidate| candidate == name) {
         let slot_value = local_values[slot_index];
@@ -454,8 +454,8 @@ fn codegen_expr_const_string(
             String::from_utf8(bytes.value.clone()).ok()
         }
         CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(_)) => None,
-        CodegenBlockPyExpr::Op(blockpy_intrinsics::OperationDetail::LoadLocation(op)) => {
-            op.location.as_constant().and_then(|index| {
+        CodegenBlockPyExpr::Op(blockpy_intrinsics::OperationDetail::Load(op)) => {
+            op.name.location.as_constant().and_then(|index| {
                 module_constants.constant_string_value(ModuleConstantId(index as usize))
             })
         }
@@ -485,7 +485,9 @@ fn codegen_expr_helper_name(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
         CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
         CodegenBlockPyExpr::Op(operation) => match operation {
             blockpy_intrinsics::OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
-            blockpy_intrinsics::OperationDetail::LoadName(op) => Some(op.name.as_str()),
+            blockpy_intrinsics::OperationDetail::Load(op) if op.name.location.is_global() => {
+                Some(op.name.id.as_str())
+            }
             _ => None,
         },
         CodegenBlockPyExpr::Literal(_) => None,
@@ -545,8 +547,8 @@ struct JitEmitCtx<'mc> {
 
 struct CodegenIntrinsicEmitState<'a, 'b, 'mc, 'c, 'd> {
     fb: &'a mut FunctionBuilder<'b>,
-    local_names: &'c [String],
-    local_values: &'c [ir::Value],
+    local_names: &'c mut Vec<String>,
+    local_values: &'c mut Vec<ir::Value>,
     ctx: &'c JitEmitCtx<'mc>,
     jit_module: &'a mut JITModule,
     func_imports: &'a mut FuncBuildImports<'d>,
@@ -715,15 +717,15 @@ impl<'a, 'b, 'mc, 'c, 'd> intrinsics::OperationEmitState<'b, LocatedCodegenBlock
         for arg in args {
             let borrowed_arg = codegen_expr_is_borrowable(
                 arg,
-                self.local_names,
+                &*self.local_names,
                 &self.ctx.stack_slots,
                 self.ctx.storage_layout.as_ref(),
             );
             let value = emit_codegen_expr(
                 self.fb,
                 arg,
-                self.local_names,
-                self.local_values,
+                &mut *self.local_names,
+                &mut *self.local_values,
                 self.ctx,
                 borrowed_arg,
                 self.jit_module,
@@ -1126,8 +1128,8 @@ fn emit_owned_bool_from_i32_result(
 fn emit_codegen_expr(
     fb: &mut FunctionBuilder<'_>,
     expr: &LocatedCodegenBlockPyExpr,
-    local_names: &[String],
-    local_values: &[ir::Value],
+    local_names: &mut Vec<String>,
+    local_values: &mut Vec<ir::Value>,
     ctx: &JitEmitCtx<'_>,
     borrowed: bool,
     jit_module: &mut JITModule,
@@ -1240,15 +1242,15 @@ fn emit_codegen_expr(
         CodegenBlockPyExpr::Op(operation)
             if !matches!(operation, blockpy_intrinsics::OperationDetail::Call(_)) =>
         {
-            if let blockpy_intrinsics::OperationDetail::LoadLocation(op) = operation {
-                if let Some(index) = op.location.as_constant() {
+            if let blockpy_intrinsics::OperationDetail::Load(op) = operation {
+                if let Some(index) = op.name.location.as_constant() {
                     assert!(
                         !borrowed,
-                        "constant-backed LoadLocation must produce owned references"
+                        "constant-backed Load must produce owned references"
                     );
                     return emit_owned_module_constant(fb, ModuleConstantId(index as usize), ctx);
                 }
-                if let Some(location) = op.location.as_local() {
+                if let Some(location) = op.name.local_location() {
                     return emit_codegen_local_name_load(
                         fb,
                         location,
@@ -1298,16 +1300,16 @@ fn emit_codegen_expr(
                         intrinsic_state.ctx,
                     )
                 }
-                blockpy_intrinsics::OperationDetail::LoadLocation(op) => {
-                    let Some(location) = op.location.as_cell() else {
+                blockpy_intrinsics::OperationDetail::Load(op) => {
+                    let Some(location) = op.name.cell_location() else {
                         panic!(
-                            "LoadLocation should be resolved to a cell slot before codegen: {op:?}"
+                            "Load should be resolved to a cell-backed location before codegen: {op:?}"
                         );
                     };
                     let raw_cell = emit_raw_cell_object_for_location(
                         intrinsic_state.fb,
                         location,
-                        "LoadLocation",
+                        "Load",
                         intrinsic_state.local_names,
                         intrinsic_state.local_values,
                         intrinsic_state.ctx,
@@ -1344,16 +1346,47 @@ fn emit_codegen_expr(
                     intrinsic_state.fb.switch_to_block(value_ok_block);
                     intrinsic_state.fb.block_params(value_ok_block)[0]
                 }
-                blockpy_intrinsics::OperationDetail::StoreLocation(op) => {
-                    let Some(location) = op.location.as_cell() else {
-                        panic!(
-                            "StoreLocation should be resolved to a cell slot before codegen: {op:?}"
+                blockpy_intrinsics::OperationDetail::Store(op) => {
+                    if let Some(location) = op.name.local_location() {
+                        let layout =
+                            intrinsic_state.ctx.storage_layout.as_ref().expect(
+                                "Store local slot should have storage layout during codegen",
+                            );
+                        let name = local_name_for_location(layout, location);
+                        let value_obj = emit_codegen_expr(
+                            intrinsic_state.fb,
+                            &op.value,
+                            intrinsic_state.local_names,
+                            intrinsic_state.local_values,
+                            intrinsic_state.ctx,
+                            false,
+                            intrinsic_state.jit_module,
+                            intrinsic_state.func_imports,
                         );
+                        bind_local_value(
+                            intrinsic_state.fb,
+                            intrinsic_state.local_names,
+                            intrinsic_state.local_values,
+                            name,
+                            value_obj,
+                            &intrinsic_state.ctx.stack_slots,
+                            intrinsic_state.ctx.consts.ptr_ty,
+                            intrinsic_state.ctx.incref_ref,
+                            intrinsic_state.ctx.decref_ref,
+                        );
+                        intrinsic_state.fb.ins().call(
+                            intrinsic_state.ctx.incref_ref,
+                            &[intrinsic_state.ctx.consts.none_const],
+                        );
+                        return intrinsic_state.ctx.consts.none_const;
+                    }
+                    let Some(location) = op.name.cell_location() else {
+                        panic!("Store should be resolved before codegen: {op:?}");
                     };
                     let raw_cell = emit_raw_cell_object_for_location(
                         intrinsic_state.fb,
                         location,
-                        "StoreLocation",
+                        "Store",
                         intrinsic_state.local_names,
                         intrinsic_state.local_values,
                         intrinsic_state.ctx,
@@ -1394,16 +1427,39 @@ fn emit_codegen_expr(
                         call_value,
                     )
                 }
-                blockpy_intrinsics::OperationDetail::DelLocation(op) => {
-                    let Some(location) = op.location.as_cell() else {
-                        panic!(
-                            "DelLocation should be resolved to a cell slot before codegen: {op:?}"
+                blockpy_intrinsics::OperationDetail::Del(op) => {
+                    if let Some(location) = op.name.local_location() {
+                        let layout = intrinsic_state
+                            .ctx
+                            .storage_layout
+                            .as_ref()
+                            .expect("Del local slot should have storage layout during codegen");
+                        let name = local_name_for_location(layout, location);
+                        delete_local_value(
+                            intrinsic_state.fb,
+                            intrinsic_state.local_names,
+                            intrinsic_state.local_values,
+                            name,
+                            &intrinsic_state.ctx.stack_slots,
+                            intrinsic_state.ctx.consts.deleted_const,
+                            intrinsic_state.ctx.consts.ptr_ty,
+                            intrinsic_state.ctx.incref_ref,
+                            intrinsic_state.ctx.decref_ref,
+                        )
+                        .unwrap_or_else(|error| panic!("{error}"));
+                        intrinsic_state.fb.ins().call(
+                            intrinsic_state.ctx.incref_ref,
+                            &[intrinsic_state.ctx.consts.none_const],
                         );
+                        return intrinsic_state.ctx.consts.none_const;
+                    }
+                    let Some(location) = op.name.cell_location() else {
+                        panic!("Del should be resolved before codegen: {op:?}");
                     };
                     let raw_cell = emit_raw_cell_object_for_location(
                         intrinsic_state.fb,
                         location,
-                        "DelLocation",
+                        "Del",
                         intrinsic_state.local_names,
                         intrinsic_state.local_values,
                         intrinsic_state.ctx,
@@ -2637,8 +2693,8 @@ fn emit_codegen_term(
     exec_blocks: &[ir::Block],
     runtime_block_param_names: &[Vec<String>],
     full_block_param_names: &[Vec<String>],
-    local_names: &[String],
-    local_values: &[ir::Value],
+    local_names: &mut Vec<String>,
+    local_values: &mut Vec<ir::Value>,
     emit_ctx: &JitEmitCtx<'_>,
     jit_module: &mut JITModule,
     func_imports: &mut FuncBuildImports<'_>,
@@ -3768,8 +3824,8 @@ fn build_cranelift_run_bb_specialized_function(
                 &exec_blocks,
                 &runtime_block_param_names,
                 &full_block_param_names,
-                &local_names,
-                &local_values,
+                &mut local_names,
+                &mut local_values,
                 &emit_ctx,
                 jit_module,
                 &mut func_imports,

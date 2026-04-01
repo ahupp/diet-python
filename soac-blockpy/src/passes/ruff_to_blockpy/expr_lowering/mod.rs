@@ -353,8 +353,13 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
 
     if let Some(call) = lowered_helper_call(expr, "store_global", 3) {
         return Some(core_operation_expr(
-            operation::OperationDetail::from(operation::StoreName::new(
-                string_literal_value(&call.arguments.args[1])?,
+            operation::OperationDetail::from(operation::Store::new(
+                ast::ExprName {
+                    id: string_literal_value(&call.arguments.args[1])?.into(),
+                    ctx: ast::ExprContext::Store,
+                    node_index: call.node_index.clone(),
+                    range: call.range,
+                },
                 Box::new(lowered(call.arguments.args[2].clone())),
             ))
             .with_meta(Meta::new(call.node_index.clone(), call.range)),

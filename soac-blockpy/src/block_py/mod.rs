@@ -13,10 +13,9 @@ pub use self::semantics::{
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 pub use operation::{
-    BinOp, BinOpKind, Call, CellRef, CellRefForName, DelItem, DelLocation, DelName, GetAttr,
-    GetItem, InplaceBinOp, InplaceBinOpKind, LoadLocation, LoadName, LoadRuntime, MakeCell,
-    MakeFunction, OperationDetail, SetAttr, SetItem, StoreLocation, StoreName, UnaryOp,
-    UnaryOpKind,
+    BinOp, BinOpKind, Call, CellRef, CellRefForName, Del, DelItem, GetAttr, GetItem, InplaceBinOp,
+    InplaceBinOpKind, Load, LoadRuntime, MakeCell, MakeFunction, OperationDetail, SetAttr, SetItem,
+    Store, UnaryOp, UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
@@ -495,7 +494,7 @@ pub enum CoreBlockPyExprWithYield {
 }
 
 #[derive(Debug, Clone)]
-pub enum CoreBlockPyExpr<N = ast::ExprName> {
+pub enum CoreBlockPyExpr<N: BlockPyNameLike = ast::ExprName> {
     Name(N),
     Literal(CoreBlockPyLiteral),
     Op(OperationDetail<Self>),
@@ -553,7 +552,7 @@ pub enum CoreNumberLiteralValue {
     Float(f64),
 }
 
-pub(crate) trait CoreCallLikeExpr: Sized {
+pub(crate) trait CoreCallLikeExpr: Sized + Instr {
     type Name: BlockPyNameLike + From<ast::ExprName>;
 
     fn from_name(name: ast::ExprName) -> Self;
@@ -1452,7 +1451,7 @@ impl<E, N> From<BlockPyAssign<E, N>> for BlockPyStmt<E, N> {
     }
 }
 
-impl<N> From<CoreBlockPyExpr<N>> for BlockPyStmt<CoreBlockPyExpr<N>, N> {
+impl<N: BlockPyNameLike> From<CoreBlockPyExpr<N>> for BlockPyStmt<CoreBlockPyExpr<N>, N> {
     fn from(value: CoreBlockPyExpr<N>) -> Self {
         Self::Expr(value)
     }

@@ -238,7 +238,7 @@ fn is_core_atom_without_await(expr: &CoreBlockPyExprWithYield) -> bool {
         CoreBlockPyExprWithYield::Op(operation)
             if matches!(
                 operation,
-                crate::block_py::OperationDetail::LoadName(_)
+                crate::block_py::OperationDetail::Load(_)
                     | crate::block_py::OperationDetail::LoadRuntime(_)
             )
     )

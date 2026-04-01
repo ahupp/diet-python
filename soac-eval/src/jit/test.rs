@@ -3,10 +3,9 @@ use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyModule,
     BlockPyStmt, BlockPyTerm, CellLocation, ClosureInit, ClosureSlot, CodegenBlock,
     CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral,
-    CoreNumberLiteralValue, CoreStringLiteral, DelItem, DelLocation, DelName, FunctionName,
-    HasMeta, InplaceBinOp, InplaceBinOpKind, LoadLocation, LoadName, LocatedCodegenBlockPyExpr,
-    LocatedName, Meta, ModuleNameGen, NameLocation, OperationDetail, Param, ParamKind, ParamSpec,
-    StorageLayout, StoreName, WithMeta,
+    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, InplaceBinOp,
+    InplaceBinOpKind, Load, LocatedCodegenBlockPyExpr, LocatedName, Meta, ModuleNameGen,
+    NameLocation, OperationDetail, Param, ParamKind, ParamSpec, StorageLayout, Store, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
@@ -40,6 +39,16 @@ mod tests {
             range: Default::default(),
             node_index: Default::default(),
             location: NameLocation::closure_cell(slot),
+        }
+    }
+
+    fn test_constant_name(index: u32) -> LocatedName {
+        LocatedName {
+            id: "__dp_constant".into(),
+            ctx: ast::ExprContext::Load,
+            range: Default::default(),
+            node_index: Default::default(),
+            location: NameLocation::Constant(index),
         }
     }
 
@@ -207,8 +216,7 @@ mod tests {
                 let literal = std::mem::replace(
                     expr,
                     CodegenBlockPyExpr::Op(
-                        OperationDetail::from(LoadLocation::new(NameLocation::Constant(index)))
-                            .with_meta(meta),
+                        OperationDetail::from(Load::new(test_constant_name(index))).with_meta(meta),
                     ),
                 );
                 self.module_constants.push(literal);
@@ -370,10 +378,8 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(soac_blockpy::block_py::LoadLocation::new(
-                    NameLocation::Constant(0),
-                ))
-                .with_meta(Meta::synthetic()),
+                OperationDetail::from(Load::new(test_constant_name(0)))
+                    .with_meta(Meta::synthetic()),
             )),
         );
         let module = BlockPyModule {
@@ -482,7 +488,8 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(LoadName::new("x".to_string())).with_meta(Meta::synthetic()),
+                OperationDetail::from(Load::new(test_global_name("x")))
+                    .with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -499,7 +506,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(StoreName::new("x".to_string(), int_expr(3)))
+                OperationDetail::from(Store::new(test_global_name("x"), int_expr(3)))
                     .with_meta(Meta::synthetic()),
             )),
         );
@@ -610,15 +617,15 @@ mod tests {
                         .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    OperationDetail::from(DelName::new("x".to_string(), true))
+                    OperationDetail::from(Del::new(test_global_name("x"), true))
                         .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    OperationDetail::from(DelLocation::new(NameLocation::closure_cell(2), false))
+                    OperationDetail::from(Del::new(test_closure_cell_name("cell", 2), false))
                         .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    OperationDetail::from(DelLocation::new(NameLocation::closure_cell(2), true))
+                    OperationDetail::from(Del::new(test_closure_cell_name("cell", 2), true))
                         .with_meta(Meta::synthetic()),
                 )),
             ],

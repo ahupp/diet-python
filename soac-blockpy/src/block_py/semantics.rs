@@ -430,10 +430,10 @@ fn walk_assigned_name_targets_in_expr(target: &Expr, f: &mut impl FnMut(&str)) {
 
 fn walk_operation_loaded_names<E>(detail: &OperationDetail<E>, f: &mut impl FnMut(&str))
 where
-    E: BlockPySemanticExprNode,
+    E: crate::block_py::Instr + BlockPySemanticExprNode,
 {
     match detail {
-        OperationDetail::LoadName(op) => f(op.name.as_str()),
+        OperationDetail::Load(op) => f(op.name.id_str()),
         OperationDetail::Call(call) => {
             if let Some(name) = call.func.as_ref().root_name_id() {
                 f(name);
@@ -445,17 +445,20 @@ where
 
 fn operation_root_name_id<E>(detail: &OperationDetail<E>) -> Option<&str>
 where
-    E: BlockPySemanticExprNode,
+    E: crate::block_py::Instr + BlockPySemanticExprNode,
 {
     match detail {
         OperationDetail::Call(call) => call.func.as_ref().root_name_id(),
         OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
-        OperationDetail::LoadName(op) => Some(op.name.as_str()),
+        OperationDetail::Load(op) => Some(op.name.id_str()),
         _ => None,
     }
 }
 
-fn walk_operation_cell_ref_logical_names<E>(detail: &OperationDetail<E>, f: &mut impl FnMut(&str)) {
+fn walk_operation_cell_ref_logical_names<E>(detail: &OperationDetail<E>, f: &mut impl FnMut(&str))
+where
+    E: crate::block_py::Instr,
+{
     if let OperationDetail::CellRefForName(op) = detail {
         f(op.logical_name.as_str());
     }

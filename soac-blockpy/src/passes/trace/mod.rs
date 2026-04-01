@@ -1,6 +1,6 @@
 use crate::block_py::{
     core_operation_expr, core_runtime_positional_call_expr_with_meta, BlockPyFunction,
-    BlockPyModule, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreStringLiteral,
+    BlockPyModule, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreStringLiteral, Load,
     LocatedCodegenBlockPyExpr, LocatedName, Meta, NameLocation, StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
@@ -192,9 +192,13 @@ fn string_literal_expr(
         }),
     ));
     core_operation_expr(
-        crate::block_py::OperationDetail::from(crate::block_py::LoadLocation::new(
-            NameLocation::Constant(index),
-        ))
+        crate::block_py::OperationDetail::from(Load::new(LocatedName {
+            id: "__dp_trace_const".into(),
+            ctx: ast::ExprContext::Load,
+            range: meta.range,
+            node_index: meta.node_index.clone(),
+            location: NameLocation::Constant(index),
+        }))
         .with_meta(meta),
     )
 }

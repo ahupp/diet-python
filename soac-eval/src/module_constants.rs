@@ -1,10 +1,10 @@
 use pyo3::ffi;
 use pyo3::prelude::*;
 use soac_blockpy::block_py::{
-    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm,
-    CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyKeywordArg, CoreNumberLiteralValue,
-    LocatedCodegenBlockPyExpr, LocatedName, NameLocation, ParamDefaultSource,
-    operation as blockpy_intrinsics,
+    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyNameLike, BlockPyStmt,
+    BlockPyTerm, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyKeywordArg,
+    CoreNumberLiteralValue, LocatedCodegenBlockPyExpr, LocatedName, NameLocation,
+    ParamDefaultSource, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::collections::HashMap;
@@ -354,17 +354,26 @@ impl ModuleConstantCollector {
                     return;
                 }
                 match operation {
-                    blockpy_intrinsics::OperationDetail::StoreName(op) => {
-                        self.constants.intern_unicode_bytes(op.name.as_bytes());
-                    }
                     blockpy_intrinsics::OperationDetail::LoadRuntime(op) => {
                         self.constants.intern_unicode_bytes(op.name.as_bytes());
                     }
-                    blockpy_intrinsics::OperationDetail::LoadName(op) => {
-                        self.constants.intern_unicode_bytes(op.name.as_bytes());
+                    blockpy_intrinsics::OperationDetail::Load(op)
+                        if op.name.location.is_global() =>
+                    {
+                        self.constants
+                            .intern_unicode_bytes(op.name.id_str().as_bytes());
                     }
-                    blockpy_intrinsics::OperationDetail::DelName(op) => {
-                        self.constants.intern_unicode_bytes(op.name.as_bytes());
+                    blockpy_intrinsics::OperationDetail::Store(op)
+                        if op.name.location.is_global() =>
+                    {
+                        self.constants
+                            .intern_unicode_bytes(op.name.id_str().as_bytes());
+                    }
+                    blockpy_intrinsics::OperationDetail::Del(op)
+                        if op.name.location.is_global() =>
+                    {
+                        self.constants
+                            .intern_unicode_bytes(op.name.id_str().as_bytes());
                     }
                     _ => {}
                 }
@@ -399,8 +408,8 @@ impl ModuleConstantCollector {
                 Some(bytes.value.clone())
             }
             CodegenBlockPyExpr::Op(operation) => match operation {
-                blockpy_intrinsics::OperationDetail::LoadLocation(op) => {
-                    op.location.as_constant().and_then(|index| {
+                blockpy_intrinsics::OperationDetail::Load(op) => {
+                    op.name.location.as_constant().and_then(|index| {
                         self.constants
                             .constant_string_bytes_value(ModuleConstantId(index as usize))
                             .map(ToOwned::to_owned)
@@ -426,7 +435,9 @@ fn helper_name_for_codegen_expr(expr: &LocatedCodegenBlockPyExpr) -> Option<&str
         CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
         CodegenBlockPyExpr::Op(operation) => match operation {
             blockpy_intrinsics::OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
-            blockpy_intrinsics::OperationDetail::LoadName(op) => Some(op.name.as_str()),
+            blockpy_intrinsics::OperationDetail::Load(op) if op.name.location.is_global() => {
+                Some(op.name.id.as_str())
+            }
             _ => None,
         },
         CodegenBlockPyExpr::Literal(_) => None,
