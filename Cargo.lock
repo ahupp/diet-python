@@ -1049,6 +1049,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1653,6 +1659,7 @@ dependencies = [
  "derive_more",
  "env_logger",
  "log",
+ "paste",
  "regex",
  "ruff_python_ast",
  "ruff_python_codegen",
@@ -1662,6 +1669,7 @@ dependencies = [
  "ruff_text_size",
  "serde_json",
  "similar",
+ "soac-macros",
 ]
 
 [[package]]
@@ -1694,6 +1702,15 @@ dependencies = [
  "tokio",
  "tower",
  "tower-http",
+]
+
+[[package]]
+name = "soac-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

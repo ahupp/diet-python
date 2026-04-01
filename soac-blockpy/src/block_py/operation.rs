@@ -2,6 +2,7 @@ use super::{
     BlockPyFunctionKind, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg, FunctionId,
     HasMeta, Meta, NameLocation, WithMeta,
 };
+use soac_macros::DelegateMatchDefault;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum BinOpKind {
@@ -446,83 +447,6 @@ macro_rules! define_operation {
     };
 }
 
-macro_rules! operation_detail_variants {
-    ($macro:ident) => {
-        $macro! {
-            BinOp(BinOp<E>),
-            UnaryOp(UnaryOp<E>),
-            InplaceBinOp(InplaceBinOp<E>),
-            TernaryOp(TernaryOp<E>),
-            Call(Call<E>),
-            GetAttr(GetAttr<E>),
-            SetAttr(SetAttr<E>),
-            GetItem(GetItem<E>),
-            SetItem(SetItem<E>),
-            DelItem(DelItem<E>),
-            LoadRuntime(LoadRuntime),
-            LoadName(LoadName),
-            StoreName(StoreName<E>),
-            DelName(DelName),
-            LoadLocation(LoadLocation),
-            MakeCell(MakeCell<E>),
-            MakeString(MakeString),
-            CellRefForName(CellRefForName),
-            CellRef(CellRef),
-            MakeFunction(MakeFunction<E>),
-            StoreLocation(StoreLocation<E>),
-            DelLocation(DelLocation),
-        }
-    };
-    ($macro:ident, $($args:tt)*) => {
-        $macro! {
-            $($args)*
-            BinOp(BinOp<E>),
-            UnaryOp(UnaryOp<E>),
-            InplaceBinOp(InplaceBinOp<E>),
-            TernaryOp(TernaryOp<E>),
-            Call(Call<E>),
-            GetAttr(GetAttr<E>),
-            SetAttr(SetAttr<E>),
-            GetItem(GetItem<E>),
-            SetItem(SetItem<E>),
-            DelItem(DelItem<E>),
-            LoadRuntime(LoadRuntime),
-            LoadName(LoadName),
-            StoreName(StoreName<E>),
-            DelName(DelName),
-            LoadLocation(LoadLocation),
-            MakeCell(MakeCell<E>),
-            MakeString(MakeString),
-            CellRefForName(CellRefForName),
-            CellRef(CellRef),
-            MakeFunction(MakeFunction<E>),
-            StoreLocation(StoreLocation<E>),
-            DelLocation(DelLocation),
-        }
-    };
-}
-
-macro_rules! define_operation_detail_enum {
-    ($( $variant:ident($variant_ty:ty), )*) => {
-        #[derive(Debug, Clone, derive_more::From)]
-        pub enum OperationDetail<E> {
-            $( $variant($variant_ty), )*
-        }
-    };
-}
-
-macro_rules! impl_operation_detail_has_meta {
-    ($( $variant:ident($variant_ty:ty), )*) => {
-        impl<E> HasMeta for OperationDetail<E> {
-            fn meta(&self) -> Meta {
-                match self {
-                    $( OperationDetail::$variant(op) => op.meta(), )*
-                }
-            }
-        }
-    };
-}
-
 define_operation! {
     pub struct BinOp<E> {
         kind: BinOpKind,
@@ -768,8 +692,39 @@ define_operation! {
     }
 }
 
-operation_detail_variants!(define_operation_detail_enum);
-operation_detail_variants!(impl_operation_detail_has_meta);
+#[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
+pub enum OperationDetail<E> {
+    BinOp(BinOp<E>),
+    UnaryOp(UnaryOp<E>),
+    InplaceBinOp(InplaceBinOp<E>),
+    TernaryOp(TernaryOp<E>),
+    Call(Call<E>),
+    GetAttr(GetAttr<E>),
+    SetAttr(SetAttr<E>),
+    GetItem(GetItem<E>),
+    SetItem(SetItem<E>),
+    DelItem(DelItem<E>),
+    LoadRuntime(LoadRuntime),
+    LoadName(LoadName),
+    StoreName(StoreName<E>),
+    DelName(DelName),
+    LoadLocation(LoadLocation),
+    MakeCell(MakeCell<E>),
+    MakeString(MakeString),
+    CellRefForName(CellRefForName),
+    CellRef(CellRef),
+    MakeFunction(MakeFunction<E>),
+    StoreLocation(StoreLocation<E>),
+    DelLocation(DelLocation),
+}
+
+impl<E> HasMeta for OperationDetail<E> {
+    fn meta(&self) -> Meta {
+        crate::match_default!(OperationDetail, self, {
+            match_rest(op) => op.meta(),
+        })
+    }
+}
 
 impl<E> OperationDetail<E> {
     pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> OperationDetail<T> {
@@ -886,29 +841,9 @@ impl<E> OperationDetail<E> {
 
 impl<E> WithMeta for OperationDetail<E> {
     fn with_meta(self, meta: Meta) -> Self {
-        match self {
-            Self::BinOp(op) => Self::BinOp(op.with_meta(meta.clone())),
-            Self::UnaryOp(op) => Self::UnaryOp(op.with_meta(meta.clone())),
-            Self::InplaceBinOp(op) => Self::InplaceBinOp(op.with_meta(meta.clone())),
-            Self::TernaryOp(op) => Self::TernaryOp(op.with_meta(meta.clone())),
-            Self::Call(op) => Self::Call(op.with_meta(meta.clone())),
-            Self::GetAttr(op) => Self::GetAttr(op.with_meta(meta.clone())),
-            Self::SetAttr(op) => Self::SetAttr(op.with_meta(meta.clone())),
-            Self::GetItem(op) => Self::GetItem(op.with_meta(meta.clone())),
-            Self::SetItem(op) => Self::SetItem(op.with_meta(meta.clone())),
-            Self::DelItem(op) => Self::DelItem(op.with_meta(meta.clone())),
-            Self::LoadRuntime(op) => Self::LoadRuntime(op.with_meta(meta.clone())),
-            Self::LoadName(op) => Self::LoadName(op.with_meta(meta.clone())),
-            Self::StoreName(op) => Self::StoreName(op.with_meta(meta.clone())),
-            Self::DelName(op) => Self::DelName(op.with_meta(meta.clone())),
-            Self::LoadLocation(op) => Self::LoadLocation(op.with_meta(meta.clone())),
-            Self::MakeCell(op) => Self::MakeCell(op.with_meta(meta.clone())),
-            Self::MakeString(op) => Self::MakeString(op.with_meta(meta.clone())),
-            Self::CellRefForName(op) => Self::CellRefForName(op.with_meta(meta.clone())),
-            Self::CellRef(op) => Self::CellRef(op.with_meta(meta.clone())),
-            Self::MakeFunction(op) => Self::MakeFunction(op.with_meta(meta.clone())),
-            Self::StoreLocation(op) => Self::StoreLocation(op.with_meta(meta.clone())),
+        crate::match_default!(OperationDetail, self, {
             Self::DelLocation(op) => Self::DelLocation(op.with_meta(meta)),
-        }
+            match_rest(op) => op.with_meta(meta.clone()).into(),
+        })
     }
 }
