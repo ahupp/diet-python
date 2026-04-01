@@ -446,6 +446,83 @@ macro_rules! define_operation {
     };
 }
 
+macro_rules! operation_detail_variants {
+    ($macro:ident) => {
+        $macro! {
+            BinOp(BinOp<E>),
+            UnaryOp(UnaryOp<E>),
+            InplaceBinOp(InplaceBinOp<E>),
+            TernaryOp(TernaryOp<E>),
+            Call(Call<E>),
+            GetAttr(GetAttr<E>),
+            SetAttr(SetAttr<E>),
+            GetItem(GetItem<E>),
+            SetItem(SetItem<E>),
+            DelItem(DelItem<E>),
+            LoadRuntime(LoadRuntime),
+            LoadName(LoadName),
+            StoreName(StoreName<E>),
+            DelName(DelName),
+            LoadLocation(LoadLocation),
+            MakeCell(MakeCell<E>),
+            MakeString(MakeString),
+            CellRefForName(CellRefForName),
+            CellRef(CellRef),
+            MakeFunction(MakeFunction<E>),
+            StoreLocation(StoreLocation<E>),
+            DelLocation(DelLocation),
+        }
+    };
+    ($macro:ident, $($args:tt)*) => {
+        $macro! {
+            $($args)*
+            BinOp(BinOp<E>),
+            UnaryOp(UnaryOp<E>),
+            InplaceBinOp(InplaceBinOp<E>),
+            TernaryOp(TernaryOp<E>),
+            Call(Call<E>),
+            GetAttr(GetAttr<E>),
+            SetAttr(SetAttr<E>),
+            GetItem(GetItem<E>),
+            SetItem(SetItem<E>),
+            DelItem(DelItem<E>),
+            LoadRuntime(LoadRuntime),
+            LoadName(LoadName),
+            StoreName(StoreName<E>),
+            DelName(DelName),
+            LoadLocation(LoadLocation),
+            MakeCell(MakeCell<E>),
+            MakeString(MakeString),
+            CellRefForName(CellRefForName),
+            CellRef(CellRef),
+            MakeFunction(MakeFunction<E>),
+            StoreLocation(StoreLocation<E>),
+            DelLocation(DelLocation),
+        }
+    };
+}
+
+macro_rules! define_operation_detail_enum {
+    ($( $variant:ident($variant_ty:ty), )*) => {
+        #[derive(Debug, Clone, derive_more::From)]
+        pub enum OperationDetail<E> {
+            $( $variant($variant_ty), )*
+        }
+    };
+}
+
+macro_rules! impl_operation_detail_has_meta {
+    ($( $variant:ident($variant_ty:ty), )*) => {
+        impl<E> HasMeta for OperationDetail<E> {
+            fn meta(&self) -> Meta {
+                match self {
+                    $( OperationDetail::$variant(op) => op.meta(), )*
+                }
+            }
+        }
+    };
+}
+
 define_operation! {
     pub struct BinOp<E> {
         kind: BinOpKind,
@@ -691,31 +768,8 @@ define_operation! {
     }
 }
 
-#[derive(Debug, Clone, derive_more::From)]
-pub enum OperationDetail<E> {
-    BinOp(BinOp<E>),
-    UnaryOp(UnaryOp<E>),
-    InplaceBinOp(InplaceBinOp<E>),
-    TernaryOp(TernaryOp<E>),
-    Call(Call<E>),
-    GetAttr(GetAttr<E>),
-    SetAttr(SetAttr<E>),
-    GetItem(GetItem<E>),
-    SetItem(SetItem<E>),
-    DelItem(DelItem<E>),
-    LoadRuntime(LoadRuntime),
-    LoadName(LoadName),
-    StoreName(StoreName<E>),
-    DelName(DelName),
-    LoadLocation(LoadLocation),
-    MakeCell(MakeCell<E>),
-    MakeString(MakeString),
-    CellRefForName(CellRefForName),
-    CellRef(CellRef),
-    MakeFunction(MakeFunction<E>),
-    StoreLocation(StoreLocation<E>),
-    DelLocation(DelLocation),
-}
+operation_detail_variants!(define_operation_detail_enum);
+operation_detail_variants!(impl_operation_detail_has_meta);
 
 impl<E> OperationDetail<E> {
     pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> OperationDetail<T> {
@@ -826,35 +880,6 @@ impl<E> OperationDetail<E> {
             Self::MakeFunction(op) => op.visit_exprs_mut(f),
             Self::StoreLocation(op) => op.visit_exprs_mut(f),
             Self::DelLocation(op) => op.visit_exprs_mut(f),
-        }
-    }
-}
-
-impl<E> HasMeta for OperationDetail<E> {
-    fn meta(&self) -> Meta {
-        match self {
-            Self::BinOp(op) => op.meta(),
-            Self::UnaryOp(op) => op.meta(),
-            Self::InplaceBinOp(op) => op.meta(),
-            Self::TernaryOp(op) => op.meta(),
-            Self::Call(op) => op.meta(),
-            Self::GetAttr(op) => op.meta(),
-            Self::SetAttr(op) => op.meta(),
-            Self::GetItem(op) => op.meta(),
-            Self::SetItem(op) => op.meta(),
-            Self::DelItem(op) => op.meta(),
-            Self::LoadRuntime(op) => op.meta(),
-            Self::LoadName(op) => op.meta(),
-            Self::StoreName(op) => op.meta(),
-            Self::DelName(op) => op.meta(),
-            Self::LoadLocation(op) => op.meta(),
-            Self::MakeCell(op) => op.meta(),
-            Self::MakeString(op) => op.meta(),
-            Self::CellRefForName(op) => op.meta(),
-            Self::CellRef(op) => op.meta(),
-            Self::MakeFunction(op) => op.meta(),
-            Self::StoreLocation(op) => op.meta(),
-            Self::DelLocation(op) => op.meta(),
         }
     }
 }
