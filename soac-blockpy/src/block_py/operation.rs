@@ -476,6 +476,16 @@ define_operation_node! {
 }
 
 define_operation_node! {
+    pub struct LoadRuntime {
+        impl<E>;
+        name_type = [()];
+        mapped_type<T, M> = [LoadRuntime];
+        mapped_ctor<T, M> = [LoadRuntime];
+        name: String => value,
+    }
+}
+
+define_operation_node! {
     pub struct LoadName {
         impl<E>;
         name_type = [()];
@@ -613,6 +623,7 @@ pub enum OperationDetail<E> {
     DelItem(DelItem<E>),
     LoadGlobal(LoadGlobal<E>),
     StoreGlobal(StoreGlobal<E>),
+    LoadRuntime(LoadRuntime),
     LoadName(LoadName),
     LoadLocal(LoadLocal),
     LoadCell(LoadCell),
@@ -641,6 +652,7 @@ impl<E> OperationDetail<E> {
             Self::DelItem(op) => OperationDetail::DelItem(op.map_expr(f)),
             Self::LoadGlobal(op) => OperationDetail::LoadGlobal(op.map_expr(f)),
             Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.map_expr(f)),
+            Self::LoadRuntime(op) => OperationDetail::LoadRuntime(op.map_expr(f)),
             Self::LoadName(op) => OperationDetail::LoadName(op.map_expr(f)),
             Self::LoadLocal(op) => OperationDetail::LoadLocal(op.map_expr(f)),
             Self::LoadCell(op) => OperationDetail::LoadCell(op.map_expr(f)),
@@ -672,6 +684,7 @@ impl<E> OperationDetail<E> {
             Self::DelItem(op) => OperationDetail::DelItem(op.try_map_expr(f)?),
             Self::LoadGlobal(op) => OperationDetail::LoadGlobal(op.try_map_expr(f)?),
             Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.try_map_expr(f)?),
+            Self::LoadRuntime(op) => OperationDetail::LoadRuntime(op.try_map_expr(f)?),
             Self::LoadName(op) => OperationDetail::LoadName(op.try_map_expr(f)?),
             Self::LoadLocal(op) => OperationDetail::LoadLocal(op.try_map_expr(f)?),
             Self::LoadCell(op) => OperationDetail::LoadCell(op.try_map_expr(f)?),
@@ -700,6 +713,7 @@ impl<E> OperationDetail<E> {
             Self::DelItem(op) => op.walk_expr_args(f),
             Self::LoadGlobal(op) => op.walk_expr_args(f),
             Self::StoreGlobal(op) => op.walk_expr_args(f),
+            Self::LoadRuntime(op) => op.walk_expr_args(f),
             Self::LoadName(op) => op.walk_expr_args(f),
             Self::LoadLocal(op) => op.walk_expr_args(f),
             Self::LoadCell(op) => op.walk_expr_args(f),
@@ -728,6 +742,7 @@ impl<E> OperationDetail<E> {
             Self::DelItem(op) => op.walk_expr_args_mut(f),
             Self::LoadGlobal(op) => op.walk_expr_args_mut(f),
             Self::StoreGlobal(op) => op.walk_expr_args_mut(f),
+            Self::LoadRuntime(op) => op.walk_expr_args_mut(f),
             Self::LoadName(op) => op.walk_expr_args_mut(f),
             Self::LoadLocal(op) => op.walk_expr_args_mut(f),
             Self::LoadCell(op) => op.walk_expr_args_mut(f),

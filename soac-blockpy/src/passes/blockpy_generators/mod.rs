@@ -9,7 +9,7 @@ use crate::block_py::{
     BlockPyRaise, BlockPyStmt, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
-    MakeFunction, Meta, ModuleNameGen, Operation, StorageLayout, WithMeta,
+    ImplicitNoneExpr, MakeFunction, Meta, ModuleNameGen, Operation, StorageLayout, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -890,7 +890,7 @@ fn lower_resume_fragment(
             &mut prefix,
             site,
             Vec::new(),
-            BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(expr_name("__dp_NONE"))),
+            BlockPyTerm::Return(CoreBlockPyExprWithYield::implicit_none_expr()),
             params,
             exc_target,
         );
@@ -1382,7 +1382,7 @@ fn emit_yield_from_site(
         0,
         BlockPyStmt::Assign(BlockPyAssign {
             target: expr_name("_dp_yieldfrom"),
-            value: CoreBlockPyExprWithYield::Name(expr_name("__dp_NONE")),
+            value: CoreBlockPyExprWithYield::implicit_none_expr(),
         }),
     );
     if let Some(target) = assign_target {

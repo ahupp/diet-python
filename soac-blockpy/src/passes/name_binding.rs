@@ -8,8 +8,8 @@ use crate::block_py::{
     ClosureInit, ClosureSlot, CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr,
     CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, DelDeref,
     DelDerefQuietly, DelItem, DelQuietly, FunctionId, HasMeta, LoadCell, LoadGlobal, LoadLocal,
-    LocalLocation, LocatedName, MakeCell, MakeFunction, NameLocation, Operation, OperationDetail,
-    SetItem, StorageLayout, StoreCell, StoreGlobal, WithMeta,
+    LoadRuntime, LocalLocation, LocatedName, MakeCell, MakeFunction, NameLocation, Operation,
+    OperationDetail, SetItem, StorageLayout, StoreCell, StoreGlobal, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -150,12 +150,14 @@ fn rewrite_raw_cell_storage_name_load(
     ))
 }
 
-fn raw_load_name(expr: &CoreBlockPyExpr) -> Option<String> {
+fn raw_load_name<N>(expr: &CoreBlockPyExpr<N>) -> Option<String>
+where
+    N: BlockPyNameLike,
+{
     match expr {
-        CoreBlockPyExpr::Name(name) if matches!(name.ctx, ast::ExprContext::Load) => {
-            Some(name.id.to_string())
-        }
+        CoreBlockPyExpr::Name(name) => Some(name.id_str().to_string()),
         CoreBlockPyExpr::Op(operation) => match operation.detail() {
+            OperationDetail::LoadRuntime(op) => Some(op.name.clone()),
             OperationDetail::LoadName(op) => Some(op.name.clone()),
             _ => None,
         },
@@ -583,6 +585,12 @@ fn core_name_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
+    if matches!(ctx, ast::ExprContext::Load) && (id.starts_with("__dp_") || id == "runtime") {
+        return CoreBlockPyExpr::Op(
+            Operation::new(LoadRuntime::new(id.to_string()))
+                .with_meta(crate::block_py::Meta::new(node_index, range)),
+        );
+    }
     CoreBlockPyExpr::Name(
         ast::ExprName {
             id: id.into(),
@@ -723,11 +731,9 @@ fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
             ..
         })) if keywords.is_empty()
             && args.len() == 2
-            && matches!(
-                func.as_ref(),
-                CoreBlockPyExpr::Name(func_name)
-                    if func_name.id.as_str() == "__dp_load_deleted_name"
-            ) =>
+            && raw_load_name(func.as_ref())
+                .as_ref()
+                .is_some_and(|name| name == "__dp_load_deleted_name") =>
         {
             match &args[1] {
                 CoreBlockPyCallArg::Positional(expr) => raw_load_name(expr).map(|name| ExprName {
@@ -750,7 +756,11 @@ fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
 }
 
 fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
-    matches!(expr, CoreBlockPyExpr::Name(name) if name.id.as_str() == "__dp_DELETED")
+    matches!(
+        expr,
+        CoreBlockPyExpr::Op(operation)
+            if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == "__dp_DELETED")
+    )
 }
 
 fn cell_ref_marker_target(expr: &CoreBlockPyExpr) -> Option<String> {
@@ -2242,11 +2252,10 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                 let CoreBlockPyExpr::Call(CoreBlockPyCall { func, args, .. }) = &mut expr else {
                     unreachable!("call expression should remain call after nested mapping")
                 };
-                if matches!(
-                    func.as_ref(),
-                    CoreBlockPyExpr::Name(func_name)
-                        if func_name.id.as_str() == "__dp_class_lookup_cell"
-                ) && args.len() == 3
+                if raw_load_name(func.as_ref())
+                    .as_ref()
+                    .is_some_and(|name| name == "__dp_class_lookup_cell")
+                    && args.len() == 3
                 {
                     if let Some(CoreBlockPyCallArg::Positional(expr)) = args.get_mut(2) {
                         *expr = self.mark_raw_cell_expr(expr.clone());

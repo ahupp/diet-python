@@ -178,9 +178,11 @@ fn core_blockpy_expr_rewrites_ipow_helper_to_pow_operation() {
     };
     let _left = op.base.as_ref();
     let _right = op.exponent.as_ref();
-    assert!(
-        matches!(op.modulus.as_ref(), CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "__dp_NONE")
-    );
+    assert!(matches!(
+        op.modulus.as_ref(),
+        CoreBlockPyExprWithAwaitAndYield::Op(operation)
+            if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
+    ));
 }
 
 #[test]
@@ -198,7 +200,11 @@ fn core_blockpy_expr_keeps_non_intrinsic_helper_families_as_named_calls() {
             panic!("expected call-shaped reduced expr for {expr}");
         };
         assert!(
-            matches!(&*call.func, CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == helper_name),
+            matches!(
+                &*call.func,
+                CoreBlockPyExprWithAwaitAndYield::Op(operation)
+                    if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == helper_name)
+            ),
             "{call:?}",
         );
     }
@@ -230,7 +236,8 @@ fn core_blockpy_expr_reuses_shared_tuple_splat_for_list_and_set() {
         };
         assert!(matches!(
             &*call.func,
-            CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == intrinsic
+            CoreBlockPyExprWithAwaitAndYield::Op(operation)
+                if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == intrinsic)
         ));
         let [CoreBlockPyCallArg::Positional(tupleish)] = &call.args[..] else {
             panic!("expected one positional arg for {expr}");

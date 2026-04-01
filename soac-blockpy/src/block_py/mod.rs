@@ -15,8 +15,8 @@ use crate::py_expr;
 pub use operation::{
     BinOp, BinOpKind, CellRef, CellRefForName, DelDeref, DelDerefQuietly, DelItem, DelQuietly,
     GetAttr, GetItem, InplaceBinOp, InplaceBinOpKind, LoadCell, LoadGlobal, LoadLocal, LoadName,
-    MakeCell, MakeFunction, MakeString, Operation, OperationDetail, SetAttr, SetItem, StoreCell,
-    StoreGlobal, TernaryOp, TernaryOpKind, UnaryOp, UnaryOpKind,
+    LoadRuntime, MakeCell, MakeFunction, MakeString, Operation, OperationDetail, SetAttr, SetItem,
+    StoreCell, StoreGlobal, TernaryOp, TernaryOpKind, UnaryOp, UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
@@ -928,17 +928,31 @@ pub(crate) fn core_named_call_expr_with_meta<E: CoreCallLikeExpr>(
     args: Vec<CoreBlockPyCallArg<E>>,
     keywords: Vec<CoreBlockPyKeywordArg<E>>,
 ) -> E {
-    core_call_expr_with_meta(
+    let func = if is_runtime_symbol_name(func_name) {
+        core_runtime_name_expr_with_meta(func_name, node_index.clone(), range)
+    } else {
         E::from_name(ExprName {
             id: func_name.into(),
             ctx: ast::ExprContext::Load,
             range,
             node_index: node_index.clone(),
-        }),
-        node_index,
-        range,
-        args,
-        keywords,
+        })
+    };
+    core_call_expr_with_meta(func, node_index, range, args, keywords)
+}
+
+pub(crate) fn is_runtime_symbol_name(name: &str) -> bool {
+    name.starts_with("__dp_") || name == "runtime"
+}
+
+pub(crate) fn core_runtime_name_expr_with_meta<E: CoreCallLikeExpr>(
+    name: &str,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+) -> E {
+    core_operation_expr(
+        block_py_operation::Operation::new(block_py_operation::LoadRuntime::new(name.to_string()))
+            .with_meta(Meta::new(node_index, range)),
     )
 }
 
@@ -1784,41 +1798,57 @@ impl ImplicitNoneExpr for Expr {
 
 impl ImplicitNoneExpr for CoreBlockPyExprWithAwaitAndYield {
     fn implicit_none_expr() -> Self {
-        Self::Name(implicit_none_name())
+        core_runtime_name_expr_with_meta("__dp_NONE", Default::default(), Default::default())
     }
 
     fn is_implicit_none_expr(expr: &Self) -> bool {
-        matches!(expr, CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "__dp_NONE")
+        matches!(
+            expr,
+            CoreBlockPyExprWithAwaitAndYield::Op(operation)
+                if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
+        )
     }
 }
 
 impl ImplicitNoneExpr for CoreBlockPyExprWithYield {
     fn implicit_none_expr() -> Self {
-        Self::Name(implicit_none_name())
+        core_runtime_name_expr_with_meta("__dp_NONE", Default::default(), Default::default())
     }
 
     fn is_implicit_none_expr(expr: &Self) -> bool {
-        matches!(expr, CoreBlockPyExprWithYield::Name(name) if name.id.as_str() == "__dp_NONE")
+        matches!(
+            expr,
+            CoreBlockPyExprWithYield::Op(operation)
+                if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
+        )
     }
 }
 
 impl<N: BlockPyNameLike> ImplicitNoneExpr for CoreBlockPyExpr<N> {
     fn implicit_none_expr() -> Self {
-        Self::Name(implicit_none_name().into())
+        core_runtime_name_expr_with_meta("__dp_NONE", Default::default(), Default::default())
     }
 
     fn is_implicit_none_expr(expr: &Self) -> bool {
-        matches!(expr, CoreBlockPyExpr::Name(name) if name.id_str() == "__dp_NONE")
+        matches!(
+            expr,
+            CoreBlockPyExpr::Op(operation)
+                if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
+        )
     }
 }
 
 impl<N: BlockPyNameLike> ImplicitNoneExpr for CodegenBlockPyExpr<N> {
     fn implicit_none_expr() -> Self {
-        Self::Name(implicit_none_name().into())
+        core_runtime_name_expr_with_meta("__dp_NONE", Default::default(), Default::default())
     }
 
     fn is_implicit_none_expr(expr: &Self) -> bool {
-        matches!(expr, CodegenBlockPyExpr::Name(name) if name.id_str() == "__dp_NONE")
+        matches!(
+            expr,
+            CodegenBlockPyExpr::Op(operation)
+                if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
+        )
     }
 }
 

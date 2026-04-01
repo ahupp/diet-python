@@ -488,6 +488,7 @@ fn codegen_expr_helper_name(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
     match expr {
         CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
         CodegenBlockPyExpr::Op(operation) => match operation.detail() {
+            blockpy_intrinsics::OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
             blockpy_intrinsics::OperationDetail::LoadGlobal(op) => Some(op.name.as_str()),
             _ => None,
         },

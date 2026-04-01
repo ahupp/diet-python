@@ -207,6 +207,35 @@ unsafe fn load_global_obj_impl(globals_obj: ObjPtr, name_obj: *mut ffi::PyObject
     ptr::null_mut()
 }
 
+#[cfg(not(test))]
+unsafe fn load_runtime_obj_impl(name_obj: *mut ffi::PyObject) -> ObjPtr {
+    if name_obj.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_load_runtime_obj\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let builtins_dict = ffi::PyEval_GetBuiltins();
+    if builtins_dict.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"PyEval_GetBuiltins returned null\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let builtin_value = ffi::PyObject_GetItem(builtins_dict as *mut ffi::PyObject, name_obj);
+    if !builtin_value.is_null() {
+        return builtin_value as ObjPtr;
+    }
+    if ffi::PyErr_ExceptionMatches(ffi::PyExc_KeyError) == 0 {
+        return ptr::null_mut();
+    }
+    ffi::PyErr_Clear();
+    raise_name_error_for_missing_name(name_obj);
+    ptr::null_mut()
+}
+
 unsafe fn resolve_function_object(callable: ObjPtr) -> ObjPtr {
     if callable.is_null() {
         ffi::PyErr_SetString(
@@ -1003,6 +1032,7 @@ mod test_only_export_stubs {
     panic_obj_export!(dp_jit_make_float(value: f64));
     panic_obj_export!(dp_jit_make_bytes(data_ptr: *const u8, data_len: i64));
     panic_obj_export!(dp_jit_load_name(block: ObjPtr, name_ptr: *const u8, name_len: i64));
+    panic_obj_export!(dp_jit_load_runtime_obj(name: ObjPtr));
     panic_obj_export!(dp_jit_function_closure_cell(callable: ObjPtr, slot: i64));
     panic_obj_export!(dp_jit_function_positional_default(
         callable: ObjPtr,
@@ -1116,6 +1146,12 @@ pub unsafe extern "C" fn dp_jit_load_name(
     name_len: i64,
 ) -> ObjPtr {
     load_name_hook(block, name_ptr, name_len)
+}
+
+#[cfg(not(test))]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dp_jit_load_runtime_obj(name: ObjPtr) -> ObjPtr {
+    load_runtime_obj_impl(name as *mut ffi::PyObject)
 }
 
 #[cfg(not(test))]
@@ -1454,6 +1490,10 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol("dp_jit_make_float", dp_jit_make_float as *const u8);
     builder.symbol("dp_jit_make_bytes", dp_jit_make_bytes as *const u8);
     builder.symbol("dp_jit_load_name", dp_jit_load_name as *const u8);
+    builder.symbol(
+        "dp_jit_load_runtime_obj",
+        dp_jit_load_runtime_obj as *const u8,
+    );
     builder.symbol(
         "dp_jit_function_closure_cell",
         dp_jit_function_closure_cell as *const u8,

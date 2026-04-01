@@ -1,6 +1,7 @@
 use super::ast_to_ast::string_templates::lower_string_templates_in_expr;
 use crate::block_py::{
-    core_call_expr_with_meta, core_positional_call_expr_with_meta, operation, BlockPyAssign,
+    core_call_expr_with_meta, core_positional_call_expr_with_meta,
+    core_runtime_name_expr_with_meta, is_runtime_symbol_name, operation, BlockPyAssign,
     BlockPyBranchTable, BlockPyDelete, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragment,
     BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCallArg,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyYield,
@@ -14,16 +15,11 @@ use ruff_python_ast::{self as ast, Expr};
 type SemanticExpr = Expr;
 
 fn core_builtin_name(id: &str) -> CoreBlockPyExprWithAwaitAndYield {
-    CoreBlockPyExprWithAwaitAndYield::Name(ast::ExprName {
-        id: id.into(),
-        ctx: ast::ExprContext::Load,
-        range: Default::default(),
-        node_index: ast::AtomicNodeIndex::default(),
-    })
+    core_runtime_name_expr_with_meta(id, Default::default(), Default::default())
 }
 
-fn is_internal_core_name(id: &str) -> bool {
-    id.starts_with("_dp_") || id.starts_with("__dp_") || id == "runtime"
+fn is_synthetic_local_core_name(id: &str) -> bool {
+    id.starts_with("_dp_")
 }
 
 pub(crate) trait PureCoreExprReducer {
@@ -749,7 +745,13 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
             )),
             Expr::Dict(node) => reduce_core_blockpy_dict(node.items.into()),
             Expr::Name(node) => {
-                if is_internal_core_name(node.id.as_str()) {
+                if is_runtime_symbol_name(node.id.as_str()) {
+                    core_runtime_name_expr_with_meta(
+                        node.id.as_str(),
+                        node.node_index.clone(),
+                        node.range,
+                    )
+                } else if is_synthetic_local_core_name(node.id.as_str()) {
                     Self::Name(node)
                 } else {
                     CoreBlockPyExprWithAwaitAndYield::Op(

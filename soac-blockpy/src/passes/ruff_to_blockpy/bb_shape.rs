@@ -196,10 +196,8 @@ fn is_current_exception_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwai
     };
     call.args.is_empty()
         && call.keywords.is_empty()
-        && matches!(
-            call.func.as_ref(),
-            CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "__dp_current_exception"
-        )
+        && expr_root_name_id_with_await_and_yield(call.func.as_ref())
+            == Some("__dp_current_exception")
 }
 
 fn is_exc_info_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
@@ -208,10 +206,7 @@ fn is_exc_info_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYield
     };
     call.args.is_empty()
         && call.keywords.is_empty()
-        && matches!(
-            call.func.as_ref(),
-            CoreBlockPyExprWithAwaitAndYield::Name(name) if name.id.as_str() == "__dp_exc_info"
-        )
+        && expr_root_name_id_with_await_and_yield(call.func.as_ref()) == Some("__dp_exc_info")
 }
 
 fn current_exception_name_expr_with_await_and_yield(
@@ -231,12 +226,9 @@ fn current_exception_info_expr_with_await_and_yield(
     CoreBlockPyExprWithAwaitAndYield::Call(crate::block_py::CoreBlockPyCall {
         node_index: compat_node_index(),
         range: compat_range(),
-        func: Box::new(CoreBlockPyExprWithAwaitAndYield::Name(ast::ExprName {
-            id: "__dp_exc_info_from_exception".into(),
-            ctx: ast::ExprContext::Load,
-            range: compat_range(),
-            node_index: compat_node_index(),
-        })),
+        func: Box::new(runtime_name_expr_with_await_and_yield(
+            "__dp_exc_info_from_exception",
+        )),
         args: vec![CoreBlockPyCallArg::Positional(
             current_exception_name_expr_with_await_and_yield(exc_name),
         )],
@@ -406,13 +398,12 @@ fn is_dp_lookup_call_expr<N>(func: &CoreBlockPyExpr<N>, attr_name: &str) -> bool
 where
     N: BlockPyNameLike + Clone,
 {
+    let helper_name = format!("__dp_{attr_name}");
     match func {
-        CoreBlockPyExpr::Name(name) => name.id_str() == format!("__dp_{attr_name}"),
+        _ if expr_root_name_id(func) == Some(helper_name.as_str()) => true,
         CoreBlockPyExpr::Call(call) if call.keywords.is_empty() && call.args.len() == 2 => {
-            matches!(
-                call.func.as_ref(),
-                CoreBlockPyExpr::Name(name) if name.id_str() == "__dp_getattr"
-            ) && is_dp_getattr_lookup_args(&call.args, attr_name)
+            expr_root_name_id(call.func.as_ref()) == Some("__dp_getattr")
+                && is_dp_getattr_lookup_args(&call.args, attr_name)
         }
         _ => operation_expr(func)
             .is_some_and(|operation| is_dp_getattr_operation(operation, attr_name)),
@@ -428,8 +419,8 @@ where
 {
     matches!(
         &args[0],
-        CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(base))
-            if base.id_str() == "runtime"
+        CoreBlockPyCallArg::Positional(expr)
+            if expr_root_name_id(expr) == Some("runtime")
     ) && expr_static_str(match &args[1] {
         CoreBlockPyCallArg::Positional(value) => value,
         CoreBlockPyCallArg::Starred(_) => return false,
@@ -448,10 +439,7 @@ where
     else {
         return false;
     };
-    matches!(
-        value.as_ref(),
-        CoreBlockPyExpr::Name(base) if base.id_str() == "runtime"
-    ) && attr == attr_name
+    expr_root_name_id(value.as_ref()) == Some("runtime") && attr == attr_name
 }
 
 fn expr_static_str<N>(expr: &CoreBlockPyExpr<N>) -> Option<String>
@@ -468,11 +456,7 @@ where
         CoreBlockPyExpr::Call(call)
             if call.keywords.is_empty()
                 && call.args.len() == 1
-                && matches!(
-                    call.func.as_ref(),
-                    CoreBlockPyExpr::Name(name)
-                        if name.id_str() == "__dp_decode_literal_bytes"
-                ) =>
+                && expr_root_name_id(call.func.as_ref()) == Some("__dp_decode_literal_bytes") =>
         {
             match &call.args[0] {
                 CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Literal(
@@ -481,6 +465,31 @@ where
                 _ => None,
             }
         }
+        _ => None,
+    }
+}
+
+fn expr_root_name_id<N>(expr: &CoreBlockPyExpr<N>) -> Option<&str>
+where
+    N: BlockPyNameLike,
+{
+    match expr {
+        CoreBlockPyExpr::Name(name) => Some(name.id_str()),
+        CoreBlockPyExpr::Op(operation) => match operation.detail() {
+            operation::OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn expr_root_name_id_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYield) -> Option<&str> {
+    match expr {
+        CoreBlockPyExprWithAwaitAndYield::Name(name) => Some(name.id.as_str()),
+        CoreBlockPyExprWithAwaitAndYield::Op(operation) => match operation.detail() {
+            operation::OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -497,6 +506,15 @@ where
     }))
 }
 
+fn runtime_name_expr<N>(name: &str) -> CoreBlockPyExpr<N>
+where
+    N: BlockPyNameLike,
+{
+    CoreBlockPyExpr::Op(operation::Operation::new(operation::LoadRuntime::new(
+        name.to_string(),
+    )))
+}
+
 fn current_exception_info_expr<N>(exc_name: &str) -> CoreBlockPyExpr<N>
 where
     N: BlockPyNameLike,
@@ -504,17 +522,18 @@ where
     CoreBlockPyExpr::Call(crate::block_py::CoreBlockPyCall {
         node_index: compat_node_index(),
         range: compat_range(),
-        func: Box::new(CoreBlockPyExpr::Name(N::from(ast::ExprName {
-            id: "__dp_exc_info_from_exception".into(),
-            ctx: ast::ExprContext::Load,
-            range: compat_range(),
-            node_index: compat_node_index(),
-        }))),
+        func: Box::new(runtime_name_expr("__dp_exc_info_from_exception")),
         args: vec![CoreBlockPyCallArg::Positional(current_exception_name_expr(
             exc_name,
         ))],
         keywords: Vec::new(),
     })
+}
+
+fn runtime_name_expr_with_await_and_yield(name: &str) -> CoreBlockPyExprWithAwaitAndYield {
+    CoreBlockPyExprWithAwaitAndYield::Op(operation::Operation::new(operation::LoadRuntime::new(
+        name.to_string(),
+    )))
 }
 
 fn compat_node_index() -> ast::AtomicNodeIndex {

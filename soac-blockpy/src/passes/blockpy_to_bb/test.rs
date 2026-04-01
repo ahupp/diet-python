@@ -1,7 +1,8 @@
 use crate::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmtFragment, BlockPyTerm,
     CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, CoreStringLiteral,
-    GetAttr, LocatedCoreBlockPyExpr, LocatedName, Operation, StructuredBlockPyStmt, WithMeta,
+    GetAttr, LocatedCoreBlockPyExpr, LocatedName, Operation, OperationDetail,
+    StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     lower_structured_located_blocks_to_bb_blocks, populate_exception_edge_args,
@@ -135,8 +136,8 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
     };
     assert!(matches!(
         call.func.as_ref(),
-        CoreBlockPyExpr::Name(name)
-            if name.id.as_str() == "__dp_exc_info_from_exception"
+        CoreBlockPyExpr::Op(operation)
+            if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == "__dp_exc_info_from_exception")
     ));
     assert!(matches!(
         call.args.as_slice(),

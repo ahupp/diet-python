@@ -669,6 +669,7 @@ where
                 op.value.debug_expr_text(),
             ],
         ),
+        crate::block_py::OperationDetail::LoadRuntime(op) => op.name.clone(),
         crate::block_py::OperationDetail::LoadName(op) => op.name.clone(),
         crate::block_py::OperationDetail::LoadLocal(op) => op.location.pretty_id(),
         crate::block_py::OperationDetail::LoadCell(op) => {

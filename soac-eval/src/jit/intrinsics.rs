@@ -226,6 +226,11 @@ define_owned_import_spec!(
     &[SigType::Pointer, SigType::Pointer]
 );
 define_owned_import_spec!(
+    DP_JIT_LOAD_RUNTIME_OBJ_IMPORT,
+    "dp_jit_load_runtime_obj",
+    &[SigType::Pointer]
+);
+define_owned_import_spec!(
     DP_JIT_STORE_GLOBAL_IMPORT,
     "dp_jit_store_global",
     &[SigType::Pointer, SigType::Pointer, SigType::Pointer]
@@ -559,6 +564,19 @@ fn emit_load_global<'fb, E>(
     state.finish_owned_result(result)
 }
 
+fn emit_load_runtime<'fb, E>(
+    op: &blockpy_intrinsics::LoadRuntime,
+    state: &mut impl OperationEmitState<'fb, E>,
+) -> ir::Value {
+    let name_obj = state.emit_owned_string_constant(op.name.as_str());
+    let func_ref = state.import_func(&DP_JIT_LOAD_RUNTIME_OBJ_IMPORT);
+    let decref_ref = state.ctx().decref_ref;
+    let call_inst = state.fb().ins().call(func_ref, &[name_obj]);
+    state.fb().ins().call(decref_ref, &[name_obj]);
+    let result = state.fb().inst_results(call_inst)[0];
+    state.finish_owned_result(result)
+}
+
 fn emit_store_global<'fb, E>(
     op: &blockpy_intrinsics::StoreGlobal<E>,
     state: &mut impl OperationEmitState<'fb, E>,
@@ -655,6 +673,7 @@ pub(super) fn emit_operation<'fb, E>(
         )),
         blockpy_intrinsics::OperationDetail::LoadGlobal(op) => Some(emit_load_global(op, state)),
         blockpy_intrinsics::OperationDetail::StoreGlobal(op) => Some(emit_store_global(op, state)),
+        blockpy_intrinsics::OperationDetail::LoadRuntime(op) => Some(emit_load_runtime(op, state)),
         blockpy_intrinsics::OperationDetail::LoadName(_) => None,
         blockpy_intrinsics::OperationDetail::LoadLocal(_) => None,
         blockpy_intrinsics::OperationDetail::LoadCell(_) => None,

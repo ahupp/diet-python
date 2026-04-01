@@ -435,6 +435,14 @@ fn walk_operation_loaded_names<E>(detail: &OperationDetail<E>, f: &mut impl FnMu
     }
 }
 
+fn operation_root_name_id<E>(detail: &OperationDetail<E>) -> Option<&str> {
+    match detail {
+        OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
+        OperationDetail::LoadName(op) => Some(op.name.as_str()),
+        _ => None,
+    }
+}
+
 fn walk_operation_cell_ref_logical_names<E>(detail: &OperationDetail<E>, f: &mut impl FnMut(&str)) {
     if let OperationDetail::CellRefForName(op) = detail {
         f(op.logical_name.as_str());
@@ -548,6 +556,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Name(name) => Some(name.id.as_str()),
+            Self::Op(operation) => operation_root_name_id(operation.detail()),
             _ => None,
         }
     }
@@ -593,6 +602,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Name(name) => Some(name.id.as_str()),
+            Self::Op(operation) => operation_root_name_id(operation.detail()),
             _ => None,
         }
     }
@@ -641,6 +651,7 @@ where
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Name(name) => Some(name.id_str()),
+            Self::Op(operation) => operation_root_name_id(operation.detail()),
             _ => None,
         }
     }
@@ -689,6 +700,7 @@ where
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Name(name) => Some(name.id_str()),
+            Self::Op(operation) => operation_root_name_id(operation.detail()),
             _ => None,
         }
     }
