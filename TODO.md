@@ -257,6 +257,83 @@
     - then pool/load attribute-name and global-name strings through module state;
     - only after that decide which remaining literal categories should stay as inline materialization fast paths versus moving into the module Python constant pool.
 
+## Handle module-scoped constants
+
+- Planning note:
+  - The goal is to stop rebuilding module-stable Python objects inside JIT emission and instead:
+    - extract eligible constant expressions once during lowering;
+    - store the realized `PyObject` values in `_soac_ext` module state;
+    - load them through one explicit `LoadConstant` operation at runtime/codegen.
+  - This should cover constants whose identity is intentionally stable for a transformed module, such as strings, bytes, integer/float literals, kw-name tuples, and future code-object/template constants.
+  - It must not change evaluation order or accidentally pool values whose semantics require fresh object creation.
+  - Staging note:
+    - there are active operation-shape changes in flight, so the first implementation slices should avoid depending on a new operation family landing immediately;
+    - start with the module-constant data structures, runtime ownership, and JIT/codegen lookup path using the current late IR shapes;
+    - only add the dedicated `LoadConstant` operation and extraction pass after the operation work settles.
+- Proposed IR shape:
+  - Final target shape:
+    - add a typed module-constant id, for example `ModuleConstantId(u32)`, in `soac-blockpy/src/block_py/mod.rs`;
+    - add `OperationDetail::LoadConstant` in `soac-blockpy/src/block_py/operation.rs` carrying only that id;
+    - keep `LoadConstant` as the eventual codegen-visible way to refer to module-owned Python constants.
+  - Until the operation changes land, keep the current IR payload shapes (`MakeString`, raw helper names, `CodegenBlockPyLiteral`) and route them through a shared module-constant lookup path in codegen instead of introducing a new operation immediately.
+- Extraction pass:
+  - Deferred until after the operation changes land.
+  - Introduce a new lowering pass at the Core-to-Codegen boundary, immediately before or as part of the current string/codegen normalization step in `soac-blockpy/src/passes/blockpy_to_bb`.
+  - That pass should walk the module, collect eligible constant-bearing expression shapes into a per-module table, and replace those expressions with `LoadConstant(id)` operations.
+  - The first extraction slice should only rewrite obviously module-stable leaves and helper names:
+    - `MakeString`;
+    - bytes literals;
+    - numeric literals that are currently re-materialized in JIT codegen;
+    - attribute/global/runtime helper names currently passed around as raw strings.
+  - Leave tuple/list/set/dict constructors alone unless every child is already a pooled constant and the resulting object identity is intended to be module-stable.
+  - Keep the extraction logic deterministic and deduplicate only by semantic constant value plus kind, not by source location.
+  - Add validation so late codegen fails if an expression shape that should already have become `LoadConstant` still carries pooled-literal payloads.
+- Module-state ownership:
+  - Extend `SharedModuleState` in `soac-eval/src/module_type.rs` with a `module_constants` table that owns `Py<PyAny>` references in id order.
+  - Build that table when `_soac_ext.create_module(...)` initializes module state, after lowering has produced the constant descriptors but before execution starts.
+  - Keep the lowered-module metadata and the Python object table separate in structure even if both live in `SharedModuleState`, so future session-owned lowering cleanup does not entangle Rust metadata with GC-owned Python references.
+  - Add typed lookup helpers on `SharedModuleState` and `SoacExtModuleDataRef` for "constant by id" so tree-walk and JIT paths use one access story.
+- GC integration:
+  - Replace the current "Rust-only state" assumption in `SOAC_EXT_MODULE_DEF` with real module GC support once `SharedModuleState` owns `PyObject` references.
+  - Implement `m_traverse` in `soac-eval/src/module_type.rs` to visit every entry in `module_constants`.
+  - Keep `m_clear` responsible for dropping the constant table and the rest of shared state in a GC-safe order.
+  - Audit `clone_shared_state` and `ModuleRuntimeContext` so cloned `Arc<SharedModuleState>` values keep the module constants alive correctly without introducing hidden Python roots outside the intended module lifetime.
+- Runtime and codegen plumbing:
+  - Add a small runtime accessor for codegen, for example "load owned module constant by id" and "load borrowed module constant by id", instead of embedding byte buffers plus decode helpers.
+  - Extend `JitModuleVmCtx` or the runtime context with whatever pointer is needed to reach the module-constant table cheaply from generated code.
+  - First teach the existing codegen/runtime sites to consult that accessor while they still receive current-shape literal/name payloads.
+  - After the operation changes land, lower `LoadConstant` in tree-walk and JIT through the same accessor.
+  - Convert existing special cases incrementally:
+    - `emit_owned_string_constant`;
+    - `MakeString`;
+    - raw-name loads used by `LoadGlobal`, `LoadRuntime`, `GetAttr`, `SetAttr`, and deleted-name helpers;
+    - bytes and numeric literal materialization paths in `soac-eval/src/jit/mod.rs`.
+- Cleanup after conversion:
+  - Remove the per-compiled-runner `_literal_pool` storage in `soac-eval/src/jit/mod.rs` once no emitted code relies on embedded byte-slice addresses staying alive.
+  - Delete `intern_bytes_literal(...)` and the `dp_jit_decode_literal_bytes` helper/export once all callers are gone.
+  - Collapse any now-redundant helper paths that only existed to smuggle names through raw byte decoding.
+  - Revisit `CodegenBlockPyLiteral` and remove variants that are no longer needed once constants are represented exclusively as `LoadConstant` or genuinely non-pooled literals.
+- Suggested implementation order:
+  1. Add a module-constant descriptor table plus `module_constants` ownership in `_soac_ext` module state, with `m_traverse`/`m_clear`.
+  2. Add runtime lookup helpers and whatever vmctx/module-state access JIT codegen needs to reach constants cheaply.
+  3. Migrate current-shape codegen sites to that table without waiting for new operations:
+     - `emit_owned_string_constant`;
+     - `MakeString`;
+     - raw-name helper paths;
+     - bytes and numeric literal materialization.
+  4. Remove `_literal_pool`, `intern_bytes_literal`, and decode helpers after the last current-shape caller is converted.
+  5. Once the operation changes land, add `ModuleConstantId`, `LoadConstant`, and the extraction pass so pooled constants stop flowing through late codegen as raw payloads.
+  6. Migrate larger composite constants such as kw-name tuples.
+  7. Add validation that late codegen no longer sees the old pooled-literal forms.
+- Verification focus:
+  - For the first slices, add runtime/JIT tests around module-state constant lookup and current-shape codegen migration before adding extraction-pass tests.
+  - After `LoadConstant` lands, add pass tests in `soac-blockpy/src/passes/blockpy_to_bb` covering extraction and deduplication.
+  - Add runtime/JIT tests proving:
+    - repeated loads of one module constant reuse the same pooled object where intended;
+    - constants stay alive across JIT compilation and execution;
+    - GC traversal/clear can visit and release the constant table safely.
+  - Re-run `just test-all` after each stage and specifically watch string lowering, JIT rendering, and module-lifetime/refcount-sensitive integration tests.
+
 ## Completed
 
 - Move completed TODO entries here and include a short description of the work done.
