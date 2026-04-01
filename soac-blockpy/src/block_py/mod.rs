@@ -255,6 +255,27 @@ pub trait Instr: Clone + fmt::Debug + Sized {
     type Name: BlockPyNameLike;
 }
 
+pub trait InstrExprNode<I>: Sized + HasMeta + WithMeta
+where
+    I: Instr,
+{
+    type Mapped<T: Instr>;
+
+    fn visit_exprs(&self, f: &mut impl FnMut(&I));
+    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut I));
+    fn map_expr_node<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>;
+    fn try_map_expr_node<T, Error>(
+        self,
+        f: &mut impl FnMut(I) -> Result<T, Error>,
+    ) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>;
+}
+
 pub trait BlockPyExprLike: Clone + fmt::Debug + MapExpr<Self> {
     fn walk_child_exprs<F>(&self, f: &mut F)
     where
@@ -675,22 +696,12 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYi
     ) -> CoreBlockPyExprWithAwaitAndYield {
         match self {
             Self::Name(_) | Self::Literal(_) => self,
-            Self::Op(operation) => Self::Op(operation.map_expr(&mut *f)),
-            Self::Await(await_expr) => Self::Await(CoreBlockPyAwait {
-                node_index: await_expr.node_index,
-                range: await_expr.range,
-                value: Box::new(f(*await_expr.value)),
-            }),
-            Self::Yield(yield_expr) => Self::Yield(CoreBlockPyYield {
-                node_index: yield_expr.node_index,
-                range: yield_expr.range,
-                value: yield_expr.value.map(|value| Box::new(f(*value))),
-            }),
-            Self::YieldFrom(yield_from_expr) => Self::YieldFrom(CoreBlockPyYieldFrom {
-                node_index: yield_from_expr.node_index,
-                range: yield_from_expr.range,
-                value: Box::new(f(*yield_from_expr.value)),
-            }),
+            Self::Op(operation) => Self::Op(operation.map_expr_node(&mut *f)),
+            Self::Await(await_expr) => Self::Await(await_expr.map_expr_node(&mut *f)),
+            Self::Yield(yield_expr) => Self::Yield(yield_expr.map_expr_node(&mut *f)),
+            Self::YieldFrom(yield_from_expr) => {
+                Self::YieldFrom(yield_from_expr.map_expr_node(&mut *f))
+            }
         }
     }
 }
@@ -703,7 +714,7 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
         match self {
             Self::Name(name) => CoreBlockPyExprWithYield::Name(name),
             Self::Literal(literal) => CoreBlockPyExprWithYield::Literal(literal),
-            Self::Op(operation) => CoreBlockPyExprWithYield::Op(operation.map_expr(&mut *f)),
+            Self::Op(operation) => CoreBlockPyExprWithYield::Op(operation.map_expr_node(&mut *f)),
             Self::Await(await_expr) => CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
                 node_index: await_expr.node_index.clone(),
                 range: await_expr.range,
@@ -714,17 +725,11 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
                     vec![f(*await_expr.value)],
                 )),
             }),
-            Self::Yield(yield_expr) => CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
-                node_index: yield_expr.node_index,
-                range: yield_expr.range,
-                value: yield_expr.value.map(|value| Box::new(f(*value))),
-            }),
+            Self::Yield(yield_expr) => {
+                CoreBlockPyExprWithYield::Yield(yield_expr.map_expr_node(&mut *f))
+            }
             Self::YieldFrom(yield_from_expr) => {
-                CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
-                    node_index: yield_from_expr.node_index,
-                    range: yield_from_expr.range,
-                    value: Box::new(f(*yield_from_expr.value)),
-                })
+                CoreBlockPyExprWithYield::YieldFrom(yield_from_expr.map_expr_node(&mut *f))
             }
         }
     }
@@ -741,24 +746,15 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
             Self::Name(name) => Ok(CoreBlockPyExprWithYield::Name(name)),
             Self::Literal(literal) => Ok(CoreBlockPyExprWithYield::Literal(literal)),
             Self::Op(operation) => Ok(CoreBlockPyExprWithYield::Op(
-                operation.try_map_expr(&mut *f)?,
+                operation.try_map_expr_node(&mut *f)?,
             )),
             Self::Await(_) => Err(self),
-            Self::Yield(yield_expr) => Ok(CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
-                node_index: yield_expr.node_index,
-                range: yield_expr.range,
-                value: yield_expr
-                    .value
-                    .map(|value| f(*value).map(Box::new))
-                    .transpose()?,
-            })),
-            Self::YieldFrom(yield_from_expr) => {
-                Ok(CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
-                    node_index: yield_from_expr.node_index,
-                    range: yield_from_expr.range,
-                    value: Box::new(f(*yield_from_expr.value)?),
-                }))
-            }
+            Self::Yield(yield_expr) => Ok(CoreBlockPyExprWithYield::Yield(
+                yield_expr.try_map_expr_node(&mut *f)?,
+            )),
+            Self::YieldFrom(yield_from_expr) => Ok(CoreBlockPyExprWithYield::YieldFrom(
+                yield_from_expr.try_map_expr_node(&mut *f)?,
+            )),
         }
     }
 }
@@ -786,17 +782,11 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
     ) -> CoreBlockPyExprWithYield {
         match self {
             Self::Name(_) | Self::Literal(_) => self,
-            Self::Op(operation) => Self::Op(operation.map_expr(&mut *f)),
-            Self::Yield(yield_expr) => Self::Yield(CoreBlockPyYield {
-                node_index: yield_expr.node_index,
-                range: yield_expr.range,
-                value: yield_expr.value.map(|value| Box::new(f(*value))),
-            }),
-            Self::YieldFrom(yield_from_expr) => Self::YieldFrom(CoreBlockPyYieldFrom {
-                node_index: yield_from_expr.node_index,
-                range: yield_from_expr.range,
-                value: Box::new(f(*yield_from_expr.value)),
-            }),
+            Self::Op(operation) => Self::Op(operation.map_expr_node(&mut *f)),
+            Self::Yield(yield_expr) => Self::Yield(yield_expr.map_expr_node(&mut *f)),
+            Self::YieldFrom(yield_from_expr) => {
+                Self::YieldFrom(yield_from_expr.map_expr_node(&mut *f))
+            }
         }
     }
 }
@@ -809,7 +799,7 @@ impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWi
         match self {
             Self::Name(name) => Ok(CoreBlockPyExpr::Name(name.into())),
             Self::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
-            Self::Op(operation) => Ok(CoreBlockPyExpr::Op(operation.try_map_expr(&mut *f)?)),
+            Self::Op(operation) => Ok(CoreBlockPyExpr::Op(operation.try_map_expr_node(&mut *f)?)),
             Self::Yield(_) | Self::YieldFrom(_) => Err(self),
         }
     }
@@ -840,7 +830,7 @@ where
         match self {
             Self::Name(name) => CoreBlockPyExpr::Name(NOut::from(name)),
             Self::Literal(literal) => CoreBlockPyExpr::Literal(literal),
-            Self::Op(operation) => CoreBlockPyExpr::Op(operation.map_expr(&mut *f)),
+            Self::Op(operation) => CoreBlockPyExpr::Op(operation.map_expr_node(&mut *f)),
         }
     }
 }
@@ -857,7 +847,7 @@ where
         match self {
             Self::Name(name) => Ok(CoreBlockPyExpr::Name(NOut::from(name))),
             Self::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
-            Self::Op(operation) => Ok(CoreBlockPyExpr::Op(operation.try_map_expr(&mut *f)?)),
+            Self::Op(operation) => Ok(CoreBlockPyExpr::Op(operation.try_map_expr_node(&mut *f)?)),
         }
     }
 }
@@ -895,7 +885,7 @@ where
             Self::Literal(CoreBlockPyLiteral::NumberLiteral(literal)) => {
                 CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(literal))
             }
-            Self::Op(operation) => CodegenBlockPyExpr::Op(operation.map_expr(&mut *f)),
+            Self::Op(operation) => CodegenBlockPyExpr::Op(operation.map_expr_node(&mut *f)),
         }
     }
 }
@@ -908,7 +898,9 @@ impl<Error> TryMapExpr<CodegenBlockPyExpr, Error> for CodegenBlockPyExpr {
         match self {
             Self::Name(name) => Ok(CodegenBlockPyExpr::Name(name)),
             Self::Literal(literal) => Ok(CodegenBlockPyExpr::Literal(literal)),
-            Self::Op(operation) => Ok(CodegenBlockPyExpr::Op(operation.try_map_expr(&mut *f)?)),
+            Self::Op(operation) => Ok(CodegenBlockPyExpr::Op(
+                operation.try_map_expr_node(&mut *f)?,
+            )),
         }
     }
 }
@@ -918,7 +910,7 @@ impl MapExpr<CodegenBlockPyExpr> for CodegenBlockPyExpr {
         match self {
             Self::Name(name) => CodegenBlockPyExpr::Name(name),
             Self::Literal(literal) => CodegenBlockPyExpr::Literal(literal),
-            Self::Op(operation) => CodegenBlockPyExpr::Op(operation.map_expr(&mut *f)),
+            Self::Op(operation) => CodegenBlockPyExpr::Op(operation.map_expr_node(&mut *f)),
         }
     }
 }
@@ -1134,6 +1126,130 @@ pub struct CoreBlockPyYieldFrom<E> {
     pub node_index: ast::AtomicNodeIndex,
     pub range: ruff_text_size::TextRange,
     pub value: Box<E>,
+}
+
+impl<I: Instr> InstrExprNode<I> for CoreBlockPyAwait<I> {
+    type Mapped<T: Instr> = CoreBlockPyAwait<T>;
+
+    fn visit_exprs(&self, f: &mut impl FnMut(&I)) {
+        f(&self.value);
+    }
+
+    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut I)) {
+        f(&mut self.value);
+    }
+
+    fn map_expr_node<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        CoreBlockPyAwait {
+            node_index: self.node_index,
+            range: self.range,
+            value: Box::new(f(*self.value)),
+        }
+    }
+
+    fn try_map_expr_node<T, Error>(
+        self,
+        f: &mut impl FnMut(I) -> Result<T, Error>,
+    ) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        Ok(CoreBlockPyAwait {
+            node_index: self.node_index,
+            range: self.range,
+            value: Box::new(f(*self.value)?),
+        })
+    }
+}
+
+impl<I: Instr> InstrExprNode<I> for CoreBlockPyYield<I> {
+    type Mapped<T: Instr> = CoreBlockPyYield<T>;
+
+    fn visit_exprs(&self, f: &mut impl FnMut(&I)) {
+        if let Some(value) = &self.value {
+            f(value);
+        }
+    }
+
+    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut I)) {
+        if let Some(value) = &mut self.value {
+            f(value);
+        }
+    }
+
+    fn map_expr_node<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        CoreBlockPyYield {
+            node_index: self.node_index,
+            range: self.range,
+            value: self.value.map(|value| Box::new(f(*value))),
+        }
+    }
+
+    fn try_map_expr_node<T, Error>(
+        self,
+        f: &mut impl FnMut(I) -> Result<T, Error>,
+    ) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        Ok(CoreBlockPyYield {
+            node_index: self.node_index,
+            range: self.range,
+            value: self
+                .value
+                .map(|value| f(*value).map(Box::new))
+                .transpose()?,
+        })
+    }
+}
+
+impl<I: Instr> InstrExprNode<I> for CoreBlockPyYieldFrom<I> {
+    type Mapped<T: Instr> = CoreBlockPyYieldFrom<T>;
+
+    fn visit_exprs(&self, f: &mut impl FnMut(&I)) {
+        f(&self.value);
+    }
+
+    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut I)) {
+        f(&mut self.value);
+    }
+
+    fn map_expr_node<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        CoreBlockPyYieldFrom {
+            node_index: self.node_index,
+            range: self.range,
+            value: Box::new(f(*self.value)),
+        }
+    }
+
+    fn try_map_expr_node<T, Error>(
+        self,
+        f: &mut impl FnMut(I) -> Result<T, Error>,
+    ) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        Ok(CoreBlockPyYieldFrom {
+            node_index: self.node_index,
+            range: self.range,
+            value: Box::new(f(*self.value)?),
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default)]

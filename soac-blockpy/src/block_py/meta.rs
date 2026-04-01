@@ -151,14 +151,38 @@ impl<E> HasMeta for CoreBlockPyAwait<E> {
     }
 }
 
+impl<E> WithMeta for CoreBlockPyAwait<E> {
+    fn with_meta(mut self, meta: Meta) -> Self {
+        self.node_index = meta.node_index;
+        self.range = meta.range;
+        self
+    }
+}
+
 impl<E> HasMeta for CoreBlockPyYield<E> {
     fn meta(&self) -> Meta {
         Meta::new(self.node_index.clone(), self.range)
     }
 }
 
+impl<E> WithMeta for CoreBlockPyYield<E> {
+    fn with_meta(mut self, meta: Meta) -> Self {
+        self.node_index = meta.node_index;
+        self.range = meta.range;
+        self
+    }
+}
+
 impl<E> HasMeta for CoreBlockPyYieldFrom<E> {
     fn meta(&self) -> Meta {
         Meta::new(self.node_index.clone(), self.range)
+    }
+}
+
+impl<E> WithMeta for CoreBlockPyYieldFrom<E> {
+    fn with_meta(mut self, meta: Meta) -> Self {
+        self.node_index = meta.node_index;
+        self.range = meta.range;
+        self
     }
 }

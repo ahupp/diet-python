@@ -1,6 +1,6 @@
 use super::{
     BlockPyFunctionKind, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg, FunctionId,
-    HasMeta, Instr, InstrName, Meta, WithMeta,
+    HasMeta, Instr, InstrExprNode, InstrName, Meta, WithMeta,
 };
 use soac_macros::{with_match_default, DelegateMatchDefault};
 
@@ -51,26 +51,6 @@ pub enum UnaryOpKind {
     Truth,
 }
 
-pub trait InstrOperationNode<I>: Sized
-where
-    I: Instr,
-{
-    type Mapped<T: Instr>;
-
-    fn visit_exprs(&self, f: &mut impl FnMut(&I));
-    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut I));
-    fn map_op<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
-    where
-        T: Instr,
-        InstrName<T>: From<InstrName<I>>;
-    fn try_map_op<T, Error>(
-        self,
-        f: &mut impl FnMut(I) -> Result<T, Error>,
-    ) -> Result<Self::Mapped<T>, Error>
-    where
-        T: Instr,
-        InstrName<T>: From<InstrName<I>>;
-}
 macro_rules! define_operation {
     (
         $vis:vis struct $name:ident<$expr_ty:ident> {
@@ -127,7 +107,7 @@ macro_rules! define_operation {
             }
         }
 
-        impl<$expr_ty: Instr> InstrOperationNode<$expr_ty> for $name<$expr_ty> {
+        impl<$expr_ty: Instr> InstrExprNode<$expr_ty> for $name<$expr_ty> {
             type Mapped<T: Instr> = $name<T>;
 
             fn visit_exprs(&self, f: &mut impl FnMut(&$expr_ty)) {
@@ -142,7 +122,7 @@ macro_rules! define_operation {
                 define_operation!(@visit_expr_fields_mut self, f, $($raw_fields)*);
             }
 
-            fn map_op<T>(self, f: &mut impl FnMut($expr_ty) -> T) -> Self::Mapped<T>
+            fn map_expr_node<T>(self, f: &mut impl FnMut($expr_ty) -> T) -> Self::Mapped<T>
             where
                 T: Instr,
                 InstrName<T>: From<InstrName<$expr_ty>>,
@@ -152,7 +132,7 @@ macro_rules! define_operation {
                 define_operation!(@build_mapped [$name::<T>] [] self, f, $($raw_fields)*)
             }
 
-            fn try_map_op<T, Error>(
+            fn try_map_expr_node<T, Error>(
                 self,
                 f: &mut impl FnMut($expr_ty) -> Result<T, Error>,
             ) -> Result<Self::Mapped<T>, Error>
@@ -217,7 +197,7 @@ macro_rules! define_operation {
             }
         }
 
-        impl<E: Instr> InstrOperationNode<E> for $name {
+        impl<E: Instr> InstrExprNode<E> for $name {
             type Mapped<T: Instr> = $name;
 
             fn visit_exprs(&self, f: &mut impl FnMut(&E)) {
@@ -228,7 +208,7 @@ macro_rules! define_operation {
                 let _ = &f;
             }
 
-            fn map_op<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
+            fn map_expr_node<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
             where
                 T: Instr,
                 InstrName<T>: From<InstrName<E>>,
@@ -237,7 +217,7 @@ macro_rules! define_operation {
                 self
             }
 
-            fn try_map_op<T, Error>(
+            fn try_map_expr_node<T, Error>(
                 self,
                 f: &mut impl FnMut(E) -> Result<T, Error>,
             ) -> Result<Self::Mapped<T>, Error>
@@ -515,7 +495,7 @@ impl<E> WithMeta for Call<E> {
     }
 }
 
-impl<E: Instr> InstrOperationNode<E> for Call<E> {
+impl<E: Instr> InstrExprNode<E> for Call<E> {
     type Mapped<T: Instr> = Call<T>;
 
     fn visit_exprs(&self, f: &mut impl FnMut(&E)) {
@@ -538,7 +518,7 @@ impl<E: Instr> InstrOperationNode<E> for Call<E> {
         }
     }
 
-    fn map_op<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
+    fn map_expr_node<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<E>>,
@@ -559,7 +539,7 @@ impl<E: Instr> InstrOperationNode<E> for Call<E> {
         }
     }
 
-    fn try_map_op<T, Error>(
+    fn try_map_expr_node<T, Error>(
         self,
         f: &mut impl FnMut(E) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>
@@ -649,14 +629,14 @@ impl<I: Instr> WithMeta for Load<I> {
     }
 }
 
-impl<I: Instr> InstrOperationNode<I> for Load<I> {
+impl<I: Instr> InstrExprNode<I> for Load<I> {
     type Mapped<T: Instr> = Load<T>;
 
     fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
 
     fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
 
-    fn map_op<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_expr_node<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<I>>,
@@ -667,7 +647,7 @@ impl<I: Instr> InstrOperationNode<I> for Load<I> {
         }
     }
 
-    fn try_map_op<T, Error>(
+    fn try_map_expr_node<T, Error>(
         self,
         _f: &mut impl FnMut(I) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>
@@ -712,7 +692,7 @@ impl<I: Instr> WithMeta for Store<I> {
     }
 }
 
-impl<I: Instr> InstrOperationNode<I> for Store<I> {
+impl<I: Instr> InstrExprNode<I> for Store<I> {
     type Mapped<T: Instr> = Store<T>;
 
     fn visit_exprs(&self, f: &mut impl FnMut(&I)) {
@@ -723,7 +703,7 @@ impl<I: Instr> InstrOperationNode<I> for Store<I> {
         f(&mut self.value);
     }
 
-    fn map_op<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_expr_node<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<I>>,
@@ -735,7 +715,7 @@ impl<I: Instr> InstrOperationNode<I> for Store<I> {
         }
     }
 
-    fn try_map_op<T, Error>(
+    fn try_map_expr_node<T, Error>(
         self,
         f: &mut impl FnMut(I) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>
@@ -781,14 +761,14 @@ impl<I: Instr> WithMeta for Del<I> {
     }
 }
 
-impl<I: Instr> InstrOperationNode<I> for Del<I> {
+impl<I: Instr> InstrExprNode<I> for Del<I> {
     type Mapped<T: Instr> = Del<T>;
 
     fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
 
     fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
 
-    fn map_op<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_expr_node<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<I>>,
@@ -800,7 +780,7 @@ impl<I: Instr> InstrOperationNode<I> for Del<I> {
         }
     }
 
-    fn try_map_op<T, Error>(
+    fn try_map_expr_node<T, Error>(
         self,
         _f: &mut impl FnMut(I) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>
@@ -885,7 +865,7 @@ impl<E: Instr> OperationDetail<E> {
         InstrName<T>: From<InstrName<E>>,
     {
         match self {
-            match_rest(op) => op.map_op(f).into(),
+            match_rest(op) => op.map_expr_node(f).into(),
         }
     }
 
@@ -898,7 +878,7 @@ impl<E: Instr> OperationDetail<E> {
         InstrName<T>: From<InstrName<E>>,
     {
         Ok(match self {
-            match_rest(op) => op.try_map_op(f)?.into(),
+            match_rest(op) => op.try_map_expr_node(f)?.into(),
         })
     }
 
@@ -912,6 +892,37 @@ impl<E: Instr> OperationDetail<E> {
         match self {
             match_rest(op) => op.visit_exprs_mut(f),
         }
+    }
+}
+
+impl<E: Instr> InstrExprNode<E> for OperationDetail<E> {
+    type Mapped<T: Instr> = OperationDetail<T>;
+
+    fn visit_exprs(&self, f: &mut impl FnMut(&E)) {
+        self.walk_args(f);
+    }
+
+    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut E)) {
+        self.walk_args_mut(f);
+    }
+
+    fn map_expr_node<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<E>>,
+    {
+        self.map_expr(f)
+    }
+
+    fn try_map_expr_node<T, Error>(
+        self,
+        f: &mut impl FnMut(E) -> Result<T, Error>,
+    ) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<E>>,
+    {
+        self.try_map_expr(f)
     }
 }
 
