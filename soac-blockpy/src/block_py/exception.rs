@@ -2,6 +2,7 @@ use super::{
     AbruptKind, BlockArg, BlockPyAssign, BlockPyEdge, BlockPyLabel, BlockPyTerm, CfgBlock,
     ImplicitNoneExpr, StructuredBlockPyStmt,
 };
+use crate::passes::ast_to_ast::util::is_dp_helper_lookup_expr;
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr, ExprName, Stmt};
 
@@ -88,62 +89,5 @@ fn contains_return_stmt(stmt: &Stmt) -> bool {
 
 #[cfg(test)]
 pub(crate) fn is_dp_lookup_call(func: &Expr, attr_name: &str) -> bool {
-    if matches!(
-        func,
-        Expr::Name(name) if name.id.as_str() == format!("__dp_{attr_name}")
-    ) {
-        return true;
-    }
-    if let Expr::Attribute(attr) = func {
-        if attr.attr.as_str() == attr_name {
-            if let Expr::Name(module) = attr.value.as_ref() {
-                return module.id.as_str() == "runtime";
-            }
-        }
-    }
-    if let Expr::Call(call) = func {
-        if !call.arguments.keywords.is_empty() || call.arguments.args.len() != 2 {
-            return false;
-        }
-        if !matches!(
-            call.func.as_ref(),
-            Expr::Name(name) if name.id.as_str() == "__dp_getattr"
-        ) {
-            return false;
-        }
-        let base_matches = matches!(
-            &call.arguments.args[0],
-            Expr::Name(base) if base.id.as_str() == "runtime"
-        );
-        if !base_matches {
-            return false;
-        }
-        return expr_static_str(&call.arguments.args[1]).as_deref() == Some(attr_name);
-    }
-    false
-}
-
-#[cfg(test)]
-fn expr_static_str(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::StringLiteral(value) => Some(value.value.to_str().to_string()),
-        Expr::Call(call)
-            if call.arguments.keywords.is_empty()
-                && call.arguments.args.len() == 1
-                && matches!(
-                    call.func.as_ref(),
-                    Expr::Name(name)
-                        if name.id.as_str() == "__dp_decode_literal_bytes"
-                ) =>
-        {
-            match &call.arguments.args[0] {
-                Expr::BytesLiteral(bytes) => {
-                    let value: std::borrow::Cow<[u8]> = (&bytes.value).into();
-                    String::from_utf8(value.into_owned()).ok()
-                }
-                _ => None,
-            }
-        }
-        _ => None,
-    }
+    is_dp_helper_lookup_expr(func, attr_name)
 }

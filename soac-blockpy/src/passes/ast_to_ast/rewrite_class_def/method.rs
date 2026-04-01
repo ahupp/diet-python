@@ -2,7 +2,10 @@ use ruff_python_ast::{self as ast, Expr, Stmt};
 
 use crate::passes::ast_to_ast::body::Suite;
 use crate::transformer::{walk_expr, walk_stmt, Transformer};
-use crate::{passes::ast_to_ast::util::is_noarg_call, py_expr};
+use crate::{
+    passes::ast_to_ast::util::{is_dp_helper_lookup_expr, is_noarg_call},
+    py_expr,
+};
 
 struct MethodRewriteSuperClasscell {
     first_arg: Option<String>,
@@ -63,21 +66,7 @@ fn is_dp_call(expr: &Expr, name: &str) -> bool {
     let Expr::Call(ast::ExprCall { func, .. }) = expr else {
         return false;
     };
-    if let Expr::Name(ast::ExprName { id, .. }) = func.as_ref() {
-        if id.as_str() == format!("__dp_{name}") {
-            return true;
-        }
-    }
-    let Expr::Attribute(ast::ExprAttribute { value, attr, .. }) = func.as_ref() else {
-        return false;
-    };
-    if attr.as_str() != name {
-        return false;
-    }
-    matches!(
-        value.as_ref(),
-        Expr::Name(ast::ExprName { id, .. }) if id.as_str() == "runtime"
-    )
+    is_dp_helper_lookup_expr(func, name)
 }
 
 pub fn rewrite_explicit_super_classcell(class_def: &mut ast::StmtClassDef) -> bool {
