@@ -1,3 +1,5 @@
+use super::vmctx::JitModuleVmCtx;
+use crate::module_constants::ModuleConstantId;
 use cranelift_jit::JITBuilder;
 use libc;
 use pyo3::ffi;
@@ -97,51 +99,6 @@ unsafe extern "C" fn get_arg_item_hook(args: ObjPtr, index: i64) -> ObjPtr {
         return ptr::null_mut();
     }
     ffi::PySequence_GetItem(args as *mut ffi::PyObject, index as ffi::Py_ssize_t) as ObjPtr
-}
-
-unsafe extern "C" fn make_int_hook(value: i64) -> ObjPtr {
-    ffi::PyLong_FromLongLong(value as std::ffi::c_longlong) as ObjPtr
-}
-
-unsafe extern "C" fn make_float_hook(value: f64) -> ObjPtr {
-    ffi::PyFloat_FromDouble(value) as ObjPtr
-}
-
-unsafe extern "C" fn make_bytes_hook(data_ptr: *const u8, data_len: i64) -> ObjPtr {
-    if data_ptr.is_null() || data_len < 0 {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"invalid arguments to dp_jit_make_bytes\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-    ffi::PyBytes_FromStringAndSize(data_ptr as *const i8, data_len as ffi::Py_ssize_t) as ObjPtr
-}
-
-#[cfg(not(test))]
-unsafe extern "C" fn load_name_hook(
-    globals_obj: ObjPtr,
-    name_ptr: *const u8,
-    name_len: i64,
-) -> ObjPtr {
-    if globals_obj.is_null() || name_ptr.is_null() || name_len < 0 {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"invalid arguments to dp_jit_load_name\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-    let name_obj = ffi::PyUnicode_DecodeUTF8(
-        name_ptr as *const i8,
-        name_len as ffi::Py_ssize_t,
-        b"strict\0".as_ptr() as *const i8,
-    );
-    if name_obj.is_null() {
-        return ptr::null_mut();
-    }
-    let result = load_global_obj_impl(globals_obj, name_obj);
-    ffi::Py_DECREF(name_obj);
-    result
 }
 
 #[cfg(not(test))]
@@ -250,6 +207,35 @@ unsafe fn load_runtime_obj_impl(name_obj: *mut ffi::PyObject) -> ObjPtr {
     ptr::null_mut()
 }
 
+unsafe extern "C" fn load_module_constant_hook(vmctx: ObjPtr, index: i64) -> ObjPtr {
+    if vmctx.is_null() || index < 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"invalid arguments to dp_jit_load_module_constant\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let vmctx = unsafe { &*(vmctx as *const JitModuleVmCtx) };
+    if vmctx.shared_module_state.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"missing shared module state for dp_jit_load_module_constant\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    }
+    let shared_state = unsafe { &*vmctx.shared_module_state };
+    let Some(value) = shared_state.lookup_module_constant(ModuleConstantId(index as usize)) else {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            b"module constant index out of range\0".as_ptr() as *const i8,
+        );
+        return ptr::null_mut();
+    };
+    let obj = value.as_ptr();
+    unsafe { ffi::Py_INCREF(obj) };
+    obj as ObjPtr
+}
+
 unsafe fn resolve_function_object(callable: ObjPtr) -> ObjPtr {
     if callable.is_null() {
         ffi::PyErr_SetString(
@@ -295,36 +281,45 @@ unsafe fn resolve_function_defaults_owner(callable: ObjPtr) -> ObjPtr {
     resolve_function_object(callable)
 }
 
-unsafe fn raise_missing_function_default(name_ptr: *const u8, name_len: i64) {
-    if name_ptr.is_null() || name_len < 0 {
+unsafe fn raise_missing_function_default_obj(name_obj: *mut ffi::PyObject) {
+    if name_obj.is_null() {
         ffi::PyErr_SetString(
             ffi::PyExc_TypeError,
             b"missing required argument\0".as_ptr() as *const i8,
         );
         return;
     }
-    let name = String::from_utf8_lossy(std::slice::from_raw_parts(name_ptr, name_len as usize));
-    let message = format!("missing required argument {name:?}");
-    if let Ok(c_msg) = std::ffi::CString::new(message) {
-        ffi::PyErr_SetString(ffi::PyExc_TypeError, c_msg.as_ptr());
-    } else {
-        ffi::PyErr_SetString(
-            ffi::PyExc_TypeError,
-            b"missing required argument\0".as_ptr() as *const i8,
-        );
+    let repr = ffi::PyObject_Repr(name_obj);
+    if !repr.is_null() {
+        let repr_utf8 = ffi::PyUnicode_AsUTF8(repr);
+        if !repr_utf8.is_null() {
+            let repr_text = std::ffi::CStr::from_ptr(repr_utf8).to_string_lossy();
+            let message = format!("missing required argument {repr_text}");
+            ffi::Py_DECREF(repr);
+            if let Ok(c_msg) = std::ffi::CString::new(message) {
+                ffi::PyErr_SetString(ffi::PyExc_TypeError, c_msg.as_ptr());
+                return;
+            }
+        } else {
+            ffi::PyErr_Clear();
+        }
+        ffi::Py_DECREF(repr);
     }
+    ffi::PyErr_SetString(
+        ffi::PyExc_TypeError,
+        b"missing required argument\0".as_ptr() as *const i8,
+    );
 }
 
-unsafe extern "C" fn function_positional_default_hook(
+unsafe extern "C" fn function_positional_default_obj_hook(
     callable: ObjPtr,
-    name_ptr: *const u8,
-    name_len: i64,
+    name_obj: ObjPtr,
     index: i64,
 ) -> ObjPtr {
-    if name_ptr.is_null() || name_len < 0 || index < 0 {
+    if name_obj.is_null() || index < 0 {
         ffi::PyErr_SetString(
             ffi::PyExc_RuntimeError,
-            b"invalid arguments to dp_jit_function_positional_default\0".as_ptr() as *const i8,
+            b"invalid arguments to dp_jit_function_positional_default_obj\0".as_ptr() as *const i8,
         );
         return ptr::null_mut();
     }
@@ -340,21 +335,21 @@ unsafe extern "C" fn function_positional_default_hook(
         ffi::Py_DECREF(owner as *mut ffi::PyObject);
         if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
             ffi::PyErr_Clear();
-            raise_missing_function_default(name_ptr, name_len);
+            raise_missing_function_default_obj(name_obj as *mut ffi::PyObject);
         }
         return ptr::null_mut();
     }
     if defaults == ffi::Py_None() || ffi::PyTuple_Check(defaults) == 0 {
         ffi::Py_DECREF(defaults);
         ffi::Py_DECREF(owner as *mut ffi::PyObject);
-        raise_missing_function_default(name_ptr, name_len);
+        raise_missing_function_default_obj(name_obj as *mut ffi::PyObject);
         return ptr::null_mut();
     }
     let tuple_len = ffi::PyTuple_GET_SIZE(defaults);
     if index >= tuple_len as i64 {
         ffi::Py_DECREF(defaults);
         ffi::Py_DECREF(owner as *mut ffi::PyObject);
-        raise_missing_function_default(name_ptr, name_len);
+        raise_missing_function_default_obj(name_obj as *mut ffi::PyObject);
         return ptr::null_mut();
     }
     let value = ffi::PyTuple_GetItem(defaults, index as ffi::Py_ssize_t);
@@ -369,15 +364,14 @@ unsafe extern "C" fn function_positional_default_hook(
     value as ObjPtr
 }
 
-unsafe extern "C" fn function_kwonly_default_hook(
+unsafe extern "C" fn function_kwonly_default_obj_hook(
     callable: ObjPtr,
-    name_ptr: *const u8,
-    name_len: i64,
+    name_obj: ObjPtr,
 ) -> ObjPtr {
-    if name_ptr.is_null() || name_len < 0 {
+    if name_obj.is_null() {
         ffi::PyErr_SetString(
             ffi::PyExc_RuntimeError,
-            b"invalid arguments to dp_jit_function_kwonly_default\0".as_ptr() as *const i8,
+            b"invalid arguments to dp_jit_function_kwonly_default_obj\0".as_ptr() as *const i8,
         );
         return ptr::null_mut();
     }
@@ -393,37 +387,29 @@ unsafe extern "C" fn function_kwonly_default_hook(
         ffi::Py_DECREF(owner as *mut ffi::PyObject);
         if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
             ffi::PyErr_Clear();
-            raise_missing_function_default(name_ptr, name_len);
+            raise_missing_function_default_obj(name_obj as *mut ffi::PyObject);
         }
         return ptr::null_mut();
     }
     if kwdefaults == ffi::Py_None() || ffi::PyDict_Check(kwdefaults) == 0 {
         ffi::Py_DECREF(kwdefaults);
         ffi::Py_DECREF(owner as *mut ffi::PyObject);
-        raise_missing_function_default(name_ptr, name_len);
+        raise_missing_function_default_obj(name_obj as *mut ffi::PyObject);
         return ptr::null_mut();
     }
-    let key = match std::ffi::CString::new(std::slice::from_raw_parts(name_ptr, name_len as usize))
-    {
-        Ok(value) => value,
-        Err(_) => {
+    let value = ffi::PyObject_GetItem(kwdefaults, name_obj as *mut ffi::PyObject);
+    if value.is_null() {
+        if ffi::PyErr_ExceptionMatches(ffi::PyExc_KeyError) != 0 {
+            ffi::PyErr_Clear();
             ffi::Py_DECREF(kwdefaults);
             ffi::Py_DECREF(owner as *mut ffi::PyObject);
-            ffi::PyErr_SetString(
-                ffi::PyExc_RuntimeError,
-                b"invalid kwonly default name\0".as_ptr() as *const i8,
-            );
+            raise_missing_function_default_obj(name_obj as *mut ffi::PyObject);
             return ptr::null_mut();
         }
-    };
-    let value = ffi::PyDict_GetItemString(kwdefaults, key.as_ptr());
-    if value.is_null() {
         ffi::Py_DECREF(kwdefaults);
         ffi::Py_DECREF(owner as *mut ffi::PyObject);
-        raise_missing_function_default(name_ptr, name_len);
         return ptr::null_mut();
     }
-    ffi::Py_INCREF(value);
     ffi::Py_DECREF(kwdefaults);
     ffi::Py_DECREF(owner as *mut ffi::PyObject);
     value as ObjPtr
@@ -811,47 +797,41 @@ unsafe extern "C" fn pyobject_to_i64_hook(value: ObjPtr) -> i64 {
     }
 }
 
-unsafe extern "C" fn decode_literal_bytes_hook(data_ptr: *const u8, data_len: i64) -> ObjPtr {
-    if data_ptr.is_null() || data_len < 0 {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"invalid arguments to dp_jit_decode_literal_bytes\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-    ffi::PyUnicode_DecodeUTF8(
-        data_ptr as *const i8,
-        data_len as ffi::Py_ssize_t,
-        b"surrogatepass\0".as_ptr() as *const i8,
-    ) as ObjPtr
-}
-
-unsafe extern "C" fn load_deleted_name_hook(
-    name_ptr: *const u8,
-    name_len: i64,
+unsafe extern "C" fn load_deleted_name_obj_hook(
+    name_obj: ObjPtr,
     value: ObjPtr,
     deleted: ObjPtr,
 ) -> ObjPtr {
-    if value.is_null() || deleted.is_null() || name_ptr.is_null() || name_len < 0 {
+    if value.is_null() || deleted.is_null() || name_obj.is_null() {
         ffi::PyErr_SetString(
             ffi::PyExc_RuntimeError,
-            b"invalid arguments to dp_jit_load_deleted_name\0".as_ptr() as *const i8,
+            b"invalid arguments to dp_jit_load_deleted_name_obj\0".as_ptr() as *const i8,
         );
         return ptr::null_mut();
     }
     if value == deleted {
-        let name = String::from_utf8_lossy(std::slice::from_raw_parts(name_ptr, name_len as usize));
-        let message = format!(
-            "cannot access local variable {name:?} where it is not associated with a value"
-        );
-        if let Ok(c_msg) = std::ffi::CString::new(message) {
-            ffi::PyErr_SetString(ffi::PyExc_UnboundLocalError, c_msg.as_ptr());
-        } else {
-            ffi::PyErr_SetString(
-                ffi::PyExc_UnboundLocalError,
-                b"cannot access local variable before assignment\0".as_ptr() as *const i8,
-            );
+        let repr = ffi::PyObject_Repr(name_obj as *mut ffi::PyObject);
+        if !repr.is_null() {
+            let repr_utf8 = ffi::PyUnicode_AsUTF8(repr);
+            if !repr_utf8.is_null() {
+                let repr_text = std::ffi::CStr::from_ptr(repr_utf8).to_string_lossy();
+                let message = format!(
+                    "cannot access local variable {repr_text} where it is not associated with a value"
+                );
+                ffi::Py_DECREF(repr);
+                if let Ok(c_msg) = std::ffi::CString::new(message) {
+                    ffi::PyErr_SetString(ffi::PyExc_UnboundLocalError, c_msg.as_ptr());
+                    return ptr::null_mut();
+                }
+            } else {
+                ffi::PyErr_Clear();
+            }
+            ffi::Py_DECREF(repr);
         }
+        ffi::PyErr_SetString(
+            ffi::PyExc_UnboundLocalError,
+            b"cannot access local variable before assignment\0".as_ptr() as *const i8,
+        );
         return ptr::null_mut();
     }
     ffi::Py_INCREF(value as *mut ffi::PyObject);
@@ -1042,23 +1022,15 @@ mod test_only_export_stubs {
     panic_obj_export!(dp_jit_py_call_with_kw(callable: ObjPtr, args: ObjPtr, kw: ObjPtr));
     panic_obj_export!(dp_jit_get_raised_exception());
     panic_obj_export!(dp_jit_get_arg_item(args: ObjPtr, index: i64));
-    panic_obj_export!(dp_jit_make_int(value: i64));
-    panic_obj_export!(dp_jit_make_float(value: f64));
-    panic_obj_export!(dp_jit_make_bytes(data_ptr: *const u8, data_len: i64));
-    panic_obj_export!(dp_jit_load_name(block: ObjPtr, name_ptr: *const u8, name_len: i64));
+    panic_obj_export!(dp_jit_load_module_constant(vmctx: ObjPtr, index: i64));
     panic_obj_export!(dp_jit_load_runtime_obj(name: ObjPtr));
     panic_obj_export!(dp_jit_function_closure_cell(callable: ObjPtr, slot: i64));
-    panic_obj_export!(dp_jit_function_positional_default(
+    panic_obj_export!(dp_jit_function_positional_default_obj(
         callable: ObjPtr,
-        name_ptr: *const u8,
-        name_len: i64,
+        name: ObjPtr,
         index: i64,
     ));
-    panic_obj_export!(dp_jit_function_kwonly_default(
-        callable: ObjPtr,
-        name_ptr: *const u8,
-        name_len: i64,
-    ));
+    panic_obj_export!(dp_jit_function_kwonly_default_obj(callable: ObjPtr, name: ObjPtr));
     panic_obj_export!(dp_jit_pyobject_getattr(obj: ObjPtr, attr: ObjPtr));
     panic_obj_export!(dp_jit_pyobject_setattr(obj: ObjPtr, attr: ObjPtr, value: ObjPtr));
     panic_obj_export!(dp_jit_pyobject_getitem(obj: ObjPtr, key: ObjPtr));
@@ -1068,14 +1040,8 @@ mod test_only_export_stubs {
     panic_obj_export!(dp_jit_store_global(globals_obj: ObjPtr, name: ObjPtr, value: ObjPtr));
     panic_obj_export!(dp_jit_del_quietly(obj: ObjPtr, key: ObjPtr));
     panic_i64_export!(dp_jit_pyobject_to_i64(value: ObjPtr));
-    panic_obj_export!(dp_jit_decode_literal_bytes(data_ptr: *const u8, data_len: i64));
     panic_obj_export!(dp_jit_make_cell(value: ObjPtr));
-    panic_obj_export!(dp_jit_load_deleted_name(
-        name_ptr: *const u8,
-        name_len: i64,
-        value: ObjPtr,
-        deleted: ObjPtr,
-    ));
+    panic_obj_export!(dp_jit_load_deleted_name_obj(name: ObjPtr, value: ObjPtr, deleted: ObjPtr));
     panic_obj_export!(dp_jit_load_cell(cell: ObjPtr));
     panic_obj_export!(dp_jit_store_cell(cell: ObjPtr, value: ObjPtr));
     panic_obj_export!(dp_jit_del_deref(cell: ObjPtr));
@@ -1139,27 +1105,8 @@ pub unsafe extern "C" fn dp_jit_get_arg_item(args: ObjPtr, index: i64) -> ObjPtr
 }
 
 #[cfg(not(test))]
-pub unsafe extern "C" fn dp_jit_make_int(value: i64) -> ObjPtr {
-    make_int_hook(value)
-}
-
-#[cfg(not(test))]
-pub unsafe extern "C" fn dp_jit_make_float(value: f64) -> ObjPtr {
-    make_float_hook(value)
-}
-
-#[cfg(not(test))]
-pub unsafe extern "C" fn dp_jit_make_bytes(data_ptr: *const u8, data_len: i64) -> ObjPtr {
-    make_bytes_hook(data_ptr, data_len)
-}
-
-#[cfg(not(test))]
-pub unsafe extern "C" fn dp_jit_load_name(
-    block: ObjPtr,
-    name_ptr: *const u8,
-    name_len: i64,
-) -> ObjPtr {
-    load_name_hook(block, name_ptr, name_len)
+pub unsafe extern "C" fn dp_jit_load_module_constant(vmctx: ObjPtr, index: i64) -> ObjPtr {
+    load_module_constant_hook(vmctx, index)
 }
 
 #[cfg(not(test))]
@@ -1174,22 +1121,20 @@ pub unsafe extern "C" fn dp_jit_function_closure_cell(callable: ObjPtr, slot: i6
 }
 
 #[cfg(not(test))]
-pub unsafe extern "C" fn dp_jit_function_positional_default(
+pub unsafe extern "C" fn dp_jit_function_positional_default_obj(
     callable: ObjPtr,
-    name_ptr: *const u8,
-    name_len: i64,
+    name: ObjPtr,
     index: i64,
 ) -> ObjPtr {
-    function_positional_default_hook(callable, name_ptr, name_len, index)
+    function_positional_default_obj_hook(callable, name, index)
 }
 
 #[cfg(not(test))]
-pub unsafe extern "C" fn dp_jit_function_kwonly_default(
+pub unsafe extern "C" fn dp_jit_function_kwonly_default_obj(
     callable: ObjPtr,
-    name_ptr: *const u8,
-    name_len: i64,
+    name: ObjPtr,
 ) -> ObjPtr {
-    function_kwonly_default_hook(callable, name_ptr, name_len)
+    function_kwonly_default_obj_hook(callable, name)
 }
 
 #[cfg(not(test))]
@@ -1250,23 +1195,17 @@ pub unsafe extern "C" fn dp_jit_pyobject_to_i64(value: ObjPtr) -> i64 {
 }
 
 #[cfg(not(test))]
-pub unsafe extern "C" fn dp_jit_decode_literal_bytes(data_ptr: *const u8, data_len: i64) -> ObjPtr {
-    decode_literal_bytes_hook(data_ptr, data_len)
-}
-
-#[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_make_cell(value: ObjPtr) -> ObjPtr {
     make_cell_hook(value)
 }
 
 #[cfg(not(test))]
-pub unsafe extern "C" fn dp_jit_load_deleted_name(
-    name_ptr: *const u8,
-    name_len: i64,
+pub unsafe extern "C" fn dp_jit_load_deleted_name_obj(
+    name: ObjPtr,
     value: ObjPtr,
     deleted: ObjPtr,
 ) -> ObjPtr {
-    load_deleted_name_hook(name_ptr, name_len, value, deleted)
+    load_deleted_name_obj_hook(name, value, deleted)
 }
 
 #[cfg(not(test))]
@@ -1500,10 +1439,10 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
         dp_jit_get_raised_exception as *const u8,
     );
     builder.symbol("dp_jit_get_arg_item", dp_jit_get_arg_item as *const u8);
-    builder.symbol("dp_jit_make_int", dp_jit_make_int as *const u8);
-    builder.symbol("dp_jit_make_float", dp_jit_make_float as *const u8);
-    builder.symbol("dp_jit_make_bytes", dp_jit_make_bytes as *const u8);
-    builder.symbol("dp_jit_load_name", dp_jit_load_name as *const u8);
+    builder.symbol(
+        "dp_jit_load_module_constant",
+        dp_jit_load_module_constant as *const u8,
+    );
     builder.symbol(
         "dp_jit_load_runtime_obj",
         dp_jit_load_runtime_obj as *const u8,
@@ -1513,12 +1452,12 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
         dp_jit_function_closure_cell as *const u8,
     );
     builder.symbol(
-        "dp_jit_function_positional_default",
-        dp_jit_function_positional_default as *const u8,
+        "dp_jit_function_positional_default_obj",
+        dp_jit_function_positional_default_obj as *const u8,
     );
     builder.symbol(
-        "dp_jit_function_kwonly_default",
-        dp_jit_function_kwonly_default as *const u8,
+        "dp_jit_function_kwonly_default_obj",
+        dp_jit_function_kwonly_default_obj as *const u8,
     );
     builder.symbol(
         "dp_jit_pyobject_getattr",
@@ -1551,12 +1490,8 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
         dp_jit_pyobject_to_i64 as *const u8,
     );
     builder.symbol(
-        "dp_jit_decode_literal_bytes",
-        dp_jit_decode_literal_bytes as *const u8,
-    );
-    builder.symbol(
-        "dp_jit_load_deleted_name",
-        dp_jit_load_deleted_name as *const u8,
+        "dp_jit_load_deleted_name_obj",
+        dp_jit_load_deleted_name_obj as *const u8,
     );
     builder.symbol("dp_jit_make_cell", dp_jit_make_cell as *const u8);
     builder.symbol("dp_jit_load_cell", dp_jit_load_cell as *const u8);

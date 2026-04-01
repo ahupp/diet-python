@@ -167,9 +167,15 @@ mod tests {
             let mut builder = new_jit_builder().expect("test jit builder should construct");
             register_specialized_jit_symbols(&mut builder);
             let mut jit_module = JITModule::new(builder);
-            let built =
-                build_cranelift_run_bb_specialized_function(&mut jit_module, blocks, function)
-                    .expect("specialized JIT build should succeed");
+            let module_constants =
+                crate::module_constants::ModuleCodegenConstants::collect_from_functions([function]);
+            let built = build_cranelift_run_bb_specialized_function(
+                &mut jit_module,
+                blocks,
+                function,
+                &module_constants,
+            )
+            .expect("specialized JIT build should succeed");
             let (clif, _cfg_dot, _vcode_disasm) = render_compiled_clif_and_vcode_disasm(
                 &mut jit_module,
                 built.ctx,
@@ -266,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn render_specialized_jit_make_string_uses_decode_helper_directly() {
+    fn render_specialized_jit_make_string_uses_module_constant_loader() {
         let blocks = [1usize as ObjPtr];
         let function = with_single_test_block(
             test_function(),
@@ -277,12 +283,12 @@ mod tests {
         );
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
-            rendered.contains("call dp_jit_decode_literal_bytes"),
-            "MakeString lowering should use the direct decode helper:\n{rendered}"
+            rendered.contains("call dp_jit_load_module_constant"),
+            "MakeString lowering should load a module constant:\n{rendered}"
         );
         assert!(
-            !rendered.contains("call dp_jit_py_call_positional_one"),
-            "MakeString lowering should avoid generic Python helper calls:\n{rendered}"
+            !rendered.contains("call dp_jit_decode_literal_bytes"),
+            "MakeString lowering should not decode literal bytes directly anymore:\n{rendered}"
         );
     }
 
@@ -348,7 +354,8 @@ mod tests {
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             !rendered.contains("call dp_jit_function_globals")
-                && rendered.contains("call dp_jit_load_name"),
+                && rendered.contains("call dp_jit_load_global_obj")
+                && rendered.contains("call dp_jit_load_module_constant"),
             "global located names should load through vmctx-backed globals without a callable globals helper:\n{rendered}"
         );
     }
@@ -545,7 +552,7 @@ mod tests {
         set_stack_slots(&mut function, &["x", "y"]);
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
-            rendered.contains("call dp_jit_function_positional_default"),
+            rendered.contains("call dp_jit_function_positional_default_obj"),
             "direct entry lowering should source omitted positional defaults from the callable:\n{rendered}"
         );
     }
@@ -565,7 +572,7 @@ mod tests {
         set_stack_slots(&mut function, &["x"]);
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
-            rendered.contains("call dp_jit_function_kwonly_default"),
+            rendered.contains("call dp_jit_function_kwonly_default_obj"),
             "direct entry lowering should source omitted kwonly defaults from the callable:\n{rendered}"
         );
     }

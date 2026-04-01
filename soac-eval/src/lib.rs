@@ -2,6 +2,7 @@
 #![allow(unused_unsafe)]
 
 pub mod jit;
+pub mod module_constants;
 pub mod module_type;
 pub mod session;
 pub mod tree_walk;

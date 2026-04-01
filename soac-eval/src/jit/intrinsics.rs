@@ -1,4 +1,4 @@
-use super::{ImportSpec, JitEmitCtx, SigType};
+use super::{ImportSpec, JitEmitCtx, SigType, emit_owned_module_constant_from_parts};
 use crate::jit::blockpy_intrinsics;
 use cranelift_codegen::ir;
 use cranelift_codegen::ir::InstBuilder;
@@ -6,9 +6,8 @@ use cranelift_frontend::FunctionBuilder;
 use pyo3::ffi;
 
 pub(super) trait OperationEmitState<'fb, E> {
-    fn ctx(&self) -> &JitEmitCtx;
+    fn ctx(&self) -> &JitEmitCtx<'_>;
     fn fb(&mut self) -> &mut FunctionBuilder<'fb>;
-    fn literal_pool(&mut self) -> &mut Vec<Box<[u8]>>;
     fn import_func(&mut self, spec: &'static ImportSpec) -> ir::FuncRef;
     fn emit_arg_values(&mut self, args: &[&E]) -> Vec<(ir::Value, bool)>;
     fn release_arg_values(&mut self, arg_values: &[(ir::Value, bool)]);
@@ -17,19 +16,33 @@ pub(super) trait OperationEmitState<'fb, E> {
     fn emit_owned_bool_from_cond(&mut self, cond: ir::Value) -> ir::Value;
 
     fn emit_owned_string_constant(&mut self, value: &str) -> ir::Value {
-        let (data_ptr, data_len) =
-            super::intern_bytes_literal(self.literal_pool(), value.as_bytes());
+        let constant_id = self
+            .ctx()
+            .module_constants
+            .require_unicode_constant_id(value);
+        self.emit_owned_module_constant(constant_id)
+    }
+
+    fn emit_owned_module_constant(
+        &mut self,
+        constant_id: crate::module_constants::ModuleConstantId,
+    ) -> ir::Value {
+        let load_module_constant_ref = self.ctx().load_module_constant_ref;
+        let vmctx_value = self.ctx().consts.vmctx_value;
+        let step_null_block = self.ctx().consts.step_null_block;
+        let step_null_args = self.ctx().consts.step_null_args.clone();
         let ptr_ty = self.ctx().consts.ptr_ty;
         let i64_ty = self.ctx().consts.i64_ty;
-        let decode_literal_bytes_ref = self.ctx().decode_literal_bytes_ref;
-        let data_ptr_val = self.fb().ins().iconst(ptr_ty, data_ptr as i64);
-        let data_len_val = self.fb().ins().iconst(i64_ty, data_len);
-        let call_inst = self
-            .fb()
-            .ins()
-            .call(decode_literal_bytes_ref, &[data_ptr_val, data_len_val]);
-        let result = self.fb().inst_results(call_inst)[0];
-        self.finish_owned_result(result)
+        emit_owned_module_constant_from_parts(
+            self.fb(),
+            constant_id,
+            load_module_constant_ref,
+            vmctx_value,
+            step_null_block,
+            &step_null_args,
+            ptr_ty,
+            i64_ty,
+        )
     }
 
     fn emit_owned_func_call(&mut self, func_ref: ir::FuncRef, args: &[&E]) -> ir::Value {
@@ -387,19 +400,11 @@ fn emit_make_string<'fb, E>(
     op: &blockpy_intrinsics::MakeString,
     state: &mut impl OperationEmitState<'fb, E>,
 ) -> ir::Value {
-    let bytes = op.bytes.as_slice();
-    let (data_ptr, data_len) = super::intern_bytes_literal(state.literal_pool(), bytes);
-    let ptr_ty = state.ctx().consts.ptr_ty;
-    let i64_ty = state.ctx().consts.i64_ty;
-    let decode_literal_bytes_ref = state.ctx().decode_literal_bytes_ref;
-    let data_ptr_val = state.fb().ins().iconst(ptr_ty, data_ptr as i64);
-    let data_len_val = state.fb().ins().iconst(i64_ty, data_len);
-    let call_inst = state
-        .fb()
-        .ins()
-        .call(decode_literal_bytes_ref, &[data_ptr_val, data_len_val]);
-    let result = state.fb().inst_results(call_inst)[0];
-    state.finish_owned_result(result)
+    let constant_id = state
+        .ctx()
+        .module_constants
+        .require_unicode_constant_id_for_bytes(op.bytes.as_slice());
+    state.emit_owned_module_constant(constant_id)
 }
 
 fn emit_getitem<'fb, E>(state: &mut impl OperationEmitState<'fb, E>, args: &[&E]) -> ir::Value {

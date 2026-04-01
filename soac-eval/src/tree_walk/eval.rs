@@ -322,6 +322,10 @@ unsafe fn ensure_clif_vectorcall_compiled(
         data.compiled_handle = match jit::compile_cranelift_run_bb_specialized_cached(
             block_ptrs.as_slice(),
             &data.function,
+            &data
+                .module_runtime
+                .shared_module_state_owner
+                .codegen_constants,
         ) {
             Ok(handle) => handle,
             Err(err) => {

@@ -1,3 +1,4 @@
+use crate::module_constants::{ModuleCodegenConstants, ModuleConstantId};
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::ffi;
 use pyo3::prelude::*;
@@ -18,7 +19,9 @@ pub struct SharedModuleState {
     pub lowered_module: BlockPyModule<CodegenBlockPyPass>,
     pub module_name: String,
     pub package_name: String,
+    pub codegen_constants: ModuleCodegenConstants,
     function_index_by_id: HashMap<FunctionId, usize>,
+    module_constant_objs: Vec<Py<PyAny>>,
 }
 
 impl SharedModuleState {
@@ -30,6 +33,10 @@ impl SharedModuleState {
         let function = self.lowered_module.callable_defs.get(function_index)?;
         assert_eq!(function.function_id, function_id);
         Some(function)
+    }
+
+    pub fn lookup_module_constant(&self, constant_id: ModuleConstantId) -> Option<&Py<PyAny>> {
+        self.module_constant_objs.get(constant_id.0)
     }
 }
 
@@ -60,6 +67,7 @@ struct SoacExtModuleState {
 impl SoacExtModuleState {
     unsafe fn init(
         &mut self,
+        py: Python<'_>,
         lowered_module: BlockPyModule<CodegenBlockPyPass>,
         module_name: String,
         package_name: String,
@@ -70,11 +78,15 @@ impl SoacExtModuleState {
             ));
         }
         let function_index_by_id = build_function_index_by_id(&lowered_module)?;
+        let codegen_constants = ModuleCodegenConstants::collect_from_module(&lowered_module);
+        let module_constant_objs = codegen_constants.build_python_constants(py)?;
         self.shared_state.write(Arc::new(SharedModuleState {
             lowered_module,
             module_name,
             package_name,
+            codegen_constants,
             function_index_by_id,
+            module_constant_objs,
         }));
         self.initialized = true;
         Ok(())
@@ -118,6 +130,25 @@ unsafe extern "C" fn soac_ext_module_clear(module: *mut ffi::PyObject) -> c_int 
     0
 }
 
+unsafe extern "C" fn soac_ext_module_traverse(
+    module: *mut ffi::PyObject,
+    visit: ffi::visitproc,
+    arg: *mut c_void,
+) -> c_int {
+    let state = unsafe { ffi::PyModule_GetState(module) }.cast::<SoacExtModuleState>();
+    if state.is_null() || unsafe { !(*state).initialized } {
+        return 0;
+    }
+    let shared_state = unsafe { (*state).shared_state.assume_init_ref().as_ref() };
+    for obj in &shared_state.module_constant_objs {
+        let rc = unsafe { visit(obj.as_ptr(), arg) };
+        if rc != 0 {
+            return rc;
+        }
+    }
+    0
+}
+
 unsafe extern "C" fn soac_ext_module_free(module: *mut c_void) {
     unsafe {
         soac_ext_module_clear(module.cast());
@@ -131,8 +162,7 @@ static mut SOAC_EXT_MODULE_DEF: ffi::PyModuleDef = ffi::PyModuleDef {
     m_size: std::mem::size_of::<SoacExtModuleState>() as ffi::Py_ssize_t,
     m_methods: ptr::null_mut(),
     m_slots: ptr::null_mut(),
-    // This state stores only Rust-owned lowering data and strings, not PyObject refs.
-    m_traverse: None,
+    m_traverse: Some(soac_ext_module_traverse),
     m_clear: Some(soac_ext_module_clear),
     m_free: Some(soac_ext_module_free),
 };
@@ -191,7 +221,7 @@ impl SoacExtModule {
         }
         let state = soac_ext_module_state(&module)?;
         unsafe {
-            (*state).init(lowered_module, module_name, package_name)?;
+            (*state).init(py, lowered_module, module_name, package_name)?;
         }
         Ok(module.unbind())
     }

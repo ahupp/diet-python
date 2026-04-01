@@ -1,3 +1,4 @@
+use crate::module_constants::{ModuleCodegenConstants, ModuleConstantId};
 use cranelift_codegen::cfg_printer::CFGPrinter;
 use cranelift_codegen::incremental_cache::CacheKvStore;
 use cranelift_codegen::ir;
@@ -122,18 +123,14 @@ static DP_JIT_PY_CALL_WITH_KW_IMPORT: ImportSpec = ImportSpec::new(
 );
 static DP_JIT_GET_RAISED_EXCEPTION_IMPORT: ImportSpec =
     ImportSpec::new("dp_jit_get_raised_exception", &[], &[SigType::Pointer]);
-static DP_JIT_MAKE_INT_IMPORT: ImportSpec =
-    ImportSpec::new("dp_jit_make_int", &[SigType::I64], &[SigType::Pointer]);
-static DP_JIT_MAKE_FLOAT_IMPORT: ImportSpec =
-    ImportSpec::new("dp_jit_make_float", &[SigType::F64], &[SigType::Pointer]);
-static DP_JIT_MAKE_BYTES_IMPORT: ImportSpec = ImportSpec::new(
-    "dp_jit_make_bytes",
+static DP_JIT_LOAD_MODULE_CONSTANT_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_load_module_constant",
     &[SigType::Pointer, SigType::I64],
     &[SigType::Pointer],
 );
-static DP_JIT_LOAD_NAME_IMPORT: ImportSpec = ImportSpec::new(
-    "dp_jit_load_name",
-    &[SigType::Pointer, SigType::Pointer, SigType::I64],
+static DP_JIT_LOAD_GLOBAL_OBJ_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_load_global_obj",
+    &[SigType::Pointer, SigType::Pointer],
     &[SigType::Pointer],
 );
 static DP_JIT_FUNCTION_CLOSURE_CELL_IMPORT: ImportSpec = ImportSpec::new(
@@ -141,19 +138,14 @@ static DP_JIT_FUNCTION_CLOSURE_CELL_IMPORT: ImportSpec = ImportSpec::new(
     &[SigType::Pointer, SigType::I64],
     &[SigType::Pointer],
 );
-static DP_JIT_FUNCTION_POSITIONAL_DEFAULT_IMPORT: ImportSpec = ImportSpec::new(
-    "dp_jit_function_positional_default",
-    &[
-        SigType::Pointer,
-        SigType::Pointer,
-        SigType::I64,
-        SigType::I64,
-    ],
+static DP_JIT_FUNCTION_POSITIONAL_DEFAULT_OBJ_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_function_positional_default_obj",
+    &[SigType::Pointer, SigType::Pointer, SigType::I64],
     &[SigType::Pointer],
 );
-static DP_JIT_FUNCTION_KWONLY_DEFAULT_IMPORT: ImportSpec = ImportSpec::new(
-    "dp_jit_function_kwonly_default",
-    &[SigType::Pointer, SigType::Pointer, SigType::I64],
+static DP_JIT_FUNCTION_KWONLY_DEFAULT_OBJ_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_function_kwonly_default_obj",
+    &[SigType::Pointer, SigType::Pointer],
     &[SigType::Pointer],
 );
 static DP_JIT_PYOBJECT_GETATTR_IMPORT: ImportSpec = ImportSpec::new(
@@ -181,19 +173,9 @@ static DP_JIT_PYOBJECT_TO_I64_IMPORT: ImportSpec = ImportSpec::new(
     &[SigType::Pointer],
     &[SigType::I64],
 );
-static DP_JIT_DECODE_LITERAL_BYTES_IMPORT: ImportSpec = ImportSpec::new(
-    "dp_jit_decode_literal_bytes",
-    &[SigType::Pointer, SigType::I64],
-    &[SigType::Pointer],
-);
-static DP_JIT_LOAD_DELETED_NAME_IMPORT: ImportSpec = ImportSpec::new(
-    "dp_jit_load_deleted_name",
-    &[
-        SigType::Pointer,
-        SigType::I64,
-        SigType::Pointer,
-        SigType::Pointer,
-    ],
+static DP_JIT_LOAD_DELETED_NAME_OBJ_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_load_deleted_name_obj",
+    &[SigType::Pointer, SigType::Pointer, SigType::Pointer],
     &[SigType::Pointer],
 );
 static DP_JIT_MAKE_CELL_IMPORT: ImportSpec =
@@ -348,14 +330,12 @@ type ClifBlockDisplayAnnotations = HashMap<String, ClifBlockDisplayAnnotation>;
 struct BuiltSpecializedFunction {
     ctx: cranelift_codegen::Context,
     main_id: cranelift_module::FuncId,
-    literal_pool: Vec<Box<[u8]>>,
     import_id_to_symbol: HashMap<u32, &'static str>,
     block_annotations: ClifBlockDisplayAnnotations,
 }
 
 struct CompiledSpecializedRunner {
     _jit_module: JITModule,
-    _literal_pool: Vec<Box<[u8]>>,
     entry: Option<CompiledRunnerEntry>,
 }
 
@@ -426,7 +406,7 @@ fn emit_codegen_local_name_load(
     location: LocalLocation,
     local_names: &[String],
     local_values: &[ir::Value],
-    ctx: &JitEmitCtx,
+    ctx: &JitEmitCtx<'_>,
     borrowed: bool,
 ) -> ir::Value {
     let layout = ctx
@@ -499,14 +479,6 @@ fn codegen_expr_helper_name(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
     }
 }
 
-fn intern_bytes_literal(literal_pool: &mut Vec<Box<[u8]>>, bytes: &[u8]) -> (*const u8, i64) {
-    let boxed = bytes.to_vec().into_boxed_slice();
-    let ptr = boxed.as_ptr();
-    let len = boxed.len() as i64;
-    literal_pool.push(boxed);
-    (ptr, len)
-}
-
 fn load_vmctx_obj(
     fb: &mut FunctionBuilder<'_>,
     ptr_ty: ir::Type,
@@ -522,6 +494,7 @@ struct JitEmitConsts {
     step_null_args: Vec<ir::Value>,
     ptr_ty: ir::Type,
     i64_ty: ir::Type,
+    vmctx_value: ir::Value,
     callable_value: ir::Value,
     none_const: ir::Value,
     true_const: ir::Value,
@@ -531,26 +504,24 @@ struct JitEmitConsts {
     block_const: ir::Value,
 }
 
-struct JitEmitCtx {
+struct JitEmitCtx<'mc> {
+    module_constants: &'mc ModuleCodegenConstants,
     storage_layout: Option<StorageLayout>,
     incref_ref: ir::FuncRef,
     decref_ref: ir::FuncRef,
     py_call_positional_three_ref: ir::FuncRef,
-    make_int_ref: ir::FuncRef,
     consts: JitEmitConsts,
-    load_name_ref: ir::FuncRef,
+    load_module_constant_ref: ir::FuncRef,
+    load_global_obj_ref: ir::FuncRef,
     function_closure_cell_ref: ir::FuncRef,
     pyobject_getattr_ref: ir::FuncRef,
     pyobject_setattr_ref: ir::FuncRef,
     pyobject_getitem_ref: ir::FuncRef,
     pyobject_setitem_ref: ir::FuncRef,
-    decode_literal_bytes_ref: ir::FuncRef,
     load_deleted_name_ref: ir::FuncRef,
     make_cell_ref: ir::FuncRef,
     load_cell_ref: ir::FuncRef,
     store_cell_ref: ir::FuncRef,
-    make_bytes_ref: ir::FuncRef,
-    make_float_ref: ir::FuncRef,
     py_call_object_ref: ir::FuncRef,
     py_call_with_kw_ref: ir::FuncRef,
     tuple_new_ref: ir::FuncRef,
@@ -558,12 +529,11 @@ struct JitEmitCtx {
     stack_slots: StackSlots,
 }
 
-struct CodegenIntrinsicEmitState<'a, 'b, 'c, 'd> {
+struct CodegenIntrinsicEmitState<'a, 'b, 'mc, 'c, 'd> {
     fb: &'a mut FunctionBuilder<'b>,
     local_names: &'c [String],
     local_values: &'c [ir::Value],
-    ctx: &'c JitEmitCtx,
-    literal_pool: &'c mut Vec<Box<[u8]>>,
+    ctx: &'c JitEmitCtx<'mc>,
     jit_module: &'a mut JITModule,
     func_imports: &'a mut FuncBuildImports<'d>,
 }
@@ -710,19 +680,15 @@ fn delete_local_value(
     Ok(())
 }
 
-impl<'a, 'b, 'c, 'd> intrinsics::OperationEmitState<'b, LocatedCodegenBlockPyExpr>
-    for CodegenIntrinsicEmitState<'a, 'b, 'c, 'd>
+impl<'a, 'b, 'mc, 'c, 'd> intrinsics::OperationEmitState<'b, LocatedCodegenBlockPyExpr>
+    for CodegenIntrinsicEmitState<'a, 'b, 'mc, 'c, 'd>
 {
-    fn ctx(&self) -> &JitEmitCtx {
+    fn ctx(&self) -> &JitEmitCtx<'mc> {
         self.ctx
     }
 
     fn fb(&mut self) -> &mut FunctionBuilder<'b> {
         self.fb
-    }
-
-    fn literal_pool(&mut self) -> &mut Vec<Box<[u8]>> {
-        self.literal_pool
     }
 
     fn import_func(&mut self, spec: &'static ImportSpec) -> ir::FuncRef {
@@ -745,7 +711,6 @@ impl<'a, 'b, 'c, 'd> intrinsics::OperationEmitState<'b, LocatedCodegenBlockPyExp
                 self.local_names,
                 self.local_values,
                 self.ctx,
-                self.literal_pool,
                 borrowed_arg,
                 self.jit_module,
                 self.func_imports,
@@ -837,8 +802,59 @@ fn block_arg_values(values: &[ir::Value]) -> Vec<ir::BlockArg> {
     values.iter().copied().map(ir::BlockArg::Value).collect()
 }
 
-fn step_null_block_args(ctx: &JitEmitCtx) -> Vec<ir::BlockArg> {
+fn step_null_block_args(ctx: &JitEmitCtx<'_>) -> Vec<ir::BlockArg> {
     block_arg_values(&ctx.consts.step_null_args)
+}
+
+fn emit_owned_module_constant_from_parts(
+    fb: &mut FunctionBuilder<'_>,
+    constant_id: ModuleConstantId,
+    load_module_constant_ref: ir::FuncRef,
+    vmctx_value: ir::Value,
+    step_null_block: ir::Block,
+    step_null_args: &[ir::Value],
+    ptr_ty: ir::Type,
+    i64_ty: ir::Type,
+) -> ir::Value {
+    let null_ptr = fb.ins().iconst(ptr_ty, 0);
+    let constant_index = i64::try_from(constant_id.0)
+        .expect("module constant index should fit in direct JIT immediate");
+    let constant_index_val = fb.ins().iconst(i64_ty, constant_index);
+    let call_inst = fb
+        .ins()
+        .call(load_module_constant_ref, &[vmctx_value, constant_index_val]);
+    let constant_value = fb.inst_results(call_inst)[0];
+    let constant_is_null = fb
+        .ins()
+        .icmp(ir::condcodes::IntCC::Equal, constant_value, null_ptr);
+    let constant_ok_block = fb.create_block();
+    fb.append_block_param(constant_ok_block, ptr_ty);
+    fb.ins().brif(
+        constant_is_null,
+        step_null_block,
+        &block_arg_values(step_null_args),
+        constant_ok_block,
+        &[ir::BlockArg::Value(constant_value)],
+    );
+    fb.switch_to_block(constant_ok_block);
+    fb.block_params(constant_ok_block)[0]
+}
+
+fn emit_owned_module_constant(
+    fb: &mut FunctionBuilder<'_>,
+    constant_id: ModuleConstantId,
+    ctx: &JitEmitCtx<'_>,
+) -> ir::Value {
+    emit_owned_module_constant_from_parts(
+        fb,
+        constant_id,
+        ctx.load_module_constant_ref,
+        ctx.consts.vmctx_value,
+        ctx.consts.step_null_block,
+        &ctx.consts.step_null_args,
+        ctx.consts.ptr_ty,
+        ctx.consts.i64_ty,
+    )
 }
 
 fn emit_raw_cell_object_for_name(
@@ -846,7 +862,7 @@ fn emit_raw_cell_object_for_name(
     name: &LocatedName,
     local_names: &[String],
     local_values: &[ir::Value],
-    ctx: &JitEmitCtx,
+    ctx: &JitEmitCtx<'_>,
 ) -> ir::Value {
     let Some(location) = name.cell_location() else {
         panic!(
@@ -870,7 +886,7 @@ fn emit_raw_cell_object_for_location(
     debug_name: &str,
     local_names: &[String],
     local_values: &[ir::Value],
-    ctx: &JitEmitCtx,
+    ctx: &JitEmitCtx<'_>,
 ) -> ir::Value {
     let ptr_ty = ctx.consts.ptr_ty;
     let i64_ty = ctx.consts.i64_ty;
@@ -945,7 +961,7 @@ fn emit_raw_cell_object_for_location(
 fn emit_pack_current_values_tuple(
     fb: &mut FunctionBuilder<'_>,
     values: &[ir::Value],
-    ctx: &JitEmitCtx,
+    ctx: &JitEmitCtx<'_>,
 ) -> ir::Value {
     if values.is_empty() {
         fb.ins()
@@ -1065,7 +1081,7 @@ fn emit_pack_current_values_tuple(
 fn emit_owned_bool_from_cond(
     fb: &mut FunctionBuilder<'_>,
     cond: ir::Value,
-    ctx: &JitEmitCtx,
+    ctx: &JitEmitCtx<'_>,
 ) -> ir::Value {
     let bool_value = fb
         .ins()
@@ -1077,7 +1093,7 @@ fn emit_owned_bool_from_cond(
 fn emit_owned_bool_from_i32_result(
     fb: &mut FunctionBuilder<'_>,
     result: ir::Value,
-    ctx: &JitEmitCtx,
+    ctx: &JitEmitCtx<'_>,
 ) -> ir::Value {
     let is_error = fb.ins().icmp_imm(ir::condcodes::IntCC::Equal, result, -1);
     let ok_block = fb.create_block();
@@ -1098,8 +1114,7 @@ fn emit_codegen_expr(
     expr: &LocatedCodegenBlockPyExpr,
     local_names: &[String],
     local_values: &[ir::Value],
-    ctx: &JitEmitCtx,
-    literal_pool: &mut Vec<Box<[u8]>>,
+    ctx: &JitEmitCtx<'_>,
     borrowed: bool,
     jit_module: &mut JITModule,
     func_imports: &mut FuncBuildImports<'_>,
@@ -1113,16 +1128,13 @@ fn emit_codegen_expr(
     let deleted_const = ctx.consts.deleted_const;
     let empty_tuple_const = ctx.consts.empty_tuple_const;
     let block_const = ctx.consts.block_const;
-    let load_name_ref = ctx.load_name_ref;
+    let load_global_obj_ref = ctx.load_global_obj_ref;
     let pyobject_getattr_ref = ctx.pyobject_getattr_ref;
     let pyobject_setitem_ref = ctx.pyobject_setitem_ref;
-    let decode_literal_bytes_ref = ctx.decode_literal_bytes_ref;
     let load_deleted_name_ref = ctx.load_deleted_name_ref;
     let make_cell_ref = ctx.make_cell_ref;
     let load_cell_ref = ctx.load_cell_ref;
     let store_cell_ref = ctx.store_cell_ref;
-    let make_bytes_ref = ctx.make_bytes_ref;
-    let make_float_ref = ctx.make_float_ref;
     let py_call_object_ref = ctx.py_call_object_ref;
     let py_call_with_kw_ref = ctx.py_call_with_kw_ref;
     let tuple_new_ref = ctx.tuple_new_ref;
@@ -1177,13 +1189,14 @@ fn emit_codegen_expr(
                 }
                 NameLocation::Global => {
                     let globals_obj = block_const;
-                    let (name_ptr, name_len) =
-                        intern_bytes_literal(literal_pool, name.id.as_str().as_bytes());
-                    let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
-                    let name_len_val = fb.ins().iconst(i64_ty, name_len);
-                    let value_inst = fb
-                        .ins()
-                        .call(load_name_ref, &[globals_obj, name_ptr_val, name_len_val]);
+                    let name_obj = emit_owned_module_constant(
+                        fb,
+                        ctx.module_constants
+                            .require_unicode_constant_id(name.id.as_str()),
+                        ctx,
+                    );
+                    let value_inst = fb.ins().call(load_global_obj_ref, &[globals_obj, name_obj]);
+                    fb.ins().call(decref_ref, &[name_obj]);
                     let value = fb.inst_results(value_inst)[0];
                     let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
                     let value_ok_block = fb.create_block();
@@ -1213,50 +1226,29 @@ fn emit_codegen_expr(
                             value
                         )
                     });
-                    emit_owned_int_constant(fb, value, ctx)
+                    emit_owned_module_constant(
+                        fb,
+                        ctx.module_constants.require_int_constant_id(value),
+                        ctx,
+                    )
                 }
                 soac_blockpy::block_py::CoreNumberLiteralValue::Float(value) => {
-                    let null_ptr = fb.ins().iconst(ptr_ty, 0);
-                    let float_const = fb.ins().f64const(*value);
-                    let float_inst = fb.ins().call(make_float_ref, &[float_const]);
-                    let float_value = fb.inst_results(float_inst)[0];
-                    let float_is_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, float_value, null_ptr);
-                    let float_ok_block = fb.create_block();
-                    fb.append_block_param(float_ok_block, ptr_ty);
-                    fb.ins().brif(
-                        float_is_null,
-                        step_null_block,
-                        &step_null_block_args(ctx),
-                        float_ok_block,
-                        &[ir::BlockArg::Value(float_value)],
-                    );
-                    fb.switch_to_block(float_ok_block);
-                    fb.block_params(float_ok_block)[0]
+                    emit_owned_module_constant(
+                        fb,
+                        ctx.module_constants.require_float_constant_id(*value),
+                        ctx,
+                    )
                 }
             }
         }
         CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
             assert!(!borrowed, "bytes literal must produce owned references");
-            let null_ptr = fb.ins().iconst(ptr_ty, 0);
-            let (data_ptr, data_len) = intern_bytes_literal(literal_pool, bytes.value.as_slice());
-            let data_ptr_val = fb.ins().iconst(ptr_ty, data_ptr as i64);
-            let data_len_val = fb.ins().iconst(i64_ty, data_len);
-            let value_inst = fb.ins().call(make_bytes_ref, &[data_ptr_val, data_len_val]);
-            let value = fb.inst_results(value_inst)[0];
-            let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
-            let value_ok_block = fb.create_block();
-            fb.append_block_param(value_ok_block, ptr_ty);
-            fb.ins().brif(
-                value_is_null,
-                step_null_block,
-                &step_null_block_args(ctx),
-                value_ok_block,
-                &[ir::BlockArg::Value(value)],
-            );
-            fb.switch_to_block(value_ok_block);
-            fb.block_params(value_ok_block)[0]
+            emit_owned_module_constant(
+                fb,
+                ctx.module_constants
+                    .require_bytes_constant_id(bytes.value.as_slice()),
+                ctx,
+            )
         }
         CodegenBlockPyExpr::Op(operation)
             if !matches!(
@@ -1283,7 +1275,6 @@ fn emit_codegen_expr(
                 local_names,
                 local_values,
                 ctx,
-                literal_pool,
                 jit_module,
                 func_imports,
             };
@@ -1384,7 +1375,6 @@ fn emit_codegen_expr(
                         intrinsic_state.local_names,
                         intrinsic_state.local_values,
                         intrinsic_state.ctx,
-                        intrinsic_state.literal_pool,
                         value_borrowed,
                         intrinsic_state.jit_module,
                         intrinsic_state.func_imports,
@@ -1486,27 +1476,12 @@ fn emit_codegen_expr(
                     if let CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) =
                         simple_args[0]
                     {
-                        let (data_ptr, data_len) =
-                            intern_bytes_literal(literal_pool, bytes.value.as_slice());
-                        let data_ptr_val = fb.ins().iconst(ptr_ty, data_ptr as i64);
-                        let data_len_val = fb.ins().iconst(i64_ty, data_len);
-                        let value_inst = fb
-                            .ins()
-                            .call(decode_literal_bytes_ref, &[data_ptr_val, data_len_val]);
-                        let value = fb.inst_results(value_inst)[0];
-                        let value_is_null =
-                            fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
-                        let value_ok_block = fb.create_block();
-                        fb.append_block_param(value_ok_block, ptr_ty);
-                        fb.ins().brif(
-                            value_is_null,
-                            step_null_block,
-                            &step_null_block_args(ctx),
-                            value_ok_block,
-                            &[ir::BlockArg::Value(value)],
+                        return emit_owned_module_constant(
+                            fb,
+                            ctx.module_constants
+                                .require_unicode_constant_id_for_bytes(bytes.value.as_slice()),
+                            ctx,
                         );
-                        fb.switch_to_block(value_ok_block);
-                        return fb.block_params(value_ok_block)[0];
                     }
                 }
             }
@@ -1524,18 +1499,20 @@ fn emit_codegen_expr(
                     local_names,
                     local_values,
                     ctx,
-                    literal_pool,
                     callable_is_borrowed,
                     jit_module,
                     func_imports,
                 );
-
-                let list_name_bytes = b"__dp_list";
-                let list_name_ptr = fb.ins().iconst(ptr_ty, list_name_bytes.as_ptr() as i64);
-                let list_name_len = fb.ins().iconst(i64_ty, list_name_bytes.len() as i64);
+                let list_name_obj = emit_owned_module_constant(
+                    fb,
+                    ctx.module_constants
+                        .require_unicode_constant_id("__dp_list"),
+                    ctx,
+                );
                 let list_callable_inst = fb
                     .ins()
-                    .call(load_name_ref, &[block_const, list_name_ptr, list_name_len]);
+                    .call(load_global_obj_ref, &[block_const, list_name_obj]);
+                fb.ins().call(decref_ref, &[list_name_obj]);
                 let list_callable = fb.inst_results(list_callable_inst)[0];
                 let list_callable_is_null =
                     fb.ins()
@@ -1573,12 +1550,16 @@ fn emit_codegen_expr(
 
                 let needs_kwargs = !call.keywords.is_empty();
                 let kwargs_obj = if needs_kwargs {
-                    let dict_name_bytes = b"__dp_dict";
-                    let dict_name_ptr = fb.ins().iconst(ptr_ty, dict_name_bytes.as_ptr() as i64);
-                    let dict_name_len = fb.ins().iconst(i64_ty, dict_name_bytes.len() as i64);
+                    let dict_name_obj = emit_owned_module_constant(
+                        fb,
+                        ctx.module_constants
+                            .require_unicode_constant_id("__dp_dict"),
+                        ctx,
+                    );
                     let dict_callable_inst = fb
                         .ins()
-                        .call(load_name_ref, &[block_const, dict_name_ptr, dict_name_len]);
+                        .call(load_global_obj_ref, &[block_const, dict_name_obj]);
+                    fb.ins().call(decref_ref, &[dict_name_obj]);
                     let dict_callable = fb.inst_results(dict_callable_inst)[0];
                     let dict_callable_is_null =
                         fb.ins()
@@ -1626,27 +1607,12 @@ fn emit_codegen_expr(
                             (value_expr, b"extend".as_slice())
                         }
                     };
-                    let (method_ptr, method_len) = intern_bytes_literal(literal_pool, method_name);
-                    let method_ptr_val = fb.ins().iconst(ptr_ty, method_ptr as i64);
-                    let method_len_val = fb.ins().iconst(i64_ty, method_len);
-                    let method_name_inst = fb
-                        .ins()
-                        .call(decode_literal_bytes_ref, &[method_ptr_val, method_len_val]);
-                    let method_name_obj = fb.inst_results(method_name_inst)[0];
-                    let method_name_is_null =
-                        fb.ins()
-                            .icmp(ir::condcodes::IntCC::Equal, method_name_obj, null_ptr);
-                    let method_name_ok = fb.create_block();
-                    fb.append_block_param(method_name_ok, ptr_ty);
-                    fb.ins().brif(
-                        method_name_is_null,
-                        step_null_block,
-                        &step_null_block_args(ctx),
-                        method_name_ok,
-                        &[ir::BlockArg::Value(method_name_obj)],
+                    let method_name_obj = emit_owned_module_constant(
+                        fb,
+                        ctx.module_constants
+                            .require_unicode_constant_id_for_bytes(method_name),
+                        ctx,
                     );
-                    fb.switch_to_block(method_name_ok);
-                    let method_name_obj = fb.block_params(method_name_ok)[0];
                     let method_inst = fb
                         .ins()
                         .call(pyobject_getattr_ref, &[args_list, method_name_obj]);
@@ -1678,7 +1644,6 @@ fn emit_codegen_expr(
                         local_names,
                         local_values,
                         ctx,
-                        literal_pool,
                         value_borrowed,
                         jit_module,
                         func_imports,
@@ -1714,28 +1679,12 @@ fn emit_codegen_expr(
                         CoreBlockPyKeywordArg::Named { arg, value } => {
                             let kwargs_obj =
                                 kwargs_obj.expect("kwargs object must exist for named kw part");
-                            let (key_ptr, key_len) =
-                                intern_bytes_literal(literal_pool, arg.as_str().as_bytes());
-                            let key_ptr_val = fb.ins().iconst(ptr_ty, key_ptr as i64);
-                            let key_len_val = fb.ins().iconst(i64_ty, key_len);
-                            let key_inst = fb
-                                .ins()
-                                .call(decode_literal_bytes_ref, &[key_ptr_val, key_len_val]);
-                            let key_obj = fb.inst_results(key_inst)[0];
-                            let key_is_null =
-                                fb.ins()
-                                    .icmp(ir::condcodes::IntCC::Equal, key_obj, null_ptr);
-                            let key_ok = fb.create_block();
-                            fb.append_block_param(key_ok, ptr_ty);
-                            fb.ins().brif(
-                                key_is_null,
-                                step_null_block,
-                                &step_null_block_args(ctx),
-                                key_ok,
-                                &[ir::BlockArg::Value(key_obj)],
+                            let key_obj = emit_owned_module_constant(
+                                fb,
+                                ctx.module_constants
+                                    .require_unicode_constant_id(arg.as_str()),
+                                ctx,
                             );
-                            fb.switch_to_block(key_ok);
-                            let key_obj = fb.block_params(key_ok)[0];
                             let value_borrowed = codegen_expr_is_borrowable(
                                 value,
                                 local_names,
@@ -1748,7 +1697,6 @@ fn emit_codegen_expr(
                                 local_names,
                                 local_values,
                                 ctx,
-                                literal_pool,
                                 value_borrowed,
                                 jit_module,
                                 func_imports,
@@ -1788,30 +1736,11 @@ fn emit_codegen_expr(
                         CoreBlockPyKeywordArg::Starred(value_expr) => {
                             let kwargs_obj =
                                 kwargs_obj.expect("kwargs object must exist for kwstar part");
-                            let (update_ptr, update_len) =
-                                intern_bytes_literal(literal_pool, b"update");
-                            let update_ptr_val = fb.ins().iconst(ptr_ty, update_ptr as i64);
-                            let update_len_val = fb.ins().iconst(i64_ty, update_len);
-                            let update_name_inst = fb
-                                .ins()
-                                .call(decode_literal_bytes_ref, &[update_ptr_val, update_len_val]);
-                            let update_name_obj = fb.inst_results(update_name_inst)[0];
-                            let update_name_is_null = fb.ins().icmp(
-                                ir::condcodes::IntCC::Equal,
-                                update_name_obj,
-                                null_ptr,
+                            let update_name_obj = emit_owned_module_constant(
+                                fb,
+                                ctx.module_constants.require_unicode_constant_id("update"),
+                                ctx,
                             );
-                            let update_name_ok = fb.create_block();
-                            fb.append_block_param(update_name_ok, ptr_ty);
-                            fb.ins().brif(
-                                update_name_is_null,
-                                step_null_block,
-                                &step_null_block_args(ctx),
-                                update_name_ok,
-                                &[ir::BlockArg::Value(update_name_obj)],
-                            );
-                            fb.switch_to_block(update_name_ok);
-                            let update_name_obj = fb.block_params(update_name_ok)[0];
                             let update_inst = fb
                                 .ins()
                                 .call(pyobject_getattr_ref, &[kwargs_obj, update_name_obj]);
@@ -1843,7 +1772,6 @@ fn emit_codegen_expr(
                                 local_names,
                                 local_values,
                                 ctx,
-                                literal_pool,
                                 value_borrowed,
                                 jit_module,
                                 func_imports,
@@ -1876,13 +1804,16 @@ fn emit_codegen_expr(
                     }
                 }
 
-                let tuple_name_bytes = b"__dp_tuple_from_iter";
-                let tuple_name_ptr = fb.ins().iconst(ptr_ty, tuple_name_bytes.as_ptr() as i64);
-                let tuple_name_len = fb.ins().iconst(i64_ty, tuple_name_bytes.len() as i64);
-                let tuple_callable_inst = fb.ins().call(
-                    load_name_ref,
-                    &[block_const, tuple_name_ptr, tuple_name_len],
+                let tuple_name_obj = emit_owned_module_constant(
+                    fb,
+                    ctx.module_constants
+                        .require_unicode_constant_id("__dp_tuple_from_iter"),
+                    ctx,
                 );
+                let tuple_callable_inst = fb
+                    .ins()
+                    .call(load_global_obj_ref, &[block_const, tuple_name_obj]);
+                fb.ins().call(decref_ref, &[tuple_name_obj]);
                 let tuple_callable = fb.inst_results(tuple_callable_inst)[0];
                 let tuple_callable_is_null =
                     fb.ins()
@@ -1957,27 +1888,12 @@ fn emit_codegen_expr(
                     if let CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) =
                         &args[0]
                     {
-                        let (data_ptr, data_len) =
-                            intern_bytes_literal(literal_pool, bytes.value.as_slice());
-                        let data_ptr_val = fb.ins().iconst(ptr_ty, data_ptr as i64);
-                        let data_len_val = fb.ins().iconst(i64_ty, data_len);
-                        let value_inst = fb
-                            .ins()
-                            .call(decode_literal_bytes_ref, &[data_ptr_val, data_len_val]);
-                        let value = fb.inst_results(value_inst)[0];
-                        let value_is_null =
-                            fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
-                        let value_ok_block = fb.create_block();
-                        fb.append_block_param(value_ok_block, ptr_ty);
-                        fb.ins().brif(
-                            value_is_null,
-                            step_null_block,
-                            &step_null_block_args(ctx),
-                            value_ok_block,
-                            &[ir::BlockArg::Value(value)],
+                        return emit_owned_module_constant(
+                            fb,
+                            ctx.module_constants
+                                .require_unicode_constant_id_for_bytes(bytes.value.as_slice()),
+                            ctx,
                         );
-                        fb.switch_to_block(value_ok_block);
-                        return fb.block_params(value_ok_block)[0];
                     }
                 }
                 if keywords.is_empty()
@@ -2005,7 +1921,6 @@ fn emit_codegen_expr(
                                 local_names,
                                 local_values,
                                 ctx,
-                                literal_pool,
                                 borrowed_arg,
                                 jit_module,
                                 func_imports,
@@ -2026,8 +1941,12 @@ fn emit_codegen_expr(
                     }
                     if func_name.id.as_str() == "__dp_load_deleted_name" && args.len() == 2 {
                         if let Some(name) = codegen_expr_const_string(args[0]) {
-                            let (name_ptr, name_len) =
-                                intern_bytes_literal(literal_pool, name.as_bytes());
+                            let name_obj = emit_owned_module_constant(
+                                fb,
+                                ctx.module_constants
+                                    .require_unicode_constant_id(name.as_str()),
+                                ctx,
+                            );
                             let value_borrowed = codegen_expr_is_borrowable(
                                 args[1],
                                 local_names,
@@ -2040,17 +1959,14 @@ fn emit_codegen_expr(
                                 local_names,
                                 local_values,
                                 ctx,
-                                literal_pool,
                                 value_borrowed,
                                 jit_module,
                                 func_imports,
                             );
-                            let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
-                            let name_len_val = fb.ins().iconst(i64_ty, name_len);
-                            let call_inst = fb.ins().call(
-                                load_deleted_name_ref,
-                                &[name_ptr_val, name_len_val, value_obj, deleted_const],
-                            );
+                            let call_inst = fb
+                                .ins()
+                                .call(load_deleted_name_ref, &[name_obj, value_obj, deleted_const]);
+                            fb.ins().call(decref_ref, &[name_obj]);
                             if !value_borrowed {
                                 fb.ins().call(decref_ref, &[value_obj]);
                             }
@@ -2148,7 +2064,6 @@ fn emit_codegen_expr(
                                 local_names,
                                 local_values,
                                 ctx,
-                                literal_pool,
                                 borrowed_arg,
                                 jit_module,
                                 func_imports,
@@ -2197,7 +2112,6 @@ fn emit_codegen_expr(
                 local_names,
                 local_values,
                 ctx,
-                literal_pool,
                 codegen_expr_is_borrowable(
                     call.func.as_ref(),
                     local_names,
@@ -2230,7 +2144,6 @@ fn emit_codegen_expr(
                         local_names,
                         local_values,
                         ctx,
-                        literal_pool,
                         borrowed_arg,
                         jit_module,
                         func_imports,
@@ -2302,7 +2215,6 @@ fn emit_codegen_expr(
                     local_names,
                     local_values,
                     ctx,
-                    literal_pool,
                     borrowed_arg,
                     jit_module,
                     func_imports,
@@ -2341,12 +2253,16 @@ fn emit_codegen_expr(
                 fb.ins()
                     .call(py_call_object_ref, &[callable, call_args_tuple])
             } else {
-                let dict_name_bytes = b"__dp_dict";
-                let dict_name_ptr = fb.ins().iconst(ptr_ty, dict_name_bytes.as_ptr() as i64);
-                let dict_name_len = fb.ins().iconst(i64_ty, dict_name_bytes.len() as i64);
+                let dict_name_obj = emit_owned_module_constant(
+                    fb,
+                    ctx.module_constants
+                        .require_unicode_constant_id("__dp_dict"),
+                    ctx,
+                );
                 let dict_callable_inst = fb
                     .ins()
-                    .call(load_name_ref, &[block_const, dict_name_ptr, dict_name_len]);
+                    .call(load_global_obj_ref, &[block_const, dict_name_obj]);
+                fb.ins().call(decref_ref, &[dict_name_obj]);
                 let dict_callable = fb.inst_results(dict_callable_inst)[0];
                 let dict_callable_is_null =
                     fb.ins()
@@ -2403,28 +2319,11 @@ fn emit_codegen_expr(
                 let kwargs_obj = fb.block_params(kwargs_ok)[0];
 
                 for (name, value_expr) in keywords {
-                    let key_bytes = name.as_bytes();
-                    let (key_ptr, key_len) = intern_bytes_literal(literal_pool, key_bytes);
-                    let key_ptr_val = fb.ins().iconst(ptr_ty, key_ptr as i64);
-                    let key_len_val = fb.ins().iconst(i64_ty, key_len);
-                    let key_inst = fb
-                        .ins()
-                        .call(decode_literal_bytes_ref, &[key_ptr_val, key_len_val]);
-                    let key_obj = fb.inst_results(key_inst)[0];
-                    let key_is_null = fb
-                        .ins()
-                        .icmp(ir::condcodes::IntCC::Equal, key_obj, null_ptr);
-                    let key_ok = fb.create_block();
-                    fb.append_block_param(key_ok, ptr_ty);
-                    fb.ins().brif(
-                        key_is_null,
-                        step_null_block,
-                        &step_null_block_args(ctx),
-                        key_ok,
-                        &[ir::BlockArg::Value(key_obj)],
+                    let key_obj = emit_owned_module_constant(
+                        fb,
+                        ctx.module_constants.require_unicode_constant_id(name),
+                        ctx,
                     );
-                    fb.switch_to_block(key_ok);
-                    let key_obj = fb.block_params(key_ok)[0];
 
                     let value_borrowed = codegen_expr_is_borrowable(
                         value_expr,
@@ -2438,7 +2337,6 @@ fn emit_codegen_expr(
                         local_names,
                         local_values,
                         ctx,
-                        literal_pool,
                         value_borrowed,
                         jit_module,
                         func_imports,
@@ -2516,31 +2414,6 @@ fn abrupt_kind_tag(kind: AbruptKind) -> i64 {
     }
 }
 
-fn emit_owned_int_constant(
-    fb: &mut FunctionBuilder<'_>,
-    value: i64,
-    ctx: &JitEmitCtx,
-) -> ir::Value {
-    let null_ptr = fb.ins().iconst(ctx.consts.ptr_ty, 0);
-    let int_const = fb.ins().iconst(ctx.consts.i64_ty, value);
-    let int_inst = fb.ins().call(ctx.make_int_ref, &[int_const]);
-    let int_value = fb.inst_results(int_inst)[0];
-    let int_is_null = fb
-        .ins()
-        .icmp(ir::condcodes::IntCC::Equal, int_value, null_ptr);
-    let int_ok_block = fb.create_block();
-    fb.append_block_param(int_ok_block, ctx.consts.ptr_ty);
-    fb.ins().brif(
-        int_is_null,
-        ctx.consts.step_null_block,
-        &step_null_block_args(ctx),
-        int_ok_block,
-        &[ir::BlockArg::Value(int_value)],
-    );
-    fb.switch_to_block(int_ok_block);
-    fb.block_params(int_ok_block)[0]
-}
-
 fn emit_prepare_target_args_codegen(
     fb: &mut FunctionBuilder<'_>,
     target_params: &[String],
@@ -2548,8 +2421,7 @@ fn emit_prepare_target_args_codegen(
     explicit_args: Option<&[BlockArg]>,
     local_names: &[String],
     local_values: &[ir::Value],
-    ctx: &JitEmitCtx,
-    _literal_pool: &mut Vec<Box<[u8]>>,
+    ctx: &JitEmitCtx<'_>,
     _jit_module: &mut JITModule,
     _func_imports: &mut FuncBuildImports<'_>,
 ) -> Option<Vec<ir::BlockArg>> {
@@ -2606,9 +2478,12 @@ fn emit_prepare_target_args_codegen(
                     ctx.consts.none_const
                 }
                 BlockArg::CurrentException => return None,
-                BlockArg::AbruptKind(kind) => {
-                    emit_owned_int_constant(fb, abrupt_kind_tag(*kind), ctx)
-                }
+                BlockArg::AbruptKind(kind) => emit_owned_module_constant(
+                    fb,
+                    ctx.module_constants
+                        .require_int_constant_id(abrupt_kind_tag(*kind)),
+                    ctx,
+                ),
             };
             args.push(ir::BlockArg::Value(value));
             continue;
@@ -2647,8 +2522,7 @@ fn emit_explicit_target_slot_writes_codegen(
     explicit_args: &[BlockArg],
     local_names: &[String],
     local_values: &[ir::Value],
-    ctx: &JitEmitCtx,
-    _literal_pool: &mut Vec<Box<[u8]>>,
+    ctx: &JitEmitCtx<'_>,
     _jit_module: &mut JITModule,
     _func_imports: &mut FuncBuildImports<'_>,
 ) -> Option<()> {
@@ -2678,7 +2552,12 @@ fn emit_explicit_target_slot_writes_codegen(
             BlockArg::None => (ctx.consts.none_const, false),
             BlockArg::CurrentException => return None,
             BlockArg::AbruptKind(kind) => (
-                emit_owned_int_constant(fb, abrupt_kind_tag(*kind), ctx),
+                emit_owned_module_constant(
+                    fb,
+                    ctx.module_constants
+                        .require_int_constant_id(abrupt_kind_tag(*kind)),
+                    ctx,
+                ),
                 true,
             ),
         };
@@ -2799,8 +2678,7 @@ fn emit_codegen_ops(
     local_names: &mut Vec<String>,
     local_values: &mut Vec<ir::Value>,
     stack_slots: &StackSlots,
-    emit_ctx: &JitEmitCtx,
-    literal_pool: &mut Vec<Box<[u8]>>,
+    emit_ctx: &JitEmitCtx<'_>,
     jit_module: &mut JITModule,
     func_imports: &mut FuncBuildImports<'_>,
 ) -> Result<(), String> {
@@ -2813,7 +2691,6 @@ fn emit_codegen_ops(
                     local_names,
                     local_values,
                     emit_ctx,
-                    literal_pool,
                     false,
                     jit_module,
                     func_imports,
@@ -2837,7 +2714,6 @@ fn emit_codegen_ops(
                     local_names,
                     local_values,
                     emit_ctx,
-                    literal_pool,
                     false,
                     jit_module,
                     func_imports,
@@ -2871,8 +2747,7 @@ fn emit_codegen_term(
     full_block_param_names: &[Vec<String>],
     local_names: &[String],
     local_values: &[ir::Value],
-    emit_ctx: &JitEmitCtx,
-    literal_pool: &mut Vec<Box<[u8]>>,
+    emit_ctx: &JitEmitCtx<'_>,
     jit_module: &mut JITModule,
     func_imports: &mut FuncBuildImports<'_>,
     is_true_ref: ir::FuncRef,
@@ -2882,7 +2757,6 @@ fn emit_codegen_term(
     let decref_ref = emit_ctx.decref_ref;
     let i64_ty = emit_ctx.consts.i64_ty;
     let i32_ty = ir::types::I32;
-    let load_name_ref = emit_ctx.load_name_ref;
     let ptr_ty = emit_ctx.consts.ptr_ty;
     let block_const = emit_ctx.consts.block_const;
     let null_ptr = fb.ins().iconst(ptr_ty, 0);
@@ -2900,7 +2774,6 @@ fn emit_codegen_term(
                 local_names,
                 local_values,
                 emit_ctx,
-                literal_pool,
                 jit_module,
                 func_imports,
             )
@@ -2917,7 +2790,6 @@ fn emit_codegen_term(
                     local_names,
                     local_values,
                     emit_ctx,
-                    literal_pool,
                     jit_module,
                     func_imports,
                 )
@@ -2941,7 +2813,6 @@ fn emit_codegen_term(
                 local_names,
                 local_values,
                 emit_ctx,
-                literal_pool,
                 false,
                 jit_module,
                 func_imports,
@@ -2973,7 +2844,6 @@ fn emit_codegen_term(
                     local_names,
                     local_values,
                     emit_ctx,
-                    literal_pool,
                     jit_module,
                     func_imports,
                 )
@@ -2999,7 +2869,6 @@ fn emit_codegen_term(
                     local_names,
                     local_values,
                     emit_ctx,
-                    literal_pool,
                     jit_module,
                     func_imports,
                 )
@@ -3019,7 +2888,6 @@ fn emit_codegen_term(
                 local_names,
                 local_values,
                 emit_ctx,
-                literal_pool,
                 false,
                 jit_module,
                 func_imports,
@@ -3068,7 +2936,6 @@ fn emit_codegen_term(
                         local_names,
                         local_values,
                         emit_ctx,
-                        literal_pool,
                         jit_module,
                         func_imports,
                     )
@@ -3101,7 +2968,6 @@ fn emit_codegen_term(
                     local_names,
                     local_values,
                     emit_ctx,
-                    literal_pool,
                     jit_module,
                     func_imports,
                 )
@@ -3128,7 +2994,6 @@ fn emit_codegen_term(
                 local_names,
                 local_values,
                 emit_ctx,
-                literal_pool,
                 false,
                 jit_module,
                 func_imports,
@@ -3140,14 +3005,17 @@ fn emit_codegen_term(
             fb.ins().return_(&[ret_value]);
         }
         BlockPyTerm::Raise(raise_stmt) => {
-            let (raise_name_ptr, raise_name_len) =
-                intern_bytes_literal(literal_pool, b"__dp_raise_from");
-            let raise_name_ptr_val = fb.ins().iconst(ptr_ty, raise_name_ptr as i64);
-            let raise_name_len_val = fb.ins().iconst(i64_ty, raise_name_len);
-            let raise_fn_inst = fb.ins().call(
-                load_name_ref,
-                &[block_const, raise_name_ptr_val, raise_name_len_val],
+            let raise_name_obj = emit_owned_module_constant(
+                fb,
+                emit_ctx
+                    .module_constants
+                    .require_unicode_constant_id("__dp_raise_from"),
+                emit_ctx,
             );
+            let raise_fn_inst = fb
+                .ins()
+                .call(emit_ctx.load_global_obj_ref, &[block_const, raise_name_obj]);
+            fb.ins().call(decref_ref, &[raise_name_obj]);
             let raise_fn = fb.inst_results(raise_fn_inst)[0];
             let raise_fn_null = fb
                 .ins()
@@ -3171,7 +3039,6 @@ fn emit_codegen_term(
                     local_names,
                     local_values,
                     emit_ctx,
-                    literal_pool,
                     false,
                     jit_module,
                     func_imports,
@@ -3530,6 +3397,7 @@ fn build_cranelift_run_bb_specialized_function(
     jit_module: &mut JITModule,
     blocks: &[ObjPtr],
     function: &BlockPyFunction<CodegenBlockPyPass>,
+    module_constants: &ModuleCodegenConstants,
 ) -> Result<BuiltSpecializedFunction, String> {
     let block_count = function.blocks.len();
     if block_count == 0 {
@@ -3561,7 +3429,6 @@ fn build_cranelift_run_bb_specialized_function(
     let main_id = declare_local_fn(jit_module, "dp_jit_run_bb_specialized", &main_sig)?;
 
     let mut ctx = jit_module.make_context();
-    let mut literal_pool: Vec<Box<[u8]>> = Vec::new();
     ctx.func.signature = main_sig;
     let mut builder_ctx = FunctionBuilderContext::new();
     let mut block_annotations = ClifBlockDisplayAnnotations::new();
@@ -3677,16 +3544,17 @@ fn build_cranelift_run_bb_specialized_function(
             &mut fb.func,
             &DP_JIT_GET_RAISED_EXCEPTION_IMPORT,
         );
-        let make_int_ref =
-            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_MAKE_INT_IMPORT);
+        let load_module_constant_ref = func_imports.get_or_panic(
+            jit_module,
+            &mut fb.func,
+            &DP_JIT_LOAD_MODULE_CONSTANT_IMPORT,
+        );
+        let load_global_obj_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_LOAD_GLOBAL_OBJ_IMPORT);
         let is_true_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_IS_TRUE_IMPORT);
         let raise_exc_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_RAISE_FROM_EXC_IMPORT);
-        let make_float_ref =
-            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_MAKE_FLOAT_IMPORT);
-        let load_name_ref =
-            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_LOAD_NAME_IMPORT);
         let function_closure_cell_ref = func_imports.get_or_panic(
             jit_module,
             &mut fb.func,
@@ -3695,12 +3563,12 @@ fn build_cranelift_run_bb_specialized_function(
         let function_positional_default_ref = func_imports.get_or_panic(
             jit_module,
             &mut fb.func,
-            &DP_JIT_FUNCTION_POSITIONAL_DEFAULT_IMPORT,
+            &DP_JIT_FUNCTION_POSITIONAL_DEFAULT_OBJ_IMPORT,
         );
         let function_kwonly_default_ref = func_imports.get_or_panic(
             jit_module,
             &mut fb.func,
-            &DP_JIT_FUNCTION_KWONLY_DEFAULT_IMPORT,
+            &DP_JIT_FUNCTION_KWONLY_DEFAULT_OBJ_IMPORT,
         );
         let pyobject_getattr_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_GETATTR_IMPORT);
@@ -3712,21 +3580,17 @@ fn build_cranelift_run_bb_specialized_function(
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_SETITEM_IMPORT);
         let pyobject_to_i64_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_TO_I64_IMPORT);
-        let decode_literal_bytes_ref = func_imports.get_or_panic(
+        let load_deleted_name_ref = func_imports.get_or_panic(
             jit_module,
             &mut fb.func,
-            &DP_JIT_DECODE_LITERAL_BYTES_IMPORT,
+            &DP_JIT_LOAD_DELETED_NAME_OBJ_IMPORT,
         );
-        let load_deleted_name_ref =
-            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_LOAD_DELETED_NAME_IMPORT);
         let make_cell_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_MAKE_CELL_IMPORT);
         let load_cell_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_LOAD_CELL_IMPORT);
         let store_cell_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_STORE_CELL_IMPORT);
-        let make_bytes_ref =
-            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_MAKE_BYTES_IMPORT);
         let tuple_new_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_TUPLE_NEW_IMPORT);
         let tuple_set_item_ref =
@@ -3758,15 +3622,22 @@ fn build_cranelift_run_bb_specialized_function(
                         .brif(arg_is_null, use_default_block, &[], use_arg_block, &[]);
 
                     fb.switch_to_block(use_default_block);
-                    let (name_ptr, name_len) =
-                        intern_bytes_literal(&mut literal_pool, param.name.as_bytes());
-                    let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
-                    let name_len_val = fb.ins().iconst(i64_ty, name_len);
+                    let name_obj = emit_owned_module_constant_from_parts(
+                        &mut fb,
+                        module_constants.require_unicode_constant_id(param.name.as_str()),
+                        load_module_constant_ref,
+                        vmctx_value,
+                        entry_failure_block,
+                        &entry_failure_args,
+                        ptr_ty,
+                        i64_ty,
+                    );
                     let default_index_val = fb.ins().iconst(i64_ty, default_index as i64);
                     let default_inst = fb.ins().call(
                         function_positional_default_ref,
-                        &[callable, name_ptr_val, name_len_val, default_index_val],
+                        &[callable, name_obj, default_index_val],
                     );
+                    fb.ins().call(decref_ref, &[name_obj]);
                     let default_value = fb.inst_results(default_inst)[0];
                     let default_is_null =
                         fb.ins()
@@ -3819,14 +3690,20 @@ fn build_cranelift_run_bb_specialized_function(
                         .brif(arg_is_null, use_default_block, &[], use_arg_block, &[]);
 
                     fb.switch_to_block(use_default_block);
-                    let (name_ptr, name_len) =
-                        intern_bytes_literal(&mut literal_pool, default_name.as_bytes());
-                    let name_ptr_val = fb.ins().iconst(ptr_ty, name_ptr as i64);
-                    let name_len_val = fb.ins().iconst(i64_ty, name_len);
-                    let default_inst = fb.ins().call(
-                        function_kwonly_default_ref,
-                        &[callable, name_ptr_val, name_len_val],
+                    let name_obj = emit_owned_module_constant_from_parts(
+                        &mut fb,
+                        module_constants.require_unicode_constant_id(default_name),
+                        load_module_constant_ref,
+                        vmctx_value,
+                        entry_failure_block,
+                        &entry_failure_args,
+                        ptr_ty,
+                        i64_ty,
                     );
+                    let default_inst = fb
+                        .ins()
+                        .call(function_kwonly_default_ref, &[callable, name_obj]);
+                    fb.ins().call(decref_ref, &[name_obj]);
                     let default_value = fb.inst_results(default_inst)[0];
                     let default_is_null =
                         fb.ins()
@@ -3938,16 +3815,17 @@ fn build_cranelift_run_bb_specialized_function(
                 exception_dispatch_blocks[index].unwrap_or(cleanup_null_blocks[index]);
             let fast_step_null_args = Vec::new();
             let emit_ctx = JitEmitCtx {
+                module_constants,
                 storage_layout: function.storage_layout().clone(),
                 incref_ref,
                 decref_ref,
                 py_call_positional_three_ref,
-                make_int_ref,
                 consts: JitEmitConsts {
                     step_null_block: fast_step_null_block,
                     step_null_args: fast_step_null_args,
                     ptr_ty,
                     i64_ty,
+                    vmctx_value,
                     callable_value: callable,
                     none_const,
                     true_const,
@@ -3956,19 +3834,17 @@ fn build_cranelift_run_bb_specialized_function(
                     empty_tuple_const,
                     block_const,
                 },
-                load_name_ref,
+                load_module_constant_ref,
+                load_global_obj_ref,
                 function_closure_cell_ref,
                 pyobject_getattr_ref,
                 pyobject_setattr_ref,
                 pyobject_getitem_ref,
                 pyobject_setitem_ref,
-                decode_literal_bytes_ref,
                 load_deleted_name_ref,
                 make_cell_ref,
                 load_cell_ref,
                 store_cell_ref,
-                make_bytes_ref,
-                make_float_ref,
                 py_call_object_ref,
                 py_call_with_kw_ref,
                 tuple_new_ref,
@@ -3986,7 +3862,6 @@ fn build_cranelift_run_bb_specialized_function(
                 &mut local_values,
                 &stack_slots,
                 &emit_ctx,
-                &mut literal_pool,
                 jit_module,
                 &mut func_imports,
             )?;
@@ -4001,7 +3876,6 @@ fn build_cranelift_run_bb_specialized_function(
                 &local_names,
                 &local_values,
                 &emit_ctx,
-                &mut literal_pool,
                 jit_module,
                 &mut func_imports,
                 is_true_ref,
@@ -4114,7 +3988,6 @@ fn build_cranelift_run_bb_specialized_function(
     Ok(BuiltSpecializedFunction {
         ctx,
         main_id,
-        literal_pool,
         import_id_to_symbol: module_imports.debug_symbols().clone(),
         block_annotations,
     })
@@ -4131,7 +4004,13 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut jit_module = JITModule::new(builder);
-    let built = build_cranelift_run_bb_specialized_function(&mut jit_module, blocks, function)?;
+    let module_constants = ModuleCodegenConstants::collect_from_functions([function]);
+    let built = build_cranelift_run_bb_specialized_function(
+        &mut jit_module,
+        blocks,
+        function,
+        &module_constants,
+    )?;
     let mut out = String::new();
     out.push_str("; import fn aliases (Cranelift display id -> symbol)\n");
     let mut symbols: Vec<&'static str> = built.import_id_to_symbol.values().copied().collect();
@@ -4196,16 +4075,20 @@ fn render_compiled_clif_and_vcode_disasm(
 pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     blocks: &[ObjPtr],
     function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
+    module_constants: &ModuleCodegenConstants,
 ) -> Result<ObjPtr, String> {
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut compiled = Box::new(CompiledSpecializedRunner {
         _jit_module: JITModule::new(builder),
-        _literal_pool: Vec::new(),
         entry: None,
     });
-    let built =
-        build_cranelift_run_bb_specialized_function(&mut compiled._jit_module, blocks, function)?;
+    let built = build_cranelift_run_bb_specialized_function(
+        &mut compiled._jit_module,
+        blocks,
+        function,
+        module_constants,
+    )?;
     let mut ctx = built.ctx;
     let main_id = built.main_id;
     define_function_with_incremental_cache(
@@ -4224,7 +4107,6 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
         code_ptr,
         param_count: function.params.len(),
     });
-    compiled._literal_pool = built.literal_pool;
     Ok(Box::into_raw(compiled) as ObjPtr)
 }
 
