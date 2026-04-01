@@ -4,6 +4,67 @@
 - Reserved for user requests that start with `TODO`.
 - Add one entry per request and include any plan or relevant response summary with it.
 
+## Collapse BlockPyPass into a recursive Instr trait
+
+- Planning note:
+  - The current recursive shape is split in two dimensions:
+    - expression recursion is carried by pass-specific enums such as `CoreBlockPyExprWithAwaitAndYield`, `CoreBlockPyExprWithYield`, `CoreBlockPyExpr<N>`, and `CodegenBlockPyExpr` in `soac-blockpy/src/block_py/mod.rs`;
+    - pass-specific typing is carried separately by `BlockPyPass { type Name; type Expr; ... }` in the same file.
+  - The desired end state is smaller:
+    - one trait that describes a recursive instruction family, e.g. `Instr`;
+    - instruction nodes such as `BinOp`, `Call`, `Await`, `Yield`, and later statement forms parameterized by the recursive instruction type, not by a separate “expr payload” type;
+    - pass-specific enums for the instruction sets that actually exist in each phase.
+  - The right Rust shape is:
+    ```rust
+    pub trait Instr: Clone + std::fmt::Debug + Sized {
+        type Name: BlockPyNameLike;
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum CoreInstrWithAwaitAndYield {
+        Name(ast::ExprName),
+        Literal(CoreBlockPyLiteral),
+        Op(OperationDetail<Self>),
+        Await(CoreBlockPyAwait<Self>),
+        Yield(CoreBlockPyYield<Self>),
+        YieldFrom(CoreBlockPyYieldFrom<Self>),
+    }
+
+    impl Instr for CoreInstrWithAwaitAndYield {
+        type Name = ast::ExprName;
+    }
+    ```
+    and instruction nodes should generally be written as `struct BinOp<I> { left: Box<I>, right: Box<I>, ... }` without requiring `I: Instr` on the struct definition itself unless an impl actually needs `I::Name`.
+  - A safe implementation order is:
+    1. Introduce `Instr` alongside the existing `BlockPyPass`, with only `type Name`.
+    2. Rename the recursive generic on operation/node structs from `E` to `I` where appropriate, but keep the current `Op(OperationDetail<Self>)` layering and keep the current expr enums intact.
+    3. Add pass-specific instruction aliases or renamed enums:
+       - `CoreInstrWithAwaitAndYield`
+       - `CoreInstrWithYield`
+       - `CoreInstr`
+       - `CodegenInstr`
+       Initially these can just be renames of the current expr enums plus `impl Instr for ...`.
+    4. Update traits like `CoreCallLikeExpr`, `MapExpr`, and `TryMapExpr` to speak in terms of the recursive instruction type first, while still keeping the old `BlockPyPass` wrappers available.
+    5. Once the recursive instruction enums stand on their own, shrink `BlockPyPass` so it becomes a compatibility layer over `Instr` rather than the owner of the recursive type structure.
+    6. Only after the type-level migration is stable, flatten `Op(...)` by moving operation variants directly into the pass-specific instruction enums.
+       - `OperationDetail<Self>` should stay in place until after steps 1-5 are done.
+       - Otherwise the refactor mixes “new recursive trait” with “enum flattening” and gets harder to review.
+    7. After the `Op(...)` layer is removed, revisit whether `Stmt` should also collapse into the instruction family, likely by introducing statement-like instruction variants rather than a separate `BlockPyStmt`.
+  - Concrete first slice:
+    - add `Instr`;
+    - add `impl Instr` for the four current recursive expr enums;
+    - rename `ExprOperationNode<E>` to something like `InstrOperationNode<I>` without changing behavior;
+    - do not touch `BlockPyPass` users yet.
+  - Concrete second slice:
+    - make `BlockPyPass` derive its `Name`/`Expr` story from the new `Instr` types, or replace it with type aliases where possible;
+    - this is where the pass framework starts getting smaller without changing the recursive enum contents.
+  - Concrete third slice:
+    - flatten `OperationDetail<Self>` into each pass-specific instruction enum, one family at a time;
+    - start with a mechanically simple family like `LoadRuntime` / `LoadName` / `LoadLocation`, then move `BinOp` / `UnaryOp` / `Call`, then the rest.
+  - Concrete fourth slice:
+    - once instruction enums own all operation variants directly, assess statement collapse.
+    - This should probably happen by introducing instruction variants for assignment/branch/return/raise rather than trying to erase `Stmt` and `Term` in one jump.
+
 ## Generate enum match boilerplate from one variant list
 
 - Planning note:
