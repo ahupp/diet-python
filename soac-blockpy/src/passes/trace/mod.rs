@@ -178,7 +178,7 @@ fn helper_call_expr(
 
 fn string_literal_expr(value: &str) -> LocatedCodegenBlockPyExpr {
     core_operation_expr(
-        crate::block_py::Operation::new(MakeString::new(value.as_bytes().to_vec()))
+        crate::block_py::OperationDetail::from(MakeString::new(value.as_bytes().to_vec()))
             .with_meta(Meta::synthetic()),
     )
 }

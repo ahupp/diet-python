@@ -2,6 +2,7 @@ use super::{
     AbruptKind, BlockArg, BlockPyAssign, BlockPyEdge, BlockPyLabel, BlockPyTerm, CfgBlock,
     ImplicitNoneExpr, StructuredBlockPyStmt,
 };
+#[cfg(test)]
 use crate::passes::ast_to_ast::util::is_dp_helper_lookup_expr;
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr, ExprName, Stmt};

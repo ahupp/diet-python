@@ -9,7 +9,7 @@ use crate::block_py::{
     BlockPyRaise, BlockPyStmt, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
-    ImplicitNoneExpr, MakeFunction, Meta, ModuleNameGen, Operation, StorageLayout, WithMeta,
+    ImplicitNoneExpr, MakeFunction, Meta, ModuleNameGen, OperationDetail, StorageLayout, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -219,7 +219,8 @@ fn core_runtime_attr(attr: &str) -> CoreBlockPyExpr {
 
 fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
     core_operation_expr(
-        Operation::new(CellRefForName::new(logical_name.to_string())).with_meta(Meta::synthetic()),
+        OperationDetail::from(CellRefForName::new(logical_name.to_string()))
+            .with_meta(Meta::synthetic()),
     )
 }
 
@@ -244,7 +245,7 @@ fn core_make_function(
     annotate_fn: CoreBlockPyExpr,
 ) -> CoreBlockPyExpr {
     core_operation_expr(
-        Operation::new(MakeFunction::new(
+        OperationDetail::from(MakeFunction::new(
             function_id,
             kind,
             Box::new(param_defaults),
@@ -725,10 +726,10 @@ fn push_completion_raise_block(
 
 fn is_resume_exc_test() -> CoreBlockPyExpr {
     core_operation_expr(
-        Operation::new(crate::block_py::operation::UnaryOp::new(
+        OperationDetail::from(crate::block_py::operation::UnaryOp::new(
             crate::block_py::operation::UnaryOpKind::Not,
             Box::new(core_operation_expr(
-                Operation::new(crate::block_py::operation::BinOp::new(
+                OperationDetail::from(crate::block_py::operation::BinOp::new(
                     crate::block_py::operation::BinOpKind::Is,
                     Box::new(core_name("_dp_resume_exc")),
                     Box::new(core_expr_without_yield(py_expr!("__dp_NO_DEFAULT"))),
@@ -742,7 +743,7 @@ fn is_resume_exc_test() -> CoreBlockPyExpr {
 
 fn is_send_none_test() -> CoreBlockPyExpr {
     core_operation_expr(
-        Operation::new(crate::block_py::operation::BinOp::new(
+        OperationDetail::from(crate::block_py::operation::BinOp::new(
             crate::block_py::operation::BinOpKind::Is,
             Box::new(core_name("_dp_send_value")),
             Box::new(core_none()),
@@ -753,7 +754,7 @@ fn is_send_none_test() -> CoreBlockPyExpr {
 
 fn is_name_none_test(name: &str) -> CoreBlockPyExpr {
     core_operation_expr(
-        Operation::new(crate::block_py::operation::BinOp::new(
+        OperationDetail::from(crate::block_py::operation::BinOp::new(
             crate::block_py::operation::BinOpKind::Is,
             Box::new(core_name(name)),
             Box::new(core_none()),

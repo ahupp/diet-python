@@ -43,7 +43,7 @@ fn probe_bb_exprs(probe: &mut ExprShapeProbe, expr: &CodegenBlockPyExpr) {
             }
         }
         CodegenBlockPyExpr::Op(operation) => {
-            if let crate::block_py::OperationDetail::MakeString(op) = operation.detail() {
+            if let crate::block_py::OperationDetail::MakeString(op) = operation {
                 probe.saw_make_string.set(true);
                 if !op.bytes.is_empty() {
                     probe.saw_make_string_bytes.set(true);
@@ -58,7 +58,7 @@ fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockP
     match expr {
         CodegenBlockPyExpr::Name(_) | CodegenBlockPyExpr::Literal(_) => {}
         CodegenBlockPyExpr::Op(operation) => {
-            match operation.detail() {
+            match operation {
                 OperationDetail::GetAttr(_) => out.push("__dp_getattr".to_string()),
                 OperationDetail::SetAttr(_) => out.push("__dp_setattr".to_string()),
                 OperationDetail::GetItem(_) => out.push("__dp_getitem".to_string()),

@@ -182,7 +182,7 @@ fn is_current_exception_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwai
     let CoreBlockPyExprWithAwaitAndYield::Op(operation) = expr else {
         return false;
     };
-    let operation::OperationDetail::Call(call) = operation.detail() else {
+    let operation::OperationDetail::Call(call) = operation else {
         return false;
     };
     call.args.is_empty()
@@ -195,7 +195,7 @@ fn is_exc_info_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYield
     let CoreBlockPyExprWithAwaitAndYield::Op(operation) = expr else {
         return false;
     };
-    let operation::OperationDetail::Call(call) = operation.detail() else {
+    let operation::OperationDetail::Call(call) = operation else {
         return false;
     };
     call.args.is_empty()
@@ -343,7 +343,7 @@ where
 
 fn operation_expr<N: BlockPyNameLike + Clone>(
     expr: &CoreBlockPyExpr<N>,
-) -> Option<&operation::Operation<CoreBlockPyExpr<N>>> {
+) -> Option<&operation::OperationDetail<CoreBlockPyExpr<N>>> {
     match expr {
         CoreBlockPyExpr::Op(operation) => Some(operation),
         _ => None,
@@ -357,7 +357,7 @@ where
     let Some(operation) = operation_expr(expr) else {
         return false;
     };
-    let operation::OperationDetail::Call(call) = operation.detail() else {
+    let operation::OperationDetail::Call(call) = operation else {
         return false;
     };
     call.args.is_empty()
@@ -372,7 +372,7 @@ where
     let Some(operation) = operation_expr(expr) else {
         return false;
     };
-    let operation::OperationDetail::Call(call) = operation.detail() else {
+    let operation::OperationDetail::Call(call) = operation else {
         return false;
     };
     call.args.is_empty()
@@ -394,7 +394,7 @@ where
 {
     match expr {
         CoreBlockPyExpr::Name(name) => Some(name.id_str()),
-        CoreBlockPyExpr::Op(operation) => match operation.detail() {
+        CoreBlockPyExpr::Op(operation) => match operation {
             operation::OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
             _ => None,
         },
@@ -405,7 +405,7 @@ where
 fn expr_root_name_id_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYield) -> Option<&str> {
     match expr {
         CoreBlockPyExprWithAwaitAndYield::Name(name) => Some(name.id.as_str()),
-        CoreBlockPyExprWithAwaitAndYield::Op(operation) => match operation.detail() {
+        CoreBlockPyExprWithAwaitAndYield::Op(operation) => match operation {
             operation::OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
             _ => None,
         },
@@ -429,9 +429,7 @@ fn runtime_name_expr<N>(name: &str) -> CoreBlockPyExpr<N>
 where
     N: BlockPyNameLike,
 {
-    CoreBlockPyExpr::Op(operation::Operation::new(operation::LoadRuntime::new(
-        name.to_string(),
-    )))
+    CoreBlockPyExpr::Op(operation::LoadRuntime::new(name.to_string()).into())
 }
 
 fn current_exception_info_expr<N>(exc_name: &str) -> CoreBlockPyExpr<N>
@@ -447,9 +445,7 @@ where
 }
 
 fn runtime_name_expr_with_await_and_yield(name: &str) -> CoreBlockPyExprWithAwaitAndYield {
-    CoreBlockPyExprWithAwaitAndYield::Op(operation::Operation::new(operation::LoadRuntime::new(
-        name.to_string(),
-    )))
+    CoreBlockPyExprWithAwaitAndYield::Op(operation::LoadRuntime::new(name.to_string()).into())
 }
 
 fn compat_node_index() -> ast::AtomicNodeIndex {

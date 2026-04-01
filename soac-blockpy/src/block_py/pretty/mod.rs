@@ -758,9 +758,7 @@ where
         match self {
             CoreBlockPyExpr::Name(name) => name.pretty_id(),
             CoreBlockPyExpr::Literal(literal) => render_core_literal_text(literal),
-            CoreBlockPyExpr::Op(operation) => {
-                render_operation_detail_debug_text(operation.detail())
-            }
+            CoreBlockPyExpr::Op(operation) => render_operation_detail_debug_text(operation),
         }
     }
 }
@@ -771,7 +769,7 @@ impl BlockPyDebugExprText for CoreBlockPyExprWithYield {
             CoreBlockPyExprWithYield::Name(name) => name.pretty_id(),
             CoreBlockPyExprWithYield::Literal(literal) => render_core_literal_text(literal),
             CoreBlockPyExprWithYield::Op(operation) => {
-                render_operation_detail_debug_text(operation.detail())
+                render_operation_detail_debug_text(operation)
             }
             CoreBlockPyExprWithYield::Yield(yield_expr) => match &yield_expr.value {
                 Some(value) => format!("yield {}", value.debug_expr_text()),
@@ -790,7 +788,7 @@ impl BlockPyDebugExprText for CoreBlockPyExprWithAwaitAndYield {
             CoreBlockPyExprWithAwaitAndYield::Name(name) => name.pretty_id(),
             CoreBlockPyExprWithAwaitAndYield::Literal(literal) => render_core_literal_text(literal),
             CoreBlockPyExprWithAwaitAndYield::Op(operation) => {
-                render_operation_detail_debug_text(operation.detail())
+                render_operation_detail_debug_text(operation)
             }
             CoreBlockPyExprWithAwaitAndYield::Await(await_expr) => {
                 format!("await {}", await_expr.value.debug_expr_text())
@@ -811,9 +809,7 @@ impl BlockPyDebugExprText for CodegenBlockPyExpr {
         match self {
             CodegenBlockPyExpr::Name(name) => name.pretty_id(),
             CodegenBlockPyExpr::Literal(literal) => render_codegen_literal_text(literal),
-            CodegenBlockPyExpr::Op(operation) => {
-                render_operation_detail_debug_text(operation.detail())
-            }
+            CodegenBlockPyExpr::Op(operation) => render_operation_detail_debug_text(operation),
         }
     }
 }

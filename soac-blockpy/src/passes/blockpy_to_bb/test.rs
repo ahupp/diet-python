@@ -1,8 +1,7 @@
 use crate::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmtFragment, BlockPyTerm,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, CoreStringLiteral, GetAttr,
-    LocatedCoreBlockPyExpr, LocatedName, Operation, OperationDetail, StructuredBlockPyStmt,
-    WithMeta,
+    LocatedCoreBlockPyExpr, LocatedName, OperationDetail, StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     lower_structured_located_blocks_to_bb_blocks, populate_exception_edge_args,
@@ -133,13 +132,13 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
     let BlockPyTerm::Return(CoreBlockPyExpr::Op(operation)) = &block.term else {
         panic!("expected rewritten return expr");
     };
-    let OperationDetail::Call(call) = operation.detail() else {
+    let OperationDetail::Call(call) = operation else {
         panic!("expected rewritten return call");
     };
     assert!(matches!(
         call.func.as_ref(),
         CoreBlockPyExpr::Op(operation)
-            if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == "__dp_exc_info_from_exception")
+            if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "__dp_exc_info_from_exception")
     ));
     assert!(matches!(
         call.args.as_slice(),
@@ -154,7 +153,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         label: BlockPyLabel::from(0u32),
         body: Vec::new(),
         term: BlockPyTerm::Return(CoreBlockPyExpr::Op(
-            Operation::new(GetAttr::new(
+            OperationDetail::from(GetAttr::new(
                 core_call_expr("__dp_current_exception", Vec::new()),
                 "value".to_string(),
             ))
@@ -182,8 +181,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     let BlockPyTerm::Return(CoreBlockPyExpr::Op(operation)) = &block.term else {
         panic!("expected operation return expr");
     };
-    let crate::block_py::OperationDetail::GetAttr(GetAttr { value, attr, .. }) = operation.detail()
-    else {
+    let crate::block_py::OperationDetail::GetAttr(GetAttr { value, attr, .. }) = operation else {
         panic!("expected getattr operation");
     };
     assert!(matches!(

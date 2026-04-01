@@ -82,11 +82,11 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithA
             .into_iter()
             .reduce(|left, right| {
                 core_operation_expr(
-                    operation::Operation::new(operation::BinOp::new(
+                    operation::BinOp::new(
                         operation::BinOpKind::Or,
                         Box::new(left),
                         Box::new(right),
-                    ))
+                    )
                     .with_meta(Meta::synthetic()),
                 )
             })
@@ -96,9 +96,9 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithA
 }
 
 fn core_operation_expr(
-    operation: operation::Operation<CoreBlockPyExprWithAwaitAndYield>,
+    operation: impl Into<operation::OperationDetail<CoreBlockPyExprWithAwaitAndYield>>,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    CoreBlockPyExprWithAwaitAndYield::Op(operation)
+    CoreBlockPyExprWithAwaitAndYield::Op(operation.into())
 }
 
 fn core_operation_expr_with_meta(
@@ -106,7 +106,7 @@ fn core_operation_expr_with_meta(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    core_operation_expr(operation::Operation::new(detail).with_meta(Meta::new(node_index, range)))
+    core_operation_expr(detail.into().with_meta(Meta::new(node_index, range)))
 }
 
 fn unary_op_expr_with_meta(
@@ -367,20 +367,20 @@ fn non_operator_operation_from_helper_call(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
     args: Vec<CoreBlockPyExprWithAwaitAndYield>,
-) -> Option<operation::Operation<CoreBlockPyExprWithAwaitAndYield>> {
+) -> Option<operation::OperationDetail<CoreBlockPyExprWithAwaitAndYield>> {
     let mut args = args.into_iter();
     let meta = Meta::new(node_index, range);
     let operation = match name {
-        "__dp_store_global" => operation::Operation::new(operation::StoreGlobal::new(
+        "__dp_store_global" => operation::StoreGlobal::new(
             Box::new(args.next()?),
             string_arg_from_core_expr(args.next()?)?,
             Box::new(args.next()?),
-        ))
-        .with_meta(meta),
-        "__dp_cell_ref" => operation::Operation::new(operation::CellRefForName::new(
-            string_arg_from_core_expr(args.next()?)?,
-        ))
-        .with_meta(meta),
+        )
+        .with_meta(meta)
+        .into(),
+        "__dp_cell_ref" => operation::CellRefForName::new(string_arg_from_core_expr(args.next()?)?)
+            .with_meta(meta)
+            .into(),
         _ => return None,
     };
     if args.next().is_some() {
@@ -404,12 +404,12 @@ fn lower_core_call_expr_with_meta(
                     make_function_kind_from_literal(&args[1]),
                 ) {
                     return core_operation_expr(
-                        operation::Operation::new(operation::MakeFunction::new(
+                        operation::MakeFunction::new(
                             function_id,
                             kind,
                             Box::new(CoreBlockPyExprWithAwaitAndYield::from(args[3].clone())),
                             Box::new(CoreBlockPyExprWithAwaitAndYield::from(args[4].clone())),
-                        ))
+                        )
                         .with_meta(Meta::new(node_index, range)),
                     );
                 }
@@ -681,8 +681,9 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                     Self::Name(node)
                 } else {
                     CoreBlockPyExprWithAwaitAndYield::Op(
-                        operation::Operation::new(operation::LoadName::new(node.id.to_string()))
-                            .with_meta(node.meta()),
+                        operation::LoadName::new(node.id.to_string())
+                            .with_meta(node.meta())
+                            .into(),
                     )
                 }
             }

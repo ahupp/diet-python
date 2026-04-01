@@ -568,7 +568,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Name(name) => Some(name.id.as_str()),
-            Self::Op(operation) => operation_root_name_id(operation.detail()),
+            Self::Op(operation) => operation_root_name_id(operation),
             _ => None,
         }
     }
@@ -585,7 +585,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
     fn walk_root_loaded_names(&self, f: &mut impl FnMut(&str)) {
         match self {
             Self::Name(name) => f(name.id.as_str()),
-            Self::Op(operation) => walk_operation_loaded_names(operation.detail(), f),
+            Self::Op(operation) => walk_operation_loaded_names(operation, f),
             _ => {}
         }
     }
@@ -593,8 +593,8 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
     fn walk_root_cell_ref_logical_names(&self, f: &mut impl FnMut(&str)) {
         match self {
             Self::Op(operation) => {
-                walk_operation_cell_ref_logical_names(operation.detail(), f);
-                if let OperationDetail::Call(call) = operation.detail() {
+                walk_operation_cell_ref_logical_names(operation, f);
+                if let OperationDetail::Call(call) = operation {
                     if let Some(name) = call_root_cell_ref_logical_name(call) {
                         f(name.as_str());
                     }
@@ -616,7 +616,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Name(name) => Some(name.id.as_str()),
-            Self::Op(operation) => operation_root_name_id(operation.detail()),
+            Self::Op(operation) => operation_root_name_id(operation),
             _ => None,
         }
     }
@@ -633,7 +633,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
     fn walk_root_loaded_names(&self, f: &mut impl FnMut(&str)) {
         match self {
             Self::Name(name) => f(name.id.as_str()),
-            Self::Op(operation) => walk_operation_loaded_names(operation.detail(), f),
+            Self::Op(operation) => walk_operation_loaded_names(operation, f),
             _ => {}
         }
     }
@@ -641,8 +641,8 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
     fn walk_root_cell_ref_logical_names(&self, f: &mut impl FnMut(&str)) {
         match self {
             Self::Op(operation) => {
-                walk_operation_cell_ref_logical_names(operation.detail(), f);
-                if let OperationDetail::Call(call) = operation.detail() {
+                walk_operation_cell_ref_logical_names(operation, f);
+                if let OperationDetail::Call(call) = operation {
                     if let Some(name) = call_root_cell_ref_logical_name(call) {
                         f(name.as_str());
                     }
@@ -667,7 +667,7 @@ where
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Name(name) => Some(name.id_str()),
-            Self::Op(operation) => operation_root_name_id(operation.detail()),
+            Self::Op(operation) => operation_root_name_id(operation),
             _ => None,
         }
     }
@@ -684,7 +684,7 @@ where
     fn walk_root_loaded_names(&self, f: &mut impl FnMut(&str)) {
         match self {
             Self::Name(name) => f(name.id_str()),
-            Self::Op(operation) => walk_operation_loaded_names(operation.detail(), f),
+            Self::Op(operation) => walk_operation_loaded_names(operation, f),
             _ => {}
         }
     }
@@ -692,8 +692,8 @@ where
     fn walk_root_cell_ref_logical_names(&self, f: &mut impl FnMut(&str)) {
         match self {
             Self::Op(operation) => {
-                walk_operation_cell_ref_logical_names(operation.detail(), f);
-                if let OperationDetail::Call(call) = operation.detail() {
+                walk_operation_cell_ref_logical_names(operation, f);
+                if let OperationDetail::Call(call) = operation {
                     if let Some(name) = call_root_cell_ref_logical_name(call) {
                         f(name.as_str());
                     }
@@ -715,7 +715,7 @@ impl BlockPySemanticExprNode for super::CodegenBlockPyExpr {
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Name(name) => Some(name.id_str()),
-            Self::Op(operation) => operation_root_name_id(operation.detail()),
+            Self::Op(operation) => operation_root_name_id(operation),
             _ => None,
         }
     }
@@ -723,7 +723,7 @@ impl BlockPySemanticExprNode for super::CodegenBlockPyExpr {
     fn walk_root_loaded_names(&self, f: &mut impl FnMut(&str)) {
         match self {
             Self::Name(name) => f(name.id_str()),
-            Self::Op(operation) => walk_operation_loaded_names(operation.detail(), f),
+            Self::Op(operation) => walk_operation_loaded_names(operation, f),
             _ => {}
         }
     }
@@ -731,8 +731,8 @@ impl BlockPySemanticExprNode for super::CodegenBlockPyExpr {
     fn walk_root_cell_ref_logical_names(&self, f: &mut impl FnMut(&str)) {
         match self {
             Self::Op(operation) => {
-                walk_operation_cell_ref_logical_names(operation.detail(), f);
-                let OperationDetail::Call(call) = operation.detail() else {
+                walk_operation_cell_ref_logical_names(operation, f);
+                let OperationDetail::Call(call) = operation else {
                     return;
                 };
                 if let Some(name) = call_root_cell_ref_logical_name(call) {

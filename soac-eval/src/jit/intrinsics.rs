@@ -636,10 +636,10 @@ pub(super) fn emit_del_deref_raw_cell<'fb, E>(
 }
 
 pub(super) fn emit_operation<'fb, E>(
-    operation: &blockpy_intrinsics::Operation<E>,
+    operation: &blockpy_intrinsics::OperationDetail<E>,
     state: &mut impl OperationEmitState<'fb, E>,
 ) -> Option<ir::Value> {
-    match operation.detail() {
+    match operation {
         blockpy_intrinsics::OperationDetail::BinOp(op) => Some(emit_binop(
             op.kind,
             state,

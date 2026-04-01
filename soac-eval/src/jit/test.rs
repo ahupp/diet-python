@@ -4,7 +4,7 @@ use soac_blockpy::block_py::{
     BlockPyTerm, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
     CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref,
     DelDerefQuietly, DelItem, DelQuietly, FunctionName, LoadGlobal, LocatedCodegenBlockPyExpr,
-    LocatedName, MakeString, Meta, ModuleNameGen, NameLocation, Operation, Param, ParamKind,
+    LocatedName, MakeString, Meta, ModuleNameGen, NameLocation, OperationDetail, Param, ParamKind,
     ParamSpec, StorageLayout, StoreGlobal, TernaryOp, TernaryOpKind, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
@@ -76,7 +76,7 @@ mod tests {
         CodegenBlockPyExpr::Name(name)
     }
 
-    fn op_expr(operation: Operation<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyExpr {
+    fn op_expr(operation: OperationDetail<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyExpr {
         CodegenBlockPyExpr::Op(operation)
     }
 
@@ -238,7 +238,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(BinOp::new(BinOpKind::Add, int_expr(1), int_expr(2)))
+                OperationDetail::from(BinOp::new(BinOpKind::Add, int_expr(1), int_expr(2)))
                     .with_meta(Meta::synthetic()),
             )),
         );
@@ -260,7 +260,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(BinOp::new(BinOpKind::Lt, int_expr(1), int_expr(2)))
+                OperationDetail::from(BinOp::new(BinOpKind::Lt, int_expr(1), int_expr(2)))
                     .with_meta(Meta::synthetic()),
             )),
         );
@@ -278,7 +278,8 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(MakeString::new(b"hello".to_vec())).with_meta(Meta::synthetic()),
+                OperationDetail::from(MakeString::new(b"hello".to_vec()))
+                    .with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -299,7 +300,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(TernaryOp::new(
+                OperationDetail::from(TernaryOp::new(
                     TernaryOpKind::Pow,
                     int_expr(2),
                     int_expr(3),
@@ -367,7 +368,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(LoadGlobal::new(int_expr(1), "x".to_string()))
+                OperationDetail::from(LoadGlobal::new(int_expr(1), "x".to_string()))
                     .with_meta(Meta::synthetic()),
             )),
         );
@@ -385,7 +386,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(StoreGlobal::new(int_expr(1), "x".to_string(), int_expr(3)))
+                OperationDetail::from(StoreGlobal::new(int_expr(1), "x".to_string(), int_expr(3)))
                     .with_meta(Meta::synthetic()),
             )),
         );
@@ -420,7 +421,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(soac_blockpy::block_py::CellRef::new(CellLocation::Closure(
+                OperationDetail::from(soac_blockpy::block_py::CellRef::new(CellLocation::Closure(
                     2,
                 )))
                 .with_meta(Meta::synthetic()),
@@ -445,7 +446,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(soac_blockpy::block_py::CellRef::new(
+                OperationDetail::from(soac_blockpy::block_py::CellRef::new(
                     CellLocation::CapturedSource(2),
                 ))
                 .with_meta(Meta::synthetic()),
@@ -492,19 +493,19 @@ mod tests {
             test_function(),
             vec![
                 expr_stmt(op_expr(
-                    Operation::new(DelItem::new(int_expr(1), int_expr(2)))
+                    OperationDetail::from(DelItem::new(int_expr(1), int_expr(2)))
                         .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    Operation::new(DelQuietly::new(int_expr(3), "x".to_string()))
+                    OperationDetail::from(DelQuietly::new(int_expr(3), "x".to_string()))
                         .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    Operation::new(DelDeref::new(CellLocation::Closure(2)))
+                    OperationDetail::from(DelDeref::new(CellLocation::Closure(2)))
                         .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    Operation::new(DelDerefQuietly::new(CellLocation::Closure(2)))
+                    OperationDetail::from(DelDerefQuietly::new(CellLocation::Closure(2)))
                         .with_meta(Meta::synthetic()),
                 )),
             ],

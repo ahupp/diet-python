@@ -15,8 +15,8 @@ use crate::py_expr;
 pub use operation::{
     BinOp, BinOpKind, Call, CellRef, CellRefForName, DelDeref, DelDerefQuietly, DelItem,
     DelQuietly, GetAttr, GetItem, InplaceBinOp, InplaceBinOpKind, LoadCell, LoadGlobal, LoadLocal,
-    LoadName, LoadRuntime, MakeCell, MakeFunction, MakeString, Operation, OperationDetail, SetAttr,
-    SetItem, StoreCell, StoreGlobal, TernaryOp, TernaryOpKind, UnaryOp, UnaryOpKind,
+    LoadName, LoadRuntime, MakeCell, MakeFunction, MakeString, OperationDetail, SetAttr, SetItem,
+    StoreCell, StoreGlobal, TernaryOp, TernaryOpKind, UnaryOp, UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
@@ -38,9 +38,6 @@ pub(crate) mod structured;
 pub(crate) mod validate;
 #[cfg(test)]
 pub(crate) use convert::BlockPyModuleTryMap;
-pub(crate) use convert::{
-    map_call_args_with, map_keyword_args_with, try_map_call_args_with, try_map_keyword_args_with,
-};
 pub(crate) use convert::{
     try_lower_core_expr_without_await, try_lower_core_expr_without_yield, BlockPyModuleMap,
     ExprTryMap,
@@ -454,7 +451,7 @@ impl<P: BlockPyPass> BlockPyModule<P> {
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
-    Op(Operation<Self>),
+    Op(OperationDetail<Self>),
     Await(CoreBlockPyAwait<Self>),
     Yield(CoreBlockPyYield<Self>),
     YieldFrom(CoreBlockPyYieldFrom<Self>),
@@ -464,7 +461,7 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
 pub enum CoreBlockPyExprWithYield {
     Name(ast::ExprName),
     Literal(CoreBlockPyLiteral),
-    Op(Operation<Self>),
+    Op(OperationDetail<Self>),
     Yield(CoreBlockPyYield<Self>),
     YieldFrom(CoreBlockPyYieldFrom<Self>),
 }
@@ -473,7 +470,7 @@ pub enum CoreBlockPyExprWithYield {
 pub enum CoreBlockPyExpr<N = ast::ExprName> {
     Name(N),
     Literal(CoreBlockPyLiteral),
-    Op(Operation<Self>),
+    Op(OperationDetail<Self>),
 }
 
 pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
@@ -482,7 +479,7 @@ pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 pub enum CodegenBlockPyExpr {
     Name(LocatedName),
     Literal(CodegenBlockPyLiteral),
-    Op(Operation<Self>),
+    Op(OperationDetail<Self>),
 }
 
 pub type LocatedCodegenBlockPyExpr = CodegenBlockPyExpr;
@@ -532,7 +529,7 @@ pub(crate) trait CoreCallLikeExpr: Sized {
 
     fn from_name(name: ast::ExprName) -> Self;
 
-    fn from_operation(operation: block_py_operation::Operation<Self>) -> Self;
+    fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self;
 }
 
 impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
@@ -542,7 +539,7 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
         Self::Name(name)
     }
 
-    fn from_operation(operation: block_py_operation::Operation<Self>) -> Self {
+    fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
         Self::Op(operation)
     }
 }
@@ -649,7 +646,7 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
         Self::Name(name)
     }
 
-    fn from_operation(operation: block_py_operation::Operation<Self>) -> Self {
+    fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
         Self::Op(operation)
     }
 }
@@ -697,7 +694,7 @@ impl<N: BlockPyNameLike> CoreCallLikeExpr for CoreBlockPyExpr<N> {
         Self::Name(name.into())
     }
 
-    fn from_operation(operation: block_py_operation::Operation<Self>) -> Self {
+    fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
         Self::Op(operation)
     }
 }
@@ -740,7 +737,7 @@ impl CoreCallLikeExpr for CodegenBlockPyExpr {
         Self::Name(name.into())
     }
 
-    fn from_operation(operation: block_py_operation::Operation<Self>) -> Self {
+    fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
         Self::Op(operation)
     }
 }
@@ -798,7 +795,9 @@ pub(crate) fn core_call_expr_with_meta<E: CoreCallLikeExpr>(
     keywords: Vec<CoreBlockPyKeywordArg<E>>,
 ) -> E {
     E::from_operation(
-        Operation::new(Call::new(func, args, keywords)).with_meta(Meta::new(node_index, range)),
+        Call::new(func, args, keywords)
+            .with_meta(Meta::new(node_index, range))
+            .into(),
     )
 }
 
@@ -832,15 +831,15 @@ pub(crate) fn core_runtime_name_expr_with_meta<E: CoreCallLikeExpr>(
     range: ruff_text_size::TextRange,
 ) -> E {
     core_operation_expr(
-        block_py_operation::Operation::new(block_py_operation::LoadRuntime::new(name.to_string()))
+        block_py_operation::LoadRuntime::new(name.to_string())
             .with_meta(Meta::new(node_index, range)),
     )
 }
 
 pub(crate) fn core_operation_expr<E: CoreCallLikeExpr>(
-    operation: block_py_operation::Operation<E>,
+    operation: impl Into<block_py_operation::OperationDetail<E>>,
 ) -> E {
-    E::from_operation(operation)
+    E::from_operation(operation.into())
 }
 
 pub(crate) fn core_positional_call_expr_with_meta<E: CoreCallLikeExpr>(
@@ -1679,7 +1678,7 @@ impl ImplicitNoneExpr for CoreBlockPyExprWithAwaitAndYield {
         matches!(
             expr,
             CoreBlockPyExprWithAwaitAndYield::Op(operation)
-                if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
+                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
         )
     }
 }
@@ -1693,7 +1692,7 @@ impl ImplicitNoneExpr for CoreBlockPyExprWithYield {
         matches!(
             expr,
             CoreBlockPyExprWithYield::Op(operation)
-                if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
+                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
         )
     }
 }
@@ -1707,7 +1706,7 @@ impl<N: BlockPyNameLike> ImplicitNoneExpr for CoreBlockPyExpr<N> {
         matches!(
             expr,
             CoreBlockPyExpr::Op(operation)
-                if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
+                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
         )
     }
 }
@@ -1721,7 +1720,7 @@ impl ImplicitNoneExpr for CodegenBlockPyExpr {
         matches!(
             expr,
             CodegenBlockPyExpr::Op(operation)
-                if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
+                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
         )
     }
 }

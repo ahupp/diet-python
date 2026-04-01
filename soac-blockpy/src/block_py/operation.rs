@@ -2,8 +2,6 @@ use super::{
     BlockPyFunctionKind, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg, FunctionId,
     HasMeta, LocalLocation, Meta, WithMeta,
 };
-use ruff_python_ast as ast;
-use ruff_text_size::TextRange;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum BinOpKind {
@@ -926,76 +924,6 @@ impl<E> WithMeta for OperationDetail<E> {
             Self::DelQuietly(op) => Self::DelQuietly(op.with_meta(meta.clone())),
             Self::DelDerefQuietly(op) => Self::DelDerefQuietly(op.with_meta(meta.clone())),
             Self::DelDeref(op) => Self::DelDeref(op.with_meta(meta)),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Operation<E> {
-    pub detail: OperationDetail<E>,
-}
-
-impl<E> Operation<E> {
-    pub fn new(detail: impl Into<OperationDetail<E>>) -> Self {
-        Self {
-            detail: detail.into(),
-        }
-    }
-
-    pub fn detail(&self) -> &OperationDetail<E> {
-        &self.detail
-    }
-
-    pub fn detail_mut(&mut self) -> &mut OperationDetail<E> {
-        &mut self.detail
-    }
-
-    pub fn into_detail(self) -> OperationDetail<E> {
-        self.detail
-    }
-
-    pub fn node_index(&self) -> ast::AtomicNodeIndex {
-        self.detail.meta().node_index
-    }
-
-    pub fn range(&self) -> TextRange {
-        self.detail.meta().range
-    }
-
-    pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> Operation<T> {
-        Operation {
-            detail: self.detail.map_expr(f),
-        }
-    }
-
-    pub fn try_map_expr<T, Error>(
-        self,
-        f: &mut impl FnMut(E) -> Result<T, Error>,
-    ) -> Result<Operation<T>, Error> {
-        Ok(Operation {
-            detail: self.detail.try_map_expr(f)?,
-        })
-    }
-
-    pub fn walk_args(&self, f: &mut impl FnMut(&E)) {
-        self.detail.walk_args(f)
-    }
-
-    pub fn walk_args_mut(&mut self, f: &mut impl FnMut(&mut E)) {
-        self.detail.walk_args_mut(f)
-    }
-}
-
-impl<E> HasMeta for Operation<E> {
-    fn meta(&self) -> Meta {
-        self.detail().meta()
-    }
-}
-
-impl<E> WithMeta for Operation<E> {
-    fn with_meta(self, meta: Meta) -> Self {
-        Self {
-            detail: self.into_detail().with_meta(meta),
         }
     }
 }

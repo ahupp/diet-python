@@ -120,7 +120,7 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         let meta = Meta::new(node_index.clone(), range);
         if let Some(kind) = inplace_kind(op) {
             return core_operation_expr(
-                operation::Operation::new(operation::InplaceBinOp::new(
+                operation::OperationDetail::from(operation::InplaceBinOp::new(
                     kind,
                     Box::new(left),
                     Box::new(right),
@@ -130,7 +130,7 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         }
 
         core_operation_expr(
-            operation::Operation::new(operation::TernaryOp::new(
+            operation::OperationDetail::from(operation::TernaryOp::new(
                 operation::TernaryOpKind::Pow,
                 Box::new(left),
                 Box::new(right),
@@ -166,8 +166,7 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         attr: String,
     ) -> Self {
         core_operation_expr(
-            operation::Operation::new(operation::GetAttr::new(Box::new(value), attr))
-                .with_meta(Meta::new(node_index, range)),
+            operation::GetAttr::new(Box::new(value), attr).with_meta(Meta::new(node_index, range)),
         )
     }
 
@@ -179,12 +178,8 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         replacement: Self,
     ) -> Self {
         core_operation_expr(
-            operation::Operation::new(operation::SetAttr::new(
-                Box::new(value),
-                attr,
-                Box::new(replacement),
-            ))
-            .with_meta(Meta::new(node_index, range)),
+            operation::SetAttr::new(Box::new(value), attr, Box::new(replacement))
+                .with_meta(Meta::new(node_index, range)),
         )
     }
 
@@ -195,7 +190,7 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         index: Self,
     ) -> Self {
         core_operation_expr(
-            operation::Operation::new(operation::GetItem::new(Box::new(value), Box::new(index)))
+            operation::GetItem::new(Box::new(value), Box::new(index))
                 .with_meta(Meta::new(node_index, range)),
         )
     }
@@ -208,12 +203,8 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         replacement: Self,
     ) -> Self {
         core_operation_expr(
-            operation::Operation::new(operation::SetItem::new(
-                Box::new(value),
-                Box::new(index),
-                Box::new(replacement),
-            ))
-            .with_meta(Meta::new(node_index, range)),
+            operation::SetItem::new(Box::new(value), Box::new(index), Box::new(replacement))
+                .with_meta(Meta::new(node_index, range)),
         )
     }
 
@@ -224,7 +215,7 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         index: Self,
     ) -> Self {
         core_operation_expr(
-            operation::Operation::new(operation::DelItem::new(Box::new(value), Box::new(index)))
+            operation::DelItem::new(Box::new(value), Box::new(index))
                 .with_meta(Meta::new(node_index, range)),
         )
     }
@@ -342,7 +333,7 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
         let function_id = make_function_id_from_literal(&call.arguments.args[0])?;
         let kind = make_function_kind_from_literal(&call.arguments.args[1])?;
         return Some(core_operation_expr(
-            operation::Operation::new(operation::MakeFunction::new(
+            operation::OperationDetail::from(operation::MakeFunction::new(
                 function_id,
                 kind,
                 Box::new(lowered(call.arguments.args[3].clone())),
@@ -354,7 +345,7 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
 
     if let Some(call) = lowered_helper_call(expr, "__dp_store_global", 3) {
         return Some(core_operation_expr(
-            operation::Operation::new(operation::StoreGlobal::new(
+            operation::OperationDetail::from(operation::StoreGlobal::new(
                 Box::new(lowered(call.arguments.args[0].clone())),
                 string_literal_value(&call.arguments.args[1])?,
                 Box::new(lowered(call.arguments.args[2].clone())),
@@ -365,7 +356,7 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
 
     if let Some(call) = lowered_helper_call(expr, "__dp_cell_ref", 1) {
         return Some(core_operation_expr(
-            operation::Operation::new(operation::CellRefForName::new(string_literal_value(
+            operation::OperationDetail::from(operation::CellRefForName::new(string_literal_value(
                 &call.arguments.args[0],
             )?))
             .with_meta(Meta::new(call.node_index.clone(), call.range)),

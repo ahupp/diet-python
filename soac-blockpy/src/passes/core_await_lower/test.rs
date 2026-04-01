@@ -63,14 +63,14 @@ fn lowers_await_to_yield_from_await_iter() {
     let CoreBlockPyExprWithYield::Op(operation) = yield_from.value.as_ref() else {
         panic!("expected __dp_await_iter call");
     };
-    let crate::block_py::OperationDetail::Call(call) = operation.detail() else {
+    let crate::block_py::OperationDetail::Call(call) = operation else {
         panic!("expected __dp_await_iter call op");
     };
     let CoreBlockPyExprWithYield::Op(operation) = call.func.as_ref() else {
         panic!("expected await helper load");
     };
     assert!(matches!(
-        operation.detail(),
+        operation,
         crate::block_py::OperationDetail::LoadRuntime(op) if op.name == "__dp_await_iter"
     ));
 }

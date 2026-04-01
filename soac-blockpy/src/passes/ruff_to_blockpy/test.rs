@@ -899,7 +899,7 @@ async def outer(inner):
         .filter_map(|block| match &block.term {
             BlockPyTerm::Raise(BlockPyRaise {
                 exc: Some(CoreBlockPyExpr::Op(operation)),
-            }) => match operation.detail() {
+            }) => match operation {
                 crate::block_py::OperationDetail::Call(call)
                     if matches!(
                         call.func.as_ref(),

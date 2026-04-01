@@ -233,7 +233,7 @@ impl ModuleConstantCollector {
                 self.constants.intern_bytes(bytes.value.as_slice());
             }
             CodegenBlockPyExpr::Op(operation) => {
-                if let blockpy_intrinsics::OperationDetail::Call(call) = operation.detail() {
+                if let blockpy_intrinsics::OperationDetail::Call(call) = operation {
                     if let Some(const_bytes) = string_constant_bytes_for_specialized_codegen(expr) {
                         self.constants.intern_unicode_bytes(const_bytes);
                     }
@@ -252,7 +252,7 @@ impl ModuleConstantCollector {
                     }
                     return;
                 }
-                match operation.detail() {
+                match operation {
                     blockpy_intrinsics::OperationDetail::GetAttr(op) => {
                         self.constants.intern_unicode_bytes(op.attr.as_bytes());
                     }
@@ -299,7 +299,7 @@ fn deleted_name_arg_bytes(
 fn helper_name_for_codegen_expr(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
     match expr {
         CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
-        CodegenBlockPyExpr::Op(operation) => match operation.detail() {
+        CodegenBlockPyExpr::Op(operation) => match operation {
             blockpy_intrinsics::OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
             blockpy_intrinsics::OperationDetail::LoadGlobal(op) => Some(op.name.as_str()),
             blockpy_intrinsics::OperationDetail::LoadName(op) => Some(op.name.as_str()),
@@ -318,7 +318,7 @@ fn string_constant_bytes_for_specialized_codegen(
         CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
             Some(bytes.value.as_slice())
         }
-        CodegenBlockPyExpr::Op(operation) => match operation.detail() {
+        CodegenBlockPyExpr::Op(operation) => match operation {
             blockpy_intrinsics::OperationDetail::MakeString(op) => Some(op.bytes.as_slice()),
             blockpy_intrinsics::OperationDetail::Call(call) => {
                 if helper_name_for_codegen_expr(call.func.as_ref()) != Some("str")
