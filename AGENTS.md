@@ -18,7 +18,6 @@
 - **MUST FOLLOW**: When changing implementation details, do not keep compatibility stubs/interfaces around; assume transformed inputs are regenerated each time.
 - **MUST FOLLOW**: Do not keep production-dead code alive only for tests; if only tests depend on an old path, update those tests to the production path or delete them.
 - **MUST FOLLOW**: If the user rejects a proposed approach, extract the underlying design principle behind that rejection, propose it explicitly as a general rule, and only add it to `AGENTS.md` if the user approves that rule.
-- **MUST FOLLOW**: At a good stopping point in one workspace, such as finishing a logical change and moving on to the next commit, first run `jj new` there so the finished change is `@-`, then rebase every other workspace head from `jj workspace list` onto that finished commit. Never rebase another workspace onto a live `@`; only rebase onto a finished parent commit. After rebasing, check the other workspaces for conflicts or stale state and resolve those before continuing.
 
 ## Tips
 - **MUST FOLLOW**: If a fixture error occurs, regenerate all fixtures by running `cargo run --bin regen_snapshots` with no file arguments.
