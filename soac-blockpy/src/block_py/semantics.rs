@@ -540,9 +540,9 @@ impl BlockPySemanticExprNode for Expr {
 
 impl BlockPySemanticExprNode for RuffExpr {
     fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
-        let _ = self.clone().map_expr(&mut |child| {
+        self.0.walk_child_exprs(&mut |child| {
+            let child = RuffExpr(child.clone());
             f(&child);
-            child
         });
     }
 

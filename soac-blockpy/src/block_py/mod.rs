@@ -289,12 +289,6 @@ impl Instr for Expr {
     type Name = ast::ExprName;
 }
 
-impl MapExpr<RuffExpr> for RuffExpr {
-    fn map_expr(self, f: &mut impl FnMut(Self) -> RuffExpr) -> RuffExpr {
-        RuffExpr(self.0.map_expr(&mut |expr| f(RuffExpr(expr)).0))
-    }
-}
-
 impl<T> BlockPyExprLike for T where T: Clone + fmt::Debug + MapExpr<Self> {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
