@@ -18,6 +18,7 @@
 - **MUST FOLLOW**: When changing implementation details, do not keep compatibility stubs/interfaces around; assume transformed inputs are regenerated each time.
 - **MUST FOLLOW**: Do not keep production-dead code alive only for tests; if only tests depend on an old path, update those tests to the production path or delete them.
 - **MUST FOLLOW**: If the user rejects a proposed approach, extract the underlying design principle behind that rejection, propose it explicitly as a general rule, and only add it to `AGENTS.md` if the user approves that rule.
+- **MUST FOLLOW**: When one workspace finishes a logical change, first run `jj new` there so the finished change is `@-`, then rebase every other workspace head from `jj workspace list` onto that finished commit. Never rebase another workspace onto a live `@`; only rebase onto a finished parent commit.
 
 ## Tips
 - **MUST FOLLOW**: If a fixture error occurs, regenerate all fixtures by running `cargo run --bin regen_snapshots` with no file arguments.
@@ -48,6 +49,7 @@
 - **MUST FOLLOW**: For each logical change, update the top commit description with `jj describe -m "<message>" @`, then create a new commit with `jj new` before starting the next logical change.
 - **MUST FOLLOW**: After each logical change, run `jj diff --stat` and show a concise summary of the size and location of the change.
 - **MUST FOLLOW**: When completing one step in a multi-stage plan, explain the next concrete step. If stopping instead of continuing, explicitly say the current line is done and then describe the next suggested plan.
+- **MUST FOLLOW**: At the start of work in any workspace, if `jj` reports the workspace is stale because another workspace rebased it, run `jj workspace update-stale` before editing. Also check periodically for stale workspaces or new conflicts while working, and resolve any conflicts in that workspace before continuing. Do not manually coordinate between Codex instances; follow this sync process instead.
 - **MUST FOLLOW**: Only record something in `TODO.md` when the user explicitly asks you to plan something.
 - **MUST FOLLOW**: For each such planning request, create a new heading in `TODO.md` of the form `## {plan description}` and put the plan details under that heading.
 - **MUST FOLLOW**: When a `jj describe` message needs multiple paragraphs or sections, pass actual newlines, not literal `\n`. Use shell multiline quoting, for example:
