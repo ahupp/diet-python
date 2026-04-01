@@ -6,10 +6,10 @@ use crate::block_py::{
     BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap,
     BlockPyNameLike, BlockPyRaise, BlockPyStmt, BlockPyTerm, Call, CellLocation, CellRef,
     CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, DelDeref,
-    DelDerefQuietly, DelItem, DelQuietly, FunctionId, HasMeta, LoadCell, LoadGlobal, LoadLocal,
-    LoadRuntime, LocalLocation, LocatedName, MakeCell, MakeFunction, NameLocation, OperationDetail,
-    SetItem, StorageLayout, StoreCell, StoreGlobal, WithMeta,
+    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, DelItem,
+    DelLocation, DelName, FunctionId, HasMeta, LoadLocation, LoadName, LoadRuntime, LocalLocation,
+    LocatedName, MakeCell, MakeFunction, NameLocation, OperationDetail, SetItem, StorageLayout,
+    StoreLocation, StoreName, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -72,21 +72,15 @@ fn op_stmt(operation: OperationDetail<CoreBlockPyExpr>) -> BlockPyStmt<CoreBlock
 fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
     let meta = name.meta();
     let bind_name = name.id.to_string();
-    op_expr(
-        OperationDetail::from(LoadGlobal::new(
-            Box::new(globals_expr(meta.node_index.clone(), meta.range)),
-            bind_name,
-        ))
-        .with_meta(meta),
-    )
+    op_expr(OperationDetail::from(LoadName::new(bind_name)).with_meta(meta))
 }
 
 fn rewrite_local_name_load(name: ExprName, resolver: &NameBindingMapper<'_>) -> CoreBlockPyExpr {
     let meta = name.meta();
     op_expr(
-        OperationDetail::from(LoadLocal::new(
+        OperationDetail::from(LoadLocation::new(NameLocation::Local(
             resolver.resolve_raw_local_location(name.id.as_str()),
-        ))
+        )))
         .with_meta(meta),
     )
 }
@@ -134,7 +128,7 @@ fn rewrite_cell_name_load(
     let meta = name.meta();
     let location = resolver
         .resolve_raw_cell_location(cell_storage_name_for_name(name.id.as_str(), semantic).as_str());
-    op_expr(OperationDetail::from(LoadCell::new(location)).with_meta(meta))
+    op_expr(OperationDetail::from(LoadLocation::new(NameLocation::Cell(location))).with_meta(meta))
 }
 
 fn rewrite_raw_cell_storage_name_load(
@@ -146,7 +140,7 @@ fn rewrite_raw_cell_storage_name_load(
     let storage_name = resolve_cell_storage_name(semantic, name.id.as_str())?;
     let location = resolver.resolve_raw_cell_location(storage_name.as_str());
     Some(op_expr(
-        OperationDetail::from(LoadCell::new(location)).with_meta(meta),
+        OperationDetail::from(LoadLocation::new(NameLocation::Cell(location))).with_meta(meta),
     ))
 }
 
@@ -230,12 +224,7 @@ fn rewrite_global_binding_assign(
     let meta = assign.target.meta();
     let bind_name = assign.target.id.to_string();
     op_stmt(
-        OperationDetail::from(StoreGlobal::new(
-            Box::new(globals_expr(meta.node_index.clone(), meta.range)),
-            bind_name,
-            Box::new(assign.value),
-        ))
-        .with_meta(meta),
+        OperationDetail::from(StoreName::new(bind_name, Box::new(assign.value))).with_meta(meta),
     )
 }
 
@@ -265,10 +254,10 @@ fn rewrite_cell_binding_assign(
 ) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     let meta = assign.target.meta();
     op_stmt(
-        OperationDetail::from(StoreCell::new(
-            resolver.resolve_raw_cell_location(
+        OperationDetail::from(StoreLocation::new(
+            NameLocation::Cell(resolver.resolve_raw_cell_location(
                 cell_storage_name_for_name(assign.target.id.as_str(), semantic).as_str(),
-            ),
+            )),
             Box::new(assign.value),
         ))
         .with_meta(meta),
@@ -281,15 +270,8 @@ fn rewrite_global_binding_delete_by_name(
     range: ruff_text_size::TextRange,
 ) -> BlockPyStmt<CoreBlockPyExpr, ExprName> {
     op_stmt(
-        OperationDetail::from(DelItem::new(
-            Box::new(globals_expr(node_index.clone(), range)),
-            Box::new(core_string_expr(
-                bind_name.to_string(),
-                node_index.clone(),
-                range,
-            )),
-        ))
-        .with_meta(crate::block_py::Meta::new(node_index.clone(), range)),
+        OperationDetail::from(DelName::new(bind_name.to_string(), false))
+            .with_meta(crate::block_py::Meta::new(node_index.clone(), range)),
     )
 }
 
@@ -302,9 +284,12 @@ fn rewrite_binding_delete(
     let bind_name = target.id.to_string();
     if semantic.is_cell_binding(bind_name.as_str()) {
         return op_stmt(
-            OperationDetail::from(DelDeref::new(resolver.resolve_raw_cell_location(
-                cell_storage_name_for_name(bind_name.as_str(), semantic).as_str(),
-            )))
+            OperationDetail::from(DelLocation::new(
+                NameLocation::Cell(resolver.resolve_raw_cell_location(
+                    cell_storage_name_for_name(bind_name.as_str(), semantic).as_str(),
+                )),
+                false,
+            ))
             .with_meta(meta),
         );
     }
@@ -486,11 +471,20 @@ fn rewrite_deleted_name_loads_in_expr(
                 );
             }
         }
-        CoreBlockPyExpr::Op(operation) if matches!(operation, OperationDetail::LoadLocal(_)) => {
-            let OperationDetail::LoadLocal(op) = operation else {
-                unreachable!("load-local guard should ensure LoadLocal detail");
+        CoreBlockPyExpr::Op(operation)
+            if matches!(
+                operation,
+                OperationDetail::LoadLocation(LoadLocation {
+                    location: NameLocation::Local(_),
+                    ..
+                })
+            ) =>
+        {
+            let OperationDetail::LoadLocation(op) = operation else {
+                unreachable!("load-location guard should ensure LoadLocation detail");
             };
-            let Some(logical_name) = logical_name_for_local_location(storage_layout, op.location)
+            let Some(logical_name) =
+                logical_name_for_local_location(storage_layout, op.location.as_local().unwrap())
             else {
                 return;
             };
@@ -515,13 +509,12 @@ fn rewrite_deleted_name_loads_in_expr(
                 unreachable!("op-like branch should have operation view");
             };
             match operation {
-                OperationDetail::LoadName(_) | OperationDetail::LoadLocal(_) => {}
-                OperationDetail::LoadCell(_)
-                | OperationDetail::DelDeref(_)
-                | OperationDetail::DelDerefQuietly(_)
+                OperationDetail::LoadName(_) => {}
+                OperationDetail::LoadLocation(_)
+                | OperationDetail::DelLocation(_)
                 | OperationDetail::CellRefForName(_)
                 | OperationDetail::CellRef(_) => {}
-                OperationDetail::StoreCell(_) => {
+                OperationDetail::StoreName(_) | OperationDetail::StoreLocation(_) => {
                     with_helper_arg_mut(expr, 1, &mut |value_expr| {
                         rewrite_deleted_name_loads_in_expr(
                             value_expr,
@@ -639,9 +632,12 @@ fn rewrite_quiet_delete_marker(
     let meta = crate::block_py::Meta::new(node_index.clone(), range);
     match semantic.binding_kind(name.id.as_str()) {
         Some(BlockPyBindingKind::Cell(_)) => op_stmt(
-            OperationDetail::from(DelDerefQuietly::new(resolver.resolve_raw_cell_location(
-                cell_storage_name_for_name(name.id.as_str(), semantic).as_str(),
-            )))
+            OperationDetail::from(DelLocation::new(
+                NameLocation::Cell(resolver.resolve_raw_cell_location(
+                    cell_storage_name_for_name(name.id.as_str(), semantic).as_str(),
+                )),
+                true,
+            ))
             .with_meta(meta),
         ),
         _ => match semantic.binding_target_for_name(name.id.as_str(), BlockPyBindingPurpose::Store)
@@ -656,16 +652,16 @@ fn rewrite_quiet_delete_marker(
                 value: deleted_sentinel_expr(node_index, range),
             }),
             BindingTarget::ModuleGlobal => op_stmt(
-                OperationDetail::from(DelQuietly::new(
-                    Box::new(globals_expr(node_index.clone(), range)),
-                    name.id.to_string(),
-                ))
-                .with_meta(meta),
+                OperationDetail::from(DelName::new(name.id.to_string(), true)).with_meta(meta),
             ),
             BindingTarget::ClassNamespace => op_stmt(
-                OperationDetail::from(DelQuietly::new(
+                OperationDetail::from(DelItem::new(
                     Box::new(class_namespace_expr(node_index.clone(), range)),
-                    name.id.to_string(),
+                    Box::new(core_string_expr(
+                        name.id.to_string(),
+                        node_index.clone(),
+                        range,
+                    )),
                 ))
                 .with_meta(meta),
             ),
@@ -763,10 +759,10 @@ fn cell_load_logical_name(
     storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::LoadCell(LoadCell { location, .. }) = operation else {
+    let OperationDetail::LoadLocation(LoadLocation { location, .. }) = operation else {
         return None;
     };
-    logical_name_for_cell_location(semantic, storage_layout, *location)
+    logical_name_for_cell_location(semantic, storage_layout, location.as_cell()?)
 }
 
 fn build_local_cell_init_assign(
@@ -940,7 +936,7 @@ fn store_cell_deleted_logical_name(
     storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::StoreCell(StoreCell {
+    let OperationDetail::StoreLocation(StoreLocation {
         location, value, ..
     }) = operation
     else {
@@ -949,7 +945,7 @@ fn store_cell_deleted_logical_name(
     if !is_deleted_sentinel_expr(value) {
         return None;
     }
-    logical_name_for_cell_location(semantic, storage_layout, *location)
+    logical_name_for_cell_location(semantic, storage_layout, location.as_cell()?)
 }
 
 fn del_deref_logical_name(
@@ -958,10 +954,16 @@ fn del_deref_logical_name(
     storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::DelDeref(DelDeref { location, .. }) = operation else {
+    let OperationDetail::DelLocation(DelLocation {
+        location, quietly, ..
+    }) = operation
+    else {
         return None;
     };
-    logical_name_for_cell_location(semantic, storage_layout, *location)
+    if *quietly {
+        return None;
+    }
+    logical_name_for_cell_location(semantic, storage_layout, location.as_cell()?)
 }
 
 fn store_cell_runtime_logical_name(
@@ -970,7 +972,7 @@ fn store_cell_runtime_logical_name(
     storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::StoreCell(StoreCell {
+    let OperationDetail::StoreLocation(StoreLocation {
         location, value, ..
     }) = operation
     else {
@@ -979,7 +981,7 @@ fn store_cell_runtime_logical_name(
     if is_deleted_sentinel_expr(value) {
         return None;
     }
-    logical_name_for_cell_location(semantic, storage_layout, *location)
+    logical_name_for_cell_location(semantic, storage_layout, location.as_cell()?)
 }
 
 fn is_local_cell_init_assign(assign: &BlockPyAssign<CoreBlockPyExpr>) -> bool {
@@ -1133,9 +1135,12 @@ fn rewrite_binding_assign_by_name(
     if semantic.is_cell_binding(name.as_str()) {
         if is_deleted_sentinel_expr(&assign.value) {
             return op_stmt(
-                OperationDetail::from(DelDeref::new(resolver.resolve_raw_cell_location(
-                    cell_storage_name_for_name(name.as_str(), semantic).as_str(),
-                )))
+                OperationDetail::from(DelLocation::new(
+                    NameLocation::Cell(resolver.resolve_raw_cell_location(
+                        cell_storage_name_for_name(name.as_str(), semantic).as_str(),
+                    )),
+                    false,
+                ))
                 .with_meta(meta),
             );
         }
@@ -1560,9 +1565,10 @@ fn sync_exception_param_cell_in_block(
         range,
     };
     let sync_stmt = op_stmt(
-        OperationDetail::from(StoreCell::new(
-            resolver
-                .resolve_raw_cell_location(cell_storage_name_for_name(exc_name, semantic).as_str()),
+        OperationDetail::from(StoreLocation::new(
+            NameLocation::Cell(resolver.resolve_raw_cell_location(
+                cell_storage_name_for_name(exc_name, semantic).as_str(),
+            )),
             Box::new(rewrite_local_name_load(exc_load, resolver)),
         ))
         .with_meta(crate::block_py::Meta::new(node_index, range)),

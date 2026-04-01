@@ -1,6 +1,6 @@
 use super::{
     BlockPyFunctionKind, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg, FunctionId,
-    HasMeta, LocalLocation, Meta, WithMeta,
+    HasMeta, Meta, NameLocation, WithMeta,
 };
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
@@ -613,21 +613,6 @@ define_operation! {
 }
 
 define_operation! {
-    pub struct LoadGlobal<E> {
-        globals: Box<E>,
-        name: String,
-    }
-}
-
-define_operation! {
-    pub struct StoreGlobal<E> {
-        globals: Box<E>,
-        name: String,
-        value: Box<E>,
-    }
-}
-
-define_operation! {
     pub struct LoadRuntime {
         name: String,
     }
@@ -640,14 +625,22 @@ define_operation! {
 }
 
 define_operation! {
-    pub struct LoadLocal {
-        location: LocalLocation,
+    pub struct StoreName<E> {
+        name: String,
+        value: Box<E>,
     }
 }
 
 define_operation! {
-    pub struct LoadCell {
-        location: CellLocation,
+    pub struct DelName {
+        name: String,
+        quietly: bool,
+    }
+}
+
+define_operation! {
+    pub struct LoadLocation {
+        location: NameLocation,
     }
 }
 
@@ -685,28 +678,16 @@ define_operation! {
 }
 
 define_operation! {
-    pub struct StoreCell<E> {
-        location: CellLocation,
+    pub struct StoreLocation<E> {
+        location: NameLocation,
         value: Box<E>,
     }
 }
 
 define_operation! {
-    pub struct DelQuietly<E> {
-        value: Box<E>,
-        name: String,
-    }
-}
-
-define_operation! {
-    pub struct DelDerefQuietly {
-        location: CellLocation,
-    }
-}
-
-define_operation! {
-    pub struct DelDeref {
-        location: CellLocation,
+    pub struct DelLocation {
+        location: NameLocation,
+        quietly: bool,
     }
 }
 
@@ -722,21 +703,18 @@ pub enum OperationDetail<E> {
     GetItem(GetItem<E>),
     SetItem(SetItem<E>),
     DelItem(DelItem<E>),
-    LoadGlobal(LoadGlobal<E>),
-    StoreGlobal(StoreGlobal<E>),
     LoadRuntime(LoadRuntime),
     LoadName(LoadName),
-    LoadLocal(LoadLocal),
-    LoadCell(LoadCell),
+    StoreName(StoreName<E>),
+    DelName(DelName),
+    LoadLocation(LoadLocation),
     MakeCell(MakeCell<E>),
     MakeString(MakeString),
     CellRefForName(CellRefForName),
     CellRef(CellRef),
     MakeFunction(MakeFunction<E>),
-    StoreCell(StoreCell<E>),
-    DelQuietly(DelQuietly<E>),
-    DelDerefQuietly(DelDerefQuietly),
-    DelDeref(DelDeref),
+    StoreLocation(StoreLocation<E>),
+    DelLocation(DelLocation),
 }
 
 impl<E> OperationDetail<E> {
@@ -752,21 +730,18 @@ impl<E> OperationDetail<E> {
             Self::GetItem(op) => OperationDetail::GetItem(op.map_op(f)),
             Self::SetItem(op) => OperationDetail::SetItem(op.map_op(f)),
             Self::DelItem(op) => OperationDetail::DelItem(op.map_op(f)),
-            Self::LoadGlobal(op) => OperationDetail::LoadGlobal(op.map_op(f)),
-            Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.map_op(f)),
             Self::LoadRuntime(op) => OperationDetail::LoadRuntime(op.map_op(f)),
             Self::LoadName(op) => OperationDetail::LoadName(op.map_op(f)),
-            Self::LoadLocal(op) => OperationDetail::LoadLocal(op.map_op(f)),
-            Self::LoadCell(op) => OperationDetail::LoadCell(op.map_op(f)),
+            Self::StoreName(op) => OperationDetail::StoreName(op.map_op(f)),
+            Self::DelName(op) => OperationDetail::DelName(op.map_op(f)),
+            Self::LoadLocation(op) => OperationDetail::LoadLocation(op.map_op(f)),
             Self::MakeCell(op) => OperationDetail::MakeCell(op.map_op(f)),
             Self::MakeString(op) => OperationDetail::MakeString(op.map_op(f)),
             Self::CellRefForName(op) => OperationDetail::CellRefForName(op.map_op(f)),
             Self::CellRef(op) => OperationDetail::CellRef(op.map_op(f)),
             Self::MakeFunction(op) => OperationDetail::MakeFunction(op.map_op(f)),
-            Self::StoreCell(op) => OperationDetail::StoreCell(op.map_op(f)),
-            Self::DelQuietly(op) => OperationDetail::DelQuietly(op.map_op(f)),
-            Self::DelDerefQuietly(op) => OperationDetail::DelDerefQuietly(op.map_op(f)),
-            Self::DelDeref(op) => OperationDetail::DelDeref(op.map_op(f)),
+            Self::StoreLocation(op) => OperationDetail::StoreLocation(op.map_op(f)),
+            Self::DelLocation(op) => OperationDetail::DelLocation(op.map_op(f)),
         }
     }
 
@@ -785,21 +760,18 @@ impl<E> OperationDetail<E> {
             Self::GetItem(op) => OperationDetail::GetItem(op.try_map_op(f)?),
             Self::SetItem(op) => OperationDetail::SetItem(op.try_map_op(f)?),
             Self::DelItem(op) => OperationDetail::DelItem(op.try_map_op(f)?),
-            Self::LoadGlobal(op) => OperationDetail::LoadGlobal(op.try_map_op(f)?),
-            Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.try_map_op(f)?),
             Self::LoadRuntime(op) => OperationDetail::LoadRuntime(op.try_map_op(f)?),
             Self::LoadName(op) => OperationDetail::LoadName(op.try_map_op(f)?),
-            Self::LoadLocal(op) => OperationDetail::LoadLocal(op.try_map_op(f)?),
-            Self::LoadCell(op) => OperationDetail::LoadCell(op.try_map_op(f)?),
+            Self::StoreName(op) => OperationDetail::StoreName(op.try_map_op(f)?),
+            Self::DelName(op) => OperationDetail::DelName(op.try_map_op(f)?),
+            Self::LoadLocation(op) => OperationDetail::LoadLocation(op.try_map_op(f)?),
             Self::MakeCell(op) => OperationDetail::MakeCell(op.try_map_op(f)?),
             Self::MakeString(op) => OperationDetail::MakeString(op.try_map_op(f)?),
             Self::CellRefForName(op) => OperationDetail::CellRefForName(op.try_map_op(f)?),
             Self::CellRef(op) => OperationDetail::CellRef(op.try_map_op(f)?),
             Self::MakeFunction(op) => OperationDetail::MakeFunction(op.try_map_op(f)?),
-            Self::StoreCell(op) => OperationDetail::StoreCell(op.try_map_op(f)?),
-            Self::DelQuietly(op) => OperationDetail::DelQuietly(op.try_map_op(f)?),
-            Self::DelDerefQuietly(op) => OperationDetail::DelDerefQuietly(op.try_map_op(f)?),
-            Self::DelDeref(op) => OperationDetail::DelDeref(op.try_map_op(f)?),
+            Self::StoreLocation(op) => OperationDetail::StoreLocation(op.try_map_op(f)?),
+            Self::DelLocation(op) => OperationDetail::DelLocation(op.try_map_op(f)?),
         })
     }
 
@@ -815,21 +787,18 @@ impl<E> OperationDetail<E> {
             Self::GetItem(op) => op.visit_exprs(f),
             Self::SetItem(op) => op.visit_exprs(f),
             Self::DelItem(op) => op.visit_exprs(f),
-            Self::LoadGlobal(op) => op.visit_exprs(f),
-            Self::StoreGlobal(op) => op.visit_exprs(f),
             Self::LoadRuntime(op) => op.visit_exprs(f),
             Self::LoadName(op) => op.visit_exprs(f),
-            Self::LoadLocal(op) => op.visit_exprs(f),
-            Self::LoadCell(op) => op.visit_exprs(f),
+            Self::StoreName(op) => op.visit_exprs(f),
+            Self::DelName(op) => op.visit_exprs(f),
+            Self::LoadLocation(op) => op.visit_exprs(f),
             Self::MakeCell(op) => op.visit_exprs(f),
             Self::MakeString(op) => op.visit_exprs(f),
             Self::CellRefForName(op) => op.visit_exprs(f),
             Self::CellRef(op) => op.visit_exprs(f),
             Self::MakeFunction(op) => op.visit_exprs(f),
-            Self::StoreCell(op) => op.visit_exprs(f),
-            Self::DelQuietly(op) => op.visit_exprs(f),
-            Self::DelDerefQuietly(op) => op.visit_exprs(f),
-            Self::DelDeref(op) => op.visit_exprs(f),
+            Self::StoreLocation(op) => op.visit_exprs(f),
+            Self::DelLocation(op) => op.visit_exprs(f),
         }
     }
 
@@ -845,21 +814,18 @@ impl<E> OperationDetail<E> {
             Self::GetItem(op) => op.visit_exprs_mut(f),
             Self::SetItem(op) => op.visit_exprs_mut(f),
             Self::DelItem(op) => op.visit_exprs_mut(f),
-            Self::LoadGlobal(op) => op.visit_exprs_mut(f),
-            Self::StoreGlobal(op) => op.visit_exprs_mut(f),
             Self::LoadRuntime(op) => op.visit_exprs_mut(f),
             Self::LoadName(op) => op.visit_exprs_mut(f),
-            Self::LoadLocal(op) => op.visit_exprs_mut(f),
-            Self::LoadCell(op) => op.visit_exprs_mut(f),
+            Self::StoreName(op) => op.visit_exprs_mut(f),
+            Self::DelName(op) => op.visit_exprs_mut(f),
+            Self::LoadLocation(op) => op.visit_exprs_mut(f),
             Self::MakeCell(op) => op.visit_exprs_mut(f),
             Self::MakeString(op) => op.visit_exprs_mut(f),
             Self::CellRefForName(op) => op.visit_exprs_mut(f),
             Self::CellRef(op) => op.visit_exprs_mut(f),
             Self::MakeFunction(op) => op.visit_exprs_mut(f),
-            Self::StoreCell(op) => op.visit_exprs_mut(f),
-            Self::DelQuietly(op) => op.visit_exprs_mut(f),
-            Self::DelDerefQuietly(op) => op.visit_exprs_mut(f),
-            Self::DelDeref(op) => op.visit_exprs_mut(f),
+            Self::StoreLocation(op) => op.visit_exprs_mut(f),
+            Self::DelLocation(op) => op.visit_exprs_mut(f),
         }
     }
 }
@@ -877,21 +843,18 @@ impl<E> HasMeta for OperationDetail<E> {
             Self::GetItem(op) => op.meta(),
             Self::SetItem(op) => op.meta(),
             Self::DelItem(op) => op.meta(),
-            Self::LoadGlobal(op) => op.meta(),
-            Self::StoreGlobal(op) => op.meta(),
             Self::LoadRuntime(op) => op.meta(),
             Self::LoadName(op) => op.meta(),
-            Self::LoadLocal(op) => op.meta(),
-            Self::LoadCell(op) => op.meta(),
+            Self::StoreName(op) => op.meta(),
+            Self::DelName(op) => op.meta(),
+            Self::LoadLocation(op) => op.meta(),
             Self::MakeCell(op) => op.meta(),
             Self::MakeString(op) => op.meta(),
             Self::CellRefForName(op) => op.meta(),
             Self::CellRef(op) => op.meta(),
             Self::MakeFunction(op) => op.meta(),
-            Self::StoreCell(op) => op.meta(),
-            Self::DelQuietly(op) => op.meta(),
-            Self::DelDerefQuietly(op) => op.meta(),
-            Self::DelDeref(op) => op.meta(),
+            Self::StoreLocation(op) => op.meta(),
+            Self::DelLocation(op) => op.meta(),
         }
     }
 }
@@ -909,21 +872,18 @@ impl<E> WithMeta for OperationDetail<E> {
             Self::GetItem(op) => Self::GetItem(op.with_meta(meta.clone())),
             Self::SetItem(op) => Self::SetItem(op.with_meta(meta.clone())),
             Self::DelItem(op) => Self::DelItem(op.with_meta(meta.clone())),
-            Self::LoadGlobal(op) => Self::LoadGlobal(op.with_meta(meta.clone())),
-            Self::StoreGlobal(op) => Self::StoreGlobal(op.with_meta(meta.clone())),
             Self::LoadRuntime(op) => Self::LoadRuntime(op.with_meta(meta.clone())),
             Self::LoadName(op) => Self::LoadName(op.with_meta(meta.clone())),
-            Self::LoadLocal(op) => Self::LoadLocal(op.with_meta(meta.clone())),
-            Self::LoadCell(op) => Self::LoadCell(op.with_meta(meta.clone())),
+            Self::StoreName(op) => Self::StoreName(op.with_meta(meta.clone())),
+            Self::DelName(op) => Self::DelName(op.with_meta(meta.clone())),
+            Self::LoadLocation(op) => Self::LoadLocation(op.with_meta(meta.clone())),
             Self::MakeCell(op) => Self::MakeCell(op.with_meta(meta.clone())),
             Self::MakeString(op) => Self::MakeString(op.with_meta(meta.clone())),
             Self::CellRefForName(op) => Self::CellRefForName(op.with_meta(meta.clone())),
             Self::CellRef(op) => Self::CellRef(op.with_meta(meta.clone())),
             Self::MakeFunction(op) => Self::MakeFunction(op.with_meta(meta.clone())),
-            Self::StoreCell(op) => Self::StoreCell(op.with_meta(meta.clone())),
-            Self::DelQuietly(op) => Self::DelQuietly(op.with_meta(meta.clone())),
-            Self::DelDerefQuietly(op) => Self::DelDerefQuietly(op.with_meta(meta.clone())),
-            Self::DelDeref(op) => Self::DelDeref(op.with_meta(meta)),
+            Self::StoreLocation(op) => Self::StoreLocation(op.with_meta(meta.clone())),
+            Self::DelLocation(op) => Self::DelLocation(op.with_meta(meta)),
         }
     }
 }

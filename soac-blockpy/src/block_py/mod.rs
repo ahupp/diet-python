@@ -13,10 +13,10 @@ pub use self::semantics::{
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 pub use operation::{
-    BinOp, BinOpKind, Call, CellRef, CellRefForName, DelDeref, DelDerefQuietly, DelItem,
-    DelQuietly, GetAttr, GetItem, InplaceBinOp, InplaceBinOpKind, LoadCell, LoadGlobal, LoadLocal,
-    LoadName, LoadRuntime, MakeCell, MakeFunction, MakeString, OperationDetail, SetAttr, SetItem,
-    StoreCell, StoreGlobal, TernaryOp, TernaryOpKind, UnaryOp, UnaryOpKind,
+    BinOp, BinOpKind, Call, CellRef, CellRefForName, DelItem, DelLocation, DelName, GetAttr,
+    GetItem, InplaceBinOp, InplaceBinOpKind, LoadLocation, LoadName, LoadRuntime, MakeCell,
+    MakeFunction, MakeString, OperationDetail, SetAttr, SetItem, StoreLocation, StoreName,
+    TernaryOp, TernaryOpKind, UnaryOp, UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};

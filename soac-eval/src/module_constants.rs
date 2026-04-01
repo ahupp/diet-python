@@ -259,10 +259,7 @@ impl ModuleConstantCollector {
                     blockpy_intrinsics::OperationDetail::SetAttr(op) => {
                         self.constants.intern_unicode_bytes(op.attr.as_bytes());
                     }
-                    blockpy_intrinsics::OperationDetail::LoadGlobal(op) => {
-                        self.constants.intern_unicode_bytes(op.name.as_bytes());
-                    }
-                    blockpy_intrinsics::OperationDetail::StoreGlobal(op) => {
+                    blockpy_intrinsics::OperationDetail::StoreName(op) => {
                         self.constants.intern_unicode_bytes(op.name.as_bytes());
                     }
                     blockpy_intrinsics::OperationDetail::LoadRuntime(op) => {
@@ -274,7 +271,7 @@ impl ModuleConstantCollector {
                     blockpy_intrinsics::OperationDetail::MakeString(op) => {
                         self.constants.intern_unicode_bytes(op.bytes.as_slice());
                     }
-                    blockpy_intrinsics::OperationDetail::DelQuietly(op) => {
+                    blockpy_intrinsics::OperationDetail::DelName(op) => {
                         self.constants.intern_unicode_bytes(op.name.as_bytes());
                     }
                     _ => {}
@@ -301,7 +298,6 @@ fn helper_name_for_codegen_expr(expr: &LocatedCodegenBlockPyExpr) -> Option<&str
         CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
         CodegenBlockPyExpr::Op(operation) => match operation {
             blockpy_intrinsics::OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
-            blockpy_intrinsics::OperationDetail::LoadGlobal(op) => Some(op.name.as_str()),
             blockpy_intrinsics::OperationDetail::LoadName(op) => Some(op.name.as_str()),
             _ => None,
         },

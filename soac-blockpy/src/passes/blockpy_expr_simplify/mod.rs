@@ -371,9 +371,11 @@ fn non_operator_operation_from_helper_call(
     let mut args = args.into_iter();
     let meta = Meta::new(node_index, range);
     let operation = match name {
-        "__dp_store_global" => operation::StoreGlobal::new(
-            Box::new(args.next()?),
-            string_arg_from_core_expr(args.next()?)?,
+        "__dp_store_global" => operation::StoreName::new(
+            {
+                let _globals = args.next()?;
+                string_arg_from_core_expr(args.next()?)?
+            },
             Box::new(args.next()?),
         )
         .with_meta(meta)

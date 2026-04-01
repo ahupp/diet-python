@@ -54,7 +54,7 @@ fn direct_core_expr_lowering_materializes_live_operation_helpers() {
     for (source, expected) in [
         (
             "__dp_store_global(_dp_class_ns, \"caught\", value)",
-            "StoreGlobal(",
+            "StoreName(",
         ),
         ("__dp_cell_ref(\"__class__\")", "CellRefForName("),
     ] {

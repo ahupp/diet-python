@@ -345,8 +345,7 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
 
     if let Some(call) = lowered_helper_call(expr, "__dp_store_global", 3) {
         return Some(core_operation_expr(
-            operation::OperationDetail::from(operation::StoreGlobal::new(
-                Box::new(lowered(call.arguments.args[0].clone())),
+            operation::OperationDetail::from(operation::StoreName::new(
                 string_literal_value(&call.arguments.args[1])?,
                 Box::new(lowered(call.arguments.args[2].clone())),
             ))

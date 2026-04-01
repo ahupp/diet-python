@@ -156,11 +156,11 @@ pub(crate) fn rewrite_module_with_tracker(
 
     /*
      Resolve Names into specific storage operations:
-       - globals become Load/StoreGlobal
-       - cellvars (locals that are captured by inner functions) become MakeCell / LoadCell / StoreCell
+       - globals become LoadName / StoreName / DelName
+       - cellvars (locals that are captured by inner functions) become MakeCell / LoadLocation / StoreLocation / DelLocation
          against a cell stored in local variables
-       - freevars (captures from outer scopes) become Load/StoreCell against a slot in the closure tuple
-       - Locals are assigned stack slots, and become Load/StoreLocal with the slot number.
+       - freevars (captures from outer scopes) become LoadLocation / StoreLocation / DelLocation against a slot in the closure tuple
+       - locals are assigned stack slots, and become LoadLocation / StoreLocation / DelLocation with local-slot locations.
 
     */
     let name_binding: BlockPyModule<ResolvedStorageBlockPyPass> = pass_tracker

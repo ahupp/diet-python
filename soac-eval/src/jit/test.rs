@@ -2,10 +2,10 @@ use super::*;
 use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyStmt,
     BlockPyTerm, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
-    CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelDeref,
-    DelDerefQuietly, DelItem, DelQuietly, FunctionName, LoadGlobal, LocatedCodegenBlockPyExpr,
-    LocatedName, MakeString, Meta, ModuleNameGen, NameLocation, OperationDetail, Param, ParamKind,
-    ParamSpec, StorageLayout, StoreGlobal, TernaryOp, TernaryOpKind, WithMeta,
+    CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelItem,
+    DelLocation, DelName, FunctionName, LoadName, LocatedCodegenBlockPyExpr, LocatedName,
+    MakeString, Meta, ModuleNameGen, NameLocation, OperationDetail, Param, ParamKind, ParamSpec,
+    StorageLayout, StoreName, TernaryOp, TernaryOpKind, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
@@ -368,8 +368,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(LoadGlobal::new(int_expr(1), "x".to_string()))
-                    .with_meta(Meta::synthetic()),
+                OperationDetail::from(LoadName::new("x".to_string())).with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -386,7 +385,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(StoreGlobal::new(int_expr(1), "x".to_string(), int_expr(3)))
+                OperationDetail::from(StoreName::new("x".to_string(), int_expr(3)))
                     .with_meta(Meta::synthetic()),
             )),
         );
@@ -497,15 +496,15 @@ mod tests {
                         .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    OperationDetail::from(DelQuietly::new(int_expr(3), "x".to_string()))
+                    OperationDetail::from(DelName::new("x".to_string(), true))
                         .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    OperationDetail::from(DelDeref::new(CellLocation::Closure(2)))
+                    OperationDetail::from(DelLocation::new(NameLocation::closure_cell(2), false))
                         .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    OperationDetail::from(DelDerefQuietly::new(CellLocation::Closure(2)))
+                    OperationDetail::from(DelLocation::new(NameLocation::closure_cell(2), true))
                         .with_meta(Meta::synthetic()),
                 )),
             ],
