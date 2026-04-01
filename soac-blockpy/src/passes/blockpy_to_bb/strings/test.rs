@@ -171,10 +171,10 @@ def f():
 fn preserves_structured_intrinsics_for_attr_and_item_helpers() {
     let source = r#"
 def f(obj, mapping, key, value):
-    a = __dp_getattr(obj, "x")
-    __dp_setattr(obj, "x", value)
-    b = __dp_getitem(mapping, key)
-    __dp_setitem(mapping, key, value)
+    a = obj.x
+    obj.x = value
+    b = mapping[key]
+    mapping[key] = value
     return a, b
 "#;
     let bb_module = tracked_name_binding_module(source);

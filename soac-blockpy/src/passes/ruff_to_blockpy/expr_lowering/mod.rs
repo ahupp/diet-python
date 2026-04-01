@@ -372,38 +372,6 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
         ));
     }
 
-    if let Some(call) = lowered_helper_call(expr, "__dp_setitem", 3) {
-        return Some(core_operation_expr(
-            operation::Operation::new(operation::SetItem::new(
-                Box::new(lowered(call.arguments.args[0].clone())),
-                Box::new(lowered(call.arguments.args[1].clone())),
-                Box::new(lowered(call.arguments.args[2].clone())),
-            ))
-            .with_meta(Meta::new(call.node_index.clone(), call.range)),
-        ));
-    }
-
-    if let Some(call) = lowered_helper_call(expr, "__dp_setattr", 3) {
-        return Some(core_operation_expr(
-            operation::Operation::new(operation::SetAttr::new(
-                Box::new(lowered(call.arguments.args[0].clone())),
-                string_literal_value(&call.arguments.args[1])?,
-                Box::new(lowered(call.arguments.args[2].clone())),
-            ))
-            .with_meta(Meta::new(call.node_index.clone(), call.range)),
-        ));
-    }
-
-    if let Some(call) = lowered_helper_call(expr, "__dp_delitem", 2) {
-        return Some(core_operation_expr(
-            operation::Operation::new(operation::DelItem::new(
-                Box::new(lowered(call.arguments.args[0].clone())),
-                Box::new(lowered(call.arguments.args[1].clone())),
-            ))
-            .with_meta(Meta::new(call.node_index.clone(), call.range)),
-        ));
-    }
-
     None
 }
 

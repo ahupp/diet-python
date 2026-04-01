@@ -1,7 +1,7 @@
 use super::*;
 use crate::block_py::{
     BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield,
-    InplaceBinOpKind, OperationDetail,
+    InplaceBinOp, InplaceBinOpKind, Operation, OperationDetail,
 };
 
 fn test_name(id: &str) -> ast::ExprName {
@@ -107,9 +107,11 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
         label: BlockPyLabel::from(0u32),
         body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
             target: test_name("total"),
-            value: CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
-                "__dp_iadd(total, await Once())"
-            )),
+            value: CoreBlockPyExprWithAwaitAndYield::Op(Operation::new(InplaceBinOp::new(
+                InplaceBinOpKind::Add,
+                CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("total")),
+                CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("await Once()")),
+            ))),
         })],
         term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
             "__dp_NONE"
@@ -153,24 +155,15 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
         label: BlockPyLabel::from(0u32),
         body: vec![StructuredBlockPyStmt::Assign(BlockPyAssign {
             target: test_name("total"),
-            value: CoreBlockPyExprWithYield::Call(CoreBlockPyCall {
-                node_index: Default::default(),
-                range: Default::default(),
-                func: Box::new(CoreBlockPyExprWithYield::Name(test_name("__dp_iadd"))),
-                args: vec![
-                    CoreBlockPyCallArg::Positional(CoreBlockPyExprWithYield::Name(test_name(
-                        "total",
-                    ))),
-                    CoreBlockPyCallArg::Positional(CoreBlockPyExprWithYield::YieldFrom(
-                        CoreBlockPyYieldFrom {
-                            node_index: Default::default(),
-                            range: Default::default(),
-                            value: Box::new(CoreBlockPyExprWithYield::Name(test_name("it"))),
-                        },
-                    )),
-                ],
-                keywords: Vec::new(),
-            }),
+            value: CoreBlockPyExprWithYield::Op(Operation::new(InplaceBinOp::new(
+                InplaceBinOpKind::Add,
+                CoreBlockPyExprWithYield::Name(test_name("total")),
+                CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
+                    node_index: Default::default(),
+                    range: Default::default(),
+                    value: Box::new(CoreBlockPyExprWithYield::Name(test_name("it"))),
+                }),
+            ))),
         })],
         term: BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(test_name("__dp_NONE"))),
         params: Vec::new(),
@@ -189,12 +182,15 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
     let StructuredBlockPyStmt::Assign(assign) = &lowered.body[1] else {
         panic!("expected rewritten assignment");
     };
-    let CoreBlockPyExprWithYield::Call(call) = &assign.value else {
-        panic!("expected iadd call");
+    let CoreBlockPyExprWithYield::Op(operation) = &assign.value else {
+        panic!("expected inplace add operation");
+    };
+    let OperationDetail::InplaceBinOp(op) = operation.detail() else {
+        panic!("expected inplace add detail");
     };
     assert!(matches!(
-        call.args[1],
-        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithYield::Name(_))
+        op.right.as_ref(),
+        CoreBlockPyExprWithYield::Name(_)
     ));
     assert!(matches!(lowered.body[2], StructuredBlockPyStmt::Delete(_)));
 }

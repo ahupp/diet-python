@@ -362,63 +362,6 @@ fn string_arg_from_core_expr(expr: CoreBlockPyExprWithAwaitAndYield) -> Option<S
     Some(literal.value)
 }
 
-fn operator_family_operation_from_helper_call(
-    name: &str,
-    node_index: ast::AtomicNodeIndex,
-    range: ruff_text_size::TextRange,
-    args: Vec<CoreBlockPyExprWithAwaitAndYield>,
-) -> Option<operation::Operation<CoreBlockPyExprWithAwaitAndYield>> {
-    let mut args = args.into_iter();
-    let meta = Meta::new(node_index, range);
-    let operation = if let Some(kind) = operation::BinOpKind::from_helper_name(name) {
-        let left = args.next()?;
-        let right = args.next()?;
-        if args.next().is_some() {
-            return None;
-        }
-        operation::Operation::new(operation::BinOp::new(kind, Box::new(left), Box::new(right)))
-            .with_meta(meta)
-    } else if let Some(kind) = operation::UnaryOpKind::from_helper_name(name) {
-        let operand = args.next()?;
-        if args.next().is_some() {
-            return None;
-        }
-        operation::Operation::new(operation::UnaryOp::new(kind, Box::new(operand))).with_meta(meta)
-    } else if let Some(kind) = operation::InplaceBinOpKind::from_helper_name(name) {
-        let left = args.next()?;
-        let right = args.next()?;
-        if args.next().is_some() {
-            return None;
-        }
-        operation::Operation::new(operation::InplaceBinOp::new(
-            kind,
-            Box::new(left),
-            Box::new(right),
-        ))
-        .with_meta(meta)
-    } else if let Some(kind) = operation::TernaryOpKind::from_helper_name(name) {
-        let base = args.next()?;
-        let exponent = args.next()?;
-        let modulus = args.next()?;
-        if args.next().is_some() {
-            return None;
-        }
-        operation::Operation::new(operation::TernaryOp::new(
-            kind,
-            Box::new(base),
-            Box::new(exponent),
-            Box::new(modulus),
-        ))
-        .with_meta(meta)
-    } else {
-        return None;
-    };
-    if args.next().is_some() {
-        return None;
-    }
-    Some(operation)
-}
-
 fn non_operator_operation_from_helper_call(
     name: &str,
     node_index: ast::AtomicNodeIndex,
@@ -428,33 +371,6 @@ fn non_operator_operation_from_helper_call(
     let mut args = args.into_iter();
     let meta = Meta::new(node_index, range);
     let operation = match name {
-        "__dp_getattr" => operation::Operation::new(operation::GetAttr::new(
-            Box::new(args.next()?),
-            string_arg_from_core_expr(args.next()?)?,
-        ))
-        .with_meta(meta),
-        "__dp_setattr" => operation::Operation::new(operation::SetAttr::new(
-            Box::new(args.next()?),
-            string_arg_from_core_expr(args.next()?)?,
-            Box::new(args.next()?),
-        ))
-        .with_meta(meta),
-        "__dp_getitem" => operation::Operation::new(operation::GetItem::new(
-            Box::new(args.next()?),
-            Box::new(args.next()?),
-        ))
-        .with_meta(meta),
-        "__dp_setitem" => operation::Operation::new(operation::SetItem::new(
-            Box::new(args.next()?),
-            Box::new(args.next()?),
-            Box::new(args.next()?),
-        ))
-        .with_meta(meta),
-        "__dp_delitem" => operation::Operation::new(operation::DelItem::new(
-            Box::new(args.next()?),
-            Box::new(args.next()?),
-        ))
-        .with_meta(meta),
         "__dp_store_global" => operation::Operation::new(operation::StoreGlobal::new(
             Box::new(args.next()?),
             string_arg_from_core_expr(args.next()?)?,
@@ -471,16 +387,6 @@ fn non_operator_operation_from_helper_call(
         return None;
     }
     Some(operation)
-}
-
-fn operation_from_helper_call_name_and_args(
-    name: &str,
-    node_index: ast::AtomicNodeIndex,
-    range: ruff_text_size::TextRange,
-    args: Vec<CoreBlockPyExprWithAwaitAndYield>,
-) -> Option<operation::Operation<CoreBlockPyExprWithAwaitAndYield>> {
-    operator_family_operation_from_helper_call(name, node_index.clone(), range, args.clone())
-        .or_else(|| non_operator_operation_from_helper_call(name, node_index, range, args))
 }
 
 fn lower_core_call_expr_with_meta(
@@ -520,16 +426,8 @@ fn lower_core_call_expr_with_meta(
                 for arg in &args {
                     operation_args.push(CoreBlockPyExprWithAwaitAndYield::from(arg.clone()));
                 }
-                let helper_name = if name.id.as_str() == "__dp_ipow" {
-                    "__dp_pow"
-                } else {
-                    name.id.as_str()
-                };
-                if helper_name == "__dp_pow" && operation_args.len() == 2 {
-                    operation_args.push(core_builtin_name("__dp_NONE"));
-                }
-                if let Some(operation) = operation_from_helper_call_name_and_args(
-                    helper_name,
+                if let Some(operation) = non_operator_operation_from_helper_call(
+                    name.id.as_str(),
                     node_index.clone(),
                     range,
                     operation_args,

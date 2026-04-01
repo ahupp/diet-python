@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::block_py::pretty::BlockPyDebugExprText;
-use crate::block_py::{BinOpKind, OperationDetail, TernaryOpKind, UnaryOpKind};
+use crate::block_py::{BinOpKind, OperationDetail, UnaryOpKind};
 
 fn lower_semantic_expr_without_setup(expr: &Expr) -> CoreBlockPyExprWithAwaitAndYield {
     CoreBlockPyExprWithAwaitAndYield::from(expr.clone())
@@ -157,32 +157,6 @@ fn core_blockpy_expr_reduces_operator_helper_families_to_intrinsics() {
         };
         assert!(matches_expected, "{call:?}");
     }
-}
-
-#[test]
-fn core_blockpy_expr_rewrites_ipow_helper_to_pow_operation() {
-    let parsed = *parse_expression("__dp_ipow(x, y)")
-        .unwrap()
-        .into_syntax()
-        .body;
-    let CoreBlockPyExprWithAwaitAndYield::Op(call) = CoreBlockPyExprWithAwaitAndYield::from(parsed)
-    else {
-        panic!("expected operation-shaped reduced expr for __dp_ipow(x, y)");
-    };
-    assert!(matches!(
-        call.detail(),
-        OperationDetail::TernaryOp(op) if op.kind == TernaryOpKind::Pow
-    ));
-    let OperationDetail::TernaryOp(op) = call.detail() else {
-        unreachable!("pow guard should ensure ternary op");
-    };
-    let _left = op.base.as_ref();
-    let _right = op.exponent.as_ref();
-    assert!(matches!(
-        op.modulus.as_ref(),
-        CoreBlockPyExprWithAwaitAndYield::Op(operation)
-            if matches!(operation.detail(), OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
-    ));
 }
 
 #[test]

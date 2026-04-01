@@ -28,34 +28,6 @@ pub enum BinOpKind {
     Is,
 }
 
-impl BinOpKind {
-    pub(crate) fn from_helper_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "__dp_add" => Self::Add,
-            "__dp_sub" => Self::Sub,
-            "__dp_mul" => Self::Mul,
-            "__dp_matmul" => Self::MatMul,
-            "__dp_truediv" => Self::TrueDiv,
-            "__dp_floordiv" => Self::FloorDiv,
-            "__dp_mod" => Self::Mod,
-            "__dp_lshift" => Self::LShift,
-            "__dp_rshift" => Self::RShift,
-            "__dp_or_" => Self::Or,
-            "__dp_xor" => Self::Xor,
-            "__dp_and_" => Self::And,
-            "__dp_eq" => Self::Eq,
-            "__dp_ne" => Self::Ne,
-            "__dp_lt" => Self::Lt,
-            "__dp_le" => Self::Le,
-            "__dp_gt" => Self::Gt,
-            "__dp_ge" => Self::Ge,
-            "__dp_contains" => Self::Contains,
-            "__dp_is_" => Self::Is,
-            _ => return None,
-        })
-    }
-}
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum UnaryOpKind {
     Pos,
@@ -63,19 +35,6 @@ pub enum UnaryOpKind {
     Invert,
     Not,
     Truth,
-}
-
-impl UnaryOpKind {
-    pub(crate) fn from_helper_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "__dp_pos" => Self::Pos,
-            "__dp_neg" => Self::Neg,
-            "__dp_invert" => Self::Invert,
-            "__dp_not_" => Self::Not,
-            "__dp_truth" => Self::Truth,
-            _ => return None,
-        })
-    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
@@ -94,38 +53,9 @@ pub enum InplaceBinOpKind {
     And,
 }
 
-impl InplaceBinOpKind {
-    pub(crate) fn from_helper_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "__dp_iadd" => Self::Add,
-            "__dp_isub" => Self::Sub,
-            "__dp_imul" => Self::Mul,
-            "__dp_imatmul" => Self::MatMul,
-            "__dp_itruediv" => Self::TrueDiv,
-            "__dp_ifloordiv" => Self::FloorDiv,
-            "__dp_imod" => Self::Mod,
-            "__dp_ilshift" => Self::LShift,
-            "__dp_irshift" => Self::RShift,
-            "__dp_ior" => Self::Or,
-            "__dp_ixor" => Self::Xor,
-            "__dp_iand" => Self::And,
-            _ => return None,
-        })
-    }
-}
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum TernaryOpKind {
     Pow,
-}
-
-impl TernaryOpKind {
-    pub(crate) fn from_helper_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "__dp_pow" => Self::Pow,
-            _ => return None,
-        })
-    }
 }
 
 pub trait ExprOperationNode<E>: Sized {

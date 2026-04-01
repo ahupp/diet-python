@@ -50,16 +50,13 @@ fn direct_core_expr_lowering_materializes_make_function_operation() {
 }
 
 #[test]
-fn direct_core_expr_lowering_materializes_operation_helpers() {
+fn direct_core_expr_lowering_materializes_live_operation_helpers() {
     for (source, expected) in [
         (
             "__dp_store_global(_dp_class_ns, \"caught\", value)",
             "StoreGlobal(",
         ),
         ("__dp_cell_ref(\"__class__\")", "CellRefForName("),
-        ("__dp_setitem(mapping, key, value)", "SetItem("),
-        ("__dp_setattr(obj, \"x\", value)", "SetAttr("),
-        ("__dp_delitem(mapping, key)", "DelItem("),
     ] {
         let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
         let mut next_label_id = 0usize;
