@@ -450,8 +450,8 @@ macro_rules! define_operation {
             [$expr_ty]
             [$($raw_fields)*]
             [$($struct_fields)* pub $field: Box<$inner_expr_ty>,]
-            [$($ctor_args)* $field: Box<$inner_expr_ty>,]
-            [$($ctor_init)* $field,]
+            [$($ctor_args)* $field: impl Into<Box<$inner_expr_ty>>,]
+            [$($ctor_init)* $field: $field.into(),]
             $($rest)*
         );
     };
@@ -473,8 +473,8 @@ macro_rules! define_operation {
             [$expr_ty]
             [$($raw_fields)*]
             [$($struct_fields)* pub $field: Box<$inner_expr_ty>,]
-            [$($ctor_args)* $field: Box<$inner_expr_ty>,]
-            [$($ctor_init)* $field,]
+            [$($ctor_args)* $field: impl Into<Box<$inner_expr_ty>>,]
+            [$($ctor_init)* $field: $field.into(),]
         );
     };
     (
@@ -496,8 +496,8 @@ macro_rules! define_operation {
             [$expr_ty]
             [$($raw_fields)*]
             [$($struct_fields)* pub $field: $ty,]
-            [$($ctor_args)* $field: $ty,]
-            [$($ctor_init)* $field,]
+            [$($ctor_args)* $field: impl Into<$ty>,]
+            [$($ctor_init)* $field: $field.into(),]
             $($rest)*
         );
     };
@@ -519,8 +519,8 @@ macro_rules! define_operation {
             [$expr_ty]
             [$($raw_fields)*]
             [$($struct_fields)* pub $field: $ty,]
-            [$($ctor_args)* $field: $ty,]
-            [$($ctor_init)* $field,]
+            [$($ctor_args)* $field: impl Into<$ty>,]
+            [$($ctor_init)* $field: $field.into(),]
         );
     };
     (@visit_expr_fields $self:ident, $f:ident,) => {};
