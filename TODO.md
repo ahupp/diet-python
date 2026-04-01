@@ -33,6 +33,58 @@
     - once that lands, `__dp_make_function(...)` should remain only for expression-position lowered callables such as `lambda`;
     - then revisit whether `module_plan` should gain a Core-expression-shaped return path for those expression-position callables, so `lambda` can stop serializing lowered callable values back into AST too.
 
+## Simplify the Operation macro now that operations no longer carry a Name generic
+
+- Planning note:
+  - The current `define_operation_node!` in `soac-blockpy/src/block_py/operation.rs` is still carrying the old field-classification machinery:
+    - `name_type`
+    - `mapped_type`
+    - `mapped_ctor`
+    - per-field `=> expr/value/name`
+  - After removing the operation `Name` generic, that machinery is mostly dead weight. The real remaining distinction is only:
+    - expr child fields: `Box<E>`
+    - plain value fields: everything else
+  - The desired macro shape is:
+    ```rust
+    define_operation! {
+      pub struct MyOp<E> {
+        label: String,
+        left: Box<E>,
+        right: Box<E>,
+      }
+    }
+    ```
+    and it should generate:
+    - the struct and `new(...)`;
+    - `visit_exprs(&self, ...)` over each `Box<E>` field;
+    - `visit_exprs_mut(&mut self, ...)` over each `Box<E>` field;
+    - `map_expr(self, ...) -> MyOp<T>` by recursively mapping only the `Box<E>` fields;
+    - `try_map_expr(self, ...) -> Result<MyOp<T>, Error>` with the same field selection.
+  - Concrete implementation plan:
+    1. Add a new minimal trait next to `OperationNode<E>` in `soac-blockpy/src/block_py/operation.rs` with:
+       - `visit_exprs(&self, ...)`
+       - `visit_exprs_mut(&mut self, ...)`
+       - `map_expr(self, ...) -> Self::Mapped<T>`
+       - `try_map_expr(self, ...) -> Result<Self::Mapped<T>, Error>`
+       This trait should have no `Name` associated type and no mixed expr/name mapping methods.
+    2. Introduce a new macro, e.g. `define_operation!`, that only accepts plain struct fields and infers expr children from `Box<E>` fields.
+       For the first pass, it is fine to support only `struct Op<E>` and zero-generic structs.
+    3. Prove the macro on four representative operations:
+       - `BinOp<E>`: two expr fields plus one enum value field
+       - `GetAttr<E>`: one expr field plus one `String`
+       - `LoadRuntime`: no expr fields
+       - `MakeFunction<E>`: two expr fields plus multiple plain value fields
+    4. Update `OperationDetail::{map_expr, try_map_expr, walk_args, walk_args_mut}` to call the new trait methods for those converted operations.
+    5. Once those four compile and tests pass, convert the rest of the operation structs in one follow-up sweep.
+    6. Delete the old `OperationNode<E>` name-mapping methods, `into_expr_args`, and the old `define_operation_node!` machinery.
+  - First step:
+    - Add the new smaller trait and implement the new macro for just `BinOp<E>`.
+    - That is the best first slice because it exercises:
+      - one value field (`kind`)
+      - two expr fields (`left`, `right`)
+      - all four generated behaviors (`visit`, `visit_mut`, `map`, `try_map`)
+    - If `BinOp<E>` works cleanly, the rest of the macro design is probably sound. If it does not, the trait shape is still cheap to adjust before migrating more operations.
+
 ## Remove the Operation Name Generic
 
 - Planning note:
