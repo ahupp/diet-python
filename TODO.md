@@ -447,6 +447,96 @@
 
 ## Completed
 
+## Split OperationDetail into phase-specific expr enums and collapse stmt ops
+
+- Planning note:
+  - The desired end state has two linked changes:
+    - `OperationDetail<I>` disappears and its variants move onto the pass-specific recursive expr enums such as `CoreBlockPyExprWithAwaitAndYield`, `CoreBlockPyExprWithYield`, `CoreBlockPyExpr<N>`, and `CodegenBlockPyExpr`;
+    - `BlockPyStmt` also stops carrying separate statement-only `Assign`/`Delete` variants and instead uses the corresponding expr-level `Store`/`Del` operations.
+  - Those two goals should be staged separately. If they are mixed too early, it becomes hard to tell whether a breakage came from:
+    - changing recursive expr shape;
+    - changing stmt normalization shape; or
+    - changing a particular lowering phase boundary.
+  - The sane order is to flatten expression operations first, while `BlockPyStmt` still exists as a distinct layer, and only then collapse stmt-only forms into expr operations.
+
+- Recommended implementation order:
+  1. First normalize `OperationDetail` to depend only on `Instr`, not on phase-specific wrapper types.
+     - Replace the split name/location operations with one unified family:
+       - `Load(I::Name)`
+       - `Store { name: I::Name, value: Box<I> }`
+       - `Del { name: I::Name, quietly: bool }`
+     - Do this while `OperationDetail<I>` still exists.
+     - That keeps the operation inventory stable while removing the last “this variant only exists in some phases because of its payload type” distinction.
+  2. Introduce per-phase operation enums as a mechanical mirror of `OperationDetail`.
+     - Add:
+       - `CoreExprOpWithAwaitAndYield<I = CoreBlockPyExprWithAwaitAndYield>`
+       - `CoreExprOpWithYield<I = CoreBlockPyExprWithYield>`
+       - `CoreExprOp<I = CoreBlockPyExpr<...>>`
+       - `CodegenExprOp<I = CodegenBlockPyExpr>`
+     - Initially each enum should contain the same variant set as `OperationDetail`, just specialized to one phase.
+     - Then change each expr enum from `Op(OperationDetail<Self>)` to `Op(PhaseSpecificOp<Self>)`.
+     - This is deliberately not the final state; it is the bridge that lets each phase own its operation set without flattening the expr enum yet.
+  3. Move common operation trait impls from `OperationDetail` onto the per-phase op enums.
+     - Port the current generated/delegated impls for:
+       - `HasMeta`
+       - `WithMeta`
+       - `map_expr`
+       - `try_map_expr`
+       - `walk_args`
+       - `walk_args_mut`
+     - Keep the macro/derive machinery generic over “single-payload operation enum” so it can be reused by the per-phase op enums.
+  4. Convert producers and consumers phase by phase.
+     - `ruff_to_blockpy` and early lowering should construct `CoreExprOpWithAwaitAndYield`.
+     - `core_eval_order` and related middle passes should operate on `CoreExprOpWithYield` / `CoreExprOp`.
+     - `blockpy_to_bb` and JIT/module-constant collection should consume `CodegenExprOp`.
+     - Do this before flattening the `Op(...)` wrapper away. The goal of this step is only to sever the shared `OperationDetail` type.
+  5. Once each phase uses its own op enum, remove `OperationDetail`.
+     - At this point the code still has `CoreBlockPyExpr...::Op(PhaseOp<Self>)`.
+     - This is a good checkpoint because the shared operation type is gone, but the recursive expr shape is still familiar.
+  6. Flatten the `Op(...)` wrapper into the expr enums one family at a time.
+     - Start with the mechanically simple families that already behave like ordinary expr nodes:
+       - `LoadRuntime`
+       - `Load`
+       - `Store`
+       - `Del`
+       - `MakeString`
+       - `CellRef`
+     - Then move:
+       - `GetAttr` / `SetAttr`
+       - `GetItem` / `SetItem` / `DelItem`
+       - `BinOp` / `UnaryOp` / `InplaceBinOp` / `TernaryOp`
+       - `Call`
+       - `MakeFunction`
+     - After each family, remove the corresponding `PhaseOp` variants and update the visitor/mapping impls on the owning expr enum.
+     - This keeps each flattening step reviewable and makes it obvious which family caused any regression.
+  7. Only after expr flattening is stable, collapse stmt-only forms into expr operations.
+     - First change `BlockPyStmt` to a transitional shape like:
+       - `Expr(E)`
+       - `If(...)`
+     - and rewrite `Assign` / `Delete` lowering to emit `Expr(Store(...))` / `Expr(Del(...))`.
+     - Then update normalization, pretty-printing, dataflow, CFG conversion, and JIT/module-constant consumers to treat those as ordinary expression statements.
+     - Only after those passes are stable should `BlockPyStmt` itself be reconsidered for further collapse.
+
+- Why this order is safer:
+  - It isolates three distinct refactors:
+    - unify op payloads around `Instr::Name`;
+    - remove the shared operation enum type;
+    - remove the statement-only wrapper forms.
+  - Each intermediate state still has a recognizable shape:
+    - first `Expr -> Op(OperationDetail<Self>)`
+    - then `Expr -> Op(PhaseSpecificOp<Self>)`
+    - then `Expr` owns the operation variants directly
+    - only then `Stmt` begins to collapse
+  - That keeps the behavior-preservation check focused on one kind of structural change at a time.
+
+- Recommended first concrete slice:
+  - Unify the name-bearing operations inside `OperationDetail<I>` first:
+    - `Load(I::Name)`
+    - `Store(I::Name, Box<I>)`
+    - `Del(I::Name, quietly: bool)`
+  - Do not introduce per-phase enums in the same change.
+  - After that lands, the next change should be introducing just one per-phase op enum plus a mechanical conversion for one expr family, proving the pattern before applying it everywhere.
+
 - Move completed TODO entries here and include a short description of the work done.
 - Ensure `blockpy_expr_simplify` panics if it receives an expression shape that should already have been removed by `rewrite_ast_to_lowered_blockpy_module_plan`.
   - `blockpy_expr_simplify` now validates incoming semantic `Expr` trees with a `Transformer` before any core lowering work.
