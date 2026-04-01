@@ -4,6 +4,56 @@
 - Reserved for user requests that start with `TODO`.
 - Add one entry per request and include any plan or relevant response summary with it.
 
+## Generate enum match boilerplate from one variant list
+
+- Planning note:
+  - The repeated `match self { Self::Variant(op) => ... }` boilerplate in `soac-blockpy/src/block_py/operation.rs` is no longer about per-variant logic; it is mostly hand-maintained dispatch over the full `OperationDetail` variant list for:
+    - `map_expr`
+    - `try_map_expr`
+    - `walk_args`
+    - `walk_args_mut`
+    - `meta`
+    - `with_meta`
+  - A declarative macro cannot inspect an already-defined enum and discover its variants, so the full variant list has to live in one source-of-truth macro invocation that emits:
+    - the enum itself; and
+    - one or more enum-specific dispatch helper macros.
+  - The clean design is:
+    1. Replace the handwritten `OperationDetail<E>` enum declaration with a macro invocation that lists variants once, for example:
+       ```rust
+       define_operation_enum! {
+         pub enum OperationDetail<E> {
+           BinOp(BinOp<E>),
+           UnaryOp(UnaryOp<E>),
+           ...
+         }
+       }
+       ```
+    2. Have that macro also emit an enum-specific matcher macro, e.g. `match_operation_detail!`, whose full expansion is generated from the same variant list.
+    3. Build `meta`, `with_meta`, and the expr walkers on top of that emitted matcher, instead of spelling the variants again.
+  - To support “override some arms, then use a generated default for the rest”, the companion matcher should accept:
+    - zero or more explicit variant overrides; and
+    - one final `match_rest(binding) => expr` clause.
+  - The target calling style can be very close to:
+    ```rust
+    match_operation_detail!(self, {
+        Self::BinOp(op) => Meta::default(),
+        match_rest(op) => op.meta(),
+    })
+    ```
+    where the macro expands to a full `match self { ... }`, filling in:
+    - the explicit `BinOp` arm from the override; and
+    - every other variant as `Self::Variant(op) => op.meta()`.
+  - The simplest implementation strategy is:
+    1. Generate an enum-specific matcher macro from the same variant list as the enum.
+    2. In that matcher macro, use a small TT-muncher to search the override list for each generated variant.
+    3. If an override for that exact variant exists, emit it.
+    4. Otherwise, fall back to the single `match_rest(binding) => ...` clause.
+  - Keep this enum-specific first. A fully generic `match_default!(EnumType, ...)` wrapper should only come later if at least one other large enum actually wants the same pattern. Otherwise the generic layer just hides the source-of-truth relationship.
+  - A good first slice is:
+    - convert just `OperationDetail<E>` to the generated enum + companion matcher;
+    - rewrite only `impl HasMeta for OperationDetail<E>` to use it;
+    - if that works cleanly, move `with_meta` and the walker/mapping methods over next.
+
 ## Construct generator code object during module init
 
 - Planning note:
