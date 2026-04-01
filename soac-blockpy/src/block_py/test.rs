@@ -130,10 +130,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             walk_block(self, block);
         }
 
-        fn visit_fragment(
-            &mut self,
-            fragment: &PassStructuredFragment<StructuredExprPass>,
-        ) {
+        fn visit_fragment(&mut self, fragment: &PassStructuredFragment<StructuredExprPass>) {
             self.trace.push("fragment".to_string());
             walk_fragment(self, fragment);
         }

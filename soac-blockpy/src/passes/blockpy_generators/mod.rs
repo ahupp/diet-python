@@ -10,7 +10,7 @@ use crate::block_py::{
     CellRefForName, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap,
     FunctionId, FunctionName, ImplicitNoneExpr, MakeFunction, Meta, ModuleNameGen, OperationDetail,
-    StorageLayout, WithMeta,
+    PassStmt, StorageLayout, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -52,8 +52,8 @@ const ASYNC_GENERATOR_RESUME_ABI_PARAMS: [ResumeAbiParam; 4] = [
     ResumeAbiParam::TransportSent,
 ];
 
-type LinearYieldStmt = BlockPyStmt<CoreBlockPyExprWithYield, ExprName>;
-type LinearCoreStmt = BlockPyStmt<CoreBlockPyExpr, ExprName>;
+type LinearYieldStmt = PassStmt<CoreBlockPyPassWithYield>;
+type LinearCoreStmt = PassStmt<CoreBlockPyPass>;
 type LinearYieldBlock = CfgBlock<LinearYieldStmt, BlockPyTerm<CoreBlockPyExprWithYield>>;
 type LinearCoreBlock = CfgBlock<LinearCoreStmt, BlockPyTerm<CoreBlockPyExpr>>;
 type BlockPyBlock = LinearCoreBlock;

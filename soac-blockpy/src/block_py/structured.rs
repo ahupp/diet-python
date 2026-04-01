@@ -73,10 +73,7 @@ where
         walk_block(self, block);
     }
 
-    fn visit_fragment(
-        &mut self,
-        fragment: &PassStructuredFragment<P>,
-    ) {
+    fn visit_fragment(&mut self, fragment: &PassStructuredFragment<P>) {
         walk_fragment(self, fragment);
     }
 
@@ -142,10 +139,8 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn walk_fragment<V, P>(
-    visitor: &mut V,
-    fragment: &PassStructuredFragment<P>,
-) where
+pub(crate) fn walk_fragment<V, P>(visitor: &mut V, fragment: &PassStructuredFragment<P>)
+where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
