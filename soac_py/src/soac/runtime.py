@@ -982,14 +982,6 @@ def make_function(
 
     return func
 
-
-def decode_literal_bytes(value):
-    return value.decode("utf-8", "surrogatepass")
-
-
-builtins.__dp_decode_literal_bytes = decode_literal_bytes
-
-
 def create_class(
     name,
     namespace_fn,

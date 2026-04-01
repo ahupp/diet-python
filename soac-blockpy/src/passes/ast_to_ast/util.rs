@@ -16,22 +16,6 @@ pub(crate) fn is_noarg_call(name: &str, expr: &Expr) -> bool {
 fn expr_static_str(expr: &Expr) -> Option<String> {
     match expr {
         Expr::StringLiteral(value) => Some(value.value.to_str().to_string()),
-        Expr::Call(call)
-            if call.arguments.keywords.is_empty()
-                && call.arguments.args.len() == 1
-                && matches!(
-                    call.func.as_ref(),
-                    Expr::Name(name) if name.id.as_str() == "__dp_decode_literal_bytes"
-                ) =>
-        {
-            match &call.arguments.args[0] {
-                Expr::BytesLiteral(bytes) => {
-                    let value: std::borrow::Cow<[u8]> = (&bytes.value).into();
-                    String::from_utf8(value.into_owned()).ok()
-                }
-                _ => None,
-            }
-        }
         _ => None,
     }
 }

@@ -453,18 +453,6 @@ where
         CoreBlockPyExpr::Literal(CoreBlockPyLiteral::BytesLiteral(bytes)) => {
             String::from_utf8(bytes.value.clone()).ok()
         }
-        CoreBlockPyExpr::Call(call)
-            if call.keywords.is_empty()
-                && call.args.len() == 1
-                && expr_root_name_id(call.func.as_ref()) == Some("__dp_decode_literal_bytes") =>
-        {
-            match &call.args[0] {
-                CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Literal(
-                    CoreBlockPyLiteral::BytesLiteral(bytes),
-                )) => String::from_utf8(bytes.value.clone()).ok(),
-                _ => None,
-            }
-        }
         _ => None,
     }
 }

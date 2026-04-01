@@ -2940,12 +2940,3 @@ def f():
     assert!(debug.contains("DELETED"), "{debug}");
     assert!(!debug.contains("x = 1"), "{debug}");
 }
-
-#[test]
-fn matches_dp_lookup_call_with_decoded_name_arg() {
-    let expr = py_expr!("__dp_getattr(runtime, __dp_decode_literal_bytes(b\"current_exception\"))");
-    assert!(crate::block_py::exception::is_dp_lookup_call(
-        &expr,
-        "current_exception",
-    ));
-}
