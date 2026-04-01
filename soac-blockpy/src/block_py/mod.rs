@@ -13,9 +13,9 @@ pub use self::semantics::{
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 pub use operation::{
-    BinOp, BinOpKind, Call, CellRef, CellRefForName, Del, DelItem, GetAttr, GetItem, Load,
-    MakeCell, MakeFunction, MakeString, OperationDetail, SetAttr, SetItem, Store, UnaryOp,
-    UnaryOpKind,
+    BinOp, BinOpKind, Call, CellRef, CellRefForName, CoreExprOpWithAwaitAndYield, Del, DelItem,
+    GetAttr, GetItem, Load, MakeCell, MakeFunction, MakeString, OperationDetail, SetAttr, SetItem,
+    Store, UnaryOp, UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
@@ -591,7 +591,7 @@ impl<P: BlockPyPass> BlockPyModule<P> {
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Name(UnresolvedName),
     Literal(CoreBlockPyLiteral),
-    Op(OperationDetail<Self>),
+    Op(CoreExprOpWithAwaitAndYield<Self>),
     Await(CoreBlockPyAwait<Self>),
     Yield(CoreBlockPyYield<Self>),
     YieldFrom(CoreBlockPyYieldFrom<Self>),
@@ -681,7 +681,7 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
     }
 
     fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
-        Self::Op(operation)
+        Self::Op(operation.into())
     }
 }
 
@@ -714,7 +714,9 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
         match self {
             Self::Name(name) => CoreBlockPyExprWithYield::Name(name),
             Self::Literal(literal) => CoreBlockPyExprWithYield::Literal(literal),
-            Self::Op(operation) => CoreBlockPyExprWithYield::Op(operation.map_expr_node(&mut *f)),
+            Self::Op(operation) => {
+                CoreBlockPyExprWithYield::Op(operation.map_expr_node(&mut *f).into())
+            }
             Self::Await(await_expr) => CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
                 node_index: await_expr.node_index.clone(),
                 range: await_expr.range,
@@ -746,7 +748,7 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
             Self::Name(name) => Ok(CoreBlockPyExprWithYield::Name(name)),
             Self::Literal(literal) => Ok(CoreBlockPyExprWithYield::Literal(literal)),
             Self::Op(operation) => Ok(CoreBlockPyExprWithYield::Op(
-                operation.try_map_expr_node(&mut *f)?,
+                operation.try_map_expr_node(&mut *f)?.into(),
             )),
             Self::Await(_) => Err(self),
             Self::Yield(yield_expr) => Ok(CoreBlockPyExprWithYield::Yield(
@@ -1998,7 +2000,7 @@ impl ImplicitNoneExpr for CoreBlockPyExprWithAwaitAndYield {
         matches!(
             expr,
             CoreBlockPyExprWithAwaitAndYield::Op(operation)
-                if matches!(operation, OperationDetail::Load(op) if op.name.is_runtime_symbol("NONE"))
+                if matches!(operation, CoreExprOpWithAwaitAndYield::Load(op) if op.name.is_runtime_symbol("NONE"))
         )
     }
 }

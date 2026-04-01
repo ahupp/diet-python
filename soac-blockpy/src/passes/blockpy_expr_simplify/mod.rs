@@ -101,13 +101,13 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithA
 }
 
 fn core_operation_expr(
-    operation: impl Into<operation::OperationDetail<CoreBlockPyExprWithAwaitAndYield>>,
+    operation: impl Into<operation::CoreExprOpWithAwaitAndYield<CoreBlockPyExprWithAwaitAndYield>>,
 ) -> CoreBlockPyExprWithAwaitAndYield {
     CoreBlockPyExprWithAwaitAndYield::Op(operation.into())
 }
 
 fn core_operation_expr_with_meta(
-    detail: impl Into<operation::OperationDetail<CoreBlockPyExprWithAwaitAndYield>>,
+    detail: impl Into<operation::CoreExprOpWithAwaitAndYield<CoreBlockPyExprWithAwaitAndYield>>,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExprWithAwaitAndYield {

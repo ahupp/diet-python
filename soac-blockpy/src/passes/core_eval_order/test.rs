@@ -1,7 +1,8 @@
 use super::*;
 use crate::block_py::{
     BinOp, BinOpKind, BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyCallArg,
-    CoreBlockPyExprWithAwaitAndYield, OperationDetail, StructuredBlockPyStmtFor, UnresolvedName,
+    CoreBlockPyExprWithAwaitAndYield, CoreExprOpWithAwaitAndYield, OperationDetail,
+    StructuredBlockPyStmtFor, UnresolvedName,
 };
 
 fn test_name(id: &str) -> UnresolvedName {
@@ -15,7 +16,10 @@ fn is_name_like(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
     match expr {
         CoreBlockPyExprWithAwaitAndYield::Name(_) => true,
         CoreBlockPyExprWithAwaitAndYield::Op(operation) => {
-            matches!(operation, crate::block_py::OperationDetail::Load(_))
+            matches!(
+                operation,
+                crate::block_py::CoreExprOpWithAwaitAndYield::Load(_)
+            )
         }
         _ => false,
     }
@@ -38,19 +42,19 @@ fn eval_order_hoists_call_arguments_in_return_value_to_temps() {
     let BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Op(operation)) = &lowered.term else {
         panic!("expected call expr");
     };
-    let OperationDetail::Call(call) = operation else {
+    let CoreExprOpWithAwaitAndYield::Call(call) = operation else {
         panic!("expected call operation");
     };
     assert!(is_name_like(call.func.as_ref()));
     assert!(matches!(
         &call.args[0],
         CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Op(operation))
-            if matches!(operation, OperationDetail::Call(_))
+            if matches!(operation, CoreExprOpWithAwaitAndYield::Call(_))
     ));
     assert!(matches!(
         &call.args[1],
         CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Op(operation))
-            if matches!(operation, OperationDetail::Call(_))
+            if matches!(operation, CoreExprOpWithAwaitAndYield::Call(_))
     ));
 }
 
@@ -71,7 +75,7 @@ fn eval_order_hoists_return_value_to_temp() {
     let BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Op(operation)) = lowered.term else {
         panic!("expected return of recursive call");
     };
-    let OperationDetail::Call(call) = operation else {
+    let CoreExprOpWithAwaitAndYield::Call(call) = operation else {
         panic!("expected call operation");
     };
     assert!(is_name_like(call.func.as_ref()));
@@ -100,14 +104,14 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
     let CoreBlockPyExprWithAwaitAndYield::Op(operation) = &assign.value else {
         panic!("expected outer call");
     };
-    let OperationDetail::Call(call) = operation else {
+    let CoreExprOpWithAwaitAndYield::Call(call) = operation else {
         panic!("expected call operation");
     };
     assert!(is_name_like(call.func.as_ref()));
     assert!(matches!(
         &call.args[0],
         CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Op(operation))
-            if matches!(operation, OperationDetail::Call(_))
+            if matches!(operation, CoreExprOpWithAwaitAndYield::Call(_))
     ));
 }
 
@@ -117,11 +121,13 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
         label: BlockPyLabel::from(0u32),
         body: vec![StructuredBlockPyStmtFor::Assign(BlockPyAssign {
             target: test_name("total"),
-            value: CoreBlockPyExprWithAwaitAndYield::Op(OperationDetail::from(BinOp::new(
-                BinOpKind::InplaceAdd,
-                CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("total")),
-                CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("await Once()")),
-            ))),
+            value: CoreBlockPyExprWithAwaitAndYield::Op(CoreExprOpWithAwaitAndYield::from(
+                BinOp::new(
+                    BinOpKind::InplaceAdd,
+                    CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("total")),
+                    CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("await Once()")),
+                ),
+            )),
         })],
         term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
             "__dp_NONE"
@@ -147,9 +153,9 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
     };
     assert!(matches!(
         call,
-        OperationDetail::BinOp(op) if op.kind == BinOpKind::InplaceAdd
+        CoreExprOpWithAwaitAndYield::BinOp(op) if op.kind == BinOpKind::InplaceAdd
     ));
-    let OperationDetail::BinOp(op) = call else {
+    let CoreExprOpWithAwaitAndYield::BinOp(op) = call else {
         unreachable!("iadd guard should ensure inplace binop kind");
     };
     assert!(matches!(

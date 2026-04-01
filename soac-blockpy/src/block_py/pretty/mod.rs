@@ -769,9 +769,9 @@ impl BlockPyDebugExprText for CoreBlockPyExprWithAwaitAndYield {
         match self {
             CoreBlockPyExprWithAwaitAndYield::Name(name) => name.pretty_id(),
             CoreBlockPyExprWithAwaitAndYield::Literal(literal) => render_core_literal_text(literal),
-            CoreBlockPyExprWithAwaitAndYield::Op(operation) => {
-                render_operation_detail_debug_text(operation)
-            }
+            CoreBlockPyExprWithAwaitAndYield::Op(operation) => render_operation_detail_debug_text(
+                &crate::block_py::OperationDetail::from(operation.clone()),
+            ),
             CoreBlockPyExprWithAwaitAndYield::Await(await_expr) => {
                 format!("await {}", await_expr.value.debug_expr_text())
             }

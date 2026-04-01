@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::block_py::pretty::BlockPyDebugExprText;
-use crate::block_py::{BinOpKind, BlockPyNameLike, OperationDetail, UnaryOpKind};
+use crate::block_py::{BinOpKind, BlockPyNameLike, CoreExprOpWithAwaitAndYield, UnaryOpKind};
 
 fn lower_semantic_expr_without_setup(expr: &Expr) -> CoreBlockPyExprWithAwaitAndYield {
     CoreBlockPyExprWithAwaitAndYield::from(expr.clone())
@@ -18,7 +18,7 @@ fn is_raw_load_name_expr(expr: &CoreBlockPyExprWithAwaitAndYield, expected: &str
     matches!(
         expr,
         CoreBlockPyExprWithAwaitAndYield::Op(operation)
-            if matches!(operation, crate::block_py::OperationDetail::Load(op) if op.name.id_str() == expected)
+            if matches!(operation, crate::block_py::CoreExprOpWithAwaitAndYield::Load(op) if op.name.id_str() == expected)
     )
 }
 
@@ -52,9 +52,9 @@ fn expr_simplify_recurses_bottom_up_for_operator_family() {
     };
     assert!(matches!(
         outer,
-        OperationDetail::UnaryOp(ref op) if op.kind == UnaryOpKind::Neg
+        CoreExprOpWithAwaitAndYield::UnaryOp(ref op) if op.kind == UnaryOpKind::Neg
     ));
-    let OperationDetail::UnaryOp(op) = outer else {
+    let CoreExprOpWithAwaitAndYield::UnaryOp(op) = outer else {
         unreachable!("neg guard should ensure unary op");
     };
     let CoreBlockPyExprWithAwaitAndYield::Op(inner) = op.operand.as_ref() else {
@@ -62,7 +62,7 @@ fn expr_simplify_recurses_bottom_up_for_operator_family() {
     };
     assert!(matches!(
         inner,
-        OperationDetail::BinOp(op) if op.kind == BinOpKind::Add
+        CoreExprOpWithAwaitAndYield::BinOp(op) if op.kind == BinOpKind::Add
     ));
 }
 
@@ -79,7 +79,7 @@ fn core_blockpy_expr_uses_reduced_variants_for_simple_shapes() {
     assert!(matches!(
         CoreBlockPyExprWithAwaitAndYield::from(py_expr!("f(x)")),
         CoreBlockPyExprWithAwaitAndYield::Op(operation)
-            if matches!(operation, OperationDetail::Call(_))
+            if matches!(operation, CoreExprOpWithAwaitAndYield::Call(_))
     ));
     assert!(matches!(
         CoreBlockPyExprWithAwaitAndYield::from(py_expr!("await f(x)")),
@@ -102,7 +102,7 @@ fn core_blockpy_call_supports_star_args_and_kwargs() {
     else {
         panic!("expected reduced call expr");
     };
-    let OperationDetail::Call(call) = operation else {
+    let CoreExprOpWithAwaitAndYield::Call(call) = operation else {
         panic!("expected call operation");
     };
     assert!(is_raw_load_name_expr(call.func.as_ref(), "f"));
@@ -129,7 +129,7 @@ fn core_blockpy_expr_reduces_add_to_structured_intrinsic() {
     };
     assert!(matches!(
         call,
-        OperationDetail::BinOp(op) if op.kind == BinOpKind::Add
+        CoreExprOpWithAwaitAndYield::BinOp(op) if op.kind == BinOpKind::Add
     ));
 }
 
@@ -143,19 +143,19 @@ fn core_blockpy_expr_reduces_operator_helper_families_to_intrinsics() {
             panic!("expected operation-shaped reduced expr for {expr}");
         };
         let matches_expected = match expr {
-            "obj.attr" => matches!(call, OperationDetail::GetAttr(_)),
-            "obj[idx]" => matches!(call, OperationDetail::GetItem(_)),
+            "obj.attr" => matches!(call, CoreExprOpWithAwaitAndYield::GetAttr(_)),
+            "obj[idx]" => matches!(call, CoreExprOpWithAwaitAndYield::GetItem(_)),
             "-x" => {
-                matches!(call, OperationDetail::UnaryOp(ref op) if op.kind == UnaryOpKind::Neg)
+                matches!(call, CoreExprOpWithAwaitAndYield::UnaryOp(ref op) if op.kind == UnaryOpKind::Neg)
             }
             "x < y" => {
-                matches!(call, OperationDetail::BinOp(ref op) if op.kind == BinOpKind::Lt)
+                matches!(call, CoreExprOpWithAwaitAndYield::BinOp(ref op) if op.kind == BinOpKind::Lt)
             }
             "x in y" => {
-                matches!(call, OperationDetail::BinOp(ref op) if op.kind == BinOpKind::Contains)
+                matches!(call, CoreExprOpWithAwaitAndYield::BinOp(ref op) if op.kind == BinOpKind::Contains)
             }
             "x is y" => {
-                matches!(call, OperationDetail::BinOp(ref op) if op.kind == BinOpKind::Is)
+                matches!(call, CoreExprOpWithAwaitAndYield::BinOp(ref op) if op.kind == BinOpKind::Is)
             }
             _ => unreachable!(),
         };
@@ -177,14 +177,14 @@ fn core_blockpy_expr_keeps_non_intrinsic_helper_families_as_named_calls() {
         else {
             panic!("expected call-shaped reduced expr for {expr}");
         };
-        let OperationDetail::Call(call) = operation else {
+        let CoreExprOpWithAwaitAndYield::Call(call) = operation else {
             panic!("expected call operation for {expr}");
         };
         assert!(
             matches!(
                 &*call.func,
                 CoreBlockPyExprWithAwaitAndYield::Op(operation)
-                    if matches!(operation, OperationDetail::Load(op) if op.name.is_runtime_symbol(helper_name))
+                    if matches!(operation, CoreExprOpWithAwaitAndYield::Load(op) if op.name.is_runtime_symbol(helper_name))
             ),
             "{call:?}",
         );
@@ -200,7 +200,7 @@ fn core_blockpy_expr_reuses_shared_tuple_splat_intrinsic_shape() {
     };
     assert!(matches!(
         call,
-        OperationDetail::BinOp(ref op) if op.kind == BinOpKind::Add
+        CoreExprOpWithAwaitAndYield::BinOp(ref op) if op.kind == BinOpKind::Add
     ));
     let rendered = CoreBlockPyExprWithAwaitAndYield::Op(call).debug_expr_text();
     assert!(rendered.contains("tuple_from_iter(xs)"), "{rendered}");
@@ -215,13 +215,13 @@ fn core_blockpy_expr_reuses_shared_tuple_splat_for_list_and_set() {
         else {
             panic!("expected call-shaped reduced expr for {expr}");
         };
-        let OperationDetail::Call(call) = operation else {
+        let CoreExprOpWithAwaitAndYield::Call(call) = operation else {
             panic!("expected call operation for {expr}");
         };
         assert!(matches!(
             &*call.func,
             CoreBlockPyExprWithAwaitAndYield::Op(operation)
-                if matches!(operation, OperationDetail::Load(op) if op.name.is_runtime_symbol(intrinsic))
+                if matches!(operation, CoreExprOpWithAwaitAndYield::Load(op) if op.name.is_runtime_symbol(intrinsic))
         ));
         let [CoreBlockPyCallArg::Positional(tupleish)] = &call.args[..] else {
             panic!("expected one positional arg for {expr}");

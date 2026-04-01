@@ -829,6 +829,26 @@ define_operation! {
     }
 }
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
+pub enum CoreExprOpWithAwaitAndYield<E: Instr> {
+    BinOp(BinOp<E>),
+    UnaryOp(UnaryOp<E>),
+    Call(Call<E>),
+    GetAttr(GetAttr<E>),
+    SetAttr(SetAttr<E>),
+    GetItem(GetItem<E>),
+    SetItem(SetItem<E>),
+    DelItem(DelItem<E>),
+    Load(Load<E>),
+    Store(Store<E>),
+    Del(Del<E>),
+    MakeCell(MakeCell<E>),
+    MakeString(MakeString),
+    CellRefForName(CellRefForName),
+    CellRef(CellRef),
+    MakeFunction(MakeFunction<E>),
+}
+
+#[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum OperationDetail<E: Instr> {
     BinOp(BinOp<E>),
     UnaryOp(UnaryOp<E>),
@@ -848,89 +868,142 @@ pub enum OperationDetail<E: Instr> {
     MakeFunction(MakeFunction<E>),
 }
 
-#[with_match_default]
-impl<E: Instr> HasMeta for OperationDetail<E> {
-    fn meta(&self) -> Meta {
-        match self {
-            match_rest(op) => op.meta(),
+macro_rules! impl_operation_enum_delegates {
+    ($name:ident) => {
+        #[with_match_default]
+        impl<E: Instr> HasMeta for $name<E> {
+            fn meta(&self) -> Meta {
+                match self {
+                    match_rest(op) => op.meta(),
+                }
+            }
+        }
+
+        #[with_match_default]
+        impl<E: Instr> $name<E> {
+            pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> $name<T>
+            where
+                T: Instr,
+                InstrName<T>: From<InstrName<E>>,
+            {
+                match self {
+                    match_rest(op) => op.map_expr_node(f).into(),
+                }
+            }
+
+            pub fn try_map_expr<T, Error>(
+                self,
+                f: &mut impl FnMut(E) -> Result<T, Error>,
+            ) -> Result<$name<T>, Error>
+            where
+                T: Instr,
+                InstrName<T>: From<InstrName<E>>,
+            {
+                Ok(match self {
+                    match_rest(op) => op.try_map_expr_node(f)?.into(),
+                })
+            }
+
+            pub fn walk_args(&self, f: &mut impl FnMut(&E)) {
+                match self {
+                    match_rest(op) => op.visit_exprs(f),
+                }
+            }
+
+            pub fn walk_args_mut(&mut self, f: &mut impl FnMut(&mut E)) {
+                match self {
+                    match_rest(op) => op.visit_exprs_mut(f),
+                }
+            }
+        }
+
+        impl<E: Instr> InstrExprNode<E> for $name<E> {
+            type Mapped<T: Instr> = $name<T>;
+
+            fn visit_exprs(&self, f: &mut impl FnMut(&E)) {
+                self.walk_args(f);
+            }
+
+            fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut E)) {
+                self.walk_args_mut(f);
+            }
+
+            fn map_expr_node<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
+            where
+                T: Instr,
+                InstrName<T>: From<InstrName<E>>,
+            {
+                self.map_expr(f)
+            }
+
+            fn try_map_expr_node<T, Error>(
+                self,
+                f: &mut impl FnMut(E) -> Result<T, Error>,
+            ) -> Result<Self::Mapped<T>, Error>
+            where
+                T: Instr,
+                InstrName<T>: From<InstrName<E>>,
+            {
+                self.try_map_expr(f)
+            }
+        }
+
+        #[with_match_default]
+        impl<E: Instr> WithMeta for $name<E> {
+            fn with_meta(self, meta: Meta) -> Self {
+                match self {
+                    match_rest(op) => op.with_meta(meta.clone()).into(),
+                }
+            }
+        }
+    };
+}
+
+impl_operation_enum_delegates!(CoreExprOpWithAwaitAndYield);
+impl_operation_enum_delegates!(OperationDetail);
+
+impl<E: Instr> From<CoreExprOpWithAwaitAndYield<E>> for OperationDetail<E> {
+    fn from(value: CoreExprOpWithAwaitAndYield<E>) -> Self {
+        match value {
+            CoreExprOpWithAwaitAndYield::BinOp(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::UnaryOp(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Call(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::GetAttr(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::SetAttr(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::GetItem(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::SetItem(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::DelItem(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Load(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Store(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Del(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::MakeCell(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::MakeString(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::CellRefForName(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::CellRef(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::MakeFunction(op) => op.into(),
         }
     }
 }
 
-#[with_match_default]
-impl<E: Instr> OperationDetail<E> {
-    pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> OperationDetail<T>
-    where
-        T: Instr,
-        InstrName<T>: From<InstrName<E>>,
-    {
-        match self {
-            match_rest(op) => op.map_expr_node(f).into(),
-        }
-    }
-
-    pub fn try_map_expr<T, Error>(
-        self,
-        f: &mut impl FnMut(E) -> Result<T, Error>,
-    ) -> Result<OperationDetail<T>, Error>
-    where
-        T: Instr,
-        InstrName<T>: From<InstrName<E>>,
-    {
-        Ok(match self {
-            match_rest(op) => op.try_map_expr_node(f)?.into(),
-        })
-    }
-
-    pub fn walk_args(&self, f: &mut impl FnMut(&E)) {
-        match self {
-            match_rest(op) => op.visit_exprs(f),
-        }
-    }
-
-    pub fn walk_args_mut(&mut self, f: &mut impl FnMut(&mut E)) {
-        match self {
-            match_rest(op) => op.visit_exprs_mut(f),
-        }
-    }
-}
-
-impl<E: Instr> InstrExprNode<E> for OperationDetail<E> {
-    type Mapped<T: Instr> = OperationDetail<T>;
-
-    fn visit_exprs(&self, f: &mut impl FnMut(&E)) {
-        self.walk_args(f);
-    }
-
-    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut E)) {
-        self.walk_args_mut(f);
-    }
-
-    fn map_expr_node<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
-    where
-        T: Instr,
-        InstrName<T>: From<InstrName<E>>,
-    {
-        self.map_expr(f)
-    }
-
-    fn try_map_expr_node<T, Error>(
-        self,
-        f: &mut impl FnMut(E) -> Result<T, Error>,
-    ) -> Result<Self::Mapped<T>, Error>
-    where
-        T: Instr,
-        InstrName<T>: From<InstrName<E>>,
-    {
-        self.try_map_expr(f)
-    }
-}
-
-#[with_match_default]
-impl<E: Instr> WithMeta for OperationDetail<E> {
-    fn with_meta(self, meta: Meta) -> Self {
-        match self {
-            match_rest(op) => op.with_meta(meta.clone()).into(),
+impl<E: Instr> From<OperationDetail<E>> for CoreExprOpWithAwaitAndYield<E> {
+    fn from(value: OperationDetail<E>) -> Self {
+        match value {
+            OperationDetail::BinOp(op) => op.into(),
+            OperationDetail::UnaryOp(op) => op.into(),
+            OperationDetail::Call(op) => op.into(),
+            OperationDetail::GetAttr(op) => op.into(),
+            OperationDetail::SetAttr(op) => op.into(),
+            OperationDetail::GetItem(op) => op.into(),
+            OperationDetail::SetItem(op) => op.into(),
+            OperationDetail::DelItem(op) => op.into(),
+            OperationDetail::Load(op) => op.into(),
+            OperationDetail::Store(op) => op.into(),
+            OperationDetail::Del(op) => op.into(),
+            OperationDetail::MakeCell(op) => op.into(),
+            OperationDetail::MakeString(op) => op.into(),
+            OperationDetail::CellRefForName(op) => op.into(),
+            OperationDetail::CellRef(op) => op.into(),
+            OperationDetail::MakeFunction(op) => op.into(),
         }
     }
 }

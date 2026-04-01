@@ -183,7 +183,7 @@ fn is_current_exception_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwai
     let CoreBlockPyExprWithAwaitAndYield::Op(operation) = expr else {
         return false;
     };
-    let operation::OperationDetail::Call(call) = operation else {
+    let operation::CoreExprOpWithAwaitAndYield::Call(call) = operation else {
         return false;
     };
     call.args.is_empty()
@@ -368,7 +368,7 @@ fn expr_root_name_id_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYiel
     match expr {
         CoreBlockPyExprWithAwaitAndYield::Name(name) => Some(name.id_str()),
         CoreBlockPyExprWithAwaitAndYield::Op(operation) => match operation {
-            operation::OperationDetail::Load(op) => Some(op.name.id_str()),
+            operation::CoreExprOpWithAwaitAndYield::Load(op) => Some(op.name.id_str()),
             _ => None,
         },
         _ => None,
