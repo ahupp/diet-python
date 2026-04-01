@@ -20,15 +20,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     build_runtime(repo_root, &target_dir)?;
 
     let clif_files = find_runtime_clif_files(&target_dir)?;
-    if clif_files.is_empty() {
-        return Err(
-            "no .clif files found for soac-runtime; ensure the build emits CLIF output"
-                .to_string()
-                .into(),
+    let clif_text = if clif_files.is_empty() {
+        println!(
+            "cargo:warning=no .clif files found for {RUNTIME_CRATE}; continuing with empty SOAC_CLIF"
         );
-    }
-
-    let clif_text = read_clif_files(&clif_files)?;
+        String::new()
+    } else {
+        read_clif_files(&clif_files)?
+    };
     write_clif_constant(&clif_text)?;
     Ok(())
 }

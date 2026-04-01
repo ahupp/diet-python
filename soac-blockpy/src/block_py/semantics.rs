@@ -448,7 +448,7 @@ where
     E: BlockPySemanticExprNode,
 {
     match detail {
-        OperationDetail::Call(call) => call.func.root_name_id(),
+        OperationDetail::Call(call) => call.func.as_ref().root_name_id(),
         OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
         OperationDetail::LoadName(op) => Some(op.name.as_str()),
         _ => None,
@@ -465,7 +465,7 @@ fn call_root_cell_ref_logical_name<E>(call: &Call<E>) -> Option<String>
 where
     E: BlockPySemanticExprNode,
 {
-    let helper_name = call.func.root_name_id()?;
+    let helper_name = call.func.as_ref().root_name_id()?;
     if helper_name != "__dp_cell_ref" {
         return None;
     }
