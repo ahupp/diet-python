@@ -449,6 +449,25 @@ cpython *args='':
   set -- {{args}}
   "$REPO_ROOT/vendor/cpython/python" "$@"
 
+fmt-markdown:
+  #!/usr/bin/env bash
+  cd "$REPO_ROOT"
+
+  mapfile -d '' markdown_files < <(
+    find . \
+      -path './.jj' -prune -o \
+      -path './.venv' -prune -o \
+      -path './target' -prune -o \
+      -path './vendor' -prune -o \
+      -name '*.md' -print0
+  )
+
+  if [[ "${#markdown_files[@]}" -eq 0 ]]; then
+    exit 0
+  fi
+
+  npx prettier --write "${markdown_files[@]}"
+
 
 regen-snapshots:
   #!/usr/bin/env bash
