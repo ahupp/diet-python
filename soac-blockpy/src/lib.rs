@@ -163,16 +163,6 @@ impl ToRuffAst for &[Stmt] {
 #[cfg(test)]
 mod test;
 
-macro_rules! match_default {
-    ($enum_name:ident, $value:expr, { $($body:tt)* }) => {
-        ::paste::paste! {
-            [<__soac_match_default_ $enum_name>]!($value, { $($body)* })
-        }
-    };
-}
-
-pub(crate) use match_default;
-
 /// Convert a ruff AST ModModule to a pretty-printed string.
 pub fn ruff_ast_to_string(module: impl ToRuffAst) -> String {
     let module = module.to_ruff_ast();

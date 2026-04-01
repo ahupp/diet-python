@@ -2,7 +2,7 @@ use super::{
     BlockPyFunctionKind, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg, FunctionId,
     HasMeta, Meta, NameLocation, WithMeta,
 };
-use soac_macros::DelegateMatchDefault;
+use soac_macros::{with_match_default, DelegateMatchDefault};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum BinOpKind {
@@ -718,11 +718,12 @@ pub enum OperationDetail<E> {
     DelLocation(DelLocation),
 }
 
+#[with_match_default]
 impl<E> HasMeta for OperationDetail<E> {
     fn meta(&self) -> Meta {
-        crate::match_default!(OperationDetail, self, {
+        match self {
             match_rest(op) => op.meta(),
-        })
+        }
     }
 }
 
@@ -839,11 +840,12 @@ impl<E> OperationDetail<E> {
     }
 }
 
+#[with_match_default]
 impl<E> WithMeta for OperationDetail<E> {
     fn with_meta(self, meta: Meta) -> Self {
-        crate::match_default!(OperationDetail, self, {
+        match self {
             Self::DelLocation(op) => Self::DelLocation(op.with_meta(meta)),
             match_rest(op) => op.with_meta(meta.clone()).into(),
-        })
+        }
     }
 }
