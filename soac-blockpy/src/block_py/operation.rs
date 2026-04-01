@@ -1,5 +1,6 @@
 use super::{
-    BlockPyFunctionKind, CellLocation, FunctionId, HasMeta, LocalLocation, Meta, WithMeta,
+    BlockPyFunctionKind, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg, FunctionId,
+    HasMeta, LocalLocation, Meta, WithMeta,
 };
 use ruff_python_ast as ast;
 use ruff_text_size::TextRange;
@@ -479,6 +480,103 @@ define_operation! {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Call<E> {
+    _meta: Meta,
+    pub func: Box<E>,
+    pub args: Vec<CoreBlockPyCallArg<E>>,
+    pub keywords: Vec<CoreBlockPyKeywordArg<E>>,
+}
+
+impl<E> Call<E> {
+    pub fn new(
+        func: impl Into<Box<E>>,
+        args: impl Into<Vec<CoreBlockPyCallArg<E>>>,
+        keywords: impl Into<Vec<CoreBlockPyKeywordArg<E>>>,
+    ) -> Self {
+        Self {
+            _meta: Meta::default(),
+            func: func.into(),
+            args: args.into(),
+            keywords: keywords.into(),
+        }
+    }
+}
+
+impl<E> HasMeta for Call<E> {
+    fn meta(&self) -> Meta {
+        self._meta.clone()
+    }
+}
+
+impl<E> WithMeta for Call<E> {
+    fn with_meta(mut self, meta: Meta) -> Self {
+        self._meta = meta;
+        self
+    }
+}
+
+impl<E> ExprOperationNode<E> for Call<E> {
+    type Mapped<T> = Call<T>;
+
+    fn visit_exprs(&self, f: &mut impl FnMut(&E)) {
+        f(&self.func);
+        for arg in &self.args {
+            f(arg.expr());
+        }
+        for keyword in &self.keywords {
+            f(keyword.expr());
+        }
+    }
+
+    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut E)) {
+        f(&mut self.func);
+        for arg in &mut self.args {
+            f(arg.expr_mut());
+        }
+        for keyword in &mut self.keywords {
+            f(keyword.expr_mut());
+        }
+    }
+
+    fn map_op<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T> {
+        Call {
+            _meta: self._meta,
+            func: Box::new(f(*self.func)),
+            args: self
+                .args
+                .into_iter()
+                .map(|arg| arg.map_expr(&mut *f))
+                .collect(),
+            keywords: self
+                .keywords
+                .into_iter()
+                .map(|keyword| keyword.map_expr(&mut *f))
+                .collect(),
+        }
+    }
+
+    fn try_map_op<T, Error>(
+        self,
+        f: &mut impl FnMut(E) -> Result<T, Error>,
+    ) -> Result<Self::Mapped<T>, Error> {
+        Ok(Call {
+            _meta: self._meta,
+            func: Box::new(f(*self.func)?),
+            args: self
+                .args
+                .into_iter()
+                .map(|arg| arg.try_map_expr(&mut *f))
+                .collect::<Result<Vec<_>, _>>()?,
+            keywords: self
+                .keywords
+                .into_iter()
+                .map(|keyword| keyword.try_map_expr(&mut *f))
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
 define_operation! {
     pub struct GetAttr<E> {
         value: Box<E>,
@@ -620,6 +718,7 @@ pub enum OperationDetail<E> {
     UnaryOp(UnaryOp<E>),
     InplaceBinOp(InplaceBinOp<E>),
     TernaryOp(TernaryOp<E>),
+    Call(Call<E>),
     GetAttr(GetAttr<E>),
     SetAttr(SetAttr<E>),
     GetItem(GetItem<E>),
@@ -649,6 +748,7 @@ impl<E> OperationDetail<E> {
             Self::UnaryOp(op) => OperationDetail::UnaryOp(op.map_op(f)),
             Self::InplaceBinOp(op) => OperationDetail::InplaceBinOp(op.map_op(f)),
             Self::TernaryOp(op) => OperationDetail::TernaryOp(op.map_op(f)),
+            Self::Call(op) => OperationDetail::Call(op.map_op(f)),
             Self::GetAttr(op) => OperationDetail::GetAttr(op.map_op(f)),
             Self::SetAttr(op) => OperationDetail::SetAttr(op.map_op(f)),
             Self::GetItem(op) => OperationDetail::GetItem(op.map_op(f)),
@@ -681,6 +781,7 @@ impl<E> OperationDetail<E> {
             Self::UnaryOp(op) => OperationDetail::UnaryOp(op.try_map_op(f)?),
             Self::InplaceBinOp(op) => OperationDetail::InplaceBinOp(op.try_map_op(f)?),
             Self::TernaryOp(op) => OperationDetail::TernaryOp(op.try_map_op(f)?),
+            Self::Call(op) => OperationDetail::Call(op.try_map_op(f)?),
             Self::GetAttr(op) => OperationDetail::GetAttr(op.try_map_op(f)?),
             Self::SetAttr(op) => OperationDetail::SetAttr(op.try_map_op(f)?),
             Self::GetItem(op) => OperationDetail::GetItem(op.try_map_op(f)?),
@@ -710,6 +811,7 @@ impl<E> OperationDetail<E> {
             Self::UnaryOp(op) => op.visit_exprs(f),
             Self::InplaceBinOp(op) => op.visit_exprs(f),
             Self::TernaryOp(op) => op.visit_exprs(f),
+            Self::Call(op) => op.visit_exprs(f),
             Self::GetAttr(op) => op.visit_exprs(f),
             Self::SetAttr(op) => op.visit_exprs(f),
             Self::GetItem(op) => op.visit_exprs(f),
@@ -739,6 +841,7 @@ impl<E> OperationDetail<E> {
             Self::UnaryOp(op) => op.visit_exprs_mut(f),
             Self::InplaceBinOp(op) => op.visit_exprs_mut(f),
             Self::TernaryOp(op) => op.visit_exprs_mut(f),
+            Self::Call(op) => op.visit_exprs_mut(f),
             Self::GetAttr(op) => op.visit_exprs_mut(f),
             Self::SetAttr(op) => op.visit_exprs_mut(f),
             Self::GetItem(op) => op.visit_exprs_mut(f),
@@ -770,6 +873,7 @@ impl<E> HasMeta for OperationDetail<E> {
             Self::UnaryOp(op) => op.meta(),
             Self::InplaceBinOp(op) => op.meta(),
             Self::TernaryOp(op) => op.meta(),
+            Self::Call(op) => op.meta(),
             Self::GetAttr(op) => op.meta(),
             Self::SetAttr(op) => op.meta(),
             Self::GetItem(op) => op.meta(),
@@ -801,6 +905,7 @@ impl<E> WithMeta for OperationDetail<E> {
             Self::UnaryOp(op) => op._meta = meta,
             Self::InplaceBinOp(op) => op._meta = meta,
             Self::TernaryOp(op) => op._meta = meta,
+            Self::Call(op) => op._meta = meta,
             Self::GetAttr(op) => op._meta = meta,
             Self::SetAttr(op) => op._meta = meta,
             Self::GetItem(op) => op._meta = meta,

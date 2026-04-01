@@ -1,8 +1,8 @@
 use super::{
-    BlockPyNameLike, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyAwait, CoreBlockPyCall,
-    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
-    CoreBlockPyLiteral, CoreBlockPyYield, CoreBlockPyYieldFrom, CoreBytesLiteral,
-    CoreNumberLiteral, CoreStringLiteral, LocatedName, RuffExpr,
+    BlockPyNameLike, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyAwait, CoreBlockPyExpr,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyLiteral,
+    CoreBlockPyYield, CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreStringLiteral,
+    LocatedName, RuffExpr,
 };
 use ruff_python_ast::{self as ast, HasNodeIndex};
 use ruff_text_size::{Ranged, TextRange};
@@ -62,7 +62,6 @@ impl HasMeta for CoreBlockPyExprWithAwaitAndYield {
             Self::Name(name) => name.meta(),
             Self::Literal(literal) => literal.meta(),
             Self::Op(operation) => operation.meta(),
-            Self::Call(call) => call.meta(),
             Self::Await(await_expr) => await_expr.meta(),
             Self::Yield(yield_expr) => yield_expr.meta(),
             Self::YieldFrom(yield_from_expr) => yield_from_expr.meta(),
@@ -76,7 +75,6 @@ impl HasMeta for CoreBlockPyExprWithYield {
             Self::Name(name) => name.meta(),
             Self::Literal(literal) => literal.meta(),
             Self::Op(operation) => operation.meta(),
-            Self::Call(call) => call.meta(),
             Self::Yield(yield_expr) => yield_expr.meta(),
             Self::YieldFrom(yield_from_expr) => yield_from_expr.meta(),
         }
@@ -89,7 +87,6 @@ impl<N: BlockPyNameLike> HasMeta for CoreBlockPyExpr<N> {
             Self::Name(name) => Meta::new(name.node_index(), name.range()),
             Self::Literal(literal) => literal.meta(),
             Self::Op(operation) => operation.meta(),
-            Self::Call(call) => call.meta(),
         }
     }
 }
@@ -100,7 +97,6 @@ impl HasMeta for CodegenBlockPyExpr {
             Self::Name(name) => Meta::new(name.node_index(), name.range()),
             Self::Literal(literal) => literal.meta(),
             Self::Op(operation) => operation.meta(),
-            Self::Call(call) => call.meta(),
         }
     }
 }
@@ -137,12 +133,6 @@ impl HasMeta for CoreBytesLiteral {
 }
 
 impl HasMeta for CoreNumberLiteral {
-    fn meta(&self) -> Meta {
-        Meta::new(self.node_index.clone(), self.range)
-    }
-}
-
-impl<E> HasMeta for CoreBlockPyCall<E> {
     fn meta(&self) -> Meta {
         Meta::new(self.node_index.clone(), self.range)
     }

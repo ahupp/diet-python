@@ -1,8 +1,8 @@
 use super::{
     BlockArg, BlockParamRole, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyNameLike, BlockPyPass,
-    BlockPyRaise, BlockPyStmt, BlockPyTerm, CfgBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral,
-    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    BlockPyRaise, BlockPyStmt, BlockPyTerm, Call, CfgBlock, CodegenBlockPyExpr,
+    CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral, Expr, PassBlock, PassExpr,
     RuffExpr, StructuredBlockPyStmt,
 };
@@ -610,7 +610,7 @@ fn render_codegen_literal_text(literal: &CodegenBlockPyLiteral) -> String {
     }
 }
 
-fn render_call_text<E: BlockPyDebugExprText>(call: &CoreBlockPyCall<E>) -> String {
+fn render_call_text<E: BlockPyDebugExprText>(call: &Call<E>) -> String {
     let mut parts = Vec::new();
     for arg in &call.args {
         parts.push(match arg {
@@ -645,6 +645,7 @@ where
                 op.annotate_fn.debug_expr_text(),
             ],
         ),
+        crate::block_py::OperationDetail::Call(call) => render_call_text(call),
         crate::block_py::OperationDetail::GetAttr(op) => debug_tuple_text(
             "GetAttr",
             [op.value.debug_expr_text(), format!("{:?}", op.attr)],
@@ -757,7 +758,6 @@ where
         match self {
             CoreBlockPyExpr::Name(name) => name.pretty_id(),
             CoreBlockPyExpr::Literal(literal) => render_core_literal_text(literal),
-            CoreBlockPyExpr::Call(call) => render_call_text(call),
             CoreBlockPyExpr::Op(operation) => {
                 render_operation_detail_debug_text(operation.detail())
             }
@@ -770,7 +770,6 @@ impl BlockPyDebugExprText for CoreBlockPyExprWithYield {
         match self {
             CoreBlockPyExprWithYield::Name(name) => name.pretty_id(),
             CoreBlockPyExprWithYield::Literal(literal) => render_core_literal_text(literal),
-            CoreBlockPyExprWithYield::Call(call) => render_call_text(call),
             CoreBlockPyExprWithYield::Op(operation) => {
                 render_operation_detail_debug_text(operation.detail())
             }
@@ -790,7 +789,6 @@ impl BlockPyDebugExprText for CoreBlockPyExprWithAwaitAndYield {
         match self {
             CoreBlockPyExprWithAwaitAndYield::Name(name) => name.pretty_id(),
             CoreBlockPyExprWithAwaitAndYield::Literal(literal) => render_core_literal_text(literal),
-            CoreBlockPyExprWithAwaitAndYield::Call(call) => render_call_text(call),
             CoreBlockPyExprWithAwaitAndYield::Op(operation) => {
                 render_operation_detail_debug_text(operation.detail())
             }
@@ -813,7 +811,6 @@ impl BlockPyDebugExprText for CodegenBlockPyExpr {
         match self {
             CodegenBlockPyExpr::Name(name) => name.pretty_id(),
             CodegenBlockPyExpr::Literal(literal) => render_codegen_literal_text(literal),
-            CodegenBlockPyExpr::Call(call) => render_call_text(call),
             CodegenBlockPyExpr::Op(operation) => {
                 render_operation_detail_debug_text(operation.detail())
             }

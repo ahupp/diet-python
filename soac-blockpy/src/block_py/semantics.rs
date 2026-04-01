@@ -1,8 +1,8 @@
 use super::operation::OperationDetail;
 use super::{
     is_internal_symbol, walk_linear_block, walk_linear_expr, walk_linear_stmt, BlockPyFunction,
-    BlockPyLinearModuleVisitor, BlockPyLinearPass, BlockPyNameLike, BlockPyPass, BlockPyStmt,
-    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    BlockPyLinearModuleVisitor, BlockPyLinearPass, BlockPyNameLike, BlockPyPass, BlockPyStmt, Call,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyLiteral, FunctionName, MapExpr, PassBlock, PassExpr,
     PassName, RuffExpr,
 };
@@ -431,12 +431,21 @@ fn walk_assigned_name_targets_in_expr(target: &Expr, f: &mut impl FnMut(&str)) {
 fn walk_operation_loaded_names<E>(detail: &OperationDetail<E>, f: &mut impl FnMut(&str)) {
     match detail {
         OperationDetail::LoadName(op) => f(op.name.as_str()),
+        OperationDetail::Call(call) => {
+            if let Some(name) = call.func.root_name_id() {
+                f(name);
+            }
+        }
         _ => {}
     }
 }
 
-fn operation_root_name_id<E>(detail: &OperationDetail<E>) -> Option<&str> {
+fn operation_root_name_id<E>(detail: &OperationDetail<E>) -> Option<&str>
+where
+    E: BlockPySemanticExprNode,
+{
     match detail {
+        OperationDetail::Call(call) => call.func.root_name_id(),
         OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
         OperationDetail::LoadName(op) => Some(op.name.as_str()),
         _ => None,
@@ -449,7 +458,7 @@ fn walk_operation_cell_ref_logical_names<E>(detail: &OperationDetail<E>, f: &mut
     }
 }
 
-fn call_root_cell_ref_logical_name<E>(call: &CoreBlockPyCall<E>) -> Option<String>
+fn call_root_cell_ref_logical_name<E>(call: &Call<E>) -> Option<String>
 where
     E: BlockPySemanticExprNode,
 {
@@ -580,10 +589,12 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
 
     fn walk_root_cell_ref_logical_names(&self, f: &mut impl FnMut(&str)) {
         match self {
-            Self::Op(operation) => walk_operation_cell_ref_logical_names(operation.detail(), f),
-            Self::Call(call) => {
-                if let Some(name) = call_root_cell_ref_logical_name(call) {
-                    f(name.as_str());
+            Self::Op(operation) => {
+                walk_operation_cell_ref_logical_names(operation.detail(), f);
+                if let OperationDetail::Call(call) = operation.detail() {
+                    if let Some(name) = call_root_cell_ref_logical_name(call) {
+                        f(name.as_str());
+                    }
                 }
             }
             _ => {}
@@ -626,10 +637,12 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
 
     fn walk_root_cell_ref_logical_names(&self, f: &mut impl FnMut(&str)) {
         match self {
-            Self::Op(operation) => walk_operation_cell_ref_logical_names(operation.detail(), f),
-            Self::Call(call) => {
-                if let Some(name) = call_root_cell_ref_logical_name(call) {
-                    f(name.as_str());
+            Self::Op(operation) => {
+                walk_operation_cell_ref_logical_names(operation.detail(), f);
+                if let OperationDetail::Call(call) = operation.detail() {
+                    if let Some(name) = call_root_cell_ref_logical_name(call) {
+                        f(name.as_str());
+                    }
                 }
             }
             _ => {}
@@ -675,10 +688,12 @@ where
 
     fn walk_root_cell_ref_logical_names(&self, f: &mut impl FnMut(&str)) {
         match self {
-            Self::Op(operation) => walk_operation_cell_ref_logical_names(operation.detail(), f),
-            Self::Call(call) => {
-                if let Some(name) = call_root_cell_ref_logical_name(call) {
-                    f(name.as_str());
+            Self::Op(operation) => {
+                walk_operation_cell_ref_logical_names(operation.detail(), f);
+                if let OperationDetail::Call(call) = operation.detail() {
+                    if let Some(name) = call_root_cell_ref_logical_name(call) {
+                        f(name.as_str());
+                    }
                 }
             }
             _ => {}

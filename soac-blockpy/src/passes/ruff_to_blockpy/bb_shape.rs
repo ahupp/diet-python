@@ -145,18 +145,6 @@ fn rewrite_current_exception_in_expr_with_await_and_yield(
     exc_name: &str,
 ) {
     match expr {
-        CoreBlockPyExprWithAwaitAndYield::Call(call) => {
-            rewrite_current_exception_in_expr_with_await_and_yield(call.func.as_mut(), exc_name);
-            for arg in &mut call.args {
-                rewrite_current_exception_in_expr_with_await_and_yield(arg.expr_mut(), exc_name);
-            }
-            for keyword in &mut call.keywords {
-                rewrite_current_exception_in_expr_with_await_and_yield(
-                    keyword.expr_mut(),
-                    exc_name,
-                );
-            }
-        }
         CoreBlockPyExprWithAwaitAndYield::Op(operation) => {
             operation.walk_args_mut(&mut |arg| {
                 rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
@@ -191,7 +179,10 @@ fn rewrite_current_exception_in_expr_with_await_and_yield(
 }
 
 fn is_current_exception_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
-    let CoreBlockPyExprWithAwaitAndYield::Call(call) = expr else {
+    let CoreBlockPyExprWithAwaitAndYield::Op(operation) = expr else {
+        return false;
+    };
+    let operation::OperationDetail::Call(call) = operation.detail() else {
         return false;
     };
     call.args.is_empty()
@@ -201,7 +192,10 @@ fn is_current_exception_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwai
 }
 
 fn is_exc_info_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
-    let CoreBlockPyExprWithAwaitAndYield::Call(call) = expr else {
+    let CoreBlockPyExprWithAwaitAndYield::Op(operation) = expr else {
+        return false;
+    };
+    let operation::OperationDetail::Call(call) = operation.detail() else {
         return false;
     };
     call.args.is_empty()
@@ -223,17 +217,12 @@ fn current_exception_name_expr_with_await_and_yield(
 fn current_exception_info_expr_with_await_and_yield(
     exc_name: &str,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    CoreBlockPyExprWithAwaitAndYield::Call(crate::block_py::CoreBlockPyCall {
-        node_index: compat_node_index(),
-        range: compat_range(),
-        func: Box::new(runtime_name_expr_with_await_and_yield(
-            "__dp_exc_info_from_exception",
-        )),
-        args: vec![CoreBlockPyCallArg::Positional(
-            current_exception_name_expr_with_await_and_yield(exc_name),
-        )],
-        keywords: Vec::new(),
-    })
+    crate::block_py::core_positional_call_expr_with_meta(
+        "__dp_exc_info_from_exception",
+        compat_node_index(),
+        compat_range(),
+        vec![current_exception_name_expr_with_await_and_yield(exc_name)],
+    )
 }
 
 pub(crate) fn populate_exception_edge_args<E, N>(
@@ -338,15 +327,6 @@ where
     N: BlockPyNameLike,
 {
     match expr {
-        CoreBlockPyExpr::Call(call) => {
-            rewrite_current_exception_in_blockpy_expr(call.func.as_mut(), exc_name);
-            for arg in &mut call.args {
-                rewrite_current_exception_in_blockpy_expr(arg.expr_mut(), exc_name);
-            }
-            for keyword in &mut call.keywords {
-                rewrite_current_exception_in_blockpy_expr(keyword.expr_mut(), exc_name);
-            }
-        }
         CoreBlockPyExpr::Op(operation) => {
             operation
                 .walk_args_mut(&mut |arg| rewrite_current_exception_in_blockpy_expr(arg, exc_name));
@@ -374,7 +354,10 @@ fn is_current_exception_call<N>(expr: &CoreBlockPyExpr<N>) -> bool
 where
     N: BlockPyNameLike,
 {
-    let CoreBlockPyExpr::Call(call) = expr else {
+    let Some(operation) = operation_expr(expr) else {
+        return false;
+    };
+    let operation::OperationDetail::Call(call) = operation.detail() else {
         return false;
     };
     call.args.is_empty()
@@ -386,7 +369,10 @@ fn is_exc_info_call<N>(expr: &CoreBlockPyExpr<N>) -> bool
 where
     N: BlockPyNameLike,
 {
-    let CoreBlockPyExpr::Call(call) = expr else {
+    let Some(operation) = operation_expr(expr) else {
+        return false;
+    };
+    let operation::OperationDetail::Call(call) = operation.detail() else {
         return false;
     };
     call.args.is_empty()
@@ -452,15 +438,12 @@ fn current_exception_info_expr<N>(exc_name: &str) -> CoreBlockPyExpr<N>
 where
     N: BlockPyNameLike,
 {
-    CoreBlockPyExpr::Call(crate::block_py::CoreBlockPyCall {
-        node_index: compat_node_index(),
-        range: compat_range(),
-        func: Box::new(runtime_name_expr("__dp_exc_info_from_exception")),
-        args: vec![CoreBlockPyCallArg::Positional(current_exception_name_expr(
-            exc_name,
-        ))],
-        keywords: Vec::new(),
-    })
+    crate::block_py::core_positional_call_expr_with_meta(
+        "__dp_exc_info_from_exception",
+        compat_node_index(),
+        compat_range(),
+        vec![current_exception_name_expr(exc_name)],
+    )
 }
 
 fn runtime_name_expr_with_await_and_yield(name: &str) -> CoreBlockPyExprWithAwaitAndYield {

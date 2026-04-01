@@ -1,10 +1,10 @@
 use crate::block_py::structured::IntoStructuredBlockPyStmt;
 use crate::block_py::BlockPyAssign;
 use crate::block_py::{
-    expr_any, map_call_args_with, map_keyword_args_with, BlockPyBranchTable, BlockPyCfgFragment,
-    BlockPyDelete, BlockPyFunction, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyTerm, CfgBlock,
-    CoreBlockPyAwait, CoreBlockPyCall, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
-    CoreBlockPyYield, CoreBlockPyYieldFrom, StructuredBlockPyStmt,
+    expr_any, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyFunction, BlockPyIf,
+    BlockPyIfTerm, BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
+    CoreBlockPyYieldFrom, StructuredBlockPyStmt,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
@@ -62,21 +62,6 @@ fn make_eval_order_explicit_in_core_expr(
             operation
                 .map_expr(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup)),
         ),
-        CoreBlockPyExprWithAwaitAndYield::Call(call) => {
-            CoreBlockPyExprWithAwaitAndYield::Call(CoreBlockPyCall {
-                node_index: call.node_index,
-                range: call.range,
-                func: Box::new(hoist_core_expr_if_contains_suspend(
-                    *call.func, out, cleanup,
-                )),
-                args: map_call_args_with(call.args, |value| {
-                    hoist_core_expr_if_contains_suspend(value, out, cleanup)
-                }),
-                keywords: map_keyword_args_with(call.keywords, |value| {
-                    hoist_core_expr_if_contains_suspend(value, out, cleanup)
-                }),
-            })
-        }
         CoreBlockPyExprWithAwaitAndYield::Await(await_expr) => {
             CoreBlockPyExprWithAwaitAndYield::Await(CoreBlockPyAwait {
                 node_index: await_expr.node_index,
@@ -298,19 +283,6 @@ fn make_eval_order_explicit_in_core_expr_without_await(
             operation
                 .map_expr(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup)),
         ),
-        CoreBlockPyExprWithYield::Call(call) => CoreBlockPyExprWithYield::Call(CoreBlockPyCall {
-            node_index: call.node_index,
-            range: call.range,
-            func: Box::new(hoist_core_expr_without_await_to_atom(
-                *call.func, out, cleanup,
-            )),
-            args: map_call_args_with(call.args, |value| {
-                hoist_core_expr_without_await_to_atom(value, out, cleanup)
-            }),
-            keywords: map_keyword_args_with(call.keywords, |value| {
-                hoist_core_expr_without_await_to_atom(value, out, cleanup)
-            }),
-        }),
         CoreBlockPyExprWithYield::Yield(yield_expr) => {
             CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,

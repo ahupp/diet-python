@@ -406,7 +406,7 @@ fn codegen_expr_is_borrowable(
                 }),
             _ => false,
         },
-        CodegenBlockPyExpr::Literal(_) | CodegenBlockPyExpr::Call(_) => false,
+        CodegenBlockPyExpr::Literal(_) => false,
     }
 }
 
@@ -460,26 +460,29 @@ fn codegen_expr_const_string(expr: &LocatedCodegenBlockPyExpr) -> Option<String>
             String::from_utf8(bytes.value.clone()).ok()
         }
         CodegenBlockPyExpr::Op(operation) => match operation.detail() {
+            blockpy_intrinsics::OperationDetail::Call(call) => {
+                let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() else {
+                    return None;
+                };
+                if func_name.id.as_str() != "str"
+                    || call.args.len() != 1
+                    || !call.keywords.is_empty()
+                {
+                    return None;
+                }
+                let CoreBlockPyCallArg::Positional(CodegenBlockPyExpr::Literal(
+                    CodegenBlockPyLiteral::BytesLiteral(bytes),
+                )) = &call.args[0]
+                else {
+                    return None;
+                };
+                String::from_utf8(bytes.value.clone()).ok()
+            }
             blockpy_intrinsics::OperationDetail::MakeString(op) => {
                 String::from_utf8(op.bytes.clone()).ok()
             }
             _ => None,
         },
-        CodegenBlockPyExpr::Call(call) => {
-            let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() else {
-                return None;
-            };
-            if func_name.id.as_str() != "str" || call.args.len() != 1 || !call.keywords.is_empty() {
-                return None;
-            }
-            let CoreBlockPyCallArg::Positional(CodegenBlockPyExpr::Literal(
-                CodegenBlockPyLiteral::BytesLiteral(bytes),
-            )) = &call.args[0]
-            else {
-                return None;
-            };
-            String::from_utf8(bytes.value.clone()).ok()
-        }
         _ => None,
     }
 }
@@ -492,7 +495,7 @@ fn codegen_expr_helper_name(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
             blockpy_intrinsics::OperationDetail::LoadGlobal(op) => Some(op.name.as_str()),
             _ => None,
         },
-        CodegenBlockPyExpr::Literal(_) | CodegenBlockPyExpr::Call(_) => None,
+        CodegenBlockPyExpr::Literal(_) => None,
     }
 }
 
@@ -1255,7 +1258,12 @@ fn emit_codegen_expr(
             fb.switch_to_block(value_ok_block);
             fb.block_params(value_ok_block)[0]
         }
-        CodegenBlockPyExpr::Op(operation) => {
+        CodegenBlockPyExpr::Op(operation)
+            if !matches!(
+                operation.detail(),
+                blockpy_intrinsics::OperationDetail::Call(_)
+            ) =>
+        {
             if let blockpy_intrinsics::OperationDetail::LoadLocal(op) = operation.detail() {
                 return emit_codegen_local_name_load(
                     fb,
@@ -1428,7 +1436,10 @@ fn emit_codegen_expr(
                 }
             }
         }
-        CodegenBlockPyExpr::Call(call) => {
+        CodegenBlockPyExpr::Op(operation) => {
+            let blockpy_intrinsics::OperationDetail::Call(call) = operation.detail() else {
+                unreachable!("call-only op arm should only receive Call detail");
+            };
             assert!(
                 !borrowed,
                 "codegen call expression must not use borrowed result"
