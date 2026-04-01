@@ -84,7 +84,6 @@
       - two expr fields (`left`, `right`)
       - all four generated behaviors (`visit`, `visit_mut`, `map`, `try_map`)
     - If `BinOp<E>` works cleanly, the rest of the macro design is probably sound. If it does not, the trait shape is still cheap to adjust before migrating more operations.
-
 ## Remove the Operation Name Generic
 
 - Planning note:
