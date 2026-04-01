@@ -177,7 +177,7 @@ impl StmtLowerer for ast::StmtReturn {
                     next_label_id,
                 )?
             }
-            None => crate::py_expr!("__dp_NONE").into(),
+            None => crate::py_expr!("None").into(),
         };
         out.set_term(BlockPyTerm::Return(value));
         Ok(())

@@ -1238,13 +1238,6 @@ where
     expr_any_impl(expr, &mut predicate)
 }
 
-fn implicit_none_name() -> ast::ExprName {
-    let Expr::Name(name) = py_expr!("__dp_NONE") else {
-        unreachable!();
-    };
-    name
-}
-
 pub fn assert_blockpy_block_normalized<S: BlockPyNormalizedStmt, T>(block: &CfgBlock<S, T>) {
     for stmt in &block.body {
         stmt.assert_blockpy_normalized();
@@ -1788,11 +1781,11 @@ impl<E> BlockPyJumpTerm<BlockPyLabel> for BlockPyTerm<E> {
 
 impl ImplicitNoneExpr for Expr {
     fn implicit_none_expr() -> Self {
-        py_expr!("__dp_NONE")
+        py_expr!("None")
     }
 
     fn is_implicit_none_expr(expr: &Self) -> bool {
-        matches!(expr, Expr::Name(name) if name.id.as_str() == "__dp_NONE")
+        matches!(expr, Expr::NoneLiteral(_))
     }
 }
 

@@ -1,6 +1,6 @@
 use super::{
     AbruptKind, BlockArg, BlockPyAssign, BlockPyEdge, BlockPyLabel, BlockPyTerm, CfgBlock,
-    StructuredBlockPyStmt,
+    ImplicitNoneExpr, StructuredBlockPyStmt,
 };
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr, ExprName, Stmt};
@@ -17,12 +17,12 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
     finally_target: &BlockPyLabel,
     payload_name: &str,
 ) where
-    E: From<Expr>,
+    E: ImplicitNoneExpr,
 {
     for block in blocks.iter_mut() {
         let ret_value = match std::mem::replace(
             &mut block.term,
-            BlockPyTerm::Return(py_expr!("__dp_NONE").into()),
+            BlockPyTerm::Return(E::implicit_none_expr()),
         ) {
             BlockPyTerm::Return(value) => value,
             other => {

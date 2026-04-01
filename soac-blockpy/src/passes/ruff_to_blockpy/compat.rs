@@ -241,7 +241,7 @@ where
         BlockPyCfgBlockBuilder::<StructuredBlockPyStmt<E>, BlockPyTerm<E>>::new(label.clone());
     block.extend(fragment.body);
     block.set_term(BlockPyTerm::Return(
-        value.unwrap_or_else(|| crate::py_expr!("__dp_NONE").into()),
+        value.unwrap_or_else(E::implicit_none_expr),
     ));
     blocks.push(with_exc_meta(block.finish(None), exc_target));
     Ok(label)

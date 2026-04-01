@@ -35,7 +35,7 @@ fn block_builder_without_term_uses_implicit_none_return_value() {
     assert_eq!(block.body.len(), 1);
     assert!(matches!(
         &block.term,
-        BlockPyTerm::Return(Expr::Name(name)) if name.id.as_str() == "__dp_NONE"
+        BlockPyTerm::Return(Expr::NoneLiteral(_))
     ));
 }
 
@@ -43,7 +43,7 @@ fn block_builder_without_term_uses_implicit_none_return_value() {
 fn stmt_fragment_can_carry_optional_term() {
     let fragment: BlockPyStmtFragment<Expr> = BlockPyStmtFragment::with_term(
         vec![StructuredBlockPyStmt::Expr(py_expr!("x"))],
-        Some(BlockPyTerm::Return(py_expr!("__dp_NONE"))),
+        Some(BlockPyTerm::Return(py_expr!("None"))),
     );
 
     assert_eq!(fragment.body.len(), 1);
