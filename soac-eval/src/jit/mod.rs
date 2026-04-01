@@ -28,7 +28,7 @@ mod vmctx;
 
 pub use planning::{
     BlockExcDispatchPlan, exc_dispatch_plan, jit_param_names_for_block, lookup_blockpy_function,
-    register_clif_module_plans,
+    lookup_blockpy_module, register_clif_module_plans,
 };
 pub use specialized_helpers::ObjPtr;
 use specialized_helpers::{dp_jit_decref, register_specialized_jit_symbols};
@@ -441,10 +441,18 @@ fn emit_codegen_local_name_load(
     panic!("missing local {name} in direct JIT state");
 }
 
-fn codegen_expr_const_string(expr: &LocatedCodegenBlockPyExpr) -> Option<String> {
+fn codegen_expr_const_string(
+    expr: &LocatedCodegenBlockPyExpr,
+    module_constants: &ModuleCodegenConstants,
+) -> Option<String> {
     match expr {
         CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
             String::from_utf8(bytes.value.clone()).ok()
+        }
+        CodegenBlockPyExpr::Op(blockpy_intrinsics::OperationDetail::LoadLocation(op)) => {
+            op.location.as_constant().and_then(|index| {
+                module_constants.constant_string_value(ModuleConstantId(index as usize))
+            })
         }
         CodegenBlockPyExpr::Op(operation) => match operation {
             blockpy_intrinsics::OperationDetail::Call(call) => {
@@ -1192,6 +1200,13 @@ fn emit_codegen_expr(
                     );
                     return emit_raw_cell_object_for_name(fb, name, local_names, local_values, ctx);
                 }
+                NameLocation::Constant(index) => {
+                    assert!(
+                        !borrowed,
+                        "constant-backed name loads must produce owned references"
+                    );
+                    return emit_owned_module_constant(fb, ModuleConstantId(index as usize), ctx);
+                }
                 NameLocation::Cell(_) => {
                     unreachable!("all cell location cases should be handled above");
                 }
@@ -1228,17 +1243,21 @@ fn emit_codegen_expr(
             );
             match &number.value {
                 soac_blockpy::block_py::CoreNumberLiteralValue::Int(value) => {
-                    let value = value.as_i64().unwrap_or_else(|| {
-                        panic!(
-                            "oversized integer literal reached direct JIT codegen: {}",
-                            value
+                    if let Some(value) = value.as_i64() {
+                        emit_owned_module_constant(
+                            fb,
+                            ctx.module_constants.require_int_constant_id(value),
+                            ctx,
                         )
-                    });
-                    emit_owned_module_constant(
-                        fb,
-                        ctx.module_constants.require_int_constant_id(value),
-                        ctx,
-                    )
+                    } else {
+                        let value_text = value.to_string();
+                        emit_owned_module_constant(
+                            fb,
+                            ctx.module_constants
+                                .require_big_int_constant_id(value_text.as_str()),
+                            ctx,
+                        )
+                    }
                 }
                 soac_blockpy::block_py::CoreNumberLiteralValue::Float(value) => {
                     emit_owned_module_constant(
@@ -1262,6 +1281,13 @@ fn emit_codegen_expr(
             if !matches!(operation, blockpy_intrinsics::OperationDetail::Call(_)) =>
         {
             if let blockpy_intrinsics::OperationDetail::LoadLocation(op) = operation {
+                if let Some(index) = op.location.as_constant() {
+                    assert!(
+                        !borrowed,
+                        "constant-backed LoadLocation must produce owned references"
+                    );
+                    return emit_owned_module_constant(fb, ModuleConstantId(index as usize), ctx);
+                }
                 if let Some(location) = op.location.as_local() {
                     return emit_codegen_local_name_load(
                         fb,
@@ -1476,13 +1502,13 @@ fn emit_codegen_expr(
                     && func_name.id.as_str() == "str"
                     && simple_args.len() == 1
                 {
-                    if let CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) =
-                        simple_args[0]
+                    if let Some(value) =
+                        codegen_expr_const_string(simple_args[0], ctx.module_constants)
                     {
                         return emit_owned_module_constant(
                             fb,
                             ctx.module_constants
-                                .require_unicode_constant_id_for_bytes(bytes.value.as_slice()),
+                                .require_unicode_constant_id(value.as_str()),
                             ctx,
                         );
                     }
@@ -1886,13 +1912,11 @@ fn emit_codegen_expr(
 
             if let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() {
                 if keywords.is_empty() && func_name.id.as_str() == "str" && args.len() == 1 {
-                    if let CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) =
-                        &args[0]
-                    {
+                    if let Some(value) = codegen_expr_const_string(args[0], ctx.module_constants) {
                         return emit_owned_module_constant(
                             fb,
                             ctx.module_constants
-                                .require_unicode_constant_id_for_bytes(bytes.value.as_slice()),
+                                .require_unicode_constant_id(value.as_str()),
                             ctx,
                         );
                     }
@@ -1937,7 +1961,8 @@ fn emit_codegen_expr(
                         return tuple_value;
                     }
                     if func_name.id.as_str() == "load_deleted_name" && args.len() == 2 {
-                        if let Some(name) = codegen_expr_const_string(args[0]) {
+                        if let Some(name) = codegen_expr_const_string(args[0], ctx.module_constants)
+                        {
                             let name_obj = emit_owned_module_constant(
                                 fb,
                                 ctx.module_constants
@@ -3906,6 +3931,7 @@ fn build_cranelift_run_bb_specialized_function(
 pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     blocks: &[ObjPtr],
     function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
+    module_constants: &ModuleCodegenConstants,
 ) -> Result<RenderedSpecializedClif, String> {
     if blocks.is_empty() {
         return Err("specialized JIT run_bb requires at least one block".to_string());
@@ -3914,12 +3940,11 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     let mut builder = new_jit_builder()?;
     register_specialized_jit_symbols(&mut builder);
     let mut jit_module = JITModule::new(builder);
-    let module_constants = ModuleCodegenConstants::collect_from_functions([function]);
     let built = build_cranelift_run_bb_specialized_function(
         &mut jit_module,
         blocks,
         function,
-        &module_constants,
+        module_constants,
     )?;
     let mut out = String::new();
     out.push_str("; import fn aliases (Cranelift display id -> symbol)\n");

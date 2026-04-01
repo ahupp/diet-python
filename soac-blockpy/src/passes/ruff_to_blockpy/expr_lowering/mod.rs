@@ -1,7 +1,7 @@
 use crate::block_py::{
     core_operation_expr, core_runtime_positional_call_expr_with_meta, operation,
-    BlockPyFunctionKind, BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield, FunctionId,
-    Meta, WithMeta,
+    BlockPyFunctionKind, BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyLiteral, CoreStringLiteral, FunctionId, Meta, WithMeta,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::LoopContext;
@@ -13,6 +13,20 @@ mod boolop_compare;
 mod if_expr;
 mod named_expr;
 mod recursive;
+
+fn string_literal_expr(
+    node_index: ast::AtomicNodeIndex,
+    range: TextRange,
+    value: String,
+) -> CoreBlockPyExprWithAwaitAndYield {
+    CoreBlockPyExprWithAwaitAndYield::Literal(CoreBlockPyLiteral::StringLiteral(
+        CoreStringLiteral {
+            node_index,
+            range,
+            value,
+        },
+    ))
+}
 
 pub(crate) trait RuffToBlockPyExpr: From<Expr> + std::fmt::Debug + Clone + Sized {
     fn from_lowered_expr(expr: Expr) -> Self {
@@ -154,8 +168,10 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         value: Self,
         attr: String,
     ) -> Self {
+        let attr_expr = string_literal_expr(node_index.clone(), range, attr);
         core_operation_expr(
-            operation::GetAttr::new(Box::new(value), attr).with_meta(Meta::new(node_index, range)),
+            operation::GetAttr::new(Box::new(value), Box::new(attr_expr))
+                .with_meta(Meta::new(node_index, range)),
         )
     }
 
@@ -166,8 +182,9 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         attr: String,
         replacement: Self,
     ) -> Self {
+        let attr_expr = string_literal_expr(node_index.clone(), range, attr);
         core_operation_expr(
-            operation::SetAttr::new(Box::new(value), attr, Box::new(replacement))
+            operation::SetAttr::new(Box::new(value), Box::new(attr_expr), Box::new(replacement))
                 .with_meta(Meta::new(node_index, range)),
         )
     }

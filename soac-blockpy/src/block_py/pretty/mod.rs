@@ -642,13 +642,13 @@ where
         crate::block_py::OperationDetail::Call(call) => render_call_text(call),
         crate::block_py::OperationDetail::GetAttr(op) => debug_tuple_text(
             "GetAttr",
-            [op.value.debug_expr_text(), format!("{:?}", op.attr)],
+            [op.value.debug_expr_text(), op.attr.debug_expr_text()],
         ),
         crate::block_py::OperationDetail::SetAttr(op) => debug_tuple_text(
             "SetAttr",
             [
                 op.value.debug_expr_text(),
-                format!("{:?}", op.attr),
+                op.attr.debug_expr_text(),
                 op.replacement.debug_expr_text(),
             ],
         ),
@@ -663,9 +663,6 @@ where
             [format!("{:?}", op.name), format!("{:?}", op.quietly)],
         ),
         crate::block_py::OperationDetail::LoadLocation(op) => op.location.pretty_id("<global>"),
-        crate::block_py::OperationDetail::MakeString(op) => {
-            debug_tuple_text("MakeString", [bytes_text(&op.bytes)])
-        }
         crate::block_py::OperationDetail::CellRefForName(op) => {
             debug_tuple_text("CellRefForName", [format!("{:?}", op.logical_name)])
         }

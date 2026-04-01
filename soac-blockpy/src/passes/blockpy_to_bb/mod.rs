@@ -52,7 +52,10 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
             }
         }
     }
-    BlockPyModule { callable_defs }
+    BlockPyModule {
+        callable_defs,
+        module_constants: Vec::new(),
+    }
 }
 
 #[cfg(test)]

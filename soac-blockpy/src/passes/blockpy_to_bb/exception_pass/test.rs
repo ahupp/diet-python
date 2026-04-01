@@ -1,8 +1,10 @@
 use super::lower_try_jump_exception_flow;
 use crate::block_py::{
     validate_module, AbruptKind, BlockArg, BlockParam, BlockParamRole, BlockPyBindingKind,
-    BlockPyCellBindingKind, BlockPyEdge, BlockPyLabel, BlockPyTerm, CodegenBlock,
-    LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, ResolvedStorageBlock, StorageLayout,
+    BlockPyCellBindingKind, BlockPyEdge, BlockPyLabel, BlockPyTerm, CodegenBlock, CoreBlockPyExpr,
+    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, LoadLocation,
+    LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, NameLocation, OperationDetail,
+    ResolvedStorageBlock, StorageLayout,
 };
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::CodegenBlockPyPass;
@@ -24,6 +26,22 @@ fn tracked_codegen_module(source: &str) -> crate::block_py::BlockPyModule<Codege
     let mut codegen = crate::passes::normalize_bb_module_strings(&lowered);
     crate::passes::relabel_dense_bb_module(&mut codegen);
     codegen
+}
+
+fn is_return_of_number_constant(term: &BlockPyTerm<LocatedCoreBlockPyExpr>) -> bool {
+    match term {
+        BlockPyTerm::Return(CoreBlockPyExpr::Literal(CoreBlockPyLiteral::NumberLiteral(
+            CoreNumberLiteral {
+                value: CoreNumberLiteralValue::Int(_),
+                ..
+            },
+        ))) => true,
+        BlockPyTerm::Return(CoreBlockPyExpr::Op(OperationDetail::LoadLocation(LoadLocation {
+            location: NameLocation::Constant(_),
+            ..
+        }))) => true,
+        _ => false,
+    }
 }
 
 #[test]
@@ -386,19 +404,10 @@ def f():
         .find(|candidate| candidate.names.qualname == "f")
         .expect("must contain raw f");
     assert!(
-        raw_function.blocks.iter().any(|block| {
-            matches!(
-                block.term,
-                crate::block_py::BlockPyTerm::Return(crate::block_py::CoreBlockPyExpr::Literal(
-                    crate::block_py::CoreBlockPyLiteral::NumberLiteral(
-                        crate::block_py::CoreNumberLiteral {
-                            value: crate::block_py::CoreNumberLiteralValue::Int(_),
-                            ..
-                        }
-                    )
-                ))
-            )
-        }),
+        raw_function
+            .blocks
+            .iter()
+            .any(|block| is_return_of_number_constant(&block.term)),
         "{raw_function:#?}"
     );
     let lowered = lower_try_jump_exception_flow(&module);
@@ -409,19 +418,10 @@ def f():
         .expect("must contain lowered f");
 
     assert!(
-        lowered_function.blocks.iter().any(|block| {
-            matches!(
-                block.term,
-                crate::block_py::BlockPyTerm::Return(crate::block_py::CoreBlockPyExpr::Literal(
-                    crate::block_py::CoreBlockPyLiteral::NumberLiteral(
-                        crate::block_py::CoreNumberLiteral {
-                            value: crate::block_py::CoreNumberLiteralValue::Int(_),
-                            ..
-                        }
-                    )
-                ))
-            )
-        }),
+        lowered_function
+            .blocks
+            .iter()
+            .any(|block| is_return_of_number_constant(&block.term)),
         "{lowered_function:#?}"
     );
 }

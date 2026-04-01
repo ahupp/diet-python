@@ -9,15 +9,9 @@ pub struct BlockExcDispatchPlan {
     pub slot_writes: Vec<(String, BlockArg)>,
 }
 
-type FunctionRegistry = HashMap<PlanKey, BlockPyFunction<CodegenBlockPyPass>>;
+type ModuleRegistry = HashMap<String, BlockPyModule<CodegenBlockPyPass>>;
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct PlanKey {
-    pub module: String,
-    pub function_id: usize,
-}
-
-static BB_FUNCTION_REGISTRY: OnceLock<Mutex<FunctionRegistry>> = OnceLock::new();
+static BB_MODULE_REGISTRY: OnceLock<Mutex<ModuleRegistry>> = OnceLock::new();
 
 pub fn jit_param_names_for_block(block: &CodegenBlock) -> Vec<String> {
     block.bb_param_names().map(ToString::to_string).collect()
@@ -61,40 +55,33 @@ pub fn exc_dispatch_plan(
     })
 }
 
-fn bb_function_registry() -> &'static Mutex<FunctionRegistry> {
-    BB_FUNCTION_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+fn bb_module_registry() -> &'static Mutex<ModuleRegistry> {
+    BB_MODULE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 pub fn register_clif_module_plans(
     module_name: &str,
     module: &BlockPyModule<CodegenBlockPyPass>,
 ) -> Result<(), String> {
-    let mut functions = HashMap::new();
-    for function in &module.callable_defs {
-        let key = PlanKey {
-            module: module_name.to_string(),
-            function_id: function.function_id.0,
-        };
-        functions.insert(key, function.clone());
-    }
-
-    let mut function_registry = bb_function_registry()
+    let mut module_registry = bb_module_registry()
         .lock()
-        .map_err(|_| "failed to lock bb function registry".to_string())?;
-    function_registry.retain(|key, _| key.module != module_name);
-    function_registry.extend(functions);
+        .map_err(|_| "failed to lock bb module registry".to_string())?;
+    module_registry.insert(module_name.to_string(), module.clone());
     Ok(())
+}
+
+pub fn lookup_blockpy_module(module_name: &str) -> Option<BlockPyModule<CodegenBlockPyPass>> {
+    let registry = bb_module_registry().lock().ok()?;
+    registry.get(module_name).cloned()
 }
 
 pub fn lookup_blockpy_function(
     module_name: &str,
     function_id: usize,
 ) -> Option<BlockPyFunction<CodegenBlockPyPass>> {
-    let registry = bb_function_registry().lock().ok()?;
-    registry
-        .get(&PlanKey {
-            module: module_name.to_string(),
-            function_id,
-        })
-        .cloned()
+    let module = lookup_blockpy_module(module_name)?;
+    module
+        .callable_defs
+        .into_iter()
+        .find(|function| function.function_id.0 == function_id)
 }

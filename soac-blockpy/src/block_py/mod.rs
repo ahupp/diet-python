@@ -15,7 +15,7 @@ use crate::py_expr;
 pub use operation::{
     BinOp, BinOpKind, Call, CellRef, CellRefForName, DelItem, DelLocation, DelName, GetAttr,
     GetItem, InplaceBinOp, InplaceBinOpKind, LoadLocation, LoadName, LoadRuntime, MakeCell,
-    MakeFunction, MakeString, OperationDetail, SetAttr, SetItem, StoreLocation, StoreName, UnaryOp,
+    MakeFunction, OperationDetail, SetAttr, SetItem, StoreLocation, StoreName, UnaryOp,
     UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
@@ -141,6 +141,7 @@ pub enum NameLocation {
     Local(LocalLocation),
     Global,
     Cell(CellLocation),
+    Constant(u32),
 }
 
 impl NameLocation {
@@ -164,17 +165,28 @@ impl NameLocation {
         Self::Cell(CellLocation::CapturedSource(slot))
     }
 
+    pub fn constant(index: u32) -> Self {
+        Self::Constant(index)
+    }
+
     pub fn as_local(self) -> Option<LocalLocation> {
         match self {
             Self::Local(location) => Some(location),
-            Self::Global | Self::Cell(_) => None,
+            Self::Global | Self::Cell(_) | Self::Constant(_) => None,
         }
     }
 
     pub fn as_cell(self) -> Option<CellLocation> {
         match self {
             Self::Cell(location) => Some(location),
-            Self::Local(_) | Self::Global => None,
+            Self::Local(_) | Self::Global | Self::Constant(_) => None,
+        }
+    }
+
+    pub fn as_constant(self) -> Option<u32> {
+        match self {
+            Self::Constant(index) => Some(index),
+            Self::Local(_) | Self::Global | Self::Cell(_) => None,
         }
     }
 
@@ -187,6 +199,7 @@ impl NameLocation {
             Self::Local(location) => location.pretty_id(),
             Self::Global => unresolved_name.to_string(),
             Self::Cell(location) => location.pretty_id(),
+            Self::Constant(index) => format!("constant slot {index}"),
         }
     }
 }
@@ -443,6 +456,7 @@ pub(crate) fn move_entry_block_to_front<S, T>(
 #[derive(Debug, Clone, Default)]
 pub struct BlockPyModule<P: BlockPyPass> {
     pub callable_defs: Vec<BlockPyFunction<P>>,
+    pub module_constants: Vec<P::Expr>,
 }
 
 impl<P: BlockPyPass> BlockPyModule<P> {
@@ -450,8 +464,13 @@ impl<P: BlockPyPass> BlockPyModule<P> {
         self,
         mut f: impl FnMut(BlockPyFunction<P>) -> BlockPyFunction<Q>,
     ) -> BlockPyModule<Q> {
+        debug_assert!(
+            self.module_constants.is_empty(),
+            "map_callable_defs does not preserve module constants"
+        );
         BlockPyModule {
             callable_defs: self.callable_defs.into_iter().map(&mut f).collect(),
+            module_constants: Vec::new(),
         }
     }
 }
@@ -502,6 +521,7 @@ pub enum CoreBlockPyLiteral {
 
 #[derive(Debug, Clone)]
 pub enum CodegenBlockPyLiteral {
+    StringLiteral(CoreStringLiteral),
     BytesLiteral(CoreBytesLiteral),
     NumberLiteral(CoreNumberLiteral),
 }
@@ -775,14 +795,14 @@ where
     fn map_expr(self, f: &mut impl FnMut(Self) -> CodegenBlockPyExpr) -> CodegenBlockPyExpr {
         match self {
             Self::Name(name) => CodegenBlockPyExpr::Name(LocatedName::from(name)),
+            Self::Literal(CoreBlockPyLiteral::StringLiteral(literal)) => {
+                CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(literal))
+            }
             Self::Literal(CoreBlockPyLiteral::BytesLiteral(literal)) => {
                 CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(literal))
             }
             Self::Literal(CoreBlockPyLiteral::NumberLiteral(literal)) => {
                 CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(literal))
-            }
-            Self::Literal(CoreBlockPyLiteral::StringLiteral(_)) => {
-                unreachable!("codegen mapping should lower string literals explicitly")
             }
             Self::Op(operation) => CodegenBlockPyExpr::Op(operation.map_expr(&mut *f)),
         }

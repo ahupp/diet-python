@@ -360,16 +360,13 @@ fn emit_getattr<'fb, E>(
     op: &blockpy_intrinsics::GetAttr<E>,
     state: &mut impl OperationEmitState<'fb, E>,
 ) -> ir::Value {
-    let arg_values = state.emit_arg_values(&[&op.value]);
-    let attr_obj = state.emit_owned_string_constant(op.attr.as_str());
+    let arg_values = state.emit_arg_values(&[&op.value, &op.attr]);
     let pyobject_getattr_ref = state.ctx().pyobject_getattr_ref;
-    let decref_ref = state.ctx().decref_ref;
     let call_inst = state
         .fb()
         .ins()
-        .call(pyobject_getattr_ref, &[arg_values[0].0, attr_obj]);
+        .call(pyobject_getattr_ref, &[arg_values[0].0, arg_values[1].0]);
     state.release_arg_values(&arg_values);
-    state.fb().ins().call(decref_ref, &[attr_obj]);
     let result = state.fb().inst_results(call_inst)[0];
     state.finish_owned_result(result)
 }
@@ -378,16 +375,13 @@ fn emit_setattr<'fb, E>(
     op: &blockpy_intrinsics::SetAttr<E>,
     state: &mut impl OperationEmitState<'fb, E>,
 ) -> ir::Value {
-    let arg_values = state.emit_arg_values(&[&op.value, &op.replacement]);
-    let attr_obj = state.emit_owned_string_constant(op.attr.as_str());
+    let arg_values = state.emit_arg_values(&[&op.value, &op.attr, &op.replacement]);
     let pyobject_setattr_ref = state.ctx().pyobject_setattr_ref;
-    let decref_ref = state.ctx().decref_ref;
     let call_inst = state.fb().ins().call(
         pyobject_setattr_ref,
-        &[arg_values[0].0, attr_obj, arg_values[1].0],
+        &[arg_values[0].0, arg_values[1].0, arg_values[2].0],
     );
     state.release_arg_values(&arg_values);
-    state.fb().ins().call(decref_ref, &[attr_obj]);
     let result = state.fb().inst_results(call_inst)[0];
     state.finish_owned_result(result)
 }
@@ -399,17 +393,6 @@ fn emit_make_cell<'fb, E>(state: &mut impl OperationEmitState<'fb, E>, args: &[&
     state.release_arg_values(&arg_values);
     let result = state.fb().inst_results(call_inst)[0];
     state.finish_owned_result(result)
-}
-
-fn emit_make_string<'fb, E>(
-    op: &blockpy_intrinsics::MakeString,
-    state: &mut impl OperationEmitState<'fb, E>,
-) -> ir::Value {
-    let constant_id = state
-        .ctx()
-        .module_constants
-        .require_unicode_constant_id_for_bytes(op.bytes.as_slice());
-    state.emit_owned_module_constant(constant_id)
 }
 
 fn emit_getitem<'fb, E>(state: &mut impl OperationEmitState<'fb, E>, args: &[&E]) -> ir::Value {
@@ -674,7 +657,6 @@ pub(super) fn emit_operation<'fb, E>(
         blockpy_intrinsics::OperationDetail::MakeCell(op) => {
             Some(emit_make_cell(state, &[op.initial_value.as_ref()]))
         }
-        blockpy_intrinsics::OperationDetail::MakeString(op) => Some(emit_make_string(op, state)),
         blockpy_intrinsics::OperationDetail::CellRefForName(_) => None,
         blockpy_intrinsics::OperationDetail::CellRef(_) => None,
         blockpy_intrinsics::OperationDetail::MakeFunction(_) => None,

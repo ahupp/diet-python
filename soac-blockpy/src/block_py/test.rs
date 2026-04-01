@@ -222,6 +222,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             storage_layout: None,
             semantic: BlockPyCallableSemanticInfo::default(),
         }],
+        module_constants: Vec::new(),
     };
 
     let mut visitor = TraceVisitor::default();
@@ -354,6 +355,7 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
             storage_layout: None,
             semantic: BlockPyCallableSemanticInfo::default(),
         }],
+        module_constants: Vec::new(),
     };
 
     assert!(module.try_map_module(&RejectAwaitMapper).is_err());

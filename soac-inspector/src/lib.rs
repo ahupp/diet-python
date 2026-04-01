@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use soac_blockpy::block_py::BlockPyFunction;
 use soac_blockpy::passes::CodegenBlockPyPass;
 use soac_eval::jit;
+use soac_eval::module_constants::ModuleCodegenConstants;
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
@@ -286,8 +287,15 @@ pub fn render_registered_jit_clif(
     module_name: &str,
     function_id: usize,
 ) -> Result<JitClifResponse, String> {
-    let function = jit::lookup_blockpy_function(module_name, function_id)
+    let module = jit::lookup_blockpy_module(module_name)
+        .ok_or_else(|| format!("no specialized JIT plan for {module_name}"))?;
+    let function = module
+        .callable_defs
+        .iter()
+        .find(|function| function.function_id.0 == function_id)
+        .cloned()
         .ok_or_else(|| format!("no specialized JIT plan for {module_name}.fn#{function_id}"))?;
+    let module_constants = ModuleCodegenConstants::collect_from_module(&module);
     prepare_python();
     let rendered = Python::attach(|py| {
         ensure_python_support_paths(py, repo_root).map_err(|err| err.error)?;
@@ -296,6 +304,7 @@ pub fn render_registered_jit_clif(
             jit::render_cranelift_run_bb_specialized_with_cfg(
                 &vec![std::ptr::null_mut::<c_void>(); function.blocks.len()],
                 &function,
+                &module_constants,
             )
         }
     })?;

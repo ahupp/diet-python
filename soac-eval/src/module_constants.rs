@@ -2,9 +2,9 @@ use pyo3::ffi;
 use pyo3::prelude::*;
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm,
-    CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyKeywordArg,
-    CoreNumberLiteralValue, LocatedCodegenBlockPyExpr, LocatedName, NameLocation,
-    ParamDefaultSource, operation as blockpy_intrinsics,
+    CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyKeywordArg, CoreNumberLiteralValue,
+    LocatedCodegenBlockPyExpr, LocatedName, NameLocation, ParamDefaultSource,
+    operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::collections::HashMap;
@@ -27,6 +27,7 @@ enum ModuleConstantValue {
     Unicode(Vec<u8>),
     Bytes(Vec<u8>),
     Int(i64),
+    BigInt(String),
     FloatBits(u64),
 }
 
@@ -38,7 +39,17 @@ pub struct ModuleCodegenConstants {
 
 impl ModuleCodegenConstants {
     pub fn collect_from_module(module: &BlockPyModule<CodegenBlockPyPass>) -> Self {
-        Self::collect_from_functions(module.callable_defs.iter())
+        let mut collector = ModuleConstantCollector::default();
+        for expr in &module.module_constants {
+            collector.constants.push_explicit_expr(expr);
+        }
+        for name in ALWAYS_REQUIRED_UNICODE_CONSTANTS {
+            collector.constants.intern_unicode_bytes(name.as_bytes());
+        }
+        for function in &module.callable_defs {
+            collector.collect_function(function);
+        }
+        collector.constants
     }
 
     pub fn collect_from_functions<'a>(
@@ -84,6 +95,14 @@ impl ModuleCodegenConstants {
                     let bound: Bound<'_, PyAny> = unsafe { Bound::from_owned_ptr_or_err(py, ptr)? };
                     bound.unbind()
                 }
+                ModuleConstantValue::BigInt(value) => {
+                    let value = std::ffi::CString::new(value.as_str())
+                        .expect("big int literal should not contain NUL");
+                    let mut end_ptr = std::ptr::null_mut();
+                    let ptr = unsafe { ffi::PyLong_FromString(value.as_ptr(), &mut end_ptr, 0) };
+                    let bound: Bound<'_, PyAny> = unsafe { Bound::from_owned_ptr_or_err(py, ptr)? };
+                    bound.unbind()
+                }
                 ModuleConstantValue::FloatBits(bits) => {
                     let ptr = unsafe { ffi::PyFloat_FromDouble(f64::from_bits(*bits)) };
                     let bound: Bound<'_, PyAny> = unsafe { Bound::from_owned_ptr_or_err(py, ptr)? };
@@ -118,13 +137,82 @@ impl ModuleCodegenConstants {
             .unwrap_or_else(|| panic!("missing module int constant in codegen pool: {value}"))
     }
 
+    pub fn require_big_int_constant_id(&self, value: &str) -> ModuleConstantId {
+        self.lookup_id(&ModuleConstantValue::BigInt(value.to_string()))
+            .unwrap_or_else(|| panic!("missing module big-int constant in codegen pool: {value}"))
+    }
+
     pub fn require_float_constant_id(&self, value: f64) -> ModuleConstantId {
         self.lookup_id(&ModuleConstantValue::FloatBits(value.to_bits()))
             .unwrap_or_else(|| panic!("missing module float constant in codegen pool: {value}"))
     }
 
+    pub fn constant_bytes_value(&self, constant_id: ModuleConstantId) -> Option<&[u8]> {
+        match self.values.get(constant_id.0)? {
+            ModuleConstantValue::Bytes(bytes) => Some(bytes.as_slice()),
+            ModuleConstantValue::Unicode(_)
+            | ModuleConstantValue::Int(_)
+            | ModuleConstantValue::BigInt(_)
+            | ModuleConstantValue::FloatBits(_) => None,
+        }
+    }
+
+    pub fn constant_string_bytes_value(&self, constant_id: ModuleConstantId) -> Option<&[u8]> {
+        match self.values.get(constant_id.0)? {
+            ModuleConstantValue::Unicode(bytes) | ModuleConstantValue::Bytes(bytes) => {
+                Some(bytes.as_slice())
+            }
+            ModuleConstantValue::Int(_)
+            | ModuleConstantValue::BigInt(_)
+            | ModuleConstantValue::FloatBits(_) => None,
+        }
+    }
+
+    pub fn constant_string_value(&self, constant_id: ModuleConstantId) -> Option<String> {
+        match self.values.get(constant_id.0)? {
+            ModuleConstantValue::Unicode(bytes) | ModuleConstantValue::Bytes(bytes) => {
+                String::from_utf8(bytes.clone()).ok()
+            }
+            ModuleConstantValue::Int(_)
+            | ModuleConstantValue::BigInt(_)
+            | ModuleConstantValue::FloatBits(_) => None,
+        }
+    }
+
     fn lookup_id(&self, value: &ModuleConstantValue) -> Option<ModuleConstantId> {
         self.ids.get(value).copied()
+    }
+
+    fn push_explicit_expr(&mut self, expr: &LocatedCodegenBlockPyExpr) -> ModuleConstantId {
+        let value = match expr {
+            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
+                ModuleConstantValue::Unicode(string.value.as_bytes().to_vec())
+            }
+            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
+                ModuleConstantValue::Bytes(bytes.value.clone())
+            }
+            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(number)) => {
+                match &number.value {
+                    CoreNumberLiteralValue::Int(value) => {
+                        if let Some(value) = value.as_i64() {
+                            ModuleConstantValue::Int(value)
+                        } else {
+                            ModuleConstantValue::BigInt(value.to_string())
+                        }
+                    }
+                    CoreNumberLiteralValue::Float(value) => {
+                        ModuleConstantValue::FloatBits(value.to_bits())
+                    }
+                }
+            }
+            CodegenBlockPyExpr::Name(_) | CodegenBlockPyExpr::Op(_) => {
+                panic!("unsupported explicit module constant expr after codegen lowering: {expr:?}")
+            }
+        };
+        let id = ModuleConstantId(self.values.len());
+        self.values.push(value.clone());
+        self.ids.entry(value).or_insert(id);
+        id
     }
 
     fn intern(&mut self, value: ModuleConstantValue) -> ModuleConstantId {
@@ -147,6 +235,10 @@ impl ModuleCodegenConstants {
 
     fn intern_int(&mut self, value: i64) -> ModuleConstantId {
         self.intern(ModuleConstantValue::Int(value))
+    }
+
+    fn intern_big_int(&mut self, value: &str) -> ModuleConstantId {
+        self.intern(ModuleConstantValue::BigInt(value.to_string()))
     }
 
     fn intern_float(&mut self, value: f64) -> ModuleConstantId {
@@ -217,11 +309,18 @@ impl ModuleConstantCollector {
                     self.constants.intern_unicode_bytes(name.id.as_bytes());
                 }
             }
+            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
+                self.constants
+                    .intern_unicode_bytes(string.value.as_bytes());
+            }
             CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(number)) => {
                 match &number.value {
                     CoreNumberLiteralValue::Int(value) => {
                         if let Some(value) = value.as_i64() {
                             self.constants.intern_int(value);
+                        } else {
+                            let value_text = value.to_string();
+                            self.constants.intern_big_int(value_text.as_str());
                         }
                     }
                     CoreNumberLiteralValue::Float(value) => {
@@ -234,11 +333,14 @@ impl ModuleConstantCollector {
             }
             CodegenBlockPyExpr::Op(operation) => {
                 if let blockpy_intrinsics::OperationDetail::Call(call) = operation {
-                    if let Some(const_bytes) = string_constant_bytes_for_specialized_codegen(expr) {
-                        self.constants.intern_unicode_bytes(const_bytes);
+                    if let Some(const_bytes) =
+                        self.string_constant_bytes_for_specialized_codegen(expr)
+                    {
+                        self.constants.intern_unicode_bytes(const_bytes.as_slice());
                     }
-                    if let Some(delete_name_bytes) = deleted_name_arg_bytes(call) {
-                        self.constants.intern_unicode_bytes(delete_name_bytes);
+                    if let Some(delete_name_bytes) = self.deleted_name_arg_bytes(call) {
+                        self.constants
+                            .intern_unicode_bytes(delete_name_bytes.as_slice());
                     }
                     self.collect_expr(call.func.as_ref());
                     for arg in &call.args {
@@ -253,12 +355,6 @@ impl ModuleConstantCollector {
                     return;
                 }
                 match operation {
-                    blockpy_intrinsics::OperationDetail::GetAttr(op) => {
-                        self.constants.intern_unicode_bytes(op.attr.as_bytes());
-                    }
-                    blockpy_intrinsics::OperationDetail::SetAttr(op) => {
-                        self.constants.intern_unicode_bytes(op.attr.as_bytes());
-                    }
                     blockpy_intrinsics::OperationDetail::StoreName(op) => {
                         self.constants.intern_unicode_bytes(op.name.as_bytes());
                     }
@@ -267,9 +363,6 @@ impl ModuleConstantCollector {
                     }
                     blockpy_intrinsics::OperationDetail::LoadName(op) => {
                         self.constants.intern_unicode_bytes(op.name.as_bytes());
-                    }
-                    blockpy_intrinsics::OperationDetail::MakeString(op) => {
-                        self.constants.intern_unicode_bytes(op.bytes.as_slice());
                     }
                     blockpy_intrinsics::OperationDetail::DelName(op) => {
                         self.constants.intern_unicode_bytes(op.name.as_bytes());
@@ -280,17 +373,53 @@ impl ModuleConstantCollector {
             }
         }
     }
-}
 
-fn deleted_name_arg_bytes(
-    call: &blockpy_intrinsics::Call<LocatedCodegenBlockPyExpr>,
-) -> Option<&[u8]> {
-    if helper_name_for_codegen_expr(call.func.as_ref()) != Some("load_deleted_name")
-        || call.args.len() != 2
-    {
-        return None;
+    fn deleted_name_arg_bytes(
+        &self,
+        call: &blockpy_intrinsics::Call<LocatedCodegenBlockPyExpr>,
+    ) -> Option<Vec<u8>> {
+        if helper_name_for_codegen_expr(call.func.as_ref()) != Some("load_deleted_name")
+            || call.args.len() != 2
+        {
+            return None;
+        }
+        self.string_constant_bytes_for_specialized_codegen(call.args[0].expr())
     }
-    string_constant_bytes_for_specialized_codegen(call.args[0].expr())
+
+    fn string_constant_bytes_for_specialized_codegen(
+        &self,
+        expr: &LocatedCodegenBlockPyExpr,
+    ) -> Option<Vec<u8>> {
+        match expr {
+            CodegenBlockPyExpr::Name(_) => None,
+            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
+                Some(string.value.as_bytes().to_vec())
+            }
+            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(_)) => None,
+            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
+                Some(bytes.value.clone())
+            }
+            CodegenBlockPyExpr::Op(operation) => match operation {
+                blockpy_intrinsics::OperationDetail::LoadLocation(op) => {
+                    op.location.as_constant().and_then(|index| {
+                        self.constants
+                            .constant_string_bytes_value(ModuleConstantId(index as usize))
+                            .map(ToOwned::to_owned)
+                    })
+                }
+                blockpy_intrinsics::OperationDetail::Call(call) => {
+                    if helper_name_for_codegen_expr(call.func.as_ref()) != Some("str")
+                        || call.args.len() != 1
+                        || !call.keywords.is_empty()
+                    {
+                        return None;
+                    }
+                    self.string_constant_bytes_for_specialized_codegen(call.args[0].expr())
+                }
+                _ => None,
+            },
+        }
+    }
 }
 
 fn helper_name_for_codegen_expr(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
@@ -302,37 +431,6 @@ fn helper_name_for_codegen_expr(expr: &LocatedCodegenBlockPyExpr) -> Option<&str
             _ => None,
         },
         CodegenBlockPyExpr::Literal(_) => None,
-    }
-}
-
-fn string_constant_bytes_for_specialized_codegen(
-    expr: &LocatedCodegenBlockPyExpr,
-) -> Option<&[u8]> {
-    match expr {
-        CodegenBlockPyExpr::Name(_) => None,
-        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(_)) => None,
-        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
-            Some(bytes.value.as_slice())
-        }
-        CodegenBlockPyExpr::Op(operation) => match operation {
-            blockpy_intrinsics::OperationDetail::MakeString(op) => Some(op.bytes.as_slice()),
-            blockpy_intrinsics::OperationDetail::Call(call) => {
-                if helper_name_for_codegen_expr(call.func.as_ref()) != Some("str")
-                    || call.args.len() != 1
-                    || !call.keywords.is_empty()
-                {
-                    return None;
-                }
-                let CoreBlockPyCallArg::Positional(CodegenBlockPyExpr::Literal(
-                    CodegenBlockPyLiteral::BytesLiteral(bytes),
-                )) = &call.args[0]
-                else {
-                    return None;
-                };
-                Some(bytes.value.as_slice())
-            }
-            _ => None,
-        },
     }
 }
 

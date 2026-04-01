@@ -114,6 +114,7 @@ impl HasMeta for CoreBlockPyLiteral {
 impl HasMeta for CodegenBlockPyLiteral {
     fn meta(&self) -> Meta {
         match self {
+            Self::StringLiteral(literal) => literal.meta(),
             Self::BytesLiteral(literal) => literal.meta(),
             Self::NumberLiteral(literal) => literal.meta(),
         }

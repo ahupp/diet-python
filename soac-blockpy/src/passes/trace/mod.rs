@@ -1,7 +1,7 @@
 use crate::block_py::{
     core_operation_expr, core_runtime_positional_call_expr_with_meta, BlockPyFunction,
-    BlockPyModule, LocatedCodegenBlockPyExpr, LocatedName, MakeString, Meta, NameLocation,
-    StructuredBlockPyStmt, WithMeta,
+    BlockPyModule, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreStringLiteral,
+    LocatedCodegenBlockPyExpr, LocatedName, Meta, NameLocation, StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
 use ruff_python_ast::{self as ast};
@@ -43,6 +43,7 @@ pub(crate) fn instrument_bb_module_for_trace(
     module: &mut BlockPyModule<CodegenBlockPyPass>,
     config: &TraceConfig,
 ) {
+    let module_constants = &mut module.module_constants;
     for function in &mut module.callable_defs {
         if let Some(filter) = config.qualname_filter.as_ref() {
             if function.names.qualname != *filter {
@@ -57,17 +58,17 @@ pub(crate) fn instrument_bb_module_for_trace(
                 helper_call_expr(
                     "bb_trace_enter",
                     vec![
-                        string_literal_expr(qualname.as_str()),
-                        string_literal_expr(block.label.to_string().as_str()),
-                        param_pairs_expr(&locator, block_params.as_slice()),
+                        string_literal_expr(module_constants, qualname.as_str()),
+                        string_literal_expr(module_constants, block.label.to_string().as_str()),
+                        param_pairs_expr(module_constants, &locator, block_params.as_slice()),
                     ],
                 )
             } else {
                 helper_call_expr(
                     "bb_trace_enter",
                     vec![
-                        string_literal_expr(qualname.as_str()),
-                        string_literal_expr(block.label.to_string().as_str()),
+                        string_literal_expr(module_constants, qualname.as_str()),
+                        string_literal_expr(module_constants, block.label.to_string().as_str()),
                     ],
                 )
             };
@@ -176,10 +177,25 @@ fn helper_call_expr(
     core_runtime_positional_call_expr_with_meta(helper_name, meta.node_index, meta.range, args)
 }
 
-fn string_literal_expr(value: &str) -> LocatedCodegenBlockPyExpr {
+fn string_literal_expr(
+    module_constants: &mut Vec<LocatedCodegenBlockPyExpr>,
+    value: &str,
+) -> LocatedCodegenBlockPyExpr {
+    let meta = Meta::synthetic();
+    let index =
+        u32::try_from(module_constants.len()).expect("trace module constant count should fit in u32");
+    module_constants.push(CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(
+        CoreStringLiteral {
+            node_index: meta.node_index.clone(),
+            range: meta.range,
+            value: value.to_string(),
+        },
+    )));
     core_operation_expr(
-        crate::block_py::OperationDetail::from(MakeString::new(value.as_bytes().to_vec()))
-            .with_meta(Meta::synthetic()),
+        crate::block_py::OperationDetail::from(crate::block_py::LoadLocation::new(
+            NameLocation::Constant(index),
+        ))
+        .with_meta(meta),
     )
 }
 
@@ -188,6 +204,7 @@ fn tuple_expr(values: Vec<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyEx
 }
 
 fn param_pairs_expr(
+    module_constants: &mut Vec<LocatedCodegenBlockPyExpr>,
     locator: &PreparedTraceNameLocator,
     params: &[String],
 ) -> LocatedCodegenBlockPyExpr {
@@ -196,7 +213,7 @@ fn param_pairs_expr(
             .iter()
             .map(|param| {
                 tuple_expr(vec![
-                    string_literal_expr(param),
+                    string_literal_expr(module_constants, param),
                     LocatedCodegenBlockPyExpr::Name(locator.load_name(param)),
                 ])
             })

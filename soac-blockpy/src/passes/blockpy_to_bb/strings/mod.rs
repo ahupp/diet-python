@@ -1,7 +1,4 @@
-use crate::block_py::{
-    core_operation_expr, BlockPyModule, BlockPyModuleMap, CoreBlockPyLiteral, HasMeta,
-    LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, MakeString, OperationDetail, WithMeta,
-};
+use crate::block_py::{BlockPyModule, BlockPyModuleMap, LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr};
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 
 pub fn normalize_bb_module_strings(
@@ -14,15 +11,7 @@ struct CodegenExprNormalizer;
 
 impl BlockPyModuleMap<ResolvedStorageBlockPyPass, CodegenBlockPyPass> for CodegenExprNormalizer {
     fn map_expr(&self, expr: LocatedCoreBlockPyExpr) -> LocatedCodegenBlockPyExpr {
-        match expr {
-            LocatedCoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(node)) => {
-                let meta = node.meta();
-                core_operation_expr(
-                    OperationDetail::from(MakeString::new(node.value.into_bytes())).with_meta(meta),
-                )
-            }
-            _ => self.map_nested_expr(expr),
-        }
+        self.map_nested_expr(expr)
     }
 }
 

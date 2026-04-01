@@ -409,6 +409,7 @@ fn lowering_recursive_local_function_with_finally_keeps_plain_binding_before_nam
     let rendered =
         crate::block_py::pretty::blockpy_module_to_string(&crate::block_py::BlockPyModule {
             callable_defs: vec![exercise.clone()],
+            module_constants: Vec::new(),
         });
     assert!(rendered.contains("recurse = MakeFunction"), "{rendered}");
     assert!(
@@ -482,6 +483,7 @@ fn lowering_recursive_local_function_finally_return_preserves_liveins() {
     let rendered =
         crate::block_py::pretty::blockpy_module_to_string(&crate::block_py::BlockPyModule {
             callable_defs: vec![exercise.clone()],
+            module_constants: Vec::new(),
         });
     assert!(
         rendered.contains("jump ")
@@ -526,6 +528,7 @@ fn lowering_nonlocal_inner_captures_outer_cell() {
     let rendered =
         crate::block_py::pretty::blockpy_module_to_string(&crate::block_py::BlockPyModule {
             callable_defs: vec![outer.clone()],
+            module_constants: Vec::new(),
         });
     assert!(
         rendered.contains("inner = MakeFunction(0, Function, tuple_values(), NONE)"),

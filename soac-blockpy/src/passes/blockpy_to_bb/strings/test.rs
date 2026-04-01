@@ -100,6 +100,12 @@ fn probe_bb_stmt_exprs(
     }
 }
 
+fn probe_module_constant_exprs(probe: &mut ExprShapeProbe, exprs: &[CodegenBlockPyExpr]) {
+    for expr in exprs {
+        probe_bb_exprs(probe, expr);
+    }
+}
+
 #[test]
 fn lowers_attributes_and_string_literals_for_codegen() {
     let source = r#"
@@ -112,6 +118,7 @@ def f():
     let normalized = normalize_bb_module_strings(&prepared);
 
     let mut probe = ExprShapeProbe::new();
+    probe_module_constant_exprs(&mut probe, &normalized.module_constants);
     for function in normalized.callable_defs {
         for block in &function.blocks {
             for op in &block.body {
@@ -204,6 +211,7 @@ fn lowers_surrogate_escaped_string_literals_for_codegen() {
     let normalized = normalize_bb_module_strings(&prepared);
 
     let mut probe = ExprShapeProbe::new();
+    probe_module_constant_exprs(&mut probe, &normalized.module_constants);
     for function in normalized.callable_defs {
         for block in &function.blocks {
             for op in &block.body {

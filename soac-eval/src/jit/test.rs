@@ -163,17 +163,25 @@ mod tests {
         function: &BlockPyFunction<CodegenBlockPyPass>,
         blocks: &[ObjPtr],
     ) -> String {
+        let module_constants =
+            crate::module_constants::ModuleCodegenConstants::collect_from_functions([function]);
+        render_test_jit_function_with_constants(function, blocks, &module_constants)
+    }
+
+    fn render_test_jit_function_with_constants(
+        function: &BlockPyFunction<CodegenBlockPyPass>,
+        blocks: &[ObjPtr],
+        module_constants: &crate::module_constants::ModuleCodegenConstants,
+    ) -> String {
         unsafe {
             let mut builder = new_jit_builder().expect("test jit builder should construct");
             register_specialized_jit_symbols(&mut builder);
             let mut jit_module = JITModule::new(builder);
-            let module_constants =
-                crate::module_constants::ModuleCodegenConstants::collect_from_functions([function]);
             let built = build_cranelift_run_bb_specialized_function(
                 &mut jit_module,
                 blocks,
                 function,
-                &module_constants,
+                module_constants,
             )
             .expect("specialized JIT build should succeed");
             let (clif, _cfg_dot, _vcode_disasm) = render_compiled_clif_and_vcode_disasm(
@@ -290,6 +298,33 @@ mod tests {
         assert!(
             !rendered.contains("call dp_jit_decode_literal_bytes"),
             "MakeString lowering should not decode literal bytes directly anymore:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_constant_locations_use_module_constant_loader() {
+        let blocks = [1usize as ObjPtr];
+        let function = with_single_test_block(
+            test_function(),
+            vec![],
+            ret_term(op_expr(
+                OperationDetail::from(soac_blockpy::block_py::LoadLocation::new(
+                    NameLocation::Constant(0),
+                ))
+                .with_meta(Meta::synthetic()),
+            )),
+        );
+        let module = BlockPyModule {
+            callable_defs: vec![function.clone()],
+            module_constants: vec![int_expr(7)],
+        };
+        let module_constants =
+            crate::module_constants::ModuleCodegenConstants::collect_from_module(&module);
+        let rendered =
+            render_test_jit_function_with_constants(&function, &blocks, &module_constants);
+        assert!(
+            rendered.contains("call dp_jit_load_module_constant"),
+            "constant slot lowering should load through the module constant table:\n{rendered}"
         );
     }
 

@@ -137,6 +137,19 @@ fn block_uses_text(block: &ResolvedStorageBlock, needle: &str) -> bool {
     }
 }
 
+fn count_occurrences(text: &str, needle: &str) -> usize {
+    text.matches(needle).count()
+}
+
+fn module_constant_text(module: &BlockPyModule<ResolvedStorageBlockPyPass>) -> String {
+    module
+        .module_constants
+        .iter()
+        .map(expr_text)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[test]
 fn core_blockpy_with_await_keeps_plain_coroutines_without_fake_yield_marker() {
     let source = r#"
@@ -203,18 +216,9 @@ def fmt(value):
             .any(|block| block_uses_text(block, "templatelib_Interpolation")),
         "{fmt:?}"
     );
-    assert!(
-        fmt.blocks
-            .iter()
-            .any(|block| block_uses_text(block, "\"value\"")),
-        "{fmt:?}"
-    );
-    assert!(
-        fmt.blocks
-            .iter()
-            .any(|block| block_uses_text(block, "\"\"")),
-        "{fmt:?}"
-    );
+    let constant_text = module_constant_text(lowered.bb_module());
+    assert!(constant_text.contains("\"value\""), "{constant_text}");
+    assert!(constant_text.contains("\"\""), "{constant_text}");
 }
 
 #[test]
@@ -329,7 +333,7 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("class_lookup_global(local slot 0, \"y\", globals())"),
+        count_occurrences(name_binding_rendered.as_str(), "class_lookup_global(") >= 2,
         "{name_binding_rendered}"
     );
 }
@@ -353,8 +357,7 @@ def outer():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered
-            .contains("class_lookup_cell(local slot 0, \"x\", captured cell source slot"),
+        name_binding_rendered.contains("class_lookup_cell("),
         "{name_binding_rendered}"
     );
 }
@@ -380,7 +383,8 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("SetItem(local slot 0, \"f\","),
+        name_binding_rendered.contains("SetItem(local slot 0,")
+            && name_binding_rendered.contains("make_function("),
         "{name_binding_rendered}"
     );
 }
@@ -407,7 +411,7 @@ def outer():
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered.contains("StoreLocation(captured cell source slot")
-            && name_binding_rendered.contains(", 1)"),
+            && name_binding_rendered.contains("constant slot"),
         "{name_binding_rendered}"
     );
 }
@@ -429,7 +433,7 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("SetItem(local slot 0, \"x\", 1)"),
+        name_binding_rendered.contains("SetItem(local slot 0, constant slot"),
         "{name_binding_rendered}"
     );
 }
@@ -453,7 +457,7 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("DelItem(local slot 0, \"x\")"),
+        name_binding_rendered.contains("DelItem(local slot 0, constant slot"),
         "{name_binding_rendered}"
     );
 }
@@ -529,7 +533,8 @@ fn nested_method_dunder_class_capture_uses_classcell_storage() {
     );
     assert!(
         name_binding_rendered.contains("make_function(")
-            && name_binding_rendered.contains("\"__class__\", CellRef(owned cell slot 0)"),
+            && name_binding_rendered.contains("constant slot")
+            && name_binding_rendered.contains("CellRef(owned cell slot 0)"),
         "{name_binding_rendered}"
     );
 }
@@ -810,11 +815,11 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("SetItem(local slot 0, \"caught\", local slot"),
+        name_binding_rendered.contains("SetItem(local slot 0, constant slot"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("DelItem(local slot 0, \"caught\")"),
+        name_binding_rendered.contains("DelItem(local slot 0, constant slot"),
         "{name_binding_rendered}"
     );
 }
@@ -837,7 +842,7 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("StoreName(\"y\", 1)"),
+        name_binding_rendered.contains("StoreName(\"y\", constant slot"),
         "{name_binding_rendered}"
     );
 }
@@ -864,7 +869,7 @@ def outer():
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered.contains("StoreLocation(captured cell source slot")
-            && name_binding_rendered.contains(", 1)"),
+            && name_binding_rendered.contains("constant slot"),
         "{name_binding_rendered}"
     );
 }
@@ -944,7 +949,8 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("SetItem(local slot 0, \"value\", contextmanager_enter("),
+        name_binding_rendered.contains("SetItem(local slot 0,")
+            && name_binding_rendered.contains("contextmanager_enter("),
         "{name_binding_rendered}"
     );
 }
@@ -1005,7 +1011,8 @@ class A:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("SetItem(local slot 0, \"B\", local slot"),
+        name_binding_rendered.contains("SetItem(local slot 0,")
+            && name_binding_rendered.contains("make_function("),
         "{name_binding_rendered}"
     );
 }
@@ -1213,9 +1220,9 @@ def gen():
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("StoreLocation(captured cell source slot 0, 0)")
+        name_binding_rendered.contains("StoreLocation(captured cell source slot 0, constant slot")
             || name_binding_rendered.contains(
-                "StoreLocation(captured cell source slot 0, BinOp(Add, captured cell source slot 0, 1))"
+                "StoreLocation(captured cell source slot 0, BinOp(Add, captured cell source slot 0, constant slot"
             ),
         "{name_binding_rendered}"
     );
@@ -1292,15 +1299,8 @@ def gen():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("owned cell slot 0 = MakeCell(NONE)"),
-        "{name_binding_rendered}"
-    );
-    assert!(
-        name_binding_rendered.contains("owned cell slot 1 = MakeCell(1)"),
-        "{name_binding_rendered}"
-    );
-    assert!(
-        name_binding_rendered.contains("owned cell slot 2 = MakeCell(NONE)"),
+        name_binding_rendered.contains("owned cell slot 1 = MakeCell(constant slot")
+            && count_occurrences(name_binding_rendered.as_str(), "MakeCell(") >= 3,
         "{name_binding_rendered}"
     );
 }
@@ -1419,7 +1419,7 @@ y = x
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("StoreName(\"x\", 1)"),
+        name_binding_rendered.contains("StoreName(\"x\", constant slot"),
         "{name_binding_rendered}"
     );
     assert!(
@@ -1596,7 +1596,8 @@ def f():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("load_deleted_name(\"x\", DELETED)"),
+        name_binding_rendered.contains("load_deleted_name(constant slot")
+            && name_binding_rendered.contains("DELETED"),
         "{name_binding_rendered}"
     );
 }

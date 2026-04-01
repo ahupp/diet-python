@@ -8,8 +8,8 @@ use crate::block_py::{
     CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
     CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, DelItem,
     DelLocation, DelName, FunctionId, HasMeta, LoadLocation, LoadName, LoadRuntime, LocalLocation,
-    LocatedName, MakeCell, MakeFunction, NameLocation, OperationDetail, SetItem, StorageLayout,
-    StoreLocation, StoreName, WithMeta,
+    LocatedCoreBlockPyExpr, LocatedName, MakeCell, MakeFunction, NameLocation, OperationDetail,
+    SetItem, StorageLayout, StoreLocation, StoreName, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -70,6 +70,12 @@ type ResolvedStmt = PassStmt<ResolvedStorageBlockPyPass>;
 
 fn op_stmt(operation: OperationDetail<CoreBlockPyExpr>) -> CoreStmt {
     BlockPyStmt::Expr(op_expr(operation))
+}
+
+fn constant_location_expr(meta: crate::block_py::Meta, index: u32) -> LocatedCoreBlockPyExpr {
+    CoreBlockPyExpr::Op(
+        OperationDetail::from(LoadLocation::new(NameLocation::Constant(index))).with_meta(meta),
+    )
 }
 
 fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
@@ -2597,18 +2603,86 @@ fn lower_name_binding_callable(
     lowered
 }
 
+#[derive(Default)]
+struct ModuleConstantExtractor {
+    constants: Vec<LocatedCoreBlockPyExpr>,
+}
+
+impl ModuleConstantExtractor {
+    fn extract_module(
+        mut self,
+        mut module: BlockPyModule<ResolvedStorageBlockPyPass>,
+    ) -> BlockPyModule<ResolvedStorageBlockPyPass> {
+        debug_assert!(
+            module.module_constants.is_empty(),
+            "name binding should be the first pass to populate module constants"
+        );
+        for callable in &mut module.callable_defs {
+            self.extract_function(callable);
+        }
+        module.module_constants = self.constants;
+        module
+    }
+
+    fn extract_function(&mut self, function: &mut BlockPyFunction<ResolvedStorageBlockPyPass>) {
+        for block in &mut function.blocks {
+            for stmt in &mut block.body {
+                self.extract_stmt(stmt);
+            }
+            self.extract_term(&mut block.term);
+        }
+    }
+
+    fn extract_stmt(&mut self, stmt: &mut BlockPyStmt<LocatedCoreBlockPyExpr, LocatedName>) {
+        match stmt {
+            BlockPyStmt::Assign(assign) => self.extract_expr(&mut assign.value),
+            BlockPyStmt::Expr(expr) => self.extract_expr(expr),
+            BlockPyStmt::Delete(_) => {}
+        }
+    }
+
+    fn extract_term(&mut self, term: &mut BlockPyTerm<LocatedCoreBlockPyExpr>) {
+        match term {
+            BlockPyTerm::Jump(_) => {}
+            BlockPyTerm::IfTerm(if_term) => self.extract_expr(&mut if_term.test),
+            BlockPyTerm::BranchTable(branch) => self.extract_expr(&mut branch.index),
+            BlockPyTerm::Raise(raise_stmt) => {
+                if let Some(exc) = &mut raise_stmt.exc {
+                    self.extract_expr(exc);
+                }
+            }
+            BlockPyTerm::Return(value) => self.extract_expr(value),
+        }
+    }
+
+    fn extract_expr(&mut self, expr: &mut LocatedCoreBlockPyExpr) {
+        if matches!(expr, CoreBlockPyExpr::Literal(_)) {
+            let meta = expr.meta();
+            let index = u32::try_from(self.constants.len())
+                .expect("module constant count should fit in NameLocation::Constant");
+            let literal = std::mem::replace(expr, constant_location_expr(meta, index));
+            self.constants.push(literal);
+            return;
+        }
+        if let CoreBlockPyExpr::Op(operation) = expr {
+            operation.walk_args_mut(&mut |child| self.extract_expr(child));
+        }
+    }
+}
+
 pub(crate) fn lower_name_binding_in_core_blockpy_module(
     module: BlockPyModule<CoreBlockPyPass>,
 ) -> BlockPyModule<ResolvedStorageBlockPyPass> {
     let callable_defs = ensure_module_storage_layouts(module.callable_defs);
     let callee_make_function_capture_names =
         compute_module_make_function_capture_names(&callable_defs);
-    BlockPyModule {
+    ModuleConstantExtractor::default().extract_module(BlockPyModule {
         callable_defs: callable_defs
             .into_iter()
             .map(|callable| {
                 lower_name_binding_callable(callable, &callee_make_function_capture_names)
             })
             .collect(),
-    }
+        module_constants: Vec::new(),
+    })
 }

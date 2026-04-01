@@ -97,6 +97,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
 fn renders_empty_module_marker() {
     let empty_module: BlockPyModule<CoreBlockPyPassWithAwaitAndYield> = BlockPyModule {
         callable_defs: Vec::new(),
+        module_constants: Vec::new(),
     };
     let rendered = blockpy_module_to_string(&empty_module);
     assert_eq!(rendered, "; empty BlockPy module\n");
@@ -195,6 +196,7 @@ async def no_lying():
     let function = function_by_bind_name(&blockpy, "no_lying");
     let rendered = blockpy_module_to_string(&BlockPyModule {
         callable_defs: vec![function.clone()],
+        module_constants: Vec::new(),
     });
     let layout = BlockRenderLayout::new(function);
     let inlined_labels = layout
@@ -254,6 +256,7 @@ fn renders_public_closure_metadata_in_function_header() {
             }),
             semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
         }],
+        module_constants: Vec::new(),
     });
 
     assert!(rendered.contains(
@@ -316,6 +319,7 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
     };
     let rendered = blockpy_module_to_string(&BlockPyModule {
         callable_defs: vec![function],
+        module_constants: Vec::new(),
     });
 
     assert!(rendered.contains("    block bb0:\n"));
@@ -396,6 +400,7 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
     };
     let rendered = blockpy_module_to_string(&BlockPyModule {
         callable_defs: vec![function],
+        module_constants: Vec::new(),
     });
 
     let alpha_pos = rendered.find("block bb1:").expect("bb1 block");
@@ -482,6 +487,7 @@ fn renders_bb_block_metadata_with_shared_layout() {
             storage_layout: None,
             semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
         }],
+        module_constants: Vec::new(),
     });
 
     assert!(rendered.contains("function f():"), "{rendered}");

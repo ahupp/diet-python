@@ -45,6 +45,7 @@ fn lowers_await_to_yield_from_await_iter() {
             storage_layout: None,
             semantic: BlockPyCallableSemanticInfo::default(),
         }],
+        module_constants: Vec::new(),
     };
 
     let lowered = lower_awaits_in_core_blockpy_module(module);
