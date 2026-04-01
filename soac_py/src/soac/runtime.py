@@ -1334,9 +1334,9 @@ def contextmanager_get_exit(cm):
     return exit_fn
 
 
-def contextmanager_exit(exit_fn, exc_info: tuple | None):
-    if exc_info is not None:
-        exc_type, exc, tb = exc_info
+def contextmanager_exit(exit_fn, exc):
+    if exc is not None:
+        exc_info = (type(exc), exc, exc.__traceback__)
         try:
             suppress = exit_fn(*exc_info)
             if suppress:
@@ -1346,9 +1346,7 @@ def contextmanager_exit(exit_fn, exc_info: tuple | None):
         finally:
             # Clear the reference for GC in long-lived frames.
             exc_info = None
-            exc_type = None
             exc = None
-            tb = None
     else:
         exit_fn(None, None, None)
 
@@ -1416,9 +1414,9 @@ def asynccontextmanager_get_aexit(acm):
     return aexit
 
 
-async def asynccontextmanager_exit(exit_fn, exc_info: tuple | None):
-    if exc_info is not None:
-        exc_type, exc, tb = exc_info
+async def asynccontextmanager_exit(exit_fn, exc):
+    if exc is not None:
+        exc_info = (type(exc), exc, exc.__traceback__)
         try:
             await_iter = _ensure_awaitable(
                 exit_fn(*exc_info), "__aexit__", suppress_context=False
@@ -1430,9 +1428,7 @@ async def asynccontextmanager_exit(exit_fn, exc_info: tuple | None):
             return exc
         finally:
             exc_info = None
-            exc_type = None
             exc = None
-            tb = None
     else:
         await_iter = _ensure_awaitable(exit_fn(None, None, None), "__aexit__")
         await _AwaitIterWrapper(await_iter)

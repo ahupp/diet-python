@@ -104,7 +104,7 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
             "__dp_current_exception",
             Vec::new(),
         ))],
-        term: BlockPyTerm::Return(core_call_expr("__dp_exc_info", Vec::new())),
+        term: BlockPyTerm::Return(core_call_expr("__dp_current_exception", Vec::new())),
         params: vec![crate::block_py::BlockParam {
             name: "_dp_try_exc_0".to_string(),
             role: crate::block_py::BlockParamRole::Exception,
@@ -129,22 +129,10 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
         CoreBlockPyExpr::Name(name) if name.id.as_str() == "_dp_try_exc_0"
     ));
 
-    let BlockPyTerm::Return(CoreBlockPyExpr::Op(operation)) = &block.term else {
+    let BlockPyTerm::Return(CoreBlockPyExpr::Name(name)) = &block.term else {
         panic!("expected rewritten return expr");
     };
-    let OperationDetail::Call(call) = operation else {
-        panic!("expected rewritten return call");
-    };
-    assert!(matches!(
-        call.func.as_ref(),
-        CoreBlockPyExpr::Op(operation)
-            if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "__dp_exc_info_from_exception")
-    ));
-    assert!(matches!(
-        call.args.as_slice(),
-        [CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Name(name))]
-            if name.id.as_str() == "_dp_try_exc_0"
-    ));
+    assert_eq!(name.id.as_str(), "_dp_try_exc_0");
 }
 
 #[test]

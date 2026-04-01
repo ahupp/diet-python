@@ -2,8 +2,7 @@ use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::operation;
 use crate::block_py::{
     BlockArg, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike, BlockPyStmt, BlockPyTerm,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyLiteral,
-    StructuredBlockPyStmt,
+    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, StructuredBlockPyStmt,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
@@ -173,8 +172,6 @@ fn rewrite_current_exception_in_expr_with_await_and_yield(
 
     if is_current_exception_call_with_await_and_yield(expr) {
         *expr = current_exception_name_expr_with_await_and_yield(exc_name);
-    } else if is_exc_info_call_with_await_and_yield(expr) {
-        *expr = current_exception_info_expr_with_await_and_yield(exc_name);
     }
 }
 
@@ -191,18 +188,6 @@ fn is_current_exception_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwai
             == Some("__dp_current_exception")
 }
 
-fn is_exc_info_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
-    let CoreBlockPyExprWithAwaitAndYield::Op(operation) = expr else {
-        return false;
-    };
-    let operation::OperationDetail::Call(call) = operation else {
-        return false;
-    };
-    call.args.is_empty()
-        && call.keywords.is_empty()
-        && expr_root_name_id_with_await_and_yield(call.func.as_ref()) == Some("__dp_exc_info")
-}
-
 fn current_exception_name_expr_with_await_and_yield(
     exc_name: &str,
 ) -> CoreBlockPyExprWithAwaitAndYield {
@@ -212,17 +197,6 @@ fn current_exception_name_expr_with_await_and_yield(
         range: compat_range(),
         node_index: compat_node_index(),
     })
-}
-
-fn current_exception_info_expr_with_await_and_yield(
-    exc_name: &str,
-) -> CoreBlockPyExprWithAwaitAndYield {
-    crate::block_py::core_positional_call_expr_with_meta(
-        "__dp_exc_info_from_exception",
-        compat_node_index(),
-        compat_range(),
-        vec![current_exception_name_expr_with_await_and_yield(exc_name)],
-    )
 }
 
 pub(crate) fn populate_exception_edge_args<E, N>(
@@ -336,8 +310,6 @@ where
 
     if is_current_exception_call(expr) {
         *expr = current_exception_name_expr(exc_name);
-    } else if is_exc_info_call(expr) {
-        *expr = current_exception_info_expr(exc_name);
     }
 }
 
@@ -363,21 +335,6 @@ where
     call.args.is_empty()
         && call.keywords.is_empty()
         && is_dp_lookup_call_expr(call.func.as_ref(), "current_exception")
-}
-
-fn is_exc_info_call<N>(expr: &CoreBlockPyExpr<N>) -> bool
-where
-    N: BlockPyNameLike,
-{
-    let Some(operation) = operation_expr(expr) else {
-        return false;
-    };
-    let operation::OperationDetail::Call(call) = operation else {
-        return false;
-    };
-    call.args.is_empty()
-        && call.keywords.is_empty()
-        && is_dp_lookup_call_expr(call.func.as_ref(), "exc_info")
 }
 
 fn is_dp_lookup_call_expr<N>(func: &CoreBlockPyExpr<N>, attr_name: &str) -> bool
@@ -423,29 +380,6 @@ where
         range: compat_range(),
         node_index: compat_node_index(),
     }))
-}
-
-fn runtime_name_expr<N>(name: &str) -> CoreBlockPyExpr<N>
-where
-    N: BlockPyNameLike,
-{
-    CoreBlockPyExpr::Op(operation::LoadRuntime::new(name.to_string()).into())
-}
-
-fn current_exception_info_expr<N>(exc_name: &str) -> CoreBlockPyExpr<N>
-where
-    N: BlockPyNameLike,
-{
-    crate::block_py::core_positional_call_expr_with_meta(
-        "__dp_exc_info_from_exception",
-        compat_node_index(),
-        compat_range(),
-        vec![current_exception_name_expr(exc_name)],
-    )
-}
-
-fn runtime_name_expr_with_await_and_yield(name: &str) -> CoreBlockPyExprWithAwaitAndYield {
-    CoreBlockPyExprWithAwaitAndYield::Op(operation::LoadRuntime::new(name.to_string()).into())
 }
 
 fn compat_node_index() -> ast::AtomicNodeIndex {

@@ -97,7 +97,7 @@ try:
     {body:stmt}
 except BaseException:
     {ok_name:id} = False
-    {reraise_name:id} = await __dp_asynccontextmanager_exit({exit_name:id}, __dp_exc_info())
+    {reraise_name:id} = await __dp_asynccontextmanager_exit({exit_name:id}, __dp_current_exception())
     if {reraise_name:id} is not None:
         raise {reraise_name:id}
 finally:
@@ -126,7 +126,7 @@ try:
     {body:stmt}
 except BaseException:
     {ok_name:id} = False
-    __dp_contextmanager_exit({exit_name:id}, __dp_exc_info())
+    __dp_contextmanager_exit({exit_name:id}, __dp_current_exception())
 finally:
     if {ok_name:id}:
         __dp_contextmanager_exit({exit_name:id}, None)

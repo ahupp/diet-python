@@ -384,7 +384,7 @@ with cm as x:
 #     block bb11(_dp_try_exc_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0
 #         _dp_with_ok_2 = __dp_FALSE
-#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info_from_exception(_dp_try_exc_0_0))
+#         __dp_contextmanager_exit(_dp_with_exit_1, _dp_try_exc_0_0)
 #         jump bb8
 #     block bb12(_dp_try_exc_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0
@@ -701,7 +701,7 @@ with a as x, b as y:
 #     block bb11(_dp_try_exc_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0
 #         _dp_with_ok_5 = __dp_FALSE
-#         __dp_contextmanager_exit(_dp_with_exit_4, __dp_exc_info_from_exception(_dp_try_exc_0_0))
+#         __dp_contextmanager_exit(_dp_with_exit_4, _dp_try_exc_0_0)
 #         jump bb8
 #     block bb12(_dp_try_exc_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0
@@ -719,7 +719,7 @@ with a as x, b as y:
 #     block bb23(_dp_try_exc_0_3: Exception):
 #         exc_param: _dp_try_exc_0_3
 #         _dp_with_ok_2 = __dp_FALSE
-#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info_from_exception(_dp_try_exc_0_3))
+#         __dp_contextmanager_exit(_dp_with_exit_1, _dp_try_exc_0_3)
 #         jump bb20
 #     block bb24(_dp_try_exc_0_3: Exception):
 #         exc_param: _dp_try_exc_0_3
@@ -819,7 +819,7 @@ async def run():
 #     block bb11(_dp_try_exc_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0
 #         _dp_with_ok_2 = __dp_FALSE
-#         _dp_with_reraise_3 = await __dp_asynccontextmanager_exit(_dp_with_exit_1, __dp_exc_info())
+#         _dp_with_reraise_3 = await __dp_asynccontextmanager_exit(_dp_with_exit_1, __dp_current_exception())
 #         if_term UnaryOp(Not, BinOp(Is, _dp_with_reraise_3, __dp_NONE)):
 #             then:
 #                 jump bb12
@@ -960,7 +960,7 @@ with Suppress():
 #     block bb11(_dp_try_exc_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0
 #         _dp_with_ok_2 = __dp_FALSE
-#         __dp_contextmanager_exit(_dp_with_exit_1, __dp_exc_info_from_exception(_dp_try_exc_0_0))
+#         __dp_contextmanager_exit(_dp_with_exit_1, _dp_try_exc_0_0)
 #         jump bb8
 #     block bb12(_dp_try_exc_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0
