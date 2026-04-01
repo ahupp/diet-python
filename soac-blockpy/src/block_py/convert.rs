@@ -48,9 +48,9 @@ where
     PIn: BlockPyPass,
     POut: BlockPyPass,
     PassExpr<PIn>: MapExpr<PassExpr<POut>>,
-    PIn::Stmt: Into<BlockPyStmt<PIn::Expr, PIn::Name>>,
+    PIn::Stmt: Into<BlockPyStmt<PassExpr<PIn>, PassName<PIn>>>,
     PassName<POut>: From<PassName<PIn>>,
-    POut::Stmt: From<BlockPyStmt<POut::Expr, POut::Name>>,
+    POut::Stmt: From<BlockPyStmt<PassExpr<POut>, PassName<POut>>>,
 {
     match stmt {
         BlockPyStmt::Assign(assign) => BlockPyStmt::Assign(BlockPyAssign {
@@ -66,16 +66,16 @@ where
 
 fn try_map_stmt_with<PIn: BlockPyPass, POut: BlockPyPass, M>(
     mapper: &M,
-    stmt: BlockPyStmt<PIn::Expr, PIn::Name>,
-) -> Result<BlockPyStmt<POut::Expr, POut::Name>, M::Error>
+    stmt: BlockPyStmt<PassExpr<PIn>, PassName<PIn>>,
+) -> Result<BlockPyStmt<PassExpr<POut>, PassName<POut>>, M::Error>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
     M: BlockPyModuleTryMap<PIn, POut> + ?Sized,
-    PIn::Expr: TryMapExpr<POut::Expr, M::Error>,
-    PIn::Stmt: Into<BlockPyStmt<PIn::Expr, PIn::Name>>,
-    POut::Name: From<PIn::Name>,
-    POut::Stmt: From<BlockPyStmt<POut::Expr, POut::Name>>,
+    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, M::Error>,
+    PIn::Stmt: Into<BlockPyStmt<PassExpr<PIn>, PassName<PIn>>>,
+    PassName<POut>: From<PassName<PIn>>,
+    POut::Stmt: From<BlockPyStmt<PassExpr<POut>, PassName<POut>>>,
 {
     match stmt {
         BlockPyStmt::Assign(assign) => Ok(BlockPyStmt::Assign(BlockPyAssign {
@@ -93,10 +93,10 @@ pub(crate) trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    PIn::Expr: MapExpr<POut::Expr>,
-    PIn::Stmt: Into<BlockPyStmt<PIn::Expr, PIn::Name>>,
-    POut::Name: From<PIn::Name>,
-    POut::Stmt: From<BlockPyStmt<POut::Expr, POut::Name>>,
+    PassExpr<PIn>: MapExpr<PassExpr<POut>>,
+    PIn::Stmt: Into<BlockPyStmt<PassExpr<PIn>, PassName<PIn>>>,
+    PassName<POut>: From<PassName<PIn>>,
+    POut::Stmt: From<BlockPyStmt<PassExpr<POut>, PassName<POut>>>,
 {
     fn map_module(&self, module: BlockPyModule<PIn>) -> BlockPyModule<POut> {
         BlockPyModule {
@@ -167,8 +167,8 @@ where
         }
     }
 
-    fn map_name(&self, name: PIn::Name) -> POut::Name {
-        <POut::Name as From<PIn::Name>>::from(name)
+    fn map_name(&self, name: PassName<PIn>) -> PassName<POut> {
+        <PassName<POut> as From<PassName<PIn>>>::from(name)
     }
 
     fn map_nested_expr(&self, expr: PIn::Expr) -> POut::Expr {
@@ -184,10 +184,10 @@ pub(crate) trait BlockPyModuleTryMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    PIn::Expr: TryMapExpr<POut::Expr, Self::Error>,
-    PIn::Stmt: Into<BlockPyStmt<PIn::Expr, PIn::Name>>,
-    POut::Name: From<PIn::Name>,
-    POut::Stmt: From<BlockPyStmt<POut::Expr, POut::Name>>,
+    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, Self::Error>,
+    PIn::Stmt: Into<BlockPyStmt<PassExpr<PIn>, PassName<PIn>>>,
+    PassName<POut>: From<PassName<PIn>>,
+    POut::Stmt: From<BlockPyStmt<PassExpr<POut>, PassName<POut>>>,
 {
     type Error;
 
@@ -269,8 +269,8 @@ where
         }
     }
 
-    fn try_map_name(&self, name: PIn::Name) -> Result<POut::Name, Self::Error> {
-        Ok(<POut::Name as From<PIn::Name>>::from(name))
+    fn try_map_name(&self, name: PassName<PIn>) -> Result<PassName<POut>, Self::Error> {
+        Ok(<PassName<POut> as From<PassName<PIn>>>::from(name))
     }
 
     fn try_map_nested_expr(&self, expr: PIn::Expr) -> Result<POut::Expr, Self::Error> {
@@ -318,10 +318,10 @@ impl<PIn, POut, Error> ExprTryMap<PIn, POut, Error>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    PIn::Expr: TryMapExpr<POut::Expr, Error>,
-    PIn::Stmt: Into<BlockPyStmt<PIn::Expr, PIn::Name>>,
-    POut::Name: From<PIn::Name>,
-    POut::Stmt: From<BlockPyStmt<POut::Expr, POut::Name>>,
+    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, Error>,
+    PIn::Stmt: Into<BlockPyStmt<PassExpr<PIn>, PassName<PIn>>>,
+    PassName<POut>: From<PassName<PIn>>,
+    POut::Stmt: From<BlockPyStmt<PassExpr<POut>, PassName<POut>>>,
 {
     pub(crate) fn try_map_stmt(
         &self,
@@ -356,10 +356,10 @@ impl<PIn, POut, Error> BlockPyModuleTryMap<PIn, POut> for ExprTryMap<PIn, POut, 
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    PIn::Expr: TryMapExpr<POut::Expr, Error>,
-    PIn::Stmt: Into<BlockPyStmt<PIn::Expr, PIn::Name>>,
-    POut::Name: From<PIn::Name>,
-    POut::Stmt: From<BlockPyStmt<POut::Expr, POut::Name>>,
+    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, Error>,
+    PIn::Stmt: Into<BlockPyStmt<PassExpr<PIn>, PassName<PIn>>>,
+    PassName<POut>: From<PassName<PIn>>,
+    POut::Stmt: From<BlockPyStmt<PassExpr<POut>, PassName<POut>>>,
 {
     type Error = Error;
 
@@ -378,10 +378,10 @@ where
     ) -> BlockPyModule<POut>
     where
         POut: BlockPyPass,
-        PIn::Expr: MapExpr<POut::Expr>,
-        PIn::Stmt: Into<BlockPyStmt<PIn::Expr, PIn::Name>>,
-        POut::Name: From<PIn::Name>,
-        POut::Stmt: From<BlockPyStmt<POut::Expr, POut::Name>>,
+        PassExpr<PIn>: MapExpr<PassExpr<POut>>,
+        PIn::Stmt: Into<BlockPyStmt<PassExpr<PIn>, PassName<PIn>>>,
+        PassName<POut>: From<PassName<PIn>>,
+        POut::Stmt: From<BlockPyStmt<PassExpr<POut>, PassName<POut>>>,
     {
         mapper.map_module(self)
     }
@@ -392,7 +392,7 @@ where
         PassExpr<PIn>: TryMapExpr<PassExpr<POut>, M::Error>,
         PIn::Stmt: Into<BlockPyStmt<PassExpr<PIn>, PassName<PIn>>>,
         PassName<POut>: From<PassName<PIn>>,
-        POut::Stmt: From<BlockPyStmt<POut::Expr, POut::Name>>,
+        POut::Stmt: From<BlockPyStmt<PassExpr<POut>, PassName<POut>>>,
         M: BlockPyModuleTryMap<PIn, POut>,
     {
         mapper.try_map_module(self)

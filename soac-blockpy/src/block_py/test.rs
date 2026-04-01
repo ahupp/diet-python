@@ -9,7 +9,6 @@ use crate::py_expr;
 struct StructuredExprPass;
 
 impl BlockPyPass for StructuredExprPass {
-    type Name = ast::ExprName;
     type Expr = Expr;
     type Stmt = StructuredBlockPyStmt<Self::Expr>;
 }

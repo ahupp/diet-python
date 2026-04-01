@@ -272,6 +272,10 @@ impl MapExpr<Expr> for Expr {
     }
 }
 
+impl Instr for Expr {
+    type Name = ast::ExprName;
+}
+
 impl MapExpr<RuffExpr> for RuffExpr {
     fn map_expr(self, f: &mut impl FnMut(Self) -> RuffExpr) -> RuffExpr {
         RuffExpr(self.0.map_expr(&mut |expr| f(RuffExpr(expr)).0))
@@ -1095,13 +1099,12 @@ pub trait BlockPyNormalizedStmt {
 }
 
 pub trait BlockPyPass: Clone + fmt::Debug {
-    type Name: BlockPyNameLike;
-    type Expr: BlockPyExprLike;
+    type Expr: BlockPyExprLike + Instr;
     type Stmt: BlockPyNormalizedStmt + Clone + fmt::Debug;
 }
 
 pub type PassExpr<P> = <P as BlockPyPass>::Expr;
-pub type PassName<P> = <P as BlockPyPass>::Name;
+pub type PassName<P> = <PassExpr<P> as Instr>::Name;
 pub type PassBlock<P> = CfgBlock<<P as BlockPyPass>::Stmt, BlockPyTerm<PassExpr<P>>>;
 pub type ResolvedStorageBlock = PassBlock<ResolvedStorageBlockPyPass>;
 pub type CodegenBlock = PassBlock<CodegenBlockPyPass>;

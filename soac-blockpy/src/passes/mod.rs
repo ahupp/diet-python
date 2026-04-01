@@ -20,45 +20,40 @@ use ruff_python_ast as ast;
 pub struct CoreBlockPyPassWithAwaitAndYield;
 
 impl BlockPyPass for CoreBlockPyPassWithAwaitAndYield {
-    type Name = ast::ExprName;
     type Expr = CoreBlockPyExprWithAwaitAndYield;
-    type Stmt = BlockPyStmt<Self::Expr, Self::Name>;
+    type Stmt = BlockPyStmt<Self::Expr, ast::ExprName>;
 }
 
 #[derive(Debug, Clone)]
 pub struct CoreBlockPyPassWithYield;
 
 impl BlockPyPass for CoreBlockPyPassWithYield {
-    type Name = ast::ExprName;
     type Expr = CoreBlockPyExprWithYield;
-    type Stmt = BlockPyStmt<Self::Expr, Self::Name>;
+    type Stmt = BlockPyStmt<Self::Expr, ast::ExprName>;
 }
 
 #[derive(Debug, Clone)]
 pub struct CoreBlockPyPass;
 
 impl BlockPyPass for CoreBlockPyPass {
-    type Name = ast::ExprName;
-    type Expr = CoreBlockPyExpr<Self::Name>;
-    type Stmt = BlockPyStmt<Self::Expr, Self::Name>;
+    type Expr = CoreBlockPyExpr<ast::ExprName>;
+    type Stmt = BlockPyStmt<Self::Expr, ast::ExprName>;
 }
 
 #[derive(Debug, Clone)]
 pub struct ResolvedStorageBlockPyPass;
 
 impl BlockPyPass for ResolvedStorageBlockPyPass {
-    type Name = LocatedName;
-    type Expr = CoreBlockPyExpr<Self::Name>;
-    type Stmt = BlockPyStmt<Self::Expr, Self::Name>;
+    type Expr = CoreBlockPyExpr<LocatedName>;
+    type Stmt = BlockPyStmt<Self::Expr, LocatedName>;
 }
 
 #[derive(Debug, Clone)]
 pub struct CodegenBlockPyPass;
 
 impl BlockPyPass for CodegenBlockPyPass {
-    type Name = LocatedName;
     type Expr = CodegenBlockPyExpr;
-    type Stmt = BlockPyStmt<Self::Expr, Self::Name>;
+    type Stmt = BlockPyStmt<Self::Expr, LocatedName>;
 }
 
 pub(crate) use blockpy_to_bb::lower_yield_in_lowered_core_blockpy_module_bundle;
