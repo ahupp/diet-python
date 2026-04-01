@@ -1,10 +1,11 @@
 use super::{
     BlockArg, BlockParamRole, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyNameLike, BlockPyPass,
-    BlockPyRaise, BlockPyStmt, BlockPyStmtFor, BlockPyTerm, Call, CfgBlock, CodegenBlockPyExpr,
-    CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral, Expr, Instr, PassBlock,
-    PassExpr, PassStmt, PassTerm, RuffExpr, StructuredBlockPyStmt,
+    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyLinearizablePass, BlockPyModule,
+    BlockPyNameLike, BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyStmtFor, BlockPyTerm, Call,
+    CfgBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyExpr,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral, Expr, Instr, PassBlock, PassExpr, PassStmt, PassTerm, RuffExpr,
+    StructuredBlockPyStmt,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
@@ -99,9 +100,8 @@ pub(crate) trait BlockPyPrettyPrint {
 
 impl<P> BlockPyPrettyPrint for BlockPyModule<P>
 where
-    P: BlockPyPrettyPrinter,
+    P: BlockPyPrettyPrinter + BlockPyLinearizablePass,
     P::Expr: BlockPyDebugExprText,
-    P::Stmt: Clone + Into<PassStmt<P>>,
 {
     fn pretty_print(&self) -> String {
         blockpy_module_to_string(self)
@@ -114,9 +114,8 @@ where
 
 pub(crate) fn blockpy_module_to_string<P>(module: &BlockPyModule<P>) -> String
 where
-    P: BlockPyPrettyPrinter,
+    P: BlockPyPrettyPrinter + BlockPyLinearizablePass,
     P::Expr: BlockPyDebugExprText,
-    P::Stmt: Clone + Into<PassStmt<P>>,
 {
     let mut formatter = BlockPyFormatter::<DebugInlineExprRenderer>::default();
     formatter.write_module(module);
@@ -126,9 +125,8 @@ where
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn blockpy_module_to_debug_string<P>(module: &BlockPyModule<P>) -> String
 where
-    P: BlockPyPrettyPrinter,
+    P: BlockPyPrettyPrinter + BlockPyLinearizablePass,
     P::Expr: BlockPyDebugExprText,
-    P::Stmt: Clone + Into<PassStmt<P>>,
 {
     blockpy_module_to_string(module)
 }
@@ -174,8 +172,7 @@ impl<R> BlockPyFormatter<R> {
 
     fn write_module<P>(&mut self, module: &BlockPyModule<P>)
     where
-        P: BlockPyPrettyPrinter,
-        P::Stmt: Clone + Into<PassStmt<P>>,
+        P: BlockPyPrettyPrinter + BlockPyLinearizablePass,
         R: InlineExprRenderer<PassExpr<P>>,
     {
         for function in &module.callable_defs {
@@ -188,8 +185,7 @@ impl<R> BlockPyFormatter<R> {
 
     fn write_function<P>(&mut self, function: &BlockPyFunction<P>)
     where
-        P: BlockPyPrettyPrinter,
-        P::Stmt: Clone + Into<PassStmt<P>>,
+        P: BlockPyPrettyPrinter + BlockPyLinearizablePass,
         R: InlineExprRenderer<PassExpr<P>>,
     {
         let params = format_parameters(&function.params);
@@ -247,8 +243,7 @@ impl<R> BlockPyFormatter<R> {
         block_index: usize,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        P: BlockPyPrettyPrinter,
-        P::Stmt: Clone + Into<PassStmt<P>>,
+        P: BlockPyPrettyPrinter + BlockPyLinearizablePass,
         R: InlineExprRenderer<PassExpr<P>>,
     {
         let block = &function.blocks[block_index];
@@ -281,8 +276,7 @@ impl<R> BlockPyFormatter<R> {
         block: &PassBlock<P>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        P: BlockPyPrettyPrinter,
-        P::Stmt: Clone + Into<PassStmt<P>>,
+        P: BlockPyPrettyPrinter + BlockPyLinearizablePass,
         R: InlineExprRenderer<PassExpr<P>>,
     {
         if block.body.is_empty() {
@@ -415,8 +409,7 @@ impl<R> BlockPyFormatter<R> {
         term: &PassTerm<P>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
-        P: BlockPyPrettyPrinter,
-        P::Stmt: Clone + Into<PassStmt<P>>,
+        P: BlockPyPrettyPrinter + BlockPyLinearizablePass,
         R: InlineExprRenderer<PassExpr<P>>,
     {
         match term {
@@ -969,8 +962,7 @@ struct BlockRenderLayout {
 impl BlockRenderLayout {
     fn new<P>(function: &BlockPyFunction<P>) -> Self
     where
-        P: BlockPyPrettyPrinter,
-        P::Stmt: Clone + Into<PassStmt<P>>,
+        P: BlockPyPrettyPrinter + BlockPyLinearizablePass,
     {
         let block_count = function.blocks.len();
         if block_count == 0 {
@@ -1120,8 +1112,7 @@ fn collect_top_level_successors_from_block<P>(
     label_to_index: &HashMap<BlockPyLabel, usize>,
 ) -> Vec<usize>
 where
-    P: BlockPyPass,
-    P::Stmt: Clone + Into<PassStmt<P>>,
+    P: BlockPyLinearizablePass,
 {
     let mut successors = Vec::new();
     let mut seen = HashSet::new();
@@ -1310,8 +1301,7 @@ fn compute_immediate_dominators(
 
 fn collect_referenced_labels_from_blocks<P>(blocks: &[PassBlock<P>]) -> HashSet<BlockPyLabel>
 where
-    P: BlockPyPass,
-    P::Stmt: Clone + Into<PassStmt<P>>,
+    P: BlockPyLinearizablePass,
 {
     let mut referenced = HashSet::new();
     for block in blocks {

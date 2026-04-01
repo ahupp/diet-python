@@ -43,6 +43,7 @@ pub(crate) use convert::{
     ExprTryMap,
 };
 pub use name_gen::{FunctionNameGen, ModuleNameGen};
+pub(crate) use structured::IntoStructuredBlockPyStmt;
 pub(crate) use validate::validate_module;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1119,6 +1120,23 @@ pub type CodegenBlock = PassBlock<CodegenBlockPyPass>;
 pub(crate) trait BlockPyLinearPass: BlockPyPass<Stmt = PassStmt<Self>> {}
 
 impl<P> BlockPyLinearPass for P where P: BlockPyPass<Stmt = PassStmt<P>> {}
+
+pub(crate) trait BlockPyStructuredPass:
+    BlockPyPass<Stmt: IntoStructuredBlockPyStmt<PassExpr<Self>>>
+{
+}
+
+impl<P> BlockPyStructuredPass for P where
+    P: BlockPyPass<Stmt: IntoStructuredBlockPyStmt<PassExpr<P>>>
+{
+}
+
+pub(crate) trait BlockPyLinearizablePass:
+    BlockPyPass<Stmt: Clone + Into<PassStmt<Self>>>
+{
+}
+
+impl<P> BlockPyLinearizablePass for P where P: BlockPyPass<Stmt: Clone + Into<PassStmt<P>>> {}
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
 pub(crate) type BlockPyBlock<E = Expr, N = ExprName> =
