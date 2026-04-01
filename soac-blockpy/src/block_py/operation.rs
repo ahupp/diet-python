@@ -727,31 +727,11 @@ impl<E> HasMeta for OperationDetail<E> {
     }
 }
 
+#[with_match_default]
 impl<E> OperationDetail<E> {
     pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> OperationDetail<T> {
         match self {
-            Self::BinOp(op) => OperationDetail::BinOp(op.map_op(f)),
-            Self::UnaryOp(op) => OperationDetail::UnaryOp(op.map_op(f)),
-            Self::InplaceBinOp(op) => OperationDetail::InplaceBinOp(op.map_op(f)),
-            Self::TernaryOp(op) => OperationDetail::TernaryOp(op.map_op(f)),
-            Self::Call(op) => OperationDetail::Call(op.map_op(f)),
-            Self::GetAttr(op) => OperationDetail::GetAttr(op.map_op(f)),
-            Self::SetAttr(op) => OperationDetail::SetAttr(op.map_op(f)),
-            Self::GetItem(op) => OperationDetail::GetItem(op.map_op(f)),
-            Self::SetItem(op) => OperationDetail::SetItem(op.map_op(f)),
-            Self::DelItem(op) => OperationDetail::DelItem(op.map_op(f)),
-            Self::LoadRuntime(op) => OperationDetail::LoadRuntime(op.map_op(f)),
-            Self::LoadName(op) => OperationDetail::LoadName(op.map_op(f)),
-            Self::StoreName(op) => OperationDetail::StoreName(op.map_op(f)),
-            Self::DelName(op) => OperationDetail::DelName(op.map_op(f)),
-            Self::LoadLocation(op) => OperationDetail::LoadLocation(op.map_op(f)),
-            Self::MakeCell(op) => OperationDetail::MakeCell(op.map_op(f)),
-            Self::MakeString(op) => OperationDetail::MakeString(op.map_op(f)),
-            Self::CellRefForName(op) => OperationDetail::CellRefForName(op.map_op(f)),
-            Self::CellRef(op) => OperationDetail::CellRef(op.map_op(f)),
-            Self::MakeFunction(op) => OperationDetail::MakeFunction(op.map_op(f)),
-            Self::StoreLocation(op) => OperationDetail::StoreLocation(op.map_op(f)),
-            Self::DelLocation(op) => OperationDetail::DelLocation(op.map_op(f)),
+            match_rest(op) => op.map_op(f).into(),
         }
     }
 
@@ -760,82 +740,19 @@ impl<E> OperationDetail<E> {
         f: &mut impl FnMut(E) -> Result<T, Error>,
     ) -> Result<OperationDetail<T>, Error> {
         Ok(match self {
-            Self::BinOp(op) => OperationDetail::BinOp(op.try_map_op(f)?),
-            Self::UnaryOp(op) => OperationDetail::UnaryOp(op.try_map_op(f)?),
-            Self::InplaceBinOp(op) => OperationDetail::InplaceBinOp(op.try_map_op(f)?),
-            Self::TernaryOp(op) => OperationDetail::TernaryOp(op.try_map_op(f)?),
-            Self::Call(op) => OperationDetail::Call(op.try_map_op(f)?),
-            Self::GetAttr(op) => OperationDetail::GetAttr(op.try_map_op(f)?),
-            Self::SetAttr(op) => OperationDetail::SetAttr(op.try_map_op(f)?),
-            Self::GetItem(op) => OperationDetail::GetItem(op.try_map_op(f)?),
-            Self::SetItem(op) => OperationDetail::SetItem(op.try_map_op(f)?),
-            Self::DelItem(op) => OperationDetail::DelItem(op.try_map_op(f)?),
-            Self::LoadRuntime(op) => OperationDetail::LoadRuntime(op.try_map_op(f)?),
-            Self::LoadName(op) => OperationDetail::LoadName(op.try_map_op(f)?),
-            Self::StoreName(op) => OperationDetail::StoreName(op.try_map_op(f)?),
-            Self::DelName(op) => OperationDetail::DelName(op.try_map_op(f)?),
-            Self::LoadLocation(op) => OperationDetail::LoadLocation(op.try_map_op(f)?),
-            Self::MakeCell(op) => OperationDetail::MakeCell(op.try_map_op(f)?),
-            Self::MakeString(op) => OperationDetail::MakeString(op.try_map_op(f)?),
-            Self::CellRefForName(op) => OperationDetail::CellRefForName(op.try_map_op(f)?),
-            Self::CellRef(op) => OperationDetail::CellRef(op.try_map_op(f)?),
-            Self::MakeFunction(op) => OperationDetail::MakeFunction(op.try_map_op(f)?),
-            Self::StoreLocation(op) => OperationDetail::StoreLocation(op.try_map_op(f)?),
-            Self::DelLocation(op) => OperationDetail::DelLocation(op.try_map_op(f)?),
+            match_rest(op) => op.try_map_op(f)?.into(),
         })
     }
 
     pub fn walk_args(&self, f: &mut impl FnMut(&E)) {
         match self {
-            Self::BinOp(op) => op.visit_exprs(f),
-            Self::UnaryOp(op) => op.visit_exprs(f),
-            Self::InplaceBinOp(op) => op.visit_exprs(f),
-            Self::TernaryOp(op) => op.visit_exprs(f),
-            Self::Call(op) => op.visit_exprs(f),
-            Self::GetAttr(op) => op.visit_exprs(f),
-            Self::SetAttr(op) => op.visit_exprs(f),
-            Self::GetItem(op) => op.visit_exprs(f),
-            Self::SetItem(op) => op.visit_exprs(f),
-            Self::DelItem(op) => op.visit_exprs(f),
-            Self::LoadRuntime(op) => op.visit_exprs(f),
-            Self::LoadName(op) => op.visit_exprs(f),
-            Self::StoreName(op) => op.visit_exprs(f),
-            Self::DelName(op) => op.visit_exprs(f),
-            Self::LoadLocation(op) => op.visit_exprs(f),
-            Self::MakeCell(op) => op.visit_exprs(f),
-            Self::MakeString(op) => op.visit_exprs(f),
-            Self::CellRefForName(op) => op.visit_exprs(f),
-            Self::CellRef(op) => op.visit_exprs(f),
-            Self::MakeFunction(op) => op.visit_exprs(f),
-            Self::StoreLocation(op) => op.visit_exprs(f),
-            Self::DelLocation(op) => op.visit_exprs(f),
+            match_rest(op) => op.visit_exprs(f),
         }
     }
 
     pub fn walk_args_mut(&mut self, f: &mut impl FnMut(&mut E)) {
         match self {
-            Self::BinOp(op) => op.visit_exprs_mut(f),
-            Self::UnaryOp(op) => op.visit_exprs_mut(f),
-            Self::InplaceBinOp(op) => op.visit_exprs_mut(f),
-            Self::TernaryOp(op) => op.visit_exprs_mut(f),
-            Self::Call(op) => op.visit_exprs_mut(f),
-            Self::GetAttr(op) => op.visit_exprs_mut(f),
-            Self::SetAttr(op) => op.visit_exprs_mut(f),
-            Self::GetItem(op) => op.visit_exprs_mut(f),
-            Self::SetItem(op) => op.visit_exprs_mut(f),
-            Self::DelItem(op) => op.visit_exprs_mut(f),
-            Self::LoadRuntime(op) => op.visit_exprs_mut(f),
-            Self::LoadName(op) => op.visit_exprs_mut(f),
-            Self::StoreName(op) => op.visit_exprs_mut(f),
-            Self::DelName(op) => op.visit_exprs_mut(f),
-            Self::LoadLocation(op) => op.visit_exprs_mut(f),
-            Self::MakeCell(op) => op.visit_exprs_mut(f),
-            Self::MakeString(op) => op.visit_exprs_mut(f),
-            Self::CellRefForName(op) => op.visit_exprs_mut(f),
-            Self::CellRef(op) => op.visit_exprs_mut(f),
-            Self::MakeFunction(op) => op.visit_exprs_mut(f),
-            Self::StoreLocation(op) => op.visit_exprs_mut(f),
-            Self::DelLocation(op) => op.visit_exprs_mut(f),
+            match_rest(op) => op.visit_exprs_mut(f),
         }
     }
 }
