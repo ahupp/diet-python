@@ -13,6 +13,7 @@ pub enum BinOpKind {
     TrueDiv,
     FloorDiv,
     Mod,
+    Pow,
     LShift,
     RShift,
     Or,
@@ -46,16 +47,12 @@ pub enum InplaceBinOpKind {
     TrueDiv,
     FloorDiv,
     Mod,
+    Pow,
     LShift,
     RShift,
     Or,
     Xor,
     And,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub enum TernaryOpKind {
-    Pow,
 }
 
 pub trait InstrOperationNode<I>: Sized {
@@ -470,15 +467,6 @@ define_operation! {
     }
 }
 
-define_operation! {
-    pub struct TernaryOp<E> {
-        kind: TernaryOpKind,
-        base: Box<E>,
-        exponent: Box<E>,
-        modulus: Box<E>,
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Call<E> {
     _meta: Meta,
@@ -697,7 +685,6 @@ pub enum OperationDetail<E> {
     BinOp(BinOp<E>),
     UnaryOp(UnaryOp<E>),
     InplaceBinOp(InplaceBinOp<E>),
-    TernaryOp(TernaryOp<E>),
     Call(Call<E>),
     GetAttr(GetAttr<E>),
     SetAttr(SetAttr<E>),

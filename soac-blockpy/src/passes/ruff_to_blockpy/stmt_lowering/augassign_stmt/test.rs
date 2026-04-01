@@ -42,3 +42,26 @@ fn stmt_augassign_to_blockpy_emits_direct_core_operations() {
     assert!(!rendered.contains("__dp_iadd"), "{rendered}");
     assert!(!rendered.contains("__dp_setitem"), "{rendered}");
 }
+
+#[test]
+fn stmt_pow_augassign_to_blockpy_uses_inplace_pow() {
+    let stmt = py_stmt!("x **= y");
+    let Stmt::AugAssign(aug_stmt) = stmt else {
+        panic!("expected augassign stmt");
+    };
+    let context = Context::new("");
+    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
+    let mut next_label_id = 0usize;
+
+    aug_stmt
+        .to_blockpy(&context, &mut out, None, &mut next_label_id)
+        .expect("pow augassign lowering should succeed");
+
+    let fragment = out.finish();
+    let Some(StructuredBlockPyStmt::Assign(assign)) = fragment.body.last() else {
+        panic!("expected final assign stmt, got {fragment:?}");
+    };
+    let rendered = assign.value.debug_expr_text();
+
+    assert!(rendered.contains("InplaceBinOp(Pow,"), "{rendered}");
+}

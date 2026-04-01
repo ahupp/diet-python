@@ -191,16 +191,6 @@ fn binop_expr_from_ast_with_meta(
 ) -> CoreBlockPyExprWithAwaitAndYield {
     match op {
         ast::Operator::Add => add_op_expr_with_meta(node_index, range, left, right),
-        ast::Operator::Pow => core_operation_expr_with_meta(
-            operation::TernaryOp::new(
-                operation::TernaryOpKind::Pow,
-                Box::new(left),
-                Box::new(right),
-                Box::new(core_builtin_name("NONE")),
-            ),
-            node_index,
-            range,
-        ),
         _ => {
             let kind = match op {
                 ast::Operator::Add => unreachable!("handled above"),
@@ -209,7 +199,7 @@ fn binop_expr_from_ast_with_meta(
                 ast::Operator::MatMult => operation::BinOpKind::MatMul,
                 ast::Operator::Div => operation::BinOpKind::TrueDiv,
                 ast::Operator::Mod => operation::BinOpKind::Mod,
-                ast::Operator::Pow => unreachable!("handled above"),
+                ast::Operator::Pow => operation::BinOpKind::Pow,
                 ast::Operator::LShift => operation::BinOpKind::LShift,
                 ast::Operator::RShift => operation::BinOpKind::RShift,
                 ast::Operator::BitOr => operation::BinOpKind::Or,

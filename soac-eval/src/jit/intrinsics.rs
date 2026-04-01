@@ -177,6 +177,11 @@ define_owned_import_spec!(
     "PyNumber_InPlaceRemainder",
     &[SigType::Pointer, SigType::Pointer]
 );
+static PYNUMBER_INPLACE_POWER_IMPORT: ImportSpec = ImportSpec::new(
+    "PyNumber_InPlacePower",
+    &[SigType::Pointer, SigType::Pointer, SigType::Pointer],
+    &[SigType::Pointer],
+);
 define_owned_import_spec!(
     PYNUMBER_INPLACE_LSHIFT_IMPORT,
     "PyNumber_InPlaceLshift",
@@ -442,6 +447,7 @@ fn emit_binop<'fb, E>(
         blockpy_intrinsics::BinOpKind::Mod => {
             emit_positional_owned_call(&PYNUMBER_REMAINDER_IMPORT, state, args)
         }
+        blockpy_intrinsics::BinOpKind::Pow => emit_pow_like(&PYNUMBER_POWER_IMPORT, state, args),
         blockpy_intrinsics::BinOpKind::LShift => {
             emit_positional_owned_call(&PYNUMBER_LSHIFT_IMPORT, state, args)
         }
@@ -494,18 +500,6 @@ fn emit_unary_op<'fb, E>(
     }
 }
 
-fn emit_ternary_op<'fb, E>(
-    kind: blockpy_intrinsics::TernaryOpKind,
-    state: &mut impl OperationEmitState<'fb, E>,
-    args: &[&E],
-) -> ir::Value {
-    match kind {
-        blockpy_intrinsics::TernaryOpKind::Pow => {
-            emit_pow_like(&PYNUMBER_POWER_IMPORT, state, args)
-        }
-    }
-}
-
 fn emit_inplace_binop<'fb, E>(
     kind: blockpy_intrinsics::InplaceBinOpKind,
     state: &mut impl OperationEmitState<'fb, E>,
@@ -532,6 +526,9 @@ fn emit_inplace_binop<'fb, E>(
         }
         blockpy_intrinsics::InplaceBinOpKind::Mod => {
             emit_positional_owned_call(&PYNUMBER_INPLACE_REMAINDER_IMPORT, state, args)
+        }
+        blockpy_intrinsics::InplaceBinOpKind::Pow => {
+            emit_pow_like(&PYNUMBER_INPLACE_POWER_IMPORT, state, args)
         }
         blockpy_intrinsics::InplaceBinOpKind::LShift => {
             emit_positional_owned_call(&PYNUMBER_INPLACE_LSHIFT_IMPORT, state, args)
@@ -649,11 +646,6 @@ pub(super) fn emit_operation<'fb, E>(
             op.kind,
             state,
             &[op.left.as_ref(), op.right.as_ref()],
-        )),
-        blockpy_intrinsics::OperationDetail::TernaryOp(op) => Some(emit_ternary_op(
-            op.kind,
-            state,
-            &[op.base.as_ref(), op.exponent.as_ref(), op.modulus.as_ref()],
         )),
         blockpy_intrinsics::OperationDetail::Call(_) => None,
         blockpy_intrinsics::OperationDetail::GetAttr(op) => Some(emit_getattr(op, state)),

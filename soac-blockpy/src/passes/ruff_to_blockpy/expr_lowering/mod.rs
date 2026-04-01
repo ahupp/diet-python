@@ -1,7 +1,7 @@
 use crate::block_py::{
-    core_operation_expr, core_runtime_name_expr_with_meta,
-    core_runtime_positional_call_expr_with_meta, operation, BlockPyFunctionKind,
-    BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield, FunctionId, Meta, WithMeta,
+    core_operation_expr, core_runtime_positional_call_expr_with_meta, operation,
+    BlockPyFunctionKind, BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield, FunctionId,
+    Meta, WithMeta,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::LoopContext;
@@ -87,13 +87,13 @@ fn inplace_kind(op: ast::Operator) -> Option<operation::InplaceBinOpKind> {
         ast::Operator::MatMult => operation::InplaceBinOpKind::MatMul,
         ast::Operator::Div => operation::InplaceBinOpKind::TrueDiv,
         ast::Operator::Mod => operation::InplaceBinOpKind::Mod,
+        ast::Operator::Pow => operation::InplaceBinOpKind::Pow,
         ast::Operator::LShift => operation::InplaceBinOpKind::LShift,
         ast::Operator::RShift => operation::InplaceBinOpKind::RShift,
         ast::Operator::BitOr => operation::InplaceBinOpKind::Or,
         ast::Operator::BitXor => operation::InplaceBinOpKind::Xor,
         ast::Operator::BitAnd => operation::InplaceBinOpKind::And,
         ast::Operator::FloorDiv => operation::InplaceBinOpKind::FloorDiv,
-        ast::Operator::Pow => return None,
     })
 }
 
@@ -119,27 +119,13 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         right: Self,
     ) -> Self {
         let meta = Meta::new(node_index.clone(), range);
-        if let Some(kind) = inplace_kind(op) {
-            return core_operation_expr(
-                operation::OperationDetail::from(operation::InplaceBinOp::new(
-                    kind,
-                    Box::new(left),
-                    Box::new(right),
-                ))
-                .with_meta(meta),
-            );
-        }
-
+        let kind = inplace_kind(op)
+            .expect("direct augassign lowering should support every Python inplace operator");
         core_operation_expr(
-            operation::OperationDetail::from(operation::TernaryOp::new(
-                operation::TernaryOpKind::Pow,
+            operation::OperationDetail::from(operation::InplaceBinOp::new(
+                kind,
                 Box::new(left),
                 Box::new(right),
-                Box::new(core_runtime_name_expr_with_meta(
-                    "NONE",
-                    node_index.clone(),
-                    range,
-                )),
             ))
             .with_meta(meta),
         )

@@ -706,15 +706,6 @@ where
                 op.right.debug_expr_text(),
             ],
         ),
-        crate::block_py::OperationDetail::TernaryOp(op) => debug_tuple_text(
-            "TernaryOp",
-            [
-                format!("{:?}", op.kind),
-                op.base.debug_expr_text(),
-                op.exponent.debug_expr_text(),
-                op.modulus.debug_expr_text(),
-            ],
-        ),
         crate::block_py::OperationDetail::GetItem(op) => debug_tuple_text(
             "GetItem",
             [op.value.debug_expr_text(), op.index.debug_expr_text()],

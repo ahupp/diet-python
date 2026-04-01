@@ -3,9 +3,9 @@ use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyStmt,
     BlockPyTerm, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
     CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, DelItem,
-    DelLocation, DelName, FunctionName, LoadName, LocatedCodegenBlockPyExpr, LocatedName,
-    MakeString, Meta, ModuleNameGen, NameLocation, OperationDetail, Param, ParamKind, ParamSpec,
-    StorageLayout, StoreName, TernaryOp, TernaryOpKind, WithMeta,
+    DelLocation, DelName, FunctionName, InplaceBinOp, InplaceBinOpKind, LoadName,
+    LocatedCodegenBlockPyExpr, LocatedName, MakeString, Meta, ModuleNameGen, NameLocation,
+    OperationDetail, Param, ParamKind, ParamSpec, StorageLayout, StoreName, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
@@ -300,19 +300,36 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(TernaryOp::new(
-                    TernaryOpKind::Pow,
-                    int_expr(2),
-                    int_expr(3),
-                    name_expr(test_global_name("__dp_NONE")),
-                ))
-                .with_meta(Meta::synthetic()),
+                OperationDetail::from(BinOp::new(BinOpKind::Pow, int_expr(2), int_expr(3)))
+                    .with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
             rendered.contains("call PyNumber_Power"),
             "power lowering should use PyNumber_Power in rendered CLIF:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_inplace_pow_calls_use_pynumber_inplace_power() {
+        let blocks = [1usize as ObjPtr];
+        let function = with_single_test_block(
+            test_function(),
+            vec![],
+            ret_term(op_expr(
+                OperationDetail::from(InplaceBinOp::new(
+                    InplaceBinOpKind::Pow,
+                    int_expr(2),
+                    int_expr(3),
+                ))
+                .with_meta(Meta::synthetic()),
+            )),
+        );
+        let rendered = render_test_jit_function(&function, &blocks);
+        assert!(
+            rendered.contains("call PyNumber_InPlacePower"),
+            "inplace power lowering should use PyNumber_InPlacePower in rendered CLIF:\n{rendered}"
         );
     }
 

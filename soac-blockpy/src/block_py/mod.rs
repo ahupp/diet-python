@@ -15,8 +15,8 @@ use crate::py_expr;
 pub use operation::{
     BinOp, BinOpKind, Call, CellRef, CellRefForName, DelItem, DelLocation, DelName, GetAttr,
     GetItem, InplaceBinOp, InplaceBinOpKind, LoadLocation, LoadName, LoadRuntime, MakeCell,
-    MakeFunction, MakeString, OperationDetail, SetAttr, SetItem, StoreLocation, StoreName,
-    TernaryOp, TernaryOpKind, UnaryOp, UnaryOpKind,
+    MakeFunction, MakeString, OperationDetail, SetAttr, SetItem, StoreLocation, StoreName, UnaryOp,
+    UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
