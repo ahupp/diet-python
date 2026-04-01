@@ -205,6 +205,9 @@ impl ModuleCodegenConstants {
                     }
                 }
             }
+            CodegenBlockPyExpr::Op(blockpy_intrinsics::OperationDetail::MakeString(op)) => {
+                ModuleConstantValue::Unicode(op.bytes.clone())
+            }
             CodegenBlockPyExpr::Name(_) | CodegenBlockPyExpr::Op(_) => {
                 panic!("unsupported explicit module constant expr after codegen lowering: {expr:?}")
             }
@@ -354,6 +357,20 @@ impl ModuleConstantCollector {
                     return;
                 }
                 match operation {
+                    blockpy_intrinsics::OperationDetail::GetAttr(op) => {
+                        if let Some(attr_bytes) =
+                            self.string_constant_bytes_for_specialized_codegen(op.attr.as_ref())
+                        {
+                            self.constants.intern_unicode_bytes(attr_bytes.as_slice());
+                        }
+                    }
+                    blockpy_intrinsics::OperationDetail::SetAttr(op) => {
+                        if let Some(attr_bytes) =
+                            self.string_constant_bytes_for_specialized_codegen(op.attr.as_ref())
+                        {
+                            self.constants.intern_unicode_bytes(attr_bytes.as_slice());
+                        }
+                    }
                     blockpy_intrinsics::OperationDetail::LoadRuntime(op) => {
                         self.constants.intern_unicode_bytes(op.name.as_bytes());
                     }
@@ -374,6 +391,9 @@ impl ModuleConstantCollector {
                     {
                         self.constants
                             .intern_unicode_bytes(op.name.id_str().as_bytes());
+                    }
+                    blockpy_intrinsics::OperationDetail::MakeString(op) => {
+                        self.constants.intern_unicode_bytes(op.bytes.as_slice());
                     }
                     _ => {}
                 }

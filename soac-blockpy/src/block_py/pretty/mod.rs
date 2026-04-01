@@ -690,6 +690,9 @@ where
             render_store_debug_text(&op.name, op.value.as_ref())
         }
         crate::block_py::OperationDetail::Del(op) => render_del_debug_text(&op.name, op.quietly),
+        crate::block_py::OperationDetail::MakeString(op) => {
+            debug_tuple_text("MakeString", [bytes_text(&op.bytes)])
+        }
         crate::block_py::OperationDetail::CellRefForName(op) => {
             debug_tuple_text("CellRefForName", [format!("{:?}", op.logical_name)])
         }

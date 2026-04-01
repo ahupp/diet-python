@@ -1236,8 +1236,58 @@ fn emit_codegen_expr(
                 }
             }
         }
-        CodegenBlockPyExpr::Literal(literal) => {
-            panic!("literal should be extracted into a constant slot before codegen: {literal:?}")
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
+            assert!(
+                !borrowed,
+                "codegen string literal must not use borrowed expression"
+            );
+            emit_owned_module_constant(
+                fb,
+                ctx.module_constants
+                    .require_unicode_constant_id(string.value.as_str()),
+                ctx,
+            )
+        }
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(number)) => {
+            assert!(
+                !borrowed,
+                "codegen number literal must not use borrowed expression"
+            );
+            match &number.value {
+                soac_blockpy::block_py::CoreNumberLiteralValue::Int(value) => {
+                    if let Some(value) = value.as_i64() {
+                        emit_owned_module_constant(
+                            fb,
+                            ctx.module_constants.require_int_constant_id(value),
+                            ctx,
+                        )
+                    } else {
+                        let value_text = value.to_string();
+                        emit_owned_module_constant(
+                            fb,
+                            ctx.module_constants
+                                .require_big_int_constant_id(value_text.as_str()),
+                            ctx,
+                        )
+                    }
+                }
+                soac_blockpy::block_py::CoreNumberLiteralValue::Float(value) => {
+                    emit_owned_module_constant(
+                        fb,
+                        ctx.module_constants.require_float_constant_id(*value),
+                        ctx,
+                    )
+                }
+            }
+        }
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
+            assert!(!borrowed, "bytes literal must produce owned references");
+            emit_owned_module_constant(
+                fb,
+                ctx.module_constants
+                    .require_bytes_constant_id(bytes.value.as_slice()),
+                ctx,
+            )
         }
         CodegenBlockPyExpr::Op(operation)
             if !matches!(operation, blockpy_intrinsics::OperationDetail::Call(_)) =>

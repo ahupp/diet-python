@@ -842,6 +842,12 @@ define_operation! {
 }
 
 define_operation! {
+    pub struct MakeString {
+        bytes: Vec<u8>,
+    }
+}
+
+define_operation! {
     pub struct CellRefForName {
         logical_name: String,
     }
@@ -878,6 +884,7 @@ pub enum OperationDetail<E: Instr> {
     Store(Store<E>),
     Del(Del<E>),
     MakeCell(MakeCell<E>),
+    MakeString(MakeString),
     CellRefForName(CellRefForName),
     CellRef(CellRef),
     MakeFunction(MakeFunction<E>),

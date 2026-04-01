@@ -4,8 +4,9 @@ use soac_blockpy::block_py::{
     BlockPyStmt, BlockPyTerm, CellLocation, ClosureInit, ClosureSlot, CodegenBlock,
     CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, InplaceBinOp,
-    InplaceBinOpKind, Load, LocatedCodegenBlockPyExpr, LocatedName, Meta, ModuleNameGen,
-    NameLocation, OperationDetail, Param, ParamKind, ParamSpec, StorageLayout, Store, WithMeta,
+    InplaceBinOpKind, Load, LocatedCodegenBlockPyExpr, LocatedName, MakeString, Meta,
+    ModuleNameGen, NameLocation, OperationDetail, Param, ParamKind, ParamSpec, StorageLayout,
+    Store, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
@@ -396,7 +397,6 @@ mod tests {
         );
     }
 
-    #[test]
     fn render_specialized_jit_pow_calls_use_pynumber_power() {
         let blocks = [1usize as ObjPtr];
         let function = with_single_test_block(

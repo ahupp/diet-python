@@ -142,8 +142,12 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         body: Vec::new(),
         term: BlockPyTerm::Return(CoreBlockPyExpr::Op(
             OperationDetail::from(GetAttr::new(
-                Box::new(core_call_expr("current_exception", Vec::new())),
-                Box::new(core_string_expr("value")),
+                core_call_expr("current_exception", Vec::new()),
+                CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
+                    node_index: ast::AtomicNodeIndex::default(),
+                    range: TextRange::default(),
+                    value: "value".to_string(),
+                })),
             ))
             .with_meta(crate::block_py::Meta::new(
                 ast::AtomicNodeIndex::default(),
@@ -178,8 +182,10 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     ));
     assert!(matches!(
         attr.as_ref(),
-        CoreBlockPyExpr::Literal(crate::block_py::CoreBlockPyLiteral::StringLiteral(literal))
-            if literal.value == "value"
+        CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
+            value,
+            ..
+        })) if value == "value"
     ));
 }
 

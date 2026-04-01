@@ -81,7 +81,6 @@ fn constant_location_expr(meta: crate::block_py::Meta, index: u32) -> LocatedCor
     .with_location(NameLocation::Constant(index));
     CoreBlockPyExpr::Op(OperationDetail::from(Load::new(name)).with_meta(meta))
 }
-
 fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
     let meta = name.meta();
     op_expr(OperationDetail::from(Load::new(name)).with_meta(meta))
