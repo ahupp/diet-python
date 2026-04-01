@@ -78,7 +78,8 @@ fn core_blockpy_expr_uses_reduced_variants_for_simple_shapes() {
     ));
     assert!(matches!(
         CoreBlockPyExprWithAwaitAndYield::from(py_expr!("f(x)")),
-        CoreBlockPyExprWithAwaitAndYield::Call(_)
+        CoreBlockPyExprWithAwaitAndYield::Op(operation)
+            if matches!(operation.detail(), OperationDetail::Call(_))
     ));
     assert!(matches!(
         CoreBlockPyExprWithAwaitAndYield::from(py_expr!("await f(x)")),
@@ -96,10 +97,13 @@ fn core_blockpy_expr_uses_reduced_variants_for_simple_shapes() {
 
 #[test]
 fn core_blockpy_call_supports_star_args_and_kwargs() {
-    let CoreBlockPyExprWithAwaitAndYield::Call(call) =
+    let CoreBlockPyExprWithAwaitAndYield::Op(operation) =
         CoreBlockPyExprWithAwaitAndYield::from(py_expr!("f(x, *args, y=z, **kw)"))
     else {
         panic!("expected reduced call expr");
+    };
+    let OperationDetail::Call(call) = operation.detail() else {
+        panic!("expected call operation");
     };
     assert!(is_raw_load_name_expr(call.func.as_ref(), "f"));
     assert_eq!(call.args.len(), 2);
@@ -168,10 +172,13 @@ fn core_blockpy_expr_keeps_non_intrinsic_helper_families_as_named_calls() {
         ("{x: y}", "__dp_dict"),
     ] {
         let parsed = *parse_expression(expr).unwrap().into_syntax().body;
-        let CoreBlockPyExprWithAwaitAndYield::Call(call) =
+        let CoreBlockPyExprWithAwaitAndYield::Op(operation) =
             CoreBlockPyExprWithAwaitAndYield::from(parsed)
         else {
             panic!("expected call-shaped reduced expr for {expr}");
+        };
+        let OperationDetail::Call(call) = operation.detail() else {
+            panic!("expected call operation for {expr}");
         };
         assert!(
             matches!(
@@ -203,10 +210,13 @@ fn core_blockpy_expr_reuses_shared_tuple_splat_intrinsic_shape() {
 fn core_blockpy_expr_reuses_shared_tuple_splat_for_list_and_set() {
     for (expr, intrinsic) in [("[x, *xs, y]", "__dp_list"), ("{x, *xs, y}", "__dp_set")] {
         let parsed = *parse_expression(expr).unwrap().into_syntax().body;
-        let CoreBlockPyExprWithAwaitAndYield::Call(call) =
+        let CoreBlockPyExprWithAwaitAndYield::Op(operation) =
             CoreBlockPyExprWithAwaitAndYield::from(parsed)
         else {
             panic!("expected call-shaped reduced expr for {expr}");
+        };
+        let OperationDetail::Call(call) = operation.detail() else {
+            panic!("expected call operation for {expr}");
         };
         assert!(matches!(
             &*call.func,

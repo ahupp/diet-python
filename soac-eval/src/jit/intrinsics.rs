@@ -658,6 +658,7 @@ pub(super) fn emit_operation<'fb, E>(
             state,
             &[op.base.as_ref(), op.exponent.as_ref(), op.modulus.as_ref()],
         )),
+        blockpy_intrinsics::OperationDetail::Call(_) => None,
         blockpy_intrinsics::OperationDetail::GetAttr(op) => Some(emit_getattr(op, state)),
         blockpy_intrinsics::OperationDetail::SetAttr(op) => Some(emit_setattr(op, state)),
         blockpy_intrinsics::OperationDetail::GetItem(op) => {

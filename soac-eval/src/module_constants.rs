@@ -233,6 +233,25 @@ impl ModuleConstantCollector {
                 self.constants.intern_bytes(bytes.value.as_slice());
             }
             CodegenBlockPyExpr::Op(operation) => {
+                if let blockpy_intrinsics::OperationDetail::Call(call) = operation.detail() {
+                    if let Some(const_bytes) = string_constant_bytes_for_specialized_codegen(expr) {
+                        self.constants.intern_unicode_bytes(const_bytes);
+                    }
+                    if let Some(delete_name_bytes) = deleted_name_arg_bytes(call) {
+                        self.constants.intern_unicode_bytes(delete_name_bytes);
+                    }
+                    self.collect_expr(call.func.as_ref());
+                    for arg in &call.args {
+                        self.collect_expr(arg.expr());
+                    }
+                    for keyword in &call.keywords {
+                        if let CoreBlockPyKeywordArg::Named { arg, .. } = keyword {
+                            self.constants.intern_unicode_bytes(arg.as_str().as_bytes());
+                        }
+                        self.collect_expr(keyword.expr());
+                    }
+                    return;
+                }
                 match operation.detail() {
                     blockpy_intrinsics::OperationDetail::GetAttr(op) => {
                         self.constants.intern_unicode_bytes(op.attr.as_bytes());
@@ -262,66 +281,62 @@ impl ModuleConstantCollector {
                 }
                 operation.walk_args(&mut |child| self.collect_expr(child));
             }
-            CodegenBlockPyExpr::Call(call) => {
-                if let Some(const_bytes) = string_constant_bytes_for_specialized_codegen(expr) {
-                    self.constants.intern_unicode_bytes(const_bytes);
-                }
-                if let Some(delete_name_bytes) = deleted_name_arg_bytes(call) {
-                    self.constants.intern_unicode_bytes(delete_name_bytes);
-                }
-                self.collect_expr(call.func.as_ref());
-                for arg in &call.args {
-                    self.collect_expr(arg.expr());
-                }
-                for keyword in &call.keywords {
-                    if let CoreBlockPyKeywordArg::Named { arg, .. } = keyword {
-                        self.constants.intern_unicode_bytes(arg.as_str().as_bytes());
-                    }
-                    self.collect_expr(keyword.expr());
-                }
-            }
         }
     }
 }
 
 fn deleted_name_arg_bytes(
-    call: &soac_blockpy::block_py::CoreBlockPyCall<LocatedCodegenBlockPyExpr>,
+    call: &blockpy_intrinsics::Call<LocatedCodegenBlockPyExpr>,
 ) -> Option<&[u8]> {
-    let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() else {
-        return None;
-    };
-    if func_name.id.as_str() != "__dp_load_deleted_name" || call.args.len() != 2 {
+    if helper_name_for_codegen_expr(call.func.as_ref()) != Some("__dp_load_deleted_name")
+        || call.args.len() != 2
+    {
         return None;
     }
     string_constant_bytes_for_specialized_codegen(call.args[0].expr())
+}
+
+fn helper_name_for_codegen_expr(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
+    match expr {
+        CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
+        CodegenBlockPyExpr::Op(operation) => match operation.detail() {
+            blockpy_intrinsics::OperationDetail::LoadRuntime(op) => Some(op.name.as_str()),
+            blockpy_intrinsics::OperationDetail::LoadGlobal(op) => Some(op.name.as_str()),
+            blockpy_intrinsics::OperationDetail::LoadName(op) => Some(op.name.as_str()),
+            _ => None,
+        },
+        CodegenBlockPyExpr::Literal(_) => None,
+    }
 }
 
 fn string_constant_bytes_for_specialized_codegen(
     expr: &LocatedCodegenBlockPyExpr,
 ) -> Option<&[u8]> {
     match expr {
+        CodegenBlockPyExpr::Name(_) => None,
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(_)) => None,
         CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
             Some(bytes.value.as_slice())
         }
         CodegenBlockPyExpr::Op(operation) => match operation.detail() {
             blockpy_intrinsics::OperationDetail::MakeString(op) => Some(op.bytes.as_slice()),
+            blockpy_intrinsics::OperationDetail::Call(call) => {
+                if helper_name_for_codegen_expr(call.func.as_ref()) != Some("str")
+                    || call.args.len() != 1
+                    || !call.keywords.is_empty()
+                {
+                    return None;
+                }
+                let CoreBlockPyCallArg::Positional(CodegenBlockPyExpr::Literal(
+                    CodegenBlockPyLiteral::BytesLiteral(bytes),
+                )) = &call.args[0]
+                else {
+                    return None;
+                };
+                Some(bytes.value.as_slice())
+            }
             _ => None,
         },
-        CodegenBlockPyExpr::Call(call) => {
-            let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() else {
-                return None;
-            };
-            if func_name.id.as_str() != "str" || call.args.len() != 1 || !call.keywords.is_empty() {
-                return None;
-            }
-            let CoreBlockPyCallArg::Positional(CodegenBlockPyExpr::Literal(
-                CodegenBlockPyLiteral::BytesLiteral(bytes),
-            )) = &call.args[0]
-            else {
-                return None;
-            };
-            Some(bytes.value.as_slice())
-        }
     }
 }
 

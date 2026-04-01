@@ -4,8 +4,8 @@ use super::{
 };
 use crate::block_py::{
     BlockParam, BlockParamRole, BlockPyAssign, BlockPyIf, BlockPyIfTerm, BlockPyLabel,
-    BlockPyNameLike, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm, CfgBlock, CoreBlockPyCall,
-    CoreBlockPyCallArg, CoreBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, ResolvedStorageBlock,
+    BlockPyNameLike, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm, CfgBlock, CoreBlockPyCallArg,
+    CoreBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, ResolvedStorageBlock,
     StructuredBlockPyStmt,
 };
 use ruff_python_ast::{self as ast};
@@ -103,13 +103,13 @@ fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
     let blocks = vec![CfgBlock {
         label: BlockPyLabel::from(0u32),
         body: vec![StructuredBlockPyStmt::If(BlockPyIf {
-            test: CoreBlockPyExpr::Call(CoreBlockPyCall {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: TextRange::default(),
-                func: Box::new(core_name_expr("__dp_current_exception")),
-                args: Vec::<CoreBlockPyCallArg<CoreBlockPyExpr>>::new(),
-                keywords: Vec::new(),
-            }),
+            test: crate::block_py::core_call_expr_with_meta(
+                core_name_expr("__dp_current_exception"),
+                ast::AtomicNodeIndex::default(),
+                TextRange::default(),
+                Vec::<CoreBlockPyCallArg<CoreBlockPyExpr>>::new(),
+                Vec::new(),
+            ),
             body: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Assign(
                 BlockPyAssign {
                     target: expr_name("x", ast::ExprContext::Store),

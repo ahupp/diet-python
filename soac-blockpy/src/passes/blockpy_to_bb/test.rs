@@ -1,8 +1,8 @@
 use crate::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmtFragment, BlockPyTerm,
-    CoreBlockPyCall, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, CoreStringLiteral,
-    GetAttr, LocatedCoreBlockPyExpr, LocatedName, Operation, OperationDetail,
-    StructuredBlockPyStmt, WithMeta,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, CoreStringLiteral, GetAttr,
+    LocatedCoreBlockPyExpr, LocatedName, Operation, OperationDetail, StructuredBlockPyStmt,
+    WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     lower_structured_located_blocks_to_bb_blocks, populate_exception_edge_args,
@@ -78,16 +78,15 @@ fn core_name_expr(name: &str) -> LocatedCoreBlockPyExpr {
 }
 
 fn core_call_expr(name: &str, args: Vec<LocatedCoreBlockPyExpr>) -> LocatedCoreBlockPyExpr {
-    LocatedCoreBlockPyExpr::Call(CoreBlockPyCall {
-        node_index: ast::AtomicNodeIndex::default(),
-        range: TextRange::default(),
-        func: Box::new(core_name_expr(name)),
-        args: args
-            .into_iter()
+    crate::block_py::core_call_expr_with_meta(
+        core_name_expr(name),
+        ast::AtomicNodeIndex::default(),
+        TextRange::default(),
+        args.into_iter()
             .map(CoreBlockPyCallArg::Positional)
             .collect(),
-        keywords: Vec::new(),
-    })
+        Vec::new(),
+    )
 }
 
 fn core_string_expr(value: &str) -> LocatedCoreBlockPyExpr {
@@ -131,8 +130,11 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
         CoreBlockPyExpr::Name(name) if name.id.as_str() == "_dp_try_exc_0"
     ));
 
-    let BlockPyTerm::Return(CoreBlockPyExpr::Call(call)) = &block.term else {
+    let BlockPyTerm::Return(CoreBlockPyExpr::Op(operation)) = &block.term else {
         panic!("expected rewritten return expr");
+    };
+    let OperationDetail::Call(call) = operation.detail() else {
+        panic!("expected rewritten return call");
     };
     assert!(matches!(
         call.func.as_ref(),

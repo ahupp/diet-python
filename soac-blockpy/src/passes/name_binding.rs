@@ -1244,11 +1244,13 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                     OperationDetail::Call(call)
                         if call.args.is_empty()
                             && call.keywords.is_empty()
-                            && raw_load_name(call.func.as_ref()).as_ref().is_some_and(|name| {
-                                name == "globals"
-                                    && self.semantic.resolved_load_binding_kind("globals")
-                                        == BlockPyBindingKind::Global
-                            }) =>
+                            && raw_load_name(call.func.as_ref())
+                                .as_ref()
+                                .is_some_and(|name| {
+                                    name == "globals"
+                                        && self.semantic.resolved_load_binding_kind("globals")
+                                            == BlockPyBindingKind::Global
+                                }) =>
                     {
                         globals_expr(meta.node_index, meta.range)
                     }

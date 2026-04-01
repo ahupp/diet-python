@@ -51,25 +51,6 @@ fn probe_bb_exprs(probe: &mut ExprShapeProbe, expr: &CodegenBlockPyExpr) {
             }
             operation.walk_args(&mut |arg| probe_bb_exprs(probe, arg));
         }
-        CodegenBlockPyExpr::Call(call) => {
-            probe_bb_exprs(probe, &call.func);
-            for arg in &call.args {
-                match arg {
-                    crate::block_py::CoreBlockPyCallArg::Positional(value)
-                    | crate::block_py::CoreBlockPyCallArg::Starred(value) => {
-                        probe_bb_exprs(probe, value);
-                    }
-                }
-            }
-            for kw in &call.keywords {
-                match kw {
-                    crate::block_py::CoreBlockPyKeywordArg::Named { value, .. }
-                    | crate::block_py::CoreBlockPyKeywordArg::Starred(value) => {
-                        probe_bb_exprs(probe, value);
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -82,31 +63,14 @@ fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockP
                 OperationDetail::SetAttr(_) => out.push("__dp_setattr".to_string()),
                 OperationDetail::GetItem(_) => out.push("__dp_getitem".to_string()),
                 OperationDetail::SetItem(_) => out.push("__dp_setitem".to_string()),
+                OperationDetail::Call(call) => {
+                    if let CodegenBlockPyExpr::Name(name) = &*call.func {
+                        out.push(name.id_str().to_string());
+                    }
+                }
                 _ => {}
             }
             operation.walk_args(&mut |arg| collect_helper_like_names_in_expr(out, arg));
-        }
-        CodegenBlockPyExpr::Call(call) => {
-            if let CodegenBlockPyExpr::Name(name) = &*call.func {
-                out.push(name.id_str().to_string());
-            }
-            collect_helper_like_names_in_expr(out, &call.func);
-            for arg in &call.args {
-                match arg {
-                    crate::block_py::CoreBlockPyCallArg::Positional(value)
-                    | crate::block_py::CoreBlockPyCallArg::Starred(value) => {
-                        collect_helper_like_names_in_expr(out, value);
-                    }
-                }
-            }
-            for kw in &call.keywords {
-                match kw {
-                    crate::block_py::CoreBlockPyKeywordArg::Named { value, .. }
-                    | crate::block_py::CoreBlockPyKeywordArg::Starred(value) => {
-                        collect_helper_like_names_in_expr(out, value);
-                    }
-                }
-            }
         }
     }
 }

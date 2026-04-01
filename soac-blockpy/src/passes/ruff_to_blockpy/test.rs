@@ -898,15 +898,22 @@ async def outer(inner):
         .iter()
         .filter_map(|block| match &block.term {
             BlockPyTerm::Raise(BlockPyRaise {
-                exc: Some(CoreBlockPyExpr::Call(call)),
-            }) if matches!(
-                call.func.as_ref(),
-                CoreBlockPyExpr::Name(name)
-                    if name.id.as_str() == "StopIteration"
-            ) =>
-            {
-                Some(block.label.clone())
-            }
+                exc: Some(CoreBlockPyExpr::Op(operation)),
+            }) => match operation.detail() {
+                crate::block_py::OperationDetail::Call(call)
+                    if matches!(
+                        call.func.as_ref(),
+                        CoreBlockPyExpr::Name(name)
+                            if name.id.as_str() == "StopIteration"
+                    ) =>
+                {
+                    Some(block.label.clone())
+                }
+                crate::block_py::OperationDetail::LoadName(op) if op.name == "StopIteration" => {
+                    Some(block.label.clone())
+                }
+                _ => None,
+            },
             _ => None,
         })
         .collect::<Vec<_>>();

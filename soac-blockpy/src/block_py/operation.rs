@@ -899,35 +899,34 @@ impl<E> HasMeta for OperationDetail<E> {
 }
 
 impl<E> WithMeta for OperationDetail<E> {
-    fn with_meta(mut self, meta: Meta) -> Self {
-        match &mut self {
-            Self::BinOp(op) => op._meta = meta,
-            Self::UnaryOp(op) => op._meta = meta,
-            Self::InplaceBinOp(op) => op._meta = meta,
-            Self::TernaryOp(op) => op._meta = meta,
-            Self::Call(op) => op._meta = meta,
-            Self::GetAttr(op) => op._meta = meta,
-            Self::SetAttr(op) => op._meta = meta,
-            Self::GetItem(op) => op._meta = meta,
-            Self::SetItem(op) => op._meta = meta,
-            Self::DelItem(op) => op._meta = meta,
-            Self::LoadGlobal(op) => op._meta = meta,
-            Self::StoreGlobal(op) => op._meta = meta,
-            Self::LoadRuntime(op) => op._meta = meta,
-            Self::LoadName(op) => op._meta = meta,
-            Self::LoadLocal(op) => op._meta = meta,
-            Self::LoadCell(op) => op._meta = meta,
-            Self::MakeCell(op) => op._meta = meta,
-            Self::MakeString(op) => op._meta = meta,
-            Self::CellRefForName(op) => op._meta = meta,
-            Self::CellRef(op) => op._meta = meta,
-            Self::MakeFunction(op) => op._meta = meta,
-            Self::StoreCell(op) => op._meta = meta,
-            Self::DelQuietly(op) => op._meta = meta,
-            Self::DelDerefQuietly(op) => op._meta = meta,
-            Self::DelDeref(op) => op._meta = meta,
+    fn with_meta(self, meta: Meta) -> Self {
+        match self {
+            Self::BinOp(op) => Self::BinOp(op.with_meta(meta.clone())),
+            Self::UnaryOp(op) => Self::UnaryOp(op.with_meta(meta.clone())),
+            Self::InplaceBinOp(op) => Self::InplaceBinOp(op.with_meta(meta.clone())),
+            Self::TernaryOp(op) => Self::TernaryOp(op.with_meta(meta.clone())),
+            Self::Call(op) => Self::Call(op.with_meta(meta.clone())),
+            Self::GetAttr(op) => Self::GetAttr(op.with_meta(meta.clone())),
+            Self::SetAttr(op) => Self::SetAttr(op.with_meta(meta.clone())),
+            Self::GetItem(op) => Self::GetItem(op.with_meta(meta.clone())),
+            Self::SetItem(op) => Self::SetItem(op.with_meta(meta.clone())),
+            Self::DelItem(op) => Self::DelItem(op.with_meta(meta.clone())),
+            Self::LoadGlobal(op) => Self::LoadGlobal(op.with_meta(meta.clone())),
+            Self::StoreGlobal(op) => Self::StoreGlobal(op.with_meta(meta.clone())),
+            Self::LoadRuntime(op) => Self::LoadRuntime(op.with_meta(meta.clone())),
+            Self::LoadName(op) => Self::LoadName(op.with_meta(meta.clone())),
+            Self::LoadLocal(op) => Self::LoadLocal(op.with_meta(meta.clone())),
+            Self::LoadCell(op) => Self::LoadCell(op.with_meta(meta.clone())),
+            Self::MakeCell(op) => Self::MakeCell(op.with_meta(meta.clone())),
+            Self::MakeString(op) => Self::MakeString(op.with_meta(meta.clone())),
+            Self::CellRefForName(op) => Self::CellRefForName(op.with_meta(meta.clone())),
+            Self::CellRef(op) => Self::CellRef(op.with_meta(meta.clone())),
+            Self::MakeFunction(op) => Self::MakeFunction(op.with_meta(meta.clone())),
+            Self::StoreCell(op) => Self::StoreCell(op.with_meta(meta.clone())),
+            Self::DelQuietly(op) => Self::DelQuietly(op.with_meta(meta.clone())),
+            Self::DelDerefQuietly(op) => Self::DelDerefQuietly(op.with_meta(meta.clone())),
+            Self::DelDeref(op) => Self::DelDeref(op.with_meta(meta)),
         }
-        self
     }
 }
 
@@ -989,14 +988,14 @@ impl<E> Operation<E> {
 
 impl<E> HasMeta for Operation<E> {
     fn meta(&self) -> Meta {
-        self.detail.meta()
+        self.detail().meta()
     }
 }
 
 impl<E> WithMeta for Operation<E> {
     fn with_meta(self, meta: Meta) -> Self {
         Self {
-            detail: self.detail.with_meta(meta),
+            detail: self.into_detail().with_meta(meta),
         }
     }
 }

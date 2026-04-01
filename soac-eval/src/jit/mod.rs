@@ -3647,7 +3647,7 @@ fn build_cranelift_run_bb_specialized_function(
                     fb.ins().brif(
                         default_is_null,
                         entry_failure_block,
-                        &entry_failure_args,
+                        &block_arg_values(&entry_failure_args),
                         default_ok_block,
                         &[ir::BlockArg::Value(default_value)],
                     );
@@ -3713,7 +3713,7 @@ fn build_cranelift_run_bb_specialized_function(
                     fb.ins().brif(
                         default_is_null,
                         entry_failure_block,
-                        &entry_failure_args,
+                        &block_arg_values(&entry_failure_args),
                         default_ok_block,
                         &[ir::BlockArg::Value(default_value)],
                     );

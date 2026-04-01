@@ -428,11 +428,14 @@ fn walk_assigned_name_targets_in_expr(target: &Expr, f: &mut impl FnMut(&str)) {
     }
 }
 
-fn walk_operation_loaded_names<E>(detail: &OperationDetail<E>, f: &mut impl FnMut(&str)) {
+fn walk_operation_loaded_names<E>(detail: &OperationDetail<E>, f: &mut impl FnMut(&str))
+where
+    E: BlockPySemanticExprNode,
+{
     match detail {
         OperationDetail::LoadName(op) => f(op.name.as_str()),
         OperationDetail::Call(call) => {
-            if let Some(name) = call.func.root_name_id() {
+            if let Some(name) = call.func.as_ref().root_name_id() {
                 f(name);
             }
         }
@@ -727,8 +730,11 @@ impl BlockPySemanticExprNode for super::CodegenBlockPyExpr {
 
     fn walk_root_cell_ref_logical_names(&self, f: &mut impl FnMut(&str)) {
         match self {
-            Self::Op(operation) => walk_operation_cell_ref_logical_names(operation.detail(), f),
-            Self::Call(call) => {
+            Self::Op(operation) => {
+                walk_operation_cell_ref_logical_names(operation.detail(), f);
+                let OperationDetail::Call(call) = operation.detail() else {
+                    return;
+                };
                 if let Some(name) = call_root_cell_ref_logical_name(call) {
                     f(name.as_str());
                 }

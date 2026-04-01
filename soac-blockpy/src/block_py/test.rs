@@ -368,19 +368,19 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
 
 #[test]
 fn term_conversion_to_no_yield_rejects_nested_yield() {
-    let term = BlockPyTerm::Return(CoreBlockPyExprWithYield::Call(CoreBlockPyCall {
-        node_index: ast::AtomicNodeIndex::default(),
-        range: ruff_text_size::TextRange::default(),
-        func: Box::new(CoreBlockPyExprWithYield::Name(name_expr("f"))),
-        args: vec![CoreBlockPyCallArg::Positional(
+    let term = BlockPyTerm::Return(core_call_expr_with_meta(
+        CoreBlockPyExprWithYield::Name(name_expr("f")),
+        ast::AtomicNodeIndex::default(),
+        ruff_text_size::TextRange::default(),
+        vec![CoreBlockPyCallArg::Positional(
             CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
                 node_index: ast::AtomicNodeIndex::default(),
                 range: ruff_text_size::TextRange::default(),
                 value: Some(Box::new(CoreBlockPyExprWithYield::Name(name_expr("x")))),
             }),
         )],
-        keywords: Vec::new(),
-    }));
+        Vec::new(),
+    ));
 
     assert!(
         ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield>::without_yield()

@@ -37,17 +37,22 @@ fn eval_order_hoists_call_arguments_in_return_value_to_temps() {
 
     let lowered = make_eval_order_explicit_in_core_block(block);
     assert!(lowered.body.is_empty());
-    let BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Call(call)) = &lowered.term else {
+    let BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Op(operation)) = &lowered.term else {
         panic!("expected call expr");
+    };
+    let OperationDetail::Call(call) = operation.detail() else {
+        panic!("expected call operation");
     };
     assert!(is_name_like(call.func.as_ref()));
     assert!(matches!(
         &call.args[0],
-        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
+        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Op(operation))
+            if matches!(operation.detail(), OperationDetail::Call(_))
     ));
     assert!(matches!(
         &call.args[1],
-        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
+        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Op(operation))
+            if matches!(operation.detail(), OperationDetail::Call(_))
     ));
 }
 
@@ -65,8 +70,11 @@ fn eval_order_hoists_return_value_to_temp() {
 
     let lowered = make_eval_order_explicit_in_core_block(block);
     assert!(lowered.body.is_empty());
-    let BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Call(call)) = lowered.term else {
+    let BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Op(operation)) = lowered.term else {
         panic!("expected return of recursive call");
+    };
+    let OperationDetail::Call(call) = operation.detail() else {
+        panic!("expected call operation");
     };
     assert!(is_name_like(call.func.as_ref()));
 }
@@ -91,13 +99,17 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
     let StructuredBlockPyStmt::Assign(assign) = &lowered.body[0] else {
         panic!("expected rewritten assignment");
     };
-    let CoreBlockPyExprWithAwaitAndYield::Call(call) = &assign.value else {
+    let CoreBlockPyExprWithAwaitAndYield::Op(operation) = &assign.value else {
         panic!("expected outer call");
+    };
+    let OperationDetail::Call(call) = operation.detail() else {
+        panic!("expected call operation");
     };
     assert!(is_name_like(call.func.as_ref()));
     assert!(matches!(
         &call.args[0],
-        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
+        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Op(operation))
+            if matches!(operation.detail(), OperationDetail::Call(_))
     ));
 }
 
