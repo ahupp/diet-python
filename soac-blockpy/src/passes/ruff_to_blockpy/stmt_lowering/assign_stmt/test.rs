@@ -50,7 +50,7 @@ fn rewrite_assignment_target_unpack_uses_native_subscript_ast() {
 
     assert!(!rendered.contains("__dp_getitem("), "{rendered}");
     assert!(rendered.contains("[0]"), "{rendered}");
-    assert!(rendered.contains("__dp_list("), "{rendered}");
+    assert!(rendered.contains("__soac__.list("), "{rendered}");
 }
 
 #[test]

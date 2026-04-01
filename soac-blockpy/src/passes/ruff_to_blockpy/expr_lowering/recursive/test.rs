@@ -33,7 +33,9 @@ fn direct_core_expr_lowering_materializes_make_function_operation() {
     let mut next_label_id = 0usize;
 
     let lowered = lower_expr_into_with_setup(
-        py_expr!("__dp_make_function(7, \"function\", __dp_tuple(), __dp_tuple(), None)"),
+        py_expr!(
+            "__soac__.make_function(7, \"function\", __soac__.tuple_values(), __soac__.tuple_values(), None)"
+        ),
         &mut out,
         None,
         &mut next_label_id,
@@ -53,10 +55,10 @@ fn direct_core_expr_lowering_materializes_make_function_operation() {
 fn direct_core_expr_lowering_materializes_live_operation_helpers() {
     for (source, expected) in [
         (
-            "__dp_store_global(_dp_class_ns, \"caught\", value)",
+            "__soac__.store_global(_dp_class_ns, \"caught\", value)",
             "StoreName(",
         ),
-        ("__dp_cell_ref(\"__class__\")", "CellRefForName("),
+        ("__soac__.cell_ref(\"__class__\")", "CellRefForName("),
     ] {
         let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
         let mut next_label_id = 0usize;
@@ -75,6 +77,6 @@ fn direct_core_expr_lowering_materializes_live_operation_helpers() {
         );
         let rendered = lowered.debug_expr_text();
         assert!(rendered.contains(expected), "{rendered}");
-        assert!(!rendered.contains("__dp_"), "{rendered}");
+        assert!(!rendered.contains("__soac__."), "{rendered}");
     }
 }

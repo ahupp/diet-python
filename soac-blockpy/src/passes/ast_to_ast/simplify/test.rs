@@ -16,7 +16,7 @@ fn lower_string_templates_keeps_fstring_debug_output_correct() {
     lower_string_templates_in_expr(assign.value.as_mut());
     let rendered = ruff_ast_to_string(&module.body);
     assert!(rendered.contains("value="), "{rendered}");
-    assert!(rendered.contains("__dp_repr(value)"), "{rendered}");
+    assert!(rendered.contains("__soac__.repr(value)"), "{rendered}");
 }
 
 #[test]
@@ -28,7 +28,7 @@ fn lower_string_templates_keeps_tstring_expr_text_available() {
     lower_string_templates_in_expr(assign.value.as_mut());
     let rendered = ruff_ast_to_string(&module.body);
     assert!(
-        rendered.contains("__dp_templatelib_Interpolation(value, \"value\""),
+        rendered.contains("__soac__.templatelib_Interpolation(value, \"value\""),
         "{rendered}"
     );
 }

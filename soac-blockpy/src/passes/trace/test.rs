@@ -68,12 +68,12 @@ fn instruments_matching_function_blocks() {
         .iter()
         .flat_map(|block| block.body.iter())
         .map(crate::block_py::pretty::bb_stmt_text)
-        .filter(|stmt| stmt.contains("__dp_bb_trace_enter"))
+        .filter(|stmt| stmt.contains("bb_trace_enter"))
         .collect::<Vec<_>>();
     assert!(!f_trace_stmts.is_empty(), "missing trace op in f");
     assert!(f_trace_stmts
         .iter()
-        .any(|stmt| stmt.contains("__dp_bb_trace_enter")));
+        .any(|stmt| stmt.contains("bb_trace_enter")));
     assert!(f_trace_stmts
         .iter()
         .any(|stmt| stmt.contains("_dp_try_exc")));
@@ -82,6 +82,6 @@ fn instruments_matching_function_blocks() {
         .iter()
         .flat_map(|block| block.body.iter())
         .map(crate::block_py::pretty::bb_stmt_text)
-        .any(|stmt| stmt.contains("__dp_bb_trace_enter"));
+        .any(|stmt| stmt.contains("bb_trace_enter"));
     assert!(!g_has_trace);
 }

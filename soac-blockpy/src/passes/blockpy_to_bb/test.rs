@@ -101,10 +101,10 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
         label: BlockPyLabel::from(0u32),
         body: vec![StructuredBlockPyStmt::Expr(core_call_expr(
-            "__dp_current_exception",
+            "current_exception",
             Vec::new(),
         ))],
-        term: BlockPyTerm::Return(core_call_expr("__dp_current_exception", Vec::new())),
+        term: BlockPyTerm::Return(core_call_expr("current_exception", Vec::new())),
         params: vec![crate::block_py::BlockParam {
             name: "_dp_try_exc_0".to_string(),
             role: crate::block_py::BlockParamRole::Exception,
@@ -142,7 +142,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         body: Vec::new(),
         term: BlockPyTerm::Return(CoreBlockPyExpr::Op(
             OperationDetail::from(GetAttr::new(
-                core_call_expr("__dp_current_exception", Vec::new()),
+                core_call_expr("current_exception", Vec::new()),
                 "value".to_string(),
             ))
             .with_meta(crate::block_py::Meta::new(

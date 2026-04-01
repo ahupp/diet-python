@@ -104,7 +104,7 @@ fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
         label: BlockPyLabel::from(0u32),
         body: vec![StructuredBlockPyStmt::If(BlockPyIf {
             test: crate::block_py::core_call_expr_with_meta(
-                core_name_expr("__dp_current_exception"),
+                core_name_expr("current_exception"),
                 ast::AtomicNodeIndex::default(),
                 TextRange::default(),
                 Vec::<CoreBlockPyCallArg<CoreBlockPyExpr>>::new(),

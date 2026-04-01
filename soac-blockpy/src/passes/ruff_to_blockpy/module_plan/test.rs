@@ -528,7 +528,7 @@ fn lowering_nonlocal_inner_captures_outer_cell() {
             callable_defs: vec![outer.clone()],
         });
     assert!(
-        rendered.contains("inner = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)"),
+        rendered.contains("inner = MakeFunction(0, Function, tuple_values(), NONE)"),
         "{rendered}"
     );
 }

@@ -166,10 +166,10 @@ fn core_blockpy_expr_reduces_operator_helper_families_to_intrinsics() {
 #[test]
 fn core_blockpy_expr_keeps_non_intrinsic_helper_families_as_named_calls() {
     for (expr, helper_name) in [
-        ("(x, y)", "__dp_tuple"),
-        ("[x, y]", "__dp_list"),
-        ("{x, y}", "__dp_set"),
-        ("{x: y}", "__dp_dict"),
+        ("(x, y)", "tuple_values"),
+        ("[x, y]", "list"),
+        ("{x, y}", "set"),
+        ("{x: y}", "dict"),
     ] {
         let parsed = *parse_expression(expr).unwrap().into_syntax().body;
         let CoreBlockPyExprWithAwaitAndYield::Op(operation) =
@@ -203,12 +203,12 @@ fn core_blockpy_expr_reuses_shared_tuple_splat_intrinsic_shape() {
         OperationDetail::BinOp(ref op) if op.kind == BinOpKind::Add
     ));
     let rendered = CoreBlockPyExprWithAwaitAndYield::Op(call).debug_expr_text();
-    assert!(rendered.contains("__dp_tuple_from_iter(xs)"), "{rendered}");
+    assert!(rendered.contains("tuple_from_iter(xs)"), "{rendered}");
 }
 
 #[test]
 fn core_blockpy_expr_reuses_shared_tuple_splat_for_list_and_set() {
-    for (expr, intrinsic) in [("[x, *xs, y]", "__dp_list"), ("{x, *xs, y}", "__dp_set")] {
+    for (expr, intrinsic) in [("[x, *xs, y]", "list"), ("{x, *xs, y}", "set")] {
         let parsed = *parse_expression(expr).unwrap().into_syntax().body;
         let CoreBlockPyExprWithAwaitAndYield::Op(operation) =
             CoreBlockPyExprWithAwaitAndYield::from(parsed)
@@ -227,7 +227,7 @@ fn core_blockpy_expr_reuses_shared_tuple_splat_for_list_and_set() {
             panic!("expected one positional arg for {expr}");
         };
         let rendered = tupleish.debug_expr_text();
-        assert!(rendered.contains("__dp_tuple_from_iter(xs)"), "{rendered}");
+        assert!(rendered.contains("tuple_from_iter(xs)"), "{rendered}");
     }
 }
 

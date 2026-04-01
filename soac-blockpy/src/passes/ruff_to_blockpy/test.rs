@@ -112,11 +112,8 @@ async def f(xs):
 "#,
     );
     let rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
-    assert!(
-        rendered.contains("await __dp_anext_or_sentinel"),
-        "{rendered}"
-    );
-    assert!(rendered.contains("__dp_anext_or_sentinel"), "{rendered}");
+    assert!(rendered.contains("await anext_or_sentinel"), "{rendered}");
+    assert!(rendered.contains("anext_or_sentinel"), "{rendered}");
 }
 
 #[test]
@@ -839,9 +836,9 @@ def gen(it):
     );
     let rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
     assert!(rendered.contains("branch_table"));
-    assert!(rendered.contains("__dp_exception_matches"), "{rendered}");
+    assert!(rendered.contains("exception_matches"), "{rendered}");
     assert!(
-        rendered.contains("getattr(_dp_yieldfrom, \"throw\", __dp_NONE)"),
+        rendered.contains("getattr(_dp_yieldfrom, \"throw\", NONE)"),
         "{rendered}"
     );
     assert!(
@@ -897,23 +894,11 @@ async def outer(inner):
         .blocks
         .iter()
         .filter_map(|block| match &block.term {
-            BlockPyTerm::Raise(BlockPyRaise {
-                exc: Some(CoreBlockPyExpr::Op(operation)),
-            }) => match operation {
-                crate::block_py::OperationDetail::Call(call)
-                    if matches!(
-                        call.func.as_ref(),
-                        CoreBlockPyExpr::Name(name)
-                            if name.id.as_str() == "StopIteration"
-                    ) =>
-                {
-                    Some(block.label.clone())
-                }
-                crate::block_py::OperationDetail::LoadName(op) if op.name == "StopIteration" => {
-                    Some(block.label.clone())
-                }
-                _ => None,
-            },
+            BlockPyTerm::Raise(BlockPyRaise { exc: Some(exc) })
+                if crate::block_py::pretty::bb_expr_text(exc).contains("StopIteration") =>
+            {
+                Some(block.label.clone())
+            }
             _ => None,
         })
         .collect::<Vec<_>>();

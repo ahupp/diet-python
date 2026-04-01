@@ -164,32 +164,20 @@ def fmt(value):
     let lowered = TrackedLowering::new(source);
     let core_blockpy = lowered.blockpy_text();
     assert!(core_blockpy.contains("\"value=\""), "{core_blockpy}");
-    assert!(
-        core_blockpy.contains("__dp_repr(value)")
-            || core_blockpy.contains("__dp_load_global(__dp_globals(), \"__dp_repr\")(value)"),
-        "{core_blockpy}"
-    );
-    assert!(
-            core_blockpy.contains("__dp_format(__dp_repr(value))")
-                || core_blockpy.contains(
-                    "__dp_load_global(__dp_globals(), \"__dp_format\")(__dp_load_global(__dp_globals(), \"__dp_repr\")(value))"
-                ),
-            "{core_blockpy}"
-        );
+    assert!(core_blockpy.contains("repr(value)"), "{core_blockpy}");
+    assert!(core_blockpy.contains("format("), "{core_blockpy}");
 
     let fmt = lowered.bb_function("fmt");
     assert!(
-        fmt.blocks.iter().any(|block| {
-            block_uses_text(block, "__dp_repr(local slot 0)")
-                || block_uses_text(block, "__dp_load_global(__dp_globals(), \"__dp_repr\")")
-        }),
+        fmt.blocks
+            .iter()
+            .any(|block| block_uses_text(block, "repr(")),
         "{fmt:?}"
     );
     assert!(
-        fmt.blocks.iter().any(|block| {
-            block_uses_text(block, "__dp_format(local slot 2)")
-                || block_uses_text(block, "__dp_load_global(__dp_globals(), \"__dp_format\")")
-        }),
+        fmt.blocks
+            .iter()
+            .any(|block| block_uses_text(block, "format(")),
         "{fmt:?}"
     );
 }
@@ -204,7 +192,7 @@ def fmt(value):
     let lowered = TrackedLowering::new(source);
     let core_blockpy = lowered.blockpy_text();
     assert!(
-        core_blockpy.contains("__dp_templatelib_Interpolation(value, \"value\", __dp_NONE, \"\")"),
+        core_blockpy.contains("templatelib_Interpolation(value, \"value\","),
         "{core_blockpy}"
     );
 
@@ -212,7 +200,7 @@ def fmt(value):
     assert!(
         fmt.blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_templatelib_Interpolation")),
+            .any(|block| block_uses_text(block, "templatelib_Interpolation")),
         "{fmt:?}"
     );
     assert!(
@@ -335,14 +323,13 @@ class Box:
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
     assert!(
-        !core_rendered.contains("__dp_class_lookup_global"),
+        !core_rendered.contains("class_lookup_global"),
         "{core_rendered}"
     );
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered
-            .contains("__dp_class_lookup_global(local slot 0, \"y\", __dp_globals())"),
+        name_binding_rendered.contains("class_lookup_global(local slot 0, \"y\", globals())"),
         "{name_binding_rendered}"
     );
 }
@@ -360,14 +347,14 @@ def outer():
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
     assert!(
-        !core_rendered.contains("__dp_class_lookup_cell"),
+        !core_rendered.contains("class_lookup_cell"),
         "{core_rendered}"
     );
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered
-            .contains("__dp_class_lookup_cell(local slot 0, \"x\", captured cell source slot"),
+            .contains("class_lookup_cell(local slot 0, \"x\", captured cell source slot"),
         "{name_binding_rendered}"
     );
 }
@@ -541,7 +528,7 @@ fn nested_method_dunder_class_capture_uses_classcell_storage() {
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("__dp_make_function(")
+        name_binding_rendered.contains("make_function(")
             && name_binding_rendered.contains("\"__class__\", CellRef(owned cell slot 0)"),
         "{name_binding_rendered}"
     );
@@ -562,11 +549,11 @@ fn method_super_uses_cell_ref_marker_for_classcell() {
         "{core_rendered}"
     );
     assert!(
-        core_rendered.contains("__dp_call_super(super,") && core_rendered.contains(", self)"),
+        core_rendered.contains("call_super(super,") && core_rendered.contains(", self)"),
         "{core_rendered}"
     );
     assert!(
-        !core_rendered.contains("__dp_call_super(super, _dp_classcell"),
+        !core_rendered.contains("call_super(super, _dp_classcell"),
         "{core_rendered}"
     );
 
@@ -576,7 +563,7 @@ fn method_super_uses_cell_ref_marker_for_classcell() {
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("__dp_call_super(super,")
+        name_binding_rendered.contains("call_super(super,")
             && name_binding_rendered.contains(", local slot 0)"),
         "{name_binding_rendered}"
     );
@@ -947,18 +934,17 @@ class Box:
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
     assert!(
-        core_rendered.contains("value = __dp_contextmanager_enter("),
+        core_rendered.contains("value = contextmanager_enter("),
         "{core_rendered}"
     );
     assert!(
-        !core_rendered.contains("__dp_setitem(_dp_class_ns, \"value\", __dp_contextmanager_enter("),
+        !core_rendered.contains("SetItem(_dp_class_ns, \"value\", contextmanager_enter("),
         "{core_rendered}"
     );
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered
-            .contains("SetItem(local slot 0, \"value\", __dp_contextmanager_enter("),
+        name_binding_rendered.contains("SetItem(local slot 0, \"value\", contextmanager_enter("),
         "{name_binding_rendered}"
     );
 }
@@ -980,18 +966,18 @@ def outer():
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
     assert!(
-        !core_rendered.contains("__dp_store_cell(_dp_cell_value, __dp_contextmanager_enter("),
+        !core_rendered.contains("StoreLocation(_dp_cell_value, contextmanager_enter("),
         "{core_rendered}"
     );
     assert!(
-        core_rendered.contains("value = __dp_contextmanager_enter("),
+        core_rendered.contains("value = contextmanager_enter("),
         "{core_rendered}"
     );
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered.contains("StoreLocation(captured cell source slot")
-            && name_binding_rendered.contains("__dp_contextmanager_enter("),
+            && name_binding_rendered.contains("contextmanager_enter("),
         "{name_binding_rendered}"
     );
 }
@@ -1306,7 +1292,7 @@ def gen():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("owned cell slot 0 = MakeCell(__dp_NONE)"),
+        name_binding_rendered.contains("owned cell slot 0 = MakeCell(NONE)"),
         "{name_binding_rendered}"
     );
     assert!(
@@ -1314,7 +1300,7 @@ def gen():
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("owned cell slot 2 = MakeCell(__dp_NONE)"),
+        name_binding_rendered.contains("owned cell slot 2 = MakeCell(NONE)"),
         "{name_binding_rendered}"
     );
 }
@@ -1406,9 +1392,7 @@ def f():
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered.contains("StoreName(\"f\",")
-            && (name_binding_rendered.contains("__dp_make_function(")
-                || name_binding_rendered
-                    .contains("__dp_load_global(__dp_globals(), \"__dp_make_function\")",)),
+            && name_binding_rendered.contains("make_function("),
         "{name_binding_rendered}"
     );
 }
@@ -1612,7 +1596,7 @@ def f():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("__dp_load_deleted_name(\"x\", __dp_DELETED)"),
+        name_binding_rendered.contains("load_deleted_name(\"x\", DELETED)"),
         "{name_binding_rendered}"
     );
 }
@@ -1634,8 +1618,7 @@ def outer():
     let blockpy_rendered = lowered.blockpy_text();
     assert!(
         blockpy_rendered.contains("function outer.<locals>.inner():")
-            && blockpy_rendered
-                .contains("inner = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)")
+            && blockpy_rendered.contains("inner = MakeFunction(0, Function, tuple_values(), NONE)")
             && blockpy_rendered.contains("del x"),
         "{blockpy_rendered}"
     );
@@ -1708,7 +1691,7 @@ def outer(x):
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("owned cell slot 1 = MakeCell(__dp_DELETED)"),
+        name_binding_rendered.contains("owned cell slot 1 = MakeCell(DELETED)"),
         "{name_binding_rendered}"
     );
     let name_binding_module = lowered
@@ -1900,13 +1883,13 @@ async def agen():
         "{semantic_blockpy_rendered}"
     );
     assert!(
-        !semantic_blockpy_rendered.contains("__dp_await_iter"),
+        !semantic_blockpy_rendered.contains("await_iter"),
         "{semantic_blockpy_rendered}"
     );
 
     let blockpy_rendered = lowered.core_blockpy_with_yield_text();
     assert!(
-        blockpy_rendered.contains("__dp_await_iter"),
+        blockpy_rendered.contains("await_iter"),
         "{blockpy_rendered}"
     );
     assert!(
@@ -1935,13 +1918,13 @@ async def run():
         "{semantic_blockpy_rendered}"
     );
     assert!(
-        !semantic_blockpy_rendered.contains("__dp_await_iter"),
+        !semantic_blockpy_rendered.contains("await_iter"),
         "{semantic_blockpy_rendered}"
     );
 
     let blockpy_rendered = lowered.core_blockpy_with_yield_text();
     assert!(
-        blockpy_rendered.contains("__dp_await_iter"),
+        blockpy_rendered.contains("await_iter"),
         "{blockpy_rendered}"
     );
     assert!(
@@ -1962,25 +1945,25 @@ async def agen(cm):
     let lowered = TrackedLowering::new(source);
     let semantic_blockpy_rendered = lowered.blockpy_text();
     assert!(
-        semantic_blockpy_rendered.contains("await __dp_asynccontextmanager_aenter"),
+        semantic_blockpy_rendered.contains("await asynccontextmanager_aenter"),
         "{semantic_blockpy_rendered}"
     );
     assert!(
-        semantic_blockpy_rendered.contains("__dp_asynccontextmanager_get_aexit"),
+        semantic_blockpy_rendered.contains("asynccontextmanager_get_aexit"),
         "{semantic_blockpy_rendered}"
     );
     assert!(
-        !semantic_blockpy_rendered.contains("__dp_await_iter"),
+        !semantic_blockpy_rendered.contains("await_iter"),
         "{semantic_blockpy_rendered}"
     );
 
     let blockpy_rendered = lowered.core_blockpy_with_yield_text();
     assert!(
-        blockpy_rendered.contains("__dp_await_iter"),
+        blockpy_rendered.contains("await_iter"),
         "{blockpy_rendered}"
     );
     assert!(
-        blockpy_rendered.contains("__dp_asynccontextmanager_aenter"),
+        blockpy_rendered.contains("asynccontextmanager_aenter"),
         "{blockpy_rendered}"
     );
     assert!(
@@ -2000,25 +1983,25 @@ async def run(cm):
     let lowered = TrackedLowering::new(source);
     let semantic_blockpy_rendered = lowered.blockpy_text();
     assert!(
-        semantic_blockpy_rendered.contains("await __dp_asynccontextmanager_aenter"),
+        semantic_blockpy_rendered.contains("await asynccontextmanager_aenter"),
         "{semantic_blockpy_rendered}"
     );
     assert!(
-        semantic_blockpy_rendered.contains("__dp_asynccontextmanager_get_aexit"),
+        semantic_blockpy_rendered.contains("asynccontextmanager_get_aexit"),
         "{semantic_blockpy_rendered}"
     );
     assert!(
-        !semantic_blockpy_rendered.contains("__dp_await_iter"),
+        !semantic_blockpy_rendered.contains("await_iter"),
         "{semantic_blockpy_rendered}"
     );
 
     let blockpy_rendered = lowered.core_blockpy_with_yield_text();
     assert!(
-        blockpy_rendered.contains("__dp_await_iter"),
+        blockpy_rendered.contains("await_iter"),
         "{blockpy_rendered}"
     );
     assert!(
-        blockpy_rendered.contains("__dp_asynccontextmanager_aenter"),
+        blockpy_rendered.contains("asynccontextmanager_aenter"),
         "{blockpy_rendered}"
     );
     assert!(
@@ -2062,7 +2045,7 @@ def check():
         check
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_raise_from")),
+            .any(|block| block_uses_text(block, "raise_from")),
         "{check:?}"
     );
     assert!(
@@ -2090,7 +2073,7 @@ def check():
         check
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_exception_matches")),
+            .any(|block| block_uses_text(block, "exception_matches")),
         "{check:?}"
     );
     assert!(
@@ -2115,7 +2098,7 @@ def check():
         check
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_exceptiongroup_split")),
+            .any(|block| block_uses_text(block, "exceptiongroup_split")),
         "{check:?}"
     );
 }
@@ -2131,18 +2114,15 @@ import pkg.sub as alias
     let module_init = lowered.bb_function("_dp_module_init");
     assert!(
         module_init.blocks.iter().any(|block| {
-            block_uses_text(block, "__dp_import_(")
-                || block_uses_text(block, "__dp_load_global(__dp_globals(), \"__dp_import_\")")
+            block_uses_text(block, "import_(")
+                || block_uses_text(block, "load_global(globals(), \"import_\")")
         }),
         "{module_init:?}"
     );
     assert!(
         module_init.blocks.iter().any(|block| {
-            block_uses_text(block, "__dp_import_attr")
-                || block_uses_text(
-                    block,
-                    "__dp_load_global(__dp_globals(), \"__dp_import_attr\")",
-                )
+            block_uses_text(block, "import_attr")
+                || block_uses_text(block, "load_global(globals(), \"import_attr\")")
         }),
         "{module_init:?}"
     );
@@ -2159,18 +2139,15 @@ from pkg.mod import name as alias
     let module_init = lowered.bb_function("_dp_module_init");
     assert!(
         module_init.blocks.iter().any(|block| {
-            block_uses_text(block, "__dp_import_(")
-                || block_uses_text(block, "__dp_load_global(__dp_globals(), \"__dp_import_\")")
+            block_uses_text(block, "import_(")
+                || block_uses_text(block, "load_global(globals(), \"import_\")")
         }),
         "{module_init:?}"
     );
     assert!(
         module_init.blocks.iter().any(|block| {
-            block_uses_text(block, "__dp_import_attr")
-                || block_uses_text(
-                    block,
-                    "__dp_load_global(__dp_globals(), \"__dp_import_attr\")",
-                )
+            block_uses_text(block, "import_attr")
+                || block_uses_text(block, "load_global(globals(), \"import_attr\")")
         }),
         "{module_init:?}"
     );
@@ -2189,7 +2166,7 @@ type Alias[T] = list[T]
         module_init
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_typing_TypeAliasType")),
+            .any(|block| block_uses_text(block, "typing_TypeAliasType")),
         "{module_init:?}"
     );
 }
@@ -2478,13 +2455,13 @@ def run(items):
     assert!(
         run.blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_next_or_sentinel")),
+            .any(|block| block_uses_text(block, "next_or_sentinel")),
         "{run:?}"
     );
     assert!(
         run.blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_iter")),
+            .any(|block| block_uses_text(block, "iter")),
         "{run:?}"
     );
     assert!(
@@ -2512,13 +2489,13 @@ async def run():
     assert!(
         run.blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_anext_or_sentinel")),
+            .any(|block| block_uses_text(block, "anext_or_sentinel")),
         "{run:?}"
     );
     assert!(
         run.blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_aiter")),
+            .any(|block| block_uses_text(block, "aiter")),
         "{run:?}"
     );
     assert!(!debug.contains("_dp_completed_"), "{debug}");
@@ -2535,15 +2512,15 @@ async def run():
     let lowered = TrackedLowering::new(source);
     let semantic_blockpy_rendered = lowered.blockpy_text();
     assert!(
-        semantic_blockpy_rendered.contains("await __dp_anext_or_sentinel"),
+        semantic_blockpy_rendered.contains("await anext_or_sentinel"),
         "{semantic_blockpy_rendered}"
     );
     assert!(
-        semantic_blockpy_rendered.contains("__dp_aiter"),
+        semantic_blockpy_rendered.contains("aiter"),
         "{semantic_blockpy_rendered}"
     );
     assert!(
-        !semantic_blockpy_rendered.contains("yield from __dp_await_iter"),
+        !semantic_blockpy_rendered.contains("yield from await_iter"),
         "{semantic_blockpy_rendered}"
     );
 }
@@ -2579,9 +2556,7 @@ def f():
         .expect("bb module should be available");
     let f = function_by_name(&bb_module, "f");
     assert!(
-        f.blocks
-            .iter()
-            .any(|block| block_uses_text(block, "__dp_NONE")),
+        f.blocks.iter().any(|block| block_uses_text(block, "NONE")),
         "{f:?}"
     );
     assert!(
@@ -2911,7 +2886,7 @@ def f():
     assert!(
         f.blocks
             .iter()
-            .any(|block| block_uses_text(block, "__dp_exceptiongroup_split")),
+            .any(|block| block_uses_text(block, "exceptiongroup_split")),
         "{f:?}"
     );
     assert!(

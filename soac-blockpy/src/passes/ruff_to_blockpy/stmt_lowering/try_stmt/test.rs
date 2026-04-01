@@ -20,8 +20,14 @@ except ValueError as exc:
     let simplified = simplify_stmt_ast_once_for_blockpy(&context, Stmt::Try(try_stmt));
     let rendered = crate::ruff_ast_to_string(simplified.as_slice());
 
-    assert!(rendered.contains("__dp_exception_matches"), "{rendered}");
-    assert!(rendered.contains("__dp_current_exception()"), "{rendered}");
+    assert!(
+        rendered.contains("__soac__.exception_matches"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("__soac__.current_exception()"),
+        "{rendered}"
+    );
     assert!(rendered.contains("_dp_del_quietly(exc)"), "{rendered}");
 }
 
@@ -43,6 +49,9 @@ except* ValueError as exc:
     let simplified = simplify_stmt_ast_once_for_blockpy(&context, Stmt::Try(try_stmt));
     let rendered = crate::ruff_ast_to_string(simplified.as_slice());
 
-    assert!(rendered.contains("__dp_exceptiongroup_split"), "{rendered}");
+    assert!(
+        rendered.contains("__soac__.exceptiongroup_split"),
+        "{rendered}"
+    );
     assert!(rendered.contains("_dp_del_quietly(exc)"), "{rendered}");
 }
