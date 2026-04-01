@@ -401,30 +401,9 @@ where
     let helper_name = format!("__dp_{attr_name}");
     match func {
         _ if expr_root_name_id(func) == Some(helper_name.as_str()) => true,
-        CoreBlockPyExpr::Call(call) if call.keywords.is_empty() && call.args.len() == 2 => {
-            expr_root_name_id(call.func.as_ref()) == Some("__dp_getattr")
-                && is_dp_getattr_lookup_args(&call.args, attr_name)
-        }
         _ => operation_expr(func)
             .is_some_and(|operation| is_dp_getattr_operation(operation, attr_name)),
     }
-}
-
-fn is_dp_getattr_lookup_args<N>(
-    args: &[CoreBlockPyCallArg<CoreBlockPyExpr<N>>],
-    attr_name: &str,
-) -> bool
-where
-    N: BlockPyNameLike,
-{
-    matches!(
-        &args[0],
-        CoreBlockPyCallArg::Positional(expr)
-            if expr_root_name_id(expr) == Some("runtime")
-    ) && expr_static_str(match &args[1] {
-        CoreBlockPyCallArg::Positional(value) => value,
-        CoreBlockPyCallArg::Starred(_) => return false,
-    }) == Some(attr_name.to_string())
 }
 
 fn is_dp_getattr_operation<N>(
@@ -440,21 +419,6 @@ where
         return false;
     };
     expr_root_name_id(value.as_ref()) == Some("runtime") && attr == attr_name
-}
-
-fn expr_static_str<N>(expr: &CoreBlockPyExpr<N>) -> Option<String>
-where
-    N: BlockPyNameLike,
-{
-    match expr {
-        CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(value)) => {
-            Some(value.value.clone())
-        }
-        CoreBlockPyExpr::Literal(CoreBlockPyLiteral::BytesLiteral(bytes)) => {
-            String::from_utf8(bytes.value.clone()).ok()
-        }
-        _ => None,
-    }
 }
 
 fn expr_root_name_id<N>(expr: &CoreBlockPyExpr<N>) -> Option<&str>
