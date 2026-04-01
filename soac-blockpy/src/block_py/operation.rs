@@ -128,36 +128,6 @@ impl TernaryOpKind {
     }
 }
 
-pub trait OperationNode<E>: Sized {
-    type Name;
-    type Mapped<T, M>;
-
-    fn walk_expr_args(&self, f: &mut impl FnMut(&E));
-    fn walk_expr_args_mut(&mut self, f: &mut impl FnMut(&mut E));
-    fn into_expr_args(self) -> Vec<E>;
-    fn map_expr_and_name<T, M>(
-        self,
-        f_expr: &mut impl FnMut(E) -> T,
-        f_name: &mut impl FnMut(Self::Name) -> M,
-    ) -> Self::Mapped<T, M>;
-    fn try_map_expr_and_name<T, M, Error>(
-        self,
-        f_expr: &mut impl FnMut(E) -> Result<T, Error>,
-        f_name: &mut impl FnMut(Self::Name) -> Result<M, Error>,
-    ) -> Result<Self::Mapped<T, M>, Error>;
-
-    fn map_expr<T>(self, f_expr: &mut impl FnMut(E) -> T) -> Self::Mapped<T, Self::Name> {
-        self.map_expr_and_name(f_expr, &mut |name| name)
-    }
-
-    fn try_map_expr<T, Error>(
-        self,
-        f_expr: &mut impl FnMut(E) -> Result<T, Error>,
-    ) -> Result<Self::Mapped<T, Self::Name>, Error> {
-        self.try_map_expr_and_name(f_expr, &mut Ok)
-    }
-}
-
 pub trait ExprOperationNode<E>: Sized {
     type Mapped<T>;
 
@@ -168,195 +138,6 @@ pub trait ExprOperationNode<E>: Sized {
         self,
         f: &mut impl FnMut(E) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>;
-}
-
-macro_rules! define_operation_node {
-    (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident,) => {
-        $($mapped_ctor)+ { $($out)* }
-    };
-    (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident, $field:ident : $ty:ty => expr, $($rest:tt)*) => {
-        define_operation_node!(
-            @build_mapped
-            [$($mapped_ctor)+]
-            [$($out)* $field: Box::new($f_expr(*$self.$field)),]
-            $self,
-            $f_expr,
-            $f_name,
-            $($rest)*
-        )
-    };
-    (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident, $field:ident : $ty:ty => name, $($rest:tt)*) => {
-        define_operation_node!(
-            @build_mapped
-            [$($mapped_ctor)+]
-            [$($out)* $field: $f_name($self.$field),]
-            $self,
-            $f_expr,
-            $f_name,
-            $($rest)*
-        )
-    };
-    (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident, $field:ident : $ty:ty => value, $($rest:tt)*) => {
-        define_operation_node!(
-            @build_mapped
-            [$($mapped_ctor)+]
-            [$($out)* $field: $self.$field,]
-            $self,
-            $f_expr,
-            $f_name,
-            $($rest)*
-        )
-    };
-    (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident,) => {
-        Ok($($mapped_ctor)+ { $($out)* })
-    };
-    (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident, $field:ident : $ty:ty => expr, $($rest:tt)*) => {
-        define_operation_node!(
-            @build_try_mapped
-            [$($mapped_ctor)+]
-            [$($out)* $field: Box::new($f_expr(*$self.$field)?),]
-            $self,
-            $f_expr,
-            $f_name,
-            $($rest)*
-        )
-    };
-    (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident, $field:ident : $ty:ty => name, $($rest:tt)*) => {
-        define_operation_node!(
-            @build_try_mapped
-            [$($mapped_ctor)+]
-            [$($out)* $field: $f_name($self.$field)?,]
-            $self,
-            $f_expr,
-            $f_name,
-            $($rest)*
-        )
-    };
-    (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident, $field:ident : $ty:ty => value, $($rest:tt)*) => {
-        define_operation_node!(
-            @build_try_mapped
-            [$($mapped_ctor)+]
-            [$($out)* $field: $self.$field,]
-            $self,
-            $f_expr,
-            $f_name,
-            $($rest)*
-        )
-    };
-    (@walk_expr_fields $self:ident, $f:ident,) => {};
-    (@walk_expr_fields $self:ident, $f:ident, $field:ident : $ty:ty => expr, $($rest:tt)*) => {
-        $f(&$self.$field);
-        define_operation_node!(@walk_expr_fields $self, $f, $($rest)*);
-    };
-    (@walk_expr_fields $self:ident, $f:ident, $field:ident : $ty:ty => name, $($rest:tt)*) => {
-        define_operation_node!(@walk_expr_fields $self, $f, $($rest)*);
-    };
-    (@walk_expr_fields $self:ident, $f:ident, $field:ident : $ty:ty => value, $($rest:tt)*) => {
-        define_operation_node!(@walk_expr_fields $self, $f, $($rest)*);
-    };
-    (@walk_expr_fields_mut $self:ident, $f:ident,) => {};
-    (@walk_expr_fields_mut $self:ident, $f:ident, $field:ident : $ty:ty => expr, $($rest:tt)*) => {
-        $f(&mut $self.$field);
-        define_operation_node!(@walk_expr_fields_mut $self, $f, $($rest)*);
-    };
-    (@walk_expr_fields_mut $self:ident, $f:ident, $field:ident : $ty:ty => name, $($rest:tt)*) => {
-        define_operation_node!(@walk_expr_fields_mut $self, $f, $($rest)*);
-    };
-    (@walk_expr_fields_mut $self:ident, $f:ident, $field:ident : $ty:ty => value, $($rest:tt)*) => {
-        define_operation_node!(@walk_expr_fields_mut $self, $f, $($rest)*);
-    };
-    (@into_expr_fields $out:ident, $self:ident,) => {};
-    (@into_expr_fields $out:ident, $self:ident, $field:ident : $ty:ty => expr, $($rest:tt)*) => {
-        $out.push(*$self.$field);
-        define_operation_node!(@into_expr_fields $out, $self, $($rest)*);
-    };
-    (@into_expr_fields $out:ident, $self:ident, $field:ident : $ty:ty => name, $($rest:tt)*) => {
-        define_operation_node!(@into_expr_fields $out, $self, $($rest)*);
-    };
-    (@into_expr_fields $out:ident, $self:ident, $field:ident : $ty:ty => value, $($rest:tt)*) => {
-        define_operation_node!(@into_expr_fields $out, $self, $($rest)*);
-    };
-    (
-        $vis:vis struct $name:ident $(<$($struct_gen:ident),*>)? {
-            impl<$($impl_gen:ident),*>;
-            name_type = [$($name_ty:tt)+];
-            mapped_type<$mapped_expr:ident, $mapped_name:ident> = [$($mapped_ty:tt)+];
-            mapped_ctor<$mapped_ctor_expr:ident, $mapped_ctor_name:ident> = [$($mapped_ctor:tt)+];
-            $( $field:ident : $ty:ty => $kind:ident ),* $(,)?
-        }
-    ) => {
-        #[derive(Debug, Clone)]
-        $vis struct $name $(<$($struct_gen),*>)? {
-            $(pub $field: $ty,)*
-        }
-
-        impl$(<$($struct_gen),*>)? $name $(<$($struct_gen),*>)? {
-            pub fn new($($field: $ty),*) -> Self {
-                Self { $($field,)* }
-            }
-        }
-
-        impl<$($impl_gen),*> OperationNode<E> for $name $(<$($struct_gen),*>)? {
-            type Name = $($name_ty)+;
-            type Mapped<$mapped_expr, $mapped_name> = $($mapped_ty)+;
-
-            fn walk_expr_args(&self, f: &mut impl FnMut(&E)) {
-                #[allow(unused_variables)]
-                let _ = &f;
-                define_operation_node!(@walk_expr_fields self, f, $($field : $ty => $kind,)*);
-            }
-
-            fn walk_expr_args_mut(&mut self, f: &mut impl FnMut(&mut E)) {
-                #[allow(unused_variables)]
-                let _ = &f;
-                define_operation_node!(@walk_expr_fields_mut self, f, $($field : $ty => $kind,)*);
-            }
-
-            fn into_expr_args(self) -> Vec<E> {
-                #[allow(unused_mut)]
-                let mut out = Vec::new();
-                define_operation_node!(@into_expr_fields out, self, $($field : $ty => $kind,)*);
-                out
-            }
-
-            fn map_expr_and_name<T, M>(
-                self,
-                f_expr: &mut impl FnMut(E) -> T,
-                f_name: &mut impl FnMut(Self::Name) -> M,
-            ) -> Self::Mapped<T, M> {
-                #[allow(unused_variables)]
-                let _ = (&f_expr, &f_name);
-                define_operation_node!(
-                    @build_mapped
-                    [$($mapped_ctor)+]
-                    []
-                    self,
-                    f_expr,
-                    f_name,
-                    $($field : $ty => $kind,)*
-                )
-            }
-
-            fn try_map_expr_and_name<T, M, Error>(
-                self,
-                f_expr: &mut impl FnMut(E) -> Result<T, Error>,
-                f_name: &mut impl FnMut(Self::Name) -> Result<M, Error>,
-            ) -> Result<Self::Mapped<T, M>, Error> {
-                #[allow(unused_variables)]
-                let _ = (&f_expr, &f_name);
-                define_operation_node!(
-                    @build_try_mapped
-                    [$($mapped_ctor)+]
-                    []
-                    self,
-                    f_expr,
-                    f_name,
-                    $($field : $ty => $kind,)*
-                )
-            }
-        }
-
-    };
 }
 
 macro_rules! define_operation {
@@ -430,6 +211,105 @@ macro_rules! define_operation {
                 define_operation!(@build_try_mapped [$name::<T>] [] self, f, $($raw_fields)*)
             }
         }
+    };
+    (
+        $vis:vis struct $name:ident {
+            $($fields:tt)*
+        }
+    ) => {
+        define_operation!(
+            @collect_value_fields
+            [$vis]
+            [$name]
+            []
+            []
+            []
+            $($fields)*
+        );
+    };
+    (
+        @collect_value_fields
+        [$vis:vis]
+        [$name:ident]
+        [$($struct_fields:tt)*]
+        [$($ctor_args:tt)*]
+        [$($ctor_init:tt)*]
+    ) => {
+        #[derive(Debug, Clone)]
+        $vis struct $name {
+            $($struct_fields)*
+        }
+
+        impl $name {
+            pub fn new($($ctor_args)*) -> Self {
+                Self {
+                    $($ctor_init)*
+                }
+            }
+        }
+
+        impl<E> ExprOperationNode<E> for $name {
+            type Mapped<T> = $name;
+
+            fn visit_exprs(&self, f: &mut impl FnMut(&E)) {
+                let _ = &f;
+            }
+
+            fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut E)) {
+                let _ = &f;
+            }
+
+            fn map_op<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T> {
+                let _ = &f;
+                self
+            }
+
+            fn try_map_op<T, Error>(
+                self,
+                f: &mut impl FnMut(E) -> Result<T, Error>,
+            ) -> Result<Self::Mapped<T>, Error> {
+                let _ = &f;
+                Ok(self)
+            }
+        }
+    };
+    (
+        @collect_value_fields
+        [$vis:vis]
+        [$name:ident]
+        [$($struct_fields:tt)*]
+        [$($ctor_args:tt)*]
+        [$($ctor_init:tt)*]
+        $field:ident : $ty:ty,
+        $($rest:tt)*
+    ) => {
+        define_operation!(
+            @collect_value_fields
+            [$vis]
+            [$name]
+            [$($struct_fields)* pub $field: $ty,]
+            [$($ctor_args)* $field: impl Into<$ty>,]
+            [$($ctor_init)* $field: $field.into(),]
+            $($rest)*
+        );
+    };
+    (
+        @collect_value_fields
+        [$vis:vis]
+        [$name:ident]
+        [$($struct_fields:tt)*]
+        [$($ctor_args:tt)*]
+        [$($ctor_init:tt)*]
+        $field:ident : $ty:ty
+    ) => {
+        define_operation!(
+            @collect_value_fields
+            [$vis]
+            [$name]
+            [$($struct_fields)* pub $field: $ty,]
+            [$($ctor_args)* $field: impl Into<$ty>,]
+            [$($ctor_init)* $field: $field.into(),]
+        );
     };
     (
         @collect_fields
@@ -691,43 +571,27 @@ define_operation! {
     }
 }
 
-define_operation_node! {
+define_operation! {
     pub struct LoadRuntime {
-        impl<E>;
-        name_type = [()];
-        mapped_type<T, M> = [LoadRuntime];
-        mapped_ctor<T, M> = [LoadRuntime];
-        name: String => value,
+        name: String,
     }
 }
 
-define_operation_node! {
+define_operation! {
     pub struct LoadName {
-        impl<E>;
-        name_type = [()];
-        mapped_type<T, M> = [LoadName];
-        mapped_ctor<T, M> = [LoadName];
-        name: String => value,
+        name: String,
     }
 }
 
-define_operation_node! {
+define_operation! {
     pub struct LoadLocal {
-        impl<E>;
-        name_type = [()];
-        mapped_type<T, M> = [LoadLocal];
-        mapped_ctor<T, M> = [LoadLocal];
-        location: LocalLocation => value,
+        location: LocalLocation,
     }
 }
 
-define_operation_node! {
+define_operation! {
     pub struct LoadCell {
-        impl<E>;
-        name_type = [()];
-        mapped_type<T, M> = [LoadCell];
-        mapped_ctor<T, M> = [LoadCell];
-        location: CellLocation => value,
+        location: CellLocation,
     }
 }
 
@@ -737,33 +601,21 @@ define_operation! {
     }
 }
 
-define_operation_node! {
+define_operation! {
     pub struct MakeString {
-        impl<E>;
-        name_type = [()];
-        mapped_type<T, M> = [MakeString];
-        mapped_ctor<T, M> = [MakeString];
-        bytes: Vec<u8> => value,
+        bytes: Vec<u8>,
     }
 }
 
-define_operation_node! {
+define_operation! {
     pub struct CellRefForName {
-        impl<E>;
-        name_type = [()];
-        mapped_type<T, M> = [CellRefForName];
-        mapped_ctor<T, M> = [CellRefForName];
-        logical_name: String => value,
+        logical_name: String,
     }
 }
 
-define_operation_node! {
+define_operation! {
     pub struct CellRef {
-        impl<E>;
-        name_type = [()];
-        mapped_type<T, M> = [CellRef];
-        mapped_ctor<T, M> = [CellRef];
-        location: CellLocation => value,
+        location: CellLocation,
     }
 }
 
@@ -790,23 +642,15 @@ define_operation! {
     }
 }
 
-define_operation_node! {
+define_operation! {
     pub struct DelDerefQuietly {
-        impl<E>;
-        name_type = [()];
-        mapped_type<T, M> = [DelDerefQuietly];
-        mapped_ctor<T, M> = [DelDerefQuietly];
-        location: CellLocation => value,
+        location: CellLocation,
     }
 }
 
-define_operation_node! {
+define_operation! {
     pub struct DelDeref {
-        impl<E>;
-        name_type = [()];
-        mapped_type<T, M> = [DelDeref];
-        mapped_ctor<T, M> = [DelDeref];
-        location: CellLocation => value,
+        location: CellLocation,
     }
 }
 
@@ -852,19 +696,19 @@ impl<E> OperationDetail<E> {
             Self::DelItem(op) => OperationDetail::DelItem(op.map_op(f)),
             Self::LoadGlobal(op) => OperationDetail::LoadGlobal(op.map_op(f)),
             Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.map_op(f)),
-            Self::LoadRuntime(op) => OperationDetail::LoadRuntime(op.map_expr(f)),
-            Self::LoadName(op) => OperationDetail::LoadName(op.map_expr(f)),
-            Self::LoadLocal(op) => OperationDetail::LoadLocal(op.map_expr(f)),
-            Self::LoadCell(op) => OperationDetail::LoadCell(op.map_expr(f)),
+            Self::LoadRuntime(op) => OperationDetail::LoadRuntime(op.map_op(f)),
+            Self::LoadName(op) => OperationDetail::LoadName(op.map_op(f)),
+            Self::LoadLocal(op) => OperationDetail::LoadLocal(op.map_op(f)),
+            Self::LoadCell(op) => OperationDetail::LoadCell(op.map_op(f)),
             Self::MakeCell(op) => OperationDetail::MakeCell(op.map_op(f)),
-            Self::MakeString(op) => OperationDetail::MakeString(op.map_expr(f)),
-            Self::CellRefForName(op) => OperationDetail::CellRefForName(op.map_expr(f)),
-            Self::CellRef(op) => OperationDetail::CellRef(op.map_expr(f)),
+            Self::MakeString(op) => OperationDetail::MakeString(op.map_op(f)),
+            Self::CellRefForName(op) => OperationDetail::CellRefForName(op.map_op(f)),
+            Self::CellRef(op) => OperationDetail::CellRef(op.map_op(f)),
             Self::MakeFunction(op) => OperationDetail::MakeFunction(op.map_op(f)),
             Self::StoreCell(op) => OperationDetail::StoreCell(op.map_op(f)),
             Self::DelQuietly(op) => OperationDetail::DelQuietly(op.map_op(f)),
-            Self::DelDerefQuietly(op) => OperationDetail::DelDerefQuietly(op.map_expr(f)),
-            Self::DelDeref(op) => OperationDetail::DelDeref(op.map_expr(f)),
+            Self::DelDerefQuietly(op) => OperationDetail::DelDerefQuietly(op.map_op(f)),
+            Self::DelDeref(op) => OperationDetail::DelDeref(op.map_op(f)),
         }
     }
 
@@ -884,19 +728,19 @@ impl<E> OperationDetail<E> {
             Self::DelItem(op) => OperationDetail::DelItem(op.try_map_op(f)?),
             Self::LoadGlobal(op) => OperationDetail::LoadGlobal(op.try_map_op(f)?),
             Self::StoreGlobal(op) => OperationDetail::StoreGlobal(op.try_map_op(f)?),
-            Self::LoadRuntime(op) => OperationDetail::LoadRuntime(op.try_map_expr(f)?),
-            Self::LoadName(op) => OperationDetail::LoadName(op.try_map_expr(f)?),
-            Self::LoadLocal(op) => OperationDetail::LoadLocal(op.try_map_expr(f)?),
-            Self::LoadCell(op) => OperationDetail::LoadCell(op.try_map_expr(f)?),
+            Self::LoadRuntime(op) => OperationDetail::LoadRuntime(op.try_map_op(f)?),
+            Self::LoadName(op) => OperationDetail::LoadName(op.try_map_op(f)?),
+            Self::LoadLocal(op) => OperationDetail::LoadLocal(op.try_map_op(f)?),
+            Self::LoadCell(op) => OperationDetail::LoadCell(op.try_map_op(f)?),
             Self::MakeCell(op) => OperationDetail::MakeCell(op.try_map_op(f)?),
-            Self::MakeString(op) => OperationDetail::MakeString(op.try_map_expr(f)?),
-            Self::CellRefForName(op) => OperationDetail::CellRefForName(op.try_map_expr(f)?),
-            Self::CellRef(op) => OperationDetail::CellRef(op.try_map_expr(f)?),
+            Self::MakeString(op) => OperationDetail::MakeString(op.try_map_op(f)?),
+            Self::CellRefForName(op) => OperationDetail::CellRefForName(op.try_map_op(f)?),
+            Self::CellRef(op) => OperationDetail::CellRef(op.try_map_op(f)?),
             Self::MakeFunction(op) => OperationDetail::MakeFunction(op.try_map_op(f)?),
             Self::StoreCell(op) => OperationDetail::StoreCell(op.try_map_op(f)?),
             Self::DelQuietly(op) => OperationDetail::DelQuietly(op.try_map_op(f)?),
-            Self::DelDerefQuietly(op) => OperationDetail::DelDerefQuietly(op.try_map_expr(f)?),
-            Self::DelDeref(op) => OperationDetail::DelDeref(op.try_map_expr(f)?),
+            Self::DelDerefQuietly(op) => OperationDetail::DelDerefQuietly(op.try_map_op(f)?),
+            Self::DelDeref(op) => OperationDetail::DelDeref(op.try_map_op(f)?),
         })
     }
 
@@ -913,19 +757,19 @@ impl<E> OperationDetail<E> {
             Self::DelItem(op) => op.visit_exprs(f),
             Self::LoadGlobal(op) => op.visit_exprs(f),
             Self::StoreGlobal(op) => op.visit_exprs(f),
-            Self::LoadRuntime(op) => op.walk_expr_args(f),
-            Self::LoadName(op) => op.walk_expr_args(f),
-            Self::LoadLocal(op) => op.walk_expr_args(f),
-            Self::LoadCell(op) => op.walk_expr_args(f),
+            Self::LoadRuntime(op) => op.visit_exprs(f),
+            Self::LoadName(op) => op.visit_exprs(f),
+            Self::LoadLocal(op) => op.visit_exprs(f),
+            Self::LoadCell(op) => op.visit_exprs(f),
             Self::MakeCell(op) => op.visit_exprs(f),
-            Self::MakeString(op) => op.walk_expr_args(f),
-            Self::CellRefForName(op) => op.walk_expr_args(f),
-            Self::CellRef(op) => op.walk_expr_args(f),
+            Self::MakeString(op) => op.visit_exprs(f),
+            Self::CellRefForName(op) => op.visit_exprs(f),
+            Self::CellRef(op) => op.visit_exprs(f),
             Self::MakeFunction(op) => op.visit_exprs(f),
             Self::StoreCell(op) => op.visit_exprs(f),
             Self::DelQuietly(op) => op.visit_exprs(f),
-            Self::DelDerefQuietly(op) => op.walk_expr_args(f),
-            Self::DelDeref(op) => op.walk_expr_args(f),
+            Self::DelDerefQuietly(op) => op.visit_exprs(f),
+            Self::DelDeref(op) => op.visit_exprs(f),
         }
     }
 
@@ -942,19 +786,19 @@ impl<E> OperationDetail<E> {
             Self::DelItem(op) => op.visit_exprs_mut(f),
             Self::LoadGlobal(op) => op.visit_exprs_mut(f),
             Self::StoreGlobal(op) => op.visit_exprs_mut(f),
-            Self::LoadRuntime(op) => op.walk_expr_args_mut(f),
-            Self::LoadName(op) => op.walk_expr_args_mut(f),
-            Self::LoadLocal(op) => op.walk_expr_args_mut(f),
-            Self::LoadCell(op) => op.walk_expr_args_mut(f),
+            Self::LoadRuntime(op) => op.visit_exprs_mut(f),
+            Self::LoadName(op) => op.visit_exprs_mut(f),
+            Self::LoadLocal(op) => op.visit_exprs_mut(f),
+            Self::LoadCell(op) => op.visit_exprs_mut(f),
             Self::MakeCell(op) => op.visit_exprs_mut(f),
-            Self::MakeString(op) => op.walk_expr_args_mut(f),
-            Self::CellRefForName(op) => op.walk_expr_args_mut(f),
-            Self::CellRef(op) => op.walk_expr_args_mut(f),
+            Self::MakeString(op) => op.visit_exprs_mut(f),
+            Self::CellRefForName(op) => op.visit_exprs_mut(f),
+            Self::CellRef(op) => op.visit_exprs_mut(f),
             Self::MakeFunction(op) => op.visit_exprs_mut(f),
             Self::StoreCell(op) => op.visit_exprs_mut(f),
             Self::DelQuietly(op) => op.visit_exprs_mut(f),
-            Self::DelDerefQuietly(op) => op.walk_expr_args_mut(f),
-            Self::DelDeref(op) => op.walk_expr_args_mut(f),
+            Self::DelDerefQuietly(op) => op.visit_exprs_mut(f),
+            Self::DelDeref(op) => op.visit_exprs_mut(f),
         }
     }
 }
