@@ -482,14 +482,14 @@ pub enum CoreBlockPyExpr<N = ast::ExprName> {
 pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 
 #[derive(Debug, Clone)]
-pub enum CodegenBlockPyExpr<N = ast::ExprName> {
-    Name(N),
+pub enum CodegenBlockPyExpr {
+    Name(LocatedName),
     Literal(CodegenBlockPyLiteral),
     Op(Operation<Self>),
     Call(CoreBlockPyCall<Self>),
 }
 
-pub type LocatedCodegenBlockPyExpr = CodegenBlockPyExpr<LocatedName>;
+pub type LocatedCodegenBlockPyExpr = CodegenBlockPyExpr;
 
 #[derive(Debug, Clone)]
 pub enum CoreBlockPyLiteral {
@@ -809,8 +809,8 @@ where
     }
 }
 
-impl<N: BlockPyNameLike> CoreCallLikeExpr for CodegenBlockPyExpr<N> {
-    type Name = N;
+impl CoreCallLikeExpr for CodegenBlockPyExpr {
+    type Name = LocatedName;
 
     fn from_name(name: ast::ExprName) -> Self {
         Self::Name(name.into())
@@ -825,17 +825,14 @@ impl<N: BlockPyNameLike> CoreCallLikeExpr for CodegenBlockPyExpr<N> {
     }
 }
 
-impl<NIn, NOut> MapExpr<CodegenBlockPyExpr<NOut>> for CoreBlockPyExpr<NIn>
+impl<NIn> MapExpr<CodegenBlockPyExpr> for CoreBlockPyExpr<NIn>
 where
     NIn: BlockPyNameLike,
-    NOut: BlockPyNameLike + From<NIn>,
+    LocatedName: From<NIn>,
 {
-    fn map_expr(
-        self,
-        f: &mut impl FnMut(Self) -> CodegenBlockPyExpr<NOut>,
-    ) -> CodegenBlockPyExpr<NOut> {
+    fn map_expr(self, f: &mut impl FnMut(Self) -> CodegenBlockPyExpr) -> CodegenBlockPyExpr {
         match self {
-            Self::Name(name) => CodegenBlockPyExpr::Name(NOut::from(name)),
+            Self::Name(name) => CodegenBlockPyExpr::Name(LocatedName::from(name)),
             Self::Literal(CoreBlockPyLiteral::BytesLiteral(literal)) => {
                 CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(literal))
             }
@@ -857,17 +854,13 @@ where
     }
 }
 
-impl<NIn, NOut, Error> TryMapExpr<CodegenBlockPyExpr<NOut>, Error> for CodegenBlockPyExpr<NIn>
-where
-    NIn: BlockPyNameLike,
-    NOut: BlockPyNameLike + From<NIn>,
-{
+impl<Error> TryMapExpr<CodegenBlockPyExpr, Error> for CodegenBlockPyExpr {
     fn try_map_expr(
         self,
-        f: &mut impl FnMut(Self) -> Result<CodegenBlockPyExpr<NOut>, Error>,
-    ) -> Result<CodegenBlockPyExpr<NOut>, Error> {
+        f: &mut impl FnMut(Self) -> Result<CodegenBlockPyExpr, Error>,
+    ) -> Result<CodegenBlockPyExpr, Error> {
         match self {
-            Self::Name(name) => Ok(CodegenBlockPyExpr::Name(NOut::from(name))),
+            Self::Name(name) => Ok(CodegenBlockPyExpr::Name(name)),
             Self::Literal(literal) => Ok(CodegenBlockPyExpr::Literal(literal)),
             Self::Op(operation) => Ok(CodegenBlockPyExpr::Op(operation.try_map_expr(&mut *f)?)),
             Self::Call(call) => Ok(CodegenBlockPyExpr::Call(CoreBlockPyCall {
@@ -881,17 +874,10 @@ where
     }
 }
 
-impl<NIn, NOut> MapExpr<CodegenBlockPyExpr<NOut>> for CodegenBlockPyExpr<NIn>
-where
-    NIn: BlockPyNameLike,
-    NOut: BlockPyNameLike + From<NIn>,
-{
-    fn map_expr(
-        self,
-        f: &mut impl FnMut(Self) -> CodegenBlockPyExpr<NOut>,
-    ) -> CodegenBlockPyExpr<NOut> {
+impl MapExpr<CodegenBlockPyExpr> for CodegenBlockPyExpr {
+    fn map_expr(self, f: &mut impl FnMut(Self) -> CodegenBlockPyExpr) -> CodegenBlockPyExpr {
         match self {
-            Self::Name(name) => CodegenBlockPyExpr::Name(NOut::from(name)),
+            Self::Name(name) => CodegenBlockPyExpr::Name(name),
             Self::Literal(literal) => CodegenBlockPyExpr::Literal(literal),
             Self::Op(operation) => CodegenBlockPyExpr::Op(operation.map_expr(&mut *f)),
             Self::Call(call) => CodegenBlockPyExpr::Call(CoreBlockPyCall {
@@ -1831,7 +1817,7 @@ impl<N: BlockPyNameLike> ImplicitNoneExpr for CoreBlockPyExpr<N> {
     }
 }
 
-impl<N: BlockPyNameLike> ImplicitNoneExpr for CodegenBlockPyExpr<N> {
+impl ImplicitNoneExpr for CodegenBlockPyExpr {
     fn implicit_none_expr() -> Self {
         core_runtime_name_expr_with_meta("__dp_NONE", Default::default(), Default::default())
     }

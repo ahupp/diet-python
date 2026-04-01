@@ -16,6 +16,7 @@
 - **MUST FOLLOW**: If a proposed change would add new thread-local state or mutable global state, stop and explain why that state is necessary before implementing.
 - **MUST FOLLOW**: Prefer explicit lowered state-machine transitions over mutating runtime function pointers to model terminal behavior.
 - **MUST FOLLOW**: When changing implementation details, do not keep compatibility stubs/interfaces around; assume transformed inputs are regenerated each time.
+- **MUST FOLLOW**: Do not keep production-dead code alive only for tests; if only tests depend on an old path, update those tests to the production path or delete them.
 - **MUST FOLLOW**: If the user rejects a proposed approach, extract the underlying design principle behind that rejection, propose it explicitly as a general rule, and only add it to `AGENTS.md` if the user approves that rule.
 
 ## Tips

@@ -94,7 +94,7 @@ impl<N: BlockPyNameLike> HasMeta for CoreBlockPyExpr<N> {
     }
 }
 
-impl<N: BlockPyNameLike> HasMeta for CodegenBlockPyExpr<N> {
+impl HasMeta for CodegenBlockPyExpr {
     fn meta(&self) -> Meta {
         match self {
             Self::Name(name) => Meta::new(name.node_index(), name.range()),

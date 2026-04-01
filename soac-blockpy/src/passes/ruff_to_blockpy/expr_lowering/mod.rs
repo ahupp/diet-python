@@ -78,25 +78,6 @@ pub(crate) trait RuffToBlockPyExpr: From<Expr> + std::fmt::Debug + Clone + Sized
     ) -> Self;
 }
 
-#[cfg(test)]
-fn inplace_helper_name(op: ast::Operator) -> &'static str {
-    match op {
-        ast::Operator::Add => "iadd",
-        ast::Operator::Sub => "isub",
-        ast::Operator::Mult => "imul",
-        ast::Operator::MatMult => "imatmul",
-        ast::Operator::Div => "itruediv",
-        ast::Operator::Mod => "imod",
-        ast::Operator::Pow => "ipow",
-        ast::Operator::LShift => "ilshift",
-        ast::Operator::RShift => "irshift",
-        ast::Operator::BitOr => "ior",
-        ast::Operator::BitXor => "ixor",
-        ast::Operator::BitAnd => "iand",
-        ast::Operator::FloorDiv => "ifloordiv",
-    }
-}
-
 fn inplace_kind(op: ast::Operator) -> Option<operation::InplaceBinOpKind> {
     Some(match op {
         ast::Operator::Add => operation::InplaceBinOpKind::Add,
@@ -113,133 +94,6 @@ fn inplace_kind(op: ast::Operator) -> Option<operation::InplaceBinOpKind> {
         ast::Operator::FloorDiv => operation::InplaceBinOpKind::FloorDiv,
         ast::Operator::Pow => return None,
     })
-}
-
-#[cfg(test)]
-impl RuffToBlockPyExpr for Expr {
-    fn helper_call(
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        name: &'static str,
-        args: Vec<Self>,
-    ) -> Self {
-        Expr::Call(ast::ExprCall {
-            func: Box::new(Expr::Name(ast::ExprName {
-                id: name.into(),
-                ctx: ast::ExprContext::Load,
-                range,
-                node_index: node_index.clone(),
-            })),
-            arguments: ast::Arguments {
-                args: args.into(),
-                keywords: Vec::new().into(),
-                range,
-                node_index: node_index.clone(),
-            },
-            range,
-            node_index,
-        })
-    }
-
-    fn lower_augassign_value(
-        _node_index: ast::AtomicNodeIndex,
-        _range: TextRange,
-        op: ast::Operator,
-        left: Self,
-        right: Self,
-    ) -> Self {
-        crate::passes::ast_to_ast::expr_utils::make_binop(inplace_helper_name(op), left, right)
-    }
-
-    fn load_deleted_name(
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        name: String,
-        value: Self,
-    ) -> Self {
-        Self::helper_call(
-            node_index,
-            range,
-            "__dp_load_deleted_name",
-            vec![
-                Expr::from(py_expr!("{name:literal}", name = name)).into(),
-                value,
-            ],
-        )
-    }
-
-    fn get_attr(
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        value: Self,
-        attr: String,
-    ) -> Self {
-        Expr::Attribute(ast::ExprAttribute {
-            value: Box::new(value),
-            attr: ast::Identifier::new(attr, range),
-            ctx: ast::ExprContext::Load,
-            range,
-            node_index,
-        })
-    }
-
-    fn set_attr(
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        value: Self,
-        attr: String,
-        replacement: Self,
-    ) -> Self {
-        Self::helper_call(
-            node_index,
-            range,
-            "__dp_setattr",
-            vec![
-                value,
-                Expr::from(py_expr!("{attr:literal}", attr = attr)).into(),
-                replacement,
-            ],
-        )
-    }
-
-    fn get_item(
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        value: Self,
-        index: Self,
-    ) -> Self {
-        Expr::Subscript(ast::ExprSubscript {
-            value: Box::new(value),
-            slice: Box::new(index),
-            ctx: ast::ExprContext::Load,
-            range,
-            node_index,
-        })
-    }
-
-    fn set_item(
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        value: Self,
-        index: Self,
-        replacement: Self,
-    ) -> Self {
-        Self::helper_call(
-            node_index,
-            range,
-            "__dp_setitem",
-            vec![value, index, replacement],
-        )
-    }
-
-    fn del_item(
-        node_index: ast::AtomicNodeIndex,
-        range: TextRange,
-        value: Self,
-        index: Self,
-    ) -> Self {
-        Self::helper_call(node_index, range, "__dp_delitem", vec![value, index])
-    }
 }
 
 impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
@@ -480,6 +334,10 @@ fn lowered_helper_call<'a>(
 }
 
 fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwaitAndYield> {
+    fn lowered(expr: Expr) -> CoreBlockPyExprWithAwaitAndYield {
+        <CoreBlockPyExprWithAwaitAndYield as RuffToBlockPyExpr>::from_lowered_expr(expr)
+    }
+
     if let Some(call) = lowered_helper_call(expr, "__dp_make_function", 5) {
         let function_id = make_function_id_from_literal(&call.arguments.args[0])?;
         let kind = make_function_kind_from_literal(&call.arguments.args[1])?;
@@ -487,12 +345,8 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
             operation::Operation::new(operation::MakeFunction::new(
                 function_id,
                 kind,
-                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
-                    call.arguments.args[3].clone(),
-                )),
-                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
-                    call.arguments.args[4].clone(),
-                )),
+                Box::new(lowered(call.arguments.args[3].clone())),
+                Box::new(lowered(call.arguments.args[4].clone())),
             ))
             .with_meta(Meta::new(call.node_index.clone(), call.range)),
         ));
@@ -501,13 +355,9 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
     if let Some(call) = lowered_helper_call(expr, "__dp_store_global", 3) {
         return Some(core_operation_expr(
             operation::Operation::new(operation::StoreGlobal::new(
-                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
-                    call.arguments.args[0].clone(),
-                )),
+                Box::new(lowered(call.arguments.args[0].clone())),
                 string_literal_value(&call.arguments.args[1])?,
-                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
-                    call.arguments.args[2].clone(),
-                )),
+                Box::new(lowered(call.arguments.args[2].clone())),
             ))
             .with_meta(Meta::new(call.node_index.clone(), call.range)),
         ));
@@ -525,15 +375,9 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
     if let Some(call) = lowered_helper_call(expr, "__dp_setitem", 3) {
         return Some(core_operation_expr(
             operation::Operation::new(operation::SetItem::new(
-                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
-                    call.arguments.args[0].clone(),
-                )),
-                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
-                    call.arguments.args[1].clone(),
-                )),
-                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
-                    call.arguments.args[2].clone(),
-                )),
+                Box::new(lowered(call.arguments.args[0].clone())),
+                Box::new(lowered(call.arguments.args[1].clone())),
+                Box::new(lowered(call.arguments.args[2].clone())),
             ))
             .with_meta(Meta::new(call.node_index.clone(), call.range)),
         ));
@@ -542,13 +386,9 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
     if let Some(call) = lowered_helper_call(expr, "__dp_setattr", 3) {
         return Some(core_operation_expr(
             operation::Operation::new(operation::SetAttr::new(
-                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
-                    call.arguments.args[0].clone(),
-                )),
+                Box::new(lowered(call.arguments.args[0].clone())),
                 string_literal_value(&call.arguments.args[1])?,
-                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
-                    call.arguments.args[2].clone(),
-                )),
+                Box::new(lowered(call.arguments.args[2].clone())),
             ))
             .with_meta(Meta::new(call.node_index.clone(), call.range)),
         ));
@@ -557,12 +397,8 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
     if let Some(call) = lowered_helper_call(expr, "__dp_delitem", 2) {
         return Some(core_operation_expr(
             operation::Operation::new(operation::DelItem::new(
-                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
-                    call.arguments.args[0].clone(),
-                )),
-                Box::new(CoreBlockPyExprWithAwaitAndYield::from_lowered_expr(
-                    call.arguments.args[1].clone(),
-                )),
+                Box::new(lowered(call.arguments.args[0].clone())),
+                Box::new(lowered(call.arguments.args[1].clone())),
             ))
             .with_meta(Meta::new(call.node_index.clone(), call.range)),
         ));

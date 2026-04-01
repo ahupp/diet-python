@@ -1,5 +1,6 @@
 use super::super::{simplify_stmt_ast_once_for_blockpy, BlockPyStmtFragmentBuilder};
 use super::*;
+use crate::block_py::CoreBlockPyExprWithAwaitAndYield;
 use crate::passes::ast_to_ast::context::Context;
 
 #[test]
@@ -32,7 +33,7 @@ match x:
         panic!("expected match stmt");
     };
     let context = Context::new("");
-    let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
+    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
     let mut next_label_id = 0usize;
 
     match_stmt

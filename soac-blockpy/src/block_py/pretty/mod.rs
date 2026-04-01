@@ -808,10 +808,7 @@ impl BlockPyDebugExprText for CoreBlockPyExprWithAwaitAndYield {
     }
 }
 
-impl<N> BlockPyDebugExprText for CodegenBlockPyExpr<N>
-where
-    N: BlockPyNameLike,
-{
+impl BlockPyDebugExprText for CodegenBlockPyExpr {
     fn debug_expr_text(&self) -> String {
         match self {
             CodegenBlockPyExpr::Name(name) => name.pretty_id(),

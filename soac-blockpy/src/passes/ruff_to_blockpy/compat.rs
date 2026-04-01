@@ -19,25 +19,6 @@ fn with_exc_meta<E>(
     }
 }
 
-#[cfg(test)]
-pub(crate) fn compat_block_from_blockpy(
-    label: BlockPyLabel,
-    body: Vec<Stmt>,
-    term: BlockPyTerm,
-) -> LoweredBlockPyBlock {
-    compat_block_from_blockpy_with_exc_target(label, body, term, None)
-}
-
-#[cfg(test)]
-pub(crate) fn compat_block_from_blockpy_with_exc_target(
-    label: BlockPyLabel,
-    body: Vec<Stmt>,
-    term: BlockPyTerm,
-    exc_target: Option<&BlockPyLabel>,
-) -> LoweredBlockPyBlock {
-    compat_block_from_blockpy_with_exc_target_and_expr::<Expr>(label, body, term, exc_target)
-}
-
 pub(crate) fn compat_block_from_blockpy_with_exc_target_and_expr<E>(
     label: BlockPyLabel,
     body: Vec<Stmt>,
@@ -60,14 +41,6 @@ where
     with_exc_meta(block.finish(None), exc_target)
 }
 
-#[cfg(test)]
-fn compat_block_builder_with_expr_setup(
-    context: &Context,
-    body: Vec<Stmt>,
-) -> Result<BlockPyStmtFragmentBuilder<Expr>, String> {
-    compat_block_builder_with_expr_setup_and_expr::<Expr>(context, body)
-}
-
 fn compat_block_builder_with_expr_setup_and_expr<E>(
     context: &Context,
     body: Vec<Stmt>,
@@ -81,21 +54,6 @@ where
         lower_nested_stmt_into_with_expr(context, stmt, &mut out, None, &mut next_label_id)?;
     }
     Ok(out)
-}
-
-#[cfg(test)]
-pub(crate) fn compat_if_jump_block_with_expr_setup_and_exc_target(
-    context: &Context,
-    label: BlockPyLabel,
-    body: Vec<Stmt>,
-    test: Expr,
-    then_label: BlockPyLabel,
-    else_label: BlockPyLabel,
-    exc_target: Option<&BlockPyLabel>,
-) -> Result<LoweredBlockPyBlock, String> {
-    compat_if_jump_block_with_expr_setup_and_exc_target_and_expr::<Expr>(
-        context, label, body, test, then_label, else_label, exc_target,
-    )
 }
 
 pub(crate) fn compat_if_jump_block_with_expr_setup_and_exc_target_and_expr<E>(
@@ -195,20 +153,6 @@ where
     label
 }
 
-#[cfg(test)]
-pub(crate) fn emit_sequence_return_block_with_expr_setup(
-    context: &Context,
-    blocks: &mut Vec<LoweredBlockPyBlock>,
-    label: BlockPyLabel,
-    linear: Vec<Stmt>,
-    value: Option<Expr>,
-    exc_target: Option<&BlockPyLabel>,
-) -> Result<BlockPyLabel, String> {
-    emit_sequence_return_block_with_expr_setup_and_expr::<Expr>(
-        context, blocks, label, linear, value, exc_target,
-    )
-}
-
 pub(crate) fn emit_sequence_return_block_with_expr_setup_and_expr<E>(
     context: &Context,
     blocks: &mut Vec<LoweredBlockPyBlock<E>>,
@@ -245,20 +189,6 @@ where
     ));
     blocks.push(with_exc_meta(block.finish(None), exc_target));
     Ok(label)
-}
-
-#[cfg(test)]
-pub(crate) fn emit_sequence_raise_block_with_expr_setup(
-    context: &Context,
-    blocks: &mut Vec<LoweredBlockPyBlock>,
-    label: BlockPyLabel,
-    linear: Vec<Stmt>,
-    exc: BlockPyRaise,
-    exc_target: Option<&BlockPyLabel>,
-) -> Result<BlockPyLabel, String> {
-    emit_sequence_raise_block_with_expr_setup_and_expr::<Expr>(
-        context, blocks, label, linear, exc, exc_target,
-    )
 }
 
 pub(crate) fn emit_sequence_raise_block_with_expr_setup_and_expr<E>(
@@ -300,22 +230,6 @@ where
     Ok(label)
 }
 
-#[cfg(test)]
-pub(crate) fn emit_if_branch_block_with_expr_setup(
-    context: &Context,
-    blocks: &mut Vec<LoweredBlockPyBlock>,
-    label: BlockPyLabel,
-    body: Vec<Stmt>,
-    test: Expr,
-    then_label: BlockPyLabel,
-    else_label: BlockPyLabel,
-    exc_target: Option<&BlockPyLabel>,
-) -> Result<BlockPyLabel, String> {
-    emit_if_branch_block_with_expr_setup_and_expr::<Expr>(
-        context, blocks, label, body, test, then_label, else_label, exc_target,
-    )
-}
-
 pub(crate) fn emit_if_branch_block_with_expr_setup_and_expr<E>(
     context: &Context,
     blocks: &mut Vec<LoweredBlockPyBlock<E>>,
@@ -341,31 +255,6 @@ where
         )?,
     );
     Ok(label)
-}
-
-#[cfg(test)]
-pub(crate) fn emit_simple_while_blocks_with_expr_setup(
-    context: &Context,
-    blocks: &mut Vec<LoweredBlockPyBlock>,
-    test_label: BlockPyLabel,
-    linear_label: Option<BlockPyLabel>,
-    linear: Vec<Stmt>,
-    test: Expr,
-    body_entry: BlockPyLabel,
-    cond_false_entry: BlockPyLabel,
-    exc_target: Option<&BlockPyLabel>,
-) -> Result<BlockPyLabel, String> {
-    emit_simple_while_blocks_with_expr_setup_and_expr::<Expr>(
-        context,
-        blocks,
-        test_label,
-        linear_label,
-        linear,
-        test,
-        body_entry,
-        cond_false_entry,
-        exc_target,
-    )
 }
 
 pub(crate) fn emit_simple_while_blocks_with_expr_setup_and_expr<E>(

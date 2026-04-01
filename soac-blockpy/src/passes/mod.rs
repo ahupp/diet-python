@@ -57,7 +57,7 @@ pub struct CodegenBlockPyPass;
 
 impl BlockPyPass for CodegenBlockPyPass {
     type Name = LocatedName;
-    type Expr = CodegenBlockPyExpr<Self::Name>;
+    type Expr = CodegenBlockPyExpr;
     type Stmt = BlockPyStmt<Self::Expr, Self::Name>;
 }
 

@@ -686,10 +686,7 @@ where
     }
 }
 
-impl<N> BlockPySemanticExprNode for super::CodegenBlockPyExpr<N>
-where
-    N: BlockPyNameLike,
-{
+impl BlockPySemanticExprNode for super::CodegenBlockPyExpr {
     fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
         let _ = self.clone().map_expr(&mut |child| {
             f(&child);

@@ -4,15 +4,14 @@ use crate::block_py::{
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::py_expr;
-use ruff_python_ast::Expr;
 use ruff_python_parser::parse_expression;
 
 #[test]
 fn nested_boolop_in_call_argument_emits_setup_via_expr_lowering() {
-    let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
+    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
     let mut next_label_id = 0usize;
 
-    let lowered: Expr =
+    let lowered: CoreBlockPyExprWithAwaitAndYield =
         lower_expr_into_with_setup(py_expr!("f(a and b)"), &mut out, None, &mut next_label_id)
             .expect("expr lowering should succeed");
 
@@ -24,7 +23,7 @@ fn nested_boolop_in_call_argument_emits_setup_via_expr_lowering() {
             .any(|stmt| matches!(stmt, StructuredBlockPyStmt::If(_))),
         "{fragment:?}"
     );
-    let rendered = crate::ruff_ast_to_string(&lowered);
+    let rendered = lowered.debug_expr_text();
     assert!(rendered.starts_with("f(_dp_target_"), "{rendered}");
 }
 

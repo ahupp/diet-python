@@ -2,7 +2,7 @@ use super::*;
 
 use crate::block_py::{
     BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
-    BlockPyTerm, CoreBlockPyExpr, StructuredBlockPyStmt,
+    BlockPyTerm, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, StructuredBlockPyStmt,
 };
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::ast_to_ast::context::Context;
@@ -56,8 +56,10 @@ fn function_by_name<'a, P: BlockPyPass>(
 
 fn lower_stmt_for_panic_test(stmt: &Stmt) {
     let context = Context::new("");
-    let mut out =
-        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
+    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    >::new();
     let mut next_label_id = 0usize;
     let _ = lower_stmt_into(&context, stmt, &mut out, None, &mut next_label_id);
 }
@@ -69,6 +71,8 @@ fn test_context() -> Context {
 fn label(index: u32) -> BlockPyLabel {
     BlockPyLabel::from(index)
 }
+
+type TestBlock = BlockPyBlock<CoreBlockPyExprWithAwaitAndYield>;
 
 #[test]
 fn lowers_post_simplification_control_flow() {
@@ -368,7 +372,7 @@ def f(xs):
         label(1),
         label(2),
         vec![py_stmt!("x = _dp_tmp_0"), py_stmt!("_dp_tmp_0 = None")],
-        &mut |_stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
+        &mut |_stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<TestBlock>| {
             targets.normal_cont
         },
     );
@@ -409,7 +413,7 @@ def f(ctx, value):
         &mut blocks,
         &name_gen,
         false,
-        &mut |_expanded: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
+        &mut |_expanded: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<TestBlock>| {
             saw_try_stmt = _expanded
                 .iter()
                 .any(|stmt| matches!(stmt, ast::Stmt::Try(_)));
@@ -464,10 +468,12 @@ def f():
         &name_gen,
         label(0),
         try_plan,
-        &mut |_expanded: &[Stmt], targets: RegionTargets, blocks: &mut Vec<BlockPyBlock>| {
+        &mut |_expanded: &[Stmt], targets: RegionTargets, blocks: &mut Vec<TestBlock>| {
             let label = BlockPyLabel::from(100u32 + blocks.len() as u32);
             blocks.push(
-                crate::passes::ruff_to_blockpy::compat::compat_block_from_blockpy_with_exc_target(
+                crate::passes::ruff_to_blockpy::compat::compat_block_from_blockpy_with_exc_target_and_expr::<
+                    CoreBlockPyExprWithAwaitAndYield,
+                >(
                     label,
                     Vec::new(),
                     BlockPyTerm::Jump(BlockPyEdge::new(targets.normal_cont)),
@@ -513,7 +519,7 @@ fn expanded_stmt_helper_returns_expanded_entry_without_linear_prefix() {
         Vec::new(),
         &mut blocks,
         None,
-        &mut |expanded: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
+        &mut |expanded: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<TestBlock>| {
             assert_eq!(expanded.len(), 1);
             assert_eq!(targets.normal_cont, label(99));
             saw_expanded = true;
@@ -536,9 +542,7 @@ fn expanded_stmt_helper_emits_linear_jump_prefix() {
         vec![py_stmt!("x = 1")],
         &mut blocks,
         Some(label(10)),
-        &mut |_expanded: &[Stmt], _targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
-            label(11)
-        },
+        &mut |_expanded: &[Stmt], _targets: RegionTargets, _blocks: &mut Vec<TestBlock>| label(11),
     );
 
     assert_eq!(entry, label(10));
@@ -568,7 +572,7 @@ fn if_stmt_helper_lowers_both_branches_via_callback() {
         &else_body,
         label(99),
         &RegionTargets::new(label(99), None),
-        &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
+        &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<TestBlock>| {
             calls.push((stmts.len(), targets.normal_cont.clone()));
             label(200 + calls.len() as u32)
         },
@@ -589,7 +593,7 @@ fn if_stmt_helper_lowers_both_branches_via_callback() {
 #[test]
 fn sequence_jump_helper_emits_jump_block() {
     let mut blocks = Vec::new();
-    let entry = emit_sequence_jump_block::<Expr>(
+    let entry = emit_sequence_jump_block::<CoreBlockPyExprWithAwaitAndYield>(
         &mut blocks,
         label(10),
         vec![py_stmt!("prefix = 0")],
@@ -609,15 +613,16 @@ fn sequence_jump_helper_emits_jump_block() {
 fn sequence_return_helper_emits_return_block() {
     let mut blocks = Vec::new();
     let context = Context::new("");
-    let entry = emit_sequence_return_block_with_expr_setup(
-        &context,
-        &mut blocks,
-        label(10),
-        vec![py_stmt!("prefix = 0")],
-        Some(py_expr!("value")),
-        None,
-    )
-    .expect("sequence return helper should lower");
+    let entry =
+        emit_sequence_return_block_with_expr_setup_and_expr::<CoreBlockPyExprWithAwaitAndYield>(
+            &context,
+            &mut blocks,
+            label(10),
+            vec![py_stmt!("prefix = 0")],
+            Some(py_expr!("value")),
+            None,
+        )
+        .expect("sequence return helper should lower");
 
     assert_eq!(entry, label(10));
     assert_eq!(blocks.len(), 1);
@@ -628,17 +633,18 @@ fn sequence_return_helper_emits_return_block() {
 fn sequence_raise_helper_emits_raise_block() {
     let mut blocks = Vec::new();
     let context = Context::new("");
-    let entry = emit_sequence_raise_block_with_expr_setup(
-        &context,
-        &mut blocks,
-        label(10),
-        vec![py_stmt!("prefix = 0")],
-        BlockPyRaise {
-            exc: Some(py_expr!("exc").into()),
-        },
-        None,
-    )
-    .expect("sequence raise helper should lower");
+    let entry =
+        emit_sequence_raise_block_with_expr_setup_and_expr::<CoreBlockPyExprWithAwaitAndYield>(
+            &context,
+            &mut blocks,
+            label(10),
+            vec![py_stmt!("prefix = 0")],
+            BlockPyRaise {
+                exc: Some(py_expr!("exc").into()),
+            },
+            None,
+        )
+        .expect("sequence raise helper should lower");
 
     assert_eq!(entry, label(10));
     assert_eq!(blocks.len(), 1);
@@ -678,7 +684,7 @@ y = 3
         vec![py_stmt!("prefix = 0")],
         &mut blocks,
         label(10),
-        &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
+        &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<TestBlock>| {
             calls.push((stmts.len(), targets.normal_cont.clone()));
             label(200 + calls.len() as u32)
         },
@@ -721,7 +727,7 @@ fn while_stmt_helper_lowers_loop_and_else_via_callbacks() {
         &else_body,
         &remaining,
         RegionTargets::new(label(99), None),
-        &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
+        &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<TestBlock>| {
             if let Some(loop_labels) = targets.loop_labels {
                 loop_calls.push((
                     stmts.len(),
@@ -788,7 +794,7 @@ y = 3
         &mut blocks,
         label(0),
         Some(label(1)),
-        &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<BlockPyBlock>| {
+        &mut |stmts: &[Stmt], targets: RegionTargets, _blocks: &mut Vec<TestBlock>| {
             if let Some(loop_labels) = targets.loop_labels {
                 loop_calls.push((
                     stmts.len(),
@@ -935,8 +941,10 @@ def f(x):
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out =
-        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
+    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
         .expect("assert lowering should succeed");
@@ -981,8 +989,10 @@ def f(x):
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out =
-        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
+    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
         .expect("augassign lowering should succeed");
@@ -1028,8 +1038,10 @@ def f():
     .into_syntax()
     .body;
     let context = test_context();
-    let mut out =
-        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
+    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &module[0], &mut out, None, &mut next_label_id)
         .expect("type alias lowering should succeed");
@@ -1054,8 +1066,10 @@ def f(x):
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out =
-        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
+    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
         .expect("match lowering should succeed");
@@ -1078,8 +1092,10 @@ def f():
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out =
-        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
+    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
         .expect("import lowering should succeed");
@@ -1105,8 +1121,10 @@ def f():
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out =
-        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
+    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
         .expect("import-from lowering should succeed");
@@ -1160,8 +1178,10 @@ fn panics_if_while_reaches_stmt_list_lowering() {
         panic!("expected while stmt");
     };
     let context = test_context();
-    let mut out =
-        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredBlockPyStmt, BlockPyTerm>::new();
+    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(
         &context,

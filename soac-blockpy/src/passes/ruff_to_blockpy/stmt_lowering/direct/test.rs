@@ -1,5 +1,6 @@
 use super::super::{simplify_stmt_ast_once_for_blockpy, BlockPyStmtFragmentBuilder};
 use super::*;
+use crate::block_py::CoreBlockPyExprWithAwaitAndYield;
 use crate::passes::ast_to_ast::context::Context;
 
 #[test]
@@ -25,7 +26,7 @@ fn stmt_raise_to_blockpy_handles_bare_raise_directly() {
         panic!("expected raise stmt");
     };
     let context = Context::new("");
-    let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
+    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
     let mut next_label_id = 0usize;
 
     raise_stmt
@@ -43,7 +44,7 @@ fn stmt_expr_to_blockpy_emits_setup_for_named_exprs() {
         panic!("expected expr stmt");
     };
     let context = Context::new("");
-    let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
+    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
     let mut next_label_id = 0usize;
 
     expr_stmt
@@ -67,7 +68,7 @@ fn stmt_return_to_blockpy_emits_setup_for_if_exprs() {
         panic!("expected return stmt");
     };
     let context = Context::new("");
-    let mut out = BlockPyStmtFragmentBuilder::<Expr>::new();
+    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
     let mut next_label_id = 0usize;
 
     return_stmt

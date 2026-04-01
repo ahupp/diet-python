@@ -2,7 +2,7 @@ use super::normalize_bb_module_strings;
 use crate::{
     block_py::{
         BlockPyNameLike, BlockPyStmt, BlockPyTerm, CodegenBlockPyExpr, CodegenBlockPyLiteral,
-        OperationDetail,
+        LocatedName, OperationDetail,
     },
     lower_python_to_blockpy_for_testing,
     passes::lower_try_jump_exception_flow,
@@ -34,7 +34,7 @@ impl ExprShapeProbe {
     }
 }
 
-fn probe_bb_exprs<N: BlockPyNameLike>(probe: &mut ExprShapeProbe, expr: &CodegenBlockPyExpr<N>) {
+fn probe_bb_exprs(probe: &mut ExprShapeProbe, expr: &CodegenBlockPyExpr) {
     match expr {
         CodegenBlockPyExpr::Name(_) => {}
         CodegenBlockPyExpr::Literal(literal) => {
@@ -73,10 +73,7 @@ fn probe_bb_exprs<N: BlockPyNameLike>(probe: &mut ExprShapeProbe, expr: &Codegen
     }
 }
 
-fn collect_helper_like_names_in_expr<N: BlockPyNameLike>(
-    out: &mut Vec<String>,
-    expr: &CodegenBlockPyExpr<N>,
-) {
+fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockPyExpr) {
     match expr {
         CodegenBlockPyExpr::Name(_) | CodegenBlockPyExpr::Literal(_) => {}
         CodegenBlockPyExpr::Op(operation) => {
@@ -114,10 +111,7 @@ fn collect_helper_like_names_in_expr<N: BlockPyNameLike>(
     }
 }
 
-fn probe_bb_term_exprs<N: BlockPyNameLike>(
-    probe: &mut ExprShapeProbe,
-    term: &BlockPyTerm<CodegenBlockPyExpr<N>>,
-) {
+fn probe_bb_term_exprs(probe: &mut ExprShapeProbe, term: &BlockPyTerm<CodegenBlockPyExpr>) {
     match term {
         BlockPyTerm::Jump(_) => {}
         BlockPyTerm::IfTerm(if_term) => probe_bb_exprs(probe, &if_term.test),
@@ -131,9 +125,9 @@ fn probe_bb_term_exprs<N: BlockPyNameLike>(
     }
 }
 
-fn probe_bb_stmt_exprs<N: BlockPyNameLike>(
+fn probe_bb_stmt_exprs(
     probe: &mut ExprShapeProbe,
-    stmt: &BlockPyStmt<CodegenBlockPyExpr<N>, N>,
+    stmt: &BlockPyStmt<CodegenBlockPyExpr, LocatedName>,
 ) {
     match stmt {
         BlockPyStmt::Assign(assign) => probe_bb_exprs(probe, &assign.value),

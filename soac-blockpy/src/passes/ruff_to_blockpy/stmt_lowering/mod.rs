@@ -268,7 +268,10 @@ fn simplify_if_test_for_blockpy(_context: &Context, mut if_stmt: ast::StmtIf) ->
 pub(crate) fn lower_stmt_into(
     context: &Context,
     stmt: &Stmt,
-    out: &mut crate::block_py::BlockPyCfgFragmentBuilder<StructuredBlockPyStmt, BlockPyTerm>,
+    out: &mut crate::block_py::BlockPyCfgFragmentBuilder<
+        StructuredBlockPyStmt<crate::block_py::CoreBlockPyExprWithAwaitAndYield>,
+        BlockPyTerm<crate::block_py::CoreBlockPyExprWithAwaitAndYield>,
+    >,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String> {
