@@ -104,29 +104,37 @@ it, then fix it.
 Run `jj new` so the finished work is no longer the live working commit.
 Rebase and integrate the finished change, not the live `@`.
 
-8. Rebase the finished commit or finished stack onto `main`.
+8. Try to advance `main` directly to the finished head.
+
+Prefer `jj bookmark move main -t <finished-head>` when the finished
+change is already a descendant of the current `main`. This avoids
+unnecessary rebases and duplicate sibling revisions.
+
+9. If advancing `main` fails because the finished head is not a
+   descendant of `main`, rebase the finished commit or finished stack
+   onto `main`.
 
 Use `jj rebase` on the finished revision or stack root so the completed
 work sits directly on top of the current shared base.
 
-9. Resolve any conflicts and rerun the relevant tests.
+10. Resolve any conflicts and rerun the relevant tests.
 
 The rebased change is not ready to advance `main` until conflicts are
 resolved and the relevant checks have been rerun.
 
-10. Advance `main` to the rebased finished head.
+11. Advance `main` to the finished head.
 
 This is the synchronization point. Once `main` moves, the finished work
 becomes the new shared base for future work.
 
-11. When another agent advances `main`, refresh and continue on top of
+12. When another agent advances `main`, refresh and continue on top of
     it.
 
 Run `jj workspace update-stale` and rebase your live work onto the new
 `main` as needed. Other agents should only depend on `main`, not on a
 peer workspace's live `@`.
 
-12. Report the result: run `jj diff --stat` on the completed change and
+13. Report the result: run `jj diff --stat` on the completed change and
 report its output, then describe the next step. If I did not ask to
 approve each step after the plan, continue with the next step.
 
