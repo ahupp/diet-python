@@ -232,12 +232,8 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(BinOp {
-                    kind: BinOpKind::Add,
-                    left: Box::new(int_expr(1)),
-                    right: Box::new(int_expr(2)),
-                })
-                .with_meta(Meta::synthetic()),
+                Operation::new(BinOp::new(BinOpKind::Add, int_expr(1), int_expr(2)))
+                    .with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -258,12 +254,8 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(BinOp {
-                    kind: BinOpKind::Lt,
-                    left: Box::new(int_expr(1)),
-                    right: Box::new(int_expr(2)),
-                })
-                .with_meta(Meta::synthetic()),
+                Operation::new(BinOp::new(BinOpKind::Lt, int_expr(1), int_expr(2)))
+                    .with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -280,10 +272,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(MakeString {
-                    bytes: b"hello".to_vec(),
-                })
-                .with_meta(Meta::synthetic()),
+                Operation::new(MakeString::new(b"hello".to_vec())).with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -304,12 +293,12 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(TernaryOp {
-                    kind: TernaryOpKind::Pow,
-                    base: Box::new(int_expr(2)),
-                    exponent: Box::new(int_expr(3)),
-                    modulus: Box::new(name_expr(test_global_name("__dp_NONE"))),
-                })
+                Operation::new(TernaryOp::new(
+                    TernaryOpKind::Pow,
+                    int_expr(2),
+                    int_expr(3),
+                    name_expr(test_global_name("__dp_NONE")),
+                ))
                 .with_meta(Meta::synthetic()),
             )),
         );
@@ -371,11 +360,8 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(LoadGlobal {
-                    globals: Box::new(int_expr(1)),
-                    name: "x".to_string(),
-                })
-                .with_meta(Meta::synthetic()),
+                Operation::new(LoadGlobal::new(int_expr(1), "x".to_string()))
+                    .with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -392,12 +378,8 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(StoreGlobal {
-                    globals: Box::new(int_expr(1)),
-                    name: "x".to_string(),
-                    value: Box::new(int_expr(3)),
-                })
-                .with_meta(Meta::synthetic()),
+                Operation::new(StoreGlobal::new(int_expr(1), "x".to_string(), int_expr(3)))
+                    .with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -431,9 +413,9 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(soac_blockpy::block_py::CellRef {
-                    location: CellLocation::Closure(2),
-                })
+                Operation::new(soac_blockpy::block_py::CellRef::new(CellLocation::Closure(
+                    2,
+                )))
                 .with_meta(Meta::synthetic()),
             )),
         );
@@ -456,9 +438,9 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                Operation::new(soac_blockpy::block_py::CellRef {
-                    location: CellLocation::CapturedSource(2),
-                })
+                Operation::new(soac_blockpy::block_py::CellRef::new(
+                    CellLocation::CapturedSource(2),
+                ))
                 .with_meta(Meta::synthetic()),
             )),
         );
@@ -503,30 +485,20 @@ mod tests {
             test_function(),
             vec![
                 expr_stmt(op_expr(
-                    Operation::new(DelItem {
-                        value: Box::new(int_expr(1)),
-                        index: Box::new(int_expr(2)),
-                    })
-                    .with_meta(Meta::synthetic()),
+                    Operation::new(DelItem::new(int_expr(1), int_expr(2)))
+                        .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    Operation::new(DelQuietly {
-                        value: Box::new(int_expr(3)),
-                        name: "x".to_string(),
-                    })
-                    .with_meta(Meta::synthetic()),
+                    Operation::new(DelQuietly::new(int_expr(3), "x".to_string()))
+                        .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    Operation::new(DelDeref {
-                        location: CellLocation::Closure(2),
-                    })
-                    .with_meta(Meta::synthetic()),
+                    Operation::new(DelDeref::new(CellLocation::Closure(2)))
+                        .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    Operation::new(DelDerefQuietly {
-                        location: CellLocation::Closure(2),
-                    })
-                    .with_meta(Meta::synthetic()),
+                    Operation::new(DelDerefQuietly::new(CellLocation::Closure(2)))
+                        .with_meta(Meta::synthetic()),
                 )),
             ],
             ret_term(int_expr(0)),

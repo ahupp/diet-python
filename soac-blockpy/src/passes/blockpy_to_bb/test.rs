@@ -152,10 +152,10 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         label: BlockPyLabel::from(0u32),
         body: Vec::new(),
         term: BlockPyTerm::Return(CoreBlockPyExpr::Op(
-            Operation::new(GetAttr {
-                value: Box::new(core_call_expr("__dp_current_exception", Vec::new())),
-                attr: "value".to_string(),
-            })
+            Operation::new(GetAttr::new(
+                core_call_expr("__dp_current_exception", Vec::new()),
+                "value".to_string(),
+            ))
             .with_meta(crate::block_py::Meta::new(
                 ast::AtomicNodeIndex::default(),
                 TextRange::default(),

@@ -170,14 +170,29 @@ macro_rules! define_operation {
     ) => {
         #[derive(Debug, Clone)]
         $vis struct $name<$expr_ty> {
+            _meta: Meta,
             $($struct_fields)*
         }
 
         impl<$expr_ty> $name<$expr_ty> {
             pub fn new($($ctor_args)*) -> Self {
                 Self {
+                    _meta: Meta::default(),
                     $($ctor_init)*
                 }
+            }
+        }
+
+        impl<$expr_ty> HasMeta for $name<$expr_ty> {
+            fn meta(&self) -> Meta {
+                self._meta.clone()
+            }
+        }
+
+        impl<$expr_ty> WithMeta for $name<$expr_ty> {
+            fn with_meta(mut self, meta: Meta) -> Self {
+                self._meta = meta;
+                self
             }
         }
 
@@ -237,14 +252,29 @@ macro_rules! define_operation {
     ) => {
         #[derive(Debug, Clone)]
         $vis struct $name {
+            _meta: Meta,
             $($struct_fields)*
         }
 
         impl $name {
             pub fn new($($ctor_args)*) -> Self {
                 Self {
+                    _meta: Meta::default(),
                     $($ctor_init)*
                 }
+            }
+        }
+
+        impl HasMeta for $name {
+            fn meta(&self) -> Meta {
+                self._meta.clone()
+            }
+        }
+
+        impl WithMeta for $name {
+            fn with_meta(mut self, meta: Meta) -> Self {
+                self._meta = meta;
+                self
             }
         }
 
@@ -428,7 +458,7 @@ macro_rules! define_operation {
     };
     (@visit_expr_fields_mut $self:ident, $f:ident, $field:ident : $ty:ty) => {};
     (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident,) => {
-        $($mapped_ctor)+ { $($out)* }
+        $($mapped_ctor)+ { _meta: $self._meta, $($out)* }
     };
     (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
         define_operation!(
@@ -441,7 +471,7 @@ macro_rules! define_operation {
         )
     };
     (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>) => {
-        $($mapped_ctor)+ { $($out)* $field: Box::new($f(*$self.$field)), }
+        $($mapped_ctor)+ { _meta: $self._meta, $($out)* $field: Box::new($f(*$self.$field)), }
     };
     (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
         define_operation!(
@@ -454,10 +484,10 @@ macro_rules! define_operation {
         )
     };
     (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : $ty:ty) => {
-        $($mapped_ctor)+ { $($out)* $field: $self.$field, }
+        $($mapped_ctor)+ { _meta: $self._meta, $($out)* $field: $self.$field, }
     };
     (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident,) => {
-        Ok($($mapped_ctor)+ { $($out)* })
+        Ok($($mapped_ctor)+ { _meta: $self._meta, $($out)* })
     };
     (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
         define_operation!(
@@ -470,7 +500,7 @@ macro_rules! define_operation {
         )
     };
     (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>) => {
-        Ok($($mapped_ctor)+ { $($out)* $field: Box::new($f(*$self.$field)?), })
+        Ok($($mapped_ctor)+ { _meta: $self._meta, $($out)* $field: Box::new($f(*$self.$field)?), })
     };
     (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
         define_operation!(
@@ -483,7 +513,7 @@ macro_rules! define_operation {
         )
     };
     (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : $ty:ty) => {
-        Ok($($mapped_ctor)+ { $($out)* $field: $self.$field, })
+        Ok($($mapped_ctor)+ { _meta: $self._meta, $($out)* $field: $self.$field, })
     };
 }
 
@@ -803,16 +833,77 @@ impl<E> OperationDetail<E> {
     }
 }
 
+impl<E> HasMeta for OperationDetail<E> {
+    fn meta(&self) -> Meta {
+        match self {
+            Self::BinOp(op) => op.meta(),
+            Self::UnaryOp(op) => op.meta(),
+            Self::InplaceBinOp(op) => op.meta(),
+            Self::TernaryOp(op) => op.meta(),
+            Self::GetAttr(op) => op.meta(),
+            Self::SetAttr(op) => op.meta(),
+            Self::GetItem(op) => op.meta(),
+            Self::SetItem(op) => op.meta(),
+            Self::DelItem(op) => op.meta(),
+            Self::LoadGlobal(op) => op.meta(),
+            Self::StoreGlobal(op) => op.meta(),
+            Self::LoadRuntime(op) => op.meta(),
+            Self::LoadName(op) => op.meta(),
+            Self::LoadLocal(op) => op.meta(),
+            Self::LoadCell(op) => op.meta(),
+            Self::MakeCell(op) => op.meta(),
+            Self::MakeString(op) => op.meta(),
+            Self::CellRefForName(op) => op.meta(),
+            Self::CellRef(op) => op.meta(),
+            Self::MakeFunction(op) => op.meta(),
+            Self::StoreCell(op) => op.meta(),
+            Self::DelQuietly(op) => op.meta(),
+            Self::DelDerefQuietly(op) => op.meta(),
+            Self::DelDeref(op) => op.meta(),
+        }
+    }
+}
+
+impl<E> WithMeta for OperationDetail<E> {
+    fn with_meta(mut self, meta: Meta) -> Self {
+        match &mut self {
+            Self::BinOp(op) => op._meta = meta,
+            Self::UnaryOp(op) => op._meta = meta,
+            Self::InplaceBinOp(op) => op._meta = meta,
+            Self::TernaryOp(op) => op._meta = meta,
+            Self::GetAttr(op) => op._meta = meta,
+            Self::SetAttr(op) => op._meta = meta,
+            Self::GetItem(op) => op._meta = meta,
+            Self::SetItem(op) => op._meta = meta,
+            Self::DelItem(op) => op._meta = meta,
+            Self::LoadGlobal(op) => op._meta = meta,
+            Self::StoreGlobal(op) => op._meta = meta,
+            Self::LoadRuntime(op) => op._meta = meta,
+            Self::LoadName(op) => op._meta = meta,
+            Self::LoadLocal(op) => op._meta = meta,
+            Self::LoadCell(op) => op._meta = meta,
+            Self::MakeCell(op) => op._meta = meta,
+            Self::MakeString(op) => op._meta = meta,
+            Self::CellRefForName(op) => op._meta = meta,
+            Self::CellRef(op) => op._meta = meta,
+            Self::MakeFunction(op) => op._meta = meta,
+            Self::StoreCell(op) => op._meta = meta,
+            Self::DelQuietly(op) => op._meta = meta,
+            Self::DelDerefQuietly(op) => op._meta = meta,
+            Self::DelDeref(op) => op._meta = meta,
+        }
+        self
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Operation<E> {
-    pub meta: Meta,
     pub detail: OperationDetail<E>,
 }
 
 impl<E> Operation<E> {
     pub fn new(detail: impl Into<OperationDetail<E>>) -> Self {
         Self {
-            meta: Meta::synthetic(),
             detail: detail.into(),
         }
     }
@@ -829,17 +920,16 @@ impl<E> Operation<E> {
         self.detail
     }
 
-    pub fn node_index(&self) -> &ast::AtomicNodeIndex {
-        &self.meta.node_index
+    pub fn node_index(&self) -> ast::AtomicNodeIndex {
+        self.detail.meta().node_index
     }
 
     pub fn range(&self) -> TextRange {
-        self.meta.range
+        self.detail.meta().range
     }
 
     pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> Operation<T> {
         Operation {
-            meta: self.meta,
             detail: self.detail.map_expr(f),
         }
     }
@@ -849,7 +939,6 @@ impl<E> Operation<E> {
         f: &mut impl FnMut(E) -> Result<T, Error>,
     ) -> Result<Operation<T>, Error> {
         Ok(Operation {
-            meta: self.meta,
             detail: self.detail.try_map_expr(f)?,
         })
     }
@@ -863,15 +952,16 @@ impl<E> Operation<E> {
     }
 }
 
-impl<E> WithMeta for Operation<E> {
-    fn with_meta(mut self, meta: Meta) -> Self {
-        self.meta = meta;
-        self
+impl<E> HasMeta for Operation<E> {
+    fn meta(&self) -> Meta {
+        self.detail.meta()
     }
 }
 
-impl<E> HasMeta for Operation<E> {
-    fn meta(&self) -> Meta {
-        self.meta.clone()
+impl<E> WithMeta for Operation<E> {
+    fn with_meta(self, meta: Meta) -> Self {
+        Self {
+            detail: self.detail.with_meta(meta),
+        }
     }
 }

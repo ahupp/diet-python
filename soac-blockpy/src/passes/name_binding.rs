@@ -466,7 +466,7 @@ fn rewrite_deleted_name_loads_in_expr(
             let always_unbound = always_unbound_names.contains(op.name.as_str());
             let deleted = deleted_names.contains(op.name.as_str());
             if always_unbound || deleted {
-                let meta = operation.meta.clone();
+                let meta = operation.meta();
                 *expr = wrap_deleted_name_load_expr(
                     op.name.clone(),
                     meta.node_index.clone(),
@@ -492,7 +492,7 @@ fn rewrite_deleted_name_loads_in_expr(
             let always_unbound = always_unbound_names.contains(logical_name.as_str());
             let deleted = deleted_names.contains(logical_name.as_str());
             if always_unbound || deleted {
-                let meta = operation.meta.clone();
+                let meta = operation.meta();
                 *expr = wrap_deleted_name_load_expr(
                     logical_name,
                     meta.node_index.clone(),
@@ -1212,7 +1212,8 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
             CoreBlockPyExpr::Op(operation)
                 if matches!(operation.detail(), OperationDetail::LoadName(_)) =>
             {
-                let Operation { meta, detail } = operation;
+                let meta = operation.meta();
+                let detail = operation.into_detail();
                 let OperationDetail::LoadName(op) = detail else {
                     unreachable!("load-name guard should ensure LoadName detail");
                 };
@@ -1253,15 +1254,15 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 )
             }
             CoreBlockPyExpr::Op(operation) => {
-                let Operation { meta, detail } = operation;
+                let meta = operation.meta();
+                let detail = operation.into_detail();
                 match detail {
                     OperationDetail::MakeFunction(op) => {
                         self.materialize_make_function_expr(meta, op)
                     }
-                    other => self.map_nested_expr(CoreBlockPyExpr::Op(Operation {
-                        meta,
-                        detail: other,
-                    })),
+                    other => self.map_nested_expr(CoreBlockPyExpr::Op(
+                        Operation::new(other).with_meta(meta),
+                    )),
                 }
             }
             CoreBlockPyExpr::Call(CoreBlockPyCall {
@@ -2229,7 +2230,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                     _ => None,
                 };
                 if let Some(location) = resolved_cell_ref_location {
-                    let meta = operation.meta.clone();
+                    let meta = operation.meta();
                     *operation = Operation::new(CellRef::new(location)).with_meta(meta);
                     return expr;
                 }
