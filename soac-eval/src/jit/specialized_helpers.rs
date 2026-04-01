@@ -190,7 +190,17 @@ unsafe fn load_runtime_obj_impl(name_obj: *mut ffi::PyObject) -> ObjPtr {
     }
     ffi::PyErr_Clear();
     let runtime_module_name = b"soac.runtime\0".as_ptr() as *const i8;
-    let runtime_obj = ffi::PyImport_ImportModule(runtime_module_name);
+    let mut runtime_obj = ptr::null_mut();
+    let modules = ffi::PyImport_GetModuleDict();
+    if !modules.is_null() {
+        runtime_obj = ffi::PyDict_GetItemString(modules, runtime_module_name);
+        if !runtime_obj.is_null() {
+            ffi::Py_INCREF(runtime_obj);
+        }
+    }
+    if runtime_obj.is_null() {
+        runtime_obj = ffi::PyImport_ImportModule(runtime_module_name);
+    }
     if runtime_obj.is_null() {
         return ptr::null_mut();
     }

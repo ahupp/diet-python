@@ -133,6 +133,11 @@ static DP_JIT_LOAD_GLOBAL_OBJ_IMPORT: ImportSpec = ImportSpec::new(
     &[SigType::Pointer, SigType::Pointer],
     &[SigType::Pointer],
 );
+static DP_JIT_LOAD_RUNTIME_OBJ_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_load_runtime_obj",
+    &[SigType::Pointer],
+    &[SigType::Pointer],
+);
 static DP_JIT_FUNCTION_CLOSURE_CELL_IMPORT: ImportSpec = ImportSpec::new(
     "dp_jit_function_closure_cell",
     &[SigType::Pointer, SigType::I64],
@@ -515,6 +520,7 @@ struct JitEmitCtx<'mc> {
     consts: JitEmitConsts,
     load_module_constant_ref: ir::FuncRef,
     load_global_obj_ref: ir::FuncRef,
+    load_runtime_obj_ref: ir::FuncRef,
     function_closure_cell_ref: ir::FuncRef,
     pyobject_getattr_ref: ir::FuncRef,
     pyobject_setattr_ref: ir::FuncRef,
@@ -2915,7 +2921,7 @@ fn emit_codegen_term(
             );
             let raise_fn_inst = fb
                 .ins()
-                .call(emit_ctx.load_global_obj_ref, &[block_const, raise_name_obj]);
+                .call(emit_ctx.load_runtime_obj_ref, &[raise_name_obj]);
             fb.ins().call(decref_ref, &[raise_name_obj]);
             let raise_fn = fb.inst_results(raise_fn_inst)[0];
             let raise_fn_null = fb
@@ -3452,6 +3458,8 @@ fn build_cranelift_run_bb_specialized_function(
         );
         let load_global_obj_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_LOAD_GLOBAL_OBJ_IMPORT);
+        let load_runtime_obj_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_LOAD_RUNTIME_OBJ_IMPORT);
         let is_true_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_IS_TRUE_IMPORT);
         let raise_exc_ref =
@@ -3737,6 +3745,7 @@ fn build_cranelift_run_bb_specialized_function(
                 },
                 load_module_constant_ref,
                 load_global_obj_ref,
+                load_runtime_obj_ref,
                 function_closure_cell_ref,
                 pyobject_getattr_ref,
                 pyobject_setattr_ref,
