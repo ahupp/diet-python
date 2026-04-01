@@ -158,6 +158,18 @@ pub trait OperationNode<E>: Sized {
     }
 }
 
+pub trait ExprOperationNode<E>: Sized {
+    type Mapped<T>;
+
+    fn visit_exprs(&self, f: &mut impl FnMut(&E));
+    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut E));
+    fn map_op<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>;
+    fn try_map_op<T, Error>(
+        self,
+        f: &mut impl FnMut(E) -> Result<T, Error>,
+    ) -> Result<Self::Mapped<T>, Error>;
+}
+
 macro_rules! define_operation_node {
     (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f_expr:ident, $f_name:ident,) => {
         $($mapped_ctor)+ { $($out)* }
@@ -347,15 +359,259 @@ macro_rules! define_operation_node {
     };
 }
 
-define_operation_node! {
+macro_rules! define_operation {
+    (
+        $vis:vis struct $name:ident<$expr_ty:ident> {
+            $($fields:tt)*
+        }
+    ) => {
+        define_operation!(
+            @collect_fields
+            [$vis]
+            [$name]
+            [$expr_ty]
+            [$($fields)*]
+            []
+            []
+            []
+            $($fields)*
+        );
+    };
+    (
+        @collect_fields
+        [$vis:vis]
+        [$name:ident]
+        [$expr_ty:ident]
+        [$($raw_fields:tt)*]
+        [$($struct_fields:tt)*]
+        [$($ctor_args:tt)*]
+        [$($ctor_init:tt)*]
+    ) => {
+        #[derive(Debug, Clone)]
+        $vis struct $name<$expr_ty> {
+            $($struct_fields)*
+        }
+
+        impl<$expr_ty> $name<$expr_ty> {
+            pub fn new($($ctor_args)*) -> Self {
+                Self {
+                    $($ctor_init)*
+                }
+            }
+        }
+
+        impl<$expr_ty> ExprOperationNode<$expr_ty> for $name<$expr_ty> {
+            type Mapped<T> = $name<T>;
+
+            fn visit_exprs(&self, f: &mut impl FnMut(&$expr_ty)) {
+                #[allow(unused_variables)]
+                let _ = &f;
+                define_operation!(@visit_expr_fields self, f, $($raw_fields)*);
+            }
+
+            fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut $expr_ty)) {
+                #[allow(unused_variables)]
+                let _ = &f;
+                define_operation!(@visit_expr_fields_mut self, f, $($raw_fields)*);
+            }
+
+            fn map_op<T>(self, f: &mut impl FnMut($expr_ty) -> T) -> Self::Mapped<T> {
+                #[allow(unused_variables)]
+                let _ = &f;
+                define_operation!(@build_mapped [$name::<T>] [] self, f, $($raw_fields)*)
+            }
+
+            fn try_map_op<T, Error>(
+                self,
+                f: &mut impl FnMut($expr_ty) -> Result<T, Error>,
+            ) -> Result<Self::Mapped<T>, Error> {
+                #[allow(unused_variables)]
+                let _ = &f;
+                define_operation!(@build_try_mapped [$name::<T>] [] self, f, $($raw_fields)*)
+            }
+        }
+    };
+    (
+        @collect_fields
+        [$vis:vis]
+        [$name:ident]
+        [$expr_ty:ident]
+        [$($raw_fields:tt)*]
+        [$($struct_fields:tt)*]
+        [$($ctor_args:tt)*]
+        [$($ctor_init:tt)*]
+        $field:ident : Box<$inner_expr_ty:ident>,
+        $($rest:tt)*
+    ) => {
+        define_operation!(
+            @collect_fields
+            [$vis]
+            [$name]
+            [$expr_ty]
+            [$($raw_fields)*]
+            [$($struct_fields)* pub $field: Box<$inner_expr_ty>,]
+            [$($ctor_args)* $field: Box<$inner_expr_ty>,]
+            [$($ctor_init)* $field,]
+            $($rest)*
+        );
+    };
+    (
+        @collect_fields
+        [$vis:vis]
+        [$name:ident]
+        [$expr_ty:ident]
+        [$($raw_fields:tt)*]
+        [$($struct_fields:tt)*]
+        [$($ctor_args:tt)*]
+        [$($ctor_init:tt)*]
+        $field:ident : Box<$inner_expr_ty:ident>
+    ) => {
+        define_operation!(
+            @collect_fields
+            [$vis]
+            [$name]
+            [$expr_ty]
+            [$($raw_fields)*]
+            [$($struct_fields)* pub $field: Box<$inner_expr_ty>,]
+            [$($ctor_args)* $field: Box<$inner_expr_ty>,]
+            [$($ctor_init)* $field,]
+        );
+    };
+    (
+        @collect_fields
+        [$vis:vis]
+        [$name:ident]
+        [$expr_ty:ident]
+        [$($raw_fields:tt)*]
+        [$($struct_fields:tt)*]
+        [$($ctor_args:tt)*]
+        [$($ctor_init:tt)*]
+        $field:ident : $ty:ty,
+        $($rest:tt)*
+    ) => {
+        define_operation!(
+            @collect_fields
+            [$vis]
+            [$name]
+            [$expr_ty]
+            [$($raw_fields)*]
+            [$($struct_fields)* pub $field: $ty,]
+            [$($ctor_args)* $field: $ty,]
+            [$($ctor_init)* $field,]
+            $($rest)*
+        );
+    };
+    (
+        @collect_fields
+        [$vis:vis]
+        [$name:ident]
+        [$expr_ty:ident]
+        [$($raw_fields:tt)*]
+        [$($struct_fields:tt)*]
+        [$($ctor_args:tt)*]
+        [$($ctor_init:tt)*]
+        $field:ident : $ty:ty
+    ) => {
+        define_operation!(
+            @collect_fields
+            [$vis]
+            [$name]
+            [$expr_ty]
+            [$($raw_fields)*]
+            [$($struct_fields)* pub $field: $ty,]
+            [$($ctor_args)* $field: $ty,]
+            [$($ctor_init)* $field,]
+        );
+    };
+    (@visit_expr_fields $self:ident, $f:ident,) => {};
+    (@visit_expr_fields $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
+        $f(&$self.$field);
+        define_operation!(@visit_expr_fields $self, $f, $($rest)*);
+    };
+    (@visit_expr_fields $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>) => {
+        $f(&$self.$field);
+    };
+    (@visit_expr_fields $self:ident, $f:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
+        define_operation!(@visit_expr_fields $self, $f, $($rest)*);
+    };
+    (@visit_expr_fields $self:ident, $f:ident, $field:ident : $ty:ty) => {};
+    (@visit_expr_fields_mut $self:ident, $f:ident,) => {};
+    (@visit_expr_fields_mut $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
+        $f(&mut $self.$field);
+        define_operation!(@visit_expr_fields_mut $self, $f, $($rest)*);
+    };
+    (@visit_expr_fields_mut $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>) => {
+        $f(&mut $self.$field);
+    };
+    (@visit_expr_fields_mut $self:ident, $f:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
+        define_operation!(@visit_expr_fields_mut $self, $f, $($rest)*);
+    };
+    (@visit_expr_fields_mut $self:ident, $f:ident, $field:ident : $ty:ty) => {};
+    (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident,) => {
+        $($mapped_ctor)+ { $($out)* }
+    };
+    (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
+        define_operation!(
+            @build_mapped
+            [$($mapped_ctor)+]
+            [$($out)* $field: Box::new($f(*$self.$field)),]
+            $self,
+            $f,
+            $($rest)*
+        )
+    };
+    (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>) => {
+        $($mapped_ctor)+ { $($out)* $field: Box::new($f(*$self.$field)), }
+    };
+    (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
+        define_operation!(
+            @build_mapped
+            [$($mapped_ctor)+]
+            [$($out)* $field: $self.$field,]
+            $self,
+            $f,
+            $($rest)*
+        )
+    };
+    (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : $ty:ty) => {
+        $($mapped_ctor)+ { $($out)* $field: $self.$field, }
+    };
+    (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident,) => {
+        Ok($($mapped_ctor)+ { $($out)* })
+    };
+    (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
+        define_operation!(
+            @build_try_mapped
+            [$($mapped_ctor)+]
+            [$($out)* $field: Box::new($f(*$self.$field)?),]
+            $self,
+            $f,
+            $($rest)*
+        )
+    };
+    (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>) => {
+        Ok($($mapped_ctor)+ { $($out)* $field: Box::new($f(*$self.$field)?), })
+    };
+    (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
+        define_operation!(
+            @build_try_mapped
+            [$($mapped_ctor)+]
+            [$($out)* $field: $self.$field,]
+            $self,
+            $f,
+            $($rest)*
+        )
+    };
+    (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : $ty:ty) => {
+        Ok($($mapped_ctor)+ { $($out)* $field: $self.$field, })
+    };
+}
+
+define_operation! {
     pub struct BinOp<E> {
-        impl<E>;
-        name_type = [()];
-        mapped_type<T, M> = [BinOp<T>];
-        mapped_ctor<T, M> = [BinOp::<T>];
-        kind: BinOpKind => value,
-        left: Box<E> => expr,
-        right: Box<E> => expr,
+        kind: BinOpKind,
+        left: Box<E>,
+        right: Box<E>,
     }
 }
 
@@ -641,7 +897,7 @@ pub enum OperationDetail<E> {
 impl<E> OperationDetail<E> {
     pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> OperationDetail<T> {
         match self {
-            Self::BinOp(op) => OperationDetail::BinOp(op.map_expr(f)),
+            Self::BinOp(op) => OperationDetail::BinOp(op.map_op(f)),
             Self::UnaryOp(op) => OperationDetail::UnaryOp(op.map_expr(f)),
             Self::InplaceBinOp(op) => OperationDetail::InplaceBinOp(op.map_expr(f)),
             Self::TernaryOp(op) => OperationDetail::TernaryOp(op.map_expr(f)),
@@ -673,7 +929,7 @@ impl<E> OperationDetail<E> {
         f: &mut impl FnMut(E) -> Result<T, Error>,
     ) -> Result<OperationDetail<T>, Error> {
         Ok(match self {
-            Self::BinOp(op) => OperationDetail::BinOp(op.try_map_expr(f)?),
+            Self::BinOp(op) => OperationDetail::BinOp(op.try_map_op(f)?),
             Self::UnaryOp(op) => OperationDetail::UnaryOp(op.try_map_expr(f)?),
             Self::InplaceBinOp(op) => OperationDetail::InplaceBinOp(op.try_map_expr(f)?),
             Self::TernaryOp(op) => OperationDetail::TernaryOp(op.try_map_expr(f)?),
@@ -702,7 +958,7 @@ impl<E> OperationDetail<E> {
 
     pub fn walk_args(&self, f: &mut impl FnMut(&E)) {
         match self {
-            Self::BinOp(op) => op.walk_expr_args(f),
+            Self::BinOp(op) => op.visit_exprs(f),
             Self::UnaryOp(op) => op.walk_expr_args(f),
             Self::InplaceBinOp(op) => op.walk_expr_args(f),
             Self::TernaryOp(op) => op.walk_expr_args(f),
@@ -731,7 +987,7 @@ impl<E> OperationDetail<E> {
 
     pub fn walk_args_mut(&mut self, f: &mut impl FnMut(&mut E)) {
         match self {
-            Self::BinOp(op) => op.walk_expr_args_mut(f),
+            Self::BinOp(op) => op.visit_exprs_mut(f),
             Self::UnaryOp(op) => op.walk_expr_args_mut(f),
             Self::InplaceBinOp(op) => op.walk_expr_args_mut(f),
             Self::TernaryOp(op) => op.walk_expr_args_mut(f),
