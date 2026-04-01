@@ -13,23 +13,11 @@ pub(crate) fn is_noarg_call(name: &str, expr: &Expr) -> bool {
     id.as_str() == name && arguments.args.is_empty() && arguments.keywords.is_empty()
 }
 
-pub(crate) fn is_runtime_attr_lookup_expr(expr: &Expr, attr_name: &str) -> bool {
-    matches!(
-        expr,
-        Expr::Attribute(attr)
-            if attr.attr.as_str() == attr_name
-                && matches!(
-                    attr.value.as_ref(),
-                    Expr::Name(module) if module.id.as_str() == "runtime"
-                )
-    )
-}
-
 pub(crate) fn is_dp_helper_lookup_expr(expr: &Expr, helper_name: &str) -> bool {
     matches!(
         expr,
         Expr::Name(name) if name.id.as_str() == format!("__dp_{helper_name}")
-    ) || is_runtime_attr_lookup_expr(expr, helper_name)
+    )
 }
 
 pub(crate) fn strip_synthetic_module_init_qualname(raw: &str) -> String {

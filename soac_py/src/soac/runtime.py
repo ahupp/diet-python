@@ -49,7 +49,6 @@ def __deepcopy__(memo):
     return sys.modules[__name__]
 
 
-builtins.runtime = sys.modules[__name__]
 builtins.__dp_getattr = builtins.getattr
 _dp_typing = builtins.__import__("typing")
 _dp_templatelib = builtins.__import__(

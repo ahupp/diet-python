@@ -214,7 +214,7 @@ fn core_call_expr(
 }
 
 fn core_runtime_attr(attr: &str) -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!("runtime.{attr:id}", attr = attr))
+    core_expr_without_yield(py_expr!("__soac__.{attr:id}", attr = attr))
 }
 
 fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
@@ -230,7 +230,7 @@ fn core_generator_code(async_gen: bool, name: &str, qualname: &str) -> CoreBlock
         "code_template_gen"
     };
     core_expr_without_yield(py_expr!(
-        "runtime.{template_attr:id}.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal})",
+        "__soac__.{template_attr:id}.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal})",
         template_attr = template_attr,
         name = name,
         qualname = qualname,

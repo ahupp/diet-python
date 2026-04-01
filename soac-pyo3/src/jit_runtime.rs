@@ -670,10 +670,28 @@ fn create_module(py: Python<'_>, source: &str, spec: Py<PyAny>) -> PyResult<Py<P
     SoacExtModule::new(py, spec.bind(py).as_any(), output.codegen_module)
 }
 
+fn ensure_module_builtins(globals: &Bound<'_, PyAny>) -> PyResult<()> {
+    let globals = globals
+        .cast::<PyDict>()
+        .map_err(|_| PyTypeError::new_err("module_globals must be a dict"))?;
+    if globals.get_item("__builtins__")?.is_some() {
+        return Ok(());
+    }
+    let builtins = unsafe { ffi::PyEval_GetBuiltins() };
+    if builtins.is_null() {
+        return Err(PyRuntimeError::new_err(
+            "PyEval_GetBuiltins returned null while preparing module globals",
+        ));
+    }
+    let builtins = unsafe { Bound::from_borrowed_ptr(globals.py(), builtins) };
+    globals.set_item("__builtins__", builtins)
+}
+
 #[pyfunction]
 fn exec_module(py: Python<'_>, module: Py<PyAny>) -> PyResult<()> {
     let module = module.bind(py);
     let module_globals = module.getattr("__dict__")?;
+    ensure_module_builtins(&module_globals)?;
     SoacExtModule::with_data(module.as_any(), |module_data| {
         let module_name = resolve_module_name(&module_globals, "module execution")?;
         assert_eq!(

@@ -435,7 +435,7 @@ where
         exc_target,
     ));
 
-    let exhausted_test = py_expr!("{value:expr} is runtime.ITER_COMPLETE", value = tmp_expr);
+    let exhausted_test = py_expr!("{value:expr} is __soac__.ITER_COMPLETE", value = tmp_expr);
     let check_body = if is_async {
         vec![py_stmt!(
             "{tmp:id} = await __dp_anext_or_sentinel({iter:expr})",

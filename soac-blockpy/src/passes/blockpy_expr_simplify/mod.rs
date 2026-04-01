@@ -648,6 +648,16 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
             Expr::NoneLiteral(_) => core_builtin_name("__dp_NONE"),
             Expr::EllipsisLiteral(_) => core_builtin_name("__dp_Ellipsis"),
             Expr::Attribute(node) if matches!(node.ctx, ast::ExprContext::Load) => {
+                if matches!(
+                    node.value.as_ref(),
+                    Expr::Name(base) if base.id.as_str() == "__soac__"
+                ) {
+                    return core_runtime_name_expr_with_meta(
+                        node.attr.id.as_str(),
+                        node.node_index,
+                        node.range,
+                    );
+                }
                 let value = Self::from(*node.value);
                 getattr_expr_with_meta(
                     node.node_index,

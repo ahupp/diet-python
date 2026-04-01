@@ -19,7 +19,7 @@ use ruff_python_ast::{self as ast, ExprName};
 use std::collections::{HashMap, HashSet};
 
 fn is_internal_symbol(name: &str) -> bool {
-    name.starts_with("_dp_") || name.starts_with("__dp_") || name == "runtime"
+    name.starts_with("_dp_") || name.starts_with("__dp_") || name == "__soac__"
 }
 
 fn should_late_bind_name(name: &str, semantic: &BlockPyCallableSemanticInfo) -> bool {
@@ -585,7 +585,7 @@ fn core_name_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    if matches!(ctx, ast::ExprContext::Load) && (id.starts_with("__dp_") || id == "runtime") {
+    if matches!(ctx, ast::ExprContext::Load) && id.starts_with("__dp_") {
         return CoreBlockPyExpr::Op(
             Operation::new(LoadRuntime::new(id.to_string()))
                 .with_meta(crate::block_py::Meta::new(node_index, range)),

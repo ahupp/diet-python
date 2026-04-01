@@ -46,7 +46,7 @@ class C:
 #         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         x = 1
 #         m = MakeFunction(0, Function, __dp_tuple(), __dp_NONE)
-#         __annotate_func__ = MakeFunction(1, Function, __dp_tuple(runtime), __dp_NONE)
+#         __annotate_func__ = MakeFunction(1, Function, __dp_tuple(__import__("soac.runtime", globals(), dict(), __dp_tuple("runtime"), 0)), __dp_NONE)
 #         return __dp_NONE
 
 # function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):

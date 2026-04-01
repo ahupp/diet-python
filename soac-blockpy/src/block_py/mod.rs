@@ -87,7 +87,7 @@ impl FunctionId {
 }
 
 fn is_internal_symbol(name: &str) -> bool {
-    name.starts_with("_dp_") || name.starts_with("__dp_") || name == "runtime"
+    name.starts_with("_dp_") || name.starts_with("__dp_") || name == "__soac__"
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -942,7 +942,7 @@ pub(crate) fn core_named_call_expr_with_meta<E: CoreCallLikeExpr>(
 }
 
 pub(crate) fn is_runtime_symbol_name(name: &str) -> bool {
-    name.starts_with("__dp_") || name == "runtime"
+    name.starts_with("__dp_")
 }
 
 pub(crate) fn core_runtime_name_expr_with_meta<E: CoreCallLikeExpr>(

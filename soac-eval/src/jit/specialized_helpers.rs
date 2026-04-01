@@ -232,6 +232,20 @@ unsafe fn load_runtime_obj_impl(name_obj: *mut ffi::PyObject) -> ObjPtr {
         return ptr::null_mut();
     }
     ffi::PyErr_Clear();
+    let runtime_module_name = b"soac.runtime\0".as_ptr() as *const i8;
+    let runtime_obj = ffi::PyImport_ImportModule(runtime_module_name);
+    if runtime_obj.is_null() {
+        return ptr::null_mut();
+    }
+    let runtime_value = ffi::PyObject_GetAttr(runtime_obj, name_obj);
+    ffi::Py_DECREF(runtime_obj);
+    if !runtime_value.is_null() {
+        return runtime_value as ObjPtr;
+    }
+    if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) == 0 {
+        return ptr::null_mut();
+    }
+    ffi::PyErr_Clear();
     raise_name_error_for_missing_name(name_obj);
     ptr::null_mut()
 }

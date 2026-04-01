@@ -208,7 +208,7 @@ x = (i for i in it)
 #                 then:
 #                     block bb3:
 #                         _dp_tmp_4 = __dp_next_or_sentinel(_dp_iter_3)
-#                         if_term BinOp(Is, _dp_tmp_4, GetAttr(runtime, "ITER_COMPLETE")):
+#                         if_term BinOp(Is, _dp_tmp_4, ITER_COMPLETE):
 #                             then:
 #                                 block bb4:
 #                                     return __dp_NONE
@@ -315,7 +315,7 @@ x = [i for i in it]
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
+#             if_term BinOp(Is, _dp_tmp_0_1, ITER_COMPLETE):
 #                 then:
 #                     block bb4:
 #                         return _dp_tmp_1
@@ -351,7 +351,7 @@ x = {i for i in it}
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
+#             if_term BinOp(Is, _dp_tmp_0_1, ITER_COMPLETE):
 #                 then:
 #                     block bb4:
 #                         return _dp_tmp_1
@@ -387,7 +387,7 @@ x = {k: v for k, v in it}
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
+#             if_term BinOp(Is, _dp_tmp_0_1, ITER_COMPLETE):
 #                 then:
 #                     block bb4:
 #                         return _dp_tmp_1

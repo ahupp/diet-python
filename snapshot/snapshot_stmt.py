@@ -158,7 +158,7 @@ x: int = 1
 #     function_id: 1
 #     block bb1:
 #         x = 1
-#         __annotate__ = MakeFunction(0, Function, __dp_tuple(runtime), __dp_NONE)
+#         __annotate__ = MakeFunction(0, Function, __dp_tuple(__import__("soac.runtime", globals(), dict(), __dp_tuple("runtime"), 0)), __dp_NONE)
 #         return __dp_NONE
 
 # ann_assign_attr
@@ -293,7 +293,7 @@ else:
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
+#             if_term BinOp(Is, _dp_tmp_0_1, ITER_COMPLETE):
 #                 then:
 #                     block bb4:
 #                         done()
@@ -429,7 +429,7 @@ zs = {k: v for k, v in items}
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
+#             if_term BinOp(Is, _dp_tmp_0_1, ITER_COMPLETE):
 #                 then:
 #                     block bb4:
 #                         return _dp_tmp_1
@@ -452,7 +452,7 @@ zs = {k: v for k, v in items}
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_1_1 = __dp_next_or_sentinel(_dp_iter_1_0)
-#             if_term BinOp(Is, _dp_tmp_1_1, GetAttr(runtime, "ITER_COMPLETE")):
+#             if_term BinOp(Is, _dp_tmp_1_1, ITER_COMPLETE):
 #                 then:
 #                     block bb4:
 #                         return _dp_tmp_4
@@ -475,7 +475,7 @@ zs = {k: v for k, v in items}
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_2_1 = __dp_next_or_sentinel(_dp_iter_2_0)
-#             if_term BinOp(Is, _dp_tmp_2_1, GetAttr(runtime, "ITER_COMPLETE")):
+#             if_term BinOp(Is, _dp_tmp_2_1, ITER_COMPLETE):
 #                 then:
 #                     block bb4:
 #                         return _dp_tmp_7
@@ -526,7 +526,7 @@ def f():
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
+#             if_term BinOp(Is, _dp_tmp_0_1, ITER_COMPLETE):
 #                 then:
 #                     block bb4:
 #                         return _dp_tmp_1
@@ -575,7 +575,7 @@ class C:
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
+#             if_term BinOp(Is, _dp_tmp_0_1, ITER_COMPLETE):
 #                 then:
 #                     block bb4:
 #                         return _dp_tmp_1
@@ -742,7 +742,7 @@ async def run():
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = await __dp_anext_or_sentinel(_dp_iter_0_0)
-#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
+#             if_term BinOp(Is, _dp_tmp_0_1, ITER_COMPLETE):
 #                 then:
 #                     block bb0:
 #                         return __dp_NONE
@@ -1118,7 +1118,7 @@ def complicated(a):
 #         jump bb1
 #         block bb1:
 #             _dp_tmp_0_1 = __dp_next_or_sentinel(_dp_iter_0_0)
-#             if_term BinOp(Is, _dp_tmp_0_1, GetAttr(runtime, "ITER_COMPLETE")):
+#             if_term BinOp(Is, _dp_tmp_0_1, ITER_COMPLETE):
 #                 then:
 #                     block bb4:
 #                         print("finsihed")

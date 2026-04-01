@@ -399,26 +399,7 @@ where
     N: BlockPyNameLike + Clone,
 {
     let helper_name = format!("__dp_{attr_name}");
-    match func {
-        _ if expr_root_name_id(func) == Some(helper_name.as_str()) => true,
-        _ => operation_expr(func)
-            .is_some_and(|operation| is_dp_getattr_operation(operation, attr_name)),
-    }
-}
-
-fn is_dp_getattr_operation<N>(
-    operation: &operation::Operation<CoreBlockPyExpr<N>>,
-    attr_name: &str,
-) -> bool
-where
-    N: BlockPyNameLike,
-{
-    let operation::OperationDetail::GetAttr(operation::GetAttr { value, attr, .. }) =
-        operation.detail()
-    else {
-        return false;
-    };
-    expr_root_name_id(value.as_ref()) == Some("runtime") && attr == attr_name
+    expr_root_name_id(func) == Some(helper_name.as_str())
 }
 
 fn expr_root_name_id<N>(expr: &CoreBlockPyExpr<N>) -> Option<&str>

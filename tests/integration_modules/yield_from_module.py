@@ -30,7 +30,8 @@ def validate_module(module):
 
     if __dp_integration_transformed__:
         assert "runtime" not in module.__dict__
-        assert hasattr(builtins, "runtime")
+        assert not hasattr(builtins, "runtime")
+        assert not hasattr(builtins, "__soac__")
 
     gen = module.delegator()
 

@@ -136,7 +136,10 @@ pub(crate) fn build_annotate_fn(entries: Vec<(String, Expr, String)>, name: &str
     // VALUE_WITH_FAKE_GLOBALS fallback with its stringifier globals.
     py_stmt!(
         r#"
-def {annotate_name:id}(_dp_format, _dp=runtime):
+def {annotate_name:id}(
+    _dp_format,
+    _dp=__import__("soac.runtime", globals(), dict(), ("runtime",), 0),
+):
     if _dp.eq(_dp_format, 4):
         return {string_dict:expr}
     if _dp.gt(_dp_format, 2):
