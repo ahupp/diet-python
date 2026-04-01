@@ -23,6 +23,16 @@
     - once no runtime path needs `_soac_ext.make_bb_function(...)`, remove `runtime.make_function(...)`, the `_jit_make_bb_function` export, and `with_current_module_runtime_context(...)`.
   - The main invariant to preserve is evaluation order around decorator application, closure capture materialization, defaults, and annotation hooks.
 
+## Revisit direct MakeFunction lowering from module-plan
+
+- Planning note:
+  - Leave the `__dp_make_function(...)` transport in place for now.
+  - The current blocker is that `module_plan` still rewrites nested callables in Ruff AST space, so the helper call is carrying lowered callable metadata such as `function_id`, function kind, parameter defaults, and annotation thunk across the AST/Core boundary.
+  - A good next implementation order is:
+    - for nested statement-position `def`, preserve the lowered callable metadata out-of-band, keyed by the `StmtFunctionDef` node identity, and teach `StmtFunctionDef::to_blockpy` to emit `name = MakeFunction(...)` directly during Ruff-to-BlockPy lowering;
+    - once that lands, `__dp_make_function(...)` should remain only for expression-position lowered callables such as `lambda`;
+    - then revisit whether `module_plan` should gain a Core-expression-shaped return path for those expression-position callables, so `lambda` can stop serializing lowered callable values back into AST too.
+
 ## Remove the Operation Name Generic
 
 - Planning note:
