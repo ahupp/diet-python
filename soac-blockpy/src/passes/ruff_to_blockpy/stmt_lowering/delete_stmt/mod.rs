@@ -52,7 +52,7 @@ where
             out.push_stmt(StructuredBlockPyStmt::Expr(E::helper_call(
                 node_index,
                 range,
-                "__dp_delattr",
+                "delattr",
                 vec![object_temp, attr_expr],
             )));
             Ok(())

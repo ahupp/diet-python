@@ -184,8 +184,7 @@ fn is_current_exception_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwai
     };
     call.args.is_empty()
         && call.keywords.is_empty()
-        && expr_root_name_id_with_await_and_yield(call.func.as_ref())
-            == Some("__dp_current_exception")
+        && expr_root_name_id_with_await_and_yield(call.func.as_ref()) == Some("current_exception")
 }
 
 fn current_exception_name_expr_with_await_and_yield(
@@ -341,8 +340,7 @@ fn is_dp_lookup_call_expr<N>(func: &CoreBlockPyExpr<N>, attr_name: &str) -> bool
 where
     N: BlockPyNameLike + Clone,
 {
-    let helper_name = format!("__dp_{attr_name}");
-    expr_root_name_id(func) == Some(helper_name.as_str())
+    expr_root_name_id(func) == Some(attr_name)
 }
 
 fn expr_root_name_id<N>(expr: &CoreBlockPyExpr<N>) -> Option<&str>

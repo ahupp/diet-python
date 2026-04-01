@@ -466,7 +466,7 @@ where
     E: BlockPySemanticExprNode,
 {
     let helper_name = call.func.as_ref().root_name_id()?;
-    if helper_name != "__dp_cell_ref" {
+    if helper_name != "cell_ref" {
         return None;
     }
     let CoreBlockPyCallArg::Positional(arg) = call.args.first()? else {
@@ -486,6 +486,9 @@ impl BlockPySemanticExprNode for Expr {
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Expr::Name(name) => Some(name.id.as_str()),
+            Expr::Attribute(ast::ExprAttribute { value, attr, .. }) if matches!(value.as_ref(), Expr::Name(name) if name.id.as_str() == "__soac__") => {
+                Some(attr.id.as_str())
+            }
             _ => None,
         }
     }
@@ -515,10 +518,14 @@ impl BlockPySemanticExprNode for Expr {
         let Expr::Call(call) = self else {
             return;
         };
-        let Some(Expr::Name(name)) = Some(call.func.as_ref()) else {
+        let Some(Expr::Attribute(ast::ExprAttribute { value, attr, .. })) =
+            Some(call.func.as_ref())
+        else {
             return;
         };
-        if name.id.as_str() != "__dp_cell_ref" {
+        if !matches!(value.as_ref(), Expr::Name(name) if name.id.as_str() == "__soac__")
+            || attr.id.as_str() != "cell_ref"
+        {
             return;
         }
         let Some(ast::Expr::StringLiteral(literal)) = call.arguments.args.first() else {

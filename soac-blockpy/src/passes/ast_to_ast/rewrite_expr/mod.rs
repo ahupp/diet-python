@@ -74,9 +74,9 @@ fn lower_generator_expr(
     let outer_async = first_gen.is_async;
     let iter_expr = first_gen.iter.clone();
     let iter_value = if outer_async {
-        py_expr!("__dp_aiter({iter:expr})", iter = iter_expr.clone())
+        py_expr!("__soac__.aiter({iter:expr})", iter = iter_expr.clone())
     } else {
-        py_expr!("__dp_iter({iter:expr})", iter = iter_expr.clone())
+        py_expr!("__soac__.iter({iter:expr})", iter = iter_expr.clone())
     };
 
     let func_name = context.fresh("genexpr");
@@ -121,7 +121,7 @@ def {func:id}({param:id}):
                     r#"
 {iter_name:id} = {iter:expr}
 while True:
-    {target_tmp:id} = await __dp_anext_or_sentinel({iter_name:id})
+    {target_tmp:id} = await __soac__.anext_or_sentinel({iter_name:id})
     if {target_tmp:id} is __soac__.ITER_COMPLETE:
         break
     else:
@@ -152,7 +152,7 @@ async for {target:expr} in {iter:expr}:
                 r#"
 {iter_name:id} = {iter:expr}
 while True:
-    {target_tmp:id} = __dp_next_or_sentinel({iter_name:id})
+    {target_tmp:id} = __soac__.next_or_sentinel({iter_name:id})
     if {target_tmp:id} is __soac__.ITER_COMPLETE:
         break
     else:
@@ -411,7 +411,7 @@ impl Transformer for NamedExprRewriter<'_> {
                     if self.class_targets.contains(name) {
                         self.visit_expr(value.as_mut());
                         *expr = py_expr!(
-                            "__dp_store_global(_dp_class_ns, {name:literal}, {value:expr})",
+                            "__soac__.store_global(_dp_class_ns, {name:literal}, {value:expr})",
                             name = name,
                             value = value.as_ref().clone(),
                         );

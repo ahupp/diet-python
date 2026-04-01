@@ -327,13 +327,13 @@ where
     let exhausted_test = py_expr!("{value:expr} is __soac__.ITER_COMPLETE", value = tmp_expr);
     let check_body = if is_async {
         vec![py_stmt!(
-            "{tmp:id} = await __dp_anext_or_sentinel({iter:expr})",
+            "{tmp:id} = await __soac__.anext_or_sentinel({iter:expr})",
             tmp = tmp_name,
             iter = iter_expr.clone(),
         )]
     } else {
         vec![py_stmt!(
-            "{tmp:id} = __dp_next_or_sentinel({iter:expr})",
+            "{tmp:id} = __soac__.next_or_sentinel({iter:expr})",
             tmp = tmp_name,
             iter = iter_expr.clone(),
         )]
@@ -352,13 +352,13 @@ where
     let mut setup_body = linear;
     if is_async {
         setup_body.push(py_stmt!(
-            "{iter:id} = __dp_aiter({iterable:expr})",
+            "{iter:id} = __soac__.aiter({iterable:expr})",
             iter = iter_name,
             iterable = iterable,
         ));
     } else {
         setup_body.push(py_stmt!(
-            "{iter:id} = __dp_iter({iterable:expr})",
+            "{iter:id} = __soac__.iter({iterable:expr})",
             iter = iter_name,
             iterable = iterable,
         ));

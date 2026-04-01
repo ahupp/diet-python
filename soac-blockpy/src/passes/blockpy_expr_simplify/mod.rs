@@ -1,8 +1,8 @@
 use super::ast_to_ast::string_templates::lower_string_templates_in_expr;
 use crate::block_py::{
-    core_call_expr_with_meta, core_positional_call_expr_with_meta,
-    core_runtime_name_expr_with_meta, is_runtime_symbol_name, operation, BlockPyAssign,
-    BlockPyBranchTable, BlockPyDelete, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragment,
+    core_call_expr_with_meta, core_runtime_name_expr_with_meta,
+    core_runtime_positional_call_expr_with_meta, operation, BlockPyAssign, BlockPyBranchTable,
+    BlockPyDelete, BlockPyIf, BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragment,
     BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCallArg,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyYield,
     CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
@@ -56,12 +56,12 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithA
                 if !keyed_pairs.is_empty() {
                     let tuple = make_tuple(std::mem::take(&mut keyed_pairs));
                     segments.push(CoreBlockPyExprWithAwaitAndYield::from(py_expr!(
-                        "__dp_dict({tuple:expr})",
+                        "__soac__.dict({tuple:expr})",
                         tuple = tuple
                     )));
                 }
                 segments.push(CoreBlockPyExprWithAwaitAndYield::from(py_expr!(
-                    "__dp_dict({mapping:expr})",
+                    "__soac__.dict({mapping:expr})",
                     mapping = value
                 )));
             }
@@ -71,13 +71,18 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithA
     if !keyed_pairs.is_empty() {
         let tuple = make_tuple(keyed_pairs);
         segments.push(CoreBlockPyExprWithAwaitAndYield::from(py_expr!(
-            "__dp_dict({tuple:expr})",
+            "__soac__.dict({tuple:expr})",
             tuple = tuple
         )));
     }
 
     let expr = match segments.len() {
-        0 => CoreBlockPyExprWithAwaitAndYield::from(py_expr!("__dp_dict()")),
+        0 => core_runtime_positional_call_expr_with_meta(
+            "dict",
+            ast::AtomicNodeIndex::default(),
+            Default::default(),
+            Vec::new(),
+        ),
         _ => segments
             .into_iter()
             .reduce(|left, right| {
@@ -191,7 +196,7 @@ fn binop_expr_from_ast_with_meta(
                 operation::TernaryOpKind::Pow,
                 Box::new(left),
                 Box::new(right),
-                Box::new(core_builtin_name("__dp_NONE")),
+                Box::new(core_builtin_name("NONE")),
             ),
             node_index,
             range,
@@ -371,7 +376,7 @@ fn non_operator_operation_from_helper_call(
     let mut args = args.into_iter();
     let meta = Meta::new(node_index, range);
     let operation = match name {
-        "__dp_store_global" => operation::StoreName::new(
+        "store_global" => operation::StoreName::new(
             {
                 let _globals = args.next()?;
                 string_arg_from_core_expr(args.next()?)?
@@ -380,7 +385,7 @@ fn non_operator_operation_from_helper_call(
         )
         .with_meta(meta)
         .into(),
-        "__dp_cell_ref" => operation::CellRefForName::new(string_arg_from_core_expr(args.next()?)?)
+        "cell_ref" => operation::CellRefForName::new(string_arg_from_core_expr(args.next()?)?)
             .with_meta(meta)
             .into(),
         _ => return None,
@@ -399,8 +404,11 @@ fn lower_core_call_expr_with_meta(
     keywords: Vec<ast::Keyword>,
 ) -> CoreBlockPyExprWithAwaitAndYield {
     if keywords.is_empty() {
-        if let Expr::Name(name) = &func {
-            if name.id.as_str() == "__dp_make_function" && args.len() == 5 {
+        if let Expr::Attribute(attr) = &func {
+            if matches!(attr.value.as_ref(), Expr::Name(base) if base.id.as_str() == "__soac__")
+                && attr.attr.id.as_str() == "make_function"
+                && args.len() == 5
+            {
                 if let (Some(function_id), Some(kind)) = (
                     make_function_id_from_literal(&args[0]),
                     make_function_kind_from_literal(&args[1]),
@@ -416,25 +424,29 @@ fn lower_core_call_expr_with_meta(
                     );
                 }
             }
-            let mut operation_args = Vec::with_capacity(args.len());
-            let mut saw_starred = false;
-            for arg in &args {
-                if matches!(arg, Expr::Starred(_)) {
-                    saw_starred = true;
-                    break;
-                }
-            }
-            if !saw_starred {
+        }
+        if let Expr::Attribute(attr) = &func {
+            if matches!(attr.value.as_ref(), Expr::Name(base) if base.id.as_str() == "__soac__") {
+                let mut operation_args = Vec::with_capacity(args.len());
+                let mut saw_starred = false;
                 for arg in &args {
-                    operation_args.push(CoreBlockPyExprWithAwaitAndYield::from(arg.clone()));
+                    if matches!(arg, Expr::Starred(_)) {
+                        saw_starred = true;
+                        break;
+                    }
                 }
-                if let Some(operation) = non_operator_operation_from_helper_call(
-                    name.id.as_str(),
-                    node_index.clone(),
-                    range,
-                    operation_args,
-                ) {
-                    return core_operation_expr(operation);
+                if !saw_starred {
+                    for arg in &args {
+                        operation_args.push(CoreBlockPyExprWithAwaitAndYield::from(arg.clone()));
+                    }
+                    if let Some(operation) = non_operator_operation_from_helper_call(
+                        attr.attr.id.as_str(),
+                        node_index.clone(),
+                        range,
+                        operation_args,
+                    ) {
+                        return core_operation_expr(operation);
+                    }
                 }
             }
         }
@@ -462,15 +474,15 @@ fn reduce_core_tuple_splat(elts: Vec<Expr>) -> CoreBlockPyExprWithAwaitAndYield 
                 ..
             }) => {
                 if !values.is_empty() {
-                    segments.push(core_positional_call_expr_with_meta(
-                        "__dp_tuple",
+                    segments.push(core_runtime_positional_call_expr_with_meta(
+                        "tuple_values",
                         ast::AtomicNodeIndex::default(),
                         Default::default(),
                         std::mem::take(&mut values),
                     ));
                 }
-                segments.push(core_positional_call_expr_with_meta(
-                    "__dp_tuple_from_iter",
+                segments.push(core_runtime_positional_call_expr_with_meta(
+                    "tuple_from_iter",
                     node_index,
                     range,
                     vec![CoreBlockPyExprWithAwaitAndYield::from(*value)],
@@ -481,8 +493,8 @@ fn reduce_core_tuple_splat(elts: Vec<Expr>) -> CoreBlockPyExprWithAwaitAndYield 
     }
 
     if !values.is_empty() {
-        segments.push(core_positional_call_expr_with_meta(
-            "__dp_tuple",
+        segments.push(core_runtime_positional_call_expr_with_meta(
+            "tuple_values",
             ast::AtomicNodeIndex::default(),
             Default::default(),
             values,
@@ -490,8 +502,8 @@ fn reduce_core_tuple_splat(elts: Vec<Expr>) -> CoreBlockPyExprWithAwaitAndYield 
     }
 
     segments.into_iter().reduce(add_op_expr).unwrap_or_else(|| {
-        core_positional_call_expr_with_meta(
-            "__dp_tuple",
+        core_runtime_positional_call_expr_with_meta(
+            "tuple_values",
             ast::AtomicNodeIndex::default(),
             Default::default(),
             Vec::new(),
@@ -558,13 +570,13 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
             }
             Expr::BooleanLiteral(node) => {
                 if node.value {
-                    core_builtin_name("__dp_TRUE")
+                    core_builtin_name("TRUE")
                 } else {
-                    core_builtin_name("__dp_FALSE")
+                    core_builtin_name("FALSE")
                 }
             }
-            Expr::NoneLiteral(_) => core_builtin_name("__dp_NONE"),
-            Expr::EllipsisLiteral(_) => core_builtin_name("__dp_Ellipsis"),
+            Expr::NoneLiteral(_) => core_builtin_name("NONE"),
+            Expr::EllipsisLiteral(_) => core_builtin_name("ELLIPSIS"),
             Expr::Attribute(node) if matches!(node.ctx, ast::ExprContext::Load) => {
                 if matches!(
                     node.value.as_ref(),
@@ -636,8 +648,8 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                 } else {
                     Self::from(make_tuple(node.elts))
                 };
-                core_positional_call_expr_with_meta(
-                    "__dp_list",
+                core_runtime_positional_call_expr_with_meta(
+                    "list",
                     node.node_index,
                     node.range,
                     vec![tuple],
@@ -649,15 +661,15 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                 } else {
                     Self::from(make_tuple(node.elts))
                 };
-                core_positional_call_expr_with_meta(
-                    "__dp_set",
+                core_runtime_positional_call_expr_with_meta(
+                    "set",
                     node.node_index,
                     node.range,
                     vec![tuple],
                 )
             }
             Expr::Slice(node) => Self::from(py_expr!(
-                "__dp_slice({lower:expr}, {upper:expr}, {step:expr})",
+                "__soac__.slice({lower:expr}, {upper:expr}, {step:expr})",
                 lower = node
                     .lower
                     .map(|expr| *expr)
@@ -673,13 +685,8 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
             )),
             Expr::Dict(node) => reduce_core_blockpy_dict(node.items.into()),
             Expr::Name(node) => {
-                if is_runtime_symbol_name(node.id.as_str()) {
-                    core_runtime_name_expr_with_meta(
-                        node.id.as_str(),
-                        node.node_index.clone(),
-                        node.range,
-                    )
-                } else if is_synthetic_local_core_name(node.id.as_str()) {
+                if is_synthetic_local_core_name(node.id.as_str()) || node.id.as_str() == "__soac__"
+                {
                     Self::Name(node)
                 } else {
                     CoreBlockPyExprWithAwaitAndYield::Op(

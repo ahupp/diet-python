@@ -1,5 +1,6 @@
 use crate::block_py::{
-    core_operation_expr, core_positional_call_expr_with_meta, operation, BlockPyFunctionKind,
+    core_operation_expr, core_runtime_name_expr_with_meta,
+    core_runtime_positional_call_expr_with_meta, operation, BlockPyFunctionKind,
     BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield, FunctionId, Meta, WithMeta,
 };
 use crate::namegen::fresh_name;
@@ -107,7 +108,7 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         name: &'static str,
         args: Vec<Self>,
     ) -> Self {
-        core_positional_call_expr_with_meta(name, node_index, range, args)
+        core_runtime_positional_call_expr_with_meta(name, node_index, range, args)
     }
 
     fn lower_augassign_value(
@@ -134,9 +135,11 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
                 operation::TernaryOpKind::Pow,
                 Box::new(left),
                 Box::new(right),
-                Box::new(CoreBlockPyExprWithAwaitAndYield::from(py_expr!(
-                    "__dp_NONE"
-                ))),
+                Box::new(core_runtime_name_expr_with_meta(
+                    "NONE",
+                    node_index.clone(),
+                    range,
+                )),
             ))
             .with_meta(meta),
         )
@@ -151,7 +154,7 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         Self::helper_call(
             node_index,
             range,
-            "__dp_load_deleted_name",
+            "load_deleted_name",
             vec![
                 CoreBlockPyExprWithAwaitAndYield::from(py_expr!("{name:literal}", name = name)),
                 value,
@@ -315,10 +318,12 @@ fn lowered_helper_call<'a>(
     if !call.arguments.keywords.is_empty() || call.arguments.args.len() != arity {
         return None;
     }
-    let Expr::Name(name) = call.func.as_ref() else {
-        return None;
-    };
-    if name.id.as_str() != expected_name {
+    if !matches!(
+        call.func.as_ref(),
+        Expr::Attribute(ast::ExprAttribute { value, attr, .. })
+            if matches!(value.as_ref(), Expr::Name(name) if name.id.as_str() == "__soac__")
+                && attr.id.as_str() == expected_name
+    ) {
         return None;
     }
     Some(call)
@@ -329,7 +334,7 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
         <CoreBlockPyExprWithAwaitAndYield as RuffToBlockPyExpr>::from_lowered_expr(expr)
     }
 
-    if let Some(call) = lowered_helper_call(expr, "__dp_make_function", 5) {
+    if let Some(call) = lowered_helper_call(expr, "make_function", 5) {
         let function_id = make_function_id_from_literal(&call.arguments.args[0])?;
         let kind = make_function_kind_from_literal(&call.arguments.args[1])?;
         return Some(core_operation_expr(
@@ -343,7 +348,7 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
         ));
     }
 
-    if let Some(call) = lowered_helper_call(expr, "__dp_store_global", 3) {
+    if let Some(call) = lowered_helper_call(expr, "store_global", 3) {
         return Some(core_operation_expr(
             operation::OperationDetail::from(operation::StoreName::new(
                 string_literal_value(&call.arguments.args[1])?,
@@ -353,7 +358,7 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
         ));
     }
 
-    if let Some(call) = lowered_helper_call(expr, "__dp_cell_ref", 1) {
+    if let Some(call) = lowered_helper_call(expr, "cell_ref", 1) {
         return Some(core_operation_expr(
             operation::OperationDetail::from(operation::CellRefForName::new(string_literal_value(
                 &call.arguments.args[0],

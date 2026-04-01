@@ -10,10 +10,10 @@ use soac_blockpy::passes::CodegenBlockPyPass;
 use std::collections::HashMap;
 
 const ALWAYS_REQUIRED_UNICODE_CONSTANTS: &[&str] = &[
-    "__dp_dict",
-    "__dp_list",
-    "__dp_raise_from",
-    "__dp_tuple_from_iter",
+    "dict",
+    "list",
+    "raise_from",
+    "tuple_from_iter",
     "append",
     "extend",
     "update",
@@ -285,7 +285,7 @@ impl ModuleConstantCollector {
 fn deleted_name_arg_bytes(
     call: &blockpy_intrinsics::Call<LocatedCodegenBlockPyExpr>,
 ) -> Option<&[u8]> {
-    if helper_name_for_codegen_expr(call.func.as_ref()) != Some("__dp_load_deleted_name")
+    if helper_name_for_codegen_expr(call.func.as_ref()) != Some("load_deleted_name")
         || call.args.len() != 2
     {
         return None;

@@ -2,8 +2,8 @@ use crate::py_expr;
 use ruff_python_ast::Expr;
 
 pub(crate) fn make_tuple(items: Vec<Expr>) -> Expr {
-    let Expr::Call(mut call) = py_expr!("__dp_tuple()") else {
-        panic!("expected call expression for __dp_tuple");
+    let Expr::Call(mut call) = py_expr!("__soac__.tuple_values()") else {
+        panic!("expected call expression for __soac__.tuple_values");
     };
     call.arguments.args = items.into();
     Expr::Call(call)
@@ -24,7 +24,7 @@ pub(crate) fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
                     segments.push(make_tuple(std::mem::take(&mut values)));
                 }
                 segments.push(py_expr!(
-                    "__dp_tuple_from_iter({value:expr})",
+                    "__soac__.tuple_from_iter({value:expr})",
                     value = *value
                 ));
             }
@@ -44,7 +44,7 @@ pub(crate) fn make_tuple_splat(elts: Vec<Expr>) -> Expr {
 
 pub(crate) fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Expr {
     py_expr!(
-        "__dp_{func:id}({left:expr}, {right:expr})",
+        "__soac__.{func:id}({left:expr}, {right:expr})",
         left = left,
         right = right,
         func = func_name
@@ -53,7 +53,7 @@ pub(crate) fn make_binop(func_name: &'static str, left: Expr, right: Expr) -> Ex
 
 pub(crate) fn make_unaryop(func_name: &'static str, operand: Expr) -> Expr {
     py_expr!(
-        "__dp_{func:id}({operand:expr})",
+        "__soac__.{func:id}({operand:expr})",
         operand = operand,
         func = func_name
     )

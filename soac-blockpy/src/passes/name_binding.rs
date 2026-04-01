@@ -1,6 +1,6 @@
 use crate::block_py::{
     build_storage_layout_from_capture_names, compute_storage_layout_from_semantics,
-    core_positional_call_expr_with_meta, BindingTarget, BlockArg, BlockPyAssign,
+    core_runtime_positional_call_expr_with_meta, BindingTarget, BlockArg, BlockPyAssign,
     BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
     BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyClassBodyFallback,
     BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap,
@@ -19,7 +19,7 @@ use ruff_python_ast::{self as ast, ExprName};
 use std::collections::{HashMap, HashSet};
 
 fn is_internal_symbol(name: &str) -> bool {
-    name.starts_with("_dp_") || name.starts_with("__dp_") || name == "__soac__"
+    name.starts_with("_dp_") || name == "__soac__"
 }
 
 fn should_late_bind_name(name: &str, semantic: &BlockPyCallableSemanticInfo) -> bool {
@@ -58,7 +58,7 @@ fn globals_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    core_positional_call_expr_with_meta("__dp_globals", node_index, range, Vec::new())
+    core_runtime_positional_call_expr_with_meta("globals", node_index, range, Vec::new())
 }
 
 fn op_expr(operation: OperationDetail<CoreBlockPyExpr>) -> CoreBlockPyExpr {
@@ -334,8 +334,8 @@ fn rewrite_deleted_name_load_expr(
     }
     let node_index = name.node_index.clone();
     let range = name.range;
-    core_positional_call_expr_with_meta(
-        "__dp_load_deleted_name",
+    core_runtime_positional_call_expr_with_meta(
+        "load_deleted_name",
         node_index.clone(),
         range,
         vec![
@@ -355,8 +355,8 @@ fn wrap_deleted_name_load_expr(
     range: ruff_text_size::TextRange,
     value: CoreBlockPyExpr,
 ) -> CoreBlockPyExpr {
-    core_positional_call_expr_with_meta(
-        "__dp_load_deleted_name",
+    core_runtime_positional_call_expr_with_meta(
+        "load_deleted_name",
         node_index.clone(),
         range,
         vec![
@@ -429,8 +429,8 @@ fn rewrite_deleted_name_loads_in_expr(
             || always_unbound_names.contains(logical_name.as_str())
         {
             let meta = expr.meta();
-            *expr = core_positional_call_expr_with_meta(
-                "__dp_load_deleted_name",
+            *expr = core_runtime_positional_call_expr_with_meta(
+                "load_deleted_name",
                 meta.node_index.clone(),
                 meta.range,
                 vec![
@@ -548,7 +548,22 @@ fn core_name_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    if matches!(ctx, ast::ExprContext::Load) && id.starts_with("__dp_") {
+    if matches!(ctx, ast::ExprContext::Load)
+        && matches!(
+            id,
+            "DELETED"
+                | "NONE"
+                | "TRUE"
+                | "FALSE"
+                | "ELLIPSIS"
+                | "globals"
+                | "load_deleted_name"
+                | "class_lookup_global"
+                | "class_lookup_cell"
+                | "tuple"
+                | "make_function"
+        )
+    {
         return CoreBlockPyExpr::Op(
             OperationDetail::from(LoadRuntime::new(id.to_string()))
                 .with_meta(crate::block_py::Meta::new(node_index, range)),
@@ -584,15 +599,15 @@ fn deleted_sentinel_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    core_name_expr("__dp_DELETED", ast::ExprContext::Load, node_index, range)
+    core_name_expr("DELETED", ast::ExprContext::Load, node_index, range)
 }
 
 fn rewrite_class_name_load_global(name: ExprName) -> CoreBlockPyExpr {
     let node_index = name.node_index.clone();
     let range = name.range;
     let bind_name = name.id.to_string();
-    core_positional_call_expr_with_meta(
-        "__dp_class_lookup_global",
+    core_runtime_positional_call_expr_with_meta(
+        "class_lookup_global",
         node_index.clone(),
         range,
         vec![
@@ -610,8 +625,8 @@ fn rewrite_class_name_load_cell(
     let node_index = name.node_index.clone();
     let range = name.range;
     let bind_name = name.id.to_string();
-    core_positional_call_expr_with_meta(
-        "__dp_class_lookup_cell",
+    core_runtime_positional_call_expr_with_meta(
+        "class_lookup_cell",
         node_index.clone(),
         range,
         vec![
@@ -705,7 +720,7 @@ fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
                 || nested_call.args.len() != 2
                 || !raw_load_name(nested_call.func.as_ref())
                     .as_ref()
-                    .is_some_and(|name| name == "__dp_load_deleted_name")
+                    .is_some_and(|name| name == "load_deleted_name")
             {
                 return raw_load_name(expr).map(|name| ExprName {
                     id: name.into(),
@@ -732,7 +747,7 @@ fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
     matches!(
         expr,
         CoreBlockPyExpr::Op(operation)
-            if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "__dp_DELETED")
+            if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "DELETED")
     )
 }
 
@@ -828,7 +843,7 @@ fn closure_slot_init_expr(slot: &ClosureSlot) -> CoreBlockPyExpr {
             }))
         }
         ClosureInit::RuntimeNone | ClosureInit::Deferred => {
-            core_name_expr("__dp_NONE", ast::ExprContext::Load, node_index, range)
+            core_name_expr("NONE", ast::ExprContext::Load, node_index, range)
         }
     }
 }
@@ -1073,8 +1088,8 @@ impl NameBindingMapper<'_> {
             .into_iter()
             .flat_map(|capture_names| capture_names.iter())
             .map(|logical_name| {
-                core_positional_call_expr_with_meta(
-                    "__dp_tuple",
+                core_runtime_positional_call_expr_with_meta(
+                    "tuple_values",
                     meta.node_index.clone(),
                     meta.range,
                     vec![
@@ -1089,14 +1104,14 @@ impl NameBindingMapper<'_> {
                 )
             })
             .collect::<Vec<_>>();
-        let captures_expr = core_positional_call_expr_with_meta(
-            "__dp_tuple",
+        let captures_expr = core_runtime_positional_call_expr_with_meta(
+            "tuple_values",
             meta.node_index.clone(),
             meta.range,
             captures,
         );
-        core_positional_call_expr_with_meta(
-            "__dp_make_function",
+        core_runtime_positional_call_expr_with_meta(
+            "make_function",
             meta.node_index.clone(),
             meta.range,
             vec![
@@ -1257,7 +1272,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                             && call.args.len() == 3
                             && raw_load_name(call.func.as_ref())
                                 .as_ref()
-                                .is_some_and(|name| name == "__dp_class_lookup_cell") =>
+                                .is_some_and(|name| name == "class_lookup_cell") =>
                     {
                         let mut mapped_args = Vec::with_capacity(3);
                         for (index, arg) in call.args.into_iter().enumerate() {
@@ -1437,7 +1452,7 @@ fn rewrite_raw_cell_loads_in_expr(
                     && call.args.len() == 3
                     && raw_load_name(call.func.as_ref())
                         .as_ref()
-                        .is_some_and(|name| name == "__dp_class_lookup_cell")
+                        .is_some_and(|name| name == "class_lookup_cell")
                 {
                     rewrite_raw_cell_loads_in_expr(call.func.as_mut(), semantic, resolver);
                     if let Some(arg) = call.args.get_mut(0) {
@@ -2179,7 +2194,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                 if let OperationDetail::Call(call) = operation {
                     if raw_load_name(call.func.as_ref())
                         .as_ref()
-                        .is_some_and(|name| name == "__dp_class_lookup_cell")
+                        .is_some_and(|name| name == "class_lookup_cell")
                         && call.args.len() == 3
                     {
                         if let Some(CoreBlockPyCallArg::Positional(expr)) = call.args.get_mut(2) {

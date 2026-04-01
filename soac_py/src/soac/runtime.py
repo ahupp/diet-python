@@ -20,6 +20,7 @@ iter = builtins.iter
 aiter = builtins.aiter
 anext = builtins.anext
 isinstance = builtins.isinstance
+getattr = builtins.getattr
 setattr = builtins.setattr
 delattr = builtins.delattr
 tuple = builtins.tuple
@@ -36,7 +37,7 @@ AssertionError = builtins.AssertionError
 
 
 def _tuple_helper(*values):
-    # __dp_tuple is strict variadic tuple construction for transformed code.
+    # tuple_values is strict variadic tuple construction for transformed code.
     return builtins.tuple(values)
 
 
@@ -49,30 +50,28 @@ def __deepcopy__(memo):
     return sys.modules[__name__]
 
 
-builtins.__dp_getattr = builtins.getattr
 _dp_typing = builtins.__import__("typing")
 _dp_templatelib = builtins.__import__(
     "string.templatelib", globals(), {}, ("Template", "Interpolation"), 0
 )
-builtins.__dp_typing_Generic = _dp_typing.Generic
-builtins.__dp_typing_TypeVar = _dp_typing.TypeVar
-builtins.__dp_typing_TypeVarTuple = _dp_typing.TypeVarTuple
-builtins.__dp_typing_ParamSpec = _dp_typing.ParamSpec
-builtins.__dp_typing_TypeAliasType = _dp_typing.TypeAliasType
-builtins.__dp_typing_Unpack = _dp_typing.Unpack
-builtins.__dp_templatelib_Template = _dp_templatelib.Template
-builtins.__dp_templatelib_Interpolation = _dp_templatelib.Interpolation
+typing_Generic = _dp_typing.Generic
+typing_TypeVar = _dp_typing.TypeVar
+typing_TypeVarTuple = _dp_typing.TypeVarTuple
+typing_ParamSpec = _dp_typing.ParamSpec
+typing_TypeAliasType = _dp_typing.TypeAliasType
+typing_Unpack = _dp_typing.Unpack
+templatelib_Template = _dp_templatelib.Template
+templatelib_Interpolation = _dp_templatelib.Interpolation
 
 _MISSING = object()
 DELETED = object()
 NO_DEFAULT = object()
-
-builtins.__dp_DELETED = DELETED
-builtins.__dp_NO_DEFAULT = NO_DEFAULT
-builtins.__dp_Ellipsis = Ellipsis
-builtins.__dp_TRUE = True
-builtins.__dp_FALSE = False
-builtins.__dp_NONE = None
+ELLIPSIS = Ellipsis
+TRUE = True
+FALSE = False
+NONE = None
+tuple_values = _tuple_helper
+tuple_from_iter = _tuple_from_iter_helper
 
 
 def load_deleted_name(name, value):
@@ -345,7 +344,7 @@ class _DpAsyncGenComplete(Exception):
     pass
 
 
-builtins.__dp_AsyncGenComplete = _DpAsyncGenComplete
+AsyncGenComplete = _DpAsyncGenComplete
 
 
 def _is_cancelled_error(exc):
@@ -837,15 +836,12 @@ def unpack(iterable, spec):
 
     result.append(remainder)
     result.extend(tail)
-    return tuple(result)
+    return builtins.tuple(result)
 
 
 def globals():
     frame = sys._getframe(1)
     return frame.f_globals
-
-
-builtins.__dp_globals = globals
 
 
 def call_super(super_fn, cls, instance_or_cls):
@@ -1029,10 +1025,6 @@ def exc_info_from_exception(exc):
     if exc is None:
         return None
     return (type(exc), exc, exc.__traceback__)
-
-
-builtins.__dp_exc_info_from_exception = exc_info_from_exception
-
 
 def current_exception():
     return sys.exception()
@@ -1433,19 +1425,3 @@ async def asynccontextmanager_exit(exit_fn, exc):
         await_iter = _ensure_awaitable(exit_fn(None, None, None), "__aexit__")
         await _AwaitIterWrapper(await_iter)
         return None
-
-
-def _inject_builtin_helper_aliases():
-    module_dict = globals()
-    for name, value in tuple(module_dict.items()):
-        if name.startswith("_"):
-            continue
-        if name == "tuple":
-            setattr(builtins, "__dp_tuple", _tuple_helper)
-            setattr(builtins, "__dp_tuple_from_iter", _tuple_from_iter_helper)
-            continue
-        if callable(value):
-            setattr(builtins, f"__dp_{name}", value)
-
-
-_inject_builtin_helper_aliases()

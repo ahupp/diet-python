@@ -97,16 +97,16 @@ unsafe fn py_string(obj: *mut ffi::PyObject) -> Result<String, ()> {
 }
 
 unsafe fn lookup_deleted_sentinel() -> Result<*mut ffi::PyObject, ()> {
-    let builtins = ffi::PyEval_GetBuiltins();
-    if builtins.is_null() {
-        return set_runtime_error("missing Python builtins while resolving CLIF deleted sentinel");
-    }
-    let deleted_obj =
-        ffi::PyDict_GetItemString(builtins, b"__dp_DELETED\0".as_ptr() as *const c_char);
-    if deleted_obj.is_null() {
+    let runtime = ffi::PyImport_ImportModule(c"soac.runtime".as_ptr());
+    if runtime.is_null() {
         return set_runtime_error(
-            "missing builtins.__dp_DELETED while registering CLIF vectorcall",
+            "failed to import soac.runtime while resolving CLIF deleted sentinel",
         );
+    }
+    let deleted_obj = ffi::PyObject_GetAttrString(runtime, c"DELETED".as_ptr());
+    ffi::Py_DECREF(runtime);
+    if deleted_obj.is_null() {
+        return set_runtime_error("missing soac.runtime.DELETED while registering CLIF vectorcall");
     }
     Ok(deleted_obj)
 }

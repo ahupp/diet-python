@@ -37,7 +37,7 @@ fn make_type_param_info(type_params: ast::TypeParams) -> TypeParamInfo {
                 let constraints_expr = constraints.unwrap_or_else(|| py_expr!("None"));
 
                 bindings.push(py_stmt!(
-                    "{name:id} = __dp_typing_TypeVar({name_literal:literal}, {bound:expr}, {default:expr}, {constraints:expr})",
+                    "{name:id} = __soac__.typing_TypeVar({name_literal:literal}, {bound:expr}, {default:expr}, {constraints:expr})",
                     name = param_name.as_str(),
                     name_literal = param_name.as_str(),
                     bound = bound_expr,
@@ -51,13 +51,13 @@ fn make_type_param_info(type_params: ast::TypeParams) -> TypeParamInfo {
                 let param_name = name.as_str().to_string();
                 let binding = match default.map(|expr| *expr) {
                     Some(default_expr) => py_stmt!(
-                        "{name:id} = __dp_typing_TypeVarTuple({name_literal:literal}, default={default:expr})",
+                        "{name:id} = __soac__.typing_TypeVarTuple({name_literal:literal}, default={default:expr})",
                         name = param_name.as_str(),
                         name_literal = param_name.as_str(),
                         default = default_expr,
                     ),
                     None => py_stmt!(
-                        "{name:id} = __dp_typing_TypeVarTuple({name_literal:literal})",
+                        "{name:id} = __soac__.typing_TypeVarTuple({name_literal:literal})",
                         name = param_name.as_str(),
                         name_literal = param_name.as_str(),
                     ),
@@ -71,13 +71,13 @@ fn make_type_param_info(type_params: ast::TypeParams) -> TypeParamInfo {
                 let param_name = name.as_str().to_string();
                 let binding = match default.map(|expr| *expr) {
                     Some(default_expr) => py_stmt!(
-                        "{name:id} = __dp_typing_ParamSpec({name_literal:literal}, default={default:expr})",
+                        "{name:id} = __soac__.typing_ParamSpec({name_literal:literal}, default={default:expr})",
                         name = param_name.as_str(),
                         name_literal = param_name.as_str(),
                         default = default_expr,
                     ),
                     None => py_stmt!(
-                        "{name:id} = __dp_typing_ParamSpec({name_literal:literal})",
+                        "{name:id} = __soac__.typing_ParamSpec({name_literal:literal})",
                         name = param_name.as_str(),
                         name_literal = param_name.as_str(),
                     ),
@@ -133,7 +133,7 @@ pub(crate) fn rewrite_type_alias_stmt(
         stmts.extend(type_param_info.bindings);
         if let Some(type_params_tuple) = type_param_info.type_params_tuple {
             let alias_expr = py_expr!(
-                "__dp_typing_TypeAliasType({name:literal}, {value:expr}, type_params={params:expr})",
+                "__soac__.typing_TypeAliasType({name:literal}, {value:expr}, type_params={params:expr})",
                 name = alias_name,
                 value = value,
                 params = type_params_tuple,
@@ -145,7 +145,7 @@ pub(crate) fn rewrite_type_alias_stmt(
             ));
         } else {
             let alias_expr = py_expr!(
-                "__dp_typing_TypeAliasType({name:literal}, {value:expr})",
+                "__soac__.typing_TypeAliasType({name:literal}, {value:expr})",
                 name = alias_name,
                 value = value,
             );
@@ -162,7 +162,7 @@ pub(crate) fn rewrite_type_alias_stmt(
     }
 
     let alias_expr = py_expr!(
-        "__dp_typing_TypeAliasType({name:literal}, {value:expr})",
+        "__soac__.typing_TypeAliasType({name:literal}, {value:expr})",
         name = alias_name,
         value = value,
     );

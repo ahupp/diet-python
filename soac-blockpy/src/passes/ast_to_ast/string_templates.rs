@@ -54,9 +54,9 @@ fn rewrite_interpolation(interp: &ast::InterpolatedElement, is_raw: bool) -> Vec
         interp.conversion
     };
     value = match conversion {
-        ast::ConversionFlag::Ascii => py_expr!("__dp_ascii({value:expr})", value = value),
-        ast::ConversionFlag::Repr => py_expr!("__dp_repr({value:expr})", value = value),
-        ast::ConversionFlag::Str => py_expr!("__dp_str({value:expr})", value = value),
+        ast::ConversionFlag::Ascii => py_expr!("__soac__.ascii({value:expr})", value = value),
+        ast::ConversionFlag::Repr => py_expr!("__soac__.repr({value:expr})", value = value),
+        ast::ConversionFlag::Str => py_expr!("__soac__.str({value:expr})", value = value),
         ast::ConversionFlag::None => value,
     };
 
@@ -79,12 +79,12 @@ fn rewrite_interpolation(interp: &ast::InterpolatedElement, is_raw: bool) -> Vec
             join_parts(parts, false)
         };
         py_expr!(
-            "__dp_format({value:expr}, {format_spec:expr})",
+            "__soac__.format({value:expr}, {format_spec:expr})",
             value = value,
             format_spec = spec
         )
     } else {
-        py_expr!("__dp_format({value:expr})", value = value)
+        py_expr!("__soac__.format({value:expr})", value = value)
     };
 
     parts.push(formatted);
@@ -130,7 +130,7 @@ fn rewrite_tstring_interpolation(interp: &ast::InterpolatedElement) -> Expr {
         py_expr!("{literal:literal}", literal = "")
     };
     py_expr!(
-        "__dp_templatelib_Interpolation({value:expr}, {expr_text:literal}, {conversion:expr}, {format_spec:expr})",
+        "__soac__.templatelib_Interpolation({value:expr}, {expr_text:literal}, {conversion:expr}, {format_spec:expr})",
         value = value,
         expr_text = expr_text.as_str(),
         conversion = conversion_expr,
@@ -172,7 +172,10 @@ pub fn rewrite_tstring(expr: ast::ExprTString) -> Expr {
         }
     }
     let tuple = make_tuple(parts);
-    py_expr!("__dp_templatelib_Template(*{parts:expr})", parts = tuple)
+    py_expr!(
+        "__soac__.templatelib_Template(*{parts:expr})",
+        parts = tuple
+    )
 }
 
 struct StringTemplateLowerer;

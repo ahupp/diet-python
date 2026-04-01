@@ -1292,7 +1292,7 @@ fn emit_codegen_expr(
             match operation_ref {
                 blockpy_intrinsics::OperationDetail::CellRefForName(op) => {
                     panic!(
-                        "__dp_cell_ref should lower to a resolved cell ref before codegen, got {:?}",
+                        "cell_ref should lower to a resolved cell ref before codegen, got {:?}",
                         op.logical_name
                     );
                 }
@@ -1300,7 +1300,7 @@ fn emit_codegen_expr(
                     emit_raw_cell_object_for_location(
                         intrinsic_state.fb,
                         op.location,
-                        "__dp_cell_ref",
+                        "cell_ref",
                         intrinsic_state.local_names,
                         intrinsic_state.local_values,
                         intrinsic_state.ctx,
@@ -1457,7 +1457,7 @@ fn emit_codegen_expr(
                 && simple_args.is_empty()
                 && matches!(
                     codegen_expr_helper_name(call.func.as_ref()),
-                    Some("globals" | "__dp_globals")
+                    Some("globals")
                 )
             {
                 fb.ins().call(incref_ref, &[block_const]);
@@ -1502,8 +1502,7 @@ fn emit_codegen_expr(
                 );
                 let list_name_obj = emit_owned_module_constant(
                     fb,
-                    ctx.module_constants
-                        .require_unicode_constant_id("__dp_list"),
+                    ctx.module_constants.require_unicode_constant_id("list"),
                     ctx,
                 );
                 let list_callable_inst = fb
@@ -1549,8 +1548,7 @@ fn emit_codegen_expr(
                 let kwargs_obj = if needs_kwargs {
                     let dict_name_obj = emit_owned_module_constant(
                         fb,
-                        ctx.module_constants
-                            .require_unicode_constant_id("__dp_dict"),
+                        ctx.module_constants.require_unicode_constant_id("dict"),
                         ctx,
                     );
                     let dict_callable_inst = fb
@@ -1804,7 +1802,7 @@ fn emit_codegen_expr(
                 let tuple_name_obj = emit_owned_module_constant(
                     fb,
                     ctx.module_constants
-                        .require_unicode_constant_id("__dp_tuple_from_iter"),
+                        .require_unicode_constant_id("tuple_from_iter"),
                     ctx,
                 );
                 let tuple_callable_inst = fb
@@ -1893,16 +1891,12 @@ fn emit_codegen_expr(
                         );
                     }
                 }
-                if keywords.is_empty()
-                    && args.is_empty()
-                    && (func_name.id.as_str() == "globals"
-                        || func_name.id.as_str() == "__dp_globals")
-                {
+                if keywords.is_empty() && args.is_empty() && func_name.id.as_str() == "globals" {
                     fb.ins().call(incref_ref, &[block_const]);
                     return block_const;
                 }
                 if keywords.is_empty() {
-                    if func_name.id.as_str() == "__dp_tuple" {
+                    if func_name.id.as_str() == "tuple_values" {
                         let mut arg_values: Vec<ir::Value> = Vec::with_capacity(args.len());
                         let mut borrowed_args: Vec<bool> = Vec::with_capacity(args.len());
                         for arg in &args {
@@ -1936,7 +1930,7 @@ fn emit_codegen_expr(
                         }
                         return tuple_value;
                     }
-                    if func_name.id.as_str() == "__dp_load_deleted_name" && args.len() == 2 {
+                    if func_name.id.as_str() == "load_deleted_name" && args.len() == 2 {
                         if let Some(name) = codegen_expr_const_string(args[0]) {
                             let name_obj = emit_owned_module_constant(
                                 fb,
@@ -1984,27 +1978,19 @@ fn emit_codegen_expr(
                             return fb.block_params(call_ok_block)[0];
                         }
                     }
-                    let is_direct_cell_call = matches!(
-                        (func_name.id.as_str(), args.len()),
-                        ("__dp_cell_ref", 1)
-                            | ("__dp_make_cell", 1)
-                            | ("__dp_load_cell", 1)
-                            | ("__dp_store_cell", 2)
-                    );
+                    let is_direct_cell_call =
+                        matches!((func_name.id.as_str(), args.len()), ("cell_ref", 1));
                     if is_direct_cell_call {
-                        if matches!((func_name.id.as_str(), args.len()), ("__dp_cell_ref", 1)) {
+                        if matches!((func_name.id.as_str(), args.len()), ("cell_ref", 1)) {
                             let cell_expr = &args[0];
                             let CodegenBlockPyExpr::Name(cell_name) = cell_expr else {
                                 panic!(
-                                    "__dp_cell_ref should lower to a located name arg, got {:?}",
+                                    "cell_ref should lower to a located name arg, got {:?}",
                                     cell_expr
                                 );
                             };
                             if cell_name.cell_location().is_some() {
-                                assert!(
-                                    !borrowed,
-                                    "__dp_cell_ref should produce an owned cell object"
-                                );
+                                assert!(!borrowed, "cell_ref should produce an owned cell object");
                                 return emit_raw_cell_object_for_name(
                                     fb,
                                     cell_name,
@@ -2014,91 +2000,10 @@ fn emit_codegen_expr(
                                 );
                             }
                             panic!(
-                                "__dp_cell_ref should target a cell-backed name, got {} at {:?}",
+                                "cell_ref should target a cell-backed name, got {} at {:?}",
                                 cell_name.id, cell_name.location
                             );
                         }
-                        let mut arg_values: Vec<(ir::Value, bool)> = Vec::with_capacity(args.len());
-                        for (arg_index, arg) in args.iter().enumerate() {
-                            let raw_cell_arg = arg_index == 0
-                                && matches!(
-                                    func_name.id.as_str(),
-                                    "__dp_load_cell" | "__dp_store_cell"
-                                );
-                            if raw_cell_arg {
-                                let CodegenBlockPyExpr::Name(cell_name) = arg else {
-                                    panic!(
-                                        "{} should lower to a located name arg, got {:?}",
-                                        func_name.id.as_str(),
-                                        arg
-                                    );
-                                };
-                                if cell_name.cell_location().is_some() {
-                                    let value = emit_raw_cell_object_for_name(
-                                        fb,
-                                        cell_name,
-                                        local_names,
-                                        local_values,
-                                        ctx,
-                                    );
-                                    arg_values.push((value, false));
-                                    continue;
-                                }
-                                panic!(
-                                    "{} should target a cell-backed name, got {} at {:?}",
-                                    func_name.id, cell_name.id, cell_name.location
-                                );
-                            }
-                            let borrowed_arg = codegen_expr_is_borrowable(
-                                arg,
-                                local_names,
-                                &ctx.stack_slots,
-                                ctx.storage_layout.as_ref(),
-                            );
-                            let value = emit_codegen_expr(
-                                fb,
-                                arg,
-                                local_names,
-                                local_values,
-                                ctx,
-                                borrowed_arg,
-                                jit_module,
-                                func_imports,
-                            );
-                            arg_values.push((value, borrowed_arg));
-                        }
-                        let call_inst = match (func_name.id.as_str(), args.len()) {
-                            ("__dp_make_cell", 1) => {
-                                fb.ins().call(make_cell_ref, &[arg_values[0].0])
-                            }
-                            ("__dp_load_cell", 1) => {
-                                fb.ins().call(load_cell_ref, &[arg_values[0].0])
-                            }
-                            ("__dp_store_cell", 2) => fb
-                                .ins()
-                                .call(store_cell_ref, &[arg_values[0].0, arg_values[1].0]),
-                            _ => unreachable!("unexpected direct cell call"),
-                        };
-                        for (value, borrowed_arg) in arg_values {
-                            if !borrowed_arg {
-                                fb.ins().call(decref_ref, &[value]);
-                            }
-                        }
-                        let call_value = fb.inst_results(call_inst)[0];
-                        let call_is_null =
-                            fb.ins()
-                                .icmp(ir::condcodes::IntCC::Equal, call_value, null_ptr);
-                        let call_ok_block = fb.create_block();
-                        fb.append_block_param(call_ok_block, ptr_ty);
-                        fb.ins().brif(
-                            call_is_null,
-                            step_null_block,
-                            &step_null_block_args(ctx),
-                            call_ok_block,
-                            &[ir::BlockArg::Value(call_value)],
-                        );
-                        fb.switch_to_block(call_ok_block);
-                        return fb.block_params(call_ok_block)[0];
                     }
                 }
             }
@@ -2252,8 +2157,7 @@ fn emit_codegen_expr(
             } else {
                 let dict_name_obj = emit_owned_module_constant(
                     fb,
-                    ctx.module_constants
-                        .require_unicode_constant_id("__dp_dict"),
+                    ctx.module_constants.require_unicode_constant_id("dict"),
                     ctx,
                 );
                 let dict_callable_inst = fb
@@ -3006,7 +2910,7 @@ fn emit_codegen_term(
                 fb,
                 emit_ctx
                     .module_constants
-                    .require_unicode_constant_id("__dp_raise_from"),
+                    .require_unicode_constant_id("raise_from"),
                 emit_ctx,
             );
             let raise_fn_inst = fb

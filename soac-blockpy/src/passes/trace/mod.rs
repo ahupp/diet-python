@@ -1,7 +1,7 @@
 use crate::block_py::{
-    core_operation_expr, core_positional_call_expr_with_meta, BlockPyFunction, BlockPyModule,
-    LocatedCodegenBlockPyExpr, LocatedName, MakeString, Meta, NameLocation, StructuredBlockPyStmt,
-    WithMeta,
+    core_operation_expr, core_runtime_positional_call_expr_with_meta, BlockPyFunction,
+    BlockPyModule, LocatedCodegenBlockPyExpr, LocatedName, MakeString, Meta, NameLocation,
+    StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
 use ruff_python_ast::{self as ast};
@@ -55,7 +55,7 @@ pub(crate) fn instrument_bb_module_for_trace(
             let block_params = block.param_name_vec();
             let trace_expr = if config.include_params && !block_params.is_empty() {
                 helper_call_expr(
-                    "__dp_bb_trace_enter",
+                    "bb_trace_enter",
                     vec![
                         string_literal_expr(qualname.as_str()),
                         string_literal_expr(block.label.to_string().as_str()),
@@ -64,7 +64,7 @@ pub(crate) fn instrument_bb_module_for_trace(
                 )
             } else {
                 helper_call_expr(
-                    "__dp_bb_trace_enter",
+                    "bb_trace_enter",
                     vec![
                         string_literal_expr(qualname.as_str()),
                         string_literal_expr(block.label.to_string().as_str()),
@@ -173,7 +173,7 @@ fn helper_call_expr(
     args: Vec<LocatedCodegenBlockPyExpr>,
 ) -> LocatedCodegenBlockPyExpr {
     let meta = Meta::synthetic();
-    core_positional_call_expr_with_meta(helper_name, meta.node_index, meta.range, args)
+    core_runtime_positional_call_expr_with_meta(helper_name, meta.node_index, meta.range, args)
 }
 
 fn string_literal_expr(value: &str) -> LocatedCodegenBlockPyExpr {
@@ -184,7 +184,7 @@ fn string_literal_expr(value: &str) -> LocatedCodegenBlockPyExpr {
 }
 
 fn tuple_expr(values: Vec<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyExpr {
-    helper_call_expr("__dp_tuple", values)
+    helper_call_expr("tuple_values", values)
 }
 
 fn param_pairs_expr(

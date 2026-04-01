@@ -60,7 +60,7 @@ pub(crate) fn rewrite_try_stmt(stmt: ast::StmtTry) -> Rewrite {
         let finalbody = body_to_vec(std::mem::take(&mut finalbody));
 
         let mut handler_body: Vec<Stmt> = Vec::new();
-        handler_body.push(py_stmt!("_dp_exc = __dp_current_exception()"));
+        handler_body.push(py_stmt!("_dp_exc = __soac__.current_exception()"));
         handler_body.push(py_stmt!("_dp_rest = _dp_exc"));
 
         for handler in handlers {
@@ -91,7 +91,7 @@ pub(crate) fn rewrite_try_stmt(stmt: ast::StmtTry) -> Rewrite {
             };
 
             handler_body.push(py_stmt!(
-                "_dp_match, _dp_rest = __dp_exceptiongroup_split(_dp_rest, {typ:expr})",
+                "_dp_match, _dp_rest = __soac__.exceptiongroup_split(_dp_rest, {typ:expr})",
                 typ = typ,
             ));
             handler_body.push(py_stmt!(
@@ -172,13 +172,16 @@ finally:
         }
 
         let condition = py_expr!(
-            "__dp_exception_matches(__dp_current_exception(), {typ:expr})",
+            "__soac__.exception_matches(__soac__.current_exception(), {typ:expr})",
             typ = type_.unwrap()
         );
 
         let (exc_target, body) = if let Some(ast::Identifier { id, .. }) = &name {
             let target = id.as_str();
-            let exc_target = py_stmt!("{target:id} = __dp_current_exception()", target = target,);
+            let exc_target = py_stmt!(
+                "{target:id} = __soac__.current_exception()",
+                target = target,
+            );
             (
                 exc_target,
                 wrap_handler_body_with_cleanup(target, body_to_vec(std::mem::take(&mut body))),

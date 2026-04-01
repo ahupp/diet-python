@@ -7,7 +7,7 @@ pub(crate) fn rewrite_assert_stmt(ast::StmtAssert { test, msg, .. }: ast::StmtAs
             "
 if __debug__:
     if not {test:expr}:
-        raise __dp_AssertionError({msg:expr})
+        raise __soac__.AssertionError({msg:expr})
 ",
             test = test,
             msg = *msg_expr
@@ -17,7 +17,7 @@ if __debug__:
             "
 if __debug__:
     if not {test:expr}:
-        raise __dp_AssertionError
+        raise __soac__.AssertionError
         ",
             test = test
         )

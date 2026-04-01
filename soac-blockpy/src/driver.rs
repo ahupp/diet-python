@@ -118,7 +118,7 @@ pub(crate) fn rewrite_module_with_tracker(
        interact with the block structure like walrus, and those that short circuit like bool ops.
 
        "def" is replaced by a call to
-       `__dp_make_function(function_id, kind, closure, param_defaults, annotate_fn)`.
+       `__soac__.make_function(function_id, kind, closure, param_defaults, annotate_fn)`.
 
        try/except are replaced by an exception handling block, and each block in the `try` has exc_edge
        set to that handler.  except block has it's own exc_edge to ensure exceptions in except
@@ -136,7 +136,7 @@ pub(crate) fn rewrite_module_with_tracker(
         });
 
     /*
-      A very simple pass to rewrite `await foo` into  `yield from __dp_await_iter(foo)`
+      A very simple pass to rewrite `await foo` into `yield from __soac__.await_iter(foo)`
     */
     let core_blockpy_without_await: BlockPyModule<CoreBlockPyPassWithYield> = pass_tracker
         .run_pass("core_blockpy_with_yield", || {

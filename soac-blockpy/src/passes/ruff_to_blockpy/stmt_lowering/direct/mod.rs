@@ -8,7 +8,7 @@ use crate::py_stmt;
 pub(crate) fn rewrite_raise_stmt(mut raise: ast::StmtRaise) -> Rewrite {
     match (raise.exc.take(), raise.cause.take()) {
         (Some(exc), Some(cause)) => Rewrite::Walk(vec![py_stmt!(
-            "raise __dp_raise_from({exc:expr}, {cause:expr})",
+            "raise __soac__.raise_from({exc:expr}, {cause:expr})",
             exc = exc,
             cause = cause,
         )]),

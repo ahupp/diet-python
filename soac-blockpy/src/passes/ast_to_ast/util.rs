@@ -16,7 +16,9 @@ pub(crate) fn is_noarg_call(name: &str, expr: &Expr) -> bool {
 pub(crate) fn is_dp_helper_lookup_expr(expr: &Expr, helper_name: &str) -> bool {
     matches!(
         expr,
-        Expr::Name(name) if name.id.as_str() == format!("__dp_{helper_name}")
+        Expr::Attribute(ast::ExprAttribute { value, attr, .. })
+            if matches!(value.as_ref(), Expr::Name(name) if name.id.as_str() == "__soac__")
+                && attr.id.as_str() == helper_name
     )
 }
 

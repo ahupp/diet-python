@@ -84,7 +84,7 @@ impl FunctionId {
 }
 
 fn is_internal_symbol(name: &str) -> bool {
-    name.starts_with("_dp_") || name.starts_with("__dp_") || name == "__soac__"
+    name.starts_with("_dp_") || name == "__soac__"
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -583,8 +583,8 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
             Self::Await(await_expr) => CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
                 node_index: await_expr.node_index.clone(),
                 range: await_expr.range,
-                value: Box::new(core_positional_call_expr_with_meta(
-                    "__dp_await_iter",
+                value: Box::new(core_runtime_positional_call_expr_with_meta(
+                    "await_iter",
                     await_expr.node_index,
                     await_expr.range,
                     vec![f(*await_expr.value)],
@@ -808,21 +808,13 @@ pub(crate) fn core_named_call_expr_with_meta<E: CoreCallLikeExpr>(
     args: Vec<CoreBlockPyCallArg<E>>,
     keywords: Vec<CoreBlockPyKeywordArg<E>>,
 ) -> E {
-    let func = if is_runtime_symbol_name(func_name) {
-        core_runtime_name_expr_with_meta(func_name, node_index.clone(), range)
-    } else {
-        E::from_name(ExprName {
-            id: func_name.into(),
-            ctx: ast::ExprContext::Load,
-            range,
-            node_index: node_index.clone(),
-        })
-    };
+    let func = E::from_name(ExprName {
+        id: func_name.into(),
+        ctx: ast::ExprContext::Load,
+        range,
+        node_index: node_index.clone(),
+    });
     core_call_expr_with_meta(func, node_index, range, args, keywords)
-}
-
-pub(crate) fn is_runtime_symbol_name(name: &str) -> bool {
-    name.starts_with("__dp_")
 }
 
 pub(crate) fn core_runtime_name_expr_with_meta<E: CoreCallLikeExpr>(
@@ -849,6 +841,34 @@ pub(crate) fn core_positional_call_expr_with_meta<E: CoreCallLikeExpr>(
     args: Vec<E>,
 ) -> E {
     core_named_call_expr_with_meta(
+        func_name,
+        node_index,
+        range,
+        args.into_iter()
+            .map(CoreBlockPyCallArg::Positional)
+            .collect(),
+        Vec::new(),
+    )
+}
+
+pub(crate) fn core_runtime_named_call_expr_with_meta<E: CoreCallLikeExpr>(
+    func_name: &str,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    args: Vec<CoreBlockPyCallArg<E>>,
+    keywords: Vec<CoreBlockPyKeywordArg<E>>,
+) -> E {
+    let func = core_runtime_name_expr_with_meta(func_name, node_index.clone(), range);
+    core_call_expr_with_meta(func, node_index, range, args, keywords)
+}
+
+pub(crate) fn core_runtime_positional_call_expr_with_meta<E: CoreCallLikeExpr>(
+    func_name: &str,
+    node_index: ast::AtomicNodeIndex,
+    range: ruff_text_size::TextRange,
+    args: Vec<E>,
+) -> E {
+    core_runtime_named_call_expr_with_meta(
         func_name,
         node_index,
         range,
@@ -1671,56 +1691,56 @@ impl ImplicitNoneExpr for Expr {
 
 impl ImplicitNoneExpr for CoreBlockPyExprWithAwaitAndYield {
     fn implicit_none_expr() -> Self {
-        core_runtime_name_expr_with_meta("__dp_NONE", Default::default(), Default::default())
+        core_runtime_name_expr_with_meta("NONE", Default::default(), Default::default())
     }
 
     fn is_implicit_none_expr(expr: &Self) -> bool {
         matches!(
             expr,
             CoreBlockPyExprWithAwaitAndYield::Op(operation)
-                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
+                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "NONE")
         )
     }
 }
 
 impl ImplicitNoneExpr for CoreBlockPyExprWithYield {
     fn implicit_none_expr() -> Self {
-        core_runtime_name_expr_with_meta("__dp_NONE", Default::default(), Default::default())
+        core_runtime_name_expr_with_meta("NONE", Default::default(), Default::default())
     }
 
     fn is_implicit_none_expr(expr: &Self) -> bool {
         matches!(
             expr,
             CoreBlockPyExprWithYield::Op(operation)
-                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
+                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "NONE")
         )
     }
 }
 
 impl<N: BlockPyNameLike> ImplicitNoneExpr for CoreBlockPyExpr<N> {
     fn implicit_none_expr() -> Self {
-        core_runtime_name_expr_with_meta("__dp_NONE", Default::default(), Default::default())
+        core_runtime_name_expr_with_meta("NONE", Default::default(), Default::default())
     }
 
     fn is_implicit_none_expr(expr: &Self) -> bool {
         matches!(
             expr,
             CoreBlockPyExpr::Op(operation)
-                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
+                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "NONE")
         )
     }
 }
 
 impl ImplicitNoneExpr for CodegenBlockPyExpr {
     fn implicit_none_expr() -> Self {
-        core_runtime_name_expr_with_meta("__dp_NONE", Default::default(), Default::default())
+        core_runtime_name_expr_with_meta("NONE", Default::default(), Default::default())
     }
 
     fn is_implicit_none_expr(expr: &Self) -> bool {
         matches!(
             expr,
             CodegenBlockPyExpr::Op(operation)
-                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "__dp_NONE")
+                if matches!(operation, OperationDetail::LoadRuntime(op) if op.name == "NONE")
         )
     }
 }

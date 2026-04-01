@@ -110,7 +110,7 @@ pub(crate) fn build_annotate_fn(entries: Vec<(String, Expr, String)>, name: &str
         })
         .collect::<Vec<_>>();
     let value_dict = py_expr!(
-        "_dp.dict({items:expr})",
+        "__soac__.dict({items:expr})",
         items = make_tuple(
             value_pairs
                 .iter()
@@ -119,7 +119,7 @@ pub(crate) fn build_annotate_fn(entries: Vec<(String, Expr, String)>, name: &str
         )
     );
     let string_dict = py_expr!(
-        "_dp.dict({items:expr})",
+        "__soac__.dict({items:expr})",
         items = make_tuple(
             value_pairs
                 .iter()
@@ -138,12 +138,12 @@ pub(crate) fn build_annotate_fn(entries: Vec<(String, Expr, String)>, name: &str
         r#"
 def {annotate_name:id}(
     _dp_format,
-    _dp=__import__("soac.runtime", globals(), dict(), ("runtime",), 0),
+    __soac__=__import__("soac.runtime", globals(), dict(), ("runtime",), 0),
 ):
-    if _dp.eq(_dp_format, 4):
+    if __soac__.eq(_dp_format, 4):
         return {string_dict:expr}
-    if _dp.gt(_dp_format, 2):
-        raise _dp.builtins.NotImplementedError
+    if __soac__.gt(_dp_format, 2):
+        raise __soac__.builtins.NotImplementedError
     return {value_dict:expr}
 "#,
         annotate_name = name,

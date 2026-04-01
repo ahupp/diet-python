@@ -174,7 +174,7 @@ where
     let unpacked_value = E::helper_call(
         unpack_meta.node_index,
         unpack_meta.range,
-        "__dp_unpack",
+        "unpack",
         vec![value, E::from(spec_expr)],
     );
     let unpacked_temp = bind_temp(out, unpacked_name.clone(), unpacked_value);
@@ -193,7 +193,7 @@ where
                     UnpackTargetKind::Tuple | UnpackTargetKind::List => E::helper_call(
                         Default::default(),
                         Default::default(),
-                        "__dp_list",
+                        "list",
                         vec![item_expr],
                     ),
                 };
@@ -280,7 +280,7 @@ impl StmtLowerer for ast::StmtAssign {
 pub(super) fn with_target_object_expr(value: Expr) -> Expr {
     if let Expr::Name(name) = &value {
         py_expr!(
-            "__dp_load_deleted_name({name:literal}, {value:expr})",
+            "__soac__.load_deleted_name({name:literal}, {value:expr})",
             name = name.id.as_str(),
             value = value,
         )
@@ -352,7 +352,7 @@ where
     }
 
     out.push(py_stmt!(
-        "{tmp:id} = __dp_unpack({value:expr}, {spec:expr})",
+        "{tmp:id} = __soac__.unpack({value:expr}, {spec:expr})",
         tmp = unpacked_name.as_str(),
         value = value,
         spec = make_tuple(spec_elts),
@@ -365,7 +365,7 @@ where
                 rewrite_assignment_target(
                     *value,
                     py_expr!(
-                        "__dp_list({tmp:expr}[{idx:literal}])",
+                        "__soac__.list({tmp:expr}[{idx:literal}])",
                         tmp = unpacked_tmp.clone(),
                         idx = idx as i64,
                     ),

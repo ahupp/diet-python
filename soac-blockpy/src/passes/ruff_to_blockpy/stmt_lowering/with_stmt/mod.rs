@@ -68,12 +68,12 @@ pub(super) fn desugar_structured_with_stmt_for_blockpy(with_stmt: ast::StmtWith)
 
         let enter_value = if is_async {
             py_expr!(
-                "await __dp_asynccontextmanager_aenter({ctx:expr})",
+                "await __soac__.asynccontextmanager_aenter({ctx:expr})",
                 ctx = ctx_expr.clone()
             )
         } else {
             py_expr!(
-                "__dp_contextmanager_enter({ctx:expr})",
+                "__soac__.contextmanager_enter({ctx:expr})",
                 ctx = ctx_expr.clone()
             )
         };
@@ -90,19 +90,19 @@ pub(super) fn desugar_structured_with_stmt_for_blockpy(with_stmt: ast::StmtWith)
             crate::py_stmts!(
                 r#"
 {ctx_placeholder_stmt:stmt}
-{exit_name:id} = __dp_asynccontextmanager_get_aexit({ctx_expr:expr})
+{exit_name:id} = __soac__.asynccontextmanager_get_aexit({ctx_expr:expr})
 {enter_stmt:stmt}
 {ok_name:id} = True
 try:
     {body:stmt}
 except BaseException:
     {ok_name:id} = False
-    {reraise_name:id} = await __dp_asynccontextmanager_exit({exit_name:id}, __dp_current_exception())
+    {reraise_name:id} = await __soac__.asynccontextmanager_exit({exit_name:id}, __soac__.current_exception())
     if {reraise_name:id} is not None:
         raise {reraise_name:id}
 finally:
     if {ok_name:id}:
-        await __dp_asynccontextmanager_exit({exit_name:id}, None)
+        await __soac__.asynccontextmanager_exit({exit_name:id}, None)
     {exit_name:id} = None
     {ctx_cleanup:stmt}
 "#,
@@ -119,17 +119,17 @@ finally:
             crate::py_stmts!(
                 r#"
 {ctx_placeholder_stmt:stmt}
-{exit_name:id} = __dp_contextmanager_get_exit({ctx_expr:expr})
+{exit_name:id} = __soac__.contextmanager_get_exit({ctx_expr:expr})
 {enter_stmt:stmt}
 {ok_name:id} = True
 try:
     {body:stmt}
 except BaseException:
     {ok_name:id} = False
-    __dp_contextmanager_exit({exit_name:id}, __dp_current_exception())
+    __soac__.contextmanager_exit({exit_name:id}, __soac__.current_exception())
 finally:
     if {ok_name:id}:
-        __dp_contextmanager_exit({exit_name:id}, None)
+        __soac__.contextmanager_exit({exit_name:id}, None)
     {exit_name:id} = None
     {ctx_cleanup:stmt}
 "#,

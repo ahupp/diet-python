@@ -2,14 +2,15 @@ use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     compute_storage_layout_from_semantics, core_call_expr_with_meta, core_operation_expr,
-    core_positional_call_expr_with_meta, try_lower_core_expr_without_await,
-    try_lower_core_expr_without_yield, BlockParam, BlockParamRole, BlockPyAssign,
-    BlockPyBindingKind, BlockPyBranchTable, BlockPyCallableSemanticInfo, BlockPyCellBindingKind,
-    BlockPyCfgBlockBuilder, BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel,
-    BlockPyRaise, BlockPyStmt, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
-    ImplicitNoneExpr, MakeFunction, Meta, ModuleNameGen, OperationDetail, StorageLayout, WithMeta,
+    core_runtime_name_expr_with_meta, core_runtime_positional_call_expr_with_meta,
+    try_lower_core_expr_without_await, try_lower_core_expr_without_yield, BlockParam,
+    BlockParamRole, BlockPyAssign, BlockPyBindingKind, BlockPyBranchTable,
+    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmt, BlockPyTerm,
+    CellRefForName, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap,
+    FunctionId, FunctionName, ImplicitNoneExpr, MakeFunction, Meta, ModuleNameGen, OperationDetail,
+    StorageLayout, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -183,7 +184,7 @@ fn core_string_literal(value: &str) -> CoreBlockPyExpr {
 }
 
 fn core_call(func_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
-    core_positional_call_expr_with_meta(
+    core_runtime_positional_call_expr_with_meta(
         func_name,
         ast::AtomicNodeIndex::default(),
         Default::default(),
@@ -214,7 +215,7 @@ fn core_call_expr(
 }
 
 fn core_runtime_attr(attr: &str) -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!("__soac__.{attr:id}", attr = attr))
+    core_runtime_name_expr_with_meta(attr, ast::AtomicNodeIndex::default(), Default::default())
 }
 
 fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
@@ -491,7 +492,7 @@ fn build_factory_block(
     let resume_entry = core_make_function(
         resume_function_id,
         BlockPyFunctionKind::Function,
-        core_call("__dp_tuple", Vec::new()),
+        core_call("tuple_values", Vec::new()),
         core_none(),
     );
     let generator = match kind {
@@ -687,7 +688,7 @@ fn completion_raise(
             BlockPyTerm::Raise(BlockPyRaise { exc: Some(exc) })
         }
         BlockPyFunctionKind::AsyncGenerator => BlockPyTerm::Raise(BlockPyRaise {
-            exc: Some(core_call("__dp_AsyncGenComplete", Vec::new())),
+            exc: Some(core_call("AsyncGenComplete", Vec::new())),
         }),
         BlockPyFunctionKind::Function => unreachable!(),
     }
@@ -732,7 +733,11 @@ fn is_resume_exc_test() -> CoreBlockPyExpr {
                 OperationDetail::from(crate::block_py::operation::BinOp::new(
                     crate::block_py::operation::BinOpKind::Is,
                     Box::new(core_name("_dp_resume_exc")),
-                    Box::new(core_expr_without_yield(py_expr!("__dp_NO_DEFAULT"))),
+                    Box::new(core_runtime_name_expr_with_meta(
+                        "NO_DEFAULT",
+                        ast::AtomicNodeIndex::default(),
+                        Default::default(),
+                    )),
                 ))
                 .with_meta(Meta::synthetic()),
             )),
@@ -779,7 +784,7 @@ fn resume_exc_raise_term() -> BlockPyTerm<CoreBlockPyExpr> {
 
 fn stop_iteration_match_test(exc_name: &str) -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!(
-        "__dp_exception_matches({exc_name:id}, StopIteration)",
+        "__soac__.exception_matches({exc_name:id}, StopIteration)",
         exc_name = exc_name,
     ))
 }
