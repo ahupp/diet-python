@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import types
+import pytest
 
 from soac import runtime
 
@@ -11,12 +12,10 @@ def _make_cell(value):
     return cell
 
 
-def _build_wrapped(names, is_async, is_generator, entry):
+def _build_wrapped(names, is_async, is_generator):
     code = runtime.code_with_freevars(names, is_async, is_generator)
     closure = tuple(_make_cell(f"cell-{name}") for name in names)
-    wrapped = types.FunctionType(code, globals(), name="wrapped", closure=closure)
-    wrapped.__kwdefaults__ = {"__dp_entry": entry}
-    return wrapped
+    return types.FunctionType(code, globals(), name="wrapped", closure=closure)
 
 
 def test_code_with_freevars_returns_requested_freevars():
@@ -36,7 +35,6 @@ def test_code_with_freevars_uses_canonical_freevar_order():
     }
     closure = tuple(_make_cell(captured_by_name[name]) for name in code.co_freevars)
     wrapped = types.FunctionType(code, globals(), name="wrapped", closure=closure)
-    wrapped.__kwdefaults__ = {"__dp_entry": lambda: None}
 
     assert {
         name: cell.cell_contents
@@ -45,44 +43,34 @@ def test_code_with_freevars_uses_canonical_freevar_order():
 
 
 def test_code_with_freevars_builds_sync_wrapper():
-    def entry(*args, **kwargs):
-        return (args, kwargs)
+    wrapped = _build_wrapped(("x", "y"), False, False)
 
-    wrapped = _build_wrapped(("x", "y"), False, False, entry)
-
-    assert wrapped(1, value=2) == ((1,), {"value": 2})
+    with pytest.raises(RuntimeError, match="CLIF entry executed without vectorcall interception"):
+        wrapped(1, value=2)
 
 
 def test_code_with_freevars_builds_coroutine_wrapper():
-    async def entry(*args, **kwargs):
-        return (args, kwargs)
-
-    wrapped = _build_wrapped(("x",), True, False, entry)
+    wrapped = _build_wrapped(("x",), True, False)
 
     assert inspect.iscoroutinefunction(wrapped)
-    assert asyncio.run(wrapped(1, value=2)) == ((1,), {"value": 2})
+    with pytest.raises(RuntimeError, match="CLIF entry executed without vectorcall interception"):
+        asyncio.run(wrapped(1, value=2))
 
 
 def test_code_with_freevars_builds_generator_wrapper():
-    def entry(*args, **kwargs):
-        yield args
-        yield kwargs
-
-    wrapped = _build_wrapped(("x",), False, True, entry)
+    wrapped = _build_wrapped(("x",), False, True)
 
     assert inspect.isgeneratorfunction(wrapped)
-    assert list(wrapped(1, value=2)) == [(1,), {"value": 2}]
+    with pytest.raises(RuntimeError, match="CLIF entry executed without vectorcall interception"):
+        list(wrapped(1, value=2))
 
 
 def test_code_with_freevars_builds_async_generator_wrapper():
-    async def entry(*args, **kwargs):
-        yield args
-        yield kwargs
-
-    wrapped = _build_wrapped(("x",), True, True, entry)
+    wrapped = _build_wrapped(("x",), True, True)
 
     async def collect():
         return [item async for item in wrapped(1, value=2)]
 
     assert inspect.isasyncgenfunction(wrapped)
-    assert asyncio.run(collect()) == [(1,), {"value": 2}]
+    with pytest.raises(RuntimeError, match="CLIF entry executed without vectorcall interception"):
+        asyncio.run(collect())

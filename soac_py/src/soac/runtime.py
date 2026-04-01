@@ -896,6 +896,7 @@ def match_class_attr_value(cls, subject, idx, total):
 
 
 _DP_CODE_WITH_FREEVARS_CACHE = {}
+_CLIF_ENTRY_RUNTIME_ERROR = "CLIF entry executed without vectorcall interception"
 
 
 def code_with_freevars(names, is_async, is_generator):
@@ -918,24 +919,33 @@ def code_with_freevars(names, is_async, is_generator):
     for name in names:
         outer_lines.append(f"    {name} = None")
     if is_async:
-        outer_lines.append("    async def wrapped(*args, __dp_entry=None, **kwargs):")
+        outer_lines.append("    async def wrapped(*args, **kwargs):")
     else:
-        outer_lines.append("    def wrapped(*args, __dp_entry=None, **kwargs):")
+        outer_lines.append("    def wrapped(*args, **kwargs):")
     if names:
         outer_lines.append("        if False:")
         for name in names:
             outer_lines.append(f"            {name}")
     if is_async and is_generator:
+        outer_lines.append("        if False:")
+        outer_lines.append("            yield None")
         outer_lines.append(
-            "        async for __dp_item in __dp_entry(*args, **kwargs):"
+            f"        raise RuntimeError({_CLIF_ENTRY_RUNTIME_ERROR!r})"
         )
-        outer_lines.append("            yield __dp_item")
     elif is_async:
-        outer_lines.append("        return await __dp_entry(*args, **kwargs)")
+        outer_lines.append(
+            f"        raise RuntimeError({_CLIF_ENTRY_RUNTIME_ERROR!r})"
+        )
     elif is_generator:
-        outer_lines.append("        yield from __dp_entry(*args, **kwargs)")
+        outer_lines.append("        if False:")
+        outer_lines.append("            yield None")
+        outer_lines.append(
+            f"        raise RuntimeError({_CLIF_ENTRY_RUNTIME_ERROR!r})"
+        )
     else:
-        outer_lines.append("        return __dp_entry(*args, **kwargs)")
+        outer_lines.append(
+            f"        raise RuntimeError({_CLIF_ENTRY_RUNTIME_ERROR!r})"
+        )
     outer_lines.append("    return wrapped.__code__")
 
     ns = {}
@@ -946,7 +956,7 @@ def code_with_freevars(names, is_async, is_generator):
 
 
 def _entry_template(*args, **kwargs):
-    raise RuntimeError("CLIF entry executed without vectorcall interception")
+    raise RuntimeError(_CLIF_ENTRY_RUNTIME_ERROR)
 
 
 def code_template_gen(_it):

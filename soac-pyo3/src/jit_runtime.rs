@@ -6,7 +6,9 @@ use pyo3::exceptions::{
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyFunction, PyModule, PyString, PyTuple};
-use soac_blockpy::block_py::{BlockPyFunction, BlockPyModule, FunctionId, ParamKind};
+use soac_blockpy::block_py::{
+    BlockPyFunction, BlockPyFunctionKind, BlockPyModule, FunctionId, ParamKind,
+};
 use soac_blockpy::lower_python_to_blockpy;
 use soac_blockpy::pass_tracker::NoopPassTracker;
 use soac_blockpy::passes::CodegenBlockPyPass;
@@ -451,22 +453,26 @@ fn build_bb_signature<'py>(
     Ok(signature_obj.unbind())
 }
 
-fn build_wrapped_entry<'py>(
+fn build_closure_shaped_entry<'py>(
     py: Python<'py>,
     dp: &Bound<'py, PyModule>,
-    raw_entry: &Bound<'py, PyAny>,
+    function: &BlockPyFunction<CodegenBlockPyPass>,
     module_globals: &Bound<'py, PyAny>,
     qualname: &str,
     captured_names: &[String],
     captured_values: &Bound<'py, PyDict>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    if captured_names.is_empty() || raw_entry.getattr("__closure__")?.is_truthy()? {
-        return Ok(raw_entry.clone());
-    }
+    debug_assert!(!captured_names.is_empty());
+    let (is_async, is_generator) = match function.lowered_kind() {
+        BlockPyFunctionKind::Function => (false, false),
+        BlockPyFunctionKind::Coroutine => (true, false),
+        BlockPyFunctionKind::Generator => (false, true),
+        BlockPyFunctionKind::AsyncGenerator => (true, true),
+    };
     let code = dp.getattr("code_with_freevars")?.call1((
         PyTuple::new(py, captured_names)?,
-        false,
-        false,
+        is_async,
+        is_generator,
     ))?;
     let freevars_obj = code.getattr("co_freevars")?;
     let freevars = freevars_obj.cast::<PyTuple>()?;
@@ -508,12 +514,6 @@ fn build_wrapped_entry<'py>(
         "__dp_closure_slot_names__",
         PyTuple::new(py, captured_names)?,
     )?;
-    let kwdefaults = PyDict::new(py);
-    kwdefaults.set_item("__dp_entry", raw_entry)?;
-    if unsafe { ffi::PyFunction_SetKwDefaults(func.as_ptr(), kwdefaults.as_ptr()) } != 0 {
-        return Err(PyErr::fetch(py));
-    }
-    raw_entry.setattr("__dp_public_function__", &func)?;
     Ok(func.into_any())
 }
 
@@ -552,7 +552,7 @@ fn instantiate_bb_function(
     module_runtime: &soac_eval::jit::ModuleRuntimeContext,
 ) -> PyResult<Py<PyAny>> {
     let signature = build_bb_signature(py, function, param_defaults)?;
-    let (raw_entry, entry) = instantiate_closure_backed_entry(
+    let entry = instantiate_closure_backed_entry(
         py,
         dp,
         module_name,
@@ -564,15 +564,6 @@ fn instantiate_bb_function(
         function.names.qualname.as_str(),
     )?;
     let (positional_defaults, mut kwdefaults) = split_param_defaults(py, function, param_defaults)?;
-    if !std::ptr::eq(entry.as_ptr(), raw_entry.as_ptr()) {
-        if let Some(kwdefaults) = kwdefaults.as_ref() {
-            kwdefaults.set_item("__dp_entry", &raw_entry)?;
-        } else {
-            let merged = PyDict::new(py);
-            merged.set_item("__dp_entry", &raw_entry)?;
-            kwdefaults = Some(merged);
-        }
-    }
     apply_function_defaults(
         py,
         &entry,
@@ -602,20 +593,23 @@ fn instantiate_closure_backed_entry<'py>(
     module_runtime: &soac_eval::jit::ModuleRuntimeContext,
     entry_name: &str,
     qualname: &str,
-) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+) -> PyResult<Bound<'py, PyAny>> {
     let (captured_names, closure_values) = build_capture_map(py, captures)?;
-    let raw_entry = make_lazy_clif_entry(py, dp, entry_name, module_globals)?;
-    register_lazy_clif_vectorcall(py, &raw_entry, function.function_id, module_runtime)?;
-    let entry = build_wrapped_entry(
-        py,
-        dp,
-        &raw_entry,
-        module_globals,
-        qualname,
-        &captured_names,
-        &closure_values,
-    )?;
-    Ok((raw_entry, entry))
+    let entry = if captured_names.is_empty() {
+        make_lazy_clif_entry(py, dp, entry_name, module_globals)?
+    } else {
+        build_closure_shaped_entry(
+            py,
+            dp,
+            function,
+            module_globals,
+            qualname,
+            &captured_names,
+            &closure_values,
+        )?
+    };
+    register_lazy_clif_vectorcall(py, &entry, function.function_id, module_runtime)?;
+    Ok(entry)
 }
 
 #[pyfunction]

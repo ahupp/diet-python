@@ -267,17 +267,6 @@ unsafe fn resolve_function_defaults_owner(callable: ObjPtr) -> ObjPtr {
         );
         return ptr::null_mut();
     }
-    let public_function = ffi::PyObject_GetAttrString(
-        callable as *mut ffi::PyObject,
-        b"__dp_public_function__\0".as_ptr() as *const i8,
-    );
-    if !public_function.is_null() {
-        return public_function as ObjPtr;
-    }
-    if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) == 0 {
-        return ptr::null_mut();
-    }
-    ffi::PyErr_Clear();
     resolve_function_object(callable)
 }
 
@@ -547,36 +536,12 @@ unsafe extern "C" fn function_closure_cell_hook(callable: ObjPtr, slot: i64) -> 
     let (closure_owner, closure) = match closure_tuple_for_owner(function) {
         Ok(Some(closure)) => (function, closure),
         Ok(None) => {
-            let public = ffi::PyObject_GetAttrString(
-                function as *mut ffi::PyObject,
-                b"__dp_public_function__\0".as_ptr() as *const i8,
-            );
             ffi::Py_DECREF(function as *mut ffi::PyObject);
-            if public.is_null() {
-                if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) != 0 {
-                    ffi::PyErr_Clear();
-                    ffi::PyErr_SetString(
-                        ffi::PyExc_RuntimeError,
-                        b"callable has no closure cells\0".as_ptr() as *const i8,
-                    );
-                }
-                return ptr::null_mut();
-            }
-            match closure_tuple_for_owner(public as ObjPtr) {
-                Ok(Some(closure)) => (public as ObjPtr, closure),
-                Ok(None) => {
-                    ffi::Py_DECREF(public);
-                    ffi::PyErr_SetString(
-                        ffi::PyExc_RuntimeError,
-                        b"callable has no closure cells\0".as_ptr() as *const i8,
-                    );
-                    return ptr::null_mut();
-                }
-                Err(()) => {
-                    ffi::Py_DECREF(public);
-                    return ptr::null_mut();
-                }
-            }
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"callable has no closure cells\0".as_ptr() as *const i8,
+            );
+            return ptr::null_mut();
         }
         Err(()) => {
             ffi::Py_DECREF(function as *mut ffi::PyObject);
