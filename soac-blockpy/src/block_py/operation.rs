@@ -615,14 +615,10 @@ define_operation! {
     }
 }
 
-define_operation_node! {
+define_operation! {
     pub struct UnaryOp<E> {
-        impl<E>;
-        name_type = [()];
-        mapped_type<T, M> = [UnaryOp<T>];
-        mapped_ctor<T, M> = [UnaryOp::<T>];
-        kind: UnaryOpKind => value,
-        operand: Box<E> => expr,
+        kind: UnaryOpKind,
+        operand: Box<E>,
     }
 }
 
@@ -898,7 +894,7 @@ impl<E> OperationDetail<E> {
     pub fn map_expr<T>(self, f: &mut impl FnMut(E) -> T) -> OperationDetail<T> {
         match self {
             Self::BinOp(op) => OperationDetail::BinOp(op.map_op(f)),
-            Self::UnaryOp(op) => OperationDetail::UnaryOp(op.map_expr(f)),
+            Self::UnaryOp(op) => OperationDetail::UnaryOp(op.map_op(f)),
             Self::InplaceBinOp(op) => OperationDetail::InplaceBinOp(op.map_expr(f)),
             Self::TernaryOp(op) => OperationDetail::TernaryOp(op.map_expr(f)),
             Self::GetAttr(op) => OperationDetail::GetAttr(op.map_expr(f)),
@@ -930,7 +926,7 @@ impl<E> OperationDetail<E> {
     ) -> Result<OperationDetail<T>, Error> {
         Ok(match self {
             Self::BinOp(op) => OperationDetail::BinOp(op.try_map_op(f)?),
-            Self::UnaryOp(op) => OperationDetail::UnaryOp(op.try_map_expr(f)?),
+            Self::UnaryOp(op) => OperationDetail::UnaryOp(op.try_map_op(f)?),
             Self::InplaceBinOp(op) => OperationDetail::InplaceBinOp(op.try_map_expr(f)?),
             Self::TernaryOp(op) => OperationDetail::TernaryOp(op.try_map_expr(f)?),
             Self::GetAttr(op) => OperationDetail::GetAttr(op.try_map_expr(f)?),
@@ -959,7 +955,7 @@ impl<E> OperationDetail<E> {
     pub fn walk_args(&self, f: &mut impl FnMut(&E)) {
         match self {
             Self::BinOp(op) => op.visit_exprs(f),
-            Self::UnaryOp(op) => op.walk_expr_args(f),
+            Self::UnaryOp(op) => op.visit_exprs(f),
             Self::InplaceBinOp(op) => op.walk_expr_args(f),
             Self::TernaryOp(op) => op.walk_expr_args(f),
             Self::GetAttr(op) => op.walk_expr_args(f),
@@ -988,7 +984,7 @@ impl<E> OperationDetail<E> {
     pub fn walk_args_mut(&mut self, f: &mut impl FnMut(&mut E)) {
         match self {
             Self::BinOp(op) => op.visit_exprs_mut(f),
-            Self::UnaryOp(op) => op.walk_expr_args_mut(f),
+            Self::UnaryOp(op) => op.visit_exprs_mut(f),
             Self::InplaceBinOp(op) => op.walk_expr_args_mut(f),
             Self::TernaryOp(op) => op.walk_expr_args_mut(f),
             Self::GetAttr(op) => op.walk_expr_args_mut(f),
