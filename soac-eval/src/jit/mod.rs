@@ -1390,6 +1390,46 @@ fn emit_codegen_expr(
                     let Some(location) = op.name.cell_location() else {
                         panic!("Store should be resolved before codegen: {op:?}");
                     };
+                    if location.is_owned()
+                        && matches!(op.value.as_ref(), CodegenBlockPyExpr::MakeCell(_))
+                    {
+                        let layout = intrinsic_state.ctx.storage_layout.as_ref().expect(
+                            "Store owned cell slot should have storage layout during codegen",
+                        );
+                        let closure_slot =
+                            layout.local_cell_slot(location.slot()).unwrap_or_else(|| {
+                                panic!(
+                                    "missing owned cell slot mapping for owned cell location {}",
+                                    location.slot()
+                                )
+                            });
+                        let value_obj = emit_codegen_expr(
+                            intrinsic_state.fb,
+                            &op.value,
+                            intrinsic_state.local_names,
+                            intrinsic_state.local_values,
+                            intrinsic_state.ctx,
+                            false,
+                            intrinsic_state.jit_module,
+                            intrinsic_state.func_imports,
+                        );
+                        bind_local_value(
+                            intrinsic_state.fb,
+                            intrinsic_state.local_names,
+                            intrinsic_state.local_values,
+                            closure_slot.storage_name.as_str(),
+                            value_obj,
+                            &intrinsic_state.ctx.stack_slots,
+                            intrinsic_state.ctx.consts.ptr_ty,
+                            intrinsic_state.ctx.incref_ref,
+                            intrinsic_state.ctx.decref_ref,
+                        );
+                        intrinsic_state.fb.ins().call(
+                            intrinsic_state.ctx.incref_ref,
+                            &[intrinsic_state.ctx.consts.none_const],
+                        );
+                        return intrinsic_state.ctx.consts.none_const;
+                    }
                     let raw_cell = emit_raw_cell_object_for_location(
                         intrinsic_state.fb,
                         location,
@@ -2641,35 +2681,15 @@ fn emit_codegen_ops(
     ops: &[BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>],
     local_names: &mut Vec<String>,
     local_values: &mut Vec<ir::Value>,
-    stack_slots: &StackSlots,
+    _stack_slots: &StackSlots,
     emit_ctx: &JitEmitCtx<'_>,
     jit_module: &mut JITModule,
     func_imports: &mut FuncBuildImports<'_>,
 ) -> Result<(), String> {
     for op in ops {
         match op {
-            BlockPyStmt::Assign(assign) => {
-                let value = emit_codegen_expr(
-                    fb,
-                    &assign.value,
-                    local_names,
-                    local_values,
-                    emit_ctx,
-                    false,
-                    jit_module,
-                    func_imports,
-                );
-                bind_local_value(
-                    fb,
-                    local_names,
-                    local_values,
-                    assign.target.id.as_str(),
-                    value,
-                    stack_slots,
-                    emit_ctx.consts.ptr_ty,
-                    emit_ctx.incref_ref,
-                    emit_ctx.decref_ref,
-                );
+            BlockPyStmt::Assign(_) => {
+                unreachable!("codegen should not see stmt assigns after name binding normalization")
             }
             BlockPyStmt::Expr(expr) => {
                 let value = emit_codegen_expr(
@@ -2712,7 +2732,6 @@ fn emit_codegen_term(
     let i64_ty = emit_ctx.consts.i64_ty;
     let i32_ty = ir::types::I32;
     let ptr_ty = emit_ctx.consts.ptr_ty;
-    let block_const = emit_ctx.consts.block_const;
     let null_ptr = fb.ins().iconst(ptr_ty, 0);
 
     match term {

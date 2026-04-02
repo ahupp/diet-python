@@ -201,7 +201,9 @@ mod tests {
             for block in &mut function.blocks {
                 for stmt in &mut block.body {
                     match stmt {
-                        BlockPyStmt::Assign(assign) => self.extract_expr(&mut assign.value),
+                        BlockPyStmt::Assign(_) => unreachable!(
+                            "codegen test helpers should use Expr(Store) rather than stmt Assign"
+                        ),
                         BlockPyStmt::Expr(expr) => self.extract_expr(expr),
                         BlockPyStmt::Delete(_) => unreachable!(
                             "codegen test helpers should use Expr(Del) rather than stmt Delete"

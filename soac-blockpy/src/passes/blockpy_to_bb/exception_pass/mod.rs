@@ -100,9 +100,7 @@ fn split_exception_blocks_for_expr_checks(
 fn op_updates_exception_state(op: &BlockPyStmt) -> bool {
     matches!(
         op,
-        BlockPyStmt::Assign(_)
-            | BlockPyStmt::Expr(CoreBlockPyExpr::Store(_))
-            | BlockPyStmt::Expr(CoreBlockPyExpr::Del(_))
+        BlockPyStmt::Expr(CoreBlockPyExpr::Store(_)) | BlockPyStmt::Expr(CoreBlockPyExpr::Del(_))
     )
 }
 

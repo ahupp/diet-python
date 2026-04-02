@@ -123,10 +123,8 @@ def f():
         for block in &function.blocks {
             for stmt in &block.body {
                 match stmt {
-                    BlockPyStmt::Assign(assign) => assert!(
-                        !expr_contains_literal(&assign.value),
-                        "assign value should not retain executable literals: {:?}",
-                        assign.value
+                    BlockPyStmt::Assign(_) => unreachable!(
+                        "string normalization tests should see Expr(Store) rather than stmt Assign"
                     ),
                     BlockPyStmt::Expr(expr) => assert!(
                         !expr_contains_literal(expr),
@@ -185,9 +183,9 @@ def f(obj, mapping, key, value):
         for block in &function.blocks {
             for stmt in &block.body {
                 match stmt {
-                    BlockPyStmt::Assign(assign) => {
-                        collect_helper_like_names_in_expr(&mut helper_names, &assign.value);
-                    }
+                    BlockPyStmt::Assign(_) => unreachable!(
+                        "string normalization tests should see Expr(Store) rather than stmt Assign"
+                    ),
                     BlockPyStmt::Expr(expr) => {
                         collect_helper_like_names_in_expr(&mut helper_names, expr);
                     }

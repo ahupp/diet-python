@@ -1,6 +1,6 @@
 use crate::block_py::{
     core_operation_expr, core_runtime_positional_call_expr_with_meta, BlockPyFunction,
-    BlockPyModule, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreStringLiteral, Load,
+    BlockPyModule, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreStringLiteral,
     LocatedCodegenBlockPyExpr, LocatedName, Meta, NameLocation, StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
@@ -99,17 +99,17 @@ impl PreparedTraceNameLocator {
         for block in &function.blocks {
             for stmt in &block.body {
                 match stmt {
-                    crate::block_py::BlockPyStmt::Assign(assign) => {
-                        existing_locations
-                            .entry(assign.target.id.to_string())
-                            .or_insert(assign.target.location);
-                    }
                     crate::block_py::BlockPyStmt::Expr(CodegenBlockPyExpr::Store(store)) => {
                         existing_locations
                             .entry(store.name.id.to_string())
                             .or_insert(store.name.location);
                     }
                     crate::block_py::BlockPyStmt::Expr(_) => {}
+                    crate::block_py::BlockPyStmt::Assign(_) => {
+                        unreachable!(
+                            "codegen trace preparation should not see stmt assigns after name binding normalization"
+                        )
+                    }
                     crate::block_py::BlockPyStmt::Delete(_) => {
                         unreachable!(
                             "codegen trace preparation should not see stmt deletes after name binding normalization"

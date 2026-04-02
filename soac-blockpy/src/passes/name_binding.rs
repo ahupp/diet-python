@@ -92,39 +92,16 @@ fn rewrite_local_name_load(name: ExprName, resolver: &NameBindingMapper<'_>) -> 
     rewrite_global_name_load(name)
 }
 
-fn cell_name_for_name(
-    name: &str,
-    semantic: &BlockPyCallableSemanticInfo,
-    node_index: ast::AtomicNodeIndex,
-    range: ruff_text_size::TextRange,
-) -> ExprName {
-    cell_named_expr(semantic.cell_storage_name(name).as_str(), node_index, range)
-}
-
-fn cell_storage_name_for_name(name: &str, semantic: &BlockPyCallableSemanticInfo) -> String {
-    semantic.cell_storage_name(name)
-}
-
-fn cell_named_expr(
-    storage_name: &str,
-    node_index: ast::AtomicNodeIndex,
-    range: ruff_text_size::TextRange,
-) -> ExprName {
-    ExprName {
-        id: storage_name.into(),
-        ctx: ast::ExprContext::Load,
-        node_index,
-        range,
-    }
-}
-
 fn cell_expr_for_name(
     name: &str,
     semantic: &BlockPyCallableSemanticInfo,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Name(cell_name_for_name(name, semantic, node_index, range).into())
+    let _ = semantic;
+    CellRefForName::new(name.to_string())
+        .with_meta(crate::block_py::Meta::new(node_index, range))
+        .into()
 }
 
 fn rewrite_cell_name_load(
@@ -1046,7 +1023,8 @@ fn is_local_cell_init_assign(assign: &CoreAssign) -> bool {
 
 struct NameBindingMapper<'a> {
     semantic: &'a BlockPyCallableSemanticInfo,
-    callee_make_function_capture_names: &'a HashMap<crate::block_py::FunctionId, Vec<String>>,
+    callee_make_function_captures:
+        &'a HashMap<crate::block_py::FunctionId, Vec<MakeFunctionCaptureBinding>>,
     local_slots: HashMap<String, u32>,
     captured_cell_slots: HashMap<String, u32>,
     owned_cell_slots: HashMap<String, u32>,
@@ -1106,7 +1084,17 @@ impl NameBindingMapper<'_> {
             };
         }
 
-        panic!("raw cell target {name_text} did not resolve to a cell-backed location");
+        panic!(
+            "raw cell target {name_text} did not resolve to a cell-backed location; scope={:?} binding={:?} capture_source={:?} storage_name={:?} cell_binding={:?} captured_cell_slots={:?} owned_cell_slots={:?} local_slots={:?}",
+            self.semantic.scope_kind,
+            self.semantic.binding_kind(name_text),
+            self.semantic.cell_capture_source_names.get(name_text),
+            self.semantic.cell_storage_names.get(name_text),
+            self.cell_bindings.get(name_text),
+            self.captured_cell_slots,
+            self.owned_cell_slots,
+            self.local_slots,
+        );
     }
 
     fn materialize_make_function_expr(
@@ -1115,19 +1103,23 @@ impl NameBindingMapper<'_> {
         op: MakeFunction<CoreBlockPyExpr>,
     ) -> CoreBlockPyExpr {
         let captures = self
-            .callee_make_function_capture_names
+            .callee_make_function_captures
             .get(&op.function_id)
             .into_iter()
-            .flat_map(|capture_names| capture_names.iter())
-            .map(|logical_name| {
+            .flat_map(|captures| captures.iter())
+            .map(|capture| {
                 core_runtime_positional_call_expr_with_meta(
                     "tuple_values",
                     meta.node_index.clone(),
                     meta.range,
                     vec![
-                        core_string_expr(logical_name.clone(), meta.node_index.clone(), meta.range),
+                        core_string_expr(
+                            capture.logical_name.clone(),
+                            meta.node_index.clone(),
+                            meta.range,
+                        ),
                         rewrite_cell_ref_expr(
-                            logical_name.as_str(),
+                            capture.source_name.as_str(),
                             self.semantic,
                             meta.node_index.clone(),
                             meta.range,
@@ -2123,6 +2115,11 @@ impl NameLocator<'_> {
     }
 
     fn resolve_cell_ref_location(&self, logical_name: &str) -> CellLocation {
+        if self.cell_bindings.contains_key(logical_name)
+            || resolve_captured_cell_source_storage_name(self.semantic, logical_name).is_some()
+        {
+            return self.resolve_raw_cell_location(logical_name);
+        }
         let source_name = self.semantic.cell_ref_source_name(logical_name);
         self.resolve_raw_cell_location(source_name.as_str())
     }
@@ -2214,6 +2211,16 @@ impl NameLocator<'_> {
         }
     }
 
+    fn mark_raw_cell_store_name(&self, name: LocatedName) -> LocatedName {
+        let name_text = name.id.to_string();
+        if resolve_cell_storage_name(self.semantic, name_text.as_str()).is_some() {
+            if let Some(slot) = self.local_slots.get(name_text.as_str()).copied() {
+                return name.with_location(NameLocation::local(slot));
+            }
+        }
+        self.mark_raw_cell_name(name)
+    }
+
     fn mark_raw_cell_name(&self, name: LocatedName) -> LocatedName {
         let name_text = name.id.to_string();
         if name.location.is_global() {
@@ -2277,7 +2284,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                 let name = if name.is_runtime_name() {
                     name
                 } else {
-                    self.mark_raw_cell_name(name)
+                    self.mark_raw_cell_store_name(name)
                 };
                 let value = self.map_expr(*op.value);
                 Store::new(name, Box::new(value)).with_meta(meta).into()
@@ -2288,7 +2295,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                 let name = if name.is_runtime_name() {
                     name
                 } else {
-                    self.mark_raw_cell_name(name)
+                    self.mark_raw_cell_store_name(name)
                 };
                 Del::new(name, op.quietly).with_meta(meta).into()
             }
@@ -2546,24 +2553,34 @@ fn ensure_module_storage_layouts(
         .collect()
 }
 
+#[derive(Debug, Clone)]
+struct MakeFunctionCaptureBinding {
+    logical_name: String,
+    source_name: String,
+}
+
 fn compute_module_make_function_capture_names(
     callable_defs: &[BlockPyFunction<CoreBlockPyPass>],
-) -> HashMap<FunctionId, Vec<String>> {
+) -> HashMap<FunctionId, Vec<MakeFunctionCaptureBinding>> {
     callable_defs
         .iter()
         .map(|callable| {
-            let capture_names = callable
+            let captures = callable
                 .storage_layout
-                .as_ref()
+                .clone()
+                .or_else(|| compute_storage_layout_from_semantics(callable))
                 .map(|layout| {
                     layout
                         .freevars
-                        .iter()
-                        .map(|slot| slot.logical_name.clone())
-                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .map(|slot| MakeFunctionCaptureBinding {
+                            logical_name: slot.logical_name,
+                            source_name: slot.storage_name,
+                        })
+                        .collect()
                 })
                 .unwrap_or_default();
-            (callable.function_id, capture_names)
+            (callable.function_id, captures)
         })
         .collect()
 }
@@ -2660,7 +2677,10 @@ fn populate_jump_edge_args(blocks: &mut [crate::block_py::ResolvedStorageBlock])
 
 fn lower_name_binding_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
-    callee_make_function_capture_names: &HashMap<crate::block_py::FunctionId, Vec<String>>,
+    callee_make_function_captures: &HashMap<
+        crate::block_py::FunctionId,
+        Vec<MakeFunctionCaptureBinding>,
+    >,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
     let semantic = callable.semantic.clone();
     let local_slots = collect_local_slot_locations(&callable);
@@ -2669,7 +2689,7 @@ fn lower_name_binding_callable(
     let cell_bindings = collect_cell_bindings(&callable);
     let mapper = NameBindingMapper {
         semantic: &semantic,
-        callee_make_function_capture_names,
+        callee_make_function_captures,
         local_slots: local_slots.clone(),
         captured_cell_slots,
         owned_cell_slots,
@@ -2729,27 +2749,44 @@ fn lower_name_binding_callable(
 fn normalize_stmt_ops_in_resolved_callable(
     mut callable: BlockPyFunction<ResolvedStorageBlockPyPass>,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
+    let stack_slots = callable
+        .storage_layout
+        .as_ref()
+        .map(|layout| layout.stack_slots().to_vec())
+        .unwrap_or_default();
     for block in &mut callable.blocks {
         for stmt in &mut block.body {
             match stmt.clone() {
-                BlockPyStmt::Assign(assign) if assign.target.local_location().is_some() => {
-                    let meta = crate::block_py::Meta::new(
-                        assign.target.node_index(),
-                        assign.target.range(),
-                    );
-                    let expr: LocatedCoreBlockPyExpr = Store::new(assign.target, assign.value)
-                        .with_meta(meta)
-                        .into();
+                BlockPyStmt::Assign(assign) => {
+                    let mut target = assign.target;
+                    if resolve_cell_storage_name(&callable.semantic, target.id_str()).is_some() {
+                        if let Some(slot) = stack_slots
+                            .iter()
+                            .position(|name| name == target.id_str())
+                            .map(|slot| slot as u32)
+                        {
+                            target = target.with_location(NameLocation::local(slot));
+                        }
+                    }
+                    let meta = crate::block_py::Meta::new(target.node_index(), target.range());
+                    let expr: LocatedCoreBlockPyExpr =
+                        Store::new(target, assign.value).with_meta(meta).into();
                     *stmt = BlockPyStmt::Expr(expr);
                 }
-                BlockPyStmt::Assign(_) => {}
                 BlockPyStmt::Delete(delete) => {
-                    let meta = crate::block_py::Meta::new(
-                        delete.target.node_index(),
-                        delete.target.range(),
-                    );
+                    let mut target = delete.target;
+                    if resolve_cell_storage_name(&callable.semantic, target.id_str()).is_some() {
+                        if let Some(slot) = stack_slots
+                            .iter()
+                            .position(|name| name == target.id_str())
+                            .map(|slot| slot as u32)
+                        {
+                            target = target.with_location(NameLocation::local(slot));
+                        }
+                    }
+                    let meta = crate::block_py::Meta::new(target.node_index(), target.range());
                     let expr: LocatedCoreBlockPyExpr =
-                        Del::new(delete.target, false).with_meta(meta).into();
+                        Del::new(target, false).with_meta(meta).into();
                     *stmt = BlockPyStmt::Expr(expr);
                 }
                 BlockPyStmt::Expr(_) => {}
@@ -2791,7 +2828,11 @@ impl ModuleConstantExtractor {
 
     fn extract_stmt(&mut self, stmt: &mut BlockPyStmt<LocatedCoreBlockPyExpr, LocatedName>) {
         match stmt {
-            BlockPyStmt::Assign(assign) => self.extract_expr(&mut assign.value),
+            BlockPyStmt::Assign(_) => {
+                unreachable!(
+                    "resolved name-binding output should normalize stmt assigns into Expr(Store)"
+                )
+            }
             BlockPyStmt::Expr(expr) => self.extract_expr(expr),
             BlockPyStmt::Delete(_) => {
                 unreachable!(

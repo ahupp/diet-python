@@ -121,7 +121,9 @@ fn callable_def_by_name<'a>(
 
 fn block_uses_text(block: &ResolvedStorageBlock, needle: &str) -> bool {
     block.body.iter().any(|op| match op {
-        BlockPyStmt::Assign(assign) => expr_text(&assign.value).contains(needle),
+        BlockPyStmt::Assign(_) => unreachable!(
+            "resolved name-binding test helpers should see Expr(Store) rather than stmt Assign"
+        ),
         BlockPyStmt::Expr(expr) => expr_text(expr).contains(needle),
         BlockPyStmt::Delete(_) => unreachable!(
             "resolved name-binding test helpers should see Expr(Del) rather than stmt Delete"
@@ -1320,7 +1322,7 @@ def gen():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("owned cell slot 1 = MakeCell(constant slot")
+        name_binding_rendered.contains("StoreLocation(owned cell slot 1, MakeCell(constant slot")
             && count_occurrences(name_binding_rendered.as_str(), "MakeCell(") >= 3,
         "{name_binding_rendered}"
     );
@@ -1709,11 +1711,11 @@ def outer(x):
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("owned cell slot 0 = MakeCell(local slot 0)"),
+        name_binding_rendered.contains("StoreLocation(local slot 1, MakeCell(local slot 0))"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("owned cell slot 1 = MakeCell(DELETED)"),
+        name_binding_rendered.contains("StoreLocation(local slot 2, MakeCell(DELETED))"),
         "{name_binding_rendered}"
     );
     let name_binding_module = lowered
@@ -1726,11 +1728,12 @@ def outer(x):
         .iter()
         .find(|func| func.names.bind_name == "outer")
         .expect("outer function should be present");
-    let Some(BlockPyStmt::Assign(assign)) = outer.entry_block().body.first() else {
-        panic!("expected first entry stmt to be an assignment");
+    let Some(BlockPyStmt::Expr(CoreBlockPyExpr::Store(assign))) = outer.entry_block().body.first()
+    else {
+        panic!("expected first entry stmt to be Expr(Store(...))");
     };
     assert!(
-        matches!(&assign.value, CoreBlockPyExpr::MakeCell(_)),
+        matches!(&*assign.value, CoreBlockPyExpr::MakeCell(_)),
         "{assign:?}"
     );
 }
