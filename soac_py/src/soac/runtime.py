@@ -295,11 +295,8 @@ def _current_yieldfrom(owner):
     return _yieldfrom_cell_value(owner._yield_from_cell)
 
 
-class _DpAsyncGenComplete(Exception):
+class AsyncGenComplete(Exception):
     pass
-
-
-AsyncGenComplete = _DpAsyncGenComplete
 
 
 def _is_cancelled_error(exc):
@@ -556,7 +553,7 @@ class _DpAsyncGenSend:
                 self._resume_exception,
                 transport_sent,
             )
-        except _DpAsyncGenComplete:
+        except AsyncGenComplete:
             self._is_done = True
             self._resume_exception = NO_DEFAULT
             _mark_closed(self._generator)
