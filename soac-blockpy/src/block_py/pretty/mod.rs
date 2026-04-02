@@ -1,9 +1,9 @@
 use super::{
     BlockArg, BlockParamRole, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyLinearizablePass, BlockPyModule,
-    BlockPyNameLike, BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyTerm, Call, CfgBlock,
-    CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral, Expr, Instr, PassBlock, PassExpr, PassTerm, RuffExpr, StructuredInstr,
+    BlockPyLiteral, BlockPyNameLike, BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyTerm, Call,
+    CfgBlock, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, Expr, Instr, PassBlock,
+    PassExpr, PassTerm, RuffExpr, StructuredInstr,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
@@ -569,20 +569,20 @@ fn render_number_literal_text(value: &super::CoreNumberLiteralValue) -> String {
     }
 }
 
-pub(crate) fn render_core_literal_text(literal: &CoreBlockPyLiteral) -> String {
+fn render_blockpy_literal_text(literal: &BlockPyLiteral) -> String {
     match literal {
-        CoreBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value),
-        CoreBlockPyLiteral::BytesLiteral(literal) => bytes_text(&literal.value),
-        CoreBlockPyLiteral::NumberLiteral(literal) => render_number_literal_text(&literal.value),
+        BlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value),
+        BlockPyLiteral::BytesLiteral(literal) => bytes_text(&literal.value),
+        BlockPyLiteral::NumberLiteral(literal) => render_number_literal_text(&literal.value),
     }
 }
 
-pub(crate) fn render_codegen_literal_text(literal: &CodegenBlockPyLiteral) -> String {
-    match literal {
-        CodegenBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value),
-        CodegenBlockPyLiteral::BytesLiteral(literal) => bytes_text(&literal.value),
-        CodegenBlockPyLiteral::NumberLiteral(literal) => render_number_literal_text(&literal.value),
-    }
+pub(crate) fn render_core_literal_text(literal: &BlockPyLiteral) -> String {
+    render_blockpy_literal_text(literal)
+}
+
+pub(crate) fn render_codegen_literal_text(literal: &BlockPyLiteral) -> String {
+    render_blockpy_literal_text(literal)
 }
 
 pub(crate) fn render_call_text<E: BlockPyDebugExprText>(call: &Call<E>) -> String {

@@ -514,7 +514,7 @@ impl<S, T> CfgBlock<S, T> {
 #[derive(Debug, Clone, Default)]
 pub struct BlockPyModule<P: BlockPyPass> {
     pub callable_defs: Vec<BlockPyFunction<P>>,
-    pub module_constants: Vec<P::Expr>,
+    pub module_constants: Vec<CoreBlockPyExpr<LocatedName>>,
 }
 
 impl<P: BlockPyPass> BlockPyModule<P> {
@@ -536,7 +536,7 @@ impl<P: BlockPyPass> BlockPyModule<P> {
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Name(UnresolvedName),
-    Literal(CoreBlockPyLiteral),
+    Literal(BlockPyLiteral),
     BinOp(BinOp<Self>),
     UnaryOp(UnaryOp<Self>),
     Call(Call<Self>),
@@ -560,7 +560,7 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum CoreBlockPyExprWithYield {
     Name(UnresolvedName),
-    Literal(CoreBlockPyLiteral),
+    Literal(BlockPyLiteral),
     BinOp(BinOp<Self>),
     UnaryOp(UnaryOp<Self>),
     Call(Call<Self>),
@@ -583,7 +583,7 @@ pub enum CoreBlockPyExprWithYield {
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
     Name(N),
-    Literal(CoreBlockPyLiteral),
+    Literal(BlockPyLiteral),
     BinOp(BinOp<Self>),
     UnaryOp(UnaryOp<Self>),
     Call(Call<Self>),
@@ -606,7 +606,6 @@ pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum CodegenBlockPyExpr {
     Name(LocatedName),
-    Literal(CodegenBlockPyLiteral),
     BinOp(BinOp<Self>),
     UnaryOp(UnaryOp<Self>),
     Call(Call<Self>),
@@ -627,18 +626,14 @@ pub enum CodegenBlockPyExpr {
 pub type LocatedCodegenBlockPyExpr = CodegenBlockPyExpr;
 
 #[derive(Debug, Clone)]
-pub enum CoreBlockPyLiteral {
+pub enum BlockPyLiteral {
     StringLiteral(CoreStringLiteral),
     BytesLiteral(CoreBytesLiteral),
     NumberLiteral(CoreNumberLiteral),
 }
 
-#[derive(Debug, Clone)]
-pub enum CodegenBlockPyLiteral {
-    StringLiteral(CoreStringLiteral),
-    BytesLiteral(CoreBytesLiteral),
-    NumberLiteral(CoreNumberLiteral),
-}
+pub type CoreBlockPyLiteral = BlockPyLiteral;
+pub type CodegenBlockPyLiteral = BlockPyLiteral;
 
 impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
     type Mapped<T: Instr> = InstrName<T>;
@@ -694,35 +689,8 @@ impl<I: Instr<Name = LocatedName>> InstrExprNode<I> for LocatedName {
     }
 }
 
-impl<I: Instr> InstrExprNode<I> for CoreBlockPyLiteral {
-    type Mapped<T: Instr> = CoreBlockPyLiteral;
-
-    fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
-
-    fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
-
-    fn map_expr_node<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
-    where
-        T: Instr,
-        InstrName<T>: From<InstrName<I>>,
-    {
-        self
-    }
-
-    fn try_map_expr_node<T, Error>(
-        self,
-        _f: &mut impl FnMut(I) -> Result<T, Error>,
-    ) -> Result<Self::Mapped<T>, Error>
-    where
-        T: Instr,
-        InstrName<T>: From<InstrName<I>>,
-    {
-        Ok(self)
-    }
-}
-
-impl<I: Instr> InstrExprNode<I> for CodegenBlockPyLiteral {
-    type Mapped<T: Instr> = CodegenBlockPyLiteral;
+impl<I: Instr> InstrExprNode<I> for BlockPyLiteral {
+    type Mapped<T: Instr> = BlockPyLiteral;
 
     fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
 
@@ -1227,14 +1195,8 @@ where
     fn map_expr(self, f: &mut impl FnMut(Self) -> CodegenBlockPyExpr) -> CodegenBlockPyExpr {
         match self {
             Self::Name(name) => CodegenBlockPyExpr::Name(LocatedName::from(name)),
-            Self::Literal(CoreBlockPyLiteral::StringLiteral(literal)) => {
-                CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(literal))
-            }
-            Self::Literal(CoreBlockPyLiteral::BytesLiteral(literal)) => {
-                CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(literal))
-            }
-            Self::Literal(CoreBlockPyLiteral::NumberLiteral(literal)) => {
-                CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(literal))
+            Self::Literal(_) => {
+                panic!("core literals should normalize into Load(Constant(_)) before codegen")
             }
             Self::BinOp(op) => op.map_expr_node(&mut *f).into(),
             Self::UnaryOp(op) => op.map_expr_node(&mut *f).into(),

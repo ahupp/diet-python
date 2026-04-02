@@ -93,11 +93,7 @@ where
                 .into_iter()
                 .map(|function| self.map_fn(function))
                 .collect(),
-            module_constants: module
-                .module_constants
-                .into_iter()
-                .map(|expr| self.map_expr(expr))
-                .collect(),
+            module_constants: module.module_constants,
         }
     }
 
@@ -194,11 +190,7 @@ where
                 .into_iter()
                 .map(|function| self.try_map_fn(function))
                 .collect::<Result<_, _>>()?,
-            module_constants: module
-                .module_constants
-                .into_iter()
-                .map(|expr| self.try_map_expr(expr))
-                .collect::<Result<_, _>>()?,
+            module_constants: module.module_constants,
         })
     }
 

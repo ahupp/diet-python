@@ -1,6 +1,6 @@
 use super::{
-    BlockPyNameLike, CodegenBlockPyLiteral, CoreBlockPyLiteral, CoreBytesLiteral,
-    CoreNumberLiteral, CoreStringLiteral, LocatedName, RuffExpr, UnresolvedName,
+    BlockPyLiteral, BlockPyNameLike, CoreBytesLiteral, CoreNumberLiteral, CoreStringLiteral,
+    LocatedName, RuffExpr, UnresolvedName,
 };
 use ruff_python_ast::{self as ast, HasNodeIndex};
 use ruff_text_size::{Ranged, TextRange};
@@ -60,17 +60,7 @@ impl HasMeta for UnresolvedName {
     }
 }
 
-impl HasMeta for CoreBlockPyLiteral {
-    fn meta(&self) -> Meta {
-        match self {
-            Self::StringLiteral(literal) => literal.meta(),
-            Self::BytesLiteral(literal) => literal.meta(),
-            Self::NumberLiteral(literal) => literal.meta(),
-        }
-    }
-}
-
-impl HasMeta for CodegenBlockPyLiteral {
+impl HasMeta for BlockPyLiteral {
     fn meta(&self) -> Meta {
         match self {
             Self::StringLiteral(literal) => literal.meta(),
@@ -143,17 +133,7 @@ impl WithMeta for CoreNumberLiteral {
     }
 }
 
-impl WithMeta for CoreBlockPyLiteral {
-    fn with_meta(self, meta: Meta) -> Self {
-        match self {
-            Self::StringLiteral(literal) => Self::StringLiteral(literal.with_meta(meta)),
-            Self::BytesLiteral(literal) => Self::BytesLiteral(literal.with_meta(meta)),
-            Self::NumberLiteral(literal) => Self::NumberLiteral(literal.with_meta(meta)),
-        }
-    }
-}
-
-impl WithMeta for CodegenBlockPyLiteral {
+impl WithMeta for BlockPyLiteral {
     fn with_meta(self, meta: Meta) -> Self {
         match self {
             Self::StringLiteral(literal) => Self::StringLiteral(literal.with_meta(meta)),
