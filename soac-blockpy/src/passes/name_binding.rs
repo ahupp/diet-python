@@ -1358,12 +1358,6 @@ fn collect_deleted_names_in_stmt(
     names: &mut HashSet<String>,
 ) {
     match stmt {
-        BlockPyStmt::Assign(assign)
-            if semantic.has_local_def(assign.target.id_str())
-                && is_deleted_sentinel_expr(&assign.value) =>
-        {
-            names.insert(assign.target.id_str().to_string());
-        }
         BlockPyStmt::Expr(expr) => {
             if let Some((name, value, _, _)) = unresolved_semantic_store_parts(expr) {
                 if semantic.has_local_def(name.as_str()) && is_deleted_sentinel_expr(&value) {
@@ -1382,8 +1376,7 @@ fn collect_deleted_names_in_stmt(
                 names.insert(name);
             }
         }
-        BlockPyStmt::Delete(_) => {}
-        _ => {}
+        BlockPyStmt::Assign(_) | BlockPyStmt::Delete(_) => {}
     }
 }
 
