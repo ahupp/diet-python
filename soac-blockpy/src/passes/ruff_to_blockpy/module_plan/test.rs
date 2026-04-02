@@ -472,7 +472,10 @@ fn lowering_recursive_local_function_with_finally_keeps_plain_binding_before_nam
             callable_defs: vec![exercise.clone()],
             module_constants: Vec::new(),
         });
-    assert!(rendered.contains("recurse = MakeFunction"), "{rendered}");
+    assert!(
+        rendered.contains("StoreName(\"recurse\", MakeFunction"),
+        "{rendered}"
+    );
     assert!(
         !rendered.contains("__dp_store_cell(_dp_cell_recurse, recurse)"),
         "{rendered}"
@@ -592,7 +595,7 @@ fn lowering_nonlocal_inner_captures_outer_cell() {
             module_constants: Vec::new(),
         });
     assert!(
-        rendered.contains("inner = MakeFunction(0, Function, tuple_values(), NONE)"),
+        rendered.contains("StoreName(\"inner\", MakeFunction(0, Function, tuple_values(), NONE))"),
         "{rendered}"
     );
 }

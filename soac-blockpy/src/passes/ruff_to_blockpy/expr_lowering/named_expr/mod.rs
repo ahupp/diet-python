@@ -1,5 +1,5 @@
 use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
-use crate::block_py::{BlockPyAssign, BlockPyStmtFragmentBuilder, StructuredBlockPyStmt};
+use crate::block_py::{BlockPyStmtFragmentBuilder, Meta, Store, StructuredBlockPyStmt, WithMeta};
 use crate::passes::ruff_to_blockpy::LoopContext;
 use ruff_python_ast::{self as ast, Expr};
 
@@ -32,12 +32,15 @@ where
     let Expr::Name(target_name) = *target else {
         return Err("named expression lowering expected a name target".to_string());
     };
-    let value = lowerer.lower_expr_ast_into(*value, out, loop_ctx, next_label_id)?;
-    out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
-        target: into_store_name(target_name.clone()).into(),
-        value: value.into(),
-    }));
-    Ok(into_load_name(target_name))
+    let value =
+        E::from_lowered_expr(lowerer.lower_expr_ast_into(*value, out, loop_ctx, next_label_id)?);
+    let load_target = target_name.clone();
+    let target_name = into_store_name(target_name);
+    let meta = Meta::new(target_name.node_index.clone(), target_name.range);
+    out.push_stmt(StructuredBlockPyStmt::Expr(
+        Store::new(target_name, value).with_meta(meta).into(),
+    ));
+    Ok(into_load_name(load_target))
 }
 
 #[cfg(test)]

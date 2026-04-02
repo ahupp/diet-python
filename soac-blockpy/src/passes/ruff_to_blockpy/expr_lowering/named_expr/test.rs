@@ -16,8 +16,10 @@ fn named_expr_lowering_emits_blockpy_assign_directly() {
 
     let fragment = out.finish();
     assert_eq!(lowered.debug_expr_text(), "x");
-    let [StructuredBlockPyStmt::Assign(assign)] = &fragment.body[..] else {
-        panic!("expected one direct assign stmt, got {fragment:?}");
+    let [StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Store(assign))] =
+        &fragment.body[..]
+    else {
+        panic!("expected one direct store expr stmt, got {fragment:?}");
     };
-    assert_eq!(assign.target.id_str(), "x");
+    assert_eq!(assign.name.id_str(), "x");
 }

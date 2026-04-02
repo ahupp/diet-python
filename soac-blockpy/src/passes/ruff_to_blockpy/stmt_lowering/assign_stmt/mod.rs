@@ -1,5 +1,5 @@
 use super::*;
-use crate::block_py::{Del, HasMeta, Meta, Store, WithMeta};
+use crate::block_py::{Del, HasMeta, Meta, Store, StructuredBlockPyStmt, WithMeta};
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
 
 fn rhs_temp_name(name: &str, ctx: ast::ExprContext) -> ast::ExprName {
@@ -133,10 +133,10 @@ where
             Ok(())
         }
         Expr::Name(name) => {
-            out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
-                target: name.into(),
-                value: rhs,
-            }));
+            let meta = Meta::new(name.node_index.clone(), name.range);
+            out.push_stmt(StructuredBlockPyStmt::Expr(
+                Store::new(name, rhs).with_meta(meta).into(),
+            ));
             Ok(())
         }
         other => Err(format!(

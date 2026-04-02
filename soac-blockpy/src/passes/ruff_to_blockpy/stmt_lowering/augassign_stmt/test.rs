@@ -58,8 +58,10 @@ fn stmt_pow_augassign_to_blockpy_uses_inplace_pow() {
         .expect("pow augassign lowering should succeed");
 
     let fragment = out.finish();
-    let Some(StructuredBlockPyStmt::Assign(assign)) = fragment.body.last() else {
-        panic!("expected final assign stmt, got {fragment:?}");
+    let Some(StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Store(assign))) =
+        fragment.body.last()
+    else {
+        panic!("expected final store expr stmt, got {fragment:?}");
     };
     let rendered = assign.value.debug_expr_text();
 

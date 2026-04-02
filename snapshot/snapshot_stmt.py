@@ -7,7 +7,7 @@ import a
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         a = import_("a", __spec__)
+#         StoreName("a", import_("a", __spec__))
 #         return NONE
 
 # import_dotted_alias
@@ -19,7 +19,7 @@ import a.b as c
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         c = import_attr(import_("a.b", __spec__), "b")
+#         StoreName("c", import_attr(import_("a.b", __spec__), "b"))
 #         return NONE
 
 # import_from_alias
@@ -32,7 +32,7 @@ from pkg.mod import name as alias
 #     function_id: 0
 #     block bb1:
 #         StoreName("_dp_import_1", import_("pkg.mod", __spec__, list(tuple_values("name"))))
-#         alias = import_attr(_dp_import_1, "name")
+#         StoreName("alias", import_attr(_dp_import_1, "name"))
 #         return NONE
 
 # decorator_function
@@ -53,7 +53,7 @@ def f():
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         f = dec(MakeFunction(0, Function, tuple_values(), NONE))
+#         StoreName("f", dec(MakeFunction(0, Function, tuple_values(), NONE)))
 #         return NONE
 
 # assign_attr
@@ -96,8 +96,8 @@ a, b = it
 #     block bb1:
 #         StoreName("_dp_assign_value_1", it)
 #         StoreName("_dp_unpack_2", unpack(_dp_assign_value_1, tuple_values(TRUE, TRUE)))
-#         a = GetItem(_dp_unpack_2, 0)
-#         b = GetItem(_dp_unpack_2, 1)
+#         StoreName("a", GetItem(_dp_unpack_2, 0))
+#         StoreName("b", GetItem(_dp_unpack_2, 1))
 #         DelName("_dp_unpack_2", false)
 #         return NONE
 
@@ -112,8 +112,8 @@ a, *b = it
 #     block bb1:
 #         StoreName("_dp_assign_value_1", it)
 #         StoreName("_dp_unpack_2", unpack(_dp_assign_value_1, tuple_values(TRUE, FALSE)))
-#         a = GetItem(_dp_unpack_2, 0)
-#         b = list(GetItem(_dp_unpack_2, 1))
+#         StoreName("a", GetItem(_dp_unpack_2, 0))
+#         StoreName("b", list(GetItem(_dp_unpack_2, 1)))
 #         DelName("_dp_unpack_2", false)
 #         return NONE
 
@@ -127,8 +127,8 @@ a = b = f()
 #     function_id: 0
 #     block bb1:
 #         StoreName("_dp_assign_value_1", f())
-#         a = _dp_assign_value_1
-#         b = _dp_assign_value_1
+#         StoreName("a", _dp_assign_value_1)
+#         StoreName("b", _dp_assign_value_1)
 #         return NONE
 
 # ann_assign_simple
@@ -157,8 +157,8 @@ x: int = 1
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         x = 1
-#         __annotate__ = MakeFunction(0, Function, tuple_values(__import__("soac.runtime", globals(), dict(), tuple_values("runtime"), 0)), NONE)
+#         StoreName("x", 1)
+#         StoreName("__annotate__", MakeFunction(0, Function, tuple_values(__import__("soac.runtime", globals(), dict(), tuple_values("runtime"), 0)), NONE))
 #         return NONE
 
 # ann_assign_attr
@@ -203,7 +203,7 @@ del obj.x, obj[i], x
 #         StoreName("_dp_delete_obj_2", load_deleted_name("obj", obj))
 #         StoreName("_dp_delete_index_3", i)
 #         DelItem(_dp_delete_obj_2, _dp_delete_index_3)
-#         del x
+#         DelName("x", false)
 #         return NONE
 
 # assert_no_msg
@@ -301,7 +301,7 @@ else:
 #                 else:
 #                     block bb2:
 #                         StoreName("_dp_tmp_0_1", _dp_tmp_0_1)
-#                         x = _dp_tmp_0_1
+#                         StoreName("x", _dp_tmp_0_1)
 #                         DelName("_dp_tmp_0_1", false)
 #                         jump bb5
 #                         block bb5:
@@ -341,7 +341,7 @@ with cm as x:
 #     function_id: 0
 #     block bb4:
 #         StoreName("_dp_with_exit_1", contextmanager_get_exit(cm))
-#         x = contextmanager_enter(cm)
+#         StoreName("x", contextmanager_enter(cm))
 #         StoreName("_dp_with_ok_2", TRUE)
 #         jump bb13
 #         block bb13:
@@ -403,13 +403,13 @@ def inner():
 # function inner():
 #     function_id: 0
 #     block bb1:
-#         value = 1
+#         StoreName("value", 1)
 #         return value
 
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         inner = MakeFunction(0, Function, tuple_values(), NONE)
+#         StoreName("inner", MakeFunction(0, Function, tuple_values(), NONE))
 #         return NONE
 
 # comprehension_global
@@ -436,7 +436,7 @@ zs = {k: v for k, v in items}
 #                 else:
 #                     block bb2:
 #                         StoreName("_dp_tmp_0_1", _dp_tmp_0_1)
-#                         x = _dp_tmp_0_1
+#                         StoreName("x", _dp_tmp_0_1)
 #                         DelName("_dp_tmp_0_1", false)
 #                         jump bb5
 #                         block bb5:
@@ -459,7 +459,7 @@ zs = {k: v for k, v in items}
 #                 else:
 #                     block bb2:
 #                         StoreName("_dp_tmp_1_1", _dp_tmp_1_1)
-#                         x = _dp_tmp_1_1
+#                         StoreName("x", _dp_tmp_1_1)
 #                         DelName("_dp_tmp_1_1", false)
 #                         jump bb5
 #                         block bb5:
@@ -483,8 +483,8 @@ zs = {k: v for k, v in items}
 #                     block bb2:
 #                         StoreName("_dp_tmp_2_1", _dp_tmp_2_1)
 #                         StoreName("_dp_tmp_2_2", unpack(_dp_tmp_2_1, tuple_values(TRUE, TRUE)))
-#                         k = GetItem(_dp_tmp_2_2, 0)
-#                         v = GetItem(_dp_tmp_2_2, 1)
+#                         StoreName("k", GetItem(_dp_tmp_2_2, 0))
+#                         StoreName("v", GetItem(_dp_tmp_2_2, 1))
 #                         DelName("_dp_tmp_2_2", false)
 #                         DelName("_dp_tmp_2_1", false)
 #                         jump bb5
@@ -501,11 +501,11 @@ zs = {k: v for k, v in items}
 #     function_id: 3
 #     block bb1:
 #         StoreName("_dp_listcomp_3", MakeFunction(0, Function, tuple_values(), NONE))
-#         xs = _dp_listcomp_3(it)
+#         StoreName("xs", _dp_listcomp_3(it))
 #         StoreName("_dp_setcomp_6", MakeFunction(1, Function, tuple_values(), NONE))
-#         ys = _dp_setcomp_6(it)
+#         StoreName("ys", _dp_setcomp_6(it))
 #         StoreName("_dp_dictcomp_11", MakeFunction(2, Function, tuple_values(), NONE))
-#         zs = _dp_dictcomp_11(items)
+#         StoreName("zs", _dp_dictcomp_11(items))
 #         return NONE
 
 # comprehension_in_function
@@ -533,7 +533,7 @@ def f():
 #                 else:
 #                     block bb2:
 #                         StoreName("_dp_tmp_0_1", _dp_tmp_0_1)
-#                         x = _dp_tmp_0_1
+#                         StoreName("x", _dp_tmp_0_1)
 #                         DelName("_dp_tmp_0_1", false)
 #                         jump bb5
 #                         block bb5:
@@ -554,7 +554,7 @@ def f():
 # function _dp_module_init():
 #     function_id: 2
 #     block bb1:
-#         f = MakeFunction(1, Function, tuple_values(), NONE)
+#         StoreName("f", MakeFunction(1, Function, tuple_values(), NONE))
 #         return NONE
 
 # comprehension_in_class_body
@@ -582,7 +582,7 @@ class C:
 #                 else:
 #                     block bb2:
 #                         StoreName("_dp_tmp_0_1", _dp_tmp_0_1)
-#                         x = _dp_tmp_0_1
+#                         StoreName("x", _dp_tmp_0_1)
 #                         DelName("_dp_tmp_0_1", false)
 #                         jump bb5
 #                         block bb5:
@@ -602,7 +602,7 @@ class C:
 #         StoreName("_dp_assign_index_9", "__qualname__")
 #         SetItem(_dp_assign_obj_8, _dp_assign_index_9, _dp_assign_value_7)
 #         StoreName("_dp_listcomp_3", MakeFunction(0, Function, tuple_values(), NONE))
-#         xs = _dp_listcomp_3(it)
+#         StoreName("xs", _dp_listcomp_3(it))
 #         return NONE
 
 # function _dp_define_class_C(_dp_class_ns_fn, _dp_class_ns_outer, _dp_prepare_dict):
@@ -616,7 +616,7 @@ class C:
 #     block bb1:
 #         StoreName("_dp_class_ns_C", MakeFunction(1, Function, tuple_values(), NONE))
 #         StoreName("_dp_define_class_C", MakeFunction(2, Function, tuple_values(NONE), NONE))
-#         C = _dp_define_class_C(_dp_class_ns_C, globals())
+#         StoreName("C", _dp_define_class_C(_dp_class_ns_C, globals()))
 #         return NONE
 
 # with_multi
@@ -630,12 +630,12 @@ with a as x, b as y:
 #     function_id: 0
 #     block bb4:
 #         StoreName("_dp_with_exit_4", contextmanager_get_exit(a))
-#         x = contextmanager_enter(a)
+#         StoreName("x", contextmanager_enter(a))
 #         StoreName("_dp_with_ok_5", TRUE)
 #         jump bb16
 #         block bb16:
 #             StoreName("_dp_with_exit_1", contextmanager_get_exit(b))
-#             y = contextmanager_enter(b)
+#             StoreName("y", contextmanager_enter(b))
 #             StoreName("_dp_with_ok_2", TRUE)
 #             jump bb25
 #             block bb25:
@@ -741,7 +741,9 @@ async def run():
 #         StoreName("_dp_iter_0_0", aiter(ait))
 #         jump bb1
 #         block bb1:
-#             StoreName("_dp_tmp_0_1", await anext_or_sentinel(_dp_iter_0_0))
+#             StoreName("_dp_eval_1", await anext_or_sentinel(_dp_iter_0_0))
+#             StoreName("_dp_tmp_0_1", _dp_eval_1)
+#             DelName("_dp_eval_1", false)
 #             if_term BinOp(Is, _dp_tmp_0_1, ITER_COMPLETE):
 #                 then:
 #                     block bb0:
@@ -749,7 +751,7 @@ async def run():
 #                 else:
 #                     block bb2:
 #                         StoreName("_dp_tmp_0_1", _dp_tmp_0_1)
-#                         x = _dp_tmp_0_1
+#                         StoreName("x", _dp_tmp_0_1)
 #                         DelName("_dp_tmp_0_1", false)
 #                         jump bb4
 #                         block bb4:
@@ -759,7 +761,7 @@ async def run():
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         run = MakeFunction(0, Coroutine, tuple_values(), NONE)
+#         StoreName("run", MakeFunction(0, Coroutine, tuple_values(), NONE))
 #         return NONE
 
 # async_with
@@ -776,7 +778,9 @@ async def run():
 #     function_id: 0
 #     block bb4:
 #         StoreName("_dp_with_exit_1", asynccontextmanager_get_aexit(cm))
-#         x = await asynccontextmanager_aenter(cm)
+#         StoreName("_dp_eval_4", await asynccontextmanager_aenter(cm))
+#         StoreName("x", _dp_eval_4)
+#         DelName("_dp_eval_4", false)
 #         StoreName("_dp_with_ok_2", TRUE)
 #         jump bb14
 #         block bb14:
@@ -819,7 +823,9 @@ async def run():
 #     block bb11(_dp_try_exc_0_0: Exception):
 #         exc_param: _dp_try_exc_0_0
 #         StoreName("_dp_with_ok_2", FALSE)
-#         StoreName("_dp_with_reraise_3", await asynccontextmanager_exit(_dp_with_exit_1, current_exception()))
+#         StoreName("_dp_eval_5", await asynccontextmanager_exit(_dp_with_exit_1, current_exception()))
+#         StoreName("_dp_with_reraise_3", _dp_eval_5)
+#         DelName("_dp_eval_5", false)
 #         if_term UnaryOp(Not, BinOp(Is, _dp_with_reraise_3, NONE)):
 #             then:
 #                 jump bb12
@@ -835,7 +841,7 @@ async def run():
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         run = MakeFunction(0, Coroutine, tuple_values(), NONE)
+#         StoreName("run", MakeFunction(0, Coroutine, tuple_values(), NONE))
 #         return NONE
 
 # match_simple
@@ -880,7 +886,7 @@ def gen():
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         gen = MakeFunction(0, Generator, tuple_values(), NONE)
+#         StoreName("gen", MakeFunction(0, Generator, tuple_values(), NONE))
 #         return NONE
 
 # yield_from
@@ -901,7 +907,7 @@ def gen():
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         gen = MakeFunction(0, Generator, tuple_values(), NONE)
+#         StoreName("gen", MakeFunction(0, Generator, tuple_values(), NONE))
 #         return NONE
 
 # with_exit_suppresses_exception
@@ -988,14 +994,14 @@ def outer():
 # function outer():
 #     function_id: 1
 #     block bb1:
-#         x = 5
-#         inner = MakeFunction(0, Function, tuple_values(), NONE)
+#         StoreName("x", 5)
+#         StoreName("inner", MakeFunction(0, Function, tuple_values(), NONE))
 #         return inner()
 
 # function _dp_module_init():
 #     function_id: 2
 #     block bb1:
-#         outer = MakeFunction(1, Function, tuple_values(), NONE)
+#         StoreName("outer", MakeFunction(1, Function, tuple_values(), NONE))
 #         return NONE
 
 # bb_if_else_function
@@ -1014,7 +1020,7 @@ def choose(a, b):
 # function choose(a, b):
 #     function_id: 0
 #     block bb1:
-#         total = BinOp(Add, a, b)
+#         StoreName("total", BinOp(Add, a, b))
 #         if_term BinOp(Gt, total, 5):
 #             then:
 #                 block bb2:
@@ -1026,7 +1032,7 @@ def choose(a, b):
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         choose = MakeFunction(0, Function, tuple_values(), NONE)
+#         StoreName("choose", MakeFunction(0, Function, tuple_values(), NONE))
 #         return NONE
 
 # closure_cell_nonlocal
@@ -1048,20 +1054,20 @@ def outer():
 # function outer.<locals>.inner():
 #     function_id: 0
 #     block bb1:
-#         x = 2
+#         StoreName("x", 2)
 #         return x
 
 # function outer():
 #     function_id: 1
 #     block bb1:
-#         x = 5
-#         inner = MakeFunction(0, Function, tuple_values(), NONE)
+#         StoreName("x", 5)
+#         StoreName("inner", MakeFunction(0, Function, tuple_values(), NONE))
 #         return inner()
 
 # function _dp_module_init():
 #     function_id: 2
 #     block bb1:
-#         outer = MakeFunction(1, Function, tuple_values(), NONE)
+#         StoreName("outer", MakeFunction(1, Function, tuple_values(), NONE))
 #         return NONE
 
 # plain try / catch
@@ -1126,13 +1132,13 @@ def complicated(a):
 #                 else:
 #                     block bb2:
 #                         StoreName("_dp_tmp_0_1", _dp_tmp_0_1)
-#                         i = _dp_tmp_0_1
+#                         StoreName("i", _dp_tmp_0_1)
 #                         DelName("_dp_tmp_0_1", false)
 #                         jump bb5
 #                         block bb5:
 #                             jump bb9
 #                             block bb9:
-#                                 j = BinOp(Add, i, 1)
+#                                 StoreName("j", BinOp(Add, i, 1))
 #                                 yield j
 #                                 jump bb1
 #     block bb6(_dp_try_exc_0_2: Exception):
@@ -1153,5 +1159,5 @@ def complicated(a):
 # function _dp_module_init():
 #     function_id: 1
 #     block bb1:
-#         complicated = MakeFunction(0, Generator, tuple_values(), NONE)
+#         StoreName("complicated", MakeFunction(0, Generator, tuple_values(), NONE))
 #         return NONE

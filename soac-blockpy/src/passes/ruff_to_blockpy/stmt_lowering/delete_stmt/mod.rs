@@ -1,5 +1,6 @@
 use super::assign_stmt::{bind_temp, lower_target_object_with_setup};
 use super::*;
+use crate::block_py::{Del, Meta, StructuredBlockPyStmt, WithMeta};
 
 fn lower_delete_target_into<E>(
     context: &Context,
@@ -58,9 +59,10 @@ where
             Ok(())
         }
         Expr::Name(target) => {
-            out.push_stmt(StructuredBlockPyStmt::Delete(BlockPyDelete {
-                target: target.into(),
-            }));
+            let meta = Meta::new(target.node_index.clone(), target.range);
+            out.push_stmt(StructuredBlockPyStmt::Expr(
+                Del::new(target, false).with_meta(meta).into(),
+            ));
             Ok(())
         }
         other => Err(assign_delete_error(

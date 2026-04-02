@@ -606,6 +606,12 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
         }
     }
 
+    fn walk_root_defined_names(&self, f: &mut impl FnMut(&str)) {
+        if let Self::Store(op) = self {
+            f(op.name.id_str());
+        }
+    }
+
     fn walk_root_deleted_names(&self, f: &mut impl FnMut(&str)) {
         if let Self::Del(op) = self {
             f(op.name.id_str());
@@ -661,6 +667,12 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
             }
             Self::Load(op) => f(op.name.id_str()),
             _ => {}
+        }
+    }
+
+    fn walk_root_defined_names(&self, f: &mut impl FnMut(&str)) {
+        if let Self::Store(op) = self {
+            f(op.name.id_str());
         }
     }
 
@@ -725,6 +737,12 @@ where
         }
     }
 
+    fn walk_root_defined_names(&self, f: &mut impl FnMut(&str)) {
+        if let Self::Store(op) = self {
+            f(op.name.id_str());
+        }
+    }
+
     fn walk_root_deleted_names(&self, f: &mut impl FnMut(&str)) {
         if let Self::Del(op) = self {
             f(op.name.id_str());
@@ -771,6 +789,12 @@ impl BlockPySemanticExprNode for super::CodegenBlockPyExpr {
             }
             Self::Load(op) => f(op.name.id_str()),
             _ => {}
+        }
+    }
+
+    fn walk_root_defined_names(&self, f: &mut impl FnMut(&str)) {
+        if let Self::Store(op) = self {
+            f(op.name.id_str());
         }
     }
 

@@ -990,7 +990,7 @@ def f(x):
         fragment.body.as_slice(),
         [
             StructuredBlockPyStmt::Expr(_),
-            StructuredBlockPyStmt::Assign(_)
+            StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Store(_))
         ]
     ));
 }
@@ -1091,7 +1091,9 @@ def f():
     let fragment = out.finish();
     assert!(matches!(
         fragment.body.as_slice(),
-        [StructuredBlockPyStmt::Assign(_)]
+        [StructuredBlockPyStmt::Expr(
+            CoreBlockPyExprWithAwaitAndYield::Store(_)
+        )]
     ));
 }
 

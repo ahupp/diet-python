@@ -409,7 +409,7 @@ class Box:
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
     assert!(
-        core_rendered.contains("f = MakeFunction"),
+        core_rendered.contains("StoreName(\"f\", MakeFunction"),
         "{core_rendered}"
     );
     assert!(
@@ -438,7 +438,10 @@ def outer():
 
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
-    assert!(core_rendered.contains("x = 1"), "{core_rendered}");
+    assert!(
+        core_rendered.contains("StoreName(\"x\", 1)"),
+        "{core_rendered}"
+    );
     assert!(
         !core_rendered.contains("__dp_store_cell(_dp_cell_x, 1)"),
         "{core_rendered}"
@@ -461,7 +464,10 @@ class Box:
 
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
-    assert!(core_rendered.contains("x = 1"), "{core_rendered}");
+    assert!(
+        core_rendered.contains("StoreName(\"x\", 1)"),
+        "{core_rendered}"
+    );
     assert!(
         !core_rendered.contains("__dp_setitem(_dp_class_ns, \"x\", 1)"),
         "{core_rendered}"
@@ -484,7 +490,10 @@ class Box:
 
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
-    assert!(core_rendered.contains("del x"), "{core_rendered}");
+    assert!(
+        core_rendered.contains("DelName(\"x\", false)"),
+        "{core_rendered}"
+    );
     assert!(
         !core_rendered.contains("__dp_delitem(_dp_class_ns, \"x\")"),
         "{core_rendered}"
@@ -510,7 +519,10 @@ def outer():
 
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
-    assert!(core_rendered.contains("del x"), "{core_rendered}");
+    assert!(
+        core_rendered.contains("DelName(\"x\", false)"),
+        "{core_rendered}"
+    );
     assert!(!core_rendered.contains("cell_contents"), "{core_rendered}");
     assert!(!core_rendered.contains("__dp_DELETED"), "{core_rendered}");
 
@@ -767,7 +779,7 @@ class Box:
         "{semantic_rendered}"
     );
     assert!(
-        semantic_rendered.contains("caught = _dp_try_exc_"),
+        semantic_rendered.contains("StoreName(\"caught\", _dp_try_exc_"),
         "{semantic_rendered}"
     );
 
@@ -807,7 +819,7 @@ def outer():
         "{semantic_rendered}"
     );
     assert!(
-        semantic_rendered.contains("x = _dp_try_exc_"),
+        semantic_rendered.contains("StoreName(\"x\", _dp_try_exc_"),
         "{semantic_rendered}"
     );
 
@@ -845,7 +857,7 @@ class Box:
         "{semantic_rendered}"
     );
     assert!(
-        semantic_rendered.contains("caught = _dp_try_exc_"),
+        semantic_rendered.contains("StoreName(\"caught\", _dp_try_exc_"),
         "{semantic_rendered}"
     );
 
@@ -874,7 +886,10 @@ class Box:
         !core_rendered.contains("__dp_store_global(__dp_globals(), \"y\""),
         "{core_rendered}"
     );
-    assert!(core_rendered.contains("y = 1"), "{core_rendered}");
+    assert!(
+        core_rendered.contains("StoreName(\"y\", 1)"),
+        "{core_rendered}"
+    );
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
@@ -900,7 +915,10 @@ def outer():
         !core_rendered.contains("__dp_store_cell(_dp_cell_x, 1)"),
         "{core_rendered}"
     );
-    assert!(core_rendered.contains("x = 1"), "{core_rendered}");
+    assert!(
+        core_rendered.contains("StoreName(\"x\", 1)"),
+        "{core_rendered}"
+    );
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
@@ -925,7 +943,10 @@ class Box:
         !core_rendered.contains("__dp_store_global(__dp_globals(), \"y\""),
         "{core_rendered}"
     );
-    assert!(core_rendered.contains("y = _dp_tmp"), "{core_rendered}");
+    assert!(
+        core_rendered.contains("StoreName(\"y\", _dp_tmp_"),
+        "{core_rendered}"
+    );
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
@@ -952,7 +973,10 @@ def outer():
         !core_rendered.contains("__dp_store_cell(_dp_cell_x, _dp_tmp"),
         "{core_rendered}"
     );
-    assert!(core_rendered.contains("x = _dp_tmp"), "{core_rendered}");
+    assert!(
+        core_rendered.contains("StoreName(\"x\", _dp_tmp_"),
+        "{core_rendered}"
+    );
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
@@ -975,7 +999,7 @@ class Box:
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
     assert!(
-        core_rendered.contains("value = contextmanager_enter("),
+        core_rendered.contains("StoreName(\"value\", contextmanager_enter("),
         "{core_rendered}"
     );
     assert!(
@@ -1012,7 +1036,7 @@ def outer():
         "{core_rendered}"
     );
     assert!(
-        core_rendered.contains("value = contextmanager_enter("),
+        core_rendered.contains("StoreName(\"value\", contextmanager_enter("),
         "{core_rendered}"
     );
 
@@ -1035,7 +1059,8 @@ class A:
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
     assert!(
-        core_rendered.contains("B = _dp_define_class_B(_dp_class_ns_B, _dp_class_ns)"),
+        core_rendered
+            .contains("StoreName(\"B\", _dp_define_class_B(_dp_class_ns_B, _dp_class_ns))"),
         "{core_rendered}"
     );
     assert!(
@@ -1356,9 +1381,9 @@ def gen():
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("exception_matches(local slot")
-            && !name_binding_rendered.contains("StoreName(\"_dp_eval_")
-            && !name_binding_rendered.contains("_dp_cell__dp_eval_"),
+        name_binding_rendered
+            .contains("exception_matches(captured cell source slot 0, ValueError)")
+            && !name_binding_rendered.contains("StoreName(\"_dp_eval_"),
         "{name_binding_rendered}"
     );
     assert!(
@@ -1418,7 +1443,7 @@ def f():
         "{core_rendered}"
     );
     assert!(
-        core_rendered.contains("f = MakeFunction"),
+        core_rendered.contains("StoreName(\"f\", MakeFunction"),
         "{core_rendered}"
     );
 
@@ -1447,8 +1472,14 @@ y = x
         !core_rendered.contains("__dp_load_global"),
         "{core_rendered}"
     );
-    assert!(core_rendered.contains("x = 1"), "{core_rendered}");
-    assert!(core_rendered.contains("y = x"), "{core_rendered}");
+    assert!(
+        core_rendered.contains("StoreName(\"x\", 1)"),
+        "{core_rendered}"
+    );
+    assert!(
+        core_rendered.contains("StoreName(\"y\", x)"),
+        "{core_rendered}"
+    );
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
@@ -1480,8 +1511,14 @@ x = (y := f())
         !core_rendered.contains("__dp_load_global"),
         "{core_rendered}"
     );
-    assert!(core_rendered.contains("y = f()"), "{core_rendered}");
-    assert!(core_rendered.contains("x = y"), "{core_rendered}");
+    assert!(
+        core_rendered.contains("StoreName(\"y\", f())"),
+        "{core_rendered}"
+    );
+    assert!(
+        core_rendered.contains("StoreName(\"x\", y)"),
+        "{core_rendered}"
+    );
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
@@ -1513,7 +1550,10 @@ x = [y := i for i in [1, 2]]
         !core_rendered.contains("__dp_store_global"),
         "{core_rendered}"
     );
-    assert!(core_rendered.contains("y = i"), "{core_rendered}");
+    assert!(
+        core_rendered.contains("StoreName(\"y\", i)"),
+        "{core_rendered}"
+    );
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
@@ -1539,7 +1579,10 @@ for x in [1, 2]:
         !core_rendered.contains("__dp_store_global"),
         "{core_rendered}"
     );
-    assert!(core_rendered.contains("x = _dp_tmp"), "{core_rendered}");
+    assert!(
+        core_rendered.contains("StoreName(\"x\", _dp_tmp_"),
+        "{core_rendered}"
+    );
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
@@ -1572,7 +1615,7 @@ except Exception as exc:
         "{semantic_rendered}"
     );
     assert!(
-        semantic_rendered.contains("exc = _dp_try_exc_"),
+        semantic_rendered.contains("StoreName(\"exc\", _dp_try_exc_"),
         "{semantic_rendered}"
     );
 
@@ -1600,7 +1643,10 @@ del x
         !core_rendered.contains("__dp_delitem(__dp_globals(), \"x\")"),
         "{core_rendered}"
     );
-    assert!(core_rendered.contains("del x"), "{core_rendered}");
+    assert!(
+        core_rendered.contains("DelName(\"x\", false)"),
+        "{core_rendered}"
+    );
     assert!(!core_rendered.contains("__dp_DELETED"), "{core_rendered}");
 
     let name_binding_rendered = lowered.name_binding_text();
@@ -1625,7 +1671,10 @@ def f():
         !core_rendered.contains("__dp_load_deleted_name"),
         "{core_rendered}"
     );
-    assert!(!core_rendered.contains("x = 1"), "{core_rendered}");
+    assert!(
+        !core_rendered.contains("StoreName(\"x\", 1)"),
+        "{core_rendered}"
+    );
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
@@ -1652,8 +1701,9 @@ def outer():
     let blockpy_rendered = lowered.blockpy_text();
     assert!(
         blockpy_rendered.contains("function outer.<locals>.inner():")
-            && blockpy_rendered.contains("inner = MakeFunction(0, Function, tuple_values(), NONE)")
-            && blockpy_rendered.contains("del x"),
+            && blockpy_rendered
+                .contains("StoreName(\"inner\", MakeFunction(0, Function, tuple_values(), NONE))")
+            && blockpy_rendered.contains("DelName(\"x\", false)"),
         "{blockpy_rendered}"
     );
 }
@@ -1673,7 +1723,7 @@ def outer():
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
     assert!(
-        core_rendered.contains("x = BinOp(Add, x, 1)"),
+        core_rendered.contains("StoreName(\"x\", BinOp(Add, x, 1))"),
         "{core_rendered}"
     );
     assert!(core_rendered.contains("return x"), "{core_rendered}");
@@ -1833,7 +1883,10 @@ def choose(y):
 
     let lowered = TrackedLowering::new(source);
     let blockpy_rendered = lowered.blockpy_text();
-    assert!(blockpy_rendered.contains("x = y"), "{blockpy_rendered}");
+    assert!(
+        blockpy_rendered.contains("StoreName(\"x\", y)"),
+        "{blockpy_rendered}"
+    );
     assert!(
         blockpy_rendered.contains("return f(x)"),
         "{blockpy_rendered}"

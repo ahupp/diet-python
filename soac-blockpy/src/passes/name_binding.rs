@@ -1210,6 +1210,21 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 if let Some(name) = quiet_delete_marker_target(&expr) {
                     return rewrite_quiet_delete_marker(name, self.semantic, self);
                 }
+                if let Some((name, value, node_index, range)) =
+                    unresolved_semantic_store_parts(&expr)
+                {
+                    return rewrite_binding_assign_by_name(
+                        name,
+                        self.map_expr(value),
+                        self.semantic,
+                        self,
+                        node_index,
+                        range,
+                    );
+                }
+                if let Some(target) = unresolved_semantic_delete_target(&expr) {
+                    return rewrite_binding_delete(target, self.semantic, self);
+                }
                 BlockPyStmt::Expr(self.map_expr(expr))
             }
             BlockPyStmt::Assign(assign) => self.map_assign(assign),
@@ -1298,6 +1313,38 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
     }
 }
 
+fn unresolved_semantic_store_parts(
+    expr: &CoreBlockPyExpr,
+) -> Option<(
+    String,
+    CoreBlockPyExpr,
+    ast::AtomicNodeIndex,
+    ruff_text_size::TextRange,
+)> {
+    let CoreBlockPyExpr::Store(op) = expr else {
+        return None;
+    };
+    if op.name.is_runtime_name() || is_internal_symbol(op.name.id_str()) {
+        return None;
+    }
+    Some((
+        op.name.id_str().to_string(),
+        op.value.as_ref().clone(),
+        op.name.node_index(),
+        op.name.range(),
+    ))
+}
+
+fn unresolved_semantic_delete_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
+    let CoreBlockPyExpr::Del(op) = expr else {
+        return None;
+    };
+    if op.quietly || op.name.is_runtime_name() || is_internal_symbol(op.name.id_str()) {
+        return None;
+    }
+    Some(op.name.clone().into())
+}
+
 impl NameBindingMapper<'_> {
     fn map_assign(&self, assign: CoreAssign) -> CoreStmt {
         if is_local_cell_init_assign(&assign) {
@@ -1328,6 +1375,16 @@ fn collect_deleted_names_in_stmt(
             names.insert(assign.target.id_str().to_string());
         }
         BlockPyStmt::Expr(expr) => {
+            if let Some((name, value, _, _)) = unresolved_semantic_store_parts(expr) {
+                if semantic.has_local_def(name.as_str()) && is_deleted_sentinel_expr(&value) {
+                    names.insert(name);
+                }
+            }
+            if let Some(target) = unresolved_semantic_delete_target(expr) {
+                if semantic.has_local_def(target.id.as_str()) {
+                    names.insert(target.id.to_string());
+                }
+            }
             if let Some(name) = store_cell_deleted_logical_name(expr, semantic, storage_layout) {
                 names.insert(name);
             }
@@ -1636,6 +1693,11 @@ fn collect_runtime_bound_local_names_in_stmt(
             names.insert(assign.target.id_str().to_string());
         }
         BlockPyStmt::Expr(expr) => {
+            if let Some((name, value, _, _)) = unresolved_semantic_store_parts(expr) {
+                if semantic.has_local_def(name.as_str()) && !is_deleted_sentinel_expr(&value) {
+                    names.insert(name);
+                }
+            }
             if let Some(name) = store_cell_runtime_logical_name(expr, semantic, storage_layout) {
                 names.insert(name);
             }

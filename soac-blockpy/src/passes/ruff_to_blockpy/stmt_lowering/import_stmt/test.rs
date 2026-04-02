@@ -33,6 +33,8 @@ fn stmt_import_to_blockpy_uses_trait_owned_simplification_path() {
     let fragment = out.finish();
     assert!(matches!(
         fragment.body.as_slice(),
-        [StructuredBlockPyStmt::Assign(_)]
+        [StructuredBlockPyStmt::Expr(
+            CoreBlockPyExprWithAwaitAndYield::Store(_)
+        )]
     ));
 }
