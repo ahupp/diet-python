@@ -132,7 +132,9 @@ def f():
                         !expr_contains_literal(expr),
                         "expr stmt should not retain executable literals: {expr:?}"
                     ),
-                    BlockPyStmt::Delete(_) => {}
+                    BlockPyStmt::Delete(_) => unreachable!(
+                        "string normalization tests should see Expr(Del) rather than stmt Delete"
+                    ),
                 }
             }
             match &block.term {
@@ -189,7 +191,9 @@ def f(obj, mapping, key, value):
                     BlockPyStmt::Expr(expr) => {
                         collect_helper_like_names_in_expr(&mut helper_names, expr);
                     }
-                    BlockPyStmt::Delete(_) => {}
+                    BlockPyStmt::Delete(_) => unreachable!(
+                        "string normalization tests should see Expr(Del) rather than stmt Delete"
+                    ),
                 }
             }
         }

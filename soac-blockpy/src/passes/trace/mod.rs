@@ -104,8 +104,12 @@ impl PreparedTraceNameLocator {
                             .entry(assign.target.id.to_string())
                             .or_insert(assign.target.location);
                     }
-                    crate::block_py::BlockPyStmt::Expr(_)
-                    | crate::block_py::BlockPyStmt::Delete(_) => {}
+                    crate::block_py::BlockPyStmt::Expr(_) => {}
+                    crate::block_py::BlockPyStmt::Delete(_) => {
+                        unreachable!(
+                            "codegen trace preparation should not see stmt deletes after name binding normalization"
+                        )
+                    }
                 }
             }
         }
