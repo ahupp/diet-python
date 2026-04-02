@@ -576,17 +576,9 @@ fn stmt_yield_site(stmt: &LinearYieldStmt) -> Option<YieldSite> {
             }),
             _ => None,
         },
-        BlockPyStmt::Assign(assign) => match &assign.value {
-            CoreBlockPyExprWithYield::Yield(yield_expr) => Some(YieldSite::AssignYield {
-                target: assign.target.clone(),
-                value: yield_expr.value.as_deref().cloned(),
-            }),
-            CoreBlockPyExprWithYield::YieldFrom(yield_from) => Some(YieldSite::AssignYieldFrom {
-                target: assign.target.clone(),
-                value: (*yield_from.value).clone(),
-            }),
-            _ => None,
-        },
+        BlockPyStmt::Assign(_) => {
+            unreachable!("generator lowering should not see stmt Assign(Yield/YieldFrom) anymore")
+        }
         BlockPyStmt::Delete(_) | BlockPyStmt::Expr(_) => None,
     }
 }
