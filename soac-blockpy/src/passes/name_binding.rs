@@ -2719,9 +2719,29 @@ fn lower_name_binding_callable(
         }
         rewrite_raw_cell_loads_in_term(&mut block.term, &semantic, &mapper);
     }
-    let mut lowered = refresh_bb_callable_block_params(locate_names_in_callable(lowered));
+    let mut lowered = normalize_delete_stmts_in_resolved_callable(
+        refresh_bb_callable_block_params(locate_names_in_callable(lowered)),
+    );
     ensure_storage_layout_covers_block_params(&mut lowered);
     lowered
+}
+
+fn normalize_delete_stmts_in_resolved_callable(
+    mut callable: BlockPyFunction<ResolvedStorageBlockPyPass>,
+) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
+    for block in &mut callable.blocks {
+        for stmt in &mut block.body {
+            let BlockPyStmt::Delete(delete) = stmt.clone() else {
+                continue;
+            };
+            let meta =
+                crate::block_py::Meta::new(delete.target.node_index(), delete.target.range());
+            let expr: LocatedCoreBlockPyExpr =
+                Del::new(delete.target, false).with_meta(meta).into();
+            *stmt = BlockPyStmt::Expr(expr);
+        }
+    }
+    callable
 }
 
 #[derive(Default)]
