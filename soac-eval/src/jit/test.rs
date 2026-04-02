@@ -118,7 +118,9 @@ mod tests {
         target: LocatedName,
         value: LocatedCodegenBlockPyExpr,
     ) -> BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName> {
-        BlockPyStmt::Assign(BlockPyAssign { target, value })
+        expr_stmt(op_expr(
+            Store::new(target, value).with_meta(Meta::synthetic()),
+        ))
     }
 
     fn delete_stmt(target: LocatedName) -> BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName> {

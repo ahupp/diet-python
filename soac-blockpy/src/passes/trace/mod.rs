@@ -104,6 +104,11 @@ impl PreparedTraceNameLocator {
                             .entry(assign.target.id.to_string())
                             .or_insert(assign.target.location);
                     }
+                    crate::block_py::BlockPyStmt::Expr(CodegenBlockPyExpr::Store(store)) => {
+                        existing_locations
+                            .entry(store.name.id.to_string())
+                            .or_insert(store.name.location);
+                    }
                     crate::block_py::BlockPyStmt::Expr(_) => {}
                     crate::block_py::BlockPyStmt::Delete(_) => {
                         unreachable!(
