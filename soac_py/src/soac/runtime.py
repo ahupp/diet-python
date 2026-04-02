@@ -36,12 +36,12 @@ format = builtins.format
 AssertionError = builtins.AssertionError
 
 
-def _tuple_helper(*values):
-    # tuple_values is strict variadic tuple construction for transformed code.
+def tuple_values(*values):
+    # Strict variadic tuple construction for transformed code.
     return builtins.tuple(values)
 
 
-def _tuple_from_iter_helper(value):
+def tuple_from_iter(value):
     return builtins.tuple(value)
 
 
@@ -70,8 +70,6 @@ ELLIPSIS = Ellipsis
 TRUE = True
 FALSE = False
 NONE = None
-tuple_values = _tuple_helper
-tuple_from_iter = _tuple_from_iter_helper
 
 
 def load_deleted_name(name, value):
