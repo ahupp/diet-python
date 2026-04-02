@@ -1,11 +1,11 @@
 use super::*;
 use soac_blockpy::block_py::{
-    BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyModule,
-    BlockPyStmt, BlockPyTerm, Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock,
-    CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBytesLiteral,
-    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName,
-    HasMeta, InstrExprNode, Load, LocatedCodegenBlockPyExpr, LocatedName, Meta, ModuleNameGen,
-    NameLocation, Param, ParamKind, ParamSpec, StorageLayout, Store, WithMeta,
+    BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyFunction, BlockPyModule, BlockPyStmt,
+    BlockPyTerm, Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
+    CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBytesLiteral, CoreNumberLiteral,
+    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, InstrExprNode,
+    Load, LocatedCodegenBlockPyExpr, LocatedName, Meta, ModuleNameGen, NameLocation, Param,
+    ParamKind, ParamSpec, StorageLayout, Store, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
@@ -122,7 +122,9 @@ mod tests {
     }
 
     fn delete_stmt(target: LocatedName) -> BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName> {
-        BlockPyStmt::Delete(BlockPyDelete { target })
+        expr_stmt(op_expr(
+            Del::new(target, false).with_meta(Meta::synthetic()),
+        ))
     }
 
     fn ret_term(value: LocatedCodegenBlockPyExpr) -> BlockPyTerm<LocatedCodegenBlockPyExpr> {
@@ -199,7 +201,9 @@ mod tests {
                     match stmt {
                         BlockPyStmt::Assign(assign) => self.extract_expr(&mut assign.value),
                         BlockPyStmt::Expr(expr) => self.extract_expr(expr),
-                        BlockPyStmt::Delete(_) => {}
+                        BlockPyStmt::Delete(_) => unreachable!(
+                            "codegen test helpers should use Expr(Del) rather than stmt Delete"
+                        ),
                     }
                 }
                 match &mut block.term {

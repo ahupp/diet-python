@@ -2684,18 +2684,8 @@ fn emit_codegen_ops(
                 );
                 fb.ins().call(emit_ctx.decref_ref, &[value]);
             }
-            BlockPyStmt::Delete(delete_stmt) => {
-                delete_local_value(
-                    fb,
-                    local_names,
-                    local_values,
-                    delete_stmt.target.id.as_str(),
-                    stack_slots,
-                    emit_ctx.consts.deleted_const,
-                    emit_ctx.consts.ptr_ty,
-                    emit_ctx.incref_ref,
-                    emit_ctx.decref_ref,
-                )?;
+            BlockPyStmt::Delete(_) => {
+                unreachable!("codegen should not see stmt deletes after name binding normalization")
             }
         }
     }

@@ -292,7 +292,9 @@ impl ModuleConstantCollector {
         match stmt {
             BlockPyStmt::Assign(assign) => self.collect_expr(&assign.value),
             BlockPyStmt::Expr(expr) => self.collect_expr(expr),
-            BlockPyStmt::Delete(_) => {}
+            BlockPyStmt::Delete(_) => {
+                unreachable!("codegen should not see stmt deletes after name binding normalization")
+            }
         }
     }
 

@@ -2778,7 +2778,11 @@ impl ModuleConstantExtractor {
         match stmt {
             BlockPyStmt::Assign(assign) => self.extract_expr(&mut assign.value),
             BlockPyStmt::Expr(expr) => self.extract_expr(expr),
-            BlockPyStmt::Delete(_) => {}
+            BlockPyStmt::Delete(_) => {
+                unreachable!(
+                    "resolved name-binding output should normalize stmt deletes into Expr(Del)"
+                )
+            }
         }
     }
 

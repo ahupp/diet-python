@@ -101,7 +101,6 @@ fn op_updates_exception_state(op: &BlockPyStmt) -> bool {
     matches!(
         op,
         BlockPyStmt::Assign(_)
-            | BlockPyStmt::Delete(_)
             | BlockPyStmt::Expr(CoreBlockPyExpr::Store(_))
             | BlockPyStmt::Expr(CoreBlockPyExpr::Del(_))
     )
