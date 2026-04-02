@@ -50,18 +50,18 @@ def __deepcopy__(memo):
     return sys.modules[__name__]
 
 
-_dp_typing = builtins.__import__("typing")
-_dp_templatelib = builtins.__import__(
+_typing = builtins.__import__("typing")
+_templatelib = builtins.__import__(
     "string.templatelib", globals(), {}, ("Template", "Interpolation"), 0
 )
-typing_Generic = _dp_typing.Generic
-typing_TypeVar = _dp_typing.TypeVar
-typing_TypeVarTuple = _dp_typing.TypeVarTuple
-typing_ParamSpec = _dp_typing.ParamSpec
-typing_TypeAliasType = _dp_typing.TypeAliasType
-typing_Unpack = _dp_typing.Unpack
-templatelib_Template = _dp_templatelib.Template
-templatelib_Interpolation = _dp_templatelib.Interpolation
+typing_Generic = _typing.Generic
+typing_TypeVar = _typing.TypeVar
+typing_TypeVarTuple = _typing.TypeVarTuple
+typing_ParamSpec = _typing.ParamSpec
+typing_TypeAliasType = _typing.TypeAliasType
+typing_Unpack = _typing.Unpack
+templatelib_Template = _templatelib.Template
+templatelib_Interpolation = _templatelib.Interpolation
 
 _MISSING = object()
 DELETED = object()
