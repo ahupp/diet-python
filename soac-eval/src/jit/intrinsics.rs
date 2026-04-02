@@ -4,7 +4,9 @@ use cranelift_codegen::ir;
 use cranelift_codegen::ir::InstBuilder;
 use cranelift_frontend::FunctionBuilder;
 use pyo3::ffi;
-use soac_blockpy::block_py::{BlockPyNameLike, Instr, LocatedCodegenBlockPyExpr, NameLocation};
+use soac_blockpy::block_py::{
+    BlockPyNameLike, CodegenBlockPyExpr, Instr, LocatedCodegenBlockPyExpr, NameLocation,
+};
 
 pub(super) trait OperationEmitState<'fb, E> {
     fn ctx(&self) -> &JitEmitCtx<'_>;
@@ -613,25 +615,27 @@ pub(super) fn emit_del_deref_raw_cell<'fb, E>(
 }
 
 pub(super) fn emit_operation<'fb>(
-    operation: &blockpy_intrinsics::OperationDetail<LocatedCodegenBlockPyExpr>,
+    operation: &LocatedCodegenBlockPyExpr,
     state: &mut impl OperationEmitState<'fb, LocatedCodegenBlockPyExpr>,
 ) -> Option<ir::Value> {
     match operation {
-        blockpy_intrinsics::OperationDetail::BinOp(op) => Some(emit_binop(
+        CodegenBlockPyExpr::Name(_)
+        | CodegenBlockPyExpr::Literal(_)
+        | CodegenBlockPyExpr::Call(_) => None,
+        CodegenBlockPyExpr::BinOp(op) => Some(emit_binop(
             op.kind,
             state,
             &[op.left.as_ref(), op.right.as_ref()],
         )),
-        blockpy_intrinsics::OperationDetail::UnaryOp(op) => {
+        CodegenBlockPyExpr::UnaryOp(op) => {
             Some(emit_unary_op(op.kind, state, &[op.operand.as_ref()]))
         }
-        blockpy_intrinsics::OperationDetail::Call(_) => None,
-        blockpy_intrinsics::OperationDetail::GetAttr(op) => Some(emit_getattr(op, state)),
-        blockpy_intrinsics::OperationDetail::SetAttr(op) => Some(emit_setattr(op, state)),
-        blockpy_intrinsics::OperationDetail::GetItem(op) => {
+        CodegenBlockPyExpr::GetAttr(op) => Some(emit_getattr(op, state)),
+        CodegenBlockPyExpr::SetAttr(op) => Some(emit_setattr(op, state)),
+        CodegenBlockPyExpr::GetItem(op) => {
             Some(emit_getitem(state, &[op.value.as_ref(), op.index.as_ref()]))
         }
-        blockpy_intrinsics::OperationDetail::SetItem(op) => Some(emit_setitem(
+        CodegenBlockPyExpr::SetItem(op) => Some(emit_setitem(
             state,
             &[
                 op.value.as_ref(),
@@ -639,26 +643,24 @@ pub(super) fn emit_operation<'fb>(
                 op.replacement.as_ref(),
             ],
         )),
-        blockpy_intrinsics::OperationDetail::DelItem(op) => Some(emit_positional_owned_call(
+        CodegenBlockPyExpr::DelItem(op) => Some(emit_positional_owned_call(
             &DP_JIT_PYOBJECT_DELITEM_IMPORT,
             state,
             &[op.value.as_ref(), op.index.as_ref()],
         )),
-        blockpy_intrinsics::OperationDetail::Load(op) => (op.name.location.is_global()
+        CodegenBlockPyExpr::Load(op) => (op.name.location.is_global()
             || op.name.location.is_runtime_name())
         .then(|| emit_load(op, state)),
-        blockpy_intrinsics::OperationDetail::MakeCell(op) => {
+        CodegenBlockPyExpr::MakeCell(op) => {
             Some(emit_make_cell(state, &[op.initial_value.as_ref()]))
         }
-        blockpy_intrinsics::OperationDetail::MakeString(op) => Some(emit_make_string(op, state)),
-        blockpy_intrinsics::OperationDetail::CellRefForName(_) => None,
-        blockpy_intrinsics::OperationDetail::CellRef(_) => None,
-        blockpy_intrinsics::OperationDetail::MakeFunction(_) => None,
-        blockpy_intrinsics::OperationDetail::Store(op) => {
+        CodegenBlockPyExpr::MakeString(op) => Some(emit_make_string(op, state)),
+        CodegenBlockPyExpr::CellRefForName(_) => None,
+        CodegenBlockPyExpr::CellRef(_) => None,
+        CodegenBlockPyExpr::MakeFunction(_) => None,
+        CodegenBlockPyExpr::Store(op) => {
             op.name.location.is_global().then(|| emit_store(op, state))
         }
-        blockpy_intrinsics::OperationDetail::Del(op) => {
-            op.name.location.is_global().then(|| emit_del(op, state))
-        }
+        CodegenBlockPyExpr::Del(op) => op.name.location.is_global().then(|| emit_del(op, state)),
     }
 }

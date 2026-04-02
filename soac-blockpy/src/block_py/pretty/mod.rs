@@ -1,10 +1,9 @@
 use super::{
     BlockArg, BlockParamRole, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyLinearizablePass, BlockPyModule,
-    BlockPyNameLike, BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyStmtFor, BlockPyTerm, Call,
-    CfgBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral, Expr, Instr, PassBlock, PassExpr, PassStmt, PassTerm, RuffExpr,
+    BlockPyNameLike, BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyTerm, Call, CfgBlock,
+    CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
+    CoreBlockPyLiteral, Expr, Instr, PassBlock, PassExpr, PassTerm, RuffExpr,
     StructuredBlockPyStmt,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
@@ -589,7 +588,7 @@ fn render_number_literal_text(value: &super::CoreNumberLiteralValue) -> String {
     }
 }
 
-fn render_core_literal_text(literal: &CoreBlockPyLiteral) -> String {
+pub(crate) fn render_core_literal_text(literal: &CoreBlockPyLiteral) -> String {
     match literal {
         CoreBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value),
         CoreBlockPyLiteral::BytesLiteral(literal) => bytes_text(&literal.value),
@@ -597,7 +596,7 @@ fn render_core_literal_text(literal: &CoreBlockPyLiteral) -> String {
     }
 }
 
-fn render_codegen_literal_text(literal: &CodegenBlockPyLiteral) -> String {
+pub(crate) fn render_codegen_literal_text(literal: &CodegenBlockPyLiteral) -> String {
     match literal {
         CodegenBlockPyLiteral::StringLiteral(literal) => format!("{:?}", literal.value),
         CodegenBlockPyLiteral::BytesLiteral(literal) => bytes_text(&literal.value),
@@ -605,7 +604,7 @@ fn render_codegen_literal_text(literal: &CodegenBlockPyLiteral) -> String {
     }
 }
 
-fn render_call_text<E: BlockPyDebugExprText>(call: &Call<E>) -> String {
+pub(crate) fn render_call_text<E: BlockPyDebugExprText>(call: &Call<E>) -> String {
     let mut parts = Vec::new();
     for arg in &call.args {
         parts.push(match arg {
@@ -657,146 +656,183 @@ where
     }
 }
 
-fn render_operation_detail_debug_text<E>(detail: &crate::block_py::OperationDetail<E>) -> String
+pub(crate) trait BlockPyDebugOperationText {
+    fn debug_operation_text(&self) -> String;
+}
+
+impl<E> BlockPyDebugOperationText for crate::block_py::MakeFunction<E>
 where
     E: crate::block_py::Instr + BlockPyDebugExprText,
 {
-    match detail {
-        crate::block_py::OperationDetail::MakeFunction(op) => debug_tuple_text(
+    fn debug_operation_text(&self) -> String {
+        debug_tuple_text(
             "MakeFunction",
             [
-                op.function_id.0.to_string(),
-                format!("{:?}", op.kind),
-                op.param_defaults.debug_expr_text(),
-                op.annotate_fn.debug_expr_text(),
+                self.function_id.0.to_string(),
+                format!("{:?}", self.kind),
+                self.param_defaults.debug_expr_text(),
+                self.annotate_fn.debug_expr_text(),
             ],
-        ),
-        crate::block_py::OperationDetail::Call(call) => render_call_text(call),
-        crate::block_py::OperationDetail::GetAttr(op) => debug_tuple_text(
+        )
+    }
+}
+
+impl<E> BlockPyDebugOperationText for Call<E>
+where
+    E: crate::block_py::Instr + BlockPyDebugExprText,
+{
+    fn debug_operation_text(&self) -> String {
+        render_call_text(self)
+    }
+}
+
+impl<E> BlockPyDebugOperationText for crate::block_py::GetAttr<E>
+where
+    E: Instr + BlockPyDebugExprText,
+{
+    fn debug_operation_text(&self) -> String {
+        debug_tuple_text(
             "GetAttr",
-            [op.value.debug_expr_text(), op.attr.debug_expr_text()],
-        ),
-        crate::block_py::OperationDetail::SetAttr(op) => debug_tuple_text(
+            [self.value.debug_expr_text(), self.attr.debug_expr_text()],
+        )
+    }
+}
+
+impl<E> BlockPyDebugOperationText for crate::block_py::SetAttr<E>
+where
+    E: Instr + BlockPyDebugExprText,
+{
+    fn debug_operation_text(&self) -> String {
+        debug_tuple_text(
             "SetAttr",
             [
-                op.value.debug_expr_text(),
-                op.attr.debug_expr_text(),
-                op.replacement.debug_expr_text(),
+                self.value.debug_expr_text(),
+                self.attr.debug_expr_text(),
+                self.replacement.debug_expr_text(),
             ],
-        ),
-        crate::block_py::OperationDetail::Load(op) => op.name.pretty_id(),
-        crate::block_py::OperationDetail::Store(op) => {
-            render_store_debug_text(&op.name, op.value.as_ref())
-        }
-        crate::block_py::OperationDetail::Del(op) => render_del_debug_text(&op.name, op.quietly),
-        crate::block_py::OperationDetail::MakeString(op) => {
-            debug_tuple_text("MakeString", [bytes_text(&op.bytes)])
-        }
-        crate::block_py::OperationDetail::CellRefForName(op) => {
-            debug_tuple_text("CellRefForName", [format!("{:?}", op.logical_name)])
-        }
-        crate::block_py::OperationDetail::CellRef(op) => {
-            debug_tuple_text("CellRef", [op.location.pretty_id()])
-        }
-        crate::block_py::OperationDetail::BinOp(op) => debug_tuple_text(
+        )
+    }
+}
+
+impl<E> BlockPyDebugOperationText for crate::block_py::Load<E>
+where
+    E: Instr + BlockPyDebugExprText,
+{
+    fn debug_operation_text(&self) -> String {
+        self.name.pretty_id()
+    }
+}
+
+impl<E> BlockPyDebugOperationText for crate::block_py::Store<E>
+where
+    E: Instr + BlockPyDebugExprText,
+{
+    fn debug_operation_text(&self) -> String {
+        render_store_debug_text(&self.name, self.value.as_ref())
+    }
+}
+
+impl<E> BlockPyDebugOperationText for crate::block_py::Del<E>
+where
+    E: Instr + BlockPyDebugExprText,
+{
+    fn debug_operation_text(&self) -> String {
+        render_del_debug_text(&self.name, self.quietly)
+    }
+}
+
+impl BlockPyDebugOperationText for crate::block_py::MakeString {
+    fn debug_operation_text(&self) -> String {
+        debug_tuple_text("MakeString", [bytes_text(&self.bytes)])
+    }
+}
+
+impl BlockPyDebugOperationText for crate::block_py::CellRefForName {
+    fn debug_operation_text(&self) -> String {
+        debug_tuple_text("CellRefForName", [format!("{:?}", self.logical_name)])
+    }
+}
+
+impl BlockPyDebugOperationText for crate::block_py::CellRef {
+    fn debug_operation_text(&self) -> String {
+        debug_tuple_text("CellRef", [self.location.pretty_id()])
+    }
+}
+
+impl<E> BlockPyDebugOperationText for crate::block_py::BinOp<E>
+where
+    E: Instr + BlockPyDebugExprText,
+{
+    fn debug_operation_text(&self) -> String {
+        debug_tuple_text(
             "BinOp",
             [
-                format!("{:?}", op.kind),
-                op.left.debug_expr_text(),
-                op.right.debug_expr_text(),
+                format!("{:?}", self.kind),
+                self.left.debug_expr_text(),
+                self.right.debug_expr_text(),
             ],
-        ),
-        crate::block_py::OperationDetail::UnaryOp(op) => debug_tuple_text(
+        )
+    }
+}
+
+impl<E> BlockPyDebugOperationText for crate::block_py::UnaryOp<E>
+where
+    E: Instr + BlockPyDebugExprText,
+{
+    fn debug_operation_text(&self) -> String {
+        debug_tuple_text(
             "UnaryOp",
-            [format!("{:?}", op.kind), op.operand.debug_expr_text()],
-        ),
-        crate::block_py::OperationDetail::GetItem(op) => debug_tuple_text(
+            [format!("{:?}", self.kind), self.operand.debug_expr_text()],
+        )
+    }
+}
+
+impl<E> BlockPyDebugOperationText for crate::block_py::GetItem<E>
+where
+    E: Instr + BlockPyDebugExprText,
+{
+    fn debug_operation_text(&self) -> String {
+        debug_tuple_text(
             "GetItem",
-            [op.value.debug_expr_text(), op.index.debug_expr_text()],
-        ),
-        crate::block_py::OperationDetail::SetItem(op) => debug_tuple_text(
+            [self.value.debug_expr_text(), self.index.debug_expr_text()],
+        )
+    }
+}
+
+impl<E> BlockPyDebugOperationText for crate::block_py::SetItem<E>
+where
+    E: Instr + BlockPyDebugExprText,
+{
+    fn debug_operation_text(&self) -> String {
+        debug_tuple_text(
             "SetItem",
             [
-                op.value.debug_expr_text(),
-                op.index.debug_expr_text(),
-                op.replacement.debug_expr_text(),
+                self.value.debug_expr_text(),
+                self.index.debug_expr_text(),
+                self.replacement.debug_expr_text(),
             ],
-        ),
-        crate::block_py::OperationDetail::DelItem(op) => debug_tuple_text(
-            "DelItem",
-            [op.value.debug_expr_text(), op.index.debug_expr_text()],
-        ),
-        crate::block_py::OperationDetail::MakeCell(op) => {
-            debug_tuple_text("MakeCell", [op.initial_value.debug_expr_text()])
-        }
+        )
     }
 }
 
-impl<N> BlockPyDebugExprText for CoreBlockPyExpr<N>
+impl<E> BlockPyDebugOperationText for crate::block_py::DelItem<E>
 where
-    N: BlockPyNameLike,
+    E: Instr + BlockPyDebugExprText,
 {
-    fn debug_expr_text(&self) -> String {
-        match self {
-            CoreBlockPyExpr::Name(name) => name.pretty_id(),
-            CoreBlockPyExpr::Literal(literal) => render_core_literal_text(literal),
-            CoreBlockPyExpr::Op(operation) => render_operation_detail_debug_text(
-                &crate::block_py::OperationDetail::from(operation.clone()),
-            ),
-        }
+    fn debug_operation_text(&self) -> String {
+        debug_tuple_text(
+            "DelItem",
+            [self.value.debug_expr_text(), self.index.debug_expr_text()],
+        )
     }
 }
 
-impl BlockPyDebugExprText for CoreBlockPyExprWithYield {
-    fn debug_expr_text(&self) -> String {
-        match self {
-            CoreBlockPyExprWithYield::Name(name) => name.pretty_id(),
-            CoreBlockPyExprWithYield::Literal(literal) => render_core_literal_text(literal),
-            CoreBlockPyExprWithYield::Op(operation) => render_operation_detail_debug_text(
-                &crate::block_py::OperationDetail::from(operation.clone()),
-            ),
-            CoreBlockPyExprWithYield::Yield(yield_expr) => match &yield_expr.value {
-                Some(value) => format!("yield {}", value.debug_expr_text()),
-                None => "yield".to_string(),
-            },
-            CoreBlockPyExprWithYield::YieldFrom(yield_from_expr) => {
-                format!("yield from {}", yield_from_expr.value.debug_expr_text())
-            }
-        }
-    }
-}
-
-impl BlockPyDebugExprText for CoreBlockPyExprWithAwaitAndYield {
-    fn debug_expr_text(&self) -> String {
-        match self {
-            CoreBlockPyExprWithAwaitAndYield::Name(name) => name.pretty_id(),
-            CoreBlockPyExprWithAwaitAndYield::Literal(literal) => render_core_literal_text(literal),
-            CoreBlockPyExprWithAwaitAndYield::Op(operation) => render_operation_detail_debug_text(
-                &crate::block_py::OperationDetail::from(operation.clone()),
-            ),
-            CoreBlockPyExprWithAwaitAndYield::Await(await_expr) => {
-                format!("await {}", await_expr.value.debug_expr_text())
-            }
-            CoreBlockPyExprWithAwaitAndYield::Yield(yield_expr) => match &yield_expr.value {
-                Some(value) => format!("yield {}", value.debug_expr_text()),
-                None => "yield".to_string(),
-            },
-            CoreBlockPyExprWithAwaitAndYield::YieldFrom(yield_from_expr) => {
-                format!("yield from {}", yield_from_expr.value.debug_expr_text())
-            }
-        }
-    }
-}
-
-impl BlockPyDebugExprText for CodegenBlockPyExpr {
-    fn debug_expr_text(&self) -> String {
-        match self {
-            CodegenBlockPyExpr::Name(name) => name.pretty_id(),
-            CodegenBlockPyExpr::Literal(literal) => render_codegen_literal_text(literal),
-            CodegenBlockPyExpr::Op(operation) => render_operation_detail_debug_text(
-                &crate::block_py::OperationDetail::from(operation.clone()),
-            ),
-        }
+impl<E> BlockPyDebugOperationText for crate::block_py::MakeCell<E>
+where
+    E: Instr + BlockPyDebugExprText,
+{
+    fn debug_operation_text(&self) -> String {
+        debug_tuple_text("MakeCell", [self.initial_value.debug_expr_text()])
     }
 }
 

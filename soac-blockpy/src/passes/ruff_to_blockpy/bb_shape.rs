@@ -1,8 +1,7 @@
 use crate::block_py::cfg::linearize_structured_ifs;
-use crate::block_py::operation;
 use crate::block_py::{
     BlockArg, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike, BlockPyStmt, BlockPyTerm,
-    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, Instr, StructuredBlockPyStmt,
+    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, Instr, InstrExprNode, StructuredBlockPyStmt,
     UnresolvedName,
 };
 use ruff_python_ast::{self as ast};
@@ -148,8 +147,81 @@ fn rewrite_current_exception_in_expr_with_await_and_yield(
     exc_name: &str,
 ) {
     match expr {
-        CoreBlockPyExprWithAwaitAndYield::Op(operation) => {
-            operation.walk_args_mut(&mut |arg| {
+        CoreBlockPyExprWithAwaitAndYield::BinOp(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::UnaryOp(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::Call(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::GetAttr(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::SetAttr(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::GetItem(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::SetItem(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::DelItem(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::Load(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::Store(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::Del(operation) => operation.visit_exprs_mut(&mut |arg| {
+            rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+        }),
+        CoreBlockPyExprWithAwaitAndYield::MakeCell(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::MakeString(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::CellRefForName(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            });
+        }
+        CoreBlockPyExprWithAwaitAndYield::CellRef(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
+                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
+            })
+        }
+        CoreBlockPyExprWithAwaitAndYield::MakeFunction(operation) => {
+            operation.visit_exprs_mut(&mut |arg| {
                 rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
             });
         }
@@ -180,10 +252,7 @@ fn rewrite_current_exception_in_expr_with_await_and_yield(
 }
 
 fn is_current_exception_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
-    let CoreBlockPyExprWithAwaitAndYield::Op(operation) = expr else {
-        return false;
-    };
-    let operation::CoreExprOpWithAwaitAndYield::Call(call) = operation else {
+    let CoreBlockPyExprWithAwaitAndYield::Call(call) = expr else {
         return false;
     };
     call.args.is_empty()
@@ -307,9 +376,85 @@ where
     N: BlockPyNameLike,
 {
     match expr {
-        CoreBlockPyExpr::Op(operation) => {
-            operation
-                .walk_args_mut(&mut |arg| rewrite_current_exception_in_blockpy_expr(arg, exc_name));
+        CoreBlockPyExpr::BinOp(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::UnaryOp(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::Call(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::GetAttr(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::SetAttr(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::GetItem(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::SetItem(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::DelItem(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::Load(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::Store(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::Del(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::MakeCell(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::MakeString(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::CellRefForName(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::CellRef(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
+        CoreBlockPyExpr::MakeFunction(operation) => {
+            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
         }
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
     }
@@ -319,23 +464,11 @@ where
     }
 }
 
-fn operation_expr<N: BlockPyNameLike + Clone>(
-    expr: &CoreBlockPyExpr<N>,
-) -> Option<&operation::CoreExprOp<CoreBlockPyExpr<N>>> {
-    match expr {
-        CoreBlockPyExpr::Op(operation) => Some(operation),
-        _ => None,
-    }
-}
-
 fn is_current_exception_call<N>(expr: &CoreBlockPyExpr<N>) -> bool
 where
     N: BlockPyNameLike,
 {
-    let Some(operation) = operation_expr(expr) else {
-        return false;
-    };
-    let operation::CoreExprOp::Call(call) = operation else {
+    let CoreBlockPyExpr::Call(call) = expr else {
         return false;
     };
     call.args.is_empty()
@@ -356,10 +489,7 @@ where
 {
     match expr {
         CoreBlockPyExpr::Name(name) => Some(name.id_str()),
-        CoreBlockPyExpr::Op(operation) => match operation {
-            operation::CoreExprOp::Load(op) => Some(op.name.id_str()),
-            _ => None,
-        },
+        CoreBlockPyExpr::Load(op) => Some(op.name.id_str()),
         _ => None,
     }
 }
@@ -367,10 +497,7 @@ where
 fn expr_root_name_id_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYield) -> Option<&str> {
     match expr {
         CoreBlockPyExprWithAwaitAndYield::Name(name) => Some(name.id_str()),
-        CoreBlockPyExprWithAwaitAndYield::Op(operation) => match operation {
-            operation::CoreExprOpWithAwaitAndYield::Load(op) => Some(op.name.id_str()),
-            _ => None,
-        },
+        CoreBlockPyExprWithAwaitAndYield::Load(op) => Some(op.name.id_str()),
         _ => None,
     }
 }

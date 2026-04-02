@@ -4,7 +4,7 @@ use crate::block_py::{
     expr_any, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyFunction, BlockPyIf,
     BlockPyIfTerm, BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
-    CoreBlockPyYieldFrom, Instr, StructuredBlockPyStmtFor,
+    CoreBlockPyYieldFrom, Instr, InstrExprNode, StructuredBlockPyStmtFor,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
@@ -58,10 +58,54 @@ fn make_eval_order_explicit_in_core_expr(
     match expr {
         CoreBlockPyExprWithAwaitAndYield::Name(_)
         | CoreBlockPyExprWithAwaitAndYield::Literal(_) => expr,
-        CoreBlockPyExprWithAwaitAndYield::Op(operation) => CoreBlockPyExprWithAwaitAndYield::Op(
-            operation
-                .map_expr(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup)),
-        ),
+        CoreBlockPyExprWithAwaitAndYield::BinOp(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::UnaryOp(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::Call(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::GetAttr(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::SetAttr(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::GetItem(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::SetItem(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::DelItem(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::Load(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::Store(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::Del(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::MakeCell(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::MakeString(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::CellRefForName(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::CellRef(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithAwaitAndYield::MakeFunction(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
+            .into(),
         CoreBlockPyExprWithAwaitAndYield::Await(await_expr) => {
             CoreBlockPyExprWithAwaitAndYield::Await(CoreBlockPyAwait {
                 node_index: await_expr.node_index,
@@ -238,11 +282,7 @@ fn is_core_atom_without_await(expr: &CoreBlockPyExprWithYield) -> bool {
     matches!(
         expr,
         CoreBlockPyExprWithYield::Name(_) | CoreBlockPyExprWithYield::Literal(_)
-    ) || matches!(
-        expr,
-        CoreBlockPyExprWithYield::Op(operation)
-            if matches!(operation, crate::block_py::CoreExprOpWithYield::Load(_))
-    )
+    ) || matches!(expr, CoreBlockPyExprWithYield::Load(_))
 }
 
 fn expr_contains_yield(expr: &CoreBlockPyExprWithYield) -> bool {
@@ -280,10 +320,54 @@ fn make_eval_order_explicit_in_core_expr_without_await(
 ) -> CoreBlockPyExprWithYield {
     match expr {
         CoreBlockPyExprWithYield::Name(_) | CoreBlockPyExprWithYield::Literal(_) => expr,
-        CoreBlockPyExprWithYield::Op(operation) => CoreBlockPyExprWithYield::Op(
-            operation
-                .map_expr(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup)),
-        ),
+        CoreBlockPyExprWithYield::BinOp(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::UnaryOp(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::Call(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::GetAttr(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::SetAttr(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::GetItem(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::SetItem(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::DelItem(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::Load(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::Store(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::Del(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::MakeCell(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::MakeString(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::CellRefForName(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::CellRef(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
+        CoreBlockPyExprWithYield::MakeFunction(operation) => operation
+            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
+            .into(),
         CoreBlockPyExprWithYield::Yield(yield_expr) => {
             CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
                 node_index: yield_expr.node_index,

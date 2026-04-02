@@ -1,8 +1,8 @@
 use super::normalize_bb_module_strings;
 use crate::{
     block_py::{
-        BlockPyNameLike, BlockPyStmt, BlockPyTerm, CodegenBlockPyExpr, CodegenBlockPyLiteral,
-        CodegenExprOp,
+        BlockPyExprLike, BlockPyNameLike, BlockPyStmt, BlockPyTerm, CodegenBlockPyExpr,
+        CodegenBlockPyLiteral, InstrExprNode,
     },
     lower_python_to_blockpy_for_testing,
     passes::lower_try_jump_exception_flow,
@@ -23,9 +23,9 @@ fn expr_contains_literal(expr: &CodegenBlockPyExpr) -> bool {
     match expr {
         CodegenBlockPyExpr::Name(_) => false,
         CodegenBlockPyExpr::Literal(_) => true,
-        CodegenBlockPyExpr::Op(operation) => {
+        _ => {
             let mut saw_literal = false;
-            operation.walk_args(&mut |arg| {
+            expr.walk_child_exprs(&mut |arg| {
                 if expr_contains_literal(arg) {
                     saw_literal = true;
                 }
@@ -47,21 +47,59 @@ fn module_constants_contain_string(exprs: &[CodegenBlockPyExpr]) -> bool {
 fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockPyExpr) {
     match expr {
         CodegenBlockPyExpr::Name(_) | CodegenBlockPyExpr::Literal(_) => {}
-        CodegenBlockPyExpr::Op(operation) => {
-            match operation {
-                CodegenExprOp::GetAttr(_) => out.push("__dp_getattr".to_string()),
-                CodegenExprOp::SetAttr(_) => out.push("__dp_setattr".to_string()),
-                CodegenExprOp::GetItem(_) => out.push("__dp_getitem".to_string()),
-                CodegenExprOp::SetItem(_) => out.push("__dp_setitem".to_string()),
-                CodegenExprOp::Call(call) => {
-                    if let CodegenBlockPyExpr::Name(name) = &*call.func {
-                        out.push(name.id_str().to_string());
-                    }
-                }
-                _ => {}
-            }
-            operation.walk_args(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        CodegenBlockPyExpr::GetAttr(operation) => {
+            out.push("__dp_getattr".to_string());
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
         }
+        CodegenBlockPyExpr::SetAttr(operation) => {
+            out.push("__dp_setattr".to_string());
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::GetItem(operation) => {
+            out.push("__dp_getitem".to_string());
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::SetItem(operation) => {
+            out.push("__dp_setitem".to_string());
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::Call(operation) => {
+            if let CodegenBlockPyExpr::Name(name) = &*operation.func {
+                out.push(name.id_str().to_string());
+            }
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::BinOp(operation) => {
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::UnaryOp(operation) => {
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::Load(operation) => {
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::Store(operation) => {
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::Del(operation) => {
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::MakeCell(operation) => {
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::CellRefForName(operation) => {
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::CellRef(operation) => {
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::MakeFunction(operation) => {
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::DelItem(operation) => {
+            operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
+        CodegenBlockPyExpr::MakeString(_) => {}
     }
 }
 

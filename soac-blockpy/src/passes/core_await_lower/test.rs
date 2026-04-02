@@ -61,17 +61,11 @@ fn lowers_await_to_yield_from_await_iter() {
     let CoreBlockPyExprWithYield::YieldFrom(yield_from) = &await_assign.value else {
         panic!("expected lowered await yield from");
     };
-    let CoreBlockPyExprWithYield::Op(operation) = yield_from.value.as_ref() else {
-        panic!("expected await_iter call");
-    };
-    let crate::block_py::CoreExprOpWithYield::Call(call) = operation else {
+    let CoreBlockPyExprWithYield::Call(call) = yield_from.value.as_ref() else {
         panic!("expected await_iter call op");
     };
-    let CoreBlockPyExprWithYield::Op(operation) = call.func.as_ref() else {
+    let CoreBlockPyExprWithYield::Load(operation) = call.func.as_ref() else {
         panic!("expected await helper load");
     };
-    assert!(matches!(
-        operation,
-        crate::block_py::CoreExprOpWithYield::Load(op) if op.name.is_runtime_symbol("await_iter")
-    ));
+    assert!(operation.name.is_runtime_symbol("await_iter"));
 }

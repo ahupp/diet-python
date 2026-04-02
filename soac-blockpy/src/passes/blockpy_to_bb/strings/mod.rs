@@ -1,7 +1,7 @@
 use crate::block_py::{
     core_operation_expr, BlockPyFunction, BlockPyModule, BlockPyModuleMap, CodegenBlockPyExpr,
     CodegenBlockPyLiteral, CoreBlockPyLiteral, HasMeta, Load, LocatedCodegenBlockPyExpr,
-    LocatedCoreBlockPyExpr, LocatedName, MapExpr, NameLocation, OperationDetail, WithMeta,
+    LocatedCoreBlockPyExpr, LocatedName, MapExpr, NameLocation, WithMeta,
 };
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use ruff_python_ast as ast;
@@ -59,13 +59,13 @@ impl BlockPyModuleMap<ResolvedStorageBlockPyPass, CodegenBlockPyPass> for Codege
                     CodegenBlockPyLiteral::StringLiteral(node.clone()),
                 ));
                 core_operation_expr(
-                    OperationDetail::from(Load::new(LocatedName {
+                    Load::new(LocatedName {
                         id: format!("__dp_constant_{constant_index}").into(),
                         ctx: ast::ExprContext::Load,
                         range: meta.range,
                         node_index: meta.node_index.clone(),
                         location: NameLocation::Constant(constant_index),
-                    }))
+                    })
                     .with_meta(meta),
                 )
             }

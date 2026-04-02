@@ -672,6 +672,8 @@ def code_with_freevars(names, is_async, is_generator):
     ns = {}
     exec("\n".join(outer_lines), {}, ns)
     code = ns["__dp_make_code"]()
+    if code.co_freevars != names:
+        code = code.replace(co_freevars=names)
     _DP_CODE_WITH_FREEVARS_CACHE[cache_key] = code
     return code
 

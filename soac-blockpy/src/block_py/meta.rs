@@ -1,5 +1,5 @@
 use super::{
-    BlockPyNameLike, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyAwait, CoreBlockPyExpr,
+    BlockPyNameLike, CodegenBlockPyLiteral, CoreBlockPyAwait, CoreBlockPyExpr,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyLiteral,
     CoreBlockPyYield, CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreStringLiteral,
     LocatedName, RuffExpr, UnresolvedName,
@@ -59,51 +59,6 @@ impl HasMeta for LocatedName {
 impl HasMeta for UnresolvedName {
     fn meta(&self) -> Meta {
         Meta::new(self.node_index(), self.range())
-    }
-}
-
-impl HasMeta for CoreBlockPyExprWithAwaitAndYield {
-    fn meta(&self) -> Meta {
-        match self {
-            Self::Name(name) => name.meta(),
-            Self::Literal(literal) => literal.meta(),
-            Self::Op(operation) => operation.meta(),
-            Self::Await(await_expr) => await_expr.meta(),
-            Self::Yield(yield_expr) => yield_expr.meta(),
-            Self::YieldFrom(yield_from_expr) => yield_from_expr.meta(),
-        }
-    }
-}
-
-impl HasMeta for CoreBlockPyExprWithYield {
-    fn meta(&self) -> Meta {
-        match self {
-            Self::Name(name) => name.meta(),
-            Self::Literal(literal) => literal.meta(),
-            Self::Op(operation) => operation.meta(),
-            Self::Yield(yield_expr) => yield_expr.meta(),
-            Self::YieldFrom(yield_from_expr) => yield_from_expr.meta(),
-        }
-    }
-}
-
-impl<N: BlockPyNameLike> HasMeta for CoreBlockPyExpr<N> {
-    fn meta(&self) -> Meta {
-        match self {
-            Self::Name(name) => Meta::new(name.node_index(), name.range()),
-            Self::Literal(literal) => literal.meta(),
-            Self::Op(operation) => operation.meta(),
-        }
-    }
-}
-
-impl HasMeta for CodegenBlockPyExpr {
-    fn meta(&self) -> Meta {
-        match self {
-            Self::Name(name) => Meta::new(name.node_index(), name.range()),
-            Self::Literal(literal) => literal.meta(),
-            Self::Op(operation) => operation.meta(),
-        }
     }
 }
 
@@ -184,5 +139,70 @@ impl<E> WithMeta for CoreBlockPyYieldFrom<E> {
         self.node_index = meta.node_index;
         self.range = meta.range;
         self
+    }
+}
+
+impl WithMeta for LocatedName {
+    fn with_meta(mut self, meta: Meta) -> Self {
+        self.node_index = meta.node_index;
+        self.range = meta.range;
+        self
+    }
+}
+
+impl WithMeta for UnresolvedName {
+    fn with_meta(self, meta: Meta) -> Self {
+        match self {
+            Self::ExprName(mut name) => {
+                name.node_index = meta.node_index;
+                name.range = meta.range;
+                Self::ExprName(name)
+            }
+            Self::RuntimeName(literal) => Self::RuntimeName(literal.with_meta(meta)),
+        }
+    }
+}
+
+impl WithMeta for CoreStringLiteral {
+    fn with_meta(mut self, meta: Meta) -> Self {
+        self.node_index = meta.node_index;
+        self.range = meta.range;
+        self
+    }
+}
+
+impl WithMeta for CoreBytesLiteral {
+    fn with_meta(mut self, meta: Meta) -> Self {
+        self.node_index = meta.node_index;
+        self.range = meta.range;
+        self
+    }
+}
+
+impl WithMeta for CoreNumberLiteral {
+    fn with_meta(mut self, meta: Meta) -> Self {
+        self.node_index = meta.node_index;
+        self.range = meta.range;
+        self
+    }
+}
+
+impl WithMeta for CoreBlockPyLiteral {
+    fn with_meta(self, meta: Meta) -> Self {
+        match self {
+            Self::StringLiteral(literal) => Self::StringLiteral(literal.with_meta(meta)),
+            Self::BytesLiteral(literal) => Self::BytesLiteral(literal.with_meta(meta)),
+            Self::NumberLiteral(literal) => Self::NumberLiteral(literal.with_meta(meta)),
+        }
+    }
+}
+
+impl WithMeta for CodegenBlockPyLiteral {
+    fn with_meta(self, meta: Meta) -> Self {
+        match self {
+            Self::StringLiteral(literal) => Self::StringLiteral(literal.with_meta(meta)),
+            Self::BytesLiteral(literal) => Self::BytesLiteral(literal.with_meta(meta)),
+            Self::NumberLiteral(literal) => Self::NumberLiteral(literal.with_meta(meta)),
+        }
     }
 }

@@ -2,9 +2,9 @@ use super::*;
 use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyModule,
     BlockPyStmt, BlockPyTerm, Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock,
-    CodegenBlockPyExpr, CodegenBlockPyLiteral, CodegenExprOp, CoreBlockPyCallArg, CoreBytesLiteral,
+    CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBytesLiteral,
     CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName,
-    HasMeta, Load, LocatedCodegenBlockPyExpr, LocatedName, MakeString, Meta, ModuleNameGen,
+    HasMeta, InstrExprNode, Load, LocatedCodegenBlockPyExpr, LocatedName, Meta, ModuleNameGen,
     NameLocation, Param, ParamKind, ParamSpec, StorageLayout, Store, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
@@ -104,8 +104,8 @@ mod tests {
         CodegenBlockPyExpr::Name(name)
     }
 
-    fn op_expr(operation: CodegenExprOp<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyExpr {
-        CodegenBlockPyExpr::Op(operation)
+    fn op_expr(operation: impl Into<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyExpr {
+        operation.into()
     }
 
     fn expr_stmt(
@@ -225,15 +225,51 @@ mod tests {
                     .expect("test module constant count should fit in u32");
                 let literal = std::mem::replace(
                     expr,
-                    CodegenBlockPyExpr::Op(
-                        CodegenExprOp::from(Load::new(test_constant_name(index))).with_meta(meta),
-                    ),
+                    Load::new(test_constant_name(index)).with_meta(meta).into(),
                 );
                 self.module_constants.push(literal);
                 return;
             }
-            if let CodegenBlockPyExpr::Op(operation) = expr {
-                operation.walk_args_mut(&mut |child| self.extract_expr(child));
+            match expr {
+                CodegenBlockPyExpr::Name(_) | CodegenBlockPyExpr::Literal(_) => {}
+                CodegenBlockPyExpr::BinOp(op) => {
+                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
+                }
+                CodegenBlockPyExpr::UnaryOp(op) => {
+                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
+                }
+                CodegenBlockPyExpr::Call(op) => {
+                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
+                }
+                CodegenBlockPyExpr::GetAttr(op) => {
+                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
+                }
+                CodegenBlockPyExpr::SetAttr(op) => {
+                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
+                }
+                CodegenBlockPyExpr::GetItem(op) => {
+                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
+                }
+                CodegenBlockPyExpr::SetItem(op) => {
+                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
+                }
+                CodegenBlockPyExpr::DelItem(op) => {
+                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
+                }
+                CodegenBlockPyExpr::Load(_) => {}
+                CodegenBlockPyExpr::Store(op) => {
+                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
+                }
+                CodegenBlockPyExpr::Del(_) => {}
+                CodegenBlockPyExpr::MakeCell(op) => {
+                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
+                }
+                CodegenBlockPyExpr::MakeString(_) => {}
+                CodegenBlockPyExpr::CellRefForName(_) => {}
+                CodegenBlockPyExpr::CellRef(_) => {}
+                CodegenBlockPyExpr::MakeFunction(op) => {
+                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
+                }
             }
         }
     }
@@ -332,8 +368,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                CodegenExprOp::from(BinOp::new(BinOpKind::Add, int_expr(1), int_expr(2)))
-                    .with_meta(Meta::synthetic()),
+                BinOp::new(BinOpKind::Add, int_expr(1), int_expr(2)).with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -354,8 +389,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                CodegenExprOp::from(BinOp::new(BinOpKind::Lt, int_expr(1), int_expr(2)))
-                    .with_meta(Meta::synthetic()),
+                BinOp::new(BinOpKind::Lt, int_expr(1), int_expr(2)).with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -388,7 +422,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                CodegenExprOp::from(Load::new(test_constant_name(0))).with_meta(Meta::synthetic()),
+                Load::new(test_constant_name(0)).with_meta(Meta::synthetic()),
             )),
         );
         let module = BlockPyModule {
@@ -411,8 +445,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                CodegenExprOp::from(BinOp::new(BinOpKind::Pow, int_expr(2), int_expr(3)))
-                    .with_meta(Meta::synthetic()),
+                BinOp::new(BinOpKind::Pow, int_expr(2), int_expr(3)).with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -429,7 +462,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                CodegenExprOp::from(BinOp::new(BinOpKind::InplacePow, int_expr(2), int_expr(3)))
+                BinOp::new(BinOpKind::InplacePow, int_expr(2), int_expr(3))
                     .with_meta(Meta::synthetic()),
             )),
         );
@@ -492,7 +525,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                CodegenExprOp::from(Load::new(test_global_name("x"))).with_meta(Meta::synthetic()),
+                Load::new(test_global_name("x")).with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -509,8 +542,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                CodegenExprOp::from(Store::new(test_global_name("x"), int_expr(3)))
-                    .with_meta(Meta::synthetic()),
+                Store::new(test_global_name("x"), int_expr(3)).with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -544,10 +576,8 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                CodegenExprOp::from(soac_blockpy::block_py::CellRef::new(CellLocation::Closure(
-                    2,
-                )))
-                .with_meta(Meta::synthetic()),
+                soac_blockpy::block_py::CellRef::new(CellLocation::Closure(2))
+                    .with_meta(Meta::synthetic()),
             )),
         );
         set_stack_slots(&mut function, &["x"]);
@@ -569,10 +599,8 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                CodegenExprOp::from(soac_blockpy::block_py::CellRef::new(
-                    CellLocation::CapturedSource(2),
-                ))
-                .with_meta(Meta::synthetic()),
+                soac_blockpy::block_py::CellRef::new(CellLocation::CapturedSource(2))
+                    .with_meta(Meta::synthetic()),
             )),
         );
         function.storage_layout = Some(StorageLayout {
@@ -616,20 +644,16 @@ mod tests {
             test_function(),
             vec![
                 expr_stmt(op_expr(
-                    CodegenExprOp::from(DelItem::new(int_expr(1), int_expr(2)))
-                        .with_meta(Meta::synthetic()),
+                    DelItem::new(int_expr(1), int_expr(2)).with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    CodegenExprOp::from(Del::new(test_global_name("x"), true))
-                        .with_meta(Meta::synthetic()),
+                    Del::new(test_global_name("x"), true).with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    CodegenExprOp::from(Del::new(test_closure_cell_name("cell", 2), false))
-                        .with_meta(Meta::synthetic()),
+                    Del::new(test_closure_cell_name("cell", 2), false).with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    CodegenExprOp::from(Del::new(test_closure_cell_name("cell", 2), true))
-                        .with_meta(Meta::synthetic()),
+                    Del::new(test_closure_cell_name("cell", 2), true).with_meta(Meta::synthetic()),
                 )),
             ],
             ret_term(int_expr(0)),
@@ -707,7 +731,7 @@ mod tests {
         let mut function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(CodegenExprOp::from(
+            ret_term(op_expr(
                 Call::new(
                     name_expr(test_runtime_name("load_deleted_name")),
                     vec![
@@ -717,7 +741,7 @@ mod tests {
                     vec![],
                 )
                 .with_meta(Meta::synthetic()),
-            ))),
+            )),
         );
         set_stack_slots(&mut function, &["x"]);
         let rendered = render_test_jit_function(&function, &blocks);

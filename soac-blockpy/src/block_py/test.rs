@@ -56,8 +56,8 @@ fn core_blockpy_expr_wraps_name_expr() {
 
     assert!(matches!(
         expr,
-        CoreBlockPyExprWithAwaitAndYield::Op(operation)
-            if matches!(&operation, crate::block_py::CoreExprOpWithAwaitAndYield::Load(op) if op.name.id_str() == "y")
+        CoreBlockPyExprWithAwaitAndYield::Load(op)
+            if op.name.id_str() == "y"
     ));
 }
 
@@ -276,8 +276,7 @@ fn storage_layout_semantics_collects_structured_cell_ref_logical_names() {
         blocks: vec![CfgBlock {
             label: BlockPyLabel::from(0u32),
             body: vec![BlockPyStmt::Expr(core_operation_expr(
-                OperationDetail::from(CellRefForName::new("captured".to_string()))
-                    .with_meta(Meta::synthetic()),
+                CellRefForName::new("captured".to_string()).with_meta(Meta::synthetic()),
             ))],
             term: BlockPyTerm::Return(<CoreBlockPyExpr as ImplicitNoneExpr>::implicit_none_expr()),
             params: Vec::new(),

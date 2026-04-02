@@ -1,7 +1,7 @@
 use crate::block_py::{
     BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmtFragment, BlockPyTerm,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, CoreStringLiteral, GetAttr,
-    LocatedCoreBlockPyExpr, LocatedName, OperationDetail, StructuredBlockPyStmt, WithMeta,
+    LocatedCoreBlockPyExpr, LocatedName, StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     lower_structured_located_blocks_to_bb_blocks, populate_exception_edge_args,
@@ -140,20 +140,21 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
         label: BlockPyLabel::from(0u32),
         body: Vec::new(),
-        term: BlockPyTerm::Return(CoreBlockPyExpr::Op(
-            crate::block_py::CoreExprOp::from(GetAttr::new(
+        term: BlockPyTerm::Return(
+            GetAttr::new(
                 core_call_expr("current_exception", Vec::new()),
                 CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
                     node_index: ast::AtomicNodeIndex::default(),
                     range: TextRange::default(),
                     value: "value".to_string(),
                 })),
-            ))
+            )
             .with_meta(crate::block_py::Meta::new(
                 ast::AtomicNodeIndex::default(),
                 TextRange::default(),
-            )),
-        )),
+            ))
+            .into(),
+        ),
         params: vec![crate::block_py::BlockParam {
             name: "_dp_try_exc_0".to_string(),
             role: crate::block_py::BlockParamRole::Exception,
@@ -170,10 +171,8 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     }]);
     let block = &lowered[0];
 
-    let BlockPyTerm::Return(CoreBlockPyExpr::Op(operation)) = &block.term else {
-        panic!("expected operation return expr");
-    };
-    let crate::block_py::CoreExprOp::GetAttr(GetAttr { value, attr, .. }) = operation else {
+    let BlockPyTerm::Return(CoreBlockPyExpr::GetAttr(GetAttr { value, attr, .. })) = &block.term
+    else {
         panic!("expected getattr operation");
     };
     assert!(matches!(

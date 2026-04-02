@@ -1,6 +1,9 @@
 pub use self::meta::{HasMeta, Meta, WithMeta};
-use self::operation as block_py_operation;
 pub use self::param_specs::{Param, ParamDefaultSource, ParamKind, ParamSpec};
+use self::pretty::{
+    render_codegen_literal_text, render_core_literal_text, BlockPyDebugExprText,
+    BlockPyDebugOperationText,
+};
 pub(crate) use self::semantics::{
     build_storage_layout_from_capture_names, compute_storage_layout_from_semantics,
     derive_effective_binding_for_name, BlockPySemanticExprNode,
@@ -13,14 +16,14 @@ pub use self::semantics::{
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 pub use operation::{
-    BinOp, BinOpKind, Call, CellRef, CellRefForName, CodegenExprOp, CoreExprOp,
-    CoreExprOpWithAwaitAndYield, CoreExprOpWithYield, Del, DelItem, GetAttr, GetItem, Load,
-    MakeCell, MakeFunction, MakeString, OperationDetail, SetAttr, SetItem, Store, UnaryOp,
-    UnaryOpKind,
+    BinOp, BinOpKind, Call, CellRef, CellRefForName, CoreExprOpWithAwaitAndYield,
+    CoreExprOpWithYield, Del, DelItem, GetAttr, GetItem, Load, MakeCell, MakeFunction, MakeString,
+    SetAttr, SetItem, Store, UnaryOp, UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
 use ruff_text_size::TextRange;
+use soac_macros::{with_match_default, DelegateMatchDefault};
 use std::fmt;
 
 pub(crate) mod cfg;
@@ -588,39 +591,99 @@ impl<P: BlockPyPass> BlockPyModule<P> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Name(UnresolvedName),
     Literal(CoreBlockPyLiteral),
-    Op(CoreExprOpWithAwaitAndYield<Self>),
+    BinOp(BinOp<Self>),
+    UnaryOp(UnaryOp<Self>),
+    Call(Call<Self>),
+    GetAttr(GetAttr<Self>),
+    SetAttr(SetAttr<Self>),
+    GetItem(GetItem<Self>),
+    SetItem(SetItem<Self>),
+    DelItem(DelItem<Self>),
+    Load(Load<Self>),
+    Store(Store<Self>),
+    Del(Del<Self>),
+    MakeCell(MakeCell<Self>),
+    MakeString(MakeString),
+    CellRefForName(CellRefForName),
+    CellRef(CellRef),
+    MakeFunction(MakeFunction<Self>),
     Await(CoreBlockPyAwait<Self>),
     Yield(CoreBlockPyYield<Self>),
     YieldFrom(CoreBlockPyYieldFrom<Self>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum CoreBlockPyExprWithYield {
     Name(UnresolvedName),
     Literal(CoreBlockPyLiteral),
-    Op(CoreExprOpWithYield<Self>),
+    BinOp(BinOp<Self>),
+    UnaryOp(UnaryOp<Self>),
+    Call(Call<Self>),
+    GetAttr(GetAttr<Self>),
+    SetAttr(SetAttr<Self>),
+    GetItem(GetItem<Self>),
+    SetItem(SetItem<Self>),
+    DelItem(DelItem<Self>),
+    Load(Load<Self>),
+    Store(Store<Self>),
+    Del(Del<Self>),
+    MakeCell(MakeCell<Self>),
+    MakeString(MakeString),
+    CellRefForName(CellRefForName),
+    CellRef(CellRef),
+    MakeFunction(MakeFunction<Self>),
     Yield(CoreBlockPyYield<Self>),
     YieldFrom(CoreBlockPyYieldFrom<Self>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
     Name(N),
     Literal(CoreBlockPyLiteral),
-    Op(CoreExprOp<Self>),
+    BinOp(BinOp<Self>),
+    UnaryOp(UnaryOp<Self>),
+    Call(Call<Self>),
+    GetAttr(GetAttr<Self>),
+    SetAttr(SetAttr<Self>),
+    GetItem(GetItem<Self>),
+    SetItem(SetItem<Self>),
+    DelItem(DelItem<Self>),
+    Load(Load<Self>),
+    Store(Store<Self>),
+    Del(Del<Self>),
+    MakeCell(MakeCell<Self>),
+    MakeString(MakeString),
+    CellRefForName(CellRefForName),
+    CellRef(CellRef),
+    MakeFunction(MakeFunction<Self>),
 }
 
 pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum CodegenBlockPyExpr {
     Name(LocatedName),
     Literal(CodegenBlockPyLiteral),
-    Op(CodegenExprOp<Self>),
+    BinOp(BinOp<Self>),
+    UnaryOp(UnaryOp<Self>),
+    Call(Call<Self>),
+    GetAttr(GetAttr<Self>),
+    SetAttr(SetAttr<Self>),
+    GetItem(GetItem<Self>),
+    SetItem(SetItem<Self>),
+    DelItem(DelItem<Self>),
+    Load(Load<Self>),
+    Store(Store<Self>),
+    Del(Del<Self>),
+    MakeCell(MakeCell<Self>),
+    MakeString(MakeString),
+    CellRefForName(CellRefForName),
+    CellRef(CellRef),
+    MakeFunction(MakeFunction<Self>),
 }
 
 pub type LocatedCodegenBlockPyExpr = CodegenBlockPyExpr;
@@ -637,6 +700,114 @@ pub enum CodegenBlockPyLiteral {
     StringLiteral(CoreStringLiteral),
     BytesLiteral(CoreBytesLiteral),
     NumberLiteral(CoreNumberLiteral),
+}
+
+impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
+    type Mapped<T: Instr> = InstrName<T>;
+
+    fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
+
+    fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+
+    fn map_expr_node<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        <T as Instr>::Name::from(self)
+    }
+
+    fn try_map_expr_node<T, Error>(
+        self,
+        _f: &mut impl FnMut(I) -> Result<T, Error>,
+    ) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        Ok(<T as Instr>::Name::from(self))
+    }
+}
+
+impl<I: Instr<Name = LocatedName>> InstrExprNode<I> for LocatedName {
+    type Mapped<T: Instr> = InstrName<T>;
+
+    fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
+
+    fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+
+    fn map_expr_node<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        <T as Instr>::Name::from(self)
+    }
+
+    fn try_map_expr_node<T, Error>(
+        self,
+        _f: &mut impl FnMut(I) -> Result<T, Error>,
+    ) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        Ok(<T as Instr>::Name::from(self))
+    }
+}
+
+impl<I: Instr> InstrExprNode<I> for CoreBlockPyLiteral {
+    type Mapped<T: Instr> = CoreBlockPyLiteral;
+
+    fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
+
+    fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+
+    fn map_expr_node<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        self
+    }
+
+    fn try_map_expr_node<T, Error>(
+        self,
+        _f: &mut impl FnMut(I) -> Result<T, Error>,
+    ) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        Ok(self)
+    }
+}
+
+impl<I: Instr> InstrExprNode<I> for CodegenBlockPyLiteral {
+    type Mapped<T: Instr> = CodegenBlockPyLiteral;
+
+    fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
+
+    fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+
+    fn map_expr_node<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        self
+    }
+
+    fn try_map_expr_node<T, Error>(
+        self,
+        _f: &mut impl FnMut(I) -> Result<T, Error>,
+    ) -> Result<Self::Mapped<T>, Error>
+    where
+        T: Instr,
+        InstrName<T>: From<InstrName<I>>,
+    {
+        Ok(self)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -670,8 +841,6 @@ pub(crate) trait CoreCallLikeExpr: Sized + Instr {
     type Name: BlockPyNameLike + From<ast::ExprName>;
 
     fn from_name(name: ast::ExprName) -> Self;
-
-    fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self;
 }
 
 impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
@@ -680,29 +849,96 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
     fn from_name(name: ast::ExprName) -> Self {
         Self::Name(name.into())
     }
-
-    fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
-        Self::Op(operation.into())
-    }
 }
 
 impl Instr for CoreBlockPyExprWithAwaitAndYield {
     type Name = UnresolvedName;
 }
 
+impl From<CoreExprOpWithAwaitAndYield<CoreBlockPyExprWithAwaitAndYield>>
+    for CoreBlockPyExprWithAwaitAndYield
+{
+    fn from(value: CoreExprOpWithAwaitAndYield<CoreBlockPyExprWithAwaitAndYield>) -> Self {
+        match value {
+            CoreExprOpWithAwaitAndYield::BinOp(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::UnaryOp(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Call(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::GetAttr(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::SetAttr(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::GetItem(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::SetItem(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::DelItem(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Load(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Store(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Del(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::MakeCell(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::MakeString(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::CellRefForName(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::CellRef(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::MakeFunction(op) => op.into(),
+        }
+    }
+}
+
+#[with_match_default]
+impl HasMeta for CoreBlockPyExprWithAwaitAndYield {
+    fn meta(&self) -> Meta {
+        match self {
+            match_rest(node) => node.meta(),
+        }
+    }
+}
+
+#[with_match_default]
+impl WithMeta for CoreBlockPyExprWithAwaitAndYield {
+    fn with_meta(self, meta: Meta) -> Self {
+        match self {
+            match_rest(node) => node.with_meta(meta.clone()).into(),
+        }
+    }
+}
+
+#[with_match_default]
 impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYield {
     fn map_expr(
         self,
         f: &mut impl FnMut(Self) -> CoreBlockPyExprWithAwaitAndYield,
     ) -> CoreBlockPyExprWithAwaitAndYield {
         match self {
-            Self::Name(_) | Self::Literal(_) => self,
-            Self::Op(operation) => Self::Op(operation.map_expr_node(&mut *f)),
-            Self::Await(await_expr) => Self::Await(await_expr.map_expr_node(&mut *f)),
-            Self::Yield(yield_expr) => Self::Yield(yield_expr.map_expr_node(&mut *f)),
+            match_rest(node) => node.map_expr_node(&mut *f).into(),
+        }
+    }
+}
+
+impl BlockPyDebugExprText for CoreBlockPyExprWithAwaitAndYield {
+    fn debug_expr_text(&self) -> String {
+        match self {
+            Self::Name(name) => name.pretty_id(),
+            Self::Literal(literal) => render_core_literal_text(literal),
+            Self::Await(await_expr) => format!("await {}", await_expr.value.debug_expr_text()),
+            Self::Yield(yield_expr) => match &yield_expr.value {
+                Some(value) => format!("yield {}", value.debug_expr_text()),
+                None => "yield".to_string(),
+            },
             Self::YieldFrom(yield_from_expr) => {
-                Self::YieldFrom(yield_from_expr.map_expr_node(&mut *f))
+                format!("yield from {}", yield_from_expr.value.debug_expr_text())
             }
+            Self::BinOp(op) => op.debug_operation_text(),
+            Self::UnaryOp(op) => op.debug_operation_text(),
+            Self::Call(op) => op.debug_operation_text(),
+            Self::GetAttr(op) => op.debug_operation_text(),
+            Self::SetAttr(op) => op.debug_operation_text(),
+            Self::GetItem(op) => op.debug_operation_text(),
+            Self::SetItem(op) => op.debug_operation_text(),
+            Self::DelItem(op) => op.debug_operation_text(),
+            Self::Load(op) => op.debug_operation_text(),
+            Self::Store(op) => op.debug_operation_text(),
+            Self::Del(op) => op.debug_operation_text(),
+            Self::MakeCell(op) => op.debug_operation_text(),
+            Self::MakeString(op) => op.debug_operation_text(),
+            Self::CellRefForName(op) => op.debug_operation_text(),
+            Self::CellRef(op) => op.debug_operation_text(),
+            Self::MakeFunction(op) => op.debug_operation_text(),
         }
     }
 }
@@ -715,9 +951,22 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
         match self {
             Self::Name(name) => CoreBlockPyExprWithYield::Name(name),
             Self::Literal(literal) => CoreBlockPyExprWithYield::Literal(literal),
-            Self::Op(operation) => {
-                CoreBlockPyExprWithYield::Op(operation.map_expr_node(&mut *f).into())
-            }
+            Self::BinOp(op) => op.map_expr_node(&mut *f).into(),
+            Self::UnaryOp(op) => op.map_expr_node(&mut *f).into(),
+            Self::Call(op) => op.map_expr_node(&mut *f).into(),
+            Self::GetAttr(op) => op.map_expr_node(&mut *f).into(),
+            Self::SetAttr(op) => op.map_expr_node(&mut *f).into(),
+            Self::GetItem(op) => op.map_expr_node(&mut *f).into(),
+            Self::SetItem(op) => op.map_expr_node(&mut *f).into(),
+            Self::DelItem(op) => op.map_expr_node(&mut *f).into(),
+            Self::Load(op) => op.map_expr_node(&mut *f).into(),
+            Self::Store(op) => op.map_expr_node(&mut *f).into(),
+            Self::Del(op) => op.map_expr_node(&mut *f).into(),
+            Self::MakeCell(op) => op.map_expr_node(&mut *f).into(),
+            Self::MakeString(op) => op.map_expr_node(&mut *f).into(),
+            Self::CellRefForName(op) => op.map_expr_node(&mut *f).into(),
+            Self::CellRef(op) => op.map_expr_node(&mut *f).into(),
+            Self::MakeFunction(op) => op.map_expr_node(&mut *f).into(),
             Self::Await(await_expr) => CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
                 node_index: await_expr.node_index.clone(),
                 range: await_expr.range,
@@ -748,9 +997,22 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
         match self {
             Self::Name(name) => Ok(CoreBlockPyExprWithYield::Name(name)),
             Self::Literal(literal) => Ok(CoreBlockPyExprWithYield::Literal(literal)),
-            Self::Op(operation) => Ok(CoreBlockPyExprWithYield::Op(
-                operation.try_map_expr_node(&mut *f)?.into(),
-            )),
+            Self::BinOp(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::UnaryOp(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::Call(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::GetAttr(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::SetAttr(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::GetItem(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::SetItem(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::DelItem(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::Load(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::Store(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::Del(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::MakeCell(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::MakeString(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::CellRefForName(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::CellRef(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::MakeFunction(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::Await(_) => Err(self),
             Self::Yield(yield_expr) => Ok(CoreBlockPyExprWithYield::Yield(
                 yield_expr.try_map_expr_node(&mut *f)?,
@@ -768,28 +1030,99 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
     fn from_name(name: ast::ExprName) -> Self {
         Self::Name(name.into())
     }
-
-    fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
-        Self::Op(operation.into())
-    }
 }
 
 impl Instr for CoreBlockPyExprWithYield {
     type Name = UnresolvedName;
 }
 
+impl From<CoreExprOpWithYield<CoreBlockPyExprWithYield>> for CoreBlockPyExprWithYield {
+    fn from(value: CoreExprOpWithYield<CoreBlockPyExprWithYield>) -> Self {
+        match value {
+            CoreExprOpWithYield::BinOp(op) => op.into(),
+            CoreExprOpWithYield::UnaryOp(op) => op.into(),
+            CoreExprOpWithYield::Call(op) => op.into(),
+            CoreExprOpWithYield::GetAttr(op) => op.into(),
+            CoreExprOpWithYield::SetAttr(op) => op.into(),
+            CoreExprOpWithYield::GetItem(op) => op.into(),
+            CoreExprOpWithYield::SetItem(op) => op.into(),
+            CoreExprOpWithYield::DelItem(op) => op.into(),
+            CoreExprOpWithYield::Load(op) => op.into(),
+            CoreExprOpWithYield::Store(op) => op.into(),
+            CoreExprOpWithYield::Del(op) => op.into(),
+            CoreExprOpWithYield::MakeCell(op) => op.into(),
+            CoreExprOpWithYield::MakeString(op) => op.into(),
+            CoreExprOpWithYield::CellRefForName(op) => op.into(),
+            CoreExprOpWithYield::CellRef(op) => op.into(),
+            CoreExprOpWithYield::MakeFunction(op) => op.into(),
+        }
+    }
+}
+
+impl From<CoreExprOpWithAwaitAndYield<CoreBlockPyExprWithYield>> for CoreBlockPyExprWithYield {
+    fn from(value: CoreExprOpWithAwaitAndYield<CoreBlockPyExprWithYield>) -> Self {
+        Self::from(CoreExprOpWithYield::from(value))
+    }
+}
+
+#[with_match_default]
+impl HasMeta for CoreBlockPyExprWithYield {
+    fn meta(&self) -> Meta {
+        match self {
+            match_rest(node) => node.meta(),
+        }
+    }
+}
+
+#[with_match_default]
+impl WithMeta for CoreBlockPyExprWithYield {
+    fn with_meta(self, meta: Meta) -> Self {
+        match self {
+            match_rest(node) => node.with_meta(meta.clone()).into(),
+        }
+    }
+}
+
+#[with_match_default]
 impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
     fn map_expr(
         self,
         f: &mut impl FnMut(Self) -> CoreBlockPyExprWithYield,
     ) -> CoreBlockPyExprWithYield {
         match self {
-            Self::Name(_) | Self::Literal(_) => self,
-            Self::Op(operation) => Self::Op(operation.map_expr_node(&mut *f)),
-            Self::Yield(yield_expr) => Self::Yield(yield_expr.map_expr_node(&mut *f)),
+            match_rest(node) => node.map_expr_node(&mut *f).into(),
+        }
+    }
+}
+
+impl BlockPyDebugExprText for CoreBlockPyExprWithYield {
+    fn debug_expr_text(&self) -> String {
+        match self {
+            Self::Name(name) => name.pretty_id(),
+            Self::Literal(literal) => render_core_literal_text(literal),
+            Self::Yield(yield_expr) => match &yield_expr.value {
+                Some(value) => format!("yield {}", value.debug_expr_text()),
+                None => "yield".to_string(),
+            },
             Self::YieldFrom(yield_from_expr) => {
-                Self::YieldFrom(yield_from_expr.map_expr_node(&mut *f))
+                format!("yield from {}", yield_from_expr.value.debug_expr_text())
             }
+            Self::BinOp(op) => op.debug_operation_text(),
+            Self::UnaryOp(op) => op.debug_operation_text(),
+            Self::Call(op) => op.debug_operation_text(),
+            Self::GetAttr(op) => op.debug_operation_text(),
+            Self::SetAttr(op) => op.debug_operation_text(),
+            Self::GetItem(op) => op.debug_operation_text(),
+            Self::SetItem(op) => op.debug_operation_text(),
+            Self::DelItem(op) => op.debug_operation_text(),
+            Self::Load(op) => op.debug_operation_text(),
+            Self::Store(op) => op.debug_operation_text(),
+            Self::Del(op) => op.debug_operation_text(),
+            Self::MakeCell(op) => op.debug_operation_text(),
+            Self::MakeString(op) => op.debug_operation_text(),
+            Self::CellRefForName(op) => op.debug_operation_text(),
+            Self::CellRef(op) => op.debug_operation_text(),
+            Self::MakeFunction(op) => op.debug_operation_text(),
         }
     }
 }
@@ -802,9 +1135,22 @@ impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWi
         match self {
             Self::Name(name) => Ok(CoreBlockPyExpr::Name(name.into())),
             Self::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
-            Self::Op(operation) => Ok(CoreBlockPyExpr::Op(
-                operation.try_map_expr_node(&mut *f)?.into(),
-            )),
+            Self::BinOp(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::UnaryOp(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::Call(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::GetAttr(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::SetAttr(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::GetItem(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::SetItem(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::DelItem(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::Load(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::Store(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::Del(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::MakeCell(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::MakeString(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::CellRefForName(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::CellRef(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::MakeFunction(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::Yield(_) | Self::YieldFrom(_) => Err(self),
         }
     }
@@ -816,14 +1162,111 @@ impl<N: BlockPyNameLike> CoreCallLikeExpr for CoreBlockPyExpr<N> {
     fn from_name(name: ast::ExprName) -> Self {
         Self::Name(name.into())
     }
-
-    fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
-        Self::Op(operation.into())
-    }
 }
 
 impl<N: BlockPyNameLike> Instr for CoreBlockPyExpr<N> {
     type Name = N;
+}
+
+impl<N: BlockPyNameLike> From<CoreExprOpWithYield<CoreBlockPyExpr<N>>> for CoreBlockPyExpr<N> {
+    fn from(value: CoreExprOpWithYield<CoreBlockPyExpr<N>>) -> Self {
+        match value {
+            CoreExprOpWithYield::BinOp(op) => op.into(),
+            CoreExprOpWithYield::UnaryOp(op) => op.into(),
+            CoreExprOpWithYield::Call(op) => op.into(),
+            CoreExprOpWithYield::GetAttr(op) => op.into(),
+            CoreExprOpWithYield::SetAttr(op) => op.into(),
+            CoreExprOpWithYield::GetItem(op) => op.into(),
+            CoreExprOpWithYield::SetItem(op) => op.into(),
+            CoreExprOpWithYield::DelItem(op) => op.into(),
+            CoreExprOpWithYield::Load(op) => op.into(),
+            CoreExprOpWithYield::Store(op) => op.into(),
+            CoreExprOpWithYield::Del(op) => op.into(),
+            CoreExprOpWithYield::MakeCell(op) => op.into(),
+            CoreExprOpWithYield::MakeString(op) => op.into(),
+            CoreExprOpWithYield::CellRefForName(op) => op.into(),
+            CoreExprOpWithYield::CellRef(op) => op.into(),
+            CoreExprOpWithYield::MakeFunction(op) => op.into(),
+        }
+    }
+}
+
+impl<N: BlockPyNameLike> HasMeta for CoreBlockPyExpr<N> {
+    fn meta(&self) -> Meta {
+        match self {
+            Self::Name(name) => Meta::new(name.node_index(), name.range()),
+            Self::Literal(literal) => literal.meta(),
+            Self::BinOp(op) => op.meta(),
+            Self::UnaryOp(op) => op.meta(),
+            Self::Call(op) => op.meta(),
+            Self::GetAttr(op) => op.meta(),
+            Self::SetAttr(op) => op.meta(),
+            Self::GetItem(op) => op.meta(),
+            Self::SetItem(op) => op.meta(),
+            Self::DelItem(op) => op.meta(),
+            Self::Load(op) => op.meta(),
+            Self::Store(op) => op.meta(),
+            Self::Del(op) => op.meta(),
+            Self::MakeCell(op) => op.meta(),
+            Self::MakeString(op) => op.meta(),
+            Self::CellRefForName(op) => op.meta(),
+            Self::CellRef(op) => op.meta(),
+            Self::MakeFunction(op) => op.meta(),
+        }
+    }
+}
+
+impl<N> BlockPyDebugExprText for CoreBlockPyExpr<N>
+where
+    N: BlockPyNameLike,
+{
+    fn debug_expr_text(&self) -> String {
+        match self {
+            Self::Name(name) => name.pretty_id(),
+            Self::Literal(literal) => render_core_literal_text(literal),
+            Self::BinOp(op) => op.debug_operation_text(),
+            Self::UnaryOp(op) => op.debug_operation_text(),
+            Self::Call(op) => op.debug_operation_text(),
+            Self::GetAttr(op) => op.debug_operation_text(),
+            Self::SetAttr(op) => op.debug_operation_text(),
+            Self::GetItem(op) => op.debug_operation_text(),
+            Self::SetItem(op) => op.debug_operation_text(),
+            Self::DelItem(op) => op.debug_operation_text(),
+            Self::Load(op) => op.debug_operation_text(),
+            Self::Store(op) => op.debug_operation_text(),
+            Self::Del(op) => op.debug_operation_text(),
+            Self::MakeCell(op) => op.debug_operation_text(),
+            Self::MakeString(op) => op.debug_operation_text(),
+            Self::CellRefForName(op) => op.debug_operation_text(),
+            Self::CellRef(op) => op.debug_operation_text(),
+            Self::MakeFunction(op) => op.debug_operation_text(),
+        }
+    }
+}
+
+impl<N: BlockPyNameLike + WithMeta> WithMeta for CoreBlockPyExpr<N> {
+    fn with_meta(self, meta: Meta) -> Self {
+        match self {
+            Self::Name(name) => Self::Name(name.with_meta(meta)),
+            Self::Literal(literal) => Self::Literal(literal.with_meta(meta)),
+            Self::BinOp(op) => Self::BinOp(op.with_meta(meta)),
+            Self::UnaryOp(op) => Self::UnaryOp(op.with_meta(meta)),
+            Self::Call(op) => Self::Call(op.with_meta(meta)),
+            Self::GetAttr(op) => Self::GetAttr(op.with_meta(meta)),
+            Self::SetAttr(op) => Self::SetAttr(op.with_meta(meta)),
+            Self::GetItem(op) => Self::GetItem(op.with_meta(meta)),
+            Self::SetItem(op) => Self::SetItem(op.with_meta(meta)),
+            Self::DelItem(op) => Self::DelItem(op.with_meta(meta)),
+            Self::Load(op) => Self::Load(op.with_meta(meta)),
+            Self::Store(op) => Self::Store(op.with_meta(meta)),
+            Self::Del(op) => Self::Del(op.with_meta(meta)),
+            Self::MakeCell(op) => Self::MakeCell(op.with_meta(meta)),
+            Self::MakeString(op) => Self::MakeString(op.with_meta(meta)),
+            Self::CellRefForName(op) => Self::CellRefForName(op.with_meta(meta)),
+            Self::CellRef(op) => Self::CellRef(op.with_meta(meta)),
+            Self::MakeFunction(op) => Self::MakeFunction(op.with_meta(meta)),
+        }
+    }
 }
 
 impl<NIn, NOut> MapExpr<CoreBlockPyExpr<NOut>> for CoreBlockPyExpr<NIn>
@@ -835,7 +1278,22 @@ where
         match self {
             Self::Name(name) => CoreBlockPyExpr::Name(NOut::from(name)),
             Self::Literal(literal) => CoreBlockPyExpr::Literal(literal),
-            Self::Op(operation) => CoreBlockPyExpr::Op(operation.map_expr_node(&mut *f)),
+            Self::BinOp(op) => op.map_expr_node(&mut *f).into(),
+            Self::UnaryOp(op) => op.map_expr_node(&mut *f).into(),
+            Self::Call(op) => op.map_expr_node(&mut *f).into(),
+            Self::GetAttr(op) => op.map_expr_node(&mut *f).into(),
+            Self::SetAttr(op) => op.map_expr_node(&mut *f).into(),
+            Self::GetItem(op) => op.map_expr_node(&mut *f).into(),
+            Self::SetItem(op) => op.map_expr_node(&mut *f).into(),
+            Self::DelItem(op) => op.map_expr_node(&mut *f).into(),
+            Self::Load(op) => op.map_expr_node(&mut *f).into(),
+            Self::Store(op) => op.map_expr_node(&mut *f).into(),
+            Self::Del(op) => op.map_expr_node(&mut *f).into(),
+            Self::MakeCell(op) => op.map_expr_node(&mut *f).into(),
+            Self::MakeString(op) => op.map_expr_node(&mut *f).into(),
+            Self::CellRefForName(op) => op.map_expr_node(&mut *f).into(),
+            Self::CellRef(op) => op.map_expr_node(&mut *f).into(),
+            Self::MakeFunction(op) => op.map_expr_node(&mut *f).into(),
         }
     }
 }
@@ -852,7 +1310,22 @@ where
         match self {
             Self::Name(name) => Ok(CoreBlockPyExpr::Name(NOut::from(name))),
             Self::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
-            Self::Op(operation) => Ok(CoreBlockPyExpr::Op(operation.try_map_expr_node(&mut *f)?)),
+            Self::BinOp(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::UnaryOp(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::Call(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::GetAttr(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::SetAttr(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::GetItem(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::SetItem(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::DelItem(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::Load(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::Store(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::Del(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::MakeCell(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::MakeString(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::CellRefForName(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::CellRef(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
+            Self::MakeFunction(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
         }
     }
 }
@@ -863,14 +1336,28 @@ impl CoreCallLikeExpr for CodegenBlockPyExpr {
     fn from_name(name: ast::ExprName) -> Self {
         Self::Name(name.into())
     }
-
-    fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
-        Self::Op(operation.into())
-    }
 }
 
 impl Instr for CodegenBlockPyExpr {
     type Name = LocatedName;
+}
+
+#[with_match_default]
+impl HasMeta for CodegenBlockPyExpr {
+    fn meta(&self) -> Meta {
+        match self {
+            match_rest(op) => op.meta(),
+        }
+    }
+}
+
+#[with_match_default]
+impl WithMeta for CodegenBlockPyExpr {
+    fn with_meta(self, meta: Meta) -> Self {
+        match self {
+            match_rest(op) => op.with_meta(meta.clone()).into(),
+        }
+    }
 }
 
 impl<NIn> MapExpr<CodegenBlockPyExpr> for CoreBlockPyExpr<NIn>
@@ -890,57 +1377,97 @@ where
             Self::Literal(CoreBlockPyLiteral::NumberLiteral(literal)) => {
                 CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(literal))
             }
-            Self::Op(operation) => CodegenBlockPyExpr::Op(operation.map_expr_node(&mut *f).into()),
+            Self::BinOp(op) => op.map_expr_node(&mut *f).into(),
+            Self::UnaryOp(op) => op.map_expr_node(&mut *f).into(),
+            Self::Call(op) => op.map_expr_node(&mut *f).into(),
+            Self::GetAttr(op) => op.map_expr_node(&mut *f).into(),
+            Self::SetAttr(op) => op.map_expr_node(&mut *f).into(),
+            Self::GetItem(op) => op.map_expr_node(&mut *f).into(),
+            Self::SetItem(op) => op.map_expr_node(&mut *f).into(),
+            Self::DelItem(op) => op.map_expr_node(&mut *f).into(),
+            Self::Load(op) => op.map_expr_node(&mut *f).into(),
+            Self::Store(op) => op.map_expr_node(&mut *f).into(),
+            Self::Del(op) => op.map_expr_node(&mut *f).into(),
+            Self::MakeCell(op) => op.map_expr_node(&mut *f).into(),
+            Self::MakeString(op) => op.map_expr_node(&mut *f).into(),
+            Self::CellRefForName(op) => op.map_expr_node(&mut *f).into(),
+            Self::CellRef(op) => op.map_expr_node(&mut *f).into(),
+            Self::MakeFunction(op) => op.map_expr_node(&mut *f).into(),
         }
     }
 }
 
+#[with_match_default]
 impl<Error> TryMapExpr<CodegenBlockPyExpr, Error> for CodegenBlockPyExpr {
     fn try_map_expr(
         self,
         f: &mut impl FnMut(Self) -> Result<CodegenBlockPyExpr, Error>,
     ) -> Result<CodegenBlockPyExpr, Error> {
-        match self {
-            Self::Name(name) => Ok(CodegenBlockPyExpr::Name(name)),
-            Self::Literal(literal) => Ok(CodegenBlockPyExpr::Literal(literal)),
-            Self::Op(operation) => Ok(CodegenBlockPyExpr::Op(
-                operation.try_map_expr_node(&mut *f)?,
-            )),
-        }
+        Ok(match self {
+            match_rest(op) => op.try_map_expr_node(&mut *f)?.into(),
+        })
     }
 }
 
+#[with_match_default]
 impl MapExpr<CodegenBlockPyExpr> for CodegenBlockPyExpr {
     fn map_expr(self, f: &mut impl FnMut(Self) -> CodegenBlockPyExpr) -> CodegenBlockPyExpr {
         match self {
-            Self::Name(name) => CodegenBlockPyExpr::Name(name),
-            Self::Literal(literal) => CodegenBlockPyExpr::Literal(literal),
-            Self::Op(operation) => CodegenBlockPyExpr::Op(operation.map_expr_node(&mut *f)),
+            match_rest(op) => op.map_expr_node(&mut *f).into(),
         }
     }
 }
 
-pub(crate) fn core_call_expr_with_meta<E: CoreCallLikeExpr>(
+impl BlockPyDebugExprText for CodegenBlockPyExpr {
+    fn debug_expr_text(&self) -> String {
+        match self {
+            Self::Name(name) => name.pretty_id(),
+            Self::Literal(literal) => render_codegen_literal_text(literal),
+            Self::BinOp(op) => op.debug_operation_text(),
+            Self::UnaryOp(op) => op.debug_operation_text(),
+            Self::Call(op) => op.debug_operation_text(),
+            Self::GetAttr(op) => op.debug_operation_text(),
+            Self::SetAttr(op) => op.debug_operation_text(),
+            Self::GetItem(op) => op.debug_operation_text(),
+            Self::SetItem(op) => op.debug_operation_text(),
+            Self::DelItem(op) => op.debug_operation_text(),
+            Self::Load(op) => op.debug_operation_text(),
+            Self::Store(op) => op.debug_operation_text(),
+            Self::Del(op) => op.debug_operation_text(),
+            Self::MakeCell(op) => op.debug_operation_text(),
+            Self::MakeString(op) => op.debug_operation_text(),
+            Self::CellRefForName(op) => op.debug_operation_text(),
+            Self::CellRef(op) => op.debug_operation_text(),
+            Self::MakeFunction(op) => op.debug_operation_text(),
+        }
+    }
+}
+
+pub(crate) fn core_call_expr_with_meta<E>(
     func: E,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
     args: Vec<CoreBlockPyCallArg<E>>,
     keywords: Vec<CoreBlockPyKeywordArg<E>>,
-) -> E {
-    E::from_operation(
-        Call::new(func, args, keywords)
-            .with_meta(Meta::new(node_index, range))
-            .into(),
-    )
+) -> E
+where
+    E: CoreCallLikeExpr + From<Call<E>>,
+{
+    Call::new(func, args, keywords)
+        .with_meta(Meta::new(node_index, range))
+        .into()
 }
 
-pub(crate) fn core_named_call_expr_with_meta<E: CoreCallLikeExpr>(
+pub(crate) fn core_named_call_expr_with_meta<E>(
     func_name: &str,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
     args: Vec<CoreBlockPyCallArg<E>>,
     keywords: Vec<CoreBlockPyKeywordArg<E>>,
-) -> E {
+) -> E
+where
+    E: CoreCallLikeExpr + From<Call<E>>,
+{
     let func = E::from_name(ExprName {
         id: func_name.into(),
         ctx: ast::ExprContext::Load,
@@ -950,32 +1477,34 @@ pub(crate) fn core_named_call_expr_with_meta<E: CoreCallLikeExpr>(
     core_call_expr_with_meta(func, node_index, range, args, keywords)
 }
 
-pub(crate) fn core_runtime_name_expr_with_meta<E: CoreCallLikeExpr>(
+pub(crate) fn core_runtime_name_expr_with_meta<E>(
     name: &str,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> E
 where
+    E: CoreCallLikeExpr + From<Load<E>>,
     InstrName<E>: From<UnresolvedName>,
 {
     core_operation_expr(
-        block_py_operation::Load::new(runtime_symbol(name, node_index.clone(), range))
+        Load::new(runtime_symbol(name, node_index.clone(), range))
             .with_meta(Meta::new(node_index, range)),
     )
 }
 
-pub(crate) fn core_operation_expr<E: CoreCallLikeExpr>(
-    operation: impl Into<block_py_operation::OperationDetail<E>>,
-) -> E {
-    E::from_operation(operation.into())
+pub(crate) fn core_operation_expr<E>(operation: impl Into<E>) -> E {
+    operation.into()
 }
 
-pub(crate) fn core_positional_call_expr_with_meta<E: CoreCallLikeExpr>(
+pub(crate) fn core_positional_call_expr_with_meta<E>(
     func_name: &str,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
     args: Vec<E>,
-) -> E {
+) -> E
+where
+    E: CoreCallLikeExpr + From<Call<E>>,
+{
     core_named_call_expr_with_meta(
         func_name,
         node_index,
@@ -987,7 +1516,7 @@ pub(crate) fn core_positional_call_expr_with_meta<E: CoreCallLikeExpr>(
     )
 }
 
-pub(crate) fn core_runtime_named_call_expr_with_meta<E: CoreCallLikeExpr>(
+pub(crate) fn core_runtime_named_call_expr_with_meta<E>(
     func_name: &str,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
@@ -995,6 +1524,7 @@ pub(crate) fn core_runtime_named_call_expr_with_meta<E: CoreCallLikeExpr>(
     keywords: Vec<CoreBlockPyKeywordArg<E>>,
 ) -> E
 where
+    E: CoreCallLikeExpr + From<Call<E>> + From<Load<E>>,
     InstrName<E>: From<UnresolvedName>,
 {
     let func = core_runtime_name_expr_with_meta(func_name, node_index.clone(), range);
@@ -1008,6 +1538,7 @@ pub(crate) fn core_runtime_positional_call_expr_with_meta<E: CoreCallLikeExpr>(
     args: Vec<E>,
 ) -> E
 where
+    E: From<Call<E>> + From<Load<E>>,
     InstrName<E>: From<UnresolvedName>,
 {
     core_runtime_named_call_expr_with_meta(
@@ -2002,8 +2533,8 @@ impl ImplicitNoneExpr for CoreBlockPyExprWithAwaitAndYield {
     fn is_implicit_none_expr(expr: &Self) -> bool {
         matches!(
             expr,
-            CoreBlockPyExprWithAwaitAndYield::Op(operation)
-                if matches!(operation, CoreExprOpWithAwaitAndYield::Load(op) if op.name.is_runtime_symbol("NONE"))
+            CoreBlockPyExprWithAwaitAndYield::Load(op)
+                if op.name.is_runtime_symbol("NONE")
         )
     }
 }
@@ -2016,8 +2547,7 @@ impl ImplicitNoneExpr for CoreBlockPyExprWithYield {
     fn is_implicit_none_expr(expr: &Self) -> bool {
         matches!(
             expr,
-            CoreBlockPyExprWithYield::Op(operation)
-                if matches!(operation, CoreExprOpWithYield::Load(op) if op.name.is_runtime_symbol("NONE"))
+            CoreBlockPyExprWithYield::Load(op) if op.name.is_runtime_symbol("NONE")
         )
     }
 }
@@ -2033,8 +2563,7 @@ where
     fn is_implicit_none_expr(expr: &Self) -> bool {
         matches!(
             expr,
-            CoreBlockPyExpr::Op(operation)
-                if matches!(operation, CoreExprOp::Load(op) if op.name.is_runtime_symbol("NONE"))
+            CoreBlockPyExpr::Load(op) if op.name.is_runtime_symbol("NONE")
         )
     }
 }
@@ -2047,8 +2576,7 @@ impl ImplicitNoneExpr for CodegenBlockPyExpr {
     fn is_implicit_none_expr(expr: &Self) -> bool {
         matches!(
             expr,
-            CodegenBlockPyExpr::Op(operation)
-                if matches!(operation, CodegenExprOp::Load(op) if op.name.is_runtime_symbol("NONE"))
+            CodegenBlockPyExpr::Load(op) if op.name.is_runtime_symbol("NONE")
         )
     }
 }

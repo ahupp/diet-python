@@ -5,7 +5,6 @@ use crate::block_py::{
     ResolvedStorageBlock,
 };
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, ResolvedStorageBlockPyPass};
-use crate::py_expr;
 use crate::{lower_python_to_blockpy_for_testing, LoweringResult};
 
 fn tracked_core_blockpy_with_await_and_yield(
@@ -94,25 +93,6 @@ fn function_by_name<'a>(
         .iter()
         .find(|func| func.names.bind_name == bind_name)
         .unwrap_or_else(|| panic!("missing lowered function {bind_name}; got {:?}", bb_module))
-}
-
-#[test]
-fn debug_await_inside_except_raise_name_binding() {
-    let source = r#"
-import asyncio
-
-async def inner():
-    return False
-
-async def check():
-    try:
-        raise ValueError("boom")
-    except Exception:
-        await inner()
-        raise
-"#;
-
-    println!("{}", TrackedLowering::new(source).name_binding_text());
 }
 
 fn slot_by_name<'a>(slots: &'a [ClosureSlot], logical_name: &str) -> &'a ClosureSlot {
@@ -377,6 +357,26 @@ def outer():
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered.contains("class_lookup_cell("),
+        "{name_binding_rendered}"
+    );
+}
+
+#[test]
+fn class_body_nonlocal_load_passes_raw_cell_to_class_lookup() {
+    let source = r#"
+def outer():
+    x = "outer"
+    class Inner:
+        y = x
+    return Inner.y
+"#;
+
+    let lowered = TrackedLowering::new(source);
+    let name_binding_rendered = lowered.name_binding_text();
+    assert!(
+        name_binding_rendered.contains(
+            "class_lookup_cell(local slot 0, constant slot 7, CellRef(captured cell source slot 0))"
+        ),
         "{name_binding_rendered}"
     );
 }
@@ -1728,7 +1728,7 @@ def outer(x):
         panic!("expected first entry stmt to be an assignment");
     };
     assert!(
-        matches!(&assign.value, CoreBlockPyExpr::Op(operation) if matches!(operation, crate::block_py::CoreExprOp::MakeCell(_))),
+        matches!(&assign.value, CoreBlockPyExpr::MakeCell(_)),
         "{assign:?}"
     );
 }

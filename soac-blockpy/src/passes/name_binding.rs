@@ -6,10 +6,9 @@ use crate::block_py::{
     BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap,
     BlockPyNameLike, BlockPyRaise, BlockPyStmt, BlockPyTerm, Call, CellLocation, CellRef,
     CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyLiteral, CoreExprOp, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
-    Del, DelItem, FunctionId, HasMeta, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
-    MakeCell, MakeFunction, NameLocation, OperationDetail, SetItem, StorageLayout, Store,
-    UnresolvedName, WithMeta,
+    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem,
+    FunctionId, HasMeta, InstrExprNode, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
+    MakeCell, MakeFunction, NameLocation, SetItem, StorageLayout, Store, UnresolvedName, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -61,15 +60,15 @@ fn globals_expr(
     core_runtime_positional_call_expr_with_meta("globals", node_index, range, Vec::new())
 }
 
-fn op_expr(operation: CoreExprOp<CoreBlockPyExpr>) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Op(operation)
+fn op_expr(operation: impl Into<CoreBlockPyExpr>) -> CoreBlockPyExpr {
+    operation.into()
 }
 
 type CoreStmt = PassStmt<CoreBlockPyPass>;
 type ResolvedStmt = PassStmt<ResolvedStorageBlockPyPass>;
 type CoreAssign = BlockPyAssign<CoreBlockPyExpr, UnresolvedName>;
 
-fn op_stmt(operation: CoreExprOp<CoreBlockPyExpr>) -> CoreStmt {
+fn op_stmt(operation: impl Into<CoreBlockPyExpr>) -> CoreStmt {
     BlockPyStmt::Expr(op_expr(operation))
 }
 
@@ -81,11 +80,11 @@ fn constant_location_expr(meta: crate::block_py::Meta, index: u32) -> LocatedCor
         range: meta.range,
     })
     .with_location(NameLocation::Constant(index));
-    CoreBlockPyExpr::Op(CoreExprOp::from(Load::new(name)).with_meta(meta))
+    Load::new(name).with_meta(meta).into()
 }
 fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
     let meta = name.meta();
-    op_expr(CoreExprOp::from(Load::new(name)).with_meta(meta))
+    op_expr(Load::new(name).with_meta(meta))
 }
 
 fn rewrite_local_name_load(name: ExprName, resolver: &NameBindingMapper<'_>) -> CoreBlockPyExpr {
@@ -153,10 +152,7 @@ where
 {
     match expr {
         CoreBlockPyExpr::Name(name) => Some(name.id_str().to_string()),
-        CoreBlockPyExpr::Op(operation) => match operation {
-            CoreExprOp::Load(op) => Some(op.name.id_str().to_string()),
-            _ => None,
-        },
+        CoreBlockPyExpr::Load(op) => Some(op.name.id_str().to_string()),
         _ => None,
     }
 }
@@ -215,21 +211,21 @@ fn rewrite_cell_ref_expr(
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
     op_expr(
-        CoreExprOp::from(CellRefForName::new(logical_name.to_string()))
+        CellRefForName::new(logical_name.to_string())
             .with_meta(crate::block_py::Meta::new(node_index.clone(), range)),
     )
 }
 
 fn rewrite_global_binding_assign(assign: CoreAssign) -> CoreStmt {
     let meta = assign.target.meta();
-    op_stmt(CoreExprOp::from(Store::new(assign.target, Box::new(assign.value))).with_meta(meta))
+    op_stmt(Store::new(assign.target, Box::new(assign.value)).with_meta(meta))
 }
 
 fn rewrite_class_namespace_binding_assign(assign: CoreAssign) -> CoreStmt {
     let meta = assign.target.meta();
     let bind_name = assign.target.id_str().to_string();
     op_stmt(
-        CoreExprOp::from(SetItem::new(
+        SetItem::new(
             Box::new(class_namespace_expr(meta.node_index.clone(), meta.range)),
             Box::new(core_string_expr(
                 bind_name,
@@ -237,7 +233,7 @@ fn rewrite_class_namespace_binding_assign(assign: CoreAssign) -> CoreStmt {
                 meta.range,
             )),
             Box::new(assign.value),
-        ))
+        )
         .with_meta(meta),
     )
 }
@@ -257,7 +253,7 @@ fn rewrite_global_binding_delete_by_name(
     range: ruff_text_size::TextRange,
 ) -> CoreStmt {
     op_stmt(
-        CoreExprOp::from(Del::new(
+        Del::new(
             ast::ExprName {
                 id: bind_name.into(),
                 ctx: ast::ExprContext::Del,
@@ -265,7 +261,7 @@ fn rewrite_global_binding_delete_by_name(
                 range,
             },
             false,
-        ))
+        )
         .with_meta(crate::block_py::Meta::new(node_index.clone(), range)),
     )
 }
@@ -279,7 +275,7 @@ fn rewrite_binding_delete(
     let bind_name = target.id.to_string();
     if semantic.is_cell_binding(bind_name.as_str()) {
         let _ = resolver;
-        return op_stmt(CoreExprOp::from(Del::new(target, false)).with_meta(meta));
+        return op_stmt(Del::new(target, false).with_meta(meta));
     }
     match semantic.binding_target_for_name(bind_name.as_str(), BlockPyBindingPurpose::Store) {
         BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
@@ -296,14 +292,14 @@ fn rewrite_binding_delete(
             rewrite_global_binding_delete_by_name(bind_name.as_str(), meta.node_index, meta.range)
         }
         BindingTarget::ClassNamespace => op_stmt(
-            CoreExprOp::from(DelItem::new(
+            DelItem::new(
                 Box::new(class_namespace_expr(meta.node_index.clone(), meta.range)),
                 Box::new(core_string_expr(
                     bind_name,
                     meta.node_index.clone(),
                     meta.range,
                 )),
-            ))
+            )
             .with_meta(meta),
         ),
     }
@@ -355,43 +351,96 @@ fn wrap_deleted_name_load_expr(
     )
 }
 
-fn operation_expr<N: BlockPyNameLike + Clone>(
-    expr: &CoreBlockPyExpr<N>,
-) -> Option<&CoreExprOp<CoreBlockPyExpr<N>>> {
-    match expr {
-        CoreBlockPyExpr::Op(operation) => Some(operation),
-        _ => None,
-    }
-}
-
-fn operation_expr_mut<N: BlockPyNameLike + Clone>(
-    expr: &mut CoreBlockPyExpr<N>,
-) -> Option<&mut CoreExprOp<CoreBlockPyExpr<N>>> {
-    match expr {
-        CoreBlockPyExpr::Op(operation) => Some(operation),
-        _ => None,
-    }
-}
-
 fn with_helper_arg_mut<N: BlockPyNameLike + Clone>(
     expr: &mut CoreBlockPyExpr<N>,
     index: usize,
     f: &mut impl FnMut(&mut CoreBlockPyExpr<N>),
 ) -> bool {
     match expr {
-        CoreBlockPyExpr::Op(operation) => {
-            let mut current = 0;
-            let mut applied = false;
-            operation.walk_args_mut(&mut |arg| {
-                if current == index && !applied {
-                    f(arg);
-                    applied = true;
-                }
-                current += 1;
-            });
-            applied
+        CoreBlockPyExpr::BinOp(operation) => with_helper_arg_mut_in_operation(operation, index, f),
+        CoreBlockPyExpr::UnaryOp(operation) => {
+            with_helper_arg_mut_in_operation(operation, index, f)
+        }
+        CoreBlockPyExpr::Call(operation) => with_helper_arg_mut_in_operation(operation, index, f),
+        CoreBlockPyExpr::GetAttr(operation) => {
+            with_helper_arg_mut_in_operation(operation, index, f)
+        }
+        CoreBlockPyExpr::SetAttr(operation) => {
+            with_helper_arg_mut_in_operation(operation, index, f)
+        }
+        CoreBlockPyExpr::GetItem(operation) => {
+            with_helper_arg_mut_in_operation(operation, index, f)
+        }
+        CoreBlockPyExpr::SetItem(operation) => {
+            with_helper_arg_mut_in_operation(operation, index, f)
+        }
+        CoreBlockPyExpr::DelItem(operation) => {
+            with_helper_arg_mut_in_operation(operation, index, f)
+        }
+        CoreBlockPyExpr::Load(operation) => with_helper_arg_mut_in_operation(operation, index, f),
+        CoreBlockPyExpr::Store(operation) => with_helper_arg_mut_in_operation(operation, index, f),
+        CoreBlockPyExpr::Del(operation) => with_helper_arg_mut_in_operation(operation, index, f),
+        CoreBlockPyExpr::MakeCell(operation) => {
+            with_helper_arg_mut_in_operation(operation, index, f)
+        }
+        CoreBlockPyExpr::MakeString(operation) => {
+            with_helper_arg_mut_in_operation(operation, index, f)
+        }
+        CoreBlockPyExpr::CellRefForName(operation) => {
+            with_helper_arg_mut_in_operation(operation, index, f)
+        }
+        CoreBlockPyExpr::CellRef(operation) => {
+            with_helper_arg_mut_in_operation(operation, index, f)
+        }
+        CoreBlockPyExpr::MakeFunction(operation) => {
+            with_helper_arg_mut_in_operation(operation, index, f)
         }
         _ => false,
+    }
+}
+
+fn with_helper_arg_mut_in_operation<N: BlockPyNameLike + Clone, T>(
+    operation: &mut T,
+    index: usize,
+    f: &mut impl FnMut(&mut CoreBlockPyExpr<N>),
+) -> bool
+where
+    T: crate::block_py::InstrExprNode<CoreBlockPyExpr<N>, Mapped<CoreBlockPyExpr<N>> = T>,
+{
+    let mut current = 0;
+    let mut applied = false;
+    operation.visit_exprs_mut(&mut |arg| {
+        if current == index && !applied {
+            f(arg);
+            applied = true;
+        }
+        current += 1;
+    });
+    applied
+}
+
+fn walk_helper_args<N: BlockPyNameLike + Clone>(
+    expr: &CoreBlockPyExpr<N>,
+    f: &mut impl FnMut(&CoreBlockPyExpr<N>),
+) {
+    match expr {
+        CoreBlockPyExpr::BinOp(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::UnaryOp(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::Call(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::GetAttr(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::SetAttr(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::GetItem(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::SetItem(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::DelItem(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::Load(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::Store(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::Del(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::MakeCell(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::MakeString(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::CellRefForName(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::CellRef(operation) => operation.visit_exprs(f),
+        CoreBlockPyExpr::MakeFunction(operation) => operation.visit_exprs(f),
+        _ => unreachable!("helper arg walker only applies to op-like expressions"),
     }
 }
 
@@ -400,7 +449,22 @@ fn walk_helper_args_mut<N: BlockPyNameLike + Clone>(
     f: &mut impl FnMut(&mut CoreBlockPyExpr<N>),
 ) {
     match expr {
-        CoreBlockPyExpr::Op(operation) => operation.walk_args_mut(f),
+        CoreBlockPyExpr::BinOp(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::UnaryOp(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::Call(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::GetAttr(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::SetAttr(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::GetItem(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::SetItem(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::DelItem(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::Load(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::Store(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::Del(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::MakeCell(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::MakeString(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::CellRefForName(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::CellRef(operation) => operation.visit_exprs_mut(f),
+        CoreBlockPyExpr::MakeFunction(operation) => operation.visit_exprs_mut(f),
         _ => unreachable!("helper arg walker only applies to op-like expressions"),
     }
 }
@@ -442,11 +506,8 @@ fn rewrite_deleted_name_loads_in_expr(
                 always_unbound_names,
             );
         }
-        CoreBlockPyExpr::Op(operation) if matches!(operation, CoreExprOp::Load(_)) => {
-            let meta = operation.meta();
-            let CoreExprOp::Load(op) = operation else {
-                unreachable!("load guard should ensure Load detail");
-            };
+        CoreBlockPyExpr::Load(op) => {
+            let meta = op.meta();
             let always_unbound = always_unbound_names.contains(op.name.id_str());
             let deleted = deleted_names.contains(op.name.id_str());
             if always_unbound || deleted {
@@ -493,39 +554,41 @@ fn rewrite_deleted_name_loads_in_expr(
                 }
             }
         }
-        CoreBlockPyExpr::Op(_) => {
-            let Some(operation) = operation_expr(expr) else {
-                unreachable!("op-like branch should have operation view");
-            };
-            match operation {
-                CoreExprOp::Load(_)
-                | CoreExprOp::Del(_)
-                | CoreExprOp::CellRefForName(_)
-                | CoreExprOp::CellRef(_) => {}
-                CoreExprOp::Store(_) => {
-                    with_helper_arg_mut(expr, 1, &mut |value_expr| {
-                        rewrite_deleted_name_loads_in_expr(
-                            value_expr,
-                            semantic,
-                            storage_layout,
-                            resolver,
-                            deleted_names,
-                            always_unbound_names,
-                        );
-                    });
-                }
-                _ => walk_helper_args_mut(expr, &mut |arg| {
-                    rewrite_deleted_name_loads_in_expr(
-                        arg,
-                        semantic,
-                        storage_layout,
-                        resolver,
-                        deleted_names,
-                        always_unbound_names,
-                    )
-                }),
-            }
+        CoreBlockPyExpr::BinOp(_)
+        | CoreBlockPyExpr::UnaryOp(_)
+        | CoreBlockPyExpr::Call(_)
+        | CoreBlockPyExpr::GetAttr(_)
+        | CoreBlockPyExpr::SetAttr(_)
+        | CoreBlockPyExpr::GetItem(_)
+        | CoreBlockPyExpr::SetItem(_)
+        | CoreBlockPyExpr::DelItem(_)
+        | CoreBlockPyExpr::MakeCell(_)
+        | CoreBlockPyExpr::MakeString(_)
+        | CoreBlockPyExpr::MakeFunction(_) => walk_helper_args_mut(expr, &mut |arg| {
+            rewrite_deleted_name_loads_in_expr(
+                arg,
+                semantic,
+                storage_layout,
+                resolver,
+                deleted_names,
+                always_unbound_names,
+            )
+        }),
+        CoreBlockPyExpr::Store(_) => {
+            with_helper_arg_mut(expr, 1, &mut |value_expr| {
+                rewrite_deleted_name_loads_in_expr(
+                    value_expr,
+                    semantic,
+                    storage_layout,
+                    resolver,
+                    deleted_names,
+                    always_unbound_names,
+                );
+            });
         }
+        CoreBlockPyExpr::Del(_)
+        | CoreBlockPyExpr::CellRefForName(_)
+        | CoreBlockPyExpr::CellRef(_) => {}
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
     }
 }
@@ -552,10 +615,9 @@ fn core_name_expr(
                 | "make_function"
         )
     {
-        return CoreBlockPyExpr::Op(
-            CoreExprOp::from(Load::new(runtime_symbol(id, node_index.clone(), range)))
-                .with_meta(crate::block_py::Meta::new(node_index, range)),
-        );
+        return Load::new(runtime_symbol(id, node_index.clone(), range))
+            .with_meta(crate::block_py::Meta::new(node_index, range))
+            .into();
     }
     CoreBlockPyExpr::Name(
         ast::ExprName {
@@ -636,7 +698,7 @@ fn rewrite_quiet_delete_marker(
     match semantic.binding_kind(name.id.as_str()) {
         Some(BlockPyBindingKind::Cell(_)) => {
             let _ = resolver;
-            op_stmt(CoreExprOp::from(Del::new(name, true)).with_meta(meta))
+            op_stmt(Del::new(name, true).with_meta(meta))
         }
         _ => match semantic.binding_target_for_name(name.id.as_str(), BlockPyBindingPurpose::Store)
         {
@@ -650,18 +712,16 @@ fn rewrite_quiet_delete_marker(
                 .into(),
                 value: deleted_sentinel_expr(node_index, range),
             }),
-            BindingTarget::ModuleGlobal => {
-                op_stmt(CoreExprOp::from(Del::new(name, true)).with_meta(meta))
-            }
+            BindingTarget::ModuleGlobal => op_stmt(Del::new(name, true).with_meta(meta)),
             BindingTarget::ClassNamespace => op_stmt(
-                CoreExprOp::from(DelItem::new(
+                DelItem::new(
                     Box::new(class_namespace_expr(node_index.clone(), range)),
                     Box::new(core_string_expr(
                         name.id.to_string(),
                         node_index.clone(),
                         range,
                     )),
-                ))
+                )
                 .with_meta(meta),
             ),
         },
@@ -670,8 +730,7 @@ fn rewrite_quiet_delete_marker(
 
 fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
     let meta = expr.meta();
-    let operation = operation_expr(expr)?;
-    let CoreExprOp::Call(call) = operation else {
+    let CoreBlockPyExpr::Call(call) = expr else {
         return None;
     };
     let Call {
@@ -691,8 +750,7 @@ fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
     }
     match &args[0] {
         CoreBlockPyCallArg::Positional(expr) => {
-            let nested = operation_expr(expr)?;
-            let CoreExprOp::Call(nested_call) = nested else {
+            let CoreBlockPyExpr::Call(nested_call) = expr else {
                 return raw_load_name(expr).map(|name| ExprName {
                     id: name.into(),
                     ctx: ast::ExprContext::Load,
@@ -728,16 +786,11 @@ fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
 }
 
 fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
-    matches!(
-        expr,
-        CoreBlockPyExpr::Op(operation)
-            if matches!(operation, CoreExprOp::Load(op) if op.name.is_runtime_symbol("DELETED"))
-    )
+    matches!(expr, CoreBlockPyExpr::Load(op) if op.name.is_runtime_symbol("DELETED"))
 }
 
 fn cell_ref_marker_target(expr: &CoreBlockPyExpr) -> Option<String> {
-    let operation = operation_expr(expr)?;
-    let CoreExprOp::CellRefForName(CellRefForName { logical_name, .. }) = operation else {
+    let CoreBlockPyExpr::CellRefForName(CellRefForName { logical_name, .. }) = expr else {
         return None;
     };
     Some(logical_name.clone())
@@ -757,8 +810,7 @@ fn cell_load_logical_name(
     semantic: &BlockPyCallableSemanticInfo,
     _storage_layout: &StorageLayout,
 ) -> Option<String> {
-    let operation = operation_expr(expr)?;
-    let CoreExprOp::Load(op) = operation else {
+    let CoreBlockPyExpr::Load(op) = expr else {
         return None;
     };
     logical_name_for_cell_bound_name(semantic, op.name.id_str())
@@ -790,7 +842,7 @@ fn build_local_cell_init_assign(
         }
         .into(),
         value: op_expr(
-            CoreExprOp::from(MakeCell::new(Box::new(init_expr)))
+            MakeCell::new(Box::new(init_expr))
                 .with_meta(crate::block_py::Meta::new(node_index, range)),
         ),
     })
@@ -845,7 +897,7 @@ fn build_closure_slot_cell_init_assign(slot: &ClosureSlot) -> CoreStmt {
         }
         .into(),
         value: op_expr(
-            CoreExprOp::from(MakeCell::new(Box::new(closure_slot_init_expr(slot))))
+            MakeCell::new(Box::new(closure_slot_init_expr(slot)))
                 .with_meta(crate::block_py::Meta::new(node_index, range)),
         ),
     })
@@ -945,8 +997,7 @@ fn store_cell_deleted_logical_name(
     semantic: &BlockPyCallableSemanticInfo,
     _storage_layout: &StorageLayout,
 ) -> Option<String> {
-    let operation = operation_expr(expr)?;
-    let CoreExprOp::Store(op) = operation else {
+    let CoreBlockPyExpr::Store(op) = expr else {
         return None;
     };
     if !is_deleted_sentinel_expr(&op.value) {
@@ -960,8 +1011,7 @@ fn del_deref_logical_name(
     semantic: &BlockPyCallableSemanticInfo,
     _storage_layout: &StorageLayout,
 ) -> Option<String> {
-    let operation = operation_expr(expr)?;
-    let CoreExprOp::Del(op) = operation else {
+    let CoreBlockPyExpr::Del(op) = expr else {
         return None;
     };
     if op.quietly {
@@ -975,8 +1025,7 @@ fn store_cell_runtime_logical_name(
     semantic: &BlockPyCallableSemanticInfo,
     _storage_layout: &StorageLayout,
 ) -> Option<String> {
-    let operation = operation_expr(expr)?;
-    let CoreExprOp::Store(op) = operation else {
+    let CoreBlockPyExpr::Store(op) = expr else {
         return None;
     };
     if is_deleted_sentinel_expr(&op.value) {
@@ -989,10 +1038,7 @@ fn is_local_cell_init_assign(assign: &CoreAssign) -> bool {
     let Some(logical_name) = assign.target.id_str().strip_prefix("_dp_cell_") else {
         return false;
     };
-    let Some(operation) = operation_expr(&assign.value) else {
-        return false;
-    };
-    let CoreExprOp::MakeCell(MakeCell { initial_value, .. }) = operation else {
+    let CoreBlockPyExpr::MakeCell(MakeCell { initial_value, .. }) = &assign.value else {
         return false;
     };
     matches!(raw_load_name(initial_value.as_ref()), Some(name) if name == logical_name)
@@ -1137,9 +1183,7 @@ fn rewrite_binding_assign_by_name(
     if semantic.is_cell_binding(name.as_str()) {
         if is_deleted_sentinel_expr(&assign.value) {
             let _ = resolver;
-            return op_stmt(
-                CoreExprOp::from(Del::new(assign.target.clone(), false)).with_meta(meta),
-            );
+            return op_stmt(Del::new(assign.target.clone(), false).with_meta(meta));
         }
         return rewrite_cell_binding_assign(assign, semantic, resolver);
     }
@@ -1153,10 +1197,10 @@ fn rewrite_binding_assign_by_name(
         BindingTarget::ClassNamespace => {
             if is_deleted_sentinel_expr(&assign.value) {
                 return op_stmt(
-                    CoreExprOp::from(DelItem::new(
+                    DelItem::new(
                         Box::new(class_namespace_expr(node_index.clone(), range)),
                         Box::new(core_string_expr(name, node_index, range)),
-                    ))
+                    )
                     .with_meta(meta),
                 );
             }
@@ -1184,14 +1228,10 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
 
     fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
         match expr {
-            CoreBlockPyExpr::Op(operation) if matches!(operation, CoreExprOp::Load(_)) => {
-                let meta = operation.meta();
-                let detail = operation;
-                let CoreExprOp::Load(op) = detail else {
-                    unreachable!("load guard should ensure Load detail");
-                };
+            CoreBlockPyExpr::Load(op) => {
+                let meta = op.meta();
                 if op.name.is_runtime_name() {
-                    CoreBlockPyExpr::Op(CoreExprOp::from(Load::new(op.name)).with_meta(meta))
+                    Load::new(op.name).with_meta(meta).into()
                 } else {
                     rewrite_name_load(op.name.into(), self.semantic, self)
                 }
@@ -1221,53 +1261,46 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                     meta.range,
                 )
             }
-            CoreBlockPyExpr::Op(operation) => {
-                let meta = operation.meta();
-                let detail = operation;
-                match detail {
-                    CoreExprOp::MakeFunction(op) => self.materialize_make_function_expr(meta, op),
-                    CoreExprOp::Call(call)
-                        if call.args.is_empty()
-                            && call.keywords.is_empty()
-                            && raw_load_name(call.func.as_ref())
-                                .as_ref()
-                                .is_some_and(|name| {
-                                    name == "globals"
-                                        && self.semantic.resolved_load_binding_kind("globals")
-                                            == BlockPyBindingKind::Global
-                                }) =>
-                    {
-                        globals_expr(meta.node_index, meta.range)
-                    }
-                    CoreExprOp::Call(call)
-                        if call.keywords.is_empty()
-                            && call.args.len() == 3
-                            && raw_load_name(call.func.as_ref())
-                                .as_ref()
-                                .is_some_and(|name| name == "class_lookup_cell") =>
-                    {
-                        let mut mapped_args = Vec::with_capacity(3);
-                        for (index, arg) in call.args.into_iter().enumerate() {
-                            match (index, arg) {
-                                (2, arg) => mapped_args.push(arg),
-                                (_, CoreBlockPyCallArg::Positional(expr)) => mapped_args
-                                    .push(CoreBlockPyCallArg::Positional(self.map_expr(expr))),
-                                (_, CoreBlockPyCallArg::Starred(expr)) => mapped_args
-                                    .push(CoreBlockPyCallArg::Starred(self.map_expr(expr))),
-                            }
-                        }
-                        CoreBlockPyExpr::Op(
-                            CoreExprOp::from(Call::new(
-                                self.map_expr(*call.func),
-                                mapped_args,
-                                call.keywords,
-                            ))
-                            .with_meta(meta),
-                        )
-                    }
-                    other => self.map_nested_expr(CoreBlockPyExpr::Op(other.with_meta(meta))),
-                }
+            CoreBlockPyExpr::MakeFunction(op) => self.materialize_make_function_expr(op.meta(), op),
+            CoreBlockPyExpr::Call(call)
+                if call.args.is_empty()
+                    && call.keywords.is_empty()
+                    && raw_load_name(call.func.as_ref())
+                        .as_ref()
+                        .is_some_and(|name| {
+                            name == "globals"
+                                && self.semantic.resolved_load_binding_kind("globals")
+                                    == BlockPyBindingKind::Global
+                        }) =>
+            {
+                let meta = call.meta();
+                globals_expr(meta.node_index, meta.range)
             }
+            CoreBlockPyExpr::Call(call)
+                if call.keywords.is_empty()
+                    && call.args.len() == 3
+                    && raw_load_name(call.func.as_ref())
+                        .as_ref()
+                        .is_some_and(|name| name == "class_lookup_cell") =>
+            {
+                let meta = call.meta();
+                let mut mapped_args = Vec::with_capacity(3);
+                for (index, arg) in call.args.into_iter().enumerate() {
+                    match (index, arg) {
+                        (2, arg) => mapped_args.push(arg),
+                        (_, CoreBlockPyCallArg::Positional(expr)) => {
+                            mapped_args.push(CoreBlockPyCallArg::Positional(self.map_expr(expr)))
+                        }
+                        (_, CoreBlockPyCallArg::Starred(expr)) => {
+                            mapped_args.push(CoreBlockPyCallArg::Starred(self.map_expr(expr)))
+                        }
+                    }
+                }
+                Call::new(self.map_expr(*call.func), mapped_args, call.keywords)
+                    .with_meta(meta)
+                    .into()
+            }
+            other => self.map_nested_expr(other),
         }
     }
 }
@@ -1413,26 +1446,44 @@ fn rewrite_raw_cell_loads_in_expr(
         {
             *expr = rewrite_cell_name_load(name.clone(), semantic, resolver);
         }
-        CoreBlockPyExpr::Op(operation) => {
-            if let CoreExprOp::Call(call) = operation {
-                if call.keywords.is_empty()
-                    && call.args.len() == 3
-                    && raw_load_name(call.func.as_ref())
-                        .as_ref()
-                        .is_some_and(|name| name == "class_lookup_cell")
-                {
-                    rewrite_raw_cell_loads_in_expr(call.func.as_mut(), semantic, resolver);
-                    if let Some(arg) = call.args.get_mut(0) {
-                        rewrite_raw_cell_loads_in_expr(arg.expr_mut(), semantic, resolver);
-                    }
-                    if let Some(arg) = call.args.get_mut(1) {
-                        rewrite_raw_cell_loads_in_expr(arg.expr_mut(), semantic, resolver);
-                    }
-                    return;
+        CoreBlockPyExpr::Call(call) => {
+            if call.keywords.is_empty()
+                && call.args.len() == 3
+                && raw_load_name(call.func.as_ref())
+                    .as_ref()
+                    .is_some_and(|name| name == "class_lookup_cell")
+            {
+                rewrite_raw_cell_loads_in_expr(call.func.as_mut(), semantic, resolver);
+                if let Some(arg) = call.args.get_mut(0) {
+                    rewrite_raw_cell_loads_in_expr(arg.expr_mut(), semantic, resolver);
                 }
+                if let Some(arg) = call.args.get_mut(1) {
+                    rewrite_raw_cell_loads_in_expr(arg.expr_mut(), semantic, resolver);
+                }
+                return;
             }
-            operation
-                .walk_args_mut(&mut |arg| rewrite_raw_cell_loads_in_expr(arg, semantic, resolver));
+            call.visit_exprs_mut(&mut |arg| {
+                rewrite_raw_cell_loads_in_expr(arg, semantic, resolver)
+            });
+        }
+        CoreBlockPyExpr::BinOp(_)
+        | CoreBlockPyExpr::UnaryOp(_)
+        | CoreBlockPyExpr::GetAttr(_)
+        | CoreBlockPyExpr::SetAttr(_)
+        | CoreBlockPyExpr::GetItem(_)
+        | CoreBlockPyExpr::SetItem(_)
+        | CoreBlockPyExpr::DelItem(_)
+        | CoreBlockPyExpr::Load(_)
+        | CoreBlockPyExpr::Store(_)
+        | CoreBlockPyExpr::Del(_)
+        | CoreBlockPyExpr::MakeCell(_)
+        | CoreBlockPyExpr::MakeString(_)
+        | CoreBlockPyExpr::CellRefForName(_)
+        | CoreBlockPyExpr::CellRef(_)
+        | CoreBlockPyExpr::MakeFunction(_) => {
+            walk_helper_args_mut(expr, &mut |arg| {
+                rewrite_raw_cell_loads_in_expr(arg, semantic, resolver)
+            });
         }
         CoreBlockPyExpr::Literal(_) => {}
         CoreBlockPyExpr::Name(_) => {}
@@ -1547,7 +1598,7 @@ fn sync_exception_param_cell_in_block(
         range,
     };
     let sync_stmt = op_stmt(
-        CoreExprOp::from(Store::new(
+        Store::new(
             ast::ExprName {
                 id: exc_name.into(),
                 ctx: ast::ExprContext::Store,
@@ -1555,7 +1606,7 @@ fn sync_exception_param_cell_in_block(
                 range,
             },
             Box::new(rewrite_local_name_load(exc_load, resolver)),
-        ))
+        )
         .with_meta(crate::block_py::Meta::new(node_index, range)),
     );
     block.body.insert(0, sync_stmt);
@@ -1651,14 +1702,54 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
             names.insert(name.id_str().to_string());
         }
         CoreBlockPyExpr::Literal(_) => {}
-        CoreBlockPyExpr::Op(operation) => {
-            match operation {
-                CoreExprOp::Load(op) => {
-                    names.insert(op.name.id_str().to_string());
-                }
-                _ => {}
-            }
-            operation.walk_args(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        CoreBlockPyExpr::Load(op) => {
+            names.insert(op.name.id_str().to_string());
+            op.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::BinOp(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::UnaryOp(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::Call(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::GetAttr(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::SetAttr(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::GetItem(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::SetItem(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::DelItem(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::Store(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::Del(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::MakeCell(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::MakeString(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::CellRefForName(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::CellRef(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        }
+        CoreBlockPyExpr::MakeFunction(operation) => {
+            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
         }
     }
 }
@@ -2148,7 +2239,13 @@ impl NameLocator<'_> {
         expr: CoreBlockPyExpr<LocatedName>,
     ) -> CoreBlockPyExpr<LocatedName> {
         match expr {
-            CoreBlockPyExpr::Name(name) => CoreBlockPyExpr::Name(self.mark_raw_cell_name(name)),
+            CoreBlockPyExpr::Name(name) => {
+                let marked = self.mark_raw_cell_name(name);
+                if let Some(location) = marked.cell_location() {
+                    return CellRef::new(location).with_meta(marked.meta()).into();
+                }
+                CoreBlockPyExpr::Name(marked)
+            }
             other => other,
         }
     }
@@ -2163,7 +2260,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
         match expr {
             CoreBlockPyExpr::Name(name) => CoreBlockPyExpr::Name(self.locate_unresolved_name(name)),
             CoreBlockPyExpr::Literal(literal) => CoreBlockPyExpr::Literal(literal),
-            CoreBlockPyExpr::Op(CoreExprOp::Load(op)) => {
+            CoreBlockPyExpr::Load(op) => {
                 let meta = op.meta();
                 let name = self.locate_unresolved_name(op.name);
                 let name = if name.is_runtime_name() {
@@ -2171,9 +2268,9 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                 } else {
                     self.mark_raw_cell_name(name)
                 };
-                CoreBlockPyExpr::Op(CoreExprOp::from(Load::new(name)).with_meta(meta))
+                Load::new(name).with_meta(meta).into()
             }
-            CoreBlockPyExpr::Op(CoreExprOp::Store(op)) => {
+            CoreBlockPyExpr::Store(op) => {
                 let meta = op.meta();
                 let name = self.locate_unresolved_name(op.name);
                 let name = if name.is_runtime_name() {
@@ -2182,11 +2279,9 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                     self.mark_raw_cell_name(name)
                 };
                 let value = self.map_expr(*op.value);
-                CoreBlockPyExpr::Op(
-                    CoreExprOp::from(Store::new(name, Box::new(value))).with_meta(meta),
-                )
+                Store::new(name, Box::new(value)).with_meta(meta).into()
             }
-            CoreBlockPyExpr::Op(CoreExprOp::Del(op)) => {
+            CoreBlockPyExpr::Del(op) => {
                 let meta = op.meta();
                 let name = self.locate_unresolved_name(op.name);
                 let name = if name.is_runtime_name() {
@@ -2194,31 +2289,34 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                 } else {
                     self.mark_raw_cell_name(name)
                 };
-                CoreBlockPyExpr::Op(CoreExprOp::from(Del::new(name, op.quietly)).with_meta(meta))
+                Del::new(name, op.quietly).with_meta(meta).into()
             }
-            CoreBlockPyExpr::Op(operation) => {
-                let mut expr = self.map_nested_expr(CoreBlockPyExpr::Op(operation));
-                let operation = operation_expr_mut(&mut expr)
-                    .expect("op expression should remain op after nested mapping");
-                let meta = operation.meta();
-                if let CoreExprOp::CellRefForName(op) = operation {
-                    let location = self.resolve_cell_ref_location(op.logical_name.as_str());
-                    *operation = CoreExprOp::from(CellRef::new(location)).with_meta(meta);
-                    return expr;
-                }
-                if let CoreExprOp::Call(call) = operation {
-                    if raw_load_name(call.func.as_ref())
-                        .as_ref()
-                        .is_some_and(|name| name == "class_lookup_cell")
-                        && call.args.len() == 3
-                    {
-                        if let Some(CoreBlockPyCallArg::Positional(expr)) = call.args.get_mut(2) {
-                            *expr = self.mark_raw_cell_expr(expr.clone());
+            CoreBlockPyExpr::CellRefForName(op) => {
+                let meta = op.meta();
+                let location = self.resolve_cell_ref_location(op.logical_name.as_str());
+                CellRef::new(location).with_meta(meta).into()
+            }
+            CoreBlockPyExpr::Call(call) => {
+                let meta = call.meta();
+                let call = call.map_expr_node(&mut |expr| self.map_expr(expr));
+                if raw_load_name(call.func.as_ref())
+                    .as_ref()
+                    .is_some_and(|name| name == "class_lookup_cell")
+                    && call.args.len() == 3
+                {
+                    if let Some(CoreBlockPyCallArg::Positional(expr)) = call.args.get(2) {
+                        let mut marked = expr.clone();
+                        marked = self.mark_raw_cell_expr(marked);
+                        let mut call = call;
+                        if let Some(CoreBlockPyCallArg::Positional(target)) = call.args.get_mut(2) {
+                            *target = marked;
                         }
+                        return call.with_meta(meta).into();
                     }
                 }
-                expr
+                call.with_meta(meta).into()
             }
+            other => self.map_nested_expr(other),
         }
     }
 }
@@ -2250,12 +2348,13 @@ fn locate_names_in_callable(
 fn collect_make_function_callee_ids_in_expr(expr: &CoreBlockPyExpr, out: &mut Vec<FunctionId>) {
     match expr {
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
-        CoreBlockPyExpr::Op(operation) => {
-            if let CoreExprOp::MakeFunction(op) = operation {
-                out.push(op.function_id);
-                return;
-            }
-            operation.walk_args(&mut |arg| collect_make_function_callee_ids_in_expr(arg, out));
+        CoreBlockPyExpr::MakeFunction(op) => {
+            out.push(op.function_id);
+        }
+        _ => {
+            walk_helper_args(expr, &mut |arg| {
+                collect_make_function_callee_ids_in_expr(arg, out)
+            });
         }
     }
 }
@@ -2685,8 +2784,8 @@ impl ModuleConstantExtractor {
             self.constants.push(literal);
             return;
         }
-        if let CoreBlockPyExpr::Op(operation) = expr {
-            operation.walk_args_mut(&mut |child| self.extract_expr(child));
+        if !matches!(expr, CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_)) {
+            walk_helper_args_mut(expr, &mut |child| self.extract_expr(child));
         }
     }
 }

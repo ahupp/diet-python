@@ -138,12 +138,7 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         let kind = inplace_kind(op)
             .expect("direct augassign lowering should support every Python inplace operator");
         core_operation_expr(
-            operation::OperationDetail::from(operation::BinOp::new(
-                kind,
-                Box::new(left),
-                Box::new(right),
-            ))
-            .with_meta(meta),
+            operation::BinOp::new(kind, Box::new(left), Box::new(right)).with_meta(meta),
         )
     }
 
@@ -343,19 +338,19 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
         let function_id = make_function_id_from_literal(&call.arguments.args[0])?;
         let kind = make_function_kind_from_literal(&call.arguments.args[1])?;
         return Some(core_operation_expr(
-            operation::OperationDetail::from(operation::MakeFunction::new(
+            operation::MakeFunction::new(
                 function_id,
                 kind,
                 Box::new(lowered(call.arguments.args[3].clone())),
                 Box::new(lowered(call.arguments.args[4].clone())),
-            ))
+            )
             .with_meta(Meta::new(call.node_index.clone(), call.range)),
         ));
     }
 
     if let Some(call) = lowered_helper_call(expr, "store_global", 3) {
         return Some(core_operation_expr(
-            operation::OperationDetail::from(operation::Store::new(
+            operation::Store::new(
                 ast::ExprName {
                     id: string_literal_value(&call.arguments.args[1])?.into(),
                     ctx: ast::ExprContext::Store,
@@ -363,17 +358,15 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
                     range: call.range,
                 },
                 Box::new(lowered(call.arguments.args[2].clone())),
-            ))
+            )
             .with_meta(Meta::new(call.node_index.clone(), call.range)),
         ));
     }
 
     if let Some(call) = lowered_helper_call(expr, "cell_ref", 1) {
         return Some(core_operation_expr(
-            operation::OperationDetail::from(operation::CellRefForName::new(string_literal_value(
-                &call.arguments.args[0],
-            )?))
-            .with_meta(Meta::new(call.node_index.clone(), call.range)),
+            operation::CellRefForName::new(string_literal_value(&call.arguments.args[0])?)
+                .with_meta(Meta::new(call.node_index.clone(), call.range)),
         ));
     }
 

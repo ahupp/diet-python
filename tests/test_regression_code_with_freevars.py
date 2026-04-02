@@ -23,15 +23,15 @@ def test_code_with_freevars_returns_requested_freevars():
     assert code.co_freevars == ("x", "y")
 
 
-def test_code_with_freevars_uses_canonical_freevar_order():
+def test_code_with_freevars_preserves_requested_freevar_order():
     code = runtime.code_with_freevars(("a", "_dp_eval_1", "_dp_pc"), False, False)
 
-    assert code.co_freevars == ("_dp_eval_1", "_dp_pc", "a")
+    assert code.co_freevars == ("a", "_dp_eval_1", "_dp_pc")
 
     captured_by_name = {
+        "a": "captured-a",
         "_dp_eval_1": "captured-eval",
         "_dp_pc": "captured-pc",
-        "a": "captured-a",
     }
     closure = tuple(_make_cell(captured_by_name[name]) for name in code.co_freevars)
     wrapped = types.FunctionType(code, globals(), name="wrapped", closure=closure)

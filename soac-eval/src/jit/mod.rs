@@ -379,18 +379,15 @@ fn codegen_expr_is_borrowable(
         CodegenBlockPyExpr::Name(name) => {
             located_local_name_is_borrowable(name, local_names, stack_slots)
         }
-        CodegenBlockPyExpr::Op(operation) => match operation {
-            blockpy_intrinsics::CodegenExprOp::Load(op) => op
-                .name
-                .local_location()
-                .and_then(|location| storage_layout?.stack_slots().get(location.slot() as usize))
-                .is_some_and(|name| {
-                    local_names.iter().any(|candidate| candidate == name)
-                        || stack_slots.has_name(name)
-                }),
-            _ => false,
-        },
+        CodegenBlockPyExpr::Load(op) => op
+            .name
+            .local_location()
+            .and_then(|location| storage_layout?.stack_slots().get(location.slot() as usize))
+            .is_some_and(|name| {
+                local_names.iter().any(|candidate| candidate == name) || stack_slots.has_name(name)
+            }),
         CodegenBlockPyExpr::Literal(_) => false,
+        _ => false,
     }
 }
 
@@ -438,6 +435,107 @@ fn emit_codegen_local_name_load(
     panic!("missing local {name} in direct JIT state");
 }
 
+fn emit_codegen_located_name_load(
+    fb: &mut FunctionBuilder<'_>,
+    name: &LocatedName,
+    local_names: &mut Vec<String>,
+    local_values: &mut Vec<ir::Value>,
+    ctx: &JitEmitCtx<'_>,
+    borrowed: bool,
+) -> ir::Value {
+    let ptr_ty = ctx.consts.ptr_ty;
+    let null_ptr = fb.ins().iconst(ptr_ty, 0);
+
+    match name.location {
+        NameLocation::Local(location) => {
+            emit_codegen_local_name_load(fb, location, local_names, local_values, ctx, borrowed)
+        }
+        NameLocation::Cell(location)
+            if location.is_owned() || location.is_closure() || location.is_captured_source() =>
+        {
+            assert!(
+                !borrowed,
+                "cell-backed name loads must produce owned references"
+            );
+            let cell_obj = emit_raw_cell_object_for_name(fb, name, local_names, local_values, ctx);
+            let value_inst = fb.ins().call(ctx.load_cell_ref, &[cell_obj]);
+            let value = fb.inst_results(value_inst)[0];
+            fb.ins().call(ctx.decref_ref, &[cell_obj]);
+            let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
+            let value_ok_block = fb.create_block();
+            fb.append_block_param(value_ok_block, ptr_ty);
+            fb.ins().brif(
+                value_is_null,
+                ctx.consts.step_null_block,
+                &step_null_block_args(ctx),
+                value_ok_block,
+                &[ir::BlockArg::Value(value)],
+            );
+            fb.switch_to_block(value_ok_block);
+            fb.block_params(value_ok_block)[0]
+        }
+        NameLocation::Constant(index) => {
+            assert!(
+                !borrowed,
+                "constant-backed name loads must produce owned references"
+            );
+            emit_owned_module_constant(fb, ModuleConstantId(index as usize), ctx)
+        }
+        NameLocation::Cell(_) => {
+            unreachable!("all cell location cases should be handled above");
+        }
+        NameLocation::Global => {
+            let globals_obj = ctx.consts.block_const;
+            let name_obj = emit_owned_module_constant(
+                fb,
+                ctx.module_constants
+                    .require_unicode_constant_id(name.id.as_str()),
+                ctx,
+            );
+            let value_inst = fb
+                .ins()
+                .call(ctx.load_global_obj_ref, &[globals_obj, name_obj]);
+            fb.ins().call(ctx.decref_ref, &[name_obj]);
+            let value = fb.inst_results(value_inst)[0];
+            let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
+            let value_ok_block = fb.create_block();
+            fb.append_block_param(value_ok_block, ptr_ty);
+            fb.ins().brif(
+                value_is_null,
+                ctx.consts.step_null_block,
+                &step_null_block_args(ctx),
+                value_ok_block,
+                &[ir::BlockArg::Value(value)],
+            );
+            fb.switch_to_block(value_ok_block);
+            fb.block_params(value_ok_block)[0]
+        }
+        NameLocation::RuntimeName => {
+            let name_obj = emit_owned_module_constant(
+                fb,
+                ctx.module_constants
+                    .require_unicode_constant_id(name.id.as_str()),
+                ctx,
+            );
+            let value_inst = fb.ins().call(ctx.load_runtime_obj_ref, &[name_obj]);
+            fb.ins().call(ctx.decref_ref, &[name_obj]);
+            let value = fb.inst_results(value_inst)[0];
+            let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
+            let value_ok_block = fb.create_block();
+            fb.append_block_param(value_ok_block, ptr_ty);
+            fb.ins().brif(
+                value_is_null,
+                ctx.consts.step_null_block,
+                &step_null_block_args(ctx),
+                value_ok_block,
+                &[ir::BlockArg::Value(value)],
+            );
+            fb.switch_to_block(value_ok_block);
+            fb.block_params(value_ok_block)[0]
+        }
+    }
+}
+
 fn codegen_expr_const_string(
     expr: &LocatedCodegenBlockPyExpr,
     module_constants: &ModuleCodegenConstants,
@@ -451,44 +549,35 @@ fn codegen_expr_const_string(
             String::from_utf8(bytes.value.clone()).ok()
         }
         CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(_)) => None,
-        CodegenBlockPyExpr::Op(blockpy_intrinsics::CodegenExprOp::Load(op)) => {
-            op.name.location.as_constant().and_then(|index| {
-                module_constants.constant_string_value(ModuleConstantId(index as usize))
-            })
-        }
-        CodegenBlockPyExpr::Op(operation) => match operation {
-            blockpy_intrinsics::CodegenExprOp::Call(call) => {
-                let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() else {
-                    return None;
-                };
-                if func_name.id.as_str() != "str"
-                    || call.args.len() != 1
-                    || !call.keywords.is_empty()
-                {
-                    return None;
-                }
-                let CoreBlockPyCallArg::Positional(arg) = &call.args[0] else {
-                    return None;
-                };
-                codegen_expr_const_string(arg, module_constants)
+        CodegenBlockPyExpr::Load(op) => op.name.location.as_constant().and_then(|index| {
+            module_constants.constant_string_value(ModuleConstantId(index as usize))
+        }),
+        CodegenBlockPyExpr::Call(call) => {
+            let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() else {
+                return None;
+            };
+            if func_name.id.as_str() != "str" || call.args.len() != 1 || !call.keywords.is_empty() {
+                return None;
             }
-            _ => None,
-        },
+            let CoreBlockPyCallArg::Positional(arg) = &call.args[0] else {
+                return None;
+            };
+            codegen_expr_const_string(arg, module_constants)
+        }
+        _ => None,
     }
 }
 
 fn codegen_expr_helper_name(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
     match expr {
         CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
-        CodegenBlockPyExpr::Op(operation) => match operation {
-            blockpy_intrinsics::CodegenExprOp::Load(op)
-                if op.name.location.is_global() || op.name.location.is_runtime_name() =>
-            {
-                Some(op.name.id.as_str())
-            }
-            _ => None,
-        },
+        CodegenBlockPyExpr::Load(op)
+            if op.name.location.is_global() || op.name.location.is_runtime_name() =>
+        {
+            Some(op.name.id.as_str())
+        }
         CodegenBlockPyExpr::Literal(_) => None,
+        _ => None,
     }
 }
 
@@ -1142,14 +1231,9 @@ fn emit_codegen_expr(
     let deleted_const = ctx.consts.deleted_const;
     let empty_tuple_const = ctx.consts.empty_tuple_const;
     let block_const = ctx.consts.block_const;
-    let load_global_obj_ref = ctx.load_global_obj_ref;
-    let load_runtime_obj_ref = ctx.load_runtime_obj_ref;
     let pyobject_getattr_ref = ctx.pyobject_getattr_ref;
     let pyobject_setitem_ref = ctx.pyobject_setitem_ref;
     let raise_deleted_name_error_ref = ctx.raise_deleted_name_error_ref;
-    let make_cell_ref = ctx.make_cell_ref;
-    let load_cell_ref = ctx.load_cell_ref;
-    let store_cell_ref = ctx.store_cell_ref;
     let py_call_object_ref = ctx.py_call_object_ref;
     let py_call_with_kw_ref = ctx.py_call_with_kw_ref;
     let tuple_new_ref = ctx.tuple_new_ref;
@@ -1157,106 +1241,7 @@ fn emit_codegen_expr(
 
     match expr {
         CodegenBlockPyExpr::Name(name) => {
-            let null_ptr = fb.ins().iconst(ptr_ty, 0);
-            match name.location {
-                NameLocation::Local(location) => {
-                    return emit_codegen_local_name_load(
-                        fb,
-                        location,
-                        local_names,
-                        local_values,
-                        ctx,
-                        borrowed,
-                    );
-                }
-                NameLocation::Cell(location) if location.is_owned() || location.is_closure() => {
-                    assert!(
-                        !borrowed,
-                        "cell-backed name loads must produce owned references"
-                    );
-                    let cell_obj =
-                        emit_raw_cell_object_for_name(fb, name, local_names, local_values, ctx);
-                    let value_inst = fb.ins().call(load_cell_ref, &[cell_obj]);
-                    let value = fb.inst_results(value_inst)[0];
-                    fb.ins().call(decref_ref, &[cell_obj]);
-                    let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
-                    let value_ok_block = fb.create_block();
-                    fb.append_block_param(value_ok_block, ptr_ty);
-                    fb.ins().brif(
-                        value_is_null,
-                        step_null_block,
-                        &step_null_block_args(ctx),
-                        value_ok_block,
-                        &[ir::BlockArg::Value(value)],
-                    );
-                    fb.switch_to_block(value_ok_block);
-                    return fb.block_params(value_ok_block)[0];
-                }
-                NameLocation::Cell(location) if location.is_captured_source() => {
-                    assert!(
-                        !borrowed,
-                        "captured cell source loads must produce owned references"
-                    );
-                    return emit_raw_cell_object_for_name(fb, name, local_names, local_values, ctx);
-                }
-                NameLocation::Constant(index) => {
-                    assert!(
-                        !borrowed,
-                        "constant-backed name loads must produce owned references"
-                    );
-                    return emit_owned_module_constant(fb, ModuleConstantId(index as usize), ctx);
-                }
-                NameLocation::Cell(_) => {
-                    unreachable!("all cell location cases should be handled above");
-                }
-                NameLocation::Global => {
-                    let globals_obj = block_const;
-                    let name_obj = emit_owned_module_constant(
-                        fb,
-                        ctx.module_constants
-                            .require_unicode_constant_id(name.id.as_str()),
-                        ctx,
-                    );
-                    let value_inst = fb.ins().call(load_global_obj_ref, &[globals_obj, name_obj]);
-                    fb.ins().call(decref_ref, &[name_obj]);
-                    let value = fb.inst_results(value_inst)[0];
-                    let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
-                    let value_ok_block = fb.create_block();
-                    fb.append_block_param(value_ok_block, ptr_ty);
-                    fb.ins().brif(
-                        value_is_null,
-                        step_null_block,
-                        &step_null_block_args(ctx),
-                        value_ok_block,
-                        &[ir::BlockArg::Value(value)],
-                    );
-                    fb.switch_to_block(value_ok_block);
-                    return fb.block_params(value_ok_block)[0];
-                }
-                NameLocation::RuntimeName => {
-                    let name_obj = emit_owned_module_constant(
-                        fb,
-                        ctx.module_constants
-                            .require_unicode_constant_id(name.id.as_str()),
-                        ctx,
-                    );
-                    let value_inst = fb.ins().call(load_runtime_obj_ref, &[name_obj]);
-                    fb.ins().call(decref_ref, &[name_obj]);
-                    let value = fb.inst_results(value_inst)[0];
-                    let value_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
-                    let value_ok_block = fb.create_block();
-                    fb.append_block_param(value_ok_block, ptr_ty);
-                    fb.ins().brif(
-                        value_is_null,
-                        step_null_block,
-                        &step_null_block_args(ctx),
-                        value_ok_block,
-                        &[ir::BlockArg::Value(value)],
-                    );
-                    fb.switch_to_block(value_ok_block);
-                    return fb.block_params(value_ok_block)[0];
-                }
-            }
+            emit_codegen_located_name_load(fb, name, local_names, local_values, ctx, borrowed)
         }
         CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
             assert!(
@@ -1311,28 +1296,30 @@ fn emit_codegen_expr(
                 ctx,
             )
         }
-        CodegenBlockPyExpr::Op(operation)
-            if !matches!(operation, blockpy_intrinsics::CodegenExprOp::Call(_)) =>
-        {
-            if let blockpy_intrinsics::CodegenExprOp::Load(op) = operation {
-                if let Some(index) = op.name.location.as_constant() {
-                    assert!(
-                        !borrowed,
-                        "constant-backed Load must produce owned references"
-                    );
-                    return emit_owned_module_constant(fb, ModuleConstantId(index as usize), ctx);
-                }
-                if let Some(location) = op.name.local_location() {
-                    return emit_codegen_local_name_load(
-                        fb,
-                        location,
-                        local_names,
-                        local_values,
-                        ctx,
-                        borrowed,
-                    );
-                }
-            }
+        CodegenBlockPyExpr::Load(op) => {
+            return emit_codegen_located_name_load(
+                fb,
+                &op.name,
+                local_names,
+                local_values,
+                ctx,
+                borrowed,
+            );
+        }
+        expr @ (CodegenBlockPyExpr::BinOp(_)
+        | CodegenBlockPyExpr::UnaryOp(_)
+        | CodegenBlockPyExpr::GetAttr(_)
+        | CodegenBlockPyExpr::SetAttr(_)
+        | CodegenBlockPyExpr::GetItem(_)
+        | CodegenBlockPyExpr::SetItem(_)
+        | CodegenBlockPyExpr::DelItem(_)
+        | CodegenBlockPyExpr::Store(_)
+        | CodegenBlockPyExpr::Del(_)
+        | CodegenBlockPyExpr::MakeCell(_)
+        | CodegenBlockPyExpr::MakeString(_)
+        | CodegenBlockPyExpr::CellRefForName(_)
+        | CodegenBlockPyExpr::CellRef(_)
+        | CodegenBlockPyExpr::MakeFunction(_)) => {
             assert!(
                 !borrowed,
                 "codegen operation expression must not use borrowed result"
@@ -1345,81 +1332,28 @@ fn emit_codegen_expr(
                 jit_module,
                 func_imports,
             };
-            let operation_detail = blockpy_intrinsics::OperationDetail::from(operation.clone());
-            let operation_ref = &operation_detail;
-            if matches!(
-                operation_ref,
-                blockpy_intrinsics::OperationDetail::MakeFunction(_)
-            ) {
+            if matches!(expr, CodegenBlockPyExpr::MakeFunction(_)) {
                 panic!("MakeFunction should lower to a regular call before codegen");
             }
-            if let Some(value) = intrinsics::emit_operation(operation_ref, &mut intrinsic_state) {
+            if let Some(value) = intrinsics::emit_operation(expr, &mut intrinsic_state) {
                 return value;
             }
-            match operation_ref {
-                blockpy_intrinsics::OperationDetail::CellRefForName(op) => {
+            match expr {
+                CodegenBlockPyExpr::CellRefForName(op) => {
                     panic!(
                         "cell_ref should lower to a resolved cell ref before codegen, got {:?}",
                         op.logical_name
                     );
                 }
-                blockpy_intrinsics::OperationDetail::CellRef(op) => {
-                    emit_raw_cell_object_for_location(
-                        intrinsic_state.fb,
-                        op.location,
-                        "cell_ref",
-                        intrinsic_state.local_names,
-                        intrinsic_state.local_values,
-                        intrinsic_state.ctx,
-                    )
-                }
-                blockpy_intrinsics::OperationDetail::Load(op) => {
-                    let Some(location) = op.name.cell_location() else {
-                        panic!(
-                            "Load should be resolved to a cell-backed location before codegen: {op:?}"
-                        );
-                    };
-                    let raw_cell = emit_raw_cell_object_for_location(
-                        intrinsic_state.fb,
-                        location,
-                        "Load",
-                        intrinsic_state.local_names,
-                        intrinsic_state.local_values,
-                        intrinsic_state.ctx,
-                    );
-                    let null_ptr = intrinsic_state
-                        .fb
-                        .ins()
-                        .iconst(intrinsic_state.ctx.consts.ptr_ty, 0);
-                    let value_inst = intrinsic_state
-                        .fb
-                        .ins()
-                        .call(intrinsic_state.ctx.load_cell_ref, &[raw_cell]);
-                    let value = intrinsic_state.fb.inst_results(value_inst)[0];
-                    intrinsic_state
-                        .fb
-                        .ins()
-                        .call(intrinsic_state.ctx.decref_ref, &[raw_cell]);
-                    let value_is_null =
-                        intrinsic_state
-                            .fb
-                            .ins()
-                            .icmp(ir::condcodes::IntCC::Equal, value, null_ptr);
-                    let value_ok_block = intrinsic_state.fb.create_block();
-                    intrinsic_state
-                        .fb
-                        .append_block_param(value_ok_block, intrinsic_state.ctx.consts.ptr_ty);
-                    intrinsic_state.fb.ins().brif(
-                        value_is_null,
-                        intrinsic_state.ctx.consts.step_null_block,
-                        &step_null_block_args(intrinsic_state.ctx),
-                        value_ok_block,
-                        &[ir::BlockArg::Value(value)],
-                    );
-                    intrinsic_state.fb.switch_to_block(value_ok_block);
-                    intrinsic_state.fb.block_params(value_ok_block)[0]
-                }
-                blockpy_intrinsics::OperationDetail::Store(op) => {
+                CodegenBlockPyExpr::CellRef(op) => emit_raw_cell_object_for_location(
+                    intrinsic_state.fb,
+                    op.location,
+                    "cell_ref",
+                    intrinsic_state.local_names,
+                    intrinsic_state.local_values,
+                    intrinsic_state.ctx,
+                ),
+                CodegenBlockPyExpr::Store(op) => {
                     if let Some(location) = op.name.local_location() {
                         let layout =
                             intrinsic_state.ctx.storage_layout.as_ref().expect(
@@ -1500,7 +1434,7 @@ fn emit_codegen_expr(
                         call_value,
                     )
                 }
-                blockpy_intrinsics::OperationDetail::Del(op) => {
+                CodegenBlockPyExpr::Del(op) => {
                     if let Some(location) = op.name.local_location() {
                         let layout = intrinsic_state
                             .ctx
@@ -1539,15 +1473,15 @@ fn emit_codegen_expr(
                     );
                     intrinsics::emit_del_deref_raw_cell(raw_cell, op.quietly, &mut intrinsic_state)
                 }
+                CodegenBlockPyExpr::MakeFunction(_) => {
+                    unreachable!("MakeFunction should panic before intrinsic fallback")
+                }
                 _ => {
-                    panic!("operation {operation_ref:?} should have been handled by direct emitter")
+                    panic!("operation {expr:?} should have been handled by direct emitter")
                 }
             }
         }
-        CodegenBlockPyExpr::Op(operation) => {
-            let blockpy_intrinsics::CodegenExprOp::Call(call) = operation else {
-                unreachable!("call-only op arm should only receive Call detail");
-            };
+        CodegenBlockPyExpr::Call(call) => {
             assert!(
                 !borrowed,
                 "codegen call expression must not use borrowed result"
@@ -1628,7 +1562,7 @@ fn emit_codegen_expr(
                 );
                 let list_callable_inst = fb
                     .ins()
-                    .call(load_global_obj_ref, &[block_const, list_name_obj]);
+                    .call(ctx.load_global_obj_ref, &[block_const, list_name_obj]);
                 fb.ins().call(decref_ref, &[list_name_obj]);
                 let list_callable = fb.inst_results(list_callable_inst)[0];
                 let list_callable_is_null =
@@ -1674,7 +1608,7 @@ fn emit_codegen_expr(
                     );
                     let dict_callable_inst = fb
                         .ins()
-                        .call(load_global_obj_ref, &[block_const, dict_name_obj]);
+                        .call(ctx.load_global_obj_ref, &[block_const, dict_name_obj]);
                     fb.ins().call(decref_ref, &[dict_name_obj]);
                     let dict_callable = fb.inst_results(dict_callable_inst)[0];
                     let dict_callable_is_null =
@@ -1928,7 +1862,7 @@ fn emit_codegen_expr(
                 );
                 let tuple_callable_inst = fb
                     .ins()
-                    .call(load_global_obj_ref, &[block_const, tuple_name_obj]);
+                    .call(ctx.load_global_obj_ref, &[block_const, tuple_name_obj]);
                 fb.ins().call(decref_ref, &[tuple_name_obj]);
                 let tuple_callable = fb.inst_results(tuple_callable_inst)[0];
                 let tuple_callable_is_null =
@@ -2291,7 +2225,7 @@ fn emit_codegen_expr(
                 );
                 let dict_callable_inst = fb
                     .ins()
-                    .call(load_global_obj_ref, &[block_const, dict_name_obj]);
+                    .call(ctx.load_global_obj_ref, &[block_const, dict_name_obj]);
                 fb.ins().call(decref_ref, &[dict_name_obj]);
                 let dict_callable = fb.inst_results(dict_callable_inst)[0];
                 let dict_callable_is_null =

@@ -192,15 +192,13 @@ fn string_literal_expr(
         }),
     ));
     core_operation_expr(
-        crate::block_py::OperationDetail::from(crate::block_py::Load::new(
-            crate::block_py::LocatedName {
-                id: format!("__dp_constant_{index}").into(),
-                ctx: ast::ExprContext::Load,
-                range: meta.range,
-                node_index: meta.node_index.clone(),
-                location: NameLocation::Constant(index),
-            },
-        ))
+        crate::block_py::Load::new(crate::block_py::LocatedName {
+            id: format!("__dp_constant_{index}").into(),
+            ctx: ast::ExprContext::Load,
+            range: meta.range,
+            node_index: meta.node_index.clone(),
+            location: NameLocation::Constant(index),
+        })
         .with_meta(meta),
     )
 }

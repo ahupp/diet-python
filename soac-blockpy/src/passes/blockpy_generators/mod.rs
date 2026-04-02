@@ -10,8 +10,8 @@ use crate::block_py::{
     BlockPyRaise, BlockPyStmt, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
-    ImplicitNoneExpr, MakeFunction, Meta, ModuleNameGen, OperationDetail, PassStmt, StorageLayout,
-    UnresolvedName, WithMeta,
+    ImplicitNoneExpr, MakeFunction, Meta, ModuleNameGen, PassStmt, StorageLayout, UnresolvedName,
+    WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -220,10 +220,7 @@ fn core_runtime_attr(attr: &str) -> CoreBlockPyExpr {
 }
 
 fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
-    core_operation_expr(
-        OperationDetail::from(CellRefForName::new(logical_name.to_string()))
-            .with_meta(Meta::synthetic()),
-    )
+    core_operation_expr(CellRefForName::new(logical_name.to_string()).with_meta(Meta::synthetic()))
 }
 
 fn core_generator_code(async_gen: bool, name: &str, qualname: &str) -> CoreBlockPyExpr {
@@ -247,12 +244,12 @@ fn core_make_function(
     annotate_fn: CoreBlockPyExpr,
 ) -> CoreBlockPyExpr {
     core_operation_expr(
-        OperationDetail::from(MakeFunction::new(
+        MakeFunction::new(
             function_id,
             kind,
             Box::new(param_defaults),
             Box::new(annotate_fn),
-        ))
+        )
         .with_meta(Meta::synthetic()),
     )
 }
@@ -733,10 +730,10 @@ fn explicit_jump_args_for_params(params: &[BlockParam]) -> Vec<BlockArg> {
 
 fn is_resume_exc_test() -> CoreBlockPyExpr {
     core_operation_expr(
-        OperationDetail::from(crate::block_py::operation::UnaryOp::new(
+        crate::block_py::operation::UnaryOp::new(
             crate::block_py::operation::UnaryOpKind::Not,
             Box::new(core_operation_expr(
-                OperationDetail::from(crate::block_py::operation::BinOp::new(
+                crate::block_py::operation::BinOp::new(
                     crate::block_py::operation::BinOpKind::Is,
                     Box::new(core_name("_dp_resume_exc")),
                     Box::new(core_runtime_name_expr_with_meta(
@@ -744,32 +741,32 @@ fn is_resume_exc_test() -> CoreBlockPyExpr {
                         ast::AtomicNodeIndex::default(),
                         Default::default(),
                     )),
-                ))
+                )
                 .with_meta(Meta::synthetic()),
             )),
-        ))
+        )
         .with_meta(Meta::synthetic()),
     )
 }
 
 fn is_send_none_test() -> CoreBlockPyExpr {
     core_operation_expr(
-        OperationDetail::from(crate::block_py::operation::BinOp::new(
+        crate::block_py::operation::BinOp::new(
             crate::block_py::operation::BinOpKind::Is,
             Box::new(core_name("_dp_send_value")),
             Box::new(core_none()),
-        ))
+        )
         .with_meta(Meta::synthetic()),
     )
 }
 
 fn is_name_none_test(name: &str) -> CoreBlockPyExpr {
     core_operation_expr(
-        OperationDetail::from(crate::block_py::operation::BinOp::new(
+        crate::block_py::operation::BinOp::new(
             crate::block_py::operation::BinOpKind::Is,
             Box::new(core_name(name)),
             Box::new(core_none()),
-        ))
+        )
         .with_meta(Meta::synthetic()),
     )
 }

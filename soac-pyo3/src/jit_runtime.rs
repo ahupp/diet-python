@@ -510,10 +510,6 @@ fn build_closure_shaped_entry<'py>(
     if unsafe { ffi::PyFunction_SetClosure(func.as_ptr(), closure.as_ptr()) } != 0 {
         return Err(PyErr::fetch(py));
     }
-    func.setattr(
-        "__dp_closure_slot_names__",
-        PyTuple::new(py, captured_names)?,
-    )?;
     Ok(func.into_any())
 }
 
