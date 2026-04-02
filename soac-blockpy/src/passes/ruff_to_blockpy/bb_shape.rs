@@ -321,7 +321,7 @@ where
 
 fn operation_expr<N: BlockPyNameLike + Clone>(
     expr: &CoreBlockPyExpr<N>,
-) -> Option<&operation::OperationDetail<CoreBlockPyExpr<N>>> {
+) -> Option<&operation::CoreExprOp<CoreBlockPyExpr<N>>> {
     match expr {
         CoreBlockPyExpr::Op(operation) => Some(operation),
         _ => None,
@@ -335,7 +335,7 @@ where
     let Some(operation) = operation_expr(expr) else {
         return false;
     };
-    let operation::OperationDetail::Call(call) = operation else {
+    let operation::CoreExprOp::Call(call) = operation else {
         return false;
     };
     call.args.is_empty()
@@ -357,7 +357,7 @@ where
     match expr {
         CoreBlockPyExpr::Name(name) => Some(name.id_str()),
         CoreBlockPyExpr::Op(operation) => match operation {
-            operation::OperationDetail::Load(op) => Some(op.name.id_str()),
+            operation::CoreExprOp::Load(op) => Some(op.name.id_str()),
             _ => None,
         },
         _ => None,

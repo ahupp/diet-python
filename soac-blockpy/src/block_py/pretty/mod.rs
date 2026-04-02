@@ -740,7 +740,9 @@ where
         match self {
             CoreBlockPyExpr::Name(name) => name.pretty_id(),
             CoreBlockPyExpr::Literal(literal) => render_core_literal_text(literal),
-            CoreBlockPyExpr::Op(operation) => render_operation_detail_debug_text(operation),
+            CoreBlockPyExpr::Op(operation) => render_operation_detail_debug_text(
+                &crate::block_py::OperationDetail::from(operation.clone()),
+            ),
         }
     }
 }

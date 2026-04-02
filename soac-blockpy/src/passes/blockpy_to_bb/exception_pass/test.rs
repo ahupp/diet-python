@@ -35,7 +35,7 @@ fn is_return_of_number_constant(term: &BlockPyTerm<LocatedCoreBlockPyExpr>) -> b
                 ..
             },
         ))) => true,
-        BlockPyTerm::Return(CoreBlockPyExpr::Op(OperationDetail::Load(op)))
+        BlockPyTerm::Return(CoreBlockPyExpr::Op(crate::block_py::CoreExprOp::Load(op)))
             if matches!(op.name.location, NameLocation::Constant(_)) =>
         {
             true

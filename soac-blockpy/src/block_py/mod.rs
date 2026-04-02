@@ -13,7 +13,7 @@ pub use self::semantics::{
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 pub use operation::{
-    BinOp, BinOpKind, Call, CellRef, CellRefForName, CoreExprOpWithAwaitAndYield,
+    BinOp, BinOpKind, Call, CellRef, CellRefForName, CoreExprOp, CoreExprOpWithAwaitAndYield,
     CoreExprOpWithYield, Del, DelItem, GetAttr, GetItem, Load, MakeCell, MakeFunction, MakeString,
     OperationDetail, SetAttr, SetItem, Store, UnaryOp, UnaryOpKind,
 };
@@ -610,7 +610,7 @@ pub enum CoreBlockPyExprWithYield {
 pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
     Name(N),
     Literal(CoreBlockPyLiteral),
-    Op(OperationDetail<Self>),
+    Op(CoreExprOp<Self>),
 }
 
 pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
@@ -817,7 +817,7 @@ impl<N: BlockPyNameLike> CoreCallLikeExpr for CoreBlockPyExpr<N> {
     }
 
     fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
-        Self::Op(operation)
+        Self::Op(operation.into())
     }
 }
 
@@ -889,7 +889,7 @@ where
             Self::Literal(CoreBlockPyLiteral::NumberLiteral(literal)) => {
                 CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(literal))
             }
-            Self::Op(operation) => CodegenBlockPyExpr::Op(operation.map_expr_node(&mut *f)),
+            Self::Op(operation) => CodegenBlockPyExpr::Op(operation.map_expr_node(&mut *f).into()),
         }
     }
 }
@@ -2033,7 +2033,7 @@ where
         matches!(
             expr,
             CoreBlockPyExpr::Op(operation)
-                if matches!(operation, OperationDetail::Load(op) if op.name.is_runtime_symbol("NONE"))
+                if matches!(operation, CoreExprOp::Load(op) if op.name.is_runtime_symbol("NONE"))
         )
     }
 }

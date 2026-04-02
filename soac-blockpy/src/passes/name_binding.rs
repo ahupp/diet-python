@@ -6,10 +6,10 @@ use crate::block_py::{
     BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap,
     BlockPyNameLike, BlockPyRaise, BlockPyStmt, BlockPyTerm, Call, CellLocation, CellRef,
     CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem,
-    FunctionId, HasMeta, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName, MakeCell,
-    MakeFunction, NameLocation, OperationDetail, SetItem, StorageLayout, Store, UnresolvedName,
-    WithMeta,
+    CoreBlockPyLiteral, CoreExprOp, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
+    Del, DelItem, FunctionId, HasMeta, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
+    MakeCell, MakeFunction, NameLocation, OperationDetail, SetItem, StorageLayout, Store,
+    UnresolvedName, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -61,7 +61,7 @@ fn globals_expr(
     core_runtime_positional_call_expr_with_meta("globals", node_index, range, Vec::new())
 }
 
-fn op_expr(operation: OperationDetail<CoreBlockPyExpr>) -> CoreBlockPyExpr {
+fn op_expr(operation: CoreExprOp<CoreBlockPyExpr>) -> CoreBlockPyExpr {
     CoreBlockPyExpr::Op(operation)
 }
 
@@ -69,7 +69,7 @@ type CoreStmt = PassStmt<CoreBlockPyPass>;
 type ResolvedStmt = PassStmt<ResolvedStorageBlockPyPass>;
 type CoreAssign = BlockPyAssign<CoreBlockPyExpr, UnresolvedName>;
 
-fn op_stmt(operation: OperationDetail<CoreBlockPyExpr>) -> CoreStmt {
+fn op_stmt(operation: CoreExprOp<CoreBlockPyExpr>) -> CoreStmt {
     BlockPyStmt::Expr(op_expr(operation))
 }
 
@@ -81,11 +81,11 @@ fn constant_location_expr(meta: crate::block_py::Meta, index: u32) -> LocatedCor
         range: meta.range,
     })
     .with_location(NameLocation::Constant(index));
-    CoreBlockPyExpr::Op(OperationDetail::from(Load::new(name)).with_meta(meta))
+    CoreBlockPyExpr::Op(CoreExprOp::from(Load::new(name)).with_meta(meta))
 }
 fn rewrite_global_name_load(name: ExprName) -> CoreBlockPyExpr {
     let meta = name.meta();
-    op_expr(OperationDetail::from(Load::new(name)).with_meta(meta))
+    op_expr(CoreExprOp::from(Load::new(name)).with_meta(meta))
 }
 
 fn rewrite_local_name_load(name: ExprName, resolver: &NameBindingMapper<'_>) -> CoreBlockPyExpr {
@@ -154,7 +154,7 @@ where
     match expr {
         CoreBlockPyExpr::Name(name) => Some(name.id_str().to_string()),
         CoreBlockPyExpr::Op(operation) => match operation {
-            OperationDetail::Load(op) => Some(op.name.id_str().to_string()),
+            CoreExprOp::Load(op) => Some(op.name.id_str().to_string()),
             _ => None,
         },
         _ => None,
@@ -215,23 +215,21 @@ fn rewrite_cell_ref_expr(
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
     op_expr(
-        OperationDetail::from(CellRefForName::new(logical_name.to_string()))
+        CoreExprOp::from(CellRefForName::new(logical_name.to_string()))
             .with_meta(crate::block_py::Meta::new(node_index.clone(), range)),
     )
 }
 
 fn rewrite_global_binding_assign(assign: CoreAssign) -> CoreStmt {
     let meta = assign.target.meta();
-    op_stmt(
-        OperationDetail::from(Store::new(assign.target, Box::new(assign.value))).with_meta(meta),
-    )
+    op_stmt(CoreExprOp::from(Store::new(assign.target, Box::new(assign.value))).with_meta(meta))
 }
 
 fn rewrite_class_namespace_binding_assign(assign: CoreAssign) -> CoreStmt {
     let meta = assign.target.meta();
     let bind_name = assign.target.id_str().to_string();
     op_stmt(
-        OperationDetail::from(SetItem::new(
+        CoreExprOp::from(SetItem::new(
             Box::new(class_namespace_expr(meta.node_index.clone(), meta.range)),
             Box::new(core_string_expr(
                 bind_name,
@@ -259,7 +257,7 @@ fn rewrite_global_binding_delete_by_name(
     range: ruff_text_size::TextRange,
 ) -> CoreStmt {
     op_stmt(
-        OperationDetail::from(Del::new(
+        CoreExprOp::from(Del::new(
             ast::ExprName {
                 id: bind_name.into(),
                 ctx: ast::ExprContext::Del,
@@ -281,7 +279,7 @@ fn rewrite_binding_delete(
     let bind_name = target.id.to_string();
     if semantic.is_cell_binding(bind_name.as_str()) {
         let _ = resolver;
-        return op_stmt(OperationDetail::from(Del::new(target, false)).with_meta(meta));
+        return op_stmt(CoreExprOp::from(Del::new(target, false)).with_meta(meta));
     }
     match semantic.binding_target_for_name(bind_name.as_str(), BlockPyBindingPurpose::Store) {
         BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
@@ -298,7 +296,7 @@ fn rewrite_binding_delete(
             rewrite_global_binding_delete_by_name(bind_name.as_str(), meta.node_index, meta.range)
         }
         BindingTarget::ClassNamespace => op_stmt(
-            OperationDetail::from(DelItem::new(
+            CoreExprOp::from(DelItem::new(
                 Box::new(class_namespace_expr(meta.node_index.clone(), meta.range)),
                 Box::new(core_string_expr(
                     bind_name,
@@ -359,7 +357,7 @@ fn wrap_deleted_name_load_expr(
 
 fn operation_expr<N: BlockPyNameLike + Clone>(
     expr: &CoreBlockPyExpr<N>,
-) -> Option<&OperationDetail<CoreBlockPyExpr<N>>> {
+) -> Option<&CoreExprOp<CoreBlockPyExpr<N>>> {
     match expr {
         CoreBlockPyExpr::Op(operation) => Some(operation),
         _ => None,
@@ -368,7 +366,7 @@ fn operation_expr<N: BlockPyNameLike + Clone>(
 
 fn operation_expr_mut<N: BlockPyNameLike + Clone>(
     expr: &mut CoreBlockPyExpr<N>,
-) -> Option<&mut OperationDetail<CoreBlockPyExpr<N>>> {
+) -> Option<&mut CoreExprOp<CoreBlockPyExpr<N>>> {
     match expr {
         CoreBlockPyExpr::Op(operation) => Some(operation),
         _ => None,
@@ -444,9 +442,9 @@ fn rewrite_deleted_name_loads_in_expr(
                 always_unbound_names,
             );
         }
-        CoreBlockPyExpr::Op(operation) if matches!(operation, OperationDetail::Load(_)) => {
+        CoreBlockPyExpr::Op(operation) if matches!(operation, CoreExprOp::Load(_)) => {
             let meta = operation.meta();
-            let OperationDetail::Load(op) = operation else {
+            let CoreExprOp::Load(op) = operation else {
                 unreachable!("load guard should ensure Load detail");
             };
             let always_unbound = always_unbound_names.contains(op.name.id_str());
@@ -500,11 +498,11 @@ fn rewrite_deleted_name_loads_in_expr(
                 unreachable!("op-like branch should have operation view");
             };
             match operation {
-                OperationDetail::Load(_)
-                | OperationDetail::Del(_)
-                | OperationDetail::CellRefForName(_)
-                | OperationDetail::CellRef(_) => {}
-                OperationDetail::Store(_) => {
+                CoreExprOp::Load(_)
+                | CoreExprOp::Del(_)
+                | CoreExprOp::CellRefForName(_)
+                | CoreExprOp::CellRef(_) => {}
+                CoreExprOp::Store(_) => {
                     with_helper_arg_mut(expr, 1, &mut |value_expr| {
                         rewrite_deleted_name_loads_in_expr(
                             value_expr,
@@ -555,7 +553,7 @@ fn core_name_expr(
         )
     {
         return CoreBlockPyExpr::Op(
-            OperationDetail::from(Load::new(runtime_symbol(id, node_index.clone(), range)))
+            CoreExprOp::from(Load::new(runtime_symbol(id, node_index.clone(), range)))
                 .with_meta(crate::block_py::Meta::new(node_index, range)),
         );
     }
@@ -638,7 +636,7 @@ fn rewrite_quiet_delete_marker(
     match semantic.binding_kind(name.id.as_str()) {
         Some(BlockPyBindingKind::Cell(_)) => {
             let _ = resolver;
-            op_stmt(OperationDetail::from(Del::new(name, true)).with_meta(meta))
+            op_stmt(CoreExprOp::from(Del::new(name, true)).with_meta(meta))
         }
         _ => match semantic.binding_target_for_name(name.id.as_str(), BlockPyBindingPurpose::Store)
         {
@@ -653,10 +651,10 @@ fn rewrite_quiet_delete_marker(
                 value: deleted_sentinel_expr(node_index, range),
             }),
             BindingTarget::ModuleGlobal => {
-                op_stmt(OperationDetail::from(Del::new(name, true)).with_meta(meta))
+                op_stmt(CoreExprOp::from(Del::new(name, true)).with_meta(meta))
             }
             BindingTarget::ClassNamespace => op_stmt(
-                OperationDetail::from(DelItem::new(
+                CoreExprOp::from(DelItem::new(
                     Box::new(class_namespace_expr(node_index.clone(), range)),
                     Box::new(core_string_expr(
                         name.id.to_string(),
@@ -673,7 +671,7 @@ fn rewrite_quiet_delete_marker(
 fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
     let meta = expr.meta();
     let operation = operation_expr(expr)?;
-    let OperationDetail::Call(call) = operation else {
+    let CoreExprOp::Call(call) = operation else {
         return None;
     };
     let Call {
@@ -694,7 +692,7 @@ fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
     match &args[0] {
         CoreBlockPyCallArg::Positional(expr) => {
             let nested = operation_expr(expr)?;
-            let OperationDetail::Call(nested_call) = nested else {
+            let CoreExprOp::Call(nested_call) = nested else {
                 return raw_load_name(expr).map(|name| ExprName {
                     id: name.into(),
                     ctx: ast::ExprContext::Load,
@@ -733,13 +731,13 @@ fn is_deleted_sentinel_expr(expr: &CoreBlockPyExpr) -> bool {
     matches!(
         expr,
         CoreBlockPyExpr::Op(operation)
-            if matches!(operation, OperationDetail::Load(op) if op.name.is_runtime_symbol("DELETED"))
+            if matches!(operation, CoreExprOp::Load(op) if op.name.is_runtime_symbol("DELETED"))
     )
 }
 
 fn cell_ref_marker_target(expr: &CoreBlockPyExpr) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::CellRefForName(CellRefForName { logical_name, .. }) = operation else {
+    let CoreExprOp::CellRefForName(CellRefForName { logical_name, .. }) = operation else {
         return None;
     };
     Some(logical_name.clone())
@@ -760,7 +758,7 @@ fn cell_load_logical_name(
     _storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::Load(op) = operation else {
+    let CoreExprOp::Load(op) = operation else {
         return None;
     };
     logical_name_for_cell_bound_name(semantic, op.name.id_str())
@@ -792,7 +790,7 @@ fn build_local_cell_init_assign(
         }
         .into(),
         value: op_expr(
-            OperationDetail::from(MakeCell::new(Box::new(init_expr)))
+            CoreExprOp::from(MakeCell::new(Box::new(init_expr)))
                 .with_meta(crate::block_py::Meta::new(node_index, range)),
         ),
     })
@@ -847,7 +845,7 @@ fn build_closure_slot_cell_init_assign(slot: &ClosureSlot) -> CoreStmt {
         }
         .into(),
         value: op_expr(
-            OperationDetail::from(MakeCell::new(Box::new(closure_slot_init_expr(slot))))
+            CoreExprOp::from(MakeCell::new(Box::new(closure_slot_init_expr(slot))))
                 .with_meta(crate::block_py::Meta::new(node_index, range)),
         ),
     })
@@ -948,7 +946,7 @@ fn store_cell_deleted_logical_name(
     _storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::Store(op) = operation else {
+    let CoreExprOp::Store(op) = operation else {
         return None;
     };
     if !is_deleted_sentinel_expr(&op.value) {
@@ -963,7 +961,7 @@ fn del_deref_logical_name(
     _storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::Del(op) = operation else {
+    let CoreExprOp::Del(op) = operation else {
         return None;
     };
     if op.quietly {
@@ -978,7 +976,7 @@ fn store_cell_runtime_logical_name(
     _storage_layout: &StorageLayout,
 ) -> Option<String> {
     let operation = operation_expr(expr)?;
-    let OperationDetail::Store(op) = operation else {
+    let CoreExprOp::Store(op) = operation else {
         return None;
     };
     if is_deleted_sentinel_expr(&op.value) {
@@ -994,7 +992,7 @@ fn is_local_cell_init_assign(assign: &CoreAssign) -> bool {
     let Some(operation) = operation_expr(&assign.value) else {
         return false;
     };
-    let OperationDetail::MakeCell(MakeCell { initial_value, .. }) = operation else {
+    let CoreExprOp::MakeCell(MakeCell { initial_value, .. }) = operation else {
         return false;
     };
     matches!(raw_load_name(initial_value.as_ref()), Some(name) if name == logical_name)
@@ -1140,7 +1138,7 @@ fn rewrite_binding_assign_by_name(
         if is_deleted_sentinel_expr(&assign.value) {
             let _ = resolver;
             return op_stmt(
-                OperationDetail::from(Del::new(assign.target.clone(), false)).with_meta(meta),
+                CoreExprOp::from(Del::new(assign.target.clone(), false)).with_meta(meta),
             );
         }
         return rewrite_cell_binding_assign(assign, semantic, resolver);
@@ -1155,7 +1153,7 @@ fn rewrite_binding_assign_by_name(
         BindingTarget::ClassNamespace => {
             if is_deleted_sentinel_expr(&assign.value) {
                 return op_stmt(
-                    OperationDetail::from(DelItem::new(
+                    CoreExprOp::from(DelItem::new(
                         Box::new(class_namespace_expr(node_index.clone(), range)),
                         Box::new(core_string_expr(name, node_index, range)),
                     ))
@@ -1186,14 +1184,14 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
 
     fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
         match expr {
-            CoreBlockPyExpr::Op(operation) if matches!(operation, OperationDetail::Load(_)) => {
+            CoreBlockPyExpr::Op(operation) if matches!(operation, CoreExprOp::Load(_)) => {
                 let meta = operation.meta();
                 let detail = operation;
-                let OperationDetail::Load(op) = detail else {
+                let CoreExprOp::Load(op) = detail else {
                     unreachable!("load guard should ensure Load detail");
                 };
                 if op.name.is_runtime_name() {
-                    CoreBlockPyExpr::Op(OperationDetail::from(Load::new(op.name)).with_meta(meta))
+                    CoreBlockPyExpr::Op(CoreExprOp::from(Load::new(op.name)).with_meta(meta))
                 } else {
                     rewrite_name_load(op.name.into(), self.semantic, self)
                 }
@@ -1227,10 +1225,8 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 let meta = operation.meta();
                 let detail = operation;
                 match detail {
-                    OperationDetail::MakeFunction(op) => {
-                        self.materialize_make_function_expr(meta, op)
-                    }
-                    OperationDetail::Call(call)
+                    CoreExprOp::MakeFunction(op) => self.materialize_make_function_expr(meta, op),
+                    CoreExprOp::Call(call)
                         if call.args.is_empty()
                             && call.keywords.is_empty()
                             && raw_load_name(call.func.as_ref())
@@ -1243,7 +1239,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                     {
                         globals_expr(meta.node_index, meta.range)
                     }
-                    OperationDetail::Call(call)
+                    CoreExprOp::Call(call)
                         if call.keywords.is_empty()
                             && call.args.len() == 3
                             && raw_load_name(call.func.as_ref())
@@ -1261,7 +1257,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                             }
                         }
                         CoreBlockPyExpr::Op(
-                            OperationDetail::from(Call::new(
+                            CoreExprOp::from(Call::new(
                                 self.map_expr(*call.func),
                                 mapped_args,
                                 call.keywords,
@@ -1269,9 +1265,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                             .with_meta(meta),
                         )
                     }
-                    other => self.map_nested_expr(CoreBlockPyExpr::Op(
-                        OperationDetail::from(other).with_meta(meta),
-                    )),
+                    other => self.map_nested_expr(CoreBlockPyExpr::Op(other.with_meta(meta))),
                 }
             }
         }
@@ -1420,7 +1414,7 @@ fn rewrite_raw_cell_loads_in_expr(
             *expr = rewrite_cell_name_load(name.clone(), semantic, resolver);
         }
         CoreBlockPyExpr::Op(operation) => {
-            if let OperationDetail::Call(call) = operation {
+            if let CoreExprOp::Call(call) = operation {
                 if call.keywords.is_empty()
                     && call.args.len() == 3
                     && raw_load_name(call.func.as_ref())
@@ -1553,7 +1547,7 @@ fn sync_exception_param_cell_in_block(
         range,
     };
     let sync_stmt = op_stmt(
-        OperationDetail::from(Store::new(
+        CoreExprOp::from(Store::new(
             ast::ExprName {
                 id: exc_name.into(),
                 ctx: ast::ExprContext::Store,
@@ -1659,7 +1653,7 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
         CoreBlockPyExpr::Literal(_) => {}
         CoreBlockPyExpr::Op(operation) => {
             match operation {
-                OperationDetail::Load(op) => {
+                CoreExprOp::Load(op) => {
                     names.insert(op.name.id_str().to_string());
                 }
                 _ => {}
@@ -2169,7 +2163,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
         match expr {
             CoreBlockPyExpr::Name(name) => CoreBlockPyExpr::Name(self.locate_unresolved_name(name)),
             CoreBlockPyExpr::Literal(literal) => CoreBlockPyExpr::Literal(literal),
-            CoreBlockPyExpr::Op(OperationDetail::Load(op)) => {
+            CoreBlockPyExpr::Op(CoreExprOp::Load(op)) => {
                 let meta = op.meta();
                 let name = self.locate_unresolved_name(op.name);
                 let name = if name.is_runtime_name() {
@@ -2177,9 +2171,9 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                 } else {
                     self.mark_raw_cell_name(name)
                 };
-                CoreBlockPyExpr::Op(OperationDetail::from(Load::new(name)).with_meta(meta))
+                CoreBlockPyExpr::Op(CoreExprOp::from(Load::new(name)).with_meta(meta))
             }
-            CoreBlockPyExpr::Op(OperationDetail::Store(op)) => {
+            CoreBlockPyExpr::Op(CoreExprOp::Store(op)) => {
                 let meta = op.meta();
                 let name = self.locate_unresolved_name(op.name);
                 let name = if name.is_runtime_name() {
@@ -2189,10 +2183,10 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                 };
                 let value = self.map_expr(*op.value);
                 CoreBlockPyExpr::Op(
-                    OperationDetail::from(Store::new(name, Box::new(value))).with_meta(meta),
+                    CoreExprOp::from(Store::new(name, Box::new(value))).with_meta(meta),
                 )
             }
-            CoreBlockPyExpr::Op(OperationDetail::Del(op)) => {
+            CoreBlockPyExpr::Op(CoreExprOp::Del(op)) => {
                 let meta = op.meta();
                 let name = self.locate_unresolved_name(op.name);
                 let name = if name.is_runtime_name() {
@@ -2200,21 +2194,19 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                 } else {
                     self.mark_raw_cell_name(name)
                 };
-                CoreBlockPyExpr::Op(
-                    OperationDetail::from(Del::new(name, op.quietly)).with_meta(meta),
-                )
+                CoreBlockPyExpr::Op(CoreExprOp::from(Del::new(name, op.quietly)).with_meta(meta))
             }
             CoreBlockPyExpr::Op(operation) => {
                 let mut expr = self.map_nested_expr(CoreBlockPyExpr::Op(operation));
                 let operation = operation_expr_mut(&mut expr)
                     .expect("op expression should remain op after nested mapping");
                 let meta = operation.meta();
-                if let OperationDetail::CellRefForName(op) = operation {
+                if let CoreExprOp::CellRefForName(op) = operation {
                     let location = self.resolve_cell_ref_location(op.logical_name.as_str());
-                    *operation = OperationDetail::from(CellRef::new(location)).with_meta(meta);
+                    *operation = CoreExprOp::from(CellRef::new(location)).with_meta(meta);
                     return expr;
                 }
-                if let OperationDetail::Call(call) = operation {
+                if let CoreExprOp::Call(call) = operation {
                     if raw_load_name(call.func.as_ref())
                         .as_ref()
                         .is_some_and(|name| name == "class_lookup_cell")
@@ -2259,7 +2251,7 @@ fn collect_make_function_callee_ids_in_expr(expr: &CoreBlockPyExpr, out: &mut Ve
     match expr {
         CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
         CoreBlockPyExpr::Op(operation) => {
-            if let OperationDetail::MakeFunction(op) = operation {
+            if let CoreExprOp::MakeFunction(op) = operation {
                 out.push(op.function_id);
                 return;
             }

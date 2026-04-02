@@ -141,7 +141,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         label: BlockPyLabel::from(0u32),
         body: Vec::new(),
         term: BlockPyTerm::Return(CoreBlockPyExpr::Op(
-            OperationDetail::from(GetAttr::new(
+            crate::block_py::CoreExprOp::from(GetAttr::new(
                 core_call_expr("current_exception", Vec::new()),
                 CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
                     node_index: ast::AtomicNodeIndex::default(),
@@ -173,7 +173,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     let BlockPyTerm::Return(CoreBlockPyExpr::Op(operation)) = &block.term else {
         panic!("expected operation return expr");
     };
-    let crate::block_py::OperationDetail::GetAttr(GetAttr { value, attr, .. }) = operation else {
+    let crate::block_py::CoreExprOp::GetAttr(GetAttr { value, attr, .. }) = operation else {
         panic!("expected getattr operation");
     };
     assert!(matches!(
