@@ -2,10 +2,10 @@ use super::*;
 use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyModule,
     BlockPyStmt, BlockPyTerm, CellLocation, ClosureInit, ClosureSlot, CodegenBlock,
-    CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral,
+    CodegenBlockPyExpr, CodegenBlockPyLiteral, CodegenExprOp, CoreBytesLiteral, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, Load,
-    LocatedCodegenBlockPyExpr, LocatedName, MakeString, Meta, ModuleNameGen, NameLocation,
-    OperationDetail, Param, ParamKind, ParamSpec, StorageLayout, Store, WithMeta,
+    LocatedCodegenBlockPyExpr, LocatedName, MakeString, Meta, ModuleNameGen, NameLocation, Param,
+    ParamKind, ParamSpec, StorageLayout, Store, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
@@ -94,7 +94,7 @@ mod tests {
         CodegenBlockPyExpr::Name(name)
     }
 
-    fn op_expr(operation: OperationDetail<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyExpr {
+    fn op_expr(operation: CodegenExprOp<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyExpr {
         CodegenBlockPyExpr::Op(operation)
     }
 
@@ -216,7 +216,7 @@ mod tests {
                 let literal = std::mem::replace(
                     expr,
                     CodegenBlockPyExpr::Op(
-                        OperationDetail::from(Load::new(test_constant_name(index))).with_meta(meta),
+                        CodegenExprOp::from(Load::new(test_constant_name(index))).with_meta(meta),
                     ),
                 );
                 self.module_constants.push(literal);
@@ -322,7 +322,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(BinOp::new(BinOpKind::Add, int_expr(1), int_expr(2)))
+                CodegenExprOp::from(BinOp::new(BinOpKind::Add, int_expr(1), int_expr(2)))
                     .with_meta(Meta::synthetic()),
             )),
         );
@@ -344,7 +344,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(BinOp::new(BinOpKind::Lt, int_expr(1), int_expr(2)))
+                CodegenExprOp::from(BinOp::new(BinOpKind::Lt, int_expr(1), int_expr(2)))
                     .with_meta(Meta::synthetic()),
             )),
         );
@@ -378,8 +378,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(Load::new(test_constant_name(0)))
-                    .with_meta(Meta::synthetic()),
+                CodegenExprOp::from(Load::new(test_constant_name(0))).with_meta(Meta::synthetic()),
             )),
         );
         let module = BlockPyModule {
@@ -402,7 +401,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(BinOp::new(BinOpKind::Pow, int_expr(2), int_expr(3)))
+                CodegenExprOp::from(BinOp::new(BinOpKind::Pow, int_expr(2), int_expr(3)))
                     .with_meta(Meta::synthetic()),
             )),
         );
@@ -420,7 +419,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(BinOp::new(BinOpKind::InplacePow, int_expr(2), int_expr(3)))
+                CodegenExprOp::from(BinOp::new(BinOpKind::InplacePow, int_expr(2), int_expr(3)))
                     .with_meta(Meta::synthetic()),
             )),
         );
@@ -483,8 +482,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(Load::new(test_global_name("x")))
-                    .with_meta(Meta::synthetic()),
+                CodegenExprOp::from(Load::new(test_global_name("x"))).with_meta(Meta::synthetic()),
             )),
         );
         let rendered = render_test_jit_function(&function, &blocks);
@@ -501,7 +499,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(Store::new(test_global_name("x"), int_expr(3)))
+                CodegenExprOp::from(Store::new(test_global_name("x"), int_expr(3)))
                     .with_meta(Meta::synthetic()),
             )),
         );
@@ -536,7 +534,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(soac_blockpy::block_py::CellRef::new(CellLocation::Closure(
+                CodegenExprOp::from(soac_blockpy::block_py::CellRef::new(CellLocation::Closure(
                     2,
                 )))
                 .with_meta(Meta::synthetic()),
@@ -561,7 +559,7 @@ mod tests {
             test_function(),
             vec![],
             ret_term(op_expr(
-                OperationDetail::from(soac_blockpy::block_py::CellRef::new(
+                CodegenExprOp::from(soac_blockpy::block_py::CellRef::new(
                     CellLocation::CapturedSource(2),
                 ))
                 .with_meta(Meta::synthetic()),
@@ -608,19 +606,19 @@ mod tests {
             test_function(),
             vec![
                 expr_stmt(op_expr(
-                    OperationDetail::from(DelItem::new(int_expr(1), int_expr(2)))
+                    CodegenExprOp::from(DelItem::new(int_expr(1), int_expr(2)))
                         .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    OperationDetail::from(Del::new(test_global_name("x"), true))
+                    CodegenExprOp::from(Del::new(test_global_name("x"), true))
                         .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    OperationDetail::from(Del::new(test_closure_cell_name("cell", 2), false))
+                    CodegenExprOp::from(Del::new(test_closure_cell_name("cell", 2), false))
                         .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
-                    OperationDetail::from(Del::new(test_closure_cell_name("cell", 2), true))
+                    CodegenExprOp::from(Del::new(test_closure_cell_name("cell", 2), true))
                         .with_meta(Meta::synthetic()),
                 )),
             ],

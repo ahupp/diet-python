@@ -903,7 +903,9 @@ impl<Error> TryMapExpr<CodegenBlockPyExpr, Error> for CodegenBlockPyExpr {
         match self {
             Self::Name(name) => Ok(CodegenBlockPyExpr::Name(name)),
             Self::Literal(literal) => Ok(CodegenBlockPyExpr::Literal(literal)),
-            Self::Op(operation) => Ok(CodegenBlockPyExpr::Op(operation.try_map_expr_node(&mut *f)?)),
+            Self::Op(operation) => Ok(CodegenBlockPyExpr::Op(
+                operation.try_map_expr_node(&mut *f)?,
+            )),
         }
     }
 }

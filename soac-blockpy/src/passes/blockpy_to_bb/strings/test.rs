@@ -2,7 +2,7 @@ use super::normalize_bb_module_strings;
 use crate::{
     block_py::{
         BlockPyNameLike, BlockPyStmt, BlockPyTerm, CodegenBlockPyExpr, CodegenBlockPyLiteral,
-        LocatedName, OperationDetail,
+        CodegenExprOp,
     },
     lower_python_to_blockpy_for_testing,
     passes::lower_try_jump_exception_flow,
@@ -49,11 +49,11 @@ fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockP
         CodegenBlockPyExpr::Name(_) | CodegenBlockPyExpr::Literal(_) => {}
         CodegenBlockPyExpr::Op(operation) => {
             match operation {
-                OperationDetail::GetAttr(_) => out.push("__dp_getattr".to_string()),
-                OperationDetail::SetAttr(_) => out.push("__dp_setattr".to_string()),
-                OperationDetail::GetItem(_) => out.push("__dp_getitem".to_string()),
-                OperationDetail::SetItem(_) => out.push("__dp_setitem".to_string()),
-                OperationDetail::Call(call) => {
+                CodegenExprOp::GetAttr(_) => out.push("__dp_getattr".to_string()),
+                CodegenExprOp::SetAttr(_) => out.push("__dp_setattr".to_string()),
+                CodegenExprOp::GetItem(_) => out.push("__dp_getitem".to_string()),
+                CodegenExprOp::SetItem(_) => out.push("__dp_setitem".to_string()),
+                CodegenExprOp::Call(call) => {
                     if let CodegenBlockPyExpr::Name(name) = &*call.func {
                         out.push(name.id_str().to_string());
                     }

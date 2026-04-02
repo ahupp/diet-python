@@ -205,7 +205,7 @@ impl ModuleCodegenConstants {
                     }
                 }
             }
-            CodegenBlockPyExpr::Op(blockpy_intrinsics::OperationDetail::MakeString(op)) => {
+            CodegenBlockPyExpr::Op(blockpy_intrinsics::CodegenExprOp::MakeString(op)) => {
                 ModuleConstantValue::Unicode(op.bytes.clone())
             }
             CodegenBlockPyExpr::Name(_) | CodegenBlockPyExpr::Op(_) => {
@@ -337,7 +337,7 @@ impl ModuleConstantCollector {
                 self.constants.intern_bytes(bytes.value.as_slice());
             }
             CodegenBlockPyExpr::Op(operation) => {
-                if let blockpy_intrinsics::OperationDetail::Call(call) = operation {
+                if let blockpy_intrinsics::CodegenExprOp::Call(call) = operation {
                     if let Some(const_bytes) =
                         self.string_constant_bytes_for_specialized_codegen(expr)
                     {
@@ -360,39 +360,37 @@ impl ModuleConstantCollector {
                     return;
                 }
                 match operation {
-                    blockpy_intrinsics::OperationDetail::GetAttr(op) => {
+                    blockpy_intrinsics::CodegenExprOp::GetAttr(op) => {
                         if let Some(attr_bytes) =
                             self.string_constant_bytes_for_specialized_codegen(op.attr.as_ref())
                         {
                             self.constants.intern_unicode_bytes(attr_bytes.as_slice());
                         }
                     }
-                    blockpy_intrinsics::OperationDetail::SetAttr(op) => {
+                    blockpy_intrinsics::CodegenExprOp::SetAttr(op) => {
                         if let Some(attr_bytes) =
                             self.string_constant_bytes_for_specialized_codegen(op.attr.as_ref())
                         {
                             self.constants.intern_unicode_bytes(attr_bytes.as_slice());
                         }
                     }
-                    blockpy_intrinsics::OperationDetail::Load(op)
+                    blockpy_intrinsics::CodegenExprOp::Load(op)
                         if op.name.location.is_global() || op.name.location.is_runtime_name() =>
                     {
                         self.constants
                             .intern_unicode_bytes(op.name.id_str().as_bytes());
                     }
-                    blockpy_intrinsics::OperationDetail::Store(op)
+                    blockpy_intrinsics::CodegenExprOp::Store(op)
                         if op.name.location.is_global() =>
                     {
                         self.constants
                             .intern_unicode_bytes(op.name.id_str().as_bytes());
                     }
-                    blockpy_intrinsics::OperationDetail::Del(op)
-                        if op.name.location.is_global() =>
-                    {
+                    blockpy_intrinsics::CodegenExprOp::Del(op) if op.name.location.is_global() => {
                         self.constants
                             .intern_unicode_bytes(op.name.id_str().as_bytes());
                     }
-                    blockpy_intrinsics::OperationDetail::MakeString(op) => {
+                    blockpy_intrinsics::CodegenExprOp::MakeString(op) => {
                         self.constants.intern_unicode_bytes(op.bytes.as_slice());
                     }
                     _ => {}
@@ -428,14 +426,14 @@ impl ModuleConstantCollector {
                 Some(bytes.value.clone())
             }
             CodegenBlockPyExpr::Op(operation) => match operation {
-                blockpy_intrinsics::OperationDetail::Load(op) => {
+                blockpy_intrinsics::CodegenExprOp::Load(op) => {
                     op.name.location.as_constant().and_then(|index| {
                         self.constants
                             .constant_string_bytes_value(ModuleConstantId(index as usize))
                             .map(ToOwned::to_owned)
                     })
                 }
-                blockpy_intrinsics::OperationDetail::Call(call) => {
+                blockpy_intrinsics::CodegenExprOp::Call(call) => {
                     if helper_name_for_codegen_expr(call.func.as_ref()) != Some("str")
                         || call.args.len() != 1
                         || !call.keywords.is_empty()
@@ -454,7 +452,7 @@ fn helper_name_for_codegen_expr(expr: &LocatedCodegenBlockPyExpr) -> Option<&str
     match expr {
         CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
         CodegenBlockPyExpr::Op(operation) => match operation {
-            blockpy_intrinsics::OperationDetail::Load(op)
+            blockpy_intrinsics::CodegenExprOp::Load(op)
                 if op.name.location.is_global() || op.name.location.is_runtime_name() =>
             {
                 Some(op.name.id.as_str())

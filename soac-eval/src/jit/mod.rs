@@ -383,7 +383,7 @@ fn codegen_expr_is_borrowable(
             located_local_name_is_borrowable(name, local_names, stack_slots)
         }
         CodegenBlockPyExpr::Op(operation) => match operation {
-            blockpy_intrinsics::OperationDetail::Load(op) => op
+            blockpy_intrinsics::CodegenExprOp::Load(op) => op
                 .name
                 .local_location()
                 .and_then(|location| storage_layout?.stack_slots().get(location.slot() as usize))
@@ -454,13 +454,13 @@ fn codegen_expr_const_string(
             String::from_utf8(bytes.value.clone()).ok()
         }
         CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(_)) => None,
-        CodegenBlockPyExpr::Op(blockpy_intrinsics::OperationDetail::Load(op)) => {
+        CodegenBlockPyExpr::Op(blockpy_intrinsics::CodegenExprOp::Load(op)) => {
             op.name.location.as_constant().and_then(|index| {
                 module_constants.constant_string_value(ModuleConstantId(index as usize))
             })
         }
         CodegenBlockPyExpr::Op(operation) => match operation {
-            blockpy_intrinsics::OperationDetail::Call(call) => {
+            blockpy_intrinsics::CodegenExprOp::Call(call) => {
                 let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() else {
                     return None;
                 };
@@ -484,7 +484,7 @@ fn codegen_expr_helper_name(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
     match expr {
         CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
         CodegenBlockPyExpr::Op(operation) => match operation {
-            blockpy_intrinsics::OperationDetail::Load(op)
+            blockpy_intrinsics::CodegenExprOp::Load(op)
                 if op.name.location.is_global() || op.name.location.is_runtime_name() =>
             {
                 Some(op.name.id.as_str())
@@ -1315,9 +1315,9 @@ fn emit_codegen_expr(
             )
         }
         CodegenBlockPyExpr::Op(operation)
-            if !matches!(operation, blockpy_intrinsics::OperationDetail::Call(_)) =>
+            if !matches!(operation, blockpy_intrinsics::CodegenExprOp::Call(_)) =>
         {
-            if let blockpy_intrinsics::OperationDetail::Load(op) = operation {
+            if let blockpy_intrinsics::CodegenExprOp::Load(op) = operation {
                 if let Some(index) = op.name.location.as_constant() {
                     assert!(
                         !borrowed,
@@ -1348,7 +1348,8 @@ fn emit_codegen_expr(
                 jit_module,
                 func_imports,
             };
-            let operation_ref = operation;
+            let operation_detail = blockpy_intrinsics::OperationDetail::from(operation.clone());
+            let operation_ref = &operation_detail;
             if matches!(
                 operation_ref,
                 blockpy_intrinsics::OperationDetail::MakeFunction(_)
@@ -1547,7 +1548,7 @@ fn emit_codegen_expr(
             }
         }
         CodegenBlockPyExpr::Op(operation) => {
-            let blockpy_intrinsics::OperationDetail::Call(call) = operation else {
+            let blockpy_intrinsics::CodegenExprOp::Call(call) = operation else {
                 unreachable!("call-only op arm should only receive Call detail");
             };
             assert!(
