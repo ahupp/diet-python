@@ -3034,19 +3034,12 @@ impl ModuleConstantExtractor {
     }
 
     fn extract_stmt(&mut self, stmt: &mut BlockPyStmt<LocatedCoreBlockPyExpr, LocatedName>) {
-        match stmt {
-            BlockPyStmt::Assign(_) => {
-                unreachable!(
-                    "resolved name-binding output should normalize stmt assigns into Expr(Store)"
-                )
-            }
-            BlockPyStmt::Expr(expr) => self.extract_expr(expr),
-            BlockPyStmt::Delete(_) => {
-                unreachable!(
-                    "resolved name-binding output should normalize stmt deletes into Expr(Del)"
-                )
-            }
-        }
+        let BlockPyStmt::Expr(expr) = stmt else {
+            unreachable!(
+                "resolved name-binding output should normalize stmt ops into Expr(Store/Del)"
+            );
+        };
+        self.extract_expr(expr);
     }
 
     fn extract_term(&mut self, term: &mut BlockPyTerm<LocatedCoreBlockPyExpr>) {

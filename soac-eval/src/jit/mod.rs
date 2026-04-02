@@ -2686,27 +2686,20 @@ fn emit_codegen_ops(
     func_imports: &mut FuncBuildImports<'_>,
 ) -> Result<(), String> {
     for op in ops {
-        match op {
-            BlockPyStmt::Assign(_) => {
-                unreachable!("codegen should not see stmt assigns after name binding normalization")
-            }
-            BlockPyStmt::Expr(expr) => {
-                let value = emit_codegen_expr(
-                    fb,
-                    expr,
-                    local_names,
-                    local_values,
-                    emit_ctx,
-                    false,
-                    jit_module,
-                    func_imports,
-                );
-                fb.ins().call(emit_ctx.decref_ref, &[value]);
-            }
-            BlockPyStmt::Delete(_) => {
-                unreachable!("codegen should not see stmt deletes after name binding normalization")
-            }
-        }
+        let BlockPyStmt::Expr(expr) = op else {
+            unreachable!("codegen should not see stmt ops after name binding normalization");
+        };
+        let value = emit_codegen_expr(
+            fb,
+            expr,
+            local_names,
+            local_values,
+            emit_ctx,
+            false,
+            jit_module,
+            func_imports,
+        );
+        fb.ins().call(emit_ctx.decref_ref, &[value]);
     }
     Ok(())
 }

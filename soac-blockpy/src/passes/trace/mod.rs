@@ -98,23 +98,15 @@ impl PreparedTraceNameLocator {
         let mut existing_locations = HashMap::new();
         for block in &function.blocks {
             for stmt in &block.body {
-                match stmt {
-                    crate::block_py::BlockPyStmt::Expr(CodegenBlockPyExpr::Store(store)) => {
-                        existing_locations
-                            .entry(store.name.id.to_string())
-                            .or_insert(store.name.location);
-                    }
-                    crate::block_py::BlockPyStmt::Expr(_) => {}
-                    crate::block_py::BlockPyStmt::Assign(_) => {
-                        unreachable!(
-                            "codegen trace preparation should not see stmt assigns after name binding normalization"
-                        )
-                    }
-                    crate::block_py::BlockPyStmt::Delete(_) => {
-                        unreachable!(
-                            "codegen trace preparation should not see stmt deletes after name binding normalization"
-                        )
-                    }
+                let crate::block_py::BlockPyStmt::Expr(expr) = stmt else {
+                    unreachable!(
+                        "codegen trace preparation should not see stmt ops after name binding normalization"
+                    );
+                };
+                if let CodegenBlockPyExpr::Store(store) = expr {
+                    existing_locations
+                        .entry(store.name.id.to_string())
+                        .or_insert(store.name.location);
                 }
             }
         }

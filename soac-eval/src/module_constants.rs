@@ -288,15 +288,10 @@ impl ModuleConstantCollector {
     }
 
     fn collect_stmt(&mut self, stmt: &BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>) {
-        match stmt {
-            BlockPyStmt::Assign(_) => {
-                unreachable!("codegen should not see stmt assigns after name binding normalization")
-            }
-            BlockPyStmt::Expr(expr) => self.collect_expr(expr),
-            BlockPyStmt::Delete(_) => {
-                unreachable!("codegen should not see stmt deletes after name binding normalization")
-            }
-        }
+        let BlockPyStmt::Expr(expr) = stmt else {
+            unreachable!("codegen should not see stmt ops after name binding normalization");
+        };
+        self.collect_expr(expr);
     }
 
     fn collect_term(&mut self, term: &BlockPyTerm<LocatedCodegenBlockPyExpr>) {
