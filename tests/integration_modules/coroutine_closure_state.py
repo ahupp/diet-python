@@ -22,7 +22,7 @@ def make_runner(delta):
 
 def validate_module(module):
     coro = module.make_runner(3)
-    if type(coro).__name__ == "_DpCoroutine":
+    if type(coro).__name__ == "Coroutine":
         assert coro.cr_frame is None
     else:
         assert coro.cr_frame is not None
@@ -33,4 +33,3 @@ def validate_module(module):
         assert exc.value == 11
     else:
         raise AssertionError("expected StopIteration")
-

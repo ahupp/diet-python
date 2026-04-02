@@ -22,7 +22,7 @@ async def run_send():
     gen = build(10)
     first = await anext(gen)
     second = await gen.asend(2)
-    if type(gen).__name__ == "_DpClosureAsyncGenerator":
+    if type(gen).__name__ == "ClosureAsyncGenerator":
         assert gen.ag_frame is None
     return first, second
 
@@ -31,7 +31,7 @@ async def run_throw():
     gen = build(10)
     first = await anext(gen)
     second = await gen.athrow(ValueError(3))
-    if type(gen).__name__ == "_DpClosureAsyncGenerator":
+    if type(gen).__name__ == "ClosureAsyncGenerator":
         assert gen.ag_frame is None
     return first, second
 

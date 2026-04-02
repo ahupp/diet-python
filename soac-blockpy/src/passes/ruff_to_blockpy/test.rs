@@ -130,10 +130,7 @@ def gen(n):
         rendered.contains("function gen(_dp_self, _dp_send_value, _dp_resume_exc):"),
         "{rendered}"
     );
-    assert!(
-        rendered.contains("return _DpClosureGenerator("),
-        "{rendered}"
-    );
+    assert!(rendered.contains("return ClosureGenerator("), "{rendered}");
     assert!(rendered.contains("branch_table"), "{rendered}");
     assert!(!rendered.contains("yield n"), "{rendered}");
 }
@@ -869,7 +866,7 @@ async def agen(n):
         "{rendered}"
     );
     assert!(
-        rendered.contains("return _DpClosureAsyncGenerator("),
+        rendered.contains("return ClosureAsyncGenerator("),
         "{rendered}"
     );
     assert!(rendered.contains("branch_table"), "{rendered}");

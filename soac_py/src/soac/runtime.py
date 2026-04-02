@@ -330,7 +330,7 @@ def _normalize_throw_exc(typ, val=None, tb=None, *, where, throw_context=None):
 def _current_throw_context(owner):
     return _yieldfrom_cell_value(owner._throw_context_cell)
 
-class _DpClosureGenerator:
+class ClosureGenerator:
     __slots__ = (
         "_resume_fn",
         "_is_closed",
@@ -379,7 +379,7 @@ class _DpClosureGenerator:
             typ,
             val,
             tb,
-            where="DpGen.throw()",
+            where="ClosureGenerator.throw()",
             throw_context=_current_throw_context(self),
         )
         if self._is_closed:
@@ -404,7 +404,7 @@ class _DpClosureGenerator:
         return _current_yieldfrom(self)
 
 
-class _DpCoroutine(_abc.Coroutine):
+class Coroutine(_abc.Coroutine):
     __slots__ = ("_gen",)
 
     def __init__(self, gen):
@@ -424,7 +424,7 @@ class _DpCoroutine(_abc.Coroutine):
 
     def throw(self, typ, val=None, tb=None):
         return self._gen.throw(
-            _normalize_throw_exc(typ, val, tb, where="DpCoroutine.throw()")
+            _normalize_throw_exc(typ, val, tb, where="Coroutine.throw()")
         )
 
     def close(self):
@@ -447,7 +447,7 @@ class _DpCoroutine(_abc.Coroutine):
         return self._gen.gi_yieldfrom
 
 
-class _DpClosureAsyncGenerator:
+class ClosureAsyncGenerator:
     __slots__ = (
         "_resume_fn",
         "_is_closed",
@@ -496,17 +496,17 @@ class _DpClosureAsyncGenerator:
         return _current_yieldfrom(self)
 
     def asend(self, value):
-        return _DpAsyncGenSend(self, value, NO_DEFAULT)
+        return AsyncGenSend(self, value, NO_DEFAULT)
 
     def athrow(self, typ=None, val=None, tb=None):
         exc = _normalize_throw_exc(
             typ,
             val,
             tb,
-            where="DpAsyncGen.athrow()",
+            where="ClosureAsyncGenerator.athrow()",
             throw_context=_current_throw_context(self),
         )
-        return _DpAsyncGenSend(self, NO_DEFAULT, exc)
+        return AsyncGenSend(self, NO_DEFAULT, exc)
 
     async def aclose(self):
         try:
@@ -515,7 +515,7 @@ class _DpClosureAsyncGenerator:
             return None
         raise RuntimeError("async generator ignored GeneratorExit")
 
-class _DpAsyncGenSend:
+class AsyncGenSend:
     __slots__ = ("_generator", "_send_value", "_resume_exception", "_is_done")
 
     def __init__(self, gen, value, resume_exc):
@@ -591,9 +591,9 @@ class _DpAsyncGenSend:
 
     def throw(self, typ, val=None, tb=None):
         if self._is_done:
-            raise _normalize_throw_exc(typ, val, tb, where="DpAsyncGenSend.throw()")
+            raise _normalize_throw_exc(typ, val, tb, where="AsyncGenSend.throw()")
         self._resume_exception = _normalize_throw_exc(
-            typ, val, tb, where="DpAsyncGenSend.throw()"
+            typ, val, tb, where="AsyncGenSend.throw()"
         )
         return self._step(None)
 

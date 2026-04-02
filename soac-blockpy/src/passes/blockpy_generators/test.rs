@@ -44,14 +44,14 @@ fn build_closure_backed_generator_factory_block(
 
     let generator_expr = if is_async_generator {
         py_expr!(
-            "runtime._DpClosureAsyncGenerator(resume={resume:expr}, name={name:literal}, qualname={qualname:literal}, code=runtime.code_template_async_gen.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal}), yieldfrom_cell=__dp_cell_ref(\"_dp_yieldfrom\"), throw_context_cell=__dp_cell_ref(\"_dp_throw_context\"))",
+            "runtime.ClosureAsyncGenerator(resume={resume:expr}, name={name:literal}, qualname={qualname:literal}, code=runtime.code_template_async_gen.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal}), yieldfrom_cell=__dp_cell_ref(\"_dp_yieldfrom\"), throw_context_cell=__dp_cell_ref(\"_dp_throw_context\"))",
             resume = resume_entry,
             name = visible_names.display_name.as_str(),
             qualname = visible_names.qualname.as_str(),
         )
     } else {
         py_expr!(
-            "runtime._DpClosureGenerator(resume={resume:expr}, name={name:literal}, qualname={qualname:literal}, code=runtime.code_template_gen.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal}), yieldfrom_cell=__dp_cell_ref(\"_dp_yieldfrom\"), throw_context_cell=__dp_cell_ref(\"_dp_throw_context\"))",
+            "runtime.ClosureGenerator(resume={resume:expr}, name={name:literal}, qualname={qualname:literal}, code=runtime.code_template_gen.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal}), yieldfrom_cell=__dp_cell_ref(\"_dp_yieldfrom\"), throw_context_cell=__dp_cell_ref(\"_dp_throw_context\"))",
             resume = resume_entry,
             name = visible_names.display_name.as_str(),
             qualname = visible_names.qualname.as_str(),
@@ -59,7 +59,7 @@ fn build_closure_backed_generator_factory_block(
     };
 
     let return_value = if is_coroutine {
-        py_expr!("runtime._DpCoroutine({gen:expr})", gen = generator_expr)
+        py_expr!("runtime.Coroutine({gen:expr})", gen = generator_expr)
     } else {
         generator_expr
     };

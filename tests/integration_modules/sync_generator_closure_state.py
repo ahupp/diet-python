@@ -63,7 +63,7 @@ def validate_module(module):
     import pytest
 
     counter = module.make_counter(3)
-    if type(counter).__name__ == "_DpClosureGenerator":
+    if type(counter).__name__ == "ClosureGenerator":
         assert not hasattr(counter, "gi_frame")
     else:
         assert hasattr(counter, "gi_frame")

@@ -498,7 +498,7 @@ fn build_factory_block(
     );
     let generator = match kind {
         BlockPyFunctionKind::Generator | BlockPyFunctionKind::Coroutine => core_call_expr(
-            core_runtime_attr("_DpClosureGenerator"),
+            core_runtime_attr("ClosureGenerator"),
             Vec::new(),
             vec![
                 ("resume", resume_entry),
@@ -523,7 +523,7 @@ fn build_factory_block(
             ],
         ),
         BlockPyFunctionKind::AsyncGenerator => core_call_expr(
-            core_runtime_attr("_DpClosureAsyncGenerator"),
+            core_runtime_attr("ClosureAsyncGenerator"),
             Vec::new(),
             vec![
                 ("resume", resume_entry),
@@ -552,11 +552,9 @@ fn build_factory_block(
         }
     };
     let factory_value = match kind {
-        BlockPyFunctionKind::Coroutine => core_call_expr(
-            core_runtime_attr("_DpCoroutine"),
-            vec![generator],
-            Vec::new(),
-        ),
+        BlockPyFunctionKind::Coroutine => {
+            core_call_expr(core_runtime_attr("Coroutine"), vec![generator], Vec::new())
+        }
         BlockPyFunctionKind::Generator | BlockPyFunctionKind::AsyncGenerator => generator,
         BlockPyFunctionKind::Function => {
             unreachable!("plain functions do not use generator factories")
