@@ -84,10 +84,12 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
 
     let lowered = make_eval_order_explicit_in_core_block(block);
     assert_eq!(lowered.body.len(), 1);
-    let StructuredBlockPyStmtFor::Assign(assign) = &lowered.body[0] else {
-        panic!("expected rewritten assignment");
+    let StructuredBlockPyStmtFor::Expr(CoreBlockPyExprWithAwaitAndYield::Store(assign)) =
+        &lowered.body[0]
+    else {
+        panic!("expected rewritten temp store");
     };
-    let CoreBlockPyExprWithAwaitAndYield::Call(call) = &assign.value else {
+    let CoreBlockPyExprWithAwaitAndYield::Call(call) = assign.value.as_ref() else {
         panic!("expected outer call");
     };
     assert!(is_name_like(call.func.as_ref()));

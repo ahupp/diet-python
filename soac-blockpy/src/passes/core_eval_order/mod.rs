@@ -7,6 +7,7 @@ use crate::block_py::{
     WithMeta,
 };
 use crate::namegen::fresh_name;
+use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
 use crate::passes::CoreBlockPyPassWithYield;
 use crate::py_expr;
@@ -20,11 +21,12 @@ fn fresh_eval_name() -> ast::ExprName {
     expr
 }
 
-fn typed_store_stmt<E>(target: ast::ExprName, value: E) -> StructuredBlockPyStmtFor<E>
+fn typed_store_stmt<E, N>(target: N, value: E) -> StructuredBlockPyStmtFor<E>
 where
     E: Instr + From<Store<E>>,
+    N: BlockPyNameLike + Into<<E as Instr>::Name>,
 {
-    let meta = Meta::new(target.node_index.clone(), target.range);
+    let meta = Meta::new(target.node_index(), target.range());
     StructuredBlockPyStmtFor::Expr(Store::<E>::new(target, value).with_meta(meta).into())
 }
 
@@ -193,10 +195,14 @@ fn make_eval_order_explicit_in_core_stmt(
             let value =
                 make_eval_order_explicit_in_core_expr(assign.value, &mut setup, &mut cleanup);
             out.extend(setup);
-            out.push(StructuredBlockPyStmtFor::Assign(BlockPyAssign {
-                target: assign.target,
-                value,
-            }));
+            if is_internal_symbol(assign.target.id_str()) {
+                out.push(typed_store_stmt(assign.target, value));
+            } else {
+                out.push(StructuredBlockPyStmtFor::Assign(BlockPyAssign {
+                    target: assign.target,
+                    value,
+                }));
+            }
             append_stmt_cleanup(out, cleanup);
         }
         StructuredBlockPyStmtFor::Expr(expr) => {
@@ -208,7 +214,11 @@ fn make_eval_order_explicit_in_core_stmt(
             append_stmt_cleanup(out, cleanup);
         }
         StructuredBlockPyStmtFor::Delete(delete) => {
-            out.push(StructuredBlockPyStmtFor::Delete(delete))
+            if is_internal_symbol(delete.target.id_str()) {
+                out.push(typed_del_stmt(delete.target));
+            } else {
+                out.push(StructuredBlockPyStmtFor::Delete(delete))
+            }
         }
         StructuredBlockPyStmtFor::If(if_stmt) => {
             let mut setup = Vec::new();
@@ -418,10 +428,14 @@ fn make_eval_order_explicit_in_core_stmt_without_await(
                 assign.value
             };
             out.extend(setup);
-            out.push(StructuredBlockPyStmtFor::Assign(BlockPyAssign {
-                target: assign.target,
-                value,
-            }));
+            if is_internal_symbol(assign.target.id_str()) {
+                out.push(typed_store_stmt(assign.target, value));
+            } else {
+                out.push(StructuredBlockPyStmtFor::Assign(BlockPyAssign {
+                    target: assign.target,
+                    value,
+                }));
+            }
             append_stmt_cleanup(out, cleanup);
         }
         StructuredBlockPyStmtFor::Expr(expr) => {
@@ -437,7 +451,11 @@ fn make_eval_order_explicit_in_core_stmt_without_await(
             append_stmt_cleanup(out, cleanup);
         }
         StructuredBlockPyStmtFor::Delete(delete) => {
-            out.push(StructuredBlockPyStmtFor::Delete(delete))
+            if is_internal_symbol(delete.target.id_str()) {
+                out.push(typed_del_stmt(delete.target));
+            } else {
+                out.push(StructuredBlockPyStmtFor::Delete(delete))
+            }
         }
         StructuredBlockPyStmtFor::If(if_stmt) => {
             let mut setup = Vec::new();
