@@ -16,9 +16,9 @@ pub use self::semantics::{
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 pub use operation::{
-    BinOp, BinOpKind, Call, CellRef, CellRefForName, CoreExprOpWithAwaitAndYield,
-    CoreExprOpWithYield, Del, DelItem, GetAttr, GetItem, Load, MakeCell, MakeFunction, MakeString,
-    SetAttr, SetItem, Store, UnaryOp, UnaryOpKind,
+    BinOp, BinOpKind, Call, CellRef, CellRefForName, CoreExprOpWithAwaitAndYield, Del, DelItem,
+    GetAttr, GetItem, Load, MakeCell, MakeFunction, MakeString, SetAttr, SetItem, Store, UnaryOp,
+    UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
@@ -1036,32 +1036,26 @@ impl Instr for CoreBlockPyExprWithYield {
     type Name = UnresolvedName;
 }
 
-impl From<CoreExprOpWithYield<CoreBlockPyExprWithYield>> for CoreBlockPyExprWithYield {
-    fn from(value: CoreExprOpWithYield<CoreBlockPyExprWithYield>) -> Self {
-        match value {
-            CoreExprOpWithYield::BinOp(op) => op.into(),
-            CoreExprOpWithYield::UnaryOp(op) => op.into(),
-            CoreExprOpWithYield::Call(op) => op.into(),
-            CoreExprOpWithYield::GetAttr(op) => op.into(),
-            CoreExprOpWithYield::SetAttr(op) => op.into(),
-            CoreExprOpWithYield::GetItem(op) => op.into(),
-            CoreExprOpWithYield::SetItem(op) => op.into(),
-            CoreExprOpWithYield::DelItem(op) => op.into(),
-            CoreExprOpWithYield::Load(op) => op.into(),
-            CoreExprOpWithYield::Store(op) => op.into(),
-            CoreExprOpWithYield::Del(op) => op.into(),
-            CoreExprOpWithYield::MakeCell(op) => op.into(),
-            CoreExprOpWithYield::MakeString(op) => op.into(),
-            CoreExprOpWithYield::CellRefForName(op) => op.into(),
-            CoreExprOpWithYield::CellRef(op) => op.into(),
-            CoreExprOpWithYield::MakeFunction(op) => op.into(),
-        }
-    }
-}
-
 impl From<CoreExprOpWithAwaitAndYield<CoreBlockPyExprWithYield>> for CoreBlockPyExprWithYield {
     fn from(value: CoreExprOpWithAwaitAndYield<CoreBlockPyExprWithYield>) -> Self {
-        Self::from(CoreExprOpWithYield::from(value))
+        match value {
+            CoreExprOpWithAwaitAndYield::BinOp(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::UnaryOp(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Call(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::GetAttr(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::SetAttr(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::GetItem(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::SetItem(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::DelItem(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Load(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Store(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Del(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::MakeCell(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::MakeString(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::CellRefForName(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::CellRef(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::MakeFunction(op) => op.into(),
+        }
     }
 }
 
@@ -1166,29 +1160,6 @@ impl<N: BlockPyNameLike> CoreCallLikeExpr for CoreBlockPyExpr<N> {
 
 impl<N: BlockPyNameLike> Instr for CoreBlockPyExpr<N> {
     type Name = N;
-}
-
-impl<N: BlockPyNameLike> From<CoreExprOpWithYield<CoreBlockPyExpr<N>>> for CoreBlockPyExpr<N> {
-    fn from(value: CoreExprOpWithYield<CoreBlockPyExpr<N>>) -> Self {
-        match value {
-            CoreExprOpWithYield::BinOp(op) => op.into(),
-            CoreExprOpWithYield::UnaryOp(op) => op.into(),
-            CoreExprOpWithYield::Call(op) => op.into(),
-            CoreExprOpWithYield::GetAttr(op) => op.into(),
-            CoreExprOpWithYield::SetAttr(op) => op.into(),
-            CoreExprOpWithYield::GetItem(op) => op.into(),
-            CoreExprOpWithYield::SetItem(op) => op.into(),
-            CoreExprOpWithYield::DelItem(op) => op.into(),
-            CoreExprOpWithYield::Load(op) => op.into(),
-            CoreExprOpWithYield::Store(op) => op.into(),
-            CoreExprOpWithYield::Del(op) => op.into(),
-            CoreExprOpWithYield::MakeCell(op) => op.into(),
-            CoreExprOpWithYield::MakeString(op) => op.into(),
-            CoreExprOpWithYield::CellRefForName(op) => op.into(),
-            CoreExprOpWithYield::CellRef(op) => op.into(),
-            CoreExprOpWithYield::MakeFunction(op) => op.into(),
-        }
-    }
 }
 
 impl<N: BlockPyNameLike> HasMeta for CoreBlockPyExpr<N> {

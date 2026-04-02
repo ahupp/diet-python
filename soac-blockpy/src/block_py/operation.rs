@@ -848,26 +848,6 @@ pub enum CoreExprOpWithAwaitAndYield<E: Instr> {
     MakeFunction(MakeFunction<E>),
 }
 
-#[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
-pub enum CoreExprOpWithYield<E: Instr> {
-    BinOp(BinOp<E>),
-    UnaryOp(UnaryOp<E>),
-    Call(Call<E>),
-    GetAttr(GetAttr<E>),
-    SetAttr(SetAttr<E>),
-    GetItem(GetItem<E>),
-    SetItem(SetItem<E>),
-    DelItem(DelItem<E>),
-    Load(Load<E>),
-    Store(Store<E>),
-    Del(Del<E>),
-    MakeCell(MakeCell<E>),
-    MakeString(MakeString),
-    CellRefForName(CellRefForName),
-    CellRef(CellRef),
-    MakeFunction(MakeFunction<E>),
-}
-
 macro_rules! impl_operation_enum_delegates {
     ($name:ident) => {
         #[with_match_default]
@@ -960,27 +940,3 @@ macro_rules! impl_operation_enum_delegates {
 }
 
 impl_operation_enum_delegates!(CoreExprOpWithAwaitAndYield);
-impl_operation_enum_delegates!(CoreExprOpWithYield);
-
-impl<E: Instr> From<CoreExprOpWithAwaitAndYield<E>> for CoreExprOpWithYield<E> {
-    fn from(value: CoreExprOpWithAwaitAndYield<E>) -> Self {
-        match value {
-            CoreExprOpWithAwaitAndYield::BinOp(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::UnaryOp(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::Call(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::GetAttr(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::SetAttr(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::GetItem(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::SetItem(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::DelItem(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::Load(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::Store(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::Del(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::MakeCell(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::MakeString(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::CellRefForName(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::CellRef(op) => op.into(),
-            CoreExprOpWithAwaitAndYield::MakeFunction(op) => op.into(),
-        }
-    }
-}
