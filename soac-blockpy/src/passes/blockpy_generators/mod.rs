@@ -376,19 +376,16 @@ fn augment_resume_semantic_for_standard_name_binding(
 }
 
 fn resume_closure_bindings(
-    layout: &StorageLayout,
+    semantic: &BlockPyCallableSemanticInfo,
     persistent_logical_names: &[String],
 ) -> ResumeClosureBindings {
     let runtime_state_bindings = persistent_logical_names
         .iter()
-        .filter_map(|logical_name| {
-            layout
-                .freevars
-                .iter()
-                .chain(layout.cellvars.iter())
-                .chain(layout.runtime_cells.iter())
-                .find(|slot| slot.logical_name == *logical_name)
-                .map(|slot| (slot.logical_name.clone(), slot.storage_name.clone()))
+        .map(|logical_name| {
+            (
+                logical_name.clone(),
+                semantic.cell_capture_source_name(logical_name.as_str()),
+            )
         })
         .collect::<Vec<_>>();
     ResumeClosureBindings {
@@ -1521,7 +1518,8 @@ pub(crate) fn lower_generator_like_function(
         ordered_resume_binding_logical_names(&callable, &persistent_state_order);
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
         lower_resume_blocks(&callable);
-    let closure_bindings = resume_closure_bindings(&storage_layout, &resume_binding_logical_names);
+    let closure_bindings =
+        resume_closure_bindings(&callable.semantic, &resume_binding_logical_names);
 
     let BlockPyFunction {
         function_id,

@@ -20,6 +20,29 @@ fn generator_test_semantic() -> BlockPyCallableSemanticInfo {
     }
 }
 
+fn generator_resume_source_semantic(layout: &StorageLayout) -> BlockPyCallableSemanticInfo {
+    let mut semantic = generator_test_semantic();
+    for slot in &layout.freevars {
+        semantic.insert_binding_with_cell_names(
+            slot.logical_name.clone(),
+            BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
+            is_internal_symbol(slot.logical_name.as_str()),
+            Some(slot.logical_name.clone()),
+            Some(slot.storage_name.clone()),
+        );
+    }
+    for slot in &layout.cellvars {
+        semantic.insert_binding_with_cell_names(
+            slot.logical_name.clone(),
+            BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner),
+            is_internal_symbol(slot.logical_name.as_str()),
+            Some(slot.storage_name.clone()),
+            Some(slot.storage_name.clone()),
+        );
+    }
+    semantic
+}
+
 fn blockpy_make_dp_tuple(items: Vec<Expr>) -> Expr {
     let Expr::Call(mut call) = py_expr!("__dp_tuple()") else {
         panic!("expected call expression for __dp_tuple");
@@ -114,8 +137,9 @@ fn resume_closure_bindings_keep_internal_eval_state_on_runtime_binding_path() {
         stack_slots: Vec::new(),
     };
 
+    let semantic = generator_resume_source_semantic(&layout);
     let closure_bindings = resume_closure_bindings(
-        &layout,
+        &semantic,
         &[
             "captured".to_string(),
             "total".to_string(),
@@ -329,7 +353,7 @@ fn builds_closure_backed_generator_factory_block() {
 }
 
 #[test]
-fn resume_closure_bindings_include_storage_aliases_for_cell_backed_state() {
+fn resume_closure_bindings_use_semantic_capture_sources_for_cell_backed_state() {
     let layout = StorageLayout {
         freevars: vec![ClosureSlot {
             logical_name: "captured".to_string(),
@@ -356,8 +380,9 @@ fn resume_closure_bindings_include_storage_aliases_for_cell_backed_state() {
         stack_slots: Vec::new(),
     };
 
+    let semantic = generator_resume_source_semantic(&layout);
     let closure_bindings = resume_closure_bindings(
-        &layout,
+        &semantic,
         &[
             "captured".to_string(),
             "total".to_string(),
@@ -404,8 +429,9 @@ fn resume_closure_bindings_use_logical_names_for_shared_storage() {
         stack_slots: Vec::new(),
     };
 
+    let semantic = generator_resume_source_semantic(&layout);
     let closure_bindings = resume_closure_bindings(
-        &layout,
+        &semantic,
         &[
             "j".to_string(),
             "_dp_pc".to_string(),
@@ -554,10 +580,11 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
         ],
         stack_slots: Vec::new(),
     };
+    let semantic_for_bindings = generator_resume_source_semantic(&layout);
     let closure_bindings = resume_closure_bindings(
-        &layout,
+        &semantic_for_bindings,
         &[
-            "_dp_cell_captured".to_string(),
+            "captured".to_string(),
             "total".to_string(),
             "_dp_eval_1".to_string(),
             "_dp_eval_2".to_string(),
