@@ -1,6 +1,6 @@
 use super::{
     AbruptKind, BlockArg, BlockPyEdge, BlockPyLabel, BlockPyTerm, CfgBlock, HasMeta,
-    ImplicitNoneExpr, Store, StructuredBlockPyStmt, WithMeta,
+    ImplicitNoneExpr, Store, StructuredInstr, WithMeta,
 };
 #[cfg(test)]
 use crate::passes::ast_to_ast::util::is_dp_helper_lookup_expr;
@@ -16,7 +16,7 @@ fn expr_name(id: &str) -> ExprName {
 }
 
 pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
-    blocks: &mut [CfgBlock<StructuredBlockPyStmt<E>, BlockPyTerm<E>>],
+    blocks: &mut [CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>],
     finally_target: &BlockPyLabel,
     payload_name: &str,
 ) where
@@ -35,7 +35,7 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
         };
         let target = expr_name(payload_name);
         let meta = target.meta();
-        block.body.push(StructuredBlockPyStmt::Expr(
+        block.body.push(StructuredInstr::Expr(
             Store::new(target, ret_value).with_meta(meta).into(),
         ));
         let payload_arg = BlockArg::Name(payload_name.to_string());

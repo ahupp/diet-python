@@ -6,16 +6,13 @@ use crate::block_py::{
     BlockParam, BlockParamRole, BlockPyAssign, BlockPyIf, BlockPyIfTerm, BlockPyLabel,
     BlockPyNameLike, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm, CfgBlock, CoreBlockPyCallArg,
     CoreBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen, ResolvedStorageBlock,
-    StructuredBlockPyStmt,
+    StructuredInstr,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 
 pub(crate) fn lower_structured_core_blocks_to_bb_blocks<N>(
-    blocks: &[CfgBlock<
-        StructuredBlockPyStmt<CoreBlockPyExpr<N>, N>,
-        BlockPyTerm<CoreBlockPyExpr<N>>,
-    >],
+    blocks: &[CfgBlock<StructuredInstr<CoreBlockPyExpr<N>>, BlockPyTerm<CoreBlockPyExpr<N>>>],
 ) -> Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr<N>, N>, BlockPyTerm<CoreBlockPyExpr<N>>>>
 where
     N: BlockPyNameLike,
@@ -36,7 +33,7 @@ where
 
 pub(crate) fn lower_structured_located_blocks_to_bb_blocks(
     blocks: &[CfgBlock<
-        StructuredBlockPyStmt<CoreBlockPyExpr<LocatedName>, LocatedName>,
+        StructuredInstr<CoreBlockPyExpr<LocatedName>>,
         BlockPyTerm<LocatedCoreBlockPyExpr>,
     >],
 ) -> Vec<ResolvedStorageBlock> {
@@ -44,10 +41,7 @@ pub(crate) fn lower_structured_located_blocks_to_bb_blocks(
 }
 
 fn rewrite_current_exception_in_core_blocks_structured<N>(
-    blocks: &mut [CfgBlock<
-        StructuredBlockPyStmt<CoreBlockPyExpr<N>, N>,
-        BlockPyTerm<CoreBlockPyExpr<N>>,
-    >],
+    blocks: &mut [CfgBlock<StructuredInstr<CoreBlockPyExpr<N>>, BlockPyTerm<CoreBlockPyExpr<N>>>],
 ) where
     N: BlockPyNameLike,
 {
@@ -63,16 +57,16 @@ fn rewrite_current_exception_in_core_blocks_structured<N>(
 }
 
 fn rewrite_current_exception_in_blockpy_stmt<N>(
-    stmt: &mut StructuredBlockPyStmt<CoreBlockPyExpr<N>, N>,
+    stmt: &mut StructuredInstr<CoreBlockPyExpr<N>>,
     exc_name: &str,
 ) where
     N: BlockPyNameLike,
 {
     match stmt {
-        StructuredBlockPyStmt::Expr(expr) => {
+        StructuredInstr::Expr(expr) => {
             rewrite_current_exception_in_blockpy_expr(expr, exc_name);
         }
-        StructuredBlockPyStmt::If(if_stmt) => {
+        StructuredInstr::If(if_stmt) => {
             rewrite_current_exception_in_blockpy_expr(&mut if_stmt.test, exc_name);
             for stmt in &mut if_stmt.body.body {
                 rewrite_current_exception_in_blockpy_stmt(stmt, exc_name);
@@ -87,7 +81,6 @@ fn rewrite_current_exception_in_blockpy_stmt<N>(
                 rewrite_current_exception_in_blockpy_term(term, exc_name);
             }
         }
-        StructuredBlockPyStmt::_Marker(_) => unreachable!("structured stmt marker"),
     }
 }
 
@@ -108,7 +101,7 @@ fn core_name_expr(name: &str) -> CoreBlockPyExpr {
 fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
     let blocks = vec![CfgBlock {
         label: BlockPyLabel::from_index(0),
-        body: vec![StructuredBlockPyStmt::If(BlockPyIf {
+        body: vec![StructuredInstr::If(BlockPyIf {
             test: crate::block_py::core_call_expr_with_meta(
                 core_name_expr("current_exception"),
                 ast::AtomicNodeIndex::default(),
@@ -116,14 +109,14 @@ fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
                 Vec::<CoreBlockPyCallArg<CoreBlockPyExpr>>::new(),
                 Vec::new(),
             ),
-            body: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Expr(
+            body: BlockPyStmtFragment::from_stmts(vec![StructuredInstr::Expr(
                 crate::block_py::Store::new(
                     expr_name("x", ast::ExprContext::Store),
                     Box::new(core_name_expr("a")),
                 )
                 .into(),
             )]),
-            orelse: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Expr(
+            orelse: BlockPyStmtFragment::from_stmts(vec![StructuredInstr::Expr(
                 crate::block_py::Store::new(
                     expr_name("x", ast::ExprContext::Store),
                     Box::new(core_name_expr("b")),

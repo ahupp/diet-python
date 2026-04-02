@@ -100,7 +100,7 @@ impl StmtLowerer for ast::StmtExpr {
             loop_ctx,
             next_label_id,
         )?;
-        out.push_stmt(StructuredBlockPyStmt::Expr(value));
+        out.push_stmt(StructuredInstr::Expr(value));
         Ok(())
     }
 }

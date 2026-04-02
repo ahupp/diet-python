@@ -2,7 +2,7 @@ use super::*;
 
 use crate::block_py::{
     BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
-    BlockPyTerm, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, StructuredBlockPyStmt,
+    BlockPyTerm, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, StructuredInstr,
 };
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::ast_to_ast::context::Context;
@@ -57,7 +57,7 @@ fn function_by_name<'a, P: BlockPyPass>(
 fn lower_stmt_for_panic_test(stmt: &Stmt) {
     let context = Context::new("");
     let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
-        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
         BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
@@ -931,17 +931,14 @@ def f(x):
     };
     let context = test_context();
     let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
-        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
         BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
         .expect("assert lowering should succeed");
     let fragment = out.finish();
-    assert!(matches!(
-        fragment.body.as_slice(),
-        [StructuredBlockPyStmt::If(_)]
-    ));
+    assert!(matches!(fragment.body.as_slice(), [StructuredInstr::If(_)]));
 }
 
 #[test]
@@ -979,7 +976,7 @@ def f(x):
     };
     let context = test_context();
     let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
-        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
         BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
@@ -989,8 +986,8 @@ def f(x):
     assert!(matches!(
         fragment.body.as_slice(),
         [
-            StructuredBlockPyStmt::Expr(_),
-            StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Store(_))
+            StructuredInstr::Expr(_),
+            StructuredInstr::Expr(CoreBlockPyExprWithAwaitAndYield::Store(_))
         ]
     ));
 }
@@ -1028,7 +1025,7 @@ def f():
     .body;
     let context = test_context();
     let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
-        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
         BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
@@ -1056,7 +1053,7 @@ def f(x):
     };
     let context = test_context();
     let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
-        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
         BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
@@ -1082,7 +1079,7 @@ def f():
     };
     let context = test_context();
     let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
-        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
         BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
@@ -1091,7 +1088,7 @@ def f():
     let fragment = out.finish();
     assert!(matches!(
         fragment.body.as_slice(),
-        [StructuredBlockPyStmt::Expr(
+        [StructuredInstr::Expr(
             CoreBlockPyExprWithAwaitAndYield::Store(_)
         )]
     ));
@@ -1113,7 +1110,7 @@ def f():
     };
     let context = test_context();
     let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
-        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
         BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
@@ -1170,7 +1167,7 @@ fn panics_if_while_reaches_stmt_list_lowering() {
     };
     let context = test_context();
     let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
-        StructuredBlockPyStmt<CoreBlockPyExprWithAwaitAndYield>,
+        StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
         BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;

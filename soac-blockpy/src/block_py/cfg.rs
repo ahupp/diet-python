@@ -1,12 +1,12 @@
 use super::{
-    BlockParam, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike, BlockPyTerm,
-    CfgBlock, FunctionNameGen, ImplicitNoneExpr, Instr, StructuredBlockPyStmt,
+    BlockParam, BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel, BlockPyTerm, CfgBlock,
+    FunctionNameGen, ImplicitNoneExpr, Instr, StructuredInstr,
 };
 use ruff_python_ast::Expr;
 use std::collections::{HashMap, HashSet};
 
-fn blockpy_successors<E: Instr, N>(
-    block: &CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>,
+fn blockpy_successors<E: Instr>(
+    block: &CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>,
 ) -> Vec<BlockPyLabel> {
     match &block.term {
         BlockPyTerm::Jump(target) => vec![target.target.clone()],
@@ -33,25 +33,24 @@ fn params_for_linearized_names(
         .collect()
 }
 
-fn linearize_blockpy_if_sequence<E, N>(
+fn linearize_blockpy_if_sequence<E>(
     name_gen: &FunctionNameGen,
     label: BlockPyLabel,
-    body: Vec<StructuredBlockPyStmt<E, N>>,
+    body: Vec<StructuredInstr<E>>,
     final_term: BlockPyTerm<E>,
     exc_edge: Option<super::BlockPyEdge>,
     block_params: Vec<String>,
     declared_params: Vec<BlockParam>,
     exc_target: Option<BlockPyLabel>,
-    out_blocks: &mut Vec<CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>>,
+    out_blocks: &mut Vec<CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>>,
     out_block_params: &mut HashMap<BlockPyLabel, Vec<String>>,
     out_exception_edges: &mut HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 ) where
     E: Clone + Instr,
-    N: BlockPyNameLike,
 {
     let Some(if_index) = body
         .iter()
-        .position(|stmt| matches!(stmt, StructuredBlockPyStmt::If(_)))
+        .position(|stmt| matches!(stmt, StructuredInstr::If(_)))
     else {
         out_block_params.insert(label.clone(), block_params.clone());
         out_exception_edges.insert(label.clone(), exc_target);
@@ -68,7 +67,7 @@ fn linearize_blockpy_if_sequence<E, N>(
     let mut body = body;
     let rest = body.split_off(if_index + 1);
     let if_stmt = match body.pop() {
-        Some(StructuredBlockPyStmt::If(if_stmt)) => if_stmt,
+        Some(StructuredInstr::If(if_stmt)) => if_stmt,
         _ => unreachable!("expected structured BlockPy if at split point"),
     };
     let then_label = name_gen.next_block_name();
@@ -144,21 +143,20 @@ fn linearize_blockpy_if_sequence<E, N>(
     }
 }
 
-fn linearize_blockpy_fragment<E, N>(
+fn linearize_blockpy_fragment<E>(
     name_gen: &FunctionNameGen,
     label: BlockPyLabel,
-    fragment: BlockPyCfgFragment<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>,
+    fragment: BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>,
     fallthrough_term: BlockPyTerm<E>,
     exc_edge: Option<super::BlockPyEdge>,
     block_params: Vec<String>,
     declared_params: Vec<BlockParam>,
     exc_target: Option<BlockPyLabel>,
-    out_blocks: &mut Vec<CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>>,
+    out_blocks: &mut Vec<CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>>,
     out_block_params: &mut HashMap<BlockPyLabel, Vec<String>>,
     out_exception_edges: &mut HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 ) where
     E: Clone + Instr,
-    N: BlockPyNameLike,
 {
     linearize_blockpy_if_sequence(
         name_gen,
@@ -175,19 +173,18 @@ fn linearize_blockpy_fragment<E, N>(
     );
 }
 
-pub(crate) fn linearize_structured_ifs<E, N>(
+pub(crate) fn linearize_structured_ifs<E>(
     name_gen: &FunctionNameGen,
-    blocks: &[CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
+    blocks: &[CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>],
     block_params: &HashMap<BlockPyLabel, Vec<String>>,
     exception_edges: &HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 ) -> (
-    Vec<CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>>,
+    Vec<CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>>,
     HashMap<BlockPyLabel, Vec<String>>,
     HashMap<BlockPyLabel, Option<BlockPyLabel>>,
 )
 where
     E: Clone + Instr,
-    N: BlockPyNameLike,
 {
     let mut out_blocks = Vec::new();
     let mut out_block_params = HashMap::new();
@@ -217,11 +214,10 @@ where
     (out_blocks, out_block_params, out_exception_edges)
 }
 
-pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E, N>(
-    blocks: &mut [CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
+pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E>(
+    blocks: &mut [CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>],
 ) where
     E: Clone + ImplicitNoneExpr + Instr,
-    N: BlockPyNameLike,
 {
     let trivial_ret_none_terms: HashMap<BlockPyLabel, BlockPyTerm<E>> = blocks
         .iter()
@@ -249,7 +245,7 @@ pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E, N>(
 }
 
 pub(crate) fn fold_constant_brif_blockpy(
-    blocks: &mut [CfgBlock<StructuredBlockPyStmt<Expr>, BlockPyTerm<Expr>>],
+    blocks: &mut [CfgBlock<StructuredInstr<Expr>, BlockPyTerm<Expr>>],
 ) {
     for block in blocks.iter_mut() {
         let jump_target = match &block.term {
@@ -278,7 +274,7 @@ pub(crate) fn fold_constant_brif_blockpy(
 pub(crate) fn prune_unreachable_blockpy_blocks<E: Instr>(
     entry_label: BlockPyLabel,
     extra_roots: &[BlockPyLabel],
-    blocks: &mut Vec<CfgBlock<StructuredBlockPyStmt<E>, BlockPyTerm<E>>>,
+    blocks: &mut Vec<CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>>,
 ) {
     let index_by_label: HashMap<BlockPyLabel, usize> = blocks
         .iter()

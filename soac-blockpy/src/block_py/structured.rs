@@ -1,53 +1,50 @@
 #[cfg(test)]
 use super::{
     BlockPyCfgFragment, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyStructuredPass,
-    BlockPyTerm, MapExpr, PassBlock, PassExpr, PassStructuredFragment, PassStructuredStmt,
+    BlockPyTerm, MapExpr, PassBlock, PassExpr, PassStructuredFragment, PassStructuredInstr,
     PassTerm,
 };
-use super::{BlockPyStmt, BlockPyStmtFor, Instr, StructuredBlockPyStmt, StructuredBlockPyStmtFor};
+use super::{BlockPyStmt, BlockPyStmtFor, Instr, StructuredInstr, StructuredInstrFor};
 use std::fmt;
 
-pub(crate) trait IntoStructuredBlockPyStmt<I>: Clone + fmt::Debug
+pub(crate) trait IntoStructuredInstr<I>: Clone + fmt::Debug
 where
     I: Instr,
 {
-    fn into_structured_stmt(self) -> StructuredBlockPyStmtFor<I>;
+    fn into_structured_instr(self) -> StructuredInstrFor<I>;
 }
 
-impl<EIn, EOut, N> From<StructuredBlockPyStmt<EIn, N>> for BlockPyStmt<EOut, N>
+impl<EIn, EOut, N> From<StructuredInstr<EIn>> for BlockPyStmt<EOut, N>
 where
     EOut: From<EIn>,
 {
-    fn from(value: StructuredBlockPyStmt<EIn, N>) -> Self {
+    fn from(value: StructuredInstr<EIn>) -> Self {
         match value {
-            StructuredBlockPyStmt::Expr(expr) => Self::Expr(expr.into()),
-            StructuredBlockPyStmt::If(_) => {
+            StructuredInstr::Expr(expr) => Self::Expr(expr.into()),
+            StructuredInstr::If(_) => {
                 panic!("structured BlockPy If reached BlockPyStmt conversion")
-            }
-            StructuredBlockPyStmt::_Marker(_) => {
-                unreachable!("structured stmt marker should not appear")
             }
         }
     }
 }
 
-impl<I> IntoStructuredBlockPyStmt<I> for BlockPyStmtFor<I>
+impl<I> IntoStructuredInstr<I> for BlockPyStmtFor<I>
 where
     I: Instr,
 {
-    fn into_structured_stmt(self) -> StructuredBlockPyStmtFor<I> {
+    fn into_structured_instr(self) -> StructuredInstrFor<I> {
         match self {
-            BlockPyStmt::Expr(expr) => StructuredBlockPyStmt::Expr(expr),
+            BlockPyStmt::Expr(expr) => StructuredInstr::Expr(expr),
             BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
         }
     }
 }
 
-impl<I> IntoStructuredBlockPyStmt<I> for StructuredBlockPyStmtFor<I>
+impl<I> IntoStructuredInstr<I> for StructuredInstrFor<I>
 where
     I: Instr,
 {
-    fn into_structured_stmt(self) -> StructuredBlockPyStmtFor<I> {
+    fn into_structured_instr(self) -> StructuredInstrFor<I> {
         self
     }
 }
@@ -74,7 +71,7 @@ where
         walk_fragment(self, fragment);
     }
 
-    fn visit_stmt(&mut self, stmt: &PassStructuredStmt<P>) {
+    fn visit_stmt(&mut self, stmt: &PassStructuredInstr<P>) {
         walk_stmt(self, stmt);
     }
 
@@ -123,7 +120,7 @@ where
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     for stmt in &block.body {
-        let stmt = stmt.clone().into_structured_stmt();
+        let stmt = stmt.clone().into_structured_instr();
         visitor.visit_stmt(&stmt);
     }
     if let Some(exc_edge) = &block.exc_edge {
@@ -148,21 +145,18 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn walk_stmt<V, P>(visitor: &mut V, stmt: &PassStructuredStmt<P>)
+pub(crate) fn walk_stmt<V, P>(visitor: &mut V, stmt: &PassStructuredInstr<P>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyStructuredPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     match stmt {
-        StructuredBlockPyStmt::Expr(expr) => visitor.visit_expr(expr),
-        StructuredBlockPyStmt::If(if_stmt) => {
+        StructuredInstr::Expr(expr) => visitor.visit_expr(expr),
+        StructuredInstr::If(if_stmt) => {
             visitor.visit_expr(&if_stmt.test);
             visitor.visit_fragment(&if_stmt.body);
             visitor.visit_fragment(&if_stmt.orelse);
-        }
-        StructuredBlockPyStmt::_Marker(_) => {
-            unreachable!("structured stmt marker should not appear")
         }
     }
 }

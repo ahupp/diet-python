@@ -1,7 +1,7 @@
 use super::super::BlockPyStmtFragmentBuilder;
 use super::*;
 use crate::block_py::pretty::BlockPyDebugExprText;
-use crate::block_py::{CoreBlockPyExprWithAwaitAndYield, StructuredBlockPyStmt};
+use crate::block_py::{CoreBlockPyExprWithAwaitAndYield, StructuredInstr};
 use crate::passes::ast_to_ast::context::Context;
 
 #[test]
@@ -32,7 +32,7 @@ fn stmt_augassign_to_blockpy_emits_direct_core_operations() {
         .expect("augassign lowering should succeed");
 
     let fragment = out.finish();
-    let Some(StructuredBlockPyStmt::Expr(expr)) = fragment.body.last() else {
+    let Some(StructuredInstr::Expr(expr)) = fragment.body.last() else {
         panic!("expected final expr stmt, got {fragment:?}");
     };
     let rendered = expr.debug_expr_text();
@@ -58,7 +58,7 @@ fn stmt_pow_augassign_to_blockpy_uses_inplace_pow() {
         .expect("pow augassign lowering should succeed");
 
     let fragment = out.finish();
-    let Some(StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Store(assign))) =
+    let Some(StructuredInstr::Expr(CoreBlockPyExprWithAwaitAndYield::Store(assign))) =
         fragment.body.last()
     else {
         panic!("expected final store expr stmt, got {fragment:?}");

@@ -1,5 +1,5 @@
 use super::*;
-use crate::block_py::{Del, HasMeta, Meta, Store, StructuredBlockPyStmt, WithMeta};
+use crate::block_py::{Del, HasMeta, Meta, Store, StructuredInstr, WithMeta};
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
 
 fn rhs_temp_name(name: &str, ctx: ast::ExprContext) -> ast::ExprName {
@@ -22,7 +22,7 @@ pub(super) fn bind_temp<E: RuffToBlockPyExpr>(
 ) -> E {
     let target = rhs_temp_name(&name, ast::ExprContext::Store);
     let meta = Meta::new(target.node_index.clone(), target.range);
-    out.push_stmt(StructuredBlockPyStmt::Expr(
+    out.push_stmt(StructuredInstr::Expr(
         Store::new(target, Box::new(value)).with_meta(meta).into(),
     ));
     temp_load_expr(&name)
@@ -31,7 +31,7 @@ pub(super) fn bind_temp<E: RuffToBlockPyExpr>(
 fn delete_temp<E: RuffToBlockPyExpr>(out: &mut BlockPyStmtFragmentBuilder<E>, name: String) {
     let target = rhs_temp_name(&name, ast::ExprContext::Del);
     let meta = Meta::new(target.node_index.clone(), target.range);
-    out.push_stmt(StructuredBlockPyStmt::Expr(
+    out.push_stmt(StructuredInstr::Expr(
         Del::new(target, false).with_meta(meta).into(),
     ));
 }
@@ -104,7 +104,7 @@ where
                     next_label_id,
                 )?;
             let index_temp = bind_temp(out, context.fresh("assign_index"), index_value);
-            out.push_stmt(StructuredBlockPyStmt::Expr(E::set_item(
+            out.push_stmt(StructuredInstr::Expr(E::set_item(
                 node_index,
                 range,
                 object_temp,
@@ -123,7 +123,7 @@ where
             let object_value =
                 lower_target_object_with_setup(*value, out, loop_ctx, next_label_id)?;
             let object_temp = bind_temp(out, context.fresh("assign_obj"), object_value);
-            out.push_stmt(StructuredBlockPyStmt::Expr(E::set_attr(
+            out.push_stmt(StructuredInstr::Expr(E::set_attr(
                 node_index,
                 range,
                 object_temp,
@@ -134,7 +134,7 @@ where
         }
         Expr::Name(name) => {
             let meta = Meta::new(name.node_index.clone(), name.range);
-            out.push_stmt(StructuredBlockPyStmt::Expr(
+            out.push_stmt(StructuredInstr::Expr(
                 Store::new(name, rhs).with_meta(meta).into(),
             ));
             Ok(())

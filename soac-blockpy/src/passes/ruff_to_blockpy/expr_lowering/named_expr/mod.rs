@@ -1,5 +1,5 @@
 use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
-use crate::block_py::{BlockPyStmtFragmentBuilder, Meta, Store, StructuredBlockPyStmt, WithMeta};
+use crate::block_py::{BlockPyStmtFragmentBuilder, Meta, Store, StructuredInstr, WithMeta};
 use crate::passes::ruff_to_blockpy::LoopContext;
 use ruff_python_ast::{self as ast, Expr};
 
@@ -37,7 +37,7 @@ where
     let load_target = target_name.clone();
     let target_name = into_store_name(target_name);
     let meta = Meta::new(target_name.node_index.clone(), target_name.range);
-    out.push_stmt(StructuredBlockPyStmt::Expr(
+    out.push_stmt(StructuredInstr::Expr(
         Store::new(target_name, value).with_meta(meta).into(),
     ));
     Ok(into_load_name(load_target))

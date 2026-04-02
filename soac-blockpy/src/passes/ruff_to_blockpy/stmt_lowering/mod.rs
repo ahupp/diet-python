@@ -1,14 +1,13 @@
 use super::*;
 use crate::block_py::{
-    BlockPyAssign, BlockPyDelete, BlockPyIf, BlockPyRaise, BlockPyTerm, Expr,
-    StructuredBlockPyStmtFor,
+    BlockPyAssign, BlockPyDelete, BlockPyIf, BlockPyRaise, BlockPyTerm, Expr, StructuredInstrFor,
 };
 use crate::passes::ast_to_ast::ast_rewrite::Rewrite;
 use crate::passes::ast_to_ast::context::Context;
 
-pub(super) type StructuredBlockPyStmt<E> = StructuredBlockPyStmtFor<E>;
+pub(super) type StructuredInstr<E> = StructuredInstrFor<E>;
 pub(super) type BlockPyStmtFragmentBuilder<E> =
-    crate::block_py::BlockPyCfgFragmentBuilder<StructuredBlockPyStmtFor<E>, BlockPyTerm<E>>;
+    crate::block_py::BlockPyCfgFragmentBuilder<StructuredInstrFor<E>, BlockPyTerm<E>>;
 
 pub(super) fn stmts_from_rewrite(rewrite: Rewrite) -> Vec<Stmt> {
     match rewrite {
@@ -271,7 +270,7 @@ pub(crate) fn lower_stmt_into(
     context: &Context,
     stmt: &Stmt,
     out: &mut crate::block_py::BlockPyCfgFragmentBuilder<
-        StructuredBlockPyStmt<crate::block_py::CoreBlockPyExprWithAwaitAndYield>,
+        StructuredInstr<crate::block_py::CoreBlockPyExprWithAwaitAndYield>,
         BlockPyTerm<crate::block_py::CoreBlockPyExprWithAwaitAndYield>,
     >,
     loop_ctx: Option<&LoopContext>,

@@ -6,7 +6,7 @@ use crate::block_py::{
     BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCallArg,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyYield,
     CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
-    CoreStringLiteral, HasMeta, ImplicitNoneExpr, Meta, StructuredBlockPyStmt, WithMeta,
+    CoreStringLiteral, HasMeta, ImplicitNoneExpr, Meta, StructuredInstr, WithMeta,
 };
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
 use crate::py_expr;

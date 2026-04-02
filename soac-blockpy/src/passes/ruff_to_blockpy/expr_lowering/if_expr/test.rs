@@ -1,6 +1,6 @@
 use crate::block_py::{
     pretty::BlockPyDebugExprText, BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield,
-    StructuredBlockPyStmt,
+    StructuredInstr,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::py_expr;
@@ -21,20 +21,20 @@ fn if_expr_lowering_emits_blockpy_setup_directly() {
     let fragment = out.finish();
     let rendered = lowered.debug_expr_text();
     assert!(rendered.contains("_dp_tmp_"), "{rendered}");
-    let [StructuredBlockPyStmt::If(if_stmt)] = &fragment.body[..] else {
+    let [StructuredInstr::If(if_stmt)] = &fragment.body[..] else {
         panic!("expected one structured if stmt, got {fragment:?}");
     };
     assert!(
         if_stmt.body.body.iter().any(|stmt| matches!(
             stmt,
-            StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Store(_))
+            StructuredInstr::Expr(CoreBlockPyExprWithAwaitAndYield::Store(_))
         )),
         "{if_stmt:?}"
     );
     assert!(
         if_stmt.orelse.body.iter().any(|stmt| matches!(
             stmt,
-            StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Store(_))
+            StructuredInstr::Expr(CoreBlockPyExprWithAwaitAndYield::Store(_))
         )),
         "{if_stmt:?}"
     );

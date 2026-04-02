@@ -47,7 +47,7 @@ pub(crate) use convert::{
     ExprTryMap,
 };
 pub use name_gen::{BlockPyLabel, FunctionNameGen, ModuleNameGen};
-pub(crate) use structured::IntoStructuredBlockPyStmt;
+pub(crate) use structured::IntoStructuredInstr;
 pub(crate) use validate::validate_module;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1623,10 +1623,10 @@ pub type PassName<P> = <PassExpr<P> as Instr>::Name;
 pub type InstrName<I> = <I as Instr>::Name;
 pub type PassTerm<P> = BlockPyTerm<PassExpr<P>>;
 pub type BlockPyStmtFor<I> = BlockPyStmt<I, InstrName<I>>;
-pub(crate) type StructuredBlockPyStmtFor<I> = StructuredBlockPyStmt<I, InstrName<I>>;
+pub(crate) type StructuredInstrFor<I> = StructuredInstr<I>;
 pub type PassStmt<P> = BlockPyStmtFor<PassExpr<P>>;
-pub(crate) type PassStructuredStmt<P> = StructuredBlockPyStmtFor<PassExpr<P>>;
-pub(crate) type PassStructuredFragment<P> = BlockPyCfgFragment<PassStructuredStmt<P>, PassTerm<P>>;
+pub(crate) type PassStructuredInstr<P> = StructuredInstrFor<PassExpr<P>>;
+pub(crate) type PassStructuredFragment<P> = BlockPyCfgFragment<PassStructuredInstr<P>, PassTerm<P>>;
 pub type PassBlock<P> = CfgBlock<<P as BlockPyPass>::Stmt, PassTerm<P>>;
 pub type ResolvedStorageBlock = PassBlock<ResolvedStorageBlockPyPass>;
 pub type CodegenBlock = PassBlock<CodegenBlockPyPass>;
@@ -1636,14 +1636,11 @@ pub(crate) trait BlockPyLinearPass: BlockPyPass<Stmt = PassStmt<Self>> {}
 impl<P> BlockPyLinearPass for P where P: BlockPyPass<Stmt = PassStmt<P>> {}
 
 pub(crate) trait BlockPyStructuredPass:
-    BlockPyPass<Stmt: IntoStructuredBlockPyStmt<PassExpr<Self>>>
+    BlockPyPass<Stmt: IntoStructuredInstr<PassExpr<Self>>>
 {
 }
 
-impl<P> BlockPyStructuredPass for P where
-    P: BlockPyPass<Stmt: IntoStructuredBlockPyStmt<PassExpr<P>>>
-{
-}
+impl<P> BlockPyStructuredPass for P where P: BlockPyPass<Stmt: IntoStructuredInstr<PassExpr<P>>> {}
 
 pub(crate) trait BlockPyLinearizablePass:
     BlockPyPass<Stmt: Clone + Into<PassStmt<Self>>>
@@ -1653,13 +1650,10 @@ pub(crate) trait BlockPyLinearizablePass:
 impl<P> BlockPyLinearizablePass for P where P: BlockPyPass<Stmt: Clone + Into<PassStmt<P>>> {}
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
-pub(crate) type BlockPyBlock<E = Expr, N = InstrName<E>> =
-    BlockPyCfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
-pub(crate) type BlockPyBlockFor<I> = BlockPyCfgBlock<StructuredBlockPyStmtFor<I>, BlockPyTerm<I>>;
-pub(crate) type BlockPyStructuredIf<E = Expr, N = InstrName<E>> =
-    BlockPyIf<E, StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
-pub(crate) type BlockPyStructuredIfFor<I> =
-    BlockPyIf<I, StructuredBlockPyStmtFor<I>, BlockPyTerm<I>>;
+pub(crate) type BlockPyBlock<E = Expr> = BlockPyCfgBlock<StructuredInstr<E>, BlockPyTerm<E>>;
+pub(crate) type BlockPyBlockFor<I> = BlockPyCfgBlock<StructuredInstrFor<I>, BlockPyTerm<I>>;
+pub(crate) type BlockPyStructuredIf<E = Expr> = BlockPyIf<E, StructuredInstr<E>, BlockPyTerm<E>>;
+pub(crate) type BlockPyStructuredIfFor<I> = BlockPyIf<I, StructuredInstrFor<I>, BlockPyTerm<I>>;
 
 pub trait BlockPyJumpTerm<L> {
     fn jump_term(target: L) -> Self;
@@ -1712,10 +1706,10 @@ pub struct BlockPyCfgFragment<S, T> {
     pub term: Option<T>,
 }
 
-pub(crate) type BlockPyStmtFragment<E = Expr, N = ExprName> =
-    BlockPyCfgFragment<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
+pub(crate) type BlockPyStmtFragment<E = Expr> =
+    BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>;
 pub(crate) type BlockPyStmtFragmentFor<I> =
-    BlockPyCfgFragment<StructuredBlockPyStmtFor<I>, BlockPyTerm<I>>;
+    BlockPyCfgFragment<StructuredInstrFor<I>, BlockPyTerm<I>>;
 
 impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragment<S, T> {
     pub fn assert_normalized(&self) {
@@ -1752,8 +1746,8 @@ pub struct BlockPyCfgFragmentBuilder<S, T> {
     term: Option<T>,
 }
 
-pub(crate) type BlockPyStmtFragmentBuilder<E = Expr, N = InstrName<E>> =
-    BlockPyCfgFragmentBuilder<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
+pub(crate) type BlockPyStmtFragmentBuilder<E = Expr> =
+    BlockPyCfgFragmentBuilder<StructuredInstr<E>, BlockPyTerm<E>>;
 
 impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
     pub fn new() -> Self {
@@ -1807,10 +1801,10 @@ pub struct BlockPyCfgBlockBuilder<S, T> {
     fragment: BlockPyCfgFragmentBuilder<S, T>,
 }
 
-pub(crate) type BlockPyBlockBuilder<E = Expr, N = ExprName> =
-    BlockPyCfgBlockBuilder<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>;
+pub(crate) type BlockPyBlockBuilder<E = Expr> =
+    BlockPyCfgBlockBuilder<StructuredInstr<E>, BlockPyTerm<E>>;
 pub(crate) type BlockPyBlockBuilderFor<I> =
-    BlockPyCfgBlockBuilder<StructuredBlockPyStmtFor<I>, BlockPyTerm<I>>;
+    BlockPyCfgBlockBuilder<StructuredInstrFor<I>, BlockPyTerm<I>>;
 
 impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
     BlockPyCfgBlockBuilder<S, T>
@@ -1890,14 +1884,12 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum StructuredBlockPyStmt<E = Expr, N = InstrName<E>> {
+pub(crate) enum StructuredInstr<E = Expr> {
     Expr(E),
-    If(BlockPyStructuredIf<E, N>),
-    #[doc(hidden)]
-    _Marker(std::marker::PhantomData<N>),
+    If(BlockPyStructuredIf<E>),
 }
 
-impl<I> From<Del<I>> for StructuredBlockPyStmt<I, InstrName<I>>
+impl<I> From<Del<I>> for StructuredInstr<I>
 where
     I: Instr + From<Del<I>>,
 {
@@ -1906,7 +1898,7 @@ where
     }
 }
 
-impl<E: std::fmt::Debug, N: std::fmt::Debug> StructuredBlockPyStmt<E, N> {
+impl<E: std::fmt::Debug> StructuredInstr<E> {
     pub fn assert_normalized(&self) {
         if let Self::If(if_stmt) = self {
             if_stmt.body.assert_normalized();
@@ -1915,28 +1907,25 @@ impl<E: std::fmt::Debug, N: std::fmt::Debug> StructuredBlockPyStmt<E, N> {
     }
 }
 
-impl<E: std::fmt::Debug, N: std::fmt::Debug> BlockPyNormalizedStmt for StructuredBlockPyStmt<E, N> {
+impl<E: std::fmt::Debug> BlockPyNormalizedStmt for StructuredInstr<E> {
     fn assert_blockpy_normalized(&self) {
         self.assert_normalized();
     }
 }
 
-pub(crate) fn convert_blockpy_stmt_expr<EIn, EOut, N>(
-    value: StructuredBlockPyStmt<EIn, N>,
-) -> StructuredBlockPyStmt<EOut, N>
+pub(crate) fn convert_structured_instr_expr<EIn, EOut>(
+    value: StructuredInstr<EIn>,
+) -> StructuredInstr<EOut>
 where
     EOut: From<EIn>,
 {
     match value {
-        StructuredBlockPyStmt::Expr(expr) => StructuredBlockPyStmt::Expr(expr.into()),
-        StructuredBlockPyStmt::If(if_stmt) => StructuredBlockPyStmt::If(BlockPyIf {
+        StructuredInstr::Expr(expr) => StructuredInstr::Expr(expr.into()),
+        StructuredInstr::If(if_stmt) => StructuredInstr::If(BlockPyIf {
             test: if_stmt.test.into(),
             body: convert_blockpy_fragment_expr(if_stmt.body),
             orelse: convert_blockpy_fragment_expr(if_stmt.orelse),
         }),
-        StructuredBlockPyStmt::_Marker(_) => {
-            StructuredBlockPyStmt::_Marker(std::marker::PhantomData)
-        }
     }
 }
 
@@ -1987,7 +1976,7 @@ pub struct BlockPyDelete<N = ExprName> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct BlockPyIf<E = Expr, S = StructuredBlockPyStmt<E>, T = BlockPyTerm<E>> {
+pub(crate) struct BlockPyIf<E = Expr, S = StructuredInstr<E>, T = BlockPyTerm<E>> {
     pub test: E,
     pub body: BlockPyCfgFragment<S, T>,
     pub orelse: BlockPyCfgFragment<S, T>,
@@ -2012,9 +2001,9 @@ pub struct BlockPyRaise<E = Expr> {
     pub exc: Option<E>,
 }
 
-pub(crate) fn convert_blockpy_fragment_expr<EIn, EOut, N>(
-    value: BlockPyCfgFragment<StructuredBlockPyStmt<EIn, N>, BlockPyTerm<EIn>>,
-) -> BlockPyCfgFragment<StructuredBlockPyStmt<EOut, N>, BlockPyTerm<EOut>>
+pub(crate) fn convert_blockpy_fragment_expr<EIn, EOut>(
+    value: BlockPyCfgFragment<StructuredInstr<EIn>, BlockPyTerm<EIn>>,
+) -> BlockPyCfgFragment<StructuredInstr<EOut>, BlockPyTerm<EOut>>
 where
     EOut: From<EIn>,
 {
@@ -2022,7 +2011,7 @@ where
         body: value
             .body
             .into_iter()
-            .map(convert_blockpy_stmt_expr)
+            .map(convert_structured_instr_expr)
             .collect(),
         term: value.term.map(convert_blockpy_term_expr),
     }

@@ -3,8 +3,7 @@ use super::{
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyLinearizablePass, BlockPyModule,
     BlockPyNameLike, BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyTerm, Call, CfgBlock,
     CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
-    CoreBlockPyLiteral, Expr, Instr, PassBlock, PassExpr, PassTerm, RuffExpr,
-    StructuredBlockPyStmt,
+    CoreBlockPyLiteral, Expr, Instr, PassBlock, PassExpr, PassTerm, RuffExpr, StructuredInstr,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
@@ -313,13 +312,12 @@ impl<R> BlockPyFormatter<R> {
         }
     }
 
-    fn write_stmt_fragment<E, N>(
+    fn write_stmt_fragment<E>(
         &mut self,
-        fragment: &BlockPyCfgFragment<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>,
+        fragment: &BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         E: Clone + std::fmt::Debug + Instr,
-        N: BlockPyNameLike,
         R: InlineExprRenderer<E>,
     {
         if fragment.body.is_empty() && fragment.term.is_none() {
@@ -332,13 +330,12 @@ impl<R> BlockPyFormatter<R> {
         }
     }
 
-    fn write_structured_stmt_list<E, N>(
+    fn write_structured_stmt_list<E>(
         &mut self,
-        stmts: &[StructuredBlockPyStmt<E, N>],
+        stmts: &[StructuredInstr<E>],
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         E: Clone + std::fmt::Debug + Instr,
-        N: BlockPyNameLike,
         R: InlineExprRenderer<E>,
     {
         for stmt in stmts {
@@ -361,18 +358,17 @@ impl<R> BlockPyFormatter<R> {
         }
     }
 
-    fn write_structured_stmt<E, N>(
+    fn write_structured_stmt<E>(
         &mut self,
-        stmt: &StructuredBlockPyStmt<E, N>,
+        stmt: &StructuredInstr<E>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         E: Clone + std::fmt::Debug + Instr,
-        N: BlockPyNameLike,
         R: InlineExprRenderer<E>,
     {
         match stmt {
-            StructuredBlockPyStmt::Expr(expr) => self.line(R::render(expr)),
-            StructuredBlockPyStmt::If(if_stmt) => {
+            StructuredInstr::Expr(expr) => self.line(R::render(expr)),
+            StructuredInstr::If(if_stmt) => {
                 self.line(format!("if {}:", R::render(&if_stmt.test)));
                 self.with_indent(|this| this.write_stmt_fragment(&if_stmt.body, referenced_labels));
                 if !if_stmt.orelse.body.is_empty() || if_stmt.orelse.term.is_some() {
@@ -381,9 +377,6 @@ impl<R> BlockPyFormatter<R> {
                         this.write_stmt_fragment(&if_stmt.orelse, referenced_labels)
                     });
                 }
-            }
-            StructuredBlockPyStmt::_Marker(_) => {
-                unreachable!("structured stmt marker should not appear")
             }
         }
     }
@@ -1299,12 +1292,11 @@ where
 }
 
 #[cfg(test)]
-fn collect_referenced_labels_from_structured_blocks<E, N>(
-    blocks: &[CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
+fn collect_referenced_labels_from_structured_blocks<E>(
+    blocks: &[CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>],
 ) -> HashSet<BlockPyLabel>
 where
     E: Clone + std::fmt::Debug + Instr,
-    N: BlockPyNameLike,
 {
     let mut referenced = HashSet::new();
     for block in blocks {
@@ -1318,15 +1310,14 @@ where
 }
 
 #[cfg(test)]
-fn collect_referenced_labels_from_structured_stmts<E, N>(
-    stmts: &[StructuredBlockPyStmt<E, N>],
+fn collect_referenced_labels_from_structured_stmts<E>(
+    stmts: &[StructuredInstr<E>],
     out: &mut HashSet<BlockPyLabel>,
 ) where
     E: Clone + std::fmt::Debug + Instr,
-    N: BlockPyNameLike,
 {
     for stmt in stmts {
-        if let StructuredBlockPyStmt::If(if_stmt) = stmt {
+        if let StructuredInstr::If(if_stmt) = stmt {
             collect_referenced_labels_from_structured_stmts(&if_stmt.body.body, out);
             if let Some(term) = &if_stmt.body.term {
                 collect_referenced_labels_from_term(term, out);

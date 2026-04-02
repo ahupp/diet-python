@@ -1,6 +1,6 @@
 use super::{
-    BlockPyBranchTable, BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm, BlockPyNameLike,
-    BlockPyRaise, BlockPySemanticExprNode, BlockPyStmt, BlockPyTerm, Instr, StructuredBlockPyStmt,
+    BlockPyBranchTable, BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm, BlockPyRaise,
+    BlockPySemanticExprNode, BlockPyStmt, BlockPyTerm, Instr, StructuredInstr,
 };
 use std::collections::HashSet;
 
@@ -9,7 +9,6 @@ pub(super) fn assigned_names_in_linear_blockpy_stmt<E, N>(
 ) -> HashSet<String>
 where
     E: BlockPySemanticExprNode + Instr,
-    N: BlockPyNameLike,
 {
     match stmt {
         BlockPyStmt::Expr(expr) => {
@@ -21,38 +20,29 @@ where
     }
 }
 
-pub(super) fn assigned_names_in_blockpy_stmt<E, N>(
-    stmt: &StructuredBlockPyStmt<E, N>,
-) -> HashSet<String>
+pub(super) fn assigned_names_in_blockpy_stmt<E>(stmt: &StructuredInstr<E>) -> HashSet<String>
 where
     E: BlockPySemanticExprNode + Instr,
-    N: BlockPyNameLike,
 {
     match stmt {
-        StructuredBlockPyStmt::Expr(expr) => {
+        StructuredInstr::Expr(expr) => {
             let mut names = HashSet::new();
             collect_named_expr_target_names_in_blockpy_expr(expr, &mut names);
             names
         }
-        StructuredBlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
+        StructuredInstr::If(BlockPyIf { test, body, orelse }) => {
             let mut names = HashSet::new();
             collect_named_expr_target_names_in_blockpy_expr(test, &mut names);
             names.extend(assigned_names_in_blockpy_fragment(body));
             names.extend(assigned_names_in_blockpy_fragment(orelse));
             names
         }
-        StructuredBlockPyStmt::_Marker(_) => {
-            unreachable!("structured stmt marker should not appear")
-        }
     }
 }
 
-pub(super) fn assigned_names_in_blockpy_stmts<E, N>(
-    stmts: &[StructuredBlockPyStmt<E, N>],
-) -> HashSet<String>
+pub(super) fn assigned_names_in_blockpy_stmts<E>(stmts: &[StructuredInstr<E>]) -> HashSet<String>
 where
     E: BlockPySemanticExprNode + Instr,
-    N: BlockPyNameLike,
 {
     let mut out = HashSet::new();
     for stmt in stmts {
@@ -92,12 +82,11 @@ where
     }
 }
 
-pub(super) fn assigned_names_in_blockpy_fragment<E, N>(
-    fragment: &BlockPyCfgFragment<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>,
+pub(super) fn assigned_names_in_blockpy_fragment<E>(
+    fragment: &BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>,
 ) -> HashSet<String>
 where
     E: BlockPySemanticExprNode + Instr,
-    N: BlockPyNameLike,
 {
     let mut out = assigned_names_in_blockpy_stmts(&fragment.body);
     if let Some(term) = &fragment.term {

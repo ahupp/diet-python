@@ -1,7 +1,7 @@
 use super::super::BlockPyStmtFragmentBuilder;
 use super::*;
 use crate::block_py::pretty::BlockPyDebugExprText;
-use crate::block_py::{CoreBlockPyExprWithAwaitAndYield, StructuredBlockPyStmt};
+use crate::block_py::{CoreBlockPyExprWithAwaitAndYield, StructuredInstr};
 use crate::passes::ast_to_ast::context::Context;
 
 #[test]
@@ -19,7 +19,7 @@ fn stmt_assign_to_blockpy_emits_direct_core_setitem() {
         .expect("assign lowering should succeed");
 
     let fragment = out.finish();
-    let Some(StructuredBlockPyStmt::Expr(expr)) = fragment.body.last() else {
+    let Some(StructuredInstr::Expr(expr)) = fragment.body.last() else {
         panic!("expected final expr stmt, got {fragment:?}");
     };
     let rendered = expr.debug_expr_text();

@@ -10,21 +10,21 @@ struct StructuredExprPass;
 
 impl BlockPyPass for StructuredExprPass {
     type Expr = Expr;
-    type Stmt = PassStructuredStmt<Self>;
+    type Stmt = PassStructuredInstr<Self>;
 }
 
 #[test]
 fn block_builder_sets_explicit_term() {
     let mut block: BlockPyBlockBuilder<Expr> =
         BlockPyBlockBuilder::new(BlockPyLabel::from_index(0));
-    block.push_stmt(StructuredBlockPyStmt::Expr(py_expr!("x")));
+    block.push_stmt(StructuredInstr::Expr(py_expr!("x")));
     block.set_term(BlockPyTerm::Jump(crate::block_py::BlockPyEdge::new(
         BlockPyLabel::from_index(1),
     )));
     let block = block.finish(None);
 
     assert_eq!(block.body.len(), 1);
-    assert!(matches!(block.body[0], StructuredBlockPyStmt::Expr(_)));
+    assert!(matches!(block.body[0], StructuredInstr::Expr(_)));
     assert!(matches!(block.term, BlockPyTerm::Jump(_)));
 }
 
@@ -32,7 +32,7 @@ fn block_builder_sets_explicit_term() {
 fn block_builder_without_term_uses_implicit_none_return_value() {
     let mut block: BlockPyBlockBuilder<Expr> =
         BlockPyBlockBuilder::new(BlockPyLabel::from_index(0));
-    block.push_stmt(StructuredBlockPyStmt::Expr(py_expr!("x")));
+    block.push_stmt(StructuredInstr::Expr(py_expr!("x")));
     let block = block.finish(None);
 
     assert_eq!(block.body.len(), 1);
@@ -45,12 +45,12 @@ fn block_builder_without_term_uses_implicit_none_return_value() {
 #[test]
 fn stmt_fragment_can_carry_optional_term() {
     let fragment: BlockPyStmtFragment<Expr> = BlockPyStmtFragment::with_term(
-        vec![StructuredBlockPyStmt::Expr(py_expr!("x"))],
+        vec![StructuredInstr::Expr(py_expr!("x"))],
         Some(BlockPyTerm::Return(py_expr!("None"))),
     );
 
     assert_eq!(fragment.body.len(), 1);
-    assert!(matches!(fragment.body[0], StructuredBlockPyStmt::Expr(_)));
+    assert!(matches!(fragment.body[0], StructuredInstr::Expr(_)));
     assert!(matches!(fragment.term, Some(BlockPyTerm::Return(_))));
 }
 
@@ -139,11 +139,10 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             walk_fragment(self, fragment);
         }
 
-        fn visit_stmt(&mut self, stmt: &PassStructuredStmt<StructuredExprPass>) {
+        fn visit_stmt(&mut self, stmt: &PassStructuredInstr<StructuredExprPass>) {
             let kind = match stmt {
-                StructuredBlockPyStmt::Expr(_) => "expr",
-                StructuredBlockPyStmt::If(_) => "if",
-                StructuredBlockPyStmt::_Marker(_) => unreachable!("structured stmt marker"),
+                StructuredInstr::Expr(_) => "expr",
+                StructuredInstr::If(_) => "if",
             };
             self.trace.push(format!("stmt:{kind}"));
             walk_stmt(self, stmt);
@@ -184,21 +183,21 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
                 CfgBlock {
                     label: BlockPyLabel::from_index(0),
                     body: vec![
-                        StructuredBlockPyStmt::Expr(py_expr!("assign_one")),
-                        StructuredBlockPyStmt::If(BlockPyIf {
+                        StructuredInstr::Expr(py_expr!("assign_one")),
+                        StructuredInstr::If(BlockPyIf {
                             test: py_expr!("if_test"),
                             body: BlockPyCfgFragment::with_term(
-                                vec![StructuredBlockPyStmt::Expr(py_expr!("then_expr"))],
+                                vec![StructuredInstr::Expr(py_expr!("then_expr"))],
                                 Some(BlockPyTerm::Return(py_expr!("then_return"))),
                             ),
                             orelse: BlockPyCfgFragment::with_term(
-                                vec![StructuredBlockPyStmt::Expr(py_expr!("else_expr"))],
+                                vec![StructuredInstr::Expr(py_expr!("else_expr"))],
                                 Some(BlockPyTerm::Raise(BlockPyRaise {
                                     exc: Some(py_expr!("else_raise")),
                                 })),
                             ),
                         }),
-                        StructuredBlockPyStmt::Expr(py_expr!("after_if")),
+                        StructuredInstr::Expr(py_expr!("after_if")),
                     ],
                     term: BlockPyTerm::IfTerm(BlockPyIfTerm {
                         test: py_expr!("block_term_test"),
@@ -210,7 +209,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
                 },
                 CfgBlock {
                     label: BlockPyLabel::from_index(3),
-                    body: vec![StructuredBlockPyStmt::Expr(py_expr!("trash"))],
+                    body: vec![StructuredInstr::Expr(py_expr!("trash"))],
                     term: BlockPyTerm::Return(py_expr!("final_return")),
                     params: Vec::new(),
                     exc_edge: None,
@@ -301,7 +300,7 @@ fn storage_layout_semantics_collects_structured_cell_ref_logical_names() {
 
 #[test]
 fn stmt_conversion_to_no_await_rejects_await() {
-    let stmt = StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Await(
+    let stmt = StructuredInstr::Expr(CoreBlockPyExprWithAwaitAndYield::Await(
         CoreBlockPyAwait::new(CoreBlockPyExprWithAwaitAndYield::Name(
             name_expr("x").into(),
         ))

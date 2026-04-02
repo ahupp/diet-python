@@ -1,6 +1,6 @@
 use crate::block_py::{
     pretty::BlockPyDebugExprText, BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield,
-    StructuredBlockPyStmt,
+    StructuredInstr,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::py_expr;
@@ -20,7 +20,7 @@ fn boolop_lowering_emits_blockpy_setup_directly() {
     assert!(
         fragment.body.iter().any(|stmt| matches!(
             stmt,
-            StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Store(_))
+            StructuredInstr::Expr(CoreBlockPyExprWithAwaitAndYield::Store(_))
         )),
         "{fragment:?}"
     );
@@ -28,7 +28,7 @@ fn boolop_lowering_emits_blockpy_setup_directly() {
         fragment
             .body
             .iter()
-            .any(|stmt| matches!(stmt, StructuredBlockPyStmt::If(_))),
+            .any(|stmt| matches!(stmt, StructuredInstr::If(_))),
         "{fragment:?}"
     );
 }

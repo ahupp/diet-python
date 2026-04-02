@@ -2,7 +2,7 @@ use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
     BlockArg, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike, BlockPyStmt, BlockPyTerm,
     CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, FunctionNameGen, Instr, InstrExprNode, Load,
-    Meta, StructuredBlockPyStmt, UnresolvedName, WithMeta,
+    Meta, StructuredInstr, UnresolvedName, WithMeta,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 
 pub(crate) fn lower_structured_blocks_to_bb_blocks<E, N>(
     name_gen: &FunctionNameGen,
-    blocks: &[crate::block_py::CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
+    blocks: &[crate::block_py::CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>],
 ) -> Vec<crate::block_py::CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>>
 where
     E: Clone + Instr<Name = N>,

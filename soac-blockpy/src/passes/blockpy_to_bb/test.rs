@@ -1,7 +1,7 @@
 use crate::block_py::{
     BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmtFragment, BlockPyTerm, CoreBlockPyCallArg,
     CoreBlockPyExpr, CoreBlockPyLiteral, CoreStringLiteral, GetAttr, LocatedCoreBlockPyExpr,
-    LocatedName, Store, StructuredBlockPyStmt, WithMeta,
+    LocatedName, Store, StructuredInstr, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     lower_structured_located_blocks_to_bb_blocks, populate_exception_edge_args,
@@ -11,10 +11,10 @@ use ruff_text_size::TextRange;
 
 #[test]
 fn linearizes_structured_if_stmt_into_explicit_blocks() {
-    let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
+    let block: BlockPyBlock<LocatedCoreBlockPyExpr> = BlockPyBlock {
         label: BlockPyLabel::from_index(0),
         body: vec![
-            StructuredBlockPyStmt::Expr(
+            StructuredInstr::Expr(
                 Store::new(
                     LocatedName::from(ast::ExprName {
                         id: "x".into(),
@@ -26,9 +26,9 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
                 )
                 .into(),
             ),
-            StructuredBlockPyStmt::If(BlockPyIf {
+            StructuredInstr::If(BlockPyIf {
                 test: core_name_expr("cond"),
-                body: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Expr(
+                body: BlockPyStmtFragment::from_stmts(vec![StructuredInstr::Expr(
                     Store::new(
                         LocatedName::from(ast::ExprName {
                             id: "x".into(),
@@ -40,7 +40,7 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
                     )
                     .into(),
                 )]),
-                orelse: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Expr(
+                orelse: BlockPyStmtFragment::from_stmts(vec![StructuredInstr::Expr(
                     Store::new(
                         LocatedName::from(ast::ExprName {
                             id: "x".into(),
@@ -53,7 +53,7 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
                     .into(),
                 )]),
             }),
-            StructuredBlockPyStmt::Expr(core_call_expr("sink", vec![core_name_expr("x")])),
+            StructuredInstr::Expr(core_call_expr("sink", vec![core_name_expr("x")])),
         ],
         term: BlockPyTerm::Return(core_name_expr("__dp_NONE")),
         params: Vec::new(),
@@ -103,9 +103,9 @@ fn core_string_expr(value: &str) -> LocatedCoreBlockPyExpr {
 
 #[test]
 fn rewrites_current_exception_placeholders_in_final_core_blocks() {
-    let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
+    let block: BlockPyBlock<LocatedCoreBlockPyExpr> = BlockPyBlock {
         label: BlockPyLabel::from_index(0),
-        body: vec![StructuredBlockPyStmt::Expr(core_call_expr(
+        body: vec![StructuredInstr::Expr(core_call_expr(
             "current_exception",
             Vec::new(),
         ))],
@@ -142,7 +142,7 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
 
 #[test]
 fn rewrites_current_exception_inside_intrinsic_helper_args() {
-    let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
+    let block: BlockPyBlock<LocatedCoreBlockPyExpr> = BlockPyBlock {
         label: BlockPyLabel::from_index(0),
         body: Vec::new(),
         term: BlockPyTerm::Return(

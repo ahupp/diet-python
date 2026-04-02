@@ -2,7 +2,7 @@ use super::compat::set_region_exc_param;
 use super::*;
 use crate::block_py::{
     AbruptKind, BlockArg, BlockParamRole, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyEdge,
-    BlockPyLabel, BlockPyRaise, BlockPyTerm, Instr, StructuredBlockPyStmtFor,
+    BlockPyLabel, BlockPyRaise, BlockPyTerm, Instr, StructuredInstrFor,
 };
 use crate::passes::ast_to_ast::body::Suite;
 
@@ -129,9 +129,7 @@ where
         let finally_normal_entry = try_plan.finally_abrupt_kind_name.as_ref().map(|_| {
             let normal_label = name_gen.next_block_name();
             let mut block =
-                BlockPyCfgBlockBuilder::<StructuredBlockPyStmtFor<E>, BlockPyTerm<E>>::new(
-                    normal_label,
-                );
+                BlockPyCfgBlockBuilder::<StructuredInstrFor<E>, BlockPyTerm<E>>::new(normal_label);
             let mut args = Vec::new();
             args.push(BlockArg::AbruptKind(AbruptKind::Fallthrough));
             args.push(BlockArg::None);
@@ -152,11 +150,10 @@ where
         });
         let finally_exception_entry = try_plan.finally_abrupt_kind_name.as_ref().map(|_| {
             let exception_label = name_gen.next_block_name();
-            let mut block =
-                BlockPyCfgBlockBuilder::<StructuredBlockPyStmtFor<E>, BlockPyTerm<E>>::new(
-                    exception_label,
-                )
-                .with_exc_param(Some(try_plan.except_exc_name.clone()));
+            let mut block = BlockPyCfgBlockBuilder::<StructuredInstrFor<E>, BlockPyTerm<E>>::new(
+                exception_label,
+            )
+            .with_exc_param(Some(try_plan.except_exc_name.clone()));
             let args = vec![
                 BlockArg::AbruptKind(AbruptKind::Exception),
                 BlockArg::Name(try_plan.except_exc_name.clone()),
@@ -403,15 +400,12 @@ where
 }
 
 pub(crate) fn block_references_label<E: Instr>(
-    block: &crate::block_py::CfgBlock<StructuredBlockPyStmtFor<E>, BlockPyTerm<E>>,
+    block: &crate::block_py::CfgBlock<StructuredInstrFor<E>, BlockPyTerm<E>>,
     label: &BlockPyLabel,
 ) -> bool {
-    fn stmt_references_label<E: Instr>(
-        stmt: &StructuredBlockPyStmtFor<E>,
-        label: &BlockPyLabel,
-    ) -> bool {
+    fn stmt_references_label<E: Instr>(stmt: &StructuredInstrFor<E>, label: &BlockPyLabel) -> bool {
         match stmt {
-            StructuredBlockPyStmtFor::If(if_stmt) => {
+            StructuredInstrFor::If(if_stmt) => {
                 stmt_fragment_references_label(&if_stmt.body, label)
                     || stmt_fragment_references_label(&if_stmt.orelse, label)
             }
@@ -420,14 +414,14 @@ pub(crate) fn block_references_label<E: Instr>(
     }
 
     fn stmt_list_references_label<E: Instr>(
-        stmts: &[StructuredBlockPyStmtFor<E>],
+        stmts: &[StructuredInstrFor<E>],
         label: &BlockPyLabel,
     ) -> bool {
         stmts.iter().any(|stmt| stmt_references_label(stmt, label))
     }
 
     fn stmt_fragment_references_label<E: Instr>(
-        fragment: &crate::block_py::BlockPyCfgFragment<StructuredBlockPyStmtFor<E>, BlockPyTerm<E>>,
+        fragment: &crate::block_py::BlockPyCfgFragment<StructuredInstrFor<E>, BlockPyTerm<E>>,
         label: &BlockPyLabel,
     ) -> bool {
         stmt_list_references_label(&fragment.body, label)

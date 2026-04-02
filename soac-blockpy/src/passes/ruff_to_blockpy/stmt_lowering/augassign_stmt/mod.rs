@@ -1,6 +1,6 @@
 use super::assign_stmt::{bind_temp, lower_target_object_with_setup};
 use super::*;
-use crate::block_py::{HasMeta, Meta, Store, StructuredBlockPyStmt, WithMeta};
+use crate::block_py::{HasMeta, Meta, Store, StructuredInstr, WithMeta};
 
 impl StmtLowerer for ast::StmtAugAssign {
     fn simplify_ast(self, _context: &Context) -> Vec<Stmt> {
@@ -37,7 +37,7 @@ impl StmtLowerer for ast::StmtAugAssign {
                         next_label_id,
                     )?;
 
-                out.push_stmt(StructuredBlockPyStmt::Expr(
+                out.push_stmt(StructuredInstr::Expr(
                     Store::new(
                         target.clone(),
                         E::lower_augassign_value(
@@ -79,7 +79,7 @@ impl StmtLowerer for ast::StmtAugAssign {
                         next_label_id,
                     )?;
 
-                out.push_stmt(StructuredBlockPyStmt::Expr(E::set_attr(
+                out.push_stmt(StructuredInstr::Expr(E::set_attr(
                     target.node_index.clone(),
                     target.range,
                     object_temp,
@@ -128,7 +128,7 @@ impl StmtLowerer for ast::StmtAugAssign {
                         next_label_id,
                     )?;
 
-                out.push_stmt(StructuredBlockPyStmt::Expr(E::set_item(
+                out.push_stmt(StructuredInstr::Expr(E::set_item(
                     target.node_index.clone(),
                     target.range,
                     object_temp,

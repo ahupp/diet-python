@@ -1,17 +1,17 @@
 use super::{assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term};
 use crate::block_py::{
     BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyTerm,
-    StructuredBlockPyStmt,
+    StructuredInstr,
 };
 use crate::py_expr;
 use std::collections::HashSet;
 
 #[test]
 fn assigned_names_in_blockpy_stmt_collects_nested_fragments() {
-    let stmt: StructuredBlockPyStmt = StructuredBlockPyStmt::If(BlockPyIf {
+    let stmt: StructuredInstr = StructuredInstr::If(BlockPyIf {
         test: py_expr!("(test_name := source_test)"),
         body: BlockPyCfgFragment::with_term(
-            vec![StructuredBlockPyStmt::Expr(py_expr!(
+            vec![StructuredInstr::Expr(py_expr!(
                 "(body_name := source_body)"
             ))],
             Some(BlockPyTerm::Return(py_expr!(
@@ -19,7 +19,7 @@ fn assigned_names_in_blockpy_stmt_collects_nested_fragments() {
             ))),
         ),
         orelse: BlockPyCfgFragment::with_term(
-            vec![StructuredBlockPyStmt::Expr(py_expr!(
+            vec![StructuredInstr::Expr(py_expr!(
                 "(else_name := source_else)"
             ))],
             Some(BlockPyTerm::Raise(BlockPyRaise {

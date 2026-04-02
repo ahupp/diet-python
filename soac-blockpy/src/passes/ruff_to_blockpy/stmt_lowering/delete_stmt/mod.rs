@@ -1,6 +1,6 @@
 use super::assign_stmt::{bind_temp, lower_target_object_with_setup};
 use super::*;
-use crate::block_py::{Del, Meta, StructuredBlockPyStmt, WithMeta};
+use crate::block_py::{Del, Meta, StructuredInstr, WithMeta};
 
 fn lower_delete_target_into<E>(
     context: &Context,
@@ -31,7 +31,7 @@ where
                     next_label_id,
                 )?;
             let index_temp = bind_temp(out, context.fresh("delete_index"), index_value);
-            out.push_stmt(StructuredBlockPyStmt::Expr(E::del_item(
+            out.push_stmt(StructuredInstr::Expr(E::del_item(
                 node_index,
                 range,
                 object_temp,
@@ -50,7 +50,7 @@ where
                 lower_target_object_with_setup(*value, out, loop_ctx, next_label_id)?;
             let object_temp = bind_temp(out, context.fresh("delete_obj"), object_value);
             let attr_expr: E = Expr::from(py_expr!("{attr:literal}", attr = attr.as_str())).into();
-            out.push_stmt(StructuredBlockPyStmt::Expr(E::helper_call(
+            out.push_stmt(StructuredInstr::Expr(E::helper_call(
                 node_index,
                 range,
                 "delattr",
@@ -60,7 +60,7 @@ where
         }
         Expr::Name(target) => {
             let meta = Meta::new(target.node_index.clone(), target.range);
-            out.push_stmt(StructuredBlockPyStmt::Expr(
+            out.push_stmt(StructuredInstr::Expr(
                 Del::new(target, false).with_meta(meta).into(),
             ));
             Ok(())

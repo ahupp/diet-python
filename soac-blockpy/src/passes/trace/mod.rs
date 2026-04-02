@@ -1,7 +1,7 @@
 use crate::block_py::{
     core_operation_expr, core_runtime_positional_call_expr_with_meta, BlockPyFunction,
     BlockPyModule, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreStringLiteral,
-    LocatedCodegenBlockPyExpr, LocatedName, Meta, NameLocation, StructuredBlockPyStmt, WithMeta,
+    LocatedCodegenBlockPyExpr, LocatedName, Meta, NameLocation, StructuredInstr, WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
 use ruff_python_ast::{self as ast};
@@ -74,7 +74,7 @@ pub(crate) fn instrument_bb_module_for_trace(
             };
             block
                 .body
-                .insert(0, StructuredBlockPyStmt::Expr(trace_expr).into());
+                .insert(0, StructuredInstr::Expr(trace_expr).into());
         }
     }
 }
