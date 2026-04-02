@@ -839,15 +839,6 @@ where
 
     fn visit_stmt(&mut self, stmt: &crate::block_py::PassStmt<P>) {
         match stmt {
-            BlockPyStmt::Assign(assign) => {
-                self.defined_names
-                    .insert(assign.target.id_str().to_string());
-            }
-            BlockPyStmt::Delete(delete) => {
-                let name = delete.target.id_str().to_string();
-                self.used_names.insert(name.clone());
-                self.deleted_names.insert(name);
-            }
             BlockPyStmt::Expr(expr) => {
                 expr.walk_root_deleted_names(&mut |name| {
                     let name = name.to_string();
@@ -855,6 +846,7 @@ where
                     self.deleted_names.insert(name);
                 });
             }
+            BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
         }
         walk_linear_stmt::<Self, P>(self, stmt);
     }

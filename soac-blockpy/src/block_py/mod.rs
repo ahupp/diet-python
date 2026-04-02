@@ -2009,10 +2009,10 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
 
 #[derive(Debug, Clone)]
 pub(crate) enum StructuredBlockPyStmt<E = Expr, N = InstrName<E>> {
-    Assign(BlockPyAssign<E, N>),
     Expr(E),
-    Delete(BlockPyDelete<N>),
     If(BlockPyStructuredIf<E, N>),
+    #[doc(hidden)]
+    _Marker(std::marker::PhantomData<N>),
 }
 
 impl<I> From<Del<I>> for StructuredBlockPyStmt<I, InstrName<I>>
@@ -2046,42 +2046,28 @@ where
     EOut: From<EIn>,
 {
     match value {
-        StructuredBlockPyStmt::Assign(assign) => StructuredBlockPyStmt::Assign(BlockPyAssign {
-            target: assign.target,
-            value: assign.value.into(),
-        }),
         StructuredBlockPyStmt::Expr(expr) => StructuredBlockPyStmt::Expr(expr.into()),
-        StructuredBlockPyStmt::Delete(delete) => StructuredBlockPyStmt::Delete(delete),
         StructuredBlockPyStmt::If(if_stmt) => StructuredBlockPyStmt::If(BlockPyIf {
             test: if_stmt.test.into(),
             body: convert_blockpy_fragment_expr(if_stmt.body),
             orelse: convert_blockpy_fragment_expr(if_stmt.orelse),
         }),
+        StructuredBlockPyStmt::_Marker(_) => {
+            StructuredBlockPyStmt::_Marker(std::marker::PhantomData)
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum BlockPyStmt<E = CoreBlockPyExpr<LocatedName>, N = InstrName<E>> {
-    Assign(BlockPyAssign<E, N>),
     Expr(E),
-    Delete(BlockPyDelete<N>),
-}
-
-impl<E, N> From<BlockPyAssign<E, N>> for BlockPyStmt<E, N> {
-    fn from(value: BlockPyAssign<E, N>) -> Self {
-        Self::Assign(value)
-    }
+    #[doc(hidden)]
+    _Marker(std::marker::PhantomData<N>),
 }
 
 impl<N: BlockPyNameLike> From<CoreBlockPyExpr<N>> for BlockPyStmt<CoreBlockPyExpr<N>, N> {
     fn from(value: CoreBlockPyExpr<N>) -> Self {
         Self::Expr(value)
-    }
-}
-
-impl<E, N> From<BlockPyDelete<N>> for BlockPyStmt<E, N> {
-    fn from(value: BlockPyDelete<N>) -> Self {
-        Self::Delete(value)
     }
 }
 
@@ -2316,9 +2302,8 @@ where
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     match stmt {
-        BlockPyStmt::Assign(assign) => visitor.visit_expr(&assign.value),
         BlockPyStmt::Expr(expr) => visitor.visit_expr(expr),
-        BlockPyStmt::Delete(_) => {}
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 

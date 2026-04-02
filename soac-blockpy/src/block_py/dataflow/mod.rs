@@ -1,7 +1,6 @@
 use super::{
-    BlockPyAssign, BlockPyBranchTable, BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm,
-    BlockPyNameLike, BlockPyRaise, BlockPySemanticExprNode, BlockPyStmt, BlockPyTerm, Instr,
-    StructuredBlockPyStmt,
+    BlockPyBranchTable, BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm, BlockPyNameLike,
+    BlockPyRaise, BlockPySemanticExprNode, BlockPyStmt, BlockPyTerm, Instr, StructuredBlockPyStmt,
 };
 use std::collections::HashSet;
 
@@ -13,17 +12,12 @@ where
     N: BlockPyNameLike,
 {
     match stmt {
-        BlockPyStmt::Assign(BlockPyAssign { target, value }) => {
-            let mut names = HashSet::from([target.id_str().to_string()]);
-            collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
-            names
-        }
         BlockPyStmt::Expr(expr) => {
             let mut names = HashSet::new();
             collect_named_expr_target_names_in_blockpy_expr(expr, &mut names);
             names
         }
-        BlockPyStmt::Delete(_) => HashSet::new(),
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 
@@ -35,23 +29,20 @@ where
     N: BlockPyNameLike,
 {
     match stmt {
-        StructuredBlockPyStmt::Assign(BlockPyAssign { target, value }) => {
-            let mut names = HashSet::from([target.id_str().to_string()]);
-            collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
-            names
-        }
         StructuredBlockPyStmt::Expr(expr) => {
             let mut names = HashSet::new();
             collect_named_expr_target_names_in_blockpy_expr(expr, &mut names);
             names
         }
-        StructuredBlockPyStmt::Delete(_) => HashSet::new(),
         StructuredBlockPyStmt::If(BlockPyIf { test, body, orelse }) => {
             let mut names = HashSet::new();
             collect_named_expr_target_names_in_blockpy_expr(test, &mut names);
             names.extend(assigned_names_in_blockpy_fragment(body));
             names.extend(assigned_names_in_blockpy_fragment(orelse));
             names
+        }
+        StructuredBlockPyStmt::_Marker(_) => {
+            unreachable!("structured stmt marker should not appear")
         }
     }
 }

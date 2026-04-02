@@ -139,10 +139,9 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
 
         fn visit_stmt(&mut self, stmt: &PassStructuredStmt<StructuredExprPass>) {
             let kind = match stmt {
-                StructuredBlockPyStmt::Assign(_) => "assign",
                 StructuredBlockPyStmt::Expr(_) => "expr",
-                StructuredBlockPyStmt::Delete(_) => "delete",
                 StructuredBlockPyStmt::If(_) => "if",
+                StructuredBlockPyStmt::_Marker(_) => unreachable!("structured stmt marker"),
             };
             self.trace.push(format!("stmt:{kind}"));
             walk_stmt(self, stmt);
@@ -183,10 +182,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
                 CfgBlock {
                     label: BlockPyLabel::from_index(0),
                     body: vec![
-                        StructuredBlockPyStmt::Assign(BlockPyAssign {
-                            target: name_expr("target"),
-                            value: py_expr!("assign_one"),
-                        }),
+                        StructuredBlockPyStmt::Expr(py_expr!("assign_one")),
                         StructuredBlockPyStmt::If(BlockPyIf {
                             test: py_expr!("if_test"),
                             body: BlockPyCfgFragment::with_term(
@@ -212,9 +208,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
                 },
                 CfgBlock {
                     label: BlockPyLabel::from_index(3),
-                    body: vec![StructuredBlockPyStmt::Delete(BlockPyDelete {
-                        target: name_expr("trash"),
-                    })],
+                    body: vec![StructuredBlockPyStmt::Expr(py_expr!("trash"))],
                     term: BlockPyTerm::Return(py_expr!("final_return")),
                     params: Vec::new(),
                     exc_edge: None,
@@ -236,7 +230,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             "module",
             "fn:f",
             "block:bb0",
-            "stmt:assign",
+            "stmt:expr",
             "expr:assign_one",
             "stmt:if",
             "expr:if_test",
@@ -257,7 +251,8 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             "label:bb1",
             "label:bb2",
             "block:bb3",
-            "stmt:delete",
+            "stmt:expr",
+            "expr:trash",
             "term:return",
             "expr:final_return",
         ]

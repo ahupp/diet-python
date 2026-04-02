@@ -186,22 +186,6 @@ fn make_eval_order_explicit_in_core_stmt(
     out: &mut Vec<StructuredBlockPyStmtFor<CoreBlockPyExprWithAwaitAndYield>>,
 ) {
     match stmt {
-        StructuredBlockPyStmtFor::Assign(assign) => {
-            let mut setup = Vec::new();
-            let mut cleanup = Vec::new();
-            let value =
-                make_eval_order_explicit_in_core_expr(assign.value, &mut setup, &mut cleanup);
-            out.extend(setup);
-            if is_internal_symbol(assign.target.id_str()) {
-                out.push(typed_store_stmt(assign.target, value));
-            } else {
-                out.push(StructuredBlockPyStmtFor::Assign(BlockPyAssign {
-                    target: assign.target,
-                    value,
-                }));
-            }
-            append_stmt_cleanup(out, cleanup);
-        }
         StructuredBlockPyStmtFor::Expr(expr) => {
             let mut setup = Vec::new();
             let mut cleanup = Vec::new();
@@ -209,13 +193,6 @@ fn make_eval_order_explicit_in_core_stmt(
             out.extend(setup);
             out.push(StructuredBlockPyStmtFor::Expr(expr));
             append_stmt_cleanup(out, cleanup);
-        }
-        StructuredBlockPyStmtFor::Delete(delete) => {
-            if is_internal_symbol(delete.target.id_str()) {
-                out.push(typed_del_stmt(delete.target));
-            } else {
-                out.push(StructuredBlockPyStmtFor::Delete(delete))
-            }
         }
         StructuredBlockPyStmtFor::If(if_stmt) => {
             let mut setup = Vec::new();
@@ -228,6 +205,9 @@ fn make_eval_order_explicit_in_core_stmt(
                 orelse: make_eval_order_explicit_in_core_fragment(if_stmt.orelse),
             }));
             append_stmt_cleanup(out, cleanup);
+        }
+        StructuredBlockPyStmtFor::_Marker(_) => {
+            unreachable!("structured stmt marker should not appear")
         }
     }
 }
@@ -409,29 +389,6 @@ fn make_eval_order_explicit_in_core_stmt_without_await(
     out: &mut Vec<StructuredBlockPyStmtFor<CoreBlockPyExprWithYield>>,
 ) {
     match stmt {
-        StructuredBlockPyStmtFor::Assign(assign) => {
-            let mut setup = Vec::new();
-            let mut cleanup = Vec::new();
-            let value = if expr_contains_yield(&assign.value) {
-                make_eval_order_explicit_in_core_expr_without_await(
-                    assign.value,
-                    &mut setup,
-                    &mut cleanup,
-                )
-            } else {
-                assign.value
-            };
-            out.extend(setup);
-            if is_internal_symbol(assign.target.id_str()) {
-                out.push(typed_store_stmt(assign.target, value));
-            } else {
-                out.push(StructuredBlockPyStmtFor::Assign(BlockPyAssign {
-                    target: assign.target,
-                    value,
-                }));
-            }
-            append_stmt_cleanup(out, cleanup);
-        }
         StructuredBlockPyStmtFor::Expr(expr) => {
             let mut setup = Vec::new();
             let mut cleanup = Vec::new();
@@ -443,13 +400,6 @@ fn make_eval_order_explicit_in_core_stmt_without_await(
             out.extend(setup);
             out.push(StructuredBlockPyStmtFor::Expr(expr));
             append_stmt_cleanup(out, cleanup);
-        }
-        StructuredBlockPyStmtFor::Delete(delete) => {
-            if is_internal_symbol(delete.target.id_str()) {
-                out.push(typed_del_stmt(delete.target));
-            } else {
-                out.push(StructuredBlockPyStmtFor::Delete(delete))
-            }
         }
         StructuredBlockPyStmtFor::If(if_stmt) => {
             let mut setup = Vec::new();
@@ -463,6 +413,9 @@ fn make_eval_order_explicit_in_core_stmt_without_await(
                 orelse: make_eval_order_explicit_in_core_fragment_without_await(if_stmt.orelse),
             }));
             append_stmt_cleanup(out, cleanup);
+        }
+        StructuredBlockPyStmtFor::_Marker(_) => {
+            unreachable!("structured stmt marker should not appear")
         }
     }
 }

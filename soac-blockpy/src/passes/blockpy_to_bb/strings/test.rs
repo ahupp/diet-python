@@ -122,16 +122,11 @@ def f():
         for block in &function.blocks {
             for stmt in &block.body {
                 match stmt {
-                    BlockPyStmt::Assign(_) => unreachable!(
-                        "string normalization tests should see Expr(Store) rather than stmt Assign"
-                    ),
                     BlockPyStmt::Expr(expr) => assert!(
                         !expr_contains_literal(expr),
                         "expr stmt should not retain executable literals: {expr:?}"
                     ),
-                    BlockPyStmt::Delete(_) => unreachable!(
-                        "string normalization tests should see Expr(Del) rather than stmt Delete"
-                    ),
+                    BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
                 }
             }
             match &block.term {
@@ -182,15 +177,10 @@ def f(obj, mapping, key, value):
         for block in &function.blocks {
             for stmt in &block.body {
                 match stmt {
-                    BlockPyStmt::Assign(_) => unreachable!(
-                        "string normalization tests should see Expr(Store) rather than stmt Assign"
-                    ),
                     BlockPyStmt::Expr(expr) => {
                         collect_helper_like_names_in_expr(&mut helper_names, expr);
                     }
-                    BlockPyStmt::Delete(_) => unreachable!(
-                        "string normalization tests should see Expr(Del) rather than stmt Delete"
-                    ),
+                    BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
                 }
             }
         }

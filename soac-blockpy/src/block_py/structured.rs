@@ -20,14 +20,12 @@ where
 {
     fn from(value: StructuredBlockPyStmt<EIn, N>) -> Self {
         match value {
-            StructuredBlockPyStmt::Assign(assign) => Self::Assign(super::BlockPyAssign {
-                target: assign.target,
-                value: assign.value.into(),
-            }),
             StructuredBlockPyStmt::Expr(expr) => Self::Expr(expr.into()),
-            StructuredBlockPyStmt::Delete(delete) => Self::Delete(delete),
             StructuredBlockPyStmt::If(_) => {
                 panic!("structured BlockPy If reached BlockPyStmt conversion")
+            }
+            StructuredBlockPyStmt::_Marker(_) => {
+                unreachable!("structured stmt marker should not appear")
             }
         }
     }
@@ -39,9 +37,8 @@ where
 {
     fn into_structured_stmt(self) -> StructuredBlockPyStmtFor<I> {
         match self {
-            BlockPyStmt::Assign(assign) => StructuredBlockPyStmt::Assign(assign),
             BlockPyStmt::Expr(expr) => StructuredBlockPyStmt::Expr(expr),
-            BlockPyStmt::Delete(delete) => StructuredBlockPyStmt::Delete(delete),
+            BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
         }
     }
 }
@@ -158,13 +155,14 @@ where
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     match stmt {
-        StructuredBlockPyStmt::Assign(assign) => visitor.visit_expr(&assign.value),
         StructuredBlockPyStmt::Expr(expr) => visitor.visit_expr(expr),
-        StructuredBlockPyStmt::Delete(_) => {}
         StructuredBlockPyStmt::If(if_stmt) => {
             visitor.visit_expr(&if_stmt.test);
             visitor.visit_fragment(&if_stmt.body);
             visitor.visit_fragment(&if_stmt.orelse);
+        }
+        StructuredBlockPyStmt::_Marker(_) => {
+            unreachable!("structured stmt marker should not appear")
         }
     }
 }

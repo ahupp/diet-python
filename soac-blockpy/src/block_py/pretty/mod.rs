@@ -356,15 +356,8 @@ impl<R> BlockPyFormatter<R> {
         R: InlineExprRenderer<E>,
     {
         match stmt {
-            BlockPyStmt::Assign(assign) => self.line(format!(
-                "{} = {}",
-                assign.target.pretty_id(),
-                R::render(&assign.value)
-            )),
             BlockPyStmt::Expr(expr) => self.line(R::render(expr)),
-            BlockPyStmt::Delete(delete) => {
-                self.line(format!("del {}", delete.target.pretty_id()));
-            }
+            BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
         }
     }
 
@@ -378,15 +371,7 @@ impl<R> BlockPyFormatter<R> {
         R: InlineExprRenderer<E>,
     {
         match stmt {
-            StructuredBlockPyStmt::Assign(assign) => self.line(format!(
-                "{} = {}",
-                assign.target.pretty_id(),
-                R::render(&assign.value)
-            )),
             StructuredBlockPyStmt::Expr(expr) => self.line(R::render(expr)),
-            StructuredBlockPyStmt::Delete(delete) => {
-                self.line(format!("del {}", delete.target.pretty_id()))
-            }
             StructuredBlockPyStmt::If(if_stmt) => {
                 self.line(format!("if {}:", R::render(&if_stmt.test)));
                 self.with_indent(|this| this.write_stmt_fragment(&if_stmt.body, referenced_labels));
@@ -396,6 +381,9 @@ impl<R> BlockPyFormatter<R> {
                         this.write_stmt_fragment(&if_stmt.orelse, referenced_labels)
                     });
                 }
+            }
+            StructuredBlockPyStmt::_Marker(_) => {
+                unreachable!("structured stmt marker should not appear")
             }
         }
     }
@@ -852,15 +840,8 @@ pub(crate) fn core_bb_stmt_text<N: BlockPyNameLike>(
     stmt: &BlockPyStmt<CoreBlockPyExpr<N>, N>,
 ) -> String {
     match stmt {
-        BlockPyStmt::Assign(assign) => {
-            format!(
-                "{} = {}",
-                assign.target.pretty_id(),
-                bb_expr_text(&assign.value)
-            )
-        }
         BlockPyStmt::Expr(expr) => bb_expr_text(expr),
-        BlockPyStmt::Delete(delete) => format!("del {}", delete.target.pretty_id()),
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 
@@ -871,15 +852,8 @@ where
     N: BlockPyNameLike,
 {
     match stmt {
-        BlockPyStmt::Assign(assign) => {
-            format!(
-                "{} = {}",
-                assign.target.pretty_id(),
-                assign.value.debug_expr_text()
-            )
-        }
         BlockPyStmt::Expr(expr) => expr.debug_expr_text(),
-        BlockPyStmt::Delete(delete) => format!("del {}", delete.target.pretty_id()),
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 

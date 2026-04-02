@@ -1,7 +1,7 @@
 use crate::block_py::{
-    BlockPyAssign, BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmtFragment, BlockPyTerm,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral, CoreStringLiteral, GetAttr,
-    LocatedCoreBlockPyExpr, LocatedName, StructuredBlockPyStmt, WithMeta,
+    BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmtFragment, BlockPyTerm, CoreBlockPyCallArg,
+    CoreBlockPyExpr, CoreBlockPyLiteral, CoreStringLiteral, GetAttr, LocatedCoreBlockPyExpr,
+    LocatedName, Store, StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     lower_structured_located_blocks_to_bb_blocks, populate_exception_edge_args,
@@ -14,38 +14,43 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr, LocatedName> = BlockPyBlock {
         label: BlockPyLabel::from_index(0),
         body: vec![
-            StructuredBlockPyStmt::Assign(BlockPyAssign {
-                target: LocatedName::from(ast::ExprName {
-                    id: "x".into(),
-                    ctx: ast::ExprContext::Store,
-                    range: TextRange::default(),
-                    node_index: ast::AtomicNodeIndex::default(),
-                }),
-                value: core_name_expr("a"),
-            }),
+            StructuredBlockPyStmt::Expr(
+                Store::new(
+                    LocatedName::from(ast::ExprName {
+                        id: "x".into(),
+                        ctx: ast::ExprContext::Store,
+                        range: TextRange::default(),
+                        node_index: ast::AtomicNodeIndex::default(),
+                    }),
+                    Box::new(core_name_expr("a")),
+                )
+                .into(),
+            ),
             StructuredBlockPyStmt::If(BlockPyIf {
                 test: core_name_expr("cond"),
-                body: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Assign(
-                    BlockPyAssign {
-                        target: LocatedName::from(ast::ExprName {
+                body: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Expr(
+                    Store::new(
+                        LocatedName::from(ast::ExprName {
                             id: "x".into(),
                             ctx: ast::ExprContext::Store,
                             range: TextRange::default(),
                             node_index: ast::AtomicNodeIndex::default(),
                         }),
-                        value: core_name_expr("b"),
-                    },
+                        Box::new(core_name_expr("b")),
+                    )
+                    .into(),
                 )]),
-                orelse: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Assign(
-                    BlockPyAssign {
-                        target: LocatedName::from(ast::ExprName {
+                orelse: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Expr(
+                    Store::new(
+                        LocatedName::from(ast::ExprName {
                             id: "x".into(),
                             ctx: ast::ExprContext::Store,
                             range: TextRange::default(),
                             node_index: ast::AtomicNodeIndex::default(),
                         }),
-                        value: core_name_expr("c"),
-                    },
+                        Box::new(core_name_expr("c")),
+                    )
+                    .into(),
                 )]),
             }),
             StructuredBlockPyStmt::Expr(core_call_expr("sink", vec![core_name_expr("x")])),

@@ -230,17 +230,12 @@ where
     N: BlockPyNameLike,
 {
     match stmt {
-        BlockPyStmt::Assign(assign) => {
-            let mut names = HashSet::from([assign.target.id_str().to_string()]);
-            collect_named_expr_target_names(&assign.value, &mut names);
-            names
-        }
         BlockPyStmt::Expr(expr) => {
             let mut names = HashSet::new();
             collect_named_expr_target_names(expr, &mut names);
             names
         }
-        BlockPyStmt::Delete(_) => HashSet::new(),
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 
@@ -673,10 +668,8 @@ fn stmt_yield_site(stmt: &LinearYieldStmt) -> Option<YieldSite> {
             }),
             _ => None,
         },
-        BlockPyStmt::Assign(_) => {
-            unreachable!("generator lowering should not see stmt Assign(Yield/YieldFrom) anymore")
-        }
-        BlockPyStmt::Delete(_) | BlockPyStmt::Expr(_) => None,
+        BlockPyStmt::Expr(_) => None,
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 

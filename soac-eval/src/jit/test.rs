@@ -1,7 +1,7 @@
 use super::*;
 use soac_blockpy::block_py::{
-    BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyFunction, BlockPyModule, BlockPyStmt,
-    BlockPyTerm, Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
+    BinOp, BinOpKind, BlockParamRole, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm,
+    Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
     CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBytesLiteral, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, InstrExprNode,
     Load, LocatedCodegenBlockPyExpr, LocatedName, Meta, ModuleNameGen, NameLocation, Param,
@@ -201,13 +201,8 @@ mod tests {
             for block in &mut function.blocks {
                 for stmt in &mut block.body {
                     match stmt {
-                        BlockPyStmt::Assign(_) => unreachable!(
-                            "codegen test helpers should use Expr(Store) rather than stmt Assign"
-                        ),
                         BlockPyStmt::Expr(expr) => self.extract_expr(expr),
-                        BlockPyStmt::Delete(_) => unreachable!(
-                            "codegen test helpers should use Expr(Del) rather than stmt Delete"
-                        ),
+                        BlockPyStmt::_Marker(_) => unreachable!("marker stmt should not appear"),
                     }
                 }
                 match &mut block.term {

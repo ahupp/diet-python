@@ -121,13 +121,8 @@ fn callable_def_by_name<'a>(
 
 fn block_uses_text(block: &ResolvedStorageBlock, needle: &str) -> bool {
     block.body.iter().any(|op| match op {
-        BlockPyStmt::Assign(_) => unreachable!(
-            "resolved name-binding test helpers should see Expr(Store) rather than stmt Assign"
-        ),
         BlockPyStmt::Expr(expr) => expr_text(expr).contains(needle),
-        BlockPyStmt::Delete(_) => unreachable!(
-            "resolved name-binding test helpers should see Expr(Del) rather than stmt Delete"
-        ),
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }) || match &block.term {
         BlockPyTerm::IfTerm(if_term) => expr_text(&if_term.test).contains(needle),
         BlockPyTerm::BranchTable(branch) => expr_text(&branch.index).contains(needle),

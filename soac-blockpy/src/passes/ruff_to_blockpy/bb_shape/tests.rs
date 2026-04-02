@@ -69,13 +69,9 @@ fn rewrite_current_exception_in_blockpy_stmt<N>(
     N: BlockPyNameLike,
 {
     match stmt {
-        StructuredBlockPyStmt::Assign(assign) => {
-            rewrite_current_exception_in_blockpy_expr(&mut assign.value, exc_name);
-        }
         StructuredBlockPyStmt::Expr(expr) => {
             rewrite_current_exception_in_blockpy_expr(expr, exc_name);
         }
-        StructuredBlockPyStmt::Delete(_) => {}
         StructuredBlockPyStmt::If(if_stmt) => {
             rewrite_current_exception_in_blockpy_expr(&mut if_stmt.test, exc_name);
             for stmt in &mut if_stmt.body.body {
@@ -91,6 +87,7 @@ fn rewrite_current_exception_in_blockpy_stmt<N>(
                 rewrite_current_exception_in_blockpy_term(term, exc_name);
             }
         }
+        StructuredBlockPyStmt::_Marker(_) => unreachable!("structured stmt marker"),
     }
 }
 
@@ -119,17 +116,19 @@ fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
                 Vec::<CoreBlockPyCallArg<CoreBlockPyExpr>>::new(),
                 Vec::new(),
             ),
-            body: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Assign(
-                BlockPyAssign {
-                    target: expr_name("x", ast::ExprContext::Store).into(),
-                    value: core_name_expr("a"),
-                },
+            body: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Expr(
+                crate::block_py::Store::new(
+                    expr_name("x", ast::ExprContext::Store),
+                    Box::new(core_name_expr("a")),
+                )
+                .into(),
             )]),
-            orelse: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Assign(
-                BlockPyAssign {
-                    target: expr_name("x", ast::ExprContext::Store).into(),
-                    value: core_name_expr("b"),
-                },
+            orelse: BlockPyStmtFragment::from_stmts(vec![StructuredBlockPyStmt::Expr(
+                crate::block_py::Store::new(
+                    expr_name("x", ast::ExprContext::Store),
+                    Box::new(core_name_expr("b")),
+                )
+                .into(),
             )]),
         })],
         term: BlockPyTerm::Return(core_name_expr("__dp_NONE")),

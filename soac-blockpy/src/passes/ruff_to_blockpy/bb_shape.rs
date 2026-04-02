@@ -13,7 +13,7 @@ pub(crate) fn lower_structured_blocks_to_bb_blocks<E, N>(
     blocks: &[crate::block_py::CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
 ) -> Vec<crate::block_py::CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>>
 where
-    E: Clone + Instr,
+    E: Clone + Instr<Name = N>,
     N: BlockPyNameLike,
 {
     let exception_edges = lowered_exception_edges(blocks);
@@ -77,16 +77,10 @@ pub(crate) fn rewrite_current_exception_in_core_blocks_with_await_and_yield(
         };
         for stmt in &mut block.body {
             match stmt {
-                BlockPyStmt::Assign(assign) => {
-                    rewrite_current_exception_in_expr_with_await_and_yield(
-                        &mut assign.value,
-                        exc_name.as_str(),
-                    );
-                }
                 BlockPyStmt::Expr(expr) => {
                     rewrite_current_exception_in_expr_with_await_and_yield(expr, exc_name.as_str())
                 }
-                BlockPyStmt::Delete(_) => {}
+                BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
             }
         }
         rewrite_current_exception_in_term_with_await_and_yield(&mut block.term, exc_name.as_str());
@@ -100,13 +94,10 @@ fn rewrite_current_exception_in_bb_stmt<N>(
     N: BlockPyNameLike,
 {
     match stmt {
-        BlockPyStmt::Assign(assign) => {
-            rewrite_current_exception_in_blockpy_expr(&mut assign.value, exc_name);
-        }
         BlockPyStmt::Expr(expr) => {
             rewrite_current_exception_in_blockpy_expr(expr, exc_name);
         }
-        BlockPyStmt::Delete(_) => {}
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 
@@ -272,7 +263,10 @@ fn current_exception_name_expr_with_await_and_yield(
 
 pub(crate) fn populate_exception_edge_args<E, N>(
     blocks: &mut [crate::block_py::CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>],
-) {
+) where
+    E: Instr<Name = N>,
+    N: BlockPyNameLike,
+{
     let label_to_index = blocks
         .iter()
         .enumerate()

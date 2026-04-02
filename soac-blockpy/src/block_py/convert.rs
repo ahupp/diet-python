@@ -53,14 +53,8 @@ where
     POut::Stmt: From<PassStmt<POut>>,
 {
     match stmt {
-        BlockPyStmt::Assign(assign) => BlockPyStmt::Assign(BlockPyAssign {
-            target: mapper.map_name(assign.target),
-            value: mapper.map_expr(assign.value),
-        }),
         BlockPyStmt::Expr(expr) => BlockPyStmt::Expr(mapper.map_expr(expr)),
-        BlockPyStmt::Delete(delete) => BlockPyStmt::Delete(BlockPyDelete {
-            target: mapper.map_name(delete.target),
-        }),
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 
@@ -78,14 +72,8 @@ where
     POut::Stmt: From<PassStmt<POut>>,
 {
     match stmt {
-        BlockPyStmt::Assign(assign) => Ok(BlockPyStmt::Assign(BlockPyAssign {
-            target: mapper.try_map_name(assign.target)?,
-            value: mapper.try_map_expr(assign.value)?,
-        })),
         BlockPyStmt::Expr(expr) => Ok(BlockPyStmt::Expr(mapper.try_map_expr(expr)?)),
-        BlockPyStmt::Delete(delete) => Ok(BlockPyStmt::Delete(BlockPyDelete {
-            target: mapper.try_map_name(delete.target)?,
-        })),
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 

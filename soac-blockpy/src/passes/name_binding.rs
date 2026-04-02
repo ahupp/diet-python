@@ -1220,10 +1220,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 }
                 BlockPyStmt::Expr(self.map_expr(expr))
             }
-            BlockPyStmt::Assign(assign) => self.map_assign(assign),
-            BlockPyStmt::Delete(delete) => {
-                rewrite_binding_delete(delete.target.into(), self.semantic, self)
-            }
+            BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
         }
     }
 
@@ -1338,19 +1335,6 @@ fn unresolved_semantic_delete_target(expr: &CoreBlockPyExpr) -> Option<ExprName>
     Some(op.name.clone().into())
 }
 
-impl NameBindingMapper<'_> {
-    fn map_assign(&self, assign: CoreAssign) -> CoreStmt {
-        rewrite_binding_assign_by_name(
-            assign.target.id_str().to_string(),
-            self.map_expr(assign.value),
-            self.semantic,
-            self,
-            assign.target.node_index(),
-            assign.target.range(),
-        )
-    }
-}
-
 fn collect_deleted_names_in_stmt(
     stmt: &CoreStmt,
     semantic: &BlockPyCallableSemanticInfo,
@@ -1376,7 +1360,7 @@ fn collect_deleted_names_in_stmt(
                 names.insert(name);
             }
         }
-        BlockPyStmt::Assign(_) | BlockPyStmt::Delete(_) => {}
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 
@@ -1389,16 +1373,6 @@ fn rewrite_deleted_name_loads_in_stmt(
     always_unbound_names: &HashSet<String>,
 ) {
     match stmt {
-        BlockPyStmt::Assign(assign) => {
-            rewrite_deleted_name_loads_in_expr(
-                &mut assign.value,
-                semantic,
-                storage_layout,
-                resolver,
-                deleted_names,
-                always_unbound_names,
-            );
-        }
         BlockPyStmt::Expr(expr) => rewrite_deleted_name_loads_in_expr(
             expr,
             semantic,
@@ -1407,7 +1381,7 @@ fn rewrite_deleted_name_loads_in_stmt(
             deleted_names,
             always_unbound_names,
         ),
-        BlockPyStmt::Delete(_) => {}
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 
@@ -1535,16 +1509,13 @@ fn rewrite_raw_cell_loads_in_stmt(
     resolver: &NameBindingMapper<'_>,
 ) {
     match stmt {
-        BlockPyStmt::Assign(assign) => {
-            rewrite_raw_cell_loads_in_expr(&mut assign.value, semantic, resolver)
-        }
         BlockPyStmt::Expr(expr) => {
             if is_local_cell_init_store(expr) {
                 return;
             }
             rewrite_raw_cell_loads_in_expr(expr, semantic, resolver)
         }
-        BlockPyStmt::Delete(_) => {}
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 
@@ -1677,12 +1648,6 @@ fn collect_runtime_bound_local_names_in_stmt(
     names: &mut HashSet<String>,
 ) {
     match stmt {
-        BlockPyStmt::Assign(assign)
-            if semantic.has_local_def(assign.target.id_str())
-                && !is_deleted_sentinel_expr(&assign.value) =>
-        {
-            names.insert(assign.target.id_str().to_string());
-        }
         BlockPyStmt::Expr(expr) => {
             if let Some((name, value, _, _)) = unresolved_semantic_store_parts(expr) {
                 if semantic.has_local_def(name.as_str()) && !is_deleted_sentinel_expr(&value) {
@@ -1693,8 +1658,7 @@ fn collect_runtime_bound_local_names_in_stmt(
                 names.insert(name);
             }
         }
-        BlockPyStmt::Delete(_) => {}
-        _ => {}
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 
@@ -1801,14 +1765,8 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
 
 fn collect_remaining_names_in_stmt(stmt: &CoreStmt, names: &mut HashSet<String>) {
     match stmt {
-        BlockPyStmt::Assign(assign) => {
-            names.insert(assign.target.id_str().to_string());
-            collect_remaining_names_in_expr(&assign.value, names);
-        }
         BlockPyStmt::Expr(expr) => collect_remaining_names_in_expr(expr, names),
-        BlockPyStmt::Delete(delete) => {
-            names.insert(delete.target.id_str().to_string());
-        }
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 
@@ -2027,12 +1985,6 @@ fn compute_local_slot_locations_from_analysis(
         for stmt in &block.body {
             collect_remaining_names_in_stmt(stmt, &mut remaining);
             match stmt {
-                BlockPyStmt::Assign(assign) => {
-                    explicitly_stored.insert(assign.target.id_str().to_string());
-                }
-                BlockPyStmt::Delete(delete) => {
-                    explicitly_stored.insert(delete.target.id_str().to_string());
-                }
                 BlockPyStmt::Expr(expr) => match expr {
                     CoreBlockPyExpr::Store(op) => {
                         explicitly_stored.insert(op.name.id_str().to_string());
@@ -2042,6 +1994,7 @@ fn compute_local_slot_locations_from_analysis(
                     }
                     _ => {}
                 },
+                BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
             }
         }
         collect_remaining_names_in_term(&block.term, &mut remaining);
@@ -2444,11 +2397,8 @@ fn collect_make_function_callee_ids(
 
 fn collect_make_function_callee_ids_in_stmt(stmt: &CoreStmt, out: &mut Vec<FunctionId>) {
     match stmt {
-        BlockPyStmt::Assign(assign) => {
-            collect_make_function_callee_ids_in_expr(&assign.value, out);
-        }
         BlockPyStmt::Expr(expr) => collect_make_function_callee_ids_in_expr(expr, out),
-        BlockPyStmt::Delete(_) => {}
+        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
     }
 }
 
@@ -2947,52 +2897,8 @@ fn lower_name_binding_callable(
 }
 
 fn normalize_stmt_ops_in_resolved_callable(
-    mut callable: BlockPyFunction<ResolvedStorageBlockPyPass>,
+    callable: BlockPyFunction<ResolvedStorageBlockPyPass>,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
-    let stack_slots = callable
-        .storage_layout
-        .as_ref()
-        .map(|layout| layout.stack_slots().to_vec())
-        .unwrap_or_default();
-    for block in &mut callable.blocks {
-        for stmt in &mut block.body {
-            match stmt.clone() {
-                BlockPyStmt::Assign(assign) => {
-                    let mut target = assign.target;
-                    if resolve_cell_storage_name(&callable.semantic, target.id_str()).is_some() {
-                        if let Some(slot) = stack_slots
-                            .iter()
-                            .position(|name| name == target.id_str())
-                            .map(|slot| slot as u32)
-                        {
-                            target = target.with_location(NameLocation::local(slot));
-                        }
-                    }
-                    let meta = crate::block_py::Meta::new(target.node_index(), target.range());
-                    let expr: LocatedCoreBlockPyExpr =
-                        Store::new(target, assign.value).with_meta(meta).into();
-                    *stmt = BlockPyStmt::Expr(expr);
-                }
-                BlockPyStmt::Delete(delete) => {
-                    let mut target = delete.target;
-                    if resolve_cell_storage_name(&callable.semantic, target.id_str()).is_some() {
-                        if let Some(slot) = stack_slots
-                            .iter()
-                            .position(|name| name == target.id_str())
-                            .map(|slot| slot as u32)
-                        {
-                            target = target.with_location(NameLocation::local(slot));
-                        }
-                    }
-                    let meta = crate::block_py::Meta::new(target.node_index(), target.range());
-                    let expr: LocatedCoreBlockPyExpr =
-                        Del::new(target, false).with_meta(meta).into();
-                    *stmt = BlockPyStmt::Expr(expr);
-                }
-                BlockPyStmt::Expr(_) => {}
-            }
-        }
-    }
     callable
 }
 
