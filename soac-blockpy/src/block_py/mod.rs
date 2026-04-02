@@ -37,7 +37,6 @@ mod operation_macro;
 pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod semantics;
-pub(crate) mod state;
 pub(crate) mod structured;
 pub(crate) mod validate;
 #[cfg(test)]

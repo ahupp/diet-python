@@ -1,18 +1,17 @@
 use crate::block_py::cfg::RelabelBlockTargets;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
-use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
     compute_storage_layout_from_semantics, core_call_expr_with_meta, core_operation_expr,
     core_runtime_name_expr_with_meta, core_runtime_positional_call_expr_with_meta,
     try_lower_core_expr_without_await, try_lower_core_expr_without_yield, BlockArg, BlockParam,
     BlockParamRole, BlockPyBindingKind, BlockPyBranchTable, BlockPyCallableSemanticInfo,
     BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyEdge, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike, BlockPyRaise, BlockPyStmt,
-    BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
-    CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName, FunctionNameGen, ImplicitNoneExpr,
-    Instr, InstrName, MakeFunction, Meta, ModuleNameGen, PassStmt, StorageLayout, Store,
-    UnresolvedName, WithMeta,
+    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike, BlockPyRaise,
+    BlockPySemanticExprNode, BlockPyStmt, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit,
+    ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
+    FunctionNameGen, ImplicitNoneExpr, Instr, InstrName, MakeFunction, Meta, ModuleNameGen,
+    PassStmt, StorageLayout, Store, UnresolvedName, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -188,6 +187,104 @@ where
 {
     let meta = Meta::new(target.node_index(), target.range());
     BlockPyStmt::Expr(Store::new(target, Box::new(value)).with_meta(meta).into())
+}
+
+fn collect_state_vars<E, N>(
+    param_names: &[String],
+    blocks: &[CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>],
+) -> Vec<String>
+where
+    E: BlockPySemanticExprNode + Instr,
+    N: BlockPyNameLike,
+{
+    let mut state = param_names.to_vec();
+    for block in blocks {
+        for param_name in block
+            .exception_param()
+            .into_iter()
+            .chain(block.param_names())
+        {
+            if !state.iter().any(|existing| existing == param_name) {
+                state.push(param_name.to_string());
+            }
+        }
+        for stmt in &block.body {
+            for name in assigned_names_in_linear_stmt(stmt) {
+                if !state.iter().any(|existing| existing == &name) {
+                    state.push(name);
+                }
+            }
+        }
+        for name in assigned_names_in_term(&block.term) {
+            if !state.iter().any(|existing| existing == &name) {
+                state.push(name);
+            }
+        }
+    }
+    state
+}
+
+fn assigned_names_in_linear_stmt<E, N>(stmt: &BlockPyStmt<E, N>) -> HashSet<String>
+where
+    E: BlockPySemanticExprNode + Instr,
+    N: BlockPyNameLike,
+{
+    match stmt {
+        BlockPyStmt::Assign(assign) => {
+            let mut names = HashSet::from([assign.target.id_str().to_string()]);
+            collect_named_expr_target_names(&assign.value, &mut names);
+            names
+        }
+        BlockPyStmt::Expr(expr) => {
+            let mut names = HashSet::new();
+            collect_named_expr_target_names(expr, &mut names);
+            names
+        }
+        BlockPyStmt::Delete(_) => HashSet::new(),
+    }
+}
+
+fn assigned_names_in_term<E>(term: &BlockPyTerm<E>) -> HashSet<String>
+where
+    E: BlockPySemanticExprNode + Instr,
+{
+    match term {
+        BlockPyTerm::Jump(_) => HashSet::new(),
+        BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
+            let mut names = HashSet::new();
+            collect_named_expr_target_names(test, &mut names);
+            names
+        }
+        BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
+            let mut names = HashSet::new();
+            collect_named_expr_target_names(index, &mut names);
+            names
+        }
+        BlockPyTerm::Return(value) => {
+            let mut names = HashSet::new();
+            collect_named_expr_target_names(value, &mut names);
+            names
+        }
+        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
+            let mut names = HashSet::new();
+            if let Some(exc) = exc {
+                collect_named_expr_target_names(exc, &mut names);
+            }
+            names
+        }
+    }
+}
+
+fn collect_named_expr_target_names<E>(expr: &E, names: &mut HashSet<String>)
+where
+    E: BlockPySemanticExprNode,
+{
+    expr.walk_root_defined_names(&mut |name| {
+        names.insert(name.to_string());
+    });
+    expr.walk_child_exprs(&mut |child| {
+        collect_named_expr_target_names(child, names);
+    });
 }
 
 fn core_literal_int(value: usize) -> CoreBlockPyExpr {
