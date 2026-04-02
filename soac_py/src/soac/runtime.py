@@ -16,10 +16,12 @@ from .sim import (
     _MISSING,
     _mro_getattr,
     add,
+    aiter,
     and_,
     eq,
     floordiv,
     ge,
+    globals,
     gt,
     iadd,
     iand,
@@ -58,7 +60,6 @@ _jit_make_bb_function = _soac_ext.make_bb_function
 
 next = _builtins.next
 iter = _builtins.iter
-aiter = _builtins.aiter
 anext = _builtins.anext
 isinstance = _builtins.isinstance
 getattr = _builtins.getattr
@@ -564,13 +565,6 @@ def unpack(iterable, spec):
     result.append(remainder)
     result.extend(tail)
     return _builtins.tuple(result)
-
-
-def globals():
-    frame = _sys._getframe(1)
-    return frame.f_globals
-
-
 def call_super(super_fn, cls, instance_or_cls):
     if super_fn is _builtins.super:
         if isinstance(cls, _types.CellType):
@@ -765,26 +759,6 @@ def exc_info_from_exception(exc):
 
 def current_exception():
     return _sys.exception()
-
-
-def aiter(obj):
-    try:
-        aiter_fn = obj.__aiter__
-    except AttributeError:
-        obj_type = type(obj).__name__
-        obj = None
-        raise TypeError(
-            f"'async for' requires an object with __aiter__ method, got {obj_type}"
-        ) from None
-    iterator = aiter_fn()
-    if not hasattr(iterator, "__anext__"):
-        iter_type = type(iterator).__name__
-        iterator = None
-        raise TypeError(
-            "'async for' received an object from __aiter__ that does not implement __anext__"
-            f": {iter_type}"
-        ) from None
-    return iterator
 
 
 class _AwaitIterWrapper:
