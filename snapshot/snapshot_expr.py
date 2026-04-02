@@ -403,9 +403,9 @@ x = {k: v for k, v in it}
 #                         block bb5:
 #                             _dp_dictcomp_key_2 = k
 #                             _dp_dictcomp_value_3 = v
-#                             _dp_assign_value_6 = _dp_dictcomp_value_3
-#                             _dp_assign_obj_7 = load_deleted_name("_dp_tmp_1", _dp_tmp_1)
-#                             _dp_assign_index_8 = _dp_dictcomp_key_2
+#                             StoreName("_dp_assign_value_6", _dp_dictcomp_value_3)
+#                             StoreName("_dp_assign_obj_7", load_deleted_name("_dp_tmp_1", _dp_tmp_1))
+#                             StoreName("_dp_assign_index_8", _dp_dictcomp_key_2)
 #                             SetItem(_dp_assign_obj_7, _dp_assign_index_8, _dp_assign_value_6)
 #                             jump bb1
 

@@ -989,7 +989,7 @@ def f(x):
     assert!(matches!(
         fragment.body.as_slice(),
         [
-            StructuredBlockPyStmt::Assign(_),
+            StructuredBlockPyStmt::Expr(_),
             StructuredBlockPyStmt::Assign(_)
         ]
     ));

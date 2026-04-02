@@ -65,8 +65,8 @@ obj.x = 1
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_assign_value_1 = 1
-#         _dp_assign_obj_2 = load_deleted_name("obj", obj)
+#         StoreName("_dp_assign_value_1", 1)
+#         StoreName("_dp_assign_obj_2", load_deleted_name("obj", obj))
 #         SetAttr(_dp_assign_obj_2, "x", _dp_assign_value_1)
 #         return NONE
 
@@ -79,9 +79,9 @@ obj[i] = v
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_assign_value_1 = v
-#         _dp_assign_obj_2 = load_deleted_name("obj", obj)
-#         _dp_assign_index_3 = i
+#         StoreName("_dp_assign_value_1", v)
+#         StoreName("_dp_assign_obj_2", load_deleted_name("obj", obj))
+#         StoreName("_dp_assign_index_3", i)
 #         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
 #         return NONE
 
@@ -94,11 +94,11 @@ a, b = it
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_assign_value_1 = it
-#         _dp_unpack_2 = unpack(_dp_assign_value_1, tuple_values(TRUE, TRUE))
+#         StoreName("_dp_assign_value_1", it)
+#         StoreName("_dp_unpack_2", unpack(_dp_assign_value_1, tuple_values(TRUE, TRUE)))
 #         a = GetItem(_dp_unpack_2, 0)
 #         b = GetItem(_dp_unpack_2, 1)
-#         del _dp_unpack_2
+#         DelName("_dp_unpack_2", false)
 #         return NONE
 
 # assign_star_unpack
@@ -110,11 +110,11 @@ a, *b = it
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_assign_value_1 = it
-#         _dp_unpack_2 = unpack(_dp_assign_value_1, tuple_values(TRUE, FALSE))
+#         StoreName("_dp_assign_value_1", it)
+#         StoreName("_dp_unpack_2", unpack(_dp_assign_value_1, tuple_values(TRUE, FALSE)))
 #         a = GetItem(_dp_unpack_2, 0)
 #         b = list(GetItem(_dp_unpack_2, 1))
-#         del _dp_unpack_2
+#         DelName("_dp_unpack_2", false)
 #         return NONE
 
 # assign_multi_targets
@@ -126,7 +126,7 @@ a = b = f()
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_assign_value_1 = f()
+#         StoreName("_dp_assign_value_1", f())
 #         a = _dp_assign_value_1
 #         b = _dp_assign_value_1
 #         return NONE
@@ -170,8 +170,8 @@ obj.x: int = 1
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_assign_value_1 = 1
-#         _dp_assign_obj_2 = load_deleted_name("obj", obj)
+#         StoreName("_dp_assign_value_1", 1)
+#         StoreName("_dp_assign_obj_2", load_deleted_name("obj", obj))
 #         SetAttr(_dp_assign_obj_2, "x", _dp_assign_value_1)
 #         return NONE
 
@@ -184,8 +184,8 @@ obj.x += 1
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_augassign_obj_1 = load_deleted_name("obj", obj)
-#         _dp_augassign_value_2 = GetAttr(_dp_augassign_obj_1, "x")
+#         StoreName("_dp_augassign_obj_1", load_deleted_name("obj", obj))
+#         StoreName("_dp_augassign_value_2", GetAttr(_dp_augassign_obj_1, "x"))
 #         SetAttr(_dp_augassign_obj_1, "x", BinOp(InplaceAdd, _dp_augassign_value_2, 1))
 #         return NONE
 
@@ -198,10 +198,10 @@ del obj.x, obj[i], x
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_delete_obj_1 = load_deleted_name("obj", obj)
+#         StoreName("_dp_delete_obj_1", load_deleted_name("obj", obj))
 #         delattr(_dp_delete_obj_1, "x")
-#         _dp_delete_obj_2 = load_deleted_name("obj", obj)
-#         _dp_delete_index_3 = i
+#         StoreName("_dp_delete_obj_2", load_deleted_name("obj", obj))
+#         StoreName("_dp_delete_index_3", i)
 #         DelItem(_dp_delete_obj_2, _dp_delete_index_3)
 #         del x
 #         return NONE
@@ -491,9 +491,9 @@ zs = {k: v for k, v in items}
 #                         block bb5:
 #                             _dp_dictcomp_key_8 = k
 #                             _dp_dictcomp_value_9 = v
-#                             _dp_assign_value_12 = _dp_dictcomp_value_9
-#                             _dp_assign_obj_13 = load_deleted_name("_dp_tmp_7", _dp_tmp_7)
-#                             _dp_assign_index_14 = _dp_dictcomp_key_8
+#                             StoreName("_dp_assign_value_12", _dp_dictcomp_value_9)
+#                             StoreName("_dp_assign_obj_13", load_deleted_name("_dp_tmp_7", _dp_tmp_7))
+#                             StoreName("_dp_assign_index_14", _dp_dictcomp_key_8)
 #                             SetItem(_dp_assign_obj_13, _dp_assign_index_14, _dp_assign_value_12)
 #                             jump bb1
 
@@ -593,13 +593,13 @@ class C:
 #     function_id: 1
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         _dp_assign_value_4 = __name__
-#         _dp_assign_obj_5 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_6 = "__module__"
+#         StoreName("_dp_assign_value_4", __name__)
+#         StoreName("_dp_assign_obj_5", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_6", "__module__")
 #         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
-#         _dp_assign_value_7 = "C"
-#         _dp_assign_obj_8 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_9 = "__qualname__"
+#         StoreName("_dp_assign_value_7", "C")
+#         StoreName("_dp_assign_obj_8", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_9", "__qualname__")
 #         SetItem(_dp_assign_obj_8, _dp_assign_index_9, _dp_assign_value_7)
 #         _dp_listcomp_3 = MakeFunction(0, Function, tuple_values(), NONE)
 #         xs = _dp_listcomp_3(it)

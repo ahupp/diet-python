@@ -1,5 +1,5 @@
 use super::*;
-use crate::block_py::HasMeta;
+use crate::block_py::{Del, HasMeta, Meta, Store, WithMeta};
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
 
 fn rhs_temp_name(name: &str, ctx: ast::ExprContext) -> ast::ExprName {
@@ -20,11 +20,20 @@ pub(super) fn bind_temp<E: RuffToBlockPyExpr>(
     name: String,
     value: E,
 ) -> E {
-    out.push_stmt(StructuredBlockPyStmt::Assign(BlockPyAssign {
-        target: rhs_temp_name(&name, ast::ExprContext::Store).into(),
-        value,
-    }));
+    let target = rhs_temp_name(&name, ast::ExprContext::Store);
+    let meta = Meta::new(target.node_index.clone(), target.range);
+    out.push_stmt(StructuredBlockPyStmt::Expr(
+        Store::new(target, Box::new(value)).with_meta(meta).into(),
+    ));
     temp_load_expr(&name)
+}
+
+fn delete_temp<E: RuffToBlockPyExpr>(out: &mut BlockPyStmtFragmentBuilder<E>, name: String) {
+    let target = rhs_temp_name(&name, ast::ExprContext::Del);
+    let meta = Meta::new(target.node_index.clone(), target.range);
+    out.push_stmt(StructuredBlockPyStmt::Expr(
+        Del::new(target, false).with_meta(meta).into(),
+    ));
 }
 
 pub(super) fn lower_target_object_with_setup<E: RuffToBlockPyExpr>(
@@ -225,9 +234,7 @@ where
         }
     }
 
-    out.push_stmt(StructuredBlockPyStmt::Delete(BlockPyDelete {
-        target: rhs_temp_name(&unpacked_name, ast::ExprContext::Del).into(),
-    }));
+    delete_temp(out, unpacked_name);
 
     Ok(())
 }

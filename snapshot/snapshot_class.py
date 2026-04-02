@@ -36,13 +36,13 @@ class C:
 #     function_id: 2
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         _dp_assign_value_1 = __name__
-#         _dp_assign_obj_2 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_3 = "__module__"
+#         StoreName("_dp_assign_value_1", __name__)
+#         StoreName("_dp_assign_obj_2", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_3", "__module__")
 #         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
-#         _dp_assign_value_4 = "C"
-#         _dp_assign_obj_5 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_6 = "__qualname__"
+#         StoreName("_dp_assign_value_4", "C")
+#         StoreName("_dp_assign_obj_5", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_6", "__qualname__")
 #         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         x = 1
 #         m = MakeFunction(0, Function, tuple_values(), NONE)
@@ -82,13 +82,13 @@ class Wrapper:
 #     function_id: 1
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         _dp_assign_value_1 = __name__
-#         _dp_assign_obj_2 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_3 = "__module__"
+#         StoreName("_dp_assign_value_1", __name__)
+#         StoreName("_dp_assign_obj_2", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_3", "__module__")
 #         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
-#         _dp_assign_value_4 = "Wrapper"
-#         _dp_assign_obj_5 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_6 = "__qualname__"
+#         StoreName("_dp_assign_value_4", "Wrapper")
+#         StoreName("_dp_assign_obj_5", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_6", "__qualname__")
 #         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         open = MakeFunction(0, Function, tuple_values("r", "utf8"), NONE)
 #         return NONE
@@ -120,13 +120,13 @@ class D(Base):
 #     function_id: 0
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         _dp_assign_value_1 = __name__
-#         _dp_assign_obj_2 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_3 = "__module__"
+#         StoreName("_dp_assign_value_1", __name__)
+#         StoreName("_dp_assign_obj_2", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_3", "__module__")
 #         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
-#         _dp_assign_value_4 = "D"
-#         _dp_assign_obj_5 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_6 = "__qualname__"
+#         StoreName("_dp_assign_value_4", "D")
+#         StoreName("_dp_assign_obj_5", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_6", "__qualname__")
 #         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         return NONE
 
@@ -162,13 +162,13 @@ def outer():
 #     function_id: 0
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         _dp_assign_value_1 = __name__
-#         _dp_assign_obj_2 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_3 = "__module__"
+#         StoreName("_dp_assign_value_1", __name__)
+#         StoreName("_dp_assign_obj_2", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_3", "__module__")
 #         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
-#         _dp_assign_value_4 = "outer.<locals>.Inner"
-#         _dp_assign_obj_5 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_6 = "__qualname__"
+#         StoreName("_dp_assign_value_4", "outer.<locals>.Inner")
+#         StoreName("_dp_assign_obj_5", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_6", "__qualname__")
 #         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         y = x
 #         return NONE
@@ -217,13 +217,13 @@ class X:
 #     function_id: 1
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         _dp_assign_value_1 = __name__
-#         _dp_assign_obj_2 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_3 = "__module__"
+#         StoreName("_dp_assign_value_1", __name__)
+#         StoreName("_dp_assign_obj_2", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_3", "__module__")
 #         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
-#         _dp_assign_value_4 = "X"
-#         _dp_assign_obj_5 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_6 = "__qualname__"
+#         StoreName("_dp_assign_value_4", "X")
+#         StoreName("_dp_assign_obj_5", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_6", "__qualname__")
 #         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         f = MakeFunction(0, Function, tuple_values(), NONE)
 #         return NONE
@@ -256,13 +256,13 @@ class A:
 #     function_id: 0
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         _dp_assign_value_1 = __name__
-#         _dp_assign_obj_2 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_3 = "__module__"
+#         StoreName("_dp_assign_value_1", __name__)
+#         StoreName("_dp_assign_obj_2", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_3", "__module__")
 #         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
-#         _dp_assign_value_4 = "A.B"
-#         _dp_assign_obj_5 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_6 = "__qualname__"
+#         StoreName("_dp_assign_value_4", "A.B")
+#         StoreName("_dp_assign_obj_5", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_6", "__qualname__")
 #         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         return NONE
 
@@ -276,13 +276,13 @@ class A:
 #     function_id: 2
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         _dp_assign_value_7 = __name__
-#         _dp_assign_obj_8 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_9 = "__module__"
+#         StoreName("_dp_assign_value_7", __name__)
+#         StoreName("_dp_assign_obj_8", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_9", "__module__")
 #         SetItem(_dp_assign_obj_8, _dp_assign_index_9, _dp_assign_value_7)
-#         _dp_assign_value_10 = "A"
-#         _dp_assign_obj_11 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_12 = "__qualname__"
+#         StoreName("_dp_assign_value_10", "A")
+#         StoreName("_dp_assign_obj_11", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_12", "__qualname__")
 #         SetItem(_dp_assign_obj_11, _dp_assign_index_12, _dp_assign_value_10)
 #         _dp_class_ns_B = MakeFunction(0, Function, tuple_values(), NONE)
 #         _dp_define_class_B = MakeFunction(1, Function, tuple_values(NONE), NONE)
@@ -320,13 +320,13 @@ def foo():
 #     function_id: 0
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         _dp_assign_value_1 = __name__
-#         _dp_assign_obj_2 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_3 = "__module__"
+#         StoreName("_dp_assign_value_1", __name__)
+#         StoreName("_dp_assign_obj_2", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_3", "__module__")
 #         SetItem(_dp_assign_obj_2, _dp_assign_index_3, _dp_assign_value_1)
-#         _dp_assign_value_4 = "B"
-#         _dp_assign_obj_5 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_6 = "__qualname__"
+#         StoreName("_dp_assign_value_4", "B")
+#         StoreName("_dp_assign_obj_5", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_6", "__qualname__")
 #         SetItem(_dp_assign_obj_5, _dp_assign_index_6, _dp_assign_value_4)
 #         return NONE
 
@@ -340,13 +340,13 @@ def foo():
 #     function_id: 2
 #     block bb1:
 #         _dp_classcell = _dp_classcell_arg
-#         _dp_assign_value_7 = __name__
-#         _dp_assign_obj_8 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_9 = "__module__"
+#         StoreName("_dp_assign_value_7", __name__)
+#         StoreName("_dp_assign_obj_8", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_9", "__module__")
 #         SetItem(_dp_assign_obj_8, _dp_assign_index_9, _dp_assign_value_7)
-#         _dp_assign_value_10 = "foo.<locals>.A"
-#         _dp_assign_obj_11 = load_deleted_name("_dp_class_ns", _dp_class_ns)
-#         _dp_assign_index_12 = "__qualname__"
+#         StoreName("_dp_assign_value_10", "foo.<locals>.A")
+#         StoreName("_dp_assign_obj_11", load_deleted_name("_dp_class_ns", _dp_class_ns))
+#         StoreName("_dp_assign_index_12", "__qualname__")
 #         SetItem(_dp_assign_obj_11, _dp_assign_index_12, _dp_assign_value_10)
 #         _dp_class_ns_B = MakeFunction(0, Function, tuple_values(), NONE)
 #         _dp_define_class_B = MakeFunction(1, Function, tuple_values(NONE), NONE)
