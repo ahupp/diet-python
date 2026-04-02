@@ -10,8 +10,8 @@ use crate::block_py::{
     BlockPyRaise, BlockPyStmt, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
-    ImplicitNoneExpr, MakeFunction, Meta, ModuleNameGen, PassStmt, StorageLayout, UnresolvedName,
-    WithMeta,
+    ImplicitNoneExpr, Instr, InstrName, MakeFunction, Meta, ModuleNameGen, PassStmt, StorageLayout,
+    Store, UnresolvedName, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -170,6 +170,16 @@ fn core_expr_without_yield(expr: Expr) -> CoreBlockPyExpr {
 
 fn core_name(name: &str) -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("{name:id}", name = name))
+}
+
+fn internal_store_stmt<E>(target: &str, value: E) -> BlockPyStmt<E>
+where
+    E: Instr + From<Store<E>>,
+    InstrName<E>: From<UnresolvedName>,
+{
+    let target = expr_name(target);
+    let meta = Meta::new(target.node_index(), target.range());
+    BlockPyStmt::Expr(Store::new(target, Box::new(value)).with_meta(meta).into())
 }
 
 fn core_literal_int(value: usize) -> CoreBlockPyExpr {
@@ -820,10 +830,7 @@ impl ResumeLoweringState {
             .unwrap_or_else(core_none);
         block.body.insert(
             0,
-            BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name("_dp_throw_context"),
-                value: active_exception,
-            }),
+            internal_store_stmt("_dp_throw_context", active_exception),
         );
         self.exception_edges.insert(block.label.clone(), exc_target);
         self.blocks.push(block);
@@ -941,14 +948,8 @@ fn emit_yield_site(
     match site {
         YieldSite::ExprYield(value) => {
             let (resume_pc, resume_label) = state.fresh_resume_target("yield_resume");
-            prefix.push(BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name("_dp_pc"),
-                value: core_literal_int(resume_pc),
-            }));
-            prefix.push(BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name("_dp_yieldfrom"),
-                value: core_none(),
-            }));
+            prefix.push(internal_store_stmt("_dp_pc", core_literal_int(resume_pc)));
+            prefix.push(internal_store_stmt("_dp_yieldfrom", core_none()));
             state.push_block(
                 BlockPyBlock {
                     label,
@@ -971,14 +972,8 @@ fn emit_yield_site(
         }
         YieldSite::AssignYield { target, value } => {
             let (resume_pc, resume_label) = state.fresh_resume_target("yield_resume");
-            prefix.push(BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name("_dp_pc"),
-                value: core_literal_int(resume_pc),
-            }));
-            prefix.push(BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name("_dp_yieldfrom"),
-                value: core_none(),
-            }));
+            prefix.push(internal_store_stmt("_dp_pc", core_literal_int(resume_pc)));
+            prefix.push(internal_store_stmt("_dp_yieldfrom", core_none()));
             state.push_block(
                 BlockPyBlock {
                     label,
@@ -1001,14 +996,8 @@ fn emit_yield_site(
         }
         YieldSite::ReturnYield(value) => {
             let (resume_pc, resume_label) = state.fresh_resume_target("yield_return_resume");
-            prefix.push(BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name("_dp_pc"),
-                value: core_literal_int(resume_pc),
-            }));
-            prefix.push(BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name("_dp_yieldfrom"),
-                value: core_none(),
-            }));
+            prefix.push(internal_store_stmt("_dp_pc", core_literal_int(resume_pc)));
+            prefix.push(internal_store_stmt("_dp_yieldfrom", core_none()));
             state.push_block(
                 BlockPyBlock {
                     label,
@@ -1144,14 +1133,11 @@ fn emit_yield_from_site(
     let throw_name = state.fresh_temp("yield_from_throw");
     let close_name = state.fresh_temp("yield_from_close");
     let caught_exc_name = state.fresh_temp("yield_from_exc");
-    prefix.push(BlockPyStmt::Assign(BlockPyAssign {
-        target: expr_name("_dp_yieldfrom"),
-        value: core_call("iter", vec![value_expr]),
-    }));
-    prefix.push(BlockPyStmt::Assign(BlockPyAssign {
-        target: expr_name("_dp_pc"),
-        value: core_literal_int(delegate_pc),
-    }));
+    prefix.push(internal_store_stmt(
+        "_dp_yieldfrom",
+        core_call("iter", vec![value_expr]),
+    ));
+    prefix.push(internal_store_stmt("_dp_pc", core_literal_int(delegate_pc)));
     state.push_block(
         BlockPyBlock {
             label,
@@ -1196,10 +1182,10 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: next_call_label,
-            body: vec![BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name(yielded_value_name.as_str()),
-                value: core_expr_without_yield(py_expr!("next(_dp_yieldfrom)")),
-            })],
+            body: vec![internal_store_stmt(
+                yielded_value_name.as_str(),
+                core_expr_without_yield(py_expr!("next(_dp_yieldfrom)")),
+            )],
             term: BlockPyTerm::Jump(yielded_label.clone().into()),
             params: params.clone(),
             exc_edge: None,
@@ -1209,10 +1195,10 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: send_call_label,
-            body: vec![BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name(yielded_value_name.as_str()),
-                value: core_expr_without_yield(py_expr!("_dp_yieldfrom.send(_dp_send_value)")),
-            })],
+            body: vec![internal_store_stmt(
+                yielded_value_name.as_str(),
+                core_expr_without_yield(py_expr!("_dp_yieldfrom.send(_dp_send_value)")),
+            )],
             term: BlockPyTerm::Jump(yielded_label.clone().into()),
             params: params.clone(),
             exc_edge: None,
@@ -1236,10 +1222,10 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: close_lookup_label,
-            body: vec![BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name(close_name.as_str()),
-                value: core_expr_without_yield(py_expr!("getattr(_dp_yieldfrom, \"close\", None)")),
-            })],
+            body: vec![internal_store_stmt(
+                close_name.as_str(),
+                core_expr_without_yield(py_expr!("getattr(_dp_yieldfrom, \"close\", None)")),
+            )],
             term: BlockPyTerm::IfTerm(BlockPyIfTerm {
                 test: is_name_not_none_test(close_name.as_str()),
                 then_label: close_call_label.clone(),
@@ -1266,10 +1252,10 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: throw_lookup_label,
-            body: vec![BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name(throw_name.as_str()),
-                value: core_expr_without_yield(py_expr!("getattr(_dp_yieldfrom, \"throw\", None)")),
-            })],
+            body: vec![internal_store_stmt(
+                throw_name.as_str(),
+                core_expr_without_yield(py_expr!("getattr(_dp_yieldfrom, \"throw\", None)")),
+            )],
             term: BlockPyTerm::IfTerm(BlockPyIfTerm {
                 test: is_name_none_test(throw_name.as_str()),
                 then_label: raise_resume_exc_label.clone(),
@@ -1283,13 +1269,13 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: throw_call_label,
-            body: vec![BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name(yielded_value_name.as_str()),
-                value: core_expr_without_yield(py_expr!(
+            body: vec![internal_store_stmt(
+                yielded_value_name.as_str(),
+                core_expr_without_yield(py_expr!(
                     "{throw_fn:id}(_dp_resume_exc)",
                     throw_fn = throw_name.as_str(),
                 )),
-            })],
+            )],
             term: BlockPyTerm::Jump(yielded_label.clone().into()),
             params: params.clone(),
             exc_edge: None,
@@ -1327,10 +1313,10 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: stopiter_label,
-            body: vec![BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name(yielded_value_name.as_str()),
-                value: current_exception_value_expr(caught_exc_name.as_str()),
-            })],
+            body: vec![internal_store_stmt(
+                yielded_value_name.as_str(),
+                current_exception_value_expr(caught_exc_name.as_str()),
+            )],
             term: BlockPyTerm::Jump(BlockPyEdge::with_args(
                 done_label.clone(),
                 explicit_jump_args_for_params(&params),
@@ -1355,10 +1341,7 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: yielded_label,
-            body: vec![BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name("_dp_pc"),
-                value: core_literal_int(delegate_pc),
-            })],
+            body: vec![internal_store_stmt("_dp_pc", core_literal_int(delegate_pc))],
             term: BlockPyTerm::Return(core_name(yielded_value_name.as_str())),
             params: params.clone(),
             exc_edge: None,
@@ -1378,10 +1361,10 @@ fn emit_yield_from_site(
 
     tail_body.insert(
         0,
-        BlockPyStmt::Assign(BlockPyAssign {
-            target: expr_name("_dp_yieldfrom"),
-            value: CoreBlockPyExprWithYield::implicit_none_expr(),
-        }),
+        internal_store_stmt(
+            "_dp_yieldfrom",
+            CoreBlockPyExprWithYield::implicit_none_expr(),
+        ),
     );
     if let Some(target) = assign_target {
         tail_body.insert(
@@ -1395,10 +1378,10 @@ fn emit_yield_from_site(
     {
         tail_body.insert(
             1,
-            BlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name("_dp_yield_from_value"),
-                value: CoreBlockPyExprWithYield::Name(expr_name(yielded_value_name.as_str())),
-            }),
+            internal_store_stmt(
+                "_dp_yield_from_value",
+                CoreBlockPyExprWithYield::Name(expr_name(yielded_value_name.as_str())),
+            ),
         );
     }
     lower_resume_fragment(state, done_label, tail_body, tail_term, params, exc_target);
