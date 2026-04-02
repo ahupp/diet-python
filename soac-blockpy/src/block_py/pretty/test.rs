@@ -36,7 +36,7 @@ fn test_name_gen() -> crate::block_py::FunctionNameGen {
 }
 
 fn label(index: u32) -> BlockPyLabel {
-    BlockPyLabel::from(index)
+    BlockPyLabel::from_index(index as usize)
 }
 
 fn located_name(id: &str, location: NameLocation) -> LocatedName {
@@ -113,10 +113,10 @@ fn bb_text_renders_located_names_with_resolved_locations() {
     });
     let global_expr = CoreBlockPyExpr::Name(located_name("answer", NameLocation::Global));
 
-    assert_eq!(bb_expr_text(&closure_expr), "closure slot 2");
+    assert_eq!(bb_expr_text(&closure_expr), "Closure(2)");
     assert_eq!(
         core_bb_stmt_text(&assign_stmt),
-        "local slot 1 = closure slot 2"
+        "LocalLocation(1) = Closure(2)"
     );
     assert_eq!(bb_expr_text(&global_expr), "answer");
 }

@@ -18,7 +18,7 @@ use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 pub use operation::{
     BinOp, BinOpKind, Call, CellRef, CellRefForName, Del, DelItem, GetAttr, GetItem, Load,
-    MakeCell, MakeFunction, MakeString, SetAttr, SetItem, Store, UnaryOp, UnaryOpKind,
+    MakeCell, MakeFunction, SetAttr, SetItem, Store, UnaryOp, UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
@@ -33,6 +33,7 @@ pub(crate) mod exception;
 mod meta;
 mod name_gen;
 pub mod operation;
+mod operation_macro;
 pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod semantics;
@@ -45,47 +46,12 @@ pub(crate) use convert::{
     try_lower_core_expr_without_await, try_lower_core_expr_without_yield, BlockPyModuleMap,
     ExprTryMap,
 };
-pub use name_gen::{FunctionNameGen, ModuleNameGen};
+pub use name_gen::{BlockPyLabel, FunctionNameGen, ModuleNameGen};
 pub(crate) use structured::IntoStructuredBlockPyStmt;
 pub(crate) use validate::validate_module;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct BlockPyLabel {
-    index: u32,
-}
-
-impl BlockPyLabel {
-    pub(crate) fn from_u32_index(value: u32) -> Self {
-        Self { index: value }
-    }
-
-    pub(crate) fn from_index(value: usize) -> Self {
-        Self::from_u32_index(u32::try_from(value).expect("block label usize should fit in u32"))
-    }
-}
-
-#[cfg(test)]
-impl From<u32> for BlockPyLabel {
-    fn from(value: u32) -> Self {
-        Self::from_u32_index(value)
-    }
-}
-
-#[cfg(test)]
-impl From<usize> for BlockPyLabel {
-    fn from(value: usize) -> Self {
-        Self::from_index(value)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FunctionId(pub usize);
-
-impl FunctionId {
-    pub fn plan_qualname(self, qualname: &str) -> String {
-        format!("{qualname}::__dp_fn_{}", self.0)
-    }
-}
 
 fn is_internal_symbol(name: &str) -> bool {
     name.starts_with("_dp_") || name == "__soac__"
@@ -97,10 +63,6 @@ pub struct LocalLocation(pub u32);
 impl LocalLocation {
     pub fn slot(self) -> u32 {
         self.0
-    }
-
-    pub fn pretty_id(self) -> String {
-        format!("local slot {}", self.slot())
     }
 }
 
@@ -128,14 +90,6 @@ impl CellLocation {
 
     pub fn is_captured_source(self) -> bool {
         matches!(self, Self::CapturedSource(_))
-    }
-
-    pub fn pretty_id(self) -> String {
-        match self {
-            Self::Owned(slot) => format!("owned cell slot {slot}"),
-            Self::Closure(slot) => format!("closure slot {slot}"),
-            Self::CapturedSource(slot) => format!("captured cell source slot {slot}"),
-        }
     }
 }
 
@@ -208,10 +162,10 @@ impl NameLocation {
 
     pub fn pretty_id(self, unresolved_name: &str) -> String {
         match self {
-            Self::Local(location) => location.pretty_id(),
+            Self::Local(location) => format!("{location:?}"),
             Self::Global => unresolved_name.to_string(),
             Self::RuntimeName => unresolved_name.to_string(),
-            Self::Cell(location) => location.pretty_id(),
+            Self::Cell(location) => format!("{location:?}"),
             Self::Constant(index) => format!("constant slot {index}"),
         }
     }
@@ -557,18 +511,6 @@ impl<S, T> CfgBlock<S, T> {
     }
 }
 
-pub(crate) fn move_entry_block_to_front<S, T>(
-    blocks: &mut Vec<CfgBlock<S, T>>,
-    entry_label: BlockPyLabel,
-) {
-    if let Some(entry_index) = blocks.iter().position(|block| block.label == entry_label) {
-        if entry_index != 0 {
-            let entry_block = blocks.remove(entry_index);
-            blocks.insert(0, entry_block);
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct BlockPyModule<P: BlockPyPass> {
     pub callable_defs: Vec<BlockPyFunction<P>>,
@@ -607,7 +549,6 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
     Store(Store<Self>),
     Del(Del<Self>),
     MakeCell(MakeCell<Self>),
-    MakeString(MakeString),
     CellRefForName(CellRefForName),
     CellRef(CellRef),
     MakeFunction(MakeFunction<Self>),
@@ -632,7 +573,6 @@ pub enum CoreBlockPyExprWithYield {
     Store(Store<Self>),
     Del(Del<Self>),
     MakeCell(MakeCell<Self>),
-    MakeString(MakeString),
     CellRefForName(CellRefForName),
     CellRef(CellRef),
     MakeFunction(MakeFunction<Self>),
@@ -656,7 +596,6 @@ pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
     Store(Store<Self>),
     Del(Del<Self>),
     MakeCell(MakeCell<Self>),
-    MakeString(MakeString),
     CellRefForName(CellRefForName),
     CellRef(CellRef),
     MakeFunction(MakeFunction<Self>),
@@ -680,7 +619,6 @@ pub enum CodegenBlockPyExpr {
     Store(Store<Self>),
     Del(Del<Self>),
     MakeCell(MakeCell<Self>),
-    MakeString(MakeString),
     CellRefForName(CellRefForName),
     CellRef(CellRef),
     MakeFunction(MakeFunction<Self>),
@@ -910,7 +848,6 @@ impl BlockPyDebugExprText for CoreBlockPyExprWithAwaitAndYield {
             Self::Store(op) => op.debug_operation_text(),
             Self::Del(op) => op.debug_operation_text(),
             Self::MakeCell(op) => op.debug_operation_text(),
-            Self::MakeString(op) => op.debug_operation_text(),
             Self::CellRefForName(op) => op.debug_operation_text(),
             Self::CellRef(op) => op.debug_operation_text(),
             Self::MakeFunction(op) => op.debug_operation_text(),
@@ -938,7 +875,6 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
             Self::Store(op) => op.map_expr_node(&mut *f).into(),
             Self::Del(op) => op.map_expr_node(&mut *f).into(),
             Self::MakeCell(op) => op.map_expr_node(&mut *f).into(),
-            Self::MakeString(op) => op.map_expr_node(&mut *f).into(),
             Self::CellRefForName(op) => op.map_expr_node(&mut *f).into(),
             Self::CellRef(op) => op.map_expr_node(&mut *f).into(),
             Self::MakeFunction(op) => op.map_expr_node(&mut *f).into(),
@@ -984,7 +920,6 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
             Self::Store(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::Del(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::MakeCell(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
-            Self::MakeString(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::CellRefForName(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::CellRef(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::MakeFunction(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
@@ -1065,7 +1000,6 @@ impl BlockPyDebugExprText for CoreBlockPyExprWithYield {
             Self::Store(op) => op.debug_operation_text(),
             Self::Del(op) => op.debug_operation_text(),
             Self::MakeCell(op) => op.debug_operation_text(),
-            Self::MakeString(op) => op.debug_operation_text(),
             Self::CellRefForName(op) => op.debug_operation_text(),
             Self::CellRef(op) => op.debug_operation_text(),
             Self::MakeFunction(op) => op.debug_operation_text(),
@@ -1093,7 +1027,6 @@ impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWi
             Self::Store(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::Del(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::MakeCell(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
-            Self::MakeString(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::CellRefForName(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::CellRef(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::MakeFunction(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
@@ -1131,7 +1064,6 @@ impl<N: BlockPyNameLike> HasMeta for CoreBlockPyExpr<N> {
             Self::Store(op) => op.meta(),
             Self::Del(op) => op.meta(),
             Self::MakeCell(op) => op.meta(),
-            Self::MakeString(op) => op.meta(),
             Self::CellRefForName(op) => op.meta(),
             Self::CellRef(op) => op.meta(),
             Self::MakeFunction(op) => op.meta(),
@@ -1159,7 +1091,6 @@ where
             Self::Store(op) => op.debug_operation_text(),
             Self::Del(op) => op.debug_operation_text(),
             Self::MakeCell(op) => op.debug_operation_text(),
-            Self::MakeString(op) => op.debug_operation_text(),
             Self::CellRefForName(op) => op.debug_operation_text(),
             Self::CellRef(op) => op.debug_operation_text(),
             Self::MakeFunction(op) => op.debug_operation_text(),
@@ -1184,7 +1115,6 @@ impl<N: BlockPyNameLike + WithMeta> WithMeta for CoreBlockPyExpr<N> {
             Self::Store(op) => Self::Store(op.with_meta(meta)),
             Self::Del(op) => Self::Del(op.with_meta(meta)),
             Self::MakeCell(op) => Self::MakeCell(op.with_meta(meta)),
-            Self::MakeString(op) => Self::MakeString(op.with_meta(meta)),
             Self::CellRefForName(op) => Self::CellRefForName(op.with_meta(meta)),
             Self::CellRef(op) => Self::CellRef(op.with_meta(meta)),
             Self::MakeFunction(op) => Self::MakeFunction(op.with_meta(meta)),
@@ -1213,7 +1143,6 @@ where
             Self::Store(op) => op.map_expr_node(&mut *f).into(),
             Self::Del(op) => op.map_expr_node(&mut *f).into(),
             Self::MakeCell(op) => op.map_expr_node(&mut *f).into(),
-            Self::MakeString(op) => op.map_expr_node(&mut *f).into(),
             Self::CellRefForName(op) => op.map_expr_node(&mut *f).into(),
             Self::CellRef(op) => op.map_expr_node(&mut *f).into(),
             Self::MakeFunction(op) => op.map_expr_node(&mut *f).into(),
@@ -1245,7 +1174,6 @@ where
             Self::Store(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::Del(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::MakeCell(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
-            Self::MakeString(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::CellRefForName(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::CellRef(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::MakeFunction(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
@@ -1312,7 +1240,6 @@ where
             Self::Store(op) => op.map_expr_node(&mut *f).into(),
             Self::Del(op) => op.map_expr_node(&mut *f).into(),
             Self::MakeCell(op) => op.map_expr_node(&mut *f).into(),
-            Self::MakeString(op) => op.map_expr_node(&mut *f).into(),
             Self::CellRefForName(op) => op.map_expr_node(&mut *f).into(),
             Self::CellRef(op) => op.map_expr_node(&mut *f).into(),
             Self::MakeFunction(op) => op.map_expr_node(&mut *f).into(),
@@ -1358,7 +1285,6 @@ impl BlockPyDebugExprText for CodegenBlockPyExpr {
             Self::Store(op) => op.debug_operation_text(),
             Self::Del(op) => op.debug_operation_text(),
             Self::MakeCell(op) => op.debug_operation_text(),
-            Self::MakeString(op) => op.debug_operation_text(),
             Self::CellRefForName(op) => op.debug_operation_text(),
             Self::CellRef(op) => op.debug_operation_text(),
             Self::MakeFunction(op) => op.debug_operation_text(),
@@ -2530,15 +2456,3 @@ impl<E: ImplicitNoneExpr> BlockPyFallthroughTerm<BlockPyLabel> for BlockPyTerm<E
 
 #[cfg(test)]
 mod test;
-
-impl BlockPyLabel {
-    pub fn index(self) -> usize {
-        self.index as usize
-    }
-}
-
-impl fmt::Display for BlockPyLabel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "bb{}", self.index)
-    }
-}

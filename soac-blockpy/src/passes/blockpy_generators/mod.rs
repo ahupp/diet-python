@@ -1,3 +1,4 @@
+use crate::block_py::cfg::RelabelBlockTargets;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::state::collect_state_vars;
 use crate::block_py::{
@@ -10,8 +11,8 @@ use crate::block_py::{
     BlockPyRaise, BlockPyStmt, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
-    ImplicitNoneExpr, Instr, InstrName, MakeFunction, Meta, ModuleNameGen, PassStmt, StorageLayout,
-    Store, UnresolvedName, WithMeta,
+    FunctionNameGen, ImplicitNoneExpr, Instr, InstrName, MakeFunction, Meta, ModuleNameGen,
+    PassStmt, StorageLayout, Store, UnresolvedName, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -533,19 +534,6 @@ fn resume_param_spec(kind: BlockPyFunctionKind) -> ParamSpec {
     }
 }
 
-fn fresh_resume_dispatch_label(
-    blocks: &[LinearCoreBlock],
-    exhausted_label: &BlockPyLabel,
-) -> BlockPyLabel {
-    let max_index = blocks
-        .iter()
-        .map(|block| block.label.index())
-        .chain(std::iter::once(exhausted_label.index()))
-        .max()
-        .unwrap_or(0);
-    BlockPyLabel::from_index(max_index + 1)
-}
-
 #[derive(Clone)]
 enum YieldSite {
     ExprYield(Option<CoreBlockPyExprWithYield>),
@@ -767,7 +755,7 @@ fn current_exception_value_expr(exc_name: &str) -> CoreBlockPyExpr {
 
 struct ResumeLoweringState {
     kind: BlockPyFunctionKind,
-    next_label_id: usize,
+    name_gen: FunctionNameGen,
     next_resume_pc: usize,
     blocks: Vec<LinearCoreBlock>,
     exception_edges: HashMap<BlockPyLabel, Option<BlockPyLabel>>,
@@ -778,19 +766,14 @@ struct ResumeLoweringState {
 
 impl ResumeLoweringState {
     fn new(
+        name_gen: FunctionNameGen,
         kind: BlockPyFunctionKind,
         target_arg_indices: HashMap<BlockPyLabel, Vec<usize>>,
     ) -> Self {
-        let next_label_id = target_arg_indices
-            .keys()
-            .map(|label| label.index())
-            .max()
-            .unwrap_or(0)
-            + 1;
-        let exhausted_label = BlockPyLabel::from_index(next_label_id);
+        let exhausted_label = name_gen.next_block_name();
         Self {
             kind,
-            next_label_id: next_label_id + 1,
+            name_gen,
             next_resume_pc: 2,
             blocks: Vec::new(),
             exception_edges: HashMap::new(),
@@ -802,9 +785,7 @@ impl ResumeLoweringState {
 
     fn fresh_label(&mut self, base: &str) -> BlockPyLabel {
         let _ = base;
-        let label = BlockPyLabel::from_index(self.next_label_id);
-        self.next_label_id += 1;
-        label
+        self.name_gen.next_block_name()
     }
 
     fn fresh_resume_target(&mut self, base: &str) -> (usize, BlockPyLabel) {
@@ -816,9 +797,7 @@ impl ResumeLoweringState {
     }
 
     fn fresh_temp(&mut self, base: &str) -> String {
-        let name = format!("_dp_{base}_{}", self.next_label_id);
-        self.next_label_id += 1;
-        name
+        self.name_gen.next_tmp_name(base).to_string()
     }
 
     fn push_block(&mut self, mut block: LinearCoreBlock, exc_target: Option<BlockPyLabel>) {
@@ -1389,18 +1368,27 @@ fn emit_yield_from_site(
 
 fn lower_resume_blocks(
     callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
+    resume_name_gen: FunctionNameGen,
 ) -> (
     Vec<LinearCoreBlock>,
     HashMap<BlockPyLabel, Option<BlockPyLabel>>,
     BlockPyLabel,
 ) {
+    let relabel = callable
+        .blocks
+        .iter()
+        .map(|block| (block.label, resume_name_gen.next_block_name()))
+        .collect::<HashMap<_, _>>();
     let linear_exception_edges = lowered_exception_edges(&callable.blocks);
     let declared_param_indices_by_label = callable
         .blocks
         .iter()
         .map(|block| {
             (
-                block.label.clone(),
+                relabel
+                    .get(&block.label)
+                    .expect("resume relabel should cover every block")
+                    .clone(),
                 generator_resume_declared_param_indices(callable.kind, &block.params),
             )
         })
@@ -1409,17 +1397,48 @@ fn lower_resume_blocks(
         .blocks
         .iter()
         .cloned()
-        .map(|block| LinearYieldBlock {
-            label: block.label,
-            body: block.body,
-            term: block.term,
-            params: block.params,
-            exc_edge: None,
+        .map(|block| {
+            let mut term = block.term;
+            term.relabel_targets(&relabel);
+            LinearYieldBlock {
+                label: relabel
+                    .get(&block.label)
+                    .expect("resume relabel should cover every block")
+                    .clone(),
+                body: block.body,
+                term,
+                params: block.params,
+                exc_edge: None,
+            }
         })
         .collect::<Vec<_>>();
-    let resume_entry_target = callable.entry_block().label.clone();
+    let remapped_exception_edges = linear_exception_edges
+        .into_iter()
+        .map(|(label, exc_target)| {
+            (
+                relabel
+                    .get(&label)
+                    .expect("resume relabel should cover every exception source")
+                    .clone(),
+                exc_target.map(|target| {
+                    relabel
+                        .get(&target)
+                        .expect("resume relabel should cover every exception target")
+                        .clone()
+                }),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let resume_entry_target = relabel
+        .get(&callable.entry_block().label)
+        .expect("resume relabel should cover entry block")
+        .clone();
 
-    let mut state = ResumeLoweringState::new(callable.kind, declared_param_indices_by_label);
+    let mut state = ResumeLoweringState::new(
+        resume_name_gen,
+        callable.kind,
+        declared_param_indices_by_label,
+    );
     state.resume_targets.push((1, resume_entry_target));
 
     let mut queue = linear_blocks
@@ -1430,7 +1449,7 @@ fn lower_resume_blocks(
                 block.body,
                 block.term,
                 generator_resume_declared_params(callable.kind, &block.params),
-                linear_exception_edges
+                remapped_exception_edges
                     .get(&block.label)
                     .cloned()
                     .unwrap_or(None),
@@ -1441,7 +1460,7 @@ fn lower_resume_blocks(
         lower_resume_fragment(&mut state, label, body, term, params, exc_target);
     }
 
-    let dispatch_label = fresh_resume_dispatch_label(&state.blocks, &state.exhausted_label);
+    let dispatch_label = state.fresh_label("resume_dispatch");
     let targets_len = state
         .resume_targets
         .iter()
@@ -1511,7 +1530,7 @@ pub(crate) fn lower_generator_like_function(
     let resume_binding_logical_names =
         ordered_resume_binding_logical_names(&callable, &persistent_state_order);
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
-        lower_resume_blocks(&callable);
+        lower_resume_blocks(&callable, resume_name_gen.share());
     let closure_bindings =
         resume_closure_bindings(&callable.semantic, &resume_binding_logical_names);
 

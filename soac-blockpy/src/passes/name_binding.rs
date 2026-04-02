@@ -361,9 +361,6 @@ fn with_helper_arg_mut<N: BlockPyNameLike + Clone>(
         CoreBlockPyExpr::MakeCell(operation) => {
             with_helper_arg_mut_in_operation(operation, index, f)
         }
-        CoreBlockPyExpr::MakeString(operation) => {
-            with_helper_arg_mut_in_operation(operation, index, f)
-        }
         CoreBlockPyExpr::CellRefForName(operation) => {
             with_helper_arg_mut_in_operation(operation, index, f)
         }
@@ -414,7 +411,6 @@ fn walk_helper_args<N: BlockPyNameLike + Clone>(
         CoreBlockPyExpr::Store(operation) => operation.visit_exprs(f),
         CoreBlockPyExpr::Del(operation) => operation.visit_exprs(f),
         CoreBlockPyExpr::MakeCell(operation) => operation.visit_exprs(f),
-        CoreBlockPyExpr::MakeString(operation) => operation.visit_exprs(f),
         CoreBlockPyExpr::CellRefForName(operation) => operation.visit_exprs(f),
         CoreBlockPyExpr::CellRef(operation) => operation.visit_exprs(f),
         CoreBlockPyExpr::MakeFunction(operation) => operation.visit_exprs(f),
@@ -439,7 +435,6 @@ fn walk_helper_args_mut<N: BlockPyNameLike + Clone>(
         CoreBlockPyExpr::Store(operation) => operation.visit_exprs_mut(f),
         CoreBlockPyExpr::Del(operation) => operation.visit_exprs_mut(f),
         CoreBlockPyExpr::MakeCell(operation) => operation.visit_exprs_mut(f),
-        CoreBlockPyExpr::MakeString(operation) => operation.visit_exprs_mut(f),
         CoreBlockPyExpr::CellRefForName(operation) => operation.visit_exprs_mut(f),
         CoreBlockPyExpr::CellRef(operation) => operation.visit_exprs_mut(f),
         CoreBlockPyExpr::MakeFunction(operation) => operation.visit_exprs_mut(f),
@@ -541,7 +536,6 @@ fn rewrite_deleted_name_loads_in_expr(
         | CoreBlockPyExpr::SetItem(_)
         | CoreBlockPyExpr::DelItem(_)
         | CoreBlockPyExpr::MakeCell(_)
-        | CoreBlockPyExpr::MakeString(_)
         | CoreBlockPyExpr::MakeFunction(_) => walk_helper_args_mut(expr, &mut |arg| {
             rewrite_deleted_name_loads_in_expr(
                 arg,
@@ -1527,7 +1521,6 @@ fn rewrite_raw_cell_loads_in_expr(
         | CoreBlockPyExpr::Store(_)
         | CoreBlockPyExpr::Del(_)
         | CoreBlockPyExpr::MakeCell(_)
-        | CoreBlockPyExpr::MakeString(_)
         | CoreBlockPyExpr::CellRefForName(_)
         | CoreBlockPyExpr::CellRef(_)
         | CoreBlockPyExpr::MakeFunction(_) => {
@@ -1794,9 +1787,6 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
             operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
         }
         CoreBlockPyExpr::MakeCell(operation) => {
-            operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
-        }
-        CoreBlockPyExpr::MakeString(operation) => {
             operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
         }
         CoreBlockPyExpr::CellRefForName(operation) => {

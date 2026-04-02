@@ -272,7 +272,6 @@ mod tests {
                 CodegenBlockPyExpr::MakeCell(op) => {
                     op.visit_exprs_mut(&mut |child| self.extract_expr(child))
                 }
-                CodegenBlockPyExpr::MakeString(_) => {}
                 CodegenBlockPyExpr::CellRefForName(_) => {}
                 CodegenBlockPyExpr::CellRef(_) => {}
                 CodegenBlockPyExpr::MakeFunction(op) => {

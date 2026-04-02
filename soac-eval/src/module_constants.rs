@@ -205,7 +205,6 @@ impl ModuleCodegenConstants {
                     }
                 }
             }
-            CodegenBlockPyExpr::MakeString(op) => ModuleConstantValue::Unicode(op.bytes.clone()),
             CodegenBlockPyExpr::Name(_)
             | CodegenBlockPyExpr::BinOp(_)
             | CodegenBlockPyExpr::UnaryOp(_)
@@ -407,9 +406,6 @@ impl ModuleConstantCollector {
             CodegenBlockPyExpr::Del(op) if op.name.location.is_global() => {
                 self.constants
                     .intern_unicode_bytes(op.name.id_str().as_bytes());
-            }
-            CodegenBlockPyExpr::MakeString(op) => {
-                self.constants.intern_unicode_bytes(op.bytes.as_slice());
             }
             CodegenBlockPyExpr::BinOp(op) => op.visit_exprs(&mut |child| self.collect_expr(child)),
             CodegenBlockPyExpr::UnaryOp(op) => {

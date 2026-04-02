@@ -22,7 +22,7 @@ fn is_name_like(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
 #[test]
 fn eval_order_hoists_call_arguments_in_return_value_to_temps() {
     let block = BlockPyBlock {
-        label: BlockPyLabel::from(0u32),
+        label: BlockPyLabel::from_index(0),
         body: Vec::new(),
         term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
             "f(g(x), h(y))"
@@ -50,7 +50,7 @@ fn eval_order_hoists_call_arguments_in_return_value_to_temps() {
 #[test]
 fn eval_order_hoists_return_value_to_temp() {
     let block = BlockPyBlock {
-        label: BlockPyLabel::from(0u32),
+        label: BlockPyLabel::from_index(0),
         body: Vec::new(),
         term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
             "f(g(x))"
@@ -70,7 +70,7 @@ fn eval_order_hoists_return_value_to_temp() {
 #[test]
 fn eval_order_hoists_nested_call_in_assignment_rhs() {
     let block = BlockPyBlock {
-        label: BlockPyLabel::from(0u32),
+        label: BlockPyLabel::from_index(0),
         body: vec![StructuredBlockPyStmtFor::Assign(BlockPyAssign {
             target: fresh_eval_name().into(),
             value: CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!("f(g(x))")),
@@ -102,7 +102,7 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
 #[test]
 fn eval_order_hoists_await_in_assignment_call_argument() {
     let block = BlockPyBlock {
-        label: BlockPyLabel::from(0u32),
+        label: BlockPyLabel::from_index(0),
         body: vec![StructuredBlockPyStmtFor::Assign(BlockPyAssign {
             target: test_name("total"),
             value: CoreBlockPyExprWithAwaitAndYield::BinOp(BinOp::new(
@@ -149,7 +149,7 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
 #[test]
 fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
     let block = BlockPyBlock {
-        label: BlockPyLabel::from(0u32),
+        label: BlockPyLabel::from_index(0),
         body: vec![StructuredBlockPyStmtFor::Assign(BlockPyAssign {
             target: test_name("total"),
             value: CoreBlockPyExprWithYield::BinOp(BinOp::new(

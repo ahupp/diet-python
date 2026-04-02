@@ -1,7 +1,31 @@
-use crate::block_py::{BlockPyLabel, FunctionId};
+use super::FunctionId;
 use ruff_python_ast as ast;
+use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct BlockPyLabel {
+    index: u32,
+}
+
+impl BlockPyLabel {
+    pub fn from_index(value: usize) -> Self {
+        Self {
+            index: u32::try_from(value).expect("block label usize should fit in u32"),
+        }
+    }
+
+    pub fn index(self) -> usize {
+        self.index as usize
+    }
+}
+
+impl fmt::Display for BlockPyLabel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "bb{}", self.index)
+    }
+}
 
 #[derive(Debug)]
 pub struct FunctionNameGen {

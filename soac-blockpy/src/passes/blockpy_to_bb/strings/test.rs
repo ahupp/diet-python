@@ -99,7 +99,6 @@ fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockP
         CodegenBlockPyExpr::DelItem(operation) => {
             operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
         }
-        CodegenBlockPyExpr::MakeString(_) => {}
     }
 }
 

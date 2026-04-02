@@ -7,9 +7,9 @@ use crate::block_py::exception::{
 };
 use crate::block_py::param_specs::ParamSpec;
 use crate::block_py::{
-    assert_blockpy_block_normalized, move_entry_block_to_front, BlockPyCallableSemanticInfo,
-    BlockPyEdge, BlockPyFallthroughTerm, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel,
-    BlockPyModule, BlockPyTerm, CfgBlock, FunctionName, FunctionNameGen, StructuredBlockPyStmtFor,
+    assert_blockpy_block_normalized, BlockPyCallableSemanticInfo, BlockPyEdge,
+    BlockPyFallthroughTerm, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyModule,
+    BlockPyTerm, CfgBlock, FunctionName, FunctionNameGen, StructuredBlockPyStmtFor,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -124,6 +124,15 @@ pub(crate) fn attach_exception_edges_to_blocks<S, E>(
         .collect()
 }
 
+fn move_entry_block_to_front<S, T>(blocks: &mut Vec<CfgBlock<S, T>>, entry_label: BlockPyLabel) {
+    if let Some(entry_index) = blocks.iter().position(|block| block.label == entry_label) {
+        if entry_index != 0 {
+            let entry_block = blocks.remove(entry_index);
+            blocks.insert(0, entry_block);
+        }
+    }
+}
+
 pub(crate) fn build_core_blockpy_callable_def_from_runtime_input(
     context: &Context,
     name_gen: FunctionNameGen,
@@ -172,7 +181,7 @@ pub(crate) fn build_core_blockpy_callable_def_from_runtime_input(
         .into_iter()
         .map(make_eval_order_explicit_in_core_block)
         .collect::<Vec<_>>();
-    let mut blocks = lower_structured_blocks_to_bb_blocks(&blocks);
+    let mut blocks = lower_structured_blocks_to_bb_blocks(&name_gen, &blocks);
     if matches!(blockpy_kind, BlockPyFunctionKind::Function) {
         rewrite_current_exception_in_core_blocks_with_await_and_yield(&mut blocks[..]);
     }

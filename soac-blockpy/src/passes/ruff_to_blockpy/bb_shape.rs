@@ -1,8 +1,8 @@
 use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
     BlockArg, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike, BlockPyStmt, BlockPyTerm,
-    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, Del, Instr, InstrExprNode, Store,
-    StructuredBlockPyStmt, UnresolvedName, WithMeta,
+    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, Del, FunctionNameGen, Instr, InstrExprNode,
+    Store, StructuredBlockPyStmt, UnresolvedName, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use ruff_python_ast::{self as ast};
@@ -10,6 +10,7 @@ use ruff_text_size::TextRange;
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn lower_structured_blocks_to_bb_blocks<E, N>(
+    name_gen: &FunctionNameGen,
     blocks: &[crate::block_py::CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
 ) -> Vec<crate::block_py::CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>>
 where
@@ -22,8 +23,12 @@ where
         normalize_internal_stmt_ops_in_structured_stmt_list(&mut block.body);
     }
     let exception_edges = lowered_exception_edges(blocks);
-    let (linear_blocks, _linear_block_params, linear_exception_edges) =
-        linearize_structured_ifs(&normalized_blocks, &HashMap::new(), &exception_edges);
+    let (linear_blocks, _linear_block_params, linear_exception_edges) = linearize_structured_ifs(
+        name_gen,
+        &normalized_blocks,
+        &HashMap::new(),
+        &exception_edges,
+    );
     let mut bb_blocks = linear_blocks
         .iter()
         .map(|block| {
@@ -258,11 +263,6 @@ fn rewrite_current_exception_in_expr_with_await_and_yield(
                 rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
             })
         }
-        CoreBlockPyExprWithAwaitAndYield::MakeString(operation) => {
-            operation.visit_exprs_mut(&mut |arg| {
-                rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
-            })
-        }
         CoreBlockPyExprWithAwaitAndYield::CellRefForName(operation) => {
             operation.visit_exprs_mut(&mut |arg| {
                 rewrite_current_exception_in_expr_with_await_and_yield(arg, exc_name)
@@ -485,11 +485,6 @@ where
             })
         }
         CoreBlockPyExpr::MakeCell(operation) => {
-            operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
-                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
-            })
-        }
-        CoreBlockPyExpr::MakeString(operation) => {
             operation.visit_exprs_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
                 rewrite_current_exception_in_blockpy_expr(arg, exc_name)
             })

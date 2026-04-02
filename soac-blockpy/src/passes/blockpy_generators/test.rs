@@ -87,7 +87,7 @@ fn build_closure_backed_generator_factory_block(
         generator_expr
     };
 
-    let mut block = BlockPyCfgBlockBuilder::new(BlockPyLabel::from(0u32));
+    let mut block = BlockPyCfgBlockBuilder::new(BlockPyLabel::from_index(0));
     block.set_term(BlockPyTerm::Return(return_value.into()));
     block.finish(None)
 }
@@ -347,7 +347,7 @@ fn builds_closure_backed_generator_factory_block() {
         false,
     );
 
-    assert_eq!(block.label, BlockPyLabel::from(0u32));
+    assert_eq!(block.label, BlockPyLabel::from_index(0));
     assert!(block.body.is_empty(), "{block:?}");
     assert!(matches!(block.term, BlockPyTerm::Return(_)));
 }

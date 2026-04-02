@@ -398,17 +398,6 @@ fn emit_make_cell<'fb, E>(state: &mut impl OperationEmitState<'fb, E>, args: &[&
     state.finish_owned_result(result)
 }
 
-fn emit_make_string<'fb, E>(
-    op: &blockpy_intrinsics::MakeString,
-    state: &mut impl OperationEmitState<'fb, E>,
-) -> ir::Value {
-    let constant_id = state
-        .ctx()
-        .module_constants
-        .require_unicode_constant_id_for_bytes(op.bytes.as_slice());
-    state.emit_owned_module_constant(constant_id)
-}
-
 fn emit_getitem<'fb, E>(state: &mut impl OperationEmitState<'fb, E>, args: &[&E]) -> ir::Value {
     state.emit_owned_func_call(state.ctx().pyobject_getitem_ref, &args)
 }
@@ -654,7 +643,6 @@ pub(super) fn emit_operation<'fb>(
         CodegenBlockPyExpr::MakeCell(op) => {
             Some(emit_make_cell(state, &[op.initial_value.as_ref()]))
         }
-        CodegenBlockPyExpr::MakeString(op) => Some(emit_make_string(op, state)),
         CodegenBlockPyExpr::CellRefForName(_) => None,
         CodegenBlockPyExpr::CellRef(_) => None,
         CodegenBlockPyExpr::MakeFunction(_) => None,

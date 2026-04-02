@@ -1,10 +1,8 @@
 use crate::block_py::{
-    BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
-    ResolvedStorageBlock,
+    BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr, ResolvedStorageBlock,
 };
 use crate::passes::ruff_to_blockpy::populate_exception_edge_args;
 use crate::passes::ResolvedStorageBlockPyPass;
-use std::collections::HashSet;
 
 pub fn lower_try_jump_exception_flow(
     module: &BlockPyModule<ResolvedStorageBlockPyPass>,
@@ -48,9 +46,6 @@ fn lower_function_try_jump_exception_flow(
 fn split_exception_blocks_for_expr_checks(
     function: &mut BlockPyFunction<ResolvedStorageBlockPyPass>,
 ) {
-    let mut used_labels: HashSet<BlockPyLabel> =
-        function.blocks.iter().map(|block| block.label).collect();
-    let mut fresh_index: usize = 0;
     let mut out = Vec::with_capacity(function.blocks.len());
 
     for block in std::mem::take(&mut function.blocks) {
@@ -70,8 +65,7 @@ fn split_exception_blocks_for_expr_checks(
             segment_ops.push(op.clone());
 
             if ends_segment {
-                let next_label = unique_exc_split_label(&mut used_labels, fresh_index);
-                fresh_index += 1;
+                let next_label = function.name_gen.next_block_name();
                 out.push(ResolvedStorageBlock {
                     label: current_label,
                     body: std::mem::take(&mut segment_ops),
@@ -102,20 +96,6 @@ fn op_updates_exception_state(op: &BlockPyStmt) -> bool {
         op,
         BlockPyStmt::Expr(CoreBlockPyExpr::Store(_)) | BlockPyStmt::Expr(CoreBlockPyExpr::Del(_))
     )
-}
-
-fn unique_exc_split_label(
-    used_labels: &mut HashSet<BlockPyLabel>,
-    index_seed: usize,
-) -> BlockPyLabel {
-    let mut index = index_seed;
-    loop {
-        let candidate = BlockPyLabel::from_index(index);
-        if used_labels.insert(candidate) {
-            return candidate;
-        }
-        index += 1;
-    }
 }
 
 #[cfg(test)]

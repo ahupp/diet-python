@@ -1316,7 +1316,6 @@ fn emit_codegen_expr(
         | CodegenBlockPyExpr::Store(_)
         | CodegenBlockPyExpr::Del(_)
         | CodegenBlockPyExpr::MakeCell(_)
-        | CodegenBlockPyExpr::MakeString(_)
         | CodegenBlockPyExpr::CellRefForName(_)
         | CodegenBlockPyExpr::CellRef(_)
         | CodegenBlockPyExpr::MakeFunction(_)) => {

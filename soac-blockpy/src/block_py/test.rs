@@ -15,9 +15,10 @@ impl BlockPyPass for StructuredExprPass {
 
 #[test]
 fn block_builder_sets_explicit_term() {
-    let mut block: BlockPyBlockBuilder<Expr> = BlockPyBlockBuilder::new(BlockPyLabel::from(0u32));
+    let mut block: BlockPyBlockBuilder<Expr> =
+        BlockPyBlockBuilder::new(BlockPyLabel::from_index(0));
     block.push_stmt(StructuredBlockPyStmt::Expr(py_expr!("x")));
-    block.set_term(BlockPyTerm::Jump(BlockPyLabel::from(1u32).into()));
+    block.set_term(BlockPyTerm::Jump(BlockPyLabel::from_index(1).into()));
     let block = block.finish(None);
 
     assert_eq!(block.body.len(), 1);
@@ -27,7 +28,8 @@ fn block_builder_sets_explicit_term() {
 
 #[test]
 fn block_builder_without_term_uses_implicit_none_return_value() {
-    let mut block: BlockPyBlockBuilder<Expr> = BlockPyBlockBuilder::new(BlockPyLabel::from(0u32));
+    let mut block: BlockPyBlockBuilder<Expr> =
+        BlockPyBlockBuilder::new(BlockPyLabel::from_index(0));
     block.push_stmt(StructuredBlockPyStmt::Expr(py_expr!("x")));
     let block = block.finish(None);
 
@@ -179,7 +181,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             params: ParamSpec::default(),
             blocks: vec![
                 CfgBlock {
-                    label: BlockPyLabel::from(0u32),
+                    label: BlockPyLabel::from_index(0),
                     body: vec![
                         StructuredBlockPyStmt::Assign(BlockPyAssign {
                             target: name_expr("target"),
@@ -202,14 +204,14 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
                     ],
                     term: BlockPyTerm::IfTerm(BlockPyIfTerm {
                         test: py_expr!("block_term_test"),
-                        then_label: BlockPyLabel::from(1u32),
-                        else_label: BlockPyLabel::from(2u32),
+                        then_label: BlockPyLabel::from_index(1),
+                        else_label: BlockPyLabel::from_index(2),
                     }),
                     params: Vec::new(),
                     exc_edge: None,
                 },
                 CfgBlock {
-                    label: BlockPyLabel::from(3u32),
+                    label: BlockPyLabel::from_index(3),
                     body: vec![StructuredBlockPyStmt::Delete(BlockPyDelete {
                         target: name_expr("trash"),
                     })],
@@ -274,7 +276,7 @@ fn storage_layout_semantics_collects_structured_cell_ref_logical_names() {
         kind: BlockPyFunctionKind::Function,
         params: ParamSpec::default(),
         blocks: vec![CfgBlock {
-            label: BlockPyLabel::from(0u32),
+            label: BlockPyLabel::from_index(0),
             body: vec![BlockPyStmt::Expr(core_operation_expr(
                 CellRefForName::new("captured".to_string()).with_meta(Meta::synthetic()),
             ))],
@@ -338,7 +340,7 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
             kind: BlockPyFunctionKind::Function,
             params: ParamSpec::default(),
             blocks: vec![CfgBlock {
-                label: BlockPyLabel::from(0u32),
+                label: BlockPyLabel::from_index(0),
                 body: vec![BlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Await(
                     CoreBlockPyAwait {
                         node_index: ast::AtomicNodeIndex::default(),

@@ -741,12 +741,6 @@ where
     }
 }
 
-impl BlockPyDebugOperationText for crate::block_py::MakeString {
-    fn debug_operation_text(&self) -> String {
-        debug_tuple_text("MakeString", [bytes_text(&self.bytes)])
-    }
-}
-
 impl BlockPyDebugOperationText for crate::block_py::CellRefForName {
     fn debug_operation_text(&self) -> String {
         debug_tuple_text("CellRefForName", [format!("{:?}", self.logical_name)])
@@ -755,7 +749,7 @@ impl BlockPyDebugOperationText for crate::block_py::CellRefForName {
 
 impl BlockPyDebugOperationText for crate::block_py::CellRef {
     fn debug_operation_text(&self) -> String {
-        debug_tuple_text("CellRef", [self.location.pretty_id()])
+        debug_tuple_text("CellRef", [format!("{:?}", self.location)])
     }
 }
 

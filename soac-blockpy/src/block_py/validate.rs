@@ -23,11 +23,10 @@ where
     let qualname = function.names.qualname.as_str();
     validate_storage_layout_scoping(function, qualname)?;
     for (index, block) in function.blocks.iter().enumerate() {
-        let expected_label = BlockPyLabel::from_index(index);
-        if block.label != expected_label {
+        if block.label.index() != index {
             return Err(format!(
-                "non-dense block label {} at {}:{}, expected {}",
-                block.label, qualname, index, expected_label
+                "non-dense block label {} at {}:{}, expected bb{}",
+                block.label, qualname, index, index
             ));
         }
     }

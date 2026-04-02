@@ -42,7 +42,7 @@ fn assigned_names_in_blockpy_stmt_collects_nested_fragments() {
 
 #[test]
 fn assigned_names_in_blockpy_term_keeps_jump_edge_args_out_of_results() {
-    let term: BlockPyTerm = BlockPyTerm::Jump(BlockPyLabel::from(0u32).into());
+    let term: BlockPyTerm = BlockPyTerm::Jump(BlockPyLabel::from_index(0).into());
 
     assert!(assigned_names_in_blockpy_term(&term).is_empty());
 }
@@ -51,8 +51,8 @@ fn assigned_names_in_blockpy_term_keeps_jump_edge_args_out_of_results() {
 fn assigned_names_in_blockpy_term_collects_named_exprs_from_if_term() {
     let term = BlockPyTerm::IfTerm(BlockPyIfTerm {
         test: py_expr!("(branch_name := branch_source)"),
-        then_label: BlockPyLabel::from(0u32),
-        else_label: BlockPyLabel::from(1u32),
+        then_label: BlockPyLabel::from_index(0),
+        else_label: BlockPyLabel::from_index(1),
     });
 
     assert_eq!(

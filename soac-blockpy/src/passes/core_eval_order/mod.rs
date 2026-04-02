@@ -110,9 +110,6 @@ fn make_eval_order_explicit_in_core_expr(
         CoreBlockPyExprWithAwaitAndYield::MakeCell(operation) => operation
             .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
-        CoreBlockPyExprWithAwaitAndYield::MakeString(operation) => operation
-            .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
-            .into(),
         CoreBlockPyExprWithAwaitAndYield::CellRefForName(operation) => operation
             .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
@@ -375,9 +372,6 @@ fn make_eval_order_explicit_in_core_expr_without_await(
         CoreBlockPyExprWithYield::MakeCell(operation) => operation
             .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
-        CoreBlockPyExprWithYield::MakeString(operation) => operation
-            .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
-            .into(),
         CoreBlockPyExprWithYield::CellRefForName(operation) => operation
             .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
@@ -587,13 +581,14 @@ pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
         })
         .map(make_eval_order_explicit_in_core_block_without_await)
         .collect::<Vec<_>>();
+    let blocks = lower_structured_blocks_to_bb_blocks(&name_gen, &structured_blocks);
     BlockPyFunction {
         function_id,
         name_gen,
         names,
         kind,
         params,
-        blocks: lower_structured_blocks_to_bb_blocks(&structured_blocks),
+        blocks,
         doc,
         storage_layout,
         semantic,

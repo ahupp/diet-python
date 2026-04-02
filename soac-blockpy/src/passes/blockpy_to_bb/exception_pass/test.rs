@@ -57,8 +57,8 @@ def f(x):
             .iter_mut()
             .find(|function| function.names.qualname == "f")
             .expect("must contain f");
-        let body_label = BlockPyLabel::from(100u32);
-        let except_label = BlockPyLabel::from(101u32);
+        let body_label = BlockPyLabel::from_index(100);
+        let except_label = BlockPyLabel::from_index(101);
 
         function.blocks.push(ResolvedStorageBlock {
             label: body_label.clone(),
@@ -118,11 +118,34 @@ def f():
         .callable_defs
         .first_mut()
         .expect("must contain function");
-    function.blocks[0].exc_edge = Some(BlockPyEdge::new(BlockPyLabel::from(999u32)));
+    function.blocks[0].exc_edge = Some(BlockPyEdge::new(BlockPyLabel::from_index(999)));
 
     let err = validate_module(&module).expect_err("must reject unknown labels");
     assert!(
         err.contains("unknown exception target"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn rejects_duplicate_block_labels() {
+    let source = r#"
+def f(x):
+    if x:
+        return 1
+    return 2
+"#;
+    let mut module = tracked_codegen_module(source);
+    let function = module
+        .callable_defs
+        .first_mut()
+        .expect("must contain function");
+    assert!(function.blocks.len() >= 2, "test requires multiple blocks");
+    function.blocks[1].label = function.blocks[0].label;
+
+    let err = validate_module(&module).expect_err("must reject duplicate labels");
+    assert!(
+        err.contains("non-dense block label"),
         "unexpected error: {err}"
     );
 }
@@ -272,7 +295,7 @@ def f():
         .position(|block| block.body.len() >= 2)
         .expect("must contain multi-op block");
     let original_label = function.blocks[block_index].label.clone();
-    let except_label = BlockPyLabel::from(100u32);
+    let except_label = BlockPyLabel::from_index(100);
     function.blocks.push(ResolvedStorageBlock {
         label: except_label.clone(),
         body: vec![],
@@ -340,7 +363,7 @@ def f():
         .position(|block| block.body.len() >= 4)
         .expect("must contain multi-op block");
     let original_label = function.blocks[block_index].label.clone();
-    let except_label = BlockPyLabel::from(100u32);
+    let except_label = BlockPyLabel::from_index(100);
     function.blocks.push(ResolvedStorageBlock {
         label: except_label.clone(),
         body: vec![],

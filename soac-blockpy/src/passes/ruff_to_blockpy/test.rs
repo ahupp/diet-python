@@ -69,7 +69,7 @@ fn test_context() -> Context {
 }
 
 fn label(index: u32) -> BlockPyLabel {
-    BlockPyLabel::from(index)
+    BlockPyLabel::from_index(index as usize)
 }
 
 type TestBlock = BlockPyBlock<CoreBlockPyExprWithAwaitAndYield>;
@@ -463,7 +463,7 @@ def f():
         label(0),
         try_plan,
         &mut |_expanded: &[Stmt], targets: RegionTargets, blocks: &mut Vec<TestBlock>| {
-            let label = BlockPyLabel::from(100u32 + blocks.len() as u32);
+            let label = BlockPyLabel::from_index(100 + blocks.len());
             blocks.push(
                 crate::passes::ruff_to_blockpy::compat::compat_block_from_blockpy_with_exc_target_and_expr::<
                     CoreBlockPyExprWithAwaitAndYield,
