@@ -178,11 +178,8 @@ static DP_JIT_PYOBJECT_TO_I64_IMPORT: ImportSpec = ImportSpec::new(
     &[SigType::Pointer],
     &[SigType::I64],
 );
-static DP_JIT_LOAD_DELETED_NAME_OBJ_IMPORT: ImportSpec = ImportSpec::new(
-    "dp_jit_load_deleted_name_obj",
-    &[SigType::Pointer, SigType::Pointer, SigType::Pointer],
-    &[SigType::Pointer],
-);
+static DP_JIT_RAISE_DELETED_NAME_ERROR_IMPORT: ImportSpec =
+    ImportSpec::new("dp_jit_raise_deleted_name_error", &[SigType::Pointer], &[]);
 static DP_JIT_MAKE_CELL_IMPORT: ImportSpec =
     ImportSpec::new("dp_jit_make_cell", &[SigType::Pointer], &[SigType::Pointer]);
 static DP_JIT_LOAD_CELL_IMPORT: ImportSpec =
@@ -535,7 +532,7 @@ struct JitEmitCtx<'mc> {
     pyobject_setattr_ref: ir::FuncRef,
     pyobject_getitem_ref: ir::FuncRef,
     pyobject_setitem_ref: ir::FuncRef,
-    load_deleted_name_ref: ir::FuncRef,
+    raise_deleted_name_error_ref: ir::FuncRef,
     make_cell_ref: ir::FuncRef,
     load_cell_ref: ir::FuncRef,
     store_cell_ref: ir::FuncRef,
@@ -1149,7 +1146,7 @@ fn emit_codegen_expr(
     let load_runtime_obj_ref = ctx.load_runtime_obj_ref;
     let pyobject_getattr_ref = ctx.pyobject_getattr_ref;
     let pyobject_setitem_ref = ctx.pyobject_setitem_ref;
-    let load_deleted_name_ref = ctx.load_deleted_name_ref;
+    let raise_deleted_name_error_ref = ctx.raise_deleted_name_error_ref;
     let make_cell_ref = ctx.make_cell_ref;
     let load_cell_ref = ctx.load_cell_ref;
     let store_cell_ref = ctx.store_cell_ref;
@@ -2077,28 +2074,37 @@ fn emit_codegen_expr(
                                 jit_module,
                                 func_imports,
                             );
-                            let call_inst = fb
-                                .ins()
-                                .call(load_deleted_name_ref, &[name_obj, value_obj, deleted_const]);
+                            let value_is_deleted = fb.ins().icmp(
+                                ir::condcodes::IntCC::Equal,
+                                value_obj,
+                                deleted_const,
+                            );
+                            let deleted_block = fb.create_block();
+                            let value_ok_block = fb.create_block();
+                            fb.append_block_param(value_ok_block, ptr_ty);
+                            fb.ins().brif(
+                                value_is_deleted,
+                                deleted_block,
+                                &[],
+                                value_ok_block,
+                                &[ir::BlockArg::Value(value_obj)],
+                            );
+
+                            fb.switch_to_block(deleted_block);
+                            fb.ins().call(raise_deleted_name_error_ref, &[name_obj]);
                             fb.ins().call(decref_ref, &[name_obj]);
                             if !value_borrowed {
                                 fb.ins().call(decref_ref, &[value_obj]);
                             }
-                            let call_value = fb.inst_results(call_inst)[0];
-                            let call_is_null =
-                                fb.ins()
-                                    .icmp(ir::condcodes::IntCC::Equal, call_value, null_ptr);
-                            let call_ok_block = fb.create_block();
-                            fb.append_block_param(call_ok_block, ptr_ty);
-                            fb.ins().brif(
-                                call_is_null,
-                                step_null_block,
-                                &step_null_block_args(ctx),
-                                call_ok_block,
-                                &[ir::BlockArg::Value(call_value)],
-                            );
-                            fb.switch_to_block(call_ok_block);
-                            return fb.block_params(call_ok_block)[0];
+                            fb.ins().jump(step_null_block, &step_null_block_args(ctx));
+
+                            fb.switch_to_block(value_ok_block);
+                            let value_obj = fb.block_params(value_ok_block)[0];
+                            fb.ins().call(decref_ref, &[name_obj]);
+                            if value_borrowed {
+                                fb.ins().call(incref_ref, &[value_obj]);
+                            }
+                            return value_obj;
                         }
                     }
                     let is_direct_cell_call =
@@ -3606,10 +3612,10 @@ fn build_cranelift_run_bb_specialized_function(
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_SETITEM_IMPORT);
         let pyobject_to_i64_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PYOBJECT_TO_I64_IMPORT);
-        let load_deleted_name_ref = func_imports.get_or_panic(
+        let raise_deleted_name_error_ref = func_imports.get_or_panic(
             jit_module,
             &mut fb.func,
-            &DP_JIT_LOAD_DELETED_NAME_OBJ_IMPORT,
+            &DP_JIT_RAISE_DELETED_NAME_ERROR_IMPORT,
         );
         let make_cell_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_MAKE_CELL_IMPORT);
@@ -3868,7 +3874,7 @@ fn build_cranelift_run_bb_specialized_function(
                 pyobject_setattr_ref,
                 pyobject_getitem_ref,
                 pyobject_setitem_ref,
-                load_deleted_name_ref,
+                raise_deleted_name_error_ref,
                 make_cell_ref,
                 load_cell_ref,
                 store_cell_ref,

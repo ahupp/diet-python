@@ -772,45 +772,36 @@ unsafe extern "C" fn pyobject_to_i64_hook(value: ObjPtr) -> i64 {
     }
 }
 
-unsafe extern "C" fn load_deleted_name_obj_hook(
-    name_obj: ObjPtr,
-    value: ObjPtr,
-    deleted: ObjPtr,
-) -> ObjPtr {
-    if value.is_null() || deleted.is_null() || name_obj.is_null() {
+unsafe extern "C" fn raise_deleted_name_error_hook(name_obj: ObjPtr) {
+    if name_obj.is_null() {
         ffi::PyErr_SetString(
             ffi::PyExc_RuntimeError,
-            b"invalid arguments to dp_jit_load_deleted_name_obj\0".as_ptr() as *const i8,
+            b"invalid arguments to dp_jit_raise_deleted_name_error\0".as_ptr() as *const i8,
         );
-        return ptr::null_mut();
+        return;
     }
-    if value == deleted {
-        let repr = ffi::PyObject_Repr(name_obj as *mut ffi::PyObject);
-        if !repr.is_null() {
-            let repr_utf8 = ffi::PyUnicode_AsUTF8(repr);
-            if !repr_utf8.is_null() {
-                let repr_text = std::ffi::CStr::from_ptr(repr_utf8).to_string_lossy();
-                let message = format!(
-                    "cannot access local variable {repr_text} where it is not associated with a value"
-                );
-                ffi::Py_DECREF(repr);
-                if let Ok(c_msg) = std::ffi::CString::new(message) {
-                    ffi::PyErr_SetString(ffi::PyExc_UnboundLocalError, c_msg.as_ptr());
-                    return ptr::null_mut();
-                }
-            } else {
-                ffi::PyErr_Clear();
-            }
+    let repr = ffi::PyObject_Repr(name_obj as *mut ffi::PyObject);
+    if !repr.is_null() {
+        let repr_utf8 = ffi::PyUnicode_AsUTF8(repr);
+        if !repr_utf8.is_null() {
+            let repr_text = std::ffi::CStr::from_ptr(repr_utf8).to_string_lossy();
+            let message = format!(
+                "cannot access local variable {repr_text} where it is not associated with a value"
+            );
             ffi::Py_DECREF(repr);
+            if let Ok(c_msg) = std::ffi::CString::new(message) {
+                ffi::PyErr_SetString(ffi::PyExc_UnboundLocalError, c_msg.as_ptr());
+                return;
+            }
+        } else {
+            ffi::PyErr_Clear();
         }
-        ffi::PyErr_SetString(
-            ffi::PyExc_UnboundLocalError,
-            b"cannot access local variable before assignment\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
+        ffi::Py_DECREF(repr);
     }
-    ffi::Py_INCREF(value as *mut ffi::PyObject);
-    value
+    ffi::PyErr_SetString(
+        ffi::PyExc_UnboundLocalError,
+        b"cannot access local variable before assignment\0".as_ptr() as *const i8,
+    );
 }
 
 unsafe extern "C" fn make_cell_hook(value: ObjPtr) -> ObjPtr {
@@ -1016,7 +1007,7 @@ mod test_only_export_stubs {
     panic_obj_export!(dp_jit_del_quietly(obj: ObjPtr, key: ObjPtr));
     panic_i64_export!(dp_jit_pyobject_to_i64(value: ObjPtr));
     panic_obj_export!(dp_jit_make_cell(value: ObjPtr));
-    panic_obj_export!(dp_jit_load_deleted_name_obj(name: ObjPtr, value: ObjPtr, deleted: ObjPtr));
+    panic_unit_export!(dp_jit_raise_deleted_name_error(name: ObjPtr));
     panic_obj_export!(dp_jit_load_cell(cell: ObjPtr));
     panic_obj_export!(dp_jit_store_cell(cell: ObjPtr, value: ObjPtr));
     panic_obj_export!(dp_jit_del_deref(cell: ObjPtr));
@@ -1175,12 +1166,8 @@ pub unsafe extern "C" fn dp_jit_make_cell(value: ObjPtr) -> ObjPtr {
 }
 
 #[cfg(not(test))]
-pub unsafe extern "C" fn dp_jit_load_deleted_name_obj(
-    name: ObjPtr,
-    value: ObjPtr,
-    deleted: ObjPtr,
-) -> ObjPtr {
-    load_deleted_name_obj_hook(name, value, deleted)
+pub unsafe extern "C" fn dp_jit_raise_deleted_name_error(name: ObjPtr) {
+    raise_deleted_name_error_hook(name)
 }
 
 #[cfg(not(test))]
@@ -1466,8 +1453,8 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
         dp_jit_pyobject_to_i64 as *const u8,
     );
     builder.symbol(
-        "dp_jit_load_deleted_name_obj",
-        dp_jit_load_deleted_name_obj as *const u8,
+        "dp_jit_raise_deleted_name_error",
+        dp_jit_raise_deleted_name_error as *const u8,
     );
     builder.symbol("dp_jit_make_cell", dp_jit_make_cell as *const u8);
     builder.symbol("dp_jit_load_cell", dp_jit_load_cell as *const u8);

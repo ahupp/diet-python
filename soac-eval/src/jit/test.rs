@@ -1,11 +1,11 @@
 use super::*;
 use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyAssign, BlockPyDelete, BlockPyFunction, BlockPyModule,
-    BlockPyStmt, BlockPyTerm, CellLocation, ClosureInit, ClosureSlot, CodegenBlock,
-    CodegenBlockPyExpr, CodegenBlockPyLiteral, CodegenExprOp, CoreBytesLiteral, CoreNumberLiteral,
-    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, Load,
-    LocatedCodegenBlockPyExpr, LocatedName, MakeString, Meta, ModuleNameGen, NameLocation, Param,
-    ParamKind, ParamSpec, StorageLayout, Store, WithMeta,
+    BlockPyStmt, BlockPyTerm, Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock,
+    CodegenBlockPyExpr, CodegenBlockPyLiteral, CodegenExprOp, CoreBlockPyCallArg, CoreBytesLiteral,
+    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName,
+    HasMeta, Load, LocatedCodegenBlockPyExpr, LocatedName, MakeString, Meta, ModuleNameGen,
+    NameLocation, Param, ParamKind, ParamSpec, StorageLayout, Store, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
@@ -29,6 +29,16 @@ mod tests {
             range: Default::default(),
             node_index: Default::default(),
             location: NameLocation::Global,
+        }
+    }
+
+    fn test_runtime_name(name: &str) -> LocatedName {
+        LocatedName {
+            id: name.into(),
+            ctx: ast::ExprContext::Load,
+            range: Default::default(),
+            node_index: Default::default(),
+            location: NameLocation::RuntimeName,
         }
     }
 
@@ -688,6 +698,36 @@ mod tests {
         assert!(
             rendered.contains("call dp_jit_function_kwonly_default_obj"),
             "direct entry lowering should source omitted kwonly defaults from the callable:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_deleted_name_checks_inline_the_sentinel_compare() {
+        let blocks = [1usize as ObjPtr];
+        let mut function = with_single_test_block(
+            test_function(),
+            vec![],
+            ret_term(op_expr(CodegenExprOp::from(
+                Call::new(
+                    name_expr(test_runtime_name("load_deleted_name")),
+                    vec![
+                        CoreBlockPyCallArg::Positional(string_expr("x")),
+                        CoreBlockPyCallArg::Positional(name_expr(test_name("x"))),
+                    ],
+                    vec![],
+                )
+                .with_meta(Meta::synthetic()),
+            ))),
+        );
+        set_stack_slots(&mut function, &["x"]);
+        let rendered = render_test_jit_function(&function, &blocks);
+        assert!(
+            rendered.contains("call dp_jit_raise_deleted_name_error"),
+            "deleted-name lowering should keep only the cold-path error helper:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("call dp_jit_load_deleted_name_obj"),
+            "deleted-name lowering should inline the DELETED sentinel check in CLIF:\n{rendered}"
         );
     }
 
