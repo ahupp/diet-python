@@ -5,14 +5,14 @@ use crate::block_py::{
     compute_storage_layout_from_semantics, core_call_expr_with_meta, core_operation_expr,
     core_runtime_name_expr_with_meta, core_runtime_positional_call_expr_with_meta,
     try_lower_core_expr_without_await, try_lower_core_expr_without_yield, BlockArg, BlockParam,
-    BlockParamRole, BlockPyAssign, BlockPyBindingKind, BlockPyBranchTable,
-    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyEdge,
-    BlockPyFunction, BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike,
-    BlockPyRaise, BlockPyStmt, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
-    FunctionNameGen, ImplicitNoneExpr, Instr, InstrName, MakeFunction, Meta, ModuleNameGen,
-    PassStmt, StorageLayout, Store, UnresolvedName, WithMeta,
+    BlockParamRole, BlockPyBindingKind, BlockPyBranchTable, BlockPyCallableSemanticInfo,
+    BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyEdge, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike, BlockPyRaise, BlockPyStmt,
+    BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyCallArg,
+    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
+    CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName, FunctionNameGen, ImplicitNoneExpr,
+    Instr, InstrName, MakeFunction, Meta, ModuleNameGen, PassStmt, StorageLayout, Store,
+    UnresolvedName, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -178,7 +178,14 @@ where
     E: Instr + From<Store<E>>,
     InstrName<E>: From<UnresolvedName>,
 {
-    let target = expr_name(target);
+    unresolved_store_stmt(expr_name(target), value)
+}
+
+fn unresolved_store_stmt<E>(target: UnresolvedName, value: E) -> BlockPyStmt<E>
+where
+    E: Instr + From<Store<E>>,
+    InstrName<E>: From<UnresolvedName>,
+{
     let meta = Meta::new(target.node_index(), target.range());
     BlockPyStmt::Expr(Store::new(target, Box::new(value)).with_meta(meta).into())
 }
@@ -1065,10 +1072,10 @@ fn emit_resume_after_yield(
     if let Some(target) = assign_target {
         tail_body.insert(
             0,
-            BlockPyStmt::Assign(BlockPyAssign {
+            unresolved_store_stmt(
                 target,
-                value: CoreBlockPyExprWithYield::Name(expr_name("_dp_send_value")),
-            }),
+                CoreBlockPyExprWithYield::Name(expr_name("_dp_send_value")),
+            ),
         );
     }
     lower_resume_fragment(
@@ -1348,10 +1355,10 @@ fn emit_yield_from_site(
     if let Some(target) = assign_target {
         tail_body.insert(
             1,
-            BlockPyStmt::Assign(BlockPyAssign {
+            unresolved_store_stmt(
                 target,
-                value: CoreBlockPyExprWithYield::Name(expr_name(yielded_value_name.as_str())),
-            }),
+                CoreBlockPyExprWithYield::Name(expr_name(yielded_value_name.as_str())),
+            ),
         );
     } else if matches!(tail_term, BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(ref name)) if name.id_str() == "_dp_yield_from_value")
     {

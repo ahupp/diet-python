@@ -256,16 +256,18 @@ fn rewrite_binding_delete(
         return op_stmt(Del::new(target, false).with_meta(meta));
     }
     match semantic.binding_target_for_name(bind_name.as_str(), BlockPyBindingPurpose::Store) {
-        BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
-            target: ast::ExprName {
-                id: target.id,
-                ctx: ast::ExprContext::Store,
-                node_index: meta.node_index.clone(),
-                range: meta.range,
-            }
-            .into(),
-            value: deleted_sentinel_expr(meta.node_index, meta.range),
-        }),
+        BindingTarget::Local => op_stmt(
+            Store::new(
+                ast::ExprName {
+                    id: target.id,
+                    ctx: ast::ExprContext::Store,
+                    node_index: meta.node_index.clone(),
+                    range: meta.range,
+                },
+                Box::new(deleted_sentinel_expr(meta.node_index.clone(), meta.range)),
+            )
+            .with_meta(meta),
+        ),
         BindingTarget::ModuleGlobal => {
             rewrite_global_binding_delete_by_name(bind_name.as_str(), meta.node_index, meta.range)
         }
@@ -674,16 +676,18 @@ fn rewrite_quiet_delete_marker(
         }
         _ => match semantic.binding_target_for_name(name.id.as_str(), BlockPyBindingPurpose::Store)
         {
-            BindingTarget::Local => BlockPyStmt::Assign(BlockPyAssign {
-                target: ast::ExprName {
-                    id: name.id,
-                    ctx: ast::ExprContext::Store,
-                    node_index: node_index.clone(),
-                    range,
-                }
-                .into(),
-                value: deleted_sentinel_expr(node_index, range),
-            }),
+            BindingTarget::Local => op_stmt(
+                Store::new(
+                    ast::ExprName {
+                        id: name.id,
+                        ctx: ast::ExprContext::Store,
+                        node_index: node_index.clone(),
+                        range,
+                    },
+                    Box::new(deleted_sentinel_expr(node_index, range)),
+                )
+                .with_meta(meta),
+            ),
             BindingTarget::ModuleGlobal => op_stmt(Del::new(name, true).with_meta(meta)),
             BindingTarget::ClassNamespace => op_stmt(
                 DelItem::new(
@@ -805,19 +809,20 @@ fn build_local_cell_init_assign(
     } else {
         deleted_sentinel_expr(node_index.clone(), range)
     };
-    BlockPyStmt::Assign(BlockPyAssign {
-        target: ast::ExprName {
-            id: storage_name.into(),
-            ctx: ast::ExprContext::Store,
-            node_index: node_index.clone(),
-            range,
-        }
-        .into(),
-        value: op_expr(
-            MakeCell::new(Box::new(init_expr))
-                .with_meta(crate::block_py::Meta::new(node_index, range)),
-        ),
-    })
+    op_stmt(
+        Store::new(
+            ast::ExprName {
+                id: storage_name.into(),
+                ctx: ast::ExprContext::Store,
+                node_index: node_index.clone(),
+                range,
+            },
+            Box::new(op_expr(MakeCell::new(Box::new(init_expr)).with_meta(
+                crate::block_py::Meta::new(node_index.clone(), range),
+            ))),
+        )
+        .with_meta(crate::block_py::Meta::new(node_index, range)),
+    )
 }
 
 fn closure_slot_init_expr(slot: &ClosureSlot) -> CoreBlockPyExpr {
@@ -860,19 +865,21 @@ fn closure_slot_init_expr(slot: &ClosureSlot) -> CoreBlockPyExpr {
 fn build_closure_slot_cell_init_assign(slot: &ClosureSlot) -> CoreStmt {
     let node_index = compat_node_index();
     let range = compat_range();
-    BlockPyStmt::Assign(BlockPyAssign {
-        target: ast::ExprName {
-            id: slot.storage_name.as_str().into(),
-            ctx: ast::ExprContext::Store,
-            node_index: node_index.clone(),
-            range,
-        }
-        .into(),
-        value: op_expr(
-            MakeCell::new(Box::new(closure_slot_init_expr(slot)))
-                .with_meta(crate::block_py::Meta::new(node_index, range)),
-        ),
-    })
+    op_stmt(
+        Store::new(
+            ast::ExprName {
+                id: slot.storage_name.as_str().into(),
+                ctx: ast::ExprContext::Store,
+                node_index: node_index.clone(),
+                range,
+            },
+            Box::new(op_expr(
+                MakeCell::new(Box::new(closure_slot_init_expr(slot)))
+                    .with_meta(crate::block_py::Meta::new(node_index.clone(), range)),
+            )),
+        )
+        .with_meta(crate::block_py::Meta::new(node_index, range)),
+    )
 }
 
 fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPass>) {
@@ -1004,16 +1011,6 @@ fn store_cell_runtime_logical_name(
         return None;
     }
     logical_name_for_cell_bound_name(semantic, op.name.id_str())
-}
-
-fn is_local_cell_init_assign(assign: &CoreAssign) -> bool {
-    let Some(logical_name) = assign.target.id_str().strip_prefix("_dp_cell_") else {
-        return false;
-    };
-    let CoreBlockPyExpr::MakeCell(MakeCell { initial_value, .. }) = &assign.value else {
-        return false;
-    };
-    matches!(raw_load_name(initial_value.as_ref()), Some(name) if name == logical_name)
 }
 
 struct NameBindingMapper<'a> {
@@ -1193,7 +1190,9 @@ fn rewrite_binding_assign_by_name(
             }
             rewrite_class_namespace_binding_assign(assign)
         }
-        BindingTarget::Local => BlockPyStmt::Assign(assign),
+        BindingTarget::Local => {
+            op_stmt(Store::new(assign.target, Box::new(assign.value)).with_meta(meta))
+        }
     }
 }
 
@@ -1341,9 +1340,6 @@ fn unresolved_semantic_delete_target(expr: &CoreBlockPyExpr) -> Option<ExprName>
 
 impl NameBindingMapper<'_> {
     fn map_assign(&self, assign: CoreAssign) -> CoreStmt {
-        if is_local_cell_init_assign(&assign) {
-            return BlockPyStmt::Assign(assign);
-        }
         rewrite_binding_assign_by_name(
             assign.target.id_str().to_string(),
             self.map_expr(assign.value),
@@ -1533,6 +1529,13 @@ fn rewrite_raw_cell_loads_in_expr(
     }
 }
 
+fn is_local_cell_init_store(expr: &CoreBlockPyExpr) -> bool {
+    let CoreBlockPyExpr::Store(Store { name, value, .. }) = expr else {
+        return false;
+    };
+    name.id_str().starts_with("_dp_cell_") && matches!(value.as_ref(), CoreBlockPyExpr::MakeCell(_))
+}
+
 fn rewrite_raw_cell_loads_in_stmt(
     stmt: &mut CoreStmt,
     semantic: &BlockPyCallableSemanticInfo,
@@ -1540,12 +1543,14 @@ fn rewrite_raw_cell_loads_in_stmt(
 ) {
     match stmt {
         BlockPyStmt::Assign(assign) => {
-            if is_local_cell_init_assign(assign) {
-                return;
-            }
             rewrite_raw_cell_loads_in_expr(&mut assign.value, semantic, resolver)
         }
-        BlockPyStmt::Expr(expr) => rewrite_raw_cell_loads_in_expr(expr, semantic, resolver),
+        BlockPyStmt::Expr(expr) => {
+            if is_local_cell_init_store(expr) {
+                return;
+            }
+            rewrite_raw_cell_loads_in_expr(expr, semantic, resolver)
+        }
         BlockPyStmt::Delete(_) => {}
     }
 }
