@@ -1,7 +1,6 @@
 use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
 use crate::block_py::{
-    BlockPyAssign, BlockPyIf, BlockPyStmtFragmentBuilder, Instr, InstrName,
-    StructuredBlockPyStmtFor,
+    BlockPyIf, BlockPyStmtFragmentBuilder, Meta, Store, StructuredBlockPyStmtFor, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::fresh_setup_name;
 use crate::passes::ruff_to_blockpy::LoopContext;
@@ -23,13 +22,15 @@ fn load_name(name: &str) -> Expr {
 
 fn assign_name<E>(target: &str, value: Expr) -> StructuredBlockPyStmtFor<E>
 where
-    E: From<Expr> + Instr,
-    InstrName<E>: From<ast::ExprName>,
+    E: RuffToBlockPyExpr,
 {
-    StructuredBlockPyStmtFor::Assign(BlockPyAssign {
-        target: store_name(target).into(),
-        value: value.into(),
-    })
+    let target = store_name(target);
+    let meta = Meta::new(target.node_index.clone(), target.range);
+    StructuredBlockPyStmtFor::Expr(
+        Store::new(target, Box::new(E::from_lowered_expr(value)))
+            .with_meta(meta)
+            .into(),
+    )
 }
 
 pub(super) fn lower_if_expr_into<L, E>(

@@ -18,10 +18,10 @@ fn boolop_lowering_emits_blockpy_setup_directly() {
     let rendered = lowered.debug_expr_text();
     assert!(rendered.contains("_dp_target_"), "{rendered}");
     assert!(
-        fragment
-            .body
-            .iter()
-            .any(|stmt| matches!(stmt, StructuredBlockPyStmt::Assign(_))),
+        fragment.body.iter().any(|stmt| matches!(
+            stmt,
+            StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Store(_))
+        )),
         "{fragment:?}"
     );
     assert!(

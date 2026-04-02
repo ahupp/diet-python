@@ -67,21 +67,21 @@ x = a and b or c
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_target_2 = a
+#         StoreName("_dp_target_2", a)
 #         if_term _dp_target_2:
 #             then:
 #                 block bb2:
-#                     _dp_target_2 = b
+#                     StoreName("_dp_target_2", b)
 #                     jump bb4
 #             else:
 #                 block bb3:
 #                     jump bb4
 #         block bb4:
-#             _dp_target_1 = _dp_target_2
+#             StoreName("_dp_target_1", _dp_target_2)
 #             if_term UnaryOp(Not, _dp_target_1):
 #                 then:
 #                     block bb5:
-#                         _dp_target_1 = c
+#                         StoreName("_dp_target_1", c)
 #                         jump bb7
 #                 else:
 #                     block bb6:
@@ -111,13 +111,13 @@ x = a < b < c
 # function _dp_module_init():
 #     function_id: 0
 #     block bb1:
-#         _dp_compare_1 = a
-#         _dp_compare_3 = b
-#         _dp_target_2 = BinOp(Lt, _dp_compare_1, _dp_compare_3)
+#         StoreName("_dp_compare_1", a)
+#         StoreName("_dp_compare_3", b)
+#         StoreName("_dp_target_2", BinOp(Lt, _dp_compare_1, _dp_compare_3))
 #         if_term _dp_target_2:
 #             then:
 #                 block bb2:
-#                     _dp_target_2 = BinOp(Lt, _dp_compare_3, c)
+#                     StoreName("_dp_target_2", BinOp(Lt, _dp_compare_3, c))
 #                     jump bb4
 #             else:
 #                 block bb3:
@@ -150,11 +150,11 @@ x = a if cond else b
 #         if_term cond:
 #             then:
 #                 block bb2:
-#                     _dp_tmp_1 = a
+#                     StoreName("_dp_tmp_1", a)
 #                     jump bb4
 #             else:
 #                 block bb3:
-#                     _dp_tmp_1 = b
+#                     StoreName("_dp_tmp_1", b)
 #                     jump bb4
 #         block bb4:
 #             x = _dp_tmp_1

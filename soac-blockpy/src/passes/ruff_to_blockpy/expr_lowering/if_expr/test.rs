@@ -25,19 +25,17 @@ fn if_expr_lowering_emits_blockpy_setup_directly() {
         panic!("expected one structured if stmt, got {fragment:?}");
     };
     assert!(
-        if_stmt
-            .body
-            .body
-            .iter()
-            .any(|stmt| matches!(stmt, StructuredBlockPyStmt::Assign(_))),
+        if_stmt.body.body.iter().any(|stmt| matches!(
+            stmt,
+            StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Store(_))
+        )),
         "{if_stmt:?}"
     );
     assert!(
-        if_stmt
-            .orelse
-            .body
-            .iter()
-            .any(|stmt| matches!(stmt, StructuredBlockPyStmt::Assign(_))),
+        if_stmt.orelse.body.iter().any(|stmt| matches!(
+            stmt,
+            StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Store(_))
+        )),
         "{if_stmt:?}"
     );
 }
