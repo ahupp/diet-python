@@ -1,10 +1,9 @@
 use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
     BlockArg, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike, BlockPyStmt, BlockPyTerm,
-    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, Del, FunctionNameGen, Instr, InstrExprNode,
-    Store, StructuredBlockPyStmt, UnresolvedName, WithMeta,
+    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, FunctionNameGen, Instr, InstrExprNode,
+    StructuredBlockPyStmt, UnresolvedName,
 };
-use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 use std::collections::{HashMap, HashSet};
@@ -14,21 +13,12 @@ pub(crate) fn lower_structured_blocks_to_bb_blocks<E, N>(
     blocks: &[crate::block_py::CfgBlock<StructuredBlockPyStmt<E, N>, BlockPyTerm<E>>],
 ) -> Vec<crate::block_py::CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>>
 where
-    E: Clone + Instr + From<Store<E>> + From<Del<E>>,
+    E: Clone + Instr,
     N: BlockPyNameLike,
-    <E as Instr>::Name: From<N>,
 {
-    let mut normalized_blocks = blocks.to_vec();
-    for block in &mut normalized_blocks {
-        normalize_internal_stmt_ops_in_structured_stmt_list(&mut block.body);
-    }
     let exception_edges = lowered_exception_edges(blocks);
-    let (linear_blocks, _linear_block_params, linear_exception_edges) = linearize_structured_ifs(
-        name_gen,
-        &normalized_blocks,
-        &HashMap::new(),
-        &exception_edges,
-    );
+    let (linear_blocks, _linear_block_params, linear_exception_edges) =
+        linearize_structured_ifs(name_gen, blocks, &HashMap::new(), &exception_edges);
     let mut bb_blocks = linear_blocks
         .iter()
         .map(|block| {
@@ -54,53 +44,6 @@ where
         .collect::<Vec<_>>();
     populate_exception_edge_args(&mut bb_blocks);
     bb_blocks
-}
-
-fn normalize_internal_stmt_ops_in_structured_stmt_list<E, N>(
-    stmts: &mut Vec<StructuredBlockPyStmt<E, N>>,
-) where
-    E: Instr + From<Store<E>> + From<Del<E>>,
-    N: BlockPyNameLike,
-    <E as Instr>::Name: From<N>,
-{
-    for stmt in stmts {
-        normalize_internal_stmt_ops_in_structured_stmt(stmt);
-    }
-}
-
-fn normalize_internal_stmt_ops_in_structured_stmt<E, N>(stmt: &mut StructuredBlockPyStmt<E, N>)
-where
-    E: Instr + From<Store<E>> + From<Del<E>>,
-    N: BlockPyNameLike,
-    <E as Instr>::Name: From<N>,
-{
-    match stmt {
-        StructuredBlockPyStmt::Assign(assign) if is_internal_symbol(assign.target.id_str()) => {
-            let assign = assign.clone();
-            let meta =
-                crate::block_py::Meta::new(assign.target.node_index(), assign.target.range());
-            *stmt = StructuredBlockPyStmt::Expr(
-                Store::<E>::new(assign.target, assign.value)
-                    .with_meta(meta)
-                    .into(),
-            );
-        }
-        StructuredBlockPyStmt::Delete(delete) if is_internal_symbol(delete.target.id_str()) => {
-            let delete = delete.clone();
-            let meta =
-                crate::block_py::Meta::new(delete.target.node_index(), delete.target.range());
-            *stmt = StructuredBlockPyStmt::Expr(
-                Del::<E>::new(delete.target, false).with_meta(meta).into(),
-            );
-        }
-        StructuredBlockPyStmt::If(if_stmt) => {
-            normalize_internal_stmt_ops_in_structured_stmt_list(&mut if_stmt.body.body);
-            normalize_internal_stmt_ops_in_structured_stmt_list(&mut if_stmt.orelse.body);
-        }
-        StructuredBlockPyStmt::Assign(_)
-        | StructuredBlockPyStmt::Expr(_)
-        | StructuredBlockPyStmt::Delete(_) => {}
-    }
 }
 
 pub(crate) fn rewrite_current_exception_in_core_blocks<N>(
