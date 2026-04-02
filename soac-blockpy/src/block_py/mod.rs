@@ -2089,6 +2089,15 @@ pub(crate) enum StructuredBlockPyStmt<E = Expr, N = InstrName<E>> {
     If(BlockPyStructuredIf<E, N>),
 }
 
+impl<I> From<Del<I>> for StructuredBlockPyStmt<I, InstrName<I>>
+where
+    I: Instr + From<Del<I>>,
+{
+    fn from(value: Del<I>) -> Self {
+        Self::Expr(value.into())
+    }
+}
+
 impl<E: std::fmt::Debug, N: std::fmt::Debug> StructuredBlockPyStmt<E, N> {
     pub fn assert_normalized(&self) {
         if let Self::If(if_stmt) = self {
@@ -2147,6 +2156,15 @@ impl<N: BlockPyNameLike> From<CoreBlockPyExpr<N>> for BlockPyStmt<CoreBlockPyExp
 impl<E, N> From<BlockPyDelete<N>> for BlockPyStmt<E, N> {
     fn from(value: BlockPyDelete<N>) -> Self {
         Self::Delete(value)
+    }
+}
+
+impl<I> From<Del<I>> for BlockPyStmt<I, InstrName<I>>
+where
+    I: Instr + From<Del<I>>,
+{
+    fn from(value: Del<I>) -> Self {
+        Self::Expr(value.into())
     }
 }
 

@@ -406,6 +406,8 @@ pub(crate) trait BlockPySemanticExprNode {
 
     fn walk_root_defined_names(&self, _f: &mut impl FnMut(&str)) {}
 
+    fn walk_root_deleted_names(&self, _f: &mut impl FnMut(&str)) {}
+
     fn walk_root_cell_ref_logical_names(&self, _f: &mut impl FnMut(&str)) {}
 }
 
@@ -569,6 +571,12 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
         }
     }
 
+    fn walk_root_deleted_names(&self, f: &mut impl FnMut(&str)) {
+        if let Self::Del(op) = self {
+            f(op.name.id_str());
+        }
+    }
+
     fn walk_root_cell_ref_logical_names(&self, f: &mut impl FnMut(&str)) {
         match self {
             Self::Call(call) => {
@@ -618,6 +626,12 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
             }
             Self::Load(op) => f(op.name.id_str()),
             _ => {}
+        }
+    }
+
+    fn walk_root_deleted_names(&self, f: &mut impl FnMut(&str)) {
+        if let Self::Del(op) = self {
+            f(op.name.id_str());
         }
     }
 
@@ -676,6 +690,12 @@ where
         }
     }
 
+    fn walk_root_deleted_names(&self, f: &mut impl FnMut(&str)) {
+        if let Self::Del(op) = self {
+            f(op.name.id_str());
+        }
+    }
+
     fn walk_root_cell_ref_logical_names(&self, f: &mut impl FnMut(&str)) {
         match self {
             Self::Call(call) => {
@@ -716,6 +736,12 @@ impl BlockPySemanticExprNode for super::CodegenBlockPyExpr {
             }
             Self::Load(op) => f(op.name.id_str()),
             _ => {}
+        }
+    }
+
+    fn walk_root_deleted_names(&self, f: &mut impl FnMut(&str)) {
+        if let Self::Del(op) = self {
+            f(op.name.id_str());
         }
     }
 
@@ -763,7 +789,13 @@ where
                 self.used_names.insert(name.clone());
                 self.deleted_names.insert(name);
             }
-            BlockPyStmt::Expr(_) => {}
+            BlockPyStmt::Expr(expr) => {
+                expr.walk_root_deleted_names(&mut |name| {
+                    let name = name.to_string();
+                    self.used_names.insert(name.clone());
+                    self.deleted_names.insert(name);
+                });
+            }
         }
         walk_linear_stmt::<Self, P>(self, stmt);
     }

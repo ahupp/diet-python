@@ -1,10 +1,10 @@
 use crate::block_py::structured::IntoStructuredBlockPyStmt;
 use crate::block_py::BlockPyAssign;
 use crate::block_py::{
-    expr_any, BlockPyBranchTable, BlockPyCfgFragment, BlockPyDelete, BlockPyFunction, BlockPyIf,
-    BlockPyIfTerm, BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
-    CoreBlockPyYieldFrom, Instr, InstrExprNode, StructuredBlockPyStmtFor,
+    expr_any, BlockPyBranchTable, BlockPyCfgFragment, BlockPyFunction, BlockPyIf, BlockPyIfTerm,
+    BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, CoreBlockPyYield, CoreBlockPyYieldFrom, Del, Instr, InstrExprNode,
+    StructuredBlockPyStmtFor,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
@@ -142,12 +142,10 @@ fn make_eval_order_explicit_in_core_expr(
 
 fn append_stmt_cleanup<E>(out: &mut Vec<StructuredBlockPyStmtFor<E>>, cleanup: Vec<ast::ExprName>)
 where
-    E: Instr,
+    E: Instr + From<Del<E>>,
 {
     for temp in cleanup.into_iter().rev() {
-        out.push(StructuredBlockPyStmtFor::Delete(BlockPyDelete {
-            target: temp.into(),
-        }));
+        out.push(Del::new(temp, false).into());
     }
 }
 

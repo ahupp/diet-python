@@ -1,5 +1,6 @@
 use crate::block_py::{
-    BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyStmt, BlockPyTerm, ResolvedStorageBlock,
+    BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
+    ResolvedStorageBlock,
 };
 use crate::passes::ruff_to_blockpy::populate_exception_edge_args;
 use crate::passes::ResolvedStorageBlockPyPass;
@@ -97,7 +98,13 @@ fn split_exception_blocks_for_expr_checks(
 }
 
 fn op_updates_exception_state(op: &BlockPyStmt) -> bool {
-    matches!(op, BlockPyStmt::Assign(_) | BlockPyStmt::Delete(_))
+    matches!(
+        op,
+        BlockPyStmt::Assign(_)
+            | BlockPyStmt::Delete(_)
+            | BlockPyStmt::Expr(CoreBlockPyExpr::Store(_))
+            | BlockPyStmt::Expr(CoreBlockPyExpr::Del(_))
+    )
 }
 
 fn unique_exc_split_label(

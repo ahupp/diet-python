@@ -138,7 +138,7 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
     ));
     assert!(matches!(
         lowered.body[2],
-        StructuredBlockPyStmtFor::Delete(_)
+        StructuredBlockPyStmtFor::Expr(CoreBlockPyExprWithAwaitAndYield::Del(_))
     ));
 }
 
@@ -184,6 +184,6 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
     ));
     assert!(matches!(
         lowered.body[2],
-        StructuredBlockPyStmtFor::Delete(_)
+        StructuredBlockPyStmtFor::Expr(CoreBlockPyExprWithYield::Del(_))
     ));
 }

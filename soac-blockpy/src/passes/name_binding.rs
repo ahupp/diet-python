@@ -1734,6 +1734,7 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
             operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
         }
         CoreBlockPyExpr::Del(operation) => {
+            names.insert(operation.name.id_str().to_string());
             operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
         }
         CoreBlockPyExpr::MakeCell(operation) => {
