@@ -143,41 +143,6 @@ def _oper(lhs_method_name: str, rhs_method_name: str, op_symbol: str, lhs, rhs):
     )
 
 
-def _pow_with_mod(lhs, rhs, mod):
-    lhs_type = type(lhs)
-    lhs_method = _mro_getattr(lhs_type, "__pow__")
-    lhs_rmethod = _mro_getattr(lhs_type, "__rpow__")
-
-    rhs_type = type(rhs)
-    rhs_method = _mro_getattr(rhs_type, "__rpow__")
-
-    call_lhs = (lhs, lhs_method, rhs, mod)
-    call_rhs = (rhs, rhs_method, lhs, mod)
-    if (
-        rhs_method is not _MISSING
-        and rhs_type is not lhs_type
-        and issubclass(rhs_type, lhs_type)
-        and lhs_rmethod is not rhs_method
-    ):
-        calls = (call_rhs, call_lhs)
-    elif lhs_type is not rhs_type:
-        calls = (call_lhs, call_rhs)
-    else:
-        calls = (call_lhs,)
-
-    for first_obj, method, second_obj, third_obj in calls:
-        if method is _MISSING:
-            continue
-        value = _call_special_method(method, first_obj, second_obj, third_obj)
-        if value is not NotImplemented:
-            return value
-
-    raise TypeError(
-        f"unsupported operand type(s) for **: "
-        f"'{lhs_type.__name__}' and '{rhs_type.__name__}'"
-    )
-
-
 def _ioper(
     inplace_name: str,
     lhs_method_name: str,
@@ -222,10 +187,8 @@ def mod(lhs, rhs):
     return _oper("__mod__", "__rmod__", "%", lhs, rhs)
 
 
-def pow(lhs, rhs, mod=None):
-    if mod is None:
-        return _oper("__pow__", "__rpow__", "**", lhs, rhs)
-    return _pow_with_mod(lhs, rhs, mod)
+def pow(lhs, rhs):
+    return _oper("__pow__", "__rpow__", "**", lhs, rhs)
 
 
 def lshift(lhs, rhs):
@@ -272,9 +235,7 @@ def imod(lhs, rhs):
     return _ioper("__imod__", "__mod__", "__rmod__", "%", lhs, rhs)
 
 
-def ipow(lhs, rhs, mod=None):
-    if mod is not None:
-        return _pow_with_mod(lhs, rhs, mod)
+def ipow(lhs, rhs):
     return _ioper("__ipow__", "__pow__", "__rpow__", "**", lhs, rhs)
 
 
