@@ -142,6 +142,12 @@ pub enum BlockPyBindingPurpose {
     Store,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct BlockPyCellCaptureBinding {
+    pub logical_name: String,
+    pub source_name: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BlockPyCallableSemanticInfo {
     pub names: FunctionName,
@@ -232,13 +238,32 @@ impl BlockPyCallableSemanticInfo {
         honor_internal_name: bool,
         cell_storage_name: Option<String>,
     ) {
+        self.insert_binding_with_cell_names(
+            name,
+            binding,
+            honor_internal_name,
+            cell_storage_name.clone(),
+            cell_storage_name,
+        );
+    }
+
+    pub fn insert_binding_with_cell_names(
+        &mut self,
+        name: impl Into<String>,
+        binding: BlockPyBindingKind,
+        honor_internal_name: bool,
+        cell_storage_name: Option<String>,
+        cell_capture_source_name: Option<String>,
+    ) {
         let name = name.into();
         self.bindings.insert(name.clone(), binding);
         if let Some(cell_storage_name) = cell_storage_name {
             self.cell_storage_names
-                .insert(name.clone(), cell_storage_name.clone());
-            self.cell_capture_source_names
                 .insert(name.clone(), cell_storage_name);
+        }
+        if let Some(cell_capture_source_name) = cell_capture_source_name {
+            self.cell_capture_source_names
+                .insert(name.clone(), cell_capture_source_name);
         }
         if honor_internal_name {
             self.semantic_internal_names.insert(name.clone());
@@ -370,6 +395,16 @@ impl BlockPyCallableSemanticInfo {
             .collect::<Vec<_>>();
         names.sort();
         names
+    }
+
+    pub fn captured_cell_bindings(&self) -> Vec<BlockPyCellCaptureBinding> {
+        self.captured_cell_logical_names()
+            .into_iter()
+            .map(|logical_name| BlockPyCellCaptureBinding {
+                source_name: self.cell_capture_source_name(logical_name.as_str()),
+                logical_name,
+            })
+            .collect()
     }
 
     pub fn local_cell_storage_names(&self) -> HashSet<String> {
@@ -815,12 +850,13 @@ where
 }
 
 fn is_runtime_closure_name(name: &str) -> bool {
-    matches!(name, "_dp_pc" | "_dp_yieldfrom") || name.starts_with("_dp_try_abrupt_kind_")
+    matches!(name, "_dp_pc" | "_dp_yieldfrom" | "_dp_throw_context")
+        || name.starts_with("_dp_try_abrupt_kind_")
 }
 
-pub(crate) fn compute_storage_layout_from_semantics<P>(
+pub(crate) fn compute_make_function_capture_bindings_from_semantics<P>(
     callable_def: &BlockPyFunction<P>,
-) -> Option<StorageLayout>
+) -> Vec<BlockPyCellCaptureBinding>
 where
     P: BlockPyLinearPass,
     PassExpr<P>: BlockPySemanticExprNode,
@@ -835,31 +871,26 @@ where
 
     let param_names = callable_def.params.names();
     let owned_cell_slot_names = callable_def.semantic.owned_cell_storage_names();
-    let mut local_cell_slots = owned_cell_slot_names.iter().cloned().collect::<Vec<_>>();
-    local_cell_slots.sort();
     let param_name_set = param_names.iter().cloned().collect::<HashSet<_>>();
 
     let mut collector = StorageLayoutSemanticCollector::default();
     collector.visit_fn(callable_def);
 
-    let capture_candidate_names = collector
-        .used_names
-        .iter()
-        .chain(collector.defined_names.iter())
-        .chain(collector.deleted_names.iter())
-        .chain(collector.cell_ref_logical_names.iter())
-        .map(|name| normalize_capture_name(name.as_str()))
-        .collect::<HashSet<_>>();
-
-    let mut capture_names = callable_def
+    let mut capture_bindings = callable_def
         .semantic
-        .captured_cell_logical_names()
+        .captured_cell_bindings()
         .into_iter()
-        .map(|name| normalize_capture_name(name.as_str()))
-        .filter(|name| !is_runtime_closure_name(name.as_str()))
-        .filter(|name| capture_candidate_names.contains(name))
+        .map(|binding| {
+            let logical_name = normalize_capture_name(binding.logical_name.as_str());
+            BlockPyCellCaptureBinding {
+                source_name: callable_def
+                    .semantic
+                    .cell_capture_source_name(logical_name.as_str()),
+                logical_name,
+            }
+        })
         .collect::<Vec<_>>();
-    capture_names.extend(
+    capture_bindings.extend(
         collector
             .cell_ref_logical_names
             .iter()
@@ -873,10 +904,44 @@ where
                         .cell_capture_source_name(logical_name.as_str())
                         .as_str(),
                 )
+            })
+            .map(|logical_name| BlockPyCellCaptureBinding {
+                source_name: callable_def
+                    .semantic
+                    .cell_capture_source_name(logical_name.as_str()),
+                logical_name,
             }),
     );
-    capture_names.sort();
-    capture_names.dedup();
+    capture_bindings.sort_by(|left, right| {
+        left.logical_name
+            .cmp(&right.logical_name)
+            .then_with(|| left.source_name.cmp(&right.source_name))
+    });
+    capture_bindings.dedup_by(|left, right| left.logical_name == right.logical_name);
+
+    capture_bindings
+}
+
+pub(crate) fn compute_storage_layout_from_semantics<P>(
+    callable_def: &BlockPyFunction<P>,
+) -> Option<StorageLayout>
+where
+    P: BlockPyLinearPass,
+    PassExpr<P>: BlockPySemanticExprNode,
+{
+    let owned_cell_slot_names = callable_def.semantic.owned_cell_storage_names();
+    let mut local_cell_slots = owned_cell_slot_names.iter().cloned().collect::<Vec<_>>();
+    local_cell_slots.sort();
+    let param_name_set = callable_def
+        .params
+        .names()
+        .into_iter()
+        .collect::<HashSet<_>>();
+
+    let capture_names = compute_make_function_capture_bindings_from_semantics(callable_def)
+        .into_iter()
+        .map(|binding| binding.logical_name)
+        .collect::<Vec<_>>();
 
     build_storage_layout_from_capture_names(
         callable_def,

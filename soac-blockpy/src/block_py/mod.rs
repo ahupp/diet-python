@@ -5,13 +5,14 @@ use self::pretty::{
     BlockPyDebugOperationText,
 };
 pub(crate) use self::semantics::{
-    build_storage_layout_from_capture_names, compute_storage_layout_from_semantics,
-    derive_effective_binding_for_name, BlockPySemanticExprNode,
+    build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_semantics,
+    compute_storage_layout_from_semantics, derive_effective_binding_for_name,
+    BlockPySemanticExprNode,
 };
 pub use self::semantics::{
     BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
-    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyClassBodyFallback,
-    BlockPyEffectiveBinding, ClosureInit, ClosureSlot, StorageLayout,
+    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCellCaptureBinding,
+    BlockPyClassBodyFallback, BlockPyEffectiveBinding, ClosureInit, ClosureSlot, StorageLayout,
 };
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;

@@ -351,6 +351,28 @@ fn semantic_state_propagates_method_dunder_class_binding_to_nested_functions() {
 }
 
 #[test]
+fn semantic_state_does_not_propagate_dunder_class_out_of_nested_class_scope() {
+    let mut body = parse_module_body(concat!(
+        "def exercise():\n",
+        "    class X:\n",
+        "        global __class__\n",
+        "        __class__ = 42\n",
+        "        def f(self):\n",
+        "            return __class__\n",
+        "    return X\n",
+    ));
+    let semantic_state = SemanticAstState::from_ruff(&mut body);
+    let exercise_def = find_function(&body, "exercise");
+    let exercise_scope = function_scope(&semantic_state, exercise_def);
+
+    assert_ne!(
+        exercise_scope.binding_in_scope("__class__", SemanticBindingUse::Load),
+        SemanticBindingKind::Nonlocal
+    );
+    assert_eq!(exercise_scope.cell_storage_name("__class__"), None);
+}
+
+#[test]
 fn semantic_state_recursive_local_function_is_tracked_as_cell_binding() {
     let mut body = parse_module_body(concat!(
         "def outer():\n",

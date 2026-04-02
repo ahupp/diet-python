@@ -343,6 +343,18 @@ struct ImplicitClassCellUseDetector {
 impl Transformer for ImplicitClassCellUseDetector {
     fn visit_stmt(&mut self, stmt: &mut ast::Stmt) {
         match stmt {
+            ast::Stmt::ClassDef(class_def) => {
+                for decorator in &mut class_def.decorator_list {
+                    self.visit_decorator(decorator);
+                }
+                if let Some(type_params) = class_def.type_params.as_mut() {
+                    self.visit_type_params(type_params);
+                }
+                if let Some(arguments) = class_def.arguments.as_mut() {
+                    self.visit_arguments(arguments);
+                }
+                return;
+            }
             ast::Stmt::Delete(ast::StmtDelete { targets, .. }) => {
                 if targets.iter().any(|target| {
                     matches!(

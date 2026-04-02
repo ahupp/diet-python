@@ -362,27 +362,17 @@ fn augment_resume_semantic_for_standard_name_binding(
     semantic: &mut BlockPyCallableSemanticInfo,
     closure_bindings: &ResumeClosureBindings,
 ) {
-    for (name, _) in &closure_bindings.runtime_state_bindings {
+    for (name, source_name) in &closure_bindings.runtime_state_bindings {
         if resume_state_uses_standard_name_binding(name.as_str()) {
-            semantic.insert_binding(
+            semantic.insert_binding_with_cell_names(
                 name.clone(),
                 BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
                 is_internal_symbol(name.as_str()),
                 Some(name.clone()),
+                Some(source_name.clone()),
             );
         }
     }
-}
-
-fn resume_closure_value_name(layout: &StorageLayout, name: &str) -> String {
-    layout
-        .freevars
-        .iter()
-        .chain(layout.cellvars.iter())
-        .chain(layout.runtime_cells.iter())
-        .find(|slot| slot.logical_name == name || slot.storage_name == name)
-        .map(|slot| slot.logical_name.clone())
-        .unwrap_or_else(|| name.to_string())
 }
 
 fn is_resume_closure_state_name(layout: &StorageLayout, name: &str) -> bool {
@@ -400,48 +390,18 @@ fn resume_closure_bindings(
 ) -> ResumeClosureBindings {
     let runtime_state_bindings = persistent_state_names
         .iter()
-        .filter(|name| is_resume_closure_state_name(layout, name.as_str()))
-        .map(|name| {
-            (
-                name.clone(),
-                resume_closure_value_name(layout, name.as_str()),
-            )
+        .filter_map(|name| {
+            layout
+                .freevars
+                .iter()
+                .chain(layout.cellvars.iter())
+                .chain(layout.runtime_cells.iter())
+                .find(|slot| slot.logical_name == *name || slot.storage_name == *name)
+                .map(|slot| (slot.logical_name.clone(), slot.storage_name.clone()))
         })
         .collect::<Vec<_>>();
     ResumeClosureBindings {
         runtime_state_bindings,
-    }
-}
-
-fn build_resume_storage_layout(
-    visible_layout: &StorageLayout,
-    closure_bindings: &ResumeClosureBindings,
-) -> StorageLayout {
-    let freevars = closure_bindings
-        .runtime_state_bindings
-        .iter()
-        .map(|(name, _)| {
-            let slot = visible_layout
-                .freevars
-                .iter()
-                .chain(visible_layout.cellvars.iter())
-                .chain(visible_layout.runtime_cells.iter())
-                .find(|slot| slot.logical_name == *name || slot.storage_name == *name)
-                .unwrap_or_else(|| {
-                    panic!("missing visible closure slot for resume state binding {name}")
-                });
-            ClosureSlot {
-                logical_name: slot.logical_name.clone(),
-                storage_name: slot.storage_name.clone(),
-                init: ClosureInit::InheritedCapture,
-            }
-        })
-        .collect();
-    StorageLayout {
-        freevars,
-        cellvars: Vec::new(),
-        runtime_cells: Vec::new(),
-        stack_slots: Vec::new(),
     }
 }
 
@@ -1570,7 +1530,6 @@ pub(crate) fn lower_generator_like_function(
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
         lower_resume_blocks(&callable);
     let closure_bindings = resume_closure_bindings(&storage_layout, &resume_binding_names);
-    let resume_storage_layout = build_resume_storage_layout(&storage_layout, &closure_bindings);
 
     let BlockPyFunction {
         function_id,
@@ -1588,21 +1547,6 @@ pub(crate) fn lower_generator_like_function(
     let mut resume_semantic = semantic.clone();
     augment_resume_semantic_for_standard_name_binding(&mut resume_semantic, &closure_bindings);
 
-    let visible_function = BlockPyFunction {
-        function_id,
-        name_gen,
-        names: names.clone(),
-        kind,
-        params: params.clone(),
-        blocks: attach_exception_edges_to_blocks(
-            vec![factory_block.clone()],
-            &HashMap::from([(factory_block.label.clone(), None)]),
-        ),
-        doc,
-        storage_layout: Some(storage_layout.clone()),
-        semantic: semantic.clone(),
-    };
-
     let resume_params = resume_param_spec(kind);
     let resume_names = FunctionName::new(
         format!("{}_resume", names.bind_name),
@@ -1618,8 +1562,29 @@ pub(crate) fn lower_generator_like_function(
         params: resume_params.clone(),
         blocks: resume_blocks.clone(),
         doc: None,
-        storage_layout: Some(resume_storage_layout),
+        storage_layout: None,
         semantic: resume_semantic,
+    };
+    let resume_storage_layout = compute_storage_layout_from_semantics(&resume_function)
+        .unwrap_or_else(|| panic!("generator resume should compute a storage layout"));
+    let resume_function = BlockPyFunction {
+        storage_layout: Some(resume_storage_layout),
+        ..resume_function
+    };
+
+    let visible_function = BlockPyFunction {
+        function_id,
+        name_gen,
+        names: names.clone(),
+        kind,
+        params: params.clone(),
+        blocks: attach_exception_edges_to_blocks(
+            vec![factory_block.clone()],
+            &HashMap::from([(factory_block.label.clone(), None)]),
+        ),
+        doc,
+        storage_layout: Some(storage_layout.clone()),
+        semantic: semantic.clone(),
     };
 
     vec![visible_function, resume_function]

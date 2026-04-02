@@ -1,8 +1,9 @@
 use crate::block_py::{
-    build_storage_layout_from_capture_names, compute_storage_layout_from_semantics,
-    core_runtime_positional_call_expr_with_meta, runtime_symbol, BindingTarget, BlockArg,
-    BlockPyAssign, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
-    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyClassBodyFallback,
+    build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_semantics,
+    compute_storage_layout_from_semantics, core_runtime_positional_call_expr_with_meta,
+    runtime_symbol, BindingTarget, BlockArg, BlockPyAssign, BlockPyBindingKind,
+    BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
+    BlockPyCellBindingKind, BlockPyCellCaptureBinding, BlockPyClassBodyFallback,
     BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap,
     BlockPyNameLike, BlockPyRaise, BlockPyStmt, BlockPyTerm, Call, CellLocation, CellRef,
     CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
@@ -1024,7 +1025,7 @@ fn is_local_cell_init_assign(assign: &CoreAssign) -> bool {
 struct NameBindingMapper<'a> {
     semantic: &'a BlockPyCallableSemanticInfo,
     callee_make_function_captures:
-        &'a HashMap<crate::block_py::FunctionId, Vec<MakeFunctionCaptureBinding>>,
+        &'a HashMap<crate::block_py::FunctionId, Vec<BlockPyCellCaptureBinding>>,
     local_slots: HashMap<String, u32>,
     captured_cell_slots: HashMap<String, u32>,
     owned_cell_slots: HashMap<String, u32>,
@@ -2553,33 +2554,28 @@ fn ensure_module_storage_layouts(
         .collect()
 }
 
-#[derive(Debug, Clone)]
-struct MakeFunctionCaptureBinding {
-    logical_name: String,
-    source_name: String,
-}
-
 fn compute_module_make_function_capture_names(
     callable_defs: &[BlockPyFunction<CoreBlockPyPass>],
-) -> HashMap<FunctionId, Vec<MakeFunctionCaptureBinding>> {
+) -> HashMap<FunctionId, Vec<BlockPyCellCaptureBinding>> {
     callable_defs
         .iter()
         .map(|callable| {
             let captures = callable
                 .storage_layout
-                .clone()
-                .or_else(|| compute_storage_layout_from_semantics(callable))
+                .as_ref()
                 .map(|layout| {
                     layout
                         .freevars
-                        .into_iter()
-                        .map(|slot| MakeFunctionCaptureBinding {
-                            logical_name: slot.logical_name,
-                            source_name: slot.storage_name,
+                        .iter()
+                        .map(|slot| BlockPyCellCaptureBinding {
+                            logical_name: slot.logical_name.clone(),
+                            source_name: callable
+                                .semantic
+                                .cell_capture_source_name(slot.logical_name.as_str()),
                         })
-                        .collect()
+                        .collect::<Vec<_>>()
                 })
-                .unwrap_or_default();
+                .unwrap_or_else(|| compute_make_function_capture_bindings_from_semantics(callable));
             (callable.function_id, captures)
         })
         .collect()
@@ -2679,7 +2675,7 @@ fn lower_name_binding_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
     callee_make_function_captures: &HashMap<
         crate::block_py::FunctionId,
-        Vec<MakeFunctionCaptureBinding>,
+        Vec<BlockPyCellCaptureBinding>,
     >,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
     let semantic = callable.semantic.clone();

@@ -3,8 +3,9 @@ use super::{
     FunctionScopeFrame,
 };
 use crate::block_py::{
-    BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyClassBodyFallback,
-    BlockPyEffectiveBinding, BlockPyModule, ModuleNameGen,
+    compute_make_function_capture_bindings_from_semantics, BindingTarget, BlockPyBindingKind,
+    BlockPyBindingPurpose, BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyModule,
+    ModuleNameGen,
 };
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::ast_to_ast::context::Context;
@@ -69,6 +70,13 @@ fn callable_semantic_info_uses_logical_storage_for_cell_captures() {
     assert_eq!(inner.semantic.cell_storage_name("x"), "x");
     assert_eq!(inner.semantic.cell_capture_source_name("x"), "_dp_cell_x");
     assert_eq!(
+        inner.semantic.captured_cell_bindings(),
+        vec![crate::block_py::BlockPyCellCaptureBinding {
+            logical_name: "x".to_string(),
+            source_name: "_dp_cell_x".to_string(),
+        }]
+    );
+    assert_eq!(
         inner
             .semantic
             .logical_name_for_cell_capture_source("_dp_cell_x"),
@@ -101,11 +109,17 @@ fn callable_semantic_info_maps_classcell_capture_source_back_to_dunder_class() {
     assert_eq!(f.semantic.cell_storage_name("__class__"), "__class__");
     assert_eq!(
         f.semantic.cell_capture_source_name("__class__"),
-        "_dp_classcell"
+        "__class__"
     );
     assert_eq!(
-        f.semantic
-            .logical_name_for_cell_capture_source("_dp_classcell"),
+        f.semantic.captured_cell_bindings(),
+        vec![crate::block_py::BlockPyCellCaptureBinding {
+            logical_name: "__class__".to_string(),
+            source_name: "__class__".to_string(),
+        }]
+    );
+    assert_eq!(
+        f.semantic.logical_name_for_cell_capture_source("__class__"),
         Some("__class__".to_string())
     );
 }
@@ -211,6 +225,53 @@ fn callable_semantic_info_marks_class_helper_as_owning_classcell() {
     assert_eq!(
         class_helper.semantic.cell_storage_name("__class__"),
         "_dp_classcell"
+    );
+}
+
+#[test]
+fn callable_semantic_info_does_not_leak_dunder_class_capture_to_outer_function() {
+    let source = concat!(
+        "def exercise():\n",
+        "    class X:\n",
+        "        global __class__\n",
+        "        __class__ = 42\n",
+        "        def f(self):\n",
+        "            return __class__\n",
+        "    return X\n",
+    );
+    let blockpy_module = tracked_core_blockpy_with_await_and_yield(source);
+    let exercise = blockpy_module
+        .callable_defs
+        .iter()
+        .find(|func| func.names.bind_name == "exercise")
+        .expect("missing outer function");
+
+    assert_eq!(exercise.semantic.binding_kind("__class__"), None);
+    assert_eq!(exercise.semantic.captured_cell_bindings(), Vec::new());
+}
+
+#[test]
+fn class_helper_semantic_info_stays_lexical_when_nested_methods_capture_outer_closure() {
+    let source = concat!(
+        "def run():\n",
+        "    log = []\n",
+        "    class C:\n",
+        "        def f(self):\n",
+        "            log.append('x')\n",
+        "            return log\n",
+        "    return C\n",
+    );
+    let blockpy_module = tracked_core_blockpy_with_await_and_yield(source);
+    let class_helper = blockpy_module
+        .callable_defs
+        .iter()
+        .find(|func| func.names.bind_name == "_dp_class_ns_C")
+        .expect("missing class helper");
+
+    assert_eq!(class_helper.semantic.captured_cell_bindings(), Vec::new());
+    assert_eq!(
+        compute_make_function_capture_bindings_from_semantics(class_helper),
+        Vec::new()
     );
 }
 

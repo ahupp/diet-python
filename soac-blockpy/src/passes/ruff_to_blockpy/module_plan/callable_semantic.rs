@@ -233,6 +233,13 @@ pub(super) fn callable_semantic_info(
     for name in capture_names {
         info.cell_storage_names.insert(name.clone(), name);
     }
+    if matches!(
+        info.bindings.get("__class__"),
+        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+    ) {
+        info.cell_capture_source_names
+            .insert("__class__".to_string(), "__class__".to_string());
+    }
     if callable_owns_synthetic_classcell(func) {
         info.cell_capture_source_names
             .insert("__class__".to_string(), "_dp_classcell".to_string());
