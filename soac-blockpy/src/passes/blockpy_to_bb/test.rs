@@ -73,12 +73,18 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
 }
 
 fn core_name_expr(name: &str) -> LocatedCoreBlockPyExpr {
-    LocatedCoreBlockPyExpr::Name(LocatedName::from(ast::ExprName {
+    let name = LocatedName::from(ast::ExprName {
         id: name.into(),
         ctx: ast::ExprContext::Load,
         range: TextRange::default(),
         node_index: ast::AtomicNodeIndex::default(),
-    }))
+    });
+    crate::block_py::Load::new(name.clone())
+        .with_meta(crate::block_py::Meta::new(
+            name.node_index.clone(),
+            name.range,
+        ))
+        .into()
 }
 
 fn core_call_expr(name: &str, args: Vec<LocatedCoreBlockPyExpr>) -> LocatedCoreBlockPyExpr {

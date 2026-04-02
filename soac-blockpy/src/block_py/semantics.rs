@@ -577,7 +577,6 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
 
     fn root_name_id(&self) -> Option<&str> {
         match self {
-            Self::Name(name) => Some(name.id_str()),
             Self::Call(call) => call.func.as_ref().root_name_id(),
             Self::Load(op) => Some(op.name.id_str()),
             _ => None,
@@ -595,7 +594,6 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
 
     fn walk_root_loaded_names(&self, f: &mut impl FnMut(&str)) {
         match self {
-            Self::Name(name) => f(name.id_str()),
             Self::Call(call) => {
                 if let Some(name) = call.func.as_ref().root_name_id() {
                     f(name);
@@ -641,7 +639,6 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
 
     fn root_name_id(&self) -> Option<&str> {
         match self {
-            Self::Name(name) => Some(name.id_str()),
             Self::Call(call) => call.func.as_ref().root_name_id(),
             Self::Load(op) => Some(op.name.id_str()),
             _ => None,
@@ -659,7 +656,6 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
 
     fn walk_root_loaded_names(&self, f: &mut impl FnMut(&str)) {
         match self {
-            Self::Name(name) => f(name.id_str()),
             Self::Call(call) => {
                 if let Some(name) = call.func.as_ref().root_name_id() {
                     f(name);
@@ -708,7 +704,6 @@ where
 
     fn root_name_id(&self) -> Option<&str> {
         match self {
-            Self::Name(name) => Some(name.id_str()),
             Self::Call(call) => call.func.as_ref().root_name_id(),
             Self::Load(op) => Some(op.name.id_str()),
             _ => None,
@@ -726,7 +721,6 @@ where
 
     fn walk_root_loaded_names(&self, f: &mut impl FnMut(&str)) {
         match self {
-            Self::Name(name) => f(name.id_str()),
             Self::Call(call) => {
                 if let Some(name) = call.func.as_ref().root_name_id() {
                     f(name);
@@ -772,7 +766,6 @@ impl BlockPySemanticExprNode for super::CodegenBlockPyExpr {
 
     fn root_name_id(&self) -> Option<&str> {
         match self {
-            Self::Name(name) => Some(name.id_str()),
             Self::Call(call) => call.func.as_ref().root_name_id(),
             Self::Load(op) => Some(op.name.id_str()),
             _ => None,
@@ -781,7 +774,6 @@ impl BlockPySemanticExprNode for super::CodegenBlockPyExpr {
 
     fn walk_root_loaded_names(&self, f: &mut impl FnMut(&str)) {
         match self {
-            Self::Name(name) => f(name.id_str()),
             Self::Call(call) => {
                 if let Some(name) = call.func.as_ref().root_name_id() {
                     f(name);

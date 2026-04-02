@@ -1,13 +1,12 @@
 use crate::block_py::structured::IntoStructuredInstr;
 use crate::block_py::{
-    expr_any, BlockPyAssign, BlockPyBranchTable, BlockPyCfgFragment, BlockPyFunction, BlockPyIf,
-    BlockPyIfTerm, BlockPyNameLike, BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
+    expr_any, BlockPyBranchTable, BlockPyCfgFragment, BlockPyFunction, BlockPyIf, BlockPyIfTerm,
+    BlockPyNameLike, BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
-    CoreBlockPyYieldFrom, Del, HasMeta, Instr, InstrExprNode, Meta, Store, StructuredInstrFor,
-    WithMeta,
+    CoreBlockPyYieldFrom, Del, HasMeta, Instr, InstrExprNode, Load, Meta, Store,
+    StructuredInstrFor, WithMeta,
 };
 use crate::namegen::fresh_name;
-use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
 use crate::passes::CoreBlockPyPassWithYield;
 use crate::py_expr;
@@ -60,7 +59,8 @@ fn hoist_core_expr_if_contains_suspend(
         let target = fresh_eval_name();
         out.push(typed_store_stmt(target.clone(), expr));
         cleanup.push(target.clone());
-        CoreBlockPyExprWithAwaitAndYield::Name(target.into())
+        let meta = target.meta();
+        Load::new(target).with_meta(meta).into()
     } else {
         expr
     }
@@ -72,8 +72,7 @@ fn make_eval_order_explicit_in_core_expr(
     cleanup: &mut Vec<ast::ExprName>,
 ) -> CoreBlockPyExprWithAwaitAndYield {
     match expr {
-        CoreBlockPyExprWithAwaitAndYield::Name(_)
-        | CoreBlockPyExprWithAwaitAndYield::Literal(_) => expr,
+        CoreBlockPyExprWithAwaitAndYield::Literal(_) => expr,
         CoreBlockPyExprWithAwaitAndYield::BinOp(operation) => operation
             .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
@@ -279,8 +278,8 @@ pub(crate) fn make_eval_order_explicit_in_core_block(
 fn is_core_atom_without_await(expr: &CoreBlockPyExprWithYield) -> bool {
     matches!(
         expr,
-        CoreBlockPyExprWithYield::Name(_) | CoreBlockPyExprWithYield::Literal(_)
-    ) || matches!(expr, CoreBlockPyExprWithYield::Load(_))
+        CoreBlockPyExprWithYield::Literal(_) | CoreBlockPyExprWithYield::Load(_)
+    )
 }
 
 fn expr_contains_yield(expr: &CoreBlockPyExprWithYield) -> bool {
@@ -304,7 +303,8 @@ fn hoist_core_expr_without_await_to_atom(
         let target = fresh_eval_name();
         out.push(typed_store_stmt(target.clone(), expr));
         cleanup.push(target.clone());
-        CoreBlockPyExprWithYield::Name(target.into())
+        let meta = target.meta();
+        Load::new(target).with_meta(meta).into()
     }
 }
 
@@ -314,7 +314,7 @@ fn make_eval_order_explicit_in_core_expr_without_await(
     cleanup: &mut Vec<ast::ExprName>,
 ) -> CoreBlockPyExprWithYield {
     match expr {
-        CoreBlockPyExprWithYield::Name(_) | CoreBlockPyExprWithYield::Literal(_) => expr,
+        CoreBlockPyExprWithYield::Literal(_) => expr,
         CoreBlockPyExprWithYield::BinOp(operation) => operation
             .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),

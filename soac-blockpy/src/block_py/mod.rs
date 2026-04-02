@@ -1,7 +1,10 @@
 pub use self::meta::{HasMeta, Meta, WithMeta};
 use self::operation_macro::define_operation;
 pub use self::param_specs::{Param, ParamDefaultSource, ParamKind, ParamSpec};
-use self::pretty::{render_core_literal_text, BlockPyDebugExprText, BlockPyDebugOperationText};
+use self::pretty::{
+    render_codegen_literal_text, render_core_literal_text, BlockPyDebugExprText,
+    BlockPyDebugOperationText,
+};
 pub(crate) use self::semantics::{
     build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_semantics,
     compute_storage_layout_from_semantics, derive_effective_binding_for_name,
@@ -168,7 +171,7 @@ impl NameLocation {
     }
 }
 
-pub trait BlockPyNameLike: Clone + fmt::Debug + From<ast::ExprName> + Into<ast::ExprName> {
+pub trait BlockPyNameLike: Clone + fmt::Debug + From<ast::ExprName> {
     fn id_str(&self) -> &str;
     fn pretty_id(&self) -> String {
         self.id_str().to_string()
@@ -320,11 +323,11 @@ impl From<ast::ExprName> for UnresolvedName {
     }
 }
 
-impl From<UnresolvedName> for ast::ExprName {
-    fn from(value: UnresolvedName) -> Self {
-        match value {
-            UnresolvedName::ExprName(name) => name,
-            UnresolvedName::RuntimeName(name) => Self {
+impl UnresolvedName {
+    pub fn into_expr_name(self) -> ast::ExprName {
+        match self {
+            Self::ExprName(name) => name,
+            Self::RuntimeName(name) => ast::ExprName {
                 id: name.value.into(),
                 ctx: ast::ExprContext::Load,
                 range: name.range,
@@ -404,17 +407,6 @@ impl From<ast::ExprName> for LocatedName {
             range: value.range,
             node_index: value.node_index,
             location: NameLocation::Global,
-        }
-    }
-}
-
-impl From<LocatedName> for ast::ExprName {
-    fn from(value: LocatedName) -> Self {
-        Self {
-            id: value.id,
-            ctx: value.ctx,
-            range: value.range,
-            node_index: value.node_index,
         }
     }
 }
@@ -530,9 +522,17 @@ impl<P: BlockPyPass> BlockPyModule<P> {
     }
 }
 
+fn load_name_expr<E>(name: ast::ExprName) -> E
+where
+    E: Instr + From<Load<E>>,
+    InstrName<E>: From<ast::ExprName>,
+{
+    let meta = name.meta();
+    Load::new(name).with_meta(meta).into()
+}
+
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum CoreBlockPyExprWithAwaitAndYield {
-    Name(UnresolvedName),
     Literal(BlockPyLiteral),
     BinOp(BinOp<Self>),
     UnaryOp(UnaryOp<Self>),
@@ -556,7 +556,6 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
 
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum CoreBlockPyExprWithYield {
-    Name(UnresolvedName),
     Literal(BlockPyLiteral),
     BinOp(BinOp<Self>),
     UnaryOp(UnaryOp<Self>),
@@ -579,7 +578,6 @@ pub enum CoreBlockPyExprWithYield {
 
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
-    Name(N),
     Literal(BlockPyLiteral),
     BinOp(BinOp<Self>),
     UnaryOp(UnaryOp<Self>),
@@ -602,7 +600,7 @@ pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum CodegenBlockPyExpr {
-    Name(LocatedName),
+    Literal(CodegenBlockPyLiteral),
     BinOp(BinOp<Self>),
     UnaryOp(UnaryOp<Self>),
     Call(Call<Self>),
@@ -742,16 +740,10 @@ pub enum CoreNumberLiteralValue {
 
 pub(crate) trait CoreCallLikeExpr: Sized + Instr {
     type Name: BlockPyNameLike + From<ast::ExprName>;
-
-    fn from_name(name: ast::ExprName) -> Self;
 }
 
 impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
     type Name = UnresolvedName;
-
-    fn from_name(name: ast::ExprName) -> Self {
-        Self::Name(name.into())
-    }
 }
 
 impl Instr for CoreBlockPyExprWithAwaitAndYield {
@@ -791,7 +783,6 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYi
 impl BlockPyDebugExprText for CoreBlockPyExprWithAwaitAndYield {
     fn debug_expr_text(&self) -> String {
         match self {
-            Self::Name(name) => name.pretty_id(),
             Self::Literal(literal) => render_core_literal_text(literal),
             Self::Await(await_expr) => format!("await {}", await_expr.value.debug_expr_text()),
             Self::Yield(yield_expr) => {
@@ -829,7 +820,6 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
         f: &mut impl FnMut(Self) -> CoreBlockPyExprWithYield,
     ) -> CoreBlockPyExprWithYield {
         match self {
-            Self::Name(name) => CoreBlockPyExprWithYield::Name(name),
             Self::Literal(literal) => CoreBlockPyExprWithYield::Literal(literal),
             Self::BinOp(op) => op.map_expr_node(&mut *f).into(),
             Self::UnaryOp(op) => op.map_expr_node(&mut *f).into(),
@@ -876,7 +866,6 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
         f: &mut impl FnMut(Self) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>,
     ) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield> {
         match self {
-            Self::Name(name) => Ok(CoreBlockPyExprWithYield::Name(name)),
             Self::Literal(literal) => Ok(CoreBlockPyExprWithYield::Literal(literal)),
             Self::BinOp(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::UnaryOp(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
@@ -906,10 +895,6 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
 
 impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
     type Name = UnresolvedName;
-
-    fn from_name(name: ast::ExprName) -> Self {
-        Self::Name(name.into())
-    }
 }
 
 impl Instr for CoreBlockPyExprWithYield {
@@ -949,7 +934,6 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
 impl BlockPyDebugExprText for CoreBlockPyExprWithYield {
     fn debug_expr_text(&self) -> String {
         match self {
-            Self::Name(name) => name.pretty_id(),
             Self::Literal(literal) => render_core_literal_text(literal),
             Self::Yield(yield_expr) => {
                 if CoreBlockPyExprWithYield::is_implicit_none_expr(&yield_expr.value) {
@@ -986,7 +970,6 @@ impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWi
         f: &mut impl FnMut(Self) -> Result<CoreBlockPyExpr, CoreBlockPyExprWithYield>,
     ) -> Result<CoreBlockPyExpr, CoreBlockPyExprWithYield> {
         match self {
-            Self::Name(name) => Ok(CoreBlockPyExpr::Name(name.into())),
             Self::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
             Self::BinOp(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::UnaryOp(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
@@ -1010,10 +993,6 @@ impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWi
 
 impl<N: BlockPyNameLike> CoreCallLikeExpr for CoreBlockPyExpr<N> {
     type Name = N;
-
-    fn from_name(name: ast::ExprName) -> Self {
-        Self::Name(name.into())
-    }
 }
 
 impl<N: BlockPyNameLike> Instr for CoreBlockPyExpr<N> {
@@ -1023,7 +1002,6 @@ impl<N: BlockPyNameLike> Instr for CoreBlockPyExpr<N> {
 impl<N: BlockPyNameLike> HasMeta for CoreBlockPyExpr<N> {
     fn meta(&self) -> Meta {
         match self {
-            Self::Name(name) => Meta::new(name.node_index(), name.range()),
             Self::Literal(literal) => literal.meta(),
             Self::BinOp(op) => op.meta(),
             Self::UnaryOp(op) => op.meta(),
@@ -1050,7 +1028,6 @@ where
 {
     fn debug_expr_text(&self) -> String {
         match self {
-            Self::Name(name) => name.pretty_id(),
             Self::Literal(literal) => render_core_literal_text(literal),
             Self::BinOp(op) => op.debug_operation_text(),
             Self::UnaryOp(op) => op.debug_operation_text(),
@@ -1071,10 +1048,9 @@ where
     }
 }
 
-impl<N: BlockPyNameLike + WithMeta> WithMeta for CoreBlockPyExpr<N> {
+impl<N: BlockPyNameLike> WithMeta for CoreBlockPyExpr<N> {
     fn with_meta(self, meta: Meta) -> Self {
         match self {
-            Self::Name(name) => Self::Name(name.with_meta(meta)),
             Self::Literal(literal) => Self::Literal(literal.with_meta(meta)),
             Self::BinOp(op) => Self::BinOp(op.with_meta(meta)),
             Self::UnaryOp(op) => Self::UnaryOp(op.with_meta(meta)),
@@ -1102,7 +1078,6 @@ where
 {
     fn map_expr(self, f: &mut impl FnMut(Self) -> CoreBlockPyExpr<NOut>) -> CoreBlockPyExpr<NOut> {
         match self {
-            Self::Name(name) => CoreBlockPyExpr::Name(NOut::from(name)),
             Self::Literal(literal) => CoreBlockPyExpr::Literal(literal),
             Self::BinOp(op) => op.map_expr_node(&mut *f).into(),
             Self::UnaryOp(op) => op.map_expr_node(&mut *f).into(),
@@ -1133,7 +1108,6 @@ where
         f: &mut impl FnMut(Self) -> Result<CoreBlockPyExpr<NOut>, Error>,
     ) -> Result<CoreBlockPyExpr<NOut>, Error> {
         match self {
-            Self::Name(name) => Ok(CoreBlockPyExpr::Name(NOut::from(name))),
             Self::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
             Self::BinOp(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
             Self::UnaryOp(op) => Ok(op.try_map_expr_node(&mut *f)?.into()),
@@ -1156,10 +1130,6 @@ where
 
 impl CoreCallLikeExpr for CodegenBlockPyExpr {
     type Name = LocatedName;
-
-    fn from_name(name: ast::ExprName) -> Self {
-        Self::Name(name.into())
-    }
 }
 
 impl Instr for CodegenBlockPyExpr {
@@ -1191,7 +1161,6 @@ where
 {
     fn map_expr(self, f: &mut impl FnMut(Self) -> CodegenBlockPyExpr) -> CodegenBlockPyExpr {
         match self {
-            Self::Name(name) => CodegenBlockPyExpr::Name(LocatedName::from(name)),
             Self::Literal(_) => {
                 panic!("core literals should normalize into Load(Constant(_)) before codegen")
             }
@@ -1238,7 +1207,7 @@ impl MapExpr<CodegenBlockPyExpr> for CodegenBlockPyExpr {
 impl BlockPyDebugExprText for CodegenBlockPyExpr {
     fn debug_expr_text(&self) -> String {
         match self {
-            Self::Name(name) => name.pretty_id(),
+            Self::Literal(literal) => render_codegen_literal_text(literal),
             Self::BinOp(op) => op.debug_operation_text(),
             Self::UnaryOp(op) => op.debug_operation_text(),
             Self::Call(op) => op.debug_operation_text(),
@@ -1281,9 +1250,9 @@ pub(crate) fn core_named_call_expr_with_meta<E>(
     keywords: Vec<CoreBlockPyKeywordArg<E>>,
 ) -> E
 where
-    E: CoreCallLikeExpr + From<Call<E>>,
+    E: CoreCallLikeExpr + From<Call<E>> + From<Load<E>>,
 {
-    let func = E::from_name(ExprName {
+    let func = load_name_expr(ExprName {
         id: func_name.into(),
         ctx: ast::ExprContext::Load,
         range,
@@ -1318,7 +1287,7 @@ pub(crate) fn core_positional_call_expr_with_meta<E>(
     args: Vec<E>,
 ) -> E
 where
-    E: CoreCallLikeExpr + From<Call<E>>,
+    E: CoreCallLikeExpr + From<Call<E>> + From<Load<E>>,
 {
     core_named_call_expr_with_meta(
         func_name,

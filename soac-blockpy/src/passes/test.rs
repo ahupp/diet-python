@@ -368,7 +368,12 @@ def outer():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("class_lookup_cell("),
+        !name_binding_rendered.contains("class_lookup_cell("),
+        "{name_binding_rendered}"
+    );
+    assert!(
+        name_binding_rendered
+            .contains("SetItem(LocalLocation(0), constant slot 6, CapturedSource(0))"),
         "{name_binding_rendered}"
     );
 }
@@ -386,9 +391,8 @@ def outer():
     let lowered = TrackedLowering::new(source);
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains(
-            "class_lookup_cell(LocalLocation(0), constant slot 7, CellRef(CapturedSource(0)))"
-        ),
+        name_binding_rendered
+            .contains("SetItem(LocalLocation(0), constant slot 6, CapturedSource(0))"),
         "{name_binding_rendered}"
     );
 }
@@ -498,7 +502,7 @@ class Box:
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered.contains("DelItem {")
-            && name_binding_rendered.contains("value: Name(LocatedName {")
+            && name_binding_rendered.contains("value: Load(Load {")
             && name_binding_rendered.contains("location: Local(LocalLocation(0))")
             && name_binding_rendered.contains("index: Load(Load {"),
         "{name_binding_rendered}"
@@ -870,7 +874,7 @@ class Box:
     );
     assert!(
         name_binding_rendered.contains("DelItem {")
-            && name_binding_rendered.contains("value: Name(LocatedName {")
+            && name_binding_rendered.contains("value: Load(Load {")
             && name_binding_rendered.contains("location: Local(LocalLocation(0))")
             && name_binding_rendered.contains("index: Load(Load {"),
         "{name_binding_rendered}"

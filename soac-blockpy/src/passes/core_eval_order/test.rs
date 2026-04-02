@@ -13,11 +13,19 @@ fn test_name(id: &str) -> UnresolvedName {
 }
 
 fn is_name_like(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
-    match expr {
-        CoreBlockPyExprWithAwaitAndYield::Name(_) => true,
-        CoreBlockPyExprWithAwaitAndYield::Load(_) => true,
-        _ => false,
-    }
+    matches!(expr, CoreBlockPyExprWithAwaitAndYield::Load(_))
+}
+
+fn test_load_with_await_and_yield(id: &str) -> CoreBlockPyExprWithAwaitAndYield {
+    let name = test_name(id);
+    let meta = Meta::new(name.node_index(), name.range());
+    Load::new(name).with_meta(meta).into()
+}
+
+fn test_load_with_yield(id: &str) -> CoreBlockPyExprWithYield {
+    let name = test_name(id);
+    let meta = Meta::new(name.node_index(), name.range());
+    Load::new(name).with_meta(meta).into()
 }
 
 #[test]
@@ -149,7 +157,7 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
     assert_eq!(op.kind, BinOpKind::InplaceAdd);
     assert!(matches!(
         op.right.as_ref(),
-        CoreBlockPyExprWithAwaitAndYield::Name(_)
+        CoreBlockPyExprWithAwaitAndYield::Load(_)
     ));
     assert!(matches!(
         lowered.body[2],
@@ -166,16 +174,16 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
                 test_name("total"),
                 Box::new(CoreBlockPyExprWithYield::BinOp(BinOp::new(
                     BinOpKind::InplaceAdd,
-                    CoreBlockPyExprWithYield::Name(test_name("total")),
+                    test_load_with_yield("total"),
                     CoreBlockPyExprWithYield::YieldFrom(
-                        CoreBlockPyYieldFrom::new(CoreBlockPyExprWithYield::Name(test_name("it")))
+                        CoreBlockPyYieldFrom::new(test_load_with_yield("it"))
                             .with_meta(Meta::default()),
                     ),
                 ))),
             )
             .into(),
         )],
-        term: BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(test_name("__dp_NONE"))),
+        term: BlockPyTerm::Return(test_load_with_yield("__dp_NONE")),
         params: Vec::new(),
         exc_edge: None,
     };
@@ -199,14 +207,14 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
     };
     assert!(matches!(
         op.right.as_ref(),
-        CoreBlockPyExprWithYield::Name(_)
+        CoreBlockPyExprWithYield::Load(_)
     ));
     let StructuredInstrFor::Expr(CoreBlockPyExprWithYield::Store(assign)) = &lowered.body[2] else {
         panic!("expected final store into total");
     };
     assert!(matches!(
         assign.value.as_ref(),
-        CoreBlockPyExprWithYield::Name(_)
+        CoreBlockPyExprWithYield::Load(_)
     ));
     assert!(matches!(
         lowered.body[3],

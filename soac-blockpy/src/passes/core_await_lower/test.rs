@@ -56,10 +56,10 @@ fn lowers_await_to_yield_from_await_iter() {
     else {
         panic!("expected lowered await store expr");
     };
-    let BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(return_name)) = &block.term else {
+    let BlockPyTerm::Return(CoreBlockPyExprWithYield::Load(return_load)) = &block.term else {
         panic!("expected return of lowered await temp");
     };
-    assert_eq!(return_name.id_str(), await_assign.name.id_str());
+    assert_eq!(return_load.name.id_str(), await_assign.name.id_str());
     let CoreBlockPyExprWithYield::YieldFrom(yield_from) = &*await_assign.value else {
         panic!("expected lowered await yield from");
     };

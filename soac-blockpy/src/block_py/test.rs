@@ -106,6 +106,18 @@ fn name_expr(name: &str) -> ast::ExprName {
     name
 }
 
+fn core_load_with_await_and_yield(name: &str) -> CoreBlockPyExprWithAwaitAndYield {
+    let name = name_expr(name);
+    let meta = name.meta();
+    Load::new(name).with_meta(meta).into()
+}
+
+fn core_load_with_yield(name: &str) -> CoreBlockPyExprWithYield {
+    let name = name_expr(name);
+    let meta = name.meta();
+    Load::new(name).with_meta(meta).into()
+}
+
 fn test_name_gen() -> FunctionNameGen {
     let mut module_name_gen = ModuleNameGen::new(0);
     module_name_gen.next_function_name_gen()
@@ -301,10 +313,7 @@ fn storage_layout_semantics_collects_structured_cell_ref_logical_names() {
 #[test]
 fn stmt_conversion_to_no_await_rejects_await() {
     let stmt = StructuredInstr::Expr(CoreBlockPyExprWithAwaitAndYield::Await(
-        CoreBlockPyAwait::new(CoreBlockPyExprWithAwaitAndYield::Name(
-            name_expr("x").into(),
-        ))
-        .with_meta(Meta::default()),
+        CoreBlockPyAwait::new(core_load_with_await_and_yield("x")).with_meta(Meta::default()),
     ));
 
     assert!(ExprTryMap::<
@@ -336,14 +345,10 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
             blocks: vec![CfgBlock {
                 label: BlockPyLabel::from_index(0),
                 body: vec![BlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Await(
-                    CoreBlockPyAwait::new(CoreBlockPyExprWithAwaitAndYield::Name(
-                        name_expr("x").into(),
-                    ))
-                    .with_meta(Meta::default()),
+                    CoreBlockPyAwait::new(core_load_with_await_and_yield("x"))
+                        .with_meta(Meta::default()),
                 ))],
-                term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Name(
-                    name_expr("__dp_NONE").into(),
-                )),
+                term: BlockPyTerm::Return(core_load_with_await_and_yield("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             }],
@@ -360,13 +365,12 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
 #[test]
 fn term_conversion_to_no_yield_rejects_nested_yield() {
     let term = BlockPyTerm::Return(core_call_expr_with_meta(
-        CoreBlockPyExprWithYield::Name(name_expr("f").into()),
+        core_load_with_yield("f"),
         ast::AtomicNodeIndex::default(),
         ruff_text_size::TextRange::default(),
         vec![CoreBlockPyCallArg::Positional(
             CoreBlockPyExprWithYield::Yield(
-                CoreBlockPyYield::new(CoreBlockPyExprWithYield::Name(name_expr("x").into()))
-                    .with_meta(Meta::default()),
+                CoreBlockPyYield::new(core_load_with_yield("x")).with_meta(Meta::default()),
             ),
         )],
         Vec::new(),

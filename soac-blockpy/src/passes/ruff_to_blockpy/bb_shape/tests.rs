@@ -6,7 +6,7 @@ use crate::block_py::{
     BlockParam, BlockParamRole, BlockPyAssign, BlockPyIf, BlockPyIfTerm, BlockPyLabel,
     BlockPyNameLike, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm, CfgBlock, CoreBlockPyCallArg,
     CoreBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen, ResolvedStorageBlock,
-    StructuredInstr,
+    StructuredInstr, WithMeta,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
@@ -94,7 +94,13 @@ fn expr_name(name: &str, ctx: ast::ExprContext) -> ast::ExprName {
 }
 
 fn core_name_expr(name: &str) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Name(expr_name(name, ast::ExprContext::Load).into())
+    let name = expr_name(name, ast::ExprContext::Load);
+    crate::block_py::Load::new(name.clone())
+        .with_meta(crate::block_py::Meta::new(
+            name.node_index.clone(),
+            name.range,
+        ))
+        .into()
 }
 
 #[test]

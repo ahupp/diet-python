@@ -10,7 +10,7 @@ use crate::block_py::{
     BlockPySemanticExprNode, BlockPyStmt, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit,
     ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
-    FunctionNameGen, ImplicitNoneExpr, Instr, InstrName, MakeFunction, Meta, ModuleNameGen,
+    FunctionNameGen, ImplicitNoneExpr, Instr, InstrName, Load, MakeFunction, Meta, ModuleNameGen,
     PassStmt, StorageLayout, Store, UnresolvedName, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
@@ -187,6 +187,15 @@ where
 {
     let meta = Meta::new(target.node_index(), target.range());
     BlockPyStmt::Expr(Store::new(target, Box::new(value)).with_meta(meta).into())
+}
+
+fn unresolved_load_expr<E>(name: UnresolvedName) -> E
+where
+    E: Instr + From<Load<E>>,
+    InstrName<E>: From<UnresolvedName>,
+{
+    let meta = Meta::new(name.node_index(), name.range());
+    Load::new(name).with_meta(meta).into()
 }
 
 fn collect_state_vars<E, N>(
@@ -1085,7 +1094,7 @@ fn emit_yield_site(
                 resume_label,
                 None,
                 Vec::new(),
-                BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(expr_name("_dp_send_value"))),
+                BlockPyTerm::Return(unresolved_load_expr(expr_name("_dp_send_value"))),
                 params,
                 exc_target,
             );
@@ -1111,9 +1120,7 @@ fn emit_yield_site(
             value,
             None,
             Vec::new(),
-            BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(expr_name(
-                "_dp_yield_from_value",
-            ))),
+            BlockPyTerm::Return(unresolved_load_expr(expr_name("_dp_yield_from_value"))),
             params,
             exc_target,
         ),
@@ -1158,10 +1165,7 @@ fn emit_resume_after_yield(
     if let Some(target) = assign_target {
         tail_body.insert(
             0,
-            unresolved_store_stmt(
-                target,
-                CoreBlockPyExprWithYield::Name(expr_name("_dp_send_value")),
-            ),
+            unresolved_store_stmt(target, unresolved_load_expr(expr_name("_dp_send_value"))),
         );
     }
     lower_resume_fragment(
@@ -1443,16 +1447,16 @@ fn emit_yield_from_site(
             1,
             unresolved_store_stmt(
                 target,
-                CoreBlockPyExprWithYield::Name(expr_name(yielded_value_name.as_str())),
+                unresolved_load_expr(expr_name(yielded_value_name.as_str())),
             ),
         );
-    } else if matches!(tail_term, BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(ref name)) if name.id_str() == "_dp_yield_from_value")
+    } else if matches!(tail_term, BlockPyTerm::Return(CoreBlockPyExprWithYield::Load(ref op)) if op.name.id_str() == "_dp_yield_from_value")
     {
         tail_body.insert(
             1,
             internal_store_stmt(
                 "_dp_yield_from_value",
-                CoreBlockPyExprWithYield::Name(expr_name(yielded_value_name.as_str())),
+                unresolved_load_expr(expr_name(yielded_value_name.as_str())),
             ),
         );
     }

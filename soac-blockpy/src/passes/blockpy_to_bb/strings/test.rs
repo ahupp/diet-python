@@ -21,7 +21,7 @@ fn tracked_name_binding_module(
 
 fn expr_contains_literal(expr: &CodegenBlockPyExpr) -> bool {
     match expr {
-        CodegenBlockPyExpr::Name(_) => false,
+        CodegenBlockPyExpr::Literal(_) => true,
         _ => {
             let mut saw_literal = false;
             expr.walk_child_exprs(&mut |arg| {
@@ -45,7 +45,7 @@ fn module_constants_contain_string(exprs: &[LocatedCoreBlockPyExpr]) -> bool {
 
 fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockPyExpr) {
     match expr {
-        CodegenBlockPyExpr::Name(_) => {}
+        CodegenBlockPyExpr::Literal(_) => {}
         CodegenBlockPyExpr::GetAttr(operation) => {
             out.push("__dp_getattr".to_string());
             operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
@@ -63,8 +63,8 @@ fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockP
             operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
         }
         CodegenBlockPyExpr::Call(operation) => {
-            if let CodegenBlockPyExpr::Name(name) = &*operation.func {
-                out.push(name.id_str().to_string());
+            if let CodegenBlockPyExpr::Load(op) = &*operation.func {
+                out.push(op.name.id_str().to_string());
             }
             operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));
         }

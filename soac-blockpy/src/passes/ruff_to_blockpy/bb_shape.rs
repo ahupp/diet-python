@@ -222,8 +222,7 @@ fn rewrite_current_exception_in_expr_with_await_and_yield(
                 exc_name,
             );
         }
-        CoreBlockPyExprWithAwaitAndYield::Name(_)
-        | CoreBlockPyExprWithAwaitAndYield::Literal(_) => {}
+        CoreBlockPyExprWithAwaitAndYield::Literal(_) => {}
     }
 
     if is_current_exception_call_with_await_and_yield(expr) {
@@ -436,7 +435,7 @@ where
                 rewrite_current_exception_in_blockpy_expr(arg, exc_name)
             })
         }
-        CoreBlockPyExpr::Name(_) | CoreBlockPyExpr::Literal(_) => {}
+        CoreBlockPyExpr::Literal(_) => {}
     }
 
     if is_current_exception_call(expr) {
@@ -468,7 +467,6 @@ where
     N: BlockPyNameLike,
 {
     match expr {
-        CoreBlockPyExpr::Name(name) => Some(name.id_str()),
         CoreBlockPyExpr::Load(op) => Some(op.name.id_str()),
         _ => None,
     }
@@ -476,7 +474,6 @@ where
 
 fn expr_root_name_id_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYield) -> Option<&str> {
     match expr {
-        CoreBlockPyExprWithAwaitAndYield::Name(name) => Some(name.id_str()),
         CoreBlockPyExprWithAwaitAndYield::Load(op) => Some(op.name.id_str()),
         _ => None,
     }

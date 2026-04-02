@@ -1,8 +1,8 @@
 use super::*;
 use crate::block_py::{BlockParam, BlockParamRole};
 use crate::block_py::{
-    ClosureInit, ClosureSlot, CoreBlockPyExprWithAwaitAndYield, LocatedName, NameLocation,
-    StorageLayout,
+    ClosureInit, ClosureSlot, CoreBlockPyExprWithAwaitAndYield, LocatedName, Meta, NameLocation,
+    StorageLayout, WithMeta,
 };
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, ResolvedStorageBlockPyPass};
@@ -105,8 +105,14 @@ fn renders_empty_module_marker() {
 
 #[test]
 fn bb_text_renders_located_names_with_resolved_locations() {
-    let closure_expr =
-        CoreBlockPyExpr::Name(located_name("captured", NameLocation::closure_cell(2)));
+    let closure_name = located_name("captured", NameLocation::closure_cell(2));
+    let closure_expr: crate::block_py::LocatedCoreBlockPyExpr =
+        crate::block_py::Load::new(closure_name.clone())
+            .with_meta(Meta::new(
+                closure_name.node_index.clone(),
+                closure_name.range,
+            ))
+            .into();
     let assign_stmt = BlockPyStmt::Expr(
         crate::block_py::Store::new(
             located_name("temp", NameLocation::local(1)),
@@ -114,7 +120,11 @@ fn bb_text_renders_located_names_with_resolved_locations() {
         )
         .into(),
     );
-    let global_expr = CoreBlockPyExpr::Name(located_name("answer", NameLocation::Global));
+    let global_name = located_name("answer", NameLocation::Global);
+    let global_expr: crate::block_py::LocatedCoreBlockPyExpr =
+        crate::block_py::Load::new(global_name.clone())
+            .with_meta(Meta::new(global_name.node_index.clone(), global_name.range))
+            .into();
 
     assert_eq!(bb_expr_text(&closure_expr), "Closure(2)");
     assert_eq!(

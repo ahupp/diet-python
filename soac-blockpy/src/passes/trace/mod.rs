@@ -1,6 +1,6 @@
 use crate::block_py::{
     core_operation_expr, core_runtime_positional_call_expr_with_meta, BlockPyFunction,
-    BlockPyModule, CodegenBlockPyExpr, CoreBlockPyExpr, CoreStringLiteral,
+    BlockPyModule, CodegenBlockPyExpr, CoreBlockPyExpr, CoreStringLiteral, Load,
     LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, Meta, NameLocation,
     StructuredInstr, WithMeta,
 };
@@ -218,9 +218,11 @@ fn param_pairs_expr(
         params
             .iter()
             .map(|param| {
+                let name = locator.load_name(param);
+                let meta = Meta::new(name.node_index.clone(), name.range);
                 tuple_expr(vec![
                     string_literal_expr(module_constants, param),
-                    LocatedCodegenBlockPyExpr::Name(locator.load_name(param)),
+                    Load::new(name).with_meta(meta).into(),
                 ])
             })
             .collect(),

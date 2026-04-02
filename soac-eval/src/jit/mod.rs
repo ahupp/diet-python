@@ -11,9 +11,9 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm, CellLocation,
-    CodegenBlock, CodegenBlockPyExpr, CoreBlockPyCallArg, CoreBlockPyKeywordArg, LocalLocation,
-    LocatedCodegenBlockPyExpr, LocatedName, NameLocation, ParamDefaultSource, StorageLayout,
-    operation as blockpy_intrinsics,
+    CodegenBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg,
+    CoreBlockPyKeywordArg, LocalLocation, LocatedCodegenBlockPyExpr, LocatedName, NameLocation,
+    ParamDefaultSource, StorageLayout, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::borrow::Cow;
@@ -376,9 +376,6 @@ fn codegen_expr_is_borrowable(
     }
 
     match expr {
-        CodegenBlockPyExpr::Name(name) => {
-            located_local_name_is_borrowable(name, local_names, stack_slots)
-        }
         CodegenBlockPyExpr::Load(op) => op
             .name
             .local_location()
@@ -540,15 +537,21 @@ fn codegen_expr_const_string(
     module_constants: &ModuleCodegenConstants,
 ) -> Option<String> {
     match expr {
-        CodegenBlockPyExpr::Name(_) => None,
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
+            Some(string.value.clone())
+        }
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
+            String::from_utf8(bytes.value.clone()).ok()
+        }
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(_)) => None,
         CodegenBlockPyExpr::Load(op) => op.name.location.as_constant().and_then(|index| {
             module_constants.constant_string_value(ModuleConstantId(index as usize))
         }),
         CodegenBlockPyExpr::Call(call) => {
-            let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() else {
-                return None;
-            };
-            if func_name.id.as_str() != "str" || call.args.len() != 1 || !call.keywords.is_empty() {
+            if codegen_expr_helper_name(call.func.as_ref()) != Some("str")
+                || call.args.len() != 1
+                || !call.keywords.is_empty()
+            {
                 return None;
             }
             let CoreBlockPyCallArg::Positional(arg) = &call.args[0] else {
@@ -562,7 +565,6 @@ fn codegen_expr_const_string(
 
 fn codegen_expr_helper_name(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
     match expr {
-        CodegenBlockPyExpr::Name(name) => Some(name.id.as_str()),
         CodegenBlockPyExpr::Load(op)
             if op.name.location.is_global() || op.name.location.is_runtime_name() =>
         {
@@ -1231,8 +1233,58 @@ fn emit_codegen_expr(
     let tuple_set_item_ref = ctx.tuple_set_item_ref;
 
     match expr {
-        CodegenBlockPyExpr::Name(name) => {
-            emit_codegen_located_name_load(fb, name, local_names, local_values, ctx, borrowed)
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
+            assert!(
+                !borrowed,
+                "codegen string literal must not use borrowed expression"
+            );
+            emit_owned_module_constant(
+                fb,
+                ctx.module_constants
+                    .require_unicode_constant_id(string.value.as_str()),
+                ctx,
+            )
+        }
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(number)) => {
+            assert!(
+                !borrowed,
+                "codegen number literal must not use borrowed expression"
+            );
+            match &number.value {
+                soac_blockpy::block_py::CoreNumberLiteralValue::Int(value) => {
+                    if let Some(value) = value.as_i64() {
+                        emit_owned_module_constant(
+                            fb,
+                            ctx.module_constants.require_int_constant_id(value),
+                            ctx,
+                        )
+                    } else {
+                        let value_text = value.to_string();
+                        emit_owned_module_constant(
+                            fb,
+                            ctx.module_constants
+                                .require_big_int_constant_id(value_text.as_str()),
+                            ctx,
+                        )
+                    }
+                }
+                soac_blockpy::block_py::CoreNumberLiteralValue::Float(value) => {
+                    emit_owned_module_constant(
+                        fb,
+                        ctx.module_constants.require_float_constant_id(*value),
+                        ctx,
+                    )
+                }
+            }
+        }
+        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
+            assert!(!borrowed, "bytes literal must produce owned references");
+            emit_owned_module_constant(
+                fb,
+                ctx.module_constants
+                    .require_bytes_constant_id(bytes.value.as_slice()),
+                ctx,
+            )
         }
         CodegenBlockPyExpr::Load(op) => {
             return emit_codegen_located_name_load(
@@ -1496,22 +1548,19 @@ fn emit_codegen_expr(
                 return block_const;
             }
 
-            if let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() {
-                if !has_unpack
-                    && simple_keywords.is_empty()
-                    && func_name.id.as_str() == "str"
-                    && simple_args.len() == 1
+            if !has_unpack
+                && simple_keywords.is_empty()
+                && codegen_expr_helper_name(call.func.as_ref()) == Some("str")
+                && simple_args.len() == 1
+            {
+                if let Some(value) = codegen_expr_const_string(simple_args[0], ctx.module_constants)
                 {
-                    if let Some(value) =
-                        codegen_expr_const_string(simple_args[0], ctx.module_constants)
-                    {
-                        return emit_owned_module_constant(
-                            fb,
-                            ctx.module_constants
-                                .require_unicode_constant_id(value.as_str()),
-                            ctx,
-                        );
-                    }
+                    return emit_owned_module_constant(
+                        fb,
+                        ctx.module_constants
+                            .require_unicode_constant_id(value.as_str()),
+                        ctx,
+                    );
                 }
             }
 
@@ -1910,8 +1959,8 @@ fn emit_codegen_expr(
                 return fb.block_params(call_ok_block)[0];
             }
 
-            if let CodegenBlockPyExpr::Name(func_name) = call.func.as_ref() {
-                if keywords.is_empty() && func_name.id.as_str() == "str" && args.len() == 1 {
+            if let Some(func_name) = codegen_expr_helper_name(call.func.as_ref()) {
+                if keywords.is_empty() && func_name == "str" && args.len() == 1 {
                     if let Some(value) = codegen_expr_const_string(args[0], ctx.module_constants) {
                         return emit_owned_module_constant(
                             fb,
@@ -1921,12 +1970,12 @@ fn emit_codegen_expr(
                         );
                     }
                 }
-                if keywords.is_empty() && args.is_empty() && func_name.id.as_str() == "globals" {
+                if keywords.is_empty() && args.is_empty() && func_name == "globals" {
                     fb.ins().call(incref_ref, &[block_const]);
                     return block_const;
                 }
                 if keywords.is_empty() {
-                    if func_name.id.as_str() == "tuple_values" {
+                    if func_name == "tuple_values" {
                         let mut arg_values: Vec<ir::Value> = Vec::with_capacity(args.len());
                         let mut borrowed_args: Vec<bool> = Vec::with_capacity(args.len());
                         for arg in &args {
@@ -1960,7 +2009,7 @@ fn emit_codegen_expr(
                         }
                         return tuple_value;
                     }
-                    if func_name.id.as_str() == "load_deleted_name" && args.len() == 2 {
+                    if func_name == "load_deleted_name" && args.len() == 2 {
                         if let Some(name) = codegen_expr_const_string(args[0], ctx.module_constants)
                         {
                             let name_obj = emit_owned_module_constant(
@@ -2018,32 +2067,28 @@ fn emit_codegen_expr(
                             return value_obj;
                         }
                     }
-                    let is_direct_cell_call =
-                        matches!((func_name.id.as_str(), args.len()), ("cell_ref", 1));
-                    if is_direct_cell_call {
-                        if matches!((func_name.id.as_str(), args.len()), ("cell_ref", 1)) {
-                            let cell_expr = &args[0];
-                            let CodegenBlockPyExpr::Name(cell_name) = cell_expr else {
-                                panic!(
-                                    "cell_ref should lower to a located name arg, got {:?}",
-                                    cell_expr
-                                );
-                            };
-                            if cell_name.cell_location().is_some() {
-                                assert!(!borrowed, "cell_ref should produce an owned cell object");
-                                return emit_raw_cell_object_for_name(
-                                    fb,
-                                    cell_name,
-                                    local_names,
-                                    local_values,
-                                    ctx,
-                                );
-                            }
+                    if func_name == "cell_ref" && args.len() == 1 {
+                        let cell_expr = &args[0];
+                        let CodegenBlockPyExpr::Load(cell_name) = cell_expr else {
                             panic!(
-                                "cell_ref should target a cell-backed name, got {} at {:?}",
-                                cell_name.id, cell_name.location
+                                "cell_ref should lower to a located load arg, got {:?}",
+                                cell_expr
+                            );
+                        };
+                        if cell_name.name.cell_location().is_some() {
+                            assert!(!borrowed, "cell_ref should produce an owned cell object");
+                            return emit_raw_cell_object_for_name(
+                                fb,
+                                &cell_name.name,
+                                local_names,
+                                local_values,
+                                ctx,
                             );
                         }
+                        panic!(
+                            "cell_ref should target a cell-backed name, got {} at {:?}",
+                            cell_name.name.id, cell_name.name.location
+                        );
                     }
                 }
             }
