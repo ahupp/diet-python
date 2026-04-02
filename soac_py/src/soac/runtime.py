@@ -1,59 +1,55 @@
 # diet-python: disabled
-from asyncio import coroutines
+from asyncio import coroutines as _coroutines
 import collections.abc as _abc
 import keyword as _keyword
-import os
-import reprlib
-import sys
-import builtins
+import reprlib as _reprlib
+import sys as _sys
+import builtins as _builtins
 import threading as _threading
 import types as _types
-from typing import NamedTuple
-import warnings
+import typing as _typing
+import warnings as _warnings
+import string.templatelib as _templatelib
 
 from . import _soac_ext
 
 _jit_make_bb_function = _soac_ext.make_bb_function
 
-next = builtins.next
-iter = builtins.iter
-aiter = builtins.aiter
-anext = builtins.anext
-isinstance = builtins.isinstance
-getattr = builtins.getattr
-setattr = builtins.setattr
-delattr = builtins.delattr
-tuple = builtins.tuple
-list = builtins.list
-dict = builtins.dict
-set = builtins.set
-slice = builtins.slice
-classmethod = builtins.classmethod
-ascii = builtins.ascii
-repr = builtins.repr
-str = builtins.str
-format = builtins.format
-AssertionError = builtins.AssertionError
+next = _builtins.next
+iter = _builtins.iter
+aiter = _builtins.aiter
+anext = _builtins.anext
+isinstance = _builtins.isinstance
+getattr = _builtins.getattr
+setattr = _builtins.setattr
+delattr = _builtins.delattr
+tuple = _builtins.tuple
+list = _builtins.list
+dict = _builtins.dict
+set = _builtins.set
+slice = _builtins.slice
+classmethod = _builtins.classmethod
+ascii = _builtins.ascii
+repr = _builtins.repr
+str = _builtins.str
+format = _builtins.format
+AssertionError = _builtins.AssertionError
 
 
 def tuple_values(*values):
     # Strict variadic tuple construction for transformed code.
-    return builtins.tuple(values)
+    return _builtins.tuple(values)
 
 
 def tuple_from_iter(value):
-    return builtins.tuple(value)
+    return _builtins.tuple(value)
 
 
 def __deepcopy__(memo):
     # Modules are not pickleable; keep runtime as a singleton during deepcopy().
-    return sys.modules[__name__]
+    return _sys.modules[__name__]
 
 
-_typing = builtins.__import__("typing")
-_templatelib = builtins.__import__(
-    "string.templatelib", globals(), {}, ("Template", "Interpolation"), 0
-)
 typing_Generic = _typing.Generic
 typing_TypeVar = _typing.TypeVar
 typing_TypeVarTuple = _typing.TypeVarTuple
@@ -85,14 +81,14 @@ def bb_trace_enter(function_qualname, block_label, params=None):
         pieces = []
         for name, value in params:
             try:
-                rendered = reprlib.repr(value)
+                rendered = _reprlib.repr(value)
             except Exception as err:
                 rendered = f"<repr failed: {type(err).__name__}>"
             pieces.append(f"{name}={rendered}")
         message = f"[bb] {function_qualname}::{block_label} " + ", ".join(pieces)
     else:
         message = f"[bb] {function_qualname}::{block_label}"
-    print(message, file=sys.stderr, flush=True)
+    print(message, file=_sys.stderr, flush=True)
 
 
 def _mro_getattr(cls, name: str):
@@ -346,7 +342,7 @@ AsyncGenComplete = _DpAsyncGenComplete
 
 
 def _is_cancelled_error(exc):
-    asyncio_mod = sys.modules.get("asyncio")
+    asyncio_mod = _sys.modules.get("asyncio")
     if asyncio_mod is None:
         return False
     cancelled_error = getattr(asyncio_mod, "CancelledError", None)
@@ -752,7 +748,7 @@ def class_lookup_global(class_ns, name, globals_dict):
             return globals_dict[name]
         except KeyError:
             try:
-                return builtins.__dict__[name]
+                return _builtins.__dict__[name]
             except KeyError as exc:
                 raise NameError(f"name {name!r} is not defined") from exc
 
@@ -834,28 +830,28 @@ def unpack(iterable, spec):
 
     result.append(remainder)
     result.extend(tail)
-    return builtins.tuple(result)
+    return _builtins.tuple(result)
 
 
 def globals():
-    frame = sys._getframe(1)
+    frame = _sys._getframe(1)
     return frame.f_globals
 
 
 def call_super(super_fn, cls, instance_or_cls):
-    if super_fn is builtins.super:
+    if super_fn is _builtins.super:
         if isinstance(cls, _types.CellType):
             try:
                 cls_value = cls.cell_contents
             except ValueError:
                 raise RuntimeError("super(): empty __class__ cell")
-            return builtins.super(cls_value, instance_or_cls)
-        return builtins.super(cls, instance_or_cls)
+            return _builtins.super(cls_value, instance_or_cls)
+        return _builtins.super(cls, instance_or_cls)
     return super_fn()
 
 
 def call_super_noargs(super_fn):
-    if super_fn is builtins.super:
+    if super_fn is _builtins.super:
         raise RuntimeError("super(): no arguments")
     return super_fn()
 
@@ -981,7 +977,7 @@ def make_function(
         annotate_fn,
     )
     if kind == "coroutine":
-        func._is_coroutine = coroutines._is_coroutine
+        func._is_coroutine = _coroutines._is_coroutine
 
     return func
 
@@ -1035,7 +1031,7 @@ def exc_info_from_exception(exc):
     return (type(exc), exc, exc.__traceback__)
 
 def current_exception():
-    return sys.exception()
+    return _sys.exception()
 
 
 def aiter(obj):
@@ -1157,7 +1153,7 @@ def next_or_sentinel(iterator):
 
 def raise_from(exc, cause):
     CancelledError = None
-    asyncio_mod = sys.modules.get("asyncio")
+    asyncio_mod = _sys.modules.get("asyncio")
     if asyncio_mod is not None:
         CancelledError = getattr(asyncio_mod, "CancelledError", None)
     if exc is None:
@@ -1208,7 +1204,7 @@ def import_(name, spec, fromlist=None, level=0):
         globals_dict["__package__"] = package
         globals_dict["__name__"] = spec.name
     try:
-        return builtins.__import__(name, globals_dict, {}, fromlist, level)
+        return _builtins.__import__(name, globals_dict, {}, fromlist, level)
     except Exception as exc:
         raise exc from None
 
@@ -1219,12 +1215,12 @@ def import_attr(module, attr):
     except AttributeError as exc:
         module_name = getattr(module, "__name__", None)
         if module_name:
-            submodule = sys.modules.get(f"{module_name}.{attr}")
+            submodule = _sys.modules.get(f"{module_name}.{attr}")
             if submodule is not None:
                 try:
                     setattr(module, attr, submodule)
                 except Exception:
-                    warnings.warn(
+                    _warnings.warn(
                         f"cannot set attribute {attr!r} on {module_name!r}",
                         ImportWarning,
                         stacklevel=2,
