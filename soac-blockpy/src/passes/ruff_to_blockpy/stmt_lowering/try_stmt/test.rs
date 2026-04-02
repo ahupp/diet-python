@@ -28,7 +28,7 @@ except ValueError as exc:
         rendered.contains("__soac__.current_exception()"),
         "{rendered}"
     );
-    assert!(rendered.contains("_dp_del_quietly(exc)"), "{rendered}");
+    assert!(rendered.contains("del_quietly(exc)"), "{rendered}");
 }
 
 #[test]
@@ -53,5 +53,5 @@ except* ValueError as exc:
         rendered.contains("__soac__.exceptiongroup_split"),
         "{rendered}"
     );
-    assert!(rendered.contains("_dp_del_quietly(exc)"), "{rendered}");
+    assert!(rendered.contains("del_quietly(exc)"), "{rendered}");
 }

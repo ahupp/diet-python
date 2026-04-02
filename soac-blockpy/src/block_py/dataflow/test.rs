@@ -42,7 +42,9 @@ fn assigned_names_in_blockpy_stmt_collects_nested_fragments() {
 
 #[test]
 fn assigned_names_in_blockpy_term_keeps_jump_edge_args_out_of_results() {
-    let term: BlockPyTerm = BlockPyTerm::Jump(BlockPyLabel::from_index(0).into());
+    let term: BlockPyTerm = BlockPyTerm::Jump(crate::block_py::BlockPyEdge::new(
+        BlockPyLabel::from_index(0),
+    ));
 
     assert!(assigned_names_in_blockpy_term(&term).is_empty());
 }

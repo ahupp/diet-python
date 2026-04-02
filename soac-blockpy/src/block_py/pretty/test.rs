@@ -294,7 +294,7 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
                     "then_side_effect()",
                 ))
                 .into()],
-                term: BlockPyTerm::Jump(label(3).into()),
+                term: BlockPyTerm::Jump(BlockPyEdge::new(label(3))),
                 params: Vec::new(),
                 exc_edge: None,
             },
@@ -304,7 +304,7 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
                     "else_side_effect()",
                 ))
                 .into()],
-                term: BlockPyTerm::Jump(label(3).into()),
+                term: BlockPyTerm::Jump(BlockPyEdge::new(label(3))),
                 params: Vec::new(),
                 exc_edge: None,
             },
@@ -364,7 +364,7 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
             CfgBlock {
                 label: label(0),
                 body: vec![],
-                term: BlockPyTerm::Jump(label(4).into()),
+                term: BlockPyTerm::Jump(BlockPyEdge::new(label(4))),
                 params: Vec::new(),
                 exc_edge: Some(BlockPyEdge::new(label(1))),
             },
@@ -423,7 +423,7 @@ fn collects_referenced_labels_from_nested_if_fragments_via_visitor() {
             test: parse_blockpy_expr("cond"),
             body: BlockPyCfgFragment {
                 body: Vec::<StructuredBlockPyStmt<Expr>>::new(),
-                term: Some(BlockPyTerm::Jump(label(1).into())),
+                term: Some(BlockPyTerm::Jump(BlockPyEdge::new(label(1)))),
             },
             orelse: BlockPyCfgFragment {
                 body: Vec::<StructuredBlockPyStmt<Expr>>::new(),
@@ -434,7 +434,7 @@ fn collects_referenced_labels_from_nested_if_fragments_via_visitor() {
                 })),
             },
         })],
-        term: BlockPyTerm::Jump(label(5).into()),
+        term: BlockPyTerm::Jump(BlockPyEdge::new(label(5))),
         params: Vec::new(),
         exc_edge: Some(BlockPyEdge::new(label(6))),
     }]);
@@ -459,7 +459,7 @@ fn renders_bb_block_metadata_with_shared_layout() {
                 PassBlock::<ResolvedStorageBlockPyPass> {
                     label: label(0),
                     body: vec![],
-                    term: BlockPyTerm::Jump(label(1).into()),
+                    term: BlockPyTerm::Jump(BlockPyEdge::new(label(1))),
                     params: vec![
                         BlockParam {
                             name: "err".to_string(),

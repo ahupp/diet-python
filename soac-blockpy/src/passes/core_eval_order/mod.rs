@@ -3,8 +3,8 @@ use crate::block_py::{
     expr_any, BlockPyAssign, BlockPyBranchTable, BlockPyCfgFragment, BlockPyFunction, BlockPyIf,
     BlockPyIfTerm, BlockPyNameLike, BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
-    CoreBlockPyYieldFrom, Del, Instr, InstrExprNode, Meta, Store, StructuredBlockPyStmtFor,
-    WithMeta,
+    CoreBlockPyYieldFrom, Del, HasMeta, Instr, InstrExprNode, Meta, Store,
+    StructuredBlockPyStmtFor, WithMeta,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
@@ -120,35 +120,37 @@ fn make_eval_order_explicit_in_core_expr(
             .map_expr_node(&mut |value| hoist_core_expr_if_contains_suspend(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithAwaitAndYield::Await(await_expr) => {
-            CoreBlockPyExprWithAwaitAndYield::Await(CoreBlockPyAwait {
-                node_index: await_expr.node_index,
-                range: await_expr.range,
-                value: Box::new(hoist_core_expr_if_contains_suspend(
+            let meta = await_expr.meta();
+            CoreBlockPyExprWithAwaitAndYield::Await(
+                CoreBlockPyAwait::new(hoist_core_expr_if_contains_suspend(
                     *await_expr.value,
                     out,
                     cleanup,
-                )),
-            })
+                ))
+                .with_meta(meta),
+            )
         }
         CoreBlockPyExprWithAwaitAndYield::Yield(yield_expr) => {
-            CoreBlockPyExprWithAwaitAndYield::Yield(CoreBlockPyYield {
-                node_index: yield_expr.node_index,
-                range: yield_expr.range,
-                value: yield_expr.value.map(|value| {
-                    Box::new(hoist_core_expr_if_contains_suspend(*value, out, cleanup))
-                }),
-            })
+            let meta = yield_expr.meta();
+            CoreBlockPyExprWithAwaitAndYield::Yield(
+                CoreBlockPyYield::new(hoist_core_expr_if_contains_suspend(
+                    *yield_expr.value,
+                    out,
+                    cleanup,
+                ))
+                .with_meta(meta),
+            )
         }
         CoreBlockPyExprWithAwaitAndYield::YieldFrom(yield_from_expr) => {
-            CoreBlockPyExprWithAwaitAndYield::YieldFrom(CoreBlockPyYieldFrom {
-                node_index: yield_from_expr.node_index,
-                range: yield_from_expr.range,
-                value: Box::new(hoist_core_expr_if_contains_suspend(
+            let meta = yield_from_expr.meta();
+            CoreBlockPyExprWithAwaitAndYield::YieldFrom(
+                CoreBlockPyYieldFrom::new(hoist_core_expr_if_contains_suspend(
                     *yield_from_expr.value,
                     out,
                     cleanup,
-                )),
-            })
+                ))
+                .with_meta(meta),
+            )
         }
     }
 }
@@ -362,24 +364,26 @@ fn make_eval_order_explicit_in_core_expr_without_await(
             .map_expr_node(&mut |value| hoist_core_expr_without_await_to_atom(value, out, cleanup))
             .into(),
         CoreBlockPyExprWithYield::Yield(yield_expr) => {
-            CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
-                node_index: yield_expr.node_index,
-                range: yield_expr.range,
-                value: yield_expr.value.map(|value| {
-                    Box::new(hoist_core_expr_without_await_to_atom(*value, out, cleanup))
-                }),
-            })
+            let meta = yield_expr.meta();
+            CoreBlockPyExprWithYield::Yield(
+                CoreBlockPyYield::new(hoist_core_expr_without_await_to_atom(
+                    *yield_expr.value,
+                    out,
+                    cleanup,
+                ))
+                .with_meta(meta),
+            )
         }
         CoreBlockPyExprWithYield::YieldFrom(yield_from_expr) => {
-            CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
-                node_index: yield_from_expr.node_index,
-                range: yield_from_expr.range,
-                value: Box::new(hoist_core_expr_without_await_to_atom(
+            let meta = yield_from_expr.meta();
+            CoreBlockPyExprWithYield::YieldFrom(
+                CoreBlockPyYieldFrom::new(hoist_core_expr_without_await_to_atom(
                     *yield_from_expr.value,
                     out,
                     cleanup,
-                )),
-            })
+                ))
+                .with_meta(meta),
+            )
         }
     }
 }

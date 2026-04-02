@@ -131,13 +131,13 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
     };
     assert!(matches!(
         body_expr,
-        CoreBlockPyExpr::Name(name) if name.id.as_str() == "_dp_try_exc_0"
+        CoreBlockPyExpr::Load(load) if load.name.id.as_str() == "_dp_try_exc_0"
     ));
 
-    let BlockPyTerm::Return(CoreBlockPyExpr::Name(name)) = &block.term else {
+    let BlockPyTerm::Return(CoreBlockPyExpr::Load(load)) = &block.term else {
         panic!("expected rewritten return expr");
     };
-    assert_eq!(name.id.as_str(), "_dp_try_exc_0");
+    assert_eq!(load.name.id.as_str(), "_dp_try_exc_0");
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     };
     assert!(matches!(
         value.as_ref(),
-        CoreBlockPyExpr::Name(name) if name.id.as_str() == "_dp_try_exc_0"
+        CoreBlockPyExpr::Load(load) if load.name.id.as_str() == "_dp_try_exc_0"
     ));
     assert!(matches!(
         attr.as_ref(),

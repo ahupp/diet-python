@@ -1,7 +1,8 @@
 use super::*;
 use crate::block_py::{
     BinOp, BinOpKind, BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyCallArg,
-    CoreBlockPyExprWithAwaitAndYield, Store, StructuredBlockPyStmtFor, UnresolvedName,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyYieldFrom, Meta, Store, StructuredBlockPyStmtFor,
+    UnresolvedName, WithMeta,
 };
 
 fn test_name(id: &str) -> UnresolvedName {
@@ -166,11 +167,10 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
                 Box::new(CoreBlockPyExprWithYield::BinOp(BinOp::new(
                     BinOpKind::InplaceAdd,
                     CoreBlockPyExprWithYield::Name(test_name("total")),
-                    CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
-                        node_index: Default::default(),
-                        range: Default::default(),
-                        value: Box::new(CoreBlockPyExprWithYield::Name(test_name("it"))),
-                    }),
+                    CoreBlockPyExprWithYield::YieldFrom(
+                        CoreBlockPyYieldFrom::new(CoreBlockPyExprWithYield::Name(test_name("it")))
+                            .with_meta(Meta::default()),
+                    ),
                 ))),
             )
             .into(),

@@ -1,8 +1,6 @@
 use super::{
-    BlockPyNameLike, CodegenBlockPyLiteral, CoreBlockPyAwait, CoreBlockPyExpr,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyLiteral,
-    CoreBlockPyYield, CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreStringLiteral,
-    LocatedName, RuffExpr, UnresolvedName,
+    BlockPyNameLike, CodegenBlockPyLiteral, CoreBlockPyLiteral, CoreBytesLiteral,
+    CoreNumberLiteral, CoreStringLiteral, LocatedName, RuffExpr, UnresolvedName,
 };
 use ruff_python_ast::{self as ast, HasNodeIndex};
 use ruff_text_size::{Ranged, TextRange};
@@ -97,48 +95,6 @@ impl HasMeta for CoreBytesLiteral {
 impl HasMeta for CoreNumberLiteral {
     fn meta(&self) -> Meta {
         Meta::new(self.node_index.clone(), self.range)
-    }
-}
-
-impl<E> HasMeta for CoreBlockPyAwait<E> {
-    fn meta(&self) -> Meta {
-        Meta::new(self.node_index.clone(), self.range)
-    }
-}
-
-impl<E> WithMeta for CoreBlockPyAwait<E> {
-    fn with_meta(mut self, meta: Meta) -> Self {
-        self.node_index = meta.node_index;
-        self.range = meta.range;
-        self
-    }
-}
-
-impl<E> HasMeta for CoreBlockPyYield<E> {
-    fn meta(&self) -> Meta {
-        Meta::new(self.node_index.clone(), self.range)
-    }
-}
-
-impl<E> WithMeta for CoreBlockPyYield<E> {
-    fn with_meta(mut self, meta: Meta) -> Self {
-        self.node_index = meta.node_index;
-        self.range = meta.range;
-        self
-    }
-}
-
-impl<E> HasMeta for CoreBlockPyYieldFrom<E> {
-    fn meta(&self) -> Meta {
-        Meta::new(self.node_index.clone(), self.range)
-    }
-}
-
-impl<E> WithMeta for CoreBlockPyYieldFrom<E> {
-    fn with_meta(mut self, meta: Meta) -> Self {
-        self.node_index = meta.node_index;
-        self.range = meta.range;
-        self
     }
 }
 

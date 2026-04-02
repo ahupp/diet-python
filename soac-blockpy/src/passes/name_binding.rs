@@ -141,7 +141,8 @@ fn rewrite_name_load(
     resolver: &NameBindingMapper<'_>,
 ) -> CoreBlockPyExpr {
     if is_internal_symbol(name.id.as_str()) && !semantic.honors_internal_binding(name.id.as_str()) {
-        return CoreBlockPyExpr::Name(name.into());
+        let meta = name.meta();
+        return Load::new(name).with_meta(meta).into();
     }
 
     if semantic.scope_kind == BlockPyCallableScopeKind::Class {
@@ -718,10 +719,7 @@ fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ExprName> {
     if !keywords.is_empty() || args.len() != 1 {
         return None;
     }
-    let CoreBlockPyExpr::Name(func_name) = func.as_ref() else {
-        return None;
-    };
-    if func_name.id_str() != "_dp_del_quietly" {
+    if raw_load_name(func.as_ref()).as_deref() != Some("del_quietly") {
         return None;
     }
     match &args[0] {

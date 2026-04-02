@@ -149,7 +149,7 @@ where
     blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         label.clone(),
         linear,
-        BlockPyTerm::Jump(target_label.into()),
+        BlockPyTerm::Jump(BlockPyEdge::new(target_label)),
         exc_target,
     ));
     label
@@ -288,7 +288,7 @@ where
         blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
             linear_label.clone(),
             linear,
-            BlockPyTerm::Jump(test_label.into()),
+            BlockPyTerm::Jump(BlockPyEdge::new(test_label)),
             exc_target,
         ));
         Ok(linear_label)
@@ -322,7 +322,7 @@ where
     blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         assign_label.clone(),
         assign_body,
-        BlockPyTerm::Jump(body_entry.into()),
+        BlockPyTerm::Jump(BlockPyEdge::new(body_entry)),
         exc_target,
     ));
 
@@ -368,7 +368,7 @@ where
     blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         setup_label.clone(),
         setup_body,
-        BlockPyTerm::Jump(loop_continue_label.into()),
+        BlockPyTerm::Jump(BlockPyEdge::new(loop_continue_label)),
         exc_target,
     ));
     setup_label

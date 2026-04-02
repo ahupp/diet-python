@@ -1,4 +1,5 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
+set positional-arguments
 
 repo_root := justfile_directory()
 cpython_bin := repo_root + "/vendor/cpython/python"
@@ -395,7 +396,6 @@ _pytest-run *args='': ensure-venv
   # the recipe selects the interpreter/environment that can import the
   # built `_soac_ext` extension and applies the expected test settings.
 
-  set -- {{args}}
   if [ "$#" -eq 0 ]; then
     "$VENV_DIR/bin/python" -m pytest --help
     exit 0
@@ -426,7 +426,8 @@ _pytest-run *args='': ensure-venv
   exit "$TEST_STATUS"
 
 pytest *args='': build-all
-  just _pytest-run {{args}}
+  #!/usr/bin/env bash
+  just _pytest-run "$@"
 
 py *args='': build-all
   #!/usr/bin/env bash

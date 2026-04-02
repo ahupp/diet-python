@@ -143,11 +143,11 @@ fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
 
     assert_eq!(lowered.len(), 3, "{lowered:?}");
     let BlockPyTerm::IfTerm(BlockPyIfTerm {
-        test: CoreBlockPyExpr::Name(name),
+        test: CoreBlockPyExpr::Load(load),
         ..
     }) = &lowered[0].term
     else {
         panic!("expected rewritten current-exception test");
     };
-    assert_eq!(name.id_str(), "_dp_try_exc_0");
+    assert_eq!(load.name.id_str(), "_dp_try_exc_0");
 }

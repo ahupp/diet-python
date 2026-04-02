@@ -98,7 +98,7 @@ a, b = it
 #         StoreName("_dp_unpack_2", unpack(_dp_assign_value_1, tuple_values(TRUE, TRUE)))
 #         StoreName("a", GetItem(_dp_unpack_2, 0))
 #         StoreName("b", GetItem(_dp_unpack_2, 1))
-#         DelName("_dp_unpack_2", false)
+#         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..0 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..0, id: Name("_dp_unpack_2"), ctx: Del }), quietly: false }
 #         return NONE
 
 # assign_star_unpack
@@ -114,7 +114,7 @@ a, *b = it
 #         StoreName("_dp_unpack_2", unpack(_dp_assign_value_1, tuple_values(TRUE, FALSE)))
 #         StoreName("a", GetItem(_dp_unpack_2, 0))
 #         StoreName("b", list(GetItem(_dp_unpack_2, 1)))
-#         DelName("_dp_unpack_2", false)
+#         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..0 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..0, id: Name("_dp_unpack_2"), ctx: Del }), quietly: false }
 #         return NONE
 
 # assign_multi_targets
@@ -202,8 +202,8 @@ del obj.x, obj[i], x
 #         delattr(_dp_delete_obj_1, "x")
 #         StoreName("_dp_delete_obj_2", load_deleted_name("obj", obj))
 #         StoreName("_dp_delete_index_3", i)
-#         DelItem(_dp_delete_obj_2, _dp_delete_index_3)
-#         DelName("x", false)
+#         DelItem { _meta: Meta { node_index: NodeIndex(5), range: 12..18 }, value: Load(Load { _meta: Meta { node_index: NodeIndex(None), range: 0..0 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..0, id: Name("_dp_delete_obj_2"), ctx: Load }) }), index: Load(Load { _meta: Meta { node_index: NodeIndex(None), range: 0..0 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..0, id: Name("_dp_delete_index_3"), ctx: Load }) }) }
+#         Del { _meta: Meta { node_index: NodeIndex(8), range: 20..21 }, name: ExprName(ExprName { node_index: NodeIndex(8), range: 20..21, id: Name("x"), ctx: Del }), quietly: false }
 #         return NONE
 
 # assert_no_msg
@@ -302,7 +302,7 @@ else:
 #                     block bb2:
 #                         StoreName("_dp_tmp_0_1", _dp_tmp_0_1)
 #                         StoreName("x", _dp_tmp_0_1)
-#                         DelName("_dp_tmp_0_1", false)
+#                         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..11 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..11, id: Name("_dp_tmp_0_1"), ctx: Load }), quietly: false }
 #                         jump bb5
 #                         block bb5:
 #                             body()
@@ -437,7 +437,7 @@ zs = {k: v for k, v in items}
 #                     block bb2:
 #                         StoreName("_dp_tmp_0_1", _dp_tmp_0_1)
 #                         StoreName("x", _dp_tmp_0_1)
-#                         DelName("_dp_tmp_0_1", false)
+#                         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..11 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..11, id: Name("_dp_tmp_0_1"), ctx: Load }), quietly: false }
 #                         jump bb5
 #                         block bb5:
 #                             GetAttr(_dp_tmp_1, "append")(x)
@@ -460,7 +460,7 @@ zs = {k: v for k, v in items}
 #                     block bb2:
 #                         StoreName("_dp_tmp_1_1", _dp_tmp_1_1)
 #                         StoreName("x", _dp_tmp_1_1)
-#                         DelName("_dp_tmp_1_1", false)
+#                         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..11 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..11, id: Name("_dp_tmp_1_1"), ctx: Load }), quietly: false }
 #                         jump bb5
 #                         block bb5:
 #                             GetAttr(_dp_tmp_4, "add")(x)
@@ -485,8 +485,8 @@ zs = {k: v for k, v in items}
 #                         StoreName("_dp_tmp_2_2", unpack(_dp_tmp_2_1, tuple_values(TRUE, TRUE)))
 #                         StoreName("k", GetItem(_dp_tmp_2_2, 0))
 #                         StoreName("v", GetItem(_dp_tmp_2_2, 1))
-#                         DelName("_dp_tmp_2_2", false)
-#                         DelName("_dp_tmp_2_1", false)
+#                         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..11 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..11, id: Name("_dp_tmp_2_2"), ctx: Load }), quietly: false }
+#                         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..11 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..11, id: Name("_dp_tmp_2_1"), ctx: Load }), quietly: false }
 #                         jump bb5
 #                         block bb5:
 #                             StoreName("_dp_dictcomp_key_8", k)
@@ -534,7 +534,7 @@ def f():
 #                     block bb2:
 #                         StoreName("_dp_tmp_0_1", _dp_tmp_0_1)
 #                         StoreName("x", _dp_tmp_0_1)
-#                         DelName("_dp_tmp_0_1", false)
+#                         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..11 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..11, id: Name("_dp_tmp_0_1"), ctx: Load }), quietly: false }
 #                         jump bb5
 #                         block bb5:
 #                             if_term BinOp(Gt, x, 0):
@@ -583,7 +583,7 @@ class C:
 #                     block bb2:
 #                         StoreName("_dp_tmp_0_1", _dp_tmp_0_1)
 #                         StoreName("x", _dp_tmp_0_1)
-#                         DelName("_dp_tmp_0_1", false)
+#                         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..11 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..11, id: Name("_dp_tmp_0_1"), ctx: Load }), quietly: false }
 #                         jump bb5
 #                         block bb5:
 #                             GetAttr(_dp_tmp_1, "append")(x)
@@ -743,7 +743,7 @@ async def run():
 #         block bb1:
 #             StoreName("_dp_eval_1", await anext_or_sentinel(_dp_iter_0_0))
 #             StoreName("_dp_tmp_0_1", _dp_eval_1)
-#             DelName("_dp_eval_1", false)
+#             Del { _meta: Meta { node_index: NodeIndex(None), range: 0..10 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..10, id: Name("_dp_eval_1"), ctx: Load }), quietly: false }
 #             if_term BinOp(Is, _dp_tmp_0_1, ITER_COMPLETE):
 #                 then:
 #                     block bb0:
@@ -752,7 +752,7 @@ async def run():
 #                     block bb2:
 #                         StoreName("_dp_tmp_0_1", _dp_tmp_0_1)
 #                         StoreName("x", _dp_tmp_0_1)
-#                         DelName("_dp_tmp_0_1", false)
+#                         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..11 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..11, id: Name("_dp_tmp_0_1"), ctx: Load }), quietly: false }
 #                         jump bb4
 #                         block bb4:
 #                             body()
@@ -780,7 +780,7 @@ async def run():
 #         StoreName("_dp_with_exit_1", asynccontextmanager_get_aexit(cm))
 #         StoreName("_dp_eval_4", await asynccontextmanager_aenter(cm))
 #         StoreName("x", _dp_eval_4)
-#         DelName("_dp_eval_4", false)
+#         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..10 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..10, id: Name("_dp_eval_4"), ctx: Load }), quietly: false }
 #         StoreName("_dp_with_ok_2", TRUE)
 #         jump bb14
 #         block bb14:
@@ -825,7 +825,7 @@ async def run():
 #         StoreName("_dp_with_ok_2", FALSE)
 #         StoreName("_dp_eval_5", await asynccontextmanager_exit(_dp_with_exit_1, current_exception()))
 #         StoreName("_dp_with_reraise_3", _dp_eval_5)
-#         DelName("_dp_eval_5", false)
+#         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..10 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..10, id: Name("_dp_eval_5"), ctx: Load }), quietly: false }
 #         if_term UnaryOp(Not, BinOp(Is, _dp_with_reraise_3, NONE)):
 #             then:
 #                 jump bb12
@@ -1133,7 +1133,7 @@ def complicated(a):
 #                     block bb2:
 #                         StoreName("_dp_tmp_0_1", _dp_tmp_0_1)
 #                         StoreName("i", _dp_tmp_0_1)
-#                         DelName("_dp_tmp_0_1", false)
+#                         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..11 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..11, id: Name("_dp_tmp_0_1"), ctx: Load }), quietly: false }
 #                         jump bb5
 #                         block bb5:
 #                             jump bb9

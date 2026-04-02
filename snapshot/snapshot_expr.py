@@ -323,7 +323,7 @@ x = [i for i in it]
 #                     block bb2:
 #                         StoreName("_dp_tmp_0_1", _dp_tmp_0_1)
 #                         StoreName("i", _dp_tmp_0_1)
-#                         DelName("_dp_tmp_0_1", false)
+#                         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..11 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..11, id: Name("_dp_tmp_0_1"), ctx: Load }), quietly: false }
 #                         jump bb5
 #                         block bb5:
 #                             GetAttr(_dp_tmp_1, "append")(i)
@@ -359,7 +359,7 @@ x = {i for i in it}
 #                     block bb2:
 #                         StoreName("_dp_tmp_0_1", _dp_tmp_0_1)
 #                         StoreName("i", _dp_tmp_0_1)
-#                         DelName("_dp_tmp_0_1", false)
+#                         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..11 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..11, id: Name("_dp_tmp_0_1"), ctx: Load }), quietly: false }
 #                         jump bb5
 #                         block bb5:
 #                             GetAttr(_dp_tmp_1, "add")(i)
@@ -397,8 +397,8 @@ x = {k: v for k, v in it}
 #                         StoreName("_dp_tmp_0_2", unpack(_dp_tmp_0_1, tuple_values(TRUE, TRUE)))
 #                         StoreName("k", GetItem(_dp_tmp_0_2, 0))
 #                         StoreName("v", GetItem(_dp_tmp_0_2, 1))
-#                         DelName("_dp_tmp_0_2", false)
-#                         DelName("_dp_tmp_0_1", false)
+#                         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..11 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..11, id: Name("_dp_tmp_0_2"), ctx: Load }), quietly: false }
+#                         Del { _meta: Meta { node_index: NodeIndex(None), range: 0..11 }, name: ExprName(ExprName { node_index: NodeIndex(None), range: 0..11, id: Name("_dp_tmp_0_1"), ctx: Load }), quietly: false }
 #                         jump bb5
 #                         block bb5:
 #                             StoreName("_dp_dictcomp_key_2", k)

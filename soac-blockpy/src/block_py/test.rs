@@ -18,7 +18,9 @@ fn block_builder_sets_explicit_term() {
     let mut block: BlockPyBlockBuilder<Expr> =
         BlockPyBlockBuilder::new(BlockPyLabel::from_index(0));
     block.push_stmt(StructuredBlockPyStmt::Expr(py_expr!("x")));
-    block.set_term(BlockPyTerm::Jump(BlockPyLabel::from_index(1).into()));
+    block.set_term(BlockPyTerm::Jump(crate::block_py::BlockPyEdge::new(
+        BlockPyLabel::from_index(1),
+    )));
     let block = block.finish(None);
 
     assert_eq!(block.body.len(), 1);
@@ -299,14 +301,12 @@ fn storage_layout_semantics_collects_structured_cell_ref_logical_names() {
 
 #[test]
 fn stmt_conversion_to_no_await_rejects_await() {
-    let stmt =
-        StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Await(CoreBlockPyAwait {
-            node_index: ast::AtomicNodeIndex::default(),
-            range: ruff_text_size::TextRange::default(),
-            value: Box::new(CoreBlockPyExprWithAwaitAndYield::Name(
-                name_expr("x").into(),
-            )),
-        }));
+    let stmt = StructuredBlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Await(
+        CoreBlockPyAwait::new(CoreBlockPyExprWithAwaitAndYield::Name(
+            name_expr("x").into(),
+        ))
+        .with_meta(Meta::default()),
+    ));
 
     assert!(ExprTryMap::<
         CoreBlockPyPassWithAwaitAndYield,
@@ -337,13 +337,10 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
             blocks: vec![CfgBlock {
                 label: BlockPyLabel::from_index(0),
                 body: vec![BlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Await(
-                    CoreBlockPyAwait {
-                        node_index: ast::AtomicNodeIndex::default(),
-                        range: ruff_text_size::TextRange::default(),
-                        value: Box::new(CoreBlockPyExprWithAwaitAndYield::Name(
-                            name_expr("x").into(),
-                        )),
-                    },
+                    CoreBlockPyAwait::new(CoreBlockPyExprWithAwaitAndYield::Name(
+                        name_expr("x").into(),
+                    ))
+                    .with_meta(Meta::default()),
                 ))],
                 term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Name(
                     name_expr("__dp_NONE").into(),
@@ -368,13 +365,10 @@ fn term_conversion_to_no_yield_rejects_nested_yield() {
         ast::AtomicNodeIndex::default(),
         ruff_text_size::TextRange::default(),
         vec![CoreBlockPyCallArg::Positional(
-            CoreBlockPyExprWithYield::Yield(CoreBlockPyYield {
-                node_index: ast::AtomicNodeIndex::default(),
-                range: ruff_text_size::TextRange::default(),
-                value: Some(Box::new(CoreBlockPyExprWithYield::Name(
-                    name_expr("x").into(),
-                ))),
-            }),
+            CoreBlockPyExprWithYield::Yield(
+                CoreBlockPyYield::new(CoreBlockPyExprWithYield::Name(name_expr("x").into()))
+                    .with_meta(Meta::default()),
+            ),
         )],
         Vec::new(),
     ));

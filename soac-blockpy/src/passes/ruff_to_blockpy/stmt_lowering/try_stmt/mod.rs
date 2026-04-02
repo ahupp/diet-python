@@ -8,7 +8,7 @@ fn body_to_vec(body: Suite) -> Vec<Stmt> {
 }
 
 fn quiet_delete_marker(name: &str) -> Stmt {
-    py_stmt!("_dp_del_quietly({name:id})", name = name)
+    py_stmt!("__soac__.del_quietly({name:id})", name = name)
 }
 
 fn wrap_handler_body_with_cleanup(name: &str, body: Vec<Stmt>) -> Vec<Stmt> {

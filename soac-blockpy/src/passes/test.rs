@@ -486,7 +486,7 @@ class Box:
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
     assert!(
-        core_rendered.contains("DelName(\"x\", false)"),
+        core_rendered.contains("Del {") && core_rendered.contains("quietly: false"),
         "{core_rendered}"
     );
     assert!(
@@ -497,7 +497,10 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("DelItem(LocalLocation(0), constant slot"),
+        name_binding_rendered.contains("DelItem {")
+            && name_binding_rendered.contains("value: Name(LocatedName {")
+            && name_binding_rendered.contains("location: Local(LocalLocation(0))")
+            && name_binding_rendered.contains("index: Load(Load {"),
         "{name_binding_rendered}"
     );
 }
@@ -515,7 +518,7 @@ def outer():
     let lowered = TrackedLowering::new(source);
     let core_rendered = lowered.pass_text("core_blockpy");
     assert!(
-        core_rendered.contains("DelName(\"x\", false)"),
+        core_rendered.contains("Del {") && core_rendered.contains("quietly: false"),
         "{core_rendered}"
     );
     assert!(!core_rendered.contains("cell_contents"), "{core_rendered}");
@@ -523,7 +526,9 @@ def outer():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("DelLocation(CapturedSource("),
+        name_binding_rendered.contains("Del {")
+            && name_binding_rendered.contains("location: Cell(CapturedSource(")
+            && name_binding_rendered.contains("quietly: false"),
         "{name_binding_rendered}"
     );
 }
@@ -784,7 +789,7 @@ class Box:
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("DelName(\"caught\", true)"),
+        name_binding_rendered.contains("Del {") && name_binding_rendered.contains("quietly: true"),
         "{name_binding_rendered}"
     );
 }
@@ -825,7 +830,9 @@ def outer():
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("DelLocation(CapturedSource("),
+        name_binding_rendered.contains("Del {")
+            && name_binding_rendered.contains("location: Cell(CapturedSource(")
+            && name_binding_rendered.contains("quietly: true"),
         "{name_binding_rendered}"
     );
 }
@@ -862,7 +869,10 @@ class Box:
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("DelItem(LocalLocation(0), constant slot"),
+        name_binding_rendered.contains("DelItem {")
+            && name_binding_rendered.contains("value: Name(LocatedName {")
+            && name_binding_rendered.contains("location: Local(LocalLocation(0))")
+            && name_binding_rendered.contains("index: Load(Load {"),
         "{name_binding_rendered}"
     );
 }
@@ -1601,7 +1611,7 @@ except Exception as exc:
         "{semantic_rendered}"
     );
     assert!(
-        semantic_rendered.contains("_dp_del_quietly(exc)"),
+        semantic_rendered.contains("del_quietly(exc)"),
         "{semantic_rendered}"
     );
     assert!(
@@ -1619,7 +1629,7 @@ except Exception as exc:
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("DelName(\"exc\", true)"),
+        name_binding_rendered.contains("Del {") && name_binding_rendered.contains("quietly: true"),
         "{name_binding_rendered}"
     );
 }
@@ -1638,14 +1648,14 @@ del x
         "{core_rendered}"
     );
     assert!(
-        core_rendered.contains("DelName(\"x\", false)"),
+        core_rendered.contains("Del {") && core_rendered.contains("quietly: false"),
         "{core_rendered}"
     );
     assert!(!core_rendered.contains("__dp_DELETED"), "{core_rendered}");
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("DelName(\"x\", false)"),
+        name_binding_rendered.contains("Del {") && name_binding_rendered.contains("quietly: false"),
         "{name_binding_rendered}"
     );
 }
@@ -1697,7 +1707,8 @@ def outer():
         blockpy_rendered.contains("function outer.<locals>.inner():")
             && blockpy_rendered
                 .contains("StoreName(\"inner\", MakeFunction(0, Function, tuple_values(), NONE))")
-            && blockpy_rendered.contains("DelName(\"x\", false)"),
+            && blockpy_rendered.contains("Del {")
+            && blockpy_rendered.contains("quietly: false"),
         "{blockpy_rendered}"
     );
 }

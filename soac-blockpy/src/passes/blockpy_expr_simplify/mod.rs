@@ -6,7 +6,7 @@ use crate::block_py::{
     BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCallArg,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyYield,
     CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
-    CoreStringLiteral, HasMeta, Meta, StructuredBlockPyStmt, WithMeta,
+    CoreStringLiteral, HasMeta, ImplicitNoneExpr, Meta, StructuredBlockPyStmt, WithMeta,
 };
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
 use crate::py_expr;
@@ -16,10 +16,6 @@ type SemanticExpr = Expr;
 
 fn core_builtin_name(id: &str) -> CoreBlockPyExprWithAwaitAndYield {
     core_runtime_name_expr_with_meta(id, Default::default(), Default::default())
-}
-
-fn is_synthetic_local_core_name(id: &str) -> bool {
-    id.starts_with("_dp_")
 }
 
 pub(crate) trait PureCoreExprReducer {
@@ -525,21 +521,22 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                 node.arguments.args.into_vec(),
                 node.arguments.keywords.into_vec(),
             ),
-            Expr::Await(node) => Self::Await(CoreBlockPyAwait {
-                node_index: node.node_index,
-                range: node.range,
-                value: Box::new(Self::from(*node.value)),
-            }),
-            Expr::Yield(node) => Self::Yield(CoreBlockPyYield {
-                node_index: node.node_index,
-                range: node.range,
-                value: node.value.map(|value| Box::new(Self::from(*value))),
-            }),
-            Expr::YieldFrom(node) => Self::YieldFrom(CoreBlockPyYieldFrom {
-                node_index: node.node_index,
-                range: node.range,
-                value: Box::new(Self::from(*node.value)),
-            }),
+            Expr::Await(node) => Self::Await(
+                CoreBlockPyAwait::new(Self::from(*node.value))
+                    .with_meta(Meta::new(node.node_index, node.range)),
+            ),
+            Expr::Yield(node) => Self::Yield(
+                CoreBlockPyYield::new(
+                    node.value
+                        .map(|value| Self::from(*value))
+                        .unwrap_or_else(CoreBlockPyExprWithAwaitAndYield::implicit_none_expr),
+                )
+                .with_meta(Meta::new(node.node_index, node.range)),
+            ),
+            Expr::YieldFrom(node) => Self::YieldFrom(
+                CoreBlockPyYieldFrom::new(Self::from(*node.value))
+                    .with_meta(Meta::new(node.node_index, node.range)),
+            ),
             Expr::StringLiteral(node) => {
                 Self::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
                     node_index: node.node_index,
@@ -687,15 +684,8 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
             )),
             Expr::Dict(node) => reduce_core_blockpy_dict(node.items.into()),
             Expr::Name(node) => {
-                if is_synthetic_local_core_name(node.id.as_str()) || node.id.as_str() == "__soac__"
-                {
-                    Self::Name(node.into())
-                } else {
-                    let meta = node.meta();
-                    CoreBlockPyExprWithAwaitAndYield::Load(
-                        operation::Load::new(node).with_meta(meta),
-                    )
-                }
+                let meta = node.meta();
+                CoreBlockPyExprWithAwaitAndYield::Load(operation::Load::new(node).with_meta(meta))
             }
             other => panic!(
                 "unexpected expr reached late core BlockPy boundary: {}",

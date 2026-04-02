@@ -459,7 +459,7 @@ where
     blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         jump_label.clone(),
         linear,
-        BlockPyTerm::Jump(expanded_entry.into()),
+        BlockPyTerm::Jump(BlockPyEdge::new(expanded_entry)),
         active_exc.as_ref(),
     ));
     jump_label

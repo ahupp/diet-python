@@ -24,6 +24,6 @@ fn stmt_delete_to_blockpy_emits_direct_core_delitem() {
     };
     let rendered = expr.debug_expr_text();
 
-    assert!(rendered.contains("DelItem("), "{rendered}");
+    assert!(rendered.contains("DelItem {"), "{rendered}");
     assert!(!rendered.contains("__dp_delitem"), "{rendered}");
 }

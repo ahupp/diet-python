@@ -1,8 +1,8 @@
 use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
     BlockArg, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike, BlockPyStmt, BlockPyTerm,
-    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, FunctionNameGen, Instr, InstrExprNode,
-    StructuredBlockPyStmt, UnresolvedName,
+    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, FunctionNameGen, Instr, InstrExprNode, Load,
+    Meta, StructuredBlockPyStmt, UnresolvedName, WithMeta,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
@@ -116,15 +116,7 @@ fn rewrite_current_exception_in_term_with_await_and_yield(
             if let Some(exc) = raise_stmt.exc.as_mut() {
                 rewrite_current_exception_in_expr_with_await_and_yield(exc, exc_name);
             } else {
-                raise_stmt.exc = Some(CoreBlockPyExprWithAwaitAndYield::Name(
-                    ast::ExprName {
-                        id: exc_name.into(),
-                        ctx: ast::ExprContext::Load,
-                        range: Default::default(),
-                        node_index: ast::AtomicNodeIndex::default(),
-                    }
-                    .into(),
-                ));
+                raise_stmt.exc = Some(current_exception_name_expr_with_await_and_yield(exc_name));
             }
         }
         BlockPyTerm::Return(value) => {
@@ -219,9 +211,10 @@ fn rewrite_current_exception_in_expr_with_await_and_yield(
             );
         }
         CoreBlockPyExprWithAwaitAndYield::Yield(yield_expr) => {
-            if let Some(value) = yield_expr.value.as_mut() {
-                rewrite_current_exception_in_expr_with_await_and_yield(value.as_mut(), exc_name);
-            }
+            rewrite_current_exception_in_expr_with_await_and_yield(
+                yield_expr.value.as_mut(),
+                exc_name,
+            );
         }
         CoreBlockPyExprWithAwaitAndYield::YieldFrom(yield_from) => {
             rewrite_current_exception_in_expr_with_await_and_yield(
@@ -250,14 +243,16 @@ fn is_current_exception_call_with_await_and_yield(expr: &CoreBlockPyExprWithAwai
 fn current_exception_name_expr_with_await_and_yield(
     exc_name: &str,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    CoreBlockPyExprWithAwaitAndYield::Name(
-        ast::ExprName {
+    let range = compat_range();
+    let node_index = compat_node_index();
+    CoreBlockPyExprWithAwaitAndYield::Load(
+        Load::<CoreBlockPyExprWithAwaitAndYield>::new(ast::ExprName {
             id: exc_name.into(),
             ctx: ast::ExprContext::Load,
-            range: compat_range(),
-            node_index: compat_node_index(),
-        }
-        .into(),
+            range,
+            node_index: node_index.clone(),
+        })
+        .with_meta(Meta::new(node_index, range)),
     )
 }
 
@@ -491,12 +486,17 @@ fn current_exception_name_expr<N>(exc_name: &str) -> CoreBlockPyExpr<N>
 where
     N: BlockPyNameLike,
 {
-    CoreBlockPyExpr::Name(N::from(ast::ExprName {
-        id: exc_name.into(),
-        ctx: ast::ExprContext::Load,
-        range: compat_range(),
-        node_index: compat_node_index(),
-    }))
+    let range = compat_range();
+    let node_index = compat_node_index();
+    CoreBlockPyExpr::Load(
+        Load::<CoreBlockPyExpr<N>>::new(N::from(ast::ExprName {
+            id: exc_name.into(),
+            ctx: ast::ExprContext::Load,
+            range,
+            node_index: node_index.clone(),
+        }))
+        .with_meta(Meta::new(node_index, range)),
+    )
 }
 
 fn compat_node_index() -> ast::AtomicNodeIndex {

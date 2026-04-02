@@ -98,7 +98,7 @@ fn linearize_blockpy_if_sequence<E, N>(
 
     let branch_fallthrough = join_label
         .clone()
-        .map(|next_label| BlockPyTerm::Jump(next_label.into()))
+        .map(|next_label| BlockPyTerm::Jump(super::BlockPyEdge::new(next_label)))
         .unwrap_or_else(|| final_term.clone());
     linearize_blockpy_fragment(
         name_gen,
@@ -270,7 +270,7 @@ pub(crate) fn fold_constant_brif_blockpy(
             _ => None,
         };
         if let Some(target) = jump_target {
-            block.term = BlockPyTerm::Jump(target.into());
+            block.term = BlockPyTerm::Jump(super::BlockPyEdge::new(target));
         }
     }
 }

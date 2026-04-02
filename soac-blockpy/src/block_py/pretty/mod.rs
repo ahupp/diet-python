@@ -629,21 +629,6 @@ where
     }
 }
 
-fn render_del_debug_text<N>(name: &N, quietly: bool) -> String
-where
-    N: crate::block_py::BlockPyNameLike,
-{
-    let resolved_name = name.pretty_id();
-    if resolved_name == name.id_str() {
-        debug_tuple_text(
-            "DelName",
-            [format!("{:?}", name.id_str()), format!("{quietly:?}")],
-        )
-    } else {
-        debug_tuple_text("DelLocation", [resolved_name, format!("{quietly:?}")])
-    }
-}
-
 pub(crate) trait BlockPyDebugOperationText {
     fn debug_operation_text(&self) -> String;
 }
@@ -725,7 +710,7 @@ where
     E: Instr + BlockPyDebugExprText,
 {
     fn debug_operation_text(&self) -> String {
-        render_del_debug_text(&self.name, self.quietly)
+        format!("{self:?}")
     }
 }
 
@@ -802,10 +787,7 @@ where
     E: Instr + BlockPyDebugExprText,
 {
     fn debug_operation_text(&self) -> String {
-        debug_tuple_text(
-            "DelItem",
-            [self.value.debug_expr_text(), self.index.debug_expr_text()],
-        )
+        format!("{self:?}")
     }
 }
 

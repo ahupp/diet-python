@@ -121,7 +121,9 @@ impl StmtLowerer for ast::StmtBreak {
         E: RuffToBlockPyExpr,
     {
         if let Some(loop_ctx) = loop_ctx {
-            out.set_term(BlockPyTerm::Jump(loop_ctx.break_label.clone().into()));
+            out.set_term(BlockPyTerm::Jump(BlockPyEdge::new(
+                loop_ctx.break_label.clone(),
+            )));
             Ok(())
         } else {
             panic!("Break should be lowered before Ruff AST -> BlockPy conversion");
@@ -145,7 +147,9 @@ impl StmtLowerer for ast::StmtContinue {
         E: RuffToBlockPyExpr,
     {
         if let Some(loop_ctx) = loop_ctx {
-            out.set_term(BlockPyTerm::Jump(loop_ctx.continue_label.clone().into()));
+            out.set_term(BlockPyTerm::Jump(BlockPyEdge::new(
+                loop_ctx.continue_label.clone(),
+            )));
             Ok(())
         } else {
             panic!("Continue should be lowered before Ruff AST -> BlockPy conversion");

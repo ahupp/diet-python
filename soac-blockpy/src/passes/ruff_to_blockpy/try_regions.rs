@@ -396,7 +396,7 @@ where
     blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         label.clone(),
         linear,
-        BlockPyTerm::Jump(body_label.into()),
+        BlockPyTerm::Jump(BlockPyEdge::new(body_label)),
         active_exc_target.as_ref(),
     ));
     label

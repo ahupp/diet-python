@@ -649,18 +649,22 @@ enum YieldSite {
     ReturnYieldFrom(CoreBlockPyExprWithYield),
 }
 
+fn explicit_yield_value(value: &CoreBlockPyExprWithYield) -> Option<CoreBlockPyExprWithYield> {
+    (!CoreBlockPyExprWithYield::is_implicit_none_expr(value)).then(|| value.clone())
+}
+
 fn stmt_yield_site(stmt: &LinearYieldStmt) -> Option<YieldSite> {
     match stmt {
-        BlockPyStmt::Expr(CoreBlockPyExprWithYield::Yield(yield_expr)) => {
-            Some(YieldSite::ExprYield(yield_expr.value.as_deref().cloned()))
-        }
+        BlockPyStmt::Expr(CoreBlockPyExprWithYield::Yield(yield_expr)) => Some(
+            YieldSite::ExprYield(explicit_yield_value(&yield_expr.value)),
+        ),
         BlockPyStmt::Expr(CoreBlockPyExprWithYield::YieldFrom(yield_from)) => {
             Some(YieldSite::ExprYieldFrom((*yield_from.value).clone()))
         }
         BlockPyStmt::Expr(CoreBlockPyExprWithYield::Store(store)) => match store.value.as_ref() {
             CoreBlockPyExprWithYield::Yield(yield_expr) => Some(YieldSite::AssignYield {
                 target: store.name.clone(),
-                value: yield_expr.value.as_deref().cloned(),
+                value: explicit_yield_value(&yield_expr.value),
             }),
             CoreBlockPyExprWithYield::YieldFrom(yield_from) => Some(YieldSite::AssignYieldFrom {
                 target: store.name.clone(),
@@ -675,9 +679,9 @@ fn stmt_yield_site(stmt: &LinearYieldStmt) -> Option<YieldSite> {
 
 fn term_yield_site(term: &BlockPyTerm<CoreBlockPyExprWithYield>) -> Option<YieldSite> {
     match term {
-        BlockPyTerm::Return(CoreBlockPyExprWithYield::Yield(yield_expr)) => {
-            Some(YieldSite::ReturnYield(yield_expr.value.as_deref().cloned()))
-        }
+        BlockPyTerm::Return(CoreBlockPyExprWithYield::Yield(yield_expr)) => Some(
+            YieldSite::ReturnYield(explicit_yield_value(&yield_expr.value)),
+        ),
         BlockPyTerm::Return(CoreBlockPyExprWithYield::YieldFrom(yield_from)) => {
             Some(YieldSite::ReturnYieldFrom((*yield_from.value).clone()))
         }
@@ -749,7 +753,7 @@ fn push_completion_raise_block(
         BlockPyBlock {
             label,
             body,
-            term: BlockPyTerm::Jump(completion_label.clone().into()),
+            term: BlockPyTerm::Jump(BlockPyEdge::new(completion_label.clone())),
             params: params.clone(),
             exc_edge: None,
         },
@@ -1210,7 +1214,7 @@ fn emit_yield_from_site(
         BlockPyBlock {
             label,
             body: std::mem::take(prefix),
-            term: BlockPyTerm::Jump(delegate_label.clone().into()),
+            term: BlockPyTerm::Jump(BlockPyEdge::new(delegate_label.clone())),
             params: params.clone(),
             exc_edge: None,
         },
@@ -1254,7 +1258,7 @@ fn emit_yield_from_site(
                 yielded_value_name.as_str(),
                 core_expr_without_yield(py_expr!("next(_dp_yieldfrom)")),
             )],
-            term: BlockPyTerm::Jump(yielded_label.clone().into()),
+            term: BlockPyTerm::Jump(BlockPyEdge::new(yielded_label.clone())),
             params: params.clone(),
             exc_edge: None,
         },
@@ -1267,7 +1271,7 @@ fn emit_yield_from_site(
                 yielded_value_name.as_str(),
                 core_expr_without_yield(py_expr!("_dp_yieldfrom.send(_dp_send_value)")),
             )],
-            term: BlockPyTerm::Jump(yielded_label.clone().into()),
+            term: BlockPyTerm::Jump(BlockPyEdge::new(yielded_label.clone())),
             params: params.clone(),
             exc_edge: None,
         },
@@ -1311,7 +1315,7 @@ fn emit_yield_from_site(
                 "{close:id}()",
                 close = close_name.as_str(),
             )))],
-            term: BlockPyTerm::Jump(raise_resume_exc_label.clone().into()),
+            term: BlockPyTerm::Jump(BlockPyEdge::new(raise_resume_exc_label.clone())),
             params: params.clone(),
             exc_edge: None,
         },
@@ -1344,7 +1348,7 @@ fn emit_yield_from_site(
                     throw_fn = throw_name.as_str(),
                 )),
             )],
-            term: BlockPyTerm::Jump(yielded_label.clone().into()),
+            term: BlockPyTerm::Jump(BlockPyEdge::new(yielded_label.clone())),
             params: params.clone(),
             exc_edge: None,
         },

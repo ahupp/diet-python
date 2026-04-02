@@ -209,7 +209,7 @@ class X:
 # function X.f(x):
 #     function_id: 0
 #     block bb1:
-#         DelName("__class__", false)
+#         Del { _meta: Meta { node_index: NodeIndex(6), range: 64..73 }, name: ExprName(ExprName { node_index: NodeIndex(6), range: 64..73, id: Name("__class__"), ctx: Del }), quietly: false }
 #         call_super(super, CellRefForName("__class__"), x)
 #         return NONE
 
