@@ -101,13 +101,13 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithA
 }
 
 fn core_operation_expr(
-    operation: impl Into<operation::CoreExprOpWithAwaitAndYield<CoreBlockPyExprWithAwaitAndYield>>,
+    operation: impl Into<CoreBlockPyExprWithAwaitAndYield>,
 ) -> CoreBlockPyExprWithAwaitAndYield {
     CoreBlockPyExprWithAwaitAndYield::from(operation.into())
 }
 
 fn core_operation_expr_with_meta(
-    detail: impl Into<operation::CoreExprOpWithAwaitAndYield<CoreBlockPyExprWithAwaitAndYield>>,
+    detail: impl Into<CoreBlockPyExprWithAwaitAndYield>,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExprWithAwaitAndYield {
@@ -369,7 +369,7 @@ fn non_operator_operation_from_helper_call(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
     args: Vec<CoreBlockPyExprWithAwaitAndYield>,
-) -> Option<operation::CoreExprOpWithAwaitAndYield<CoreBlockPyExprWithAwaitAndYield>> {
+) -> Option<CoreBlockPyExprWithAwaitAndYield> {
     let mut args = args.into_iter();
     let meta = Meta::new(node_index, range);
     let operation = match name {
