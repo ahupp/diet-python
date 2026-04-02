@@ -1,9 +1,10 @@
 use super::{
-    AbruptKind, BlockArg, BlockPyAssign, BlockPyEdge, BlockPyLabel, BlockPyTerm, CfgBlock,
-    ImplicitNoneExpr, Instr, StructuredBlockPyStmt,
+    AbruptKind, BlockArg, BlockPyEdge, BlockPyLabel, BlockPyTerm, CfgBlock, HasMeta,
+    ImplicitNoneExpr, Store, StructuredBlockPyStmt, WithMeta,
 };
 #[cfg(test)]
 use crate::passes::ast_to_ast::util::is_dp_helper_lookup_expr;
+use crate::passes::ruff_to_blockpy::RuffToBlockPyExpr;
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr, ExprName, Stmt};
 
@@ -19,7 +20,7 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
     finally_target: &BlockPyLabel,
     payload_name: &str,
 ) where
-    E: ImplicitNoneExpr + Instr,
+    E: ImplicitNoneExpr + RuffToBlockPyExpr,
 {
     for block in blocks.iter_mut() {
         let ret_value = match std::mem::replace(
@@ -32,12 +33,11 @@ pub(crate) fn rewrite_region_returns_to_finally_blockpy<E>(
                 continue;
             }
         };
-        block
-            .body
-            .push(StructuredBlockPyStmt::Assign(BlockPyAssign {
-                target: expr_name(payload_name).into(),
-                value: ret_value,
-            }));
+        let target = expr_name(payload_name);
+        let meta = target.meta();
+        block.body.push(StructuredBlockPyStmt::Expr(
+            Store::new(target, ret_value).with_meta(meta).into(),
+        ));
         let payload_arg = BlockArg::Name(payload_name.to_string());
         // Only bind the synthetic abrupt slots explicitly. The finally entry's
         // current-exception slot continues to forward separately as its declared
