@@ -375,28 +375,19 @@ fn augment_resume_semantic_for_standard_name_binding(
     }
 }
 
-fn is_resume_closure_state_name(layout: &StorageLayout, name: &str) -> bool {
-    layout
-        .freevars
-        .iter()
-        .chain(layout.cellvars.iter())
-        .chain(layout.runtime_cells.iter())
-        .any(|slot| slot.logical_name == name || slot.storage_name == name)
-}
-
 fn resume_closure_bindings(
     layout: &StorageLayout,
-    persistent_state_names: &[String],
+    persistent_logical_names: &[String],
 ) -> ResumeClosureBindings {
-    let runtime_state_bindings = persistent_state_names
+    let runtime_state_bindings = persistent_logical_names
         .iter()
-        .filter_map(|name| {
+        .filter_map(|logical_name| {
             layout
                 .freevars
                 .iter()
                 .chain(layout.cellvars.iter())
                 .chain(layout.runtime_cells.iter())
-                .find(|slot| slot.logical_name == *name || slot.storage_name == *name)
+                .find(|slot| slot.logical_name == *logical_name)
                 .map(|slot| (slot.logical_name.clone(), slot.storage_name.clone()))
         })
         .collect::<Vec<_>>();
@@ -1502,7 +1493,7 @@ fn lower_resume_blocks(
     )
 }
 
-fn ordered_resume_binding_names(
+fn ordered_resume_binding_logical_names(
     _callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
     persistent_state_order: &[String],
 ) -> Vec<String> {
@@ -1526,10 +1517,11 @@ pub(crate) fn lower_generator_like_function(
     let resume_function_id = resume_name_gen.function_id();
     let storage_layout = build_generator_storage_layout(&callable);
     let persistent_state_order = persistent_generator_state_order(&storage_layout);
-    let resume_binding_names = ordered_resume_binding_names(&callable, &persistent_state_order);
+    let resume_binding_logical_names =
+        ordered_resume_binding_logical_names(&callable, &persistent_state_order);
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
         lower_resume_blocks(&callable);
-    let closure_bindings = resume_closure_bindings(&storage_layout, &resume_binding_names);
+    let closure_bindings = resume_closure_bindings(&storage_layout, &resume_binding_logical_names);
 
     let BlockPyFunction {
         function_id,

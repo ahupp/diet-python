@@ -537,6 +537,11 @@
   - Do not introduce per-phase enums in the same change.
   - After that lands, the next change should be introducing just one per-phase op enum plus a mechanical conversion for one expr family, proving the pattern before applying it everywhere.
 
+- Add distinct post-name-binding `BlockPyModule` / `BlockPyFunction` types.
+  - The main goal is to stop carrying phase-conditional fields like `Option<StorageLayout>` on earlier-stage types.
+  - Keep the current pre-name-binding module/function types focused on semantic intent, and give the post-name-binding shapes required fields for resolved storage/layout data.
+  - Stage this after the stmt/expr flattening work above so the post-name-binding type split targets a more stable representation.
+
 - Move completed TODO entries here and include a short description of the work done.
 - Ensure `blockpy_expr_simplify` panics if it receives an expression shape that should already have been removed by `rewrite_ast_to_lowered_blockpy_module_plan`.
   - `blockpy_expr_simplify` now validates incoming semantic `Expr` trees with a `Transformer` before any core lowering work.
