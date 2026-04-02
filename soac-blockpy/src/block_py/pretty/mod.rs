@@ -793,7 +793,9 @@ impl BlockPyDebugExprText for CodegenBlockPyExpr {
         match self {
             CodegenBlockPyExpr::Name(name) => name.pretty_id(),
             CodegenBlockPyExpr::Literal(literal) => render_codegen_literal_text(literal),
-            CodegenBlockPyExpr::Op(operation) => render_operation_detail_debug_text(operation),
+            CodegenBlockPyExpr::Op(operation) => render_operation_detail_debug_text(
+                &crate::block_py::OperationDetail::from(operation.clone()),
+            ),
         }
     }
 }

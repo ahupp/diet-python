@@ -889,6 +889,26 @@ pub enum CoreExprOp<E: Instr> {
 }
 
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
+pub enum CodegenExprOp<E: Instr> {
+    BinOp(BinOp<E>),
+    UnaryOp(UnaryOp<E>),
+    Call(Call<E>),
+    GetAttr(GetAttr<E>),
+    SetAttr(SetAttr<E>),
+    GetItem(GetItem<E>),
+    SetItem(SetItem<E>),
+    DelItem(DelItem<E>),
+    Load(Load<E>),
+    Store(Store<E>),
+    Del(Del<E>),
+    MakeCell(MakeCell<E>),
+    MakeString(MakeString),
+    CellRefForName(CellRefForName),
+    CellRef(CellRef),
+    MakeFunction(MakeFunction<E>),
+}
+
+#[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum OperationDetail<E: Instr> {
     BinOp(BinOp<E>),
     UnaryOp(UnaryOp<E>),
@@ -1002,6 +1022,7 @@ macro_rules! impl_operation_enum_delegates {
 impl_operation_enum_delegates!(CoreExprOpWithAwaitAndYield);
 impl_operation_enum_delegates!(CoreExprOpWithYield);
 impl_operation_enum_delegates!(CoreExprOp);
+impl_operation_enum_delegates!(CodegenExprOp);
 impl_operation_enum_delegates!(OperationDetail);
 
 impl<E: Instr> From<CoreExprOpWithAwaitAndYield<E>> for OperationDetail<E> {
@@ -1073,6 +1094,29 @@ impl<E: Instr> From<CoreExprOp<E>> for OperationDetail<E> {
     }
 }
 
+impl<E: Instr> From<CodegenExprOp<E>> for OperationDetail<E> {
+    fn from(value: CodegenExprOp<E>) -> Self {
+        match value {
+            CodegenExprOp::BinOp(op) => op.into(),
+            CodegenExprOp::UnaryOp(op) => op.into(),
+            CodegenExprOp::Call(op) => op.into(),
+            CodegenExprOp::GetAttr(op) => op.into(),
+            CodegenExprOp::SetAttr(op) => op.into(),
+            CodegenExprOp::GetItem(op) => op.into(),
+            CodegenExprOp::SetItem(op) => op.into(),
+            CodegenExprOp::DelItem(op) => op.into(),
+            CodegenExprOp::Load(op) => op.into(),
+            CodegenExprOp::Store(op) => op.into(),
+            CodegenExprOp::Del(op) => op.into(),
+            CodegenExprOp::MakeCell(op) => op.into(),
+            CodegenExprOp::MakeString(op) => op.into(),
+            CodegenExprOp::CellRefForName(op) => op.into(),
+            CodegenExprOp::CellRef(op) => op.into(),
+            CodegenExprOp::MakeFunction(op) => op.into(),
+        }
+    }
+}
+
 impl<E: Instr> From<CoreExprOpWithAwaitAndYield<E>> for CoreExprOpWithYield<E> {
     fn from(value: CoreExprOpWithAwaitAndYield<E>) -> Self {
         match value {
@@ -1115,6 +1159,29 @@ impl<E: Instr> From<CoreExprOpWithYield<E>> for CoreExprOp<E> {
             CoreExprOpWithYield::CellRefForName(op) => op.into(),
             CoreExprOpWithYield::CellRef(op) => op.into(),
             CoreExprOpWithYield::MakeFunction(op) => op.into(),
+        }
+    }
+}
+
+impl<E: Instr> From<CoreExprOp<E>> for CodegenExprOp<E> {
+    fn from(value: CoreExprOp<E>) -> Self {
+        match value {
+            CoreExprOp::BinOp(op) => op.into(),
+            CoreExprOp::UnaryOp(op) => op.into(),
+            CoreExprOp::Call(op) => op.into(),
+            CoreExprOp::GetAttr(op) => op.into(),
+            CoreExprOp::SetAttr(op) => op.into(),
+            CoreExprOp::GetItem(op) => op.into(),
+            CoreExprOp::SetItem(op) => op.into(),
+            CoreExprOp::DelItem(op) => op.into(),
+            CoreExprOp::Load(op) => op.into(),
+            CoreExprOp::Store(op) => op.into(),
+            CoreExprOp::Del(op) => op.into(),
+            CoreExprOp::MakeCell(op) => op.into(),
+            CoreExprOp::MakeString(op) => op.into(),
+            CoreExprOp::CellRefForName(op) => op.into(),
+            CoreExprOp::CellRef(op) => op.into(),
+            CoreExprOp::MakeFunction(op) => op.into(),
         }
     }
 }
@@ -1166,6 +1233,29 @@ impl<E: Instr> From<OperationDetail<E>> for CoreExprOpWithYield<E> {
 }
 
 impl<E: Instr> From<OperationDetail<E>> for CoreExprOp<E> {
+    fn from(value: OperationDetail<E>) -> Self {
+        match value {
+            OperationDetail::BinOp(op) => op.into(),
+            OperationDetail::UnaryOp(op) => op.into(),
+            OperationDetail::Call(op) => op.into(),
+            OperationDetail::GetAttr(op) => op.into(),
+            OperationDetail::SetAttr(op) => op.into(),
+            OperationDetail::GetItem(op) => op.into(),
+            OperationDetail::SetItem(op) => op.into(),
+            OperationDetail::DelItem(op) => op.into(),
+            OperationDetail::Load(op) => op.into(),
+            OperationDetail::Store(op) => op.into(),
+            OperationDetail::Del(op) => op.into(),
+            OperationDetail::MakeCell(op) => op.into(),
+            OperationDetail::MakeString(op) => op.into(),
+            OperationDetail::CellRefForName(op) => op.into(),
+            OperationDetail::CellRef(op) => op.into(),
+            OperationDetail::MakeFunction(op) => op.into(),
+        }
+    }
+}
+
+impl<E: Instr> From<OperationDetail<E>> for CodegenExprOp<E> {
     fn from(value: OperationDetail<E>) -> Self {
         match value {
             OperationDetail::BinOp(op) => op.into(),

@@ -13,9 +13,10 @@ pub use self::semantics::{
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 pub use operation::{
-    BinOp, BinOpKind, Call, CellRef, CellRefForName, CoreExprOp, CoreExprOpWithAwaitAndYield,
-    CoreExprOpWithYield, Del, DelItem, GetAttr, GetItem, Load, MakeCell, MakeFunction, MakeString,
-    OperationDetail, SetAttr, SetItem, Store, UnaryOp, UnaryOpKind,
+    BinOp, BinOpKind, Call, CellRef, CellRefForName, CodegenExprOp, CoreExprOp,
+    CoreExprOpWithAwaitAndYield, CoreExprOpWithYield, Del, DelItem, GetAttr, GetItem, Load,
+    MakeCell, MakeFunction, MakeString, OperationDetail, SetAttr, SetItem, Store, UnaryOp,
+    UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
@@ -619,7 +620,7 @@ pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 pub enum CodegenBlockPyExpr {
     Name(LocatedName),
     Literal(CodegenBlockPyLiteral),
-    Op(OperationDetail<Self>),
+    Op(CodegenExprOp<Self>),
 }
 
 pub type LocatedCodegenBlockPyExpr = CodegenBlockPyExpr;
@@ -864,7 +865,7 @@ impl CoreCallLikeExpr for CodegenBlockPyExpr {
     }
 
     fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
-        Self::Op(operation)
+        Self::Op(operation.into())
     }
 }
 
@@ -902,9 +903,7 @@ impl<Error> TryMapExpr<CodegenBlockPyExpr, Error> for CodegenBlockPyExpr {
         match self {
             Self::Name(name) => Ok(CodegenBlockPyExpr::Name(name)),
             Self::Literal(literal) => Ok(CodegenBlockPyExpr::Literal(literal)),
-            Self::Op(operation) => Ok(CodegenBlockPyExpr::Op(
-                operation.try_map_expr_node(&mut *f)?,
-            )),
+            Self::Op(operation) => Ok(CodegenBlockPyExpr::Op(operation.try_map_expr_node(&mut *f)?)),
         }
     }
 }
@@ -2047,7 +2046,7 @@ impl ImplicitNoneExpr for CodegenBlockPyExpr {
         matches!(
             expr,
             CodegenBlockPyExpr::Op(operation)
-                if matches!(operation, OperationDetail::Load(op) if op.name.is_runtime_symbol("NONE"))
+                if matches!(operation, CodegenExprOp::Load(op) if op.name.is_runtime_symbol("NONE"))
         )
     }
 }
