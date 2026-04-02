@@ -2557,10 +2557,22 @@ fn ensure_module_storage_layouts(
 fn compute_module_make_function_capture_names(
     callable_defs: &[BlockPyFunction<CoreBlockPyPass>],
 ) -> HashMap<FunctionId, Vec<BlockPyCellCaptureBinding>> {
-    callable_defs
-        .iter()
-        .map(|callable| {
-            let captures = callable
+    fn compute_callable_make_function_capture_bindings_for_name_binding(
+        function_id: FunctionId,
+        callable_by_id: &HashMap<FunctionId, &BlockPyFunction<CoreBlockPyPass>>,
+        make_function_callees: &HashMap<FunctionId, Vec<FunctionId>>,
+        memo: &mut HashMap<FunctionId, Vec<BlockPyCellCaptureBinding>>,
+        visiting: &mut HashSet<FunctionId>,
+    ) -> Vec<BlockPyCellCaptureBinding> {
+        if let Some(captures) = memo.get(&function_id) {
+            return captures.clone();
+        }
+
+        let callable = callable_by_id
+            .get(&function_id)
+            .unwrap_or_else(|| panic!("missing callable for function id {:?}", function_id));
+        let layout_capture_bindings = || {
+            callable
                 .storage_layout
                 .as_ref()
                 .map(|layout| {
@@ -2575,7 +2587,140 @@ fn compute_module_make_function_capture_names(
                         })
                         .collect::<Vec<_>>()
                 })
-                .unwrap_or_else(|| compute_make_function_capture_bindings_from_semantics(callable));
+                .unwrap_or_else(|| compute_make_function_capture_bindings_from_semantics(callable))
+        };
+        if matches!(
+            callable.kind,
+            BlockPyFunctionKind::Generator
+                | BlockPyFunctionKind::Coroutine
+                | BlockPyFunctionKind::AsyncGenerator
+        ) {
+            let captures = layout_capture_bindings();
+            memo.insert(function_id, captures.clone());
+            return captures;
+        }
+        if !visiting.insert(function_id) {
+            let captures = compute_make_function_capture_bindings_from_semantics(callable);
+            memo.insert(function_id, captures.clone());
+            return captures;
+        }
+
+        let mut captures = compute_make_function_capture_bindings_from_semantics(callable);
+        let base_owned_logical_names = callable
+            .semantic
+            .bindings
+            .iter()
+            .filter_map(|(name, binding)| {
+                matches!(
+                    binding,
+                    BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner)
+                )
+                .then(|| name.clone())
+            })
+            .collect::<HashSet<_>>();
+        let base_owned_storage_names = callable.semantic.owned_cell_storage_names();
+
+        if let Some(callee_ids) = make_function_callees.get(&function_id) {
+            for callee_id in callee_ids {
+                let callee_captures =
+                    compute_callable_make_function_capture_bindings_for_name_binding(
+                        *callee_id,
+                        callable_by_id,
+                        make_function_callees,
+                        memo,
+                        visiting,
+                    );
+                for capture in callee_captures {
+                    let mut logical_name = capture.logical_name;
+                    loop {
+                        let next = callable
+                            .semantic
+                            .logical_name_for_cell_capture_source(logical_name.as_str())
+                            .or_else(|| {
+                                callable
+                                    .semantic
+                                    .logical_name_for_cell_storage(logical_name.as_str())
+                            })
+                            .unwrap_or_else(|| logical_name.clone());
+                        if next == logical_name {
+                            break;
+                        }
+                        logical_name = next;
+                    }
+                    let source_name = callable
+                        .semantic
+                        .cell_capture_source_name(logical_name.as_str());
+                    if base_owned_logical_names.contains(logical_name.as_str())
+                        || base_owned_storage_names.contains(source_name.as_str())
+                    {
+                        continue;
+                    }
+                    captures.push(BlockPyCellCaptureBinding {
+                        logical_name,
+                        source_name,
+                    });
+                }
+            }
+        }
+
+        visiting.remove(&function_id);
+        captures.sort_by(|left, right| {
+            left.logical_name
+                .cmp(&right.logical_name)
+                .then_with(|| left.source_name.cmp(&right.source_name))
+        });
+        captures.dedup_by(|left, right| left.logical_name == right.logical_name);
+        memo.insert(function_id, captures.clone());
+        captures
+    }
+
+    let callable_by_id = callable_defs
+        .iter()
+        .map(|callable| (callable.function_id, callable))
+        .collect::<HashMap<_, _>>();
+    let make_function_callees = callable_defs
+        .iter()
+        .map(|callable| {
+            (
+                callable.function_id,
+                collect_make_function_callee_ids(callable),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let mut memo = HashMap::new();
+    let mut visiting = HashSet::new();
+
+    callable_defs
+        .iter()
+        .map(|callable| {
+            let captures = if callable.semantic.scope_kind == BlockPyCallableScopeKind::Class {
+                compute_callable_make_function_capture_bindings_for_name_binding(
+                    callable.function_id,
+                    &callable_by_id,
+                    &make_function_callees,
+                    &mut memo,
+                    &mut visiting,
+                )
+            } else {
+                callable
+                    .storage_layout
+                    .as_ref()
+                    .map(|layout| {
+                        layout
+                            .freevars
+                            .iter()
+                            .map(|slot| BlockPyCellCaptureBinding {
+                                logical_name: slot.logical_name.clone(),
+                                source_name: callable
+                                    .semantic
+                                    .cell_capture_source_name(slot.logical_name.as_str()),
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_else(|| {
+                        compute_make_function_capture_bindings_from_semantics(callable)
+                    })
+            };
             (callable.function_id, captures)
         })
         .collect()
