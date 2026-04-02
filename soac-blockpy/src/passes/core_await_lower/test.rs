@@ -51,14 +51,16 @@ fn lowers_await_to_yield_from_await_iter() {
     let lowered = lower_awaits_in_core_blockpy_module(module);
     let block = &lowered.callable_defs[0].blocks[0];
     assert_eq!(block.body.len(), 1);
-    let crate::block_py::BlockPyStmt::Assign(await_assign) = &block.body[0] else {
-        panic!("expected lowered await assignment");
+    let crate::block_py::BlockPyStmt::Expr(CoreBlockPyExprWithYield::Store(await_assign)) =
+        &block.body[0]
+    else {
+        panic!("expected lowered await store expr");
     };
     let BlockPyTerm::Return(CoreBlockPyExprWithYield::Name(return_name)) = &block.term else {
         panic!("expected return of lowered await temp");
     };
-    assert_eq!(return_name.id_str(), await_assign.target.id_str());
-    let CoreBlockPyExprWithYield::YieldFrom(yield_from) = &await_assign.value else {
+    assert_eq!(return_name.id_str(), await_assign.name.id_str());
+    let CoreBlockPyExprWithYield::YieldFrom(yield_from) = &*await_assign.value else {
         panic!("expected lowered await yield from");
     };
     let CoreBlockPyExprWithYield::Call(call) = yield_from.value.as_ref() else {

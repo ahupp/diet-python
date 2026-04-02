@@ -1724,6 +1724,7 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
             operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
         }
         CoreBlockPyExpr::Store(operation) => {
+            names.insert(operation.name.id_str().to_string());
             operation.visit_exprs(&mut |arg| collect_remaining_names_in_expr(arg, names));
         }
         CoreBlockPyExpr::Del(operation) => {
@@ -1982,7 +1983,15 @@ fn compute_local_slot_locations_from_analysis(
                 BlockPyStmt::Delete(delete) => {
                     explicitly_stored.insert(delete.target.id_str().to_string());
                 }
-                BlockPyStmt::Expr(_) => {}
+                BlockPyStmt::Expr(expr) => match expr {
+                    CoreBlockPyExpr::Store(op) => {
+                        explicitly_stored.insert(op.name.id_str().to_string());
+                    }
+                    CoreBlockPyExpr::Del(op) => {
+                        explicitly_stored.insert(op.name.id_str().to_string());
+                    }
+                    _ => {}
+                },
             }
         }
         collect_remaining_names_in_term(&block.term, &mut remaining);

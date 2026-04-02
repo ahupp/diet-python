@@ -560,6 +560,17 @@ fn stmt_yield_site(stmt: &LinearYieldStmt) -> Option<YieldSite> {
         BlockPyStmt::Expr(CoreBlockPyExprWithYield::YieldFrom(yield_from)) => {
             Some(YieldSite::ExprYieldFrom((*yield_from.value).clone()))
         }
+        BlockPyStmt::Expr(CoreBlockPyExprWithYield::Store(store)) => match store.value.as_ref() {
+            CoreBlockPyExprWithYield::Yield(yield_expr) => Some(YieldSite::AssignYield {
+                target: store.name.clone(),
+                value: yield_expr.value.as_deref().cloned(),
+            }),
+            CoreBlockPyExprWithYield::YieldFrom(yield_from) => Some(YieldSite::AssignYieldFrom {
+                target: store.name.clone(),
+                value: (*yield_from.value).clone(),
+            }),
+            _ => None,
+        },
         BlockPyStmt::Assign(assign) => match &assign.value {
             CoreBlockPyExprWithYield::Yield(yield_expr) => Some(YieldSite::AssignYield {
                 target: assign.target.clone(),

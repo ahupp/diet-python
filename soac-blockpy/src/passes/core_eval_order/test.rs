@@ -1,6 +1,6 @@
 use super::*;
 use crate::block_py::{
-    BinOp, BinOpKind, BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyCallArg,
+    BinOp, BinOpKind, BlockPyAssign, BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyCallArg,
     CoreBlockPyExprWithAwaitAndYield, StructuredBlockPyStmtFor, UnresolvedName,
 };
 
@@ -118,11 +118,13 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
 
     let lowered = make_eval_order_explicit_in_core_block(block);
     assert_eq!(lowered.body.len(), 3);
-    let StructuredBlockPyStmtFor::Assign(temp_assign) = &lowered.body[0] else {
-        panic!("expected hoisted await temp assignment");
+    let StructuredBlockPyStmtFor::Expr(CoreBlockPyExprWithAwaitAndYield::Store(temp_assign)) =
+        &lowered.body[0]
+    else {
+        panic!("expected hoisted await temp store");
     };
     assert!(matches!(
-        temp_assign.value,
+        *temp_assign.value,
         CoreBlockPyExprWithAwaitAndYield::Await(_)
     ));
     let StructuredBlockPyStmtFor::Assign(assign) = &lowered.body[1] else {
@@ -165,11 +167,13 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
 
     let lowered = make_eval_order_explicit_in_core_block_without_await(block);
     assert_eq!(lowered.body.len(), 3);
-    let StructuredBlockPyStmtFor::Assign(temp_assign) = &lowered.body[0] else {
-        panic!("expected hoisted yield-from temp assignment");
+    let StructuredBlockPyStmtFor::Expr(CoreBlockPyExprWithYield::Store(temp_assign)) =
+        &lowered.body[0]
+    else {
+        panic!("expected hoisted yield-from temp store");
     };
     assert!(matches!(
-        temp_assign.value,
+        *temp_assign.value,
         CoreBlockPyExprWithYield::YieldFrom(_)
     ));
     let StructuredBlockPyStmtFor::Assign(assign) = &lowered.body[1] else {

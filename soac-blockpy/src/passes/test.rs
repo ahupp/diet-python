@@ -1356,9 +1356,9 @@ def gen():
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("StoreLocation(captured cell source slot")
-            && name_binding_rendered.contains("_dp_cell__dp_eval_1")
-            && name_binding_rendered.contains("_dp_cell__dp_eval_2"),
+        name_binding_rendered.contains("exception_matches(local slot")
+            && !name_binding_rendered.contains("StoreName(\"_dp_eval_")
+            && !name_binding_rendered.contains("_dp_cell__dp_eval_"),
         "{name_binding_rendered}"
     );
     assert!(

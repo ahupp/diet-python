@@ -1,10 +1,10 @@
 use crate::block_py::structured::IntoStructuredBlockPyStmt;
-use crate::block_py::BlockPyAssign;
 use crate::block_py::{
-    expr_any, BlockPyBranchTable, BlockPyCfgFragment, BlockPyFunction, BlockPyIf, BlockPyIfTerm,
-    BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyAwait, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, CoreBlockPyYield, CoreBlockPyYieldFrom, Del, Instr, InstrExprNode,
-    StructuredBlockPyStmtFor,
+    expr_any, BlockPyAssign, BlockPyBranchTable, BlockPyCfgFragment, BlockPyFunction, BlockPyIf,
+    BlockPyIfTerm, BlockPyNameLike, BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
+    CoreBlockPyYieldFrom, Del, Instr, InstrExprNode, Meta, Store, StructuredBlockPyStmtFor,
+    WithMeta,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
@@ -18,6 +18,23 @@ fn fresh_eval_name() -> ast::ExprName {
         unreachable!();
     };
     expr
+}
+
+fn typed_store_stmt<E>(target: ast::ExprName, value: E) -> StructuredBlockPyStmtFor<E>
+where
+    E: Instr + From<Store<E>>,
+{
+    let meta = Meta::new(target.node_index.clone(), target.range);
+    StructuredBlockPyStmtFor::Expr(Store::<E>::new(target, value).with_meta(meta).into())
+}
+
+fn typed_del_stmt<E>(target: impl Into<<E as Instr>::Name>) -> StructuredBlockPyStmtFor<E>
+where
+    E: Instr + From<Del<E>>,
+{
+    let target = target.into();
+    let meta = Meta::new(target.node_index(), target.range());
+    StructuredBlockPyStmtFor::Expr(Del::<E>::new(target, false).with_meta(meta).into())
 }
 
 fn expr_contains_suspend(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
@@ -39,10 +56,7 @@ fn hoist_core_expr_if_contains_suspend(
     let expr = make_eval_order_explicit_in_core_expr(expr, out, cleanup);
     if expr_contains_suspend(&expr) {
         let target = fresh_eval_name();
-        out.push(StructuredBlockPyStmtFor::Assign(BlockPyAssign {
-            target: target.clone().into(),
-            value: expr,
-        }));
+        out.push(typed_store_stmt(target.clone(), expr));
         cleanup.push(target.clone());
         CoreBlockPyExprWithAwaitAndYield::Name(target.into())
     } else {
@@ -145,7 +159,7 @@ where
     E: Instr + From<Del<E>>,
 {
     for temp in cleanup.into_iter().rev() {
-        out.push(Del::new(temp, false).into());
+        out.push(typed_del_stmt(temp));
     }
 }
 
@@ -302,10 +316,7 @@ fn hoist_core_expr_without_await_to_atom(
         expr
     } else {
         let target = fresh_eval_name();
-        out.push(StructuredBlockPyStmtFor::Assign(BlockPyAssign {
-            target: target.clone().into(),
-            value: expr,
-        }));
+        out.push(typed_store_stmt(target.clone(), expr));
         cleanup.push(target.clone());
         CoreBlockPyExprWithYield::Name(target.into())
     }
