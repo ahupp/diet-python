@@ -1,8 +1,8 @@
 use super::*;
 use crate::block_py::{
     BinOp, BinOpKind, BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyCallArg,
-    CoreBlockPyExprWithAwaitAndYield, CoreExprOpWithAwaitAndYield, OperationDetail,
-    StructuredBlockPyStmtFor, UnresolvedName,
+    CoreBlockPyExprWithAwaitAndYield, CoreExprOpWithAwaitAndYield, CoreExprOpWithYield,
+    OperationDetail, StructuredBlockPyStmtFor, UnresolvedName,
 };
 
 fn test_name(id: &str) -> UnresolvedName {
@@ -174,7 +174,7 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
         label: BlockPyLabel::from(0u32),
         body: vec![StructuredBlockPyStmtFor::Assign(BlockPyAssign {
             target: test_name("total"),
-            value: CoreBlockPyExprWithYield::Op(OperationDetail::from(BinOp::new(
+            value: CoreBlockPyExprWithYield::Op(CoreExprOpWithYield::from(BinOp::new(
                 BinOpKind::InplaceAdd,
                 CoreBlockPyExprWithYield::Name(test_name("total")),
                 CoreBlockPyExprWithYield::YieldFrom(CoreBlockPyYieldFrom {
@@ -204,7 +204,7 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
     let CoreBlockPyExprWithYield::Op(operation) = &assign.value else {
         panic!("expected inplace add operation");
     };
-    let OperationDetail::BinOp(op) = operation else {
+    let CoreExprOpWithYield::BinOp(op) = operation else {
         panic!("expected inplace add detail");
     };
     assert!(matches!(

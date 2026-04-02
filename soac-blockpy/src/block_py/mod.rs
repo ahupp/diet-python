@@ -13,9 +13,9 @@ pub use self::semantics::{
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 pub use operation::{
-    BinOp, BinOpKind, Call, CellRef, CellRefForName, CoreExprOpWithAwaitAndYield, Del, DelItem,
-    GetAttr, GetItem, Load, MakeCell, MakeFunction, MakeString, OperationDetail, SetAttr, SetItem,
-    Store, UnaryOp, UnaryOpKind,
+    BinOp, BinOpKind, Call, CellRef, CellRefForName, CoreExprOpWithAwaitAndYield,
+    CoreExprOpWithYield, Del, DelItem, GetAttr, GetItem, Load, MakeCell, MakeFunction, MakeString,
+    OperationDetail, SetAttr, SetItem, Store, UnaryOp, UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
@@ -601,7 +601,7 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
 pub enum CoreBlockPyExprWithYield {
     Name(UnresolvedName),
     Literal(CoreBlockPyLiteral),
-    Op(OperationDetail<Self>),
+    Op(CoreExprOpWithYield<Self>),
     Yield(CoreBlockPyYield<Self>),
     YieldFrom(CoreBlockPyYieldFrom<Self>),
 }
@@ -769,7 +769,7 @@ impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
     }
 
     fn from_operation(operation: block_py_operation::OperationDetail<Self>) -> Self {
-        Self::Op(operation)
+        Self::Op(operation.into())
     }
 }
 
@@ -801,7 +801,9 @@ impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWi
         match self {
             Self::Name(name) => Ok(CoreBlockPyExpr::Name(name.into())),
             Self::Literal(literal) => Ok(CoreBlockPyExpr::Literal(literal)),
-            Self::Op(operation) => Ok(CoreBlockPyExpr::Op(operation.try_map_expr_node(&mut *f)?)),
+            Self::Op(operation) => Ok(CoreBlockPyExpr::Op(
+                operation.try_map_expr_node(&mut *f)?.into(),
+            )),
             Self::Yield(_) | Self::YieldFrom(_) => Err(self),
         }
     }
@@ -2014,7 +2016,7 @@ impl ImplicitNoneExpr for CoreBlockPyExprWithYield {
         matches!(
             expr,
             CoreBlockPyExprWithYield::Op(operation)
-                if matches!(operation, OperationDetail::Load(op) if op.name.is_runtime_symbol("NONE"))
+                if matches!(operation, CoreExprOpWithYield::Load(op) if op.name.is_runtime_symbol("NONE"))
         )
     }
 }

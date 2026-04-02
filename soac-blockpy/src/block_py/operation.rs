@@ -849,6 +849,26 @@ pub enum CoreExprOpWithAwaitAndYield<E: Instr> {
 }
 
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
+pub enum CoreExprOpWithYield<E: Instr> {
+    BinOp(BinOp<E>),
+    UnaryOp(UnaryOp<E>),
+    Call(Call<E>),
+    GetAttr(GetAttr<E>),
+    SetAttr(SetAttr<E>),
+    GetItem(GetItem<E>),
+    SetItem(SetItem<E>),
+    DelItem(DelItem<E>),
+    Load(Load<E>),
+    Store(Store<E>),
+    Del(Del<E>),
+    MakeCell(MakeCell<E>),
+    MakeString(MakeString),
+    CellRefForName(CellRefForName),
+    CellRef(CellRef),
+    MakeFunction(MakeFunction<E>),
+}
+
+#[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum OperationDetail<E: Instr> {
     BinOp(BinOp<E>),
     UnaryOp(UnaryOp<E>),
@@ -960,6 +980,7 @@ macro_rules! impl_operation_enum_delegates {
 }
 
 impl_operation_enum_delegates!(CoreExprOpWithAwaitAndYield);
+impl_operation_enum_delegates!(CoreExprOpWithYield);
 impl_operation_enum_delegates!(OperationDetail);
 
 impl<E: Instr> From<CoreExprOpWithAwaitAndYield<E>> for OperationDetail<E> {
@@ -985,7 +1006,76 @@ impl<E: Instr> From<CoreExprOpWithAwaitAndYield<E>> for OperationDetail<E> {
     }
 }
 
+impl<E: Instr> From<CoreExprOpWithYield<E>> for OperationDetail<E> {
+    fn from(value: CoreExprOpWithYield<E>) -> Self {
+        match value {
+            CoreExprOpWithYield::BinOp(op) => op.into(),
+            CoreExprOpWithYield::UnaryOp(op) => op.into(),
+            CoreExprOpWithYield::Call(op) => op.into(),
+            CoreExprOpWithYield::GetAttr(op) => op.into(),
+            CoreExprOpWithYield::SetAttr(op) => op.into(),
+            CoreExprOpWithYield::GetItem(op) => op.into(),
+            CoreExprOpWithYield::SetItem(op) => op.into(),
+            CoreExprOpWithYield::DelItem(op) => op.into(),
+            CoreExprOpWithYield::Load(op) => op.into(),
+            CoreExprOpWithYield::Store(op) => op.into(),
+            CoreExprOpWithYield::Del(op) => op.into(),
+            CoreExprOpWithYield::MakeCell(op) => op.into(),
+            CoreExprOpWithYield::MakeString(op) => op.into(),
+            CoreExprOpWithYield::CellRefForName(op) => op.into(),
+            CoreExprOpWithYield::CellRef(op) => op.into(),
+            CoreExprOpWithYield::MakeFunction(op) => op.into(),
+        }
+    }
+}
+
+impl<E: Instr> From<CoreExprOpWithAwaitAndYield<E>> for CoreExprOpWithYield<E> {
+    fn from(value: CoreExprOpWithAwaitAndYield<E>) -> Self {
+        match value {
+            CoreExprOpWithAwaitAndYield::BinOp(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::UnaryOp(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Call(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::GetAttr(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::SetAttr(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::GetItem(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::SetItem(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::DelItem(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Load(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Store(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::Del(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::MakeCell(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::MakeString(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::CellRefForName(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::CellRef(op) => op.into(),
+            CoreExprOpWithAwaitAndYield::MakeFunction(op) => op.into(),
+        }
+    }
+}
+
 impl<E: Instr> From<OperationDetail<E>> for CoreExprOpWithAwaitAndYield<E> {
+    fn from(value: OperationDetail<E>) -> Self {
+        match value {
+            OperationDetail::BinOp(op) => op.into(),
+            OperationDetail::UnaryOp(op) => op.into(),
+            OperationDetail::Call(op) => op.into(),
+            OperationDetail::GetAttr(op) => op.into(),
+            OperationDetail::SetAttr(op) => op.into(),
+            OperationDetail::GetItem(op) => op.into(),
+            OperationDetail::SetItem(op) => op.into(),
+            OperationDetail::DelItem(op) => op.into(),
+            OperationDetail::Load(op) => op.into(),
+            OperationDetail::Store(op) => op.into(),
+            OperationDetail::Del(op) => op.into(),
+            OperationDetail::MakeCell(op) => op.into(),
+            OperationDetail::MakeString(op) => op.into(),
+            OperationDetail::CellRefForName(op) => op.into(),
+            OperationDetail::CellRef(op) => op.into(),
+            OperationDetail::MakeFunction(op) => op.into(),
+        }
+    }
+}
+
+impl<E: Instr> From<OperationDetail<E>> for CoreExprOpWithYield<E> {
     fn from(value: OperationDetail<E>) -> Self {
         match value {
             OperationDetail::BinOp(op) => op.into(),

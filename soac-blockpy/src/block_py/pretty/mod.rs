@@ -750,9 +750,9 @@ impl BlockPyDebugExprText for CoreBlockPyExprWithYield {
         match self {
             CoreBlockPyExprWithYield::Name(name) => name.pretty_id(),
             CoreBlockPyExprWithYield::Literal(literal) => render_core_literal_text(literal),
-            CoreBlockPyExprWithYield::Op(operation) => {
-                render_operation_detail_debug_text(operation)
-            }
+            CoreBlockPyExprWithYield::Op(operation) => render_operation_detail_debug_text(
+                &crate::block_py::OperationDetail::from(operation.clone()),
+            ),
             CoreBlockPyExprWithYield::Yield(yield_expr) => match &yield_expr.value {
                 Some(value) => format!("yield {}", value.debug_expr_text()),
                 None => "yield".to_string(),
