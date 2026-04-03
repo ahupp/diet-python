@@ -55,7 +55,7 @@ fn direct_core_expr_lowering_materializes_live_operation_helpers() {
     for (source, expected) in [
         (
             "__soac__.store_global(_dp_class_ns, \"caught\", value)",
-            "Store(",
+            "StoreName(",
         ),
         ("__soac__.cell_ref(\"__class__\")", "CellRefForName("),
     ] {

@@ -34,8 +34,8 @@ macro_rules! define_operation {
 
         impl<$expr_ty: Instr> std::fmt::Debug for $name<$expr_ty> {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                let mut debug = f.debug_struct(stringify!($name));
-                define_operation!(@debug_fields debug, self, $($raw_fields)*);
+                let mut debug = f.debug_tuple(stringify!($name));
+                define_operation!(@debug_tuple_fields debug, self, $($raw_fields)*);
                 debug.finish()
             }
         }
@@ -134,8 +134,8 @@ macro_rules! define_operation {
 
         impl std::fmt::Debug for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                let mut debug = f.debug_struct(stringify!($name));
-                define_operation!(@debug_fields debug, self, $($raw_fields)*);
+                let mut debug = f.debug_tuple(stringify!($name));
+                define_operation!(@debug_tuple_fields debug, self, $($raw_fields)*);
                 debug.finish()
             }
         }
@@ -353,20 +353,20 @@ macro_rules! define_operation {
         define_operation!(@visit_expr_fields_mut $self, $f, $($rest)*);
     };
     (@visit_expr_fields_mut $self:ident, $f:ident, $field:ident : $ty:ty) => {};
-    (@debug_fields $builder:ident, $self:ident,) => {};
-    (@debug_fields $builder:ident, $self:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
-        $builder.field(stringify!($field), &$self.$field);
-        define_operation!(@debug_fields $builder, $self, $($rest)*);
+    (@debug_tuple_fields $builder:ident, $self:ident,) => {};
+    (@debug_tuple_fields $builder:ident, $self:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
+        $builder.field(&$self.$field);
+        define_operation!(@debug_tuple_fields $builder, $self, $($rest)*);
     };
-    (@debug_fields $builder:ident, $self:ident, $field:ident : Box<$expr_ty:ident>) => {
-        $builder.field(stringify!($field), &$self.$field);
+    (@debug_tuple_fields $builder:ident, $self:ident, $field:ident : Box<$expr_ty:ident>) => {
+        $builder.field(&$self.$field);
     };
-    (@debug_fields $builder:ident, $self:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
-        $builder.field(stringify!($field), &$self.$field);
-        define_operation!(@debug_fields $builder, $self, $($rest)*);
+    (@debug_tuple_fields $builder:ident, $self:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
+        $builder.field(&$self.$field);
+        define_operation!(@debug_tuple_fields $builder, $self, $($rest)*);
     };
-    (@debug_fields $builder:ident, $self:ident, $field:ident : $ty:ty) => {
-        $builder.field(stringify!($field), &$self.$field);
+    (@debug_tuple_fields $builder:ident, $self:ident, $field:ident : $ty:ty) => {
+        $builder.field(&$self.$field);
     };
     (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident,) => {
         $($mapped_ctor)+ { _meta: $self._meta, $($out)* }

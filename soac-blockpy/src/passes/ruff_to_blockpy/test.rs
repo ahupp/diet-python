@@ -2,7 +2,7 @@ use super::*;
 
 use crate::block_py::{
     BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
-    BlockPyTerm, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, StructuredInstr,
+    BlockPyTerm, CoreBlockPyExprWithAwaitAndYield, StructuredInstr,
 };
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::ast_to_ast::context::Context;

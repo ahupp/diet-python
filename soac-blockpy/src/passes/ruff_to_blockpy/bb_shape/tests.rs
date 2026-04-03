@@ -3,10 +3,9 @@ use super::{
     rewrite_current_exception_in_blockpy_term,
 };
 use crate::block_py::{
-    BlockParam, BlockParamRole, BlockPyAssign, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike,
-    BlockPyStmtFragment, BlockPyTerm, CfgBlock, CoreBlockPyCallArg, CoreBlockPyExpr,
-    LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen, ResolvedStorageBlock, StructuredIf,
-    StructuredInstr, WithMeta,
+    BlockParam, BlockParamRole, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike, BlockPyStmtFragment,
+    BlockPyTerm, CfgBlock, CoreBlockPyCallArg, CoreBlockPyExpr, LocatedCoreBlockPyExpr,
+    LocatedName, ModuleNameGen, ResolvedStorageBlock, StructuredIf, StructuredInstr, WithMeta,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;

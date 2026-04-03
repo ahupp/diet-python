@@ -11,7 +11,6 @@ pub use self::semantics::{
     BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCellCaptureBinding,
     BlockPyClassBodyFallback, BlockPyEffectiveBinding, ClosureInit, ClosureSlot, StorageLayout,
 };
-use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use crate::py_expr;
 pub use operation::{
     BinOp, BinOpKind, Call, CellRef, CellRefForName, Del, DelItem, GetAttr, GetItem, Load,
@@ -19,7 +18,7 @@ pub use operation::{
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
-use soac_macros::{with_match_default, DelegateMatchDefault};
+use soac_macros::{enum_broadcast, with_match_default, DelegateMatchDefault};
 use std::fmt;
 
 pub(crate) mod cfg;
@@ -44,8 +43,14 @@ pub(crate) use convert::{
 pub use name_gen::{BlockPyLabel, FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FunctionId(pub usize);
+
+impl fmt::Debug for FunctionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 fn is_internal_symbol(name: &str) -> bool {
     name.starts_with("_dp_") || name == "__soac__"
@@ -276,14 +281,7 @@ pub enum UnresolvedName {
 
 impl fmt::Debug for UnresolvedName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::ExprName(name) => f
-                .debug_struct("ExprName")
-                .field("id", &name.id)
-                .field("ctx", &name.ctx)
-                .finish(),
-            Self::RuntimeName(name) => f.debug_tuple("RuntimeName").field(name).finish(),
-        }
+        write!(f, "{}", self.pretty_id())
     }
 }
 
@@ -328,10 +326,16 @@ impl MapExpr<RuffExpr> for RuffExpr {
 
 impl<T> BlockPyExprLike for T where T: Clone + fmt::Debug + MapExpr<Self> {}
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct LocatedName {
     pub id: ruff_python_ast::name::Name,
     pub location: NameLocation,
+}
+
+impl fmt::Debug for LocatedName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.pretty_id())
+    }
 }
 
 impl LocatedName {
@@ -531,7 +535,8 @@ impl<P: BlockPyPass, S> BlockPyModule<P, S> {
     }
 }
 
-#[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
+#[derive(Clone, derive_more::From, DelegateMatchDefault)]
+#[enum_broadcast(HasMeta, WithMeta)]
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -554,7 +559,8 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
     YieldFrom(CoreBlockPyYieldFrom<Self>),
 }
 
-#[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
+#[derive(Clone, derive_more::From, DelegateMatchDefault)]
+#[enum_broadcast(HasMeta, WithMeta)]
 pub enum CoreBlockPyExprWithYield {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -576,7 +582,8 @@ pub enum CoreBlockPyExprWithYield {
     YieldFrom(CoreBlockPyYieldFrom<Self>),
 }
 
-#[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
+#[derive(Clone, derive_more::From, DelegateMatchDefault)]
+#[enum_broadcast(HasMeta, WithMeta)]
 pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -598,7 +605,8 @@ pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
 
 pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 
-#[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
+#[derive(Clone, derive_more::From, DelegateMatchDefault)]
+#[enum_broadcast(HasMeta, WithMeta)]
 pub enum CodegenBlockPyExpr {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -620,11 +628,118 @@ pub enum CodegenBlockPyExpr {
 
 pub type LocatedCodegenBlockPyExpr = CodegenBlockPyExpr;
 
-#[derive(Debug, Clone)]
+impl fmt::Debug for CoreBlockPyExprWithAwaitAndYield {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Literal(node) => node.literal.fmt(f),
+            Self::BinOp(node) => node.fmt(f),
+            Self::UnaryOp(node) => node.fmt(f),
+            Self::Call(node) => node.fmt(f),
+            Self::GetAttr(node) => node.fmt(f),
+            Self::SetAttr(node) => node.fmt(f),
+            Self::GetItem(node) => node.fmt(f),
+            Self::SetItem(node) => node.fmt(f),
+            Self::DelItem(node) => node.fmt(f),
+            Self::Load(node) => node.fmt(f),
+            Self::Store(node) => node.fmt(f),
+            Self::Del(node) => node.fmt(f),
+            Self::MakeCell(node) => node.fmt(f),
+            Self::CellRefForName(node) => node.fmt(f),
+            Self::CellRef(node) => node.fmt(f),
+            Self::MakeFunction(node) => node.fmt(f),
+            Self::Await(node) => write!(f, "await {:?}", node.value),
+            Self::Yield(node) => write!(f, "yield {:?}", node.value),
+            Self::YieldFrom(node) => write!(f, "yield from {:?}", node.value),
+        }
+    }
+}
+
+impl fmt::Debug for CoreBlockPyExprWithYield {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Literal(node) => node.literal.fmt(f),
+            Self::BinOp(node) => node.fmt(f),
+            Self::UnaryOp(node) => node.fmt(f),
+            Self::Call(node) => node.fmt(f),
+            Self::GetAttr(node) => node.fmt(f),
+            Self::SetAttr(node) => node.fmt(f),
+            Self::GetItem(node) => node.fmt(f),
+            Self::SetItem(node) => node.fmt(f),
+            Self::DelItem(node) => node.fmt(f),
+            Self::Load(node) => node.fmt(f),
+            Self::Store(node) => node.fmt(f),
+            Self::Del(node) => node.fmt(f),
+            Self::MakeCell(node) => node.fmt(f),
+            Self::CellRefForName(node) => node.fmt(f),
+            Self::CellRef(node) => node.fmt(f),
+            Self::MakeFunction(node) => node.fmt(f),
+            Self::Yield(node) => write!(f, "yield {:?}", node.value),
+            Self::YieldFrom(node) => write!(f, "yield from {:?}", node.value),
+        }
+    }
+}
+
+impl<N: BlockPyNameLike> fmt::Debug for CoreBlockPyExpr<N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Literal(node) => node.literal.fmt(f),
+            Self::BinOp(node) => node.fmt(f),
+            Self::UnaryOp(node) => node.fmt(f),
+            Self::Call(node) => node.fmt(f),
+            Self::GetAttr(node) => node.fmt(f),
+            Self::SetAttr(node) => node.fmt(f),
+            Self::GetItem(node) => node.fmt(f),
+            Self::SetItem(node) => node.fmt(f),
+            Self::DelItem(node) => node.fmt(f),
+            Self::Load(node) => node.fmt(f),
+            Self::Store(node) => node.fmt(f),
+            Self::Del(node) => node.fmt(f),
+            Self::MakeCell(node) => node.fmt(f),
+            Self::CellRefForName(node) => node.fmt(f),
+            Self::CellRef(node) => node.fmt(f),
+            Self::MakeFunction(node) => node.fmt(f),
+        }
+    }
+}
+
+impl fmt::Debug for CodegenBlockPyExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Literal(node) => node.literal.fmt(f),
+            Self::BinOp(node) => node.fmt(f),
+            Self::UnaryOp(node) => node.fmt(f),
+            Self::Call(node) => node.fmt(f),
+            Self::GetAttr(node) => node.fmt(f),
+            Self::SetAttr(node) => node.fmt(f),
+            Self::GetItem(node) => node.fmt(f),
+            Self::SetItem(node) => node.fmt(f),
+            Self::DelItem(node) => node.fmt(f),
+            Self::Load(node) => node.fmt(f),
+            Self::Store(node) => node.fmt(f),
+            Self::Del(node) => node.fmt(f),
+            Self::MakeCell(node) => node.fmt(f),
+            Self::CellRefForName(node) => node.fmt(f),
+            Self::CellRef(node) => node.fmt(f),
+            Self::MakeFunction(node) => node.fmt(f),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub enum BlockPyLiteral {
     StringLiteral(CoreStringLiteral),
     BytesLiteral(CoreBytesLiteral),
     NumberLiteral(CoreNumberLiteral),
+}
+
+impl fmt::Debug for BlockPyLiteral {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::StringLiteral(value) => value.fmt(f),
+            Self::BytesLiteral(value) => value.fmt(f),
+            Self::NumberLiteral(value) => value.fmt(f),
+        }
+    }
 }
 
 define_operation! {
@@ -720,9 +835,7 @@ pub struct CoreStringLiteral {
 
 impl fmt::Debug for CoreStringLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CoreStringLiteral")
-            .field("value", &self.value)
-            .finish()
+        write!(f, "{:?}", self.value)
     }
 }
 
@@ -735,9 +848,7 @@ pub struct CoreBytesLiteral {
 
 impl fmt::Debug for CoreBytesLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CoreBytesLiteral")
-            .field("value", &self.value)
-            .finish()
+        write!(f, "{:?}", self.value)
     }
 }
 
@@ -750,38 +861,27 @@ pub struct CoreNumberLiteral {
 
 impl fmt::Debug for CoreNumberLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CoreNumberLiteral")
-            .field("value", &self.value)
-            .finish()
+        self.value.fmt(f)
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum CoreNumberLiteralValue {
     Int(ast::Int),
     Float(f64),
 }
 
+impl fmt::Debug for CoreNumberLiteralValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Int(value) => write!(f, "{value}"),
+            Self::Float(value) => write!(f, "{value:?}"),
+        }
+    }
+}
+
 impl Instr for CoreBlockPyExprWithAwaitAndYield {
     type Name = UnresolvedName;
-}
-
-#[with_match_default]
-impl HasMeta for CoreBlockPyExprWithAwaitAndYield {
-    fn meta(&self) -> Meta {
-        match self {
-            match_rest(node) => node.meta(),
-        }
-    }
-}
-
-#[with_match_default]
-impl WithMeta for CoreBlockPyExprWithAwaitAndYield {
-    fn with_meta(self, meta: Meta) -> Self {
-        match self {
-            match_rest(node) => node.with_meta(meta.clone()).into(),
-        }
-    }
 }
 
 #[with_match_default]
@@ -840,24 +940,6 @@ impl Instr for CoreBlockPyExprWithYield {
 }
 
 #[with_match_default]
-impl HasMeta for CoreBlockPyExprWithYield {
-    fn meta(&self) -> Meta {
-        match self {
-            match_rest(node) => node.meta(),
-        }
-    }
-}
-
-#[with_match_default]
-impl WithMeta for CoreBlockPyExprWithYield {
-    fn with_meta(self, meta: Meta) -> Self {
-        match self {
-            match_rest(node) => node.with_meta(meta.clone()).into(),
-        }
-    }
-}
-
-#[with_match_default]
 impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
     fn map_expr(
         self,
@@ -885,24 +967,6 @@ impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWi
 
 impl<N: BlockPyNameLike> Instr for CoreBlockPyExpr<N> {
     type Name = N;
-}
-
-#[with_match_default]
-impl<N: BlockPyNameLike> HasMeta for CoreBlockPyExpr<N> {
-    fn meta(&self) -> Meta {
-        match self {
-            match_rest(node) => node.meta(),
-        }
-    }
-}
-
-#[with_match_default]
-impl<N: BlockPyNameLike> WithMeta for CoreBlockPyExpr<N> {
-    fn with_meta(self, meta: Meta) -> Self {
-        match self {
-            match_rest(node) => node.with_meta(meta.clone()).into(),
-        }
-    }
 }
 
 #[with_match_default]
@@ -936,24 +1000,6 @@ where
 
 impl Instr for CodegenBlockPyExpr {
     type Name = LocatedName;
-}
-
-#[with_match_default]
-impl HasMeta for CodegenBlockPyExpr {
-    fn meta(&self) -> Meta {
-        match self {
-            match_rest(op) => op.meta(),
-        }
-    }
-}
-
-#[with_match_default]
-impl WithMeta for CodegenBlockPyExpr {
-    fn with_meta(self, meta: Meta) -> Self {
-        match self {
-            match_rest(op) => op.with_meta(meta.clone()).into(),
-        }
-    }
 }
 
 #[with_match_default]

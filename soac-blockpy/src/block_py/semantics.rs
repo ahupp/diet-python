@@ -1,7 +1,7 @@
 use super::{
     is_internal_symbol, walk_linear_block, walk_linear_expr, walk_linear_stmt, BlockPyFunction,
-    BlockPyLinearModuleVisitor, BlockPyLiteral, BlockPyNameLike, BlockPyPass, BlockPyTerm, Call,
-    CfgBlock, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    BlockPyLinearModuleVisitor, BlockPyLiteral, BlockPyNameLike, BlockPyPass, Call, CfgBlock,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, FunctionName, MapExpr, RuffExpr,
 };
 use crate::passes::ast_to_ast::scope_helpers::cell_name;

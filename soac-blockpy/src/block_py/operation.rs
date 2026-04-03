@@ -1,7 +1,7 @@
 use super::operation_macro::define_operation;
 use super::{
-    BlockPyFunctionKind, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg, FunctionId,
-    HasMeta, Instr, InstrExprNode, InstrName, Meta, WithMeta,
+    BlockPyFunctionKind, BlockPyNameLike, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg,
+    FunctionId, HasMeta, Instr, InstrExprNode, InstrName, Meta, WithMeta,
 };
 use std::fmt;
 
@@ -77,11 +77,29 @@ pub struct Call<E> {
 
 impl<E: fmt::Debug> fmt::Debug for Call<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Call")
-            .field("func", &self.func)
-            .field("args", &self.args)
-            .field("keywords", &self.keywords)
-            .finish()
+        write!(f, "{:?}(", self.func)?;
+        let mut first = true;
+        for arg in &self.args {
+            if !first {
+                write!(f, ", ")?;
+            }
+            first = false;
+            match arg {
+                CoreBlockPyCallArg::Positional(expr) => write!(f, "{expr:?}")?,
+                CoreBlockPyCallArg::Starred(expr) => write!(f, "*{expr:?}")?,
+            }
+        }
+        for keyword in &self.keywords {
+            if !first {
+                write!(f, ", ")?;
+            }
+            first = false;
+            match keyword {
+                CoreBlockPyKeywordArg::Named { arg, value } => write!(f, "{arg}={value:?}")?,
+                CoreBlockPyKeywordArg::Starred(value) => write!(f, "**{value:?}")?,
+            }
+        }
+        write!(f, ")")
     }
 }
 
@@ -227,7 +245,7 @@ pub struct Load<I: Instr> {
 
 impl<I: Instr> fmt::Debug for Load<I> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Load").field("name", &self.name).finish()
+        write!(f, "{}", self.name.pretty_id())
     }
 }
 
@@ -295,10 +313,16 @@ pub struct Store<I: Instr> {
 
 impl<I: Instr> fmt::Debug for Store<I> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Store")
-            .field("name", &self.name)
-            .field("value", &self.value)
-            .finish()
+        if self.name.pretty_id() == self.name.id_str() {
+            write!(f, "StoreName({:?}, {:?})", self.name.id_str(), self.value)
+        } else {
+            write!(
+                f,
+                "StoreLocation({}, {:?})",
+                self.name.pretty_id(),
+                self.value
+            )
+        }
     }
 }
 
@@ -374,7 +398,7 @@ pub struct Del<I: Instr> {
 impl<I: Instr> fmt::Debug for Del<I> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Del")
-            .field("name", &self.name)
+            .field("name", &self.name.pretty_id())
             .field("quietly", &self.quietly)
             .finish()
     }

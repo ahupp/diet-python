@@ -129,8 +129,7 @@ fn bb_text_renders_located_names_with_resolved_locations() {
     );
     assert!(assign_rendered.contains("Closure(2)"), "{assign_rendered}");
     let global_rendered = bb_expr_text(&global_expr);
-    assert!(global_rendered.contains("Global"), "{global_rendered}");
-    assert!(global_rendered.contains("answer"), "{global_rendered}");
+    assert_eq!(global_rendered, "answer");
 }
 
 #[test]

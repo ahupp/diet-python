@@ -1,9 +1,10 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
+use syn::punctuated::Punctuated;
 use syn::visit_mut::{self, VisitMut};
 use syn::{
     parse_macro_input, parse_quote, spanned::Spanned, Data, DeriveInput, Expr, ExprMatch, Fields,
-    ItemImpl, Pat, Type,
+    ItemEnum, ItemImpl, Pat, Path, Token, Type,
 };
 
 fn enum_variants(input: &DeriveInput) -> syn::Result<Vec<&syn::Variant>> {
@@ -25,6 +26,115 @@ fn enum_variants(input: &DeriveInput) -> syn::Result<Vec<&syn::Variant>> {
             )),
         })
         .collect()
+}
+
+fn item_enum_variants(input: &ItemEnum) -> syn::Result<Vec<&syn::Variant>> {
+    input
+        .variants
+        .iter()
+        .map(|variant| match &variant.fields {
+            Fields::Unnamed(fields) if fields.unnamed.len() == 1 => Ok(variant),
+            _ => Err(syn::Error::new_spanned(
+                variant,
+                "enum_broadcast requires one-field tuple variants",
+            )),
+        })
+        .collect()
+}
+
+enum EnumBroadcastTarget {
+    HasMeta,
+    WithMeta,
+}
+
+impl EnumBroadcastTarget {
+    fn parse(path: Path) -> syn::Result<Self> {
+        let Some(segment) = path.segments.last() else {
+            return Err(syn::Error::new_spanned(path, "expected trait name"));
+        };
+
+        match segment.ident.to_string().as_str() {
+            "HasMeta" => Ok(Self::HasMeta),
+            "WithMeta" => Ok(Self::WithMeta),
+            _ => Err(syn::Error::new_spanned(
+                segment,
+                "unsupported enum_broadcast target; supported targets are HasMeta and WithMeta",
+            )),
+        }
+    }
+
+    fn impl_tokens(
+        &self,
+        enum_name: &syn::Ident,
+        generics: &syn::Generics,
+        variants: &[&syn::Variant],
+    ) -> proc_macro2::TokenStream {
+        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+        let meta_arms = variants.iter().map(|variant| {
+            let variant_name = &variant.ident;
+            quote! {
+                Self::#variant_name(node) => node.meta(),
+            }
+        });
+        let with_meta_arms = variants.iter().map(|variant| {
+            let variant_name = &variant.ident;
+            quote! {
+                Self::#variant_name(node) => node.with_meta(meta.clone()).into(),
+            }
+        });
+
+        match self {
+            Self::HasMeta => quote! {
+                impl #impl_generics HasMeta for #enum_name #ty_generics #where_clause {
+                    fn meta(&self) -> Meta {
+                        match self {
+                            #( #meta_arms )*
+                        }
+                    }
+                }
+            },
+            Self::WithMeta => quote! {
+                impl #impl_generics WithMeta for #enum_name #ty_generics #where_clause {
+                    fn with_meta(self, meta: Meta) -> Self {
+                        match self {
+                            #( #with_meta_arms )*
+                        }
+                    }
+                }
+            },
+        }
+    }
+}
+
+#[proc_macro_attribute]
+pub fn enum_broadcast(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let targets = parse_macro_input!(attr with Punctuated::<Path, Token![,]>::parse_terminated);
+    let item = parse_macro_input!(item as ItemEnum);
+    let enum_name = &item.ident;
+    let generics = &item.generics;
+    let variants = match item_enum_variants(&item) {
+        Ok(variants) => variants,
+        Err(error) => return error.into_compile_error().into(),
+    };
+
+    let targets = match targets
+        .into_iter()
+        .map(EnumBroadcastTarget::parse)
+        .collect::<syn::Result<Vec<_>>>()
+    {
+        Ok(targets) => targets,
+        Err(error) => return error.into_compile_error().into(),
+    };
+
+    let impls = targets
+        .iter()
+        .map(|target| target.impl_tokens(enum_name, generics, &variants));
+
+    quote! {
+        #item
+        #( #impls )*
+    }
+    .into()
 }
 
 #[proc_macro_derive(DelegateMatchDefault)]

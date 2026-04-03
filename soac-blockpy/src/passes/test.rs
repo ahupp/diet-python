@@ -499,10 +499,8 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("DelItem {")
-            && name_binding_rendered.contains("value: Load(Load {")
-            && name_binding_rendered.contains("location: Local(LocalLocation(0))")
-            && name_binding_rendered.contains("index: Load(Load {"),
+        name_binding_rendered.contains("DelItem(LocalLocation(0),")
+            && name_binding_rendered.contains("constant slot"),
         "{name_binding_rendered}"
     );
 }
@@ -529,7 +527,7 @@ def outer():
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered.contains("Del {")
-            && name_binding_rendered.contains("location: Cell(CapturedSource(")
+            && name_binding_rendered.contains("CapturedSource(")
             && name_binding_rendered.contains("quietly: false"),
         "{name_binding_rendered}"
     );
@@ -833,7 +831,7 @@ def outer():
     );
     assert!(
         name_binding_rendered.contains("Del {")
-            && name_binding_rendered.contains("location: Cell(CapturedSource(")
+            && name_binding_rendered.contains("CapturedSource(")
             && name_binding_rendered.contains("quietly: true"),
         "{name_binding_rendered}"
     );
@@ -871,10 +869,8 @@ class Box:
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("DelItem {")
-            && name_binding_rendered.contains("value: Load(Load {")
-            && name_binding_rendered.contains("location: Local(LocalLocation(0))")
-            && name_binding_rendered.contains("index: Load(Load {"),
+        name_binding_rendered.contains("DelItem(LocalLocation(0),")
+            && name_binding_rendered.contains("constant slot"),
         "{name_binding_rendered}"
     );
 }
