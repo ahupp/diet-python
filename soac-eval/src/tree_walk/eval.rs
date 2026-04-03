@@ -349,8 +349,10 @@ unsafe fn ensure_clif_vectorcall_compiled(
         );
     }
     if data.compiled_vectorcall_handle.is_null() {
-        let vectorcall_symbol =
-            jit::jit_python_perf_symbol_name("v", data.function.names.qualname.as_str());
+        let vectorcall_symbol = jit::jit_python_perf_symbol_name(
+            jit::JIT_PYTHON_PERF_SYMBOL_KIND_VECTORCALL,
+            data.function.names.qualname.as_str(),
+        );
         let (handle, entry) = match jit::compile_cranelift_vectorcall_direct_trampoline(
             bind_direct_args_from_vectorcall,
             data as *mut ClifFunctionData as *mut c_void,

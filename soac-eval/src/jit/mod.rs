@@ -3079,6 +3079,9 @@ fn is_clif_ident_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
+pub(crate) const JIT_PYTHON_PERF_SYMBOL_KIND_DIRECT: &str = "d";
+pub(crate) const JIT_PYTHON_PERF_SYMBOL_KIND_VECTORCALL: &str = "v";
+
 pub(crate) fn jit_python_perf_symbol_name(kind: &str, qualname: &str) -> String {
     format!("py:{kind}:{qualname}")
 }
@@ -3314,7 +3317,8 @@ fn build_cranelift_run_bb_specialized_function(
     }
     main_sig.returns.push(ir::AbiParam::new(ptr_ty));
 
-    let main_symbol = jit_python_perf_symbol_name("d", &function.names.qualname);
+    let main_symbol =
+        jit_python_perf_symbol_name(JIT_PYTHON_PERF_SYMBOL_KIND_DIRECT, &function.names.qualname);
     let main_id = declare_local_fn(jit_module, &main_symbol, &main_sig)?;
 
     let mut ctx = jit_module.make_context();
@@ -4057,11 +4061,7 @@ pub unsafe fn compile_cranelift_vectorcall_direct_trampoline(
     main_sig.params.push(ir::AbiParam::new(ptr_ty));
     main_sig.returns.push(ir::AbiParam::new(ptr_ty));
 
-    let main_id = declare_local_fn(
-        &mut jit_module,
-        symbol_name,
-        &main_sig,
-    )?;
+    let main_id = declare_local_fn(&mut jit_module, symbol_name, &main_sig)?;
 
     let mut direct_sig = jit_module.make_signature();
     direct_sig.params.push(ir::AbiParam::special(
