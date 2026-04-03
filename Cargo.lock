@@ -1690,6 +1690,7 @@ dependencies = [
  "libc",
  "log",
  "pyo3",
+ "pyo3-build-config",
  "ruff_python_ast",
  "soac-blockpy",
 ]

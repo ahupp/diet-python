@@ -47,18 +47,6 @@ unsafe fn raise_expected_cell(where_name: &str, obj: *mut ffi::PyObject) {
     }
 }
 
-unsafe extern "C" fn jit_incref_hook(obj: ObjPtr) {
-    if !obj.is_null() {
-        ffi::Py_INCREF(obj as *mut ffi::PyObject);
-    }
-}
-
-unsafe extern "C" fn jit_decref_hook(obj: ObjPtr) {
-    if !obj.is_null() {
-        ffi::Py_DECREF(obj as *mut ffi::PyObject);
-    }
-}
-
 unsafe extern "C" fn py_call_positional_three_hook(
     callable: ObjPtr,
     arg1: ObjPtr,
@@ -846,8 +834,6 @@ mod test_only_export_stubs {
         };
     }
 
-    panic_unit_export!(dp_jit_incref(obj: ObjPtr));
-    panic_unit_export!(dp_jit_decref(obj: ObjPtr));
     panic_i32_export!(dp_jit_raise_from_exc(exc: ObjPtr));
     panic_obj_export!(dp_jit_py_call_positional_three(
         callable: ObjPtr,
@@ -891,16 +877,6 @@ mod test_only_export_stubs {
 
 #[cfg(test)]
 pub use test_only_export_stubs::*;
-
-#[cfg(not(test))]
-pub unsafe extern "C" fn dp_jit_incref(obj: ObjPtr) {
-    jit_incref_hook(obj);
-}
-
-#[cfg(not(test))]
-pub unsafe extern "C" fn dp_jit_decref(obj: ObjPtr) {
-    jit_decref_hook(obj);
-}
 
 #[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_raise_from_exc(exc: ObjPtr) -> i32 {
@@ -1258,8 +1234,6 @@ define_unary_obj_wrapper!(pynumber_negative_wrapper, "PyNumber_Negative");
 define_unary_obj_wrapper!(pynumber_invert_wrapper, "PyNumber_Invert");
 
 pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
-    builder.symbol("dp_jit_incref", dp_jit_incref as *const u8);
-    builder.symbol("dp_jit_decref", dp_jit_decref as *const u8);
     builder.symbol(
         "dp_jit_py_call_positional_three",
         dp_jit_py_call_positional_three as *const u8,

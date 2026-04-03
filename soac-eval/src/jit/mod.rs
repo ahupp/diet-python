@@ -11,6 +11,7 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use cranelift_reader::parse_functions;
+use pyo3::ffi;
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyTerm, CellLocation, CodegenBlock,
     CodegenBlockPyExpr, CoreBlockPyCallArg, CoreBlockPyKeywordArg, LocalLocation, LocatedName,
@@ -41,6 +42,14 @@ pub use vmctx::{JitModuleVmCtx, ModuleRuntimeContext};
 
 static INCREMENTAL_CLIF_CACHE: OnceLock<Mutex<HashMap<Vec<u8>, Vec<u8>>>> = OnceLock::new();
 static NEXT_IMPORT_SPEC_ID: AtomicUsize = AtomicUsize::new(0);
+
+unsafe extern "C" {
+    fn _Py_Dealloc(obj: *mut ffi::PyObject);
+}
+
+fn py_dealloc_symbol() -> *const u8 {
+    _Py_Dealloc as *const u8
+}
 
 fn incremental_clif_cache() -> &'static Mutex<HashMap<Vec<u8>, Vec<u8>>> {
     INCREMENTAL_CLIF_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
@@ -74,6 +83,7 @@ impl StaticSignature {
 struct ImportSpec {
     symbol: &'static str,
     signature: StaticSignature,
+    linkage: Linkage,
     internal_id: OnceLock<usize>,
 }
 
@@ -86,6 +96,20 @@ impl ImportSpec {
         Self {
             symbol,
             signature: StaticSignature::new(params, returns),
+            linkage: Linkage::Import,
+            internal_id: OnceLock::new(),
+        }
+    }
+
+    const fn local(
+        symbol: &'static str,
+        params: &'static [SigType],
+        returns: &'static [SigType],
+    ) -> Self {
+        Self {
+            symbol,
+            signature: StaticSignature::new(params, returns),
+            linkage: Linkage::Local,
             internal_id: OnceLock::new(),
         }
     }
@@ -98,9 +122,9 @@ impl ImportSpec {
 }
 
 static DP_JIT_INCREF_IMPORT: ImportSpec =
-    ImportSpec::new("dp_jit_incref", &[SigType::Pointer], &[]);
+    ImportSpec::local(SOAC_RUNTIME_INCREF_SYMBOL, &[SigType::Pointer], &[]);
 static DP_JIT_DECREF_IMPORT: ImportSpec =
-    ImportSpec::new("dp_jit_decref", &[SigType::Pointer], &[]);
+    ImportSpec::local(SOAC_RUNTIME_DECREF_SYMBOL, &[SigType::Pointer], &[]);
 static DP_JIT_PY_CALL_POSITIONAL_THREE_IMPORT: ImportSpec = ImportSpec::new(
     "dp_jit_py_call_positional_three",
     &[
@@ -247,10 +271,21 @@ impl ModuleFuncImports {
             return Ok(func_id);
         }
         let sig = lower_static_signature(jit_module, spec.signature);
-        let func_id = declare_import_fn(jit_module, spec.symbol, &sig)?;
+        let func_id = match spec.linkage {
+            Linkage::Import => declare_import_fn(jit_module, spec.symbol, &sig)?,
+            Linkage::Local => declare_local_fn(jit_module, spec.symbol, &sig)?,
+            linkage => {
+                return Err(format!(
+                    "unsupported linkage {linkage:?} for jit call spec {}",
+                    spec.symbol
+                ));
+            }
+        };
         self.func_ids_by_internal_id[internal_id] = Some(func_id);
-        self.import_id_to_symbol
-            .insert(func_id.as_u32(), spec.symbol);
+        if matches!(spec.linkage, Linkage::Import) {
+            self.import_id_to_symbol
+                .insert(func_id.as_u32(), spec.symbol);
+        }
         Ok(func_id)
     }
 }
@@ -3000,6 +3035,7 @@ fn new_jit_builder() -> Result<JITBuilder, String> {
         .finish(settings::Flags::new(flag_builder))
         .map_err(|err| format!("failed to finish ISA: {err}"))?;
     let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+    builder.symbol("_Py_Dealloc", py_dealloc_symbol());
     register_specialized_jit_symbols(&mut builder);
     Ok(builder)
 }
@@ -3084,14 +3120,35 @@ fn is_clif_ident_byte(byte: u8) -> bool {
 
 pub(crate) const JIT_PYTHON_PERF_SYMBOL_KIND_DIRECT: &str = "d";
 pub(crate) const JIT_PYTHON_PERF_SYMBOL_KIND_VECTORCALL: &str = "v";
-#[cfg(test)]
-pub(crate) const SOAC_RUNTIME_ADD1_I64_SYMBOL: &str = "soac_runtime_add1_i64";
+pub(crate) const SOAC_RUNTIME_INCREF_SYMBOL: &str = "soac_runtime_incref";
+pub(crate) const SOAC_RUNTIME_DECREF_SYMBOL: &str = "soac_runtime_decref";
 
 pub(crate) fn jit_python_perf_symbol_name(kind: &str, qualname: &str) -> String {
     format!("py:{kind}:{qualname}")
 }
 
-fn load_runtime_support_clif(jit_module: &mut JITModule) -> Result<(), String> {
+fn runtime_support_clif_compatibility_error() -> Option<&'static str> {
+    if cfg!(Py_GIL_DISABLED) {
+        return Some("runtime CLIF support does not support free-threaded CPython builds");
+    }
+    if cfg!(py_sys_config = "Py_REF_DEBUG") {
+        return Some("runtime CLIF support does not support Py_REF_DEBUG CPython builds");
+    }
+    if cfg!(py_sys_config = "Py_TRACE_REFS") {
+        return Some("runtime CLIF support does not support Py_TRACE_REFS CPython builds");
+    }
+    None
+}
+
+#[derive(Debug)]
+struct ParsedRuntimeClifFunction {
+    symbol: String,
+    function: ir::Function,
+    extern_symbols: HashMap<ir::UserExternalName, String>,
+}
+
+fn parse_runtime_clif_functions() -> Result<Vec<ParsedRuntimeClifFunction>, String> {
+    let mut parsed_functions = Vec::new();
     for (symbol, clif_text) in SOAC_RUNTIME_CLIF {
         let mut functions = parse_functions(clif_text)
             .map_err(|err| format!("failed to parse runtime CLIF for {symbol}: {err}"))?;
@@ -3104,16 +3161,140 @@ fn load_runtime_support_clif(jit_module: &mut JITModule) -> Result<(), String> {
         let function = functions
             .pop()
             .ok_or_else(|| format!("missing parsed runtime CLIF function for {symbol}"))?;
+        parsed_functions.push(ParsedRuntimeClifFunction {
+            symbol: (*symbol).to_string(),
+            function,
+            extern_symbols: parse_runtime_clif_extern_symbols(clif_text)?,
+        });
+    }
+    Ok(parsed_functions)
+}
+
+fn parse_runtime_clif_extern_symbols(
+    clif_text: &str,
+) -> Result<HashMap<ir::UserExternalName, String>, String> {
+    let mut extern_symbols = HashMap::new();
+    for line in clif_text.lines() {
+        if !line.contains("::{extern#") {
+            continue;
+        }
+        let Some(user_name) = parse_runtime_clif_user_name(line) else {
+            return Err(format!(
+                "failed to parse user function name from runtime CLIF line: {line}"
+            ));
+        };
+        let Some(symbol) = parse_runtime_clif_extern_symbol(line) else {
+            return Err(format!(
+                "failed to parse extern symbol from runtime CLIF line: {line}"
+            ));
+        };
+        extern_symbols.insert(user_name, symbol);
+    }
+    Ok(extern_symbols)
+}
+
+fn parse_runtime_clif_user_name(line: &str) -> Option<ir::UserExternalName> {
+    let token = line
+        .split_whitespace()
+        .find(|token| token.starts_with('u') && token.contains(':'))?;
+    let rest = token.strip_prefix('u')?;
+    let colon = rest.find(':')?;
+    let namespace = rest.get(..colon)?.parse().ok()?;
+    let rest = rest.get(colon + 1..)?;
+    let index_end = rest
+        .find(|ch: char| !ch.is_ascii_digit())
+        .unwrap_or(rest.len());
+    let index = rest.get(..index_end)?.parse().ok()?;
+    Some(ir::UserExternalName::new(namespace, index))
+}
+
+fn parse_runtime_clif_extern_symbol(line: &str) -> Option<String> {
+    let extern_pos = line.find("::{extern#")?;
+    let rest = line.get(extern_pos..)?;
+    let symbol = rest.rsplit("::").next()?;
+    let symbol_end = symbol
+        .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .unwrap_or(symbol.len());
+    let symbol = symbol.get(..symbol_end)?;
+    if symbol.is_empty() {
+        return None;
+    }
+    Some(symbol.to_string())
+}
+
+fn remap_runtime_clif_extern_user_names(
+    jit_module: &mut JITModule,
+    function: &mut ir::Function,
+    extern_symbols: &HashMap<ir::UserExternalName, String>,
+    import_func_ids: &mut HashMap<String, FuncId>,
+) -> Result<(), String> {
+    let remaps = function
+        .dfg
+        .ext_funcs
+        .iter()
+        .filter_map(|(_, ext_func)| {
+            let ir::ExternalName::User(name_ref) = ext_func.name else {
+                return None;
+            };
+            let original_name = function.params.user_named_funcs()[name_ref].clone();
+            Some((name_ref, original_name, ext_func.signature))
+        })
+        .collect::<Vec<_>>();
+
+    for (name_ref, original_name, sig_ref) in remaps {
+        let mapped_name = if let Some(symbol) = extern_symbols.get(&original_name) {
+            let import_id = if let Some(import_id) = import_func_ids.get(symbol) {
+                *import_id
+            } else {
+                let sig = function.dfg.signatures[sig_ref].clone();
+                let import_id = jit_module
+                    .declare_function(symbol, Linkage::Import, &sig)
+                    .map_err(|err| {
+                        format!("failed to declare runtime CLIF extern symbol {symbol}: {err}")
+                    })?;
+                import_func_ids.insert(symbol.clone(), import_id);
+                import_id
+            };
+            ir::UserExternalName::new(0, import_id.as_u32())
+        } else {
+            return Err(format!(
+                "unresolved non-extern runtime CLIF user function name {} while loading {}",
+                original_name, function.name
+            ));
+        };
+        function.params.reset_user_func_name(name_ref, mapped_name);
+    }
+    Ok(())
+}
+
+fn load_runtime_support_clif(jit_module: &mut JITModule) -> Result<(), String> {
+    if let Some(error) = runtime_support_clif_compatibility_error() {
+        return Err(error.to_string());
+    }
+    let mut parsed_functions = parse_runtime_clif_functions()?;
+    let mut import_func_ids = HashMap::new();
+    for parsed in &mut parsed_functions {
         let func_id = jit_module
-            .declare_function(symbol, Linkage::Local, &function.signature)
-            .map_err(|err| format!("failed to declare runtime CLIF function {symbol}: {err}"))?;
+            .declare_function(&parsed.symbol, Linkage::Local, &parsed.function.signature)
+            .map_err(|err| {
+                format!(
+                    "failed to declare runtime CLIF function {}: {err}",
+                    parsed.symbol
+                )
+            })?;
+        remap_runtime_clif_extern_user_names(
+            jit_module,
+            &mut parsed.function,
+            &parsed.extern_symbols,
+            &mut import_func_ids,
+        )?;
         let mut ctx = jit_module.make_context();
-        ctx.func = function;
+        ctx.func = std::mem::replace(&mut parsed.function, ir::Function::new());
         define_function_with_incremental_cache(
             jit_module,
             func_id,
             &mut ctx,
-            &format!("failed to define runtime CLIF function {symbol}"),
+            &format!("failed to define runtime CLIF function {}", parsed.symbol),
         )?;
         jit_module.clear_context(&mut ctx);
     }
@@ -4080,6 +4261,7 @@ pub unsafe fn compile_cranelift_vectorcall_direct_trampoline(
         bind_direct_args_fn as *const u8,
     );
     let mut jit_module = JITModule::new(builder);
+    load_runtime_support_clif(&mut jit_module)?;
     let ptr_ty = jit_module.target_config().pointer_type();
     let i64_ty = ir::types::I64;
     let mut module_imports = ModuleFuncImports::new();

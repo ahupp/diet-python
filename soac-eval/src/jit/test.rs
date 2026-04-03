@@ -3,14 +3,23 @@ use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyTerm,
     Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBytesLiteral, CoreNumberLiteral,
-    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, LiteralValue,
-    Load, LocatedCoreBlockPyExpr, LocatedName, Meta, ModuleNameGen, NameLocation, Param, ParamKind,
+    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, LiteralValue, Load,
+    LocatedCoreBlockPyExpr, LocatedName, Meta, ModuleNameGen, NameLocation, Param, ParamKind,
     ParamSpec, StorageLayout, Store, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
     use super::*;
+    use pyo3::{Python, ffi};
     use ruff_python_ast as ast;
+    use std::ffi::c_void;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static CAPSULE_DESTROYED: AtomicBool = AtomicBool::new(false);
+
+    unsafe extern "C" fn test_capsule_destructor(_capsule: *mut ffi::PyObject) {
+        CAPSULE_DESTROYED.store(true, Ordering::SeqCst);
+    }
 
     fn test_name(name: &str) -> LocatedName {
         LocatedName {
@@ -239,60 +248,264 @@ mod tests {
         }
     }
 
+    fn vendored_python_home() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace crate should have a repo-root parent")
+            .join("vendor")
+            .join("cpython")
+    }
+
+    unsafe extern "C" fn test_bind_direct_args_stub(
+        _callable: ObjPtr,
+        _args: *const ObjPtr,
+        _nargsf: usize,
+        _kwnames: ObjPtr,
+        _data_ptr: ObjPtr,
+        _out_args: *mut ObjPtr,
+        _out_len: i64,
+    ) -> i32 {
+        1
+    }
+
+    unsafe fn build_runtime_refcount_smoke_wrapper()
+    -> unsafe extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void {
+        let mut jit_module = new_jit_module().expect("test jit module should construct");
+        let ptr_ty = jit_module.target_config().pointer_type();
+
+        let mut refcount_signature = jit_module.make_signature();
+        refcount_signature.params.push(ir::AbiParam::new(ptr_ty));
+
+        let mut wrapper_signature = jit_module.make_signature();
+        wrapper_signature.params.push(ir::AbiParam::new(ptr_ty));
+        wrapper_signature.returns.push(ir::AbiParam::new(ptr_ty));
+
+        let wrapper_id = declare_local_fn(
+            &mut jit_module,
+            "jit_runtime_support_smoke_wrapper",
+            &wrapper_signature,
+        )
+        .expect("wrapper function should declare");
+        let incref_id = declare_local_fn(
+            &mut jit_module,
+            SOAC_RUNTIME_INCREF_SYMBOL,
+            &refcount_signature,
+        )
+        .expect("runtime incref support function should be available");
+        let decref_id = declare_local_fn(
+            &mut jit_module,
+            SOAC_RUNTIME_DECREF_SYMBOL,
+            &refcount_signature,
+        )
+        .expect("runtime decref support function should be available");
+
+        let mut ctx = jit_module.make_context();
+        ctx.func.name = ir::UserFuncName::user(0, wrapper_id.as_u32());
+        ctx.func.signature = wrapper_signature;
+
+        let mut builder_ctx = FunctionBuilderContext::new();
+        {
+            let mut fb = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
+            let entry = fb.create_block();
+            fb.append_block_params_for_function_params(entry);
+            fb.switch_to_block(entry);
+            fb.seal_block(entry);
+
+            let incref_ref = jit_module.declare_func_in_func(incref_id, &mut fb.func);
+            let decref_ref = jit_module.declare_func_in_func(decref_id, &mut fb.func);
+            let arg = fb.block_params(entry)[0];
+            fb.ins().call(incref_ref, &[arg]);
+            fb.ins().call(decref_ref, &[arg]);
+            fb.ins().return_(&[arg]);
+            fb.finalize();
+        }
+
+        define_function_with_incremental_cache(
+            &mut jit_module,
+            wrapper_id,
+            &mut ctx,
+            "test wrapper function should define",
+        )
+        .expect("wrapper function should compile");
+        jit_module.clear_context(&mut ctx);
+        jit_module
+            .finalize_definitions()
+            .expect("jit module should finalize");
+
+        let code_ptr = jit_module.get_finalized_function(wrapper_id);
+        let compiled: unsafe extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void =
+            std::mem::transmute(code_ptr);
+        Box::leak(Box::new(jit_module));
+        compiled
+    }
+
+    unsafe fn build_runtime_decref_wrapper() -> unsafe extern "C" fn(*mut std::ffi::c_void) {
+        let mut jit_module = new_jit_module().expect("test jit module should construct");
+        let ptr_ty = jit_module.target_config().pointer_type();
+
+        let mut refcount_signature = jit_module.make_signature();
+        refcount_signature.params.push(ir::AbiParam::new(ptr_ty));
+
+        let mut wrapper_signature = jit_module.make_signature();
+        wrapper_signature.params.push(ir::AbiParam::new(ptr_ty));
+
+        let wrapper_id = declare_local_fn(
+            &mut jit_module,
+            "jit_runtime_support_decref_wrapper",
+            &wrapper_signature,
+        )
+        .expect("wrapper function should declare");
+        let decref_id = declare_local_fn(
+            &mut jit_module,
+            SOAC_RUNTIME_DECREF_SYMBOL,
+            &refcount_signature,
+        )
+        .expect("runtime decref support function should be available");
+
+        let mut ctx = jit_module.make_context();
+        ctx.func.name = ir::UserFuncName::user(0, wrapper_id.as_u32());
+        ctx.func.signature = wrapper_signature;
+
+        let mut builder_ctx = FunctionBuilderContext::new();
+        {
+            let mut fb = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
+            let entry = fb.create_block();
+            fb.append_block_params_for_function_params(entry);
+            fb.switch_to_block(entry);
+            fb.seal_block(entry);
+
+            let decref_ref = jit_module.declare_func_in_func(decref_id, &mut fb.func);
+            let arg = fb.block_params(entry)[0];
+            fb.ins().call(decref_ref, &[arg]);
+            fb.ins().return_(&[]);
+            fb.finalize();
+        }
+
+        define_function_with_incremental_cache(
+            &mut jit_module,
+            wrapper_id,
+            &mut ctx,
+            "test wrapper function should define",
+        )
+        .expect("wrapper function should compile");
+        jit_module.clear_context(&mut ctx);
+        jit_module
+            .finalize_definitions()
+            .expect("jit module should finalize");
+
+        let code_ptr = jit_module.get_finalized_function(wrapper_id);
+        let compiled: unsafe extern "C" fn(*mut std::ffi::c_void) = std::mem::transmute(code_ptr);
+        Box::leak(Box::new(jit_module));
+        compiled
+    }
+
     #[test]
     fn jit_can_call_runtime_support_clif_function() {
         unsafe {
-            let mut jit_module = new_jit_module().expect("test jit module should construct");
+            let wrapper = build_runtime_refcount_smoke_wrapper();
+            let result = wrapper(std::ptr::null_mut());
+            assert!(
+                result.is_null(),
+                "runtime incref/decref smoke wrapper should preserve the null pointer"
+            );
+        }
+    }
 
-            let mut signature = jit_module.make_signature();
-            signature.params.push(ir::AbiParam::new(ir::types::I64));
-            signature.returns.push(ir::AbiParam::new(ir::types::I64));
+    #[test]
+    fn jit_runtime_clif_refcount_roundtrip_preserves_py_long_refcount() {
+        unsafe {
+            let wrapper = build_runtime_refcount_smoke_wrapper();
+            let python_home = vendored_python_home();
+            std::env::set_var("PYTHONHOME", &python_home);
+            std::env::set_var("PYTHONPATH", python_home.join("Lib"));
+            Python::initialize();
+            Python::attach(|_| {
+                let obj = ffi::PyLong_FromLongLong(123);
+                assert!(
+                    !obj.is_null(),
+                    "PyLong_FromLongLong should produce a test object"
+                );
+                let before = ffi::Py_REFCNT(obj);
+                let result = wrapper(obj.cast());
+                let after = ffi::Py_REFCNT(obj);
+                assert_eq!(result, obj.cast(), "wrapper should return the same pointer");
+                assert_eq!(
+                    after, before,
+                    "runtime CLIF incref/decref should preserve PyLong refcount"
+                );
+                ffi::Py_DECREF(obj);
+            });
+        }
+    }
 
-            let wrapper_id = declare_local_fn(
-                &mut jit_module,
-                "jit_runtime_support_smoke_wrapper",
-                &signature,
-            )
-            .expect("wrapper function should declare");
-            let support_id =
-                declare_import_fn(&mut jit_module, SOAC_RUNTIME_ADD1_I64_SYMBOL, &signature)
-                    .expect("runtime support function should import");
+    #[test]
+    fn jit_runtime_clif_decref_can_destroy_py_capsule() {
+        unsafe {
+            let wrapper = build_runtime_decref_wrapper();
+            let python_home = vendored_python_home();
+            std::env::set_var("PYTHONHOME", &python_home);
+            std::env::set_var("PYTHONPATH", python_home.join("Lib"));
+            Python::initialize();
+            Python::attach(|_| {
+                CAPSULE_DESTROYED.store(false, Ordering::SeqCst);
+                let capsule = ffi::PyCapsule_New(
+                    std::ptr::dangling_mut::<c_void>(),
+                    c"soac.runtime.test".as_ptr(),
+                    Some(test_capsule_destructor),
+                );
+                assert!(
+                    !capsule.is_null(),
+                    "PyCapsule_New should produce a test object"
+                );
+                assert_eq!(
+                    ffi::Py_REFCNT(capsule),
+                    1,
+                    "capsule should start with a unique owned reference"
+                );
 
-            let mut ctx = jit_module.make_context();
-            ctx.func.name = ir::UserFuncName::user(0, wrapper_id.as_u32());
-            ctx.func.signature = signature;
+                wrapper(capsule.cast());
+                let after = ffi::Py_REFCNT(capsule);
 
-            let mut builder_ctx = FunctionBuilderContext::new();
-            {
-                let mut fb = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
-                let entry = fb.create_block();
-                fb.append_block_params_for_function_params(entry);
-                fb.switch_to_block(entry);
-                fb.seal_block(entry);
+                assert!(
+                    CAPSULE_DESTROYED.load(Ordering::SeqCst),
+                    "runtime CLIF decref should drive PyCapsule destruction through _Py_Dealloc; refcnt after wrapper = {after}"
+                );
+            });
+        }
+    }
 
-                let support_ref = jit_module.declare_func_in_func(support_id, &mut fb.func);
-                let arg = fb.block_params(entry)[0];
-                let call_inst = fb.ins().call(support_ref, &[arg]);
-                let result = fb.inst_results(call_inst)[0];
-                fb.ins().return_(&[result]);
-                fb.finalize();
+    #[test]
+    fn jit_vectorcall_trampoline_can_link_runtime_decref_clif() {
+        unsafe {
+            let compiled = Box::new(CompiledSpecializedRunner {
+                _jit_module: new_jit_module().expect("compiled runner jit module should construct"),
+                entry: Some(CompiledRunnerEntry::Direct {
+                    code_ptr: std::ptr::null(),
+                    param_count: 0,
+                }),
+            });
+            let compiled_handle = Box::into_raw(compiled) as ObjPtr;
+            let result = compile_cranelift_vectorcall_direct_trampoline(
+                test_bind_direct_args_stub,
+                1usize as ObjPtr,
+                1usize as ObjPtr,
+                compiled_handle,
+                "jit_runtime_support_vectorcall_smoke",
+            );
+
+            match result {
+                Ok((trampoline_handle, _entry)) => {
+                    free_cranelift_vectorcall_trampoline(trampoline_handle);
+                }
+                Err(error) => {
+                    free_cranelift_run_bb_specialized_cached(compiled_handle);
+                    panic!(
+                        "vectorcall trampoline should link runtime CLIF refcount helpers: {error}"
+                    );
+                }
             }
 
-            define_function_with_incremental_cache(
-                &mut jit_module,
-                wrapper_id,
-                &mut ctx,
-                "test wrapper function should define",
-            )
-            .expect("wrapper function should compile");
-            jit_module.clear_context(&mut ctx);
-            jit_module
-                .finalize_definitions()
-                .expect("jit module should finalize");
-
-            let code_ptr = jit_module.get_finalized_function(wrapper_id);
-            let wrapper: extern "C" fn(i64) -> i64 = std::mem::transmute(code_ptr);
-            assert_eq!(wrapper(41), 42);
+            free_cranelift_run_bb_specialized_cached(compiled_handle);
         }
     }
 
