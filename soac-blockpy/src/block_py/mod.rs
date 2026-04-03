@@ -1371,18 +1371,12 @@ pub type InstrName<I> = <I as Instr>::Name;
 pub type PassTerm<P> = BlockPyTerm<PassExpr<P>>;
 pub(crate) type StructuredInstrFor<I> = StructuredInstr<I>;
 pub type PassStmt<P> = PassExpr<P>;
-pub(crate) type PassStructuredInstr<P> = StructuredInstrFor<PassExpr<P>>;
-pub(crate) type PassStructuredFragment<P> = BlockPyCfgFragment<PassStructuredInstr<P>, PassTerm<P>>;
-pub(crate) type PassStructuredBlock<P> = CfgBlock<PassStructuredInstr<P>, PassTerm<P>>;
-pub(crate) type StructuredBlockPyFunction<P> = BlockPyFunction<P, PassStructuredInstr<P>>;
-pub(crate) type StructuredBlockPyModule<P> = BlockPyModule<P, PassStructuredInstr<P>>;
 pub type PassBlock<P> = CfgBlock<PassExpr<P>, PassTerm<P>>;
 pub type ResolvedStorageBlock = PassBlock<ResolvedStorageBlockPyPass>;
 pub type CodegenBlock = PassBlock<CodegenBlockPyPass>;
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
 pub(crate) type BlockPyBlock<E = Expr> = BlockPyCfgBlock<StructuredInstr<E>, BlockPyTerm<E>>;
-pub(crate) type BlockPyBlockFor<I> = BlockPyCfgBlock<StructuredInstrFor<I>, BlockPyTerm<I>>;
 
 pub trait BlockPyJumpTerm<L> {
     fn jump_term(target: L) -> Self;
@@ -1437,8 +1431,6 @@ pub struct BlockPyCfgFragment<S, T> {
 
 pub(crate) type BlockPyStmtFragment<E = Expr> =
     BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>;
-pub(crate) type BlockPyStmtFragmentFor<I> =
-    BlockPyCfgFragment<StructuredInstrFor<I>, BlockPyTerm<I>>;
 
 impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragment<S, T> {
     pub fn assert_normalized(&self) {
@@ -1532,8 +1524,6 @@ pub struct BlockPyCfgBlockBuilder<S, T> {
 
 pub(crate) type BlockPyBlockBuilder<E = Expr> =
     BlockPyCfgBlockBuilder<StructuredInstr<E>, BlockPyTerm<E>>;
-pub(crate) type BlockPyBlockBuilderFor<I> =
-    BlockPyCfgBlockBuilder<StructuredInstrFor<I>, BlockPyTerm<I>>;
 
 impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
     BlockPyCfgBlockBuilder<S, T>

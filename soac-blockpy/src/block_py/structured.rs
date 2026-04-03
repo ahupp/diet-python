@@ -1,8 +1,7 @@
 #[cfg(test)]
 use super::{
-    BlockPyLabel, BlockPyPass, BlockPyTerm, MapExpr, PassExpr, PassStructuredBlock,
-    PassStructuredFragment, PassStructuredInstr, PassTerm, StructuredBlockPyFunction,
-    StructuredBlockPyModule,
+    BlockPyCfgFragment, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyTerm,
+    CfgBlock, MapExpr, PassExpr, PassTerm,
 };
 use super::{Instr, StructuredInstr, StructuredInstrFor};
 use std::fmt;
@@ -38,23 +37,26 @@ where
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
-    fn visit_module(&mut self, module: &StructuredBlockPyModule<P>) {
+    fn visit_module(&mut self, module: &BlockPyModule<P, StructuredInstr<PassExpr<P>>>) {
         walk_module(self, module);
     }
 
-    fn visit_fn(&mut self, func: &StructuredBlockPyFunction<P>) {
+    fn visit_fn(&mut self, func: &BlockPyFunction<P, StructuredInstr<PassExpr<P>>>) {
         walk_fn(self, func);
     }
 
-    fn visit_block(&mut self, block: &PassStructuredBlock<P>) {
+    fn visit_block(&mut self, block: &CfgBlock<StructuredInstr<PassExpr<P>>, PassTerm<P>>) {
         walk_block(self, block);
     }
 
-    fn visit_fragment(&mut self, fragment: &PassStructuredFragment<P>) {
+    fn visit_fragment(
+        &mut self,
+        fragment: &BlockPyCfgFragment<StructuredInstr<PassExpr<P>>, PassTerm<P>>,
+    ) {
         walk_fragment(self, fragment);
     }
 
-    fn visit_stmt(&mut self, stmt: &PassStructuredInstr<P>) {
+    fn visit_stmt(&mut self, stmt: &StructuredInstr<PassExpr<P>>) {
         walk_stmt(self, stmt);
     }
 
@@ -72,8 +74,10 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn walk_module<V, P>(visitor: &mut V, module: &StructuredBlockPyModule<P>)
-where
+pub(crate) fn walk_module<V, P>(
+    visitor: &mut V,
+    module: &BlockPyModule<P, StructuredInstr<PassExpr<P>>>,
+) where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
@@ -84,8 +88,10 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn walk_fn<V, P>(visitor: &mut V, func: &StructuredBlockPyFunction<P>)
-where
+pub(crate) fn walk_fn<V, P>(
+    visitor: &mut V,
+    func: &BlockPyFunction<P, StructuredInstr<PassExpr<P>>>,
+) where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
@@ -96,8 +102,10 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn walk_block<V, P>(visitor: &mut V, block: &PassStructuredBlock<P>)
-where
+pub(crate) fn walk_block<V, P>(
+    visitor: &mut V,
+    block: &CfgBlock<StructuredInstr<PassExpr<P>>, PassTerm<P>>,
+) where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
@@ -112,8 +120,10 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn walk_fragment<V, P>(visitor: &mut V, fragment: &PassStructuredFragment<P>)
-where
+pub(crate) fn walk_fragment<V, P>(
+    visitor: &mut V,
+    fragment: &BlockPyCfgFragment<StructuredInstr<PassExpr<P>>, PassTerm<P>>,
+) where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
@@ -127,7 +137,7 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn walk_stmt<V, P>(visitor: &mut V, stmt: &PassStructuredInstr<P>)
+pub(crate) fn walk_stmt<V, P>(visitor: &mut V, stmt: &StructuredInstr<PassExpr<P>>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,

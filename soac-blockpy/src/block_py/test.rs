@@ -14,8 +14,8 @@ impl BlockPyPass for StructuredExprPass {
 
 #[test]
 fn block_builder_sets_explicit_term() {
-    let mut block: BlockPyBlockBuilder<Expr> =
-        BlockPyBlockBuilder::new(BlockPyLabel::from_index(0));
+    let mut block: BlockPyCfgBlockBuilder<StructuredInstr<Expr>, BlockPyTerm<Expr>> =
+        BlockPyCfgBlockBuilder::new(BlockPyLabel::from_index(0));
     block.push_stmt(StructuredInstr::Expr(py_expr!("x")));
     block.set_term(BlockPyTerm::Jump(crate::block_py::BlockPyEdge::new(
         BlockPyLabel::from_index(1),
@@ -29,8 +29,8 @@ fn block_builder_sets_explicit_term() {
 
 #[test]
 fn block_builder_without_term_uses_implicit_none_return_value() {
-    let mut block: BlockPyBlockBuilder<Expr> =
-        BlockPyBlockBuilder::new(BlockPyLabel::from_index(0));
+    let mut block: BlockPyCfgBlockBuilder<StructuredInstr<Expr>, BlockPyTerm<Expr>> =
+        BlockPyCfgBlockBuilder::new(BlockPyLabel::from_index(0));
     block.push_stmt(StructuredInstr::Expr(py_expr!("x")));
     let block = block.finish(None);
 
@@ -43,10 +43,11 @@ fn block_builder_without_term_uses_implicit_none_return_value() {
 
 #[test]
 fn stmt_fragment_can_carry_optional_term() {
-    let fragment: BlockPyStmtFragment<Expr> = BlockPyStmtFragment::with_term(
-        vec![StructuredInstr::Expr(py_expr!("x"))],
-        Some(BlockPyTerm::Return(py_expr!("None"))),
-    );
+    let fragment: BlockPyCfgFragment<StructuredInstr<Expr>, BlockPyTerm<Expr>> =
+        BlockPyCfgFragment::with_term(
+            vec![StructuredInstr::Expr(py_expr!("x"))],
+            Some(BlockPyTerm::Return(py_expr!("None"))),
+        );
 
     assert_eq!(fragment.body.len(), 1);
     assert!(matches!(fragment.body[0], StructuredInstr::Expr(_)));
@@ -130,27 +131,33 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
     }
 
     impl BlockPyModuleVisitor<StructuredExprPass> for TraceVisitor {
-        fn visit_module(&mut self, module: &StructuredBlockPyModule<StructuredExprPass>) {
+        fn visit_module(
+            &mut self,
+            module: &BlockPyModule<StructuredExprPass, StructuredInstr<Expr>>,
+        ) {
             self.trace.push("module".to_string());
             walk_module(self, module);
         }
 
-        fn visit_fn(&mut self, func: &StructuredBlockPyFunction<StructuredExprPass>) {
+        fn visit_fn(&mut self, func: &BlockPyFunction<StructuredExprPass, StructuredInstr<Expr>>) {
             self.trace.push(format!("fn:{}", func.names.bind_name));
             walk_fn(self, func);
         }
 
-        fn visit_block(&mut self, block: &PassStructuredBlock<StructuredExprPass>) {
+        fn visit_block(&mut self, block: &CfgBlock<StructuredInstr<Expr>, BlockPyTerm<Expr>>) {
             self.trace.push(format!("block:{}", block.label));
             walk_block(self, block);
         }
 
-        fn visit_fragment(&mut self, fragment: &PassStructuredFragment<StructuredExprPass>) {
+        fn visit_fragment(
+            &mut self,
+            fragment: &BlockPyCfgFragment<StructuredInstr<Expr>, BlockPyTerm<Expr>>,
+        ) {
             self.trace.push("fragment".to_string());
             walk_fragment(self, fragment);
         }
 
-        fn visit_stmt(&mut self, stmt: &PassStructuredInstr<StructuredExprPass>) {
+        fn visit_stmt(&mut self, stmt: &StructuredInstr<Expr>) {
             let kind = match stmt {
                 StructuredInstr::Expr(_) => "expr",
                 StructuredInstr::If(_) => "if",
@@ -183,7 +190,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
         }
     }
 
-    let module = StructuredBlockPyModule::<StructuredExprPass> {
+    let module = BlockPyModule::<StructuredExprPass, StructuredInstr<Expr>> {
         callable_defs: vec![BlockPyFunction {
             function_id: FunctionId(0),
             name_gen: test_name_gen(),
