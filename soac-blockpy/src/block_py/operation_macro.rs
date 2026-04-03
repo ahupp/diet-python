@@ -77,7 +77,7 @@ macro_rules! define_operation {
                 define_operation!(@visit_expr_fields_mut self, f, $($raw_fields)*);
             }
 
-            fn map_expr_node<T>(self, f: &mut impl FnMut($expr_ty) -> T) -> Self::Mapped<T>
+            fn map_children<T>(self, f: &mut impl FnMut($expr_ty) -> T) -> Self::Mapped<T>
             where
                 T: Instr,
                 InstrName<T>: From<InstrName<$expr_ty>>,
@@ -173,7 +173,7 @@ macro_rules! define_operation {
                 let _ = &f;
             }
 
-            fn map_expr_node<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
+            fn map_children<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
             where
                 T: Instr,
                 InstrName<T>: From<InstrName<E>>,

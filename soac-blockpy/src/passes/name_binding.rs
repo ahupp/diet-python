@@ -2286,7 +2286,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
             }
             CoreBlockPyExpr::Call(call) => {
                 let meta = call.meta();
-                let call = call.map_expr_node(&mut |expr| self.map_expr(expr));
+                let call = call.map_children(&mut |expr| self.map_expr(expr));
                 if raw_load_name(call.func.as_ref())
                     .as_ref()
                     .is_some_and(|name| name == "class_lookup_cell")

@@ -213,7 +213,7 @@ where
 
     fn visit_exprs(&self, f: &mut impl FnMut(&I));
     fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut I));
-    fn map_expr_node<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_children<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<I>>;
@@ -640,7 +640,7 @@ impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
 
     fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
 
-    fn map_expr_node<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<I>>,
@@ -667,7 +667,7 @@ impl<I: Instr> InstrExprNode<I> for BlockPyLiteral {
 
     fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
 
-    fn map_expr_node<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<I>>,
@@ -767,7 +767,7 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYi
         f: &mut impl FnMut(Self) -> CoreBlockPyExprWithAwaitAndYield,
     ) -> CoreBlockPyExprWithAwaitAndYield {
         match self {
-            match_rest(node) => node.map_expr_node(&mut *f).into(),
+            match_rest(node) => node.map_children(&mut *f).into(),
         }
     }
 }
@@ -791,7 +791,7 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
                     .with_meta(meta),
                 )
             }
-            match_rest(node) => node.map_expr_node(&mut *f).into(),
+            match_rest(node) => node.map_children(&mut *f).into(),
         }
     }
 }
@@ -840,7 +840,7 @@ impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
         f: &mut impl FnMut(Self) -> CoreBlockPyExprWithYield,
     ) -> CoreBlockPyExprWithYield {
         match self {
-            match_rest(node) => node.map_expr_node(&mut *f).into(),
+            match_rest(node) => node.map_children(&mut *f).into(),
         }
     }
 }
@@ -889,7 +889,7 @@ where
 {
     fn map_expr(self, f: &mut impl FnMut(Self) -> CoreBlockPyExpr<NOut>) -> CoreBlockPyExpr<NOut> {
         match self {
-            match_rest(node) => node.map_expr_node(&mut *f).into(),
+            match_rest(node) => node.map_children(&mut *f).into(),
         }
     }
 }
@@ -943,7 +943,7 @@ where
             Self::Literal(_) => {
                 panic!("core literals should normalize into Load(Constant(_)) before codegen")
             }
-            match_rest(node) => node.map_expr_node(&mut *f).into(),
+            match_rest(node) => node.map_children(&mut *f).into(),
         }
     }
 }
@@ -964,7 +964,7 @@ impl<Error> TryMapExpr<CodegenBlockPyExpr, Error> for CodegenBlockPyExpr {
 impl MapExpr<CodegenBlockPyExpr> for CodegenBlockPyExpr {
     fn map_expr(self, f: &mut impl FnMut(Self) -> CodegenBlockPyExpr) -> CodegenBlockPyExpr {
         match self {
-            match_rest(op) => op.map_expr_node(&mut *f).into(),
+            match_rest(op) => op.map_children(&mut *f).into(),
         }
     }
 }

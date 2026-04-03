@@ -136,7 +136,7 @@ impl<E: Instr> InstrExprNode<E> for Call<E> {
         }
     }
 
-    fn map_expr_node<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
+    fn map_children<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<E>>,
@@ -260,7 +260,7 @@ impl<I: Instr> InstrExprNode<I> for Load<I> {
 
     fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
 
-    fn map_expr_node<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<I>>,
@@ -336,7 +336,7 @@ impl<I: Instr> InstrExprNode<I> for Store<I> {
         f(&mut self.value);
     }
 
-    fn map_expr_node<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_children<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<I>>,
@@ -410,7 +410,7 @@ impl<I: Instr> InstrExprNode<I> for Del<I> {
 
     fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
 
-    fn map_expr_node<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<I>>,
