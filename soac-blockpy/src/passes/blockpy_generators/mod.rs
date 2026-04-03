@@ -10,8 +10,8 @@ use crate::block_py::{
     BlockPySemanticExprNode, BlockPyStmt, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit,
     ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
-    FunctionNameGen, HasMeta, ImplicitNoneExpr, Instr, InstrName, Load, MakeFunction, Meta,
-    ModuleNameGen, PassStmt, StorageLayout, Store, UnresolvedName, WithMeta,
+    FunctionNameGen, HasMeta, ImplicitNoneExpr, Instr, Load, MakeFunction, Meta, ModuleNameGen,
+    PassStmt, StorageLayout, Store, UnresolvedName, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -174,16 +174,14 @@ fn core_name(name: &str) -> CoreBlockPyExpr {
 
 fn internal_store_stmt<E>(target: &str, value: E) -> BlockPyStmt<E>
 where
-    E: Instr + From<Store<E>>,
-    InstrName<E>: From<UnresolvedName>,
+    E: Instr<Name = UnresolvedName> + From<Store<E>>,
 {
     unresolved_store_stmt(expr_name(target), value)
 }
 
 fn unresolved_store_stmt<E>(target: UnresolvedName, value: E) -> BlockPyStmt<E>
 where
-    E: Instr + From<Store<E>>,
-    InstrName<E>: From<UnresolvedName>,
+    E: Instr<Name = UnresolvedName> + From<Store<E>>,
 {
     let meta = target.meta();
     BlockPyStmt::Expr(Store::new(target, Box::new(value)).with_meta(meta).into())
@@ -191,8 +189,7 @@ where
 
 fn unresolved_load_expr<E>(name: UnresolvedName) -> E
 where
-    E: Instr + From<Load<E>>,
-    InstrName<E>: From<UnresolvedName>,
+    E: Instr<Name = UnresolvedName> + From<Load<E>>,
 {
     let meta = name.meta();
     Load::new(name).with_meta(meta).into()

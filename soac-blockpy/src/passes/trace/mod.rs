@@ -1,6 +1,6 @@
 use crate::block_py::{
-    core_operation_expr, core_runtime_positional_call_expr_with_meta, BlockPyFunction,
-    BlockPyModule, CodegenBlockPyExpr, CoreBlockPyExpr, CoreStringLiteral, Load,
+    core_call_expr_with_meta, core_operation_expr, BlockPyFunction, BlockPyModule,
+    CodegenBlockPyExpr, CoreBlockPyCallArg, CoreBlockPyExpr, CoreStringLiteral, Load,
     LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, Meta, NameLocation,
     StructuredInstr, WithMeta,
 };
@@ -171,7 +171,21 @@ fn helper_call_expr(
     args: Vec<LocatedCodegenBlockPyExpr>,
 ) -> LocatedCodegenBlockPyExpr {
     let meta = Meta::synthetic();
-    core_runtime_positional_call_expr_with_meta(helper_name, meta.node_index, meta.range, args)
+    let func = Load::new(LocatedName {
+        id: helper_name.into(),
+        location: NameLocation::RuntimeName,
+    })
+    .with_meta(meta.clone())
+    .into();
+    core_call_expr_with_meta(
+        func,
+        meta.node_index,
+        meta.range,
+        args.into_iter()
+            .map(CoreBlockPyCallArg::Positional)
+            .collect(),
+        Vec::new(),
+    )
 }
 
 fn string_literal_expr(

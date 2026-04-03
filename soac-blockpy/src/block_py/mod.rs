@@ -669,13 +669,9 @@ pub enum CoreNumberLiteralValue {
     Float(f64),
 }
 
-pub(crate) trait CoreCallLikeExpr: Sized + Instr {
-    type Name: BlockPyNameLike + From<ast::ExprName>;
-}
+pub(crate) trait CoreCallLikeExpr: Sized + Instr {}
 
-impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {
-    type Name = UnresolvedName;
-}
+impl CoreCallLikeExpr for CoreBlockPyExprWithAwaitAndYield {}
 
 impl Instr for CoreBlockPyExprWithAwaitAndYield {
     type Name = UnresolvedName;
@@ -824,9 +820,7 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
     }
 }
 
-impl CoreCallLikeExpr for CoreBlockPyExprWithYield {
-    type Name = UnresolvedName;
-}
+impl CoreCallLikeExpr for CoreBlockPyExprWithYield {}
 
 impl Instr for CoreBlockPyExprWithYield {
     type Name = UnresolvedName;
@@ -922,9 +916,7 @@ impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWi
     }
 }
 
-impl<N: BlockPyNameLike> CoreCallLikeExpr for CoreBlockPyExpr<N> {
-    type Name = N;
-}
+impl<N: BlockPyNameLike> CoreCallLikeExpr for CoreBlockPyExpr<N> {}
 
 impl<N: BlockPyNameLike> Instr for CoreBlockPyExpr<N> {
     type Name = N;
@@ -1059,9 +1051,7 @@ where
     }
 }
 
-impl CoreCallLikeExpr for CodegenBlockPyExpr {
-    type Name = LocatedName;
-}
+impl CoreCallLikeExpr for CodegenBlockPyExpr {}
 
 impl Instr for CodegenBlockPyExpr {
     type Name = LocatedName;
@@ -1182,6 +1172,7 @@ pub(crate) fn core_named_call_expr_with_meta<E>(
 ) -> E
 where
     E: CoreCallLikeExpr + From<Call<E>> + From<Load<E>>,
+    InstrName<E>: From<ast::ExprName>,
 {
     let func = load_name_expr(ExprName {
         id: func_name.into(),
@@ -1198,8 +1189,7 @@ pub(crate) fn core_runtime_name_expr_with_meta<E>(
     range: ruff_text_size::TextRange,
 ) -> E
 where
-    E: CoreCallLikeExpr + From<Load<E>>,
-    InstrName<E>: From<UnresolvedName>,
+    E: Instr<Name = UnresolvedName> + From<Load<E>>,
 {
     core_operation_expr(
         Load::new(runtime_symbol(name, node_index.clone(), range))
@@ -1239,8 +1229,7 @@ pub(crate) fn core_runtime_named_call_expr_with_meta<E>(
     keywords: Vec<CoreBlockPyKeywordArg<E>>,
 ) -> E
 where
-    E: CoreCallLikeExpr + From<Call<E>> + From<Load<E>>,
-    InstrName<E>: From<UnresolvedName>,
+    E: CoreCallLikeExpr + Instr<Name = UnresolvedName> + From<Call<E>> + From<Load<E>>,
 {
     let func = core_runtime_name_expr_with_meta(func_name, node_index.clone(), range);
     core_call_expr_with_meta(func, node_index, range, args, keywords)
@@ -1253,8 +1242,7 @@ pub(crate) fn core_runtime_positional_call_expr_with_meta<E: CoreCallLikeExpr>(
     args: Vec<E>,
 ) -> E
 where
-    E: From<Call<E>> + From<Load<E>>,
-    InstrName<E>: From<UnresolvedName>,
+    E: Instr<Name = UnresolvedName> + From<Call<E>> + From<Load<E>>,
 {
     core_runtime_named_call_expr_with_meta(
         func_name,
@@ -2126,10 +2114,7 @@ impl ImplicitNoneExpr for CoreBlockPyExprWithYield {
     }
 }
 
-impl<N> ImplicitNoneExpr for CoreBlockPyExpr<N>
-where
-    N: BlockPyNameLike + From<UnresolvedName>,
-{
+impl ImplicitNoneExpr for CoreBlockPyExpr {
     fn implicit_none_expr() -> Self {
         core_runtime_name_expr_with_meta("NONE", Default::default(), Default::default())
     }
@@ -2142,9 +2127,32 @@ where
     }
 }
 
+impl ImplicitNoneExpr for LocatedCoreBlockPyExpr {
+    fn implicit_none_expr() -> Self {
+        Load::new(LocatedName {
+            id: "NONE".into(),
+            location: NameLocation::RuntimeName,
+        })
+        .with_meta(Meta::synthetic())
+        .into()
+    }
+
+    fn is_implicit_none_expr(expr: &Self) -> bool {
+        matches!(
+            expr,
+            CoreBlockPyExpr::Load(op) if op.name.is_runtime_symbol("NONE")
+        )
+    }
+}
+
 impl ImplicitNoneExpr for CodegenBlockPyExpr {
     fn implicit_none_expr() -> Self {
-        core_runtime_name_expr_with_meta("NONE", Default::default(), Default::default())
+        Load::new(LocatedName {
+            id: "NONE".into(),
+            location: NameLocation::RuntimeName,
+        })
+        .with_meta(Meta::synthetic())
+        .into()
     }
 
     fn is_implicit_none_expr(expr: &Self) -> bool {
