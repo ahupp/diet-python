@@ -612,7 +612,6 @@ pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 #[derive(Clone, derive_more::From)]
 #[enum_broadcast(HasMeta, WithMeta, MapExprChildren)]
 pub enum CodegenBlockPyExpr {
-    Literal(LiteralValue),
     BinOp(BinOp<Self>),
     UnaryOp(UnaryOp<Self>),
     Call(Call<Self>),
@@ -709,7 +708,6 @@ impl<N: BlockPyNameLike> fmt::Debug for CoreBlockPyExpr<N> {
 impl fmt::Debug for CodegenBlockPyExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Literal(node) => node.literal.fmt(f),
             Self::BinOp(node) => node.fmt(f),
             Self::UnaryOp(node) => node.fmt(f),
             Self::Call(node) => node.fmt(f),

@@ -226,20 +226,8 @@ impl ModuleCodegenConstants {
         self.intern(ModuleConstantValue::Unicode(value.to_vec()))
     }
 
-    fn intern_bytes(&mut self, value: &[u8]) -> ModuleConstantId {
-        self.intern(ModuleConstantValue::Bytes(value.to_vec()))
-    }
-
     fn intern_int(&mut self, value: i64) -> ModuleConstantId {
         self.intern(ModuleConstantValue::Int(value))
-    }
-
-    fn intern_big_int(&mut self, value: &str) -> ModuleConstantId {
-        self.intern(ModuleConstantValue::BigInt(value.to_string()))
-    }
-
-    fn intern_float(&mut self, value: f64) -> ModuleConstantId {
-        self.intern(ModuleConstantValue::FloatBits(value.to_bits()))
     }
 }
 
@@ -297,27 +285,6 @@ impl ModuleConstantCollector {
 
     fn collect_expr(&mut self, expr: &LocatedCodegenBlockPyExpr) {
         match expr {
-            CodegenBlockPyExpr::Literal(literal) => match literal.as_literal() {
-                BlockPyLiteral::StringLiteral(string) => {
-                    self.constants.intern_unicode_bytes(string.value.as_bytes());
-                }
-                BlockPyLiteral::NumberLiteral(number) => match &number.value {
-                    CoreNumberLiteralValue::Int(value) => {
-                        if let Some(value) = value.as_i64() {
-                            self.constants.intern_int(value);
-                        } else {
-                            let value_text = value.to_string();
-                            self.constants.intern_big_int(value_text.as_str());
-                        }
-                    }
-                    CoreNumberLiteralValue::Float(value) => {
-                        self.constants.intern_float(*value);
-                    }
-                },
-                BlockPyLiteral::BytesLiteral(bytes) => {
-                    self.constants.intern_bytes(bytes.value.as_slice());
-                }
-            },
             CodegenBlockPyExpr::Call(call) => {
                 if let Some(const_bytes) = self.string_constant_bytes_for_specialized_codegen(expr)
                 {
@@ -417,11 +384,6 @@ impl ModuleConstantCollector {
         expr: &LocatedCodegenBlockPyExpr,
     ) -> Option<Vec<u8>> {
         match expr {
-            CodegenBlockPyExpr::Literal(literal) => match literal.as_literal() {
-                BlockPyLiteral::StringLiteral(string) => Some(string.value.as_bytes().to_vec()),
-                BlockPyLiteral::NumberLiteral(_) => None,
-                BlockPyLiteral::BytesLiteral(bytes) => Some(bytes.value.clone()),
-            },
             CodegenBlockPyExpr::Load(op) => op.name.location.as_constant().and_then(|index| {
                 self.constants
                     .constant_string_bytes_value(ModuleConstantId(index as usize))

@@ -1,8 +1,8 @@
 use super::normalize_bb_module_strings;
 use crate::{
     block_py::{
-        BlockPyExprLike, BlockPyLiteral, BlockPyNameLike, BlockPyTerm, CodegenBlockPyExpr,
-        CoreBlockPyExpr, InstrExprNode, LocatedCoreBlockPyExpr,
+        BlockPyLiteral, BlockPyNameLike, CodegenBlockPyExpr, CoreBlockPyExpr, InstrExprNode,
+        LocatedCoreBlockPyExpr,
     },
     lower_python_to_blockpy_for_testing,
     passes::lower_try_jump_exception_flow,
@@ -19,21 +19,6 @@ fn tracked_name_binding_module(
         .clone()
 }
 
-fn expr_contains_literal(expr: &CodegenBlockPyExpr) -> bool {
-    match expr {
-        CodegenBlockPyExpr::Literal(_) => true,
-        _ => {
-            let mut saw_literal = false;
-            expr.walk_child_exprs(&mut |arg| {
-                if expr_contains_literal(arg) {
-                    saw_literal = true;
-                }
-            });
-            saw_literal
-        }
-    }
-}
-
 fn module_constants_contain_string(exprs: &[LocatedCoreBlockPyExpr]) -> bool {
     exprs.iter().any(|expr| {
         matches!(
@@ -46,7 +31,6 @@ fn module_constants_contain_string(exprs: &[LocatedCoreBlockPyExpr]) -> bool {
 
 fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockPyExpr) {
     match expr {
-        CodegenBlockPyExpr::Literal(_) => {}
         CodegenBlockPyExpr::GetAttr(operation) => {
             out.push("__dp_getattr".to_string());
             operation.visit_children(&mut |arg| collect_helper_like_names_in_expr(out, arg));
@@ -117,42 +101,6 @@ def f():
         module_constants_contain_string(&normalized.module_constants),
         "expected normalized module constants to retain string literals"
     );
-
-    for function in normalized.callable_defs {
-        for block in &function.blocks {
-            for stmt in &block.body {
-                assert!(
-                    !expr_contains_literal(stmt),
-                    "expr stmt should not retain executable literals: {stmt:?}"
-                );
-            }
-            match &block.term {
-                BlockPyTerm::Jump(_) => {}
-                BlockPyTerm::IfTerm(if_term) => assert!(
-                    !expr_contains_literal(&if_term.test),
-                    "if test should not retain executable literals: {:?}",
-                    if_term.test
-                ),
-                BlockPyTerm::BranchTable(branch) => assert!(
-                    !expr_contains_literal(&branch.index),
-                    "branch index should not retain executable literals: {:?}",
-                    branch.index
-                ),
-                BlockPyTerm::Raise(raise_stmt) => {
-                    if let Some(exc) = &raise_stmt.exc {
-                        assert!(
-                            !expr_contains_literal(exc),
-                            "raise value should not retain executable literals: {exc:?}"
-                        );
-                    }
-                }
-                BlockPyTerm::Return(value) => assert!(
-                    !expr_contains_literal(value),
-                    "return value should not retain executable literals: {value:?}"
-                ),
-            }
-        }
-    }
 }
 
 #[test]
