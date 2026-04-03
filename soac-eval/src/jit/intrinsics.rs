@@ -28,21 +28,16 @@ pub(super) trait OperationEmitState<'fb, E> {
         &mut self,
         constant_id: crate::module_constants::ModuleConstantId,
     ) -> ir::Value {
-        let load_module_constant_ref = self.ctx().load_module_constant_ref;
-        let vmctx_value = self.ctx().consts.vmctx_value;
-        let step_null_block = self.ctx().consts.step_null_block;
-        let step_null_args = self.ctx().consts.step_null_args.clone();
+        let module_constant_ptrs_ptr = self.ctx().module_constant_ptrs.as_ptr();
+        let module_constant_ptrs_len = self.ctx().module_constant_ptrs.len();
         let ptr_ty = self.ctx().consts.ptr_ty;
-        let i64_ty = self.ctx().consts.i64_ty;
+        let module_constant_ptrs =
+            unsafe { std::slice::from_raw_parts(module_constant_ptrs_ptr, module_constant_ptrs_len) };
         emit_owned_module_constant_from_parts(
             self.fb(),
             constant_id,
-            load_module_constant_ref,
-            vmctx_value,
-            step_null_block,
-            &step_null_args,
+            module_constant_ptrs,
             ptr_ty,
-            i64_ty,
         )
     }
 

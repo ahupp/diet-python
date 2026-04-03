@@ -6,7 +6,14 @@ use soac_blockpy::block_py::{
     LocatedCoreBlockPyExpr, ParamDefaultSource, Walkable, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
+use std::ffi::{CStr, CString, c_int};
 use std::collections::HashMap;
+use std::ptr;
+
+unsafe extern "C" {
+    fn _Py_SetImmortal(op: *mut ffi::PyObject);
+    fn PyUnstable_IsImmortal(op: *mut ffi::PyObject) -> c_int;
+}
 
 const ALWAYS_REQUIRED_UNICODE_CONSTANTS: &[&str] = &[
     "dict",
@@ -28,6 +35,7 @@ enum ModuleConstantValue {
     Int(i64),
     BigInt(String),
     FloatBits(u64),
+    RuntimeName(Vec<u8>),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -40,7 +48,7 @@ impl ModuleCodegenConstants {
     pub fn collect_from_module(module: &BlockPyModule<CodegenBlockPyPass>) -> Self {
         let mut collector = ModuleConstantCollector::default();
         for expr in &module.module_constants {
-            collector.constants.push_explicit_literal(expr);
+            collector.constants.push_explicit_constant_expr(expr);
         }
         for name in ALWAYS_REQUIRED_UNICODE_CONSTANTS {
             collector.constants.intern_unicode_bytes(name.as_bytes());
@@ -68,17 +76,7 @@ impl ModuleCodegenConstants {
         let mut out = Vec::with_capacity(self.values.len());
         for value in &self.values {
             out.push(match value {
-                ModuleConstantValue::Unicode(bytes) => {
-                    let ptr = unsafe {
-                        ffi::PyUnicode_DecodeUTF8(
-                            bytes.as_ptr() as *const i8,
-                            bytes.len() as ffi::Py_ssize_t,
-                            c"surrogatepass".as_ptr(),
-                        )
-                    };
-                    let bound: Bound<'_, PyAny> = unsafe { Bound::from_owned_ptr_or_err(py, ptr)? };
-                    bound.unbind()
-                }
+                ModuleConstantValue::Unicode(bytes) => build_unicode_constant(py, bytes)?.unbind(),
                 ModuleConstantValue::Bytes(bytes) => {
                     let ptr = unsafe {
                         ffi::PyBytes_FromStringAndSize(
@@ -107,9 +105,20 @@ impl ModuleCodegenConstants {
                     let bound: Bound<'_, PyAny> = unsafe { Bound::from_owned_ptr_or_err(py, ptr)? };
                     bound.unbind()
                 }
+                ModuleConstantValue::RuntimeName(bytes) => {
+                    let name = build_unicode_constant(py, bytes)?;
+                    let ptr = unsafe { load_runtime_name_owned(name.as_ptr()) };
+                    let bound: Bound<'_, PyAny> = unsafe { Bound::from_owned_ptr_or_err(py, ptr)? };
+                    bound.unbind()
+                }
             });
         }
+        mark_constants_immortal(&out);
         Ok(out)
+    }
+
+    pub fn len(&self) -> usize {
+        self.values.len()
     }
 
     pub fn require_unicode_constant_id(&self, value: &str) -> ModuleConstantId {
@@ -152,7 +161,8 @@ impl ModuleCodegenConstants {
             ModuleConstantValue::Unicode(_)
             | ModuleConstantValue::Int(_)
             | ModuleConstantValue::BigInt(_)
-            | ModuleConstantValue::FloatBits(_) => None,
+            | ModuleConstantValue::FloatBits(_)
+            | ModuleConstantValue::RuntimeName(_) => None,
         }
     }
 
@@ -163,7 +173,8 @@ impl ModuleCodegenConstants {
             }
             ModuleConstantValue::Int(_)
             | ModuleConstantValue::BigInt(_)
-            | ModuleConstantValue::FloatBits(_) => None,
+            | ModuleConstantValue::FloatBits(_)
+            | ModuleConstantValue::RuntimeName(_) => None,
         }
     }
 
@@ -174,6 +185,18 @@ impl ModuleCodegenConstants {
             }
             ModuleConstantValue::Int(_)
             | ModuleConstantValue::BigInt(_)
+            | ModuleConstantValue::FloatBits(_)
+            | ModuleConstantValue::RuntimeName(_) => None,
+        }
+    }
+
+    pub fn constant_runtime_name_value(&self, constant_id: ModuleConstantId) -> Option<&str> {
+        match self.values.get(constant_id.0)? {
+            ModuleConstantValue::RuntimeName(bytes) => std::str::from_utf8(bytes).ok(),
+            ModuleConstantValue::Unicode(_)
+            | ModuleConstantValue::Bytes(_)
+            | ModuleConstantValue::Int(_)
+            | ModuleConstantValue::BigInt(_)
             | ModuleConstantValue::FloatBits(_) => None,
         }
     }
@@ -182,28 +205,34 @@ impl ModuleCodegenConstants {
         self.ids.get(value).copied()
     }
 
-    fn push_explicit_literal(&mut self, expr: &LocatedCoreBlockPyExpr) -> ModuleConstantId {
-        let CoreBlockPyExpr::Literal(literal) = expr else {
-            panic!("unsupported explicit module constant expr after codegen lowering: {expr:?}");
-        };
-
-        let value = match literal.as_literal() {
-            BlockPyLiteral::StringLiteral(string) => {
-                ModuleConstantValue::Unicode(string.value.as_bytes().to_vec())
-            }
-            BlockPyLiteral::BytesLiteral(bytes) => ModuleConstantValue::Bytes(bytes.value.clone()),
-            BlockPyLiteral::NumberLiteral(number) => match &number.value {
-                CoreNumberLiteralValue::Int(value) => {
-                    if let Some(value) = value.as_i64() {
-                        ModuleConstantValue::Int(value)
-                    } else {
-                        ModuleConstantValue::BigInt(value.to_string())
+    fn push_explicit_constant_expr(&mut self, expr: &LocatedCoreBlockPyExpr) -> ModuleConstantId {
+        let value = match expr {
+            CoreBlockPyExpr::Literal(literal) => match literal.as_literal() {
+                BlockPyLiteral::StringLiteral(string) => {
+                    ModuleConstantValue::Unicode(string.value.as_bytes().to_vec())
+                }
+                BlockPyLiteral::BytesLiteral(bytes) => {
+                    ModuleConstantValue::Bytes(bytes.value.clone())
+                }
+                BlockPyLiteral::NumberLiteral(number) => match &number.value {
+                    CoreNumberLiteralValue::Int(value) => {
+                        if let Some(value) = value.as_i64() {
+                            ModuleConstantValue::Int(value)
+                        } else {
+                            ModuleConstantValue::BigInt(value.to_string())
+                        }
                     }
-                }
-                CoreNumberLiteralValue::Float(value) => {
-                    ModuleConstantValue::FloatBits(value.to_bits())
-                }
+                    CoreNumberLiteralValue::Float(value) => {
+                        ModuleConstantValue::FloatBits(value.to_bits())
+                    }
+                },
             },
+            CoreBlockPyExpr::Load(op) if op.name.is_runtime_name() => {
+                ModuleConstantValue::RuntimeName(op.name.id_str().as_bytes().to_vec())
+            }
+            _ => {
+                panic!("unsupported explicit module constant expr after codegen lowering: {expr:?}");
+            }
         };
         let id = ModuleConstantId(self.values.len());
         self.values.push(value.clone());
@@ -228,6 +257,110 @@ impl ModuleCodegenConstants {
     fn intern_int(&mut self, value: i64) -> ModuleConstantId {
         self.intern(ModuleConstantValue::Int(value))
     }
+}
+
+fn build_unicode_constant<'py>(py: Python<'py>, bytes: &[u8]) -> PyResult<Bound<'py, PyAny>> {
+    let ptr = unsafe {
+        ffi::PyUnicode_DecodeUTF8(
+            bytes.as_ptr() as *const i8,
+            bytes.len() as ffi::Py_ssize_t,
+            c"surrogatepass".as_ptr(),
+        )
+    };
+    unsafe { Bound::from_owned_ptr_or_err(py, ptr) }
+}
+
+fn mark_constants_immortal(constants: &[Py<PyAny>]) {
+    for obj in constants {
+        unsafe {
+            _Py_SetImmortal(obj.as_ptr());
+            debug_assert_ne!(PyUnstable_IsImmortal(obj.as_ptr()), 0);
+        }
+    }
+}
+
+pub(crate) unsafe fn raise_name_error_for_missing_name(name_obj: *mut ffi::PyObject) {
+    let repr = ffi::PyObject_Repr(name_obj);
+    if !repr.is_null() {
+        let repr_utf8 = ffi::PyUnicode_AsUTF8(repr);
+        if !repr_utf8.is_null() {
+            let repr_text = std::ffi::CStr::from_ptr(repr_utf8).to_string_lossy();
+            let message = format!("name {repr_text} is not defined");
+            ffi::Py_DECREF(repr);
+            if let Ok(c_message) = CString::new(message) {
+                ffi::PyErr_SetString(ffi::PyExc_NameError, c_message.as_ptr());
+                return;
+            }
+        } else {
+            ffi::PyErr_Clear();
+        }
+        ffi::Py_DECREF(repr);
+    } else {
+        ffi::PyErr_Clear();
+    }
+    ffi::PyErr_SetString(
+        ffi::PyExc_NameError,
+        c"name is not defined".as_ptr(),
+    );
+}
+
+pub(crate) unsafe fn load_runtime_name_owned(name_obj: *mut ffi::PyObject) -> *mut ffi::PyObject {
+    if name_obj.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            c"invalid runtime name constant".as_ptr(),
+        );
+        return ptr::null_mut();
+    }
+    let runtime_module_name = c"soac.runtime".as_ptr();
+    let mut runtime_obj = ptr::null_mut();
+    let modules = ffi::PyImport_GetModuleDict();
+    if !modules.is_null() {
+        runtime_obj = ffi::PyDict_GetItemString(modules, runtime_module_name);
+        if !runtime_obj.is_null() {
+            ffi::Py_INCREF(runtime_obj);
+        }
+    }
+    if runtime_obj.is_null() {
+        runtime_obj = ffi::PyImport_ImportModule(runtime_module_name);
+    }
+    if runtime_obj.is_null() {
+        return ptr::null_mut();
+    }
+    let runtime_value = ffi::PyObject_GetAttr(runtime_obj, name_obj);
+    ffi::Py_DECREF(runtime_obj);
+    if !runtime_value.is_null() {
+        return runtime_value;
+    }
+    if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) == 0 {
+        return ptr::null_mut();
+    }
+    ffi::PyErr_Clear();
+    let is_builtins_name = {
+        let name_utf8 = ffi::PyUnicode_AsUTF8(name_obj);
+        !name_utf8.is_null() && unsafe { CStr::from_ptr(name_utf8) }.to_bytes() == b"builtins"
+    };
+    if is_builtins_name {
+        return ffi::PyImport_ImportModule(c"builtins".as_ptr());
+    }
+    let builtins_dict = ffi::PyEval_GetBuiltins();
+    if builtins_dict.is_null() {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            c"PyEval_GetBuiltins returned null".as_ptr(),
+        );
+        return ptr::null_mut();
+    }
+    let builtin_value = ffi::PyObject_GetItem(builtins_dict as *mut ffi::PyObject, name_obj);
+    if !builtin_value.is_null() {
+        return builtin_value;
+    }
+    if ffi::PyErr_ExceptionMatches(ffi::PyExc_KeyError) == 0 {
+        return ptr::null_mut();
+    }
+    ffi::PyErr_Clear();
+    raise_name_error_for_missing_name(name_obj);
+    ptr::null_mut()
 }
 
 #[derive(Default)]
@@ -368,7 +501,8 @@ impl ModuleConstantCollector {
         &self,
         call: &blockpy_intrinsics::Call<CodegenBlockPyExpr>,
     ) -> Option<Vec<u8>> {
-        if helper_name_for_codegen_expr(call.func.as_ref()) != Some("load_deleted_name")
+        if helper_name_for_codegen_expr(call.func.as_ref(), &self.constants)
+            != Some("load_deleted_name")
             || call.args.len() != 2
         {
             return None;
@@ -387,7 +521,7 @@ impl ModuleConstantCollector {
                     .map(ToOwned::to_owned)
             }),
             CodegenBlockPyExpr::Call(call) => {
-                if helper_name_for_codegen_expr(call.func.as_ref()) != Some("str")
+                if helper_name_for_codegen_expr(call.func.as_ref(), &self.constants) != Some("str")
                     || call.args.len() != 1
                     || !call.keywords.is_empty()
                 {
@@ -400,13 +534,21 @@ impl ModuleConstantCollector {
     }
 }
 
-fn helper_name_for_codegen_expr(expr: &CodegenBlockPyExpr) -> Option<&str> {
+fn helper_name_for_codegen_expr<'a>(
+    expr: &'a CodegenBlockPyExpr,
+    module_constants: &'a ModuleCodegenConstants,
+) -> Option<&'a str> {
     match expr {
         CodegenBlockPyExpr::Load(op)
             if op.name.location.is_global() || op.name.location.is_runtime_name() =>
         {
             Some(op.name.id.as_str())
         }
+        CodegenBlockPyExpr::Load(op) => op
+            .name
+            .location
+            .as_constant()
+            .and_then(|index| module_constants.constant_runtime_name_value(ModuleConstantId(index as usize))),
         _ => None,
     }
 }

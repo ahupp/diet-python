@@ -2751,12 +2751,14 @@ impl ModuleConstantExtractor {
     }
 
     fn extract_expr(&mut self, expr: &mut LocatedCoreBlockPyExpr) {
-        if matches!(expr, CoreBlockPyExpr::Literal(_)) {
+        if matches!(expr, CoreBlockPyExpr::Literal(_))
+            || matches!(expr, CoreBlockPyExpr::Load(op) if op.name.is_runtime_name())
+        {
             let meta = expr.meta();
             let index = u32::try_from(self.constants.len())
                 .expect("module constant count should fit in NameLocation::Constant");
-            let literal = std::mem::replace(expr, constant_location_expr(meta, index));
-            self.constants.push(literal);
+            let constant = std::mem::replace(expr, constant_location_expr(meta, index));
+            self.constants.push(constant);
             return;
         }
         if !matches!(expr, CoreBlockPyExpr::Literal(_)) {

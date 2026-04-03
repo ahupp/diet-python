@@ -5,7 +5,7 @@ use soac_blockpy::block_py::{
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBytesLiteral, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, LiteralValue, Load,
     LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen, NameLocation, Param, ParamKind, ParamSpec,
-    StorageLayout, Store, WithMeta,
+    StorageLayout, Store,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
@@ -224,11 +224,13 @@ mod tests {
     ) -> String {
         unsafe {
             let mut jit_module = new_jit_module().expect("test jit module should construct");
+            let module_constant_ptrs = placeholder_module_constant_ptrs(module_constants.len());
             let built = build_cranelift_run_bb_specialized_function(
                 &mut jit_module,
                 blocks,
                 function,
                 module_constants,
+                &module_constant_ptrs,
             )
             .expect("specialized JIT build should succeed");
             let (clif, _cfg_dot, _vcode_disasm) = render_compiled_clif_and_vcode_disasm(
@@ -694,8 +696,12 @@ mod tests {
             constants.module_constants,
         );
         assert!(
-            rendered.contains("call dp_jit_load_module_constant"),
-            "string literal lowering should load a module constant:\n{rendered}"
+            !rendered.contains("call dp_jit_load_module_constant"),
+            "string literal lowering should not call the module constant hook anymore:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("iconst.i64 4096"),
+            "string literal lowering should embed the immortal module constant pointer directly:\n{rendered}"
         );
         assert!(
             !rendered.contains("call dp_jit_decode_literal_bytes"),
@@ -720,8 +726,12 @@ mod tests {
         let rendered =
             render_test_jit_function_with_constants(&function, &blocks, &module_constants);
         assert!(
-            rendered.contains("call dp_jit_load_module_constant"),
-            "constant slot lowering should load through the module constant table:\n{rendered}"
+            !rendered.contains("call dp_jit_load_module_constant"),
+            "constant slot lowering should not call the module constant hook anymore:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("iconst.i64 4096"),
+            "constant slot lowering should embed the immortal module constant pointer directly:\n{rendered}"
         );
     }
 
@@ -806,7 +816,9 @@ mod tests {
             constants.module_constants,
         );
         assert!(
-            rendered.contains("store.i64") || rendered.contains("stack_store"),
+            rendered.contains("store.i64")
+                || rendered.contains("stack_store")
+                || rendered.contains("store notrap"),
             "assignment-backed JIT plans should update mirrored function-state slots:\n{rendered}"
         );
     }
@@ -823,8 +835,8 @@ mod tests {
         assert!(
             !rendered.contains("call dp_jit_function_globals")
                 && rendered.contains("call dp_jit_load_global_obj")
-                && rendered.contains("call dp_jit_load_module_constant"),
-            "global located names should load through vmctx-backed globals without a callable globals helper:\n{rendered}"
+                && !rendered.contains("call dp_jit_load_module_constant"),
+            "global located names should use vmctx-backed globals and pass the name object as an immediate constant:\n{rendered}"
         );
     }
 
@@ -1066,6 +1078,31 @@ mod tests {
         assert!(
             !rendered.contains("call dp_jit_load_deleted_name_obj"),
             "deleted-name lowering should inline the DELETED sentinel check in CLIF:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_constant_runtime_helper_calls_still_specialize() {
+        let blocks = [1usize as ObjPtr];
+        let function = with_single_test_block(
+            test_function(),
+            vec![],
+            ret_term(op_expr(Call::new(
+                name_expr(test_constant_name(0)),
+                vec![],
+                vec![],
+            ))),
+        );
+        let rendered = render_test_jit_function_with_module_constants(
+            &function,
+            &blocks,
+            vec![CoreBlockPyExpr::Load(Load::new(test_runtime_name("globals")))],
+        );
+        assert!(
+            !rendered.contains("call dp_jit_load_runtime_obj")
+                && !rendered.contains("call dp_jit_py_call_object")
+                && !rendered.contains("call dp_jit_py_call_with_kw"),
+            "constant-backed runtime helpers should still specialize instead of reloading or generic-calling:\n{rendered}"
         );
     }
 

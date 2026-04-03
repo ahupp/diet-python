@@ -1,4 +1,4 @@
-use crate::module_constants::{ModuleCodegenConstants, ModuleConstantId};
+use crate::module_constants::ModuleCodegenConstants;
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::ffi;
 use pyo3::prelude::*;
@@ -35,8 +35,8 @@ impl SharedModuleState {
         Some(function)
     }
 
-    pub fn lookup_module_constant(&self, constant_id: ModuleConstantId) -> Option<&Py<PyAny>> {
-        self.module_constant_objs.get(constant_id.0)
+    pub(crate) fn module_constant_ptrs(&self) -> Vec<*mut ffi::PyObject> {
+        self.module_constant_objs.iter().map(|obj| obj.as_ptr()).collect()
     }
 }
 

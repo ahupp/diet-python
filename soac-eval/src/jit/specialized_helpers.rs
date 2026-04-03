@@ -1,11 +1,12 @@
-use super::vmctx::JitModuleVmCtx;
-use crate::module_constants::ModuleConstantId;
 use cranelift_jit::JITBuilder;
 use libc;
 use pyo3::ffi;
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::OnceLock;
+
+#[cfg(not(test))]
+use crate::module_constants::{load_runtime_name_owned, raise_name_error_for_missing_name};
 
 unsafe extern "C" {
     static mut PyCell_Type: ffi::PyTypeObject;
@@ -90,32 +91,6 @@ unsafe extern "C" fn get_arg_item_hook(args: ObjPtr, index: i64) -> ObjPtr {
 }
 
 #[cfg(not(test))]
-unsafe fn raise_name_error_for_missing_name(name_obj: *mut ffi::PyObject) {
-    let repr = ffi::PyObject_Repr(name_obj);
-    if !repr.is_null() {
-        let repr_utf8 = ffi::PyUnicode_AsUTF8(repr);
-        if !repr_utf8.is_null() {
-            let repr_text = std::ffi::CStr::from_ptr(repr_utf8).to_string_lossy();
-            let message = format!("name {repr_text} is not defined");
-            ffi::Py_DECREF(repr);
-            if let Ok(c_message) = std::ffi::CString::new(message) {
-                ffi::PyErr_SetString(ffi::PyExc_NameError, c_message.as_ptr());
-                return;
-            }
-        } else {
-            ffi::PyErr_Clear();
-        }
-        ffi::Py_DECREF(repr);
-    } else {
-        ffi::PyErr_Clear();
-    }
-    ffi::PyErr_SetString(
-        ffi::PyExc_NameError,
-        b"name is not defined\0".as_ptr() as *const i8,
-    );
-}
-
-#[cfg(not(test))]
 unsafe fn load_global_obj_impl(globals_obj: ObjPtr, name_obj: *mut ffi::PyObject) -> ObjPtr {
     if globals_obj.is_null() || name_obj.is_null() {
         ffi::PyErr_SetString(
@@ -150,88 +125,6 @@ unsafe fn load_global_obj_impl(globals_obj: ObjPtr, name_obj: *mut ffi::PyObject
     ffi::PyErr_Clear();
     raise_name_error_for_missing_name(name_obj);
     ptr::null_mut()
-}
-
-#[cfg(not(test))]
-unsafe fn load_runtime_obj_impl(name_obj: *mut ffi::PyObject) -> ObjPtr {
-    if name_obj.is_null() {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"invalid arguments to dp_jit_load_runtime_obj\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-    let builtins_dict = ffi::PyEval_GetBuiltins();
-    if builtins_dict.is_null() {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"PyEval_GetBuiltins returned null\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-    let builtin_value = ffi::PyObject_GetItem(builtins_dict as *mut ffi::PyObject, name_obj);
-    if !builtin_value.is_null() {
-        return builtin_value as ObjPtr;
-    }
-    if ffi::PyErr_ExceptionMatches(ffi::PyExc_KeyError) == 0 {
-        return ptr::null_mut();
-    }
-    ffi::PyErr_Clear();
-    let runtime_module_name = b"soac.runtime\0".as_ptr() as *const i8;
-    let mut runtime_obj = ptr::null_mut();
-    let modules = ffi::PyImport_GetModuleDict();
-    if !modules.is_null() {
-        runtime_obj = ffi::PyDict_GetItemString(modules, runtime_module_name);
-        if !runtime_obj.is_null() {
-            ffi::Py_INCREF(runtime_obj);
-        }
-    }
-    if runtime_obj.is_null() {
-        runtime_obj = ffi::PyImport_ImportModule(runtime_module_name);
-    }
-    if runtime_obj.is_null() {
-        return ptr::null_mut();
-    }
-    let runtime_value = ffi::PyObject_GetAttr(runtime_obj, name_obj);
-    ffi::Py_DECREF(runtime_obj);
-    if !runtime_value.is_null() {
-        return runtime_value as ObjPtr;
-    }
-    if ffi::PyErr_ExceptionMatches(ffi::PyExc_AttributeError) == 0 {
-        return ptr::null_mut();
-    }
-    ffi::PyErr_Clear();
-    raise_name_error_for_missing_name(name_obj);
-    ptr::null_mut()
-}
-
-unsafe extern "C" fn load_module_constant_hook(vmctx: ObjPtr, index: i64) -> ObjPtr {
-    if vmctx.is_null() || index < 0 {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"invalid arguments to dp_jit_load_module_constant\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-    let vmctx = unsafe { &*(vmctx as *const JitModuleVmCtx) };
-    if vmctx.shared_module_state.is_null() {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"missing shared module state for dp_jit_load_module_constant\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    }
-    let shared_state = unsafe { &*vmctx.shared_module_state };
-    let Some(value) = shared_state.lookup_module_constant(ModuleConstantId(index as usize)) else {
-        ffi::PyErr_SetString(
-            ffi::PyExc_RuntimeError,
-            b"module constant index out of range\0".as_ptr() as *const i8,
-        );
-        return ptr::null_mut();
-    };
-    let obj = value.as_ptr();
-    unsafe { ffi::Py_INCREF(obj) };
-    obj as ObjPtr
 }
 
 unsafe fn resolve_function_object(callable: ObjPtr) -> ObjPtr {
@@ -846,7 +739,6 @@ mod test_only_export_stubs {
     panic_obj_export!(dp_jit_py_call_with_kw(callable: ObjPtr, args: ObjPtr, kw: ObjPtr));
     panic_obj_export!(dp_jit_get_raised_exception());
     panic_obj_export!(dp_jit_get_arg_item(args: ObjPtr, index: i64));
-    panic_obj_export!(dp_jit_load_module_constant(vmctx: ObjPtr, index: i64));
     panic_obj_export!(dp_jit_load_runtime_obj(name: ObjPtr));
     panic_obj_export!(dp_jit_function_closure_cell(callable: ObjPtr, slot: i64));
     panic_obj_export!(dp_jit_function_positional_default_obj(
@@ -919,14 +811,9 @@ pub unsafe extern "C" fn dp_jit_get_arg_item(args: ObjPtr, index: i64) -> ObjPtr
 }
 
 #[cfg(not(test))]
-pub unsafe extern "C" fn dp_jit_load_module_constant(vmctx: ObjPtr, index: i64) -> ObjPtr {
-    load_module_constant_hook(vmctx, index)
-}
-
-#[cfg(not(test))]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dp_jit_load_runtime_obj(name: ObjPtr) -> ObjPtr {
-    load_runtime_obj_impl(name as *mut ffi::PyObject)
+    load_runtime_name_owned(name as *mut ffi::PyObject) as ObjPtr
 }
 
 #[cfg(not(test))]
@@ -1248,10 +1135,6 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
         dp_jit_get_raised_exception as *const u8,
     );
     builder.symbol("dp_jit_get_arg_item", dp_jit_get_arg_item as *const u8);
-    builder.symbol(
-        "dp_jit_load_module_constant",
-        dp_jit_load_module_constant as *const u8,
-    );
     builder.symbol(
         "dp_jit_load_runtime_obj",
         dp_jit_load_runtime_obj as *const u8,

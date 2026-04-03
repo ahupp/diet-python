@@ -162,11 +162,6 @@ static DP_JIT_PY_CALL_WITH_KW_IMPORT: ImportSpec = ImportSpec::new(
 );
 static DP_JIT_GET_RAISED_EXCEPTION_IMPORT: ImportSpec =
     ImportSpec::new("dp_jit_get_raised_exception", &[], &[SigType::Pointer]);
-static DP_JIT_LOAD_MODULE_CONSTANT_IMPORT: ImportSpec = ImportSpec::new(
-    "dp_jit_load_module_constant",
-    &[SigType::Pointer, SigType::I64],
-    &[SigType::Pointer],
-);
 static DP_JIT_LOAD_GLOBAL_OBJ_IMPORT: ImportSpec = ImportSpec::new(
     "dp_jit_load_global_obj",
     &[SigType::Pointer, SigType::Pointer],
@@ -591,7 +586,7 @@ fn codegen_expr_const_string(
             module_constants.constant_string_value(ModuleConstantId(index as usize))
         }),
         CodegenBlockPyExpr::Call(call) => {
-            if codegen_expr_helper_name(call.func.as_ref()) != Some("str")
+            if codegen_expr_helper_name(call.func.as_ref(), module_constants) != Some("str")
                 || call.args.len() != 1
                 || !call.keywords.is_empty()
             {
@@ -606,13 +601,21 @@ fn codegen_expr_const_string(
     }
 }
 
-fn codegen_expr_helper_name(expr: &CodegenBlockPyExpr) -> Option<&str> {
+fn codegen_expr_helper_name<'a>(
+    expr: &'a CodegenBlockPyExpr,
+    module_constants: &'a ModuleCodegenConstants,
+) -> Option<&'a str> {
     match expr {
         CodegenBlockPyExpr::Load(op)
             if op.name.location.is_global() || op.name.location.is_runtime_name() =>
         {
             Some(op.name.id.as_str())
         }
+        CodegenBlockPyExpr::Load(op) => op
+            .name
+            .location
+            .as_constant()
+            .and_then(|index| module_constants.constant_runtime_name_value(ModuleConstantId(index as usize))),
         _ => None,
     }
 }
@@ -644,12 +647,12 @@ struct JitEmitConsts {
 
 struct JitEmitCtx<'mc> {
     module_constants: &'mc ModuleCodegenConstants,
+    module_constant_ptrs: &'mc [*mut ffi::PyObject],
     storage_layout: Option<StorageLayout>,
     incref_ref: ir::FuncRef,
     decref_ref: ir::FuncRef,
     py_call_positional_three_ref: ir::FuncRef,
     consts: JitEmitConsts,
-    load_module_constant_ref: ir::FuncRef,
     load_global_obj_ref: ir::FuncRef,
     load_runtime_obj_ref: ir::FuncRef,
     function_closure_cell_ref: ir::FuncRef,
@@ -948,35 +951,14 @@ fn step_null_block_args(ctx: &JitEmitCtx<'_>) -> Vec<ir::BlockArg> {
 fn emit_owned_module_constant_from_parts(
     fb: &mut FunctionBuilder<'_>,
     constant_id: ModuleConstantId,
-    load_module_constant_ref: ir::FuncRef,
-    vmctx_value: ir::Value,
-    step_null_block: ir::Block,
-    step_null_args: &[ir::Value],
+    module_constant_ptrs: &[*mut ffi::PyObject],
     ptr_ty: ir::Type,
-    i64_ty: ir::Type,
 ) -> ir::Value {
-    let null_ptr = fb.ins().iconst(ptr_ty, 0);
-    let constant_index = i64::try_from(constant_id.0)
-        .expect("module constant index should fit in direct JIT immediate");
-    let constant_index_val = fb.ins().iconst(i64_ty, constant_index);
-    let call_inst = fb
-        .ins()
-        .call(load_module_constant_ref, &[vmctx_value, constant_index_val]);
-    let constant_value = fb.inst_results(call_inst)[0];
-    let constant_is_null = fb
-        .ins()
-        .icmp(ir::condcodes::IntCC::Equal, constant_value, null_ptr);
-    let constant_ok_block = fb.create_block();
-    fb.append_block_param(constant_ok_block, ptr_ty);
-    fb.ins().brif(
-        constant_is_null,
-        step_null_block,
-        &block_arg_values(step_null_args),
-        constant_ok_block,
-        &[ir::BlockArg::Value(constant_value)],
-    );
-    fb.switch_to_block(constant_ok_block);
-    fb.block_params(constant_ok_block)[0]
+    let constant_ptr = module_constant_ptrs
+        .get(constant_id.0)
+        .copied()
+        .unwrap_or_else(|| panic!("missing module constant pointer for constant id {}", constant_id.0));
+    fb.ins().iconst(ptr_ty, constant_ptr as i64)
 }
 
 fn emit_owned_module_constant(
@@ -987,13 +969,15 @@ fn emit_owned_module_constant(
     emit_owned_module_constant_from_parts(
         fb,
         constant_id,
-        ctx.load_module_constant_ref,
-        ctx.consts.vmctx_value,
-        ctx.consts.step_null_block,
-        &ctx.consts.step_null_args,
+        ctx.module_constant_ptrs,
         ctx.consts.ptr_ty,
-        ctx.consts.i64_ty,
     )
+}
+
+fn placeholder_module_constant_ptrs(count: usize) -> Vec<*mut ffi::PyObject> {
+    (0..count)
+        .map(|index| (0x1000usize + index * 0x10) as *mut ffi::PyObject)
+        .collect()
 }
 
 fn emit_raw_cell_object_for_name(
@@ -1530,7 +1514,7 @@ fn emit_codegen_expr(
                 && simple_keywords.is_empty()
                 && simple_args.is_empty()
                 && matches!(
-                    codegen_expr_helper_name(call.func.as_ref()),
+                    codegen_expr_helper_name(call.func.as_ref(), ctx.module_constants),
                     Some("globals")
                 )
             {
@@ -1540,7 +1524,7 @@ fn emit_codegen_expr(
 
             if !has_unpack
                 && simple_keywords.is_empty()
-                && codegen_expr_helper_name(call.func.as_ref()) == Some("str")
+                && codegen_expr_helper_name(call.func.as_ref(), ctx.module_constants) == Some("str")
                 && simple_args.len() == 1
             {
                 if let Some(value) = codegen_expr_const_string(simple_args[0], ctx.module_constants)
@@ -1949,7 +1933,9 @@ fn emit_codegen_expr(
                 return fb.block_params(call_ok_block)[0];
             }
 
-            if let Some(func_name) = codegen_expr_helper_name(call.func.as_ref()) {
+            if let Some(func_name) =
+                codegen_expr_helper_name(call.func.as_ref(), ctx.module_constants)
+            {
                 if keywords.is_empty() && func_name == "str" && args.len() == 1 {
                     if let Some(value) = codegen_expr_const_string(args[0], ctx.module_constants) {
                         return emit_owned_module_constant(
@@ -3602,6 +3588,7 @@ fn build_cranelift_run_bb_specialized_function(
     blocks: &[ObjPtr],
     function: &BlockPyFunction<CodegenBlockPyPass>,
     module_constants: &ModuleCodegenConstants,
+    module_constant_ptrs: &[*mut ffi::PyObject],
 ) -> Result<BuiltSpecializedFunction, String> {
     let block_count = function.blocks.len();
     if block_count == 0 {
@@ -3612,6 +3599,13 @@ fn build_cranelift_run_bb_specialized_function(
             "specialized JIT block table length mismatch: {} != {}",
             blocks.len(),
             block_count
+        ));
+    }
+    if module_constant_ptrs.len() != module_constants.len() {
+        return Err(format!(
+            "specialized JIT module constant pointer length mismatch: {} != {}",
+            module_constant_ptrs.len(),
+            module_constants.len()
         ));
     }
 
@@ -3750,11 +3744,6 @@ fn build_cranelift_run_bb_specialized_function(
             &mut fb.func,
             &DP_JIT_GET_RAISED_EXCEPTION_IMPORT,
         );
-        let load_module_constant_ref = func_imports.get_or_panic(
-            jit_module,
-            &mut fb.func,
-            &DP_JIT_LOAD_MODULE_CONSTANT_IMPORT,
-        );
         let load_global_obj_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_LOAD_GLOBAL_OBJ_IMPORT);
         let load_runtime_obj_ref =
@@ -3833,12 +3822,8 @@ fn build_cranelift_run_bb_specialized_function(
                     let name_obj = emit_owned_module_constant_from_parts(
                         &mut fb,
                         module_constants.require_unicode_constant_id(param.name.as_str()),
-                        load_module_constant_ref,
-                        vmctx_value,
-                        entry_failure_block,
-                        &entry_failure_args,
+                        module_constant_ptrs,
                         ptr_ty,
-                        i64_ty,
                     );
                     let default_index_val = fb.ins().iconst(i64_ty, default_index as i64);
                     let default_inst = fb.ins().call(
@@ -3901,12 +3886,8 @@ fn build_cranelift_run_bb_specialized_function(
                     let name_obj = emit_owned_module_constant_from_parts(
                         &mut fb,
                         module_constants.require_unicode_constant_id(default_name),
-                        load_module_constant_ref,
-                        vmctx_value,
-                        entry_failure_block,
-                        &entry_failure_args,
+                        module_constant_ptrs,
                         ptr_ty,
-                        i64_ty,
                     );
                     let default_inst = fb
                         .ins()
@@ -4024,6 +4005,7 @@ fn build_cranelift_run_bb_specialized_function(
             let fast_step_null_args = Vec::new();
             let emit_ctx = JitEmitCtx {
                 module_constants,
+                module_constant_ptrs,
                 storage_layout: function.storage_layout().clone(),
                 incref_ref,
                 decref_ref,
@@ -4042,7 +4024,6 @@ fn build_cranelift_run_bb_specialized_function(
                     empty_tuple_const,
                     block_const,
                 },
-                load_module_constant_ref,
                 load_global_obj_ref,
                 load_runtime_obj_ref,
                 function_closure_cell_ref,
@@ -4213,11 +4194,13 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
 
     let builder = new_jit_builder()?;
     let mut jit_module = JITModule::new(builder);
+    let module_constant_ptrs = placeholder_module_constant_ptrs(module_constants.len());
     let built = build_cranelift_run_bb_specialized_function(
         &mut jit_module,
         blocks,
         function,
         module_constants,
+        &module_constant_ptrs,
     )?;
     let mut out = String::new();
     out.push_str("; import fn aliases (Cranelift display id -> symbol)\n");
@@ -4284,6 +4267,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     blocks: &[ObjPtr],
     function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
     module_constants: &ModuleCodegenConstants,
+    module_constant_ptrs: &[*mut ffi::PyObject],
 ) -> Result<ObjPtr, String> {
     let mut compiled = Box::new(CompiledSpecializedRunner {
         _jit_module: new_jit_module()?,
@@ -4294,6 +4278,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
         blocks,
         function,
         module_constants,
+        module_constant_ptrs,
     )?;
     let mut ctx = built.ctx;
     let main_id = built.main_id;

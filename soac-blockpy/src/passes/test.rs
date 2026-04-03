@@ -2,7 +2,7 @@ use crate::block_py::{BlockPyBindingKind, ClosureInit, ClosureSlot};
 use crate::block_py::{
     BlockPyCallableScopeKind, BlockPyCellBindingKind, BlockPyFunction, BlockPyModule,
     BlockPyNameLike, BlockTerm, Call, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
-    FunctionKind, ResolvedStorageBlock,
+    FunctionKind, LocatedName, NameLocation, ResolvedStorageBlock,
 };
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, ResolvedStorageBlockPyPass};
 use crate::{lower_python_to_blockpy_for_testing, LoweringResult};
@@ -137,6 +137,10 @@ fn count_occurrences(text: &str, needle: &str) -> usize {
     text.matches(needle).count()
 }
 
+fn function_uses_text(function: &BlockPyFunction<ResolvedStorageBlockPyPass>, needle: &str) -> bool {
+    function.blocks.iter().any(|block| block_uses_text(block, needle))
+}
+
 fn module_constant_text(module: &BlockPyModule<ResolvedStorageBlockPyPass>) -> String {
     module
         .module_constants
@@ -146,17 +150,36 @@ fn module_constant_text(module: &BlockPyModule<ResolvedStorageBlockPyPass>) -> S
         .join("\n")
 }
 
-fn runtime_call_by_name<'a, N: BlockPyNameLike>(
-    expr: &'a CoreBlockPyExpr<N>,
+fn function_or_constants_use_text(
+    module: &BlockPyModule<ResolvedStorageBlockPyPass>,
+    function: &BlockPyFunction<ResolvedStorageBlockPyPass>,
+    needle: &str,
+) -> bool {
+    function_uses_text(function, needle) || module_constant_text(module).contains(needle)
+}
+
+fn runtime_call_by_name<'a>(
+    module: &'a BlockPyModule<ResolvedStorageBlockPyPass>,
+    expr: &'a CoreBlockPyExpr<LocatedName>,
     name: &str,
-) -> Option<&'a Call<CoreBlockPyExpr<N>>> {
+) -> Option<&'a Call<CoreBlockPyExpr<LocatedName>>> {
     let CoreBlockPyExpr::Call(call) = expr else {
         return None;
     };
     let CoreBlockPyExpr::Load(load) = call.func.as_ref() else {
         return None;
     };
-    load.name.is_runtime_symbol(name).then_some(call)
+    if load.name.is_runtime_symbol(name) {
+        return Some(call);
+    }
+    let Some(constant_index) = load.name.location.as_constant() else {
+        return None;
+    };
+    let Some(CoreBlockPyExpr::Load(helper_load)) = module.module_constants.get(constant_index as usize)
+    else {
+        return None;
+    };
+    helper_load.name.is_runtime_symbol(name).then_some(call)
 }
 
 #[test]
@@ -191,15 +214,11 @@ def fmt(value):
 
     let fmt = lowered.bb_function("fmt");
     assert!(
-        fmt.blocks
-            .iter()
-            .any(|block| block_uses_text(block, "repr(")),
+        function_or_constants_use_text(lowered.bb_module(), fmt, "repr"),
         "{fmt:?}"
     );
     assert!(
-        fmt.blocks
-            .iter()
-            .any(|block| block_uses_text(block, "format(")),
+        function_or_constants_use_text(lowered.bb_module(), fmt, "format"),
         "{fmt:?}"
     );
 }
@@ -220,9 +239,7 @@ def fmt(value):
 
     let fmt = lowered.bb_function("fmt");
     assert!(
-        fmt.blocks
-            .iter()
-            .any(|block| block_uses_text(block, "templatelib_Interpolation")),
+        function_or_constants_use_text(lowered.bb_module(), fmt, "templatelib_Interpolation"),
         "{fmt:?}"
     );
     let constant_text = module_constant_text(lowered.bb_module());
@@ -251,6 +268,48 @@ def foo(a, b):
             .iter()
             .any(|block| matches!(block.term, BlockTerm::IfTerm(_))),
         "{foo:?}"
+    );
+}
+
+#[test]
+fn name_binding_lifts_runtime_helper_loads_into_module_constants() {
+    let source = r#"
+def f():
+    pass
+"#;
+
+    let bb_module = tracked_name_binding_module(source)
+        .expect("transform should succeed")
+        .expect("bb module should be available");
+    let make_function_index = bb_module
+        .module_constants
+        .iter()
+        .position(|expr| {
+            matches!(
+                expr,
+                CoreBlockPyExpr::Load(load)
+                    if load.name.is_runtime_name()
+                        && load.name.id_str() == "make_function"
+                        && load.name.location == NameLocation::RuntimeName
+            )
+        })
+        .unwrap_or_else(|| panic!("expected lifted make_function runtime load, got {bb_module:?}"));
+    let runtime_make_function = &bb_module.module_constants[make_function_index];
+    let CoreBlockPyExpr::Load(load) = runtime_make_function else {
+        unreachable!();
+    };
+    assert_eq!(load.name.location, NameLocation::RuntimeName, "{load:?}");
+
+    let module_init = function_by_name(&bb_module, "_dp_module_init");
+    let rendered_init = module_init
+        .blocks
+        .iter()
+        .flat_map(|block| block.body.iter().map(expr_text))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        rendered_init.contains(format!("constant slot {make_function_index}(").as_str()),
+        "expected module init to call through the extracted runtime constant slot:\n{rendered_init}"
     );
 }
 
@@ -342,8 +401,14 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        count_occurrences(name_binding_rendered.as_str(), "class_lookup_global(") >= 2,
-        "{name_binding_rendered}"
+        function_or_constants_use_text(
+            lowered.bb_module(),
+            lowered.bb_function("_dp_class_ns_Box"),
+            "class_lookup_global",
+        ),
+        "{}\n{}",
+        name_binding_rendered,
+        module_constant_text(lowered.bb_module())
     );
 }
 
@@ -370,8 +435,8 @@ def outer():
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered
-            .contains("SetItem(LocalLocation(0), constant slot 6, CapturedSource(0))"),
+        name_binding_rendered.contains("SetItem(LocalLocation(0), constant slot")
+            && name_binding_rendered.contains("CapturedSource(0)"),
         "{name_binding_rendered}"
     );
 }
@@ -389,8 +454,8 @@ def outer():
     let lowered = TrackedLowering::new(source);
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered
-            .contains("SetItem(LocalLocation(0), constant slot 6, CapturedSource(0))"),
+        name_binding_rendered.contains("SetItem(LocalLocation(0), constant slot")
+            && name_binding_rendered.contains("CapturedSource(0)"),
         "{name_binding_rendered}"
     );
 }
@@ -417,8 +482,10 @@ class Box:
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered.contains("SetItem(LocalLocation(0),")
-            && name_binding_rendered.contains("make_function("),
-        "{name_binding_rendered}"
+            && module_constant_text(lowered.bb_module()).contains("make_function"),
+        "{}\n{}",
+        name_binding_rendered,
+        module_constant_text(lowered.bb_module())
     );
 }
 
@@ -580,10 +647,12 @@ fn nested_method_dunder_class_capture_uses_classcell_storage() {
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("make_function(")
+        module_constant_text(lowered.bb_module()).contains("make_function")
             && name_binding_rendered.contains("constant slot")
             && name_binding_rendered.contains("CellRef(Owned(0))"),
-        "{name_binding_rendered}"
+        "{}\n{}",
+        name_binding_rendered,
+        module_constant_text(lowered.bb_module())
     );
 }
 
@@ -616,9 +685,11 @@ fn method_super_uses_cell_ref_marker_for_classcell() {
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("call_super(super,")
+        module_constant_text(lowered.bb_module()).contains("call_super")
             && name_binding_rendered.contains(", LocalLocation(0))"),
-        "{name_binding_rendered}"
+        "{}\n{}",
+        name_binding_rendered,
+        module_constant_text(lowered.bb_module())
     );
 }
 
@@ -1013,8 +1084,10 @@ class Box:
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered.contains("SetItem(LocalLocation(0),")
-            && name_binding_rendered.contains("contextmanager_enter("),
-        "{name_binding_rendered}"
+            && module_constant_text(lowered.bb_module()).contains("contextmanager_enter"),
+        "{}\n{}",
+        name_binding_rendered,
+        module_constant_text(lowered.bb_module())
     );
 }
 
@@ -1046,8 +1119,10 @@ def outer():
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered.contains("StoreLocation(CapturedSource(")
-            && name_binding_rendered.contains("contextmanager_enter("),
-        "{name_binding_rendered}"
+            && module_constant_text(lowered.bb_module()).contains("contextmanager_enter"),
+        "{}\n{}",
+        name_binding_rendered,
+        module_constant_text(lowered.bb_module())
     );
 }
 
@@ -1076,8 +1151,10 @@ class A:
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered.contains("SetItem(LocalLocation(0),")
-            && name_binding_rendered.contains("make_function("),
-        "{name_binding_rendered}"
+            && module_constant_text(lowered.bb_module()).contains("make_function"),
+        "{}\n{}",
+        name_binding_rendered,
+        module_constant_text(lowered.bb_module())
     );
 }
 
@@ -1384,9 +1461,12 @@ def gen():
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("exception_matches(CapturedSource(0), ValueError)")
+        function_or_constants_use_text(lowered.bb_module(), lowered.bb_function("gen"), "exception_matches")
+            && name_binding_rendered.contains("CapturedSource(")
             && !name_binding_rendered.contains("StoreName(\"_dp_eval_"),
-        "{name_binding_rendered}"
+        "{}\n{}",
+        name_binding_rendered,
+        module_constant_text(lowered.bb_module())
     );
     assert!(
         !name_binding_rendered.contains("del _dp_eval_"),
@@ -1452,8 +1532,10 @@ def f():
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
         name_binding_rendered.contains("StoreName(\"f\",")
-            && name_binding_rendered.contains("make_function("),
-        "{name_binding_rendered}"
+            && module_constant_text(lowered.bb_module()).contains("make_function"),
+        "{}\n{}",
+        name_binding_rendered,
+        module_constant_text(lowered.bb_module())
     );
 }
 
@@ -1680,9 +1762,11 @@ def f():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("load_deleted_name(constant slot")
-            && name_binding_rendered.contains("DELETED"),
-        "{name_binding_rendered}"
+        module_constant_text(lowered.bb_module()).contains("load_deleted_name")
+            && module_constant_text(lowered.bb_module()).contains("DELETED"),
+        "{}\n{}",
+        name_binding_rendered,
+        module_constant_text(lowered.bb_module())
     );
 }
 
@@ -1779,8 +1863,12 @@ def outer(x):
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("StoreLocation(LocalLocation(2), MakeCell(DELETED))"),
-        "{name_binding_rendered}"
+        name_binding_rendered.contains("StoreLocation(LocalLocation(2), MakeCell(")
+            && (name_binding_rendered.contains("MakeCell(DELETED)")
+                || name_binding_rendered.contains("MakeCell(constant slot")),
+        "{}\n{}",
+        name_binding_rendered,
+        module_constant_text(lowered.bb_module())
     );
     let name_binding_module = lowered
         .result
@@ -2133,10 +2221,7 @@ def check():
     let lowered = TrackedLowering::new(source);
     let check = lowered.bb_function("check");
     assert!(
-        check
-            .blocks
-            .iter()
-            .any(|block| block_uses_text(block, "raise_from")),
+        function_or_constants_use_text(lowered.bb_module(), check, "raise_from"),
         "{check:?}"
     );
     assert!(
@@ -2161,10 +2246,7 @@ def check():
     let lowered = TrackedLowering::new(source);
     let check = lowered.bb_function("check");
     assert!(
-        check
-            .blocks
-            .iter()
-            .any(|block| block_uses_text(block, "exception_matches")),
+        function_or_constants_use_text(lowered.bb_module(), check, "exception_matches"),
         "{check:?}"
     );
     assert!(
@@ -2186,10 +2268,7 @@ def check():
     let lowered = TrackedLowering::new(source);
     let check = lowered.bb_function("check");
     assert!(
-        check
-            .blocks
-            .iter()
-            .any(|block| block_uses_text(block, "exceptiongroup_split")),
+        function_or_constants_use_text(lowered.bb_module(), check, "exceptiongroup_split"),
         "{check:?}"
     );
 }
@@ -2204,17 +2283,11 @@ import pkg.sub as alias
 
     let module_init = lowered.bb_function("_dp_module_init");
     assert!(
-        module_init.blocks.iter().any(|block| {
-            block_uses_text(block, "import_(")
-                || block_uses_text(block, "load_global(globals(), \"import_\")")
-        }),
+        function_or_constants_use_text(lowered.bb_module(), module_init, "import_"),
         "{module_init:?}"
     );
     assert!(
-        module_init.blocks.iter().any(|block| {
-            block_uses_text(block, "import_attr")
-                || block_uses_text(block, "load_global(globals(), \"import_attr\")")
-        }),
+        function_or_constants_use_text(lowered.bb_module(), module_init, "import_attr"),
         "{module_init:?}"
     );
 }
@@ -2229,17 +2302,11 @@ from pkg.mod import name as alias
 
     let module_init = lowered.bb_function("_dp_module_init");
     assert!(
-        module_init.blocks.iter().any(|block| {
-            block_uses_text(block, "import_(")
-                || block_uses_text(block, "load_global(globals(), \"import_\")")
-        }),
+        function_or_constants_use_text(lowered.bb_module(), module_init, "import_"),
         "{module_init:?}"
     );
     assert!(
-        module_init.blocks.iter().any(|block| {
-            block_uses_text(block, "import_attr")
-                || block_uses_text(block, "load_global(globals(), \"import_attr\")")
-        }),
+        function_or_constants_use_text(lowered.bb_module(), module_init, "import_attr"),
         "{module_init:?}"
     );
 }
@@ -2254,10 +2321,7 @@ type Alias[T] = list[T]
 
     let module_init = lowered.bb_function("_dp_module_init");
     assert!(
-        module_init
-            .blocks
-            .iter()
-            .any(|block| block_uses_text(block, "typing_TypeAliasType")),
+        function_or_constants_use_text(lowered.bb_module(), module_init, "typing_TypeAliasType"),
         "{module_init:?}"
     );
 }
@@ -2540,15 +2604,11 @@ def run(items):
         .expect("bb module should be available");
     let run = function_by_name(&bb_module, "run");
     assert!(
-        run.blocks
-            .iter()
-            .any(|block| block_uses_text(block, "next_or_sentinel")),
+        function_or_constants_use_text(&bb_module, run, "next_or_sentinel"),
         "{run:?}"
     );
     assert!(
-        run.blocks
-            .iter()
-            .any(|block| block_uses_text(block, "iter")),
+        function_or_constants_use_text(&bb_module, run, "iter"),
         "{run:?}"
     );
     assert!(
@@ -2574,15 +2634,11 @@ async def run():
     let run = function_by_name(&bb_module, "run");
     let debug = format!("{run:?}");
     assert!(
-        run.blocks
-            .iter()
-            .any(|block| block_uses_text(block, "anext_or_sentinel")),
+        function_or_constants_use_text(&bb_module, run, "anext_or_sentinel"),
         "{run:?}"
     );
     assert!(
-        run.blocks
-            .iter()
-            .any(|block| block_uses_text(block, "aiter")),
+        function_or_constants_use_text(&bb_module, run, "aiter"),
         "{run:?}"
     );
     assert!(!debug.contains("_dp_completed_"), "{debug}");
@@ -2643,7 +2699,7 @@ def f():
         .expect("bb module should be available");
     let f = function_by_name(&bb_module, "f");
     assert!(
-        f.blocks.iter().any(|block| block_uses_text(block, "NONE")),
+        function_or_constants_use_text(&bb_module, f, "NONE"),
         "{f:?}"
     );
     assert!(
@@ -2815,7 +2871,7 @@ def make_counter(delta):
         panic!("visible generator factory should return a generator wrapper");
     };
     let closure_generator =
-        runtime_call_by_name(return_expr, "ClosureGenerator").expect("expected ClosureGenerator");
+        runtime_call_by_name(bb_module, return_expr, "ClosureGenerator").expect("expected ClosureGenerator");
     let resume_expr = closure_generator
         .keywords
         .iter()
@@ -2824,13 +2880,13 @@ def make_counter(delta):
             _ => None,
         })
         .expect("ClosureGenerator should carry a resume= keyword");
-    let make_function = runtime_call_by_name(resume_expr, "make_function")
+    let make_function = runtime_call_by_name(bb_module, resume_expr, "make_function")
         .expect("resume should use make_function");
     let captures_expr = match make_function.args.get(2) {
         Some(CoreBlockPyCallArg::Positional(expr)) => expr,
         other => panic!("expected captures positional arg, got {other:?}"),
     };
-    let captures_tuple = runtime_call_by_name(captures_expr, "tuple_values")
+    let captures_tuple = runtime_call_by_name(bb_module, captures_expr, "tuple_values")
         .expect("captures should be tuple_values");
     assert_eq!(
         captures_tuple.args.len(),
@@ -3076,9 +3132,7 @@ def f():
         .expect("bb module should be available");
     let f = function_by_name(&bb_module, "f");
     assert!(
-        f.blocks
-            .iter()
-            .any(|block| block_uses_text(block, "exceptiongroup_split")),
+        function_or_constants_use_text(&bb_module, f, "exceptiongroup_split"),
         "{f:?}"
     );
     assert!(
@@ -3100,7 +3154,17 @@ def f():
         .expect("bb module should be available");
     let f = function_by_name(&bb_module, "f");
     let debug = format!("{f:?}");
-    assert!(debug.contains("load_deleted_name"), "{debug}");
-    assert!(debug.contains("DELETED"), "{debug}");
+    assert!(
+        module_constant_text(&bb_module).contains("load_deleted_name"),
+        "{}\n{}",
+        debug,
+        module_constant_text(&bb_module)
+    );
+    assert!(
+        module_constant_text(&bb_module).contains("DELETED"),
+        "{}\n{}",
+        debug,
+        module_constant_text(&bb_module)
+    );
     assert!(!debug.contains("x = 1"), "{debug}");
 }
