@@ -46,6 +46,7 @@ enum EnumBroadcastTarget {
     HasMeta,
     WithMeta,
     MapExprChildren,
+    Debug,
 }
 
 impl EnumBroadcastTarget {
@@ -58,9 +59,10 @@ impl EnumBroadcastTarget {
             "HasMeta" => Ok(Self::HasMeta),
             "WithMeta" => Ok(Self::WithMeta),
             "MapExprChildren" => Ok(Self::MapExprChildren),
+            "Debug" => Ok(Self::Debug),
             _ => Err(syn::Error::new_spanned(
                 segment,
-                "unsupported enum_broadcast target; supported targets are HasMeta, WithMeta, and MapExprChildren",
+                "unsupported enum_broadcast target; supported targets are HasMeta, WithMeta, MapExprChildren, and Debug",
             )),
         }
     }
@@ -90,6 +92,26 @@ impl EnumBroadcastTarget {
                 Self::#variant_name(node) => node.map_children(&mut *f).into(),
             }
         });
+        let debug_arms = variants.iter().map(|variant| {
+            let variant_name = &variant.ident;
+            match variant_name.to_string().as_str() {
+                "Literal" => quote! {
+                    Self::#variant_name(node) => node.literal.fmt(f),
+                },
+                "Await" => quote! {
+                    Self::#variant_name(node) => write!(f, "await {:?}", node.value),
+                },
+                "Yield" => quote! {
+                    Self::#variant_name(node) => write!(f, "yield {:?}", node.value),
+                },
+                "YieldFrom" => quote! {
+                    Self::#variant_name(node) => write!(f, "yield from {:?}", node.value),
+                },
+                _ => quote! {
+                    Self::#variant_name(node) => node.fmt(f),
+                },
+            }
+        });
 
         match self {
             Self::HasMeta => quote! {
@@ -115,6 +137,15 @@ impl EnumBroadcastTarget {
                     fn map_children(self, f: &mut impl FnMut(Self) -> Self) -> Self {
                         match self {
                             #( #map_children_arms )*
+                        }
+                    }
+                }
+            },
+            Self::Debug => quote! {
+                impl #impl_generics std::fmt::Debug for #enum_name #ty_generics #where_clause {
+                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        match self {
+                            #( #debug_arms )*
                         }
                     }
                 }

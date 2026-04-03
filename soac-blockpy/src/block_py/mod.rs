@@ -540,7 +540,7 @@ impl<P: BlockPyPass, S> BlockPyModule<P, S> {
 }
 
 #[derive(Clone, derive_more::From)]
-#[enum_broadcast(HasMeta, WithMeta, MapExprChildren)]
+#[enum_broadcast(HasMeta, WithMeta, MapExprChildren, Debug)]
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -564,7 +564,7 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
 }
 
 #[derive(Clone, derive_more::From)]
-#[enum_broadcast(HasMeta, WithMeta, MapExprChildren)]
+#[enum_broadcast(HasMeta, WithMeta, MapExprChildren, Debug)]
 pub enum CoreBlockPyExprWithYield {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -587,7 +587,7 @@ pub enum CoreBlockPyExprWithYield {
 }
 
 #[derive(Clone, derive_more::From)]
-#[enum_broadcast(HasMeta, WithMeta, MapExprChildren)]
+#[enum_broadcast(HasMeta, WithMeta, MapExprChildren, Debug)]
 pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -610,7 +610,7 @@ pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
 pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 
 #[derive(Clone, derive_more::From)]
-#[enum_broadcast(HasMeta, WithMeta, MapExprChildren)]
+#[enum_broadcast(HasMeta, WithMeta, MapExprChildren, Debug)]
 pub enum CodegenBlockPyExpr {
     BinOp(BinOp<Self>),
     UnaryOp(UnaryOp<Self>),
@@ -627,102 +627,6 @@ pub enum CodegenBlockPyExpr {
     CellRefForName(CellRefForName),
     CellRef(CellRef),
     MakeFunction(MakeFunction<Self>),
-}
-
-impl fmt::Debug for CoreBlockPyExprWithAwaitAndYield {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Literal(node) => node.literal.fmt(f),
-            Self::BinOp(node) => node.fmt(f),
-            Self::UnaryOp(node) => node.fmt(f),
-            Self::Call(node) => node.fmt(f),
-            Self::GetAttr(node) => node.fmt(f),
-            Self::SetAttr(node) => node.fmt(f),
-            Self::GetItem(node) => node.fmt(f),
-            Self::SetItem(node) => node.fmt(f),
-            Self::DelItem(node) => node.fmt(f),
-            Self::Load(node) => node.fmt(f),
-            Self::Store(node) => node.fmt(f),
-            Self::Del(node) => node.fmt(f),
-            Self::MakeCell(node) => node.fmt(f),
-            Self::CellRefForName(node) => node.fmt(f),
-            Self::CellRef(node) => node.fmt(f),
-            Self::MakeFunction(node) => node.fmt(f),
-            Self::Await(node) => write!(f, "await {:?}", node.value),
-            Self::Yield(node) => write!(f, "yield {:?}", node.value),
-            Self::YieldFrom(node) => write!(f, "yield from {:?}", node.value),
-        }
-    }
-}
-
-impl fmt::Debug for CoreBlockPyExprWithYield {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Literal(node) => node.literal.fmt(f),
-            Self::BinOp(node) => node.fmt(f),
-            Self::UnaryOp(node) => node.fmt(f),
-            Self::Call(node) => node.fmt(f),
-            Self::GetAttr(node) => node.fmt(f),
-            Self::SetAttr(node) => node.fmt(f),
-            Self::GetItem(node) => node.fmt(f),
-            Self::SetItem(node) => node.fmt(f),
-            Self::DelItem(node) => node.fmt(f),
-            Self::Load(node) => node.fmt(f),
-            Self::Store(node) => node.fmt(f),
-            Self::Del(node) => node.fmt(f),
-            Self::MakeCell(node) => node.fmt(f),
-            Self::CellRefForName(node) => node.fmt(f),
-            Self::CellRef(node) => node.fmt(f),
-            Self::MakeFunction(node) => node.fmt(f),
-            Self::Yield(node) => write!(f, "yield {:?}", node.value),
-            Self::YieldFrom(node) => write!(f, "yield from {:?}", node.value),
-        }
-    }
-}
-
-impl<N: BlockPyNameLike> fmt::Debug for CoreBlockPyExpr<N> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Literal(node) => node.literal.fmt(f),
-            Self::BinOp(node) => node.fmt(f),
-            Self::UnaryOp(node) => node.fmt(f),
-            Self::Call(node) => node.fmt(f),
-            Self::GetAttr(node) => node.fmt(f),
-            Self::SetAttr(node) => node.fmt(f),
-            Self::GetItem(node) => node.fmt(f),
-            Self::SetItem(node) => node.fmt(f),
-            Self::DelItem(node) => node.fmt(f),
-            Self::Load(node) => node.fmt(f),
-            Self::Store(node) => node.fmt(f),
-            Self::Del(node) => node.fmt(f),
-            Self::MakeCell(node) => node.fmt(f),
-            Self::CellRefForName(node) => node.fmt(f),
-            Self::CellRef(node) => node.fmt(f),
-            Self::MakeFunction(node) => node.fmt(f),
-        }
-    }
-}
-
-impl fmt::Debug for CodegenBlockPyExpr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::BinOp(node) => node.fmt(f),
-            Self::UnaryOp(node) => node.fmt(f),
-            Self::Call(node) => node.fmt(f),
-            Self::GetAttr(node) => node.fmt(f),
-            Self::SetAttr(node) => node.fmt(f),
-            Self::GetItem(node) => node.fmt(f),
-            Self::SetItem(node) => node.fmt(f),
-            Self::DelItem(node) => node.fmt(f),
-            Self::Load(node) => node.fmt(f),
-            Self::Store(node) => node.fmt(f),
-            Self::Del(node) => node.fmt(f),
-            Self::MakeCell(node) => node.fmt(f),
-            Self::CellRefForName(node) => node.fmt(f),
-            Self::CellRef(node) => node.fmt(f),
-            Self::MakeFunction(node) => node.fmt(f),
-        }
-    }
 }
 
 #[derive(Clone)]
