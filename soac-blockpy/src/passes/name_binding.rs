@@ -1,7 +1,7 @@
 use crate::block_py::{
     build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_semantics,
     compute_storage_layout_from_semantics, core_runtime_positional_call_expr_with_meta,
-    runtime_symbol, BindingTarget, BlockArg, BlockPyAssign, BlockPyBindingKind,
+    literal_expr, runtime_symbol, BindingTarget, BlockArg, BlockPyAssign, BlockPyBindingKind,
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
     BlockPyCellBindingKind, BlockPyCellCaptureBinding, BlockPyClassBodyFallback,
     BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyLiteral, BlockPyModule,
@@ -31,14 +31,11 @@ fn core_string_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Literal(
-        BlockPyLiteral::StringLiteral(CoreStringLiteral {
-            node_index,
-            range,
-            value,
-        })
-        .into(),
-    )
+    literal_expr(BlockPyLiteral::StringLiteral(CoreStringLiteral {
+        node_index,
+        range,
+        value,
+    }))
 }
 
 fn core_int_expr(
@@ -47,17 +44,14 @@ fn core_int_expr(
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
     let text = value.to_string();
-    CoreBlockPyExpr::Literal(
-        BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
-            node_index,
-            range,
-            value: CoreNumberLiteralValue::Int(
-                ast::Int::from_str_radix(text.as_str(), 10, text.as_str())
-                    .expect("function id should round-trip through Int"),
-            ),
-        })
-        .into(),
-    )
+    literal_expr(BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+        node_index,
+        range,
+        value: CoreNumberLiteralValue::Int(
+            ast::Int::from_str_radix(text.as_str(), 10, text.as_str())
+                .expect("function id should round-trip through Int"),
+        ),
+    }))
 }
 
 fn globals_expr(

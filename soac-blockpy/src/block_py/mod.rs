@@ -650,32 +650,13 @@ impl From<BlockPyLiteral> for LiteralValue {
     }
 }
 
-impl From<BlockPyLiteral> for CoreBlockPyExprWithAwaitAndYield {
-    fn from(literal: BlockPyLiteral) -> Self {
-        Self::Literal(literal.into())
-    }
+pub(crate) fn literal_expr<E>(literal: BlockPyLiteral) -> E
+where
+    E: From<LiteralValue>,
+{
+    E::from(literal.into())
 }
 
-impl From<BlockPyLiteral> for CoreBlockPyExprWithYield {
-    fn from(literal: BlockPyLiteral) -> Self {
-        Self::Literal(literal.into())
-    }
-}
-
-impl<N: BlockPyNameLike> From<BlockPyLiteral> for CoreBlockPyExpr<N> {
-    fn from(literal: BlockPyLiteral) -> Self {
-        Self::Literal(literal.into())
-    }
-}
-
-impl From<BlockPyLiteral> for CodegenBlockPyExpr {
-    fn from(literal: BlockPyLiteral) -> Self {
-        Self::Literal(literal.into())
-    }
-}
-
-pub type CoreBlockPyLiteral = BlockPyLiteral;
-pub type CodegenBlockPyLiteral = BlockPyLiteral;
 impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
     type Mapped<T: Instr> = InstrName<T>;
 

@@ -1,5 +1,5 @@
 use crate::block_py::{
-    core_operation_expr, core_runtime_positional_call_expr_with_meta, operation,
+    core_operation_expr, core_runtime_positional_call_expr_with_meta, literal_expr, operation,
     BlockPyFunctionKind, BlockPyLiteral, BlockPyStmtFragmentBuilder,
     CoreBlockPyExprWithAwaitAndYield, CoreStringLiteral, Del, FunctionId, Instr, InstrName, Meta,
     Store, WithMeta,
@@ -21,14 +21,11 @@ fn string_literal_expr(
     range: TextRange,
     value: String,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    CoreBlockPyExprWithAwaitAndYield::Literal(
-        BlockPyLiteral::StringLiteral(CoreStringLiteral {
-            node_index,
-            range,
-            value,
-        })
-        .into(),
-    )
+    literal_expr(BlockPyLiteral::StringLiteral(CoreStringLiteral {
+        node_index,
+        range,
+        value,
+    }))
 }
 
 pub(crate) trait RuffToBlockPyExpr:
