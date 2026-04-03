@@ -92,6 +92,12 @@ impl EnumBroadcastTarget {
                 Self::#variant_name(node) => node.walk_map(&mut *f).into(),
             }
         });
+        let walk_arms = variants.iter().map(|variant| {
+            let variant_name = &variant.ident;
+            quote! {
+                Self::#variant_name(node) => node.walk(&mut *f),
+            }
+        });
         let walk_mut_arms = variants.iter().map(|variant| {
             let variant_name = &variant.ident;
             quote! {
@@ -143,6 +149,12 @@ impl EnumBroadcastTarget {
                     fn walk_map(self, f: &mut impl FnMut(Self) -> Self) -> Self {
                         match self {
                             #( #walk_map_arms )*
+                        }
+                    }
+
+                    fn walk(&self, f: &mut impl FnMut(&Self)) {
+                        match self {
+                            #( #walk_arms )*
                         }
                     }
 

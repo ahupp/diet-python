@@ -208,16 +208,7 @@ pub trait TryMapExpr<In, Out, Error> {
 pub trait Walkable<E>: Clone + fmt::Debug + Sized {
     fn walk_map(self, f: &mut impl FnMut(E) -> E) -> Self;
     fn walk_mut(&mut self, f: &mut impl FnMut(&mut E));
-
-    fn walk(&self, f: &mut impl FnMut(&E))
-    where
-        E: Clone,
-    {
-        let _ = self.clone().walk_map(&mut |child| {
-            f(&child);
-            child
-        });
-    }
+    fn walk(&self, f: &mut impl FnMut(&E));
 
     fn walk_try_map<Error>(self, f: &mut impl FnMut(E) -> Result<E, Error>) -> Result<Self, Error>
     where
@@ -310,6 +301,11 @@ impl Walkable<Expr> for Expr {
         let mut transformer = DirectChildTransformer(f);
         crate::transformer::walk_expr(&mut transformer, self);
     }
+
+    fn walk(&self, f: &mut impl FnMut(&Expr)) {
+        let mut cloned = self.clone();
+        cloned.walk_mut(&mut |expr| f(expr));
+    }
 }
 
 impl Instr for Expr {
@@ -370,6 +366,13 @@ impl Walkable<RuffExpr> for RuffExpr {
             let mut wrapped = RuffExpr(expr.clone());
             f(&mut wrapped);
             *expr = wrapped.0;
+        });
+    }
+
+    fn walk(&self, f: &mut impl FnMut(&RuffExpr)) {
+        self.0.walk(&mut |expr| {
+            let wrapped = RuffExpr(expr.clone());
+            f(&wrapped);
         });
     }
 }
@@ -728,6 +731,8 @@ impl<I: Instr> Walkable<I> for UnresolvedName {
     }
 
     fn walk_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+
+    fn walk(&self, _f: &mut impl FnMut(&I)) {}
 }
 
 impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {

@@ -74,6 +74,12 @@ macro_rules! define_operation {
                 let _ = &f;
                 define_operation!(@visit_expr_fields_mut self, f, $($raw_fields)*);
             }
+
+            fn walk(&self, f: &mut impl FnMut(&$expr_ty)) {
+                #[allow(unused_variables)]
+                let _ = &f;
+                define_operation!(@visit_expr_fields self, f, $($raw_fields)*);
+            }
         }
 
         impl<$expr_ty: Instr> InstrExprNode<$expr_ty> for $name<$expr_ty> {
@@ -171,6 +177,10 @@ macro_rules! define_operation {
             }
 
             fn walk_mut(&mut self, f: &mut impl FnMut(&mut E)) {
+                let _ = &f;
+            }
+
+            fn walk(&self, f: &mut impl FnMut(&E)) {
                 let _ = &f;
             }
         }

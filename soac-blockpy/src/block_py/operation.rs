@@ -158,6 +158,16 @@ impl<E: Instr> Walkable<E> for Call<E> {
             f(keyword.expr_mut());
         }
     }
+
+    fn walk(&self, f: &mut impl FnMut(&E)) {
+        f(&self.func);
+        for arg in &self.args {
+            f(arg.expr());
+        }
+        for keyword in &self.keywords {
+            f(keyword.expr());
+        }
+    }
 }
 
 impl<E: Instr> InstrExprNode<E> for Call<E> {
@@ -286,6 +296,8 @@ impl<I: Instr> Walkable<I> for Load<I> {
     }
 
     fn walk_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+
+    fn walk(&self, _f: &mut impl FnMut(&I)) {}
 }
 
 impl<I: Instr> InstrExprNode<I> for Load<I> {
@@ -374,6 +386,10 @@ impl<I: Instr> Walkable<I> for Store<I> {
     fn walk_mut(&mut self, f: &mut impl FnMut(&mut I)) {
         f(&mut self.value);
     }
+
+    fn walk(&self, f: &mut impl FnMut(&I)) {
+        f(&self.value);
+    }
 }
 
 impl<I: Instr> InstrExprNode<I> for Store<I> {
@@ -452,6 +468,8 @@ impl<I: Instr> Walkable<I> for Del<I> {
     }
 
     fn walk_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+
+    fn walk(&self, _f: &mut impl FnMut(&I)) {}
 }
 
 impl<I: Instr> InstrExprNode<I> for Del<I> {
