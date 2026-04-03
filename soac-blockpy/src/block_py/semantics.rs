@@ -425,9 +425,7 @@ impl BlockPyCallableSemanticInfo {
     }
 }
 
-pub(crate) trait BlockPySemanticExprNode {
-    fn walk_child_exprs(&self, _f: &mut impl FnMut(&Self)) {}
-
+pub(crate) trait BlockPySemanticExprNode: Walkable<Self> {
     fn root_name_id(&self) -> Option<&str> {
         None
     }
@@ -478,13 +476,6 @@ where
 }
 
 impl BlockPySemanticExprNode for Expr {
-    fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
-        let _ = self.clone().map_walk(&mut |child| {
-            f(&child);
-            child
-        });
-    }
-
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Expr::Name(name) => Some(name.id.as_str()),
@@ -538,13 +529,6 @@ impl BlockPySemanticExprNode for Expr {
 }
 
 impl BlockPySemanticExprNode for RuffExpr {
-    fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
-        let _ = self.clone().map_walk(&mut |child| {
-            f(&child);
-            child
-        });
-    }
-
     fn root_name_id(&self) -> Option<&str> {
         self.0.root_name_id()
     }
@@ -567,13 +551,6 @@ impl BlockPySemanticExprNode for RuffExpr {
 }
 
 impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
-    fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
-        let _ = self.clone().map_walk(&mut |child| {
-            f(&child);
-            child
-        });
-    }
-
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Call(call) => call.func.as_ref().root_name_id(),
@@ -630,13 +607,6 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
 }
 
 impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
-    fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
-        let _ = self.clone().map_walk(&mut |child| {
-            f(&child);
-            child
-        });
-    }
-
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Call(call) => call.func.as_ref().root_name_id(),
@@ -696,13 +666,6 @@ impl<N> BlockPySemanticExprNode for CoreBlockPyExpr<N>
 where
     N: BlockPyNameLike,
 {
-    fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
-        let _ = self.clone().map_walk(&mut |child| {
-            f(&child);
-            child
-        });
-    }
-
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Call(call) => call.func.as_ref().root_name_id(),
@@ -759,13 +722,6 @@ where
 }
 
 impl BlockPySemanticExprNode for super::CodegenBlockPyExpr {
-    fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
-        let _ = self.clone().map_walk(&mut |child| {
-            f(&child);
-            child
-        });
-    }
-
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Call(call) => call.func.as_ref().root_name_id(),

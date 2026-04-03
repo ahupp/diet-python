@@ -382,20 +382,6 @@ where
     applied
 }
 
-fn walk_helper_args<N: BlockPyNameLike + Clone>(
-    expr: &CoreBlockPyExpr<N>,
-    f: &mut impl FnMut(&CoreBlockPyExpr<N>),
-) {
-    expr.walk(f);
-}
-
-fn walk_helper_args_mut<N: BlockPyNameLike + Clone>(
-    expr: &mut CoreBlockPyExpr<N>,
-    f: &mut impl FnMut(&mut CoreBlockPyExpr<N>),
-) {
-    expr.walk_mut(f);
-}
-
 fn rewrite_deleted_name_loads_in_expr(
     expr: &mut CoreBlockPyExpr,
     semantic: &BlockPyCallableSemanticInfo,
@@ -476,7 +462,7 @@ fn rewrite_deleted_name_loads_in_expr(
         | CoreBlockPyExpr::SetItem(_)
         | CoreBlockPyExpr::DelItem(_)
         | CoreBlockPyExpr::MakeCell(_)
-        | CoreBlockPyExpr::MakeFunction(_) => walk_helper_args_mut(expr, &mut |arg| {
+        | CoreBlockPyExpr::MakeFunction(_) => expr.walk_mut(&mut |arg| {
             rewrite_deleted_name_loads_in_expr(
                 arg,
                 semantic,
@@ -700,7 +686,7 @@ fn cell_load_logical_name(
     let CoreBlockPyExpr::Load(op) = expr else {
         return None;
     };
-    logical_name_for_cell_bound_name(semantic, op.name.id_str())
+    logical_name_for_cell_bound_name(semantic, &op.name)
 }
 
 fn build_local_cell_init_assign(
@@ -861,8 +847,9 @@ fn logical_name_for_local_location(
 
 fn logical_name_for_cell_bound_name(
     semantic: &BlockPyCallableSemanticInfo,
-    name: &str,
+    name: &UnresolvedName,
 ) -> Option<String> {
+    let name = name.id_str();
     if semantic.is_cell_binding(name) {
         return Some(name.to_string());
     }
@@ -881,7 +868,7 @@ fn store_cell_deleted_logical_name(
     if !is_deleted_sentinel_expr(&op.value) {
         return None;
     }
-    logical_name_for_cell_bound_name(semantic, op.name.id_str())
+    logical_name_for_cell_bound_name(semantic, &op.name)
 }
 
 fn del_deref_logical_name(
@@ -895,7 +882,7 @@ fn del_deref_logical_name(
     if op.quietly {
         return None;
     }
-    logical_name_for_cell_bound_name(semantic, op.name.id_str())
+    logical_name_for_cell_bound_name(semantic, &op.name)
 }
 
 fn store_cell_runtime_logical_name(
@@ -909,7 +896,7 @@ fn store_cell_runtime_logical_name(
     if is_deleted_sentinel_expr(&op.value) {
         return None;
     }
-    logical_name_for_cell_bound_name(semantic, op.name.id_str())
+    logical_name_for_cell_bound_name(semantic, &op.name)
 }
 
 struct NameBindingMapper<'a> {
@@ -1367,7 +1354,7 @@ fn rewrite_raw_cell_loads_in_expr(
                     }
                 }
             }
-            walk_helper_args_mut(expr, &mut |arg| {
+            expr.walk_mut(&mut |arg| {
                 rewrite_raw_cell_loads_in_expr(arg, semantic, resolver)
             });
         }
@@ -2229,7 +2216,7 @@ fn collect_make_function_callee_ids_in_expr(expr: &CoreBlockPyExpr, out: &mut Ve
             out.push(op.function_id);
         }
         _ => {
-            walk_helper_args(expr, &mut |arg| {
+            expr.walk(&mut |arg| {
                 collect_make_function_callee_ids_in_expr(arg, out)
             });
         }
@@ -2813,7 +2800,7 @@ impl ModuleConstantExtractor {
             return;
         }
         if !matches!(expr, CoreBlockPyExpr::Literal(_)) {
-            walk_helper_args_mut(expr, &mut |child| self.extract_expr(child));
+            expr.walk_mut(&mut |child| self.extract_expr(child));
         }
     }
 }

@@ -275,7 +275,7 @@ where
     expr.walk_root_defined_names(&mut |name| {
         names.insert(name.to_string());
     });
-    expr.walk_child_exprs(&mut |child| {
+    expr.walk(&mut |child| {
         collect_named_expr_target_names(child, names);
     });
 }

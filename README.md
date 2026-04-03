@@ -169,6 +169,14 @@ Use C API for operators:
   - JIT transformed is 3.37% of stock throughput
 
 
+2026-04-03: refcounting as native cranelift functions
+
+  - JIT/transformed: 105,083 loops/s
+  - Stock CPython: 830,761 loops/s
+
+  So the current transformed/JIT path is about 0.126x stock, or equivalently
+  stock CPython is about 7.9x faster.
+
 # Design
 
 Dropping to basic block format:
