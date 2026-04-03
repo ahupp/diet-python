@@ -1,7 +1,7 @@
 use crate::block_py::{
-    core_operation_expr, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyModuleMap,
-    CodegenBlockPyExpr, HasMeta, InstrExprNode, LiteralValue, Load, LocatedCoreBlockPyExpr,
-    LocatedName, MapExpr, NameLocation, WithMeta,
+    core_operation_expr, BlockPyFunction, BlockPyModule, BlockPyModuleMap, CodegenBlockPyExpr,
+    HasMeta, InstrExprNode, LiteralValue, Load, LocatedCoreBlockPyExpr, LocatedName, MapExpr,
+    NameLocation, WithMeta,
 };
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use std::cell::RefCell;
@@ -29,14 +29,11 @@ struct CodegenExprNormalizer {
 }
 
 impl CodegenExprNormalizer {
-    fn push_module_constant(&self, literal: BlockPyLiteral) -> u32 {
+    fn push_module_constant(&self, literal: LiteralValue) -> u32 {
         let mut module_constants = self.module_constants.borrow_mut();
         let index =
             u32::try_from(module_constants.len()).expect("module constant count should fit in u32");
-        let meta = literal.meta();
-        module_constants.push(LocatedCoreBlockPyExpr::Literal(
-            LiteralValue::new(literal).with_meta(meta),
-        ));
+        module_constants.push(LocatedCoreBlockPyExpr::Literal(literal));
         index
     }
 }
@@ -46,7 +43,7 @@ impl MapExpr<LocatedCoreBlockPyExpr, CodegenBlockPyExpr> for CodegenExprNormaliz
         match expr {
             LocatedCoreBlockPyExpr::Literal(literal) => {
                 let meta = literal.meta();
-                let constant_index = self.push_module_constant(literal.into_literal());
+                let constant_index = self.push_module_constant(literal);
                 core_operation_expr(
                     Load::new(LocatedName {
                         id: format!("__dp_constant_{constant_index}").into(),

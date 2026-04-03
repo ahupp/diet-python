@@ -1,7 +1,4 @@
-use super::{
-    BlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral, CoreStringLiteral, RuffExpr,
-    UnresolvedName,
-};
+use super::RuffExpr;
 use ruff_python_ast::{self as ast, HasNodeIndex};
 use ruff_text_size::{Ranged, TextRange};
 
@@ -45,89 +42,5 @@ where
 impl HasMeta for RuffExpr {
     fn meta(&self) -> Meta {
         self.0.meta()
-    }
-}
-
-impl HasMeta for UnresolvedName {
-    fn meta(&self) -> Meta {
-        match self {
-            Self::ExprName(name) => Meta::new(name.node_index.clone(), name.range),
-            Self::RuntimeName(name) => Meta::new(name.node_index.clone(), name.range),
-        }
-    }
-}
-
-impl HasMeta for BlockPyLiteral {
-    fn meta(&self) -> Meta {
-        match self {
-            Self::StringLiteral(literal) => literal.meta(),
-            Self::BytesLiteral(literal) => literal.meta(),
-            Self::NumberLiteral(literal) => literal.meta(),
-        }
-    }
-}
-
-impl HasMeta for CoreStringLiteral {
-    fn meta(&self) -> Meta {
-        Meta::new(self.node_index.clone(), self.range)
-    }
-}
-
-impl HasMeta for CoreBytesLiteral {
-    fn meta(&self) -> Meta {
-        Meta::new(self.node_index.clone(), self.range)
-    }
-}
-
-impl HasMeta for CoreNumberLiteral {
-    fn meta(&self) -> Meta {
-        Meta::new(self.node_index.clone(), self.range)
-    }
-}
-
-impl WithMeta for UnresolvedName {
-    fn with_meta(self, meta: Meta) -> Self {
-        match self {
-            Self::ExprName(mut name) => {
-                name.node_index = meta.node_index;
-                name.range = meta.range;
-                Self::ExprName(name)
-            }
-            Self::RuntimeName(literal) => Self::RuntimeName(literal.with_meta(meta)),
-        }
-    }
-}
-
-impl WithMeta for CoreStringLiteral {
-    fn with_meta(mut self, meta: Meta) -> Self {
-        self.node_index = meta.node_index;
-        self.range = meta.range;
-        self
-    }
-}
-
-impl WithMeta for CoreBytesLiteral {
-    fn with_meta(mut self, meta: Meta) -> Self {
-        self.node_index = meta.node_index;
-        self.range = meta.range;
-        self
-    }
-}
-
-impl WithMeta for CoreNumberLiteral {
-    fn with_meta(mut self, meta: Meta) -> Self {
-        self.node_index = meta.node_index;
-        self.range = meta.range;
-        self
-    }
-}
-
-impl WithMeta for BlockPyLiteral {
-    fn with_meta(self, meta: Meta) -> Self {
-        match self {
-            Self::StringLiteral(literal) => Self::StringLiteral(literal.with_meta(meta)),
-            Self::BytesLiteral(literal) => Self::BytesLiteral(literal.with_meta(meta)),
-            Self::NumberLiteral(literal) => Self::NumberLiteral(literal.with_meta(meta)),
-        }
     }
 }

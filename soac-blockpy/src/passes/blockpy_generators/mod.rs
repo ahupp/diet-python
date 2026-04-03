@@ -183,16 +183,16 @@ fn unresolved_store_stmt<E>(target: UnresolvedName, value: E) -> E
 where
     E: Instr<Name = UnresolvedName> + From<Store<E>>,
 {
-    let meta = target.meta();
-    Store::new(target, Box::new(value)).with_meta(meta).into()
+    Store::new(target, Box::new(value))
+        .with_meta(Meta::synthetic())
+        .into()
 }
 
 fn unresolved_load_expr<E>(name: UnresolvedName) -> E
 where
     E: Instr<Name = UnresolvedName> + From<Load<E>>,
 {
-    let meta = name.meta();
-    Load::new(name).with_meta(meta).into()
+    Load::new(name).with_meta(Meta::synthetic()).into()
 }
 
 fn collect_state_vars<E>(

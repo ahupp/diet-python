@@ -237,13 +237,8 @@ fn current_exception_name_expr_with_await_and_yield(
     let range = compat_range();
     let node_index = compat_node_index();
     CoreBlockPyExprWithAwaitAndYield::Load(
-        Load::<CoreBlockPyExprWithAwaitAndYield>::new(ast::ExprName {
-            id: exc_name.into(),
-            ctx: ast::ExprContext::Load,
-            range,
-            node_index: node_index.clone(),
-        })
-        .with_meta(Meta::new(node_index, range)),
+        Load::<CoreBlockPyExprWithAwaitAndYield>::new(ast::name::Name::new(exc_name))
+            .with_meta(Meta::new(node_index, range)),
     )
 }
 

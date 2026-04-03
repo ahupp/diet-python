@@ -42,6 +42,12 @@ because it should affect engineering decisions:
    only by tests, either update the tests to the production path or
    delete them.
 
+4. Keep payload nodes context-free.  Nested IR payloads like names and
+   literals should represent only the payload itself; operation kind
+   and source metadata belong on the enclosing IR node such as
+   `Load`/`Store`/`Del` or `LiteralValue`, not duplicated inside the
+   payload.
+
 6. Avoid global mutable state; if needed there should be a single
    global structure and then all consumers take that structure rather
    than directly accessing the global.

@@ -20,11 +20,7 @@ fn string_literal_expr(
     range: TextRange,
     value: String,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    literal_expr(CoreStringLiteral {
-        node_index,
-        range,
-        value,
-    })
+    literal_expr(CoreStringLiteral { value }, Meta::new(node_index, range))
 }
 
 pub(crate) trait RuffToBlockPyExpr:

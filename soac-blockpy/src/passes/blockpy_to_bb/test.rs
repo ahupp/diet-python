@@ -97,11 +97,12 @@ fn core_call_expr(name: &str, args: Vec<LocatedCoreBlockPyExpr>) -> LocatedCoreB
 }
 
 fn core_string_expr(value: &str) -> LocatedCoreBlockPyExpr {
-    literal_expr(CoreStringLiteral {
-        node_index: ast::AtomicNodeIndex::default(),
-        range: TextRange::default(),
-        value: value.to_string(),
-    })
+    literal_expr(
+        CoreStringLiteral {
+            value: value.to_string(),
+        },
+        crate::block_py::Meta::synthetic(),
+    )
 }
 
 #[test]
@@ -149,11 +150,12 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         term: BlockPyTerm::Return(
             GetAttr::new(
                 core_call_expr("current_exception", Vec::new()),
-                literal_expr::<LocatedCoreBlockPyExpr>(CoreStringLiteral {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    value: "value".to_string(),
-                }),
+                literal_expr::<LocatedCoreBlockPyExpr>(
+                    CoreStringLiteral {
+                        value: "value".to_string(),
+                    },
+                    crate::block_py::Meta::synthetic(),
+                ),
             )
             .with_meta(crate::block_py::Meta::new(
                 ast::AtomicNodeIndex::default(),
@@ -190,7 +192,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         CoreBlockPyExpr::Literal(literal)
             if matches!(
                 literal.as_literal(),
-                BlockPyLiteral::StringLiteral(CoreStringLiteral { value, .. }) if value == "value"
+                BlockPyLiteral::StringLiteral(CoreStringLiteral { value }) if value == "value"
             )
     ));
 }

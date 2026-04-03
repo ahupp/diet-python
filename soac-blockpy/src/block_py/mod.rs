@@ -214,7 +214,7 @@ pub trait Instr: Clone + fmt::Debug + Sized {
     type Name: BlockPyNameLike;
 }
 
-pub trait InstrExprNode<I>: Sized + HasMeta + WithMeta
+pub trait InstrExprNode<I>: Sized
 where
     I: Instr,
 {
@@ -279,8 +279,8 @@ impl Instr for Expr {
 
 #[derive(Clone)]
 pub enum UnresolvedName {
-    ExprName(ast::ExprName),
-    RuntimeName(CoreStringLiteral),
+    SourceName(ast::name::Name),
+    RuntimeName(ast::name::Name),
 }
 
 impl fmt::Debug for UnresolvedName {
@@ -292,8 +292,7 @@ impl fmt::Debug for UnresolvedName {
 impl BlockPyNameLike for UnresolvedName {
     fn id_str(&self) -> &str {
         match self {
-            Self::ExprName(name) => name.id.as_str(),
-            Self::RuntimeName(name) => name.value.as_str(),
+            Self::SourceName(name) | Self::RuntimeName(name) => name.as_str(),
         }
     }
 
@@ -304,20 +303,20 @@ impl BlockPyNameLike for UnresolvedName {
 
 impl From<ast::ExprName> for UnresolvedName {
     fn from(value: ast::ExprName) -> Self {
-        Self::ExprName(value)
+        Self::SourceName(value.id)
+    }
+}
+
+impl From<ast::name::Name> for UnresolvedName {
+    fn from(value: ast::name::Name) -> Self {
+        Self::SourceName(value)
     }
 }
 
 impl UnresolvedName {
-    pub fn into_expr_name(self) -> ast::ExprName {
+    pub fn name(self) -> ast::name::Name {
         match self {
-            Self::ExprName(name) => name,
-            Self::RuntimeName(name) => ast::ExprName {
-                id: name.value.into(),
-                ctx: ast::ExprContext::Load,
-                range: name.range,
-                node_index: name.node_index,
-            },
+            Self::SourceName(name) | Self::RuntimeName(name) => name,
         }
     }
 }
@@ -391,9 +390,12 @@ impl From<ast::ExprName> for LocatedName {
 impl From<UnresolvedName> for LocatedName {
     fn from(value: UnresolvedName) -> Self {
         match value {
-            UnresolvedName::ExprName(name) => Self::from(name),
-            UnresolvedName::RuntimeName(name) => Self {
-                id: name.value.into(),
+            UnresolvedName::SourceName(id) => Self {
+                id,
+                location: NameLocation::Global,
+            },
+            UnresolvedName::RuntimeName(id) => Self {
+                id,
                 location: NameLocation::RuntimeName,
             },
         }
@@ -662,13 +664,15 @@ impl LiteralValue {
     }
 }
 
-pub(crate) fn literal_expr<E>(literal: impl Into<BlockPyLiteral>) -> E
+pub(crate) fn literal_value(literal: impl Into<BlockPyLiteral>, meta: Meta) -> LiteralValue {
+    LiteralValue::new(literal.into()).with_meta(meta)
+}
+
+pub(crate) fn literal_expr<E>(literal: impl Into<BlockPyLiteral>, meta: Meta) -> E
 where
     E: From<LiteralValue>,
 {
-    let literal = literal.into();
-    let meta = literal.meta();
-    E::from(LiteralValue::new(literal).with_meta(meta))
+    E::from(literal_value(literal, meta))
 }
 
 impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
@@ -727,8 +731,6 @@ impl<I: Instr> InstrExprNode<I> for BlockPyLiteral {
 
 #[derive(Clone)]
 pub struct CoreStringLiteral {
-    pub node_index: ast::AtomicNodeIndex,
-    pub range: ruff_text_size::TextRange,
     pub value: String,
 }
 
@@ -740,8 +742,6 @@ impl fmt::Debug for CoreStringLiteral {
 
 #[derive(Clone)]
 pub struct CoreBytesLiteral {
-    pub node_index: ast::AtomicNodeIndex,
-    pub range: ruff_text_size::TextRange,
     pub value: Vec<u8>,
 }
 
@@ -753,8 +753,6 @@ impl fmt::Debug for CoreBytesLiteral {
 
 #[derive(Clone)]
 pub struct CoreNumberLiteral {
-    pub node_index: ast::AtomicNodeIndex,
-    pub range: ruff_text_size::TextRange,
     pub value: CoreNumberLiteralValue,
 }
 
@@ -820,14 +818,9 @@ pub(crate) fn core_named_call_expr_with_meta<E>(
 where
     E: Instr<Name = UnresolvedName> + From<Call<E>> + From<Load<E>>,
 {
-    let func = Load::new(UnresolvedName::from(ExprName {
-        id: func_name.into(),
-        ctx: ast::ExprContext::Load,
-        range,
-        node_index: node_index.clone(),
-    }))
-    .with_meta(Meta::new(node_index.clone(), range))
-    .into();
+    let func = Load::new(ast::name::Name::new(func_name))
+        .with_meta(Meta::new(node_index.clone(), range))
+        .into();
     core_call_expr_with_meta(func, node_index, range, args, keywords)
 }
 
@@ -839,10 +832,7 @@ pub(crate) fn core_runtime_name_expr_with_meta<E>(
 where
     E: Instr<Name = UnresolvedName> + From<Load<E>>,
 {
-    core_operation_expr(
-        Load::new(runtime_symbol(name, node_index.clone(), range))
-            .with_meta(Meta::new(node_index, range)),
-    )
+    core_operation_expr(Load::new(runtime_symbol(name)).with_meta(Meta::new(node_index, range)))
 }
 
 pub(crate) fn core_operation_expr<E>(operation: impl Into<E>) -> E {
@@ -903,16 +893,8 @@ where
     )
 }
 
-pub(crate) fn runtime_symbol(
-    name: &str,
-    node_index: ast::AtomicNodeIndex,
-    range: ruff_text_size::TextRange,
-) -> UnresolvedName {
-    UnresolvedName::RuntimeName(CoreStringLiteral {
-        node_index,
-        range,
-        value: name.to_string(),
-    })
+pub(crate) fn runtime_symbol(name: &str) -> UnresolvedName {
+    UnresolvedName::RuntimeName(name.into())
 }
 
 #[derive(Debug, Clone)]

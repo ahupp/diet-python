@@ -57,35 +57,26 @@ mod tests {
     fn int_literal(value: i64) -> LocatedCoreBlockPyExpr {
         let value_str = value.to_string();
         let literal = BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
-            node_index: Default::default(),
-            range: Default::default(),
             value: CoreNumberLiteralValue::Int(
                 ast::Int::from_str_radix(value_str.as_str(), 10, value_str.as_str())
                     .expect("test integer literal should parse"),
             ),
         });
-        let meta = literal.meta();
-        CoreBlockPyExpr::Literal(LiteralValue::new(literal).with_meta(meta))
+        CoreBlockPyExpr::Literal(LiteralValue::new(literal).with_meta(Meta::synthetic()))
     }
 
     fn bytes_literal(value: &[u8]) -> LocatedCoreBlockPyExpr {
         let literal = BlockPyLiteral::BytesLiteral(CoreBytesLiteral {
-            node_index: Default::default(),
-            range: Default::default(),
             value: value.to_vec(),
         });
-        let meta = literal.meta();
-        CoreBlockPyExpr::Literal(LiteralValue::new(literal).with_meta(meta))
+        CoreBlockPyExpr::Literal(LiteralValue::new(literal).with_meta(Meta::synthetic()))
     }
 
     fn string_literal(value: &str) -> LocatedCoreBlockPyExpr {
         let literal = BlockPyLiteral::StringLiteral(CoreStringLiteral {
-            node_index: Default::default(),
-            range: Default::default(),
             value: value.to_string(),
         });
-        let meta = literal.meta();
-        CoreBlockPyExpr::Literal(LiteralValue::new(literal).with_meta(meta))
+        CoreBlockPyExpr::Literal(LiteralValue::new(literal).with_meta(Meta::synthetic()))
     }
 
     #[derive(Default)]
@@ -95,11 +86,12 @@ mod tests {
 
     impl TestConstantPool {
         fn push_literal(&mut self, literal: LocatedCoreBlockPyExpr) -> CodegenBlockPyExpr {
-            let meta = literal.meta();
             let index = u32::try_from(self.module_constants.len())
                 .expect("test module constant count should fit in u32");
             self.module_constants.push(literal);
-            Load::new(test_constant_name(index)).with_meta(meta).into()
+            Load::new(test_constant_name(index))
+                .with_meta(Meta::synthetic())
+                .into()
         }
 
         fn int_expr(&mut self, value: i64) -> CodegenBlockPyExpr {

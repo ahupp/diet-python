@@ -141,11 +141,10 @@ fn getattr_expr_with_meta(
     value: CoreBlockPyExprWithAwaitAndYield,
     attr: String,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    let attr_expr = literal_expr(CoreStringLiteral {
-        node_index: node_index.clone(),
-        range,
-        value: attr,
-    });
+    let attr_expr = literal_expr(
+        CoreStringLiteral { value: attr },
+        Meta::new(node_index.clone(), range),
+    );
     core_operation_expr_with_meta(
         operation::GetAttr::new(Box::new(value), Box::new(attr_expr)),
         node_index,
@@ -366,15 +365,10 @@ fn non_operator_operation_from_helper_call(
     let meta = Meta::new(node_index, range);
     let operation = match name {
         "store_global" => operation::Store::new(
-            ast::ExprName {
-                id: {
-                    let _globals = args.next()?;
-                    string_arg_from_core_expr(args.next()?)?.into()
-                },
-                ctx: ast::ExprContext::Store,
-                node_index: meta.node_index.clone(),
-                range: meta.range,
-            },
+            ast::name::Name::new({
+                let _globals = args.next()?;
+                string_arg_from_core_expr(args.next()?)?
+            }),
             Box::new(args.next()?),
         )
         .with_meta(meta)
@@ -533,30 +527,33 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                 CoreBlockPyYieldFrom::new(Self::from(*node.value))
                     .with_meta(Meta::new(node.node_index, node.range)),
             ),
-            Expr::StringLiteral(node) => literal_expr(CoreStringLiteral {
-                node_index: node.node_index,
-                range: node.range,
-                value: node.value.to_str().to_string(),
-            }),
-            Expr::BytesLiteral(node) => literal_expr(CoreBytesLiteral {
-                node_index: node.node_index,
-                range: node.range,
-                value: {
-                    let value: std::borrow::Cow<[u8]> = (&node.value).into();
-                    value.into_owned()
+            Expr::StringLiteral(node) => literal_expr(
+                CoreStringLiteral {
+                    value: node.value.to_str().to_string(),
                 },
-            }),
-            Expr::NumberLiteral(node) => literal_expr(CoreNumberLiteral {
-                node_index: node.node_index,
-                range: node.range,
-                value: match node.value {
-                    ast::Number::Int(value) => CoreNumberLiteralValue::Int(value),
-                    ast::Number::Float(value) => CoreNumberLiteralValue::Float(value),
-                    ast::Number::Complex { .. } => {
-                        panic!("complex literal reached late core BlockPy boundary")
-                    }
+                Meta::new(node.node_index, node.range),
+            ),
+            Expr::BytesLiteral(node) => literal_expr(
+                CoreBytesLiteral {
+                    value: {
+                        let value: std::borrow::Cow<[u8]> = (&node.value).into();
+                        value.into_owned()
+                    },
                 },
-            }),
+                Meta::new(node.node_index, node.range),
+            ),
+            Expr::NumberLiteral(node) => literal_expr(
+                CoreNumberLiteral {
+                    value: match node.value {
+                        ast::Number::Int(value) => CoreNumberLiteralValue::Int(value),
+                        ast::Number::Float(value) => CoreNumberLiteralValue::Float(value),
+                        ast::Number::Complex { .. } => {
+                            panic!("complex literal reached late core BlockPy boundary")
+                        }
+                    },
+                },
+                Meta::new(node.node_index, node.range),
+            ),
             Expr::BooleanLiteral(node) => {
                 if node.value {
                     core_builtin_name("TRUE")

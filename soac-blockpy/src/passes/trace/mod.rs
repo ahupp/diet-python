@@ -184,11 +184,12 @@ fn string_literal_expr(
     let meta = Meta::synthetic();
     let index = u32::try_from(module_constants.len())
         .expect("trace module constant count should fit in u32");
-    module_constants.push(literal_expr(CoreStringLiteral {
-        node_index: meta.node_index.clone(),
-        range: meta.range,
-        value: value.to_string(),
-    }));
+    module_constants.push(literal_expr(
+        CoreStringLiteral {
+            value: value.to_string(),
+        },
+        meta.clone(),
+    ));
     core_operation_expr(
         crate::block_py::Load::new(crate::block_py::LocatedName {
             id: format!("__dp_constant_{index}").into(),

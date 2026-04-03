@@ -18,14 +18,12 @@ fn is_name_like(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
 
 fn test_load_with_await_and_yield(id: &str) -> CoreBlockPyExprWithAwaitAndYield {
     let name = test_name(id);
-    let meta = name.meta();
-    Load::new(name).with_meta(meta).into()
+    Load::new(name).with_meta(Meta::synthetic()).into()
 }
 
 fn test_load_with_yield(id: &str) -> CoreBlockPyExprWithYield {
     let name = test_name(id);
-    let meta = name.meta();
-    Load::new(name).with_meta(meta).into()
+    Load::new(name).with_meta(Meta::synthetic()).into()
 }
 
 #[test]
