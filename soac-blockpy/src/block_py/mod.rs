@@ -1,10 +1,7 @@
 pub use self::meta::{HasMeta, Meta, WithMeta};
 use self::operation_macro::define_operation;
 pub use self::param_specs::{Param, ParamDefaultSource, ParamKind, ParamSpec};
-use self::pretty::{
-    render_codegen_literal_text, render_core_literal_text, BlockPyDebugExprText,
-    BlockPyDebugOperationText,
-};
+use self::pretty::{render_core_literal_text, BlockPyDebugExprText, BlockPyDebugOperationText};
 pub(crate) use self::semantics::{
     build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_semantics,
     compute_storage_layout_from_semantics, derive_effective_binding_for_name,
@@ -1242,7 +1239,6 @@ impl BlockPyDebugExprText for CodegenBlockPyExpr {
     fn debug_expr_text(&self) -> String {
         match self {
             Self::Name(name) => name.pretty_id(),
-            Self::Literal(literal) => render_codegen_literal_text(literal),
             Self::BinOp(op) => op.debug_operation_text(),
             Self::UnaryOp(op) => op.debug_operation_text(),
             Self::Call(op) => op.debug_operation_text(),

@@ -1,7 +1,8 @@
 use crate::block_py::{
     core_operation_expr, core_runtime_positional_call_expr_with_meta, BlockPyFunction,
-    BlockPyModule, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreStringLiteral,
-    LocatedCodegenBlockPyExpr, LocatedName, Meta, NameLocation, StructuredInstr, WithMeta,
+    BlockPyModule, CodegenBlockPyExpr, CoreBlockPyExpr, CoreStringLiteral,
+    LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, Meta, NameLocation,
+    StructuredInstr, WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
 use ruff_python_ast::{self as ast};
@@ -179,14 +180,14 @@ fn helper_call_expr(
 }
 
 fn string_literal_expr(
-    module_constants: &mut Vec<LocatedCodegenBlockPyExpr>,
+    module_constants: &mut Vec<LocatedCoreBlockPyExpr>,
     value: &str,
 ) -> LocatedCodegenBlockPyExpr {
     let meta = Meta::synthetic();
     let index = u32::try_from(module_constants.len())
         .expect("trace module constant count should fit in u32");
-    module_constants.push(CodegenBlockPyExpr::Literal(
-        CodegenBlockPyLiteral::StringLiteral(CoreStringLiteral {
+    module_constants.push(CoreBlockPyExpr::Literal(
+        crate::block_py::BlockPyLiteral::StringLiteral(CoreStringLiteral {
             node_index: meta.node_index.clone(),
             range: meta.range,
             value: value.to_string(),
@@ -209,7 +210,7 @@ fn tuple_expr(values: Vec<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyEx
 }
 
 fn param_pairs_expr(
-    module_constants: &mut Vec<LocatedCodegenBlockPyExpr>,
+    module_constants: &mut Vec<LocatedCoreBlockPyExpr>,
     locator: &PreparedTraceNameLocator,
     params: &[String],
 ) -> LocatedCodegenBlockPyExpr {

@@ -1,7 +1,7 @@
 use crate::block_py::{
-    core_operation_expr, BlockPyFunction, BlockPyModule, BlockPyModuleMap, CodegenBlockPyExpr,
-    CodegenBlockPyLiteral, CoreBlockPyLiteral, HasMeta, Load, LocatedCodegenBlockPyExpr,
-    LocatedCoreBlockPyExpr, LocatedName, MapExpr, NameLocation, WithMeta,
+    core_operation_expr, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyModuleMap,
+    CodegenBlockPyExpr, HasMeta, Load, LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr,
+    LocatedName, MapExpr, NameLocation, WithMeta,
 };
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use ruff_python_ast as ast;
@@ -12,11 +12,7 @@ pub fn normalize_bb_module_strings(
 ) -> BlockPyModule<CodegenBlockPyPass> {
     let normalizer = CodegenExprNormalizer::default();
     let module = module.clone();
-    let mut module_constants = module
-        .module_constants
-        .into_iter()
-        .map(|expr| normalizer.map_explicit_constant_expr(expr))
-        .collect::<Vec<_>>();
+    let mut module_constants = module.module_constants;
     module_constants.extend(normalizer.module_constants.borrow().iter().cloned());
     BlockPyModule {
         callable_defs: module
@@ -30,34 +26,25 @@ pub fn normalize_bb_module_strings(
 
 #[derive(Default)]
 struct CodegenExprNormalizer {
-    module_constants: RefCell<Vec<LocatedCodegenBlockPyExpr>>,
+    module_constants: RefCell<Vec<LocatedCoreBlockPyExpr>>,
 }
 
 impl CodegenExprNormalizer {
-    fn push_module_constant(&self, expr: LocatedCodegenBlockPyExpr) -> u32 {
+    fn push_module_constant(&self, literal: BlockPyLiteral) -> u32 {
         let mut module_constants = self.module_constants.borrow_mut();
         let index =
             u32::try_from(module_constants.len()).expect("module constant count should fit in u32");
-        module_constants.push(expr);
+        module_constants.push(LocatedCoreBlockPyExpr::Literal(literal));
         index
-    }
-
-    fn map_explicit_constant_expr(
-        &self,
-        expr: LocatedCoreBlockPyExpr,
-    ) -> LocatedCodegenBlockPyExpr {
-        expr.map_expr(&mut |child| self.map_explicit_constant_expr(child))
     }
 }
 
 impl BlockPyModuleMap<ResolvedStorageBlockPyPass, CodegenBlockPyPass> for CodegenExprNormalizer {
     fn map_expr(&self, expr: LocatedCoreBlockPyExpr) -> LocatedCodegenBlockPyExpr {
         match expr {
-            LocatedCoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(node)) => {
-                let meta = node.meta();
-                let constant_index = self.push_module_constant(CodegenBlockPyExpr::Literal(
-                    CodegenBlockPyLiteral::StringLiteral(node.clone()),
-                ));
+            LocatedCoreBlockPyExpr::Literal(literal) => {
+                let meta = literal.meta();
+                let constant_index = self.push_module_constant(literal);
                 core_operation_expr(
                     Load::new(LocatedName {
                         id: format!("__dp_constant_{constant_index}").into(),

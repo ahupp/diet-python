@@ -1,11 +1,11 @@
 use super::*;
 use soac_blockpy::block_py::{
-    BinOp, BinOpKind, BlockParamRole, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm,
-    Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
-    CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBytesLiteral, CoreNumberLiteral,
+    BinOp, BinOpKind, BlockParamRole, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyStmt,
+    BlockPyTerm, Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBytesLiteral, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, InstrExprNode,
-    Load, LocatedCodegenBlockPyExpr, LocatedName, Meta, ModuleNameGen, NameLocation, Param,
-    ParamKind, ParamSpec, StorageLayout, Store, WithMeta,
+    Load, LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, Meta, ModuleNameGen,
+    NameLocation, Param, ParamKind, ParamSpec, StorageLayout, Store, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
@@ -72,9 +72,9 @@ mod tests {
         }
     }
 
-    fn int_expr(value: i64) -> LocatedCodegenBlockPyExpr {
+    fn int_literal(value: i64) -> LocatedCoreBlockPyExpr {
         let value_str = value.to_string();
-        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+        CoreBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
             node_index: Default::default(),
             range: Default::default(),
             value: CoreNumberLiteralValue::Int(
@@ -84,20 +84,47 @@ mod tests {
         }))
     }
 
-    fn bytes_expr(value: &[u8]) -> LocatedCodegenBlockPyExpr {
-        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(CoreBytesLiteral {
+    fn bytes_literal(value: &[u8]) -> LocatedCoreBlockPyExpr {
+        CoreBlockPyExpr::Literal(BlockPyLiteral::BytesLiteral(CoreBytesLiteral {
             node_index: Default::default(),
             range: Default::default(),
             value: value.to_vec(),
         }))
     }
 
-    fn string_expr(value: &str) -> LocatedCodegenBlockPyExpr {
-        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(CoreStringLiteral {
+    fn string_literal(value: &str) -> LocatedCoreBlockPyExpr {
+        CoreBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(CoreStringLiteral {
             node_index: Default::default(),
             range: Default::default(),
             value: value.to_string(),
         }))
+    }
+
+    #[derive(Default)]
+    struct TestConstantPool {
+        module_constants: Vec<LocatedCoreBlockPyExpr>,
+    }
+
+    impl TestConstantPool {
+        fn push_literal(&mut self, literal: LocatedCoreBlockPyExpr) -> LocatedCodegenBlockPyExpr {
+            let meta = literal.meta();
+            let index = u32::try_from(self.module_constants.len())
+                .expect("test module constant count should fit in u32");
+            self.module_constants.push(literal);
+            Load::new(test_constant_name(index)).with_meta(meta).into()
+        }
+
+        fn int_expr(&mut self, value: i64) -> LocatedCodegenBlockPyExpr {
+            self.push_literal(int_literal(value))
+        }
+
+        fn bytes_expr(&mut self, value: &[u8]) -> LocatedCodegenBlockPyExpr {
+            self.push_literal(bytes_literal(value))
+        }
+
+        fn string_expr(&mut self, value: &str) -> LocatedCodegenBlockPyExpr {
+            self.push_literal(string_literal(value))
+        }
     }
 
     fn name_expr(name: LocatedName) -> LocatedCodegenBlockPyExpr {
@@ -191,101 +218,21 @@ mod tests {
         with_test_blocks(function, vec![block])
     }
 
-    #[derive(Default)]
-    struct TestLiteralExtractor {
-        module_constants: Vec<LocatedCodegenBlockPyExpr>,
-    }
-
-    impl TestLiteralExtractor {
-        fn extract_function(&mut self, function: &mut BlockPyFunction<CodegenBlockPyPass>) {
-            for block in &mut function.blocks {
-                for stmt in &mut block.body {
-                    match stmt {
-                        BlockPyStmt::Expr(expr) => self.extract_expr(expr),
-                        BlockPyStmt::_Marker(_) => unreachable!("marker stmt should not appear"),
-                    }
-                }
-                match &mut block.term {
-                    BlockPyTerm::Jump(_) => {}
-                    BlockPyTerm::IfTerm(if_term) => self.extract_expr(&mut if_term.test),
-                    BlockPyTerm::BranchTable(branch_table) => {
-                        self.extract_expr(&mut branch_table.index)
-                    }
-                    BlockPyTerm::Raise(raise_stmt) => {
-                        if let Some(exc) = &mut raise_stmt.exc {
-                            self.extract_expr(exc);
-                        }
-                    }
-                    BlockPyTerm::Return(value) => self.extract_expr(value),
-                }
-            }
-        }
-
-        fn extract_expr(&mut self, expr: &mut LocatedCodegenBlockPyExpr) {
-            if matches!(expr, CodegenBlockPyExpr::Literal(_)) {
-                let meta = expr.meta();
-                let index = u32::try_from(self.module_constants.len())
-                    .expect("test module constant count should fit in u32");
-                let literal = std::mem::replace(
-                    expr,
-                    Load::new(test_constant_name(index)).with_meta(meta).into(),
-                );
-                self.module_constants.push(literal);
-                return;
-            }
-            match expr {
-                CodegenBlockPyExpr::Name(_) | CodegenBlockPyExpr::Literal(_) => {}
-                CodegenBlockPyExpr::BinOp(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::UnaryOp(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::Call(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::GetAttr(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::SetAttr(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::GetItem(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::SetItem(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::DelItem(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::Load(_) => {}
-                CodegenBlockPyExpr::Store(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::Del(_) => {}
-                CodegenBlockPyExpr::MakeCell(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::CellRefForName(_) => {}
-                CodegenBlockPyExpr::CellRef(_) => {}
-                CodegenBlockPyExpr::MakeFunction(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-            }
-        }
-    }
-
     fn render_test_jit_function(
         function: &BlockPyFunction<CodegenBlockPyPass>,
         blocks: &[ObjPtr],
     ) -> String {
-        let mut function = function.clone();
-        let mut extractor = TestLiteralExtractor::default();
-        extractor.extract_function(&mut function);
+        render_test_jit_function_with_module_constants(function, blocks, Vec::new())
+    }
+
+    fn render_test_jit_function_with_module_constants(
+        function: &BlockPyFunction<CodegenBlockPyPass>,
+        blocks: &[ObjPtr],
+        module_constants: Vec<LocatedCoreBlockPyExpr>,
+    ) -> String {
         let module = BlockPyModule {
             callable_defs: vec![function.clone()],
-            module_constants: extractor.module_constants,
+            module_constants,
         };
         let module_constants =
             crate::module_constants::ModuleCodegenConstants::collect_from_module(&module);
@@ -342,13 +289,18 @@ mod tests {
     #[test]
     fn render_specialized_jit_clif_annotates_block_headers_with_named_typed_params() {
         let blocks = [1usize as ObjPtr];
+        let mut constants = TestConstantPool::default();
         let mut function = test_function();
         set_stack_slots(&mut function, &["current", "acc"]);
-        let mut source = test_source_block(&function, vec![], ret_term(int_expr(7)));
+        let mut source = test_source_block(&function, vec![], ret_term(constants.int_expr(7)));
         source.ensure_param("current", BlockParamRole::AbruptKind);
         source.ensure_param("acc", BlockParamRole::AbruptPayload);
         let function = with_test_blocks(function, vec![source]);
-        let rendered = render_test_jit_function(&function, &blocks);
+        let rendered = render_test_jit_function_with_module_constants(
+            &function,
+            &blocks,
+            constants.module_constants,
+        );
         assert!(
             rendered.contains("; block jit_entry(vmctx: i64, callable: i64)"),
             "rendered CLIF should include named typed params on surviving post-opt block headers:\n{rendered}"
@@ -366,14 +318,20 @@ mod tests {
     #[test]
     fn render_specialized_jit_operator_calls_use_python_capi() {
         let blocks = [1usize as ObjPtr];
+        let mut constants = TestConstantPool::default();
         let function = with_single_test_block(
             test_function(),
             vec![],
             ret_term(op_expr(
-                BinOp::new(BinOpKind::Add, int_expr(1), int_expr(2)).with_meta(Meta::synthetic()),
+                BinOp::new(BinOpKind::Add, constants.int_expr(1), constants.int_expr(2))
+                    .with_meta(Meta::synthetic()),
             )),
         );
-        let rendered = render_test_jit_function(&function, &blocks);
+        let rendered = render_test_jit_function_with_module_constants(
+            &function,
+            &blocks,
+            constants.module_constants,
+        );
         assert!(
             rendered.contains("call PyNumber_Add"),
             "operator lowering should use PyNumber_Add in rendered CLIF:\n{rendered}"
@@ -387,14 +345,20 @@ mod tests {
     #[test]
     fn render_specialized_jit_compare_calls_use_richcompare() {
         let blocks = [1usize as ObjPtr];
+        let mut constants = TestConstantPool::default();
         let function = with_single_test_block(
             test_function(),
             vec![],
             ret_term(op_expr(
-                BinOp::new(BinOpKind::Lt, int_expr(1), int_expr(2)).with_meta(Meta::synthetic()),
+                BinOp::new(BinOpKind::Lt, constants.int_expr(1), constants.int_expr(2))
+                    .with_meta(Meta::synthetic()),
             )),
         );
-        let rendered = render_test_jit_function(&function, &blocks);
+        let rendered = render_test_jit_function_with_module_constants(
+            &function,
+            &blocks,
+            constants.module_constants,
+        );
         assert!(
             rendered.contains("call PyObject_RichCompare"),
             "comparison lowering should use PyObject_RichCompare in rendered CLIF:\n{rendered}"
@@ -404,9 +368,17 @@ mod tests {
     #[test]
     fn render_specialized_jit_string_literals_use_module_constant_loader() {
         let blocks = [1usize as ObjPtr];
-        let function =
-            with_single_test_block(test_function(), vec![], ret_term(string_expr("hello")));
-        let rendered = render_test_jit_function(&function, &blocks);
+        let mut constants = TestConstantPool::default();
+        let function = with_single_test_block(
+            test_function(),
+            vec![],
+            ret_term(constants.string_expr("hello")),
+        );
+        let rendered = render_test_jit_function_with_module_constants(
+            &function,
+            &blocks,
+            constants.module_constants,
+        );
         assert!(
             rendered.contains("call dp_jit_load_module_constant"),
             "string literal lowering should load a module constant:\n{rendered}"
@@ -429,7 +401,7 @@ mod tests {
         );
         let module = BlockPyModule {
             callable_defs: vec![function.clone()],
-            module_constants: vec![int_expr(7)],
+            module_constants: vec![int_literal(7)],
         };
         let module_constants =
             crate::module_constants::ModuleCodegenConstants::collect_from_module(&module);
@@ -443,14 +415,20 @@ mod tests {
 
     fn render_specialized_jit_pow_calls_use_pynumber_power() {
         let blocks = [1usize as ObjPtr];
+        let mut constants = TestConstantPool::default();
         let function = with_single_test_block(
             test_function(),
             vec![],
             ret_term(op_expr(
-                BinOp::new(BinOpKind::Pow, int_expr(2), int_expr(3)).with_meta(Meta::synthetic()),
+                BinOp::new(BinOpKind::Pow, constants.int_expr(2), constants.int_expr(3))
+                    .with_meta(Meta::synthetic()),
             )),
         );
-        let rendered = render_test_jit_function(&function, &blocks);
+        let rendered = render_test_jit_function_with_module_constants(
+            &function,
+            &blocks,
+            constants.module_constants,
+        );
         assert!(
             rendered.contains("call PyNumber_Power"),
             "power lowering should use PyNumber_Power in rendered CLIF:\n{rendered}"
@@ -460,15 +438,24 @@ mod tests {
     #[test]
     fn render_specialized_jit_inplace_pow_calls_use_pynumber_inplace_power() {
         let blocks = [1usize as ObjPtr];
+        let mut constants = TestConstantPool::default();
         let function = with_single_test_block(
             test_function(),
             vec![],
             ret_term(op_expr(
-                BinOp::new(BinOpKind::InplacePow, int_expr(2), int_expr(3))
-                    .with_meta(Meta::synthetic()),
+                BinOp::new(
+                    BinOpKind::InplacePow,
+                    constants.int_expr(2),
+                    constants.int_expr(3),
+                )
+                .with_meta(Meta::synthetic()),
             )),
         );
-        let rendered = render_test_jit_function(&function, &blocks);
+        let rendered = render_test_jit_function_with_module_constants(
+            &function,
+            &blocks,
+            constants.module_constants,
+        );
         assert!(
             rendered.contains("call PyNumber_InPlacePower"),
             "inplace power lowering should use PyNumber_InPlacePower in rendered CLIF:\n{rendered}"
@@ -478,9 +465,15 @@ mod tests {
     #[test]
     fn render_specialized_jit_allocates_function_state_slots() {
         let blocks = [1usize as ObjPtr];
-        let mut function = with_single_test_block(test_function(), vec![], ret_term(int_expr(7)));
+        let mut constants = TestConstantPool::default();
+        let mut function =
+            with_single_test_block(test_function(), vec![], ret_term(constants.int_expr(7)));
         set_stack_slots(&mut function, &["x", "y"]);
-        let rendered = render_test_jit_function(&function, &blocks);
+        let rendered = render_test_jit_function_with_module_constants(
+            &function,
+            &blocks,
+            constants.module_constants,
+        );
         assert!(
             rendered.matches("explicit_slot 8").count() >= 2,
             "slot-backed JIT plans should allocate explicit stack slots:\n{rendered}"
@@ -490,13 +483,18 @@ mod tests {
     #[test]
     fn render_specialized_jit_assignments_sync_function_state_slots() {
         let blocks = [1usize as ObjPtr];
+        let mut constants = TestConstantPool::default();
         let mut function = with_single_test_block(
             test_function(),
-            vec![assign_stmt(test_name("x"), int_expr(7))],
+            vec![assign_stmt(test_name("x"), constants.int_expr(7))],
             ret_term(name_expr(test_name("x"))),
         );
         set_stack_slots(&mut function, &["x"]);
-        let rendered = render_test_jit_function(&function, &blocks);
+        let rendered = render_test_jit_function_with_module_constants(
+            &function,
+            &blocks,
+            constants.module_constants,
+        );
         assert!(
             rendered.contains("store.i64") || rendered.contains("stack_store"),
             "assignment-backed JIT plans should update mirrored function-state slots:\n{rendered}"
@@ -540,14 +538,20 @@ mod tests {
     #[test]
     fn render_specialized_jit_store_global_intrinsic_uses_direct_helper() {
         let blocks = [1usize as ObjPtr];
+        let mut constants = TestConstantPool::default();
         let function = with_single_test_block(
             test_function(),
             vec![],
             ret_term(op_expr(
-                Store::new(test_global_name("x"), int_expr(3)).with_meta(Meta::synthetic()),
+                Store::new(test_global_name("x"), constants.int_expr(3))
+                    .with_meta(Meta::synthetic()),
             )),
         );
-        let rendered = render_test_jit_function(&function, &blocks);
+        let rendered = render_test_jit_function_with_module_constants(
+            &function,
+            &blocks,
+            constants.module_constants,
+        );
         assert!(
             rendered.contains("call dp_jit_store_global"),
             "store_global intrinsic should use the direct JIT helper:\n{rendered}"
@@ -642,11 +646,13 @@ mod tests {
     #[test]
     fn render_specialized_jit_delete_intrinsics_use_direct_helpers() {
         let blocks = [1usize as ObjPtr];
+        let mut constants = TestConstantPool::default();
         let mut function = with_single_test_block(
             test_function(),
             vec![
                 expr_stmt(op_expr(
-                    DelItem::new(int_expr(1), int_expr(2)).with_meta(Meta::synthetic()),
+                    DelItem::new(constants.int_expr(1), constants.int_expr(2))
+                        .with_meta(Meta::synthetic()),
                 )),
                 expr_stmt(op_expr(
                     Del::new(test_global_name("x"), true).with_meta(Meta::synthetic()),
@@ -658,10 +664,14 @@ mod tests {
                     Del::new(test_closure_cell_name("cell", 2), true).with_meta(Meta::synthetic()),
                 )),
             ],
-            ret_term(int_expr(0)),
+            ret_term(constants.int_expr(0)),
         );
         set_stack_slots(&mut function, &["cell"]);
-        let rendered = render_test_jit_function(&function, &blocks);
+        let rendered = render_test_jit_function_with_module_constants(
+            &function,
+            &blocks,
+            constants.module_constants,
+        );
         assert!(
             rendered.contains("call dp_jit_pyobject_delitem"),
             "delitem intrinsic should use the direct JIT helper:\n{rendered}"
@@ -730,6 +740,7 @@ mod tests {
     #[test]
     fn render_specialized_jit_deleted_name_checks_inline_the_sentinel_compare() {
         let blocks = [1usize as ObjPtr];
+        let mut constants = TestConstantPool::default();
         let mut function = with_single_test_block(
             test_function(),
             vec![],
@@ -737,7 +748,7 @@ mod tests {
                 Call::new(
                     name_expr(test_runtime_name("load_deleted_name")),
                     vec![
-                        CoreBlockPyCallArg::Positional(string_expr("x")),
+                        CoreBlockPyCallArg::Positional(constants.string_expr("x")),
                         CoreBlockPyCallArg::Positional(name_expr(test_name("x"))),
                     ],
                     vec![],
@@ -746,7 +757,11 @@ mod tests {
             )),
         );
         set_stack_slots(&mut function, &["x"]);
-        let rendered = render_test_jit_function(&function, &blocks);
+        let rendered = render_test_jit_function_with_module_constants(
+            &function,
+            &blocks,
+            constants.module_constants,
+        );
         assert!(
             rendered.contains("call dp_jit_raise_deleted_name_error"),
             "deleted-name lowering should keep only the cold-path error helper:\n{rendered}"
@@ -760,13 +775,18 @@ mod tests {
     #[test]
     fn render_specialized_jit_delete_stmt_updates_function_state_slots() {
         let blocks = [1usize as ObjPtr];
+        let mut constants = TestConstantPool::default();
         let mut function = with_single_test_block(
             test_function(),
             vec![delete_stmt(test_name("x"))],
-            ret_term(int_expr(0)),
+            ret_term(constants.int_expr(0)),
         );
         set_stack_slots(&mut function, &["x"]);
-        let rendered = render_test_jit_function(&function, &blocks);
+        let rendered = render_test_jit_function_with_module_constants(
+            &function,
+            &blocks,
+            constants.module_constants,
+        );
         assert!(
             rendered.contains("store.i64")
                 || rendered.contains("stack_store")

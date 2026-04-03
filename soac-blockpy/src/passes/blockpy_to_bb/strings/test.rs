@@ -1,8 +1,8 @@
 use super::normalize_bb_module_strings;
 use crate::{
     block_py::{
-        BlockPyExprLike, BlockPyNameLike, BlockPyStmt, BlockPyTerm, CodegenBlockPyExpr,
-        CodegenBlockPyLiteral, InstrExprNode,
+        BlockPyExprLike, BlockPyLiteral, BlockPyNameLike, BlockPyStmt, BlockPyTerm,
+        CodegenBlockPyExpr, CoreBlockPyExpr, InstrExprNode, LocatedCoreBlockPyExpr,
     },
     lower_python_to_blockpy_for_testing,
     passes::lower_try_jump_exception_flow,
@@ -22,7 +22,6 @@ fn tracked_name_binding_module(
 fn expr_contains_literal(expr: &CodegenBlockPyExpr) -> bool {
     match expr {
         CodegenBlockPyExpr::Name(_) => false,
-        CodegenBlockPyExpr::Literal(_) => true,
         _ => {
             let mut saw_literal = false;
             expr.walk_child_exprs(&mut |arg| {
@@ -35,18 +34,18 @@ fn expr_contains_literal(expr: &CodegenBlockPyExpr) -> bool {
     }
 }
 
-fn module_constants_contain_string(exprs: &[CodegenBlockPyExpr]) -> bool {
+fn module_constants_contain_string(exprs: &[LocatedCoreBlockPyExpr]) -> bool {
     exprs.iter().any(|expr| {
         matches!(
             expr,
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(_))
+            CoreBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(_))
         )
     })
 }
 
 fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockPyExpr) {
     match expr {
-        CodegenBlockPyExpr::Name(_) | CodegenBlockPyExpr::Literal(_) => {}
+        CodegenBlockPyExpr::Name(_) => {}
         CodegenBlockPyExpr::GetAttr(operation) => {
             out.push("__dp_getattr".to_string());
             operation.visit_exprs(&mut |arg| collect_helper_like_names_in_expr(out, arg));

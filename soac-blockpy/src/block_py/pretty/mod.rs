@@ -1,7 +1,7 @@
 use super::{
     BlockArg, BlockParamRole, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyLinearizablePass, BlockPyModule,
-    BlockPyLiteral, BlockPyNameLike, BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyTerm, Call,
+    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyLinearizablePass, BlockPyLiteral,
+    BlockPyModule, BlockPyNameLike, BlockPyPass, BlockPyRaise, BlockPyStmt, BlockPyTerm, Call,
     CfgBlock, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, Expr, Instr, PassBlock,
     PassExpr, PassTerm, RuffExpr, StructuredInstr,
 };

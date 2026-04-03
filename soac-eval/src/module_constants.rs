@@ -1,10 +1,10 @@
 use pyo3::ffi;
 use pyo3::prelude::*;
 use soac_blockpy::block_py::{
-    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyNameLike, BlockPyStmt,
-    BlockPyTerm, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyKeywordArg,
-    CoreNumberLiteralValue, InstrExprNode, LocatedCodegenBlockPyExpr, LocatedName, NameLocation,
-    ParamDefaultSource, operation as blockpy_intrinsics,
+    AbruptKind, BlockArg, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyNameLike,
+    BlockPyStmt, BlockPyTerm, CodegenBlockPyExpr, CoreBlockPyExpr, CoreBlockPyKeywordArg,
+    CoreNumberLiteralValue, InstrExprNode, LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr,
+    LocatedName, NameLocation, ParamDefaultSource, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::collections::HashMap;
@@ -41,7 +41,7 @@ impl ModuleCodegenConstants {
     pub fn collect_from_module(module: &BlockPyModule<CodegenBlockPyPass>) -> Self {
         let mut collector = ModuleConstantCollector::default();
         for expr in &module.module_constants {
-            collector.constants.push_explicit_expr(expr);
+            collector.constants.push_explicit_literal(expr);
         }
         for name in ALWAYS_REQUIRED_UNICODE_CONSTANTS {
             collector.constants.intern_unicode_bytes(name.as_bytes());
@@ -183,15 +183,15 @@ impl ModuleCodegenConstants {
         self.ids.get(value).copied()
     }
 
-    fn push_explicit_expr(&mut self, expr: &LocatedCodegenBlockPyExpr) -> ModuleConstantId {
+    fn push_explicit_literal(&mut self, expr: &LocatedCoreBlockPyExpr) -> ModuleConstantId {
         let value = match expr {
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
+            CoreBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(string)) => {
                 ModuleConstantValue::Unicode(string.value.as_bytes().to_vec())
             }
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
+            CoreBlockPyExpr::Literal(BlockPyLiteral::BytesLiteral(bytes)) => {
                 ModuleConstantValue::Bytes(bytes.value.clone())
             }
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(number)) => {
+            CoreBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(number)) => {
                 match &number.value {
                     CoreNumberLiteralValue::Int(value) => {
                         if let Some(value) = value.as_i64() {
@@ -205,22 +205,22 @@ impl ModuleCodegenConstants {
                     }
                 }
             }
-            CodegenBlockPyExpr::Name(_)
-            | CodegenBlockPyExpr::BinOp(_)
-            | CodegenBlockPyExpr::UnaryOp(_)
-            | CodegenBlockPyExpr::Call(_)
-            | CodegenBlockPyExpr::GetAttr(_)
-            | CodegenBlockPyExpr::SetAttr(_)
-            | CodegenBlockPyExpr::GetItem(_)
-            | CodegenBlockPyExpr::SetItem(_)
-            | CodegenBlockPyExpr::DelItem(_)
-            | CodegenBlockPyExpr::Load(_)
-            | CodegenBlockPyExpr::Store(_)
-            | CodegenBlockPyExpr::Del(_)
-            | CodegenBlockPyExpr::MakeCell(_)
-            | CodegenBlockPyExpr::CellRefForName(_)
-            | CodegenBlockPyExpr::CellRef(_)
-            | CodegenBlockPyExpr::MakeFunction(_) => {
+            CoreBlockPyExpr::Name(_)
+            | CoreBlockPyExpr::BinOp(_)
+            | CoreBlockPyExpr::UnaryOp(_)
+            | CoreBlockPyExpr::Call(_)
+            | CoreBlockPyExpr::GetAttr(_)
+            | CoreBlockPyExpr::SetAttr(_)
+            | CoreBlockPyExpr::GetItem(_)
+            | CoreBlockPyExpr::SetItem(_)
+            | CoreBlockPyExpr::DelItem(_)
+            | CoreBlockPyExpr::Load(_)
+            | CoreBlockPyExpr::Store(_)
+            | CoreBlockPyExpr::Del(_)
+            | CoreBlockPyExpr::MakeCell(_)
+            | CoreBlockPyExpr::CellRefForName(_)
+            | CoreBlockPyExpr::CellRef(_)
+            | CoreBlockPyExpr::MakeFunction(_) => {
                 panic!("unsupported explicit module constant expr after codegen lowering: {expr:?}")
             }
         };
@@ -326,27 +326,6 @@ impl ModuleConstantCollector {
                     self.constants.intern_unicode_bytes(name.id.as_bytes());
                 }
             }
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
-                self.constants.intern_unicode_bytes(string.value.as_bytes());
-            }
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(number)) => {
-                match &number.value {
-                    CoreNumberLiteralValue::Int(value) => {
-                        if let Some(value) = value.as_i64() {
-                            self.constants.intern_int(value);
-                        } else {
-                            let value_text = value.to_string();
-                            self.constants.intern_big_int(value_text.as_str());
-                        }
-                    }
-                    CoreNumberLiteralValue::Float(value) => {
-                        self.constants.intern_float(*value);
-                    }
-                }
-            }
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
-                self.constants.intern_bytes(bytes.value.as_slice());
-            }
             CodegenBlockPyExpr::Call(call) => {
                 if let Some(const_bytes) = self.string_constant_bytes_for_specialized_codegen(expr)
                 {
@@ -445,13 +424,6 @@ impl ModuleConstantCollector {
     ) -> Option<Vec<u8>> {
         match expr {
             CodegenBlockPyExpr::Name(_) => None,
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
-                Some(string.value.as_bytes().to_vec())
-            }
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(_)) => None,
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
-                Some(bytes.value.clone())
-            }
             CodegenBlockPyExpr::Load(op) => op.name.location.as_constant().and_then(|index| {
                 self.constants
                     .constant_string_bytes_value(ModuleConstantId(index as usize))
@@ -479,7 +451,6 @@ fn helper_name_for_codegen_expr(expr: &LocatedCodegenBlockPyExpr) -> Option<&str
         {
             Some(op.name.id.as_str())
         }
-        CodegenBlockPyExpr::Literal(_) => None,
         _ => None,
     }
 }
