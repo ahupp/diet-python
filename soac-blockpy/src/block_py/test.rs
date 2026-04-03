@@ -319,7 +319,7 @@ fn stmt_conversion_to_no_await_rejects_await() {
         CoreBlockPyPassWithAwaitAndYield,
         CoreBlockPyPassWithYield,
         CoreBlockPyExprWithAwaitAndYield,
-    >::without_await()
+    >::new(try_lower_core_expr_without_await)
     .try_map_stmt(stmt)
     .is_err());
 }
@@ -334,31 +334,28 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
         type Error = CoreBlockPyExprWithAwaitAndYield;
     }
 
-    let module = BlockPyModule::<CoreBlockPyPassWithAwaitAndYield> {
-        callable_defs: vec![BlockPyFunction {
-            function_id: FunctionId(0),
-            name_gen: test_name_gen(),
-            names: FunctionName::new("f", "f", "f", "f"),
-            kind: BlockPyFunctionKind::Function,
-            params: ParamSpec::default(),
-            blocks: vec![CfgBlock {
-                label: BlockPyLabel::from_index(0),
-                body: vec![CoreBlockPyExprWithAwaitAndYield::Await(
-                    CoreBlockPyAwait::new(core_load_with_await_and_yield("x"))
-                        .with_meta(Meta::default()),
-                )],
-                term: BlockPyTerm::Return(core_load_with_await_and_yield("__dp_NONE")),
-                params: Vec::new(),
-                exc_edge: None,
-            }],
-            doc: None,
-            storage_layout: None,
-            semantic: BlockPyCallableSemanticInfo::default(),
+    let function = BlockPyFunction {
+        function_id: FunctionId(0),
+        name_gen: test_name_gen(),
+        names: FunctionName::new("f", "f", "f", "f"),
+        kind: BlockPyFunctionKind::Function,
+        params: ParamSpec::default(),
+        blocks: vec![CfgBlock {
+            label: BlockPyLabel::from_index(0),
+            body: vec![CoreBlockPyExprWithAwaitAndYield::Await(
+                CoreBlockPyAwait::new(core_load_with_await_and_yield("x"))
+                    .with_meta(Meta::default()),
+            )],
+            term: BlockPyTerm::Return(core_load_with_await_and_yield("__dp_NONE")),
+            params: Vec::new(),
+            exc_edge: None,
         }],
-        module_constants: Vec::new(),
+        doc: None,
+        storage_layout: None,
+        semantic: BlockPyCallableSemanticInfo::default(),
     };
 
-    assert!(module.try_map_module(&RejectAwaitMapper).is_err());
+    assert!(RejectAwaitMapper.try_map_fn(function).is_err());
 }
 
 #[test]

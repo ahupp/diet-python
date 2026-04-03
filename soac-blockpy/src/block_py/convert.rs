@@ -1,44 +1,6 @@
 use super::*;
-use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
+use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithYield};
 use std::marker::PhantomData;
-
-pub(crate) fn map_call_args_with<EIn, EOut>(
-    args: Vec<CoreBlockPyCallArg<EIn>>,
-    mut map_expr: impl FnMut(EIn) -> EOut,
-) -> Vec<CoreBlockPyCallArg<EOut>> {
-    args.into_iter()
-        .map(|arg| arg.map_expr(&mut map_expr))
-        .collect()
-}
-
-pub(crate) fn map_keyword_args_with<EIn, EOut>(
-    keywords: Vec<CoreBlockPyKeywordArg<EIn>>,
-    mut map_expr: impl FnMut(EIn) -> EOut,
-) -> Vec<CoreBlockPyKeywordArg<EOut>> {
-    keywords
-        .into_iter()
-        .map(|keyword| keyword.map_expr(&mut map_expr))
-        .collect()
-}
-
-pub(crate) fn try_map_call_args_with<EIn, EOut, Error>(
-    args: Vec<CoreBlockPyCallArg<EIn>>,
-    mut map_expr: impl FnMut(EIn) -> Result<EOut, Error>,
-) -> Result<Vec<CoreBlockPyCallArg<EOut>>, Error> {
-    args.into_iter()
-        .map(|arg| arg.try_map_expr(&mut map_expr))
-        .collect()
-}
-
-pub(crate) fn try_map_keyword_args_with<EIn, EOut, Error>(
-    keywords: Vec<CoreBlockPyKeywordArg<EIn>>,
-    mut map_expr: impl FnMut(EIn) -> Result<EOut, Error>,
-) -> Result<Vec<CoreBlockPyKeywordArg<EOut>>, Error> {
-    keywords
-        .into_iter()
-        .map(|keyword| keyword.try_map_expr(&mut map_expr))
-        .collect()
-}
 
 pub(crate) trait BlockPyModuleMap<PIn, POut>
 where
@@ -139,20 +101,6 @@ where
 {
     type Error;
 
-    fn try_map_module(
-        &self,
-        module: BlockPyModule<PIn>,
-    ) -> Result<BlockPyModule<POut>, Self::Error> {
-        Ok(BlockPyModule {
-            callable_defs: module
-                .callable_defs
-                .into_iter()
-                .map(|function| self.try_map_fn(function))
-                .collect::<Result<_, _>>()?,
-            module_constants: module.module_constants,
-        })
-    }
-
     fn try_map_fn(&self, func: BlockPyFunction<PIn>) -> Result<BlockPyFunction<POut>, Self::Error> {
         Ok(BlockPyFunction {
             function_id: func.function_id,
@@ -218,10 +166,6 @@ where
         }
     }
 
-    fn try_map_name(&self, name: PassName<PIn>) -> Result<PassName<POut>, Self::Error> {
-        Ok(<PassName<POut> as From<PassName<PIn>>>::from(name))
-    }
-
     fn try_map_nested_expr(&self, expr: PIn::Expr) -> Result<POut::Expr, Self::Error> {
         expr.try_map_expr(&mut |child| self.try_map_expr(child))
     }
@@ -242,18 +186,6 @@ impl<PIn: BlockPyPass, POut: BlockPyPass, Error> ExprTryMap<PIn, POut, Error> {
             lower_expr,
             _marker: PhantomData,
         }
-    }
-}
-
-impl
-    ExprTryMap<
-        CoreBlockPyPassWithAwaitAndYield,
-        CoreBlockPyPassWithYield,
-        CoreBlockPyExprWithAwaitAndYield,
-    >
-{
-    pub(crate) const fn without_await() -> Self {
-        Self::new(try_lower_core_expr_without_await)
     }
 }
 
@@ -279,10 +211,6 @@ where
         term: BlockPyTerm<PassExpr<PIn>>,
     ) -> Result<BlockPyTerm<PassExpr<POut>>, Error> {
         <Self as BlockPyModuleTryMap<PIn, POut>>::try_map_term(self, term)
-    }
-
-    pub(crate) fn try_map_block(&self, block: PassBlock<PIn>) -> Result<PassBlock<POut>, Error> {
-        <Self as BlockPyModuleTryMap<PIn, POut>>::try_map_block(self, block)
     }
 
     pub(crate) fn try_map_fn(
@@ -321,16 +249,6 @@ where
         PassName<POut>: From<PassName<PIn>>,
     {
         mapper.map_module(self)
-    }
-
-    pub(crate) fn try_map_module<POut, M>(self, mapper: &M) -> Result<BlockPyModule<POut>, M::Error>
-    where
-        POut: BlockPyPass,
-        PassExpr<PIn>: TryMapExpr<PassExpr<POut>, M::Error>,
-        PassName<POut>: From<PassName<PIn>>,
-        M: BlockPyModuleTryMap<PIn, POut>,
-    {
-        mapper.try_map_module(self)
     }
 }
 
