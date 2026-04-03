@@ -221,21 +221,6 @@ where
     type Error = Error;
 }
 
-impl<PIn> BlockPyModule<PIn>
-where
-    PIn: BlockPyPass,
-{
-    pub(crate) fn map_module<POut>(
-        self,
-        mapper: &mut impl BlockPyModuleMap<PIn, POut>,
-    ) -> BlockPyModule<POut>
-    where
-        POut: BlockPyPass,
-    {
-        mapper.map_module(self)
-    }
-}
-
 struct ErrOnAwait;
 
 impl

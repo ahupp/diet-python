@@ -63,7 +63,7 @@ pub(crate) fn lower_awaits_in_core_blockpy_module(
     module: BlockPyModule<CoreBlockPyPassWithAwaitAndYield>,
 ) -> BlockPyModule<CoreBlockPyPassWithYield> {
     let mut mapper = CoreAwaitLoweringMap;
-    module.map_module(&mut mapper)
+    mapper.map_module(module)
 }
 
 #[cfg(test)]
