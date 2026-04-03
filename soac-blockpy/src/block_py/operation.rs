@@ -3,7 +3,6 @@ use super::{
     BlockPyFunctionKind, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg, FunctionId,
     HasMeta, Instr, InstrExprNode, InstrName, Meta, WithMeta,
 };
-use soac_macros::{with_match_default, DelegateMatchDefault};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum BinOpKind {

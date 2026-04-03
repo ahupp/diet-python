@@ -1,8 +1,7 @@
 use crate::block_py::{
     core_call_expr_with_meta, core_operation_expr, BlockPyFunction, BlockPyModule,
     CodegenBlockPyExpr, CoreBlockPyCallArg, CoreBlockPyExpr, CoreStringLiteral, Load,
-    LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, Meta, NameLocation,
-    StructuredInstr, WithMeta,
+    LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, Meta, NameLocation, WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
 use std::collections::HashMap;

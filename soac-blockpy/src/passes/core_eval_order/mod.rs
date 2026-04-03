@@ -3,7 +3,7 @@ use crate::block_py::{
     expr_any, BlockPyBranchTable, BlockPyCfgFragment, BlockPyFunction, BlockPyIfTerm,
     BlockPyNameLike, BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
-    CoreBlockPyYieldFrom, Del, HasMeta, Instr, InstrExprNode, Load, Meta, Store, StructuredIf,
+    CoreBlockPyYieldFrom, Del, HasMeta, Instr, InstrExprNode, Load, Store, StructuredIf,
     StructuredInstrFor, WithMeta,
 };
 use crate::namegen::fresh_name;

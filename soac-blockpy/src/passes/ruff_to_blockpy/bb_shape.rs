@@ -2,7 +2,7 @@ use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
     BlockArg, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike, BlockPyTerm, CoreBlockPyExpr,
     CoreBlockPyExprWithAwaitAndYield, FunctionNameGen, Instr, InstrExprNode, Load, Meta,
-    StructuredInstr, UnresolvedName, WithMeta,
+    StructuredInstr, WithMeta,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;

@@ -1,12 +1,10 @@
 use super::ast_to_ast::string_templates::lower_string_templates_in_expr;
 use crate::block_py::{
     core_call_expr_with_meta, core_runtime_name_expr_with_meta,
-    core_runtime_positional_call_expr_with_meta, operation, BlockPyAssign, BlockPyBranchTable,
-    BlockPyDelete, BlockPyIfTerm, BlockPyLiteral, BlockPyRaise, BlockPyStmtFragment,
-    BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCallArg,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyYield,
+    core_runtime_positional_call_expr_with_meta, operation, BlockPyLiteral, CoreBlockPyAwait,
+    CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyYield,
     CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
-    CoreStringLiteral, HasMeta, ImplicitNoneExpr, Meta, StructuredInstr, WithMeta,
+    CoreStringLiteral, HasMeta, ImplicitNoneExpr, Meta, WithMeta,
 };
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
 use crate::py_expr;
