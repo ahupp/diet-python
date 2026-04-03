@@ -1,7 +1,7 @@
 use crate::block_py::{
     core_operation_expr, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyModuleMap,
-    CodegenBlockPyExpr, HasMeta, InstrExprNode, Load, LocatedCoreBlockPyExpr, LocatedName, MapExpr,
-    NameLocation, WithMeta,
+    CodegenBlockPyExpr, HasMeta, InstrExprNode, LiteralValue, Load, LocatedCoreBlockPyExpr,
+    LocatedName, MapExpr, NameLocation, WithMeta,
 };
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use std::cell::RefCell;
@@ -33,7 +33,10 @@ impl CodegenExprNormalizer {
         let mut module_constants = self.module_constants.borrow_mut();
         let index =
             u32::try_from(module_constants.len()).expect("module constant count should fit in u32");
-        module_constants.push(LocatedCoreBlockPyExpr::Literal(literal.into()));
+        let meta = literal.meta();
+        module_constants.push(LocatedCoreBlockPyExpr::Literal(
+            LiteralValue::new(literal).with_meta(meta),
+        ));
         index
     }
 }

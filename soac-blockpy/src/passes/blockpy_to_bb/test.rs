@@ -1,5 +1,5 @@
 use crate::block_py::{
-    BlockPyBlock, BlockPyLabel, BlockPyLiteral, BlockPyStmtFragment, BlockPyTerm,
+    literal_expr, BlockPyBlock, BlockPyLabel, BlockPyLiteral, BlockPyStmtFragment, BlockPyTerm,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreStringLiteral, GetAttr, LocatedCoreBlockPyExpr,
     LocatedName, Store, StructuredIf, StructuredInstr, WithMeta,
 };
@@ -97,14 +97,11 @@ fn core_call_expr(name: &str, args: Vec<LocatedCoreBlockPyExpr>) -> LocatedCoreB
 }
 
 fn core_string_expr(value: &str) -> LocatedCoreBlockPyExpr {
-    LocatedCoreBlockPyExpr::Literal(
-        BlockPyLiteral::StringLiteral(CoreStringLiteral {
-            node_index: ast::AtomicNodeIndex::default(),
-            range: TextRange::default(),
-            value: value.to_string(),
-        })
-        .into(),
-    )
+    literal_expr(CoreStringLiteral {
+        node_index: ast::AtomicNodeIndex::default(),
+        range: TextRange::default(),
+        value: value.to_string(),
+    })
 }
 
 #[test]
@@ -152,14 +149,11 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         term: BlockPyTerm::Return(
             GetAttr::new(
                 core_call_expr("current_exception", Vec::new()),
-                CoreBlockPyExpr::Literal(
-                    BlockPyLiteral::StringLiteral(CoreStringLiteral {
-                        node_index: ast::AtomicNodeIndex::default(),
-                        range: TextRange::default(),
-                        value: "value".to_string(),
-                    })
-                    .into(),
-                ),
+                literal_expr::<LocatedCoreBlockPyExpr>(CoreStringLiteral {
+                    node_index: ast::AtomicNodeIndex::default(),
+                    range: TextRange::default(),
+                    value: "value".to_string(),
+                }),
             )
             .with_meta(crate::block_py::Meta::new(
                 ast::AtomicNodeIndex::default(),

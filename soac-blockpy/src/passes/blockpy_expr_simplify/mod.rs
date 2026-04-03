@@ -1,7 +1,7 @@
 use super::ast_to_ast::string_templates::lower_string_templates_in_expr;
 use crate::block_py::{
     core_call_expr_with_meta, core_runtime_name_expr_with_meta,
-    core_runtime_positional_call_expr_with_meta, operation, BlockPyLiteral, CoreBlockPyAwait,
+    core_runtime_positional_call_expr_with_meta, literal_expr, operation, CoreBlockPyAwait,
     CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyYield,
     CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
     CoreStringLiteral, HasMeta, ImplicitNoneExpr, Meta, WithMeta,
@@ -141,14 +141,11 @@ fn getattr_expr_with_meta(
     value: CoreBlockPyExprWithAwaitAndYield,
     attr: String,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    let attr_expr = CoreBlockPyExprWithAwaitAndYield::Literal(
-        BlockPyLiteral::StringLiteral(CoreStringLiteral {
-            node_index: node_index.clone(),
-            range,
-            value: attr,
-        })
-        .into(),
-    );
+    let attr_expr = literal_expr(CoreStringLiteral {
+        node_index: node_index.clone(),
+        range,
+        value: attr,
+    });
     core_operation_expr_with_meta(
         operation::GetAttr::new(Box::new(value), Box::new(attr_expr)),
         node_index,
@@ -536,39 +533,30 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                 CoreBlockPyYieldFrom::new(Self::from(*node.value))
                     .with_meta(Meta::new(node.node_index, node.range)),
             ),
-            Expr::StringLiteral(node) => Self::Literal(
-                BlockPyLiteral::StringLiteral(CoreStringLiteral {
-                    node_index: node.node_index,
-                    range: node.range,
-                    value: node.value.to_str().to_string(),
-                })
-                .into(),
-            ),
-            Expr::BytesLiteral(node) => Self::Literal(
-                BlockPyLiteral::BytesLiteral(CoreBytesLiteral {
-                    node_index: node.node_index,
-                    range: node.range,
-                    value: {
-                        let value: std::borrow::Cow<[u8]> = (&node.value).into();
-                        value.into_owned()
-                    },
-                })
-                .into(),
-            ),
-            Expr::NumberLiteral(node) => Self::Literal(
-                BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
-                    node_index: node.node_index,
-                    range: node.range,
-                    value: match node.value {
-                        ast::Number::Int(value) => CoreNumberLiteralValue::Int(value),
-                        ast::Number::Float(value) => CoreNumberLiteralValue::Float(value),
-                        ast::Number::Complex { .. } => {
-                            panic!("complex literal reached late core BlockPy boundary")
-                        }
-                    },
-                })
-                .into(),
-            ),
+            Expr::StringLiteral(node) => literal_expr(CoreStringLiteral {
+                node_index: node.node_index,
+                range: node.range,
+                value: node.value.to_str().to_string(),
+            }),
+            Expr::BytesLiteral(node) => literal_expr(CoreBytesLiteral {
+                node_index: node.node_index,
+                range: node.range,
+                value: {
+                    let value: std::borrow::Cow<[u8]> = (&node.value).into();
+                    value.into_owned()
+                },
+            }),
+            Expr::NumberLiteral(node) => literal_expr(CoreNumberLiteral {
+                node_index: node.node_index,
+                range: node.range,
+                value: match node.value {
+                    ast::Number::Int(value) => CoreNumberLiteralValue::Int(value),
+                    ast::Number::Float(value) => CoreNumberLiteralValue::Float(value),
+                    ast::Number::Complex { .. } => {
+                        panic!("complex literal reached late core BlockPy boundary")
+                    }
+                },
+            }),
             Expr::BooleanLiteral(node) => {
                 if node.value {
                     core_builtin_name("TRUE")

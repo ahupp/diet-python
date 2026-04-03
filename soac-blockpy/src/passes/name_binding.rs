@@ -4,13 +4,12 @@ use crate::block_py::{
     literal_expr, runtime_symbol, BindingTarget, BlockArg, BlockPyAssign, BlockPyBindingKind,
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
     BlockPyCellBindingKind, BlockPyCellCaptureBinding, BlockPyClassBodyFallback,
-    BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyLiteral, BlockPyModule,
-    BlockPyModuleMap, BlockPyNameLike, BlockPyRaise, BlockPyTerm, Call, CellLocation, CellRef,
-    CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionId,
-    HasMeta, InstrExprNode, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName, MakeCell,
-    MakeFunction, MapExpr, MapExprChildren, NameLocation, SetItem, StorageLayout, Store,
-    UnresolvedName, WithMeta,
+    BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap,
+    BlockPyNameLike, BlockPyRaise, BlockPyTerm, Call, CellLocation, CellRef, CellRefForName,
+    ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreNumberLiteral,
+    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionId, HasMeta, InstrExprNode,
+    Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName, MakeCell, MakeFunction, MapExpr,
+    MapExprChildren, NameLocation, SetItem, StorageLayout, Store, UnresolvedName, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -32,11 +31,11 @@ fn core_string_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    literal_expr(BlockPyLiteral::StringLiteral(CoreStringLiteral {
+    literal_expr(CoreStringLiteral {
         node_index,
         range,
         value,
-    }))
+    })
 }
 
 fn core_int_expr(
@@ -45,14 +44,14 @@ fn core_int_expr(
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
     let text = value.to_string();
-    literal_expr(BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+    literal_expr(CoreNumberLiteral {
         node_index,
         range,
         value: CoreNumberLiteralValue::Int(
             ast::Int::from_str_radix(text.as_str(), 10, text.as_str())
                 .expect("function id should round-trip through Int"),
         ),
-    }))
+    })
 }
 
 fn globals_expr(
@@ -830,25 +829,19 @@ fn closure_slot_init_expr(slot: &ClosureSlot) -> CoreBlockPyExpr {
             range,
         ),
         ClosureInit::DeletedSentinel => deleted_sentinel_expr(node_index, range),
-        ClosureInit::RuntimePcUnstarted => CoreBlockPyExpr::Literal(
-            BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
-                node_index,
-                range,
-                value: CoreNumberLiteralValue::Int(ast::Int::ONE),
-            })
-            .into(),
-        ),
-        ClosureInit::RuntimeAbruptKindFallthrough => CoreBlockPyExpr::Literal(
-            BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
-                node_index,
-                range,
-                value: CoreNumberLiteralValue::Int(
-                    ast::Int::from_str_radix("0", 10, "0")
-                        .expect("zero should parse as an integer literal"),
-                ),
-            })
-            .into(),
-        ),
+        ClosureInit::RuntimePcUnstarted => literal_expr(CoreNumberLiteral {
+            node_index,
+            range,
+            value: CoreNumberLiteralValue::Int(ast::Int::ONE),
+        }),
+        ClosureInit::RuntimeAbruptKindFallthrough => literal_expr(CoreNumberLiteral {
+            node_index,
+            range,
+            value: CoreNumberLiteralValue::Int(
+                ast::Int::from_str_radix("0", 10, "0")
+                    .expect("zero should parse as an integer literal"),
+            ),
+        }),
         ClosureInit::RuntimeNone | ClosureInit::Deferred => {
             core_name_expr("NONE", ast::ExprContext::Load, node_index, range)
         }

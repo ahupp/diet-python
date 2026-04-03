@@ -1,7 +1,7 @@
 use crate::block_py::{
-    core_call_expr_with_meta, core_operation_expr, BlockPyFunction, BlockPyModule,
-    CodegenBlockPyExpr, CoreBlockPyCallArg, CoreBlockPyExpr, CoreStringLiteral, Load,
-    LocatedCoreBlockPyExpr, LocatedName, Meta, NameLocation, WithMeta,
+    core_call_expr_with_meta, core_operation_expr, literal_expr, BlockPyFunction, BlockPyModule,
+    CodegenBlockPyExpr, CoreBlockPyCallArg, CoreStringLiteral, Load, LocatedCoreBlockPyExpr,
+    LocatedName, Meta, NameLocation, WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
 use std::collections::HashMap;
@@ -184,14 +184,11 @@ fn string_literal_expr(
     let meta = Meta::synthetic();
     let index = u32::try_from(module_constants.len())
         .expect("trace module constant count should fit in u32");
-    module_constants.push(CoreBlockPyExpr::Literal(
-        crate::block_py::BlockPyLiteral::StringLiteral(CoreStringLiteral {
-            node_index: meta.node_index.clone(),
-            range: meta.range,
-            value: value.to_string(),
-        })
-        .into(),
-    ));
+    module_constants.push(literal_expr(CoreStringLiteral {
+        node_index: meta.node_index.clone(),
+        range: meta.range,
+        value: value.to_string(),
+    }));
     core_operation_expr(
         crate::block_py::Load::new(crate::block_py::LocatedName {
             id: format!("__dp_constant_{index}").into(),

@@ -629,7 +629,7 @@ pub enum CodegenBlockPyExpr {
     MakeFunction(MakeFunction<Self>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, derive_more::From)]
 pub enum BlockPyLiteral {
     StringLiteral(CoreStringLiteral),
     BytesLiteral(CoreBytesLiteral),
@@ -662,18 +662,13 @@ impl LiteralValue {
     }
 }
 
-impl From<BlockPyLiteral> for LiteralValue {
-    fn from(literal: BlockPyLiteral) -> Self {
-        let meta = literal.meta();
-        LiteralValue::new(literal).with_meta(meta)
-    }
-}
-
-pub(crate) fn literal_expr<E>(literal: BlockPyLiteral) -> E
+pub(crate) fn literal_expr<E>(literal: impl Into<BlockPyLiteral>) -> E
 where
     E: From<LiteralValue>,
 {
-    E::from(literal.into())
+    let literal = literal.into();
+    let meta = literal.meta();
+    E::from(LiteralValue::new(literal).with_meta(meta))
 }
 
 impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {

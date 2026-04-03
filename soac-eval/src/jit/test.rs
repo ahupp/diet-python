@@ -3,8 +3,8 @@ use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyTerm,
     Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBytesLiteral, CoreNumberLiteral,
-    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, Load,
-    LocatedCoreBlockPyExpr, LocatedName, Meta, ModuleNameGen, NameLocation, Param, ParamKind,
+    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, LiteralValue,
+    Load, LocatedCoreBlockPyExpr, LocatedName, Meta, ModuleNameGen, NameLocation, Param, ParamKind,
     ParamSpec, StorageLayout, Store, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
@@ -56,39 +56,36 @@ mod tests {
 
     fn int_literal(value: i64) -> LocatedCoreBlockPyExpr {
         let value_str = value.to_string();
-        CoreBlockPyExpr::Literal(
-            BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
-                node_index: Default::default(),
-                range: Default::default(),
-                value: CoreNumberLiteralValue::Int(
-                    ast::Int::from_str_radix(value_str.as_str(), 10, value_str.as_str())
-                        .expect("test integer literal should parse"),
-                ),
-            })
-            .into(),
-        )
+        let literal = BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+            node_index: Default::default(),
+            range: Default::default(),
+            value: CoreNumberLiteralValue::Int(
+                ast::Int::from_str_radix(value_str.as_str(), 10, value_str.as_str())
+                    .expect("test integer literal should parse"),
+            ),
+        });
+        let meta = literal.meta();
+        CoreBlockPyExpr::Literal(LiteralValue::new(literal).with_meta(meta))
     }
 
     fn bytes_literal(value: &[u8]) -> LocatedCoreBlockPyExpr {
-        CoreBlockPyExpr::Literal(
-            BlockPyLiteral::BytesLiteral(CoreBytesLiteral {
-                node_index: Default::default(),
-                range: Default::default(),
-                value: value.to_vec(),
-            })
-            .into(),
-        )
+        let literal = BlockPyLiteral::BytesLiteral(CoreBytesLiteral {
+            node_index: Default::default(),
+            range: Default::default(),
+            value: value.to_vec(),
+        });
+        let meta = literal.meta();
+        CoreBlockPyExpr::Literal(LiteralValue::new(literal).with_meta(meta))
     }
 
     fn string_literal(value: &str) -> LocatedCoreBlockPyExpr {
-        CoreBlockPyExpr::Literal(
-            BlockPyLiteral::StringLiteral(CoreStringLiteral {
-                node_index: Default::default(),
-                range: Default::default(),
-                value: value.to_string(),
-            })
-            .into(),
-        )
+        let literal = BlockPyLiteral::StringLiteral(CoreStringLiteral {
+            node_index: Default::default(),
+            range: Default::default(),
+            value: value.to_string(),
+        });
+        let meta = literal.meta();
+        CoreBlockPyExpr::Literal(LiteralValue::new(literal).with_meta(meta))
     }
 
     #[derive(Default)]
