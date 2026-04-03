@@ -5,6 +5,7 @@ use crate::block_py::{
     Store, WithMeta,
 };
 use crate::namegen::fresh_name;
+use crate::passes::ast_to_ast::string_templates::lower_string_templates_in_expr;
 use crate::passes::ruff_to_blockpy::LoopContext;
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
@@ -239,6 +240,8 @@ pub(crate) trait BlockPySetupExprLowerer {
     where
         E: RuffToBlockPyExpr,
     {
+        let mut expr = expr;
+        lower_string_templates_in_expr(&mut expr);
         recursive::lower_expr_ast_recursive(self, expr, out, loop_ctx, next_label_id)
     }
 

@@ -1,4 +1,12 @@
 # diet-python: disabled
+DELETED = object()
+NO_DEFAULT = object()
+ELLIPSIS = Ellipsis
+TRUE = True
+FALSE = False
+NONE = None
+_SOAC_RUNTIME_READY = False
+
 from asyncio import coroutines as _coroutines
 import collections.abc as _abc
 import keyword as _keyword
@@ -100,13 +108,6 @@ typing_TypeAliasType = _typing.TypeAliasType
 typing_Unpack = _typing.Unpack
 templatelib_Template = _templatelib.Template
 templatelib_Interpolation = _templatelib.Interpolation
-
-DELETED = object()
-NO_DEFAULT = object()
-ELLIPSIS = Ellipsis
-TRUE = True
-FALSE = False
-NONE = None
 
 
 def load_deleted_name(name, value):
@@ -1138,3 +1139,6 @@ async def asynccontextmanager_exit(exit_fn, exc):
         await_iter = _ensure_awaitable(exit_fn(None, None, None), "__aexit__")
         await _AwaitIterWrapper(await_iter)
         return None
+
+
+_SOAC_RUNTIME_READY = True

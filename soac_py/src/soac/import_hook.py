@@ -19,6 +19,11 @@ def _integration_only_enabled() -> bool:
     return os.environ.get("DIET_PYTHON_INTEGRATION_ONLY") == "1"
 
 
+def _runtime_bootstrap_in_progress() -> bool:
+    runtime = sys.modules.get("soac.runtime")
+    return runtime is not None and not getattr(runtime, "_SOAC_RUNTIME_READY", False)
+
+
 def _create_module_from_source(path: str, source: str, spec):
     try:
         return _soac_ext.create_module(source, spec)
@@ -53,6 +58,8 @@ def _is_integration_module(resolved: Path) -> bool:
 
 def _should_transform(path: str) -> bool:
     """Return ``True`` if ``path`` should be passed through the transform."""
+    if _runtime_bootstrap_in_progress():
+        return False
     if path.endswith(os.path.join("encodings", "__init__.py")):
         return False
     try:
@@ -139,14 +146,15 @@ def _resolve_target(target: str) -> importlib.machinery.ModuleSpec:
         if not path.is_file():
             raise SystemExit(f"soac.import_hook: file not found: {target}")
         path = path.resolve()
+        module_name = "__main__"
         if path.name == "__init__.py":
             spec = importlib.util.spec_from_file_location(
-                path.parent.name,
+                module_name,
                 path,
                 submodule_search_locations=[str(path.parent)],
             )
         else:
-            spec = importlib.util.spec_from_file_location(path.stem, path)
+            spec = importlib.util.spec_from_file_location(module_name, path)
         if spec is None or spec.loader is None or spec.origin is None:
             raise SystemExit(f"soac.import_hook: could not resolve spec for file: {target}")
         return spec
