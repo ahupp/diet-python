@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyNameLike,
     BlockPyTerm, CodegenBlockPyExpr, CoreBlockPyExpr, CoreBlockPyKeywordArg,
-    CoreNumberLiteralValue, InstrExprNode, LocatedCoreBlockPyExpr, ParamDefaultSource,
+    CoreNumberLiteralValue, LocatedCoreBlockPyExpr, ParamDefaultSource, Walkable,
     operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
@@ -311,7 +311,7 @@ impl ModuleConstantCollector {
                 {
                     self.constants.intern_unicode_bytes(attr_bytes.as_slice());
                 }
-                op.visit_children(&mut |child| self.collect_expr(child));
+                op.walk(&mut |child| self.collect_expr(child));
             }
             CodegenBlockPyExpr::SetAttr(op) => {
                 if let Some(attr_bytes) =
@@ -319,7 +319,7 @@ impl ModuleConstantCollector {
                 {
                     self.constants.intern_unicode_bytes(attr_bytes.as_slice());
                 }
-                op.visit_children(&mut |child| self.collect_expr(child));
+                op.walk(&mut |child| self.collect_expr(child));
             }
             CodegenBlockPyExpr::Load(op)
                 if op.name.location.is_global() || op.name.location.is_runtime_name() =>
@@ -331,35 +331,33 @@ impl ModuleConstantCollector {
             CodegenBlockPyExpr::Store(op) if op.name.location.is_global() => {
                 self.constants
                     .intern_unicode_bytes(op.name.id_str().as_bytes());
-                op.visit_children(&mut |child| self.collect_expr(child));
+                op.walk(&mut |child| self.collect_expr(child));
             }
             CodegenBlockPyExpr::Store(op) => {
-                op.visit_children(&mut |child| self.collect_expr(child));
+                op.walk(&mut |child| self.collect_expr(child));
             }
             CodegenBlockPyExpr::Del(op) if op.name.location.is_global() => {
                 self.constants
                     .intern_unicode_bytes(op.name.id_str().as_bytes());
             }
-            CodegenBlockPyExpr::BinOp(op) => {
-                op.visit_children(&mut |child| self.collect_expr(child))
-            }
+            CodegenBlockPyExpr::BinOp(op) => op.walk(&mut |child| self.collect_expr(child)),
             CodegenBlockPyExpr::UnaryOp(op) => {
-                op.visit_children(&mut |child| self.collect_expr(child));
+                op.walk(&mut |child| self.collect_expr(child));
             }
             CodegenBlockPyExpr::GetItem(op) => {
-                op.visit_children(&mut |child| self.collect_expr(child));
+                op.walk(&mut |child| self.collect_expr(child));
             }
             CodegenBlockPyExpr::SetItem(op) => {
-                op.visit_children(&mut |child| self.collect_expr(child));
+                op.walk(&mut |child| self.collect_expr(child));
             }
             CodegenBlockPyExpr::DelItem(op) => {
-                op.visit_children(&mut |child| self.collect_expr(child));
+                op.walk(&mut |child| self.collect_expr(child));
             }
             CodegenBlockPyExpr::MakeCell(op) => {
-                op.visit_children(&mut |child| self.collect_expr(child));
+                op.walk(&mut |child| self.collect_expr(child));
             }
             CodegenBlockPyExpr::MakeFunction(op) => {
-                op.visit_children(&mut |child| self.collect_expr(child));
+                op.walk(&mut |child| self.collect_expr(child));
             }
             CodegenBlockPyExpr::Del(_)
             | CodegenBlockPyExpr::CellRefForName(_)

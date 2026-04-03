@@ -9,7 +9,7 @@ use crate::block_py::{
     ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionId, HasMeta, InstrExprNode,
     Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName, MakeCell, MakeFunction, MapExpr,
-    MapExprChildren, NameLocation, SetItem, StorageLayout, Store, UnresolvedName, WithMeta,
+    NameLocation, SetItem, StorageLayout, Store, UnresolvedName, Walkable, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -372,7 +372,7 @@ where
 {
     let mut current = 0;
     let mut applied = false;
-    operation.visit_children_mut(&mut |arg| {
+    operation.walk_mut(&mut |arg| {
         if current == index && !applied {
             f(arg);
             applied = true;
@@ -386,48 +386,14 @@ fn walk_helper_args<N: BlockPyNameLike + Clone>(
     expr: &CoreBlockPyExpr<N>,
     f: &mut impl FnMut(&CoreBlockPyExpr<N>),
 ) {
-    match expr {
-        CoreBlockPyExpr::BinOp(operation) => operation.visit_children(f),
-        CoreBlockPyExpr::UnaryOp(operation) => operation.visit_children(f),
-        CoreBlockPyExpr::Call(operation) => operation.visit_children(f),
-        CoreBlockPyExpr::GetAttr(operation) => operation.visit_children(f),
-        CoreBlockPyExpr::SetAttr(operation) => operation.visit_children(f),
-        CoreBlockPyExpr::GetItem(operation) => operation.visit_children(f),
-        CoreBlockPyExpr::SetItem(operation) => operation.visit_children(f),
-        CoreBlockPyExpr::DelItem(operation) => operation.visit_children(f),
-        CoreBlockPyExpr::Load(operation) => operation.visit_children(f),
-        CoreBlockPyExpr::Store(operation) => operation.visit_children(f),
-        CoreBlockPyExpr::Del(operation) => operation.visit_children(f),
-        CoreBlockPyExpr::MakeCell(operation) => operation.visit_children(f),
-        CoreBlockPyExpr::CellRefForName(operation) => operation.visit_children(f),
-        CoreBlockPyExpr::CellRef(operation) => operation.visit_children(f),
-        CoreBlockPyExpr::MakeFunction(operation) => operation.visit_children(f),
-        _ => unreachable!("helper arg walker only applies to op-like expressions"),
-    }
+    expr.walk(f);
 }
 
 fn walk_helper_args_mut<N: BlockPyNameLike + Clone>(
     expr: &mut CoreBlockPyExpr<N>,
     f: &mut impl FnMut(&mut CoreBlockPyExpr<N>),
 ) {
-    match expr {
-        CoreBlockPyExpr::BinOp(operation) => operation.visit_children_mut(f),
-        CoreBlockPyExpr::UnaryOp(operation) => operation.visit_children_mut(f),
-        CoreBlockPyExpr::Call(operation) => operation.visit_children_mut(f),
-        CoreBlockPyExpr::GetAttr(operation) => operation.visit_children_mut(f),
-        CoreBlockPyExpr::SetAttr(operation) => operation.visit_children_mut(f),
-        CoreBlockPyExpr::GetItem(operation) => operation.visit_children_mut(f),
-        CoreBlockPyExpr::SetItem(operation) => operation.visit_children_mut(f),
-        CoreBlockPyExpr::DelItem(operation) => operation.visit_children_mut(f),
-        CoreBlockPyExpr::Load(operation) => operation.visit_children_mut(f),
-        CoreBlockPyExpr::Store(operation) => operation.visit_children_mut(f),
-        CoreBlockPyExpr::Del(operation) => operation.visit_children_mut(f),
-        CoreBlockPyExpr::MakeCell(operation) => operation.visit_children_mut(f),
-        CoreBlockPyExpr::CellRefForName(operation) => operation.visit_children_mut(f),
-        CoreBlockPyExpr::CellRef(operation) => operation.visit_children_mut(f),
-        CoreBlockPyExpr::MakeFunction(operation) => operation.visit_children_mut(f),
-        _ => unreachable!("helper arg walker only applies to op-like expressions"),
-    }
+    expr.walk_mut(f);
 }
 
 fn rewrite_deleted_name_loads_in_expr(
@@ -1215,7 +1181,7 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
                     .with_meta(meta)
                     .into()
             }
-            other => other.map_children(&mut |child| self.map_expr(child)).into(),
+            other => other.walk_map(&mut |child| self.map_expr(child)).into(),
         }
     }
 }
@@ -1374,9 +1340,7 @@ fn rewrite_raw_cell_loads_in_expr(
                 }
                 return;
             }
-            call.visit_children_mut(&mut |arg| {
-                rewrite_raw_cell_loads_in_expr(arg, semantic, resolver)
-            });
+            call.walk_mut(&mut |arg| rewrite_raw_cell_loads_in_expr(arg, semantic, resolver));
         }
         CoreBlockPyExpr::BinOp(_)
         | CoreBlockPyExpr::UnaryOp(_)
@@ -1604,56 +1568,31 @@ fn collect_always_unbound_local_names(
 
 fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<String>) {
     match expr {
-        CoreBlockPyExpr::Literal(_) => {}
         CoreBlockPyExpr::Load(op) => {
             names.insert(op.name.id_str().to_string());
-            op.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
         }
-        CoreBlockPyExpr::BinOp(operation) => {
-            operation.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        CoreBlockPyExpr::Store(op) => {
+            names.insert(op.name.id_str().to_string());
         }
-        CoreBlockPyExpr::UnaryOp(operation) => {
-            operation.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
+        CoreBlockPyExpr::Del(op) => {
+            names.insert(op.name.id_str().to_string());
         }
-        CoreBlockPyExpr::Call(operation) => {
-            operation.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
-        }
-        CoreBlockPyExpr::GetAttr(operation) => {
-            operation.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
-        }
-        CoreBlockPyExpr::SetAttr(operation) => {
-            operation.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
-        }
-        CoreBlockPyExpr::GetItem(operation) => {
-            operation.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
-        }
-        CoreBlockPyExpr::SetItem(operation) => {
-            operation.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
-        }
-        CoreBlockPyExpr::DelItem(operation) => {
-            operation.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
-        }
-        CoreBlockPyExpr::Store(operation) => {
-            names.insert(operation.name.id_str().to_string());
-            operation.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
-        }
-        CoreBlockPyExpr::Del(operation) => {
-            names.insert(operation.name.id_str().to_string());
-            operation.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
-        }
-        CoreBlockPyExpr::MakeCell(operation) => {
-            operation.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
-        }
-        CoreBlockPyExpr::CellRefForName(operation) => {
-            operation.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
-        }
-        CoreBlockPyExpr::CellRef(operation) => {
-            operation.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
-        }
-        CoreBlockPyExpr::MakeFunction(operation) => {
-            operation.visit_children(&mut |arg| collect_remaining_names_in_expr(arg, names));
-        }
+        CoreBlockPyExpr::Literal(_)
+        | CoreBlockPyExpr::BinOp(_)
+        | CoreBlockPyExpr::UnaryOp(_)
+        | CoreBlockPyExpr::Call(_)
+        | CoreBlockPyExpr::GetAttr(_)
+        | CoreBlockPyExpr::SetAttr(_)
+        | CoreBlockPyExpr::GetItem(_)
+        | CoreBlockPyExpr::SetItem(_)
+        | CoreBlockPyExpr::DelItem(_)
+        | CoreBlockPyExpr::MakeCell(_)
+        | CoreBlockPyExpr::CellRefForName(_)
+        | CoreBlockPyExpr::CellRef(_)
+        | CoreBlockPyExpr::MakeFunction(_) => {}
     }
+
+    expr.walk(&mut |arg| collect_remaining_names_in_expr(arg, names));
 }
 
 fn collect_remaining_names_in_stmt(stmt: &CoreStmt, names: &mut HashSet<String>) {
@@ -2203,7 +2142,7 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_> 
             }
             CoreBlockPyExpr::Call(call) => {
                 let meta = call.meta();
-                let call = call.map_children(&mut |expr| self.map_expr(expr));
+                let call = call.map_typed_children(&mut |expr| self.map_expr(expr));
                 if raw_load_name(call.func.as_ref())
                     .as_ref()
                     .is_some_and(|name| name == "class_lookup_cell")
@@ -2221,34 +2160,34 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_> 
                 }
                 call.with_meta(meta).into()
             }
-            CoreBlockPyExpr::BinOp(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExpr::UnaryOp(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExpr::GetAttr(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExpr::SetAttr(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExpr::GetItem(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExpr::SetItem(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExpr::DelItem(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExpr::MakeCell(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
+            CoreBlockPyExpr::BinOp(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExpr::UnaryOp(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExpr::GetAttr(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExpr::SetAttr(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExpr::GetItem(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExpr::SetItem(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExpr::DelItem(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExpr::MakeCell(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
             CoreBlockPyExpr::CellRef(node) => node.into(),
-            CoreBlockPyExpr::MakeFunction(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
+            CoreBlockPyExpr::MakeFunction(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
         }
     }
 }

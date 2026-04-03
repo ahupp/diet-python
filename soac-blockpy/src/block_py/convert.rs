@@ -251,51 +251,51 @@ impl
             CoreBlockPyExprWithAwaitAndYield::Await(_) => Err(expr),
             CoreBlockPyExprWithAwaitAndYield::Literal(node) => Ok(node.into()),
             CoreBlockPyExprWithAwaitAndYield::BinOp(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithAwaitAndYield::UnaryOp(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithAwaitAndYield::Call(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithAwaitAndYield::GetAttr(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithAwaitAndYield::SetAttr(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithAwaitAndYield::GetItem(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithAwaitAndYield::SetItem(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithAwaitAndYield::DelItem(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithAwaitAndYield::Load(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithAwaitAndYield::Store(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithAwaitAndYield::Del(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithAwaitAndYield::MakeCell(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithAwaitAndYield::CellRefForName(node) => Ok(node.into()),
             CoreBlockPyExprWithAwaitAndYield::CellRef(node) => Ok(node.into()),
             CoreBlockPyExprWithAwaitAndYield::MakeFunction(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithAwaitAndYield::Yield(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithAwaitAndYield::YieldFrom(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
         }
     }
@@ -321,45 +321,45 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYi
             CoreBlockPyExprWithYield::YieldFrom(_) => Err(expr),
             CoreBlockPyExprWithYield::Literal(node) => Ok(node.into()),
             CoreBlockPyExprWithYield::BinOp(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithYield::UnaryOp(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithYield::Call(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithYield::GetAttr(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithYield::SetAttr(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithYield::GetItem(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithYield::SetItem(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithYield::DelItem(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithYield::Load(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithYield::Store(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithYield::Del(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithYield::MakeCell(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
             CoreBlockPyExprWithYield::CellRefForName(node) => Ok(node.into()),
             CoreBlockPyExprWithYield::CellRef(node) => Ok(node.into()),
             CoreBlockPyExprWithYield::MakeFunction(node) => Ok(node
-                .try_map_children(&mut |child| self.try_map_expr(child))?
+                .try_map_typed_children(&mut |child| self.try_map_expr(child))?
                 .into()),
         }
     }

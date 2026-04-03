@@ -205,27 +205,61 @@ pub trait TryMapExpr<In, Out, Error> {
     fn try_map_expr(&self, expr: In) -> Result<Out, Error>;
 }
 
-pub trait MapExprChildren: Clone + fmt::Debug + Sized {
-    fn map_children(self, f: &mut impl FnMut(Self) -> Self) -> Self;
+pub trait Walkable<E>: Clone + fmt::Debug + Sized {
+    fn walk_map(self, f: &mut impl FnMut(E) -> E) -> Self;
+    fn walk_mut(&mut self, f: &mut impl FnMut(&mut E));
+
+    fn walk(&self, f: &mut impl FnMut(&E))
+    where
+        E: Clone,
+    {
+        let _ = self.clone().walk_map(&mut |child| {
+            f(&child);
+            child
+        });
+    }
+
+    fn walk_try_map<Error>(self, f: &mut impl FnMut(E) -> Result<E, Error>) -> Result<Self, Error>
+    where
+        E: Clone,
+    {
+        let mut first_error = None;
+        let walked = self.walk_map(&mut |child| {
+            if first_error.is_some() {
+                return child;
+            }
+
+            let original = child.clone();
+            match f(child) {
+                Ok(mapped) => mapped,
+                Err(error) => {
+                    first_error = Some(error);
+                    original
+                }
+            }
+        });
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(walked),
+        }
+    }
 }
 
 pub trait Instr: Clone + fmt::Debug + Sized {
     type Name: BlockPyNameLike;
 }
 
-pub trait InstrExprNode<I>: Sized
+pub trait InstrExprNode<I>: Walkable<I> + Sized
 where
     I: Instr,
 {
     type Mapped<T: Instr>;
 
-    fn visit_children(&self, f: &mut impl FnMut(&I));
-    fn visit_children_mut(&mut self, f: &mut impl FnMut(&mut I));
-    fn map_children<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_typed_children<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<I>>;
-    fn try_map_children<T, Error>(
+    fn try_map_typed_children<T, Error>(
         self,
         f: &mut impl FnMut(I) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>
@@ -234,15 +268,13 @@ where
         InstrName<T>: From<InstrName<I>>;
 }
 
-pub trait BlockPyExprLike: Clone + fmt::Debug + MapExprChildren {
+pub trait BlockPyExprLike: Clone + fmt::Debug + Walkable<Self> {
     fn walk_child_exprs<F>(&self, f: &mut F)
     where
         F: FnMut(&Self),
+        Self: Clone,
     {
-        let _ = self.clone().map_children(&mut |child| {
-            f(&child);
-            child
-        });
+        self.walk(f);
     }
 }
 
@@ -252,8 +284,8 @@ impl BlockPyNameLike for ast::ExprName {
     }
 }
 
-impl MapExprChildren for Expr {
-    fn map_children(self, f: &mut impl FnMut(Self) -> Expr) -> Expr {
+impl Walkable<Expr> for Expr {
+    fn walk_map(self, f: &mut impl FnMut(Self) -> Expr) -> Expr {
         struct DirectChildTransformer<'a, F>(&'a mut F);
 
         impl<F> crate::transformer::Transformer for DirectChildTransformer<'_, F>
@@ -269,6 +301,22 @@ impl MapExprChildren for Expr {
         let mut transformer = DirectChildTransformer(f);
         crate::transformer::walk_expr(&mut transformer, &mut expr);
         expr
+    }
+
+    fn walk_mut(&mut self, f: &mut impl FnMut(&mut Expr)) {
+        struct DirectChildTransformer<'a, F>(&'a mut F);
+
+        impl<F> crate::transformer::Transformer for DirectChildTransformer<'_, F>
+        where
+            F: FnMut(&mut Expr),
+        {
+            fn visit_expr(&mut self, expr: &mut Expr) {
+                (self.0)(expr);
+            }
+        }
+
+        let mut transformer = DirectChildTransformer(f);
+        crate::transformer::walk_expr(&mut transformer, self);
     }
 }
 
@@ -320,13 +368,21 @@ impl UnresolvedName {
     }
 }
 
-impl MapExprChildren for RuffExpr {
-    fn map_children(self, f: &mut impl FnMut(Self) -> RuffExpr) -> RuffExpr {
-        RuffExpr(self.0.map_children(&mut |expr| f(RuffExpr(expr)).0))
+impl Walkable<RuffExpr> for RuffExpr {
+    fn walk_map(self, f: &mut impl FnMut(Self) -> RuffExpr) -> RuffExpr {
+        RuffExpr(self.0.walk_map(&mut |expr| f(RuffExpr(expr)).0))
+    }
+
+    fn walk_mut(&mut self, f: &mut impl FnMut(&mut RuffExpr)) {
+        self.0.walk_mut(&mut |expr| {
+            let mut wrapped = RuffExpr(expr.clone());
+            f(&mut wrapped);
+            *expr = wrapped.0;
+        });
     }
 }
 
-impl<T> BlockPyExprLike for T where T: Clone + fmt::Debug + MapExprChildren {}
+impl<T> BlockPyExprLike for T where T: Clone + fmt::Debug + Walkable<T> {}
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct LocatedName {
@@ -541,7 +597,7 @@ impl<P: BlockPyPass, S> BlockPyModule<P, S> {
 }
 
 #[derive(Clone, derive_more::From)]
-#[enum_broadcast(HasMeta, WithMeta, MapExprChildren, Debug)]
+#[enum_broadcast(HasMeta, WithMeta, Walkable, Debug)]
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -565,7 +621,7 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
 }
 
 #[derive(Clone, derive_more::From)]
-#[enum_broadcast(HasMeta, WithMeta, MapExprChildren, Debug)]
+#[enum_broadcast(HasMeta, WithMeta, Walkable, Debug)]
 pub enum CoreBlockPyExprWithYield {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -588,7 +644,7 @@ pub enum CoreBlockPyExprWithYield {
 }
 
 #[derive(Clone, derive_more::From)]
-#[enum_broadcast(HasMeta, WithMeta, MapExprChildren, Debug)]
+#[enum_broadcast(HasMeta, WithMeta, Walkable, Debug)]
 pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -611,7 +667,7 @@ pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
 pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 
 #[derive(Clone, derive_more::From)]
-#[enum_broadcast(HasMeta, WithMeta, MapExprChildren, Debug)]
+#[enum_broadcast(HasMeta, WithMeta, Walkable, Debug)]
 pub enum CodegenBlockPyExpr {
     BinOp(BinOp<Self>),
     UnaryOp(UnaryOp<Self>),
@@ -674,14 +730,18 @@ where
     E::from(literal_value(literal, meta))
 }
 
+impl<I: Instr> Walkable<I> for UnresolvedName {
+    fn walk_map(self, _f: &mut impl FnMut(I) -> I) -> Self {
+        self
+    }
+
+    fn walk_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+}
+
 impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
     type Mapped<T: Instr> = InstrName<T>;
 
-    fn visit_children(&self, _f: &mut impl FnMut(&I)) {}
-
-    fn visit_children_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
-
-    fn map_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_typed_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<I>>,
@@ -689,7 +749,7 @@ impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
         <T as Instr>::Name::from(self)
     }
 
-    fn try_map_children<T, Error>(
+    fn try_map_typed_children<T, Error>(
         self,
         _f: &mut impl FnMut(I) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>
@@ -701,14 +761,18 @@ impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
     }
 }
 
+impl<I: Instr> Walkable<I> for BlockPyLiteral {
+    fn walk_map(self, _f: &mut impl FnMut(I) -> I) -> Self {
+        self
+    }
+
+    fn walk_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+}
+
 impl<I: Instr> InstrExprNode<I> for BlockPyLiteral {
     type Mapped<T: Instr> = BlockPyLiteral;
 
-    fn visit_children(&self, _f: &mut impl FnMut(&I)) {}
-
-    fn visit_children_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
-
-    fn map_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_typed_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<I>>,
@@ -716,7 +780,7 @@ impl<I: Instr> InstrExprNode<I> for BlockPyLiteral {
         self
     }
 
-    fn try_map_children<T, Error>(
+    fn try_map_typed_children<T, Error>(
         self,
         _f: &mut impl FnMut(I) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>
@@ -1421,7 +1485,7 @@ pub struct BlockParam {
 pub(crate) trait BlockPyLinearModuleVisitor<P>
 where
     P: BlockPyPass,
-    P::Expr: MapExprChildren,
+    P::Expr: Walkable<P::Expr>,
 {
     fn visit_module(&mut self, module: &BlockPyModule<P>) {
         walk_linear_module(self, module);
@@ -1456,7 +1520,7 @@ pub(crate) fn walk_linear_module<V, P>(visitor: &mut V, module: &BlockPyModule<P
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExprChildren,
+    P::Expr: Walkable<P::Expr>,
 {
     for function in &module.callable_defs {
         visitor.visit_fn(function);
@@ -1467,7 +1531,7 @@ pub(crate) fn walk_linear_fn<V, P>(visitor: &mut V, func: &BlockPyFunction<P>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExprChildren,
+    P::Expr: Walkable<P::Expr>,
 {
     for block in &func.blocks {
         visitor.visit_block(block);
@@ -1478,7 +1542,7 @@ pub(crate) fn walk_linear_block<V, P>(visitor: &mut V, block: &CfgBlock<P::Expr>
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExprChildren,
+    P::Expr: Walkable<P::Expr>,
 {
     for stmt in &block.body {
         visitor.visit_stmt(stmt);
@@ -1493,7 +1557,7 @@ pub(crate) fn walk_linear_stmt<V, P>(visitor: &mut V, stmt: &P::Expr)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExprChildren,
+    P::Expr: Walkable<P::Expr>,
 {
     visitor.visit_expr(stmt);
 }
@@ -1502,7 +1566,7 @@ pub(crate) fn walk_linear_label<V, P>(visitor: &mut V, label: &BlockPyLabel)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExprChildren,
+    P::Expr: Walkable<P::Expr>,
 {
     let _ = visitor;
     let _ = label;
@@ -1512,7 +1576,7 @@ pub(crate) fn walk_linear_term<V, P>(visitor: &mut V, term: &BlockPyTerm<P::Expr
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExprChildren,
+    P::Expr: Walkable<P::Expr>,
 {
     match term {
         BlockPyTerm::Jump(edge) => {
@@ -1543,9 +1607,9 @@ pub(crate) fn walk_linear_expr<V, P>(visitor: &mut V, expr: &P::Expr)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExprChildren,
+    P::Expr: Walkable<P::Expr>,
 {
-    let _ = expr.clone().map_children(&mut |child| {
+    let _ = expr.clone().walk_map(&mut |child| {
         visitor.visit_expr(&child);
         child
     });

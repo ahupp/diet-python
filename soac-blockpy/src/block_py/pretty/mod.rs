@@ -1,7 +1,7 @@
 use super::{
     BlockArg, BlockParamRole, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyNameLike, BlockPyPass,
-    BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyExpr, Instr, StructuredInstr,
+    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
+    BlockPyTerm, CfgBlock, Instr, StructuredInstr,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
@@ -527,7 +527,9 @@ pub(crate) fn bb_expr_text<N: fmt::Debug>(expr: &N) -> String {
 }
 
 #[cfg(test)]
-pub(crate) fn core_bb_stmt_text<N: BlockPyNameLike>(stmt: &CoreBlockPyExpr<N>) -> String {
+pub(crate) fn core_bb_stmt_text<N: crate::block_py::BlockPyNameLike>(
+    stmt: &crate::block_py::CoreBlockPyExpr<N>,
+) -> String {
     bb_expr_text(stmt)
 }
 

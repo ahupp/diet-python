@@ -45,7 +45,7 @@ fn item_enum_variants(input: &ItemEnum) -> syn::Result<Vec<&syn::Variant>> {
 enum EnumBroadcastTarget {
     HasMeta,
     WithMeta,
-    MapExprChildren,
+    Walkable,
     Debug,
 }
 
@@ -58,11 +58,11 @@ impl EnumBroadcastTarget {
         match segment.ident.to_string().as_str() {
             "HasMeta" => Ok(Self::HasMeta),
             "WithMeta" => Ok(Self::WithMeta),
-            "MapExprChildren" => Ok(Self::MapExprChildren),
+            "Walkable" => Ok(Self::Walkable),
             "Debug" => Ok(Self::Debug),
             _ => Err(syn::Error::new_spanned(
                 segment,
-                "unsupported enum_broadcast target; supported targets are HasMeta, WithMeta, MapExprChildren, and Debug",
+                "unsupported enum_broadcast target; supported targets are HasMeta, WithMeta, Walkable, and Debug",
             )),
         }
     }
@@ -86,10 +86,16 @@ impl EnumBroadcastTarget {
                 Self::#variant_name(node) => node.with_meta(meta.clone()).into(),
             }
         });
-        let map_children_arms = variants.iter().map(|variant| {
+        let walk_map_arms = variants.iter().map(|variant| {
             let variant_name = &variant.ident;
             quote! {
-                Self::#variant_name(node) => node.map_children(&mut *f).into(),
+                Self::#variant_name(node) => node.walk_map(&mut *f).into(),
+            }
+        });
+        let walk_mut_arms = variants.iter().map(|variant| {
+            let variant_name = &variant.ident;
+            quote! {
+                Self::#variant_name(node) => node.walk_mut(&mut *f),
             }
         });
         let debug_arms = variants.iter().map(|variant| {
@@ -132,11 +138,17 @@ impl EnumBroadcastTarget {
                     }
                 }
             },
-            Self::MapExprChildren => quote! {
-                impl #impl_generics MapExprChildren for #enum_name #ty_generics #where_clause {
-                    fn map_children(self, f: &mut impl FnMut(Self) -> Self) -> Self {
+            Self::Walkable => quote! {
+                impl #impl_generics Walkable<Self> for #enum_name #ty_generics #where_clause {
+                    fn walk_map(self, f: &mut impl FnMut(Self) -> Self) -> Self {
                         match self {
-                            #( #map_children_arms )*
+                            #( #walk_map_arms )*
+                        }
+                    }
+
+                    fn walk_mut(&mut self, f: &mut impl FnMut(&mut Self)) {
+                        match self {
+                            #( #walk_mut_arms )*
                         }
                     }
                 }

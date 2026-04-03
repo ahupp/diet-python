@@ -62,22 +62,24 @@ macro_rules! define_operation {
             }
         }
 
-        impl<$expr_ty: Instr> InstrExprNode<$expr_ty> for $name<$expr_ty> {
-            type Mapped<T: Instr> = $name<T>;
-
-            fn visit_children(&self, f: &mut impl FnMut(&$expr_ty)) {
+        impl<$expr_ty: Instr> Walkable<$expr_ty> for $name<$expr_ty> {
+            fn walk_map(self, f: &mut impl FnMut($expr_ty) -> $expr_ty) -> Self {
                 #[allow(unused_variables)]
                 let _ = &f;
-                define_operation!(@visit_expr_fields self, f, $($raw_fields)*);
+                define_operation!(@build_mapped [$name::<$expr_ty>] [] self, f, $($raw_fields)*)
             }
 
-            fn visit_children_mut(&mut self, f: &mut impl FnMut(&mut $expr_ty)) {
+            fn walk_mut(&mut self, f: &mut impl FnMut(&mut $expr_ty)) {
                 #[allow(unused_variables)]
                 let _ = &f;
                 define_operation!(@visit_expr_fields_mut self, f, $($raw_fields)*);
             }
+        }
 
-            fn map_children<T>(self, f: &mut impl FnMut($expr_ty) -> T) -> Self::Mapped<T>
+        impl<$expr_ty: Instr> InstrExprNode<$expr_ty> for $name<$expr_ty> {
+            type Mapped<T: Instr> = $name<T>;
+
+            fn map_typed_children<T>(self, f: &mut impl FnMut($expr_ty) -> T) -> Self::Mapped<T>
             where
                 T: Instr,
                 InstrName<T>: From<InstrName<$expr_ty>>,
@@ -87,7 +89,7 @@ macro_rules! define_operation {
                 define_operation!(@build_mapped [$name::<T>] [] self, f, $($raw_fields)*)
             }
 
-            fn try_map_children<T, Error>(
+            fn try_map_typed_children<T, Error>(
                 self,
                 f: &mut impl FnMut($expr_ty) -> Result<T, Error>,
             ) -> Result<Self::Mapped<T>, Error>
@@ -162,18 +164,21 @@ macro_rules! define_operation {
             }
         }
 
+        impl<E: Instr> Walkable<E> for $name {
+            fn walk_map(self, f: &mut impl FnMut(E) -> E) -> Self {
+                let _ = &f;
+                self
+            }
+
+            fn walk_mut(&mut self, f: &mut impl FnMut(&mut E)) {
+                let _ = &f;
+            }
+        }
+
         impl<E: Instr> InstrExprNode<E> for $name {
             type Mapped<T: Instr> = $name;
 
-            fn visit_children(&self, f: &mut impl FnMut(&E)) {
-                let _ = &f;
-            }
-
-            fn visit_children_mut(&mut self, f: &mut impl FnMut(&mut E)) {
-                let _ = &f;
-            }
-
-            fn map_children<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
+            fn map_typed_children<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
             where
                 T: Instr,
                 InstrName<T>: From<InstrName<E>>,
@@ -182,7 +187,7 @@ macro_rules! define_operation {
                 self
             }
 
-            fn try_map_children<T, Error>(
+            fn try_map_typed_children<T, Error>(
                 self,
                 f: &mut impl FnMut(E) -> Result<T, Error>,
             ) -> Result<Self::Mapped<T>, Error>

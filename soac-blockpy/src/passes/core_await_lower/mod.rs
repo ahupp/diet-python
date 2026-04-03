@@ -23,53 +23,53 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for Cor
                 )
             }
             CoreBlockPyExprWithAwaitAndYield::Literal(node) => node.into(),
-            CoreBlockPyExprWithAwaitAndYield::BinOp(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::UnaryOp(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::Call(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::GetAttr(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::SetAttr(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::GetItem(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::SetItem(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::DelItem(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::Load(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::Store(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::Del(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::MakeCell(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
+            CoreBlockPyExprWithAwaitAndYield::BinOp(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExprWithAwaitAndYield::UnaryOp(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExprWithAwaitAndYield::Call(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExprWithAwaitAndYield::GetAttr(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExprWithAwaitAndYield::SetAttr(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExprWithAwaitAndYield::GetItem(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExprWithAwaitAndYield::SetItem(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExprWithAwaitAndYield::DelItem(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExprWithAwaitAndYield::Load(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExprWithAwaitAndYield::Store(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExprWithAwaitAndYield::Del(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExprWithAwaitAndYield::MakeCell(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
             CoreBlockPyExprWithAwaitAndYield::CellRefForName(node) => node.into(),
             CoreBlockPyExprWithAwaitAndYield::CellRef(node) => node.into(),
-            CoreBlockPyExprWithAwaitAndYield::MakeFunction(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::Yield(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::YieldFrom(node) => {
-                node.map_children(&mut |child| self.map_expr(child)).into()
-            }
+            CoreBlockPyExprWithAwaitAndYield::MakeFunction(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExprWithAwaitAndYield::Yield(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
+            CoreBlockPyExprWithAwaitAndYield::YieldFrom(node) => node
+                .map_typed_children(&mut |child| self.map_expr(child))
+                .into(),
         }
     }
 }
