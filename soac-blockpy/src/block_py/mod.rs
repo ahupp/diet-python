@@ -18,7 +18,7 @@ pub use operation::{
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast};
-use soac_macros::enum_broadcast;
+use soac_macros::{enum_broadcast, match_default, DelegateMatchDefault};
 use std::fmt;
 
 pub(crate) mod cfg;
@@ -251,10 +251,7 @@ where
     where
         T: Instr,
         M: MapExpr<I, T>;
-    fn try_map_typed_children<T, Error, M>(
-        self,
-        map: &mut M,
-    ) -> Result<Self::Mapped<T>, Error>
+    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
         M: TryMapExpr<I, T, Error>;
@@ -591,7 +588,7 @@ impl<P: BlockPyPass, S> BlockPyModule<P, S> {
     }
 }
 
-#[derive(Clone, derive_more::From)]
+#[derive(Clone, derive_more::From, DelegateMatchDefault)]
 #[enum_broadcast(HasMeta, WithMeta, Walkable, Debug)]
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Literal(LiteralValue),
@@ -615,7 +612,7 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
     YieldFrom(CoreBlockPyYieldFrom<Self>),
 }
 
-#[derive(Clone, derive_more::From)]
+#[derive(Clone, derive_more::From, DelegateMatchDefault)]
 #[enum_broadcast(HasMeta, WithMeta, Walkable, Debug)]
 pub enum CoreBlockPyExprWithYield {
     Literal(LiteralValue),
@@ -746,10 +743,7 @@ impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
         map.map_name(self)
     }
 
-    fn try_map_typed_children<T, Error, M>(
-        self,
-        map: &mut M,
-    ) -> Result<Self::Mapped<T>, Error>
+    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
         M: TryMapExpr<I, T, Error>,
@@ -820,6 +814,37 @@ impl<N: BlockPyNameLike> Instr for CoreBlockPyExpr<N> {
 
 impl Instr for CodegenBlockPyExpr {
     type Name = LocatedName;
+}
+
+pub(crate) fn try_lower_core_expr_without_await_with_mapper<M>(
+    expr: CoreBlockPyExprWithAwaitAndYield,
+    map: &mut M,
+) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
+where
+    M: TryMapExpr<
+        CoreBlockPyExprWithAwaitAndYield,
+        CoreBlockPyExprWithYield,
+        CoreBlockPyExprWithAwaitAndYield,
+    >,
+{
+    match_default!(expr: CoreBlockPyExprWithAwaitAndYield {
+        CoreBlockPyExprWithAwaitAndYield::Await(node) => Err(node.into()),
+        rest => Ok(rest.try_map_typed_children(map)?.into()),
+    })
+}
+
+pub(crate) fn try_lower_core_expr_without_yield_with_mapper<M>(
+    expr: CoreBlockPyExprWithYield,
+    map: &mut M,
+) -> Result<CoreBlockPyExpr, CoreBlockPyExprWithYield>
+where
+    M: TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYield>,
+{
+    match_default!(expr: CoreBlockPyExprWithYield {
+        CoreBlockPyExprWithYield::Yield(node) => Err(node.into()),
+        CoreBlockPyExprWithYield::YieldFrom(node) => Err(node.into()),
+        rest => Ok(rest.try_map_typed_children(map)?.into()),
+    })
 }
 
 pub(crate) fn core_call_expr_with_meta<E>(
