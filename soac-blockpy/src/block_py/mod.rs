@@ -18,7 +18,7 @@ pub use operation::{
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
-use soac_macros::{enum_broadcast, match_default, DelegateMatchDefault};
+use soac_macros::enum_broadcast;
 use std::fmt;
 
 pub(crate) mod cfg;
@@ -539,8 +539,8 @@ impl<P: BlockPyPass, S> BlockPyModule<P, S> {
     }
 }
 
-#[derive(Clone, derive_more::From, DelegateMatchDefault)]
-#[enum_broadcast(HasMeta, WithMeta)]
+#[derive(Clone, derive_more::From)]
+#[enum_broadcast(HasMeta, WithMeta, MapExprChildren)]
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -563,8 +563,8 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
     YieldFrom(CoreBlockPyYieldFrom<Self>),
 }
 
-#[derive(Clone, derive_more::From, DelegateMatchDefault)]
-#[enum_broadcast(HasMeta, WithMeta)]
+#[derive(Clone, derive_more::From)]
+#[enum_broadcast(HasMeta, WithMeta, MapExprChildren)]
 pub enum CoreBlockPyExprWithYield {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -586,8 +586,8 @@ pub enum CoreBlockPyExprWithYield {
     YieldFrom(CoreBlockPyYieldFrom<Self>),
 }
 
-#[derive(Clone, derive_more::From, DelegateMatchDefault)]
-#[enum_broadcast(HasMeta, WithMeta)]
+#[derive(Clone, derive_more::From)]
+#[enum_broadcast(HasMeta, WithMeta, MapExprChildren)]
 pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -609,8 +609,8 @@ pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
 
 pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 
-#[derive(Clone, derive_more::From, DelegateMatchDefault)]
-#[enum_broadcast(HasMeta, WithMeta)]
+#[derive(Clone, derive_more::From)]
+#[enum_broadcast(HasMeta, WithMeta, MapExprChildren)]
 pub enum CodegenBlockPyExpr {
     Literal(LiteralValue),
     BinOp(BinOp<Self>),
@@ -888,57 +888,16 @@ impl Instr for CoreBlockPyExprWithAwaitAndYield {
     type Name = UnresolvedName;
 }
 
-impl MapExprChildren for CoreBlockPyExprWithAwaitAndYield {
-    fn map_children(
-        self,
-        f: &mut impl FnMut(Self) -> CoreBlockPyExprWithAwaitAndYield,
-    ) -> CoreBlockPyExprWithAwaitAndYield {
-        match_default!(self: CoreBlockPyExprWithAwaitAndYield {
-            rest => rest.map_children(&mut *f).into()
-        })
-    }
-}
-
 impl Instr for CoreBlockPyExprWithYield {
     type Name = UnresolvedName;
-}
-
-impl MapExprChildren for CoreBlockPyExprWithYield {
-    fn map_children(
-        self,
-        f: &mut impl FnMut(Self) -> CoreBlockPyExprWithYield,
-    ) -> CoreBlockPyExprWithYield {
-        match_default!(self: CoreBlockPyExprWithYield {
-            rest => rest.map_children(&mut *f).into()
-        })
-    }
 }
 
 impl<N: BlockPyNameLike> Instr for CoreBlockPyExpr<N> {
     type Name = N;
 }
 
-impl<N> MapExprChildren for CoreBlockPyExpr<N>
-where
-    N: BlockPyNameLike,
-{
-    fn map_children(self, f: &mut impl FnMut(Self) -> CoreBlockPyExpr<N>) -> CoreBlockPyExpr<N> {
-        match_default!(self: CoreBlockPyExpr<N> {
-            rest => rest.map_children(&mut *f).into()
-        })
-    }
-}
-
 impl Instr for CodegenBlockPyExpr {
     type Name = LocatedName;
-}
-
-impl MapExprChildren for CodegenBlockPyExpr {
-    fn map_children(self, f: &mut impl FnMut(Self) -> CodegenBlockPyExpr) -> CodegenBlockPyExpr {
-        match_default!(self: CodegenBlockPyExpr {
-            rest => rest.map_children(&mut *f).into()
-        })
-    }
 }
 
 pub(crate) fn core_call_expr_with_meta<E>(

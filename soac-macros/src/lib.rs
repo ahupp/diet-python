@@ -45,6 +45,7 @@ fn item_enum_variants(input: &ItemEnum) -> syn::Result<Vec<&syn::Variant>> {
 enum EnumBroadcastTarget {
     HasMeta,
     WithMeta,
+    MapExprChildren,
 }
 
 impl EnumBroadcastTarget {
@@ -56,9 +57,10 @@ impl EnumBroadcastTarget {
         match segment.ident.to_string().as_str() {
             "HasMeta" => Ok(Self::HasMeta),
             "WithMeta" => Ok(Self::WithMeta),
+            "MapExprChildren" => Ok(Self::MapExprChildren),
             _ => Err(syn::Error::new_spanned(
                 segment,
-                "unsupported enum_broadcast target; supported targets are HasMeta and WithMeta",
+                "unsupported enum_broadcast target; supported targets are HasMeta, WithMeta, and MapExprChildren",
             )),
         }
     }
@@ -82,6 +84,12 @@ impl EnumBroadcastTarget {
                 Self::#variant_name(node) => node.with_meta(meta.clone()).into(),
             }
         });
+        let map_children_arms = variants.iter().map(|variant| {
+            let variant_name = &variant.ident;
+            quote! {
+                Self::#variant_name(node) => node.map_children(&mut *f).into(),
+            }
+        });
 
         match self {
             Self::HasMeta => quote! {
@@ -98,6 +106,15 @@ impl EnumBroadcastTarget {
                     fn with_meta(self, meta: Meta) -> Self {
                         match self {
                             #( #with_meta_arms )*
+                        }
+                    }
+                }
+            },
+            Self::MapExprChildren => quote! {
+                impl #impl_generics MapExprChildren for #enum_name #ty_generics #where_clause {
+                    fn map_children(self, f: &mut impl FnMut(Self) -> Self) -> Self {
+                        match self {
+                            #( #map_children_arms )*
                         }
                     }
                 }
