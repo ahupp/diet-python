@@ -33,7 +33,7 @@ impl CodegenExprNormalizer {
         let mut module_constants = self.module_constants.borrow_mut();
         let index =
             u32::try_from(module_constants.len()).expect("module constant count should fit in u32");
-        module_constants.push(LocatedCoreBlockPyExpr::Literal(literal));
+        module_constants.push(LocatedCoreBlockPyExpr::Literal(literal.into()));
         index
     }
 }
@@ -43,7 +43,7 @@ impl BlockPyModuleMap<ResolvedStorageBlockPyPass, CodegenBlockPyPass> for Codege
         match expr {
             LocatedCoreBlockPyExpr::Literal(literal) => {
                 let meta = literal.meta();
-                let constant_index = self.push_module_constant(literal);
+                let constant_index = self.push_module_constant(literal.into_literal());
                 core_operation_expr(
                     Load::new(LocatedName {
                         id: format!("__dp_constant_{constant_index}").into(),

@@ -193,7 +193,8 @@ fn string_literal_expr(
             node_index: meta.node_index.clone(),
             range: meta.range,
             value: value.to_string(),
-        }),
+        })
+        .into(),
     ));
     core_operation_expr(
         crate::block_py::Load::new(crate::block_py::LocatedName {

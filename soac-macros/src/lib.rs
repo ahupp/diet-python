@@ -38,10 +38,72 @@ pub fn derive_delegate_match_default(input: TokenStream) -> TokenStream {
         Err(error) => return error.into_compile_error().into(),
     };
 
-    let default_arms = variants.iter().map(|variant| {
+    let variant_names = variants.iter().map(|variant| &variant.ident);
+    let maybe_emit_default_arms = variants.iter().map(|variant| {
         let variant_name = &variant.ident;
         quote! {
-            #enum_name::#variant_name($rest) => $default_expr,
+            (@maybe_push_default
+                [$value:expr]
+                [$($arms:tt)*]
+                [$rest:ident]
+                [$default_expr:expr]
+                [$($excluded:ident),*]
+                [#variant_name]
+                [#variant_name $(, $scan_tail:ident)*]
+                [$($tail:ident),*]
+            ) => {
+                #macro_name!(
+                    @emit_match
+                    [$value]
+                    [$($arms)*]
+                    [$rest]
+                    [$default_expr]
+                    [$($excluded),*]
+                    [$($tail),*]
+                )
+            };
+            (@maybe_push_default
+                [$value:expr]
+                [$($arms:tt)*]
+                [$rest:ident]
+                [$default_expr:expr]
+                [$($excluded:ident),*]
+                [#variant_name]
+                [$scan_head:ident $(, $scan_tail:ident)*]
+                [$($tail:ident),*]
+            ) => {
+                #macro_name!(
+                    @maybe_push_default
+                    [$value]
+                    [$($arms)*]
+                    [$rest]
+                    [$default_expr]
+                    [$($excluded),*]
+                    [#variant_name]
+                    [$($scan_tail),*]
+                    [$($tail),*]
+                )
+            };
+            (@maybe_push_default
+                [$value:expr]
+                [$($arms:tt)*]
+                [$rest:ident]
+                [$default_expr:expr]
+                [$($excluded:ident),*]
+                [#variant_name]
+                []
+                [$($tail:ident),*]
+            ) => {
+                #macro_name!(
+                    @emit_match
+                    [$value]
+                    [$($arms)* #enum_name::#variant_name($rest) => $default_expr,]
+                    [$rest]
+                    [$default_expr]
+                    [$($excluded),*]
+                    [$($tail),*]
+                )
+            };
         }
     });
 
@@ -54,24 +116,49 @@ pub fn derive_delegate_match_default(input: TokenStream) -> TokenStream {
         #[doc(hidden)]
         #[allow(unused_macros)]
         macro_rules! #macro_name {
-            ($value:expr, { $($body:tt)* }) => {
-                #macro_name!(@collect [$value] [] $($body)*)
+            ($value:expr, [$($excluded:ident),*], { $($body:tt)* }) => {
+                #macro_name!(@collect [$value] [$($excluded),*] [] $($body)*)
             };
-            (@collect [$value:expr] [$($special_arms:tt)*] match_rest($rest:ident) => $default_expr:expr $(,)?) => {{
-                #[allow(unreachable_patterns)]
-                match $value {
-                    $($special_arms)*
-                    #( #default_arms )*
-                }
+            (@collect [$value:expr] [$($excluded:ident),*] [$($special_arms:tt)*] match_rest($rest:ident) => $default_expr:expr $(,)?) => {{
+                #macro_name!(
+                    @emit_match
+                    [$value]
+                    [$($special_arms)*]
+                    [$rest]
+                    [$default_expr]
+                    [$($excluded),*]
+                    [ #( #variant_names ),* ]
+                )
             }};
-            (@collect [$value:expr] [$($special_arms:tt)*] $special_pattern:pat $(if $guard:expr)? => $special_expr:expr, $($rest_body:tt)*) => {
+            (@collect [$value:expr] [$($excluded:ident),*] [$($special_arms:tt)*] $special_pattern:pat $(if $guard:expr)? => $special_expr:expr, $($rest_body:tt)*) => {
                 #macro_name!(
                     @collect
                     [$value]
+                    [$($excluded),*]
                     [$($special_arms)* $special_pattern $(if $guard)? => $special_expr,]
                     $($rest_body)*
                 )
             };
+            (@emit_match [$value:expr] [$($arms:tt)*] [$rest:ident] [$default_expr:expr] [$($excluded:ident),*] []) => {{
+                #[allow(unreachable_patterns)]
+                match $value {
+                    $($arms)*
+                }
+            }};
+            (@emit_match [$value:expr] [$($arms:tt)*] [$rest:ident] [$default_expr:expr] [$($excluded:ident),*] [$head:ident $(, $tail:ident)*]) => {
+                #macro_name!(
+                    @maybe_push_default
+                    [$value]
+                    [$($arms)*]
+                    [$rest]
+                    [$default_expr]
+                    [$($excluded),*]
+                    [$head]
+                    [$($excluded),*]
+                    [$($tail),*]
+                )
+            };
+            #( #maybe_emit_default_arms )*
         }
     }
     .into()
@@ -103,6 +190,22 @@ fn match_rest_ident(pat: &Pat) -> syn::Result<Option<syn::Ident>> {
     Ok(Some(pat_ident.ident.clone()))
 }
 
+fn variant_ident_from_pat(pat: &Pat) -> Option<syn::Ident> {
+    let Pat::TupleStruct(tuple_struct) = pat else {
+        return None;
+    };
+
+    if tuple_struct.path.is_ident("match_rest") {
+        return None;
+    }
+
+    tuple_struct
+        .path
+        .segments
+        .last()
+        .map(|segment| segment.ident.clone())
+}
+
 fn enum_ident_from_type(self_ty: &Type) -> syn::Result<syn::Ident> {
     let Type::Path(type_path) = self_ty else {
         return Err(syn::Error::new_spanned(
@@ -127,6 +230,7 @@ fn rewrite_match_expr(
     expr_match: &ExprMatch,
 ) -> syn::Result<Expr> {
     let mut special_arms = Vec::new();
+    let mut excluded_variants = Vec::new();
     let mut rest_arm = None;
 
     for (index, arm) in expr_match.arms.iter().enumerate() {
@@ -154,6 +258,9 @@ fn rewrite_match_expr(
         }
 
         special_arms.push(arm.clone());
+        if let Some(variant_ident) = variant_ident_from_pat(&arm.pat) {
+            excluded_variants.push(variant_ident);
+        }
     }
 
     let Some((rest_ident, default_expr)) = rest_arm else {
@@ -175,7 +282,7 @@ fn rewrite_match_expr(
 
     Ok(parse_quote!({
         let _ = <#self_ty>::__SOAC_DERIVED_DELEGATE_MATCH_DEFAULT;
-        #macro_name!(#scrutinee, {
+        #macro_name!(#scrutinee, [ #( #excluded_variants ),* ], {
             #( #special_arms )*
             match_rest(#rest_ident) => #default_expr,
         })

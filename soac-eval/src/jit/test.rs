@@ -56,30 +56,39 @@ mod tests {
 
     fn int_literal(value: i64) -> LocatedCoreBlockPyExpr {
         let value_str = value.to_string();
-        CoreBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
-            node_index: Default::default(),
-            range: Default::default(),
-            value: CoreNumberLiteralValue::Int(
-                ast::Int::from_str_radix(value_str.as_str(), 10, value_str.as_str())
-                    .expect("test integer literal should parse"),
-            ),
-        }))
+        CoreBlockPyExpr::Literal(
+            BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+                node_index: Default::default(),
+                range: Default::default(),
+                value: CoreNumberLiteralValue::Int(
+                    ast::Int::from_str_radix(value_str.as_str(), 10, value_str.as_str())
+                        .expect("test integer literal should parse"),
+                ),
+            })
+            .into(),
+        )
     }
 
     fn bytes_literal(value: &[u8]) -> LocatedCoreBlockPyExpr {
-        CoreBlockPyExpr::Literal(BlockPyLiteral::BytesLiteral(CoreBytesLiteral {
-            node_index: Default::default(),
-            range: Default::default(),
-            value: value.to_vec(),
-        }))
+        CoreBlockPyExpr::Literal(
+            BlockPyLiteral::BytesLiteral(CoreBytesLiteral {
+                node_index: Default::default(),
+                range: Default::default(),
+                value: value.to_vec(),
+            })
+            .into(),
+        )
     }
 
     fn string_literal(value: &str) -> LocatedCoreBlockPyExpr {
-        CoreBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(CoreStringLiteral {
-            node_index: Default::default(),
-            range: Default::default(),
-            value: value.to_string(),
-        }))
+        CoreBlockPyExpr::Literal(
+            BlockPyLiteral::StringLiteral(CoreStringLiteral {
+                node_index: Default::default(),
+                range: Default::default(),
+                value: value.to_string(),
+            })
+            .into(),
+        )
     }
 
     #[derive(Default)]

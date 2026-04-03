@@ -584,7 +584,10 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
 
     fn root_string_literal_value(&self) -> Option<String> {
         match self {
-            Self::Literal(BlockPyLiteral::StringLiteral(literal)) => Some(literal.value.clone()),
+            Self::Literal(literal) => match literal.as_literal() {
+                BlockPyLiteral::StringLiteral(literal) => Some(literal.value.clone()),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -644,7 +647,10 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
 
     fn root_string_literal_value(&self) -> Option<String> {
         match self {
-            Self::Literal(BlockPyLiteral::StringLiteral(literal)) => Some(literal.value.clone()),
+            Self::Literal(literal) => match literal.as_literal() {
+                BlockPyLiteral::StringLiteral(literal) => Some(literal.value.clone()),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -707,7 +713,10 @@ where
 
     fn root_string_literal_value(&self) -> Option<String> {
         match self {
-            Self::Literal(BlockPyLiteral::StringLiteral(literal)) => Some(literal.value.clone()),
+            Self::Literal(literal) => match literal.as_literal() {
+                BlockPyLiteral::StringLiteral(literal) => Some(literal.value.clone()),
+                _ => None,
+            },
             _ => None,
         }
     }

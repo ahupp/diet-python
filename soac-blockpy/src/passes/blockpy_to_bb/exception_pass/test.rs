@@ -29,12 +29,17 @@ fn tracked_codegen_module(source: &str) -> crate::block_py::BlockPyModule<Codege
 
 fn is_return_of_number_constant(term: &BlockPyTerm<LocatedCoreBlockPyExpr>) -> bool {
     match term {
-        BlockPyTerm::Return(CoreBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(
-            CoreNumberLiteral {
-                value: CoreNumberLiteralValue::Int(_),
-                ..
-            },
-        ))) => true,
+        BlockPyTerm::Return(CoreBlockPyExpr::Literal(literal))
+            if matches!(
+                literal.as_literal(),
+                BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+                    value: CoreNumberLiteralValue::Int(_),
+                    ..
+                })
+            ) =>
+        {
+            true
+        }
         BlockPyTerm::Return(CoreBlockPyExpr::Load(op))
             if matches!(op.name.location, NameLocation::Constant(_)) =>
         {

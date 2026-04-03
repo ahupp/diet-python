@@ -31,11 +31,14 @@ fn core_string_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(CoreStringLiteral {
-        node_index,
-        range,
-        value,
-    }))
+    CoreBlockPyExpr::Literal(
+        BlockPyLiteral::StringLiteral(CoreStringLiteral {
+            node_index,
+            range,
+            value,
+        })
+        .into(),
+    )
 }
 
 fn core_int_expr(
@@ -44,14 +47,17 @@ fn core_int_expr(
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
     let text = value.to_string();
-    CoreBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
-        node_index,
-        range,
-        value: CoreNumberLiteralValue::Int(
-            ast::Int::from_str_radix(text.as_str(), 10, text.as_str())
-                .expect("function id should round-trip through Int"),
-        ),
-    }))
+    CoreBlockPyExpr::Literal(
+        BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+            node_index,
+            range,
+            value: CoreNumberLiteralValue::Int(
+                ast::Int::from_str_radix(text.as_str(), 10, text.as_str())
+                    .expect("function id should round-trip through Int"),
+            ),
+        })
+        .into(),
+    )
 }
 
 fn globals_expr(
@@ -829,23 +835,25 @@ fn closure_slot_init_expr(slot: &ClosureSlot) -> CoreBlockPyExpr {
             range,
         ),
         ClosureInit::DeletedSentinel => deleted_sentinel_expr(node_index, range),
-        ClosureInit::RuntimePcUnstarted => {
-            CoreBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+        ClosureInit::RuntimePcUnstarted => CoreBlockPyExpr::Literal(
+            BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
                 node_index,
                 range,
                 value: CoreNumberLiteralValue::Int(ast::Int::ONE),
-            }))
-        }
-        ClosureInit::RuntimeAbruptKindFallthrough => {
-            CoreBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+            })
+            .into(),
+        ),
+        ClosureInit::RuntimeAbruptKindFallthrough => CoreBlockPyExpr::Literal(
+            BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
                 node_index,
                 range,
                 value: CoreNumberLiteralValue::Int(
                     ast::Int::from_str_radix("0", 10, "0")
                         .expect("zero should parse as an integer literal"),
                 ),
-            }))
-        }
+            })
+            .into(),
+        ),
         ClosureInit::RuntimeNone | ClosureInit::Deferred => {
             core_name_expr("NONE", ast::ExprContext::Load, node_index, range)
         }

@@ -38,7 +38,8 @@ fn module_constants_contain_string(exprs: &[LocatedCoreBlockPyExpr]) -> bool {
     exprs.iter().any(|expr| {
         matches!(
             expr,
-            CoreBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(_))
+            CoreBlockPyExpr::Literal(literal)
+                if matches!(literal.as_literal(), BlockPyLiteral::StringLiteral(_))
         )
     })
 }

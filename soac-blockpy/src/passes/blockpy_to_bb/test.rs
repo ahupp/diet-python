@@ -97,11 +97,14 @@ fn core_call_expr(name: &str, args: Vec<LocatedCoreBlockPyExpr>) -> LocatedCoreB
 }
 
 fn core_string_expr(value: &str) -> LocatedCoreBlockPyExpr {
-    LocatedCoreBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(CoreStringLiteral {
-        node_index: ast::AtomicNodeIndex::default(),
-        range: TextRange::default(),
-        value: value.to_string(),
-    }))
+    LocatedCoreBlockPyExpr::Literal(
+        BlockPyLiteral::StringLiteral(CoreStringLiteral {
+            node_index: ast::AtomicNodeIndex::default(),
+            range: TextRange::default(),
+            value: value.to_string(),
+        })
+        .into(),
+    )
 }
 
 #[test]
@@ -149,11 +152,14 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         term: BlockPyTerm::Return(
             GetAttr::new(
                 core_call_expr("current_exception", Vec::new()),
-                CoreBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(CoreStringLiteral {
-                    node_index: ast::AtomicNodeIndex::default(),
-                    range: TextRange::default(),
-                    value: "value".to_string(),
-                })),
+                CoreBlockPyExpr::Literal(
+                    BlockPyLiteral::StringLiteral(CoreStringLiteral {
+                        node_index: ast::AtomicNodeIndex::default(),
+                        range: TextRange::default(),
+                        value: "value".to_string(),
+                    })
+                    .into(),
+                ),
             )
             .with_meta(crate::block_py::Meta::new(
                 ast::AtomicNodeIndex::default(),
@@ -187,10 +193,11 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     ));
     assert!(matches!(
         attr.as_ref(),
-        CoreBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(CoreStringLiteral {
-            value,
-            ..
-        })) if value == "value"
+        CoreBlockPyExpr::Literal(literal)
+            if matches!(
+                literal.as_literal(),
+                BlockPyLiteral::StringLiteral(CoreStringLiteral { value, .. }) if value == "value"
+            )
     ));
 }
 

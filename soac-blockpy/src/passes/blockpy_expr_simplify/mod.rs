@@ -143,13 +143,14 @@ fn getattr_expr_with_meta(
     value: CoreBlockPyExprWithAwaitAndYield,
     attr: String,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    let attr_expr = CoreBlockPyExprWithAwaitAndYield::Literal(BlockPyLiteral::StringLiteral(
-        CoreStringLiteral {
+    let attr_expr = CoreBlockPyExprWithAwaitAndYield::Literal(
+        BlockPyLiteral::StringLiteral(CoreStringLiteral {
             node_index: node_index.clone(),
             range,
             value: attr,
-        },
-    ));
+        })
+        .into(),
+    );
     core_operation_expr_with_meta(
         operation::GetAttr::new(Box::new(value), Box::new(attr_expr)),
         node_index,
@@ -351,10 +352,10 @@ fn make_function_id_from_literal(expr: &Expr) -> Option<crate::block_py::Functio
 }
 
 fn string_arg_from_core_expr(expr: CoreBlockPyExprWithAwaitAndYield) -> Option<String> {
-    let CoreBlockPyExprWithAwaitAndYield::Literal(crate::block_py::BlockPyLiteral::StringLiteral(
-        literal,
-    )) = expr
-    else {
+    let CoreBlockPyExprWithAwaitAndYield::Literal(literal) = expr else {
+        return None;
+    };
+    let crate::block_py::BlockPyLiteral::StringLiteral(literal) = literal.into_literal() else {
         return None;
     };
     Some(literal.value)
@@ -537,25 +538,27 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                 CoreBlockPyYieldFrom::new(Self::from(*node.value))
                     .with_meta(Meta::new(node.node_index, node.range)),
             ),
-            Expr::StringLiteral(node) => {
-                Self::Literal(BlockPyLiteral::StringLiteral(CoreStringLiteral {
+            Expr::StringLiteral(node) => Self::Literal(
+                BlockPyLiteral::StringLiteral(CoreStringLiteral {
                     node_index: node.node_index,
                     range: node.range,
                     value: node.value.to_str().to_string(),
-                }))
-            }
-            Expr::BytesLiteral(node) => {
-                Self::Literal(BlockPyLiteral::BytesLiteral(CoreBytesLiteral {
+                })
+                .into(),
+            ),
+            Expr::BytesLiteral(node) => Self::Literal(
+                BlockPyLiteral::BytesLiteral(CoreBytesLiteral {
                     node_index: node.node_index,
                     range: node.range,
                     value: {
                         let value: std::borrow::Cow<[u8]> = (&node.value).into();
                         value.into_owned()
                     },
-                }))
-            }
-            Expr::NumberLiteral(node) => {
-                Self::Literal(BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+                })
+                .into(),
+            ),
+            Expr::NumberLiteral(node) => Self::Literal(
+                BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
                     node_index: node.node_index,
                     range: node.range,
                     value: match node.value {
@@ -565,8 +568,9 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                             panic!("complex literal reached late core BlockPy boundary")
                         }
                     },
-                }))
-            }
+                })
+                .into(),
+            ),
             Expr::BooleanLiteral(node) => {
                 if node.value {
                     core_builtin_name("TRUE")

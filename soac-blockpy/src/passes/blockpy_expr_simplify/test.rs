@@ -64,7 +64,8 @@ fn core_blockpy_expr_uses_reduced_variants_for_simple_shapes() {
     ));
     assert!(matches!(
         CoreBlockPyExprWithAwaitAndYield::from(py_expr!("1")),
-        CoreBlockPyExprWithAwaitAndYield::Literal(BlockPyLiteral::NumberLiteral(_))
+        CoreBlockPyExprWithAwaitAndYield::Literal(literal)
+            if matches!(literal.as_literal(), BlockPyLiteral::NumberLiteral(_))
     ));
     assert!(matches!(
         CoreBlockPyExprWithAwaitAndYield::from(py_expr!("f(x)")),

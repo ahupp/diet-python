@@ -537,13 +537,11 @@ fn codegen_expr_const_string(
     module_constants: &ModuleCodegenConstants,
 ) -> Option<String> {
     match expr {
-        CodegenBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(string)) => {
-            Some(string.value.clone())
-        }
-        CodegenBlockPyExpr::Literal(BlockPyLiteral::BytesLiteral(bytes)) => {
-            String::from_utf8(bytes.value.clone()).ok()
-        }
-        CodegenBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(_)) => None,
+        CodegenBlockPyExpr::Literal(literal) => match literal.as_literal() {
+            BlockPyLiteral::StringLiteral(string) => Some(string.value.clone()),
+            BlockPyLiteral::BytesLiteral(bytes) => String::from_utf8(bytes.value.clone()).ok(),
+            BlockPyLiteral::NumberLiteral(_) => None,
+        },
         CodegenBlockPyExpr::Load(op) => op.name.location.as_constant().and_then(|index| {
             module_constants.constant_string_value(ModuleConstantId(index as usize))
         }),
@@ -1233,59 +1231,61 @@ fn emit_codegen_expr(
     let tuple_set_item_ref = ctx.tuple_set_item_ref;
 
     match expr {
-        CodegenBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(string)) => {
-            assert!(
-                !borrowed,
-                "codegen string literal must not use borrowed expression"
-            );
-            emit_owned_module_constant(
-                fb,
-                ctx.module_constants
-                    .require_unicode_constant_id(string.value.as_str()),
-                ctx,
-            )
-        }
-        CodegenBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(number)) => {
-            assert!(
-                !borrowed,
-                "codegen number literal must not use borrowed expression"
-            );
-            match &number.value {
-                soac_blockpy::block_py::CoreNumberLiteralValue::Int(value) => {
-                    if let Some(value) = value.as_i64() {
+        CodegenBlockPyExpr::Literal(literal) => match literal.as_literal() {
+            BlockPyLiteral::StringLiteral(string) => {
+                assert!(
+                    !borrowed,
+                    "codegen string literal must not use borrowed expression"
+                );
+                emit_owned_module_constant(
+                    fb,
+                    ctx.module_constants
+                        .require_unicode_constant_id(string.value.as_str()),
+                    ctx,
+                )
+            }
+            BlockPyLiteral::NumberLiteral(number) => {
+                assert!(
+                    !borrowed,
+                    "codegen number literal must not use borrowed expression"
+                );
+                match &number.value {
+                    soac_blockpy::block_py::CoreNumberLiteralValue::Int(value) => {
+                        if let Some(value) = value.as_i64() {
+                            emit_owned_module_constant(
+                                fb,
+                                ctx.module_constants.require_int_constant_id(value),
+                                ctx,
+                            )
+                        } else {
+                            let value_text = value.to_string();
+                            emit_owned_module_constant(
+                                fb,
+                                ctx.module_constants
+                                    .require_big_int_constant_id(value_text.as_str()),
+                                ctx,
+                            )
+                        }
+                    }
+                    soac_blockpy::block_py::CoreNumberLiteralValue::Float(value) => {
                         emit_owned_module_constant(
                             fb,
-                            ctx.module_constants.require_int_constant_id(value),
-                            ctx,
-                        )
-                    } else {
-                        let value_text = value.to_string();
-                        emit_owned_module_constant(
-                            fb,
-                            ctx.module_constants
-                                .require_big_int_constant_id(value_text.as_str()),
+                            ctx.module_constants.require_float_constant_id(*value),
                             ctx,
                         )
                     }
                 }
-                soac_blockpy::block_py::CoreNumberLiteralValue::Float(value) => {
-                    emit_owned_module_constant(
-                        fb,
-                        ctx.module_constants.require_float_constant_id(*value),
-                        ctx,
-                    )
-                }
             }
-        }
-        CodegenBlockPyExpr::Literal(BlockPyLiteral::BytesLiteral(bytes)) => {
-            assert!(!borrowed, "bytes literal must produce owned references");
-            emit_owned_module_constant(
-                fb,
-                ctx.module_constants
-                    .require_bytes_constant_id(bytes.value.as_slice()),
-                ctx,
-            )
-        }
+            BlockPyLiteral::BytesLiteral(bytes) => {
+                assert!(!borrowed, "bytes literal must produce owned references");
+                emit_owned_module_constant(
+                    fb,
+                    ctx.module_constants
+                        .require_bytes_constant_id(bytes.value.as_slice()),
+                    ctx,
+                )
+            }
+        },
         CodegenBlockPyExpr::Load(op) => {
             return emit_codegen_located_name_load(
                 fb,
