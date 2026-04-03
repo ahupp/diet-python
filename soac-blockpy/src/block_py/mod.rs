@@ -694,36 +694,6 @@ where
     E::from(literal_value(literal, meta))
 }
 
-impl<I: Instr> Walkable<I> for UnresolvedName {
-    fn map_walk(self, _f: &mut impl FnMut(I) -> I) -> Self {
-        self
-    }
-
-    fn walk_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
-
-    fn walk(&self, _f: &mut impl FnMut(&I)) {}
-}
-
-impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
-    type Mapped<T: Instr> = InstrName<T>;
-
-    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
-    where
-        T: Instr,
-        M: MapExpr<I, T>,
-    {
-        map.map_name(self)
-    }
-
-    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
-    where
-        T: Instr,
-        M: TryMapExpr<I, T, Error>,
-    {
-        map.try_map_name(self)
-    }
-}
-
 #[derive(Clone)]
 pub struct CoreStringLiteral {
     pub value: String,
