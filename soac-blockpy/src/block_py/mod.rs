@@ -236,7 +236,7 @@ pub trait Walkable<E>: Clone + fmt::Debug + Sized {
     }
 }
 
-pub trait Instr: Clone + fmt::Debug + Sized {
+pub trait Instr: Walkable<Self> + Clone + fmt::Debug + Sized {
     type Name: BlockPyNameLike;
 }
 
@@ -258,8 +258,6 @@ where
         T: Instr,
         InstrName<T>: From<InstrName<I>>;
 }
-
-pub trait BlockPyExprLike: Clone + fmt::Debug + Walkable<Self> {}
 
 impl BlockPyNameLike for ast::ExprName {
     fn id_str(&self) -> &str {
@@ -376,8 +374,6 @@ impl Walkable<RuffExpr> for RuffExpr {
         });
     }
 }
-
-impl<T> BlockPyExprLike for T where T: Clone + fmt::Debug + Walkable<T> {}
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct LocatedName {
@@ -1116,7 +1112,7 @@ pub trait BlockPyNormalizedStmt {
 }
 
 pub trait BlockPyPass: Clone + fmt::Debug {
-    type Expr: BlockPyExprLike + Instr;
+    type Expr: Instr;
 }
 
 pub type InstrName<I> = <I as Instr>::Name;
@@ -1140,12 +1136,12 @@ pub(crate) trait ImplicitNoneExpr {
 
 pub fn expr_any<E, F>(expr: &E, mut predicate: F) -> bool
 where
-    E: BlockPyExprLike,
+    E: Instr,
     F: FnMut(&E) -> bool,
 {
     fn expr_any_impl<E, F>(expr: &E, predicate: &mut F) -> bool
     where
-        E: BlockPyExprLike,
+        E: Instr,
         F: FnMut(&E) -> bool,
     {
         if predicate(expr) {
