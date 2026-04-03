@@ -48,6 +48,11 @@ because it should affect engineering decisions:
    `Load`/`Store`/`Del` or `LiteralValue`, not duplicated inside the
    payload.
 
+5. Lower source names in stages. A raw AST `ExprName` may only lower
+   directly to `UnresolvedName`. `LocatedName` must only come from an
+   explicit name-binding or other explicit location decision, never
+   from a blind default location.
+
 6. Avoid global mutable state; if needed there should be a single
    global structure and then all consumers take that structure rather
    than directly accessing the global.

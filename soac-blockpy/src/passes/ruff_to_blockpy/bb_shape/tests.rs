@@ -26,6 +26,22 @@ where
     {
         while name_gen.next_block_name().index() <= max_label {}
     }
+    lower_structured_blocks_to_bb_blocks(&name_gen, &normalized_blocks)
+}
+
+pub(crate) fn lower_structured_unresolved_core_blocks_to_bb_blocks(
+    blocks: &[CfgBlock<StructuredInstr<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>],
+) -> Vec<CfgBlock<CoreBlockPyExpr, BlockPyTerm<CoreBlockPyExpr>>> {
+    let mut module_name_gen = ModuleNameGen::new(0);
+    let name_gen = module_name_gen.next_function_name_gen();
+    let mut normalized_blocks = blocks.to_vec();
+    if let Some(max_label) = normalized_blocks
+        .iter()
+        .map(|block| block.label.index())
+        .max()
+    {
+        while name_gen.next_block_name().index() <= max_label {}
+    }
     rewrite_current_exception_in_core_blocks_structured(&mut normalized_blocks);
     lower_structured_blocks_to_bb_blocks(&name_gen, &normalized_blocks)
 }
@@ -39,11 +55,9 @@ pub(crate) fn lower_structured_located_blocks_to_bb_blocks(
     lower_structured_core_blocks_to_bb_blocks(blocks)
 }
 
-fn rewrite_current_exception_in_core_blocks_structured<N>(
-    blocks: &mut [CfgBlock<StructuredInstr<CoreBlockPyExpr<N>>, BlockPyTerm<CoreBlockPyExpr<N>>>],
-) where
-    N: BlockPyNameLike,
-{
+fn rewrite_current_exception_in_core_blocks_structured(
+    blocks: &mut [CfgBlock<StructuredInstr<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>],
+) {
     for block in blocks {
         let Some(exc_name) = block.exception_param().map(ToString::to_string) else {
             continue;
@@ -55,12 +69,10 @@ fn rewrite_current_exception_in_core_blocks_structured<N>(
     }
 }
 
-fn rewrite_current_exception_in_blockpy_stmt<N>(
-    stmt: &mut StructuredInstr<CoreBlockPyExpr<N>>,
+fn rewrite_current_exception_in_blockpy_stmt(
+    stmt: &mut StructuredInstr<CoreBlockPyExpr>,
     exc_name: &str,
-) where
-    N: BlockPyNameLike,
-{
+) {
     match stmt {
         StructuredInstr::Expr(expr) => {
             rewrite_current_exception_in_blockpy_expr(expr, exc_name);
@@ -134,7 +146,7 @@ fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
         exc_edge: None,
     }];
 
-    let lowered = lower_structured_core_blocks_to_bb_blocks(&blocks);
+    let lowered = lower_structured_unresolved_core_blocks_to_bb_blocks(&blocks);
 
     assert_eq!(lowered.len(), 3, "{lowered:?}");
     let BlockPyTerm::IfTerm(BlockPyIfTerm {
