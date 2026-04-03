@@ -1,8 +1,8 @@
 use super::normalize_bb_module_strings;
 use crate::{
     block_py::{
-        BlockPyExprLike, BlockPyLiteral, BlockPyNameLike, BlockPyStmt, BlockPyTerm,
-        CodegenBlockPyExpr, CoreBlockPyExpr, InstrExprNode, LocatedCoreBlockPyExpr,
+        BlockPyExprLike, BlockPyLiteral, BlockPyNameLike, BlockPyTerm, CodegenBlockPyExpr,
+        CoreBlockPyExpr, InstrExprNode, LocatedCoreBlockPyExpr,
     },
     lower_python_to_blockpy_for_testing,
     passes::lower_try_jump_exception_flow,
@@ -120,13 +120,10 @@ def f():
     for function in normalized.callable_defs {
         for block in &function.blocks {
             for stmt in &block.body {
-                match stmt {
-                    BlockPyStmt::Expr(expr) => assert!(
-                        !expr_contains_literal(expr),
-                        "expr stmt should not retain executable literals: {expr:?}"
-                    ),
-                    BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
-                }
+                assert!(
+                    !expr_contains_literal(stmt),
+                    "expr stmt should not retain executable literals: {stmt:?}"
+                );
             }
             match &block.term {
                 BlockPyTerm::Jump(_) => {}
@@ -175,12 +172,7 @@ def f(obj, mapping, key, value):
     for function in normalized.callable_defs {
         for block in &function.blocks {
             for stmt in &block.body {
-                match stmt {
-                    BlockPyStmt::Expr(expr) => {
-                        collect_helper_like_names_in_expr(&mut helper_names, expr);
-                    }
-                    BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
-                }
+                collect_helper_like_names_in_expr(&mut helper_names, stmt);
             }
         }
     }

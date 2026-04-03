@@ -1,6 +1,6 @@
 use super::*;
 use crate::block_py::{
-    BlockPyAssign, BlockPyDelete, BlockPyIf, BlockPyRaise, BlockPyTerm, Expr, StructuredInstrFor,
+    BlockPyAssign, BlockPyDelete, BlockPyRaise, BlockPyTerm, Expr, StructuredInstrFor,
 };
 use crate::passes::ast_to_ast::ast_rewrite::Rewrite;
 use crate::passes::ast_to_ast::context::Context;

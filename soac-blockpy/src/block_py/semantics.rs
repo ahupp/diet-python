@@ -1,9 +1,8 @@
 use super::{
     is_internal_symbol, walk_linear_block, walk_linear_expr, walk_linear_stmt, BlockPyFunction,
-    BlockPyLinearModuleVisitor, BlockPyLinearPass, BlockPyNameLike, BlockPyPass, BlockPyStmt, Call,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, CoreBlockPyLiteral, FunctionName, MapExpr, PassBlock, PassExpr,
-    RuffExpr,
+    BlockPyLinearModuleVisitor, BlockPyNameLike, BlockPyPass, Call, CoreBlockPyCallArg,
+    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
+    CoreBlockPyLiteral, FunctionName, MapExpr, PassBlock, PassExpr, RuffExpr,
 };
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use ruff_python_ast::{self as ast, Expr};
@@ -819,7 +818,7 @@ struct StorageLayoutSemanticCollector {
 
 impl<P> BlockPyLinearModuleVisitor<P> for StorageLayoutSemanticCollector
 where
-    P: BlockPyLinearPass,
+    P: BlockPyPass,
     PassExpr<P>: BlockPySemanticExprNode,
 {
     fn visit_block(&mut self, block: &PassBlock<P>) {
@@ -830,16 +829,11 @@ where
     }
 
     fn visit_stmt(&mut self, stmt: &crate::block_py::PassStmt<P>) {
-        match stmt {
-            BlockPyStmt::Expr(expr) => {
-                expr.walk_root_deleted_names(&mut |name| {
-                    let name = name.to_string();
-                    self.used_names.insert(name.clone());
-                    self.deleted_names.insert(name);
-                });
-            }
-            BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
-        }
+        stmt.walk_root_deleted_names(&mut |name| {
+            let name = name.to_string();
+            self.used_names.insert(name.clone());
+            self.deleted_names.insert(name);
+        });
         walk_linear_stmt::<Self, P>(self, stmt);
     }
 
@@ -866,7 +860,7 @@ pub(crate) fn compute_make_function_capture_bindings_from_semantics<P>(
     callable_def: &BlockPyFunction<P>,
 ) -> Vec<BlockPyCellCaptureBinding>
 where
-    P: BlockPyLinearPass,
+    P: BlockPyPass,
     PassExpr<P>: BlockPySemanticExprNode,
 {
     let normalize_capture_name = |name: &str| {
@@ -934,7 +928,7 @@ pub(crate) fn compute_storage_layout_from_semantics<P>(
     callable_def: &BlockPyFunction<P>,
 ) -> Option<StorageLayout>
 where
-    P: BlockPyLinearPass,
+    P: BlockPyPass,
     PassExpr<P>: BlockPySemanticExprNode,
 {
     let owned_cell_slot_names = callable_def.semantic.owned_cell_storage_names();

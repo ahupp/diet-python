@@ -1,8 +1,8 @@
 use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
-    BlockArg, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike, BlockPyStmt, BlockPyTerm,
-    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, FunctionNameGen, Instr, InstrExprNode, Load,
-    Meta, StructuredInstr, UnresolvedName, WithMeta,
+    BlockArg, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike, BlockPyTerm, CoreBlockPyExpr,
+    CoreBlockPyExprWithAwaitAndYield, FunctionNameGen, Instr, InstrExprNode, Load, Meta,
+    StructuredInstr, UnresolvedName, WithMeta,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 pub(crate) fn lower_structured_blocks_to_bb_blocks<E, N>(
     name_gen: &FunctionNameGen,
     blocks: &[crate::block_py::CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>],
-) -> Vec<crate::block_py::CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>>
+) -> Vec<crate::block_py::CfgBlock<E, BlockPyTerm<E>>>
 where
     E: Clone + Instr<Name = N>,
     N: BlockPyNameLike,
@@ -31,7 +31,12 @@ where
                 .body
                 .clone()
                 .into_iter()
-                .map(BlockPyStmt::from)
+                .map(|stmt| match stmt {
+                    StructuredInstr::Expr(expr) => expr,
+                    StructuredInstr::If(_) => {
+                        unreachable!("structured ifs should be linearized before BB lowering")
+                    }
+                })
                 .collect::<Vec<_>>();
             crate::block_py::CfgBlock {
                 label: block.label.clone(),
@@ -47,10 +52,7 @@ where
 }
 
 pub(crate) fn rewrite_current_exception_in_core_blocks<N>(
-    blocks: &mut [crate::block_py::CfgBlock<
-        BlockPyStmt<CoreBlockPyExpr<N>, N>,
-        BlockPyTerm<CoreBlockPyExpr<N>>,
-    >],
+    blocks: &mut [crate::block_py::CfgBlock<CoreBlockPyExpr<N>, BlockPyTerm<CoreBlockPyExpr<N>>>],
 ) where
     N: BlockPyNameLike,
 {
@@ -67,7 +69,7 @@ pub(crate) fn rewrite_current_exception_in_core_blocks<N>(
 
 pub(crate) fn rewrite_current_exception_in_core_blocks_with_await_and_yield(
     blocks: &mut [crate::block_py::CfgBlock<
-        BlockPyStmt<CoreBlockPyExprWithAwaitAndYield, UnresolvedName>,
+        CoreBlockPyExprWithAwaitAndYield,
         BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
     >],
 ) {
@@ -76,29 +78,17 @@ pub(crate) fn rewrite_current_exception_in_core_blocks_with_await_and_yield(
             continue;
         };
         for stmt in &mut block.body {
-            match stmt {
-                BlockPyStmt::Expr(expr) => {
-                    rewrite_current_exception_in_expr_with_await_and_yield(expr, exc_name.as_str())
-                }
-                BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
-            }
+            rewrite_current_exception_in_expr_with_await_and_yield(stmt, exc_name.as_str())
         }
         rewrite_current_exception_in_term_with_await_and_yield(&mut block.term, exc_name.as_str());
     }
 }
 
-fn rewrite_current_exception_in_bb_stmt<N>(
-    stmt: &mut BlockPyStmt<CoreBlockPyExpr<N>, N>,
-    exc_name: &str,
-) where
+fn rewrite_current_exception_in_bb_stmt<N>(stmt: &mut CoreBlockPyExpr<N>, exc_name: &str)
+where
     N: BlockPyNameLike,
 {
-    match stmt {
-        BlockPyStmt::Expr(expr) => {
-            rewrite_current_exception_in_blockpy_expr(expr, exc_name);
-        }
-        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
-    }
+    rewrite_current_exception_in_blockpy_expr(stmt, exc_name);
 }
 
 fn rewrite_current_exception_in_term_with_await_and_yield(
@@ -256,7 +246,7 @@ fn current_exception_name_expr_with_await_and_yield(
 }
 
 pub(crate) fn populate_exception_edge_args<E, N>(
-    blocks: &mut [crate::block_py::CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>],
+    blocks: &mut [crate::block_py::CfgBlock<E, BlockPyTerm<E>>],
 ) where
     E: Instr<Name = N>,
     N: BlockPyNameLike,

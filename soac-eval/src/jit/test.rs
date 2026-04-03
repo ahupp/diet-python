@@ -1,7 +1,7 @@
 use super::*;
 use soac_blockpy::block_py::{
-    BinOp, BinOpKind, BlockParamRole, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyStmt,
-    BlockPyTerm, Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
+    BinOp, BinOpKind, BlockParamRole, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyTerm,
+    Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBytesLiteral, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, InstrExprNode,
     Load, LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, Meta, ModuleNameGen,
@@ -117,22 +117,20 @@ mod tests {
         operation.into()
     }
 
-    fn expr_stmt(
-        expr: LocatedCodegenBlockPyExpr,
-    ) -> BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName> {
-        BlockPyStmt::Expr(expr)
+    fn expr_stmt(expr: LocatedCodegenBlockPyExpr) -> LocatedCodegenBlockPyExpr {
+        expr
     }
 
     fn assign_stmt(
         target: LocatedName,
         value: LocatedCodegenBlockPyExpr,
-    ) -> BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName> {
+    ) -> LocatedCodegenBlockPyExpr {
         expr_stmt(op_expr(
             Store::new(target, value).with_meta(Meta::synthetic()),
         ))
     }
 
-    fn delete_stmt(target: LocatedName) -> BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName> {
+    fn delete_stmt(target: LocatedName) -> LocatedCodegenBlockPyExpr {
         expr_stmt(op_expr(
             Del::new(target, false).with_meta(Meta::synthetic()),
         ))
@@ -148,7 +146,7 @@ mod tests {
 
     fn test_source_block(
         function: &BlockPyFunction<CodegenBlockPyPass>,
-        ops: Vec<BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>>,
+        ops: Vec<LocatedCodegenBlockPyExpr>,
         term: BlockPyTerm<LocatedCodegenBlockPyExpr>,
     ) -> CodegenBlock {
         CodegenBlock {
@@ -193,96 +191,11 @@ mod tests {
 
     fn with_single_test_block(
         function: BlockPyFunction<CodegenBlockPyPass>,
-        ops: Vec<BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>>,
+        ops: Vec<LocatedCodegenBlockPyExpr>,
         term: BlockPyTerm<LocatedCodegenBlockPyExpr>,
     ) -> BlockPyFunction<CodegenBlockPyPass> {
         let block = test_source_block(&function, ops, term);
         with_test_blocks(function, vec![block])
-    }
-
-    #[derive(Default)]
-    struct TestLiteralExtractor {
-        module_constants: Vec<LocatedCodegenBlockPyExpr>,
-    }
-
-    impl TestLiteralExtractor {
-        fn extract_function(&mut self, function: &mut BlockPyFunction<CodegenBlockPyPass>) {
-            for block in &mut function.blocks {
-                for stmt in &mut block.body {
-                    match stmt {
-                        BlockPyStmt::Expr(expr) => self.extract_expr(expr),
-                        BlockPyStmt::_Marker(_) => unreachable!("marker stmt should not appear"),
-                    }
-                }
-                match &mut block.term {
-                    BlockPyTerm::Jump(_) => {}
-                    BlockPyTerm::IfTerm(if_term) => self.extract_expr(&mut if_term.test),
-                    BlockPyTerm::BranchTable(branch_table) => {
-                        self.extract_expr(&mut branch_table.index)
-                    }
-                    BlockPyTerm::Raise(raise_stmt) => {
-                        if let Some(exc) = &mut raise_stmt.exc {
-                            self.extract_expr(exc);
-                        }
-                    }
-                    BlockPyTerm::Return(value) => self.extract_expr(value),
-                }
-            }
-        }
-
-        fn extract_expr(&mut self, expr: &mut LocatedCodegenBlockPyExpr) {
-            if matches!(expr, CodegenBlockPyExpr::Literal(_)) {
-                let meta = expr.meta();
-                let index = u32::try_from(self.module_constants.len())
-                    .expect("test module constant count should fit in u32");
-                let literal = std::mem::replace(
-                    expr,
-                    Load::new(test_constant_name(index)).with_meta(meta).into(),
-                );
-                self.module_constants.push(literal);
-                return;
-            }
-            match expr {
-                CodegenBlockPyExpr::Literal(_) => {}
-                CodegenBlockPyExpr::BinOp(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::UnaryOp(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::Call(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::GetAttr(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::SetAttr(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::GetItem(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::SetItem(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::DelItem(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::Load(_) => {}
-                CodegenBlockPyExpr::Store(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::Del(_) => {}
-                CodegenBlockPyExpr::MakeCell(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-                CodegenBlockPyExpr::CellRefForName(_) => {}
-                CodegenBlockPyExpr::CellRef(_) => {}
-                CodegenBlockPyExpr::MakeFunction(op) => {
-                    op.visit_exprs_mut(&mut |child| self.extract_expr(child))
-                }
-            }
-        }
     }
 
     fn render_test_jit_function(

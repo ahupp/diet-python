@@ -46,7 +46,6 @@ pub(crate) use convert::{
     ExprTryMap,
 };
 pub use name_gen::{BlockPyLabel, FunctionNameGen, ModuleNameGen};
-pub(crate) use structured::IntoStructuredInstr;
 pub(crate) use validate::validate_module;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -459,16 +458,16 @@ impl<S, T> CfgBlock<S, T> {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct BlockPyModule<P: BlockPyPass> {
-    pub callable_defs: Vec<BlockPyFunction<P>>,
+pub struct BlockPyModule<P: BlockPyPass, S = PassExpr<P>> {
+    pub callable_defs: Vec<BlockPyFunction<P, S>>,
     pub module_constants: Vec<CoreBlockPyExpr<LocatedName>>,
 }
 
-impl<P: BlockPyPass> BlockPyModule<P> {
-    pub fn map_callable_defs<Q: BlockPyPass>(
+impl<P: BlockPyPass, S> BlockPyModule<P, S> {
+    pub fn map_callable_defs<Q: BlockPyPass, T>(
         self,
-        mut f: impl FnMut(BlockPyFunction<P>) -> BlockPyFunction<Q>,
-    ) -> BlockPyModule<Q> {
+        mut f: impl FnMut(BlockPyFunction<P, S>) -> BlockPyFunction<Q, T>,
+    ) -> BlockPyModule<Q, T> {
         debug_assert!(
             self.module_constants.is_empty(),
             "map_callable_defs does not preserve module constants"
@@ -1389,19 +1388,19 @@ impl FunctionName {
 }
 
 #[derive(Debug)]
-pub struct BlockPyFunction<P: BlockPyPass> {
+pub struct BlockPyFunction<P: BlockPyPass, S = PassExpr<P>> {
     pub function_id: FunctionId,
     pub name_gen: FunctionNameGen,
     pub names: FunctionName,
     pub kind: BlockPyFunctionKind,
     pub params: ParamSpec,
-    pub blocks: Vec<CfgBlock<P::Stmt, BlockPyTerm<P::Expr>>>,
+    pub blocks: Vec<CfgBlock<S, BlockPyTerm<P::Expr>>>,
     pub doc: Option<String>,
     pub storage_layout: Option<StorageLayout>,
     pub semantic: BlockPyCallableSemanticInfo,
 }
 
-impl<P: BlockPyPass> Clone for BlockPyFunction<P> {
+impl<P: BlockPyPass, S: Clone> Clone for BlockPyFunction<P, S> {
     fn clone(&self) -> Self {
         Self {
             function_id: self.function_id,
@@ -1419,7 +1418,7 @@ impl<P: BlockPyPass> Clone for BlockPyFunction<P> {
     }
 }
 
-impl<P: BlockPyPass> BlockPyFunction<P> {
+impl<P: BlockPyPass, S> BlockPyFunction<P, S> {
     pub fn lowered_kind(&self) -> &BlockPyFunctionKind {
         &self.kind
     }
@@ -1428,19 +1427,16 @@ impl<P: BlockPyPass> BlockPyFunction<P> {
         &self.storage_layout
     }
 
-    pub fn entry_block(&self) -> &PassBlock<P> {
+    pub fn entry_block(&self) -> &CfgBlock<S, PassTerm<P>> {
         self.blocks
             .first()
             .expect("BlockPyFunction should have at least one block")
     }
 
-    pub fn map_blocks<Q: BlockPyPass>(
+    pub fn map_blocks<Q: BlockPyPass, T>(
         self,
-        mut f: impl FnMut(PassBlock<P>) -> PassBlock<Q>,
-    ) -> BlockPyFunction<Q>
-    where
-        Q: BlockPyPass<Expr = P::Expr>,
-    {
+        mut f: impl FnMut(CfgBlock<S, PassTerm<P>>) -> CfgBlock<T, PassTerm<Q>>,
+    ) -> BlockPyFunction<Q, T> {
         BlockPyFunction {
             function_id: self.function_id,
             name_gen: self.name_gen,
@@ -1461,45 +1457,26 @@ pub trait BlockPyNormalizedStmt {
 
 pub trait BlockPyPass: Clone + fmt::Debug {
     type Expr: BlockPyExprLike + Instr;
-    type Stmt: BlockPyNormalizedStmt + Clone + fmt::Debug;
 }
 
 pub type PassExpr<P> = <P as BlockPyPass>::Expr;
 pub type PassName<P> = <PassExpr<P> as Instr>::Name;
 pub type InstrName<I> = <I as Instr>::Name;
 pub type PassTerm<P> = BlockPyTerm<PassExpr<P>>;
-pub type BlockPyStmtFor<I> = BlockPyStmt<I, InstrName<I>>;
 pub(crate) type StructuredInstrFor<I> = StructuredInstr<I>;
-pub type PassStmt<P> = BlockPyStmtFor<PassExpr<P>>;
+pub type PassStmt<P> = PassExpr<P>;
 pub(crate) type PassStructuredInstr<P> = StructuredInstrFor<PassExpr<P>>;
 pub(crate) type PassStructuredFragment<P> = BlockPyCfgFragment<PassStructuredInstr<P>, PassTerm<P>>;
-pub type PassBlock<P> = CfgBlock<<P as BlockPyPass>::Stmt, PassTerm<P>>;
+pub(crate) type PassStructuredBlock<P> = CfgBlock<PassStructuredInstr<P>, PassTerm<P>>;
+pub(crate) type StructuredBlockPyFunction<P> = BlockPyFunction<P, PassStructuredInstr<P>>;
+pub(crate) type StructuredBlockPyModule<P> = BlockPyModule<P, PassStructuredInstr<P>>;
+pub type PassBlock<P> = CfgBlock<PassExpr<P>, PassTerm<P>>;
 pub type ResolvedStorageBlock = PassBlock<ResolvedStorageBlockPyPass>;
 pub type CodegenBlock = PassBlock<CodegenBlockPyPass>;
-
-pub(crate) trait BlockPyLinearPass: BlockPyPass<Stmt = PassStmt<Self>> {}
-
-impl<P> BlockPyLinearPass for P where P: BlockPyPass<Stmt = PassStmt<P>> {}
-
-pub(crate) trait BlockPyStructuredPass:
-    BlockPyPass<Stmt: IntoStructuredInstr<PassExpr<Self>>>
-{
-}
-
-impl<P> BlockPyStructuredPass for P where P: BlockPyPass<Stmt: IntoStructuredInstr<PassExpr<P>>> {}
-
-pub(crate) trait BlockPyLinearizablePass:
-    BlockPyPass<Stmt: Clone + Into<PassStmt<Self>>>
-{
-}
-
-impl<P> BlockPyLinearizablePass for P where P: BlockPyPass<Stmt: Clone + Into<PassStmt<P>>> {}
 
 pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
 pub(crate) type BlockPyBlock<E = Expr> = BlockPyCfgBlock<StructuredInstr<E>, BlockPyTerm<E>>;
 pub(crate) type BlockPyBlockFor<I> = BlockPyCfgBlock<StructuredInstrFor<I>, BlockPyTerm<I>>;
-pub(crate) type BlockPyStructuredIf<E = Expr> = BlockPyIf<E, StructuredInstr<E>, BlockPyTerm<E>>;
-pub(crate) type BlockPyStructuredIfFor<I> = BlockPyIf<I, StructuredInstrFor<I>, BlockPyTerm<I>>;
 
 pub trait BlockPyJumpTerm<L> {
     fn jump_term(target: L) -> Self;
@@ -1732,7 +1709,7 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
 #[derive(Debug, Clone)]
 pub(crate) enum StructuredInstr<E = Expr> {
     Expr(E),
-    If(BlockPyStructuredIf<E>),
+    If(StructuredIf<E>),
 }
 
 impl<I> From<Del<I>> for StructuredInstr<I>
@@ -1759,6 +1736,13 @@ impl<E: std::fmt::Debug> BlockPyNormalizedStmt for StructuredInstr<E> {
     }
 }
 
+impl<I> BlockPyNormalizedStmt for I
+where
+    I: Instr,
+{
+    fn assert_blockpy_normalized(&self) {}
+}
+
 pub(crate) fn convert_structured_instr_expr<EIn, EOut>(
     value: StructuredInstr<EIn>,
 ) -> StructuredInstr<EOut>
@@ -1767,38 +1751,12 @@ where
 {
     match value {
         StructuredInstr::Expr(expr) => StructuredInstr::Expr(expr.into()),
-        StructuredInstr::If(if_stmt) => StructuredInstr::If(BlockPyIf {
+        StructuredInstr::If(if_stmt) => StructuredInstr::If(StructuredIf {
             test: if_stmt.test.into(),
             body: convert_blockpy_fragment_expr(if_stmt.body),
             orelse: convert_blockpy_fragment_expr(if_stmt.orelse),
         }),
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum BlockPyStmt<E = CoreBlockPyExpr<LocatedName>, N = InstrName<E>> {
-    Expr(E),
-    #[doc(hidden)]
-    _Marker(std::marker::PhantomData<N>),
-}
-
-impl<N: BlockPyNameLike> From<CoreBlockPyExpr<N>> for BlockPyStmt<CoreBlockPyExpr<N>, N> {
-    fn from(value: CoreBlockPyExpr<N>) -> Self {
-        Self::Expr(value)
-    }
-}
-
-impl<I> From<Del<I>> for BlockPyStmt<I, InstrName<I>>
-where
-    I: Instr + From<Del<I>>,
-{
-    fn from(value: Del<I>) -> Self {
-        Self::Expr(value.into())
-    }
-}
-
-impl<E, N> BlockPyNormalizedStmt for BlockPyStmt<E, N> {
-    fn assert_blockpy_normalized(&self) {}
 }
 
 #[derive(Debug, Clone)]
@@ -1822,10 +1780,10 @@ pub struct BlockPyDelete<N = ExprName> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct BlockPyIf<E = Expr, S = StructuredInstr<E>, T = BlockPyTerm<E>> {
+pub(crate) struct StructuredIf<E = Expr> {
     pub test: E,
-    pub body: BlockPyCfgFragment<S, T>,
-    pub orelse: BlockPyCfgFragment<S, T>,
+    pub body: BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>,
+    pub orelse: BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>,
 }
 
 #[derive(Debug, Clone)]
@@ -1937,7 +1895,7 @@ pub struct BlockParam {
 
 pub(crate) trait BlockPyLinearModuleVisitor<P>
 where
-    P: BlockPyLinearPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     fn visit_module(&mut self, module: &BlockPyModule<P>) {
@@ -1952,7 +1910,7 @@ where
         walk_linear_block(self, block);
     }
 
-    fn visit_stmt(&mut self, stmt: &PassStmt<P>) {
+    fn visit_stmt(&mut self, stmt: &PassExpr<P>) {
         walk_linear_stmt(self, stmt);
     }
 
@@ -1972,7 +1930,7 @@ where
 pub(crate) fn walk_linear_module<V, P>(visitor: &mut V, module: &BlockPyModule<P>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyLinearPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     for function in &module.callable_defs {
@@ -1983,7 +1941,7 @@ where
 pub(crate) fn walk_linear_fn<V, P>(visitor: &mut V, func: &BlockPyFunction<P>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyLinearPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     for block in &func.blocks {
@@ -1994,7 +1952,7 @@ where
 pub(crate) fn walk_linear_block<V, P>(visitor: &mut V, block: &PassBlock<P>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyLinearPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     for stmt in &block.body {
@@ -2006,22 +1964,19 @@ where
     visitor.visit_term(&block.term);
 }
 
-pub(crate) fn walk_linear_stmt<V, P>(visitor: &mut V, stmt: &PassStmt<P>)
+pub(crate) fn walk_linear_stmt<V, P>(visitor: &mut V, stmt: &PassExpr<P>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyLinearPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
-    match stmt {
-        BlockPyStmt::Expr(expr) => visitor.visit_expr(expr),
-        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
-    }
+    visitor.visit_expr(stmt);
 }
 
 pub(crate) fn walk_linear_label<V, P>(visitor: &mut V, label: &BlockPyLabel)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyLinearPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     let _ = visitor;
@@ -2031,7 +1986,7 @@ where
 pub(crate) fn walk_linear_term<V, P>(visitor: &mut V, term: &BlockPyTerm<PassExpr<P>>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyLinearPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     match term {
@@ -2062,7 +2017,7 @@ where
 pub(crate) fn walk_linear_expr<V, P>(visitor: &mut V, expr: &PassExpr<P>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyLinearPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     let _ = expr.clone().map_expr(&mut |child| {

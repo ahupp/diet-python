@@ -1,23 +1,16 @@
 use super::{
-    BlockPyBranchTable, BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm, BlockPyRaise,
-    BlockPySemanticExprNode, BlockPyStmt, BlockPyTerm, Instr, StructuredInstr,
+    BlockPyBranchTable, BlockPyCfgFragment, BlockPyIfTerm, BlockPyRaise, BlockPySemanticExprNode,
+    BlockPyTerm, Instr, StructuredIf, StructuredInstr,
 };
 use std::collections::HashSet;
 
-pub(super) fn assigned_names_in_linear_blockpy_stmt<E, N>(
-    stmt: &BlockPyStmt<E, N>,
-) -> HashSet<String>
+pub(super) fn assigned_names_in_linear_blockpy_stmt<E>(stmt: &E) -> HashSet<String>
 where
     E: BlockPySemanticExprNode + Instr,
 {
-    match stmt {
-        BlockPyStmt::Expr(expr) => {
-            let mut names = HashSet::new();
-            collect_named_expr_target_names_in_blockpy_expr(expr, &mut names);
-            names
-        }
-        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
-    }
+    let mut names = HashSet::new();
+    collect_named_expr_target_names_in_blockpy_expr(stmt, &mut names);
+    names
 }
 
 pub(super) fn assigned_names_in_blockpy_stmt<E>(stmt: &StructuredInstr<E>) -> HashSet<String>
@@ -30,7 +23,7 @@ where
             collect_named_expr_target_names_in_blockpy_expr(expr, &mut names);
             names
         }
-        StructuredInstr::If(BlockPyIf { test, body, orelse }) => {
+        StructuredInstr::If(StructuredIf { test, body, orelse }) => {
             let mut names = HashSet::new();
             collect_named_expr_target_names_in_blockpy_expr(test, &mut names);
             names.extend(assigned_names_in_blockpy_fragment(body));

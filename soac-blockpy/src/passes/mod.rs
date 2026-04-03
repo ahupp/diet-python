@@ -12,7 +12,7 @@ mod trace;
 use crate::block_py::{cfg::relabel_blockpy_blocks_dense, BlockPyModule};
 use crate::block_py::{
     BlockPyPass, CodegenBlockPyExpr, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, LocatedName, PassStmt, UnresolvedName,
+    CoreBlockPyExprWithYield, LocatedName, UnresolvedName,
 };
 
 #[derive(Debug, Clone)]
@@ -20,7 +20,6 @@ pub struct CoreBlockPyPassWithAwaitAndYield;
 
 impl BlockPyPass for CoreBlockPyPassWithAwaitAndYield {
     type Expr = CoreBlockPyExprWithAwaitAndYield;
-    type Stmt = PassStmt<Self>;
 }
 
 #[derive(Debug, Clone)]
@@ -28,7 +27,6 @@ pub struct CoreBlockPyPassWithYield;
 
 impl BlockPyPass for CoreBlockPyPassWithYield {
     type Expr = CoreBlockPyExprWithYield;
-    type Stmt = PassStmt<Self>;
 }
 
 #[derive(Debug, Clone)]
@@ -36,7 +34,6 @@ pub struct CoreBlockPyPass;
 
 impl BlockPyPass for CoreBlockPyPass {
     type Expr = CoreBlockPyExpr<UnresolvedName>;
-    type Stmt = PassStmt<Self>;
 }
 
 #[derive(Debug, Clone)]
@@ -44,7 +41,6 @@ pub struct ResolvedStorageBlockPyPass;
 
 impl BlockPyPass for ResolvedStorageBlockPyPass {
     type Expr = CoreBlockPyExpr<LocatedName>;
-    type Stmt = PassStmt<Self>;
 }
 
 #[derive(Debug, Clone)]
@@ -52,7 +48,6 @@ pub struct CodegenBlockPyPass;
 
 impl BlockPyPass for CodegenBlockPyPass {
     type Expr = CodegenBlockPyExpr;
-    type Stmt = PassStmt<Self>;
 }
 
 pub(crate) use blockpy_to_bb::lower_yield_in_lowered_core_blockpy_module_bundle;

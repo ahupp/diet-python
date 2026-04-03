@@ -1,8 +1,8 @@
 use crate::block_py::{BlockPyBindingKind, ClosureInit, ClosureSlot};
 use crate::block_py::{
     BlockPyCallableScopeKind, BlockPyCellBindingKind, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyModule, BlockPyNameLike, BlockPyStmt, BlockPyTerm, Call, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyKeywordArg, ResolvedStorageBlock,
+    BlockPyModule, BlockPyNameLike, BlockPyTerm, Call, CoreBlockPyCallArg, CoreBlockPyExpr,
+    CoreBlockPyKeywordArg, ResolvedStorageBlock,
 };
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, ResolvedStorageBlockPyPass};
 use crate::{lower_python_to_blockpy_for_testing, LoweringResult};
@@ -120,19 +120,17 @@ fn callable_def_by_name<'a>(
 }
 
 fn block_uses_text(block: &ResolvedStorageBlock, needle: &str) -> bool {
-    block.body.iter().any(|op| match op {
-        BlockPyStmt::Expr(expr) => expr_text(expr).contains(needle),
-        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
-    }) || match &block.term {
-        BlockPyTerm::IfTerm(if_term) => expr_text(&if_term.test).contains(needle),
-        BlockPyTerm::BranchTable(branch) => expr_text(&branch.index).contains(needle),
-        BlockPyTerm::Raise(raise_stmt) => raise_stmt
-            .exc
-            .as_ref()
-            .is_some_and(|value| expr_text(value).contains(needle)),
-        BlockPyTerm::Return(value) => expr_text(value).contains(needle),
-        _ => false,
-    }
+    block.body.iter().any(|op| expr_text(op).contains(needle))
+        || match &block.term {
+            BlockPyTerm::IfTerm(if_term) => expr_text(&if_term.test).contains(needle),
+            BlockPyTerm::BranchTable(branch) => expr_text(&branch.index).contains(needle),
+            BlockPyTerm::Raise(raise_stmt) => raise_stmt
+                .exc
+                .as_ref()
+                .is_some_and(|value| expr_text(value).contains(needle)),
+            BlockPyTerm::Return(value) => expr_text(value).contains(needle),
+            _ => false,
+        }
 }
 
 fn count_occurrences(text: &str, needle: &str) -> usize {
@@ -1798,8 +1796,7 @@ def outer(x):
         .iter()
         .find(|func| func.names.bind_name == "outer")
         .expect("outer function should be present");
-    let Some(BlockPyStmt::Expr(CoreBlockPyExpr::Store(assign))) = outer.entry_block().body.first()
-    else {
+    let Some(CoreBlockPyExpr::Store(assign)) = outer.entry_block().body.first() else {
         panic!("expected first entry stmt to be Expr(Store(...))");
     };
     assert!(
@@ -2285,7 +2282,7 @@ def bump(x):
             .iter()
             .any(|block| block.body.iter().any(|stmt| matches!(
                 stmt,
-                BlockPyStmt::Expr(expr) if expr_text(expr).contains("BinOp(InplaceAdd,")
+                expr if expr_text(expr).contains("BinOp(InplaceAdd,")
             ))),
         "{bump:?}"
     );

@@ -1,6 +1,5 @@
 use crate::block_py::{
-    BlockPyEdge, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm, CoreBlockPyExpr,
-    ResolvedStorageBlock,
+    BlockPyEdge, BlockPyFunction, BlockPyModule, BlockPyTerm, CoreBlockPyExpr, ResolvedStorageBlock,
 };
 use crate::passes::ruff_to_blockpy::populate_exception_edge_args;
 use crate::passes::ResolvedStorageBlockPyPass;
@@ -60,7 +59,7 @@ fn split_exception_blocks_for_expr_checks(
         let exc_edge = block.exc_edge.clone();
         let mut ops = block.body.into_iter().peekable();
 
-        let mut segment_ops: Vec<BlockPyStmt> = Vec::new();
+        let mut segment_ops = Vec::new();
         while let Some(op) = ops.next() {
             let ends_segment = op_updates_exception_state(&op) && ops.peek().is_some();
             segment_ops.push(op.clone());
@@ -92,11 +91,11 @@ fn split_exception_blocks_for_expr_checks(
     function.blocks = out;
 }
 
-fn op_updates_exception_state(op: &BlockPyStmt) -> bool {
-    matches!(
-        op,
-        BlockPyStmt::Expr(CoreBlockPyExpr::Store(_)) | BlockPyStmt::Expr(CoreBlockPyExpr::Del(_))
-    )
+fn op_updates_exception_state<N>(op: &CoreBlockPyExpr<N>) -> bool
+where
+    N: crate::block_py::BlockPyNameLike,
+{
+    matches!(op, CoreBlockPyExpr::Store(_) | CoreBlockPyExpr::Del(_))
 }
 
 #[cfg(test)]

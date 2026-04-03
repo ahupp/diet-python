@@ -1,10 +1,10 @@
 #[cfg(test)]
 use super::{
-    BlockPyCfgFragment, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyStructuredPass,
-    BlockPyTerm, MapExpr, PassBlock, PassExpr, PassStructuredFragment, PassStructuredInstr,
-    PassTerm,
+    BlockPyLabel, BlockPyPass, BlockPyTerm, MapExpr, PassExpr, PassStructuredBlock,
+    PassStructuredFragment, PassStructuredInstr, PassTerm, StructuredBlockPyFunction,
+    StructuredBlockPyModule,
 };
-use super::{BlockPyStmt, BlockPyStmtFor, Instr, StructuredInstr, StructuredInstrFor};
+use super::{Instr, StructuredInstr, StructuredInstrFor};
 use std::fmt;
 
 pub(crate) trait IntoStructuredInstr<I>: Clone + fmt::Debug
@@ -14,29 +14,12 @@ where
     fn into_structured_instr(self) -> StructuredInstrFor<I>;
 }
 
-impl<EIn, EOut, N> From<StructuredInstr<EIn>> for BlockPyStmt<EOut, N>
-where
-    EOut: From<EIn>,
-{
-    fn from(value: StructuredInstr<EIn>) -> Self {
-        match value {
-            StructuredInstr::Expr(expr) => Self::Expr(expr.into()),
-            StructuredInstr::If(_) => {
-                panic!("structured BlockPy If reached BlockPyStmt conversion")
-            }
-        }
-    }
-}
-
-impl<I> IntoStructuredInstr<I> for BlockPyStmtFor<I>
+impl<I> IntoStructuredInstr<I> for I
 where
     I: Instr,
 {
     fn into_structured_instr(self) -> StructuredInstrFor<I> {
-        match self {
-            BlockPyStmt::Expr(expr) => StructuredInstr::Expr(expr),
-            BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
-        }
+        StructuredInstr::Expr(self)
     }
 }
 
@@ -52,18 +35,18 @@ where
 #[cfg(test)]
 pub(crate) trait BlockPyModuleVisitor<P>
 where
-    P: BlockPyStructuredPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
-    fn visit_module(&mut self, module: &BlockPyModule<P>) {
+    fn visit_module(&mut self, module: &StructuredBlockPyModule<P>) {
         walk_module(self, module);
     }
 
-    fn visit_fn(&mut self, func: &BlockPyFunction<P>) {
+    fn visit_fn(&mut self, func: &StructuredBlockPyFunction<P>) {
         walk_fn(self, func);
     }
 
-    fn visit_block(&mut self, block: &PassBlock<P>) {
+    fn visit_block(&mut self, block: &PassStructuredBlock<P>) {
         walk_block(self, block);
     }
 
@@ -89,10 +72,10 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn walk_module<V, P>(visitor: &mut V, module: &BlockPyModule<P>)
+pub(crate) fn walk_module<V, P>(visitor: &mut V, module: &StructuredBlockPyModule<P>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
-    P: BlockPyStructuredPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     for function in &module.callable_defs {
@@ -101,10 +84,10 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn walk_fn<V, P>(visitor: &mut V, func: &BlockPyFunction<P>)
+pub(crate) fn walk_fn<V, P>(visitor: &mut V, func: &StructuredBlockPyFunction<P>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
-    P: BlockPyStructuredPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     for block in &func.blocks {
@@ -113,15 +96,14 @@ where
 }
 
 #[cfg(test)]
-pub(crate) fn walk_block<V, P>(visitor: &mut V, block: &PassBlock<P>)
+pub(crate) fn walk_block<V, P>(visitor: &mut V, block: &PassStructuredBlock<P>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
-    P: BlockPyStructuredPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     for stmt in &block.body {
-        let stmt = stmt.clone().into_structured_instr();
-        visitor.visit_stmt(&stmt);
+        visitor.visit_stmt(stmt);
     }
     if let Some(exc_edge) = &block.exc_edge {
         visitor.visit_label(&exc_edge.target);
@@ -133,7 +115,7 @@ where
 pub(crate) fn walk_fragment<V, P>(visitor: &mut V, fragment: &PassStructuredFragment<P>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
-    P: BlockPyStructuredPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     for stmt in &fragment.body {
@@ -148,7 +130,7 @@ where
 pub(crate) fn walk_stmt<V, P>(visitor: &mut V, stmt: &PassStructuredInstr<P>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
-    P: BlockPyStructuredPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     match stmt {
@@ -165,7 +147,7 @@ where
 pub(crate) fn walk_label<V, P>(visitor: &mut V, label: &BlockPyLabel)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
-    P: BlockPyStructuredPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     let _ = visitor;
@@ -176,7 +158,7 @@ where
 pub(crate) fn walk_term<V, P>(visitor: &mut V, term: &PassTerm<P>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
-    P: BlockPyStructuredPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     match term {
@@ -208,7 +190,7 @@ where
 pub(crate) fn walk_expr<V, P>(visitor: &mut V, expr: &PassExpr<P>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
-    P: BlockPyStructuredPass,
+    P: BlockPyPass,
     PassExpr<P>: MapExpr<PassExpr<P>>,
 {
     let _ = expr.clone().map_expr(&mut |child| {

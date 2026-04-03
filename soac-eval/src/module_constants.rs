@@ -2,9 +2,9 @@ use pyo3::ffi;
 use pyo3::prelude::*;
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyNameLike,
-    BlockPyStmt, BlockPyTerm, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyExpr,
-    CoreBlockPyKeywordArg, CoreNumberLiteralValue, InstrExprNode, LocatedCodegenBlockPyExpr,
-    LocatedCoreBlockPyExpr, LocatedName, ParamDefaultSource, operation as blockpy_intrinsics,
+    BlockPyTerm, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyExpr, CoreBlockPyKeywordArg,
+    CoreNumberLiteralValue, InstrExprNode, LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr,
+    ParamDefaultSource, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::collections::HashMap;
@@ -269,11 +269,8 @@ impl ModuleConstantCollector {
         }
     }
 
-    fn collect_stmt(&mut self, stmt: &BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>) {
-        let BlockPyStmt::Expr(expr) = stmt else {
-            unreachable!("codegen should not see stmt ops after name binding normalization");
-        };
-        self.collect_expr(expr);
+    fn collect_stmt(&mut self, stmt: &LocatedCodegenBlockPyExpr) {
+        self.collect_expr(stmt);
     }
 
     fn collect_term(&mut self, term: &BlockPyTerm<LocatedCodegenBlockPyExpr>) {

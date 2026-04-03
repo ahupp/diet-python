@@ -1,10 +1,10 @@
 use crate::block_py::structured::IntoStructuredInstr;
 use crate::block_py::{
-    expr_any, BlockPyBranchTable, BlockPyCfgFragment, BlockPyFunction, BlockPyIf, BlockPyIfTerm,
+    expr_any, BlockPyBranchTable, BlockPyCfgFragment, BlockPyFunction, BlockPyIfTerm,
     BlockPyNameLike, BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
-    CoreBlockPyYieldFrom, Del, HasMeta, Instr, InstrExprNode, Load, Store, StructuredInstrFor,
-    WithMeta,
+    CoreBlockPyYieldFrom, Del, HasMeta, Instr, InstrExprNode, Load, Meta, Store, StructuredIf,
+    StructuredInstrFor, WithMeta,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
@@ -201,7 +201,7 @@ fn make_eval_order_explicit_in_core_stmt(
             let mut cleanup = Vec::new();
             let test = hoist_core_expr_if_contains_suspend(if_stmt.test, &mut setup, &mut cleanup);
             out.extend(setup);
-            out.push(StructuredInstrFor::If(BlockPyIf {
+            out.push(StructuredInstrFor::If(StructuredIf {
                 test,
                 body: make_eval_order_explicit_in_core_fragment(if_stmt.body),
                 orelse: make_eval_order_explicit_in_core_fragment(if_stmt.orelse),
@@ -409,7 +409,7 @@ fn make_eval_order_explicit_in_core_stmt_without_await(
             let test =
                 hoist_core_expr_without_await_to_atom(if_stmt.test, &mut setup, &mut cleanup);
             out.extend(setup);
-            out.push(StructuredInstrFor::If(BlockPyIf {
+            out.push(StructuredInstrFor::If(StructuredIf {
                 test,
                 body: make_eval_order_explicit_in_core_fragment_without_await(if_stmt.body),
                 orelse: make_eval_order_explicit_in_core_fragment_without_await(if_stmt.orelse),

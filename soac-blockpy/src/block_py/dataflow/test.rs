@@ -1,6 +1,6 @@
 use super::{assigned_names_in_blockpy_stmt, assigned_names_in_blockpy_term};
 use crate::block_py::{
-    BlockPyCfgFragment, BlockPyIf, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyTerm,
+    BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyTerm, StructuredIf,
     StructuredInstr,
 };
 use crate::py_expr;
@@ -8,7 +8,7 @@ use std::collections::HashSet;
 
 #[test]
 fn assigned_names_in_blockpy_stmt_collects_nested_fragments() {
-    let stmt: StructuredInstr = StructuredInstr::If(BlockPyIf {
+    let stmt: StructuredInstr = StructuredInstr::If(StructuredIf {
         test: py_expr!("(test_name := source_test)"),
         body: BlockPyCfgFragment::with_term(
             vec![StructuredInstr::Expr(py_expr!(

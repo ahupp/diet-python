@@ -5,16 +5,16 @@ use crate::block_py::{
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
     BlockPyCellBindingKind, BlockPyCellCaptureBinding, BlockPyClassBodyFallback,
     BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap,
-    BlockPyNameLike, BlockPyRaise, BlockPyStmt, BlockPyTerm, Call, CellLocation, CellRef,
-    CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem,
-    FunctionId, HasMeta, InstrExprNode, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
-    MakeCell, MakeFunction, NameLocation, SetItem, StorageLayout, Store, UnresolvedName, WithMeta,
+    BlockPyNameLike, BlockPyRaise, BlockPyTerm, Call, CellLocation, CellRef, CellRefForName,
+    ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
+    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionId,
+    HasMeta, InstrExprNode, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName, MakeCell,
+    MakeFunction, NameLocation, PassStmt, SetItem, StorageLayout, Store, UnresolvedName, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
 };
-use crate::passes::{CoreBlockPyPass, PassStmt, ResolvedStorageBlockPyPass};
+use crate::passes::{CoreBlockPyPass, ResolvedStorageBlockPyPass};
 use ruff_python_ast::{self as ast, ExprName};
 use std::collections::{HashMap, HashSet};
 
@@ -70,7 +70,7 @@ type ResolvedStmt = PassStmt<ResolvedStorageBlockPyPass>;
 type CoreAssign = BlockPyAssign<CoreBlockPyExpr, UnresolvedName>;
 
 fn op_stmt(operation: impl Into<CoreBlockPyExpr>) -> CoreStmt {
-    BlockPyStmt::Expr(op_expr(operation))
+    op_expr(operation)
 }
 
 fn constant_location_expr(meta: crate::block_py::Meta, index: u32) -> LocatedCoreBlockPyExpr {
@@ -1188,30 +1188,23 @@ fn rewrite_binding_assign_by_name(
 
 impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_> {
     fn map_stmt(&self, stmt: CoreStmt) -> CoreStmt {
-        match stmt {
-            BlockPyStmt::Expr(expr) => {
-                if let Some(name) = quiet_delete_marker_target(&expr) {
-                    return rewrite_quiet_delete_marker(name, self.semantic, self);
-                }
-                if let Some((name, value, node_index, range)) =
-                    unresolved_semantic_store_parts(&expr)
-                {
-                    return rewrite_binding_assign_by_name(
-                        name,
-                        self.map_expr(value),
-                        self.semantic,
-                        self,
-                        node_index,
-                        range,
-                    );
-                }
-                if let Some(target) = unresolved_semantic_delete_target(&expr) {
-                    return rewrite_binding_delete(target, self.semantic, self);
-                }
-                BlockPyStmt::Expr(self.map_expr(expr))
-            }
-            BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
+        if let Some(name) = quiet_delete_marker_target(&stmt) {
+            return rewrite_quiet_delete_marker(name, self.semantic, self);
         }
+        if let Some((name, value, node_index, range)) = unresolved_semantic_store_parts(&stmt) {
+            return rewrite_binding_assign_by_name(
+                name,
+                self.map_expr(value),
+                self.semantic,
+                self,
+                node_index,
+                range,
+            );
+        }
+        if let Some(target) = unresolved_semantic_delete_target(&stmt) {
+            return rewrite_binding_delete(target, self.semantic, self);
+        }
+        self.map_expr(stmt)
     }
 
     fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
@@ -1330,26 +1323,21 @@ fn collect_deleted_names_in_stmt(
     storage_layout: &StorageLayout,
     names: &mut HashSet<String>,
 ) {
-    match stmt {
-        BlockPyStmt::Expr(expr) => {
-            if let Some((name, value, _, _)) = unresolved_semantic_store_parts(expr) {
-                if semantic.has_local_def(name.as_str()) && is_deleted_sentinel_expr(&value) {
-                    names.insert(name);
-                }
-            }
-            if let Some(target) = unresolved_semantic_delete_target(expr) {
-                if semantic.has_local_def(target.id.as_str()) {
-                    names.insert(target.id.to_string());
-                }
-            }
-            if let Some(name) = store_cell_deleted_logical_name(expr, semantic, storage_layout) {
-                names.insert(name);
-            }
-            if let Some(name) = del_deref_logical_name(expr, semantic, storage_layout) {
-                names.insert(name);
-            }
+    if let Some((name, value, _, _)) = unresolved_semantic_store_parts(stmt) {
+        if semantic.has_local_def(name.as_str()) && is_deleted_sentinel_expr(&value) {
+            names.insert(name);
         }
-        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
+    }
+    if let Some(target) = unresolved_semantic_delete_target(stmt) {
+        if semantic.has_local_def(target.id.as_str()) {
+            names.insert(target.id.to_string());
+        }
+    }
+    if let Some(name) = store_cell_deleted_logical_name(stmt, semantic, storage_layout) {
+        names.insert(name);
+    }
+    if let Some(name) = del_deref_logical_name(stmt, semantic, storage_layout) {
+        names.insert(name);
     }
 }
 
@@ -1361,17 +1349,14 @@ fn rewrite_deleted_name_loads_in_stmt(
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
 ) {
-    match stmt {
-        BlockPyStmt::Expr(expr) => rewrite_deleted_name_loads_in_expr(
-            expr,
-            semantic,
-            storage_layout,
-            resolver,
-            deleted_names,
-            always_unbound_names,
-        ),
-        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
-    }
+    rewrite_deleted_name_loads_in_expr(
+        stmt,
+        semantic,
+        storage_layout,
+        resolver,
+        deleted_names,
+        always_unbound_names,
+    )
 }
 
 fn rewrite_deleted_name_loads_in_term(
@@ -1500,15 +1485,10 @@ fn rewrite_raw_cell_loads_in_stmt(
     semantic: &BlockPyCallableSemanticInfo,
     resolver: &NameBindingMapper<'_>,
 ) {
-    match stmt {
-        BlockPyStmt::Expr(expr) => {
-            if is_local_cell_init_store(expr) {
-                return;
-            }
-            rewrite_raw_cell_loads_in_expr(expr, semantic, resolver)
-        }
-        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
+    if is_local_cell_init_store(stmt) {
+        return;
     }
+    rewrite_raw_cell_loads_in_expr(stmt, semantic, resolver)
 }
 
 fn rewrite_raw_cell_loads_in_term(
@@ -1550,7 +1530,7 @@ fn normal_successor_labels(
 
 fn normal_predecessor_exc_param_names(
     blocks: &[crate::block_py::CfgBlock<
-        <CoreBlockPyPass as crate::block_py::BlockPyPass>::Stmt,
+        CoreBlockPyExpr,
         crate::block_py::BlockPyTerm<CoreBlockPyExpr>,
     >],
 ) -> HashMap<crate::block_py::BlockPyLabel, Vec<Option<String>>> {
@@ -1569,7 +1549,7 @@ fn normal_predecessor_exc_param_names(
 
 fn sync_exception_param_cell_in_block(
     block: &mut crate::block_py::CfgBlock<
-        <CoreBlockPyPass as crate::block_py::BlockPyPass>::Stmt,
+        CoreBlockPyExpr,
         crate::block_py::BlockPyTerm<CoreBlockPyExpr>,
     >,
     normal_predecessor_exc_names: &[Option<String>],
@@ -1618,7 +1598,7 @@ fn sync_exception_param_cell_in_block(
 
 fn collect_deleted_names_in_blocks(
     blocks: &[crate::block_py::CfgBlock<
-        <CoreBlockPyPass as crate::block_py::BlockPyPass>::Stmt,
+        CoreBlockPyExpr,
         crate::block_py::BlockPyTerm<CoreBlockPyExpr>,
     >],
     semantic: &BlockPyCallableSemanticInfo,
@@ -1639,24 +1619,19 @@ fn collect_runtime_bound_local_names_in_stmt(
     storage_layout: &StorageLayout,
     names: &mut HashSet<String>,
 ) {
-    match stmt {
-        BlockPyStmt::Expr(expr) => {
-            if let Some((name, value, _, _)) = unresolved_semantic_store_parts(expr) {
-                if semantic.has_local_def(name.as_str()) && !is_deleted_sentinel_expr(&value) {
-                    names.insert(name);
-                }
-            }
-            if let Some(name) = store_cell_runtime_logical_name(expr, semantic, storage_layout) {
-                names.insert(name);
-            }
+    if let Some((name, value, _, _)) = unresolved_semantic_store_parts(stmt) {
+        if semantic.has_local_def(name.as_str()) && !is_deleted_sentinel_expr(&value) {
+            names.insert(name);
         }
-        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
+    }
+    if let Some(name) = store_cell_runtime_logical_name(stmt, semantic, storage_layout) {
+        names.insert(name);
     }
 }
 
 fn collect_runtime_bound_local_names(
     blocks: &[crate::block_py::CfgBlock<
-        <CoreBlockPyPass as crate::block_py::BlockPyPass>::Stmt,
+        CoreBlockPyExpr,
         crate::block_py::BlockPyTerm<CoreBlockPyExpr>,
     >],
     semantic: &BlockPyCallableSemanticInfo,
@@ -1753,10 +1728,7 @@ fn collect_remaining_names_in_expr(expr: &CoreBlockPyExpr, names: &mut HashSet<S
 }
 
 fn collect_remaining_names_in_stmt(stmt: &CoreStmt, names: &mut HashSet<String>) {
-    match stmt {
-        BlockPyStmt::Expr(expr) => collect_remaining_names_in_expr(expr, names),
-        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
-    }
+    collect_remaining_names_in_expr(stmt, names)
 }
 
 fn collect_remaining_names_in_term(
@@ -1974,16 +1946,13 @@ fn compute_local_slot_locations_from_analysis(
         for stmt in &block.body {
             collect_remaining_names_in_stmt(stmt, &mut remaining);
             match stmt {
-                BlockPyStmt::Expr(expr) => match expr {
-                    CoreBlockPyExpr::Store(op) => {
-                        explicitly_stored.insert(op.name.id_str().to_string());
-                    }
-                    CoreBlockPyExpr::Del(op) => {
-                        explicitly_stored.insert(op.name.id_str().to_string());
-                    }
-                    _ => {}
-                },
-                BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
+                CoreBlockPyExpr::Store(op) => {
+                    explicitly_stored.insert(op.name.id_str().to_string());
+                }
+                CoreBlockPyExpr::Del(op) => {
+                    explicitly_stored.insert(op.name.id_str().to_string());
+                }
+                _ => {}
             }
         }
         collect_remaining_names_in_term(&block.term, &mut remaining);
@@ -2386,10 +2355,7 @@ fn collect_make_function_callee_ids(
 }
 
 fn collect_make_function_callee_ids_in_stmt(stmt: &CoreStmt, out: &mut Vec<FunctionId>) {
-    match stmt {
-        BlockPyStmt::Expr(expr) => collect_make_function_callee_ids_in_expr(expr, out),
-        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
-    }
+    collect_make_function_callee_ids_in_expr(stmt, out)
 }
 
 fn collect_make_function_callee_ids_in_term(
@@ -2922,13 +2888,8 @@ impl ModuleConstantExtractor {
         }
     }
 
-    fn extract_stmt(&mut self, stmt: &mut BlockPyStmt<LocatedCoreBlockPyExpr, LocatedName>) {
-        let BlockPyStmt::Expr(expr) = stmt else {
-            unreachable!(
-                "resolved name-binding output should normalize stmt ops into Expr(Store/Del)"
-            );
-        };
-        self.extract_expr(expr);
+    fn extract_stmt(&mut self, stmt: &mut LocatedCoreBlockPyExpr) {
+        self.extract_expr(stmt);
     }
 
     fn extract_term(&mut self, term: &mut BlockPyTerm<LocatedCoreBlockPyExpr>) {

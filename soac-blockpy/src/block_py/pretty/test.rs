@@ -106,13 +106,11 @@ fn bb_text_renders_located_names_with_resolved_locations() {
         crate::block_py::Load::new(closure_name.clone())
             .with_meta(Meta::synthetic())
             .into();
-    let assign_stmt = BlockPyStmt::Expr(
-        crate::block_py::Store::new(
-            located_name("temp", NameLocation::local(1)),
-            Box::new(closure_expr.clone()),
-        )
-        .into(),
-    );
+    let assign_stmt = crate::block_py::Store::new(
+        located_name("temp", NameLocation::local(1)),
+        Box::new(closure_expr.clone()),
+    )
+    .into();
     let global_name = located_name("answer", NameLocation::Global);
     let global_expr: crate::block_py::LocatedCoreBlockPyExpr =
         crate::block_py::Load::new(global_name.clone())
@@ -293,25 +291,21 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
             },
             CfgBlock {
                 label: label(1),
-                body: vec![
-                    StructuredInstr::Expr(parse_core_blockpy_expr("then_side_effect()")).into(),
-                ],
+                body: vec![parse_core_blockpy_expr("then_side_effect()")],
                 term: BlockPyTerm::Jump(BlockPyEdge::new(label(3))),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: label(2),
-                body: vec![
-                    StructuredInstr::Expr(parse_core_blockpy_expr("else_side_effect()")).into(),
-                ],
+                body: vec![parse_core_blockpy_expr("else_side_effect()")],
                 term: BlockPyTerm::Jump(BlockPyEdge::new(label(3))),
                 params: Vec::new(),
                 exc_edge: None,
             },
             CfgBlock {
                 label: label(3),
-                body: vec![StructuredInstr::Expr(parse_core_blockpy_expr("finish()")).into()],
+                body: vec![parse_core_blockpy_expr("finish()")],
                 term: BlockPyTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
@@ -420,7 +414,7 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
 fn collects_referenced_labels_from_nested_if_fragments_via_visitor() {
     let referenced = collect_referenced_labels_from_structured_blocks(&[CfgBlock {
         label: label(0),
-        body: vec![StructuredInstr::If(crate::block_py::BlockPyIf {
+        body: vec![StructuredInstr::If(crate::block_py::StructuredIf {
             test: parse_blockpy_expr("cond"),
             body: BlockPyCfgFragment {
                 body: Vec::<StructuredInstr<Expr>>::new(),

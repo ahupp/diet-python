@@ -7,8 +7,8 @@ use crate::block_py::{
     BlockParamRole, BlockPyBindingKind, BlockPyBranchTable, BlockPyCallableSemanticInfo,
     BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyEdge, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike, BlockPyRaise,
-    BlockPySemanticExprNode, BlockPyStmt, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit,
-    ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    BlockPySemanticExprNode, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
     FunctionNameGen, HasMeta, ImplicitNoneExpr, Instr, Load, MakeFunction, Meta, ModuleNameGen,
     PassStmt, StorageLayout, Store, UnresolvedName, WithMeta,
@@ -172,19 +172,19 @@ fn core_name(name: &str) -> CoreBlockPyExpr {
     core_expr_without_yield(py_expr!("{name:id}", name = name))
 }
 
-fn internal_store_stmt<E>(target: &str, value: E) -> BlockPyStmt<E>
+fn internal_store_stmt<E>(target: &str, value: E) -> E
 where
     E: Instr<Name = UnresolvedName> + From<Store<E>>,
 {
     unresolved_store_stmt(expr_name(target), value)
 }
 
-fn unresolved_store_stmt<E>(target: UnresolvedName, value: E) -> BlockPyStmt<E>
+fn unresolved_store_stmt<E>(target: UnresolvedName, value: E) -> E
 where
     E: Instr<Name = UnresolvedName> + From<Store<E>>,
 {
     let meta = target.meta();
-    BlockPyStmt::Expr(Store::new(target, Box::new(value)).with_meta(meta).into())
+    Store::new(target, Box::new(value)).with_meta(meta).into()
 }
 
 fn unresolved_load_expr<E>(name: UnresolvedName) -> E
@@ -195,13 +195,12 @@ where
     Load::new(name).with_meta(meta).into()
 }
 
-fn collect_state_vars<E, N>(
+fn collect_state_vars<E>(
     param_names: &[String],
-    blocks: &[CfgBlock<BlockPyStmt<E, N>, BlockPyTerm<E>>],
+    blocks: &[CfgBlock<E, BlockPyTerm<E>>],
 ) -> Vec<String>
 where
     E: BlockPySemanticExprNode + Instr,
-    N: BlockPyNameLike,
 {
     let mut state = param_names.to_vec();
     for block in blocks {
@@ -230,19 +229,13 @@ where
     state
 }
 
-fn assigned_names_in_linear_stmt<E, N>(stmt: &BlockPyStmt<E, N>) -> HashSet<String>
+fn assigned_names_in_linear_stmt<E>(stmt: &E) -> HashSet<String>
 where
     E: BlockPySemanticExprNode + Instr,
-    N: BlockPyNameLike,
 {
-    match stmt {
-        BlockPyStmt::Expr(expr) => {
-            let mut names = HashSet::new();
-            collect_named_expr_target_names(expr, &mut names);
-            names
-        }
-        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
-    }
+    let mut names = HashSet::new();
+    collect_named_expr_target_names(stmt, &mut names);
+    names
 }
 
 fn assigned_names_in_term<E>(term: &BlockPyTerm<E>) -> HashSet<String>
@@ -661,13 +654,13 @@ fn explicit_yield_value(value: &CoreBlockPyExprWithYield) -> Option<CoreBlockPyE
 
 fn stmt_yield_site(stmt: &LinearYieldStmt) -> Option<YieldSite> {
     match stmt {
-        BlockPyStmt::Expr(CoreBlockPyExprWithYield::Yield(yield_expr)) => Some(
-            YieldSite::ExprYield(explicit_yield_value(&yield_expr.value)),
-        ),
-        BlockPyStmt::Expr(CoreBlockPyExprWithYield::YieldFrom(yield_from)) => {
+        CoreBlockPyExprWithYield::Yield(yield_expr) => Some(YieldSite::ExprYield(
+            explicit_yield_value(&yield_expr.value),
+        )),
+        CoreBlockPyExprWithYield::YieldFrom(yield_from) => {
             Some(YieldSite::ExprYieldFrom((*yield_from.value).clone()))
         }
-        BlockPyStmt::Expr(CoreBlockPyExprWithYield::Store(store)) => match store.value.as_ref() {
+        CoreBlockPyExprWithYield::Store(store) => match store.value.as_ref() {
             CoreBlockPyExprWithYield::Yield(yield_expr) => Some(YieldSite::AssignYield {
                 target: store.name.clone(),
                 value: explicit_yield_value(&yield_expr.value),
@@ -678,8 +671,7 @@ fn stmt_yield_site(stmt: &LinearYieldStmt) -> Option<YieldSite> {
             }),
             _ => None,
         },
-        BlockPyStmt::Expr(_) => None,
-        BlockPyStmt::_Marker(_) => unreachable!("linear stmt marker should not appear"),
+        _ => None,
     }
 }
 
@@ -1312,10 +1304,10 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: close_call_label,
-            body: vec![BlockPyStmt::Expr(core_expr_without_yield(py_expr!(
+            body: vec![core_expr_without_yield(py_expr!(
                 "{close:id}()",
                 close = close_name.as_str(),
-            )))],
+            ))],
             term: BlockPyTerm::Jump(BlockPyEdge::new(raise_resume_exc_label.clone())),
             params: params.clone(),
             exc_edge: None,

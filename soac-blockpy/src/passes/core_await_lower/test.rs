@@ -2,7 +2,7 @@ use super::*;
 
 use crate::block_py::{
     BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel,
-    BlockPyNameLike, BlockPyStmt, BlockPyTerm, CfgBlock, CoreBlockPyExprWithAwaitAndYield,
+    BlockPyNameLike, BlockPyTerm, CfgBlock, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, FunctionName,
 };
 use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
@@ -35,7 +35,12 @@ fn lowers_await_to_yield_from_await_iter() {
                 body: structured_block
                     .body
                     .into_iter()
-                    .map(BlockPyStmt::from)
+                    .map(|stmt| match stmt {
+                        crate::block_py::StructuredInstr::Expr(expr) => expr,
+                        crate::block_py::StructuredInstr::If(_) => {
+                            unreachable!("core eval order should not leave structured ifs here")
+                        }
+                    })
                     .collect(),
                 term: structured_block.term,
                 params: structured_block.params,
@@ -51,9 +56,7 @@ fn lowers_await_to_yield_from_await_iter() {
     let lowered = lower_awaits_in_core_blockpy_module(module);
     let block = &lowered.callable_defs[0].blocks[0];
     assert_eq!(block.body.len(), 1);
-    let crate::block_py::BlockPyStmt::Expr(CoreBlockPyExprWithYield::Store(await_assign)) =
-        &block.body[0]
-    else {
+    let CoreBlockPyExprWithYield::Store(await_assign) = &block.body[0] else {
         panic!("expected lowered await store expr");
     };
     let BlockPyTerm::Return(CoreBlockPyExprWithYield::Load(return_load)) = &block.term else {

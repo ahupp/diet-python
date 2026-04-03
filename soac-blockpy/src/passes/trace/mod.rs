@@ -72,9 +72,7 @@ pub(crate) fn instrument_bb_module_for_trace(
                     ],
                 )
             };
-            block
-                .body
-                .insert(0, StructuredInstr::Expr(trace_expr).into());
+            block.body.insert(0, trace_expr);
         }
     }
 }
@@ -98,12 +96,7 @@ impl PreparedTraceNameLocator {
         let mut existing_locations = HashMap::new();
         for block in &function.blocks {
             for stmt in &block.body {
-                let crate::block_py::BlockPyStmt::Expr(expr) = stmt else {
-                    unreachable!(
-                        "codegen trace preparation should not see stmt ops after name binding normalization"
-                    );
-                };
-                if let CodegenBlockPyExpr::Store(store) = expr {
+                if let CodegenBlockPyExpr::Store(store) = stmt {
                     existing_locations
                         .entry(store.name.id.to_string())
                         .or_insert(store.name.location);

@@ -1,4 +1,5 @@
 use super::*;
+use crate::block_py::StructuredIf;
 use crate::passes::ast_to_ast::ast_rewrite::Rewrite;
 use crate::passes::ast_to_ast::body::Suite;
 use ruff_text_size::TextRange;
@@ -93,7 +94,7 @@ impl StmtLowerer for ast::StmtIf {
                         loop_ctx,
                         next_label_id,
                     )?;
-                out.push_stmt(StructuredInstr::If(BlockPyIf { test, body, orelse }));
+                out.push_stmt(StructuredInstr::If(StructuredIf { test, body, orelse }));
                 Ok(())
             }
             expanded => {

@@ -1,6 +1,6 @@
 use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
 use crate::block_py::{
-    BlockPyIf, BlockPyStmtFragmentBuilder, Meta, Store, StructuredInstrFor, WithMeta,
+    BlockPyStmtFragmentBuilder, Meta, Store, StructuredIf, StructuredInstrFor, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::fresh_setup_name;
 use crate::passes::ruff_to_blockpy::LoopContext;
@@ -59,7 +59,7 @@ where
         lowerer.lower_expr_ast_into(*orelse, &mut orelse_out, loop_ctx, next_label_id)?;
     orelse_out.push_stmt(assign_name(&target, orelse_value));
 
-    out.push_stmt(StructuredInstrFor::If(BlockPyIf {
+    out.push_stmt(StructuredInstrFor::If(StructuredIf {
         test: test.into(),
         body: body_out.finish(),
         orelse: orelse_out.finish(),

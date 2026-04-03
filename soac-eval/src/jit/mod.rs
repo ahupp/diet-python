@@ -10,10 +10,10 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use soac_blockpy::block_py::{
-    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyStmt, BlockPyTerm, CellLocation,
-    CodegenBlock, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg,
-    CoreBlockPyKeywordArg, LocalLocation, LocatedCodegenBlockPyExpr, LocatedName, NameLocation,
-    ParamDefaultSource, StorageLayout, operation as blockpy_intrinsics,
+    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyTerm, CellLocation, CodegenBlock,
+    CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyKeywordArg,
+    LocalLocation, LocatedCodegenBlockPyExpr, LocatedName, NameLocation, ParamDefaultSource,
+    StorageLayout, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::borrow::Cow;
@@ -2660,7 +2660,7 @@ fn emit_truthy_from_owned(
 
 fn emit_codegen_ops(
     fb: &mut FunctionBuilder<'_>,
-    ops: &[BlockPyStmt<LocatedCodegenBlockPyExpr, LocatedName>],
+    ops: &[LocatedCodegenBlockPyExpr],
     local_names: &mut Vec<String>,
     local_values: &mut Vec<ir::Value>,
     _stack_slots: &StackSlots,
@@ -2668,10 +2668,7 @@ fn emit_codegen_ops(
     jit_module: &mut JITModule,
     func_imports: &mut FuncBuildImports<'_>,
 ) -> Result<(), String> {
-    for op in ops {
-        let BlockPyStmt::Expr(expr) = op else {
-            unreachable!("codegen should not see stmt ops after name binding normalization");
-        };
+    for expr in ops {
         let value = emit_codegen_expr(
             fb,
             expr,

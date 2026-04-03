@@ -1,7 +1,7 @@
 use crate::block_py::{
-    BlockPyBlock, BlockPyIf, BlockPyLabel, BlockPyStmtFragment, BlockPyTerm, CoreBlockPyCallArg,
+    BlockPyBlock, BlockPyLabel, BlockPyStmtFragment, BlockPyTerm, CoreBlockPyCallArg,
     CoreBlockPyExpr, CoreBlockPyLiteral, CoreStringLiteral, GetAttr, LocatedCoreBlockPyExpr,
-    LocatedName, Store, StructuredInstr, WithMeta,
+    LocatedName, Store, StructuredIf, StructuredInstr, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     lower_structured_located_blocks_to_bb_blocks, populate_exception_edge_args,
@@ -26,7 +26,7 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
                 )
                 .into(),
             ),
-            StructuredInstr::If(BlockPyIf {
+            StructuredInstr::If(StructuredIf {
                 test: core_name_expr("cond"),
                 body: BlockPyStmtFragment::from_stmts(vec![StructuredInstr::Expr(
                     Store::new(
@@ -129,9 +129,7 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
     }]);
     let block = &lowered[0];
 
-    let crate::block_py::BlockPyStmt::Expr(body_expr) = &block.body[0] else {
-        panic!("expected expr stmt in lowered BB block");
-    };
+    let body_expr = &block.body[0];
     assert!(matches!(
         body_expr,
         CoreBlockPyExpr::Load(load) if load.name.id.as_str() == "_dp_try_exc_0"
@@ -199,10 +197,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
 #[test]
 fn exception_edges_seed_hidden_try_exception_locals_from_current_exception() {
     let mut blocks: Vec<
-        crate::block_py::CfgBlock<
-            crate::block_py::BlockPyStmt<LocatedCoreBlockPyExpr, LocatedName>,
-            BlockPyTerm<LocatedCoreBlockPyExpr>,
-        >,
+        crate::block_py::CfgBlock<LocatedCoreBlockPyExpr, BlockPyTerm<LocatedCoreBlockPyExpr>>,
     > =
         vec![
         crate::block_py::CfgBlock {

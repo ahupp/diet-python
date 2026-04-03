@@ -10,7 +10,6 @@ struct StructuredExprPass;
 
 impl BlockPyPass for StructuredExprPass {
     type Expr = Expr;
-    type Stmt = PassStructuredInstr<Self>;
 }
 
 #[test]
@@ -131,17 +130,17 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
     }
 
     impl BlockPyModuleVisitor<StructuredExprPass> for TraceVisitor {
-        fn visit_module(&mut self, module: &BlockPyModule<StructuredExprPass>) {
+        fn visit_module(&mut self, module: &StructuredBlockPyModule<StructuredExprPass>) {
             self.trace.push("module".to_string());
             walk_module(self, module);
         }
 
-        fn visit_fn(&mut self, func: &BlockPyFunction<StructuredExprPass>) {
+        fn visit_fn(&mut self, func: &StructuredBlockPyFunction<StructuredExprPass>) {
             self.trace.push(format!("fn:{}", func.names.bind_name));
             walk_fn(self, func);
         }
 
-        fn visit_block(&mut self, block: &PassBlock<StructuredExprPass>) {
+        fn visit_block(&mut self, block: &PassStructuredBlock<StructuredExprPass>) {
             self.trace.push(format!("block:{}", block.label));
             walk_block(self, block);
         }
@@ -184,7 +183,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
         }
     }
 
-    let module = BlockPyModule::<StructuredExprPass> {
+    let module = StructuredBlockPyModule::<StructuredExprPass> {
         callable_defs: vec![BlockPyFunction {
             function_id: FunctionId(0),
             name_gen: test_name_gen(),
@@ -196,7 +195,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
                     label: BlockPyLabel::from_index(0),
                     body: vec![
                         StructuredInstr::Expr(py_expr!("assign_one")),
-                        StructuredInstr::If(BlockPyIf {
+                        StructuredInstr::If(StructuredIf {
                             test: py_expr!("if_test"),
                             body: BlockPyCfgFragment::with_term(
                                 vec![StructuredInstr::Expr(py_expr!("then_expr"))],
@@ -285,9 +284,9 @@ fn storage_layout_semantics_collects_structured_cell_ref_logical_names() {
         params: ParamSpec::default(),
         blocks: vec![CfgBlock {
             label: BlockPyLabel::from_index(0),
-            body: vec![BlockPyStmt::Expr(core_operation_expr(
+            body: vec![core_operation_expr(
                 CellRefForName::new("captured".to_string()).with_meta(Meta::synthetic()),
-            ))],
+            )],
             term: BlockPyTerm::Return(<CoreBlockPyExpr as ImplicitNoneExpr>::implicit_none_expr()),
             params: Vec::new(),
             exc_edge: None,
@@ -312,16 +311,16 @@ fn storage_layout_semantics_collects_structured_cell_ref_logical_names() {
 
 #[test]
 fn stmt_conversion_to_no_await_rejects_await() {
-    let stmt = StructuredInstr::Expr(CoreBlockPyExprWithAwaitAndYield::Await(
+    let stmt = CoreBlockPyExprWithAwaitAndYield::Await(
         CoreBlockPyAwait::new(core_load_with_await_and_yield("x")).with_meta(Meta::default()),
-    ));
+    );
 
     assert!(ExprTryMap::<
         CoreBlockPyPassWithAwaitAndYield,
         CoreBlockPyPassWithYield,
         CoreBlockPyExprWithAwaitAndYield,
     >::without_await()
-    .try_map_stmt(stmt.into())
+    .try_map_stmt(stmt)
     .is_err());
 }
 
@@ -344,10 +343,10 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
             params: ParamSpec::default(),
             blocks: vec![CfgBlock {
                 label: BlockPyLabel::from_index(0),
-                body: vec![BlockPyStmt::Expr(CoreBlockPyExprWithAwaitAndYield::Await(
+                body: vec![CoreBlockPyExprWithAwaitAndYield::Await(
                     CoreBlockPyAwait::new(core_load_with_await_and_yield("x"))
                         .with_meta(Meta::default()),
-                ))],
+                )],
                 term: BlockPyTerm::Return(core_load_with_await_and_yield("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,

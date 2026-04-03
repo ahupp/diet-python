@@ -3,9 +3,9 @@ use super::{
     rewrite_current_exception_in_blockpy_term,
 };
 use crate::block_py::{
-    BlockParam, BlockParamRole, BlockPyAssign, BlockPyIf, BlockPyIfTerm, BlockPyLabel,
-    BlockPyNameLike, BlockPyStmt, BlockPyStmtFragment, BlockPyTerm, CfgBlock, CoreBlockPyCallArg,
-    CoreBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen, ResolvedStorageBlock,
+    BlockParam, BlockParamRole, BlockPyAssign, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike,
+    BlockPyStmtFragment, BlockPyTerm, CfgBlock, CoreBlockPyCallArg, CoreBlockPyExpr,
+    LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen, ResolvedStorageBlock, StructuredIf,
     StructuredInstr, WithMeta,
 };
 use ruff_python_ast::{self as ast};
@@ -13,7 +13,7 @@ use ruff_text_size::TextRange;
 
 pub(crate) fn lower_structured_core_blocks_to_bb_blocks<N>(
     blocks: &[CfgBlock<StructuredInstr<CoreBlockPyExpr<N>>, BlockPyTerm<CoreBlockPyExpr<N>>>],
-) -> Vec<CfgBlock<BlockPyStmt<CoreBlockPyExpr<N>, N>, BlockPyTerm<CoreBlockPyExpr<N>>>>
+) -> Vec<CfgBlock<CoreBlockPyExpr<N>, BlockPyTerm<CoreBlockPyExpr<N>>>>
 where
     N: BlockPyNameLike,
 {
@@ -104,7 +104,7 @@ fn core_name_expr(name: &str) -> CoreBlockPyExpr {
 fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
     let blocks = vec![CfgBlock {
         label: BlockPyLabel::from_index(0),
-        body: vec![StructuredInstr::If(BlockPyIf {
+        body: vec![StructuredInstr::If(StructuredIf {
             test: crate::block_py::core_call_expr_with_meta(
                 core_name_expr("current_exception"),
                 ast::AtomicNodeIndex::default(),

@@ -1,6 +1,6 @@
 use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
 use crate::block_py::{
-    BlockPyCfgFragment, BlockPyIf, BlockPyStmtFragmentBuilder, BlockPyTerm, Instr, Meta, Store,
+    BlockPyCfgFragment, BlockPyStmtFragmentBuilder, BlockPyTerm, Instr, Meta, Store, StructuredIf,
     StructuredInstrFor, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::fresh_setup_name;
@@ -67,7 +67,7 @@ where
             ast::BoolOp::And => load_name(&target),
             ast::BoolOp::Or => py_expr!("not {target:id}", target = target.as_str()),
         };
-        out.push_stmt(StructuredInstrFor::If(BlockPyIf {
+        out.push_stmt(StructuredInstrFor::If(StructuredIf {
             test: test.into(),
             body: body.finish(),
             orelse: empty_fragment(),
@@ -145,7 +145,7 @@ where
             compare_expr(op, current_left.clone(), comparator_expr.clone()),
         ));
         current_left = comparator_expr;
-        out.push_stmt(StructuredInstrFor::If(BlockPyIf {
+        out.push_stmt(StructuredInstrFor::If(StructuredIf {
             test: load_name(&target_name).into(),
             body: step_body.finish(),
             orelse: empty_fragment(),
