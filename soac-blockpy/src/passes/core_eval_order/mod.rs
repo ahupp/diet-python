@@ -1,8 +1,8 @@
 use crate::block_py::{
     expr_any, Await, Block, BlockBuilder, BlockPyFunction, BlockPyNameLike, BlockTerm,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, Del, HasMeta, Instr, Load, Store,
-    StructuredIf, StructuredInstr, TermBranchTable, TermIf, TermRaise, Walkable, WithMeta, Yield,
-    YieldFrom,
+    StructuredIf, StructuredInstr, TermBranchTable, TermIf, TermRaise, UnresolvedName, Walkable,
+    WithMeta, Yield, YieldFrom,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
@@ -29,7 +29,7 @@ where
 
 fn typed_del_stmt<E, N>(target: N) -> StructuredInstr<E>
 where
-    E: Instr + From<Del<E>>,
+    E: Instr<Name = UnresolvedName> + From<Del<E>>,
     N: HasMeta + Into<<E as Instr>::Name>,
 {
     let meta = target.meta();
@@ -155,7 +155,7 @@ fn make_eval_order_explicit_in_core_expr(
 
 fn append_stmt_cleanup<E>(out: &mut Vec<StructuredInstr<E>>, cleanup: Vec<ast::ExprName>)
 where
-    E: Instr + From<Del<E>>,
+    E: Instr<Name = UnresolvedName> + From<Del<E>>,
 {
     for temp in cleanup.into_iter().rev() {
         out.push(typed_del_stmt(temp));

@@ -2014,9 +2014,10 @@ impl NameLocator<'_> {
     fn locate_unresolved_name(&self, name: UnresolvedName) -> LocatedName {
         match name {
             UnresolvedName::SourceName(name) => self.locate_name(name),
-            UnresolvedName::RuntimeName(name) => {
-                LocatedName::from(UnresolvedName::RuntimeName(name))
-            }
+            UnresolvedName::RuntimeName(name) => LocatedName {
+                id: name,
+                location: NameLocation::RuntimeName,
+            },
         }
     }
 

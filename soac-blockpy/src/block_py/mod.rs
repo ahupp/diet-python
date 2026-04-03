@@ -164,7 +164,7 @@ impl NameLocation {
     }
 }
 
-pub trait BlockPyNameLike: Clone + fmt::Debug + From<ast::ExprName> {
+pub trait BlockPyNameLike: Clone + fmt::Debug {
     fn id_str(&self) -> &str;
     fn pretty_id(&self) -> String {
         self.id_str().to_string()
@@ -415,30 +415,6 @@ impl BlockPyNameLike for LocatedName {
 
     fn is_runtime_name(&self) -> bool {
         self.location.is_runtime_name()
-    }
-}
-
-impl From<ast::ExprName> for LocatedName {
-    fn from(value: ast::ExprName) -> Self {
-        Self {
-            id: value.id,
-            location: NameLocation::Global,
-        }
-    }
-}
-
-impl From<UnresolvedName> for LocatedName {
-    fn from(value: UnresolvedName) -> Self {
-        match value {
-            UnresolvedName::SourceName(id) => Self {
-                id,
-                location: NameLocation::Global,
-            },
-            UnresolvedName::RuntimeName(id) => Self {
-                id,
-                location: NameLocation::RuntimeName,
-            },
-        }
     }
 }
 

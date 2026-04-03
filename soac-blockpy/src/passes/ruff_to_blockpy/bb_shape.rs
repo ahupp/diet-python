@@ -1,8 +1,8 @@
 use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
     BlockArg, BlockEdge, BlockPyNameLike, BlockTerm, CoreBlockPyExpr,
-    CoreBlockPyExprWithAwaitAndYield, FunctionNameGen, Instr, InstrName, Load, Meta,
-    StructuredInstr, TermIf, Walkable, WithMeta,
+    CoreBlockPyExprWithAwaitAndYield, FunctionNameGen, Instr, Load, Meta, StructuredInstr, TermIf,
+    UnresolvedName, Walkable, WithMeta,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
@@ -59,7 +59,7 @@ pub(crate) trait CurrentExceptionExpr:
 
 impl<N> CurrentExceptionExpr for CoreBlockPyExpr<N>
 where
-    N: BlockPyNameLike + From<ast::ExprName>,
+    N: BlockPyNameLike,
 {
     fn is_current_exception_call(&self) -> bool {
         let CoreBlockPyExpr::Call(call) = self else {
@@ -93,8 +93,7 @@ impl CurrentExceptionExpr for CoreBlockPyExprWithAwaitAndYield {
 pub(crate) fn rewrite_current_exception_in_core_blocks<E>(
     blocks: &mut [crate::block_py::Block<E, E>],
 ) where
-    E: CurrentExceptionExpr,
-    InstrName<E>: BlockPyNameLike + From<ast::ExprName>,
+    E: CurrentExceptionExpr + Instr<Name = UnresolvedName>,
 {
     for block in blocks {
         let Some(exc_name) = block.exception_param().map(ToString::to_string) else {
@@ -118,8 +117,7 @@ pub(crate) fn rewrite_current_exception_in_core_blocks_with_await_and_yield(
 
 fn rewrite_current_exception_in_term<E>(term: &mut BlockTerm<E>, exc_name: &str)
 where
-    E: CurrentExceptionExpr,
-    InstrName<E>: BlockPyNameLike + From<ast::ExprName>,
+    E: CurrentExceptionExpr + Instr<Name = UnresolvedName>,
 {
     match term {
         BlockTerm::IfTerm(TermIf { test, .. }) => {
@@ -142,8 +140,7 @@ where
 
 fn rewrite_current_exception_in_expr<E>(expr: &mut E, exc_name: &str)
 where
-    E: CurrentExceptionExpr,
-    InstrName<E>: BlockPyNameLike + From<ast::ExprName>,
+    E: CurrentExceptionExpr + Instr<Name = UnresolvedName>,
 {
     expr.walk_mut(&mut |arg| rewrite_current_exception_in_expr(arg, exc_name));
     if expr.is_current_exception_call() {
@@ -227,19 +224,11 @@ pub(crate) fn lowered_exception_edges<S, T: crate::block_py::Instr>(
 
 fn current_exception_name_expr<E>(exc_name: &str) -> E
 where
-    E: CurrentExceptionExpr,
-    InstrName<E>: BlockPyNameLike + From<ast::ExprName>,
+    E: CurrentExceptionExpr + Instr<Name = UnresolvedName>,
 {
     let range = compat_range();
     let node_index = compat_node_index();
-    let name: InstrName<E> = ast::ExprName {
-        id: ast::name::Name::new(exc_name),
-        ctx: ast::ExprContext::Load,
-        range,
-        node_index: node_index.clone(),
-    }
-    .into();
-    E::from(Load::<E>::new(name).with_meta(Meta::new(node_index, range)))
+    E::from(Load::<E>::new(ast::name::Name::new(exc_name)).with_meta(Meta::new(node_index, range)))
 }
 
 fn compat_node_index() -> ast::AtomicNodeIndex {

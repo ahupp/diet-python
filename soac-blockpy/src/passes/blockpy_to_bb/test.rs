@@ -1,7 +1,7 @@
 use crate::block_py::{
     literal_expr, BlockLabel, BlockPyBlock, BlockPyLiteral, BlockPyStmtBuilder, BlockTerm,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreStringLiteral, GetAttr, LocatedCoreBlockPyExpr,
-    LocatedName, Store, StructuredIf, StructuredInstr, WithMeta,
+    LocatedName, NameLocation, Store, StructuredIf, StructuredInstr, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     lower_structured_located_blocks_to_bb_blocks, populate_exception_edge_args,
@@ -16,12 +16,10 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
         body: vec![
             StructuredInstr::Expr(
                 Store::new(
-                    LocatedName::from(ast::ExprName {
+                    LocatedName {
                         id: "x".into(),
-                        ctx: ast::ExprContext::Store,
-                        range: TextRange::default(),
-                        node_index: ast::AtomicNodeIndex::default(),
-                    }),
+                        location: NameLocation::Global,
+                    },
                     Box::new(core_name_expr("a")),
                 )
                 .into(),
@@ -30,24 +28,20 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
                 test: core_name_expr("cond"),
                 body: BlockPyStmtBuilder::from_stmts(vec![StructuredInstr::Expr(
                     Store::new(
-                        LocatedName::from(ast::ExprName {
+                        LocatedName {
                             id: "x".into(),
-                            ctx: ast::ExprContext::Store,
-                            range: TextRange::default(),
-                            node_index: ast::AtomicNodeIndex::default(),
-                        }),
+                            location: NameLocation::Global,
+                        },
                         Box::new(core_name_expr("b")),
                     )
                     .into(),
                 )]),
                 orelse: BlockPyStmtBuilder::from_stmts(vec![StructuredInstr::Expr(
                     Store::new(
-                        LocatedName::from(ast::ExprName {
+                        LocatedName {
                             id: "x".into(),
-                            ctx: ast::ExprContext::Store,
-                            range: TextRange::default(),
-                            node_index: ast::AtomicNodeIndex::default(),
-                        }),
+                            location: NameLocation::Global,
+                        },
                         Box::new(core_name_expr("c")),
                     )
                     .into(),
@@ -73,12 +67,10 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
 }
 
 fn core_name_expr(name: &str) -> LocatedCoreBlockPyExpr {
-    let name = LocatedName::from(ast::ExprName {
+    let name = LocatedName {
         id: name.into(),
-        ctx: ast::ExprContext::Load,
-        range: TextRange::default(),
-        node_index: ast::AtomicNodeIndex::default(),
-    });
+        location: NameLocation::Global,
+    };
     crate::block_py::Load::new(name.clone())
         .with_meta(crate::block_py::Meta::synthetic())
         .into()
