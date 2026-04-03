@@ -10,8 +10,8 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use soac_blockpy::block_py::{
-    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyTerm, CellLocation, CodegenBlock,
-    CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyCallArg, CoreBlockPyKeywordArg,
+    AbruptKind, BlockArg, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyTerm,
+    CellLocation, CodegenBlock, CodegenBlockPyExpr, CoreBlockPyCallArg, CoreBlockPyKeywordArg,
     LocalLocation, LocatedCodegenBlockPyExpr, LocatedName, NameLocation, ParamDefaultSource,
     StorageLayout, operation as blockpy_intrinsics,
 };
@@ -537,13 +537,13 @@ fn codegen_expr_const_string(
     module_constants: &ModuleCodegenConstants,
 ) -> Option<String> {
     match expr {
-        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
+        CodegenBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(string)) => {
             Some(string.value.clone())
         }
-        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
+        CodegenBlockPyExpr::Literal(BlockPyLiteral::BytesLiteral(bytes)) => {
             String::from_utf8(bytes.value.clone()).ok()
         }
-        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(_)) => None,
+        CodegenBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(_)) => None,
         CodegenBlockPyExpr::Load(op) => op.name.location.as_constant().and_then(|index| {
             module_constants.constant_string_value(ModuleConstantId(index as usize))
         }),
@@ -1233,7 +1233,7 @@ fn emit_codegen_expr(
     let tuple_set_item_ref = ctx.tuple_set_item_ref;
 
     match expr {
-        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
+        CodegenBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(string)) => {
             assert!(
                 !borrowed,
                 "codegen string literal must not use borrowed expression"
@@ -1245,7 +1245,7 @@ fn emit_codegen_expr(
                 ctx,
             )
         }
-        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(number)) => {
+        CodegenBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(number)) => {
             assert!(
                 !borrowed,
                 "codegen number literal must not use borrowed expression"
@@ -1277,7 +1277,7 @@ fn emit_codegen_expr(
                 }
             }
         }
-        CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
+        CodegenBlockPyExpr::Literal(BlockPyLiteral::BytesLiteral(bytes)) => {
             assert!(!borrowed, "bytes literal must produce owned references");
             emit_owned_module_constant(
                 fb,

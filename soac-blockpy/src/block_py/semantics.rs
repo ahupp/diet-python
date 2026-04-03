@@ -1,8 +1,8 @@
 use super::{
     is_internal_symbol, walk_linear_block, walk_linear_expr, walk_linear_stmt, BlockPyFunction,
-    BlockPyLinearModuleVisitor, BlockPyNameLike, BlockPyPass, Call, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
-    CoreBlockPyLiteral, FunctionName, MapExpr, PassBlock, PassExpr, RuffExpr,
+    BlockPyLinearModuleVisitor, BlockPyLiteral, BlockPyNameLike, BlockPyPass, Call,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, FunctionName, MapExpr, PassBlock, PassExpr, RuffExpr,
 };
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
 use ruff_python_ast::{self as ast, Expr};
@@ -584,9 +584,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
 
     fn root_string_literal_value(&self) -> Option<String> {
         match self {
-            Self::Literal(CoreBlockPyLiteral::StringLiteral(literal)) => {
-                Some(literal.value.clone())
-            }
+            Self::Literal(BlockPyLiteral::StringLiteral(literal)) => Some(literal.value.clone()),
             _ => None,
         }
     }
@@ -646,9 +644,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
 
     fn root_string_literal_value(&self) -> Option<String> {
         match self {
-            Self::Literal(CoreBlockPyLiteral::StringLiteral(literal)) => {
-                Some(literal.value.clone())
-            }
+            Self::Literal(BlockPyLiteral::StringLiteral(literal)) => Some(literal.value.clone()),
             _ => None,
         }
     }
@@ -711,9 +707,7 @@ where
 
     fn root_string_literal_value(&self) -> Option<String> {
         match self {
-            Self::Literal(CoreBlockPyLiteral::StringLiteral(literal)) => {
-                Some(literal.value.clone())
-            }
+            Self::Literal(BlockPyLiteral::StringLiteral(literal)) => Some(literal.value.clone()),
             _ => None,
         }
     }

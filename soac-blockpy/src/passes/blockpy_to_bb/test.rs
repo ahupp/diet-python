@@ -1,6 +1,6 @@
 use crate::block_py::{
-    BlockPyBlock, BlockPyLabel, BlockPyStmtFragment, BlockPyTerm, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyLiteral, CoreStringLiteral, GetAttr, LocatedCoreBlockPyExpr,
+    BlockPyBlock, BlockPyLabel, BlockPyLiteral, BlockPyStmtFragment, BlockPyTerm,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreStringLiteral, GetAttr, LocatedCoreBlockPyExpr,
     LocatedName, Store, StructuredIf, StructuredInstr, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
@@ -97,7 +97,7 @@ fn core_call_expr(name: &str, args: Vec<LocatedCoreBlockPyExpr>) -> LocatedCoreB
 }
 
 fn core_string_expr(value: &str) -> LocatedCoreBlockPyExpr {
-    LocatedCoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
+    LocatedCoreBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(CoreStringLiteral {
         node_index: ast::AtomicNodeIndex::default(),
         range: TextRange::default(),
         value: value.to_string(),
@@ -149,7 +149,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         term: BlockPyTerm::Return(
             GetAttr::new(
                 core_call_expr("current_exception", Vec::new()),
-                CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
+                CoreBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(CoreStringLiteral {
                     node_index: ast::AtomicNodeIndex::default(),
                     range: TextRange::default(),
                     value: "value".to_string(),
@@ -187,7 +187,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     ));
     assert!(matches!(
         attr.as_ref(),
-        CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
+        CoreBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(CoreStringLiteral {
             value,
             ..
         })) if value == "value"

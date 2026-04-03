@@ -2,7 +2,7 @@ use pyo3::ffi;
 use pyo3::prelude::*;
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyNameLike,
-    BlockPyTerm, CodegenBlockPyExpr, CodegenBlockPyLiteral, CoreBlockPyExpr, CoreBlockPyKeywordArg,
+    BlockPyTerm, CodegenBlockPyExpr, CoreBlockPyExpr, CoreBlockPyKeywordArg,
     CoreNumberLiteralValue, InstrExprNode, LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr,
     ParamDefaultSource, operation as blockpy_intrinsics,
 };
@@ -297,10 +297,10 @@ impl ModuleConstantCollector {
 
     fn collect_expr(&mut self, expr: &LocatedCodegenBlockPyExpr) {
         match expr {
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
+            CodegenBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(string)) => {
                 self.constants.intern_unicode_bytes(string.value.as_bytes());
             }
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(number)) => {
+            CodegenBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(number)) => {
                 match &number.value {
                     CoreNumberLiteralValue::Int(value) => {
                         if let Some(value) = value.as_i64() {
@@ -315,7 +315,7 @@ impl ModuleConstantCollector {
                     }
                 }
             }
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
+            CodegenBlockPyExpr::Literal(BlockPyLiteral::BytesLiteral(bytes)) => {
                 self.constants.intern_bytes(bytes.value.as_slice());
             }
             CodegenBlockPyExpr::Call(call) => {
@@ -415,11 +415,11 @@ impl ModuleConstantCollector {
         expr: &LocatedCodegenBlockPyExpr,
     ) -> Option<Vec<u8>> {
         match expr {
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::StringLiteral(string)) => {
+            CodegenBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(string)) => {
                 Some(string.value.as_bytes().to_vec())
             }
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::NumberLiteral(_)) => None,
-            CodegenBlockPyExpr::Literal(CodegenBlockPyLiteral::BytesLiteral(bytes)) => {
+            CodegenBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(_)) => None,
+            CodegenBlockPyExpr::Literal(BlockPyLiteral::BytesLiteral(bytes)) => {
                 Some(bytes.value.clone())
             }
             CodegenBlockPyExpr::Load(op) => op.name.location.as_constant().and_then(|index| {

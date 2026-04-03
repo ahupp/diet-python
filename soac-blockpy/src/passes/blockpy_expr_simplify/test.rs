@@ -1,14 +1,14 @@
 use super::*;
 
 use crate::block_py::pretty::BlockPyDebugExprText;
-use crate::block_py::{BinOpKind, BlockPyNameLike, UnaryOpKind};
+use crate::block_py::{BinOpKind, BlockPyLiteral, BlockPyNameLike, UnaryOpKind};
 
 fn lower_semantic_expr_without_setup(expr: &Expr) -> CoreBlockPyExprWithAwaitAndYield {
     CoreBlockPyExprWithAwaitAndYield::from(expr.clone())
 }
 
 use crate::block_py::{
-    CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyLiteral,
+    CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg,
 };
 use crate::lower_python_to_blockpy_for_testing;
 use crate::py_expr;
@@ -64,7 +64,7 @@ fn core_blockpy_expr_uses_reduced_variants_for_simple_shapes() {
     ));
     assert!(matches!(
         CoreBlockPyExprWithAwaitAndYield::from(py_expr!("1")),
-        CoreBlockPyExprWithAwaitAndYield::Literal(CoreBlockPyLiteral::NumberLiteral(_))
+        CoreBlockPyExprWithAwaitAndYield::Literal(BlockPyLiteral::NumberLiteral(_))
     ));
     assert!(matches!(
         CoreBlockPyExprWithAwaitAndYield::from(py_expr!("f(x)")),

@@ -2,11 +2,11 @@ use super::ast_to_ast::string_templates::lower_string_templates_in_expr;
 use crate::block_py::{
     core_call_expr_with_meta, core_runtime_name_expr_with_meta,
     core_runtime_positional_call_expr_with_meta, operation, BlockPyAssign, BlockPyBranchTable,
-    BlockPyDelete, BlockPyIfTerm, BlockPyRaise, BlockPyStmtFragment, BlockPyStmtFragmentBuilder,
-    BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyKeywordArg, CoreBlockPyLiteral, CoreBlockPyYield, CoreBlockPyYieldFrom,
-    CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, HasMeta,
-    ImplicitNoneExpr, Meta, StructuredInstr, WithMeta,
+    BlockPyDelete, BlockPyIfTerm, BlockPyLiteral, BlockPyRaise, BlockPyStmtFragment,
+    BlockPyStmtFragmentBuilder, BlockPyTerm, CoreBlockPyAwait, CoreBlockPyCallArg,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyYield,
+    CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
+    CoreStringLiteral, HasMeta, ImplicitNoneExpr, Meta, StructuredInstr, WithMeta,
 };
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
 use crate::py_expr;
@@ -143,7 +143,7 @@ fn getattr_expr_with_meta(
     value: CoreBlockPyExprWithAwaitAndYield,
     attr: String,
 ) -> CoreBlockPyExprWithAwaitAndYield {
-    let attr_expr = CoreBlockPyExprWithAwaitAndYield::Literal(CoreBlockPyLiteral::StringLiteral(
+    let attr_expr = CoreBlockPyExprWithAwaitAndYield::Literal(BlockPyLiteral::StringLiteral(
         CoreStringLiteral {
             node_index: node_index.clone(),
             range,
@@ -351,9 +351,9 @@ fn make_function_id_from_literal(expr: &Expr) -> Option<crate::block_py::Functio
 }
 
 fn string_arg_from_core_expr(expr: CoreBlockPyExprWithAwaitAndYield) -> Option<String> {
-    let CoreBlockPyExprWithAwaitAndYield::Literal(
-        crate::block_py::CoreBlockPyLiteral::StringLiteral(literal),
-    ) = expr
+    let CoreBlockPyExprWithAwaitAndYield::Literal(crate::block_py::BlockPyLiteral::StringLiteral(
+        literal,
+    )) = expr
     else {
         return None;
     };
@@ -538,14 +538,14 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                     .with_meta(Meta::new(node.node_index, node.range)),
             ),
             Expr::StringLiteral(node) => {
-                Self::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
+                Self::Literal(BlockPyLiteral::StringLiteral(CoreStringLiteral {
                     node_index: node.node_index,
                     range: node.range,
                     value: node.value.to_str().to_string(),
                 }))
             }
             Expr::BytesLiteral(node) => {
-                Self::Literal(CoreBlockPyLiteral::BytesLiteral(CoreBytesLiteral {
+                Self::Literal(BlockPyLiteral::BytesLiteral(CoreBytesLiteral {
                     node_index: node.node_index,
                     range: node.range,
                     value: {
@@ -555,7 +555,7 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                 }))
             }
             Expr::NumberLiteral(node) => {
-                Self::Literal(CoreBlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+                Self::Literal(BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
                     node_index: node.node_index,
                     range: node.range,
                     value: match node.value {

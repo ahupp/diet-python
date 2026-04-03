@@ -557,7 +557,7 @@ pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum CodegenBlockPyExpr {
-    Literal(CodegenBlockPyLiteral),
+    Literal(BlockPyLiteral),
     BinOp(BinOp<Self>),
     UnaryOp(UnaryOp<Self>),
     Call(Call<Self>),
@@ -583,9 +583,6 @@ pub enum BlockPyLiteral {
     BytesLiteral(CoreBytesLiteral),
     NumberLiteral(CoreNumberLiteral),
 }
-
-pub type CoreBlockPyLiteral = BlockPyLiteral;
-pub type CodegenBlockPyLiteral = BlockPyLiteral;
 
 impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
     type Mapped<T: Instr> = InstrName<T>;

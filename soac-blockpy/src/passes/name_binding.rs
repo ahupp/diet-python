@@ -4,9 +4,9 @@ use crate::block_py::{
     runtime_symbol, BindingTarget, BlockArg, BlockPyAssign, BlockPyBindingKind,
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
     BlockPyCellBindingKind, BlockPyCellCaptureBinding, BlockPyClassBodyFallback,
-    BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap,
-    BlockPyNameLike, BlockPyRaise, BlockPyTerm, Call, CellLocation, CellRef, CellRefForName,
-    ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyLiteral,
+    BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyLiteral, BlockPyModule,
+    BlockPyModuleMap, BlockPyNameLike, BlockPyRaise, BlockPyTerm, Call, CellLocation, CellRef,
+    CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
     CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionId,
     HasMeta, InstrExprNode, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName, MakeCell,
     MakeFunction, NameLocation, PassStmt, SetItem, StorageLayout, Store, UnresolvedName, WithMeta,
@@ -31,7 +31,7 @@ fn core_string_expr(
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    CoreBlockPyExpr::Literal(CoreBlockPyLiteral::StringLiteral(CoreStringLiteral {
+    CoreBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(CoreStringLiteral {
         node_index,
         range,
         value,
@@ -44,7 +44,7 @@ fn core_int_expr(
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
     let text = value.to_string();
-    CoreBlockPyExpr::Literal(CoreBlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+    CoreBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
         node_index,
         range,
         value: CoreNumberLiteralValue::Int(
@@ -830,14 +830,14 @@ fn closure_slot_init_expr(slot: &ClosureSlot) -> CoreBlockPyExpr {
         ),
         ClosureInit::DeletedSentinel => deleted_sentinel_expr(node_index, range),
         ClosureInit::RuntimePcUnstarted => {
-            CoreBlockPyExpr::Literal(CoreBlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+            CoreBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
                 node_index,
                 range,
                 value: CoreNumberLiteralValue::Int(ast::Int::ONE),
             }))
         }
         ClosureInit::RuntimeAbruptKindFallthrough => {
-            CoreBlockPyExpr::Literal(CoreBlockPyLiteral::NumberLiteral(CoreNumberLiteral {
+            CoreBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
                 node_index,
                 range,
                 value: CoreNumberLiteralValue::Int(
