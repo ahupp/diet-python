@@ -3,8 +3,8 @@ use pyo3::prelude::*;
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyNameLike,
     BlockPyTerm, CodegenBlockPyExpr, CoreBlockPyExpr, CoreBlockPyKeywordArg,
-    CoreNumberLiteralValue, InstrExprNode, LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr,
-    ParamDefaultSource, operation as blockpy_intrinsics,
+    CoreNumberLiteralValue, InstrExprNode, LocatedCoreBlockPyExpr, ParamDefaultSource,
+    operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::collections::HashMap;
@@ -257,11 +257,11 @@ impl ModuleConstantCollector {
         }
     }
 
-    fn collect_stmt(&mut self, stmt: &LocatedCodegenBlockPyExpr) {
+    fn collect_stmt(&mut self, stmt: &CodegenBlockPyExpr) {
         self.collect_expr(stmt);
     }
 
-    fn collect_term(&mut self, term: &BlockPyTerm<LocatedCodegenBlockPyExpr>) {
+    fn collect_term(&mut self, term: &BlockPyTerm<CodegenBlockPyExpr>) {
         match term {
             BlockPyTerm::Jump(edge) => self.collect_block_args(&edge.args),
             BlockPyTerm::IfTerm(if_term) => self.collect_expr(&if_term.test),
@@ -283,7 +283,7 @@ impl ModuleConstantCollector {
         }
     }
 
-    fn collect_expr(&mut self, expr: &LocatedCodegenBlockPyExpr) {
+    fn collect_expr(&mut self, expr: &CodegenBlockPyExpr) {
         match expr {
             CodegenBlockPyExpr::Call(call) => {
                 if let Some(const_bytes) = self.string_constant_bytes_for_specialized_codegen(expr)
@@ -369,7 +369,7 @@ impl ModuleConstantCollector {
 
     fn deleted_name_arg_bytes(
         &self,
-        call: &blockpy_intrinsics::Call<LocatedCodegenBlockPyExpr>,
+        call: &blockpy_intrinsics::Call<CodegenBlockPyExpr>,
     ) -> Option<Vec<u8>> {
         if helper_name_for_codegen_expr(call.func.as_ref()) != Some("load_deleted_name")
             || call.args.len() != 2
@@ -381,7 +381,7 @@ impl ModuleConstantCollector {
 
     fn string_constant_bytes_for_specialized_codegen(
         &self,
-        expr: &LocatedCodegenBlockPyExpr,
+        expr: &CodegenBlockPyExpr,
     ) -> Option<Vec<u8>> {
         match expr {
             CodegenBlockPyExpr::Load(op) => op.name.location.as_constant().and_then(|index| {
@@ -403,7 +403,7 @@ impl ModuleConstantCollector {
     }
 }
 
-fn helper_name_for_codegen_expr(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
+fn helper_name_for_codegen_expr(expr: &CodegenBlockPyExpr) -> Option<&str> {
     match expr {
         CodegenBlockPyExpr::Load(op)
             if op.name.location.is_global() || op.name.location.is_runtime_name() =>

@@ -2,7 +2,7 @@ use super::lower_try_jump_exception_flow;
 use crate::block_py::{
     validate_module, AbruptKind, BlockArg, BlockParam, BlockParamRole, BlockPyBindingKind,
     BlockPyCellBindingKind, BlockPyEdge, BlockPyLabel, BlockPyLiteral, BlockPyTerm, CodegenBlock,
-    CoreBlockPyExpr, CoreNumberLiteral, CoreNumberLiteralValue, LocatedCodegenBlockPyExpr,
+    CodegenBlockPyExpr, CoreBlockPyExpr, CoreNumberLiteral, CoreNumberLiteralValue,
     LocatedCoreBlockPyExpr, NameLocation, ResolvedStorageBlock, StorageLayout,
 };
 use crate::lower_python_to_blockpy_for_testing;
@@ -221,8 +221,8 @@ def f():
     function.blocks.push(CodegenBlock {
         label: target,
         body: vec![],
-        term: BlockPyTerm::<LocatedCodegenBlockPyExpr>::Return(
-            <LocatedCodegenBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
+        term: BlockPyTerm::<CodegenBlockPyExpr>::Return(
+            <CodegenBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
         ),
         params: vec![BlockParam {
             name: "_dp_try_exc".to_string(),

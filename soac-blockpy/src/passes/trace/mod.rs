@@ -1,7 +1,7 @@
 use crate::block_py::{
     core_call_expr_with_meta, core_operation_expr, BlockPyFunction, BlockPyModule,
     CodegenBlockPyExpr, CoreBlockPyCallArg, CoreBlockPyExpr, CoreStringLiteral, Load,
-    LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, Meta, NameLocation, WithMeta,
+    LocatedCoreBlockPyExpr, LocatedName, Meta, NameLocation, WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
 use std::collections::HashMap;
@@ -158,10 +158,7 @@ impl PreparedTraceNameLocator {
     }
 }
 
-fn helper_call_expr(
-    helper_name: &str,
-    args: Vec<LocatedCodegenBlockPyExpr>,
-) -> LocatedCodegenBlockPyExpr {
+fn helper_call_expr(helper_name: &str, args: Vec<CodegenBlockPyExpr>) -> CodegenBlockPyExpr {
     let meta = Meta::synthetic();
     let func = Load::new(LocatedName {
         id: helper_name.into(),
@@ -183,7 +180,7 @@ fn helper_call_expr(
 fn string_literal_expr(
     module_constants: &mut Vec<LocatedCoreBlockPyExpr>,
     value: &str,
-) -> LocatedCodegenBlockPyExpr {
+) -> CodegenBlockPyExpr {
     let meta = Meta::synthetic();
     let index = u32::try_from(module_constants.len())
         .expect("trace module constant count should fit in u32");
@@ -204,7 +201,7 @@ fn string_literal_expr(
     )
 }
 
-fn tuple_expr(values: Vec<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyExpr {
+fn tuple_expr(values: Vec<CodegenBlockPyExpr>) -> CodegenBlockPyExpr {
     helper_call_expr("tuple_values", values)
 }
 
@@ -212,7 +209,7 @@ fn param_pairs_expr(
     module_constants: &mut Vec<LocatedCoreBlockPyExpr>,
     locator: &PreparedTraceNameLocator,
     params: &[String],
-) -> LocatedCodegenBlockPyExpr {
+) -> CodegenBlockPyExpr {
     tuple_expr(
         params
             .iter()

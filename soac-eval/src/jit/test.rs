@@ -1,9 +1,9 @@
 use super::*;
 use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyTerm,
-    Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
-    CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, Load, LocatedCodegenBlockPyExpr,
+    Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBytesLiteral, CoreNumberLiteral,
+    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, HasMeta, Load,
     LocatedCoreBlockPyExpr, LocatedName, Meta, ModuleNameGen, NameLocation, Param, ParamKind,
     ParamSpec, StorageLayout, Store, WithMeta,
 };
@@ -97,7 +97,7 @@ mod tests {
     }
 
     impl TestConstantPool {
-        fn push_literal(&mut self, literal: LocatedCoreBlockPyExpr) -> LocatedCodegenBlockPyExpr {
+        fn push_literal(&mut self, literal: LocatedCoreBlockPyExpr) -> CodegenBlockPyExpr {
             let meta = literal.meta();
             let index = u32::try_from(self.module_constants.len())
                 .expect("test module constant count should fit in u32");
@@ -105,58 +105,55 @@ mod tests {
             Load::new(test_constant_name(index)).with_meta(meta).into()
         }
 
-        fn int_expr(&mut self, value: i64) -> LocatedCodegenBlockPyExpr {
+        fn int_expr(&mut self, value: i64) -> CodegenBlockPyExpr {
             self.push_literal(int_literal(value))
         }
 
-        fn bytes_expr(&mut self, value: &[u8]) -> LocatedCodegenBlockPyExpr {
+        fn bytes_expr(&mut self, value: &[u8]) -> CodegenBlockPyExpr {
             self.push_literal(bytes_literal(value))
         }
 
-        fn string_expr(&mut self, value: &str) -> LocatedCodegenBlockPyExpr {
+        fn string_expr(&mut self, value: &str) -> CodegenBlockPyExpr {
             self.push_literal(string_literal(value))
         }
     }
 
-    fn name_expr(name: LocatedName) -> LocatedCodegenBlockPyExpr {
+    fn name_expr(name: LocatedName) -> CodegenBlockPyExpr {
         Load::new(name).with_meta(Meta::synthetic()).into()
     }
 
-    fn op_expr(operation: impl Into<LocatedCodegenBlockPyExpr>) -> LocatedCodegenBlockPyExpr {
+    fn op_expr(operation: impl Into<CodegenBlockPyExpr>) -> CodegenBlockPyExpr {
         operation.into()
     }
 
-    fn expr_stmt(expr: LocatedCodegenBlockPyExpr) -> LocatedCodegenBlockPyExpr {
+    fn expr_stmt(expr: CodegenBlockPyExpr) -> CodegenBlockPyExpr {
         expr
     }
 
-    fn assign_stmt(
-        target: LocatedName,
-        value: LocatedCodegenBlockPyExpr,
-    ) -> LocatedCodegenBlockPyExpr {
+    fn assign_stmt(target: LocatedName, value: CodegenBlockPyExpr) -> CodegenBlockPyExpr {
         expr_stmt(op_expr(
             Store::new(target, value).with_meta(Meta::synthetic()),
         ))
     }
 
-    fn delete_stmt(target: LocatedName) -> LocatedCodegenBlockPyExpr {
+    fn delete_stmt(target: LocatedName) -> CodegenBlockPyExpr {
         expr_stmt(op_expr(
             Del::new(target, false).with_meta(Meta::synthetic()),
         ))
     }
 
-    fn ret_term(value: LocatedCodegenBlockPyExpr) -> BlockPyTerm<LocatedCodegenBlockPyExpr> {
+    fn ret_term(value: CodegenBlockPyExpr) -> BlockPyTerm<CodegenBlockPyExpr> {
         BlockPyTerm::Return(value)
     }
 
-    fn raise_term() -> BlockPyTerm<LocatedCodegenBlockPyExpr> {
+    fn raise_term() -> BlockPyTerm<CodegenBlockPyExpr> {
         BlockPyTerm::Raise(soac_blockpy::block_py::BlockPyRaise { exc: None })
     }
 
     fn test_source_block(
         function: &BlockPyFunction<CodegenBlockPyPass>,
-        ops: Vec<LocatedCodegenBlockPyExpr>,
-        term: BlockPyTerm<LocatedCodegenBlockPyExpr>,
+        ops: Vec<CodegenBlockPyExpr>,
+        term: BlockPyTerm<CodegenBlockPyExpr>,
     ) -> CodegenBlock {
         CodegenBlock {
             label: function.name_gen.next_block_name(),
@@ -200,8 +197,8 @@ mod tests {
 
     fn with_single_test_block(
         function: BlockPyFunction<CodegenBlockPyPass>,
-        ops: Vec<LocatedCodegenBlockPyExpr>,
-        term: BlockPyTerm<LocatedCodegenBlockPyExpr>,
+        ops: Vec<CodegenBlockPyExpr>,
+        term: BlockPyTerm<CodegenBlockPyExpr>,
     ) -> BlockPyFunction<CodegenBlockPyPass> {
         let block = test_source_block(&function, ops, term);
         with_test_blocks(function, vec![block])

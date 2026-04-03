@@ -4,9 +4,7 @@ use cranelift_codegen::ir;
 use cranelift_codegen::ir::InstBuilder;
 use cranelift_frontend::FunctionBuilder;
 use pyo3::ffi;
-use soac_blockpy::block_py::{
-    BlockPyNameLike, CodegenBlockPyExpr, Instr, LocatedCodegenBlockPyExpr, NameLocation,
-};
+use soac_blockpy::block_py::{BlockPyNameLike, CodegenBlockPyExpr, Instr, NameLocation};
 
 pub(super) trait OperationEmitState<'fb, E> {
     fn ctx(&self) -> &JitEmitCtx<'_>;
@@ -526,8 +524,8 @@ fn emit_unary_op<'fb, E>(
 }
 
 fn emit_load<'fb>(
-    op: &blockpy_intrinsics::Load<LocatedCodegenBlockPyExpr>,
-    state: &mut impl OperationEmitState<'fb, LocatedCodegenBlockPyExpr>,
+    op: &blockpy_intrinsics::Load<CodegenBlockPyExpr>,
+    state: &mut impl OperationEmitState<'fb, CodegenBlockPyExpr>,
 ) -> ir::Value {
     let name_obj = state.emit_owned_string_constant(op.name.id_str());
     let func_ref = match op.name.location {
@@ -550,8 +548,8 @@ fn emit_load<'fb>(
 }
 
 fn emit_store<'fb>(
-    op: &blockpy_intrinsics::Store<LocatedCodegenBlockPyExpr>,
-    state: &mut impl OperationEmitState<'fb, LocatedCodegenBlockPyExpr>,
+    op: &blockpy_intrinsics::Store<CodegenBlockPyExpr>,
+    state: &mut impl OperationEmitState<'fb, CodegenBlockPyExpr>,
 ) -> ir::Value {
     let arg_values = state.emit_arg_values(&[&op.value]);
     let name_obj = state.emit_owned_string_constant(op.name.id_str());
@@ -569,8 +567,8 @@ fn emit_store<'fb>(
 }
 
 fn emit_del<'fb>(
-    op: &blockpy_intrinsics::Del<LocatedCodegenBlockPyExpr>,
-    state: &mut impl OperationEmitState<'fb, LocatedCodegenBlockPyExpr>,
+    op: &blockpy_intrinsics::Del<CodegenBlockPyExpr>,
+    state: &mut impl OperationEmitState<'fb, CodegenBlockPyExpr>,
 ) -> ir::Value {
     let name_obj = state.emit_owned_string_constant(op.name.id_str());
     let func_ref = if op.quietly {
@@ -604,8 +602,8 @@ pub(super) fn emit_del_deref_raw_cell<'fb, E>(
 }
 
 pub(super) fn emit_operation<'fb>(
-    operation: &LocatedCodegenBlockPyExpr,
-    state: &mut impl OperationEmitState<'fb, LocatedCodegenBlockPyExpr>,
+    operation: &CodegenBlockPyExpr,
+    state: &mut impl OperationEmitState<'fb, CodegenBlockPyExpr>,
 ) -> Option<ir::Value> {
     match operation {
         CodegenBlockPyExpr::Call(_) => None,

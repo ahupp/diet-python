@@ -11,9 +11,8 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyTerm, CellLocation, CodegenBlock,
-    CodegenBlockPyExpr, CoreBlockPyCallArg, CoreBlockPyKeywordArg, LocalLocation,
-    LocatedCodegenBlockPyExpr, LocatedName, NameLocation, ParamDefaultSource, StorageLayout,
-    operation as blockpy_intrinsics,
+    CodegenBlockPyExpr, CoreBlockPyCallArg, CoreBlockPyKeywordArg, LocalLocation, LocatedName,
+    NameLocation, ParamDefaultSource, StorageLayout, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::borrow::Cow;
@@ -356,7 +355,7 @@ enum CompiledRunnerEntry {
 }
 
 fn codegen_expr_is_borrowable(
-    expr: &LocatedCodegenBlockPyExpr,
+    expr: &CodegenBlockPyExpr,
     local_names: &[String],
     stack_slots: &StackSlots,
     storage_layout: Option<&StorageLayout>,
@@ -533,7 +532,7 @@ fn emit_codegen_located_name_load(
 }
 
 fn codegen_expr_const_string(
-    expr: &LocatedCodegenBlockPyExpr,
+    expr: &CodegenBlockPyExpr,
     module_constants: &ModuleCodegenConstants,
 ) -> Option<String> {
     match expr {
@@ -556,7 +555,7 @@ fn codegen_expr_const_string(
     }
 }
 
-fn codegen_expr_helper_name(expr: &LocatedCodegenBlockPyExpr) -> Option<&str> {
+fn codegen_expr_helper_name(expr: &CodegenBlockPyExpr) -> Option<&str> {
     match expr {
         CodegenBlockPyExpr::Load(op)
             if op.name.location.is_global() || op.name.location.is_runtime_name() =>
@@ -769,7 +768,7 @@ fn delete_local_value(
     Ok(())
 }
 
-impl<'a, 'b, 'mc, 'c, 'd> intrinsics::OperationEmitState<'b, LocatedCodegenBlockPyExpr>
+impl<'a, 'b, 'mc, 'c, 'd> intrinsics::OperationEmitState<'b, CodegenBlockPyExpr>
     for CodegenIntrinsicEmitState<'a, 'b, 'mc, 'c, 'd>
 {
     fn ctx(&self) -> &JitEmitCtx<'mc> {
@@ -785,7 +784,7 @@ impl<'a, 'b, 'mc, 'c, 'd> intrinsics::OperationEmitState<'b, LocatedCodegenBlock
             .get_or_panic(self.jit_module, &mut self.fb.func, spec)
     }
 
-    fn emit_arg_values(&mut self, args: &[&LocatedCodegenBlockPyExpr]) -> Vec<(ir::Value, bool)> {
+    fn emit_arg_values(&mut self, args: &[&CodegenBlockPyExpr]) -> Vec<(ir::Value, bool)> {
         let mut arg_values = Vec::with_capacity(args.len());
         for arg in args {
             let borrowed_arg = codegen_expr_is_borrowable(
@@ -1200,7 +1199,7 @@ fn emit_owned_bool_from_i32_result(
 
 fn emit_codegen_expr(
     fb: &mut FunctionBuilder<'_>,
-    expr: &LocatedCodegenBlockPyExpr,
+    expr: &CodegenBlockPyExpr,
     local_names: &mut Vec<String>,
     local_values: &mut Vec<ir::Value>,
     ctx: &JitEmitCtx<'_>,
@@ -1456,8 +1455,8 @@ fn emit_codegen_expr(
                 "codegen call expression must not use borrowed result"
             );
             let null_ptr = fb.ins().iconst(ptr_ty, 0);
-            let mut simple_args: Vec<&LocatedCodegenBlockPyExpr> = Vec::new();
-            let mut simple_keywords: Vec<(&str, &LocatedCodegenBlockPyExpr)> = Vec::new();
+            let mut simple_args: Vec<&CodegenBlockPyExpr> = Vec::new();
+            let mut simple_keywords: Vec<(&str, &CodegenBlockPyExpr)> = Vec::new();
             let mut has_unpack = false;
             for arg in &call.args {
                 match arg {
@@ -2600,7 +2599,7 @@ fn emit_truthy_from_owned(
 
 fn emit_codegen_ops(
     fb: &mut FunctionBuilder<'_>,
-    ops: &[LocatedCodegenBlockPyExpr],
+    ops: &[CodegenBlockPyExpr],
     local_names: &mut Vec<String>,
     local_values: &mut Vec<ir::Value>,
     _stack_slots: &StackSlots,
@@ -2627,7 +2626,7 @@ fn emit_codegen_ops(
 fn emit_codegen_term(
     fb: &mut FunctionBuilder<'_>,
     block_label: &str,
-    term: &BlockPyTerm<LocatedCodegenBlockPyExpr>,
+    term: &BlockPyTerm<CodegenBlockPyExpr>,
     exec_blocks: &[ir::Block],
     runtime_block_param_names: &[Vec<String>],
     full_block_param_names: &[Vec<String>],
