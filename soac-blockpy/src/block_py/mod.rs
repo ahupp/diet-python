@@ -479,15 +479,6 @@ impl<P: BlockPyPass, S> BlockPyModule<P, S> {
     }
 }
 
-fn load_name_expr<E>(name: ast::ExprName) -> E
-where
-    E: Instr + From<Load<E>>,
-    InstrName<E>: From<ast::ExprName>,
-{
-    let meta = name.meta();
-    Load::new(name).with_meta(meta).into()
-}
-
 #[derive(Debug, Clone, derive_more::From, DelegateMatchDefault)]
 pub enum CoreBlockPyExprWithAwaitAndYield {
     Literal(BlockPyLiteral),
@@ -1157,15 +1148,16 @@ pub(crate) fn core_named_call_expr_with_meta<E>(
     keywords: Vec<CoreBlockPyKeywordArg<E>>,
 ) -> E
 where
-    E: Instr + From<Call<E>> + From<Load<E>>,
-    InstrName<E>: From<ast::ExprName>,
+    E: Instr<Name = UnresolvedName> + From<Call<E>> + From<Load<E>>,
 {
-    let func = load_name_expr(ExprName {
+    let func = Load::new(UnresolvedName::from(ExprName {
         id: func_name.into(),
         ctx: ast::ExprContext::Load,
         range,
         node_index: node_index.clone(),
-    });
+    }))
+    .with_meta(Meta::new(node_index.clone(), range))
+    .into();
     core_call_expr_with_meta(func, node_index, range, args, keywords)
 }
 
@@ -1194,7 +1186,7 @@ pub(crate) fn core_positional_call_expr_with_meta<E>(
     args: Vec<E>,
 ) -> E
 where
-    E: Instr + From<Call<E>> + From<Load<E>>,
+    E: Instr<Name = UnresolvedName> + From<Call<E>> + From<Load<E>>,
 {
     core_named_call_expr_with_meta(
         func_name,
