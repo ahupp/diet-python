@@ -1,8 +1,8 @@
 use super::compat::set_region_exc_param;
 use super::*;
 use crate::block_py::{
-    AbruptKind, BlockArg, BlockParamRole, BlockPyBranchTable, BlockPyCfgBlockBuilder, BlockPyEdge,
-    BlockPyLabel, BlockPyRaise, BlockPyTerm, Instr, StructuredInstr,
+    AbruptKind, BlockArg, BlockParamRole, BlockPyBranchTable, BlockPyCfgFragment, BlockPyEdge,
+    BlockPyLabel, BlockPyRaise, BlockPyTerm, CfgBlock, Instr, StructuredInstr,
 };
 use crate::passes::ast_to_ast::body::Suite;
 
@@ -128,47 +128,44 @@ where
         }
         let finally_normal_entry = try_plan.finally_abrupt_kind_name.as_ref().map(|_| {
             let normal_label = name_gen.next_block_name();
-            let mut block =
-                BlockPyCfgBlockBuilder::<StructuredInstr<E>, BlockPyTerm<E>>::new(normal_label);
             let mut args = Vec::new();
             args.push(BlockArg::AbruptKind(AbruptKind::Fallthrough));
             args.push(BlockArg::None);
-            block.set_term(BlockPyTerm::Jump(BlockPyEdge::with_args(
-                finally_label,
-                args,
-            )));
-            let block = block.finish(None);
-            let block = crate::block_py::CfgBlock {
-                label: block.label,
-                body: block.body,
-                term: block.term,
-                params: block.params,
-                exc_edge: active_exc_target.clone().map(BlockPyEdge::new),
-            };
-            blocks.push(block);
+            blocks.push(CfgBlock::from_fragment(
+                normal_label.clone(),
+                BlockPyCfgFragment::with_term(
+                    Vec::new(),
+                    Some(BlockPyTerm::Jump(BlockPyEdge::with_args(
+                        finally_label,
+                        args,
+                    ))),
+                ),
+                Vec::new(),
+                active_exc_target.clone().map(BlockPyEdge::new),
+                None,
+            ));
             normal_label
         });
         let finally_exception_entry = try_plan.finally_abrupt_kind_name.as_ref().map(|_| {
             let exception_label = name_gen.next_block_name();
-            let mut block =
-                BlockPyCfgBlockBuilder::<StructuredInstr<E>, BlockPyTerm<E>>::new(exception_label)
-                    .with_exc_param(Some(try_plan.except_exc_name.clone()));
             let args = vec![
                 BlockArg::AbruptKind(AbruptKind::Exception),
                 BlockArg::Name(try_plan.except_exc_name.clone()),
             ];
-            block.set_term(BlockPyTerm::Jump(BlockPyEdge::with_args(
-                finally_label,
-                args,
-            )));
-            let block = block.finish(None);
-            let block = crate::block_py::CfgBlock {
-                label: block.label,
-                body: block.body,
-                term: block.term,
-                params: block.params,
-                exc_edge: active_exc_target.clone().map(BlockPyEdge::new),
-            };
+            let mut block = CfgBlock::from_fragment(
+                exception_label.clone(),
+                BlockPyCfgFragment::with_term(
+                    Vec::new(),
+                    Some(BlockPyTerm::Jump(BlockPyEdge::with_args(
+                        finally_label,
+                        args,
+                    ))),
+                ),
+                Vec::new(),
+                active_exc_target.clone().map(BlockPyEdge::new),
+                None,
+            );
+            block.set_exception_param(try_plan.except_exc_name.clone());
             blocks.push(block);
             exception_label
         });

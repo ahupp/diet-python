@@ -5,13 +5,13 @@ use crate::block_py::{
     core_runtime_name_expr_with_meta, core_runtime_positional_call_expr_with_meta,
     try_lower_core_expr_without_await, try_lower_core_expr_without_yield, BlockArg, BlockParam,
     BlockParamRole, BlockPyBindingKind, BlockPyBranchTable, BlockPyCallableSemanticInfo,
-    BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyEdge, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike, BlockPyRaise,
-    BlockPySemanticExprNode, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
-    FunctionNameGen, HasMeta, ImplicitNoneExpr, Instr, Load, MakeFunction, Meta, ModuleNameGen,
-    StorageLayout, Store, UnresolvedName, WithMeta,
+    BlockPyCellBindingKind, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyIfTerm, BlockPyLabel, BlockPyNameLike, BlockPyRaise, BlockPySemanticExprNode,
+    BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyCallArg,
+    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
+    CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName, FunctionNameGen, HasMeta,
+    ImplicitNoneExpr, Instr, Load, MakeFunction, Meta, ModuleNameGen, StorageLayout, Store,
+    UnresolvedName, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -541,9 +541,6 @@ fn build_factory_block(
     resume_function_id: FunctionId,
     kind: BlockPyFunctionKind,
 ) -> LinearCoreBlock {
-    let mut block: BlockPyCfgBlockBuilder<LinearCoreStmt, BlockPyTerm<CoreBlockPyExpr>> =
-        BlockPyCfgBlockBuilder::new(BlockPyLabel::from_index(0));
-
     let resume_entry = core_make_function(
         resume_function_id,
         BlockPyFunctionKind::Function,
@@ -615,8 +612,13 @@ fn build_factory_block(
         }
     };
 
-    block.set_term(BlockPyTerm::Return(factory_value));
-    block.finish(None)
+    CfgBlock::from_fragment(
+        BlockPyLabel::from_index(0),
+        BlockPyCfgFragment::with_term(Vec::new(), Some(BlockPyTerm::Return(factory_value))),
+        Vec::new(),
+        None,
+        None,
+    )
 }
 
 fn resume_param_spec(kind: BlockPyFunctionKind) -> ParamSpec {

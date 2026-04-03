@@ -1,7 +1,7 @@
 use super::*;
 use crate::block_py::{
-    BlockPyCfgBlockBuilder, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmtFragmentBuilder,
-    BlockPyTerm, Expr, ImplicitNoneExpr, Instr, StructuredInstr,
+    BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmtFragmentBuilder,
+    BlockPyTerm, CfgBlock, Expr, ImplicitNoneExpr, Instr, StructuredInstr,
 };
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ruff_to_blockpy::stmt_lowering::lower_nested_stmt_into_with_expr;
@@ -35,10 +35,16 @@ where
         body.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block = BlockPyCfgBlockBuilder::<StructuredInstr<E>, BlockPyTerm<E>>::new(label);
-    block.extend(body.body);
-    block.set_term(term);
-    with_exc_meta(block.finish(None), exc_target)
+    with_exc_meta(
+        CfgBlock::from_fragment(
+            label,
+            BlockPyCfgFragment::with_term(body.body, Some(term)),
+            Vec::new(),
+            None,
+            None,
+        ),
+        exc_target,
+    )
 }
 
 fn compat_block_builder_with_expr_setup_and_expr<E>(
@@ -81,14 +87,23 @@ where
         fragment.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block = BlockPyCfgBlockBuilder::<StructuredInstr<E>, BlockPyTerm<E>>::new(label);
-    block.extend(fragment.body);
-    block.set_term(BlockPyTerm::IfTerm(BlockPyIfTerm {
-        test,
-        then_label,
-        else_label,
-    }));
-    Ok(with_exc_meta(block.finish(None), exc_target))
+    Ok(with_exc_meta(
+        CfgBlock::from_fragment(
+            label,
+            BlockPyCfgFragment::with_term(
+                fragment.body,
+                Some(BlockPyTerm::IfTerm(BlockPyIfTerm {
+                    test,
+                    then_label,
+                    else_label,
+                })),
+            ),
+            Vec::new(),
+            None,
+            None,
+        ),
+        exc_target,
+    ))
 }
 
 pub(crate) fn set_region_exc_param<E: Instr>(
@@ -181,13 +196,21 @@ where
         fragment.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block =
-        BlockPyCfgBlockBuilder::<StructuredInstr<E>, BlockPyTerm<E>>::new(label.clone());
-    block.extend(fragment.body);
-    block.set_term(BlockPyTerm::Return(
-        value.unwrap_or_else(E::implicit_none_expr),
+    blocks.push(with_exc_meta(
+        CfgBlock::from_fragment(
+            label.clone(),
+            BlockPyCfgFragment::with_term(
+                fragment.body,
+                Some(BlockPyTerm::Return(
+                    value.unwrap_or_else(E::implicit_none_expr),
+                )),
+            ),
+            Vec::new(),
+            None,
+            None,
+        ),
+        exc_target,
     ));
-    blocks.push(with_exc_meta(block.finish(None), exc_target));
     Ok(label)
 }
 
@@ -222,11 +245,16 @@ where
         fragment.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block =
-        BlockPyCfgBlockBuilder::<StructuredInstr<E>, BlockPyTerm<E>>::new(label.clone());
-    block.extend(fragment.body);
-    block.set_term(BlockPyTerm::Raise(exc));
-    blocks.push(with_exc_meta(block.finish(None), exc_target));
+    blocks.push(with_exc_meta(
+        CfgBlock::from_fragment(
+            label.clone(),
+            BlockPyCfgFragment::with_term(fragment.body, Some(BlockPyTerm::Raise(exc))),
+            Vec::new(),
+            None,
+            None,
+        ),
+        exc_target,
+    ));
     Ok(label)
 }
 

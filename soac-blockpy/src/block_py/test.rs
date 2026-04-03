@@ -13,14 +13,16 @@ impl BlockPyPass for StructuredExprPass {
 }
 
 #[test]
-fn block_builder_sets_explicit_term() {
-    let mut block: BlockPyCfgBlockBuilder<StructuredInstr<Expr>, BlockPyTerm<Expr>> =
-        BlockPyCfgBlockBuilder::new(BlockPyLabel::from_index(0));
-    block.push_stmt(StructuredInstr::Expr(py_expr!("x")));
-    block.set_term(BlockPyTerm::Jump(crate::block_py::BlockPyEdge::new(
-        BlockPyLabel::from_index(1),
-    )));
-    let block = block.finish(None);
+fn cfg_block_new_sets_explicit_term() {
+    let block = CfgBlock::new(
+        BlockPyLabel::from_index(0),
+        vec![StructuredInstr::Expr(py_expr!("x"))],
+        BlockPyTerm::<Expr>::Jump(crate::block_py::BlockPyEdge::new(BlockPyLabel::from_index(
+            1,
+        ))),
+        Vec::new(),
+        None,
+    );
 
     assert_eq!(block.body.len(), 1);
     assert!(matches!(block.body[0], StructuredInstr::Expr(_)));
@@ -28,11 +30,14 @@ fn block_builder_sets_explicit_term() {
 }
 
 #[test]
-fn block_builder_without_term_uses_implicit_none_return_value() {
-    let mut block: BlockPyCfgBlockBuilder<StructuredInstr<Expr>, BlockPyTerm<Expr>> =
-        BlockPyCfgBlockBuilder::new(BlockPyLabel::from_index(0));
-    block.push_stmt(StructuredInstr::Expr(py_expr!("x")));
-    let block = block.finish(None);
+fn cfg_block_from_fragment_without_term_uses_implicit_none_return_value() {
+    let block = CfgBlock::from_fragment(
+        BlockPyLabel::from_index(0),
+        BlockPyCfgFragment::from_stmts(vec![StructuredInstr::Expr(py_expr!("x"))]),
+        Vec::new(),
+        None,
+        None,
+    );
 
     assert_eq!(block.body.len(), 1);
     assert!(matches!(

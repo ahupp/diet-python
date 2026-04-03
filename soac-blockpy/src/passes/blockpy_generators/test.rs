@@ -4,8 +4,8 @@ use super::{
 };
 use crate::block_py::{
     BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
-    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgBlockBuilder, BlockPyLabel,
-    BlockPyTerm, ClosureInit, ClosureSlot, FunctionId, FunctionName, StorageLayout,
+    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgFragment, BlockPyLabel,
+    BlockPyTerm, CfgBlock, ClosureInit, ClosureSlot, FunctionId, FunctionName, StorageLayout,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::py_expr;
@@ -87,9 +87,13 @@ fn build_closure_backed_generator_factory_block(
         generator_expr
     };
 
-    let mut block = BlockPyCfgBlockBuilder::new(BlockPyLabel::from_index(0));
-    block.set_term(BlockPyTerm::Return(return_value.into()));
-    block.finish(None)
+    CfgBlock::from_fragment(
+        BlockPyLabel::from_index(0),
+        BlockPyCfgFragment::with_term(Vec::new(), Some(BlockPyTerm::Return(return_value.into()))),
+        Vec::new(),
+        None,
+        None,
+    )
 }
 
 #[test]

@@ -413,7 +413,50 @@ impl<S, T> CfgBlock<S, T> {
     pub fn label_str(&self) -> String {
         self.label.to_string()
     }
+}
 
+impl<S: BlockPyNormalizedStmt, T> CfgBlock<S, T> {
+    pub fn new(
+        label: BlockPyLabel,
+        body: Vec<S>,
+        term: T,
+        params: Vec<BlockParam>,
+        exc_edge: Option<BlockPyEdge>,
+    ) -> Self {
+        let block = Self {
+            label,
+            body,
+            term,
+            params,
+            exc_edge,
+        };
+        assert_blockpy_block_normalized(&block);
+        block
+    }
+}
+
+impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>> CfgBlock<S, T> {
+    pub fn from_fragment(
+        label: BlockPyLabel,
+        fragment: BlockPyCfgFragment<S, T>,
+        params: Vec<BlockParam>,
+        exc_edge: Option<BlockPyEdge>,
+        fallthrough_target: Option<BlockPyLabel>,
+    ) -> Self {
+        Self::new(
+            label,
+            fragment.body,
+            fragment.term.unwrap_or_else(|| match fallthrough_target {
+                Some(target) => T::jump_term(target),
+                None => T::implicit_function_return(),
+            }),
+            params,
+            exc_edge,
+        )
+    }
+}
+
+impl<S, T> CfgBlock<S, T> {
     pub fn ensure_param(&mut self, name: impl Into<String>, role: BlockParamRole) {
         let name = name.into();
         if self.params.iter().any(|param| param.name == name) {
@@ -1421,94 +1464,6 @@ impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
         };
         fragment.assert_normalized();
         fragment
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct BlockPyCfgBlockBuilder<S, T> {
-    label: BlockPyLabel,
-    params: Vec<BlockParam>,
-    exc_edge: Option<BlockPyEdge>,
-    fragment: BlockPyCfgFragmentBuilder<S, T>,
-}
-
-pub(crate) type BlockPyBlockBuilder<E = Expr> =
-    BlockPyCfgBlockBuilder<StructuredInstr<E>, BlockPyTerm<E>>;
-
-impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
-    BlockPyCfgBlockBuilder<S, T>
-{
-    pub fn new(label: BlockPyLabel) -> Self {
-        Self {
-            label,
-            params: Vec::new(),
-            exc_edge: None,
-            fragment: BlockPyCfgFragmentBuilder::new(),
-        }
-    }
-
-    pub fn with_exc_param(mut self, exc_param: Option<String>) -> Self {
-        if let Some(exc_param) = exc_param {
-            self.params
-                .retain(|param| param.role != BlockParamRole::Exception || param.name == exc_param);
-            if self.params.iter().any(|param| param.name == exc_param) {
-                for param in &mut self.params {
-                    if param.name == exc_param {
-                        param.role = BlockParamRole::Exception;
-                    }
-                }
-            } else {
-                self.params.push(BlockParam {
-                    name: exc_param,
-                    role: BlockParamRole::Exception,
-                });
-            }
-        }
-        self
-    }
-
-    pub fn with_params(mut self, params: Vec<BlockParam>) -> Self {
-        for param in params {
-            if !self
-                .params
-                .iter()
-                .any(|existing| existing.name == param.name)
-            {
-                self.params.push(param);
-            }
-        }
-        self
-    }
-
-    pub fn push_stmt(&mut self, stmt: S) {
-        self.fragment.push_stmt(stmt);
-    }
-
-    pub fn extend<I>(&mut self, stmts: I)
-    where
-        I: IntoIterator<Item = S>,
-    {
-        self.fragment.extend(stmts);
-    }
-
-    pub fn set_term(&mut self, term: T) {
-        self.fragment.set_term(term);
-    }
-
-    pub fn finish(self, fallthrough_target: Option<BlockPyLabel>) -> CfgBlock<S, T> {
-        let fragment = self.fragment.finish();
-        let block = CfgBlock {
-            label: self.label,
-            body: fragment.body,
-            term: fragment.term.unwrap_or_else(|| match fallthrough_target {
-                Some(target) => T::jump_term(target),
-                None => T::implicit_function_return(),
-            }),
-            params: self.params,
-            exc_edge: self.exc_edge,
-        };
-        assert_blockpy_block_normalized(&block);
-        block
     }
 }
 
