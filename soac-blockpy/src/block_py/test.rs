@@ -166,7 +166,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             walk_stmt(self, stmt);
         }
 
-        fn visit_term(&mut self, term: &PassTerm<StructuredExprPass>) {
+        fn visit_term(&mut self, term: &BlockPyTerm<Expr>) {
             let kind = match term {
                 BlockPyTerm::Jump(_) => "jump",
                 BlockPyTerm::IfTerm(_) => "if",
@@ -182,7 +182,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             self.trace.push(format!("label:{label}"));
         }
 
-        fn visit_expr(&mut self, expr: &PassExpr<StructuredExprPass>) {
+        fn visit_expr(&mut self, expr: &Expr) {
             let Expr::Name(name) = expr else {
                 panic!("expected name expr in visitor trace test");
             };

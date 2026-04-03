@@ -2,8 +2,7 @@ use super::{
     BlockArg, BlockParamRole, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
     BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyLiteral, BlockPyModule,
     BlockPyNameLike, BlockPyPass, BlockPyRaise, BlockPyTerm, Call, CfgBlock, CoreBlockPyCallArg,
-    CoreBlockPyExpr, CoreBlockPyKeywordArg, Expr, Instr, PassBlock, PassExpr, PassTerm, RuffExpr,
-    StructuredInstr,
+    CoreBlockPyExpr, CoreBlockPyKeywordArg, Expr, Instr, RuffExpr, StructuredInstr,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
@@ -21,7 +20,7 @@ enum IfBranchKind {
 }
 
 pub(crate) trait BlockPyPrettyPrinter: BlockPyPass {
-    fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String>
+    fn block_metadata_lines(block: &CfgBlock<Self::Expr, BlockPyTerm<Self::Expr>>) -> Vec<String>
     where
         Self: Sized;
 }
@@ -30,7 +29,7 @@ macro_rules! impl_default_blockpy_pretty_printer {
     ($($pass:ty),* $(,)?) => {
         $(
             impl BlockPyPrettyPrinter for $pass {
-                fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
+                fn block_metadata_lines(block: &CfgBlock<Self::Expr, BlockPyTerm<Self::Expr>>) -> Vec<String> {
                     render_blockpy_block_metadata(block)
                 }
             }
@@ -45,7 +44,7 @@ impl_default_blockpy_pretty_printer!(
 );
 
 impl BlockPyPrettyPrinter for ResolvedStorageBlockPyPass {
-    fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
+    fn block_metadata_lines(block: &CfgBlock<Self::Expr, BlockPyTerm<Self::Expr>>) -> Vec<String> {
         let mut lines = Vec::new();
         if let Some(exc_edge) = &block.exc_edge {
             lines.push(format!("exc_target: {}", exc_edge.target));
@@ -58,15 +57,17 @@ impl BlockPyPrettyPrinter for ResolvedStorageBlockPyPass {
 }
 
 impl BlockPyPrettyPrinter for CodegenBlockPyPass {
-    fn block_metadata_lines(block: &PassBlock<Self>) -> Vec<String> {
+    fn block_metadata_lines(block: &CfgBlock<Self::Expr, BlockPyTerm<Self::Expr>>) -> Vec<String> {
         render_resolved_storage_block_metadata::<Self>(block)
     }
 }
 
-fn render_resolved_storage_block_metadata<P>(block: &PassBlock<P>) -> Vec<String>
+fn render_resolved_storage_block_metadata<P>(
+    block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
+) -> Vec<String>
 where
     P: BlockPyPass,
-    PassExpr<P>: Instr<Name = super::LocatedName>,
+    P::Expr: Instr<Name = super::LocatedName>,
 {
     let mut lines = Vec::new();
     if !block.params.is_empty() {
@@ -171,7 +172,7 @@ impl<R> BlockPyFormatter<R> {
     fn write_module<P>(&mut self, module: &BlockPyModule<P>)
     where
         P: BlockPyPrettyPrinter,
-        R: InlineExprRenderer<PassExpr<P>>,
+        R: InlineExprRenderer<P::Expr>,
     {
         for function in &module.callable_defs {
             if !self.out.is_empty() {
@@ -184,7 +185,7 @@ impl<R> BlockPyFormatter<R> {
     fn write_function<P>(&mut self, function: &BlockPyFunction<P>)
     where
         P: BlockPyPrettyPrinter,
-        R: InlineExprRenderer<PassExpr<P>>,
+        R: InlineExprRenderer<P::Expr>,
     {
         let params = format_parameters(&function.params);
         let referenced_labels = collect_referenced_labels_from_blocks::<P>(&function.blocks);
@@ -242,7 +243,7 @@ impl<R> BlockPyFormatter<R> {
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         P: BlockPyPrettyPrinter,
-        R: InlineExprRenderer<PassExpr<P>>,
+        R: InlineExprRenderer<P::Expr>,
     {
         let block = &function.blocks[block_index];
         self.line(render_block_header(block));
@@ -271,11 +272,11 @@ impl<R> BlockPyFormatter<R> {
         function: &BlockPyFunction<P>,
         render_layout: &BlockRenderLayout,
         current_block_index: Option<usize>,
-        block: &PassBlock<P>,
+        block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         P: BlockPyPrettyPrinter,
-        R: InlineExprRenderer<PassExpr<P>>,
+        R: InlineExprRenderer<P::Expr>,
     {
         if block.body.is_empty() {
             self.write_term(
@@ -378,11 +379,11 @@ impl<R> BlockPyFormatter<R> {
         function: &BlockPyFunction<P>,
         render_layout: &BlockRenderLayout,
         current_block_index: Option<usize>,
-        term: &PassTerm<P>,
+        term: &BlockPyTerm<P::Expr>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         P: BlockPyPrettyPrinter,
-        R: InlineExprRenderer<PassExpr<P>>,
+        R: InlineExprRenderer<P::Expr>,
     {
         match term {
             BlockPyTerm::Jump(edge) => self.line(format!("jump {}", render_edge(edge))),
@@ -1068,7 +1069,7 @@ fn can_inline_if_term_target(
 }
 
 fn collect_top_level_successors_from_block<P>(
-    block: &PassBlock<P>,
+    block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
     label_to_index: &HashMap<BlockPyLabel, usize>,
 ) -> Vec<usize>
 where
@@ -1259,7 +1260,9 @@ fn compute_immediate_dominators(
     immediate_dominators
 }
 
-fn collect_referenced_labels_from_blocks<P>(blocks: &[PassBlock<P>]) -> HashSet<BlockPyLabel>
+fn collect_referenced_labels_from_blocks<P>(
+    blocks: &[CfgBlock<P::Expr, BlockPyTerm<P::Expr>>],
+) -> HashSet<BlockPyLabel>
 where
     P: BlockPyPass,
 {

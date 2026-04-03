@@ -1,12 +1,11 @@
 use crate::block_py::{
     compute_storage_layout_from_semantics, BlockArg, BlockParam, BlockPyEdge, BlockPyFunction,
-    BlockPyLabel, BlockPyModule, BlockPyPass, BlockPySemanticExprNode, BlockPyTerm, PassBlock,
-    PassExpr,
+    BlockPyLabel, BlockPyModule, BlockPyPass, BlockPySemanticExprNode, BlockPyTerm, CfgBlock,
 };
 
 pub(crate) fn validate_module<P: BlockPyPass>(module: &BlockPyModule<P>) -> Result<(), String>
 where
-    PassExpr<P>: BlockPySemanticExprNode,
+    P::Expr: BlockPySemanticExprNode,
 {
     for function in &module.callable_defs {
         validate_function(function)?;
@@ -16,7 +15,7 @@ where
 
 fn validate_function<P: BlockPyPass>(function: &BlockPyFunction<P>) -> Result<(), String>
 where
-    PassExpr<P>: BlockPySemanticExprNode,
+    P::Expr: BlockPySemanticExprNode,
 {
     let qualname = function.names.qualname.as_str();
     validate_storage_layout_scoping(function, qualname)?;
@@ -107,7 +106,7 @@ where
 
 fn validate_non_exception_edge<P: BlockPyPass>(
     function: &BlockPyFunction<P>,
-    source_block: &PassBlock<P>,
+    source_block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
     edge: &BlockPyEdge,
     qualname: &str,
     label_kind: &str,
@@ -129,8 +128,8 @@ fn validate_non_exception_edge<P: BlockPyPass>(
 }
 
 fn validate_edge_param_forwarding<P: BlockPyPass>(
-    source_block: &PassBlock<P>,
-    target_block: &PassBlock<P>,
+    source_block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
+    target_block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
     explicit_args: &[BlockArg],
     qualname: &str,
     label_kind: &str,
@@ -193,8 +192,8 @@ fn validate_edge_param_forwarding<P: BlockPyPass>(
 }
 
 fn validate_explicit_edge_arg<P: BlockPyPass>(
-    source_block: &PassBlock<P>,
-    target_block: &PassBlock<P>,
+    source_block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
+    target_block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
     target_param: &BlockParam,
     source_arg: &BlockArg,
     qualname: &str,
@@ -220,7 +219,7 @@ fn validate_storage_layout_scoping<P: BlockPyPass>(
     qualname: &str,
 ) -> Result<(), String>
 where
-    PassExpr<P>: BlockPySemanticExprNode,
+    P::Expr: BlockPySemanticExprNode,
 {
     let expected_layout = compute_storage_layout_from_semantics(function);
 
@@ -298,7 +297,7 @@ fn lookup_known_block<'a, P: BlockPyPass>(
     qualname: &str,
     block_label: BlockPyLabel,
     label_kind: &str,
-) -> Result<&'a PassBlock<P>, String> {
+) -> Result<&'a CfgBlock<P::Expr, BlockPyTerm<P::Expr>>, String> {
     let Some(target_block) = function.blocks.get(label.index()) else {
         return Err(format!(
             "unknown {label_kind} {label} in {}:{}",

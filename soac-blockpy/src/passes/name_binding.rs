@@ -9,7 +9,7 @@ use crate::block_py::{
     CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
     CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionId,
     HasMeta, InstrExprNode, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName, MakeCell,
-    MakeFunction, NameLocation, PassStmt, SetItem, StorageLayout, Store, UnresolvedName, WithMeta,
+    MakeFunction, NameLocation, SetItem, StorageLayout, Store, UnresolvedName, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -71,8 +71,8 @@ fn op_expr(operation: impl Into<CoreBlockPyExpr>) -> CoreBlockPyExpr {
     operation.into()
 }
 
-type CoreStmt = PassStmt<CoreBlockPyPass>;
-type ResolvedStmt = PassStmt<ResolvedStorageBlockPyPass>;
+type CoreStmt = CoreBlockPyExpr;
+type ResolvedStmt = LocatedCoreBlockPyExpr;
 type CoreAssign = BlockPyAssign<CoreBlockPyExpr, UnresolvedName>;
 
 fn op_stmt(operation: impl Into<CoreBlockPyExpr>) -> CoreStmt {

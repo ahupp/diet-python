@@ -451,7 +451,7 @@ fn renders_bb_block_metadata_with_shared_layout() {
             kind: BlockPyFunctionKind::Function,
             params: empty_param_spec(),
             blocks: vec![
-                PassBlock::<ResolvedStorageBlockPyPass> {
+                crate::block_py::ResolvedStorageBlock {
                     label: label(0),
                     body: vec![],
                     term: BlockPyTerm::Jump(BlockPyEdge::new(label(1))),
@@ -467,7 +467,7 @@ fn renders_bb_block_metadata_with_shared_layout() {
                     ],
                     exc_edge: Some(BlockPyEdge::new(label(1))),
                 },
-                PassBlock::<ResolvedStorageBlockPyPass> {
+                crate::block_py::ResolvedStorageBlock {
                     label: label(1),
                     body: vec![],
                     term: BlockPyTerm::Return(

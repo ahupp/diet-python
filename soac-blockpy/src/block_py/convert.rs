@@ -6,8 +6,8 @@ pub(crate) trait BlockPyModuleMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    PassExpr<PIn>: MapExpr<PassExpr<POut>>,
-    PassName<POut>: From<PassName<PIn>>,
+    PIn::Expr: MapExpr<POut::Expr>,
+    <POut::Expr as Instr>::Name: From<<PIn::Expr as Instr>::Name>,
 {
     fn map_module(&self, module: BlockPyModule<PIn>) -> BlockPyModule<POut> {
         BlockPyModule {
@@ -38,7 +38,10 @@ where
         }
     }
 
-    fn map_block(&self, block: PassBlock<PIn>) -> PassBlock<POut> {
+    fn map_block(
+        &self,
+        block: CfgBlock<PIn::Expr, BlockPyTerm<PIn::Expr>>,
+    ) -> CfgBlock<POut::Expr, BlockPyTerm<POut::Expr>> {
         CfgBlock {
             label: block.label,
             body: block
@@ -52,7 +55,7 @@ where
         }
     }
 
-    fn map_stmt(&self, stmt: PassExpr<PIn>) -> PassExpr<POut> {
+    fn map_stmt(&self, stmt: PIn::Expr) -> POut::Expr {
         self.map_expr(stmt)
     }
 
@@ -79,8 +82,8 @@ where
         }
     }
 
-    fn map_name(&self, name: PassName<PIn>) -> PassName<POut> {
-        <PassName<POut> as From<PassName<PIn>>>::from(name)
+    fn map_name(&self, name: <PIn::Expr as Instr>::Name) -> <POut::Expr as Instr>::Name {
+        <<POut::Expr as Instr>::Name as From<<PIn::Expr as Instr>::Name>>::from(name)
     }
 
     fn map_nested_expr(&self, expr: PIn::Expr) -> POut::Expr {
@@ -96,8 +99,8 @@ pub(crate) trait BlockPyModuleTryMap<PIn, POut>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, Self::Error>,
-    PassName<POut>: From<PassName<PIn>>,
+    PIn::Expr: TryMapExpr<POut::Expr, Self::Error>,
+    <POut::Expr as Instr>::Name: From<<PIn::Expr as Instr>::Name>,
 {
     type Error;
 
@@ -119,7 +122,10 @@ where
         })
     }
 
-    fn try_map_block(&self, block: PassBlock<PIn>) -> Result<PassBlock<POut>, Self::Error> {
+    fn try_map_block(
+        &self,
+        block: CfgBlock<PIn::Expr, BlockPyTerm<PIn::Expr>>,
+    ) -> Result<CfgBlock<POut::Expr, BlockPyTerm<POut::Expr>>, Self::Error> {
         Ok(CfgBlock {
             label: block.label,
             body: block
@@ -133,14 +139,14 @@ where
         })
     }
 
-    fn try_map_stmt(&self, stmt: PassExpr<PIn>) -> Result<PassExpr<POut>, Self::Error> {
+    fn try_map_stmt(&self, stmt: PIn::Expr) -> Result<POut::Expr, Self::Error> {
         self.try_map_expr(stmt)
     }
 
     fn try_map_term(
         &self,
-        term: BlockPyTerm<PassExpr<PIn>>,
-    ) -> Result<BlockPyTerm<PassExpr<POut>>, Self::Error> {
+        term: BlockPyTerm<PIn::Expr>,
+    ) -> Result<BlockPyTerm<POut::Expr>, Self::Error> {
         match term {
             BlockPyTerm::Jump(edge) => Ok(BlockPyTerm::Jump(BlockPyEdge {
                 target: edge.target,
@@ -199,17 +205,17 @@ impl<PIn, POut, Error> ExprTryMap<PIn, POut, Error>
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, Error>,
-    PassName<POut>: From<PassName<PIn>>,
+    PIn::Expr: TryMapExpr<POut::Expr, Error>,
+    <POut::Expr as Instr>::Name: From<<PIn::Expr as Instr>::Name>,
 {
-    pub(crate) fn try_map_stmt(&self, stmt: PassStmt<PIn>) -> Result<PassStmt<POut>, Error> {
+    pub(crate) fn try_map_stmt(&self, stmt: PIn::Expr) -> Result<POut::Expr, Error> {
         self.try_map_expr(stmt)
     }
 
     pub(crate) fn try_map_term(
         &self,
-        term: BlockPyTerm<PassExpr<PIn>>,
-    ) -> Result<BlockPyTerm<PassExpr<POut>>, Error> {
+        term: BlockPyTerm<PIn::Expr>,
+    ) -> Result<BlockPyTerm<POut::Expr>, Error> {
         <Self as BlockPyModuleTryMap<PIn, POut>>::try_map_term(self, term)
     }
 
@@ -225,8 +231,8 @@ impl<PIn, POut, Error> BlockPyModuleTryMap<PIn, POut> for ExprTryMap<PIn, POut, 
 where
     PIn: BlockPyPass,
     POut: BlockPyPass,
-    PassExpr<PIn>: TryMapExpr<PassExpr<POut>, Error>,
-    PassName<POut>: From<PassName<PIn>>,
+    PIn::Expr: TryMapExpr<POut::Expr, Error>,
+    <POut::Expr as Instr>::Name: From<<PIn::Expr as Instr>::Name>,
 {
     type Error = Error;
 
@@ -245,8 +251,8 @@ where
     ) -> BlockPyModule<POut>
     where
         POut: BlockPyPass,
-        PassExpr<PIn>: MapExpr<PassExpr<POut>>,
-        PassName<POut>: From<PassName<PIn>>,
+        PIn::Expr: MapExpr<POut::Expr>,
+        <POut::Expr as Instr>::Name: From<<PIn::Expr as Instr>::Name>,
     {
         mapper.map_module(self)
     }
