@@ -116,7 +116,7 @@ impl<E> WithMeta for Call<E> {
 impl<E: Instr> InstrExprNode<E> for Call<E> {
     type Mapped<T: Instr> = Call<T>;
 
-    fn visit_exprs(&self, f: &mut impl FnMut(&E)) {
+    fn visit_children(&self, f: &mut impl FnMut(&E)) {
         f(&self.func);
         for arg in &self.args {
             f(arg.expr());
@@ -126,7 +126,7 @@ impl<E: Instr> InstrExprNode<E> for Call<E> {
         }
     }
 
-    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut E)) {
+    fn visit_children_mut(&mut self, f: &mut impl FnMut(&mut E)) {
         f(&mut self.func);
         for arg in &mut self.args {
             f(arg.expr_mut());
@@ -157,7 +157,7 @@ impl<E: Instr> InstrExprNode<E> for Call<E> {
         }
     }
 
-    fn try_map_expr_node<T, Error>(
+    fn try_map_children<T, Error>(
         self,
         f: &mut impl FnMut(E) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>
@@ -256,9 +256,9 @@ impl<I: Instr> WithMeta for Load<I> {
 impl<I: Instr> InstrExprNode<I> for Load<I> {
     type Mapped<T: Instr> = Load<T>;
 
-    fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
+    fn visit_children(&self, _f: &mut impl FnMut(&I)) {}
 
-    fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+    fn visit_children_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
 
     fn map_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
@@ -271,7 +271,7 @@ impl<I: Instr> InstrExprNode<I> for Load<I> {
         }
     }
 
-    fn try_map_expr_node<T, Error>(
+    fn try_map_children<T, Error>(
         self,
         _f: &mut impl FnMut(I) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>
@@ -328,11 +328,11 @@ impl<I: Instr> WithMeta for Store<I> {
 impl<I: Instr> InstrExprNode<I> for Store<I> {
     type Mapped<T: Instr> = Store<T>;
 
-    fn visit_exprs(&self, f: &mut impl FnMut(&I)) {
+    fn visit_children(&self, f: &mut impl FnMut(&I)) {
         f(&self.value);
     }
 
-    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut I)) {
+    fn visit_children_mut(&mut self, f: &mut impl FnMut(&mut I)) {
         f(&mut self.value);
     }
 
@@ -348,7 +348,7 @@ impl<I: Instr> InstrExprNode<I> for Store<I> {
         }
     }
 
-    fn try_map_expr_node<T, Error>(
+    fn try_map_children<T, Error>(
         self,
         f: &mut impl FnMut(I) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>
@@ -406,9 +406,9 @@ impl<I: Instr> WithMeta for Del<I> {
 impl<I: Instr> InstrExprNode<I> for Del<I> {
     type Mapped<T: Instr> = Del<T>;
 
-    fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
+    fn visit_children(&self, _f: &mut impl FnMut(&I)) {}
 
-    fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+    fn visit_children_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
 
     fn map_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
@@ -422,7 +422,7 @@ impl<I: Instr> InstrExprNode<I> for Del<I> {
         }
     }
 
-    fn try_map_expr_node<T, Error>(
+    fn try_map_children<T, Error>(
         self,
         _f: &mut impl FnMut(I) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>

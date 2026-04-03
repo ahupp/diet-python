@@ -211,13 +211,13 @@ where
 {
     type Mapped<T: Instr>;
 
-    fn visit_exprs(&self, f: &mut impl FnMut(&I));
-    fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut I));
+    fn visit_children(&self, f: &mut impl FnMut(&I));
+    fn visit_children_mut(&mut self, f: &mut impl FnMut(&mut I));
     fn map_children<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
         T: Instr,
         InstrName<T>: From<InstrName<I>>;
-    fn try_map_expr_node<T, Error>(
+    fn try_map_children<T, Error>(
         self,
         f: &mut impl FnMut(I) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>
@@ -636,9 +636,9 @@ pub type CodegenBlockPyLiteral = BlockPyLiteral;
 impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
     type Mapped<T: Instr> = InstrName<T>;
 
-    fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
+    fn visit_children(&self, _f: &mut impl FnMut(&I)) {}
 
-    fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+    fn visit_children_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
 
     fn map_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
@@ -648,7 +648,7 @@ impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
         <T as Instr>::Name::from(self)
     }
 
-    fn try_map_expr_node<T, Error>(
+    fn try_map_children<T, Error>(
         self,
         _f: &mut impl FnMut(I) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>
@@ -663,9 +663,9 @@ impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
 impl<I: Instr> InstrExprNode<I> for BlockPyLiteral {
     type Mapped<T: Instr> = BlockPyLiteral;
 
-    fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
+    fn visit_children(&self, _f: &mut impl FnMut(&I)) {}
 
-    fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
+    fn visit_children_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
 
     fn map_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
     where
@@ -675,7 +675,7 @@ impl<I: Instr> InstrExprNode<I> for BlockPyLiteral {
         self
     }
 
-    fn try_map_expr_node<T, Error>(
+    fn try_map_children<T, Error>(
         self,
         _f: &mut impl FnMut(I) -> Result<T, Error>,
     ) -> Result<Self::Mapped<T>, Error>
@@ -806,7 +806,7 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
     ) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield> {
         match self {
             Self::Await(_) => Err(self),
-            match_rest(node) => Ok(node.try_map_expr_node(&mut *f)?.into()),
+            match_rest(node) => Ok(node.try_map_children(&mut *f)?.into()),
         }
     }
 }
@@ -854,7 +854,7 @@ impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWi
         match self {
             Self::Yield(_) => Err(self),
             Self::YieldFrom(_) => Err(self),
-            match_rest(node) => Ok(node.try_map_expr_node(&mut *f)?.into()),
+            match_rest(node) => Ok(node.try_map_children(&mut *f)?.into()),
         }
     }
 }
@@ -905,7 +905,7 @@ where
         f: &mut impl FnMut(Self) -> Result<CoreBlockPyExpr<NOut>, Error>,
     ) -> Result<CoreBlockPyExpr<NOut>, Error> {
         match self {
-            match_rest(node) => Ok(node.try_map_expr_node(&mut *f)?.into()),
+            match_rest(node) => Ok(node.try_map_children(&mut *f)?.into()),
         }
     }
 }
@@ -955,7 +955,7 @@ impl<Error> TryMapExpr<CodegenBlockPyExpr, Error> for CodegenBlockPyExpr {
         f: &mut impl FnMut(Self) -> Result<CodegenBlockPyExpr, Error>,
     ) -> Result<CodegenBlockPyExpr, Error> {
         Ok(match self {
-            match_rest(op) => op.try_map_expr_node(&mut *f)?.into(),
+            match_rest(op) => op.try_map_children(&mut *f)?.into(),
         })
     }
 }

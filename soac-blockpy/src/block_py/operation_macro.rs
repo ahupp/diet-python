@@ -65,13 +65,13 @@ macro_rules! define_operation {
         impl<$expr_ty: Instr> InstrExprNode<$expr_ty> for $name<$expr_ty> {
             type Mapped<T: Instr> = $name<T>;
 
-            fn visit_exprs(&self, f: &mut impl FnMut(&$expr_ty)) {
+            fn visit_children(&self, f: &mut impl FnMut(&$expr_ty)) {
                 #[allow(unused_variables)]
                 let _ = &f;
                 define_operation!(@visit_expr_fields self, f, $($raw_fields)*);
             }
 
-            fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut $expr_ty)) {
+            fn visit_children_mut(&mut self, f: &mut impl FnMut(&mut $expr_ty)) {
                 #[allow(unused_variables)]
                 let _ = &f;
                 define_operation!(@visit_expr_fields_mut self, f, $($raw_fields)*);
@@ -87,7 +87,7 @@ macro_rules! define_operation {
                 define_operation!(@build_mapped [$name::<T>] [] self, f, $($raw_fields)*)
             }
 
-            fn try_map_expr_node<T, Error>(
+            fn try_map_children<T, Error>(
                 self,
                 f: &mut impl FnMut($expr_ty) -> Result<T, Error>,
             ) -> Result<Self::Mapped<T>, Error>
@@ -165,11 +165,11 @@ macro_rules! define_operation {
         impl<E: Instr> InstrExprNode<E> for $name {
             type Mapped<T: Instr> = $name;
 
-            fn visit_exprs(&self, f: &mut impl FnMut(&E)) {
+            fn visit_children(&self, f: &mut impl FnMut(&E)) {
                 let _ = &f;
             }
 
-            fn visit_exprs_mut(&mut self, f: &mut impl FnMut(&mut E)) {
+            fn visit_children_mut(&mut self, f: &mut impl FnMut(&mut E)) {
                 let _ = &f;
             }
 
@@ -182,7 +182,7 @@ macro_rules! define_operation {
                 self
             }
 
-            fn try_map_expr_node<T, Error>(
+            fn try_map_children<T, Error>(
                 self,
                 f: &mut impl FnMut(E) -> Result<T, Error>,
             ) -> Result<Self::Mapped<T>, Error>
