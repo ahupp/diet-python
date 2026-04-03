@@ -268,15 +268,7 @@ where
         InstrName<T>: From<InstrName<I>>;
 }
 
-pub trait BlockPyExprLike: Clone + fmt::Debug + Walkable<Self> {
-    fn walk_child_exprs<F>(&self, f: &mut F)
-    where
-        F: FnMut(&Self),
-        Self: Clone,
-    {
-        self.walk(f);
-    }
-}
+pub trait BlockPyExprLike: Clone + fmt::Debug + Walkable<Self> {}
 
 impl BlockPyNameLike for ast::ExprName {
     fn id_str(&self) -> &str {
@@ -1156,7 +1148,7 @@ where
         }
 
         let mut found = false;
-        expr.walk_child_exprs(&mut |child| {
+        expr.walk(&mut |child| {
             if !found && expr_any_impl(child, predicate) {
                 found = true;
             }
