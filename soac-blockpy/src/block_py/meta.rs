@@ -1,6 +1,6 @@
 use super::{
-    BlockPyLiteral, BlockPyNameLike, CoreBytesLiteral, CoreNumberLiteral, CoreStringLiteral,
-    LocatedName, RuffExpr, UnresolvedName,
+    BlockPyLiteral, CoreBytesLiteral, CoreNumberLiteral, CoreStringLiteral, LocatedName, RuffExpr,
+    UnresolvedName,
 };
 use ruff_python_ast::{self as ast, HasNodeIndex};
 use ruff_text_size::{Ranged, TextRange};
@@ -56,7 +56,10 @@ impl HasMeta for LocatedName {
 
 impl HasMeta for UnresolvedName {
     fn meta(&self) -> Meta {
-        Meta::new(self.node_index(), self.range())
+        match self {
+            Self::ExprName(name) => Meta::new(name.node_index.clone(), name.range),
+            Self::RuntimeName(name) => Meta::new(name.node_index.clone(), name.range),
+        }
     }
 }
 

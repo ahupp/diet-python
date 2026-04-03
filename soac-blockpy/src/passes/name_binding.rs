@@ -1305,11 +1305,12 @@ fn unresolved_semantic_store_parts(
     if op.name.is_runtime_name() || is_internal_symbol(op.name.id_str()) {
         return None;
     }
+    let meta = op.name.meta();
     Some((
         op.name.id_str().to_string(),
         op.value.as_ref().clone(),
-        op.name.node_index(),
-        op.name.range(),
+        meta.node_index,
+        meta.range,
     ))
 }
 

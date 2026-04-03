@@ -23,7 +23,6 @@ pub use operation::{
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
-use ruff_text_size::TextRange;
 use soac_macros::{with_match_default, DelegateMatchDefault};
 use std::fmt;
 
@@ -176,8 +175,6 @@ pub trait BlockPyNameLike: Clone + fmt::Debug + From<ast::ExprName> {
     fn pretty_id(&self) -> String {
         self.id_str().to_string()
     }
-    fn range(&self) -> TextRange;
-    fn node_index(&self) -> ast::AtomicNodeIndex;
     fn is_runtime_name(&self) -> bool {
         false
     }
@@ -250,14 +247,6 @@ impl BlockPyNameLike for ast::ExprName {
     fn id_str(&self) -> &str {
         self.id.as_str()
     }
-
-    fn range(&self) -> ruff_text_size::TextRange {
-        self.range
-    }
-
-    fn node_index(&self) -> ast::AtomicNodeIndex {
-        self.node_index.clone()
-    }
 }
 
 impl MapExpr<Expr> for Expr {
@@ -295,20 +284,6 @@ impl BlockPyNameLike for UnresolvedName {
         match self {
             Self::ExprName(name) => name.id.as_str(),
             Self::RuntimeName(name) => name.value.as_str(),
-        }
-    }
-
-    fn range(&self) -> ruff_text_size::TextRange {
-        match self {
-            Self::ExprName(name) => name.range,
-            Self::RuntimeName(name) => name.range,
-        }
-    }
-
-    fn node_index(&self) -> ast::AtomicNodeIndex {
-        match self {
-            Self::ExprName(name) => name.node_index.clone(),
-            Self::RuntimeName(name) => name.node_index.clone(),
         }
     }
 
@@ -384,14 +359,6 @@ impl BlockPyNameLike for LocatedName {
 
     fn pretty_id(&self) -> String {
         self.resolved_pretty_id()
-    }
-
-    fn range(&self) -> ruff_text_size::TextRange {
-        self.range
-    }
-
-    fn node_index(&self) -> ast::AtomicNodeIndex {
-        self.node_index.clone()
     }
 
     fn is_runtime_name(&self) -> bool {

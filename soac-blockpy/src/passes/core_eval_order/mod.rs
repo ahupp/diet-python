@@ -3,8 +3,8 @@ use crate::block_py::{
     expr_any, BlockPyBranchTable, BlockPyCfgFragment, BlockPyFunction, BlockPyIf, BlockPyIfTerm,
     BlockPyNameLike, BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
-    CoreBlockPyYieldFrom, Del, HasMeta, Instr, InstrExprNode, Load, Meta, Store,
-    StructuredInstrFor, WithMeta,
+    CoreBlockPyYieldFrom, Del, HasMeta, Instr, InstrExprNode, Load, Store, StructuredInstrFor,
+    WithMeta,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
@@ -23,18 +23,19 @@ fn fresh_eval_name() -> ast::ExprName {
 fn typed_store_stmt<E, N>(target: N, value: E) -> StructuredInstrFor<E>
 where
     E: Instr + From<Store<E>>,
-    N: BlockPyNameLike + Into<<E as Instr>::Name>,
+    N: BlockPyNameLike + HasMeta + Into<<E as Instr>::Name>,
 {
-    let meta = Meta::new(target.node_index(), target.range());
+    let meta = target.meta();
     StructuredInstrFor::Expr(Store::<E>::new(target, value).with_meta(meta).into())
 }
 
-fn typed_del_stmt<E>(target: impl Into<<E as Instr>::Name>) -> StructuredInstrFor<E>
+fn typed_del_stmt<E, N>(target: N) -> StructuredInstrFor<E>
 where
     E: Instr + From<Del<E>>,
+    N: HasMeta + Into<<E as Instr>::Name>,
 {
+    let meta = target.meta();
     let target = target.into();
-    let meta = Meta::new(target.node_index(), target.range());
     StructuredInstrFor::Expr(Del::<E>::new(target, false).with_meta(meta).into())
 }
 

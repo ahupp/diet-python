@@ -10,8 +10,8 @@ use crate::block_py::{
     BlockPySemanticExprNode, BlockPyStmt, BlockPyTerm, CellRefForName, CfgBlock, ClosureInit,
     ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
-    FunctionNameGen, ImplicitNoneExpr, Instr, InstrName, Load, MakeFunction, Meta, ModuleNameGen,
-    PassStmt, StorageLayout, Store, UnresolvedName, WithMeta,
+    FunctionNameGen, HasMeta, ImplicitNoneExpr, Instr, InstrName, Load, MakeFunction, Meta,
+    ModuleNameGen, PassStmt, StorageLayout, Store, UnresolvedName, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -185,7 +185,7 @@ where
     E: Instr + From<Store<E>>,
     InstrName<E>: From<UnresolvedName>,
 {
-    let meta = Meta::new(target.node_index(), target.range());
+    let meta = target.meta();
     BlockPyStmt::Expr(Store::new(target, Box::new(value)).with_meta(meta).into())
 }
 
@@ -194,7 +194,7 @@ where
     E: Instr + From<Load<E>>,
     InstrName<E>: From<UnresolvedName>,
 {
-    let meta = Meta::new(name.node_index(), name.range());
+    let meta = name.meta();
     Load::new(name).with_meta(meta).into()
 }
 
