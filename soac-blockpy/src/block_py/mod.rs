@@ -18,7 +18,7 @@ pub use operation::{
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast, ExprName};
-use soac_macros::{enum_broadcast, with_match_default, DelegateMatchDefault};
+use soac_macros::{enum_broadcast, match_default, DelegateMatchDefault};
 use std::fmt;
 
 pub(crate) mod cfg;
@@ -888,15 +888,14 @@ impl Instr for CoreBlockPyExprWithAwaitAndYield {
     type Name = UnresolvedName;
 }
 
-#[with_match_default]
 impl MapExprChildren for CoreBlockPyExprWithAwaitAndYield {
     fn map_children(
         self,
         f: &mut impl FnMut(Self) -> CoreBlockPyExprWithAwaitAndYield,
     ) -> CoreBlockPyExprWithAwaitAndYield {
-        match self {
-            match_rest(node) => node.map_children(&mut *f).into(),
-        }
+        match_default!(self: CoreBlockPyExprWithAwaitAndYield {
+            rest => rest.map_children(&mut *f).into()
+        })
     }
 }
 
@@ -904,15 +903,14 @@ impl Instr for CoreBlockPyExprWithYield {
     type Name = UnresolvedName;
 }
 
-#[with_match_default]
 impl MapExprChildren for CoreBlockPyExprWithYield {
     fn map_children(
         self,
         f: &mut impl FnMut(Self) -> CoreBlockPyExprWithYield,
     ) -> CoreBlockPyExprWithYield {
-        match self {
-            match_rest(node) => node.map_children(&mut *f).into(),
-        }
+        match_default!(self: CoreBlockPyExprWithYield {
+            rest => rest.map_children(&mut *f).into()
+        })
     }
 }
 
@@ -920,15 +918,14 @@ impl<N: BlockPyNameLike> Instr for CoreBlockPyExpr<N> {
     type Name = N;
 }
 
-#[with_match_default]
 impl<N> MapExprChildren for CoreBlockPyExpr<N>
 where
     N: BlockPyNameLike,
 {
     fn map_children(self, f: &mut impl FnMut(Self) -> CoreBlockPyExpr<N>) -> CoreBlockPyExpr<N> {
-        match self {
-            match_rest(node) => node.map_children(&mut *f).into(),
-        }
+        match_default!(self: CoreBlockPyExpr<N> {
+            rest => rest.map_children(&mut *f).into()
+        })
     }
 }
 
@@ -936,12 +933,11 @@ impl Instr for CodegenBlockPyExpr {
     type Name = LocatedName;
 }
 
-#[with_match_default]
 impl MapExprChildren for CodegenBlockPyExpr {
     fn map_children(self, f: &mut impl FnMut(Self) -> CodegenBlockPyExpr) -> CodegenBlockPyExpr {
-        match self {
-            match_rest(op) => op.map_children(&mut *f).into(),
-        }
+        match_default!(self: CodegenBlockPyExpr {
+            rest => rest.map_children(&mut *f).into()
+        })
     }
 }
 
