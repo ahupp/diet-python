@@ -80,6 +80,45 @@ fn compat_blockpy_raise_from_stmt(raise_stmt: ast::StmtRaise) -> BlockPyRaise {
     }
 }
 
+fn contains_return_stmt_in_body(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(contains_return_stmt)
+}
+
+fn contains_return_stmt_in_handlers(handlers: &[ast::ExceptHandler]) -> bool {
+    handlers.iter().any(|handler| {
+        let ast::ExceptHandler::ExceptHandler(handler) = handler;
+        contains_return_stmt_in_body(&handler.body)
+    })
+}
+
+fn contains_return_stmt(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return(_) => true,
+        Stmt::If(stmt) => {
+            contains_return_stmt_in_body(&stmt.body)
+                || stmt
+                    .elif_else_clauses
+                    .iter()
+                    .any(|clause| contains_return_stmt_in_body(&clause.body))
+        }
+        Stmt::While(stmt) => {
+            contains_return_stmt_in_body(&stmt.body) || contains_return_stmt_in_body(&stmt.orelse)
+        }
+        Stmt::For(stmt) => {
+            contains_return_stmt_in_body(&stmt.body) || contains_return_stmt_in_body(&stmt.orelse)
+        }
+        Stmt::Try(stmt) => {
+            contains_return_stmt_in_body(&stmt.body)
+                || contains_return_stmt_in_handlers(&stmt.handlers)
+                || contains_return_stmt_in_body(&stmt.orelse)
+                || contains_return_stmt_in_body(&stmt.finalbody)
+        }
+        Stmt::With(stmt) => contains_return_stmt_in_body(&stmt.body),
+        Stmt::FunctionDef(_) | Stmt::ClassDef(_) => false,
+        _ => false,
+    }
+}
+
 pub(crate) fn lower_common_stmt_sequence_head<FSeq, E>(
     context: &Context,
     plan: StmtSequenceHeadPlan,

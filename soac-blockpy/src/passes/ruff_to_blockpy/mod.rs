@@ -1,10 +1,6 @@
 use crate::block_py::cfg::{
     fold_jumps_to_trivial_none_return_blockpy, prune_unreachable_blockpy_blocks,
 };
-use crate::block_py::exception::{
-    contains_return_stmt_in_body, contains_return_stmt_in_handlers,
-    rewrite_region_returns_to_finally_blockpy,
-};
 use crate::block_py::param_specs::ParamSpec;
 use crate::block_py::{
     assert_blockpy_block_normalized, BlockPyCallableSemanticInfo, BlockPyEdge,

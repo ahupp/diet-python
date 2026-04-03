@@ -9,9 +9,8 @@ use crate::block_py::{
     BlockPyIfTerm, BlockPyLabel, BlockPyNameLike, BlockPyRaise, BlockPySemanticExprNode,
     BlockPyTerm, CellRefForName, CfgBlock, ClosureInit, ClosureSlot, CoreBlockPyCallArg,
     CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
-    CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName, FunctionNameGen, HasMeta,
-    ImplicitNoneExpr, Instr, Load, MakeFunction, Meta, ModuleNameGen, StorageLayout, Store,
-    UnresolvedName, WithMeta,
+    CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName, FunctionNameGen, ImplicitNoneExpr,
+    Instr, Load, MakeFunction, Meta, ModuleNameGen, StorageLayout, Store, UnresolvedName, WithMeta,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};

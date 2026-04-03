@@ -24,7 +24,6 @@ use std::fmt;
 pub(crate) mod cfg;
 mod convert;
 pub(crate) mod dataflow;
-pub(crate) mod exception;
 mod meta;
 mod name_gen;
 pub mod operation;

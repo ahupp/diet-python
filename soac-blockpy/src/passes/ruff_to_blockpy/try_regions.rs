@@ -2,9 +2,17 @@ use super::compat::set_region_exc_param;
 use super::*;
 use crate::block_py::{
     AbruptKind, BlockArg, BlockParamRole, BlockPyBranchTable, BlockPyCfgFragment, BlockPyEdge,
-    BlockPyLabel, BlockPyRaise, BlockPyTerm, CfgBlock, Instr, StructuredInstr,
+    BlockPyLabel, BlockPyRaise, BlockPyTerm, CfgBlock, HasMeta, Instr, Store, StructuredInstr,
+    WithMeta,
 };
 use crate::passes::ast_to_ast::body::Suite;
+
+fn expr_name(id: &str) -> ast::ExprName {
+    let Expr::Name(expr) = py_expr!("{id:id}", id = id) else {
+        unreachable!();
+    };
+    expr
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct TryPlan {
@@ -332,6 +340,37 @@ where
         lowered_try.body_label,
         active_exc_target,
     )
+}
+
+fn rewrite_region_returns_to_finally_blockpy<E>(
+    blocks: &mut [CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>],
+    finally_target: &BlockPyLabel,
+    payload_name: &str,
+) where
+    E: crate::block_py::ImplicitNoneExpr + RuffToBlockPyExpr,
+{
+    for block in blocks.iter_mut() {
+        let ret_value = match std::mem::replace(
+            &mut block.term,
+            BlockPyTerm::Return(E::implicit_none_expr()),
+        ) {
+            BlockPyTerm::Return(value) => value,
+            other => {
+                block.term = other;
+                continue;
+            }
+        };
+        let target = expr_name(payload_name);
+        let meta = target.meta();
+        block.body.push(StructuredInstr::Expr(
+            Store::new(target, ret_value).with_meta(meta).into(),
+        ));
+        let payload_arg = BlockArg::Name(payload_name.to_string());
+        block.term = BlockPyTerm::Jump(BlockPyEdge::with_args(
+            finally_target.clone(),
+            vec![BlockArg::AbruptKind(AbruptKind::Return), payload_arg],
+        ));
+    }
 }
 
 pub(crate) fn emit_finally_abrupt_dispatch_blocks<E>(
