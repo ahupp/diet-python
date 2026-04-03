@@ -106,7 +106,7 @@ where
 
 fn validate_non_exception_edge<P: BlockPyPass>(
     function: &BlockPyFunction<P>,
-    source_block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
+    source_block: &CfgBlock<P::Expr>,
     edge: &BlockPyEdge,
     qualname: &str,
     label_kind: &str,
@@ -128,8 +128,8 @@ fn validate_non_exception_edge<P: BlockPyPass>(
 }
 
 fn validate_edge_param_forwarding<P: BlockPyPass>(
-    source_block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
-    target_block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
+    source_block: &CfgBlock<P::Expr>,
+    target_block: &CfgBlock<P::Expr>,
     explicit_args: &[BlockArg],
     qualname: &str,
     label_kind: &str,
@@ -192,8 +192,8 @@ fn validate_edge_param_forwarding<P: BlockPyPass>(
 }
 
 fn validate_explicit_edge_arg<P: BlockPyPass>(
-    source_block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
-    target_block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
+    source_block: &CfgBlock<P::Expr>,
+    target_block: &CfgBlock<P::Expr>,
     target_param: &BlockParam,
     source_arg: &BlockArg,
     qualname: &str,
@@ -297,7 +297,7 @@ fn lookup_known_block<'a, P: BlockPyPass>(
     qualname: &str,
     block_label: BlockPyLabel,
     label_kind: &str,
-) -> Result<&'a CfgBlock<P::Expr, BlockPyTerm<P::Expr>>, String> {
+) -> Result<&'a CfgBlock<P::Expr>, String> {
     let Some(target_block) = function.blocks.get(label.index()) else {
         return Err(format!(
             "unknown {label_kind} {label} in {}:{}",

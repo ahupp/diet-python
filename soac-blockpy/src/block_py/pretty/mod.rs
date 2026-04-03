@@ -20,7 +20,7 @@ enum IfBranchKind {
 }
 
 pub(crate) trait BlockPyPrettyPrinter: BlockPyPass {
-    fn block_metadata_lines(block: &CfgBlock<Self::Expr, BlockPyTerm<Self::Expr>>) -> Vec<String>
+    fn block_metadata_lines(block: &CfgBlock<Self::Expr>) -> Vec<String>
     where
         Self: Sized;
 }
@@ -29,7 +29,7 @@ macro_rules! impl_default_blockpy_pretty_printer {
     ($($pass:ty),* $(,)?) => {
         $(
             impl BlockPyPrettyPrinter for $pass {
-                fn block_metadata_lines(block: &CfgBlock<Self::Expr, BlockPyTerm<Self::Expr>>) -> Vec<String> {
+                fn block_metadata_lines(block: &CfgBlock<Self::Expr>) -> Vec<String> {
                     render_blockpy_block_metadata(block)
                 }
             }
@@ -44,7 +44,7 @@ impl_default_blockpy_pretty_printer!(
 );
 
 impl BlockPyPrettyPrinter for ResolvedStorageBlockPyPass {
-    fn block_metadata_lines(block: &CfgBlock<Self::Expr, BlockPyTerm<Self::Expr>>) -> Vec<String> {
+    fn block_metadata_lines(block: &CfgBlock<Self::Expr>) -> Vec<String> {
         let mut lines = Vec::new();
         if let Some(exc_edge) = &block.exc_edge {
             lines.push(format!("exc_target: {}", exc_edge.target));
@@ -57,14 +57,12 @@ impl BlockPyPrettyPrinter for ResolvedStorageBlockPyPass {
 }
 
 impl BlockPyPrettyPrinter for CodegenBlockPyPass {
-    fn block_metadata_lines(block: &CfgBlock<Self::Expr, BlockPyTerm<Self::Expr>>) -> Vec<String> {
+    fn block_metadata_lines(block: &CfgBlock<Self::Expr>) -> Vec<String> {
         render_resolved_storage_block_metadata::<Self>(block)
     }
 }
 
-fn render_resolved_storage_block_metadata<P>(
-    block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
-) -> Vec<String>
+fn render_resolved_storage_block_metadata<P>(block: &CfgBlock<P::Expr>) -> Vec<String>
 where
     P: BlockPyPass,
     P::Expr: Instr<Name = super::LocatedName>,
@@ -272,7 +270,7 @@ impl<R> BlockPyFormatter<R> {
         function: &BlockPyFunction<P>,
         render_layout: &BlockRenderLayout,
         current_block_index: Option<usize>,
-        block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
+        block: &CfgBlock<P::Expr>,
         referenced_labels: &HashSet<BlockPyLabel>,
     ) where
         P: BlockPyPrettyPrinter,
@@ -1069,7 +1067,7 @@ fn can_inline_if_term_target(
 }
 
 fn collect_top_level_successors_from_block<P>(
-    block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
+    block: &CfgBlock<P::Expr>,
     label_to_index: &HashMap<BlockPyLabel, usize>,
 ) -> Vec<usize>
 where
@@ -1260,9 +1258,7 @@ fn compute_immediate_dominators(
     immediate_dominators
 }
 
-fn collect_referenced_labels_from_blocks<P>(
-    blocks: &[CfgBlock<P::Expr, BlockPyTerm<P::Expr>>],
-) -> HashSet<BlockPyLabel>
+fn collect_referenced_labels_from_blocks<P>(blocks: &[CfgBlock<P::Expr>]) -> HashSet<BlockPyLabel>
 where
     P: BlockPyPass,
 {

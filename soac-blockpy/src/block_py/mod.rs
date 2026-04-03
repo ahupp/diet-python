@@ -392,7 +392,7 @@ pub enum BlockPyFunctionKind {
 }
 
 #[derive(Debug, Clone)]
-pub struct CfgBlock<S, T> {
+pub struct CfgBlock<S, T = BlockPyTerm<S>> {
     pub label: BlockPyLabel,
     pub body: Vec<S>,
     pub term: T,
@@ -1367,11 +1367,10 @@ pub trait BlockPyPass: Clone + fmt::Debug {
 
 pub type InstrName<I> = <I as Instr>::Name;
 pub(crate) type StructuredInstrFor<I> = StructuredInstr<I>;
-pub type ResolvedStorageBlock =
-    CfgBlock<LocatedCoreBlockPyExpr, BlockPyTerm<LocatedCoreBlockPyExpr>>;
-pub type CodegenBlock = CfgBlock<CodegenBlockPyExpr, BlockPyTerm<CodegenBlockPyExpr>>;
+pub type ResolvedStorageBlock = CfgBlock<LocatedCoreBlockPyExpr>;
+pub type CodegenBlock = CfgBlock<CodegenBlockPyExpr>;
 
-pub type BlockPyCfgBlock<S, T> = CfgBlock<S, T>;
+pub type BlockPyCfgBlock<S, T = BlockPyTerm<S>> = CfgBlock<S, T>;
 pub(crate) type BlockPyBlock<E = Expr> = BlockPyCfgBlock<StructuredInstr<E>, BlockPyTerm<E>>;
 
 pub trait BlockPyJumpTerm<L> {
@@ -1798,7 +1797,7 @@ where
         walk_linear_fn(self, func);
     }
 
-    fn visit_block(&mut self, block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>) {
+    fn visit_block(&mut self, block: &CfgBlock<P::Expr>) {
         walk_linear_block(self, block);
     }
 
@@ -1841,10 +1840,8 @@ where
     }
 }
 
-pub(crate) fn walk_linear_block<V, P>(
-    visitor: &mut V,
-    block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>,
-) where
+pub(crate) fn walk_linear_block<V, P>(visitor: &mut V, block: &CfgBlock<P::Expr>)
+where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     P::Expr: MapExpr<P::Expr>,

@@ -203,9 +203,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
 
 #[test]
 fn exception_edges_seed_hidden_try_exception_locals_from_current_exception() {
-    let mut blocks: Vec<
-        crate::block_py::CfgBlock<LocatedCoreBlockPyExpr, BlockPyTerm<LocatedCoreBlockPyExpr>>,
-    > =
+    let mut blocks: Vec<crate::block_py::CfgBlock<LocatedCoreBlockPyExpr>> =
         vec![
         crate::block_py::CfgBlock {
             label: BlockPyLabel::from_index(0),

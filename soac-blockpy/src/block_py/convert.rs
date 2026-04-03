@@ -38,10 +38,7 @@ where
         }
     }
 
-    fn map_block(
-        &self,
-        block: CfgBlock<PIn::Expr, BlockPyTerm<PIn::Expr>>,
-    ) -> CfgBlock<POut::Expr, BlockPyTerm<POut::Expr>> {
+    fn map_block(&self, block: CfgBlock<PIn::Expr>) -> CfgBlock<POut::Expr> {
         CfgBlock {
             label: block.label,
             body: block
@@ -124,8 +121,8 @@ where
 
     fn try_map_block(
         &self,
-        block: CfgBlock<PIn::Expr, BlockPyTerm<PIn::Expr>>,
-    ) -> Result<CfgBlock<POut::Expr, BlockPyTerm<POut::Expr>>, Self::Error> {
+        block: CfgBlock<PIn::Expr>,
+    ) -> Result<CfgBlock<POut::Expr>, Self::Error> {
         Ok(CfgBlock {
             label: block.label,
             body: block

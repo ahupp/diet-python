@@ -824,7 +824,7 @@ where
     P: BlockPyPass,
     P::Expr: BlockPySemanticExprNode,
 {
-    fn visit_block(&mut self, block: &CfgBlock<P::Expr, BlockPyTerm<P::Expr>>) {
+    fn visit_block(&mut self, block: &CfgBlock<P::Expr>) {
         if let Some(exc_param) = block.exception_param() {
             self.used_names.insert(exc_param.to_string());
         }
