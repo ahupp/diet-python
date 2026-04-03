@@ -184,45 +184,27 @@ impl ModuleCodegenConstants {
     }
 
     fn push_explicit_literal(&mut self, expr: &LocatedCoreBlockPyExpr) -> ModuleConstantId {
-        let value = match expr {
-            CoreBlockPyExpr::Literal(BlockPyLiteral::StringLiteral(string)) => {
+        let CoreBlockPyExpr::Literal(literal) = expr else {
+            panic!("unsupported explicit module constant expr after codegen lowering: {expr:?}");
+        };
+
+        let value = match literal {
+            BlockPyLiteral::StringLiteral(string) => {
                 ModuleConstantValue::Unicode(string.value.as_bytes().to_vec())
             }
-            CoreBlockPyExpr::Literal(BlockPyLiteral::BytesLiteral(bytes)) => {
-                ModuleConstantValue::Bytes(bytes.value.clone())
-            }
-            CoreBlockPyExpr::Literal(BlockPyLiteral::NumberLiteral(number)) => {
-                match &number.value {
-                    CoreNumberLiteralValue::Int(value) => {
-                        if let Some(value) = value.as_i64() {
-                            ModuleConstantValue::Int(value)
-                        } else {
-                            ModuleConstantValue::BigInt(value.to_string())
-                        }
-                    }
-                    CoreNumberLiteralValue::Float(value) => {
-                        ModuleConstantValue::FloatBits(value.to_bits())
+            BlockPyLiteral::BytesLiteral(bytes) => ModuleConstantValue::Bytes(bytes.value.clone()),
+            BlockPyLiteral::NumberLiteral(number) => match &number.value {
+                CoreNumberLiteralValue::Int(value) => {
+                    if let Some(value) = value.as_i64() {
+                        ModuleConstantValue::Int(value)
+                    } else {
+                        ModuleConstantValue::BigInt(value.to_string())
                     }
                 }
-            }
-            CoreBlockPyExpr::Name(_)
-            | CoreBlockPyExpr::BinOp(_)
-            | CoreBlockPyExpr::UnaryOp(_)
-            | CoreBlockPyExpr::Call(_)
-            | CoreBlockPyExpr::GetAttr(_)
-            | CoreBlockPyExpr::SetAttr(_)
-            | CoreBlockPyExpr::GetItem(_)
-            | CoreBlockPyExpr::SetItem(_)
-            | CoreBlockPyExpr::DelItem(_)
-            | CoreBlockPyExpr::Load(_)
-            | CoreBlockPyExpr::Store(_)
-            | CoreBlockPyExpr::Del(_)
-            | CoreBlockPyExpr::MakeCell(_)
-            | CoreBlockPyExpr::CellRefForName(_)
-            | CoreBlockPyExpr::CellRef(_)
-            | CoreBlockPyExpr::MakeFunction(_) => {
-                panic!("unsupported explicit module constant expr after codegen lowering: {expr:?}")
-            }
+                CoreNumberLiteralValue::Float(value) => {
+                    ModuleConstantValue::FloatBits(value.to_bits())
+                }
+            },
         };
         let id = ModuleConstantId(self.values.len());
         self.values.push(value.clone());
