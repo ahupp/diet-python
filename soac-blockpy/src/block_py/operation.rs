@@ -132,7 +132,7 @@ impl<E> WithMeta for Call<E> {
 }
 
 impl<E: Instr> Walkable<E> for Call<E> {
-    fn walk_map(self, f: &mut impl FnMut(E) -> E) -> Self {
+    fn map_walk(self, f: &mut impl FnMut(E) -> E) -> Self {
         Call {
             _meta: self._meta,
             func: Box::new(f(*self.func)),
@@ -291,7 +291,7 @@ impl<I: Instr> WithMeta for Load<I> {
 }
 
 impl<I: Instr> Walkable<I> for Load<I> {
-    fn walk_map(self, _f: &mut impl FnMut(I) -> I) -> Self {
+    fn map_walk(self, _f: &mut impl FnMut(I) -> I) -> Self {
         self
     }
 
@@ -375,7 +375,7 @@ impl<I: Instr> WithMeta for Store<I> {
 }
 
 impl<I: Instr> Walkable<I> for Store<I> {
-    fn walk_map(self, f: &mut impl FnMut(I) -> I) -> Self {
+    fn map_walk(self, f: &mut impl FnMut(I) -> I) -> Self {
         Store {
             _meta: self._meta,
             name: self.name,
@@ -463,7 +463,7 @@ impl<I: Instr> WithMeta for Del<I> {
 }
 
 impl<I: Instr> Walkable<I> for Del<I> {
-    fn walk_map(self, _f: &mut impl FnMut(I) -> I) -> Self {
+    fn map_walk(self, _f: &mut impl FnMut(I) -> I) -> Self {
         self
     }
 

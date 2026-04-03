@@ -86,10 +86,10 @@ impl EnumBroadcastTarget {
                 Self::#variant_name(node) => node.with_meta(meta.clone()).into(),
             }
         });
-        let walk_map_arms = variants.iter().map(|variant| {
+        let map_walk_arms = variants.iter().map(|variant| {
             let variant_name = &variant.ident;
             quote! {
-                Self::#variant_name(node) => node.walk_map(&mut *f).into(),
+                Self::#variant_name(node) => node.map_walk(&mut *f).into(),
             }
         });
         let walk_arms = variants.iter().map(|variant| {
@@ -146,9 +146,9 @@ impl EnumBroadcastTarget {
             },
             Self::Walkable => quote! {
                 impl #impl_generics Walkable<Self> for #enum_name #ty_generics #where_clause {
-                    fn walk_map(self, f: &mut impl FnMut(Self) -> Self) -> Self {
+                    fn map_walk(self, f: &mut impl FnMut(Self) -> Self) -> Self {
                         match self {
-                            #( #walk_map_arms )*
+                            #( #map_walk_arms )*
                         }
                     }
 

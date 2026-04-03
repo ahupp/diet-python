@@ -479,7 +479,7 @@ where
 
 impl BlockPySemanticExprNode for Expr {
     fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
-        let _ = self.clone().walk_map(&mut |child| {
+        let _ = self.clone().map_walk(&mut |child| {
             f(&child);
             child
         });
@@ -539,7 +539,7 @@ impl BlockPySemanticExprNode for Expr {
 
 impl BlockPySemanticExprNode for RuffExpr {
     fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
-        let _ = self.clone().walk_map(&mut |child| {
+        let _ = self.clone().map_walk(&mut |child| {
             f(&child);
             child
         });
@@ -568,7 +568,7 @@ impl BlockPySemanticExprNode for RuffExpr {
 
 impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
     fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
-        let _ = self.clone().walk_map(&mut |child| {
+        let _ = self.clone().map_walk(&mut |child| {
             f(&child);
             child
         });
@@ -631,7 +631,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
 
 impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
     fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
-        let _ = self.clone().walk_map(&mut |child| {
+        let _ = self.clone().map_walk(&mut |child| {
             f(&child);
             child
         });
@@ -697,7 +697,7 @@ where
     N: BlockPyNameLike,
 {
     fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
-        let _ = self.clone().walk_map(&mut |child| {
+        let _ = self.clone().map_walk(&mut |child| {
             f(&child);
             child
         });
@@ -760,7 +760,7 @@ where
 
 impl BlockPySemanticExprNode for super::CodegenBlockPyExpr {
     fn walk_child_exprs(&self, f: &mut impl FnMut(&Self)) {
-        let _ = self.clone().walk_map(&mut |child| {
+        let _ = self.clone().map_walk(&mut |child| {
             f(&child);
             child
         });

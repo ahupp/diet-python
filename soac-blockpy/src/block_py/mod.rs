@@ -206,7 +206,7 @@ pub trait TryMapExpr<In, Out, Error> {
 }
 
 pub trait Walkable<E>: Clone + fmt::Debug + Sized {
-    fn walk_map(self, f: &mut impl FnMut(E) -> E) -> Self;
+    fn map_walk(self, f: &mut impl FnMut(E) -> E) -> Self;
     fn walk_mut(&mut self, f: &mut impl FnMut(&mut E));
     fn walk(&self, f: &mut impl FnMut(&E));
 
@@ -215,7 +215,7 @@ pub trait Walkable<E>: Clone + fmt::Debug + Sized {
         E: Clone,
     {
         let mut first_error = None;
-        let walked = self.walk_map(&mut |child| {
+        let walked = self.map_walk(&mut |child| {
             if first_error.is_some() {
                 return child;
             }
@@ -266,7 +266,7 @@ impl BlockPyNameLike for ast::ExprName {
 }
 
 impl Walkable<Expr> for Expr {
-    fn walk_map(self, f: &mut impl FnMut(Self) -> Expr) -> Expr {
+    fn map_walk(self, f: &mut impl FnMut(Self) -> Expr) -> Expr {
         struct DirectChildTransformer<'a, F>(&'a mut F);
 
         impl<F> crate::transformer::Transformer for DirectChildTransformer<'_, F>
@@ -355,8 +355,8 @@ impl UnresolvedName {
 }
 
 impl Walkable<RuffExpr> for RuffExpr {
-    fn walk_map(self, f: &mut impl FnMut(Self) -> RuffExpr) -> RuffExpr {
-        RuffExpr(self.0.walk_map(&mut |expr| f(RuffExpr(expr)).0))
+    fn map_walk(self, f: &mut impl FnMut(Self) -> RuffExpr) -> RuffExpr {
+        RuffExpr(self.0.map_walk(&mut |expr| f(RuffExpr(expr)).0))
     }
 
     fn walk_mut(&mut self, f: &mut impl FnMut(&mut RuffExpr)) {
@@ -722,7 +722,7 @@ where
 }
 
 impl<I: Instr> Walkable<I> for UnresolvedName {
-    fn walk_map(self, _f: &mut impl FnMut(I) -> I) -> Self {
+    fn map_walk(self, _f: &mut impl FnMut(I) -> I) -> Self {
         self
     }
 
@@ -1571,7 +1571,7 @@ where
     P: BlockPyPass,
     P::Expr: Walkable<P::Expr>,
 {
-    let _ = expr.clone().walk_map(&mut |child| {
+    let _ = expr.clone().map_walk(&mut |child| {
         visitor.visit_expr(&child);
         child
     });

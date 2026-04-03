@@ -1181,7 +1181,7 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
                     .with_meta(meta)
                     .into()
             }
-            other => other.walk_map(&mut |child| self.map_expr(child)).into(),
+            other => other.map_walk(&mut |child| self.map_expr(child)).into(),
         }
     }
 }

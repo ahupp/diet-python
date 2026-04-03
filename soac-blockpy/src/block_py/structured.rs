@@ -201,7 +201,7 @@ where
     P: BlockPyPass,
     P::Expr: Walkable<P::Expr>,
 {
-    let _ = expr.clone().walk_map(&mut |child| {
+    let _ = expr.clone().map_walk(&mut |child| {
         visitor.visit_expr(&child);
         child
     });
