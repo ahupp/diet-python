@@ -1,6 +1,5 @@
 use crate::block_py::{
-    pretty::BlockPyDebugExprText, BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield,
-    StructuredInstr,
+    BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield, StructuredInstr,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::py_expr;
@@ -23,7 +22,7 @@ fn nested_boolop_in_call_argument_emits_setup_via_expr_lowering() {
             .any(|stmt| matches!(stmt, StructuredInstr::If(_))),
         "{fragment:?}"
     );
-    let rendered = lowered.debug_expr_text();
+    let rendered = format!("{lowered:?}");
     assert!(rendered.starts_with("f(_dp_target_"), "{rendered}");
 }
 
@@ -46,7 +45,7 @@ fn direct_core_expr_lowering_materializes_make_function_operation() {
         out.finish().body.is_empty(),
         "make_function should not need setup"
     );
-    let rendered = lowered.debug_expr_text();
+    let rendered = format!("{lowered:?}");
     assert!(rendered.contains("MakeFunction("), "{rendered}");
     assert!(!rendered.contains("__dp_make_function("), "{rendered}");
 }
@@ -56,7 +55,7 @@ fn direct_core_expr_lowering_materializes_live_operation_helpers() {
     for (source, expected) in [
         (
             "__soac__.store_global(_dp_class_ns, \"caught\", value)",
-            "StoreName(",
+            "Store(",
         ),
         ("__soac__.cell_ref(\"__class__\")", "CellRefForName("),
     ] {
@@ -75,7 +74,7 @@ fn direct_core_expr_lowering_materializes_live_operation_helpers() {
             out.finish().body.is_empty(),
             "{source} should not need setup"
         );
-        let rendered = lowered.debug_expr_text();
+        let rendered = format!("{lowered:?}");
         assert!(rendered.contains(expected), "{rendered}");
         assert!(!rendered.contains("__soac__."), "{rendered}");
     }

@@ -1,6 +1,5 @@
 use crate::block_py::{
-    pretty::BlockPyDebugExprText, BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield,
-    StructuredInstr,
+    BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield, StructuredInstr,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::py_expr;
@@ -15,7 +14,7 @@ fn boolop_lowering_emits_blockpy_setup_directly() {
             .expect("expr lowering should succeed");
 
     let fragment = out.finish();
-    let rendered = lowered.debug_expr_text();
+    let rendered = format!("{lowered:?}");
     assert!(rendered.contains("_dp_target_"), "{rendered}");
     assert!(
         fragment.body.iter().any(|stmt| matches!(
@@ -45,6 +44,6 @@ fn compare_lowering_keeps_native_compare_expr() {
         out.finish().body.is_empty(),
         "single comparison should not need setup statements"
     );
-    let rendered = lowered.debug_expr_text();
-    assert!(rendered.contains("BinOp(Lt,"), "{rendered}");
+    let rendered = format!("{lowered:?}");
+    assert!(rendered.contains("Lt"), "{rendered}");
 }

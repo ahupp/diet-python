@@ -26,10 +26,18 @@ macro_rules! define_operation {
         [$($ctor_args:tt)*]
         [$($ctor_init:tt)*]
     ) => {
-        #[derive(Debug, Clone)]
+        #[derive(Clone)]
         $vis struct $name<$expr_ty: Instr> {
             _meta: Meta,
             $($struct_fields)*
+        }
+
+        impl<$expr_ty: Instr> std::fmt::Debug for $name<$expr_ty> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let mut debug = f.debug_struct(stringify!($name));
+                define_operation!(@debug_fields debug, self, $($raw_fields)*);
+                debug.finish()
+            }
         }
 
         impl<$expr_ty: Instr> $name<$expr_ty> {
@@ -105,6 +113,7 @@ macro_rules! define_operation {
             []
             []
             []
+            []
             $($fields)*
         );
     };
@@ -112,14 +121,23 @@ macro_rules! define_operation {
         @collect_value_fields
         [$vis:vis]
         [$name:ident]
+        [$($raw_fields:tt)*]
         [$($struct_fields:tt)*]
         [$($ctor_args:tt)*]
         [$($ctor_init:tt)*]
     ) => {
-        #[derive(Debug, Clone)]
+        #[derive(Clone)]
         $vis struct $name {
             _meta: Meta,
             $($struct_fields)*
+        }
+
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let mut debug = f.debug_struct(stringify!($name));
+                define_operation!(@debug_fields debug, self, $($raw_fields)*);
+                debug.finish()
+            }
         }
 
         impl $name {
@@ -181,6 +199,7 @@ macro_rules! define_operation {
         @collect_value_fields
         [$vis:vis]
         [$name:ident]
+        [$($raw_fields:tt)*]
         [$($struct_fields:tt)*]
         [$($ctor_args:tt)*]
         [$($ctor_init:tt)*]
@@ -191,6 +210,7 @@ macro_rules! define_operation {
             @collect_value_fields
             [$vis]
             [$name]
+            [$($raw_fields)* $field: $ty,]
             [$($struct_fields)* pub $field: $ty,]
             [$($ctor_args)* $field: impl Into<$ty>,]
             [$($ctor_init)* $field: $field.into(),]
@@ -201,6 +221,7 @@ macro_rules! define_operation {
         @collect_value_fields
         [$vis:vis]
         [$name:ident]
+        [$($raw_fields:tt)*]
         [$($struct_fields:tt)*]
         [$($ctor_args:tt)*]
         [$($ctor_init:tt)*]
@@ -210,6 +231,7 @@ macro_rules! define_operation {
             @collect_value_fields
             [$vis]
             [$name]
+            [$($raw_fields)* $field: $ty,]
             [$($struct_fields)* pub $field: $ty,]
             [$($ctor_args)* $field: impl Into<$ty>,]
             [$($ctor_init)* $field: $field.into(),]
@@ -331,6 +353,21 @@ macro_rules! define_operation {
         define_operation!(@visit_expr_fields_mut $self, $f, $($rest)*);
     };
     (@visit_expr_fields_mut $self:ident, $f:ident, $field:ident : $ty:ty) => {};
+    (@debug_fields $builder:ident, $self:ident,) => {};
+    (@debug_fields $builder:ident, $self:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
+        $builder.field(stringify!($field), &$self.$field);
+        define_operation!(@debug_fields $builder, $self, $($rest)*);
+    };
+    (@debug_fields $builder:ident, $self:ident, $field:ident : Box<$expr_ty:ident>) => {
+        $builder.field(stringify!($field), &$self.$field);
+    };
+    (@debug_fields $builder:ident, $self:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
+        $builder.field(stringify!($field), &$self.$field);
+        define_operation!(@debug_fields $builder, $self, $($rest)*);
+    };
+    (@debug_fields $builder:ident, $self:ident, $field:ident : $ty:ty) => {
+        $builder.field(stringify!($field), &$self.$field);
+    };
     (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident,) => {
         $($mapped_ctor)+ { _meta: $self._meta, $($out)* }
     };

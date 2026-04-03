@@ -3,6 +3,7 @@ use super::{
     BlockPyFunctionKind, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg, FunctionId,
     HasMeta, Instr, InstrExprNode, InstrName, Meta, WithMeta,
 };
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum BinOpKind {
@@ -66,12 +67,22 @@ define_operation! {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Call<E> {
     _meta: Meta,
     pub func: Box<E>,
     pub args: Vec<CoreBlockPyCallArg<E>>,
     pub keywords: Vec<CoreBlockPyKeywordArg<E>>,
+}
+
+impl<E: fmt::Debug> fmt::Debug for Call<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Call")
+            .field("func", &self.func)
+            .field("args", &self.args)
+            .field("keywords", &self.keywords)
+            .finish()
+    }
 }
 
 impl<E> Call<E> {
@@ -208,10 +219,16 @@ define_operation! {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Load<I: Instr> {
     _meta: Meta,
     pub name: InstrName<I>,
+}
+
+impl<I: Instr> fmt::Debug for Load<I> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Load").field("name", &self.name).finish()
+    }
 }
 
 impl<I: Instr> Load<I> {
@@ -269,11 +286,20 @@ impl<I: Instr> InstrExprNode<I> for Load<I> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Store<I: Instr> {
     _meta: Meta,
     pub name: InstrName<I>,
     pub value: Box<I>,
+}
+
+impl<I: Instr> fmt::Debug for Store<I> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Store")
+            .field("name", &self.name)
+            .field("value", &self.value)
+            .finish()
+    }
 }
 
 impl<I: Instr> Store<I> {
@@ -338,11 +364,20 @@ impl<I: Instr> InstrExprNode<I> for Store<I> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Del<I: Instr> {
     _meta: Meta,
     pub name: InstrName<I>,
     pub quietly: bool,
+}
+
+impl<I: Instr> fmt::Debug for Del<I> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Del")
+            .field("name", &self.name)
+            .field("quietly", &self.quietly)
+            .finish()
+    }
 }
 
 impl<I: Instr> Del<I> {
