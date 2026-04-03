@@ -233,7 +233,7 @@ fn renders_public_closure_metadata_in_function_header() {
             function_id: crate::block_py::FunctionId(0),
             name_gen: test_name_gen(),
             names: crate::block_py::FunctionName::new("gen", "gen", "gen", "gen"),
-            kind: BlockPyFunctionKind::Function,
+            kind: FunctionKind::Function,
             params: empty_param_spec(),
             blocks: vec![Block {
                 label: label(0),
@@ -278,7 +278,7 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
         function_id: crate::block_py::FunctionId(0),
         name_gen: test_name_gen(),
         names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
-        kind: BlockPyFunctionKind::Function,
+        kind: FunctionKind::Function,
         params: empty_param_spec(),
         blocks: vec![
             Block {
@@ -356,7 +356,7 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
         function_id: crate::block_py::FunctionId(0),
         name_gen: test_name_gen(),
         names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
-        kind: BlockPyFunctionKind::Function,
+        kind: FunctionKind::Function,
         params: empty_param_spec(),
         blocks: vec![
             Block {
@@ -451,7 +451,7 @@ fn renders_bb_block_metadata_with_shared_layout() {
             function_id: crate::block_py::FunctionId(0),
             name_gen: test_name_gen(),
             names: crate::block_py::FunctionName::new("f", "f", "f", "f"),
-            kind: BlockPyFunctionKind::Function,
+            kind: FunctionKind::Function,
             params: empty_param_spec(),
             blocks: vec![
                 crate::block_py::ResolvedStorageBlock {

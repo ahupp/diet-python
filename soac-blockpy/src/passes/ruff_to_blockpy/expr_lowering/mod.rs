@@ -1,7 +1,7 @@
 use crate::block_py::{
-    core_runtime_positional_call_expr_with_meta, literal_expr, operation, BlockPyFunctionKind,
-    BlockPyStmtBuilder, CoreBlockPyExprWithAwaitAndYield, CoreStringLiteral, Del, FunctionId,
-    Instr, InstrName, Meta, Store, WithMeta,
+    core_runtime_positional_call_expr_with_meta, literal_expr, operation, BlockPyStmtBuilder,
+    CoreBlockPyExprWithAwaitAndYield, CoreStringLiteral, Del, FunctionId, FunctionKind, Instr,
+    InstrName, Meta, Store, WithMeta,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::string_templates::lower_string_templates_in_expr;
@@ -271,15 +271,15 @@ where
     AstSetupExprLowerer.lower_expr_into(expr, out, loop_ctx, next_label_id)
 }
 
-fn make_function_kind_from_literal(expr: &Expr) -> Option<BlockPyFunctionKind> {
+fn make_function_kind_from_literal(expr: &Expr) -> Option<FunctionKind> {
     let Expr::StringLiteral(string) = expr else {
         return None;
     };
     Some(match string.value.to_str() {
-        "function" => BlockPyFunctionKind::Function,
-        "coroutine" => BlockPyFunctionKind::Coroutine,
-        "generator" => BlockPyFunctionKind::Generator,
-        "async_generator" => BlockPyFunctionKind::AsyncGenerator,
+        "function" => FunctionKind::Function,
+        "coroutine" => FunctionKind::Coroutine,
+        "generator" => FunctionKind::Generator,
+        "async_generator" => FunctionKind::AsyncGenerator,
         _ => return None,
     })
 }

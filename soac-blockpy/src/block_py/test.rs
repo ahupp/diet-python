@@ -194,7 +194,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             function_id: FunctionId(0),
             name_gen: test_name_gen(),
             names: FunctionName::new("f", "f", "f", "f"),
-            kind: BlockPyFunctionKind::Function,
+            kind: FunctionKind::Function,
             params: ParamSpec::default(),
             blocks: vec![
                 Block {
@@ -286,7 +286,7 @@ fn storage_layout_semantics_collects_structured_cell_ref_logical_names() {
         function_id: FunctionId(0),
         name_gen: test_name_gen(),
         names: FunctionName::new("f", "f", "f", "f"),
-        kind: BlockPyFunctionKind::Function,
+        kind: FunctionKind::Function,
         params: ParamSpec::default(),
         blocks: vec![Block {
             label: BlockLabel::from_index(0),
@@ -363,7 +363,7 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
         function_id: FunctionId(0),
         name_gen: test_name_gen(),
         names: FunctionName::new("f", "f", "f", "f"),
-        kind: BlockPyFunctionKind::Function,
+        kind: FunctionKind::Function,
         params: ParamSpec::default(),
         blocks: vec![Block {
             label: BlockLabel::from_index(0),
@@ -398,7 +398,10 @@ fn term_conversion_to_no_yield_rejects_nested_yield() {
         Vec::new(),
     ));
 
-    let mut mapper =
-        ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield>::without_yield();
+    let mut mapper = ExprTryMap::<
+        CoreBlockPyPassWithYield,
+        CoreBlockPyPass,
+        CoreBlockPyExprWithYield,
+    >::without_yield();
     assert!(mapper.try_map_term(term).is_err());
 }

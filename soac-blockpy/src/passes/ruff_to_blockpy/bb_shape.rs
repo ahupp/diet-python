@@ -51,7 +51,9 @@ where
     bb_blocks
 }
 
-pub(crate) trait CurrentExceptionExpr: Instr + Walkable<Self> + Clone + From<Load<Self>> {
+pub(crate) trait CurrentExceptionExpr:
+    Instr + Walkable<Self> + Clone + From<Load<Self>>
+{
     fn is_current_exception_call(&self) -> bool;
 }
 

@@ -31,7 +31,8 @@ impl CodegenExprNormalizer {
     fn push_module_constant(&mut self, literal: LiteralValue) -> u32 {
         let index = u32::try_from(self.module_constants.len())
             .expect("module constant count should fit in u32");
-        self.module_constants.push(LocatedCoreBlockPyExpr::Literal(literal));
+        self.module_constants
+            .push(LocatedCoreBlockPyExpr::Literal(literal));
         index
     }
 }

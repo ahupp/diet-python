@@ -1,8 +1,8 @@
 use crate::block_py::{BlockPyBindingKind, ClosureInit, ClosureSlot};
 use crate::block_py::{
-    BlockPyCallableScopeKind, BlockPyCellBindingKind, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyModule, BlockPyNameLike, BlockTerm, Call, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyKeywordArg, ResolvedStorageBlock,
+    BlockPyCallableScopeKind, BlockPyCellBindingKind, BlockPyFunction, BlockPyModule,
+    BlockPyNameLike, BlockTerm, Call, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
+    FunctionKind, ResolvedStorageBlock,
 };
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, ResolvedStorageBlockPyPass};
 use crate::{lower_python_to_blockpy_for_testing, LoweringResult};
@@ -2460,7 +2460,7 @@ async def outer(scale):
         .filter(|func| {
             matches!(
                 func.lowered_kind(),
-                BlockPyFunctionKind::Generator | BlockPyFunctionKind::AsyncGenerator
+                FunctionKind::Generator | FunctionKind::AsyncGenerator
             )
         })
         .collect::<Vec<_>>();
@@ -2747,7 +2747,7 @@ def make_counter(delta):
         .iter()
         .find(|func| func.names.bind_name == "gen")
         .expect("missing visible generator factory");
-    assert_eq!(gen.lowered_kind(), &BlockPyFunctionKind::Generator);
+    assert_eq!(gen.lowered_kind(), &FunctionKind::Generator);
 }
 
 #[test]

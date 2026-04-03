@@ -4,12 +4,12 @@ use crate::block_py::{
     literal_expr, runtime_symbol, BindingTarget, BlockArg, BlockPyBindingKind,
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
     BlockPyCellBindingKind, BlockPyCellCaptureBinding, BlockPyClassBodyFallback,
-    BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap,
-    BlockPyNameLike, BlockTerm, Call, CellLocation, CellRef, CellRefForName, ClosureInit,
-    ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreNumberLiteral, CoreNumberLiteralValue,
-    CoreStringLiteral, Del, DelItem, FunctionId, HasMeta, InstrExprNode, Load, LocalLocation,
-    LocatedCoreBlockPyExpr, LocatedName, MakeCell, MakeFunction, MapExpr, NameLocation, SetItem,
-    StorageLayout, Store, TermRaise, UnresolvedName, Walkable, WithMeta,
+    BlockPyEffectiveBinding, BlockPyFunction, BlockPyModule, BlockPyModuleMap, BlockPyNameLike,
+    BlockTerm, Call, CellLocation, CellRef, CellRefForName, ClosureInit, ClosureSlot,
+    CoreBlockPyCallArg, CoreBlockPyExpr, CoreNumberLiteral, CoreNumberLiteralValue,
+    CoreStringLiteral, Del, DelItem, FunctionId, FunctionKind, HasMeta, InstrExprNode, Load,
+    LocalLocation, LocatedCoreBlockPyExpr, LocatedName, MakeCell, MakeFunction, MapExpr,
+    NameLocation, SetItem, StorageLayout, Store, TermRaise, UnresolvedName, Walkable, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -674,12 +674,12 @@ fn cell_ref_marker_target(expr: &CoreBlockPyExpr) -> Option<String> {
     Some(logical_name.clone())
 }
 
-fn make_function_kind_name(kind: BlockPyFunctionKind) -> &'static str {
+fn make_function_kind_name(kind: FunctionKind) -> &'static str {
     match kind {
-        BlockPyFunctionKind::Function => "function",
-        BlockPyFunctionKind::Coroutine => "coroutine",
-        BlockPyFunctionKind::Generator => "generator",
-        BlockPyFunctionKind::AsyncGenerator => "async_generator",
+        FunctionKind::Function => "function",
+        FunctionKind::Coroutine => "coroutine",
+        FunctionKind::Generator => "generator",
+        FunctionKind::AsyncGenerator => "async_generator",
     }
 }
 
@@ -774,7 +774,7 @@ fn build_closure_slot_cell_init_assign(slot: &ClosureSlot) -> CoreStmt {
 
 fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPass>) {
     let init_stmts = match callable.kind {
-        BlockPyFunctionKind::Function => {
+        FunctionKind::Function => {
             let mut storage_names = callable
                 .semantic
                 .owned_cell_storage_names()
@@ -800,9 +800,7 @@ fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPa
                 })
                 .collect::<Vec<_>>()
         }
-        BlockPyFunctionKind::Generator
-        | BlockPyFunctionKind::Coroutine
-        | BlockPyFunctionKind::AsyncGenerator => {
+        FunctionKind::Generator | FunctionKind::Coroutine | FunctionKind::AsyncGenerator => {
             let layout = callable
                 .storage_layout
                 .as_ref()
@@ -2403,9 +2401,7 @@ fn compute_module_make_function_capture_names(
         };
         if matches!(
             callable.kind,
-            BlockPyFunctionKind::Generator
-                | BlockPyFunctionKind::Coroutine
-                | BlockPyFunctionKind::AsyncGenerator
+            FunctionKind::Generator | FunctionKind::Coroutine | FunctionKind::AsyncGenerator
         ) {
             let captures = layout_capture_bindings();
             memo.insert(function_id, captures.clone());

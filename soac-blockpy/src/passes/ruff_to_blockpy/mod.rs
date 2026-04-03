@@ -4,8 +4,8 @@ use crate::block_py::cfg::{
 use crate::block_py::param_specs::ParamSpec;
 use crate::block_py::{
     assert_blockpy_block_normalized, Block, BlockEdge, BlockLabel, BlockPyCallableSemanticInfo,
-    BlockPyFallthroughTerm, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockTerm,
-    FunctionName, FunctionNameGen, Instr, StructuredInstr,
+    BlockPyFallthroughTerm, BlockPyFunction, BlockPyModule, BlockTerm, FunctionKind, FunctionName,
+    FunctionNameGen, Instr, StructuredInstr,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -135,7 +135,7 @@ pub(crate) fn build_core_blockpy_callable_def_from_runtime_input(
     runtime_input_body: &[Stmt],
     doc: Option<String>,
     end_label: BlockLabel,
-    blockpy_kind: BlockPyFunctionKind,
+    blockpy_kind: FunctionKind,
     semantic: &BlockPyCallableSemanticInfo,
 ) -> BlockPyFunction<CoreBlockPyPassWithAwaitAndYield> {
     let function_id = name_gen.function_id();
@@ -176,7 +176,7 @@ pub(crate) fn build_core_blockpy_callable_def_from_runtime_input(
         .map(make_eval_order_explicit_in_core_block)
         .collect::<Vec<_>>();
     let mut blocks = lower_structured_blocks_to_bb_blocks(&name_gen, &blocks);
-    if matches!(blockpy_kind, BlockPyFunctionKind::Function) {
+    if matches!(blockpy_kind, FunctionKind::Function) {
         rewrite_current_exception_in_core_blocks_with_await_and_yield(&mut blocks[..]);
     }
     BlockPyFunction {

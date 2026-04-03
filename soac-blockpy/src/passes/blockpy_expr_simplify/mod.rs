@@ -315,15 +315,15 @@ fn lower_core_call_keywords(
         .collect()
 }
 
-fn make_function_kind_from_literal(expr: &Expr) -> Option<crate::block_py::BlockPyFunctionKind> {
+fn make_function_kind_from_literal(expr: &Expr) -> Option<crate::block_py::FunctionKind> {
     let Expr::StringLiteral(node) = expr else {
         return None;
     };
     match node.value.to_str() {
-        "function" => Some(crate::block_py::BlockPyFunctionKind::Function),
-        "coroutine" => Some(crate::block_py::BlockPyFunctionKind::Coroutine),
-        "generator" => Some(crate::block_py::BlockPyFunctionKind::Generator),
-        "async_generator" => Some(crate::block_py::BlockPyFunctionKind::AsyncGenerator),
+        "function" => Some(crate::block_py::FunctionKind::Function),
+        "coroutine" => Some(crate::block_py::FunctionKind::Coroutine),
+        "generator" => Some(crate::block_py::FunctionKind::Generator),
+        "async_generator" => Some(crate::block_py::FunctionKind::AsyncGenerator),
         _ => None,
     }
 }

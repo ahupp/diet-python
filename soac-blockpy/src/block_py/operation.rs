@@ -1,7 +1,7 @@
 use super::operation_macro::define_operation;
 use super::{
-    BlockPyFunctionKind, BlockPyNameLike, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg,
-    FunctionId, HasMeta, Instr, InstrExprNode, InstrName, MapExpr, Meta, TryMapExpr, Walkable,
+    BlockPyNameLike, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg, FunctionId,
+    FunctionKind, HasMeta, Instr, InstrExprNode, InstrName, MapExpr, Meta, TryMapExpr, Walkable,
     WithMeta,
 };
 use std::fmt;
@@ -195,10 +195,7 @@ impl<E: Instr> InstrExprNode<E> for Call<E> {
         }
     }
 
-    fn try_map_typed_children<T, Error, M>(
-        self,
-        map: &mut M,
-    ) -> Result<Self::Mapped<T>, Error>
+    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
         M: TryMapExpr<E, T, Error>,
@@ -315,10 +312,7 @@ impl<I: Instr> InstrExprNode<I> for Load<I> {
         }
     }
 
-    fn try_map_typed_children<T, Error, M>(
-        self,
-        map: &mut M,
-    ) -> Result<Self::Mapped<T>, Error>
+    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
         M: TryMapExpr<I, T, Error>,
@@ -408,10 +402,7 @@ impl<I: Instr> InstrExprNode<I> for Store<I> {
         }
     }
 
-    fn try_map_typed_children<T, Error, M>(
-        self,
-        map: &mut M,
-    ) -> Result<Self::Mapped<T>, Error>
+    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
         M: TryMapExpr<I, T, Error>,
@@ -488,10 +479,7 @@ impl<I: Instr> InstrExprNode<I> for Del<I> {
         }
     }
 
-    fn try_map_typed_children<T, Error, M>(
-        self,
-        map: &mut M,
-    ) -> Result<Self::Mapped<T>, Error>
+    fn try_map_typed_children<T, Error, M>(self, map: &mut M) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
         M: TryMapExpr<I, T, Error>,
@@ -525,7 +513,7 @@ define_operation! {
 define_operation! {
     pub struct MakeFunction<E> {
         function_id: FunctionId,
-        kind: BlockPyFunctionKind,
+        kind: FunctionKind,
         param_defaults: Box<E>,
         annotate_fn: Box<E>,
     }

@@ -6,9 +6,7 @@ use pyo3::exceptions::{
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyFunction, PyModule, PyString, PyTuple};
-use soac_blockpy::block_py::{
-    BlockPyFunction, BlockPyFunctionKind, BlockPyModule, FunctionId, ParamKind,
-};
+use soac_blockpy::block_py::{BlockPyFunction, BlockPyModule, FunctionId, FunctionKind, ParamKind};
 use soac_blockpy::lower_python_to_blockpy;
 use soac_blockpy::pass_tracker::NoopPassTracker;
 use soac_blockpy::passes::CodegenBlockPyPass;
@@ -464,10 +462,10 @@ fn build_closure_shaped_entry<'py>(
 ) -> PyResult<Bound<'py, PyAny>> {
     debug_assert!(!captured_names.is_empty());
     let (is_async, is_generator) = match function.lowered_kind() {
-        BlockPyFunctionKind::Function => (false, false),
-        BlockPyFunctionKind::Coroutine => (true, false),
-        BlockPyFunctionKind::Generator => (false, true),
-        BlockPyFunctionKind::AsyncGenerator => (true, true),
+        FunctionKind::Function => (false, false),
+        FunctionKind::Coroutine => (true, false),
+        FunctionKind::Generator => (false, true),
+        FunctionKind::AsyncGenerator => (true, true),
     };
     let code = dp.getattr("code_with_freevars")?.call1((
         PyTuple::new(py, captured_names)?,

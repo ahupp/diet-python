@@ -1,7 +1,6 @@
 use super::{
     Block, BlockArg, BlockBuilder, BlockEdge, BlockLabel, BlockParamRole, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyModule, BlockPyPass, BlockTerm, Instr, StructuredInstr, TermIf,
-    TermRaise,
+    BlockPyModule, BlockPyPass, BlockTerm, FunctionKind, Instr, StructuredInstr, TermIf, TermRaise,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
@@ -511,12 +510,12 @@ fn closure_init_name(init: &crate::block_py::ClosureInit) -> &'static str {
     }
 }
 
-fn function_kind_name(kind: BlockPyFunctionKind) -> &'static str {
+fn function_kind_name(kind: FunctionKind) -> &'static str {
     match kind {
-        BlockPyFunctionKind::Function => "function",
-        BlockPyFunctionKind::Coroutine => "coroutine",
-        BlockPyFunctionKind::Generator => "generator",
-        BlockPyFunctionKind::AsyncGenerator => "async_generator",
+        FunctionKind::Function => "function",
+        FunctionKind::Coroutine => "coroutine",
+        FunctionKind::Generator => "generator",
+        FunctionKind::AsyncGenerator => "async_generator",
     }
 }
 

@@ -5,12 +5,12 @@ use crate::block_py::{
     core_runtime_name_expr_with_meta, core_runtime_positional_call_expr_with_meta,
     try_lower_core_expr_without_await, try_lower_core_expr_without_yield, Block, BlockArg,
     BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole, BlockPyBindingKind,
-    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyNameLike, BlockPySemanticExprNode, BlockTerm, CellRefForName, ClosureInit, ClosureSlot,
+    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyFunction, BlockPyNameLike,
+    BlockPySemanticExprNode, BlockTerm, CellRefForName, ClosureInit, ClosureSlot,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionName,
-    FunctionNameGen, ImplicitNoneExpr, Instr, Load, MakeFunction, ModuleNameGen, StorageLayout,
-    Store, TermBranchTable, TermIf, TermRaise, UnresolvedName,
+    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionKind,
+    FunctionName, FunctionNameGen, ImplicitNoneExpr, Instr, Load, MakeFunction, ModuleNameGen,
+    StorageLayout, Store, TermBranchTable, TermIf, TermRaise, UnresolvedName,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -58,13 +58,11 @@ type LinearYieldBlock = Block<LinearYieldStmt, CoreBlockPyExprWithYield>;
 type LinearCoreBlock = Block<LinearCoreStmt, CoreBlockPyExpr>;
 type BlockPyBlock = LinearCoreBlock;
 
-fn resume_abi_params(kind: BlockPyFunctionKind) -> &'static [ResumeAbiParam] {
+fn resume_abi_params(kind: FunctionKind) -> &'static [ResumeAbiParam] {
     match kind {
-        BlockPyFunctionKind::Function => &[],
-        BlockPyFunctionKind::Coroutine | BlockPyFunctionKind::Generator => {
-            &GENERATOR_RESUME_ABI_PARAMS
-        }
-        BlockPyFunctionKind::AsyncGenerator => &ASYNC_GENERATOR_RESUME_ABI_PARAMS,
+        FunctionKind::Function => &[],
+        FunctionKind::Coroutine | FunctionKind::Generator => &GENERATOR_RESUME_ABI_PARAMS,
+        FunctionKind::AsyncGenerator => &ASYNC_GENERATOR_RESUME_ABI_PARAMS,
     }
 }
 
@@ -342,7 +340,7 @@ fn core_generator_code(async_gen: bool, name: &str, qualname: &str) -> CoreBlock
 
 fn core_make_function(
     function_id: FunctionId,
-    kind: BlockPyFunctionKind,
+    kind: FunctionKind,
     param_defaults: CoreBlockPyExpr,
     annotate_fn: CoreBlockPyExpr,
 ) -> CoreBlockPyExpr {
@@ -355,12 +353,10 @@ fn core_make_function(
     .into()
 }
 
-fn is_generator_like(kind: BlockPyFunctionKind) -> bool {
+fn is_generator_like(kind: FunctionKind) -> bool {
     matches!(
         kind,
-        BlockPyFunctionKind::Generator
-            | BlockPyFunctionKind::Coroutine
-            | BlockPyFunctionKind::AsyncGenerator
+        FunctionKind::Generator | FunctionKind::Coroutine | FunctionKind::AsyncGenerator
     )
 }
 
@@ -492,10 +488,7 @@ fn resume_closure_bindings(
     }
 }
 
-fn generator_resume_declared_params(
-    kind: BlockPyFunctionKind,
-    params: &[BlockParam],
-) -> Vec<BlockParam> {
+fn generator_resume_declared_params(kind: FunctionKind, params: &[BlockParam]) -> Vec<BlockParam> {
     let kept_indices = generator_resume_declared_param_indices(kind, params);
     params
         .iter()
@@ -506,7 +499,7 @@ fn generator_resume_declared_params(
 }
 
 fn generator_resume_declared_param_indices(
-    kind: BlockPyFunctionKind,
+    kind: FunctionKind,
     params: &[BlockParam],
 ) -> Vec<usize> {
     let resume_abi_names = resume_abi_params(kind)
@@ -529,16 +522,16 @@ fn generator_resume_declared_param_indices(
 fn build_factory_block(
     visible_names: &FunctionName,
     resume_function_id: FunctionId,
-    kind: BlockPyFunctionKind,
+    kind: FunctionKind,
 ) -> LinearCoreBlock {
     let resume_entry = core_make_function(
         resume_function_id,
-        BlockPyFunctionKind::Function,
+        FunctionKind::Function,
         core_call("tuple_values", Vec::new()),
         core_none(),
     );
     let generator = match kind {
-        BlockPyFunctionKind::Generator | BlockPyFunctionKind::Coroutine => core_call_expr(
+        FunctionKind::Generator | FunctionKind::Coroutine => core_call_expr(
             core_runtime_attr("ClosureGenerator"),
             Vec::new(),
             vec![
@@ -563,7 +556,7 @@ fn build_factory_block(
                 ("throw_context_cell", core_cell_ref("_dp_throw_context")),
             ],
         ),
-        BlockPyFunctionKind::AsyncGenerator => core_call_expr(
+        FunctionKind::AsyncGenerator => core_call_expr(
             core_runtime_attr("ClosureAsyncGenerator"),
             Vec::new(),
             vec![
@@ -588,16 +581,16 @@ fn build_factory_block(
                 ("throw_context_cell", core_cell_ref("_dp_throw_context")),
             ],
         ),
-        BlockPyFunctionKind::Function => {
+        FunctionKind::Function => {
             unreachable!("plain functions do not use generator factories")
         }
     };
     let factory_value = match kind {
-        BlockPyFunctionKind::Coroutine => {
+        FunctionKind::Coroutine => {
             core_call_expr(core_runtime_attr("Coroutine"), vec![generator], Vec::new())
         }
-        BlockPyFunctionKind::Generator | BlockPyFunctionKind::AsyncGenerator => generator,
-        BlockPyFunctionKind::Function => {
+        FunctionKind::Generator | FunctionKind::AsyncGenerator => generator,
+        FunctionKind::Function => {
             unreachable!("plain functions do not use generator factories")
         }
     };
@@ -611,7 +604,7 @@ fn build_factory_block(
     )
 }
 
-fn resume_param_spec(kind: BlockPyFunctionKind) -> ParamSpec {
+fn resume_param_spec(kind: FunctionKind) -> ParamSpec {
     ParamSpec {
         params: resume_abi_params(kind)
             .iter()
@@ -680,8 +673,11 @@ fn term_yield_site(term: &BlockTerm<CoreBlockPyExprWithYield>) -> Option<YieldSi
 }
 
 fn lower_stmt_no_yield(stmt: LinearYieldStmt) -> LinearCoreStmt {
-    let mut mapper =
-        ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield>::without_yield();
+    let mut mapper = ExprTryMap::<
+        CoreBlockPyPassWithYield,
+        CoreBlockPyPass,
+        CoreBlockPyExprWithYield,
+    >::without_yield();
     mapper.try_map_expr(stmt.clone()).unwrap_or_else(|_| {
             panic!(
                 "generator lowering expected yield-like sites to be split before stmt conversion: {stmt:?}"
@@ -690,8 +686,11 @@ fn lower_stmt_no_yield(stmt: LinearYieldStmt) -> LinearCoreStmt {
 }
 
 fn lower_term_no_yield(term: BlockTerm<CoreBlockPyExprWithYield>) -> BlockTerm<CoreBlockPyExpr> {
-    let mut mapper =
-        ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield>::without_yield();
+    let mut mapper = ExprTryMap::<
+        CoreBlockPyPassWithYield,
+        CoreBlockPyPass,
+        CoreBlockPyExprWithYield,
+    >::without_yield();
     mapper.try_map_term(term.clone()).unwrap_or_else(|_| {
         panic!(
             "generator lowering expected yield-like sites to be split before term conversion: {term:?}"
@@ -709,11 +708,11 @@ fn yield_value_expr(value: Option<CoreBlockPyExprWithYield>) -> CoreBlockPyExpr 
 }
 
 fn completion_raise(
-    kind: BlockPyFunctionKind,
+    kind: FunctionKind,
     value: Option<CoreBlockPyExpr>,
 ) -> BlockTerm<CoreBlockPyExpr> {
     match kind {
-        BlockPyFunctionKind::Generator | BlockPyFunctionKind::Coroutine => {
+        FunctionKind::Generator | FunctionKind::Coroutine => {
             let exc = if let Some(value) = value {
                 core_call("StopIteration", vec![value])
             } else {
@@ -721,10 +720,10 @@ fn completion_raise(
             };
             BlockTerm::Raise(TermRaise { exc: Some(exc) })
         }
-        BlockPyFunctionKind::AsyncGenerator => BlockTerm::Raise(TermRaise {
+        FunctionKind::AsyncGenerator => BlockTerm::Raise(TermRaise {
             exc: Some(core_call("AsyncGenComplete", Vec::new())),
         }),
-        BlockPyFunctionKind::Function => unreachable!(),
+        FunctionKind::Function => unreachable!(),
     }
 }
 
@@ -829,7 +828,7 @@ fn current_exception_value_expr(exc_name: &str) -> CoreBlockPyExpr {
 }
 
 struct ResumeLoweringState {
-    kind: BlockPyFunctionKind,
+    kind: FunctionKind,
     name_gen: FunctionNameGen,
     next_resume_pc: usize,
     blocks: Vec<LinearCoreBlock>,
@@ -842,7 +841,7 @@ struct ResumeLoweringState {
 impl ResumeLoweringState {
     fn new(
         name_gen: FunctionNameGen,
-        kind: BlockPyFunctionKind,
+        kind: FunctionKind,
         target_arg_indices: HashMap<BlockLabel, Vec<usize>>,
     ) -> Self {
         let exhausted_label = name_gen.next_block_name();
@@ -1631,7 +1630,7 @@ pub(crate) fn lower_generator_like_function(
         function_id: resume_function_id,
         name_gen: resume_name_gen,
         names: resume_names,
-        kind: BlockPyFunctionKind::Function,
+        kind: FunctionKind::Function,
         params: resume_params.clone(),
         blocks: resume_blocks.clone(),
         doc: None,

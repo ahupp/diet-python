@@ -34,12 +34,18 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for Cor
             CoreBlockPyExprWithAwaitAndYield::Load(node) => node.map_typed_children(self).into(),
             CoreBlockPyExprWithAwaitAndYield::Store(node) => node.map_typed_children(self).into(),
             CoreBlockPyExprWithAwaitAndYield::Del(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExprWithAwaitAndYield::MakeCell(node) => node.map_typed_children(self).into(),
+            CoreBlockPyExprWithAwaitAndYield::MakeCell(node) => {
+                node.map_typed_children(self).into()
+            }
             CoreBlockPyExprWithAwaitAndYield::CellRefForName(node) => node.into(),
             CoreBlockPyExprWithAwaitAndYield::CellRef(node) => node.into(),
-            CoreBlockPyExprWithAwaitAndYield::MakeFunction(node) => node.map_typed_children(self).into(),
+            CoreBlockPyExprWithAwaitAndYield::MakeFunction(node) => {
+                node.map_typed_children(self).into()
+            }
             CoreBlockPyExprWithAwaitAndYield::Yield(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExprWithAwaitAndYield::YieldFrom(node) => node.map_typed_children(self).into(),
+            CoreBlockPyExprWithAwaitAndYield::YieldFrom(node) => {
+                node.map_typed_children(self).into()
+            }
         }
     }
 

@@ -1,9 +1,8 @@
 use super::*;
 
 use crate::block_py::{
-    Block, BlockLabel, BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyNameLike, BlockTerm, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
-    FunctionName,
+    Block, BlockLabel, BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyNameLike, BlockTerm,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionKind, FunctionName,
 };
 use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
 
@@ -28,7 +27,7 @@ fn lowers_await_to_yield_from_await_iter() {
             function_id: crate::block_py::FunctionId(0),
             name_gen: test_name_gen(),
             names: FunctionName::new("f", "f", "f", "f"),
-            kind: BlockPyFunctionKind::Coroutine,
+            kind: FunctionKind::Coroutine,
             params: Default::default(),
             blocks: vec![Block {
                 label: structured_block.label,

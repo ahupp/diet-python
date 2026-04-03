@@ -163,7 +163,7 @@ mod tests {
             function_id: name_gen.function_id(),
             name_gen,
             names: FunctionName::new("test", "test", "test", "test"),
-            kind: soac_blockpy::block_py::BlockPyFunctionKind::Function,
+            kind: soac_blockpy::block_py::FunctionKind::Function,
             params: ParamSpec::default(),
             blocks: vec![],
             doc: None,

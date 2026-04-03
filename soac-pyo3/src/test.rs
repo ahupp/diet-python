@@ -1,4 +1,4 @@
-use soac_blockpy::block_py::BlockPyFunctionKind;
+use soac_blockpy::block_py::FunctionKind;
 use soac_eval::jit;
 use std::any::Any;
 use std::collections::HashSet;
@@ -34,10 +34,10 @@ fn validate_bb_module_for_jit(
 ) -> Result<(), String> {
     for function in &bb_module.callable_defs {
         match function.lowered_kind() {
-            BlockPyFunctionKind::Function
-            | BlockPyFunctionKind::Coroutine
-            | BlockPyFunctionKind::Generator
-            | BlockPyFunctionKind::AsyncGenerator => {}
+            FunctionKind::Function
+            | FunctionKind::Coroutine
+            | FunctionKind::Generator
+            | FunctionKind::AsyncGenerator => {}
         }
     }
     Ok(())

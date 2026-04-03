@@ -447,7 +447,7 @@ impl From<UnresolvedName> for LocatedName {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BlockPyFunctionKind {
+pub enum FunctionKind {
     Function,
     Coroutine,
     Generator,
@@ -1075,7 +1075,7 @@ pub struct BlockPyFunction<P: BlockPyPass, S = <P as BlockPyPass>::Expr> {
     pub function_id: FunctionId,
     pub name_gen: FunctionNameGen,
     pub names: FunctionName,
-    pub kind: BlockPyFunctionKind,
+    pub kind: FunctionKind,
     pub params: ParamSpec,
     pub blocks: Vec<Block<S, P::Expr>>,
     pub doc: Option<String>,
@@ -1102,7 +1102,7 @@ impl<P: BlockPyPass, S: Clone> Clone for BlockPyFunction<P, S> {
 }
 
 impl<P: BlockPyPass, S> BlockPyFunction<P, S> {
-    pub fn lowered_kind(&self) -> &BlockPyFunctionKind {
+    pub fn lowered_kind(&self) -> &FunctionKind {
         &self.kind
     }
 

@@ -1,7 +1,7 @@
 use crate::block_py::param_specs::{collect_param_spec_and_defaults, param_defaults_to_expr};
 use crate::block_py::{
     BlockPyBindingKind, BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyModule, BlockPyPass, FunctionNameGen, ModuleNameGen,
+    BlockPyModule, BlockPyPass, FunctionKind, FunctionNameGen, ModuleNameGen,
 };
 use crate::passes::ast_to_ast::body::{split_docstring, Suite};
 use crate::passes::ast_to_ast::context::Context;
@@ -90,15 +90,15 @@ impl Transformer for YieldFamilyDetector {
     }
 }
 
-fn function_kind(func: &ast::StmtFunctionDef) -> BlockPyFunctionKind {
+fn function_kind(func: &ast::StmtFunctionDef) -> FunctionKind {
     let mut detector = YieldFamilyDetector::default();
     let mut body = func.body.to_vec();
     detector.visit_body(&mut body);
     match (func.is_async, detector.found) {
-        (false, false) => BlockPyFunctionKind::Function,
-        (false, true) => BlockPyFunctionKind::Generator,
-        (true, false) => BlockPyFunctionKind::Coroutine,
-        (true, true) => BlockPyFunctionKind::AsyncGenerator,
+        (false, false) => FunctionKind::Function,
+        (false, true) => FunctionKind::Generator,
+        (true, false) => FunctionKind::Coroutine,
+        (true, true) => FunctionKind::AsyncGenerator,
     }
 }
 
@@ -132,14 +132,14 @@ fn build_lowered_function_instantiation_expr(
     decorator_exprs: Vec<Expr>,
     param_defaults: &[Expr],
     annotate_fn_expr: Expr,
-    kind: BlockPyFunctionKind,
+    kind: FunctionKind,
 ) -> Expr {
     let param_defaults_expr = param_defaults_to_expr(param_defaults);
     let kind_name = match kind {
-        BlockPyFunctionKind::Function => "function",
-        BlockPyFunctionKind::Coroutine => "coroutine",
-        BlockPyFunctionKind::Generator => "generator",
-        BlockPyFunctionKind::AsyncGenerator => "async_generator",
+        FunctionKind::Function => "function",
+        FunctionKind::Coroutine => "coroutine",
+        FunctionKind::Generator => "generator",
+        FunctionKind::AsyncGenerator => "async_generator",
     };
     let base_function_expr = py_expr!(
         "__soac__.make_function({function_id:literal}, {kind:literal}, {closure:expr}, {param_defaults:expr}, {annotate_fn:expr})",
