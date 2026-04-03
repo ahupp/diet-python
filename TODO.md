@@ -121,6 +121,135 @@
   - Once closure generator factories construct `_DpClosureGenerator` / `_DpClosureAsyncGenerator` directly, they should stop rebuilding `.__code__.replace(...)` on every factory call.
   - The follow-up is to materialize those code objects once during module init and reference them as module constants from the generated factory blocks.
 
+## Runtime execution-state counters
+
+- Planning note:
+  - The desired end state is a flexible instrumentation policy that starts in BlockPy CFG space, allocates concrete counter storage only for the selected probes, and lets both live runtime code and shutdown/reporting code read the same storage.
+  - The key design principle should be:
+    - instrumentation sites are explicit IR nodes, not hidden side effects in codegen; and
+    - runtime counter storage is explicit module/function state, not a global registry.
+  - The simplest first slice is one counter kind:
+    - a monotonic `u64` increment inserted at a chosen block entry.
+  - The current codebase already has the right extension points for that shape:
+    - BlockPy CFG instrumentation passes mutate function blocks in `instrument_bb_module_for_trace`, in `fn instrument_bb_module_for_trace`, at `soac-blockpy/src/passes/trace/mod.rs:41`;
+    - lowered modules already carry shared per-module data in `struct SharedModuleState`, at `soac-eval/src/module_type.rs:18`;
+    - JIT code already reads runtime pointers out of `struct JitModuleVmCtx`, at `soac-eval/src/jit/vmctx.rs:10`;
+    - specialized JIT code already allocates and updates per-function execution state via stack slots in `fn build_cranelift_run_bb_specialized_function`, at `soac-eval/src/jit/mod.rs:3600`.
+  - A good staged plan is:
+    1. Introduce an explicit codegen-visible counter op in BlockPy.
+       - Add a small op such as `IncrementCounter { counter_id: u32 }` to the codegen instruction set, instead of reusing helper calls like trace currently does.
+       - Keep it in the same conceptual layer as `LoadRuntime` / `LoadGlobal`-style runtime-facing operations.
+       - The first injection pass can mirror `instrument_bb_module_for_trace(...)`, but emit:
+         ```rust
+         block.body.insert(0, CodegenBlockPyExpr::IncrementCounter(
+             IncrementCounter::new(counter_id).with_meta(Meta::synthetic())
+         ));
+         ```
+       - The important invariant is that counter instrumentation stays visible in CFG/pretty output and can be validated before codegen.
+    2. Add explicit counter metadata to lowered module state.
+       - Extend `BlockPyModule<CodegenBlockPyPass>` or its nearby runtime/codegen metadata with a list of counter definitions:
+         ```rust
+         pub struct CounterDef {
+             pub id: u32,
+             pub qualname: String,
+             pub block: BlockPyLabel,
+             pub kind: CounterKind,
+         }
+         ```
+       - The initial `CounterKind` can just be `BlockEntryHits`.
+       - This is where the flexible “policy” lives:
+         - select which functions/blocks get counters;
+         - assign stable IDs;
+         - attach human-readable labels for reporting.
+       - Keep that policy as a pass-local transform first, not as environment-variable behavior baked into codegen.
+    3. Add explicit runtime storage for counters in shared module state.
+       - Extend `SharedModuleState`, in `struct SharedModuleState`, at `soac-eval/src/module_type.rs:18`, with a counter storage owner:
+         ```rust
+         pub struct CounterStorage {
+             values: Vec<AtomicU64>,
+             defs: Vec<CounterDef>,
+         }
+         ```
+       - The storage should be owned per transformed module, because:
+         - it is naturally tied to the lowered module and its counter definitions;
+         - it can be read while code is running;
+         - it can be read again at shutdown without coordinating with a process-global map.
+       - For the first implementation, `AtomicU64` is simpler than raw `u64`, even if execution is effectively single-threaded under the GIL today.
+    4. Thread a counter-storage pointer through the JIT runtime context.
+       - Extend `JitModuleVmCtx`, in `struct JitModuleVmCtx`, at `soac-eval/src/jit/vmctx.rs:10`, with one pointer field for counter storage:
+         ```rust
+         pub counter_base: *mut u64,
+         ```
+         or, if using atomics, a pointer to `AtomicU64`.
+       - Add an offset constant next to the existing VMContext offsets.
+       - Populate it when building `ModuleRuntimeContext`.
+       - This keeps the JIT-side access model identical to globals/module constants:
+         load one base pointer from vmctx, then index into it.
+    5. Lower `IncrementCounter` directly in JIT codegen.
+       - In `fn build_cranelift_run_bb_specialized_function`, at `soac-eval/src/jit/mod.rs:3600`, handle `IncrementCounter` by:
+         - loading the counter base pointer from vmctx;
+         - computing `base + counter_id * size_of::<u64>()`;
+         - loading the current value;
+         - adding 1;
+         - storing it back.
+       - Initial code sample:
+         ```rust
+         let base = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, COUNTER_BASE_OFFSET);
+         let slot_addr = fb.ins().iadd_imm(base, (counter_id as i64) * 8);
+         let old = fb.ins().load(ir::types::I64, ir::MemFlags::trusted(), slot_addr, 0);
+         let new = fb.ins().iadd_imm(old, 1);
+         fb.ins().store(ir::MemFlags::trusted(), new, slot_addr, 0);
+         ```
+       - For the first slice, do this only in JIT codegen. Tree-walk/native execution can either ignore the op explicitly or reject it until the instrumentation path is used only for JIT benchmarking.
+    6. Expose readout through module/runtime APIs.
+       - Add one small readout API near module runtime ownership, probably in `soac-pyo3/src/jit_runtime.rs` or `soac-eval/src/module_type.rs`, that returns:
+         - current values by ID; and/or
+         - `(CounterDef, value)` pairs.
+       - This supports both:
+         - polling during runtime; and
+         - printing/reporting on shutdown.
+       - Avoid a process-global shutdown hook at first. A simple explicit Python-visible accessor is easier to validate.
+    7. Only after the simple counter path works, generalize the policy.
+       - Replace `CounterKind::BlockEntryHits` with a more open-ended notion of execution-state probes, for example:
+         ```rust
+         enum CounterKind {
+             BlockEntryHits,
+             EdgeTaken,
+             ExceptionEdgeTaken,
+         }
+         ```
+       - Then optionally separate:
+         - counter definition policy;
+         - storage layout assignment;
+         - injection pass.
+  - Challenging parts to watch:
+    - counter identity stability:
+      - IDs should be assigned after block layout is stable enough that labels do not shift unexpectedly across unrelated transforms.
+      - Block label plus function qualname is probably the right human-readable key.
+    - runtime ownership:
+      - counters should live with `SharedModuleState` / `ModuleRuntimeContext`, not with individual compiled-function handles, so multiple compiled entrypoints for one module see the same stats.
+    - future free-threading:
+      - even if the current runtime rejects free-threaded CPython for some other JIT paths, the counter storage design should not assume unsynchronized `u64` mutation forever.
+      - Starting with atomics keeps this flexible.
+    - non-JIT fallback semantics:
+      - if an instrumented module can execute without JIT, either the tree-walk path must update the same counters or the instrumentation pass must be gated to JIT-only modules.
+  - Recommended first implementation slice:
+    1. Add `CounterDef` metadata to lowered modules.
+    2. Add `IncrementCounter(counter_id)` to codegen exprs.
+    3. Write one pass that instruments block entry for one chosen function.
+    4. Allocate `Vec<AtomicU64>` in `SharedModuleState`.
+    5. Thread `counter_base` through `JitModuleVmCtx`.
+    6. Lower `IncrementCounter` in the specialized JIT path.
+    7. Add one focused test that:
+       - instruments a function with one block-entry counter;
+       - runs it twice;
+       - reads the counter storage and sees `2`.
+  - If the first slice is meant primarily for profiling and benchmarking, the initial API can stay intentionally narrow:
+    - one counter class;
+    - one injection pass;
+    - one JIT-only reader.
+    That keeps the architecture explicit without overdesigning the policy layer before the storage path is proven.
+
 ## Make ordinary function creation native
 
 - Planning note:
