@@ -1,13 +1,13 @@
 use super::*;
 use crate::block_py::{
     BlockPyCfgBlockBuilder, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmtFragmentBuilder,
-    BlockPyTerm, Expr, ImplicitNoneExpr, Instr, StructuredInstrFor,
+    BlockPyTerm, Expr, ImplicitNoneExpr, Instr, StructuredInstr,
 };
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ruff_to_blockpy::stmt_lowering::lower_nested_stmt_into_with_expr;
 
 fn with_exc_meta<E: Instr>(
-    block: crate::block_py::CfgBlock<StructuredInstrFor<E>, BlockPyTerm<E>>,
+    block: crate::block_py::CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>,
     exc_target: Option<&BlockPyLabel>,
 ) -> LoweredBlockPyBlock<E> {
     crate::block_py::CfgBlock {
@@ -35,7 +35,7 @@ where
         body.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block = BlockPyCfgBlockBuilder::<StructuredInstrFor<E>, BlockPyTerm<E>>::new(label);
+    let mut block = BlockPyCfgBlockBuilder::<StructuredInstr<E>, BlockPyTerm<E>>::new(label);
     block.extend(body.body);
     block.set_term(term);
     with_exc_meta(block.finish(None), exc_target)
@@ -81,7 +81,7 @@ where
         fragment.term.is_none(),
         "compatibility block body should not contain its own terminator"
     );
-    let mut block = BlockPyCfgBlockBuilder::<StructuredInstrFor<E>, BlockPyTerm<E>>::new(label);
+    let mut block = BlockPyCfgBlockBuilder::<StructuredInstr<E>, BlockPyTerm<E>>::new(label);
     block.extend(fragment.body);
     block.set_term(BlockPyTerm::IfTerm(BlockPyIfTerm {
         test,
@@ -182,7 +182,7 @@ where
         "compatibility block body should not contain its own terminator"
     );
     let mut block =
-        BlockPyCfgBlockBuilder::<StructuredInstrFor<E>, BlockPyTerm<E>>::new(label.clone());
+        BlockPyCfgBlockBuilder::<StructuredInstr<E>, BlockPyTerm<E>>::new(label.clone());
     block.extend(fragment.body);
     block.set_term(BlockPyTerm::Return(
         value.unwrap_or_else(E::implicit_none_expr),
@@ -223,7 +223,7 @@ where
         "compatibility block body should not contain its own terminator"
     );
     let mut block =
-        BlockPyCfgBlockBuilder::<StructuredInstrFor<E>, BlockPyTerm<E>>::new(label.clone());
+        BlockPyCfgBlockBuilder::<StructuredInstr<E>, BlockPyTerm<E>>::new(label.clone());
     block.extend(fragment.body);
     block.set_term(BlockPyTerm::Raise(exc));
     blocks.push(with_exc_meta(block.finish(None), exc_target));

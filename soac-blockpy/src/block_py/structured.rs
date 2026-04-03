@@ -3,30 +3,30 @@ use super::{
     BlockPyCfgFragment, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyTerm,
     CfgBlock, MapExpr,
 };
-use super::{Instr, StructuredInstr, StructuredInstrFor};
+use super::{Instr, StructuredInstr};
 use std::fmt;
 
 pub(crate) trait IntoStructuredInstr<I>: Clone + fmt::Debug
 where
     I: Instr,
 {
-    fn into_structured_instr(self) -> StructuredInstrFor<I>;
+    fn into_structured_instr(self) -> StructuredInstr<I>;
 }
 
 impl<I> IntoStructuredInstr<I> for I
 where
     I: Instr,
 {
-    fn into_structured_instr(self) -> StructuredInstrFor<I> {
+    fn into_structured_instr(self) -> StructuredInstr<I> {
         StructuredInstr::Expr(self)
     }
 }
 
-impl<I> IntoStructuredInstr<I> for StructuredInstrFor<I>
+impl<I> IntoStructuredInstr<I> for StructuredInstr<I>
 where
     I: Instr,
 {
-    fn into_structured_instr(self) -> StructuredInstrFor<I> {
+    fn into_structured_instr(self) -> StructuredInstr<I> {
         self
     }
 }

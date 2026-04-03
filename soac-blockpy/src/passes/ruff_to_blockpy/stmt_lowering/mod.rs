@@ -1,11 +1,10 @@
 use super::*;
-use crate::block_py::{BlockPyRaise, BlockPyTerm, Expr, StructuredInstrFor};
+use crate::block_py::{BlockPyRaise, BlockPyTerm, Expr, StructuredInstr};
 use crate::passes::ast_to_ast::ast_rewrite::Rewrite;
 use crate::passes::ast_to_ast::context::Context;
 
-pub(super) type StructuredInstr<E> = StructuredInstrFor<E>;
 pub(super) type BlockPyStmtFragmentBuilder<E> =
-    crate::block_py::BlockPyCfgFragmentBuilder<StructuredInstrFor<E>, BlockPyTerm<E>>;
+    crate::block_py::BlockPyCfgFragmentBuilder<StructuredInstr<E>, BlockPyTerm<E>>;
 
 pub(super) fn stmts_from_rewrite(rewrite: Rewrite) -> Vec<Stmt> {
     match rewrite {

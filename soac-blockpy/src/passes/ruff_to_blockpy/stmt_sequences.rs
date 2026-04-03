@@ -1,8 +1,6 @@
 use super::stmt_lowering::lower_stmt_into_with_expr;
 use super::*;
-use crate::block_py::{
-    BlockPyRaise, BlockPyTerm, Expr, ImplicitNoneExpr, Instr, StructuredInstrFor as StructuredInstr,
-};
+use crate::block_py::{BlockPyRaise, BlockPyTerm, Expr, ImplicitNoneExpr, Instr, StructuredInstr};
 use crate::passes::ast_to_ast::context::Context;
 
 pub(crate) fn lower_stmts_to_blockpy_stmts_with_context<E>(

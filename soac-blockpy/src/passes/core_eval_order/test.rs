@@ -1,7 +1,7 @@
 use super::*;
 use crate::block_py::{
     BinOp, BinOpKind, BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyCallArg,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyYieldFrom, Meta, Store, StructuredInstrFor,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyYieldFrom, Meta, Store, StructuredInstr,
     UnresolvedName, WithMeta,
 };
 
@@ -80,7 +80,7 @@ fn eval_order_hoists_return_value_to_temp() {
 fn eval_order_hoists_nested_call_in_assignment_rhs() {
     let block = BlockPyBlock {
         label: BlockPyLabel::from_index(0),
-        body: vec![StructuredInstrFor::Expr(
+        body: vec![StructuredInstr::Expr(
             Store::new(
                 fresh_eval_name(),
                 Box::new(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
@@ -98,8 +98,7 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
 
     let lowered = make_eval_order_explicit_in_core_block(block);
     assert_eq!(lowered.body.len(), 1);
-    let StructuredInstrFor::Expr(CoreBlockPyExprWithAwaitAndYield::Store(assign)) =
-        &lowered.body[0]
+    let StructuredInstr::Expr(CoreBlockPyExprWithAwaitAndYield::Store(assign)) = &lowered.body[0]
     else {
         panic!("expected rewritten temp store");
     };
@@ -117,7 +116,7 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
 fn eval_order_hoists_await_in_assignment_call_argument() {
     let block = BlockPyBlock {
         label: BlockPyLabel::from_index(0),
-        body: vec![StructuredInstrFor::Expr(
+        body: vec![StructuredInstr::Expr(
             Store::new(
                 test_name("total"),
                 Box::new(CoreBlockPyExprWithAwaitAndYield::BinOp(BinOp::new(
@@ -137,7 +136,7 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
 
     let lowered = make_eval_order_explicit_in_core_block(block);
     assert_eq!(lowered.body.len(), 3);
-    let StructuredInstrFor::Expr(CoreBlockPyExprWithAwaitAndYield::Store(temp_assign)) =
+    let StructuredInstr::Expr(CoreBlockPyExprWithAwaitAndYield::Store(temp_assign)) =
         &lowered.body[0]
     else {
         panic!("expected hoisted await temp store");
@@ -146,8 +145,7 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
         *temp_assign.value,
         CoreBlockPyExprWithAwaitAndYield::Await(_)
     ));
-    let StructuredInstrFor::Expr(CoreBlockPyExprWithAwaitAndYield::Store(assign)) =
-        &lowered.body[1]
+    let StructuredInstr::Expr(CoreBlockPyExprWithAwaitAndYield::Store(assign)) = &lowered.body[1]
     else {
         panic!("expected rewritten store");
     };
@@ -161,7 +159,7 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
     ));
     assert!(matches!(
         lowered.body[2],
-        StructuredInstrFor::Expr(CoreBlockPyExprWithAwaitAndYield::Del(_))
+        StructuredInstr::Expr(CoreBlockPyExprWithAwaitAndYield::Del(_))
     ));
 }
 
@@ -169,7 +167,7 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
 fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
     let block = BlockPyBlock {
         label: BlockPyLabel::from_index(0),
-        body: vec![StructuredInstrFor::Expr(
+        body: vec![StructuredInstr::Expr(
             Store::new(
                 test_name("total"),
                 Box::new(CoreBlockPyExprWithYield::BinOp(BinOp::new(
@@ -190,7 +188,7 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
 
     let lowered = make_eval_order_explicit_in_core_block_without_await(block);
     assert_eq!(lowered.body.len(), 5);
-    let StructuredInstrFor::Expr(CoreBlockPyExprWithYield::Store(temp_assign)) = &lowered.body[0]
+    let StructuredInstr::Expr(CoreBlockPyExprWithYield::Store(temp_assign)) = &lowered.body[0]
     else {
         panic!("expected hoisted yield-from temp store");
     };
@@ -198,7 +196,7 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
         *temp_assign.value,
         CoreBlockPyExprWithYield::YieldFrom(_)
     ));
-    let StructuredInstrFor::Expr(CoreBlockPyExprWithYield::Store(binop_assign)) = &lowered.body[1]
+    let StructuredInstr::Expr(CoreBlockPyExprWithYield::Store(binop_assign)) = &lowered.body[1]
     else {
         panic!("expected hoisted inplace-add temp store");
     };
@@ -209,7 +207,7 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
         op.right.as_ref(),
         CoreBlockPyExprWithYield::Load(_)
     ));
-    let StructuredInstrFor::Expr(CoreBlockPyExprWithYield::Store(assign)) = &lowered.body[2] else {
+    let StructuredInstr::Expr(CoreBlockPyExprWithYield::Store(assign)) = &lowered.body[2] else {
         panic!("expected final store into total");
     };
     assert!(matches!(
@@ -218,10 +216,10 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
     ));
     assert!(matches!(
         lowered.body[3],
-        StructuredInstrFor::Expr(CoreBlockPyExprWithYield::Del(_))
+        StructuredInstr::Expr(CoreBlockPyExprWithYield::Del(_))
     ));
     assert!(matches!(
         lowered.body[4],
-        StructuredInstrFor::Expr(CoreBlockPyExprWithYield::Del(_))
+        StructuredInstr::Expr(CoreBlockPyExprWithYield::Del(_))
     ));
 }

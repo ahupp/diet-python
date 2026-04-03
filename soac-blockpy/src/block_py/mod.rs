@@ -1366,7 +1366,6 @@ pub trait BlockPyPass: Clone + fmt::Debug {
 }
 
 pub type InstrName<I> = <I as Instr>::Name;
-pub(crate) type StructuredInstrFor<I> = StructuredInstr<I>;
 pub type ResolvedStorageBlock = CfgBlock<LocatedCoreBlockPyExpr>;
 pub type CodegenBlock = CfgBlock<CodegenBlockPyExpr>;
 

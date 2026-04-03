@@ -1,7 +1,7 @@
 use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
 use crate::block_py::{
     BlockPyCfgFragment, BlockPyStmtFragmentBuilder, BlockPyTerm, Instr, Meta, Store, StructuredIf,
-    StructuredInstrFor, WithMeta,
+    StructuredInstr, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::fresh_setup_name;
 use crate::passes::ruff_to_blockpy::LoopContext;
@@ -21,20 +21,20 @@ fn load_name(name: &str) -> Expr {
     py_expr!("{name:id}", name = name)
 }
 
-fn assign_name<E>(target: &str, value: Expr) -> StructuredInstrFor<E>
+fn assign_name<E>(target: &str, value: Expr) -> StructuredInstr<E>
 where
     E: RuffToBlockPyExpr,
 {
     let target = store_name(target);
     let meta = Meta::new(target.node_index.clone(), target.range);
-    StructuredInstrFor::Expr(
+    StructuredInstr::Expr(
         Store::new(target, Box::new(E::from_lowered_expr(value)))
             .with_meta(meta)
             .into(),
     )
 }
 
-fn empty_fragment<E>() -> BlockPyCfgFragment<StructuredInstrFor<E>, BlockPyTerm<E>>
+fn empty_fragment<E>() -> BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>
 where
     E: std::fmt::Debug + Instr,
 {
@@ -67,7 +67,7 @@ where
             ast::BoolOp::And => load_name(&target),
             ast::BoolOp::Or => py_expr!("not {target:id}", target = target.as_str()),
         };
-        out.push_stmt(StructuredInstrFor::If(StructuredIf {
+        out.push_stmt(StructuredInstr::If(StructuredIf {
             test: test.into(),
             body: body.finish(),
             orelse: empty_fragment(),
@@ -145,7 +145,7 @@ where
             compare_expr(op, current_left.clone(), comparator_expr.clone()),
         ));
         current_left = comparator_expr;
-        out.push_stmt(StructuredInstrFor::If(StructuredIf {
+        out.push_stmt(StructuredInstr::If(StructuredIf {
             test: load_name(&target_name).into(),
             body: step_body.finish(),
             orelse: empty_fragment(),

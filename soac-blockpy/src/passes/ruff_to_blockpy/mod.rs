@@ -9,7 +9,7 @@ use crate::block_py::param_specs::ParamSpec;
 use crate::block_py::{
     assert_blockpy_block_normalized, BlockPyCallableSemanticInfo, BlockPyEdge,
     BlockPyFallthroughTerm, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyModule,
-    BlockPyTerm, CfgBlock, FunctionName, FunctionNameGen, StructuredInstrFor,
+    BlockPyTerm, CfgBlock, FunctionName, FunctionNameGen, StructuredInstr,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -57,7 +57,7 @@ pub(crate) use try_regions::{
     prepare_except_body, prepare_finally_body, TryPlan,
 };
 
-pub(crate) type LoweredBlockPyBlock<E = Expr> = CfgBlock<StructuredInstrFor<E>, BlockPyTerm<E>>;
+pub(crate) type LoweredBlockPyBlock<E = Expr> = CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>;
 pub(crate) type BlockPyBlock<E = Expr> = LoweredBlockPyBlock<E>;
 
 pub(crate) fn rewrite_ast_to_core_blockpy_module_with_module(
