@@ -4,6 +4,8 @@ set -euo pipefail
 MEMORY_LIMIT_MB="${DIET_PYTHON_MEMORY_LIMIT_MB:-8192}"
 TIMEOUT_SECS="${DIET_PYTHON_TIMEOUT_SECS:-180}"
 CPUSET="${DIET_PYTHON_CPUSET:-0-7}"
+RUNTIME_DIR="${DIET_PYTHON_SYSTEMD_RUNTIME_DIR:-/run/user/$(id -u)}"
+BUS_ADDRESS="unix:path=${RUNTIME_DIR}/bus"
 
 if ! [[ "$MEMORY_LIMIT_MB" =~ ^[0-9]+$ ]]; then
   echo "invalid memory limit '$MEMORY_LIMIT_MB' (expected integer MiB)" >&2
@@ -21,45 +23,42 @@ fi
 
 CMD=("$@")
 
+if ! command -v systemd-run >/dev/null 2>&1; then
+  echo "systemd-run not found but test limits require it" >&2
+  exit 2
+fi
+
+if [ ! -S "${RUNTIME_DIR}/bus" ]; then
+  echo "user systemd bus not available at ${RUNTIME_DIR}/bus; cannot apply test limits without prompting" >&2
+  exit 2
+fi
+
+CMD=(
+  env
+  "XDG_RUNTIME_DIR=${RUNTIME_DIR}"
+  "DBUS_SESSION_BUS_ADDRESS=${BUS_ADDRESS}"
+  systemd-run
+  --user
+  --scope
+  --quiet
+  --no-ask-password
+)
+
 if [ -n "$CPUSET" ]; then
-  if ! command -v taskset >/dev/null 2>&1; then
-    echo "taskset not found but DIET_PYTHON_CPUSET='$CPUSET' was set" >&2
-    exit 2
-  fi
   echo "Restricting build/test execution to CPU set: $CPUSET" >&2
-  CMD=(taskset -c "$CPUSET" "${CMD[@]}")
+  CMD+=(-p "AllowedCPUs=$CPUSET")
 fi
 
 if [ "$MEMORY_LIMIT_MB" -gt 0 ]; then
-  MEMORY_LIMIT_KB=$((MEMORY_LIMIT_MB * 1024))
-  MEMORY_LIMIT_BYTES=$((MEMORY_LIMIT_MB * 1024 * 1024))
-  ulimit -m "$MEMORY_LIMIT_KB" 2>/dev/null || true
-  ulimit -v "$MEMORY_LIMIT_KB"
-  echo "Applying per-process memory caps: RSS=${MEMORY_LIMIT_MB} MiB (best effort), VM=${MEMORY_LIMIT_MB} MiB" >&2
-  if command -v prlimit >/dev/null 2>&1; then
-    CMD=(
-      prlimit
-      --rss="$MEMORY_LIMIT_BYTES:$MEMORY_LIMIT_BYTES"
-      --as="$MEMORY_LIMIT_BYTES:$MEMORY_LIMIT_BYTES"
-      --
-      "${CMD[@]}"
-    )
-  fi
+  echo "Applying cgroup memory cap: ${MEMORY_LIMIT_MB} MiB" >&2
+  CMD+=(-p "MemoryMax=${MEMORY_LIMIT_MB}M")
 fi
 
 if [ "$TIMEOUT_SECS" -gt 0 ]; then
-  if ! command -v timeout >/dev/null 2>&1; then
-    echo "timeout not found but DIET_PYTHON_TIMEOUT_SECS='$TIMEOUT_SECS' was set" >&2
-    exit 2
-  fi
-  echo "Applying wall-clock timeout: ${TIMEOUT_SECS}s" >&2
-  CMD=(
-    timeout
-    --foreground
-    --kill-after=10s
-    "${TIMEOUT_SECS}s"
-    "${CMD[@]}"
-  )
+  echo "Applying cgroup wall-clock timeout: ${TIMEOUT_SECS}s" >&2
+  CMD+=(-p "RuntimeMaxSec=${TIMEOUT_SECS}s")
 fi
+
+CMD+=(-- "$@")
 
 exec "${CMD[@]}"
