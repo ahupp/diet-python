@@ -2,6 +2,7 @@ use crate::SOAC_RUNTIME_CLIF;
 use crate::module_constants::{ModuleCodegenConstants, ModuleConstantId};
 use cranelift_codegen::cfg_printer::CFGPrinter;
 use cranelift_codegen::incremental_cache::CacheKvStore;
+use cranelift_codegen::inline::{Inline, InlineCommand};
 use cranelift_codegen::ir;
 use cranelift_codegen::ir::InstBuilder;
 use cranelift_codegen::settings;
@@ -41,6 +42,7 @@ use vmctx::{
 pub use vmctx::{JitModuleVmCtx, ModuleRuntimeContext};
 
 static INCREMENTAL_CLIF_CACHE: OnceLock<Mutex<HashMap<Vec<u8>, Vec<u8>>>> = OnceLock::new();
+static RUNTIME_SUPPORT_LIBRARY: OnceLock<Result<RuntimeSupportLibrary, String>> = OnceLock::new();
 static NEXT_IMPORT_SPEC_ID: AtomicUsize = AtomicUsize::new(0);
 
 unsafe extern "C" {
@@ -53,6 +55,18 @@ fn py_dealloc_symbol() -> *const u8 {
 
 fn incremental_clif_cache() -> &'static Mutex<HashMap<Vec<u8>, Vec<u8>>> {
     INCREMENTAL_CLIF_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn runtime_support_library() -> Result<&'static RuntimeSupportLibrary, String> {
+    match RUNTIME_SUPPORT_LIBRARY.get_or_init(|| {
+        if let Some(error) = runtime_support_clif_compatibility_error() {
+            return Err(error.to_string());
+        }
+        parse_runtime_clif_functions().map(|functions| RuntimeSupportLibrary { functions })
+    }) {
+        Ok(library) => Ok(library),
+        Err(error) => Err(error.clone()),
+    }
 }
 
 struct GlobalIncrementalCacheStore<'a> {
@@ -3054,6 +3068,7 @@ fn define_function_with_incremental_cache(
     ctx: &mut cranelift_codegen::Context,
     err_prefix: &str,
 ) -> Result<(), String> {
+    inline_runtime_support_calls(jit_module, ctx, err_prefix)?;
     let func_for_relocs = ctx.func.clone();
     let mut ctrl_plane = ControlPlane::default();
     let mut cache_store = GlobalIncrementalCacheStore {
@@ -3073,6 +3088,84 @@ fn define_function_with_incremental_cache(
         .define_function_bytes(func_id, alignment, compiled.code_buffer(), &relocs)
         .map_err(|err| format!("{err_prefix}: {err}"))?;
     Ok(())
+}
+
+const RUNTIME_SUPPORT_INLINE_MAX_INSTS: usize = 32;
+
+#[derive(Debug)]
+struct RuntimeSupportInliner {
+    inlineable: HashMap<ir::UserExternalName, ir::Function>,
+}
+
+impl RuntimeSupportInliner {
+    fn for_module(jit_module: &mut JITModule) -> Result<Self, String> {
+        let library = runtime_support_library()?;
+        let mut import_func_ids = HashMap::new();
+        let mut inlineable = HashMap::new();
+        for parsed in &library.functions {
+            if !matches!(
+                parsed.symbol.as_str(),
+                SOAC_RUNTIME_INCREF_SYMBOL | SOAC_RUNTIME_DECREF_SYMBOL
+            ) {
+                continue;
+            }
+            let func_id = jit_module
+                .declare_function(&parsed.symbol, Linkage::Local, &parsed.function.signature)
+                .map_err(|err| {
+                    format!(
+                        "failed to declare inlineable runtime CLIF function {}: {err}",
+                        parsed.symbol
+                    )
+                })?;
+            let mut function = parsed.function.clone();
+            remap_runtime_clif_extern_user_names(
+                jit_module,
+                &mut function,
+                &parsed.extern_symbols,
+                &mut import_func_ids,
+            )?;
+            if function.dfg.num_insts() > RUNTIME_SUPPORT_INLINE_MAX_INSTS {
+                continue;
+            }
+            inlineable.insert(ir::UserExternalName::new(0, func_id.as_u32()), function);
+        }
+        Ok(Self { inlineable })
+    }
+}
+
+impl Inline for RuntimeSupportInliner {
+    fn inline(
+        &mut self,
+        caller: &ir::Function,
+        _call_inst: ir::Inst,
+        _call_opcode: ir::Opcode,
+        callee: ir::FuncRef,
+        _call_args: &[ir::Value],
+    ) -> InlineCommand<'_> {
+        let ext_func = &caller.dfg.ext_funcs[callee];
+        let ir::ExternalName::User(name_ref) = &ext_func.name else {
+            return InlineCommand::KeepCall;
+        };
+        let user_name = caller.params.user_named_funcs()[*name_ref].clone();
+        let Some(callee_func) = self.inlineable.get(&user_name) else {
+            return InlineCommand::KeepCall;
+        };
+        InlineCommand::Inline {
+            callee: Cow::Borrowed(callee_func),
+            // We only want to splice these tiny refcount helpers into the caller.
+            visit_callee: false,
+        }
+    }
+}
+
+fn inline_runtime_support_calls(
+    jit_module: &mut JITModule,
+    ctx: &mut cranelift_codegen::Context,
+    err_prefix: &str,
+) -> Result<bool, String> {
+    let mut inliner = RuntimeSupportInliner::for_module(jit_module)?;
+    ctx.inline(&mut inliner)
+        .map_err(|err| format!("{err_prefix}: failed to inline runtime support calls: {err:?}"))
 }
 
 fn lower_static_signature(jit_module: &mut JITModule, signature: StaticSignature) -> ir::Signature {
@@ -3143,6 +3236,11 @@ fn runtime_support_clif_compatibility_error() -> Option<&'static str> {
 }
 
 #[derive(Debug)]
+struct RuntimeSupportLibrary {
+    functions: Vec<ParsedRuntimeClifFunction>,
+}
+
+#[derive(Clone, Debug)]
 struct ParsedRuntimeClifFunction {
     symbol: String,
     function: ir::Function,
@@ -3270,12 +3368,9 @@ fn remap_runtime_clif_extern_user_names(
 }
 
 fn load_runtime_support_clif(jit_module: &mut JITModule) -> Result<(), String> {
-    if let Some(error) = runtime_support_clif_compatibility_error() {
-        return Err(error.to_string());
-    }
-    let mut parsed_functions = parse_runtime_clif_functions()?;
+    let library = runtime_support_library()?;
     let mut import_func_ids = HashMap::new();
-    for parsed in &mut parsed_functions {
+    for parsed in library.functions.iter().cloned() {
         let func_id = jit_module
             .declare_function(&parsed.symbol, Linkage::Local, &parsed.function.signature)
             .map_err(|err| {
@@ -3284,14 +3379,15 @@ fn load_runtime_support_clif(jit_module: &mut JITModule) -> Result<(), String> {
                     parsed.symbol
                 )
             })?;
+        let mut function = parsed.function;
         remap_runtime_clif_extern_user_names(
             jit_module,
-            &mut parsed.function,
+            &mut function,
             &parsed.extern_symbols,
             &mut import_func_ids,
         )?;
         let mut ctx = jit_module.make_context();
-        ctx.func = std::mem::replace(&mut parsed.function, ir::Function::new());
+        ctx.func = function;
         define_function_with_incremental_cache(
             jit_module,
             func_id,

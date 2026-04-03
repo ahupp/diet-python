@@ -268,8 +268,40 @@ mod tests {
         1
     }
 
-    unsafe fn build_runtime_refcount_smoke_wrapper()
-    -> unsafe extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void {
+    fn count_direct_calls_to_runtime_helpers(
+        function: &ir::Function,
+        helpers: &[ir::UserExternalName],
+    ) -> usize {
+        let mut count = 0usize;
+        for block in function.layout.blocks() {
+            for inst in function.layout.block_insts(block) {
+                let callee = match function.dfg.insts[inst] {
+                    ir::InstructionData::Call { func_ref, .. }
+                    | ir::InstructionData::TryCall { func_ref, .. } => Some(func_ref),
+                    _ => None,
+                };
+                let Some(callee) = callee else {
+                    continue;
+                };
+                let ext_func = &function.dfg.ext_funcs[callee];
+                let ir::ExternalName::User(name_ref) = &ext_func.name else {
+                    continue;
+                };
+                let user_name = &function.params.user_named_funcs()[*name_ref];
+                if helpers.contains(user_name) {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    unsafe fn build_runtime_refcount_smoke_context() -> (
+        JITModule,
+        cranelift_codegen::Context,
+        FuncId,
+        [ir::UserExternalName; 2],
+    ) {
         let mut jit_module = new_jit_module().expect("test jit module should construct");
         let ptr_ty = jit_module.target_config().pointer_type();
 
@@ -319,6 +351,21 @@ mod tests {
             fb.ins().return_(&[arg]);
             fb.finalize();
         }
+
+        (
+            jit_module,
+            ctx,
+            wrapper_id,
+            [
+                ir::UserExternalName::new(0, incref_id.as_u32()),
+                ir::UserExternalName::new(0, decref_id.as_u32()),
+            ],
+        )
+    }
+
+    unsafe fn build_runtime_refcount_smoke_wrapper()
+    -> unsafe extern "C" fn(*mut std::ffi::c_void) -> *mut std::ffi::c_void {
+        let (mut jit_module, mut ctx, wrapper_id, _) = build_runtime_refcount_smoke_context();
 
         define_function_with_incremental_cache(
             &mut jit_module,
@@ -409,6 +456,34 @@ mod tests {
                 "runtime incref/decref smoke wrapper should preserve the null pointer"
             );
         }
+    }
+
+    #[test]
+    fn jit_runtime_support_inliner_removes_direct_refcount_calls_from_caller() {
+        let (mut jit_module, mut ctx, _wrapper_id, helper_names) =
+            unsafe { build_runtime_refcount_smoke_context() };
+        let before = count_direct_calls_to_runtime_helpers(&ctx.func, &helper_names);
+        assert_eq!(
+            before, 2,
+            "test caller should start with direct incref/decref calls"
+        );
+
+        let inlined = inline_runtime_support_calls(
+            &mut jit_module,
+            &mut ctx,
+            "test runtime support inliner should run",
+        )
+        .expect("runtime support inliner should succeed");
+        let after = count_direct_calls_to_runtime_helpers(&ctx.func, &helper_names);
+
+        assert!(
+            inlined,
+            "runtime support inliner should report at least one inlined call"
+        );
+        assert_eq!(
+            after, 0,
+            "runtime support inliner should remove direct incref/decref calls from the caller"
+        );
     }
 
     #[test]
