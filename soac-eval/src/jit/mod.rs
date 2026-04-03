@@ -3079,6 +3079,10 @@ fn is_clif_ident_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
+pub(crate) fn jit_python_perf_symbol_name(kind: &str, qualname: &str) -> String {
+    format!("py:{kind}:{qualname}")
+}
+
 fn rewrite_import_fn_aliases(
     clif: &str,
     import_id_to_symbol: &HashMap<u32, &'static str>,
@@ -3310,7 +3314,8 @@ fn build_cranelift_run_bb_specialized_function(
     }
     main_sig.returns.push(ir::AbiParam::new(ptr_ty));
 
-    let main_id = declare_local_fn(jit_module, "dp_jit_run_bb_specialized", &main_sig)?;
+    let main_symbol = jit_python_perf_symbol_name("d", &function.names.qualname);
+    let main_id = declare_local_fn(jit_module, &main_symbol, &main_sig)?;
 
     let mut ctx = jit_module.make_context();
     ctx.func.signature = main_sig;
@@ -4024,6 +4029,7 @@ pub unsafe fn compile_cranelift_vectorcall_direct_trampoline(
     data_ptr: ObjPtr,
     vmctx_ptr: ObjPtr,
     compiled_handle: ObjPtr,
+    symbol_name: &str,
 ) -> Result<(ObjPtr, VectorcallEntryFn), String> {
     if data_ptr.is_null() {
         return Err("invalid null vectorcall data pointer".to_string());
@@ -4053,7 +4059,7 @@ pub unsafe fn compile_cranelift_vectorcall_direct_trampoline(
 
     let main_id = declare_local_fn(
         &mut jit_module,
-        "dp_jit_vectorcall_direct_trampoline",
+        symbol_name,
         &main_sig,
     )?;
 

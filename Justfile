@@ -298,6 +298,9 @@ perf-pystone-jit-warm loops="500000" output_prefix="logs/pystone_jit_perf_warm":
   PERF_FREQUENCY="${PERF_FREQUENCY:-999}"
   PERF_CALL_GRAPH="${PERF_CALL_GRAPH:-dwarf,16384}"
   PERF_PERCENT_LIMIT="${PERF_PERCENT_LIMIT:-0.5}"
+  PERF_BUILDID_DIR="${PERF_BUILDID_DIR:-$REPO_ROOT/tmp/perf-buildid}"
+
+  mkdir -p "${PERF_BUILDID_DIR}"
 
   PERF_DATA_BASENAME="$(basename "${OUTPUT_PREFIX}").data"
   PERF_DATA="$REPO_ROOT/tmp/${PERF_DATA_BASENAME}"
@@ -329,6 +332,7 @@ perf-pystone-jit-warm loops="500000" output_prefix="logs/pystone_jit_perf_warm":
   echo "report by dso: ${REPORT_DSO}"
   echo "report by dso/symbol: ${REPORT_DSO_SYMBOLS}"
   echo "report callgraph: ${REPORT_CALLGRAPH}"
+  echo "perf buildid dir: ${PERF_BUILDID_DIR}"
 
   cd "$REPO_ROOT"
   cargo build --release
@@ -348,6 +352,7 @@ perf-pystone-jit-warm loops="500000" output_prefix="logs/pystone_jit_perf_warm":
     env \
     LOOPS="${LOOPS}" \
     WARMUP_LOOPS="${WARMUP_LOOPS}" \
+    PERF_BUILDID_DIR="${PERF_BUILDID_DIR}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH="${PYTHONPATH_PREFIX}${PYTHONPATH:+:${PYTHONPATH}}" \
     "$CPYTHON_BIN" -c 'import os; from soac.import_hook import install; install(); import pystone; warmup_loops = int(os.environ["WARMUP_LOOPS"]); loops = int(os.environ["LOOPS"]); warmup_loops > 0 and pystone.pystones(warmup_loops); pystone.main(loops)' \
