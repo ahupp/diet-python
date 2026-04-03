@@ -2,15 +2,15 @@ use crate::block_py::cfg::RelabelBlockTargets;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::{
     compute_storage_layout_from_semantics, core_call_expr_with_meta,
-    core_runtime_name_expr_with_meta, core_runtime_positional_call_expr_with_meta,
-    try_lower_core_expr_without_await, try_lower_core_expr_without_yield, Block, BlockArg,
+    core_runtime_name_expr_with_meta, core_runtime_positional_call_expr_with_meta, Block, BlockArg,
     BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole, BlockPyBindingKind,
     BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyFunction, BlockPyModuleTryMap,
     BlockPyNameLike, BlockPySemanticExprNode, BlockTerm, CellRefForName, ClosureInit, ClosureSlot,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ErrOnYield, FunctionId, FunctionKind,
-    FunctionName, FunctionNameGen, ImplicitNoneExpr, Instr, Load, MakeFunction, ModuleNameGen,
-    StorageLayout, Store, TermBranchTable, TermIf, TermRaise, TryMapExpr, UnresolvedName,
+    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ErrOnAwait, ErrOnYield, FunctionId,
+    FunctionKind, FunctionName, FunctionNameGen, ImplicitNoneExpr, Instr, Load, MakeFunction,
+    ModuleNameGen, StorageLayout, Store, TermBranchTable, TermIf, TermRaise, TryMapExpr,
+    UnresolvedName,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -159,9 +159,11 @@ fn expr_name(id: &str) -> UnresolvedName {
 
 fn core_expr_without_yield(expr: Expr) -> CoreBlockPyExpr {
     let core = CoreBlockPyExprWithAwaitAndYield::from(expr);
-    let core_without_await = try_lower_core_expr_without_await(core)
+    let core_without_await = ErrOnAwait
+        .try_map_expr(core)
         .unwrap_or_else(|_| panic!("generator helper expression unexpectedly contained await"));
-    try_lower_core_expr_without_yield(core_without_await)
+    ErrOnYield
+        .try_map_expr(core_without_await)
         .unwrap_or_else(|_| panic!("generator helper expression unexpectedly contained yield"))
 }
 
@@ -693,7 +695,8 @@ fn lower_term_no_yield(term: BlockTerm<CoreBlockPyExprWithYield>) -> BlockTerm<C
 fn yield_value_expr(value: Option<CoreBlockPyExprWithYield>) -> CoreBlockPyExpr {
     value
         .map(|value| {
-            try_lower_core_expr_without_yield(value)
+            ErrOnYield
+                .try_map_expr(value)
                 .unwrap_or_else(|_| panic!("yield payload unexpectedly contained nested yield"))
         })
         .unwrap_or_else(core_none)
@@ -954,11 +957,9 @@ fn lower_resume_fragment(
                 state,
                 label,
                 lowered_body,
-                Some(
-                    try_lower_core_expr_without_yield(value).unwrap_or_else(|_| {
-                        panic!("generator lowering expected yield-free final return value")
-                    }),
-                ),
+                Some(ErrOnYield.try_map_expr(value).unwrap_or_else(|_| {
+                    panic!("generator lowering expected yield-free final return value")
+                })),
                 params,
                 exc_target,
             );
@@ -1167,7 +1168,8 @@ fn emit_yield_from_site(
     let call_except_label = state.fresh_label("yield_from_except");
     let stopiter_label = state.fresh_label("yield_from_stopiter");
     let non_stopiter_label = state.fresh_label("yield_from_non_stopiter");
-    let value_expr = try_lower_core_expr_without_yield(value)
+    let value_expr = ErrOnYield
+        .try_map_expr(value)
         .unwrap_or_else(|_| panic!("yield from payload unexpectedly contained nested yield"));
     let yielded_value_name = state.fresh_temp("yield_from_value");
     let throw_name = state.fresh_temp("yield_from_throw");

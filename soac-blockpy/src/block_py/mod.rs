@@ -32,12 +32,8 @@ pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod semantics;
 pub(crate) mod validate;
-#[cfg(test)]
 pub(crate) use convert::ErrOnAwait;
-pub(crate) use convert::{
-    try_lower_core_expr_without_await, try_lower_core_expr_without_yield, BlockPyModuleMap,
-    BlockPyModuleTryMap, ErrOnYield,
-};
+pub(crate) use convert::{BlockPyModuleMap, BlockPyModuleTryMap, ErrOnYield};
 pub use name_gen::{BlockLabel, FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
 

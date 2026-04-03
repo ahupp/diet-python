@@ -176,13 +176,6 @@ impl BlockPyModuleTryMap<CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYi
     type Error = CoreBlockPyExprWithAwaitAndYield;
 }
 
-pub(crate) fn try_lower_core_expr_without_await(
-    value: CoreBlockPyExprWithAwaitAndYield,
-) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield> {
-    let mut mapper = ErrOnAwait;
-    mapper.try_map_expr(value)
-}
-
 pub(crate) struct ErrOnYield;
 
 impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYield>
@@ -205,11 +198,4 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYi
 
 impl BlockPyModuleTryMap<CoreBlockPyPassWithYield, CoreBlockPyPass> for ErrOnYield {
     type Error = CoreBlockPyExprWithYield;
-}
-
-pub(crate) fn try_lower_core_expr_without_yield(
-    value: CoreBlockPyExprWithYield,
-) -> Result<CoreBlockPyExpr, CoreBlockPyExprWithYield> {
-    let mut mapper = ErrOnYield;
-    mapper.try_map_expr(value)
 }

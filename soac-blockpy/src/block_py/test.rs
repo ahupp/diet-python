@@ -338,7 +338,8 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
             &mut self,
             expr: CoreBlockPyExprWithAwaitAndYield,
         ) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield> {
-            try_lower_core_expr_without_await(expr)
+            let mut mapper = ErrOnAwait;
+            mapper.try_map_expr(expr)
         }
 
         fn try_map_name(
