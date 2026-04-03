@@ -3024,13 +3024,15 @@ fn emit_codegen_term(
 fn new_jit_builder() -> Result<JITBuilder, String> {
     let mut flag_builder = settings::builder();
     flag_builder
+        .set("opt_level", "speed")
+        .map_err(|err| format!("failed to configure Cranelift flags: {err}"))?;
+    flag_builder
         .set("is_pic", "false")
         .map_err(|err| format!("failed to configure Cranelift flags: {err}"))?;
     flag_builder
         .set("preserve_frame_pointers", "true")
         .map_err(|err| format!("failed to configure Cranelift flags: {err}"))?;
-    let isa_builder =
-        cranelift_codegen::isa::lookup_by_name("x86_64").map_err(|err| format!("{err}"))?;
+    let isa_builder = cranelift_native::builder().map_err(|err| format!("{err}"))?;
     let isa = isa_builder
         .finish(settings::Flags::new(flag_builder))
         .map_err(|err| format!("failed to finish ISA: {err}"))?;

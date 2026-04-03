@@ -17,6 +17,7 @@ cranelift-control = "0.125"
 cranelift-frontend = "0.125"
 cranelift-jit = "0.125"
 cranelift-module = "0.125"
+cranelift-native = "0.125"
 cranelift-reader = "0.125"
 libc = "0.2"
 
