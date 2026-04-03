@@ -1,4 +1,4 @@
-use super::super::BlockPyStmtFragmentBuilder;
+use super::super::BlockPyStmtBuilder;
 use super::*;
 use crate::block_py::{CoreBlockPyExprWithAwaitAndYield, StructuredInstr};
 use crate::passes::ast_to_ast::context::Context;
@@ -10,7 +10,7 @@ fn stmt_delete_to_blockpy_emits_direct_core_delitem() {
         panic!("expected delete stmt");
     };
     let context = Context::new("");
-    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
+    let mut out = BlockPyStmtBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
     let mut next_label_id = 0usize;
 
     delete_stmt

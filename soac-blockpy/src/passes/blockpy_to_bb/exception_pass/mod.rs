@@ -1,5 +1,5 @@
 use crate::block_py::{
-    BlockPyEdge, BlockPyFunction, BlockPyModule, BlockPyTerm, CoreBlockPyExpr, ResolvedStorageBlock,
+    BlockEdge, BlockPyFunction, BlockPyModule, BlockTerm, CoreBlockPyExpr, ResolvedStorageBlock,
 };
 use crate::passes::ruff_to_blockpy::populate_exception_edge_args;
 use crate::passes::ResolvedStorageBlockPyPass;
@@ -69,7 +69,7 @@ fn split_exception_blocks_for_expr_checks(
                 out.push(ResolvedStorageBlock {
                     label: current_label,
                     body: std::mem::take(&mut segment_ops),
-                    term: BlockPyTerm::Jump(BlockPyEdge::new(next_label)),
+                    term: BlockTerm::Jump(BlockEdge::new(next_label)),
                     params: segment_params.clone(),
                     exc_edge: exc_edge.clone(),
                 });

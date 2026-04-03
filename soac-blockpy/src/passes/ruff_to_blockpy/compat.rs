@@ -1,29 +1,29 @@
 use super::*;
 use crate::block_py::{
-    BlockPyCfgFragment, BlockPyIfTerm, BlockPyLabel, BlockPyRaise, BlockPyStmtFragmentBuilder,
-    BlockPyTerm, CfgBlock, Expr, ImplicitNoneExpr, Instr, StructuredInstr,
+    Block, BlockBuilder, BlockLabel, BlockPyStmtBuilder, BlockTerm, Expr, ImplicitNoneExpr, Instr,
+    StructuredInstr, TermIf, TermRaise,
 };
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::ruff_to_blockpy::stmt_lowering::lower_nested_stmt_into_with_expr;
 
 fn with_exc_meta<E: Instr>(
-    block: crate::block_py::CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>,
-    exc_target: Option<&BlockPyLabel>,
+    block: crate::block_py::Block<StructuredInstr<E>, E>,
+    exc_target: Option<&BlockLabel>,
 ) -> LoweredBlockPyBlock<E> {
-    crate::block_py::CfgBlock {
+    crate::block_py::Block {
         label: block.label,
         body: block.body,
         term: block.term,
         params: block.params,
-        exc_edge: exc_target.cloned().map(crate::block_py::BlockPyEdge::new),
+        exc_edge: exc_target.cloned().map(crate::block_py::BlockEdge::new),
     }
 }
 
 pub(crate) fn compat_block_from_blockpy_with_exc_target_and_expr<E>(
-    label: BlockPyLabel,
+    label: BlockLabel,
     body: Vec<Stmt>,
-    term: BlockPyTerm<E>,
-    exc_target: Option<&BlockPyLabel>,
+    term: BlockTerm<E>,
+    exc_target: Option<&BlockLabel>,
 ) -> LoweredBlockPyBlock<E>
 where
     E: RuffToBlockPyExpr + ImplicitNoneExpr,
@@ -36,9 +36,9 @@ where
         "compatibility block body should not contain its own terminator"
     );
     with_exc_meta(
-        CfgBlock::from_fragment(
+        Block::from_builder(
             label,
-            BlockPyCfgFragment::with_term(body.body, Some(term)),
+            BlockBuilder::with_term(body.body, Some(term)),
             Vec::new(),
             None,
             None,
@@ -50,11 +50,11 @@ where
 fn compat_block_builder_with_expr_setup_and_expr<E>(
     context: &Context,
     body: Vec<Stmt>,
-) -> Result<BlockPyStmtFragmentBuilder<E>, String>
+) -> Result<BlockPyStmtBuilder<E>, String>
 where
     E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
-    let mut out = BlockPyStmtFragmentBuilder::<E>::new();
+    let mut out = BlockPyStmtBuilder::<E>::new();
     let mut next_label_id = 0usize;
     for stmt in &body {
         lower_nested_stmt_into_with_expr(context, stmt, &mut out, None, &mut next_label_id)?;
@@ -64,12 +64,12 @@ where
 
 pub(crate) fn compat_if_jump_block_with_expr_setup_and_exc_target_and_expr<E>(
     context: &Context,
-    label: BlockPyLabel,
+    label: BlockLabel,
     body: Vec<Stmt>,
     test: Expr,
-    then_label: BlockPyLabel,
-    else_label: BlockPyLabel,
-    exc_target: Option<&BlockPyLabel>,
+    then_label: BlockLabel,
+    else_label: BlockLabel,
+    exc_target: Option<&BlockLabel>,
 ) -> Result<LoweredBlockPyBlock<E>, String>
 where
     E: RuffToBlockPyExpr + ImplicitNoneExpr,
@@ -88,11 +88,11 @@ where
         "compatibility block body should not contain its own terminator"
     );
     Ok(with_exc_meta(
-        CfgBlock::from_fragment(
+        Block::from_builder(
             label,
-            BlockPyCfgFragment::with_term(
+            BlockBuilder::with_term(
                 fragment.body,
-                Some(BlockPyTerm::IfTerm(BlockPyIfTerm {
+                Some(BlockTerm::IfTerm(TermIf {
                     test,
                     then_label,
                     else_label,
@@ -141,7 +141,7 @@ fn rename_exception_edge_args<E: Instr>(
         }
     }
 
-    if let BlockPyTerm::Jump(edge) = &mut block.term {
+    if let BlockTerm::Jump(edge) = &mut block.term {
         rewrite_edge_args(&mut edge.args, old_exc_param, new_exc_param);
     }
     if let Some(edge) = &mut block.exc_edge {
@@ -151,18 +151,18 @@ fn rename_exception_edge_args<E: Instr>(
 
 pub(crate) fn emit_sequence_jump_block<E>(
     blocks: &mut Vec<LoweredBlockPyBlock<E>>,
-    label: BlockPyLabel,
+    label: BlockLabel,
     linear: Vec<Stmt>,
-    target_label: BlockPyLabel,
-    exc_target: Option<&BlockPyLabel>,
-) -> BlockPyLabel
+    target_label: BlockLabel,
+    exc_target: Option<&BlockLabel>,
+) -> BlockLabel
 where
     E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         label.clone(),
         linear,
-        BlockPyTerm::Jump(BlockPyEdge::new(target_label)),
+        BlockTerm::Jump(BlockEdge::new(target_label)),
         exc_target,
     ));
     label
@@ -171,11 +171,11 @@ where
 pub(crate) fn emit_sequence_return_block_with_expr_setup_and_expr<E>(
     context: &Context,
     blocks: &mut Vec<LoweredBlockPyBlock<E>>,
-    label: BlockPyLabel,
+    label: BlockLabel,
     linear: Vec<Stmt>,
     value: Option<Expr>,
-    exc_target: Option<&BlockPyLabel>,
-) -> Result<BlockPyLabel, String>
+    exc_target: Option<&BlockLabel>,
+) -> Result<BlockLabel, String>
 where
     E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
@@ -197,11 +197,11 @@ where
         "compatibility block body should not contain its own terminator"
     );
     blocks.push(with_exc_meta(
-        CfgBlock::from_fragment(
+        Block::from_builder(
             label.clone(),
-            BlockPyCfgFragment::with_term(
+            BlockBuilder::with_term(
                 fragment.body,
-                Some(BlockPyTerm::Return(
+                Some(BlockTerm::Return(
                     value.unwrap_or_else(E::implicit_none_expr),
                 )),
             ),
@@ -217,17 +217,17 @@ where
 pub(crate) fn emit_sequence_raise_block_with_expr_setup_and_expr<E>(
     context: &Context,
     blocks: &mut Vec<LoweredBlockPyBlock<E>>,
-    label: BlockPyLabel,
+    label: BlockLabel,
     linear: Vec<Stmt>,
-    exc: BlockPyRaise,
-    exc_target: Option<&BlockPyLabel>,
-) -> Result<BlockPyLabel, String>
+    exc: TermRaise<Expr>,
+    exc_target: Option<&BlockLabel>,
+) -> Result<BlockLabel, String>
 where
     E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
     let mut out = compat_block_builder_with_expr_setup_and_expr::<E>(context, linear)?;
     let mut next_label_id = 0usize;
-    let exc = BlockPyRaise {
+    let exc = TermRaise {
         exc: exc
             .exc
             .map(|expr| {
@@ -246,9 +246,9 @@ where
         "compatibility block body should not contain its own terminator"
     );
     blocks.push(with_exc_meta(
-        CfgBlock::from_fragment(
+        Block::from_builder(
             label.clone(),
-            BlockPyCfgFragment::with_term(fragment.body, Some(BlockPyTerm::Raise(exc))),
+            BlockBuilder::with_term(fragment.body, Some(BlockTerm::Raise(exc))),
             Vec::new(),
             None,
             None,
@@ -261,13 +261,13 @@ where
 pub(crate) fn emit_if_branch_block_with_expr_setup_and_expr<E>(
     context: &Context,
     blocks: &mut Vec<LoweredBlockPyBlock<E>>,
-    label: BlockPyLabel,
+    label: BlockLabel,
     body: Vec<Stmt>,
     test: Expr,
-    then_label: BlockPyLabel,
-    else_label: BlockPyLabel,
-    exc_target: Option<&BlockPyLabel>,
-) -> Result<BlockPyLabel, String>
+    then_label: BlockLabel,
+    else_label: BlockLabel,
+    exc_target: Option<&BlockLabel>,
+) -> Result<BlockLabel, String>
 where
     E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
@@ -288,14 +288,14 @@ where
 pub(crate) fn emit_simple_while_blocks_with_expr_setup_and_expr<E>(
     context: &Context,
     blocks: &mut Vec<LoweredBlockPyBlock<E>>,
-    test_label: BlockPyLabel,
-    linear_label: Option<BlockPyLabel>,
+    test_label: BlockLabel,
+    linear_label: Option<BlockLabel>,
     linear: Vec<Stmt>,
     test: Expr,
-    body_entry: BlockPyLabel,
-    cond_false_entry: BlockPyLabel,
-    exc_target: Option<&BlockPyLabel>,
-) -> Result<BlockPyLabel, String>
+    body_entry: BlockLabel,
+    cond_false_entry: BlockLabel,
+    exc_target: Option<&BlockLabel>,
+) -> Result<BlockLabel, String>
 where
     E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
@@ -314,7 +314,7 @@ where
         blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
             linear_label.clone(),
             linear,
-            BlockPyTerm::Jump(BlockPyEdge::new(test_label)),
+            BlockTerm::Jump(BlockEdge::new(test_label)),
             exc_target,
         ));
         Ok(linear_label)
@@ -325,20 +325,20 @@ where
 
 pub(crate) fn emit_for_loop_blocks<E>(
     blocks: &mut Vec<LoweredBlockPyBlock<E>>,
-    setup_label: BlockPyLabel,
-    assign_label: BlockPyLabel,
-    loop_check_label: BlockPyLabel,
-    loop_continue_label: BlockPyLabel,
+    setup_label: BlockLabel,
+    assign_label: BlockLabel,
+    loop_check_label: BlockLabel,
+    loop_continue_label: BlockLabel,
     linear: Vec<Stmt>,
     iter_name: &str,
     tmp_name: &str,
     iterable: Expr,
     is_async: bool,
-    exhausted_entry: BlockPyLabel,
-    body_entry: BlockPyLabel,
+    exhausted_entry: BlockLabel,
+    body_entry: BlockLabel,
     assign_body: Vec<Stmt>,
-    exc_target: Option<&BlockPyLabel>,
-) -> BlockPyLabel
+    exc_target: Option<&BlockLabel>,
+) -> BlockLabel
 where
     E: RuffToBlockPyExpr + ImplicitNoneExpr,
 {
@@ -348,7 +348,7 @@ where
     blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         assign_label.clone(),
         assign_body,
-        BlockPyTerm::Jump(BlockPyEdge::new(body_entry)),
+        BlockTerm::Jump(BlockEdge::new(body_entry)),
         exc_target,
     ));
 
@@ -369,7 +369,7 @@ where
     blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         loop_check_label.clone(),
         check_body,
-        BlockPyTerm::IfTerm(BlockPyIfTerm {
+        BlockTerm::IfTerm(TermIf {
             test: exhausted_test.into(),
             then_label: exhausted_entry,
             else_label: assign_label.clone(),
@@ -394,7 +394,7 @@ where
     blocks.push(compat_block_from_blockpy_with_exc_target_and_expr(
         setup_label.clone(),
         setup_body,
-        BlockPyTerm::Jump(BlockPyEdge::new(loop_continue_label)),
+        BlockTerm::Jump(BlockEdge::new(loop_continue_label)),
         exc_target,
     ));
     setup_label

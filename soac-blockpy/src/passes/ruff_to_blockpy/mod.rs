@@ -3,9 +3,9 @@ use crate::block_py::cfg::{
 };
 use crate::block_py::param_specs::ParamSpec;
 use crate::block_py::{
-    assert_blockpy_block_normalized, BlockPyCallableSemanticInfo, BlockPyEdge,
-    BlockPyFallthroughTerm, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel, BlockPyModule,
-    BlockPyTerm, CfgBlock, FunctionName, FunctionNameGen, StructuredInstr,
+    assert_blockpy_block_normalized, Block, BlockEdge, BlockLabel, BlockPyCallableSemanticInfo,
+    BlockPyFallthroughTerm, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockTerm,
+    FunctionName, FunctionNameGen, Instr, StructuredInstr,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::context::Context;
@@ -53,7 +53,7 @@ pub(crate) use try_regions::{
     prepare_except_body, prepare_finally_body, TryPlan,
 };
 
-pub(crate) type LoweredBlockPyBlock<E = Expr> = CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>;
+pub(crate) type LoweredBlockPyBlock<E = Expr> = Block<StructuredInstr<E>, E>;
 pub(crate) type BlockPyBlock<E = Expr> = LoweredBlockPyBlock<E>;
 
 pub(crate) fn rewrite_ast_to_core_blockpy_module_with_module(
@@ -98,13 +98,13 @@ pub(crate) enum StmtSequenceDriveResult {
     },
 }
 
-pub(crate) fn attach_exception_edges_to_blocks<S, E>(
-    blocks: Vec<CfgBlock<S, BlockPyTerm<E>>>,
-    exception_edges: &HashMap<BlockPyLabel, Option<BlockPyLabel>>,
-) -> Vec<CfgBlock<S, BlockPyTerm<E>>> {
+pub(crate) fn attach_exception_edges_to_blocks<S, E: Instr>(
+    blocks: Vec<Block<S, E>>,
+    exception_edges: &HashMap<BlockLabel, Option<BlockLabel>>,
+) -> Vec<Block<S, E>> {
     blocks
         .into_iter()
-        .map(|block| CfgBlock {
+        .map(|block| Block {
             label: block.label.clone(),
             body: block.body,
             term: block.term,
@@ -113,12 +113,12 @@ pub(crate) fn attach_exception_edges_to_blocks<S, E>(
                 .get(&block.label)
                 .cloned()
                 .flatten()
-                .map(BlockPyEdge::new),
+                .map(BlockEdge::new),
         })
         .collect()
 }
 
-fn move_entry_block_to_front<S, T>(blocks: &mut Vec<CfgBlock<S, T>>, entry_label: BlockPyLabel) {
+fn move_entry_block_to_front<S, T: Instr>(blocks: &mut Vec<Block<S, T>>, entry_label: BlockLabel) {
     if let Some(entry_index) = blocks.iter().position(|block| block.label == entry_label) {
         if entry_index != 0 {
             let entry_block = blocks.remove(entry_index);
@@ -134,7 +134,7 @@ pub(crate) fn build_core_blockpy_callable_def_from_runtime_input(
     params: ParamSpec,
     runtime_input_body: &[Stmt],
     doc: Option<String>,
-    end_label: BlockPyLabel,
+    end_label: BlockLabel,
     blockpy_kind: BlockPyFunctionKind,
     semantic: &BlockPyCallableSemanticInfo,
 ) -> BlockPyFunction<CoreBlockPyPassWithAwaitAndYield> {
@@ -157,10 +157,10 @@ pub(crate) fn build_core_blockpy_callable_def_from_runtime_input(
             .iter()
             .any(|block| block_references_label(block, &end_label));
     if needs_end_block {
-        blocks.push(CfgBlock {
+        blocks.push(Block {
             label: end_label,
             body: Vec::new(),
-            term: BlockPyTerm::implicit_function_return(),
+            term: BlockTerm::implicit_function_return(),
             params: Vec::new(),
             exc_edge: None,
         });
@@ -194,28 +194,25 @@ pub(crate) fn build_core_blockpy_callable_def_from_runtime_input(
 
 #[derive(Clone)]
 pub(crate) struct LoopContext {
-    continue_label: BlockPyLabel,
-    break_label: BlockPyLabel,
+    continue_label: BlockLabel,
+    break_label: BlockLabel,
 }
 
 #[derive(Clone)]
 pub(crate) struct LoopLabels {
-    pub break_label: BlockPyLabel,
-    pub continue_label: BlockPyLabel,
+    pub break_label: BlockLabel,
+    pub continue_label: BlockLabel,
 }
 
 #[derive(Clone)]
 pub(crate) struct RegionTargets {
-    pub normal_cont: BlockPyLabel,
+    pub normal_cont: BlockLabel,
     pub loop_labels: Option<LoopLabels>,
-    pub active_exc: Option<BlockPyLabel>,
+    pub active_exc: Option<BlockLabel>,
 }
 
 impl RegionTargets {
-    pub(crate) fn new(
-        normal_cont: impl Into<BlockPyLabel>,
-        active_exc: Option<BlockPyLabel>,
-    ) -> Self {
+    pub(crate) fn new(normal_cont: impl Into<BlockLabel>, active_exc: Option<BlockLabel>) -> Self {
         Self {
             normal_cont: normal_cont.into(),
             loop_labels: None,
@@ -223,7 +220,7 @@ impl RegionTargets {
         }
     }
 
-    pub(crate) fn nested(&self, normal_cont: impl Into<BlockPyLabel>) -> Self {
+    pub(crate) fn nested(&self, normal_cont: impl Into<BlockLabel>) -> Self {
         Self {
             normal_cont: normal_cont.into(),
             loop_labels: self.loop_labels.clone(),
@@ -233,7 +230,7 @@ impl RegionTargets {
 
     pub(crate) fn nested_with_loop(
         &self,
-        normal_cont: impl Into<BlockPyLabel>,
+        normal_cont: impl Into<BlockLabel>,
         loop_labels: Option<LoopLabels>,
     ) -> Self {
         Self {

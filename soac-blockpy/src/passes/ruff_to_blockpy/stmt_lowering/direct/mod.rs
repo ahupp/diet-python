@@ -30,7 +30,7 @@ impl StmtLowerer for ast::StmtGlobal {
     fn to_blockpy<E>(
         &self,
         _context: &Context,
-        _out: &mut BlockPyStmtFragmentBuilder<E>,
+        _out: &mut BlockPyStmtBuilder<E>,
         _loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
     ) -> Result<(), String>
@@ -49,7 +49,7 @@ impl StmtLowerer for ast::StmtNonlocal {
     fn to_blockpy<E>(
         &self,
         _context: &Context,
-        _out: &mut BlockPyStmtFragmentBuilder<E>,
+        _out: &mut BlockPyStmtBuilder<E>,
         _loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
     ) -> Result<(), String>
@@ -68,7 +68,7 @@ impl StmtLowerer for ast::StmtPass {
     fn to_blockpy<E>(
         &self,
         _context: &Context,
-        _out: &mut BlockPyStmtFragmentBuilder<E>,
+        _out: &mut BlockPyStmtBuilder<E>,
         _loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
     ) -> Result<(), String>
@@ -87,7 +87,7 @@ impl StmtLowerer for ast::StmtExpr {
     fn to_blockpy<E>(
         &self,
         _context: &Context,
-        out: &mut BlockPyStmtFragmentBuilder<E>,
+        out: &mut BlockPyStmtBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
     ) -> Result<(), String>
@@ -113,7 +113,7 @@ impl StmtLowerer for ast::StmtBreak {
     fn to_blockpy<E>(
         &self,
         _context: &Context,
-        out: &mut BlockPyStmtFragmentBuilder<E>,
+        out: &mut BlockPyStmtBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
     ) -> Result<(), String>
@@ -121,7 +121,7 @@ impl StmtLowerer for ast::StmtBreak {
         E: RuffToBlockPyExpr,
     {
         if let Some(loop_ctx) = loop_ctx {
-            out.set_term(BlockPyTerm::Jump(BlockPyEdge::new(
+            out.set_term(BlockTerm::Jump(BlockEdge::new(
                 loop_ctx.break_label.clone(),
             )));
             Ok(())
@@ -139,7 +139,7 @@ impl StmtLowerer for ast::StmtContinue {
     fn to_blockpy<E>(
         &self,
         _context: &Context,
-        out: &mut BlockPyStmtFragmentBuilder<E>,
+        out: &mut BlockPyStmtBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
     ) -> Result<(), String>
@@ -147,7 +147,7 @@ impl StmtLowerer for ast::StmtContinue {
         E: RuffToBlockPyExpr,
     {
         if let Some(loop_ctx) = loop_ctx {
-            out.set_term(BlockPyTerm::Jump(BlockPyEdge::new(
+            out.set_term(BlockTerm::Jump(BlockEdge::new(
                 loop_ctx.continue_label.clone(),
             )));
             Ok(())
@@ -165,7 +165,7 @@ impl StmtLowerer for ast::StmtReturn {
     fn to_blockpy<E>(
         &self,
         _context: &Context,
-        out: &mut BlockPyStmtFragmentBuilder<E>,
+        out: &mut BlockPyStmtBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
     ) -> Result<(), String>
@@ -183,7 +183,7 @@ impl StmtLowerer for ast::StmtReturn {
             }
             None => crate::py_expr!("None").into(),
         };
-        out.set_term(BlockPyTerm::Return(value));
+        out.set_term(BlockTerm::Return(value));
         Ok(())
     }
 }
@@ -196,7 +196,7 @@ impl StmtLowerer for ast::StmtRaise {
     fn to_blockpy<E>(
         &self,
         _context: &Context,
-        out: &mut BlockPyStmtFragmentBuilder<E>,
+        out: &mut BlockPyStmtBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
     ) -> Result<(), String>
@@ -217,7 +217,7 @@ impl StmtLowerer for ast::StmtRaise {
             ),
             None => None,
         };
-        out.set_term(BlockPyTerm::Raise(BlockPyRaise { exc }));
+        out.set_term(BlockTerm::Raise(TermRaise { exc }));
         Ok(())
     }
 }

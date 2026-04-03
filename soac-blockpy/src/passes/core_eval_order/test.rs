@@ -1,6 +1,6 @@
 use super::*;
 use crate::block_py::{
-    BinOp, BinOpKind, BlockPyBlock, BlockPyLabel, BlockPyTerm, CoreBlockPyCallArg,
+    BinOp, BinOpKind, BlockLabel, BlockPyBlock, BlockTerm, CoreBlockPyCallArg,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyYieldFrom, Meta, Store, StructuredInstr,
     UnresolvedName, WithMeta,
 };
@@ -18,20 +18,20 @@ fn is_name_like(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
 
 fn test_load_with_await_and_yield(id: &str) -> CoreBlockPyExprWithAwaitAndYield {
     let name = test_name(id);
-    Load::new(name).with_meta(Meta::synthetic()).into()
+    Load::new(name).into()
 }
 
 fn test_load_with_yield(id: &str) -> CoreBlockPyExprWithYield {
     let name = test_name(id);
-    Load::new(name).with_meta(Meta::synthetic()).into()
+    Load::new(name).into()
 }
 
 #[test]
 fn eval_order_hoists_call_arguments_in_return_value_to_temps() {
     let block = BlockPyBlock {
-        label: BlockPyLabel::from_index(0),
+        label: BlockLabel::from_index(0),
         body: Vec::new(),
-        term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
+        term: BlockTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
             "f(g(x), h(y))"
         ))),
         params: Vec::new(),
@@ -40,7 +40,7 @@ fn eval_order_hoists_call_arguments_in_return_value_to_temps() {
 
     let lowered = make_eval_order_explicit_in_core_block(block);
     assert!(lowered.body.is_empty());
-    let BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Call(call)) = &lowered.term else {
+    let BlockTerm::Return(CoreBlockPyExprWithAwaitAndYield::Call(call)) = &lowered.term else {
         panic!("expected call expr");
     };
     assert!(is_name_like(call.func.as_ref()));
@@ -57,9 +57,9 @@ fn eval_order_hoists_call_arguments_in_return_value_to_temps() {
 #[test]
 fn eval_order_hoists_return_value_to_temp() {
     let block = BlockPyBlock {
-        label: BlockPyLabel::from_index(0),
+        label: BlockLabel::from_index(0),
         body: Vec::new(),
-        term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
+        term: BlockTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
             "f(g(x))"
         ))),
         params: Vec::new(),
@@ -68,7 +68,7 @@ fn eval_order_hoists_return_value_to_temp() {
 
     let lowered = make_eval_order_explicit_in_core_block(block);
     assert!(lowered.body.is_empty());
-    let BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::Call(call)) = lowered.term else {
+    let BlockTerm::Return(CoreBlockPyExprWithAwaitAndYield::Call(call)) = lowered.term else {
         panic!("expected return of recursive call");
     };
     assert!(is_name_like(call.func.as_ref()));
@@ -77,7 +77,7 @@ fn eval_order_hoists_return_value_to_temp() {
 #[test]
 fn eval_order_hoists_nested_call_in_assignment_rhs() {
     let block = BlockPyBlock {
-        label: BlockPyLabel::from_index(0),
+        label: BlockLabel::from_index(0),
         body: vec![StructuredInstr::Expr(
             Store::new(
                 fresh_eval_name(),
@@ -87,7 +87,7 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
             )
             .into(),
         )],
-        term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
+        term: BlockTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
             "__dp_NONE"
         ))),
         params: Vec::new(),
@@ -113,7 +113,7 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
 #[test]
 fn eval_order_hoists_await_in_assignment_call_argument() {
     let block = BlockPyBlock {
-        label: BlockPyLabel::from_index(0),
+        label: BlockLabel::from_index(0),
         body: vec![StructuredInstr::Expr(
             Store::new(
                 test_name("total"),
@@ -125,7 +125,7 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
             )
             .into(),
         )],
-        term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
+        term: BlockTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
             "__dp_NONE"
         ))),
         params: Vec::new(),
@@ -164,7 +164,7 @@ fn eval_order_hoists_await_in_assignment_call_argument() {
 #[test]
 fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
     let block = BlockPyBlock {
-        label: BlockPyLabel::from_index(0),
+        label: BlockLabel::from_index(0),
         body: vec![StructuredInstr::Expr(
             Store::new(
                 test_name("total"),
@@ -179,7 +179,7 @@ fn eval_order_without_await_hoists_yield_from_in_assignment_call_argument() {
             )
             .into(),
         )],
-        term: BlockPyTerm::Return(test_load_with_yield("__dp_NONE")),
+        term: BlockTerm::Return(test_load_with_yield("__dp_NONE")),
         params: Vec::new(),
         exc_edge: None,
     };

@@ -1,13 +1,11 @@
-use crate::block_py::{
-    BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield, StructuredInstr,
-};
+use crate::block_py::{BlockPyStmtBuilder, CoreBlockPyExprWithAwaitAndYield, StructuredInstr};
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::py_expr;
 use ruff_python_parser::parse_expression;
 
 #[test]
 fn nested_boolop_in_call_argument_emits_setup_via_expr_lowering() {
-    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
+    let mut out = BlockPyStmtBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
     let mut next_label_id = 0usize;
 
     let lowered: CoreBlockPyExprWithAwaitAndYield =
@@ -28,7 +26,7 @@ fn nested_boolop_in_call_argument_emits_setup_via_expr_lowering() {
 
 #[test]
 fn direct_core_expr_lowering_materializes_make_function_operation() {
-    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
+    let mut out = BlockPyStmtBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
     let mut next_label_id = 0usize;
 
     let lowered = lower_expr_into_with_setup(
@@ -59,7 +57,7 @@ fn direct_core_expr_lowering_materializes_live_operation_helpers() {
         ),
         ("__soac__.cell_ref(\"__class__\")", "CellRefForName("),
     ] {
-        let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
+        let mut out = BlockPyStmtBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
         let mut next_label_id = 0usize;
 
         let lowered = lower_expr_into_with_setup(

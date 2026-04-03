@@ -1,10 +1,10 @@
 use super::*;
-use crate::block_py::{BlockPyRaise, BlockPyTerm, Expr, StructuredInstr};
+use crate::block_py::{BlockTerm, Expr, StructuredInstr, TermRaise};
 use crate::passes::ast_to_ast::ast_rewrite::Rewrite;
 use crate::passes::ast_to_ast::context::Context;
 
-pub(super) type BlockPyStmtFragmentBuilder<E> =
-    crate::block_py::BlockPyCfgFragmentBuilder<StructuredInstr<E>, BlockPyTerm<E>>;
+pub(super) type BlockPyStmtBuilder<E> =
+    crate::block_py::BlockBuilder<StructuredInstr<E>, BlockTerm<E>>;
 
 pub(super) fn stmts_from_rewrite(rewrite: Rewrite) -> Vec<Stmt> {
     match rewrite {
@@ -24,7 +24,7 @@ pub(super) fn stmt_to_stmts(stmt: Stmt) -> Vec<Stmt> {
 pub(super) fn lower_stmt_via_simplify<T, E>(
     context: &Context,
     stmt: &T,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
+    out: &mut BlockPyStmtBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String>
@@ -41,7 +41,7 @@ where
 pub(crate) fn lower_nested_stmt_into_with_expr<E>(
     context: &Context,
     stmt: &Stmt,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
+    out: &mut BlockPyStmtBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String>
@@ -87,7 +87,7 @@ pub(super) trait StmtLowerer {
     fn to_blockpy<E>(
         &self,
         _context: &Context,
-        _out: &mut BlockPyStmtFragmentBuilder<E>,
+        _out: &mut BlockPyStmtBuilder<E>,
         _loop_ctx: Option<&LoopContext>,
         _next_label_id: &mut usize,
     ) -> Result<(), String>
@@ -111,7 +111,7 @@ macro_rules! impl_unreduced_stmt_lowerer {
             fn to_blockpy<E>(
                 &self,
                 _context: &Context,
-                _out: &mut BlockPyStmtFragmentBuilder<E>,
+                _out: &mut BlockPyStmtBuilder<E>,
                 _loop_ctx: Option<&LoopContext>,
                 _next_label_id: &mut usize,
             ) -> Result<(), String>
@@ -266,9 +266,9 @@ fn simplify_if_test_for_blockpy(_context: &Context, mut if_stmt: ast::StmtIf) ->
 pub(crate) fn lower_stmt_into(
     context: &Context,
     stmt: &Stmt,
-    out: &mut crate::block_py::BlockPyCfgFragmentBuilder<
+    out: &mut crate::block_py::BlockBuilder<
         StructuredInstr<crate::block_py::CoreBlockPyExprWithAwaitAndYield>,
-        BlockPyTerm<crate::block_py::CoreBlockPyExprWithAwaitAndYield>,
+        BlockTerm<crate::block_py::CoreBlockPyExprWithAwaitAndYield>,
     >,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
@@ -279,7 +279,7 @@ pub(crate) fn lower_stmt_into(
 pub(crate) fn lower_stmt_into_with_expr<E>(
     context: &Context,
     stmt: &Stmt,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
+    out: &mut BlockPyStmtBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String>

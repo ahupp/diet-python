@@ -37,8 +37,8 @@ where
         }
     }
 
-    fn map_block(&self, block: CfgBlock<PIn::Expr>) -> CfgBlock<POut::Expr> {
-        CfgBlock {
+    fn map_block(&self, block: Block<PIn::Expr>) -> Block<POut::Expr> {
+        Block {
             label: block.label,
             body: block
                 .body
@@ -51,26 +51,26 @@ where
         }
     }
 
-    fn map_term(&self, term: BlockPyTerm<PIn::Expr>) -> BlockPyTerm<POut::Expr> {
+    fn map_term(&self, term: BlockTerm<PIn::Expr>) -> BlockTerm<POut::Expr> {
         match term {
-            BlockPyTerm::Jump(edge) => BlockPyTerm::Jump(BlockPyEdge {
+            BlockTerm::Jump(edge) => BlockTerm::Jump(BlockEdge {
                 target: edge.target,
                 args: edge.args,
             }),
-            BlockPyTerm::IfTerm(if_term) => BlockPyTerm::IfTerm(BlockPyIfTerm {
+            BlockTerm::IfTerm(if_term) => BlockTerm::IfTerm(TermIf {
                 test: self.map_expr(if_term.test),
                 then_label: if_term.then_label,
                 else_label: if_term.else_label,
             }),
-            BlockPyTerm::BranchTable(branch) => BlockPyTerm::BranchTable(BlockPyBranchTable {
+            BlockTerm::BranchTable(branch) => BlockTerm::BranchTable(TermBranchTable {
                 index: self.map_expr(branch.index),
                 targets: branch.targets,
                 default_label: branch.default_label,
             }),
-            BlockPyTerm::Raise(raise_stmt) => BlockPyTerm::Raise(BlockPyRaise {
+            BlockTerm::Raise(raise_stmt) => BlockTerm::Raise(TermRaise {
                 exc: raise_stmt.exc.map(|exc| self.map_expr(exc)),
             }),
-            BlockPyTerm::Return(value) => BlockPyTerm::Return(self.map_expr(value)),
+            BlockTerm::Return(value) => BlockTerm::Return(self.map_expr(value)),
         }
     }
 
@@ -106,11 +106,8 @@ where
         })
     }
 
-    fn try_map_block(
-        &self,
-        block: CfgBlock<PIn::Expr>,
-    ) -> Result<CfgBlock<POut::Expr>, Self::Error> {
-        Ok(CfgBlock {
+    fn try_map_block(&self, block: Block<PIn::Expr>) -> Result<Block<POut::Expr>, Self::Error> {
+        Ok(Block {
             label: block.label,
             body: block
                 .body
@@ -125,30 +122,30 @@ where
 
     fn try_map_term(
         &self,
-        term: BlockPyTerm<PIn::Expr>,
-    ) -> Result<BlockPyTerm<POut::Expr>, Self::Error> {
+        term: BlockTerm<PIn::Expr>,
+    ) -> Result<BlockTerm<POut::Expr>, Self::Error> {
         match term {
-            BlockPyTerm::Jump(edge) => Ok(BlockPyTerm::Jump(BlockPyEdge {
+            BlockTerm::Jump(edge) => Ok(BlockTerm::Jump(BlockEdge {
                 target: edge.target,
                 args: edge.args,
             })),
-            BlockPyTerm::IfTerm(if_term) => Ok(BlockPyTerm::IfTerm(BlockPyIfTerm {
+            BlockTerm::IfTerm(if_term) => Ok(BlockTerm::IfTerm(TermIf {
                 test: self.try_map_expr(if_term.test)?,
                 then_label: if_term.then_label,
                 else_label: if_term.else_label,
             })),
-            BlockPyTerm::BranchTable(branch) => Ok(BlockPyTerm::BranchTable(BlockPyBranchTable {
+            BlockTerm::BranchTable(branch) => Ok(BlockTerm::BranchTable(TermBranchTable {
                 index: self.try_map_expr(branch.index)?,
                 targets: branch.targets,
                 default_label: branch.default_label,
             })),
-            BlockPyTerm::Raise(raise_stmt) => Ok(BlockPyTerm::Raise(BlockPyRaise {
+            BlockTerm::Raise(raise_stmt) => Ok(BlockTerm::Raise(TermRaise {
                 exc: raise_stmt
                     .exc
                     .map(|exc| self.try_map_expr(exc))
                     .transpose()?,
             })),
-            BlockPyTerm::Return(value) => Ok(BlockPyTerm::Return(self.try_map_expr(value)?)),
+            BlockTerm::Return(value) => Ok(BlockTerm::Return(self.try_map_expr(value)?)),
         }
     }
 }
@@ -185,8 +182,8 @@ where
 
     pub(crate) fn try_map_term(
         &self,
-        term: BlockPyTerm<PIn::Expr>,
-    ) -> Result<BlockPyTerm<POut::Expr>, Error> {
+        term: BlockTerm<PIn::Expr>,
+    ) -> Result<BlockTerm<POut::Expr>, Error> {
         <Self as BlockPyModuleTryMap<PIn, POut>>::try_map_term(self, term)
     }
 

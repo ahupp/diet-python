@@ -1,9 +1,9 @@
 use super::*;
 
 use crate::block_py::{
-    BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind, BlockPyLabel,
-    BlockPyNameLike, BlockPyTerm, CfgBlock, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, FunctionName,
+    Block, BlockLabel, BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyFunctionKind,
+    BlockPyNameLike, BlockTerm, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
+    FunctionName,
 };
 use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
 
@@ -14,10 +14,10 @@ fn test_name_gen() -> crate::block_py::FunctionNameGen {
 
 #[test]
 fn lowers_await_to_yield_from_await_iter() {
-    let structured_block = make_eval_order_explicit_in_core_block(CfgBlock {
-        label: BlockPyLabel::from_index(0),
+    let structured_block = make_eval_order_explicit_in_core_block(Block {
+        label: BlockLabel::from_index(0),
         body: Vec::new(),
-        term: BlockPyTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
+        term: BlockTerm::Return(CoreBlockPyExprWithAwaitAndYield::from(crate::py_expr!(
             "await foo()"
         ))),
         params: Vec::new(),
@@ -30,7 +30,7 @@ fn lowers_await_to_yield_from_await_iter() {
             names: FunctionName::new("f", "f", "f", "f"),
             kind: BlockPyFunctionKind::Coroutine,
             params: Default::default(),
-            blocks: vec![CfgBlock {
+            blocks: vec![Block {
                 label: structured_block.label,
                 body: structured_block
                     .body
@@ -59,7 +59,7 @@ fn lowers_await_to_yield_from_await_iter() {
     let CoreBlockPyExprWithYield::Store(await_assign) = &block.body[0] else {
         panic!("expected lowered await store expr");
     };
-    let BlockPyTerm::Return(CoreBlockPyExprWithYield::Load(return_load)) = &block.term else {
+    let BlockTerm::Return(CoreBlockPyExprWithYield::Load(return_load)) = &block.term else {
         panic!("expected return of lowered await temp");
     };
     assert_eq!(return_load.name.id_str(), await_assign.name.id_str());

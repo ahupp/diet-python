@@ -1,5 +1,5 @@
 use crate::block_py::{
-    literal_expr, BlockPyBlock, BlockPyLabel, BlockPyLiteral, BlockPyStmtFragment, BlockPyTerm,
+    literal_expr, BlockLabel, BlockPyBlock, BlockPyLiteral, BlockPyStmtBuilder, BlockTerm,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreStringLiteral, GetAttr, LocatedCoreBlockPyExpr,
     LocatedName, Store, StructuredIf, StructuredInstr, WithMeta,
 };
@@ -12,7 +12,7 @@ use ruff_text_size::TextRange;
 #[test]
 fn linearizes_structured_if_stmt_into_explicit_blocks() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr> = BlockPyBlock {
-        label: BlockPyLabel::from_index(0),
+        label: BlockLabel::from_index(0),
         body: vec![
             StructuredInstr::Expr(
                 Store::new(
@@ -28,7 +28,7 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
             ),
             StructuredInstr::If(StructuredIf {
                 test: core_name_expr("cond"),
-                body: BlockPyStmtFragment::from_stmts(vec![StructuredInstr::Expr(
+                body: BlockPyStmtBuilder::from_stmts(vec![StructuredInstr::Expr(
                     Store::new(
                         LocatedName::from(ast::ExprName {
                             id: "x".into(),
@@ -40,7 +40,7 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
                     )
                     .into(),
                 )]),
-                orelse: BlockPyStmtFragment::from_stmts(vec![StructuredInstr::Expr(
+                orelse: BlockPyStmtBuilder::from_stmts(vec![StructuredInstr::Expr(
                     Store::new(
                         LocatedName::from(ast::ExprName {
                             id: "x".into(),
@@ -55,12 +55,12 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
             }),
             StructuredInstr::Expr(core_call_expr("sink", vec![core_name_expr("x")])),
         ],
-        term: BlockPyTerm::Return(core_name_expr("__dp_NONE")),
+        term: BlockTerm::Return(core_name_expr("__dp_NONE")),
         params: Vec::new(),
         exc_edge: None,
     };
 
-    let blocks = lower_structured_located_blocks_to_bb_blocks(&[crate::block_py::CfgBlock {
+    let blocks = lower_structured_located_blocks_to_bb_blocks(&[crate::block_py::Block {
         label: block.label,
         body: block.body,
         term: block.term,
@@ -69,7 +69,7 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
     }]);
 
     assert_eq!(blocks.len(), 4, "{blocks:?}");
-    assert!(matches!(blocks[0].term, BlockPyTerm::IfTerm(_)));
+    assert!(matches!(blocks[0].term, BlockTerm::IfTerm(_)));
 }
 
 fn core_name_expr(name: &str) -> LocatedCoreBlockPyExpr {
@@ -108,12 +108,12 @@ fn core_string_expr(value: &str) -> LocatedCoreBlockPyExpr {
 #[test]
 fn rewrites_current_exception_placeholders_in_final_core_blocks() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr> = BlockPyBlock {
-        label: BlockPyLabel::from_index(0),
+        label: BlockLabel::from_index(0),
         body: vec![StructuredInstr::Expr(core_call_expr(
             "current_exception",
             Vec::new(),
         ))],
-        term: BlockPyTerm::Return(core_call_expr("current_exception", Vec::new())),
+        term: BlockTerm::Return(core_call_expr("current_exception", Vec::new())),
         params: vec![crate::block_py::BlockParam {
             name: "_dp_try_exc_0".to_string(),
             role: crate::block_py::BlockParamRole::Exception,
@@ -121,7 +121,7 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
         exc_edge: None,
     };
 
-    let lowered = lower_structured_located_blocks_to_bb_blocks(&[crate::block_py::CfgBlock {
+    let lowered = lower_structured_located_blocks_to_bb_blocks(&[crate::block_py::Block {
         label: block.label,
         body: block.body,
         term: block.term,
@@ -136,7 +136,7 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
         CoreBlockPyExpr::Load(load) if load.name.id.as_str() == "_dp_try_exc_0"
     ));
 
-    let BlockPyTerm::Return(CoreBlockPyExpr::Load(load)) = &block.term else {
+    let BlockTerm::Return(CoreBlockPyExpr::Load(load)) = &block.term else {
         panic!("expected rewritten return expr");
     };
     assert_eq!(load.name.id.as_str(), "_dp_try_exc_0");
@@ -145,9 +145,9 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
 #[test]
 fn rewrites_current_exception_inside_intrinsic_helper_args() {
     let block: BlockPyBlock<LocatedCoreBlockPyExpr> = BlockPyBlock {
-        label: BlockPyLabel::from_index(0),
+        label: BlockLabel::from_index(0),
         body: Vec::new(),
-        term: BlockPyTerm::Return(
+        term: BlockTerm::Return(
             GetAttr::new(
                 core_call_expr("current_exception", Vec::new()),
                 literal_expr::<LocatedCoreBlockPyExpr>(
@@ -170,7 +170,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         exc_edge: None,
     };
 
-    let lowered = lower_structured_located_blocks_to_bb_blocks(&[crate::block_py::CfgBlock {
+    let lowered = lower_structured_located_blocks_to_bb_blocks(&[crate::block_py::Block {
         label: block.label,
         body: block.body,
         term: block.term,
@@ -179,7 +179,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
     }]);
     let block = &lowered[0];
 
-    let BlockPyTerm::Return(CoreBlockPyExpr::GetAttr(GetAttr { value, attr, .. })) = &block.term
+    let BlockTerm::Return(CoreBlockPyExpr::GetAttr(GetAttr { value, attr, .. })) = &block.term
     else {
         panic!("expected getattr operation");
     };
@@ -199,34 +199,29 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
 
 #[test]
 fn exception_edges_seed_hidden_try_exception_locals_from_current_exception() {
-    let mut blocks: Vec<crate::block_py::CfgBlock<LocatedCoreBlockPyExpr>> =
-        vec![
-        crate::block_py::CfgBlock {
-            label: BlockPyLabel::from_index(0),
+    let mut blocks: Vec<crate::block_py::Block<LocatedCoreBlockPyExpr>> = vec![
+        crate::block_py::Block {
+            label: BlockLabel::from_index(0),
             body: Vec::new(),
-            term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
+            term: BlockTerm::<LocatedCoreBlockPyExpr>::Return(
                 <LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
             ),
             params: vec![crate::block_py::BlockParam {
                 name: "_dp_outer_exc".to_string(),
                 role: crate::block_py::BlockParamRole::Exception,
             }],
-            exc_edge: Some(crate::block_py::BlockPyEdge::new(BlockPyLabel::from_index(1))),
+            exc_edge: Some(crate::block_py::BlockEdge::new(BlockLabel::from_index(1))),
         },
-        crate::block_py::CfgBlock {
-            label: BlockPyLabel::from_index(1),
+        crate::block_py::Block {
+            label: BlockLabel::from_index(1),
             body: Vec::new(),
-            term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Jump(
-                crate::block_py::BlockPyEdge::with_args(
-                    BlockPyLabel::from_index(2),
-                    vec![
-                        crate::block_py::BlockArg::AbruptKind(
-                            crate::block_py::AbruptKind::Exception,
-                        ),
-                        crate::block_py::BlockArg::Name("_dp_try_exc_payload".to_string()),
-                    ],
-                ),
-            ),
+            term: BlockTerm::<LocatedCoreBlockPyExpr>::Jump(crate::block_py::BlockEdge::with_args(
+                BlockLabel::from_index(2),
+                vec![
+                    crate::block_py::BlockArg::AbruptKind(crate::block_py::AbruptKind::Exception),
+                    crate::block_py::BlockArg::Name("_dp_try_exc_payload".to_string()),
+                ],
+            )),
             params: vec![
                 crate::block_py::BlockParam {
                     name: "_dp_inner_exc".to_string(),
@@ -239,10 +234,10 @@ fn exception_edges_seed_hidden_try_exception_locals_from_current_exception() {
             ],
             exc_edge: None,
         },
-        crate::block_py::CfgBlock {
-            label: BlockPyLabel::from_index(2),
+        crate::block_py::Block {
+            label: BlockLabel::from_index(2),
             body: Vec::new(),
-            term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
+            term: BlockTerm::<LocatedCoreBlockPyExpr>::Return(
                 <LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
             ),
             params: Vec::new(),

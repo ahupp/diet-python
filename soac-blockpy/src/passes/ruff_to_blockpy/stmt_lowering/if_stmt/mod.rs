@@ -65,7 +65,7 @@ impl StmtLowerer for ast::StmtIf {
     fn to_blockpy<E>(
         &self,
         context: &Context,
-        out: &mut BlockPyStmtFragmentBuilder<E>,
+        out: &mut BlockPyStmtBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
     ) -> Result<(), String>
@@ -112,12 +112,11 @@ fn lower_nested_body_to_stmts_with_expr<E>(
     body: &Suite,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
-) -> Result<crate::block_py::BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>, String>
+) -> Result<crate::block_py::BlockBuilder<StructuredInstr<E>, BlockTerm<E>>, String>
 where
     E: RuffToBlockPyExpr,
 {
-    let mut out =
-        crate::block_py::BlockPyCfgFragmentBuilder::<StructuredInstr<E>, BlockPyTerm<E>>::new();
+    let mut out = crate::block_py::BlockBuilder::<StructuredInstr<E>, BlockTerm<E>>::new();
     for stmt in body {
         lower_nested_stmt_into_with_expr(context, stmt, &mut out, loop_ctx, next_label_id)?;
     }
@@ -130,14 +129,14 @@ fn lower_orelse_to_stmts_with_expr<E>(
     stmt: &Stmt,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
-) -> Result<crate::block_py::BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>, String>
+) -> Result<crate::block_py::BlockBuilder<StructuredInstr<E>, BlockTerm<E>>, String>
 where
     E: RuffToBlockPyExpr,
 {
     match clauses {
-        [] => Ok(crate::block_py::BlockPyCfgFragment::<
+        [] => Ok(crate::block_py::BlockBuilder::<
             StructuredInstr<E>,
-            BlockPyTerm<E>,
+            BlockTerm<E>,
         >::from_stmts(Vec::new())),
         [clause] if clause.test.is_none() => {
             lower_nested_body_to_stmts_with_expr(context, &clause.body, loop_ctx, next_label_id)

@@ -1,11 +1,11 @@
 use super::*;
 use soac_blockpy::block_py::{
-    BinOp, BinOpKind, BlockParamRole, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyTerm,
+    BinOp, BinOpKind, BlockParamRole, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockTerm,
     Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBytesLiteral, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, LiteralValue, Load,
-    LocatedCoreBlockPyExpr, LocatedName, Meta, ModuleNameGen, NameLocation, Param, ParamKind,
-    ParamSpec, StorageLayout, Store, WithMeta,
+    LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen, NameLocation, Param, ParamKind, ParamSpec,
+    StorageLayout, Store, WithMeta,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 mod tests {
@@ -71,21 +71,21 @@ mod tests {
                     .expect("test integer literal should parse"),
             ),
         });
-        CoreBlockPyExpr::Literal(LiteralValue::new(literal).with_meta(Meta::synthetic()))
+        CoreBlockPyExpr::Literal(LiteralValue::new(literal))
     }
 
     fn bytes_literal(value: &[u8]) -> LocatedCoreBlockPyExpr {
         let literal = BlockPyLiteral::BytesLiteral(CoreBytesLiteral {
             value: value.to_vec(),
         });
-        CoreBlockPyExpr::Literal(LiteralValue::new(literal).with_meta(Meta::synthetic()))
+        CoreBlockPyExpr::Literal(LiteralValue::new(literal))
     }
 
     fn string_literal(value: &str) -> LocatedCoreBlockPyExpr {
         let literal = BlockPyLiteral::StringLiteral(CoreStringLiteral {
             value: value.to_string(),
         });
-        CoreBlockPyExpr::Literal(LiteralValue::new(literal).with_meta(Meta::synthetic()))
+        CoreBlockPyExpr::Literal(LiteralValue::new(literal))
     }
 
     #[derive(Default)]
@@ -98,9 +98,7 @@ mod tests {
             let index = u32::try_from(self.module_constants.len())
                 .expect("test module constant count should fit in u32");
             self.module_constants.push(literal);
-            Load::new(test_constant_name(index))
-                .with_meta(Meta::synthetic())
-                .into()
+            Load::new(test_constant_name(index)).into()
         }
 
         fn int_expr(&mut self, value: i64) -> CodegenBlockPyExpr {
@@ -117,7 +115,7 @@ mod tests {
     }
 
     fn name_expr(name: LocatedName) -> CodegenBlockPyExpr {
-        Load::new(name).with_meta(Meta::synthetic()).into()
+        Load::new(name).into()
     }
 
     fn op_expr(operation: impl Into<CodegenBlockPyExpr>) -> CodegenBlockPyExpr {
@@ -129,29 +127,25 @@ mod tests {
     }
 
     fn assign_stmt(target: LocatedName, value: CodegenBlockPyExpr) -> CodegenBlockPyExpr {
-        expr_stmt(op_expr(
-            Store::new(target, value).with_meta(Meta::synthetic()),
-        ))
+        expr_stmt(op_expr(Store::new(target, value)))
     }
 
     fn delete_stmt(target: LocatedName) -> CodegenBlockPyExpr {
-        expr_stmt(op_expr(
-            Del::new(target, false).with_meta(Meta::synthetic()),
-        ))
+        expr_stmt(op_expr(Del::new(target, false)))
     }
 
-    fn ret_term(value: CodegenBlockPyExpr) -> BlockPyTerm<CodegenBlockPyExpr> {
-        BlockPyTerm::Return(value)
+    fn ret_term(value: CodegenBlockPyExpr) -> BlockTerm<CodegenBlockPyExpr> {
+        BlockTerm::Return(value)
     }
 
-    fn raise_term() -> BlockPyTerm<CodegenBlockPyExpr> {
-        BlockPyTerm::Raise(soac_blockpy::block_py::BlockPyRaise { exc: None })
+    fn raise_term() -> BlockTerm<CodegenBlockPyExpr> {
+        BlockTerm::Raise(soac_blockpy::block_py::TermRaise { exc: None })
     }
 
     fn test_source_block(
         function: &BlockPyFunction<CodegenBlockPyPass>,
         ops: Vec<CodegenBlockPyExpr>,
-        term: BlockPyTerm<CodegenBlockPyExpr>,
+        term: BlockTerm<CodegenBlockPyExpr>,
     ) -> CodegenBlock {
         CodegenBlock {
             label: function.name_gen.next_block_name(),
@@ -196,7 +190,7 @@ mod tests {
     fn with_single_test_block(
         function: BlockPyFunction<CodegenBlockPyPass>,
         ops: Vec<CodegenBlockPyExpr>,
-        term: BlockPyTerm<CodegenBlockPyExpr>,
+        term: BlockTerm<CodegenBlockPyExpr>,
     ) -> BlockPyFunction<CodegenBlockPyPass> {
         let block = test_source_block(&function, ops, term);
         with_test_blocks(function, vec![block])
@@ -640,10 +634,11 @@ mod tests {
         let function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(
-                BinOp::new(BinOpKind::Add, constants.int_expr(1), constants.int_expr(2))
-                    .with_meta(Meta::synthetic()),
-            )),
+            ret_term(op_expr(BinOp::new(
+                BinOpKind::Add,
+                constants.int_expr(1),
+                constants.int_expr(2),
+            ))),
         );
         let rendered = render_test_jit_function_with_module_constants(
             &function,
@@ -667,10 +662,11 @@ mod tests {
         let function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(
-                BinOp::new(BinOpKind::Lt, constants.int_expr(1), constants.int_expr(2))
-                    .with_meta(Meta::synthetic()),
-            )),
+            ret_term(op_expr(BinOp::new(
+                BinOpKind::Lt,
+                constants.int_expr(1),
+                constants.int_expr(2),
+            ))),
         );
         let rendered = render_test_jit_function_with_module_constants(
             &function,
@@ -713,9 +709,7 @@ mod tests {
         let function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(
-                Load::new(test_constant_name(0)).with_meta(Meta::synthetic()),
-            )),
+            ret_term(op_expr(Load::new(test_constant_name(0)))),
         );
         let module = BlockPyModule {
             callable_defs: vec![function.clone()],
@@ -737,10 +731,11 @@ mod tests {
         let function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(
-                BinOp::new(BinOpKind::Pow, constants.int_expr(2), constants.int_expr(3))
-                    .with_meta(Meta::synthetic()),
-            )),
+            ret_term(op_expr(BinOp::new(
+                BinOpKind::Pow,
+                constants.int_expr(2),
+                constants.int_expr(3),
+            ))),
         );
         let rendered = render_test_jit_function_with_module_constants(
             &function,
@@ -760,14 +755,11 @@ mod tests {
         let function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(
-                BinOp::new(
-                    BinOpKind::InplacePow,
-                    constants.int_expr(2),
-                    constants.int_expr(3),
-                )
-                .with_meta(Meta::synthetic()),
-            )),
+            ret_term(op_expr(BinOp::new(
+                BinOpKind::InplacePow,
+                constants.int_expr(2),
+                constants.int_expr(3),
+            ))),
         );
         let rendered = render_test_jit_function_with_module_constants(
             &function,
@@ -842,9 +834,7 @@ mod tests {
         let function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(
-                Load::new(test_global_name("x")).with_meta(Meta::synthetic()),
-            )),
+            ret_term(op_expr(Load::new(test_global_name("x")))),
         );
         let rendered = render_test_jit_function(&function, &blocks);
         assert!(
@@ -860,10 +850,10 @@ mod tests {
         let function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(
-                Store::new(test_global_name("x"), constants.int_expr(3))
-                    .with_meta(Meta::synthetic()),
-            )),
+            ret_term(op_expr(Store::new(
+                test_global_name("x"),
+                constants.int_expr(3),
+            ))),
         );
         let rendered = render_test_jit_function_with_module_constants(
             &function,
@@ -899,10 +889,9 @@ mod tests {
         let mut function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(
-                soac_blockpy::block_py::CellRef::new(CellLocation::Closure(2))
-                    .with_meta(Meta::synthetic()),
-            )),
+            ret_term(op_expr(soac_blockpy::block_py::CellRef::new(
+                CellLocation::Closure(2),
+            ))),
         );
         set_stack_slots(&mut function, &["x"]);
         let rendered = render_test_jit_function(&function, &blocks);
@@ -922,10 +911,9 @@ mod tests {
         let mut function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(
-                soac_blockpy::block_py::CellRef::new(CellLocation::CapturedSource(2))
-                    .with_meta(Meta::synthetic()),
-            )),
+            ret_term(op_expr(soac_blockpy::block_py::CellRef::new(
+                CellLocation::CapturedSource(2),
+            ))),
         );
         function.storage_layout = Some(StorageLayout {
             freevars: vec![
@@ -968,19 +956,13 @@ mod tests {
         let mut function = with_single_test_block(
             test_function(),
             vec![
-                expr_stmt(op_expr(
-                    DelItem::new(constants.int_expr(1), constants.int_expr(2))
-                        .with_meta(Meta::synthetic()),
-                )),
-                expr_stmt(op_expr(
-                    Del::new(test_global_name("x"), true).with_meta(Meta::synthetic()),
-                )),
-                expr_stmt(op_expr(
-                    Del::new(test_closure_cell_name("cell", 2), false).with_meta(Meta::synthetic()),
-                )),
-                expr_stmt(op_expr(
-                    Del::new(test_closure_cell_name("cell", 2), true).with_meta(Meta::synthetic()),
-                )),
+                expr_stmt(op_expr(DelItem::new(
+                    constants.int_expr(1),
+                    constants.int_expr(2),
+                ))),
+                expr_stmt(op_expr(Del::new(test_global_name("x"), true))),
+                expr_stmt(op_expr(Del::new(test_closure_cell_name("cell", 2), false))),
+                expr_stmt(op_expr(Del::new(test_closure_cell_name("cell", 2), true))),
             ],
             ret_term(constants.int_expr(0)),
         );
@@ -1062,17 +1044,14 @@ mod tests {
         let mut function = with_single_test_block(
             test_function(),
             vec![],
-            ret_term(op_expr(
-                Call::new(
-                    name_expr(test_runtime_name("load_deleted_name")),
-                    vec![
-                        CoreBlockPyCallArg::Positional(constants.string_expr("x")),
-                        CoreBlockPyCallArg::Positional(name_expr(test_name("x"))),
-                    ],
-                    vec![],
-                )
-                .with_meta(Meta::synthetic()),
-            )),
+            ret_term(op_expr(Call::new(
+                name_expr(test_runtime_name("load_deleted_name")),
+                vec![
+                    CoreBlockPyCallArg::Positional(constants.string_expr("x")),
+                    CoreBlockPyCallArg::Positional(name_expr(test_name("x"))),
+                ],
+                vec![],
+            ))),
         );
         set_stack_slots(&mut function, &["x"]);
         let rendered = render_test_jit_function_with_module_constants(

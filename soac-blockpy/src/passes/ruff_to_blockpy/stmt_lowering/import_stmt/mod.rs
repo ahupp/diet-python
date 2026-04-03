@@ -8,7 +8,7 @@ impl StmtLowerer for ast::StmtImport {
     fn to_blockpy<E>(
         &self,
         context: &Context,
-        out: &mut BlockPyStmtFragmentBuilder<E>,
+        out: &mut BlockPyStmtBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
     ) -> Result<(), String>

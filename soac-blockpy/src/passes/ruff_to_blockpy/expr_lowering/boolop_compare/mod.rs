@@ -1,7 +1,7 @@
 use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
 use crate::block_py::{
-    BlockPyCfgFragment, BlockPyStmtFragmentBuilder, BlockPyTerm, Instr, Meta, Store, StructuredIf,
-    StructuredInstr, WithMeta,
+    BlockBuilder, BlockPyStmtBuilder, BlockTerm, Instr, Meta, Store, StructuredIf, StructuredInstr,
+    WithMeta,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::fresh_setup_name;
 use crate::passes::ruff_to_blockpy::LoopContext;
@@ -34,17 +34,17 @@ where
     )
 }
 
-fn empty_fragment<E>() -> BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>
+fn empty_fragment<E>() -> BlockBuilder<StructuredInstr<E>, BlockTerm<E>>
 where
     E: std::fmt::Debug + Instr,
 {
-    BlockPyCfgFragment::from_stmts(Vec::new())
+    BlockBuilder::from_stmts(Vec::new())
 }
 
 pub(super) fn lower_boolop_into<L, E>(
     lowerer: &L,
     bool_op: ast::ExprBoolOp,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
+    out: &mut BlockPyStmtBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<Expr, String>
@@ -60,7 +60,7 @@ where
     out.push_stmt(assign_name(&target, first));
 
     for value in values {
-        let mut body = BlockPyStmtFragmentBuilder::<E>::new();
+        let mut body = BlockPyStmtBuilder::<E>::new();
         let value = lowerer.lower_expr_ast_into(value, &mut body, loop_ctx, next_label_id)?;
         body.push_stmt(assign_name(&target, value));
         let test = match op {
@@ -80,7 +80,7 @@ where
 pub(super) fn lower_compare_into<L, E>(
     lowerer: &L,
     compare: ast::ExprCompare,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
+    out: &mut BlockPyStmtBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<Expr, String>
@@ -132,7 +132,7 @@ where
     current_left = first_comparator;
 
     while let Some((op, comparator)) = steps.next() {
-        let mut step_body = BlockPyStmtFragmentBuilder::<E>::new();
+        let mut step_body = BlockPyStmtBuilder::<E>::new();
         let mut comparator_expr =
             lowerer.lower_expr_ast_into(comparator, &mut step_body, loop_ctx, next_label_id)?;
         if steps.peek().is_some() {

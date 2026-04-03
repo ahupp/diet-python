@@ -1,7 +1,7 @@
 use crate::block_py::cfg::linearize_structured_ifs;
 use crate::block_py::{
-    BlockArg, BlockPyEdge, BlockPyIfTerm, BlockPyNameLike, BlockPyTerm, CoreBlockPyExpr,
-    CoreBlockPyExprWithAwaitAndYield, FunctionNameGen, Instr, Load, Meta, StructuredInstr,
+    BlockArg, BlockEdge, BlockPyNameLike, BlockTerm, CoreBlockPyExpr,
+    CoreBlockPyExprWithAwaitAndYield, FunctionNameGen, Instr, Load, Meta, StructuredInstr, TermIf,
     Walkable, WithMeta,
 };
 use ruff_python_ast::{self as ast};
@@ -10,8 +10,8 @@ use std::collections::{HashMap, HashSet};
 
 pub(crate) fn lower_structured_blocks_to_bb_blocks<E, N>(
     name_gen: &FunctionNameGen,
-    blocks: &[crate::block_py::CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>],
-) -> Vec<crate::block_py::CfgBlock<E, BlockPyTerm<E>>>
+    blocks: &[crate::block_py::Block<StructuredInstr<E>, E>],
+) -> Vec<crate::block_py::Block<E, E>>
 where
     E: Clone + Instr<Name = N>,
     N: BlockPyNameLike,
@@ -26,7 +26,7 @@ where
                 .get(&block.label)
                 .cloned()
                 .flatten()
-                .map(BlockPyEdge::new);
+                .map(BlockEdge::new);
             let ops = block
                 .body
                 .clone()
@@ -38,7 +38,7 @@ where
                     }
                 })
                 .collect::<Vec<_>>();
-            crate::block_py::CfgBlock {
+            crate::block_py::Block {
                 label: block.label.clone(),
                 body: ops,
                 term: block.term.clone(),
@@ -52,7 +52,7 @@ where
 }
 
 pub(crate) fn rewrite_current_exception_in_core_blocks(
-    blocks: &mut [crate::block_py::CfgBlock<CoreBlockPyExpr, BlockPyTerm<CoreBlockPyExpr>>],
+    blocks: &mut [crate::block_py::Block<CoreBlockPyExpr, CoreBlockPyExpr>],
 ) {
     for block in blocks {
         let Some(exc_name) = block.exception_param().map(ToString::to_string) else {
@@ -66,9 +66,9 @@ pub(crate) fn rewrite_current_exception_in_core_blocks(
 }
 
 pub(crate) fn rewrite_current_exception_in_core_blocks_with_await_and_yield(
-    blocks: &mut [crate::block_py::CfgBlock<
+    blocks: &mut [crate::block_py::Block<
         CoreBlockPyExprWithAwaitAndYield,
-        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+        CoreBlockPyExprWithAwaitAndYield,
     >],
 ) {
     for block in blocks {
@@ -87,27 +87,27 @@ fn rewrite_current_exception_in_bb_stmt(stmt: &mut CoreBlockPyExpr, exc_name: &s
 }
 
 fn rewrite_current_exception_in_term_with_await_and_yield(
-    term: &mut BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    term: &mut BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
     exc_name: &str,
 ) {
     match term {
-        BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
+        BlockTerm::IfTerm(TermIf { test, .. }) => {
             rewrite_current_exception_in_expr_with_await_and_yield(test, exc_name);
         }
-        BlockPyTerm::BranchTable(branch) => {
+        BlockTerm::BranchTable(branch) => {
             rewrite_current_exception_in_expr_with_await_and_yield(&mut branch.index, exc_name);
         }
-        BlockPyTerm::Raise(raise_stmt) => {
+        BlockTerm::Raise(raise_stmt) => {
             if let Some(exc) = raise_stmt.exc.as_mut() {
                 rewrite_current_exception_in_expr_with_await_and_yield(exc, exc_name);
             } else {
                 raise_stmt.exc = Some(current_exception_name_expr_with_await_and_yield(exc_name));
             }
         }
-        BlockPyTerm::Return(value) => {
+        BlockTerm::Return(value) => {
             rewrite_current_exception_in_expr_with_await_and_yield(value, exc_name);
         }
-        BlockPyTerm::Jump(_) => {}
+        BlockTerm::Jump(_) => {}
     }
 }
 
@@ -211,9 +211,8 @@ fn current_exception_name_expr_with_await_and_yield(
     )
 }
 
-pub(crate) fn populate_exception_edge_args<E, N>(
-    blocks: &mut [crate::block_py::CfgBlock<E, BlockPyTerm<E>>],
-) where
+pub(crate) fn populate_exception_edge_args<E, N>(blocks: &mut [crate::block_py::Block<E, E>])
+where
     E: Instr<Name = N>,
     N: BlockPyNameLike,
 {
@@ -242,7 +241,7 @@ pub(crate) fn populate_exception_edge_args<E, N>(
             .exception_param()
             .map(ToString::to_string);
         let current_exception_aliases = match &blocks[target_index].term {
-            BlockPyTerm::Jump(edge) => edge
+            BlockTerm::Jump(edge) => edge
                 .args
                 .iter()
                 .filter_map(|arg| match arg {
@@ -268,13 +267,13 @@ pub(crate) fn populate_exception_edge_args<E, N>(
                 }
             })
             .collect();
-        blocks[block_index].exc_edge = Some(BlockPyEdge::with_args(exc_target_label, args));
+        blocks[block_index].exc_edge = Some(BlockEdge::with_args(exc_target_label, args));
     }
 }
 
-pub(crate) fn lowered_exception_edges<S, T>(
-    blocks: &[crate::block_py::CfgBlock<S, T>],
-) -> HashMap<crate::block_py::BlockPyLabel, Option<crate::block_py::BlockPyLabel>> {
+pub(crate) fn lowered_exception_edges<S, T: crate::block_py::Instr>(
+    blocks: &[crate::block_py::Block<S, T>],
+) -> HashMap<crate::block_py::BlockLabel, Option<crate::block_py::BlockLabel>> {
     blocks
         .iter()
         .map(|block| {
@@ -287,25 +286,25 @@ pub(crate) fn lowered_exception_edges<S, T>(
 }
 
 fn rewrite_current_exception_in_blockpy_term(
-    term: &mut BlockPyTerm<CoreBlockPyExpr>,
+    term: &mut BlockTerm<CoreBlockPyExpr>,
     exc_name: &str,
 ) {
     match term {
-        BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
+        BlockTerm::IfTerm(TermIf { test, .. }) => {
             rewrite_current_exception_in_blockpy_expr(test, exc_name);
         }
-        BlockPyTerm::BranchTable(branch) => {
+        BlockTerm::BranchTable(branch) => {
             rewrite_current_exception_in_blockpy_expr(&mut branch.index, exc_name);
         }
-        BlockPyTerm::Raise(raise_stmt) => {
+        BlockTerm::Raise(raise_stmt) => {
             if let Some(exc) = raise_stmt.exc.as_mut() {
                 rewrite_current_exception_in_blockpy_expr(exc, exc_name);
             } else {
                 raise_stmt.exc = Some(current_exception_name_expr(exc_name));
             }
         }
-        BlockPyTerm::Return(value) => rewrite_current_exception_in_blockpy_expr(value, exc_name),
-        BlockPyTerm::Jump(_) => {}
+        BlockTerm::Return(value) => rewrite_current_exception_in_blockpy_expr(value, exc_name),
+        BlockTerm::Jump(_) => {}
     }
 }
 

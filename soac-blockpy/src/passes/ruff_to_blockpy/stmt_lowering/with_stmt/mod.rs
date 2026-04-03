@@ -13,7 +13,7 @@ impl StmtLowerer for ast::StmtWith {
     fn to_blockpy<E>(
         &self,
         context: &Context,
-        out: &mut BlockPyStmtFragmentBuilder<E>,
+        out: &mut BlockPyStmtBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
     ) -> Result<(), String>
@@ -156,9 +156,9 @@ pub(crate) fn lower_with_stmt_sequence<F, E>(
     name_gen: &FunctionNameGen,
     _needs_finally_return_flow: bool,
     lower_sequence: &mut F,
-) -> BlockPyLabel
+) -> BlockLabel
 where
-    F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockPyLabel,
+    F: FnMut(&[Stmt], RegionTargets, &mut Vec<LoweredBlockPyBlock<E>>) -> BlockLabel,
     E: RuffToBlockPyExpr + crate::block_py::ImplicitNoneExpr,
 {
     if with_stmt.items.is_empty() {

@@ -80,14 +80,11 @@ fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithA
         _ => segments
             .into_iter()
             .reduce(|left, right| {
-                core_operation_expr(
-                    operation::BinOp::new(
-                        operation::BinOpKind::Or,
-                        Box::new(left),
-                        Box::new(right),
-                    )
-                    .with_meta(Meta::synthetic()),
-                )
+                core_operation_expr(operation::BinOp::new(
+                    operation::BinOpKind::Or,
+                    Box::new(left),
+                    Box::new(right),
+                ))
             })
             .expect("dict segments are non-empty"),
     };

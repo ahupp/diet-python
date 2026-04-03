@@ -1,10 +1,8 @@
-use crate::block_py::structured::IntoStructuredInstr;
 use crate::block_py::{
-    expr_any, BlockPyBranchTable, BlockPyCfgFragment, BlockPyFunction, BlockPyIfTerm,
-    BlockPyNameLike, BlockPyRaise, BlockPyTerm, CfgBlock, CoreBlockPyAwait,
+    expr_any, Block, BlockBuilder, BlockPyFunction, BlockPyNameLike, BlockTerm, CoreBlockPyAwait,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
     CoreBlockPyYieldFrom, Del, HasMeta, Instr, Load, Store, StructuredIf, StructuredInstr,
-    Walkable, WithMeta,
+    TermBranchTable, TermIf, TermRaise, Walkable, WithMeta,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
@@ -165,13 +163,13 @@ where
 }
 
 fn make_eval_order_explicit_in_core_fragment(
-    fragment: BlockPyCfgFragment<
+    fragment: BlockBuilder<
         StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+        BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
     >,
-) -> BlockPyCfgFragment<
+) -> BlockBuilder<
     StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-    BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
 > {
     let mut body = Vec::new();
     for stmt in fragment.body {
@@ -180,7 +178,7 @@ fn make_eval_order_explicit_in_core_fragment(
     let term = fragment
         .term
         .map(|term| make_eval_order_explicit_in_core_term(term, &mut body));
-    BlockPyCfgFragment { body, term }
+    BlockBuilder { body, term }
 }
 
 fn make_eval_order_explicit_in_core_stmt(
@@ -212,33 +210,33 @@ fn make_eval_order_explicit_in_core_stmt(
 }
 
 fn make_eval_order_explicit_in_core_term(
-    term: BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+    term: BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
     out: &mut Vec<StructuredInstr<CoreBlockPyExprWithAwaitAndYield>>,
-) -> BlockPyTerm<CoreBlockPyExprWithAwaitAndYield> {
+) -> BlockTerm<CoreBlockPyExprWithAwaitAndYield> {
     match term {
-        BlockPyTerm::Jump(edge) => BlockPyTerm::Jump(edge),
-        BlockPyTerm::IfTerm(BlockPyIfTerm {
+        BlockTerm::Jump(edge) => BlockTerm::Jump(edge),
+        BlockTerm::IfTerm(TermIf {
             test,
             then_label,
             else_label,
-        }) => BlockPyTerm::IfTerm(BlockPyIfTerm {
+        }) => BlockTerm::IfTerm(TermIf {
             test: hoist_core_expr_if_contains_suspend(test, out, &mut Vec::new()),
             then_label,
             else_label,
         }),
-        BlockPyTerm::BranchTable(BlockPyBranchTable {
+        BlockTerm::BranchTable(TermBranchTable {
             index,
             targets,
             default_label,
-        }) => BlockPyTerm::BranchTable(BlockPyBranchTable {
+        }) => BlockTerm::BranchTable(TermBranchTable {
             index: hoist_core_expr_if_contains_suspend(index, out, &mut Vec::new()),
             targets,
             default_label,
         }),
-        BlockPyTerm::Raise(BlockPyRaise { exc }) => BlockPyTerm::Raise(BlockPyRaise {
+        BlockTerm::Raise(TermRaise { exc }) => BlockTerm::Raise(TermRaise {
             exc: exc.map(|value| hoist_core_expr_if_contains_suspend(value, out, &mut Vec::new())),
         }),
-        BlockPyTerm::Return(value) => BlockPyTerm::Return(hoist_core_expr_if_contains_suspend(
+        BlockTerm::Return(value) => BlockTerm::Return(hoist_core_expr_if_contains_suspend(
             value,
             out,
             &mut Vec::new(),
@@ -247,15 +245,12 @@ fn make_eval_order_explicit_in_core_term(
 }
 
 pub(crate) fn make_eval_order_explicit_in_core_block(
-    block: CfgBlock<
+    block: Block<
         StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+        CoreBlockPyExprWithAwaitAndYield,
     >,
-) -> CfgBlock<
-    StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-    BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
-> {
-    let CfgBlock {
+) -> Block<StructuredInstr<CoreBlockPyExprWithAwaitAndYield>, CoreBlockPyExprWithAwaitAndYield> {
+    let Block {
         label,
         body: input_body,
         term: input_term,
@@ -267,7 +262,7 @@ pub(crate) fn make_eval_order_explicit_in_core_block(
         make_eval_order_explicit_in_core_stmt(stmt, &mut body);
     }
     let term = make_eval_order_explicit_in_core_term(input_term, &mut body);
-    CfgBlock {
+    Block {
         label,
         body,
         term,
@@ -420,14 +415,11 @@ fn make_eval_order_explicit_in_core_stmt_without_await(
 }
 
 fn make_eval_order_explicit_in_core_fragment_without_await(
-    fragment: BlockPyCfgFragment<
+    fragment: BlockBuilder<
         StructuredInstr<CoreBlockPyExprWithYield>,
-        BlockPyTerm<CoreBlockPyExprWithYield>,
+        BlockTerm<CoreBlockPyExprWithYield>,
     >,
-) -> BlockPyCfgFragment<
-    StructuredInstr<CoreBlockPyExprWithYield>,
-    BlockPyTerm<CoreBlockPyExprWithYield>,
-> {
+) -> BlockBuilder<StructuredInstr<CoreBlockPyExprWithYield>, BlockTerm<CoreBlockPyExprWithYield>> {
     let mut body = Vec::new();
     for stmt in fragment.body {
         make_eval_order_explicit_in_core_stmt_without_await(stmt, &mut body);
@@ -435,38 +427,38 @@ fn make_eval_order_explicit_in_core_fragment_without_await(
     let term = fragment
         .term
         .map(|term| make_eval_order_explicit_in_core_term_without_await(term, &mut body));
-    BlockPyCfgFragment { body, term }
+    BlockBuilder { body, term }
 }
 
 fn make_eval_order_explicit_in_core_term_without_await(
-    term: BlockPyTerm<CoreBlockPyExprWithYield>,
+    term: BlockTerm<CoreBlockPyExprWithYield>,
     out: &mut Vec<StructuredInstr<CoreBlockPyExprWithYield>>,
-) -> BlockPyTerm<CoreBlockPyExprWithYield> {
+) -> BlockTerm<CoreBlockPyExprWithYield> {
     match term {
-        BlockPyTerm::Jump(_) => term,
-        BlockPyTerm::IfTerm(BlockPyIfTerm {
+        BlockTerm::Jump(_) => term,
+        BlockTerm::IfTerm(TermIf {
             test,
             then_label,
             else_label,
-        }) => BlockPyTerm::IfTerm(BlockPyIfTerm {
+        }) => BlockTerm::IfTerm(TermIf {
             test: hoist_core_expr_without_await_to_atom(test, out, &mut Vec::new()),
             then_label,
             else_label,
         }),
-        BlockPyTerm::BranchTable(BlockPyBranchTable {
+        BlockTerm::BranchTable(TermBranchTable {
             index,
             targets,
             default_label,
-        }) => BlockPyTerm::BranchTable(BlockPyBranchTable {
+        }) => BlockTerm::BranchTable(TermBranchTable {
             index: hoist_core_expr_without_await_to_atom(index, out, &mut Vec::new()),
             targets,
             default_label,
         }),
-        BlockPyTerm::Raise(BlockPyRaise { exc }) => BlockPyTerm::Raise(BlockPyRaise {
+        BlockTerm::Raise(TermRaise { exc }) => BlockTerm::Raise(TermRaise {
             exc: exc
                 .map(|value| hoist_core_expr_without_await_to_atom(value, out, &mut Vec::new())),
         }),
-        BlockPyTerm::Return(value) => BlockPyTerm::Return(hoist_core_expr_without_await_to_atom(
+        BlockTerm::Return(value) => BlockTerm::Return(hoist_core_expr_without_await_to_atom(
             value,
             out,
             &mut Vec::new(),
@@ -475,12 +467,9 @@ fn make_eval_order_explicit_in_core_term_without_await(
 }
 
 pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
-    block: CfgBlock<
-        StructuredInstr<CoreBlockPyExprWithYield>,
-        BlockPyTerm<CoreBlockPyExprWithYield>,
-    >,
-) -> CfgBlock<StructuredInstr<CoreBlockPyExprWithYield>, BlockPyTerm<CoreBlockPyExprWithYield>> {
-    let CfgBlock {
+    block: Block<StructuredInstr<CoreBlockPyExprWithYield>, CoreBlockPyExprWithYield>,
+) -> Block<StructuredInstr<CoreBlockPyExprWithYield>, CoreBlockPyExprWithYield> {
+    let Block {
         label,
         body: input_body,
         term: input_term,
@@ -492,7 +481,7 @@ pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
         make_eval_order_explicit_in_core_stmt_without_await(stmt, &mut body);
     }
     let term = make_eval_order_explicit_in_core_term_without_await(input_term, &mut body);
-    CfgBlock {
+    Block {
         label,
         body,
         term,
@@ -517,13 +506,9 @@ pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
     } = callable_def;
     let structured_blocks = blocks
         .into_iter()
-        .map(|block| CfgBlock {
+        .map(|block| Block {
             label: block.label,
-            body: block
-                .body
-                .into_iter()
-                .map(|stmt| stmt.into_structured_instr())
-                .collect(),
+            body: block.body.into_iter().map(Into::into).collect(),
             term: block.term,
             params: block.params,
             exc_edge: block.exc_edge,

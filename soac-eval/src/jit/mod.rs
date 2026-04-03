@@ -14,7 +14,7 @@ use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use cranelift_reader::parse_functions;
 use pyo3::ffi;
 use soac_blockpy::block_py::{
-    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyTerm, CellLocation, CodegenBlock,
+    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockTerm, CellLocation, CodegenBlock,
     CodegenBlockPyExpr, CoreBlockPyCallArg, CoreBlockPyKeywordArg, LocalLocation, LocatedName,
     NameLocation, ParamDefaultSource, StorageLayout, operation as blockpy_intrinsics,
 };
@@ -2677,7 +2677,7 @@ fn emit_codegen_ops(
 fn emit_codegen_term(
     fb: &mut FunctionBuilder<'_>,
     block_label: &str,
-    term: &BlockPyTerm<CodegenBlockPyExpr>,
+    term: &BlockTerm<CodegenBlockPyExpr>,
     exec_blocks: &[ir::Block],
     runtime_block_param_names: &[Vec<String>],
     full_block_param_names: &[Vec<String>],
@@ -2697,7 +2697,7 @@ fn emit_codegen_term(
     let null_ptr = fb.ins().iconst(ptr_ty, 0);
 
     match term {
-        BlockPyTerm::Jump(target_label) => {
+        BlockTerm::Jump(target_label) => {
             let target_index = target_label.target.index();
             let target_params = &runtime_block_param_names[target_index];
             let full_target_params = &full_block_param_names[target_index];
@@ -2741,7 +2741,7 @@ fn emit_codegen_term(
             );
             fb.ins().jump(exec_blocks[target_index], &jump_args);
         }
-        BlockPyTerm::IfTerm(if_term) => {
+        BlockTerm::IfTerm(if_term) => {
             let test_value = emit_codegen_expr(
                 fb,
                 &if_term.test,
@@ -2816,7 +2816,7 @@ fn emit_codegen_term(
             emit_decref_unforwarded_locals(fb, local_values, local_names, else_params, decref_ref);
             fb.ins().jump(exec_blocks[else_index], &else_jump_args);
         }
-        BlockPyTerm::BranchTable(branch) => {
+        BlockTerm::BranchTable(branch) => {
             let index_obj = emit_codegen_expr(
                 fb,
                 &branch.index,
@@ -2922,7 +2922,7 @@ fn emit_codegen_term(
             fb.ins()
                 .jump(exec_blocks[default_index], &default_jump_args);
         }
-        BlockPyTerm::Return(value) => {
+        BlockTerm::Return(value) => {
             let ret_value = emit_codegen_expr(
                 fb,
                 value,
@@ -2939,7 +2939,7 @@ fn emit_codegen_term(
             emit_ctx.stack_slots.decref_all(fb, ptr_ty, decref_ref);
             fb.ins().return_(&[ret_value]);
         }
-        BlockPyTerm::Raise(raise_stmt) => {
+        BlockTerm::Raise(raise_stmt) => {
             let raise_name_obj = emit_owned_module_constant(
                 fb,
                 emit_ctx

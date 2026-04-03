@@ -1,7 +1,7 @@
 use crate::block_py::{BlockPyBindingKind, ClosureInit, ClosureSlot};
 use crate::block_py::{
     BlockPyCallableScopeKind, BlockPyCellBindingKind, BlockPyFunction, BlockPyFunctionKind,
-    BlockPyModule, BlockPyNameLike, BlockPyTerm, Call, CoreBlockPyCallArg, CoreBlockPyExpr,
+    BlockPyModule, BlockPyNameLike, BlockTerm, Call, CoreBlockPyCallArg, CoreBlockPyExpr,
     CoreBlockPyKeywordArg, ResolvedStorageBlock,
 };
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, ResolvedStorageBlockPyPass};
@@ -122,13 +122,13 @@ fn callable_def_by_name<'a>(
 fn block_uses_text(block: &ResolvedStorageBlock, needle: &str) -> bool {
     block.body.iter().any(|op| expr_text(op).contains(needle))
         || match &block.term {
-            BlockPyTerm::IfTerm(if_term) => expr_text(&if_term.test).contains(needle),
-            BlockPyTerm::BranchTable(branch) => expr_text(&branch.index).contains(needle),
-            BlockPyTerm::Raise(raise_stmt) => raise_stmt
+            BlockTerm::IfTerm(if_term) => expr_text(&if_term.test).contains(needle),
+            BlockTerm::BranchTable(branch) => expr_text(&branch.index).contains(needle),
+            BlockTerm::Raise(raise_stmt) => raise_stmt
                 .exc
                 .as_ref()
                 .is_some_and(|value| expr_text(value).contains(needle)),
-            BlockPyTerm::Return(value) => expr_text(value).contains(needle),
+            BlockTerm::Return(value) => expr_text(value).contains(needle),
             _ => false,
         }
 }
@@ -249,7 +249,7 @@ def foo(a, b):
     assert!(
         foo.blocks
             .iter()
-            .any(|block| matches!(block.term, BlockPyTerm::IfTerm(_))),
+            .any(|block| matches!(block.term, BlockTerm::IfTerm(_))),
         "{foo:?}"
     );
 }
@@ -1814,7 +1814,7 @@ def check():
         check
             .blocks
             .iter()
-            .any(|block| matches!(block.term, crate::block_py::BlockPyTerm::IfTerm(_))),
+            .any(|block| matches!(block.term, crate::block_py::BlockTerm::IfTerm(_))),
         "{check:?}"
     );
 }
@@ -1836,7 +1836,7 @@ def check(a, b):
     let brif_count = check
         .blocks
         .iter()
-        .filter(|block| matches!(block.term, crate::block_py::BlockPyTerm::IfTerm(_)))
+        .filter(|block| matches!(block.term, crate::block_py::BlockTerm::IfTerm(_)))
         .count();
     assert!(brif_count >= 2, "{check:?}");
 }
@@ -1854,7 +1854,7 @@ def choose(a, b, c):
         choose
             .blocks
             .iter()
-            .any(|block| matches!(block.term, crate::block_py::BlockPyTerm::IfTerm(_))),
+            .any(|block| matches!(block.term, crate::block_py::BlockTerm::IfTerm(_))),
         "{choose:?}"
     );
 }
@@ -1872,7 +1872,7 @@ def choose(cond, a, b):
         choose
             .blocks
             .iter()
-            .any(|block| matches!(block.term, crate::block_py::BlockPyTerm::IfTerm(_))),
+            .any(|block| matches!(block.term, crate::block_py::BlockTerm::IfTerm(_))),
         "{choose:?}"
     );
 }
@@ -2118,7 +2118,7 @@ def check(x):
         check
             .blocks
             .iter()
-            .any(|block| matches!(block.term, crate::block_py::BlockPyTerm::IfTerm(_))),
+            .any(|block| matches!(block.term, crate::block_py::BlockTerm::IfTerm(_))),
         "{check:?}"
     );
 }
@@ -2143,7 +2143,7 @@ def check():
         check
             .blocks
             .iter()
-            .any(|block| { matches!(block.term, crate::block_py::BlockPyTerm::Raise(_)) }),
+            .any(|block| { matches!(block.term, crate::block_py::BlockTerm::Raise(_)) }),
         "{check:?}"
     );
 }
@@ -2511,13 +2511,13 @@ def run(limit):
     assert!(
         run.blocks
             .iter()
-            .any(|block| matches!(block.term, BlockPyTerm::IfTerm(_))),
+            .any(|block| matches!(block.term, BlockTerm::IfTerm(_))),
         "{run:?}"
     );
     assert!(
         run.blocks
             .iter()
-            .any(|block| matches!(block.term, BlockPyTerm::Jump(_))),
+            .any(|block| matches!(block.term, BlockTerm::Jump(_))),
         "{run:?}"
     );
 }
@@ -2554,7 +2554,7 @@ def run(items):
     assert!(
         run.blocks
             .iter()
-            .any(|block| matches!(block.term, BlockPyTerm::IfTerm(_))),
+            .any(|block| matches!(block.term, BlockTerm::IfTerm(_))),
         "{run:?}"
     );
 }
@@ -2649,7 +2649,7 @@ def f():
     assert!(
         !f.blocks
             .iter()
-            .any(|block| matches!(block.term, BlockPyTerm::Jump(_))),
+            .any(|block| matches!(block.term, BlockTerm::Jump(_))),
         "{f:?}"
     );
 }
@@ -2811,7 +2811,7 @@ def make_counter(delta):
         .storage_layout
         .as_ref()
         .expect("resume function should have a storage layout");
-    let BlockPyTerm::Return(return_expr) = &visible_gen.blocks[0].term else {
+    let BlockTerm::Return(return_expr) = &visible_gen.blocks[0].term else {
         panic!("visible generator factory should return a generator wrapper");
     };
     let closure_generator =

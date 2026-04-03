@@ -169,13 +169,26 @@ Use C API for operators:
   - JIT transformed is 3.37% of stock throughput
 
 
-2026-04-03: refcounting as native cranelift functions
+2026-04-03:
 
-  - JIT/transformed: 105,083 loops/s
-  - Stock CPython: 830,761 loops/s
+changes:
+  - refcounting as cranelift functions, constant pool for all strings
+    - JIT/transformed: 105,083 loops/s
+    - Stock CPython: 830,761 loops/s
+    - transformed is about 0.126x stock, so stock is 7.9x faster.
 
-  So the current transformed/JIT path is about 0.126x stock, or equivalently
-  stock CPython is about 7.9x faster.
+  - 40e43654 Use Cranelift speed opt level and native ISA for JIT benchmarks
+      - transformed/JIT: 91,257 loops/s
+      - stock CPython: 754,886 loops/s
+      - transformed is 0.121x stock, so stock is about 8.27x faster
+      - timing: real 10.75, user 14.99, sys 0.83
+      - log: logs/benchmark_opt_native_20260403.log
+  - 404cbee4 Inline runtime CLIF support helpers into JIT callers
+      - transformed/JIT: 119,398 loops/s
+      - stock CPython: 739,834 loops/s
+      - transformed is 0.161x stock, so stock is about 6.20x faster
+      - timing: real 9.54, user 14.81, sys 0.76
+      - log: logs/benchmark_opt_native_inlining_20260403.log
 
 # Design
 

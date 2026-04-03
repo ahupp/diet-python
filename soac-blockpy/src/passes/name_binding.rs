@@ -1,15 +1,15 @@
 use crate::block_py::{
     build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_semantics,
     compute_storage_layout_from_semantics, core_runtime_positional_call_expr_with_meta,
-    literal_expr, runtime_symbol, BindingTarget, BlockArg, BlockPyAssign, BlockPyBindingKind,
+    literal_expr, runtime_symbol, BindingTarget, BlockArg, BlockPyBindingKind,
     BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
     BlockPyCellBindingKind, BlockPyCellCaptureBinding, BlockPyClassBodyFallback,
     BlockPyEffectiveBinding, BlockPyFunction, BlockPyFunctionKind, BlockPyModule, BlockPyModuleMap,
-    BlockPyNameLike, BlockPyRaise, BlockPyTerm, Call, CellLocation, CellRef, CellRefForName,
-    ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreNumberLiteral,
-    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionId, HasMeta, InstrExprNode,
-    Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName, MakeCell, MakeFunction, MapExpr,
-    NameLocation, SetItem, StorageLayout, Store, UnresolvedName, Walkable, WithMeta,
+    BlockPyNameLike, BlockTerm, Call, CellLocation, CellRef, CellRefForName, ClosureInit,
+    ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreNumberLiteral, CoreNumberLiteralValue,
+    CoreStringLiteral, Del, DelItem, FunctionId, HasMeta, InstrExprNode, Load, LocalLocation,
+    LocatedCoreBlockPyExpr, LocatedName, MakeCell, MakeFunction, MapExpr, NameLocation, SetItem,
+    StorageLayout, Store, TermRaise, UnresolvedName, Walkable, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -67,7 +67,6 @@ fn op_expr(operation: impl Into<CoreBlockPyExpr>) -> CoreBlockPyExpr {
 
 type CoreStmt = CoreBlockPyExpr;
 type ResolvedStmt = LocatedCoreBlockPyExpr;
-type CoreAssign = BlockPyAssign<CoreBlockPyExpr, UnresolvedName>;
 
 fn op_stmt(operation: impl Into<CoreBlockPyExpr>) -> CoreStmt {
     op_expr(operation)
@@ -196,15 +195,20 @@ fn rewrite_cell_ref_expr(
     )
 }
 
-fn rewrite_global_binding_assign(assign: CoreAssign, meta: crate::block_py::Meta) -> CoreStmt {
-    op_stmt(Store::new(assign.target, Box::new(assign.value)).with_meta(meta))
+fn rewrite_global_binding_assign(
+    target: UnresolvedName,
+    value: CoreBlockPyExpr,
+    meta: crate::block_py::Meta,
+) -> CoreStmt {
+    op_stmt(Store::new(target, Box::new(value)).with_meta(meta))
 }
 
 fn rewrite_class_namespace_binding_assign(
-    assign: CoreAssign,
+    target: UnresolvedName,
+    value: CoreBlockPyExpr,
     meta: crate::block_py::Meta,
 ) -> CoreStmt {
-    let bind_name = assign.target.id_str().to_string();
+    let bind_name = target.id_str().to_string();
     op_stmt(
         SetItem::new(
             Box::new(class_namespace_expr(meta.node_index.clone(), meta.range)),
@@ -213,20 +217,21 @@ fn rewrite_class_namespace_binding_assign(
                 meta.node_index.clone(),
                 meta.range,
             )),
-            Box::new(assign.value),
+            Box::new(value),
         )
         .with_meta(meta),
     )
 }
 
 fn rewrite_cell_binding_assign(
-    assign: CoreAssign,
+    target: UnresolvedName,
+    value: CoreBlockPyExpr,
     meta: crate::block_py::Meta,
     semantic: &BlockPyCallableSemanticInfo,
     resolver: &NameBindingMapper<'_>,
 ) -> CoreStmt {
     let _ = (semantic, resolver);
-    rewrite_global_binding_assign(assign, meta)
+    rewrite_global_binding_assign(target, value, meta)
 }
 
 fn rewrite_global_binding_delete_by_name(
@@ -1040,26 +1045,23 @@ fn rewrite_binding_assign_by_name(
     range: ruff_text_size::TextRange,
 ) -> CoreStmt {
     let meta = crate::block_py::Meta::new(node_index.clone(), range);
-    let assign: CoreAssign = BlockPyAssign {
-        target: ast::name::Name::new(name.clone()).into(),
-        value,
-    };
+    let target: UnresolvedName = ast::name::Name::new(name.clone()).into();
     if semantic.is_cell_binding(name.as_str()) {
-        if is_deleted_sentinel_expr(&assign.value) {
+        if is_deleted_sentinel_expr(&value) {
             let _ = resolver;
-            return op_stmt(Del::new(assign.target.clone(), false).with_meta(meta));
+            return op_stmt(Del::new(target.clone(), false).with_meta(meta));
         }
-        return rewrite_cell_binding_assign(assign, meta, semantic, resolver);
+        return rewrite_cell_binding_assign(target, value, meta, semantic, resolver);
     }
     match semantic.binding_target_for_name(name.as_str(), BlockPyBindingPurpose::Store) {
         BindingTarget::ModuleGlobal => {
-            if is_deleted_sentinel_expr(&assign.value) {
+            if is_deleted_sentinel_expr(&value) {
                 return rewrite_global_binding_delete_by_name(ast::name::Name::new(name), meta);
             }
-            rewrite_global_binding_assign(assign, meta)
+            rewrite_global_binding_assign(target, value, meta)
         }
         BindingTarget::ClassNamespace => {
-            if is_deleted_sentinel_expr(&assign.value) {
+            if is_deleted_sentinel_expr(&value) {
                 return op_stmt(
                     DelItem::new(
                         Box::new(class_namespace_expr(node_index.clone(), range)),
@@ -1068,11 +1070,9 @@ fn rewrite_binding_assign_by_name(
                     .with_meta(meta),
                 );
             }
-            rewrite_class_namespace_binding_assign(assign, meta)
+            rewrite_class_namespace_binding_assign(target, value, meta)
         }
-        BindingTarget::Local => {
-            op_stmt(Store::new(assign.target, Box::new(assign.value)).with_meta(meta))
-        }
+        BindingTarget::Local => op_stmt(Store::new(target, Box::new(value)).with_meta(meta)),
     }
 }
 
@@ -1253,7 +1253,7 @@ fn rewrite_deleted_name_loads_in_stmt(
 }
 
 fn rewrite_deleted_name_loads_in_term(
-    term: &mut BlockPyTerm<CoreBlockPyExpr>,
+    term: &mut BlockTerm<CoreBlockPyExpr>,
     semantic: &BlockPyCallableSemanticInfo,
     storage_layout: &StorageLayout,
     resolver: &NameBindingMapper<'_>,
@@ -1261,8 +1261,8 @@ fn rewrite_deleted_name_loads_in_term(
     always_unbound_names: &HashSet<String>,
 ) {
     match term {
-        BlockPyTerm::Jump(_) => {}
-        BlockPyTerm::IfTerm(if_term) => {
+        BlockTerm::Jump(_) => {}
+        BlockTerm::IfTerm(if_term) => {
             rewrite_deleted_name_loads_in_expr(
                 &mut if_term.test,
                 semantic,
@@ -1272,7 +1272,7 @@ fn rewrite_deleted_name_loads_in_term(
                 always_unbound_names,
             );
         }
-        BlockPyTerm::BranchTable(branch) => {
+        BlockTerm::BranchTable(branch) => {
             rewrite_deleted_name_loads_in_expr(
                 &mut branch.index,
                 semantic,
@@ -1282,7 +1282,7 @@ fn rewrite_deleted_name_loads_in_term(
                 always_unbound_names,
             );
         }
-        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
+        BlockTerm::Raise(TermRaise { exc }) => {
             if let Some(exc) = exc {
                 rewrite_deleted_name_loads_in_expr(
                     exc,
@@ -1294,7 +1294,7 @@ fn rewrite_deleted_name_loads_in_term(
                 );
             }
         }
-        BlockPyTerm::Return(value) => rewrite_deleted_name_loads_in_expr(
+        BlockTerm::Return(value) => rewrite_deleted_name_loads_in_expr(
             value,
             semantic,
             storage_layout,
@@ -1354,9 +1354,7 @@ fn rewrite_raw_cell_loads_in_expr(
                     }
                 }
             }
-            expr.walk_mut(&mut |arg| {
-                rewrite_raw_cell_loads_in_expr(arg, semantic, resolver)
-            });
+            expr.walk_mut(&mut |arg| rewrite_raw_cell_loads_in_expr(arg, semantic, resolver));
         }
         CoreBlockPyExpr::Literal(_) => {}
     }
@@ -1381,48 +1379,43 @@ fn rewrite_raw_cell_loads_in_stmt(
 }
 
 fn rewrite_raw_cell_loads_in_term(
-    term: &mut BlockPyTerm<CoreBlockPyExpr>,
+    term: &mut BlockTerm<CoreBlockPyExpr>,
     semantic: &BlockPyCallableSemanticInfo,
     resolver: &NameBindingMapper<'_>,
 ) {
     match term {
-        BlockPyTerm::Jump(_) => {}
-        BlockPyTerm::IfTerm(if_term) => {
+        BlockTerm::Jump(_) => {}
+        BlockTerm::IfTerm(if_term) => {
             rewrite_raw_cell_loads_in_expr(&mut if_term.test, semantic, resolver);
         }
-        BlockPyTerm::BranchTable(branch) => {
+        BlockTerm::BranchTable(branch) => {
             rewrite_raw_cell_loads_in_expr(&mut branch.index, semantic, resolver);
         }
-        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
+        BlockTerm::Raise(TermRaise { exc }) => {
             if let Some(exc) = exc {
                 rewrite_raw_cell_loads_in_expr(exc, semantic, resolver);
             }
         }
-        BlockPyTerm::Return(value) => rewrite_raw_cell_loads_in_expr(value, semantic, resolver),
+        BlockTerm::Return(value) => rewrite_raw_cell_loads_in_expr(value, semantic, resolver),
     }
 }
 
-fn normal_successor_labels(
-    term: &BlockPyTerm<CoreBlockPyExpr>,
-) -> Vec<&crate::block_py::BlockPyLabel> {
+fn normal_successor_labels(term: &BlockTerm<CoreBlockPyExpr>) -> Vec<&crate::block_py::BlockLabel> {
     match term {
-        BlockPyTerm::Jump(edge) => vec![&edge.target],
-        BlockPyTerm::IfTerm(if_term) => vec![&if_term.then_label, &if_term.else_label],
-        BlockPyTerm::BranchTable(branch) => {
+        BlockTerm::Jump(edge) => vec![&edge.target],
+        BlockTerm::IfTerm(if_term) => vec![&if_term.then_label, &if_term.else_label],
+        BlockTerm::BranchTable(branch) => {
             let mut targets = branch.targets.iter().collect::<Vec<_>>();
             targets.push(&branch.default_label);
             targets
         }
-        BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => Vec::new(),
+        BlockTerm::Raise(_) | BlockTerm::Return(_) => Vec::new(),
     }
 }
 
 fn normal_predecessor_exc_param_names(
-    blocks: &[crate::block_py::CfgBlock<
-        CoreBlockPyExpr,
-        crate::block_py::BlockPyTerm<CoreBlockPyExpr>,
-    >],
-) -> HashMap<crate::block_py::BlockPyLabel, Vec<Option<String>>> {
+    blocks: &[crate::block_py::Block<CoreBlockPyExpr, CoreBlockPyExpr>],
+) -> HashMap<crate::block_py::BlockLabel, Vec<Option<String>>> {
     let mut predecessors = HashMap::new();
     for block in blocks {
         let exc_name = block.exception_param().map(ToString::to_string);
@@ -1437,10 +1430,7 @@ fn normal_predecessor_exc_param_names(
 }
 
 fn sync_exception_param_cell_in_block(
-    block: &mut crate::block_py::CfgBlock<
-        CoreBlockPyExpr,
-        crate::block_py::BlockPyTerm<CoreBlockPyExpr>,
-    >,
+    block: &mut crate::block_py::Block<CoreBlockPyExpr, CoreBlockPyExpr>,
     normal_predecessor_exc_names: &[Option<String>],
     semantic: &BlockPyCallableSemanticInfo,
     resolver: &NameBindingMapper<'_>,
@@ -1477,10 +1467,7 @@ fn sync_exception_param_cell_in_block(
 }
 
 fn collect_deleted_names_in_blocks(
-    blocks: &[crate::block_py::CfgBlock<
-        CoreBlockPyExpr,
-        crate::block_py::BlockPyTerm<CoreBlockPyExpr>,
-    >],
+    blocks: &[crate::block_py::Block<CoreBlockPyExpr, CoreBlockPyExpr>],
     semantic: &BlockPyCallableSemanticInfo,
     storage_layout: &StorageLayout,
 ) -> HashSet<String> {
@@ -1510,10 +1497,7 @@ fn collect_runtime_bound_local_names_in_stmt(
 }
 
 fn collect_runtime_bound_local_names(
-    blocks: &[crate::block_py::CfgBlock<
-        CoreBlockPyExpr,
-        crate::block_py::BlockPyTerm<CoreBlockPyExpr>,
-    >],
+    blocks: &[crate::block_py::Block<CoreBlockPyExpr, CoreBlockPyExpr>],
     semantic: &BlockPyCallableSemanticInfo,
     storage_layout: &StorageLayout,
 ) -> HashSet<String> {
@@ -1586,26 +1570,23 @@ fn collect_remaining_names_in_stmt(stmt: &CoreStmt, names: &mut HashSet<String>)
     collect_remaining_names_in_expr(stmt, names)
 }
 
-fn collect_remaining_names_in_term(
-    term: &BlockPyTerm<CoreBlockPyExpr>,
-    names: &mut HashSet<String>,
-) {
+fn collect_remaining_names_in_term(term: &BlockTerm<CoreBlockPyExpr>, names: &mut HashSet<String>) {
     match term {
-        BlockPyTerm::Jump(edge) => {
+        BlockTerm::Jump(edge) => {
             for arg in &edge.args {
                 if let crate::block_py::BlockArg::Name(name) = arg {
                     names.insert(name.clone());
                 }
             }
         }
-        BlockPyTerm::IfTerm(if_term) => collect_remaining_names_in_expr(&if_term.test, names),
-        BlockPyTerm::BranchTable(branch) => collect_remaining_names_in_expr(&branch.index, names),
-        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
+        BlockTerm::IfTerm(if_term) => collect_remaining_names_in_expr(&if_term.test, names),
+        BlockTerm::BranchTable(branch) => collect_remaining_names_in_expr(&branch.index, names),
+        BlockTerm::Raise(TermRaise { exc }) => {
             if let Some(exc) = exc {
                 collect_remaining_names_in_expr(exc, names);
             }
         }
-        BlockPyTerm::Return(value) => collect_remaining_names_in_expr(value, names),
+        BlockTerm::Return(value) => collect_remaining_names_in_expr(value, names),
     }
 }
 
@@ -2216,9 +2197,7 @@ fn collect_make_function_callee_ids_in_expr(expr: &CoreBlockPyExpr, out: &mut Ve
             out.push(op.function_id);
         }
         _ => {
-            expr.walk(&mut |arg| {
-                collect_make_function_callee_ids_in_expr(arg, out)
-            });
+            expr.walk(&mut |arg| collect_make_function_callee_ids_in_expr(arg, out));
         }
     }
 }
@@ -2243,23 +2222,21 @@ fn collect_make_function_callee_ids_in_stmt(stmt: &CoreStmt, out: &mut Vec<Funct
 }
 
 fn collect_make_function_callee_ids_in_term(
-    term: &BlockPyTerm<CoreBlockPyExpr>,
+    term: &BlockTerm<CoreBlockPyExpr>,
     out: &mut Vec<FunctionId>,
 ) {
     match term {
-        BlockPyTerm::Jump(_) => {}
-        BlockPyTerm::IfTerm(if_term) => {
-            collect_make_function_callee_ids_in_expr(&if_term.test, out)
-        }
-        BlockPyTerm::BranchTable(branch) => {
+        BlockTerm::Jump(_) => {}
+        BlockTerm::IfTerm(if_term) => collect_make_function_callee_ids_in_expr(&if_term.test, out),
+        BlockTerm::BranchTable(branch) => {
             collect_make_function_callee_ids_in_expr(&branch.index, out)
         }
-        BlockPyTerm::Raise(raise_stmt) => {
+        BlockTerm::Raise(raise_stmt) => {
             if let Some(exc) = &raise_stmt.exc {
                 collect_make_function_callee_ids_in_expr(exc, out);
             }
         }
-        BlockPyTerm::Return(expr) => collect_make_function_callee_ids_in_expr(expr, out),
+        BlockTerm::Return(expr) => collect_make_function_callee_ids_in_expr(expr, out),
     }
 }
 
@@ -2593,7 +2570,7 @@ fn refresh_bb_callable_block_params(
         .into_iter()
         .map(|block| {
             let params = block.bb_params().cloned().collect();
-            crate::block_py::CfgBlock {
+            crate::block_py::Block {
                 label: block.label,
                 body: block.body,
                 term: block.term,
@@ -2624,7 +2601,7 @@ fn populate_jump_edge_args(blocks: &mut [crate::block_py::ResolvedStorageBlock])
         .map(|(index, block)| (block.label, index))
         .collect::<HashMap<_, _>>();
     for block_index in 0..blocks.len() {
-        let BlockPyTerm::Jump(edge) = &blocks[block_index].term else {
+        let BlockTerm::Jump(edge) = &blocks[block_index].term else {
             continue;
         };
         let Some(target_index) = label_to_index.get(&edge.target).copied() else {
@@ -2659,7 +2636,7 @@ fn populate_jump_edge_args(blocks: &mut [crate::block_py::ResolvedStorageBlock])
                 BlockArg::None
             })
             .collect::<Vec<_>>();
-        if let BlockPyTerm::Jump(edge) = &mut blocks[block_index].term {
+        if let BlockTerm::Jump(edge) = &mut blocks[block_index].term {
             edge.args = new_args;
         }
     }
@@ -2776,17 +2753,17 @@ impl ModuleConstantExtractor {
         self.extract_expr(stmt);
     }
 
-    fn extract_term(&mut self, term: &mut BlockPyTerm<LocatedCoreBlockPyExpr>) {
+    fn extract_term(&mut self, term: &mut BlockTerm<LocatedCoreBlockPyExpr>) {
         match term {
-            BlockPyTerm::Jump(_) => {}
-            BlockPyTerm::IfTerm(if_term) => self.extract_expr(&mut if_term.test),
-            BlockPyTerm::BranchTable(branch) => self.extract_expr(&mut branch.index),
-            BlockPyTerm::Raise(raise_stmt) => {
+            BlockTerm::Jump(_) => {}
+            BlockTerm::IfTerm(if_term) => self.extract_expr(&mut if_term.test),
+            BlockTerm::BranchTable(branch) => self.extract_expr(&mut branch.index),
+            BlockTerm::Raise(raise_stmt) => {
                 if let Some(exc) = &mut raise_stmt.exc {
                     self.extract_expr(exc);
                 }
             }
-            BlockPyTerm::Return(value) => self.extract_expr(value),
+            BlockTerm::Return(value) => self.extract_expr(value),
         }
     }
 

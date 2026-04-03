@@ -1,7 +1,7 @@
 use crate::block_py::{
-    core_call_expr_with_meta, core_operation_expr, literal_expr, BlockPyFunction, BlockPyModule,
-    CodegenBlockPyExpr, CoreBlockPyCallArg, CoreStringLiteral, Load, LocatedCoreBlockPyExpr,
-    LocatedName, Meta, NameLocation, WithMeta,
+    core_call_expr_with_meta, literal_expr, BlockPyFunction, BlockPyModule, CodegenBlockPyExpr,
+    CoreBlockPyCallArg, CoreStringLiteral, Load, LocatedCoreBlockPyExpr, LocatedName, Meta,
+    NameLocation, WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
 use std::collections::HashMap;
@@ -190,13 +190,12 @@ fn string_literal_expr(
         },
         meta.clone(),
     ));
-    core_operation_expr(
-        crate::block_py::Load::new(crate::block_py::LocatedName {
-            id: format!("__dp_constant_{index}").into(),
-            location: NameLocation::Constant(index),
-        })
-        .with_meta(meta),
-    )
+    crate::block_py::Load::new(crate::block_py::LocatedName {
+        id: format!("__dp_constant_{index}").into(),
+        location: NameLocation::Constant(index),
+    })
+    .with_meta(meta)
+    .into()
 }
 
 fn tuple_expr(values: Vec<CodegenBlockPyExpr>) -> CodegenBlockPyExpr {

@@ -1,6 +1,6 @@
 use super::{
-    BlockPyBranchTable, BlockPyCfgFragment, BlockPyIfTerm, BlockPyRaise, BlockPySemanticExprNode,
-    BlockPyTerm, Instr, StructuredIf, StructuredInstr,
+    BlockBuilder, BlockPySemanticExprNode, BlockTerm, Instr, StructuredIf, StructuredInstr,
+    TermBranchTable, TermIf, TermRaise,
 };
 use std::collections::HashSet;
 
@@ -44,28 +44,28 @@ where
     out
 }
 
-pub(super) fn assigned_names_in_blockpy_term<E>(term: &BlockPyTerm<E>) -> HashSet<String>
+pub(super) fn assigned_names_in_blockpy_term<E>(term: &BlockTerm<E>) -> HashSet<String>
 where
     E: BlockPySemanticExprNode + Instr,
 {
     match term {
-        BlockPyTerm::Jump(_) => HashSet::new(),
-        BlockPyTerm::IfTerm(BlockPyIfTerm { test, .. }) => {
+        BlockTerm::Jump(_) => HashSet::new(),
+        BlockTerm::IfTerm(TermIf { test, .. }) => {
             let mut names = HashSet::new();
             collect_named_expr_target_names_in_blockpy_expr(test, &mut names);
             names
         }
-        BlockPyTerm::BranchTable(BlockPyBranchTable { index, .. }) => {
+        BlockTerm::BranchTable(TermBranchTable { index, .. }) => {
             let mut names = HashSet::new();
             collect_named_expr_target_names_in_blockpy_expr(index, &mut names);
             names
         }
-        BlockPyTerm::Return(value) => {
+        BlockTerm::Return(value) => {
             let mut names = HashSet::new();
             collect_named_expr_target_names_in_blockpy_expr(value, &mut names);
             names
         }
-        BlockPyTerm::Raise(BlockPyRaise { exc }) => {
+        BlockTerm::Raise(TermRaise { exc }) => {
             let mut names = HashSet::new();
             if let Some(exc) = exc {
                 collect_named_expr_target_names_in_blockpy_expr(exc, &mut names);
@@ -76,7 +76,7 @@ where
 }
 
 pub(super) fn assigned_names_in_blockpy_fragment<E>(
-    fragment: &BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>,
+    fragment: &BlockBuilder<StructuredInstr<E>, BlockTerm<E>>,
 ) -> HashSet<String>
 where
     E: BlockPySemanticExprNode + Instr,

@@ -1,7 +1,7 @@
 use super::{
-    BlockArg, BlockParamRole, BlockPyCfgFragment, BlockPyEdge, BlockPyFunction,
-    BlockPyFunctionKind, BlockPyIfTerm, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
-    BlockPyTerm, CfgBlock, Instr, StructuredInstr,
+    Block, BlockArg, BlockBuilder, BlockEdge, BlockLabel, BlockParamRole, BlockPyFunction,
+    BlockPyFunctionKind, BlockPyModule, BlockPyPass, BlockTerm, Instr, StructuredInstr, TermIf,
+    TermRaise,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
@@ -19,7 +19,7 @@ enum IfBranchKind {
 }
 
 pub(crate) trait BlockPyPrettyPrinter: BlockPyPass {
-    fn block_metadata_lines(block: &CfgBlock<Self::Expr>) -> Vec<String>
+    fn block_metadata_lines(block: &Block<Self::Expr, Self::Expr>) -> Vec<String>
     where
         Self: Sized;
 }
@@ -28,7 +28,7 @@ macro_rules! impl_default_blockpy_pretty_printer {
     ($($pass:ty),* $(,)?) => {
         $(
             impl BlockPyPrettyPrinter for $pass {
-                fn block_metadata_lines(block: &CfgBlock<Self::Expr>) -> Vec<String> {
+                fn block_metadata_lines(block: &Block<Self::Expr, Self::Expr>) -> Vec<String> {
                     render_blockpy_block_metadata(block)
                 }
             }
@@ -43,7 +43,7 @@ impl_default_blockpy_pretty_printer!(
 );
 
 impl BlockPyPrettyPrinter for ResolvedStorageBlockPyPass {
-    fn block_metadata_lines(block: &CfgBlock<Self::Expr>) -> Vec<String> {
+    fn block_metadata_lines(block: &Block<Self::Expr, Self::Expr>) -> Vec<String> {
         let mut lines = Vec::new();
         if let Some(exc_edge) = &block.exc_edge {
             lines.push(format!("exc_target: {}", exc_edge.target));
@@ -56,12 +56,12 @@ impl BlockPyPrettyPrinter for ResolvedStorageBlockPyPass {
 }
 
 impl BlockPyPrettyPrinter for CodegenBlockPyPass {
-    fn block_metadata_lines(block: &CfgBlock<Self::Expr>) -> Vec<String> {
+    fn block_metadata_lines(block: &Block<Self::Expr>) -> Vec<String> {
         render_resolved_storage_block_metadata::<Self>(block)
     }
 }
 
-fn render_resolved_storage_block_metadata<P>(block: &CfgBlock<P::Expr>) -> Vec<String>
+fn render_resolved_storage_block_metadata<P>(block: &Block<P::Expr, P::Expr>) -> Vec<String>
 where
     P: BlockPyPass,
     P::Expr: Instr<Name = super::LocatedName>,
@@ -237,7 +237,7 @@ impl<R> BlockPyFormatter<R> {
         function: &BlockPyFunction<P>,
         render_layout: &BlockRenderLayout,
         block_index: usize,
-        referenced_labels: &HashSet<BlockPyLabel>,
+        referenced_labels: &HashSet<BlockLabel>,
     ) where
         P: BlockPyPrettyPrinter,
         R: InlineExprRenderer<P::Expr>,
@@ -269,8 +269,8 @@ impl<R> BlockPyFormatter<R> {
         function: &BlockPyFunction<P>,
         render_layout: &BlockRenderLayout,
         current_block_index: Option<usize>,
-        block: &CfgBlock<P::Expr>,
-        referenced_labels: &HashSet<BlockPyLabel>,
+        block: &Block<P::Expr, P::Expr>,
+        referenced_labels: &HashSet<BlockLabel>,
     ) where
         P: BlockPyPrettyPrinter,
         R: InlineExprRenderer<P::Expr>,
@@ -295,11 +295,8 @@ impl<R> BlockPyFormatter<R> {
         );
     }
 
-    fn write_linear_stmt_list<S, E>(
-        &mut self,
-        stmts: &[S],
-        referenced_labels: &HashSet<BlockPyLabel>,
-    ) where
+    fn write_linear_stmt_list<S, E>(&mut self, stmts: &[S], referenced_labels: &HashSet<BlockLabel>)
+    where
         S: Clone + Into<E>,
         E: Clone + std::fmt::Debug + Instr,
         R: InlineExprRenderer<E>,
@@ -311,8 +308,8 @@ impl<R> BlockPyFormatter<R> {
 
     fn write_stmt_fragment<E>(
         &mut self,
-        fragment: &BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>,
-        referenced_labels: &HashSet<BlockPyLabel>,
+        fragment: &BlockBuilder<StructuredInstr<E>, BlockTerm<E>>,
+        referenced_labels: &HashSet<BlockLabel>,
     ) where
         E: Clone + std::fmt::Debug + Instr,
         R: InlineExprRenderer<E>,
@@ -330,7 +327,7 @@ impl<R> BlockPyFormatter<R> {
     fn write_structured_stmt_list<E>(
         &mut self,
         stmts: &[StructuredInstr<E>],
-        referenced_labels: &HashSet<BlockPyLabel>,
+        referenced_labels: &HashSet<BlockLabel>,
     ) where
         E: Clone + std::fmt::Debug + Instr,
         R: InlineExprRenderer<E>,
@@ -340,7 +337,7 @@ impl<R> BlockPyFormatter<R> {
         }
     }
 
-    fn write_linear_stmt<E>(&mut self, stmt: &E, _referenced_labels: &HashSet<BlockPyLabel>)
+    fn write_linear_stmt<E>(&mut self, stmt: &E, _referenced_labels: &HashSet<BlockLabel>)
     where
         E: Clone + std::fmt::Debug + Instr,
         R: InlineExprRenderer<E>,
@@ -351,7 +348,7 @@ impl<R> BlockPyFormatter<R> {
     fn write_structured_stmt<E>(
         &mut self,
         stmt: &StructuredInstr<E>,
-        referenced_labels: &HashSet<BlockPyLabel>,
+        referenced_labels: &HashSet<BlockLabel>,
     ) where
         E: Clone + std::fmt::Debug + Instr,
         R: InlineExprRenderer<E>,
@@ -376,15 +373,15 @@ impl<R> BlockPyFormatter<R> {
         function: &BlockPyFunction<P>,
         render_layout: &BlockRenderLayout,
         current_block_index: Option<usize>,
-        term: &BlockPyTerm<P::Expr>,
-        referenced_labels: &HashSet<BlockPyLabel>,
+        term: &BlockTerm<P::Expr>,
+        referenced_labels: &HashSet<BlockLabel>,
     ) where
         P: BlockPyPrettyPrinter,
         R: InlineExprRenderer<P::Expr>,
     {
         match term {
-            BlockPyTerm::Jump(edge) => self.line(format!("jump {}", render_edge(edge))),
-            BlockPyTerm::IfTerm(BlockPyIfTerm {
+            BlockTerm::Jump(edge) => self.line(format!("jump {}", render_edge(edge))),
+            BlockTerm::IfTerm(TermIf {
                 test,
                 then_label,
                 else_label,
@@ -429,19 +426,20 @@ impl<R> BlockPyFormatter<R> {
                     });
                 });
             }
-            BlockPyTerm::BranchTable(branch) => self.line(format!(
+            BlockTerm::BranchTable(branch) => self.line(format!(
                 "branch_table {} -> [{}] default {}",
                 R::render(&branch.index),
                 join_labels(&branch.targets),
                 branch.default_label,
             )),
-            BlockPyTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
-            BlockPyTerm::Return(value) => self.line(format!("return {}", R::render(value))),
+            BlockTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
+            BlockTerm::Return(value) => self.line(format!("return {}", R::render(value))),
         }
     }
 
-    fn write_raise<E>(&mut self, raise_stmt: &BlockPyRaise<E>)
+    fn write_raise<E>(&mut self, raise_stmt: &TermRaise<E>)
     where
+        E: Instr,
         R: InlineExprRenderer<E>,
     {
         match &raise_stmt.exc {
@@ -450,21 +448,22 @@ impl<R> BlockPyFormatter<R> {
         }
     }
 
-    fn write_term_inline<E>(&mut self, term: &BlockPyTerm<E>)
+    fn write_term_inline<E>(&mut self, term: &BlockTerm<E>)
     where
+        E: Instr,
         R: InlineExprRenderer<E>,
     {
         match term {
-            BlockPyTerm::Jump(edge) => self.line(format!("jump {}", render_edge(edge))),
-            BlockPyTerm::BranchTable(branch) => self.line(format!(
+            BlockTerm::Jump(edge) => self.line(format!("jump {}", render_edge(edge))),
+            BlockTerm::BranchTable(branch) => self.line(format!(
                 "branch_table {} -> [{}] default {}",
                 R::render(&branch.index),
                 join_labels(&branch.targets),
                 branch.default_label,
             )),
-            BlockPyTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
-            BlockPyTerm::Return(value) => self.line(format!("return {}", R::render(value))),
-            BlockPyTerm::IfTerm(_) => {
+            BlockTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
+            BlockTerm::Return(value) => self.line(format!("return {}", R::render(value))),
+            BlockTerm::IfTerm(_) => {
                 panic!("IfTerm is only valid as a top-level block terminator");
             }
         }
@@ -585,7 +584,7 @@ fn format_parameters(parameters: &ParamSpec) -> String {
     parts.join(", ")
 }
 
-fn join_labels(labels: &[BlockPyLabel]) -> String {
+fn join_labels(labels: &[BlockLabel]) -> String {
     labels
         .iter()
         .map(ToString::to_string)
@@ -593,7 +592,7 @@ fn join_labels(labels: &[BlockPyLabel]) -> String {
         .join(", ")
 }
 
-fn render_edge(edge: &BlockPyEdge) -> String {
+fn render_edge(edge: &BlockEdge) -> String {
     if edge.args.is_empty() {
         return edge.target.to_string();
     }
@@ -612,7 +611,7 @@ fn render_block_arg(arg: &BlockArg) -> String {
     format!("{arg:?}")
 }
 
-fn render_blockpy_block_metadata<S, T>(block: &CfgBlock<S, T>) -> Vec<String> {
+fn render_blockpy_block_metadata<S, T: Instr>(block: &Block<S, T>) -> Vec<String> {
     let mut lines = Vec::new();
     if let Some(exc_param) = block.exception_param() {
         lines.push(format!("exc_param: {exc_param}"));
@@ -620,7 +619,7 @@ fn render_blockpy_block_metadata<S, T>(block: &CfgBlock<S, T>) -> Vec<String> {
     lines
 }
 
-fn render_block_header<S, T>(block: &CfgBlock<S, T>) -> String {
+fn render_block_header<S, T: Instr>(block: &Block<S, T>) -> String {
     let params = block
         .params
         .iter()
@@ -726,7 +725,7 @@ where
 
 fn compute_inline_if_term_targets<P>(
     function: &BlockPyFunction<P>,
-    label_to_index: &HashMap<BlockPyLabel, usize>,
+    label_to_index: &HashMap<BlockLabel, usize>,
     predecessors: &[Vec<usize>],
     immediate_dominators: &[Option<usize>],
 ) -> (HashMap<(usize, IfBranchKind), usize>, HashSet<usize>)
@@ -737,7 +736,7 @@ where
     let mut inlined_blocks = HashSet::new();
 
     for (block_index, block) in function.blocks.iter().enumerate() {
-        let BlockPyTerm::IfTerm(BlockPyIfTerm {
+        let BlockTerm::IfTerm(TermIf {
             then_label,
             else_label,
             ..
@@ -794,8 +793,8 @@ fn can_inline_if_term_target(
 }
 
 fn collect_top_level_successors_from_block<P>(
-    block: &CfgBlock<P::Expr>,
-    label_to_index: &HashMap<BlockPyLabel, usize>,
+    block: &Block<P::Expr, P::Expr>,
+    label_to_index: &HashMap<BlockLabel, usize>,
 ) -> Vec<usize>
 where
     P: BlockPyPass,
@@ -814,7 +813,7 @@ where
 
 fn collect_top_level_successors_from_linear_stmts<S>(
     stmts: &[S],
-    label_to_index: &HashMap<BlockPyLabel, usize>,
+    label_to_index: &HashMap<BlockLabel, usize>,
     seen: &mut HashSet<usize>,
     out: &mut Vec<usize>,
 ) where
@@ -827,16 +826,16 @@ fn collect_top_level_successors_from_linear_stmts<S>(
 }
 
 fn collect_top_level_successors_from_term(
-    term: &BlockPyTerm<impl Clone>,
-    label_to_index: &HashMap<BlockPyLabel, usize>,
+    term: &BlockTerm<impl Clone + Instr>,
+    label_to_index: &HashMap<BlockLabel, usize>,
     seen: &mut HashSet<usize>,
     out: &mut Vec<usize>,
 ) {
     match term {
-        BlockPyTerm::Jump(label) => {
+        BlockTerm::Jump(label) => {
             push_top_level_successor(&label.target, label_to_index, seen, out);
         }
-        BlockPyTerm::IfTerm(BlockPyIfTerm {
+        BlockTerm::IfTerm(TermIf {
             then_label,
             else_label,
             ..
@@ -844,19 +843,19 @@ fn collect_top_level_successors_from_term(
             push_top_level_successor(then_label, label_to_index, seen, out);
             push_top_level_successor(else_label, label_to_index, seen, out);
         }
-        BlockPyTerm::BranchTable(branch) => {
+        BlockTerm::BranchTable(branch) => {
             for label in &branch.targets {
                 push_top_level_successor(label, label_to_index, seen, out);
             }
             push_top_level_successor(&branch.default_label, label_to_index, seen, out);
         }
-        BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
+        BlockTerm::Raise(_) | BlockTerm::Return(_) => {}
     }
 }
 
 fn push_top_level_successor(
-    label: &BlockPyLabel,
-    label_to_index: &HashMap<BlockPyLabel, usize>,
+    label: &BlockLabel,
+    label_to_index: &HashMap<BlockLabel, usize>,
     seen: &mut HashSet<usize>,
     out: &mut Vec<usize>,
 ) {
@@ -985,7 +984,9 @@ fn compute_immediate_dominators(
     immediate_dominators
 }
 
-fn collect_referenced_labels_from_blocks<P>(blocks: &[CfgBlock<P::Expr>]) -> HashSet<BlockPyLabel>
+fn collect_referenced_labels_from_blocks<P>(
+    blocks: &[Block<P::Expr, P::Expr>],
+) -> HashSet<BlockLabel>
 where
     P: BlockPyPass,
 {
@@ -1001,8 +1002,8 @@ where
 
 #[cfg(test)]
 fn collect_referenced_labels_from_structured_blocks<E>(
-    blocks: &[CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>],
-) -> HashSet<BlockPyLabel>
+    blocks: &[Block<StructuredInstr<E>, E>],
+) -> HashSet<BlockLabel>
 where
     E: Clone + std::fmt::Debug + Instr,
 {
@@ -1020,7 +1021,7 @@ where
 #[cfg(test)]
 fn collect_referenced_labels_from_structured_stmts<E>(
     stmts: &[StructuredInstr<E>],
-    out: &mut HashSet<BlockPyLabel>,
+    out: &mut HashSet<BlockLabel>,
 ) where
     E: Clone + std::fmt::Debug + Instr,
 {
@@ -1039,24 +1040,24 @@ fn collect_referenced_labels_from_structured_stmts<E>(
 }
 
 fn collect_referenced_labels_from_term(
-    term: &BlockPyTerm<impl Clone>,
-    out: &mut HashSet<BlockPyLabel>,
+    term: &BlockTerm<impl Clone + Instr>,
+    out: &mut HashSet<BlockLabel>,
 ) {
     match term {
-        BlockPyTerm::Jump(edge) => {
+        BlockTerm::Jump(edge) => {
             out.insert(edge.target);
         }
-        BlockPyTerm::IfTerm(if_term) => {
+        BlockTerm::IfTerm(if_term) => {
             out.insert(if_term.then_label);
             out.insert(if_term.else_label);
         }
-        BlockPyTerm::BranchTable(branch) => {
+        BlockTerm::BranchTable(branch) => {
             for label in &branch.targets {
                 out.insert(*label);
             }
             out.insert(branch.default_label);
         }
-        BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
+        BlockTerm::Raise(_) | BlockTerm::Return(_) => {}
     }
 }
 

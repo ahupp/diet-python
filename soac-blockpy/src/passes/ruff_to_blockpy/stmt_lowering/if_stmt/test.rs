@@ -1,4 +1,4 @@
-use super::super::{simplify_stmt_ast_once_for_blockpy, BlockPyStmtFragmentBuilder};
+use super::super::{simplify_stmt_ast_once_for_blockpy, BlockPyStmtBuilder};
 use super::*;
 use crate::block_py::CoreBlockPyExprWithAwaitAndYield;
 use crate::passes::ast_to_ast::context::Context;
@@ -29,7 +29,7 @@ fn stmt_if_to_blockpy_uses_trait_owned_simplification_path_for_elif() {
         panic!("expected if stmt");
     };
     let context = Context::new("");
-    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
+    let mut out = BlockPyStmtBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
     let mut next_label_id = 0usize;
 
     if_stmt

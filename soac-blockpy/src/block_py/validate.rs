@@ -1,6 +1,6 @@
 use crate::block_py::{
-    compute_storage_layout_from_semantics, BlockArg, BlockParam, BlockPyEdge, BlockPyFunction,
-    BlockPyLabel, BlockPyModule, BlockPyPass, BlockPySemanticExprNode, BlockPyTerm, CfgBlock,
+    compute_storage_layout_from_semantics, Block, BlockArg, BlockEdge, BlockLabel, BlockParam,
+    BlockPyFunction, BlockPyModule, BlockPyPass, BlockPySemanticExprNode, BlockTerm,
 };
 
 pub(crate) fn validate_module<P: BlockPyPass>(module: &BlockPyModule<P>) -> Result<(), String>
@@ -61,31 +61,31 @@ where
             }
         }
         match &block.term {
-            BlockPyTerm::Jump(target) => {
+            BlockTerm::Jump(target) => {
                 validate_non_exception_edge(function, block, target, qualname, "jump target")?;
             }
-            BlockPyTerm::IfTerm(if_term) => {
+            BlockTerm::IfTerm(if_term) => {
                 validate_non_exception_edge(
                     function,
                     block,
-                    &BlockPyEdge::new(if_term.then_label),
+                    &BlockEdge::new(if_term.then_label),
                     qualname,
                     "then target",
                 )?;
                 validate_non_exception_edge(
                     function,
                     block,
-                    &BlockPyEdge::new(if_term.else_label),
+                    &BlockEdge::new(if_term.else_label),
                     qualname,
                     "else target",
                 )?;
             }
-            BlockPyTerm::BranchTable(branch) => {
+            BlockTerm::BranchTable(branch) => {
                 for target in &branch.targets {
                     validate_non_exception_edge(
                         function,
                         block,
-                        &BlockPyEdge::new(*target),
+                        &BlockEdge::new(*target),
                         qualname,
                         "br_table target",
                     )?;
@@ -93,12 +93,12 @@ where
                 validate_non_exception_edge(
                     function,
                     block,
-                    &BlockPyEdge::new(branch.default_label),
+                    &BlockEdge::new(branch.default_label),
                     qualname,
                     "br_table default target",
                 )?;
             }
-            BlockPyTerm::Raise(_) | BlockPyTerm::Return(_) => {}
+            BlockTerm::Raise(_) | BlockTerm::Return(_) => {}
         }
     }
     Ok(())
@@ -106,8 +106,8 @@ where
 
 fn validate_non_exception_edge<P: BlockPyPass>(
     function: &BlockPyFunction<P>,
-    source_block: &CfgBlock<P::Expr>,
-    edge: &BlockPyEdge,
+    source_block: &Block<P::Expr, P::Expr>,
+    edge: &BlockEdge,
     qualname: &str,
     label_kind: &str,
 ) -> Result<(), String> {
@@ -128,8 +128,8 @@ fn validate_non_exception_edge<P: BlockPyPass>(
 }
 
 fn validate_edge_param_forwarding<P: BlockPyPass>(
-    source_block: &CfgBlock<P::Expr>,
-    target_block: &CfgBlock<P::Expr>,
+    source_block: &Block<P::Expr, P::Expr>,
+    target_block: &Block<P::Expr, P::Expr>,
     explicit_args: &[BlockArg],
     qualname: &str,
     label_kind: &str,
@@ -192,8 +192,8 @@ fn validate_edge_param_forwarding<P: BlockPyPass>(
 }
 
 fn validate_explicit_edge_arg<P: BlockPyPass>(
-    source_block: &CfgBlock<P::Expr>,
-    target_block: &CfgBlock<P::Expr>,
+    source_block: &Block<P::Expr, P::Expr>,
+    target_block: &Block<P::Expr, P::Expr>,
     target_param: &BlockParam,
     source_arg: &BlockArg,
     qualname: &str,
@@ -293,11 +293,11 @@ where
 
 fn lookup_known_block<'a, P: BlockPyPass>(
     function: &'a BlockPyFunction<P>,
-    label: BlockPyLabel,
+    label: BlockLabel,
     qualname: &str,
-    block_label: BlockPyLabel,
+    block_label: BlockLabel,
     label_kind: &str,
-) -> Result<&'a CfgBlock<P::Expr>, String> {
+) -> Result<&'a Block<P::Expr, P::Expr>, String> {
     let Some(target_block) = function.blocks.get(label.index()) else {
         return Err(format!(
             "unknown {label_kind} {label} in {}:{}",

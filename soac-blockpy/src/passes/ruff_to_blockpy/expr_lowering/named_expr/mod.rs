@@ -1,5 +1,5 @@
 use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
-use crate::block_py::{BlockPyStmtFragmentBuilder, Meta, Store, StructuredInstr, WithMeta};
+use crate::block_py::{BlockPyStmtBuilder, Meta, Store, StructuredInstr, WithMeta};
 use crate::passes::ruff_to_blockpy::LoopContext;
 use ruff_python_ast::{self as ast, Expr};
 
@@ -20,7 +20,7 @@ fn into_load_name(name: ast::ExprName) -> Expr {
 pub(super) fn lower_named_expr_into<L, E>(
     lowerer: &L,
     named_expr: ast::ExprNamed,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
+    out: &mut BlockPyStmtBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<Expr, String>

@@ -1,7 +1,6 @@
 use crate::block_py::{
-    core_operation_expr, BlockPyFunction, BlockPyModule, BlockPyModuleMap, CodegenBlockPyExpr,
-    HasMeta, InstrExprNode, LiteralValue, Load, LocatedCoreBlockPyExpr, LocatedName, MapExpr,
-    NameLocation, WithMeta,
+    BlockPyFunction, BlockPyModule, BlockPyModuleMap, CodegenBlockPyExpr, HasMeta, InstrExprNode,
+    LiteralValue, Load, LocatedCoreBlockPyExpr, LocatedName, MapExpr, NameLocation, WithMeta,
 };
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use std::cell::RefCell;
@@ -44,13 +43,12 @@ impl MapExpr<LocatedCoreBlockPyExpr, CodegenBlockPyExpr> for CodegenExprNormaliz
             LocatedCoreBlockPyExpr::Literal(literal) => {
                 let meta = literal.meta();
                 let constant_index = self.push_module_constant(literal);
-                core_operation_expr(
-                    Load::new(LocatedName {
-                        id: format!("__dp_constant_{constant_index}").into(),
-                        location: NameLocation::Constant(constant_index),
-                    })
-                    .with_meta(meta),
-                )
+                Load::new(LocatedName {
+                    id: format!("__dp_constant_{constant_index}").into(),
+                    location: NameLocation::Constant(constant_index),
+                })
+                .with_meta(meta)
+                .into()
             }
             LocatedCoreBlockPyExpr::BinOp(node) => node
                 .map_typed_children(&mut |child| self.map_expr(child))

@@ -1,7 +1,7 @@
 use super::lower_try_jump_exception_flow;
 use crate::block_py::{
-    validate_module, AbruptKind, BlockArg, BlockParam, BlockParamRole, BlockPyBindingKind,
-    BlockPyCellBindingKind, BlockPyEdge, BlockPyLabel, BlockPyLiteral, BlockPyTerm, CodegenBlock,
+    validate_module, AbruptKind, BlockArg, BlockEdge, BlockLabel, BlockParam, BlockParamRole,
+    BlockPyBindingKind, BlockPyCellBindingKind, BlockPyLiteral, BlockTerm, CodegenBlock,
     CodegenBlockPyExpr, CoreBlockPyExpr, CoreNumberLiteral, CoreNumberLiteralValue,
     LocatedCoreBlockPyExpr, NameLocation, ResolvedStorageBlock, StorageLayout,
 };
@@ -27,9 +27,9 @@ fn tracked_codegen_module(source: &str) -> crate::block_py::BlockPyModule<Codege
     codegen
 }
 
-fn is_return_of_number_constant(term: &BlockPyTerm<LocatedCoreBlockPyExpr>) -> bool {
+fn is_return_of_number_constant(term: &BlockTerm<LocatedCoreBlockPyExpr>) -> bool {
     match term {
-        BlockPyTerm::Return(CoreBlockPyExpr::Literal(literal))
+        BlockTerm::Return(CoreBlockPyExpr::Literal(literal))
             if matches!(
                 literal.as_literal(),
                 BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
@@ -40,7 +40,7 @@ fn is_return_of_number_constant(term: &BlockPyTerm<LocatedCoreBlockPyExpr>) -> b
         {
             true
         }
-        BlockPyTerm::Return(CoreBlockPyExpr::Load(op))
+        BlockTerm::Return(CoreBlockPyExpr::Load(op))
             if matches!(op.name.location, NameLocation::Constant(_)) =>
         {
             true
@@ -62,25 +62,25 @@ def f(x):
             .iter_mut()
             .find(|function| function.names.qualname == "f")
             .expect("must contain f");
-        let body_label = BlockPyLabel::from_index(100);
-        let except_label = BlockPyLabel::from_index(101);
+        let body_label = BlockLabel::from_index(100);
+        let except_label = BlockLabel::from_index(101);
 
         function.blocks.push(ResolvedStorageBlock {
             label: body_label.clone(),
             body: vec![],
-            term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
+            term: BlockTerm::<LocatedCoreBlockPyExpr>::Return(
                 <LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
             ),
             params: vec![crate::block_py::BlockParam {
                 name: "_dp_try_exc_manual".to_string(),
                 role: crate::block_py::BlockParamRole::Exception,
             }],
-            exc_edge: Some(BlockPyEdge::new(except_label.clone())),
+            exc_edge: Some(BlockEdge::new(except_label.clone())),
         });
         function.blocks.push(ResolvedStorageBlock {
             label: except_label.clone(),
             body: vec![],
-            term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
+            term: BlockTerm::<LocatedCoreBlockPyExpr>::Return(
                 <LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
             ),
             params: Vec::new(),
@@ -123,7 +123,7 @@ def f():
         .callable_defs
         .first_mut()
         .expect("must contain function");
-    function.blocks[0].exc_edge = Some(BlockPyEdge::new(BlockPyLabel::from_index(999)));
+    function.blocks[0].exc_edge = Some(BlockEdge::new(BlockLabel::from_index(999)));
 
     let err = validate_module(&module).expect_err("must reject unknown labels");
     assert!(
@@ -167,7 +167,7 @@ def f():
         .first_mut()
         .expect("must contain function");
     let target = function.blocks[0].label;
-    function.blocks[0].exc_edge = Some(BlockPyEdge::with_args(target, vec![BlockArg::None]));
+    function.blocks[0].exc_edge = Some(BlockEdge::with_args(target, vec![BlockArg::None]));
 
     let err = validate_module(&module).expect_err("must reject mismatched exception edge arity");
     assert!(
@@ -191,7 +191,7 @@ def f():
         .expect("must contain function");
     let target = function.blocks[0].label;
     function.blocks[0].set_exception_param("_dp_try_exc");
-    function.blocks[0].exc_edge = Some(BlockPyEdge::with_args(
+    function.blocks[0].exc_edge = Some(BlockEdge::with_args(
         target,
         vec![BlockArg::AbruptKind(AbruptKind::Exception)],
     ));
@@ -217,11 +217,11 @@ def f():
         .first_mut()
         .expect("must contain function");
     function.blocks[0].set_exception_param("_dp_yield_from_exc");
-    let target = BlockPyLabel::from_index(function.blocks.len());
+    let target = BlockLabel::from_index(function.blocks.len());
     function.blocks.push(CodegenBlock {
         label: target,
         body: vec![],
-        term: BlockPyTerm::<CodegenBlockPyExpr>::Return(
+        term: BlockTerm::<CodegenBlockPyExpr>::Return(
             <CodegenBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
         ),
         params: vec![BlockParam {
@@ -230,7 +230,7 @@ def f():
         }],
         exc_edge: None,
     });
-    function.blocks[0].term = BlockPyTerm::Jump(BlockPyEdge::new(target));
+    function.blocks[0].term = BlockTerm::Jump(BlockEdge::new(target));
 
     let err =
         validate_module(&module).expect_err("must reject implicit renamed exception forwarding");
@@ -300,17 +300,17 @@ def f():
         .position(|block| block.body.len() >= 2)
         .expect("must contain multi-op block");
     let original_label = function.blocks[block_index].label.clone();
-    let except_label = BlockPyLabel::from_index(100);
+    let except_label = BlockLabel::from_index(100);
     function.blocks.push(ResolvedStorageBlock {
         label: except_label.clone(),
         body: vec![],
-        term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
+        term: BlockTerm::<LocatedCoreBlockPyExpr>::Return(
             <LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
         ),
         params: Vec::new(),
         exc_edge: None,
     });
-    function.blocks[block_index].exc_edge = Some(BlockPyEdge::new(except_label.clone()));
+    function.blocks[block_index].exc_edge = Some(BlockEdge::new(except_label.clone()));
     function.blocks[block_index].set_exception_param("_dp_try_exc_split");
 
     let lowered = lower_try_jump_exception_flow(&module);
@@ -327,7 +327,7 @@ def f():
         .expect("split must keep original block label");
     assert_eq!(first.body.len(), 1, "first split block must contain one op");
     assert!(
-        matches!(first.term, BlockPyTerm::Jump(_)),
+        matches!(first.term, BlockTerm::Jump(_)),
         "split op block must jump to next split block"
     );
     assert_eq!(
@@ -368,17 +368,17 @@ def f():
         .position(|block| block.body.len() >= 4)
         .expect("must contain multi-op block");
     let original_label = function.blocks[block_index].label.clone();
-    let except_label = BlockPyLabel::from_index(100);
+    let except_label = BlockLabel::from_index(100);
     function.blocks.push(ResolvedStorageBlock {
         label: except_label.clone(),
         body: vec![],
-        term: BlockPyTerm::<LocatedCoreBlockPyExpr>::Return(
+        term: BlockTerm::<LocatedCoreBlockPyExpr>::Return(
             <LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(),
         ),
         params: Vec::new(),
         exc_edge: None,
     });
-    function.blocks[block_index].exc_edge = Some(BlockPyEdge::new(except_label.clone()));
+    function.blocks[block_index].exc_edge = Some(BlockEdge::new(except_label.clone()));
     function.blocks[block_index].set_exception_param("_dp_try_exc_group");
 
     let lowered = lower_try_jump_exception_flow(&module);
@@ -399,7 +399,7 @@ def f():
         "pure expr ops should remain grouped until the local assignment"
     );
     assert!(
-        matches!(first.term, BlockPyTerm::Jump(_)),
+        matches!(first.term, BlockTerm::Jump(_)),
         "state-changing assignment should still split the block"
     );
 

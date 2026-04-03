@@ -1,7 +1,5 @@
 use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
-use crate::block_py::{
-    BlockPyStmtFragmentBuilder, Meta, Store, StructuredIf, StructuredInstr, WithMeta,
-};
+use crate::block_py::{BlockPyStmtBuilder, Meta, Store, StructuredIf, StructuredInstr, WithMeta};
 use crate::passes::ruff_to_blockpy::expr_lowering::fresh_setup_name;
 use crate::passes::ruff_to_blockpy::LoopContext;
 use crate::py_expr;
@@ -36,7 +34,7 @@ where
 pub(super) fn lower_if_expr_into<L, E>(
     lowerer: &L,
     if_expr: ast::ExprIf,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
+    out: &mut BlockPyStmtBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<Expr, String>
@@ -50,11 +48,11 @@ where
     let target = fresh_setup_name("tmp");
     let test = lowerer.lower_expr_ast_into(*test, out, loop_ctx, next_label_id)?;
 
-    let mut body_out = BlockPyStmtFragmentBuilder::<E>::new();
+    let mut body_out = BlockPyStmtBuilder::<E>::new();
     let body_value = lowerer.lower_expr_ast_into(*body, &mut body_out, loop_ctx, next_label_id)?;
     body_out.push_stmt(assign_name(&target, body_value));
 
-    let mut orelse_out = BlockPyStmtFragmentBuilder::<E>::new();
+    let mut orelse_out = BlockPyStmtBuilder::<E>::new();
     let orelse_value =
         lowerer.lower_expr_ast_into(*orelse, &mut orelse_out, loop_ctx, next_label_id)?;
     orelse_out.push_stmt(assign_name(&target, orelse_value));

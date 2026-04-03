@@ -3,22 +3,22 @@ use super::{
     rewrite_current_exception_in_blockpy_term,
 };
 use crate::block_py::{
-    BlockParam, BlockParamRole, BlockPyIfTerm, BlockPyLabel, BlockPyNameLike, BlockPyStmtFragment,
-    BlockPyTerm, CfgBlock, CoreBlockPyCallArg, CoreBlockPyExpr, LocatedCoreBlockPyExpr,
-    LocatedName, ModuleNameGen, ResolvedStorageBlock, StructuredIf, StructuredInstr, WithMeta,
+    Block, BlockLabel, BlockParam, BlockParamRole, BlockPyNameLike, BlockPyStmtBuilder, BlockTerm,
+    CoreBlockPyCallArg, CoreBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen,
+    ResolvedStorageBlock, StructuredIf, StructuredInstr, TermIf, WithMeta,
 };
 use ruff_python_ast::{self as ast};
 use ruff_text_size::TextRange;
 
 pub(crate) fn lower_structured_core_blocks_to_bb_blocks<N>(
-    blocks: &[CfgBlock<StructuredInstr<CoreBlockPyExpr<N>>, BlockPyTerm<CoreBlockPyExpr<N>>>],
-) -> Vec<CfgBlock<CoreBlockPyExpr<N>, BlockPyTerm<CoreBlockPyExpr<N>>>>
+    blocks: &[Block<StructuredInstr<CoreBlockPyExpr<N>>, CoreBlockPyExpr<N>>],
+) -> Vec<Block<CoreBlockPyExpr<N>, CoreBlockPyExpr<N>>>
 where
     N: BlockPyNameLike,
 {
     let mut module_name_gen = ModuleNameGen::new(0);
     let name_gen = module_name_gen.next_function_name_gen();
-    let mut normalized_blocks = blocks.to_vec();
+    let normalized_blocks = blocks.to_vec();
     if let Some(max_label) = normalized_blocks
         .iter()
         .map(|block| block.label.index())
@@ -30,8 +30,8 @@ where
 }
 
 pub(crate) fn lower_structured_unresolved_core_blocks_to_bb_blocks(
-    blocks: &[CfgBlock<StructuredInstr<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>],
-) -> Vec<CfgBlock<CoreBlockPyExpr, BlockPyTerm<CoreBlockPyExpr>>> {
+    blocks: &[Block<StructuredInstr<CoreBlockPyExpr>, CoreBlockPyExpr>],
+) -> Vec<Block<CoreBlockPyExpr, CoreBlockPyExpr>> {
     let mut module_name_gen = ModuleNameGen::new(0);
     let name_gen = module_name_gen.next_function_name_gen();
     let mut normalized_blocks = blocks.to_vec();
@@ -47,16 +47,13 @@ pub(crate) fn lower_structured_unresolved_core_blocks_to_bb_blocks(
 }
 
 pub(crate) fn lower_structured_located_blocks_to_bb_blocks(
-    blocks: &[CfgBlock<
-        StructuredInstr<CoreBlockPyExpr<LocatedName>>,
-        BlockPyTerm<LocatedCoreBlockPyExpr>,
-    >],
+    blocks: &[Block<StructuredInstr<CoreBlockPyExpr<LocatedName>>, LocatedCoreBlockPyExpr>],
 ) -> Vec<ResolvedStorageBlock> {
     lower_structured_core_blocks_to_bb_blocks(blocks)
 }
 
 fn rewrite_current_exception_in_core_blocks_structured(
-    blocks: &mut [CfgBlock<StructuredInstr<CoreBlockPyExpr>, BlockPyTerm<CoreBlockPyExpr>>],
+    blocks: &mut [Block<StructuredInstr<CoreBlockPyExpr>, CoreBlockPyExpr>],
 ) {
     for block in blocks {
         let Some(exc_name) = block.exception_param().map(ToString::to_string) else {
@@ -113,8 +110,8 @@ fn core_name_expr(name: &str) -> CoreBlockPyExpr {
 
 #[test]
 fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
-    let blocks = vec![CfgBlock {
-        label: BlockPyLabel::from_index(0),
+    let blocks = vec![Block {
+        label: BlockLabel::from_index(0),
         body: vec![StructuredInstr::If(StructuredIf {
             test: crate::block_py::core_call_expr_with_meta(
                 core_name_expr("current_exception"),
@@ -123,14 +120,14 @@ fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
                 Vec::<CoreBlockPyCallArg<CoreBlockPyExpr>>::new(),
                 Vec::new(),
             ),
-            body: BlockPyStmtFragment::from_stmts(vec![StructuredInstr::Expr(
+            body: BlockPyStmtBuilder::from_stmts(vec![StructuredInstr::Expr(
                 crate::block_py::Store::new(
                     expr_name("x", ast::ExprContext::Store),
                     Box::new(core_name_expr("a")),
                 )
                 .into(),
             )]),
-            orelse: BlockPyStmtFragment::from_stmts(vec![StructuredInstr::Expr(
+            orelse: BlockPyStmtBuilder::from_stmts(vec![StructuredInstr::Expr(
                 crate::block_py::Store::new(
                     expr_name("x", ast::ExprContext::Store),
                     Box::new(core_name_expr("b")),
@@ -138,7 +135,7 @@ fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
                 .into(),
             )]),
         })],
-        term: BlockPyTerm::Return(core_name_expr("__dp_NONE")),
+        term: BlockTerm::Return(core_name_expr("__dp_NONE")),
         params: vec![BlockParam {
             name: "_dp_try_exc_0".to_string(),
             role: BlockParamRole::Exception,
@@ -149,7 +146,7 @@ fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
     let lowered = lower_structured_unresolved_core_blocks_to_bb_blocks(&blocks);
 
     assert_eq!(lowered.len(), 3, "{lowered:?}");
-    let BlockPyTerm::IfTerm(BlockPyIfTerm {
+    let BlockTerm::IfTerm(TermIf {
         test: CoreBlockPyExpr::Load(load),
         ..
     }) = &lowered[0].term

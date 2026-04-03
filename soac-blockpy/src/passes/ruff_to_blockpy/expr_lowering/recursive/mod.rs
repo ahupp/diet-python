@@ -1,5 +1,5 @@
 use super::{BlockPySetupExprLowerer, RuffToBlockPyExpr};
-use crate::block_py::BlockPyStmtFragmentBuilder;
+use crate::block_py::BlockPyStmtBuilder;
 use crate::passes::ruff_to_blockpy::expr_lowering::boolop_compare::{
     lower_boolop_into, lower_compare_into,
 };
@@ -11,7 +11,7 @@ use ruff_python_ast::{self as ast, Expr};
 pub(super) fn lower_expr_ast_recursive<L, E>(
     lowerer: &L,
     expr: Expr,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
+    out: &mut BlockPyStmtBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<Expr, String>

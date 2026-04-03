@@ -16,7 +16,7 @@ pub(super) fn temp_load_expr<E: RuffToBlockPyExpr>(name: &str) -> E {
 }
 
 pub(super) fn bind_temp<E: RuffToBlockPyExpr>(
-    out: &mut BlockPyStmtFragmentBuilder<E>,
+    out: &mut BlockPyStmtBuilder<E>,
     name: String,
     value: E,
 ) -> E {
@@ -28,7 +28,7 @@ pub(super) fn bind_temp<E: RuffToBlockPyExpr>(
     temp_load_expr(&name)
 }
 
-fn delete_temp<E: RuffToBlockPyExpr>(out: &mut BlockPyStmtFragmentBuilder<E>, name: String) {
+fn delete_temp<E: RuffToBlockPyExpr>(out: &mut BlockPyStmtBuilder<E>, name: String) {
     let target = rhs_temp_name(&name, ast::ExprContext::Del);
     let meta = Meta::new(target.node_index.clone(), target.range);
     out.push_stmt(StructuredInstr::Expr(
@@ -38,7 +38,7 @@ fn delete_temp<E: RuffToBlockPyExpr>(out: &mut BlockPyStmtFragmentBuilder<E>, na
 
 pub(super) fn lower_target_object_with_setup<E: RuffToBlockPyExpr>(
     target_value: Expr,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
+    out: &mut BlockPyStmtBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<E, String> {
@@ -60,7 +60,7 @@ fn lower_assignment_target_into<E>(
     context: &Context,
     target: Expr,
     rhs: E,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
+    out: &mut BlockPyStmtBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String>
@@ -154,7 +154,7 @@ fn lower_unpack_target_into<E>(
     context: &Context,
     elts: Vec<Expr>,
     value: E,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
+    out: &mut BlockPyStmtBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
     kind: UnpackTargetKind,
@@ -251,7 +251,7 @@ impl StmtLowerer for ast::StmtAssign {
     fn to_blockpy<E>(
         &self,
         context: &Context,
-        out: &mut BlockPyStmtFragmentBuilder<E>,
+        out: &mut BlockPyStmtBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
     ) -> Result<(), String>

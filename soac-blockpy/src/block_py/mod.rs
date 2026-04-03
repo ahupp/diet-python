@@ -17,7 +17,7 @@ pub use operation::{
     MakeCell, MakeFunction, SetAttr, SetItem, Store, UnaryOp, UnaryOpKind,
 };
 pub use ruff_python_ast::Expr;
-use ruff_python_ast::{self as ast, ExprName};
+use ruff_python_ast::{self as ast};
 use soac_macros::enum_broadcast;
 use std::fmt;
 
@@ -31,7 +31,6 @@ mod operation_macro;
 pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod semantics;
-pub(crate) mod structured;
 pub(crate) mod validate;
 #[cfg(test)]
 pub(crate) use convert::BlockPyModuleTryMap;
@@ -39,7 +38,7 @@ pub(crate) use convert::{
     try_lower_core_expr_without_await, try_lower_core_expr_without_yield, BlockPyModuleMap,
     ExprTryMap,
 };
-pub use name_gen::{BlockPyLabel, FunctionNameGen, ModuleNameGen};
+pub use name_gen::{BlockLabel, FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -457,27 +456,27 @@ pub enum BlockPyFunctionKind {
 }
 
 #[derive(Debug, Clone)]
-pub struct CfgBlock<S, T = BlockPyTerm<S>> {
-    pub label: BlockPyLabel,
+pub struct Block<S, T: Instr = S> {
+    pub label: BlockLabel,
     pub body: Vec<S>,
-    pub term: T,
+    pub term: BlockTerm<T>,
     pub params: Vec<BlockParam>,
-    pub exc_edge: Option<BlockPyEdge>,
+    pub exc_edge: Option<BlockEdge>,
 }
 
-impl<S, T> CfgBlock<S, T> {
+impl<S, T: Instr> Block<S, T> {
     pub fn label_str(&self) -> String {
         self.label.to_string()
     }
 }
 
-impl<S: BlockPyNormalizedStmt, T> CfgBlock<S, T> {
+impl<S: NormalizedInstr, T: Instr> Block<S, T> {
     pub fn new(
-        label: BlockPyLabel,
+        label: BlockLabel,
         body: Vec<S>,
-        term: T,
+        term: BlockTerm<T>,
         params: Vec<BlockParam>,
-        exc_edge: Option<BlockPyEdge>,
+        exc_edge: Option<BlockEdge>,
     ) -> Self {
         let block = Self {
             label,
@@ -491,20 +490,23 @@ impl<S: BlockPyNormalizedStmt, T> CfgBlock<S, T> {
     }
 }
 
-impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>> CfgBlock<S, T> {
-    pub fn from_fragment(
-        label: BlockPyLabel,
-        fragment: BlockPyCfgFragment<S, T>,
+impl<S: NormalizedInstr, T: Instr> Block<S, T>
+where
+    BlockTerm<T>: BlockPyFallthroughTerm<BlockLabel>,
+{
+    pub fn from_builder(
+        label: BlockLabel,
+        builder: BlockBuilder<S, BlockTerm<T>>,
         params: Vec<BlockParam>,
-        exc_edge: Option<BlockPyEdge>,
-        fallthrough_target: Option<BlockPyLabel>,
+        exc_edge: Option<BlockEdge>,
+        fallthrough_target: Option<BlockLabel>,
     ) -> Self {
         Self::new(
             label,
-            fragment.body,
-            fragment.term.unwrap_or_else(|| match fallthrough_target {
-                Some(target) => T::jump_term(target),
-                None => T::implicit_function_return(),
+            builder.body,
+            builder.term.unwrap_or_else(|| match fallthrough_target {
+                Some(target) => BlockTerm::<T>::jump_term(target),
+                None => BlockTerm::<T>::implicit_function_return(),
             }),
             params,
             exc_edge,
@@ -512,7 +514,7 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>> CfgBlock
     }
 }
 
-impl<S, T> CfgBlock<S, T> {
+impl<S, T: Instr> Block<S, T> {
     pub fn ensure_param(&mut self, name: impl Into<String>, role: BlockParamRole) {
         let name = name.into();
         if self.params.iter().any(|param| param.name == name) {
@@ -857,11 +859,9 @@ pub(crate) fn core_runtime_name_expr_with_meta<E>(
 where
     E: Instr<Name = UnresolvedName> + From<Load<E>>,
 {
-    core_operation_expr(Load::new(runtime_symbol(name)).with_meta(Meta::new(node_index, range)))
-}
-
-pub(crate) fn core_operation_expr<E>(operation: impl Into<E>) -> E {
-    operation.into()
+    Load::new(runtime_symbol(name))
+        .with_meta(Meta::new(node_index, range))
+        .into()
 }
 
 pub(crate) fn core_positional_call_expr_with_meta<E>(
@@ -1050,7 +1050,7 @@ pub struct BlockPyFunction<P: BlockPyPass, S = <P as BlockPyPass>::Expr> {
     pub names: FunctionName,
     pub kind: BlockPyFunctionKind,
     pub params: ParamSpec,
-    pub blocks: Vec<CfgBlock<S, BlockPyTerm<P::Expr>>>,
+    pub blocks: Vec<Block<S, P::Expr>>,
     pub doc: Option<String>,
     pub storage_layout: Option<StorageLayout>,
     pub semantic: BlockPyCallableSemanticInfo,
@@ -1083,7 +1083,7 @@ impl<P: BlockPyPass, S> BlockPyFunction<P, S> {
         &self.storage_layout
     }
 
-    pub fn entry_block(&self) -> &CfgBlock<S, BlockPyTerm<P::Expr>> {
+    pub fn entry_block(&self) -> &Block<S, P::Expr> {
         self.blocks
             .first()
             .expect("BlockPyFunction should have at least one block")
@@ -1091,7 +1091,7 @@ impl<P: BlockPyPass, S> BlockPyFunction<P, S> {
 
     pub fn map_blocks<Q: BlockPyPass, T>(
         self,
-        mut f: impl FnMut(CfgBlock<S, BlockPyTerm<P::Expr>>) -> CfgBlock<T, BlockPyTerm<Q::Expr>>,
+        mut f: impl FnMut(Block<S, P::Expr>) -> Block<T, Q::Expr>,
     ) -> BlockPyFunction<Q, T> {
         BlockPyFunction {
             function_id: self.function_id,
@@ -1107,7 +1107,7 @@ impl<P: BlockPyPass, S> BlockPyFunction<P, S> {
     }
 }
 
-pub trait BlockPyNormalizedStmt {
+pub trait NormalizedInstr {
     fn assert_blockpy_normalized(&self);
 }
 
@@ -1116,10 +1116,10 @@ pub trait BlockPyPass: Clone + fmt::Debug {
 }
 
 pub type InstrName<I> = <I as Instr>::Name;
-pub type ResolvedStorageBlock = CfgBlock<LocatedCoreBlockPyExpr>;
-pub type CodegenBlock = CfgBlock<CodegenBlockPyExpr>;
+pub type ResolvedStorageBlock = Block<LocatedCoreBlockPyExpr>;
+pub type CodegenBlock = Block<CodegenBlockPyExpr>;
 
-pub(crate) type BlockPyBlock<E = Expr> = CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>;
+pub(crate) type BlockPyBlock<I> = Block<StructuredInstr<I>, I>;
 
 pub trait BlockPyJumpTerm<L> {
     fn jump_term(target: L) -> Self;
@@ -1160,60 +1160,21 @@ where
     expr_any_impl(expr, &mut predicate)
 }
 
-pub fn assert_blockpy_block_normalized<S: BlockPyNormalizedStmt, T>(block: &CfgBlock<S, T>) {
+pub fn assert_blockpy_block_normalized<S: NormalizedInstr, T: Instr>(block: &Block<S, T>) {
     for stmt in &block.body {
         stmt.assert_blockpy_normalized();
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyCfgFragment<S, T> {
+pub struct BlockBuilder<S, T> {
     pub body: Vec<S>,
     pub term: Option<T>,
 }
 
-pub(crate) type BlockPyStmtFragment<E = Expr> =
-    BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>;
+pub(crate) type BlockPyStmtBuilder<I> = BlockBuilder<StructuredInstr<I>, BlockTerm<I>>;
 
-impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragment<S, T> {
-    pub fn assert_normalized(&self) {
-        for stmt in &self.body {
-            stmt.assert_blockpy_normalized();
-        }
-    }
-}
-
-impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragment<S, T> {
-    pub fn from_stmts(stmts: Vec<S>) -> Self {
-        Self::with_term(stmts, None)
-    }
-
-    pub fn with_term(body: Vec<S>, term: impl Into<Option<T>>) -> Self {
-        let fragment = BlockPyCfgFragment {
-            body,
-            term: term.into(),
-        };
-        fragment.assert_normalized();
-        fragment
-    }
-}
-
-impl<S: BlockPyNormalizedStmt, T: BlockPyJumpTerm<BlockPyLabel>> BlockPyCfgFragment<S, T> {
-    pub fn jump(target: BlockPyLabel) -> Self {
-        Self::with_term(Vec::new(), Some(T::jump_term(target)))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct BlockPyCfgFragmentBuilder<S, T> {
-    body: Vec<S>,
-    term: Option<T>,
-}
-
-pub(crate) type BlockPyStmtFragmentBuilder<E = Expr> =
-    BlockPyCfgFragmentBuilder<StructuredInstr<E>, BlockPyTerm<E>>;
-
-impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
+impl<S: NormalizedInstr, T> BlockBuilder<S, T> {
     pub fn new() -> Self {
         Self {
             body: Vec::new(),
@@ -1221,10 +1182,29 @@ impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
         }
     }
 
+    pub fn assert_normalized(&self) {
+        for stmt in &self.body {
+            stmt.assert_blockpy_normalized();
+        }
+    }
+
+    pub fn from_stmts(stmts: Vec<S>) -> Self {
+        Self::with_term(stmts, None)
+    }
+
+    pub fn with_term(body: Vec<S>, term: impl Into<Option<T>>) -> Self {
+        let builder = BlockBuilder {
+            body,
+            term: term.into(),
+        };
+        builder.assert_normalized();
+        builder
+    }
+
     pub fn push_stmt(&mut self, stmt: S) {
         assert!(
             self.term.is_none(),
-            "cannot append structured BlockPy stmt after stmt-fragment terminator"
+            "cannot append structured BlockPy stmt after block-builder terminator"
         );
         stmt.assert_blockpy_normalized();
         self.body.push(stmt);
@@ -1242,37 +1222,36 @@ impl<S: BlockPyNormalizedStmt, T> BlockPyCfgFragmentBuilder<S, T> {
     pub fn set_term(&mut self, term: T) {
         assert!(
             self.term.is_none(),
-            "cannot replace existing stmt-fragment terminator"
+            "cannot replace existing block-builder terminator"
         );
         self.term = Some(term);
     }
 
-    pub fn finish(self) -> BlockPyCfgFragment<S, T> {
-        let fragment = BlockPyCfgFragment {
-            body: self.body,
-            term: self.term,
-        };
-        fragment.assert_normalized();
-        fragment
+    pub fn finish(self) -> Self {
+        self.assert_normalized();
+        self
+    }
+}
+
+impl<S: NormalizedInstr, T: BlockPyJumpTerm<BlockLabel>> BlockBuilder<S, T> {
+    pub fn jump(target: BlockLabel) -> Self {
+        Self::with_term(Vec::new(), Some(T::jump_term(target)))
     }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum StructuredInstr<E = Expr> {
-    Expr(E),
-    If(StructuredIf<E>),
+pub(crate) enum StructuredInstr<I: Instr> {
+    Expr(I),
+    If(StructuredIf<I>),
 }
 
-impl<I> From<Del<I>> for StructuredInstr<I>
-where
-    I: Instr + From<Del<I>>,
-{
-    fn from(value: Del<I>) -> Self {
-        Self::Expr(value.into())
+impl<I: Instr> From<I> for StructuredInstr<I> {
+    fn from(value: I) -> Self {
+        Self::Expr(value)
     }
 }
 
-impl<E: std::fmt::Debug> StructuredInstr<E> {
+impl<I: Instr> StructuredInstr<I> {
     pub fn assert_normalized(&self) {
         if let Self::If(if_stmt) = self {
             if_stmt.body.assert_normalized();
@@ -1281,88 +1260,79 @@ impl<E: std::fmt::Debug> StructuredInstr<E> {
     }
 }
 
-impl<E: std::fmt::Debug> BlockPyNormalizedStmt for StructuredInstr<E> {
+impl<I: Instr> NormalizedInstr for StructuredInstr<I> {
     fn assert_blockpy_normalized(&self) {
         self.assert_normalized();
     }
 }
 
-impl<I> BlockPyNormalizedStmt for I
+impl<I> NormalizedInstr for I
 where
     I: Instr,
 {
     fn assert_blockpy_normalized(&self) {}
 }
 
-pub(crate) fn convert_structured_instr_expr<EIn, EOut>(
-    value: StructuredInstr<EIn>,
-) -> StructuredInstr<EOut>
+pub(crate) fn convert_structured_instr_expr<IIn, IOut>(
+    value: StructuredInstr<IIn>,
+) -> StructuredInstr<IOut>
 where
-    EOut: From<EIn>,
+    IIn: Instr,
+    IOut: Instr + From<IIn>,
 {
     match value {
         StructuredInstr::Expr(expr) => StructuredInstr::Expr(expr.into()),
         StructuredInstr::If(if_stmt) => StructuredInstr::If(StructuredIf {
             test: if_stmt.test.into(),
-            body: convert_blockpy_fragment_expr(if_stmt.body),
-            orelse: convert_blockpy_fragment_expr(if_stmt.orelse),
+            body: convert_block_builder_expr(if_stmt.body),
+            orelse: convert_block_builder_expr(if_stmt.orelse),
         }),
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum BlockPyTerm<E = Expr> {
-    Jump(BlockPyEdge),
-    IfTerm(BlockPyIfTerm<E>),
-    BranchTable(BlockPyBranchTable<E>),
-    Raise(BlockPyRaise<E>),
-    Return(E),
+pub enum BlockTerm<I: Instr> {
+    Jump(BlockEdge),
+    IfTerm(TermIf<I>),
+    BranchTable(TermBranchTable<I>),
+    Raise(TermRaise<I>),
+    Return(I),
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyAssign<E = Expr, N = InstrName<E>> {
-    pub target: N,
-    pub value: E,
+pub(crate) struct StructuredIf<I: Instr> {
+    pub test: I,
+    pub body: BlockBuilder<StructuredInstr<I>, BlockTerm<I>>,
+    pub orelse: BlockBuilder<StructuredInstr<I>, BlockTerm<I>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyDelete<N = ExprName> {
-    pub target: N,
+pub struct TermIf<I: Instr> {
+    pub test: I,
+    pub then_label: BlockLabel,
+    pub else_label: BlockLabel,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct StructuredIf<E = Expr> {
-    pub test: E,
-    pub body: BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>,
-    pub orelse: BlockPyCfgFragment<StructuredInstr<E>, BlockPyTerm<E>>,
+pub struct TermBranchTable<I: Instr> {
+    pub index: I,
+    pub targets: Vec<BlockLabel>,
+    pub default_label: BlockLabel,
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyIfTerm<E = Expr> {
-    pub test: E,
-    pub then_label: BlockPyLabel,
-    pub else_label: BlockPyLabel,
+pub struct TermRaise<I: Instr> {
+    pub exc: Option<I>,
 }
 
-#[derive(Debug, Clone)]
-pub struct BlockPyBranchTable<E = Expr> {
-    pub index: E,
-    pub targets: Vec<BlockPyLabel>,
-    pub default_label: BlockPyLabel,
-}
-
-#[derive(Debug, Clone)]
-pub struct BlockPyRaise<E = Expr> {
-    pub exc: Option<E>,
-}
-
-pub(crate) fn convert_blockpy_fragment_expr<EIn, EOut>(
-    value: BlockPyCfgFragment<StructuredInstr<EIn>, BlockPyTerm<EIn>>,
-) -> BlockPyCfgFragment<StructuredInstr<EOut>, BlockPyTerm<EOut>>
+pub(crate) fn convert_block_builder_expr<IIn, IOut>(
+    value: BlockBuilder<StructuredInstr<IIn>, BlockTerm<IIn>>,
+) -> BlockBuilder<StructuredInstr<IOut>, BlockTerm<IOut>>
 where
-    EOut: From<EIn>,
+    IIn: Instr,
+    IOut: Instr + From<IIn>,
 {
-    BlockPyCfgFragment {
+    BlockBuilder {
         body: value
             .body
             .into_iter()
@@ -1372,44 +1342,45 @@ where
     }
 }
 
-pub fn convert_blockpy_term_expr<EIn, EOut>(value: BlockPyTerm<EIn>) -> BlockPyTerm<EOut>
+pub fn convert_blockpy_term_expr<IIn, IOut>(value: BlockTerm<IIn>) -> BlockTerm<IOut>
 where
-    EOut: From<EIn>,
+    IIn: Instr,
+    IOut: Instr + From<IIn>,
 {
     match value {
-        BlockPyTerm::Jump(edge) => BlockPyTerm::Jump(edge),
-        BlockPyTerm::IfTerm(if_term) => BlockPyTerm::IfTerm(BlockPyIfTerm {
+        BlockTerm::Jump(edge) => BlockTerm::Jump(edge),
+        BlockTerm::IfTerm(if_term) => BlockTerm::IfTerm(TermIf {
             test: if_term.test.into(),
             then_label: if_term.then_label,
             else_label: if_term.else_label,
         }),
-        BlockPyTerm::BranchTable(branch) => BlockPyTerm::BranchTable(BlockPyBranchTable {
+        BlockTerm::BranchTable(branch) => BlockTerm::BranchTable(TermBranchTable {
             index: branch.index.into(),
             targets: branch.targets,
             default_label: branch.default_label,
         }),
-        BlockPyTerm::Raise(raise_stmt) => BlockPyTerm::Raise(BlockPyRaise {
+        BlockTerm::Raise(raise_stmt) => BlockTerm::Raise(TermRaise {
             exc: raise_stmt.exc.map(Into::into),
         }),
-        BlockPyTerm::Return(value) => BlockPyTerm::Return(value.into()),
+        BlockTerm::Return(value) => BlockTerm::Return(value.into()),
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockPyEdge {
-    pub target: BlockPyLabel,
+pub struct BlockEdge {
+    pub target: BlockLabel,
     pub args: Vec<BlockArg>,
 }
 
-impl BlockPyEdge {
-    pub fn new(target: BlockPyLabel) -> Self {
+impl BlockEdge {
+    pub fn new(target: BlockLabel) -> Self {
         Self {
             target,
             args: Vec::new(),
         }
     }
 
-    pub fn with_args(target: BlockPyLabel, args: Vec<BlockArg>) -> Self {
+    pub fn with_args(target: BlockLabel, args: Vec<BlockArg>) -> Self {
         Self { target, args }
     }
 }
@@ -1444,6 +1415,47 @@ pub struct BlockParam {
     pub role: BlockParamRole,
 }
 
+enum TermChildRef<'a, E> {
+    Expr(&'a E),
+    Label(&'a BlockLabel),
+}
+
+fn walk_term_children<I: Instr>(
+    term: &BlockTerm<I>,
+    visit_child: &mut impl FnMut(TermChildRef<'_, I>),
+) {
+    match term {
+        BlockTerm::Jump(edge) => {
+            visit_child(TermChildRef::Label(&edge.target));
+        }
+        BlockTerm::IfTerm(if_term) => {
+            visit_child(TermChildRef::Expr(&if_term.test));
+            visit_child(TermChildRef::Label(&if_term.then_label));
+            visit_child(TermChildRef::Label(&if_term.else_label));
+        }
+        BlockTerm::BranchTable(branch) => {
+            visit_child(TermChildRef::Expr(&branch.index));
+            for target in &branch.targets {
+                visit_child(TermChildRef::Label(target));
+            }
+            visit_child(TermChildRef::Label(&branch.default_label));
+        }
+        BlockTerm::Raise(raise_stmt) => {
+            if let Some(exc) = &raise_stmt.exc {
+                visit_child(TermChildRef::Expr(exc));
+            }
+        }
+        BlockTerm::Return(value) => visit_child(TermChildRef::Expr(value)),
+    }
+}
+
+fn walk_expr_children<E>(expr: &E, visit_expr: &mut impl FnMut(&E))
+where
+    E: Walkable<E>,
+{
+    expr.walk(visit_expr);
+}
+
 pub(crate) trait BlockPyLinearModuleVisitor<P>
 where
     P: BlockPyPass,
@@ -1457,7 +1469,7 @@ where
         walk_linear_fn(self, func);
     }
 
-    fn visit_block(&mut self, block: &CfgBlock<P::Expr>) {
+    fn visit_block(&mut self, block: &Block<P::Expr, P::Expr>) {
         walk_linear_block(self, block);
     }
 
@@ -1465,11 +1477,11 @@ where
         walk_linear_stmt(self, stmt);
     }
 
-    fn visit_term(&mut self, term: &BlockPyTerm<P::Expr>) {
+    fn visit_term(&mut self, term: &BlockTerm<P::Expr>) {
         walk_linear_term(self, term);
     }
 
-    fn visit_label(&mut self, label: &BlockPyLabel) {
+    fn visit_label(&mut self, label: &BlockLabel) {
         walk_linear_label::<Self, P>(self, label);
     }
 
@@ -1500,7 +1512,7 @@ where
     }
 }
 
-pub(crate) fn walk_linear_block<V, P>(visitor: &mut V, block: &CfgBlock<P::Expr>)
+pub(crate) fn walk_linear_block<V, P>(visitor: &mut V, block: &Block<P::Expr, P::Expr>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
@@ -1524,7 +1536,7 @@ where
     visitor.visit_expr(stmt);
 }
 
-pub(crate) fn walk_linear_label<V, P>(visitor: &mut V, label: &BlockPyLabel)
+pub(crate) fn walk_linear_label<V, P>(visitor: &mut V, label: &BlockLabel)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
@@ -1534,35 +1546,16 @@ where
     let _ = label;
 }
 
-pub(crate) fn walk_linear_term<V, P>(visitor: &mut V, term: &BlockPyTerm<P::Expr>)
+pub(crate) fn walk_linear_term<V, P>(visitor: &mut V, term: &BlockTerm<P::Expr>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
     P::Expr: Walkable<P::Expr>,
 {
-    match term {
-        BlockPyTerm::Jump(edge) => {
-            visitor.visit_label(&edge.target);
-        }
-        BlockPyTerm::IfTerm(if_term) => {
-            visitor.visit_expr(&if_term.test);
-            visitor.visit_label(&if_term.then_label);
-            visitor.visit_label(&if_term.else_label);
-        }
-        BlockPyTerm::BranchTable(branch) => {
-            visitor.visit_expr(&branch.index);
-            for target in &branch.targets {
-                visitor.visit_label(target);
-            }
-            visitor.visit_label(&branch.default_label);
-        }
-        BlockPyTerm::Raise(raise_stmt) => {
-            if let Some(exc) = &raise_stmt.exc {
-                visitor.visit_expr(exc);
-            }
-        }
-        BlockPyTerm::Return(value) => visitor.visit_expr(value),
-    }
+    walk_term_children(term, &mut |child| match child {
+        TermChildRef::Expr(expr) => visitor.visit_expr(expr),
+        TermChildRef::Label(label) => visitor.visit_label(label),
+    });
 }
 
 pub(crate) fn walk_linear_expr<V, P>(visitor: &mut V, expr: &P::Expr)
@@ -1571,15 +1564,164 @@ where
     P: BlockPyPass,
     P::Expr: Walkable<P::Expr>,
 {
-    let _ = expr.clone().map_walk(&mut |child| {
-        visitor.visit_expr(&child);
-        child
+    walk_expr_children(expr, &mut |child| visitor.visit_expr(child));
+}
+
+#[cfg(test)]
+pub(crate) trait BlockPyModuleVisitor<P>
+where
+    P: BlockPyPass,
+    P::Expr: Walkable<P::Expr>,
+{
+    fn visit_module(&mut self, module: &BlockPyModule<P, StructuredInstr<P::Expr>>) {
+        walk_module(self, module);
+    }
+
+    fn visit_fn(&mut self, func: &BlockPyFunction<P, StructuredInstr<P::Expr>>) {
+        walk_fn(self, func);
+    }
+
+    fn visit_block(&mut self, block: &Block<StructuredInstr<P::Expr>, P::Expr>) {
+        walk_block(self, block);
+    }
+
+    fn visit_fragment(
+        &mut self,
+        fragment: &BlockBuilder<StructuredInstr<P::Expr>, BlockTerm<P::Expr>>,
+    ) {
+        walk_fragment(self, fragment);
+    }
+
+    fn visit_stmt(&mut self, stmt: &StructuredInstr<P::Expr>) {
+        walk_stmt(self, stmt);
+    }
+
+    fn visit_term(&mut self, term: &BlockTerm<P::Expr>) {
+        walk_term(self, term);
+    }
+
+    fn visit_label(&mut self, label: &BlockLabel) {
+        walk_label::<Self, P>(self, label);
+    }
+
+    fn visit_expr(&mut self, expr: &P::Expr) {
+        walk_expr(self, expr);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn walk_module<V, P>(
+    visitor: &mut V,
+    module: &BlockPyModule<P, StructuredInstr<P::Expr>>,
+) where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+    P::Expr: Walkable<P::Expr>,
+{
+    for function in &module.callable_defs {
+        visitor.visit_fn(function);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn walk_fn<V, P>(visitor: &mut V, func: &BlockPyFunction<P, StructuredInstr<P::Expr>>)
+where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+    P::Expr: Walkable<P::Expr>,
+{
+    for block in &func.blocks {
+        visitor.visit_block(block);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn walk_block<V, P>(visitor: &mut V, block: &Block<StructuredInstr<P::Expr>, P::Expr>)
+where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+    P::Expr: Walkable<P::Expr>,
+{
+    for stmt in &block.body {
+        visitor.visit_stmt(stmt);
+    }
+    if let Some(exc_edge) = &block.exc_edge {
+        visitor.visit_label(&exc_edge.target);
+    }
+    visitor.visit_term(&block.term);
+}
+
+#[cfg(test)]
+pub(crate) fn walk_fragment<V, P>(
+    visitor: &mut V,
+    fragment: &BlockBuilder<StructuredInstr<P::Expr>, BlockTerm<P::Expr>>,
+) where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+    P::Expr: Walkable<P::Expr>,
+{
+    for stmt in &fragment.body {
+        visitor.visit_stmt(stmt);
+    }
+    if let Some(term) = &fragment.term {
+        visitor.visit_term(term);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn walk_stmt<V, P>(visitor: &mut V, stmt: &StructuredInstr<P::Expr>)
+where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+    P::Expr: Walkable<P::Expr>,
+{
+    match stmt {
+        StructuredInstr::Expr(expr) => visitor.visit_expr(expr),
+        StructuredInstr::If(if_stmt) => {
+            visitor.visit_expr(&if_stmt.test);
+            visitor.visit_fragment(&if_stmt.body);
+            visitor.visit_fragment(&if_stmt.orelse);
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn walk_label<V, P>(visitor: &mut V, label: &BlockLabel)
+where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+    P::Expr: Walkable<P::Expr>,
+{
+    let _ = visitor;
+    let _ = label;
+}
+
+#[cfg(test)]
+pub(crate) fn walk_term<V, P>(visitor: &mut V, term: &BlockTerm<P::Expr>)
+where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+    P::Expr: Walkable<P::Expr>,
+{
+    walk_term_children(term, &mut |child| match child {
+        TermChildRef::Expr(expr) => visitor.visit_expr(expr),
+        TermChildRef::Label(label) => visitor.visit_label(label),
     });
 }
 
-impl<E> BlockPyJumpTerm<BlockPyLabel> for BlockPyTerm<E> {
-    fn jump_term(target: BlockPyLabel) -> Self {
-        Self::Jump(BlockPyEdge::new(target))
+#[cfg(test)]
+pub(crate) fn walk_expr<V, P>(visitor: &mut V, expr: &P::Expr)
+where
+    V: BlockPyModuleVisitor<P> + ?Sized,
+    P: BlockPyPass,
+    P::Expr: Walkable<P::Expr>,
+{
+    walk_expr_children(expr, &mut |child| visitor.visit_expr(child));
+}
+
+impl<I: Instr> BlockPyJumpTerm<BlockLabel> for BlockTerm<I> {
+    fn jump_term(target: BlockLabel) -> Self {
+        Self::Jump(BlockEdge::new(target))
     }
 }
 
@@ -1639,7 +1781,6 @@ impl ImplicitNoneExpr for LocatedCoreBlockPyExpr {
             id: "NONE".into(),
             location: NameLocation::RuntimeName,
         })
-        .with_meta(Meta::synthetic())
         .into()
     }
 
@@ -1657,7 +1798,6 @@ impl ImplicitNoneExpr for CodegenBlockPyExpr {
             id: "NONE".into(),
             location: NameLocation::RuntimeName,
         })
-        .with_meta(Meta::synthetic())
         .into()
     }
 
@@ -1669,9 +1809,9 @@ impl ImplicitNoneExpr for CodegenBlockPyExpr {
     }
 }
 
-impl<E: ImplicitNoneExpr> BlockPyFallthroughTerm<BlockPyLabel> for BlockPyTerm<E> {
+impl<I: Instr + ImplicitNoneExpr> BlockPyFallthroughTerm<BlockLabel> for BlockTerm<I> {
     fn implicit_function_return() -> Self {
-        Self::Return(E::implicit_none_expr())
+        Self::Return(I::implicit_none_expr())
     }
 }
 

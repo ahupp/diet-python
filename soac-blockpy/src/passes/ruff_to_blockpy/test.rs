@@ -1,8 +1,8 @@
 use super::*;
 
 use crate::block_py::{
-    BlockPyEdge, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyRaise,
-    BlockPyTerm, CoreBlockPyExprWithAwaitAndYield, StructuredInstr,
+    BlockEdge, BlockLabel, BlockPyFunction, BlockPyModule, BlockPyPass, BlockTerm,
+    CoreBlockPyExprWithAwaitAndYield, StructuredInstr, TermRaise,
 };
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::ast_to_ast::context::Context;
@@ -56,9 +56,9 @@ fn function_by_name<'a, P: BlockPyPass>(
 
 fn lower_stmt_for_panic_test(stmt: &Stmt) {
     let context = Context::new("");
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+    let mut out = crate::block_py::BlockBuilder::<
         StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+        BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
     let _ = lower_stmt_into(&context, stmt, &mut out, None, &mut next_label_id);
@@ -68,8 +68,8 @@ fn test_context() -> Context {
     Context::new("")
 }
 
-fn label(index: u32) -> BlockPyLabel {
-    BlockPyLabel::from_index(index as usize)
+fn label(index: u32) -> BlockLabel {
+    BlockLabel::from_index(index as usize)
 }
 
 type TestBlock = BlockPyBlock<CoreBlockPyExprWithAwaitAndYield>;
@@ -94,7 +94,7 @@ def f(x, ys):
     let rendered = crate::block_py::pretty::blockpy_module_to_string(&blockpy);
     assert!(blocks
         .iter()
-        .any(|block| matches!(block.term, BlockPyTerm::IfTerm(_))));
+        .any(|block| matches!(block.term, BlockTerm::IfTerm(_))));
     assert!(
         blocks.iter().any(|block| block.exc_edge.is_some()),
         "{rendered}"
@@ -463,14 +463,14 @@ def f():
         label(0),
         try_plan,
         &mut |_expanded: &[Stmt], targets: RegionTargets, blocks: &mut Vec<TestBlock>| {
-            let label = BlockPyLabel::from_index(100 + blocks.len());
+            let label = BlockLabel::from_index(100 + blocks.len());
             blocks.push(
                 crate::passes::ruff_to_blockpy::compat::compat_block_from_blockpy_with_exc_target_and_expr::<
                     CoreBlockPyExprWithAwaitAndYield,
                 >(
                     label,
                     Vec::new(),
-                    BlockPyTerm::Jump(BlockPyEdge::new(targets.normal_cont)),
+                    BlockTerm::Jump(BlockEdge::new(targets.normal_cont)),
                     targets.active_exc.as_ref(),
                 ),
             );
@@ -482,7 +482,7 @@ def f():
     let Some(try_entry_block) = blocks.iter().find(|block| block.label == entry) else {
         panic!("expected try entry block");
     };
-    let BlockPyTerm::Jump(try_body_edge) = &try_entry_block.term else {
+    let BlockTerm::Jump(try_body_edge) = &try_entry_block.term else {
         panic!("expected try entry jump");
     };
     let Some(body_block) = blocks
@@ -544,7 +544,7 @@ fn expanded_stmt_helper_emits_linear_jump_prefix() {
     assert_eq!(blocks[0].label, label(10));
     assert!(matches!(
         &blocks[0].term,
-        BlockPyTerm::Jump(edge) if edge.target == label(11)
+        BlockTerm::Jump(edge) if edge.target == label(11)
     ));
 }
 
@@ -581,7 +581,7 @@ fn if_stmt_helper_lowers_both_branches_via_callback() {
         vec![(then_body.len(), label(99)), (else_body.len(), label(99))]
     );
     assert_eq!(blocks.len(), 1);
-    assert!(matches!(blocks[0].term, BlockPyTerm::IfTerm(_)));
+    assert!(matches!(blocks[0].term, BlockTerm::IfTerm(_)));
 }
 
 #[test]
@@ -599,7 +599,7 @@ fn sequence_jump_helper_emits_jump_block() {
     assert_eq!(blocks.len(), 1);
     assert!(matches!(
         &blocks[0].term,
-        BlockPyTerm::Jump(edge) if edge.target == label(11)
+        BlockTerm::Jump(edge) if edge.target == label(11)
     ));
 }
 
@@ -620,7 +620,7 @@ fn sequence_return_helper_emits_return_block() {
 
     assert_eq!(entry, label(10));
     assert_eq!(blocks.len(), 1);
-    assert!(matches!(blocks[0].term, BlockPyTerm::Return(_)));
+    assert!(matches!(blocks[0].term, BlockTerm::Return(_)));
 }
 
 #[test]
@@ -633,7 +633,7 @@ fn sequence_raise_helper_emits_raise_block() {
             &mut blocks,
             label(10),
             vec![py_stmt!("prefix = 0")],
-            BlockPyRaise {
+            TermRaise {
                 exc: Some(py_expr!("exc").into()),
             },
             None,
@@ -644,7 +644,7 @@ fn sequence_raise_helper_emits_raise_block() {
     assert_eq!(blocks.len(), 1);
     assert!(matches!(
         blocks[0].term,
-        BlockPyTerm::Raise(BlockPyRaise { exc: Some(_) })
+        BlockTerm::Raise(TermRaise { exc: Some(_) })
     ));
 }
 
@@ -697,7 +697,7 @@ y = 3
         ]
     );
     assert_eq!(blocks.len(), 1);
-    assert!(matches!(blocks[0].term, BlockPyTerm::IfTerm(_)));
+    assert!(matches!(blocks[0].term, BlockTerm::IfTerm(_)));
 }
 
 #[test]
@@ -891,7 +891,7 @@ async def outer(inner):
         .blocks
         .iter()
         .filter_map(|block| match &block.term {
-            BlockPyTerm::Raise(BlockPyRaise { exc: Some(exc) })
+            BlockTerm::Raise(TermRaise { exc: Some(exc) })
                 if crate::block_py::pretty::bb_expr_text(exc).contains("StopIteration") =>
             {
                 Some(block.label.clone())
@@ -930,9 +930,9 @@ def f(x):
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+    let mut out = crate::block_py::BlockBuilder::<
         StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+        BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
@@ -975,9 +975,9 @@ def f(x):
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+    let mut out = crate::block_py::BlockBuilder::<
         StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+        BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
@@ -1024,9 +1024,9 @@ def f():
     .into_syntax()
     .body;
     let context = test_context();
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+    let mut out = crate::block_py::BlockBuilder::<
         StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+        BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &module[0], &mut out, None, &mut next_label_id)
@@ -1052,9 +1052,9 @@ def f(x):
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+    let mut out = crate::block_py::BlockBuilder::<
         StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+        BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
@@ -1078,9 +1078,9 @@ def f():
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+    let mut out = crate::block_py::BlockBuilder::<
         StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+        BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
@@ -1109,9 +1109,9 @@ def f():
         panic!("expected function def");
     };
     let context = test_context();
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+    let mut out = crate::block_py::BlockBuilder::<
         StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+        BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(&context, &func.body[0], &mut out, None, &mut next_label_id)
@@ -1129,7 +1129,7 @@ def f():
 "#,
     );
     let raise_stmt = match &function_by_name(&blockpy, "f").blocks[0].term {
-        BlockPyTerm::Raise(raise_stmt) => raise_stmt,
+        BlockTerm::Raise(raise_stmt) => raise_stmt,
         other => panic!("expected BlockPy raise term, got {other:?}"),
     };
     assert!(raise_stmt.exc.is_none());
@@ -1166,9 +1166,9 @@ fn panics_if_while_reaches_stmt_list_lowering() {
         panic!("expected while stmt");
     };
     let context = test_context();
-    let mut out = crate::block_py::BlockPyCfgFragmentBuilder::<
+    let mut out = crate::block_py::BlockBuilder::<
         StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-        BlockPyTerm<CoreBlockPyExprWithAwaitAndYield>,
+        BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
     >::new();
     let mut next_label_id = 0usize;
     lower_stmt_into(

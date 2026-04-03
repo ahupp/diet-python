@@ -3,9 +3,9 @@ use super::{
     persistent_generator_state_order, resume_closure_bindings,
 };
 use crate::block_py::{
-    BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
-    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCfgFragment, BlockPyLabel,
-    BlockPyTerm, CfgBlock, ClosureInit, ClosureSlot, FunctionId, FunctionName, StorageLayout,
+    Block, BlockBuilder, BlockLabel, BlockPyBindingKind, BlockPyBindingPurpose,
+    BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockTerm,
+    ClosureInit, ClosureSlot, FunctionId, FunctionName, StorageLayout,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::py_expr;
@@ -87,9 +87,9 @@ fn build_closure_backed_generator_factory_block(
         generator_expr
     };
 
-    CfgBlock::from_fragment(
-        BlockPyLabel::from_index(0),
-        BlockPyCfgFragment::with_term(Vec::new(), Some(BlockPyTerm::Return(return_value.into()))),
+    Block::from_builder(
+        BlockLabel::from_index(0),
+        BlockBuilder::with_term(Vec::new(), Some(BlockTerm::Return(return_value.into()))),
         Vec::new(),
         None,
         None,
@@ -351,9 +351,9 @@ fn builds_closure_backed_generator_factory_block() {
         false,
     );
 
-    assert_eq!(block.label, BlockPyLabel::from_index(0));
+    assert_eq!(block.label, BlockLabel::from_index(0));
     assert!(block.body.is_empty(), "{block:?}");
-    assert!(matches!(block.term, BlockPyTerm::Return(_)));
+    assert!(matches!(block.term, BlockTerm::Return(_)));
 }
 
 #[test]

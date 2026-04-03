@@ -1,7 +1,7 @@
 use super::{
-    is_internal_symbol, walk_linear_block, walk_linear_expr, walk_linear_stmt, BlockPyFunction,
-    BlockPyLinearModuleVisitor, BlockPyLiteral, BlockPyNameLike, BlockPyPass, Call, CfgBlock,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    is_internal_symbol, walk_linear_block, walk_linear_expr, walk_linear_stmt, Block,
+    BlockPyFunction, BlockPyLinearModuleVisitor, BlockPyLiteral, BlockPyNameLike, BlockPyPass,
+    Call, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, FunctionName, RuffExpr, Walkable,
 };
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
@@ -780,7 +780,7 @@ where
     P: BlockPyPass,
     P::Expr: BlockPySemanticExprNode,
 {
-    fn visit_block(&mut self, block: &CfgBlock<P::Expr>) {
+    fn visit_block(&mut self, block: &Block<P::Expr, P::Expr>) {
         if let Some(exc_param) = block.exception_param() {
             self.used_names.insert(exc_param.to_string());
         }

@@ -1,7 +1,7 @@
 use crate::block_py::{
-    core_operation_expr, core_runtime_positional_call_expr_with_meta, literal_expr, operation,
-    BlockPyFunctionKind, BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield,
-    CoreStringLiteral, Del, FunctionId, Instr, InstrName, Meta, Store, WithMeta,
+    core_runtime_positional_call_expr_with_meta, literal_expr, operation, BlockPyFunctionKind,
+    BlockPyStmtBuilder, CoreBlockPyExprWithAwaitAndYield, CoreStringLiteral, Del, FunctionId,
+    Instr, InstrName, Meta, Store, WithMeta,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ast_to_ast::string_templates::lower_string_templates_in_expr;
@@ -134,9 +134,9 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         let meta = Meta::new(node_index.clone(), range);
         let kind = inplace_kind(op)
             .expect("direct augassign lowering should support every Python inplace operator");
-        core_operation_expr(
-            operation::BinOp::new(kind, Box::new(left), Box::new(right)).with_meta(meta),
-        )
+        operation::BinOp::new(kind, Box::new(left), Box::new(right))
+            .with_meta(meta)
+            .into()
     }
 
     fn load_deleted_name(
@@ -163,10 +163,9 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         attr: String,
     ) -> Self {
         let attr_expr = string_literal_expr(node_index.clone(), range, attr);
-        core_operation_expr(
-            operation::GetAttr::new(Box::new(value), Box::new(attr_expr))
-                .with_meta(Meta::new(node_index, range)),
-        )
+        operation::GetAttr::new(Box::new(value), Box::new(attr_expr))
+            .with_meta(Meta::new(node_index, range))
+            .into()
     }
 
     fn set_attr(
@@ -177,10 +176,9 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         replacement: Self,
     ) -> Self {
         let attr_expr = string_literal_expr(node_index.clone(), range, attr);
-        core_operation_expr(
-            operation::SetAttr::new(Box::new(value), Box::new(attr_expr), Box::new(replacement))
-                .with_meta(Meta::new(node_index, range)),
-        )
+        operation::SetAttr::new(Box::new(value), Box::new(attr_expr), Box::new(replacement))
+            .with_meta(Meta::new(node_index, range))
+            .into()
     }
 
     fn get_item(
@@ -189,10 +187,9 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         value: Self,
         index: Self,
     ) -> Self {
-        core_operation_expr(
-            operation::GetItem::new(Box::new(value), Box::new(index))
-                .with_meta(Meta::new(node_index, range)),
-        )
+        operation::GetItem::new(Box::new(value), Box::new(index))
+            .with_meta(Meta::new(node_index, range))
+            .into()
     }
 
     fn set_item(
@@ -202,10 +199,9 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         index: Self,
         replacement: Self,
     ) -> Self {
-        core_operation_expr(
-            operation::SetItem::new(Box::new(value), Box::new(index), Box::new(replacement))
-                .with_meta(Meta::new(node_index, range)),
-        )
+        operation::SetItem::new(Box::new(value), Box::new(index), Box::new(replacement))
+            .with_meta(Meta::new(node_index, range))
+            .into()
     }
 
     fn del_item(
@@ -214,10 +210,9 @@ impl RuffToBlockPyExpr for CoreBlockPyExprWithAwaitAndYield {
         value: Self,
         index: Self,
     ) -> Self {
-        core_operation_expr(
-            operation::DelItem::new(Box::new(value), Box::new(index))
-                .with_meta(Meta::new(node_index, range)),
-        )
+        operation::DelItem::new(Box::new(value), Box::new(index))
+            .with_meta(Meta::new(node_index, range))
+            .into()
     }
 }
 
@@ -225,7 +220,7 @@ pub(crate) trait BlockPySetupExprLowerer {
     fn lower_expr_ast_into<E>(
         &self,
         expr: Expr,
-        out: &mut BlockPyStmtFragmentBuilder<E>,
+        out: &mut BlockPyStmtBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
     ) -> Result<Expr, String>
@@ -240,7 +235,7 @@ pub(crate) trait BlockPySetupExprLowerer {
     fn lower_expr_into<E>(
         &self,
         expr: Expr,
-        out: &mut BlockPyStmtFragmentBuilder<E>,
+        out: &mut BlockPyStmtBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
     ) -> Result<E, String>
@@ -266,7 +261,7 @@ pub(crate) fn lower_expr_head_ast_for_blockpy(expr: Expr) -> Expr {
 
 pub(crate) fn lower_expr_into_with_setup<E>(
     expr: Expr,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
+    out: &mut BlockPyStmtBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<E, String>
@@ -336,19 +331,20 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
     if let Some(call) = lowered_helper_call(expr, "make_function", 5) {
         let function_id = make_function_id_from_literal(&call.arguments.args[0])?;
         let kind = make_function_kind_from_literal(&call.arguments.args[1])?;
-        return Some(core_operation_expr(
+        return Some(
             operation::MakeFunction::new(
                 function_id,
                 kind,
                 Box::new(lowered(call.arguments.args[3].clone())),
                 Box::new(lowered(call.arguments.args[4].clone())),
             )
-            .with_meta(Meta::new(call.node_index.clone(), call.range)),
-        ));
+            .with_meta(Meta::new(call.node_index.clone(), call.range))
+            .into(),
+        );
     }
 
     if let Some(call) = lowered_helper_call(expr, "store_global", 3) {
-        return Some(core_operation_expr(
+        return Some(
             operation::Store::new(
                 ast::ExprName {
                     id: string_literal_value(&call.arguments.args[1])?.into(),
@@ -358,15 +354,17 @@ fn lower_direct_core_helper_expr(expr: &Expr) -> Option<CoreBlockPyExprWithAwait
                 },
                 Box::new(lowered(call.arguments.args[2].clone())),
             )
-            .with_meta(Meta::new(call.node_index.clone(), call.range)),
-        ));
+            .with_meta(Meta::new(call.node_index.clone(), call.range))
+            .into(),
+        );
     }
 
     if let Some(call) = lowered_helper_call(expr, "cell_ref", 1) {
-        return Some(core_operation_expr(
+        return Some(
             operation::CellRefForName::new(string_literal_value(&call.arguments.args[0])?)
-                .with_meta(Meta::new(call.node_index.clone(), call.range)),
-        ));
+                .with_meta(Meta::new(call.node_index.clone(), call.range))
+                .into(),
+        );
     }
 
     None

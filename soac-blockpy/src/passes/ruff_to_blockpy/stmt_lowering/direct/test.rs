@@ -1,4 +1,4 @@
-use super::super::{simplify_stmt_ast_once_for_blockpy, BlockPyStmtFragmentBuilder};
+use super::super::{simplify_stmt_ast_once_for_blockpy, BlockPyStmtBuilder};
 use super::*;
 use crate::block_py::CoreBlockPyExprWithAwaitAndYield;
 use crate::passes::ast_to_ast::context::Context;
@@ -26,7 +26,7 @@ fn stmt_raise_to_blockpy_handles_bare_raise_directly() {
         panic!("expected raise stmt");
     };
     let context = Context::new("");
-    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
+    let mut out = BlockPyStmtBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
     let mut next_label_id = 0usize;
 
     raise_stmt
@@ -34,7 +34,7 @@ fn stmt_raise_to_blockpy_handles_bare_raise_directly() {
         .expect("raise lowering should succeed");
 
     let fragment = out.finish();
-    assert!(matches!(fragment.term, Some(BlockPyTerm::Raise(_))));
+    assert!(matches!(fragment.term, Some(BlockTerm::Raise(_))));
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn stmt_expr_to_blockpy_emits_setup_for_named_exprs() {
         panic!("expected expr stmt");
     };
     let context = Context::new("");
-    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
+    let mut out = BlockPyStmtBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
     let mut next_label_id = 0usize;
 
     expr_stmt
@@ -68,7 +68,7 @@ fn stmt_return_to_blockpy_emits_setup_for_if_exprs() {
         panic!("expected return stmt");
     };
     let context = Context::new("");
-    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
+    let mut out = BlockPyStmtBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
     let mut next_label_id = 0usize;
 
     return_stmt
@@ -77,5 +77,5 @@ fn stmt_return_to_blockpy_emits_setup_for_if_exprs() {
 
     let fragment = out.finish();
     assert!(!fragment.body.is_empty());
-    assert!(matches!(fragment.term, Some(BlockPyTerm::Return(_))));
+    assert!(matches!(fragment.term, Some(BlockTerm::Return(_))));
 }

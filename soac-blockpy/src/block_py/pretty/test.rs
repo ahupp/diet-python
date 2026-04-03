@@ -1,8 +1,8 @@
 use super::*;
 use crate::block_py::{BlockParam, BlockParamRole};
 use crate::block_py::{
-    ClosureInit, ClosureSlot, CoreBlockPyExprWithAwaitAndYield, Expr, LocatedName, Meta,
-    NameLocation, StorageLayout, WithMeta,
+    ClosureInit, ClosureSlot, CoreBlockPyExprWithAwaitAndYield, Expr, LocatedName, NameLocation,
+    StorageLayout,
 };
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, ResolvedStorageBlockPyPass};
@@ -34,8 +34,8 @@ fn test_name_gen() -> crate::block_py::FunctionNameGen {
     module_name_gen.next_function_name_gen()
 }
 
-fn label(index: u32) -> BlockPyLabel {
-    BlockPyLabel::from_index(index as usize)
+fn label(index: u32) -> BlockLabel {
+    BlockLabel::from_index(index as usize)
 }
 
 fn located_name(id: &str, location: NameLocation) -> LocatedName {
@@ -103,9 +103,7 @@ fn renders_empty_module_marker() {
 fn bb_text_renders_located_names_with_resolved_locations() {
     let closure_name = located_name("captured", NameLocation::closure_cell(2));
     let closure_expr: crate::block_py::LocatedCoreBlockPyExpr =
-        crate::block_py::Load::new(closure_name.clone())
-            .with_meta(Meta::synthetic())
-            .into();
+        crate::block_py::Load::new(closure_name.clone()).into();
     let assign_stmt = crate::block_py::Store::new(
         located_name("temp", NameLocation::local(1)),
         Box::new(closure_expr.clone()),
@@ -113,9 +111,7 @@ fn bb_text_renders_located_names_with_resolved_locations() {
     .into();
     let global_name = located_name("answer", NameLocation::Global);
     let global_expr: crate::block_py::LocatedCoreBlockPyExpr =
-        crate::block_py::Load::new(global_name.clone())
-            .with_meta(Meta::synthetic())
-            .into();
+        crate::block_py::Load::new(global_name.clone()).into();
 
     let closure_rendered = bb_expr_text(&closure_expr);
     assert!(
@@ -239,10 +235,10 @@ fn renders_public_closure_metadata_in_function_header() {
             names: crate::block_py::FunctionName::new("gen", "gen", "gen", "gen"),
             kind: BlockPyFunctionKind::Function,
             params: empty_param_spec(),
-            blocks: vec![CfgBlock {
+            blocks: vec![Block {
                 label: label(0),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
+                term: BlockTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             }],
@@ -285,10 +281,10 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
         kind: BlockPyFunctionKind::Function,
         params: empty_param_spec(),
         blocks: vec![
-            CfgBlock {
+            Block {
                 label: label(0),
                 body: vec![],
-                term: BlockPyTerm::IfTerm(BlockPyIfTerm {
+                term: BlockTerm::IfTerm(TermIf {
                     test: parse_core_blockpy_expr("cond"),
                     then_label: label(1),
                     else_label: label(2),
@@ -296,24 +292,24 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
                 params: Vec::new(),
                 exc_edge: None,
             },
-            CfgBlock {
+            Block {
                 label: label(1),
                 body: vec![parse_core_blockpy_expr("then_side_effect()")],
-                term: BlockPyTerm::Jump(BlockPyEdge::new(label(3))),
+                term: BlockTerm::Jump(BlockEdge::new(label(3))),
                 params: Vec::new(),
                 exc_edge: None,
             },
-            CfgBlock {
+            Block {
                 label: label(2),
                 body: vec![parse_core_blockpy_expr("else_side_effect()")],
-                term: BlockPyTerm::Jump(BlockPyEdge::new(label(3))),
+                term: BlockTerm::Jump(BlockEdge::new(label(3))),
                 params: Vec::new(),
                 exc_edge: None,
             },
-            CfgBlock {
+            Block {
                 label: label(3),
                 body: vec![parse_core_blockpy_expr("finish()")],
-                term: BlockPyTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
+                term: BlockTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
@@ -363,38 +359,38 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
         kind: BlockPyFunctionKind::Function,
         params: empty_param_spec(),
         blocks: vec![
-            CfgBlock {
+            Block {
                 label: label(0),
                 body: vec![],
-                term: BlockPyTerm::Jump(BlockPyEdge::new(label(4))),
+                term: BlockTerm::Jump(BlockEdge::new(label(4))),
                 params: Vec::new(),
-                exc_edge: Some(BlockPyEdge::new(label(1))),
+                exc_edge: Some(BlockEdge::new(label(1))),
             },
-            CfgBlock {
+            Block {
                 label: label(4),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
+                term: BlockTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
-            CfgBlock {
+            Block {
                 label: label(1),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
+                term: BlockTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
-            CfgBlock {
+            Block {
                 label: label(3),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
+                term: BlockTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
-            CfgBlock {
+            Block {
                 label: label(2),
                 body: vec![],
-                term: BlockPyTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
+                term: BlockTerm::Return(parse_core_blockpy_expr("__dp_NONE")),
                 params: Vec::new(),
                 exc_edge: None,
             },
@@ -419,26 +415,26 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
 
 #[test]
 fn collects_referenced_labels_from_nested_if_fragments_via_visitor() {
-    let referenced = collect_referenced_labels_from_structured_blocks(&[CfgBlock {
+    let referenced = collect_referenced_labels_from_structured_blocks(&[Block {
         label: label(0),
         body: vec![StructuredInstr::If(crate::block_py::StructuredIf {
             test: parse_blockpy_expr("cond"),
-            body: BlockPyCfgFragment {
+            body: BlockBuilder {
                 body: Vec::<StructuredInstr<Expr>>::new(),
-                term: Some(BlockPyTerm::Jump(BlockPyEdge::new(label(1)))),
+                term: Some(BlockTerm::Jump(BlockEdge::new(label(1)))),
             },
-            orelse: BlockPyCfgFragment {
+            orelse: BlockBuilder {
                 body: Vec::<StructuredInstr<Expr>>::new(),
-                term: Some(BlockPyTerm::BranchTable(super::super::BlockPyBranchTable {
+                term: Some(BlockTerm::BranchTable(super::super::TermBranchTable {
                     index: parse_blockpy_expr("index"),
                     targets: vec![label(2), label(3)],
                     default_label: label(4),
                 })),
             },
         })],
-        term: BlockPyTerm::Jump(BlockPyEdge::new(label(5))),
+        term: BlockTerm::Jump(BlockEdge::new(label(5))),
         params: Vec::new(),
-        exc_edge: Some(BlockPyEdge::new(label(6))),
+        exc_edge: Some(BlockEdge::new(label(6))),
     }]);
 
     let expected = [label(1), label(2), label(3), label(4), label(5), label(6)]
@@ -461,7 +457,7 @@ fn renders_bb_block_metadata_with_shared_layout() {
                 crate::block_py::ResolvedStorageBlock {
                     label: label(0),
                     body: vec![],
-                    term: BlockPyTerm::Jump(BlockPyEdge::new(label(1))),
+                    term: BlockTerm::Jump(BlockEdge::new(label(1))),
                     params: vec![
                         BlockParam {
                             name: "err".to_string(),
@@ -472,12 +468,12 @@ fn renders_bb_block_metadata_with_shared_layout() {
                             role: BlockParamRole::AbruptPayload,
                         },
                     ],
-                    exc_edge: Some(BlockPyEdge::new(label(1))),
+                    exc_edge: Some(BlockEdge::new(label(1))),
                 },
                 crate::block_py::ResolvedStorageBlock {
                     label: label(1),
                     body: vec![],
-                    term: BlockPyTerm::Return(
+                    term: BlockTerm::Return(
                         <crate::block_py::LocatedCoreBlockPyExpr as crate::block_py::ImplicitNoneExpr>::implicit_none_expr(
                         ),
                     ),

@@ -2,9 +2,8 @@ use pyo3::ffi;
 use pyo3::prelude::*;
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyNameLike,
-    BlockPyTerm, CodegenBlockPyExpr, CoreBlockPyExpr, CoreBlockPyKeywordArg,
-    CoreNumberLiteralValue, LocatedCoreBlockPyExpr, ParamDefaultSource, Walkable,
-    operation as blockpy_intrinsics,
+    BlockTerm, CodegenBlockPyExpr, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreNumberLiteralValue,
+    LocatedCoreBlockPyExpr, ParamDefaultSource, Walkable, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::collections::HashMap;
@@ -261,17 +260,17 @@ impl ModuleConstantCollector {
         self.collect_expr(stmt);
     }
 
-    fn collect_term(&mut self, term: &BlockPyTerm<CodegenBlockPyExpr>) {
+    fn collect_term(&mut self, term: &BlockTerm<CodegenBlockPyExpr>) {
         match term {
-            BlockPyTerm::Jump(edge) => self.collect_block_args(&edge.args),
-            BlockPyTerm::IfTerm(if_term) => self.collect_expr(&if_term.test),
-            BlockPyTerm::BranchTable(branch_table) => self.collect_expr(&branch_table.index),
-            BlockPyTerm::Raise(raise_stmt) => {
+            BlockTerm::Jump(edge) => self.collect_block_args(&edge.args),
+            BlockTerm::IfTerm(if_term) => self.collect_expr(&if_term.test),
+            BlockTerm::BranchTable(branch_table) => self.collect_expr(&branch_table.index),
+            BlockTerm::Raise(raise_stmt) => {
                 if let Some(exc) = &raise_stmt.exc {
                     self.collect_expr(exc);
                 }
             }
-            BlockPyTerm::Return(value) => self.collect_expr(value),
+            BlockTerm::Return(value) => self.collect_expr(value),
         }
     }
 

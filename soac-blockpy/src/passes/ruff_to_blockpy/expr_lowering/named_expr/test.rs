@@ -1,12 +1,12 @@
 use crate::block_py::{
-    BlockPyNameLike, BlockPyStmtFragmentBuilder, CoreBlockPyExprWithAwaitAndYield, StructuredInstr,
+    BlockPyNameLike, BlockPyStmtBuilder, CoreBlockPyExprWithAwaitAndYield, StructuredInstr,
 };
 use crate::passes::ruff_to_blockpy::expr_lowering::lower_expr_into_with_setup;
 use crate::py_expr;
 
 #[test]
 fn named_expr_lowering_emits_blockpy_assign_directly() {
-    let mut out = BlockPyStmtFragmentBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
+    let mut out = BlockPyStmtBuilder::<CoreBlockPyExprWithAwaitAndYield>::new();
     let mut next_label_id = 0usize;
 
     let _lowered =

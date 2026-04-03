@@ -5,7 +5,7 @@ use crate::block_py::{Del, Meta, StructuredInstr, WithMeta};
 fn lower_delete_target_into<E>(
     context: &Context,
     target: Expr,
-    out: &mut BlockPyStmtFragmentBuilder<E>,
+    out: &mut BlockPyStmtBuilder<E>,
     loop_ctx: Option<&LoopContext>,
     next_label_id: &mut usize,
 ) -> Result<(), String>
@@ -84,7 +84,7 @@ impl StmtLowerer for ast::StmtDelete {
     fn to_blockpy<E>(
         &self,
         context: &Context,
-        out: &mut BlockPyStmtFragmentBuilder<E>,
+        out: &mut BlockPyStmtBuilder<E>,
         loop_ctx: Option<&LoopContext>,
         next_label_id: &mut usize,
     ) -> Result<(), String>
