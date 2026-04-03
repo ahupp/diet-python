@@ -220,9 +220,7 @@ mod tests {
         module_constants: &crate::module_constants::ModuleCodegenConstants,
     ) -> String {
         unsafe {
-            let mut builder = new_jit_builder().expect("test jit builder should construct");
-            register_specialized_jit_symbols(&mut builder);
-            let mut jit_module = JITModule::new(builder);
+            let mut jit_module = new_jit_module().expect("test jit module should construct");
             let built = build_cranelift_run_bb_specialized_function(
                 &mut jit_module,
                 blocks,
@@ -238,6 +236,63 @@ mod tests {
             )
             .expect("specialized JIT CLIF render should succeed");
             clif
+        }
+    }
+
+    #[test]
+    fn jit_can_call_runtime_support_clif_function() {
+        unsafe {
+            let mut jit_module = new_jit_module().expect("test jit module should construct");
+
+            let mut signature = jit_module.make_signature();
+            signature.params.push(ir::AbiParam::new(ir::types::I64));
+            signature.returns.push(ir::AbiParam::new(ir::types::I64));
+
+            let wrapper_id = declare_local_fn(
+                &mut jit_module,
+                "jit_runtime_support_smoke_wrapper",
+                &signature,
+            )
+            .expect("wrapper function should declare");
+            let support_id =
+                declare_import_fn(&mut jit_module, SOAC_RUNTIME_ADD1_I64_SYMBOL, &signature)
+                    .expect("runtime support function should import");
+
+            let mut ctx = jit_module.make_context();
+            ctx.func.name = ir::UserFuncName::user(0, wrapper_id.as_u32());
+            ctx.func.signature = signature;
+
+            let mut builder_ctx = FunctionBuilderContext::new();
+            {
+                let mut fb = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
+                let entry = fb.create_block();
+                fb.append_block_params_for_function_params(entry);
+                fb.switch_to_block(entry);
+                fb.seal_block(entry);
+
+                let support_ref = jit_module.declare_func_in_func(support_id, &mut fb.func);
+                let arg = fb.block_params(entry)[0];
+                let call_inst = fb.ins().call(support_ref, &[arg]);
+                let result = fb.inst_results(call_inst)[0];
+                fb.ins().return_(&[result]);
+                fb.finalize();
+            }
+
+            define_function_with_incremental_cache(
+                &mut jit_module,
+                wrapper_id,
+                &mut ctx,
+                "test wrapper function should define",
+            )
+            .expect("wrapper function should compile");
+            jit_module.clear_context(&mut ctx);
+            jit_module
+                .finalize_definitions()
+                .expect("jit module should finalize");
+
+            let code_ptr = jit_module.get_finalized_function(wrapper_id);
+            let wrapper: extern "C" fn(i64) -> i64 = std::mem::transmute(code_ptr);
+            assert_eq!(wrapper(41), 42);
         }
     }
 

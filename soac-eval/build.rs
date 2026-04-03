@@ -5,8 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const RUNTIME_CRATE: &str = "soac-runtime";
-const RUNTIME_CRATE_UNDERSCORE: &str = "soac_runtime";
+const RUNTIME_CRATE_NAME: &str = "soac_runtime";
 
 fn main() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
@@ -14,21 +13,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         .parent()
         .ok_or("soac-eval should live under the repo root")?;
     let runtime_dir = repo_root.join("soac-runtime");
-    let target_dir = soac_codegen_target_dir(repo_root);
+    let runtime_src = runtime_dir.join("src").join("lib.rs");
+    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+    let clif_out_dir = out_dir.join("soac-runtime-clif");
 
     emit_rerun_if_changed(&runtime_dir)?;
-    build_runtime(repo_root, &target_dir)?;
+    fs::create_dir_all(&clif_out_dir)?;
 
-    let clif_files = find_runtime_clif_files(&target_dir)?;
-    let clif_text = if clif_files.is_empty() {
-        println!(
-            "cargo:warning=no .clif files found for {RUNTIME_CRATE}; continuing with empty SOAC_CLIF"
-        );
-        String::new()
-    } else {
-        read_clif_files(&clif_files)?
-    };
-    write_clif_constant(&clif_text)?;
+    let build_output = build_runtime_clif(&runtime_src, &clif_out_dir)?;
+    let runtime_clif = find_runtime_clif_files(&clif_out_dir)?;
+    if runtime_clif.is_empty() {
+        return Err(format!(
+            "failed to emit runtime CLIF; rustc output was:\nstdout:\n{}\nstderr:\n{}",
+            build_output.stdout, build_output.stderr
+        )
+        .into());
+    }
+
+    write_runtime_clif_constant(&runtime_clif)?;
     Ok(())
 }
 
@@ -40,109 +42,81 @@ fn emit_rerun_if_changed(runtime_dir: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn build_runtime(repo_root: &Path, target_dir: &Path) -> Result<(), Box<dyn Error>> {
-    let mut command = Command::new("rustup");
+struct BuildOutput {
+    stdout: String,
+    stderr: String,
+}
 
-    command
+fn build_runtime_clif(
+    runtime_src: &Path,
+    clif_out_dir: &Path,
+) -> Result<BuildOutput, Box<dyn Error>> {
+    let output = Command::new("rustup")
         .arg("run")
         .arg("nightly")
-        .arg("cargo")
-        .current_dir(repo_root.join("soac-runtime"))
-        .env("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "cranelift")
-        .env("CARGO_TARGET_DIR", target_dir)
-        // The outer workspace may be building on stable; don't leak those
-        // toolchain selections into the inner nightly-only runtime build.
-        .env_remove("RUSTC")
-        .env_remove("RUSTDOC")
-        .env_remove("RUSTUP_TOOLCHAIN")
-        .env_remove("RUSTFLAGS")
-        .env_remove("CARGO_ENCODED_RUSTFLAGS")
-        .env_remove("CARGO_BUILD_RUSTC")
-        .env_remove("CARGO_BUILD_RUSTDOC")
-        .env_remove("RUSTC_WRAPPER")
-        .env_remove("RUSTC_WORKSPACE_WRAPPER")
-        .env_remove("PYO3_PYTHON")
-        .env_remove("PYO3_CONFIG_FILE")
-        .env_remove("PYO3_CROSS")
-        .env_remove("PYO3_CROSS_LIB_DIR")
-        .env_remove("PYO3_CROSS_PYTHON_VERSION")
-        .env_remove("PYO3_CROSS_PYTHON_IMPLEMENTATION")
-        .env_remove("PYO3_PRINT_CONFIG")
         .arg("rustc")
-        .arg("-vv")
-        .arg("-Zcodegen-backend")
-        .arg("-p")
-        .arg(RUNTIME_CRATE)
-        .arg("--lib")
-        .arg("--")
-        // Current rustc+Cranelift still dumps `.clif` artifacts without
-        // `--emit=llvm-ir`, and requesting LLVM IR now makes rustc try to copy
-        // a nonexistent `.rcgu.ll` file.
-        .arg("-Ccodegen-units=1");
+        .arg("-Z")
+        .arg("codegen-backend=cranelift")
+        .arg(runtime_src)
+        .arg("--crate-name")
+        .arg(RUNTIME_CRATE_NAME)
+        .arg("--crate-type")
+        .arg("rlib")
+        .arg("--edition=2024")
+        .arg("--emit=llvm-ir")
+        .arg("--out-dir")
+        .arg(clif_out_dir)
+        .arg("-Ccodegen-units=1")
+        .output()?;
 
-    let status = command.status()?;
-    if !status.success() {
-        return Err("failed to build soac-runtime; run `rustup component add rustc-codegen-cranelift-preview --toolchain nightly`"
-            .to_string()
-            .into());
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+    if output.status.success() || clif_output_dir(clif_out_dir).exists() {
+        return Ok(BuildOutput { stdout, stderr });
     }
-    Ok(())
+
+    Err(format!(
+        "failed to build soac-runtime to CLIF with rustc-codegen-cranelift\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    )
+    .into())
 }
 
-fn soac_codegen_target_dir(repo_root: &Path) -> PathBuf {
-    let target_dir = repo_root.join("target").join("soac-codegen-clif");
-    let _ = fs::create_dir_all(&target_dir);
-    target_dir
+fn clif_output_dir(clif_out_dir: &Path) -> PathBuf {
+    clif_out_dir.join(format!("{RUNTIME_CRATE_NAME}.clif"))
 }
 
-fn find_runtime_clif_files(target_dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-    let mut clif_files = Vec::new();
-    collect_clif_files(target_dir, &mut clif_files)?;
-
-    clif_files.retain(|path| is_runtime_clif_path(path));
-    clif_files.sort();
-    clif_files.dedup();
-
-    Ok(clif_files)
-}
-
-fn collect_clif_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
-    for entry in fs::read_dir(dir)? {
+fn find_runtime_clif_files(clif_out_dir: &Path) -> Result<Vec<(String, String)>, Box<dyn Error>> {
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(clif_output_dir(clif_out_dir))? {
         let entry = entry?;
         let path = entry.path();
-        let metadata = entry.metadata()?;
-        if metadata.is_dir() {
-            collect_clif_files(&path, out)?;
-        } else if path.extension() == Some(OsStr::new("clif")) {
-            out.push(path);
+        if path.extension() != Some(OsStr::new("clif")) {
+            continue;
         }
+        let Some(file_name) = path.file_name().and_then(OsStr::to_str) else {
+            continue;
+        };
+        let Some(symbol) = file_name.strip_suffix(".opt.clif") else {
+            continue;
+        };
+        entries.push((symbol.to_string(), fs::read_to_string(path)?));
     }
-    Ok(())
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(entries)
 }
 
-fn is_runtime_clif_path(path: &Path) -> bool {
-    path.components().any(|component| {
-        let name = component.as_os_str().to_string_lossy();
-        name.contains(RUNTIME_CRATE) || name.contains(RUNTIME_CRATE_UNDERSCORE)
-    })
-}
-
-fn read_clif_files(paths: &[PathBuf]) -> Result<String, Box<dyn Error>> {
-    let mut out = String::new();
-    for (idx, path) in paths.iter().enumerate() {
-        if idx > 0 {
-            out.push_str("\n\n");
-        }
-        out.push_str(&fs::read_to_string(path)?);
-    }
-    Ok(out)
-}
-
-fn write_clif_constant(clif_text: &str) -> Result<(), Box<dyn Error>> {
+fn write_runtime_clif_constant(runtime_clif: &[(String, String)]) -> Result<(), Box<dyn Error>> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
-    let out_path = out_dir.join("soac_clif.rs");
-    let literal = raw_string_literal(clif_text);
-    let contents = format!("pub const SOAC_CLIF: &str = {};\n", literal);
+    let out_path = out_dir.join("soac_runtime_clif.rs");
+    let mut contents = String::from("pub const SOAC_RUNTIME_CLIF: &[(&str, &str)] = &[\n");
+    for (symbol, clif) in runtime_clif {
+        contents.push_str("    (");
+        contents.push_str(&format!("{symbol:?}, "));
+        contents.push_str(&raw_string_literal(clif));
+        contents.push_str("),\n");
+    }
+    contents.push_str("];\n");
     fs::write(out_path, contents)?;
     Ok(())
 }
@@ -153,9 +127,7 @@ fn raw_string_literal(text: &str) -> String {
     for ch in text.chars() {
         if ch == '#' {
             current += 1;
-            if current > max_run {
-                max_run = current;
-            }
+            max_run = max_run.max(current);
         } else {
             current = 0;
         }

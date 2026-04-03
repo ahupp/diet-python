@@ -1,3 +1,4 @@
+use crate::SOAC_RUNTIME_CLIF;
 use crate::module_constants::{ModuleCodegenConstants, ModuleConstantId};
 use cranelift_codegen::cfg_printer::CFGPrinter;
 use cranelift_codegen::incremental_cache::CacheKvStore;
@@ -9,6 +10,7 @@ use cranelift_control::ControlPlane;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
+use cranelift_reader::parse_functions;
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockPyTerm, CellLocation, CodegenBlock,
     CodegenBlockPyExpr, CoreBlockPyCallArg, CoreBlockPyKeywordArg, LocalLocation, LocatedName,
@@ -30,7 +32,7 @@ pub use planning::{
     lookup_blockpy_module, register_clif_module_plans,
 };
 pub use specialized_helpers::ObjPtr;
-use specialized_helpers::{dp_jit_decref, register_specialized_jit_symbols};
+use specialized_helpers::register_specialized_jit_symbols;
 use vmctx::{
     DELETED_OBJ_OFFSET, EMPTY_TUPLE_OBJ_OFFSET, FALSE_OBJ_OFFSET, GLOBALS_OBJ_OFFSET,
     NONE_OBJ_OFFSET, TRUE_OBJ_OFFSET,
@@ -2997,14 +2999,15 @@ fn new_jit_builder() -> Result<JITBuilder, String> {
     let isa = isa_builder
         .finish(settings::Flags::new(flag_builder))
         .map_err(|err| format!("failed to finish ISA: {err}"))?;
-    Ok(JITBuilder::with_isa(
-        isa,
-        cranelift_module::default_libcall_names(),
-    ))
+    let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+    register_specialized_jit_symbols(&mut builder);
+    Ok(builder)
 }
 
 fn new_jit_module() -> Result<JITModule, String> {
-    Ok(JITModule::new(new_jit_builder()?))
+    let mut jit_module = JITModule::new(new_jit_builder()?);
+    load_runtime_support_clif(&mut jit_module)?;
+    Ok(jit_module)
 }
 
 fn define_function_with_incremental_cache(
@@ -3081,9 +3084,40 @@ fn is_clif_ident_byte(byte: u8) -> bool {
 
 pub(crate) const JIT_PYTHON_PERF_SYMBOL_KIND_DIRECT: &str = "d";
 pub(crate) const JIT_PYTHON_PERF_SYMBOL_KIND_VECTORCALL: &str = "v";
+#[cfg(test)]
+pub(crate) const SOAC_RUNTIME_ADD1_I64_SYMBOL: &str = "soac_runtime_add1_i64";
 
 pub(crate) fn jit_python_perf_symbol_name(kind: &str, qualname: &str) -> String {
     format!("py:{kind}:{qualname}")
+}
+
+fn load_runtime_support_clif(jit_module: &mut JITModule) -> Result<(), String> {
+    for (symbol, clif_text) in SOAC_RUNTIME_CLIF {
+        let mut functions = parse_functions(clif_text)
+            .map_err(|err| format!("failed to parse runtime CLIF for {symbol}: {err}"))?;
+        if functions.len() != 1 {
+            return Err(format!(
+                "expected exactly one runtime CLIF function for {symbol}, found {}",
+                functions.len()
+            ));
+        }
+        let function = functions
+            .pop()
+            .ok_or_else(|| format!("missing parsed runtime CLIF function for {symbol}"))?;
+        let func_id = jit_module
+            .declare_function(symbol, Linkage::Local, &function.signature)
+            .map_err(|err| format!("failed to declare runtime CLIF function {symbol}: {err}"))?;
+        let mut ctx = jit_module.make_context();
+        ctx.func = function;
+        define_function_with_incremental_cache(
+            jit_module,
+            func_id,
+            &mut ctx,
+            &format!("failed to define runtime CLIF function {symbol}"),
+        )?;
+        jit_module.clear_context(&mut ctx);
+    }
+    Ok(())
 }
 
 fn rewrite_import_fn_aliases(
@@ -3898,8 +3932,7 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
         return Err("specialized JIT run_bb requires at least one block".to_string());
     }
 
-    let mut builder = new_jit_builder()?;
-    register_specialized_jit_symbols(&mut builder);
+    let builder = new_jit_builder()?;
     let mut jit_module = JITModule::new(builder);
     let built = build_cranelift_run_bb_specialized_function(
         &mut jit_module,
@@ -3973,10 +4006,8 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
     module_constants: &ModuleCodegenConstants,
 ) -> Result<ObjPtr, String> {
-    let mut builder = new_jit_builder()?;
-    register_specialized_jit_symbols(&mut builder);
     let mut compiled = Box::new(CompiledSpecializedRunner {
-        _jit_module: JITModule::new(builder),
+        _jit_module: new_jit_module()?,
         entry: None,
     });
     let built = build_cranelift_run_bb_specialized_function(
@@ -4048,7 +4079,6 @@ pub unsafe fn compile_cranelift_vectorcall_direct_trampoline(
         "dp_jit_vectorcall_bind_direct_args",
         bind_direct_args_fn as *const u8,
     );
-    builder.symbol("dp_jit_decref", dp_jit_decref as *const u8);
     let mut jit_module = JITModule::new(builder);
     let ptr_ty = jit_module.target_config().pointer_type();
     let i64_ty = ir::types::I64;
