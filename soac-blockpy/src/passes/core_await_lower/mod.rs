@@ -1,7 +1,7 @@
 use crate::block_py::{
     core_runtime_positional_call_expr_with_meta, BlockPyModule, BlockPyModuleMap,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYieldFrom, HasMeta,
-    InstrExprNode, MapExpr, UnresolvedName, WithMeta,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, HasMeta, InstrExprNode, MapExpr,
+    UnresolvedName, WithMeta, YieldFrom,
 };
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
 
@@ -13,7 +13,7 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for Cor
             CoreBlockPyExprWithAwaitAndYield::Await(await_expr) => {
                 let meta = await_expr.meta();
                 CoreBlockPyExprWithYield::YieldFrom(
-                    CoreBlockPyYieldFrom::new(core_runtime_positional_call_expr_with_meta(
+                    YieldFrom::new(core_runtime_positional_call_expr_with_meta(
                         "await_iter",
                         meta.node_index.clone(),
                         meta.range,

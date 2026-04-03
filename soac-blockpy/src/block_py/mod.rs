@@ -13,8 +13,8 @@ pub use self::semantics::{
 };
 use crate::py_expr;
 pub use operation::{
-    BinOp, BinOpKind, Call, CellRef, CellRefForName, Del, DelItem, GetAttr, GetItem, Load,
-    MakeCell, MakeFunction, SetAttr, SetItem, Store, UnaryOp, UnaryOpKind,
+    Await, BinOp, BinOpKind, Call, CellRef, CellRefForName, Del, DelItem, GetAttr, GetItem, Load,
+    MakeCell, MakeFunction, SetAttr, SetItem, Store, UnaryOp, UnaryOpKind, Yield, YieldFrom,
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast};
@@ -607,9 +607,9 @@ pub enum CoreBlockPyExprWithAwaitAndYield {
     CellRefForName(CellRefForName),
     CellRef(CellRef),
     MakeFunction(MakeFunction<Self>),
-    Await(CoreBlockPyAwait<Self>),
-    Yield(CoreBlockPyYield<Self>),
-    YieldFrom(CoreBlockPyYieldFrom<Self>),
+    Await(Await<Self>),
+    Yield(Yield<Self>),
+    YieldFrom(YieldFrom<Self>),
 }
 
 #[derive(Clone, derive_more::From, DelegateMatchDefault)]
@@ -631,8 +631,8 @@ pub enum CoreBlockPyExprWithYield {
     CellRefForName(CellRefForName),
     CellRef(CellRef),
     MakeFunction(MakeFunction<Self>),
-    Yield(CoreBlockPyYield<Self>),
-    YieldFrom(CoreBlockPyYieldFrom<Self>),
+    Yield(Yield<Self>),
+    YieldFrom(YieldFrom<Self>),
 }
 
 #[derive(Clone, derive_more::From)]
@@ -1025,24 +1025,6 @@ impl<E> CoreBlockPyKeywordArg<E> {
             }
             Self::Starred(value) => f(value).map(CoreBlockPyKeywordArg::Starred),
         }
-    }
-}
-
-define_operation! {
-    pub struct CoreBlockPyAwait<E> {
-        value: Box<E>,
-    }
-}
-
-define_operation! {
-    pub struct CoreBlockPyYield<E> {
-        value: Box<E>,
-    }
-}
-
-define_operation! {
-    pub struct CoreBlockPyYieldFrom<E> {
-        value: Box<E>,
     }
 }
 

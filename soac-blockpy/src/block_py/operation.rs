@@ -518,3 +518,21 @@ define_operation! {
         annotate_fn: Box<E>,
     }
 }
+
+define_operation! {
+    pub struct Await<E> {
+        value: Box<E>,
+    }
+}
+
+define_operation! {
+    pub struct Yield<E> {
+        value: Box<E>,
+    }
+}
+
+define_operation! {
+    pub struct YieldFrom<E> {
+        value: Box<E>,
+    }
+}

@@ -1,8 +1,8 @@
 use crate::block_py::{
-    expr_any, Block, BlockBuilder, BlockPyFunction, BlockPyNameLike, BlockTerm, CoreBlockPyAwait,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, CoreBlockPyYield,
-    CoreBlockPyYieldFrom, Del, HasMeta, Instr, Load, Store, StructuredIf, StructuredInstr,
-    TermBranchTable, TermIf, TermRaise, Walkable, WithMeta,
+    expr_any, Await, Block, BlockBuilder, BlockPyFunction, BlockPyNameLike, BlockTerm,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, Del, HasMeta, Instr, Load, Store,
+    StructuredIf, StructuredInstr, TermBranchTable, TermIf, TermRaise, Walkable, WithMeta, Yield,
+    YieldFrom,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
@@ -120,7 +120,7 @@ fn make_eval_order_explicit_in_core_expr(
         CoreBlockPyExprWithAwaitAndYield::Await(await_expr) => {
             let meta = await_expr.meta();
             CoreBlockPyExprWithAwaitAndYield::Await(
-                CoreBlockPyAwait::new(hoist_core_expr_if_contains_suspend(
+                Await::new(hoist_core_expr_if_contains_suspend(
                     *await_expr.value,
                     out,
                     cleanup,
@@ -131,7 +131,7 @@ fn make_eval_order_explicit_in_core_expr(
         CoreBlockPyExprWithAwaitAndYield::Yield(yield_expr) => {
             let meta = yield_expr.meta();
             CoreBlockPyExprWithAwaitAndYield::Yield(
-                CoreBlockPyYield::new(hoist_core_expr_if_contains_suspend(
+                Yield::new(hoist_core_expr_if_contains_suspend(
                     *yield_expr.value,
                     out,
                     cleanup,
@@ -142,7 +142,7 @@ fn make_eval_order_explicit_in_core_expr(
         CoreBlockPyExprWithAwaitAndYield::YieldFrom(yield_from_expr) => {
             let meta = yield_from_expr.meta();
             CoreBlockPyExprWithAwaitAndYield::YieldFrom(
-                CoreBlockPyYieldFrom::new(hoist_core_expr_if_contains_suspend(
+                YieldFrom::new(hoist_core_expr_if_contains_suspend(
                     *yield_from_expr.value,
                     out,
                     cleanup,
@@ -359,7 +359,7 @@ fn make_eval_order_explicit_in_core_expr_without_await(
         CoreBlockPyExprWithYield::Yield(yield_expr) => {
             let meta = yield_expr.meta();
             CoreBlockPyExprWithYield::Yield(
-                CoreBlockPyYield::new(hoist_core_expr_without_await_to_atom(
+                Yield::new(hoist_core_expr_without_await_to_atom(
                     *yield_expr.value,
                     out,
                     cleanup,
@@ -370,7 +370,7 @@ fn make_eval_order_explicit_in_core_expr_without_await(
         CoreBlockPyExprWithYield::YieldFrom(yield_from_expr) => {
             let meta = yield_from_expr.meta();
             CoreBlockPyExprWithYield::YieldFrom(
-                CoreBlockPyYieldFrom::new(hoist_core_expr_without_await_to_atom(
+                YieldFrom::new(hoist_core_expr_without_await_to_atom(
                     *yield_from_expr.value,
                     out,
                     cleanup,

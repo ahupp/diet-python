@@ -1,10 +1,10 @@
 use super::ast_to_ast::string_templates::lower_string_templates_in_expr;
 use crate::block_py::{
     core_call_expr_with_meta, core_runtime_name_expr_with_meta,
-    core_runtime_positional_call_expr_with_meta, literal_expr, operation, CoreBlockPyAwait,
-    CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBlockPyYield,
-    CoreBlockPyYieldFrom, CoreBytesLiteral, CoreNumberLiteral, CoreNumberLiteralValue,
-    CoreStringLiteral, HasMeta, ImplicitNoneExpr, Meta, WithMeta,
+    core_runtime_positional_call_expr_with_meta, literal_expr, operation, Await,
+    CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBytesLiteral,
+    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, HasMeta, ImplicitNoneExpr, Meta,
+    WithMeta, Yield, YieldFrom,
 };
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
 use crate::py_expr;
@@ -509,11 +509,11 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                 node.arguments.keywords.into_vec(),
             ),
             Expr::Await(node) => Self::Await(
-                CoreBlockPyAwait::new(Self::from(*node.value))
+                Await::new(Self::from(*node.value))
                     .with_meta(Meta::new(node.node_index, node.range)),
             ),
             Expr::Yield(node) => Self::Yield(
-                CoreBlockPyYield::new(
+                Yield::new(
                     node.value
                         .map(|value| Self::from(*value))
                         .unwrap_or_else(CoreBlockPyExprWithAwaitAndYield::implicit_none_expr),
@@ -521,7 +521,7 @@ impl From<Expr> for CoreBlockPyExprWithAwaitAndYield {
                 .with_meta(Meta::new(node.node_index, node.range)),
             ),
             Expr::YieldFrom(node) => Self::YieldFrom(
-                CoreBlockPyYieldFrom::new(Self::from(*node.value))
+                YieldFrom::new(Self::from(*node.value))
                     .with_meta(Meta::new(node.node_index, node.range)),
             ),
             Expr::StringLiteral(node) => literal_expr(

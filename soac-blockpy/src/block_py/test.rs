@@ -316,7 +316,7 @@ fn storage_layout_semantics_collects_structured_cell_ref_logical_names() {
 #[test]
 fn stmt_conversion_to_no_await_rejects_await() {
     let stmt = CoreBlockPyExprWithAwaitAndYield::Await(
-        CoreBlockPyAwait::new(core_load_with_await_and_yield("x")).with_meta(Meta::default()),
+        Await::new(core_load_with_await_and_yield("x")).with_meta(Meta::default()),
     );
 
     let mut mapper = ExprTryMap::<
@@ -368,8 +368,7 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
         blocks: vec![Block {
             label: BlockLabel::from_index(0),
             body: vec![CoreBlockPyExprWithAwaitAndYield::Await(
-                CoreBlockPyAwait::new(core_load_with_await_and_yield("x"))
-                    .with_meta(Meta::default()),
+                Await::new(core_load_with_await_and_yield("x")).with_meta(Meta::default()),
             )],
             term: BlockTerm::Return(core_load_with_await_and_yield("__dp_NONE")),
             params: Vec::new(),
@@ -392,7 +391,7 @@ fn term_conversion_to_no_yield_rejects_nested_yield() {
         ruff_text_size::TextRange::default(),
         vec![CoreBlockPyCallArg::Positional(
             CoreBlockPyExprWithYield::Yield(
-                CoreBlockPyYield::new(core_load_with_yield("x")).with_meta(Meta::default()),
+                Yield::new(core_load_with_yield("x")).with_meta(Meta::default()),
             ),
         )],
         Vec::new(),
