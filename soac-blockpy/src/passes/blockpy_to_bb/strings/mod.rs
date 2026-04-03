@@ -1,6 +1,7 @@
 use crate::block_py::{
     core_operation_expr, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyModuleMap, HasMeta,
-    Load, LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, NameLocation, WithMeta,
+    InstrExprNode, Load, LocatedCodegenBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, MapExpr,
+    NameLocation, WithMeta,
 };
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
 use std::cell::RefCell;
@@ -37,7 +38,7 @@ impl CodegenExprNormalizer {
     }
 }
 
-impl BlockPyModuleMap<ResolvedStorageBlockPyPass, CodegenBlockPyPass> for CodegenExprNormalizer {
+impl MapExpr<LocatedCoreBlockPyExpr, LocatedCodegenBlockPyExpr> for CodegenExprNormalizer {
     fn map_expr(&self, expr: LocatedCoreBlockPyExpr) -> LocatedCodegenBlockPyExpr {
         match expr {
             LocatedCoreBlockPyExpr::Literal(literal) => {
@@ -51,10 +52,52 @@ impl BlockPyModuleMap<ResolvedStorageBlockPyPass, CodegenBlockPyPass> for Codege
                     .with_meta(meta),
                 )
             }
-            _ => self.map_nested_expr(expr),
+            LocatedCoreBlockPyExpr::BinOp(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            LocatedCoreBlockPyExpr::UnaryOp(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            LocatedCoreBlockPyExpr::Call(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            LocatedCoreBlockPyExpr::GetAttr(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            LocatedCoreBlockPyExpr::SetAttr(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            LocatedCoreBlockPyExpr::GetItem(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            LocatedCoreBlockPyExpr::SetItem(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            LocatedCoreBlockPyExpr::DelItem(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            LocatedCoreBlockPyExpr::Load(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            LocatedCoreBlockPyExpr::Store(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            LocatedCoreBlockPyExpr::Del(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            LocatedCoreBlockPyExpr::MakeCell(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            LocatedCoreBlockPyExpr::CellRefForName(node) => node.into(),
+            LocatedCoreBlockPyExpr::CellRef(node) => node.into(),
+            LocatedCoreBlockPyExpr::MakeFunction(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
         }
     }
 }
+
+impl BlockPyModuleMap<ResolvedStorageBlockPyPass, CodegenBlockPyPass> for CodegenExprNormalizer {}
 
 #[cfg(test)]
 mod test;

@@ -9,7 +9,8 @@ use crate::block_py::{
     CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
     CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionId,
     HasMeta, InstrExprNode, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName, MakeCell,
-    MakeFunction, NameLocation, SetItem, StorageLayout, Store, UnresolvedName, WithMeta,
+    MakeFunction, MapExpr, MapExprChildren, NameLocation, SetItem, StorageLayout, Store,
+    UnresolvedName, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -1188,12 +1189,12 @@ fn rewrite_binding_assign_by_name(
     }
 }
 
-impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_> {
-    fn map_stmt(&self, stmt: CoreStmt) -> CoreStmt {
-        if let Some(name) = quiet_delete_marker_target(&stmt) {
+impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
+    fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
+        if let Some(name) = quiet_delete_marker_target(&expr) {
             return rewrite_quiet_delete_marker(name, self.semantic, self);
         }
-        if let Some((name, value, node_index, range)) = unresolved_semantic_store_parts(&stmt) {
+        if let Some((name, value, node_index, range)) = unresolved_semantic_store_parts(&expr) {
             return rewrite_binding_assign_by_name(
                 name,
                 self.map_expr(value),
@@ -1203,13 +1204,9 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                 range,
             );
         }
-        if let Some(target) = unresolved_semantic_delete_target(&stmt) {
+        if let Some(target) = unresolved_semantic_delete_target(&expr) {
             return rewrite_binding_delete(target, self.semantic, self);
         }
-        self.map_expr(stmt)
-    }
-
-    fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
         match expr {
             CoreBlockPyExpr::Load(op) => {
                 let meta = op.meta();
@@ -1281,10 +1278,12 @@ impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_
                     .with_meta(meta)
                     .into()
             }
-            other => self.map_nested_expr(other),
+            other => other.map_children(&mut |child| self.map_expr(child)).into(),
         }
     }
 }
+
+impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_> {}
 
 fn unresolved_semantic_store_parts(
     expr: &CoreBlockPyExpr,
@@ -2234,11 +2233,7 @@ impl NameLocator<'_> {
     }
 }
 
-impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocator<'_> {
-    fn map_name(&self, name: UnresolvedName) -> LocatedName {
-        self.locate_unresolved_name(name)
-    }
-
+impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_> {
     fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr<LocatedName> {
         match expr {
             CoreBlockPyExpr::Literal(literal) => CoreBlockPyExpr::Literal(literal),
@@ -2298,8 +2293,41 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
                 }
                 call.with_meta(meta).into()
             }
-            other => self.map_nested_expr(other),
+            CoreBlockPyExpr::BinOp(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            CoreBlockPyExpr::UnaryOp(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            CoreBlockPyExpr::GetAttr(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            CoreBlockPyExpr::SetAttr(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            CoreBlockPyExpr::GetItem(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            CoreBlockPyExpr::SetItem(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            CoreBlockPyExpr::DelItem(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            CoreBlockPyExpr::MakeCell(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
+            CoreBlockPyExpr::CellRef(node) => node.into(),
+            CoreBlockPyExpr::MakeFunction(node) => {
+                node.map_children(&mut |child| self.map_expr(child)).into()
+            }
         }
+    }
+}
+
+impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocator<'_> {
+    fn map_name(&self, name: UnresolvedName) -> LocatedName {
+        self.locate_unresolved_name(name)
     }
 }
 

@@ -198,12 +198,16 @@ impl From<RuffExpr> for ast::Expr {
     }
 }
 
-pub trait MapExpr<T>: Clone + fmt::Debug + Sized {
-    fn map_expr(self, f: &mut impl FnMut(Self) -> T) -> T;
+pub trait MapExpr<In, Out> {
+    fn map_expr(&self, expr: In) -> Out;
 }
 
-pub trait TryMapExpr<T, Error>: Clone + fmt::Debug + Sized {
-    fn try_map_expr(self, f: &mut impl FnMut(Self) -> Result<T, Error>) -> Result<T, Error>;
+pub trait TryMapExpr<In, Out, Error> {
+    fn try_map_expr(&self, expr: In) -> Result<Out, Error>;
+}
+
+pub trait MapExprChildren: Clone + fmt::Debug + Sized {
+    fn map_children(self, f: &mut impl FnMut(Self) -> Self) -> Self;
 }
 
 pub trait Instr: Clone + fmt::Debug + Sized {
@@ -231,12 +235,12 @@ where
         InstrName<T>: From<InstrName<I>>;
 }
 
-pub trait BlockPyExprLike: Clone + fmt::Debug + MapExpr<Self> {
+pub trait BlockPyExprLike: Clone + fmt::Debug + MapExprChildren {
     fn walk_child_exprs<F>(&self, f: &mut F)
     where
         F: FnMut(&Self),
     {
-        let _ = self.clone().map_expr(&mut |child| {
+        let _ = self.clone().map_children(&mut |child| {
             f(&child);
             child
         });
@@ -249,8 +253,8 @@ impl BlockPyNameLike for ast::ExprName {
     }
 }
 
-impl MapExpr<Expr> for Expr {
-    fn map_expr(self, f: &mut impl FnMut(Self) -> Expr) -> Expr {
+impl MapExprChildren for Expr {
+    fn map_children(self, f: &mut impl FnMut(Self) -> Expr) -> Expr {
         struct DirectChildTransformer<'a, F>(&'a mut F);
 
         impl<F> crate::transformer::Transformer for DirectChildTransformer<'_, F>
@@ -318,13 +322,13 @@ impl UnresolvedName {
     }
 }
 
-impl MapExpr<RuffExpr> for RuffExpr {
-    fn map_expr(self, f: &mut impl FnMut(Self) -> RuffExpr) -> RuffExpr {
-        RuffExpr(self.0.map_expr(&mut |expr| f(RuffExpr(expr)).0))
+impl MapExprChildren for RuffExpr {
+    fn map_children(self, f: &mut impl FnMut(Self) -> RuffExpr) -> RuffExpr {
+        RuffExpr(self.0.map_children(&mut |expr| f(RuffExpr(expr)).0))
     }
 }
 
-impl<T> BlockPyExprLike for T where T: Clone + fmt::Debug + MapExpr<Self> {}
+impl<T> BlockPyExprLike for T where T: Clone + fmt::Debug + MapExprChildren {}
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct LocatedName {
@@ -885,8 +889,8 @@ impl Instr for CoreBlockPyExprWithAwaitAndYield {
 }
 
 #[with_match_default]
-impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYield {
-    fn map_expr(
+impl MapExprChildren for CoreBlockPyExprWithAwaitAndYield {
+    fn map_children(
         self,
         f: &mut impl FnMut(Self) -> CoreBlockPyExprWithAwaitAndYield,
     ) -> CoreBlockPyExprWithAwaitAndYield {
@@ -896,71 +900,18 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield> for CoreBlockPyExprWithAwaitAndYi
     }
 }
 
-#[with_match_default]
-impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithAwaitAndYield {
-    fn map_expr(
-        self,
-        f: &mut impl FnMut(Self) -> CoreBlockPyExprWithYield,
-    ) -> CoreBlockPyExprWithYield {
-        match self {
-            Self::Await(await_expr) => {
-                let meta = await_expr.meta();
-                CoreBlockPyExprWithYield::YieldFrom(
-                    CoreBlockPyYieldFrom::new(core_runtime_positional_call_expr_with_meta(
-                        "await_iter",
-                        meta.node_index.clone(),
-                        meta.range,
-                        vec![f(*await_expr.value)],
-                    ))
-                    .with_meta(meta),
-                )
-            }
-            match_rest(node) => node.map_children(&mut *f).into(),
-        }
-    }
-}
-
-#[with_match_default]
-impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
-    for CoreBlockPyExprWithAwaitAndYield
-{
-    fn try_map_expr(
-        self,
-        f: &mut impl FnMut(Self) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>,
-    ) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield> {
-        match self {
-            Self::Await(_) => Err(self),
-            match_rest(node) => Ok(node.try_map_children(&mut *f)?.into()),
-        }
-    }
-}
-
 impl Instr for CoreBlockPyExprWithYield {
     type Name = UnresolvedName;
 }
 
 #[with_match_default]
-impl MapExpr<CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
-    fn map_expr(
+impl MapExprChildren for CoreBlockPyExprWithYield {
+    fn map_children(
         self,
         f: &mut impl FnMut(Self) -> CoreBlockPyExprWithYield,
     ) -> CoreBlockPyExprWithYield {
         match self {
             match_rest(node) => node.map_children(&mut *f).into(),
-        }
-    }
-}
-
-#[with_match_default]
-impl TryMapExpr<CoreBlockPyExpr, CoreBlockPyExprWithYield> for CoreBlockPyExprWithYield {
-    fn try_map_expr(
-        self,
-        f: &mut impl FnMut(Self) -> Result<CoreBlockPyExpr, CoreBlockPyExprWithYield>,
-    ) -> Result<CoreBlockPyExpr, CoreBlockPyExprWithYield> {
-        match self {
-            Self::Yield(_) => Err(self),
-            Self::YieldFrom(_) => Err(self),
-            match_rest(node) => Ok(node.try_map_children(&mut *f)?.into()),
         }
     }
 }
@@ -970,30 +921,13 @@ impl<N: BlockPyNameLike> Instr for CoreBlockPyExpr<N> {
 }
 
 #[with_match_default]
-impl<NIn, NOut> MapExpr<CoreBlockPyExpr<NOut>> for CoreBlockPyExpr<NIn>
+impl<N> MapExprChildren for CoreBlockPyExpr<N>
 where
-    NIn: BlockPyNameLike,
-    NOut: BlockPyNameLike + From<NIn>,
+    N: BlockPyNameLike,
 {
-    fn map_expr(self, f: &mut impl FnMut(Self) -> CoreBlockPyExpr<NOut>) -> CoreBlockPyExpr<NOut> {
+    fn map_children(self, f: &mut impl FnMut(Self) -> CoreBlockPyExpr<N>) -> CoreBlockPyExpr<N> {
         match self {
             match_rest(node) => node.map_children(&mut *f).into(),
-        }
-    }
-}
-
-#[with_match_default]
-impl<NIn, NOut, Error> TryMapExpr<CoreBlockPyExpr<NOut>, Error> for CoreBlockPyExpr<NIn>
-where
-    NIn: BlockPyNameLike,
-    NOut: BlockPyNameLike + From<NIn>,
-{
-    fn try_map_expr(
-        self,
-        f: &mut impl FnMut(Self) -> Result<CoreBlockPyExpr<NOut>, Error>,
-    ) -> Result<CoreBlockPyExpr<NOut>, Error> {
-        match self {
-            match_rest(node) => Ok(node.try_map_children(&mut *f)?.into()),
         }
     }
 }
@@ -1003,36 +937,8 @@ impl Instr for CodegenBlockPyExpr {
 }
 
 #[with_match_default]
-impl<NIn> MapExpr<CodegenBlockPyExpr> for CoreBlockPyExpr<NIn>
-where
-    NIn: BlockPyNameLike,
-    LocatedName: From<NIn>,
-{
-    fn map_expr(self, f: &mut impl FnMut(Self) -> CodegenBlockPyExpr) -> CodegenBlockPyExpr {
-        match self {
-            Self::Literal(_) => {
-                panic!("core literals should normalize into Load(Constant(_)) before codegen")
-            }
-            match_rest(node) => node.map_children(&mut *f).into(),
-        }
-    }
-}
-
-#[with_match_default]
-impl<Error> TryMapExpr<CodegenBlockPyExpr, Error> for CodegenBlockPyExpr {
-    fn try_map_expr(
-        self,
-        f: &mut impl FnMut(Self) -> Result<CodegenBlockPyExpr, Error>,
-    ) -> Result<CodegenBlockPyExpr, Error> {
-        Ok(match self {
-            match_rest(op) => op.try_map_children(&mut *f)?.into(),
-        })
-    }
-}
-
-#[with_match_default]
-impl MapExpr<CodegenBlockPyExpr> for CodegenBlockPyExpr {
-    fn map_expr(self, f: &mut impl FnMut(Self) -> CodegenBlockPyExpr) -> CodegenBlockPyExpr {
+impl MapExprChildren for CodegenBlockPyExpr {
+    fn map_children(self, f: &mut impl FnMut(Self) -> CodegenBlockPyExpr) -> CodegenBlockPyExpr {
         match self {
             match_rest(op) => op.map_children(&mut *f).into(),
         }
@@ -1684,7 +1590,7 @@ pub struct BlockParam {
 pub(crate) trait BlockPyLinearModuleVisitor<P>
 where
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     fn visit_module(&mut self, module: &BlockPyModule<P>) {
         walk_linear_module(self, module);
@@ -1719,7 +1625,7 @@ pub(crate) fn walk_linear_module<V, P>(visitor: &mut V, module: &BlockPyModule<P
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     for function in &module.callable_defs {
         visitor.visit_fn(function);
@@ -1730,7 +1636,7 @@ pub(crate) fn walk_linear_fn<V, P>(visitor: &mut V, func: &BlockPyFunction<P>)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     for block in &func.blocks {
         visitor.visit_block(block);
@@ -1741,7 +1647,7 @@ pub(crate) fn walk_linear_block<V, P>(visitor: &mut V, block: &CfgBlock<P::Expr>
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     for stmt in &block.body {
         visitor.visit_stmt(stmt);
@@ -1756,7 +1662,7 @@ pub(crate) fn walk_linear_stmt<V, P>(visitor: &mut V, stmt: &P::Expr)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     visitor.visit_expr(stmt);
 }
@@ -1765,7 +1671,7 @@ pub(crate) fn walk_linear_label<V, P>(visitor: &mut V, label: &BlockPyLabel)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     let _ = visitor;
     let _ = label;
@@ -1775,7 +1681,7 @@ pub(crate) fn walk_linear_term<V, P>(visitor: &mut V, term: &BlockPyTerm<P::Expr
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     match term {
         BlockPyTerm::Jump(edge) => {
@@ -1806,9 +1712,9 @@ pub(crate) fn walk_linear_expr<V, P>(visitor: &mut V, expr: &P::Expr)
 where
     V: BlockPyLinearModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
-    let _ = expr.clone().map_expr(&mut |child| {
+    let _ = expr.clone().map_children(&mut |child| {
         visitor.visit_expr(&child);
         child
     });

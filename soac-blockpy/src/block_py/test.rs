@@ -332,13 +332,28 @@ fn stmt_conversion_to_no_await_rejects_await() {
         CoreBlockPyPassWithYield,
         CoreBlockPyExprWithAwaitAndYield,
     >::new(try_lower_core_expr_without_await)
-    .try_map_stmt(stmt)
+    .try_map_expr(stmt)
     .is_err());
 }
 
 #[test]
 fn try_module_map_propagates_nested_expr_conversion_errors() {
     struct RejectAwaitMapper;
+
+    impl
+        TryMapExpr<
+            CoreBlockPyExprWithAwaitAndYield,
+            CoreBlockPyExprWithYield,
+            CoreBlockPyExprWithAwaitAndYield,
+        > for RejectAwaitMapper
+    {
+        fn try_map_expr(
+            &self,
+            expr: CoreBlockPyExprWithAwaitAndYield,
+        ) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield> {
+            try_lower_core_expr_without_await(expr)
+        }
+    }
 
     impl BlockPyModuleTryMap<CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield>
         for RejectAwaitMapper

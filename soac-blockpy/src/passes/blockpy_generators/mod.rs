@@ -691,7 +691,7 @@ fn term_yield_site(term: &BlockPyTerm<CoreBlockPyExprWithYield>) -> Option<Yield
 
 fn lower_stmt_no_yield(stmt: LinearYieldStmt) -> LinearCoreStmt {
     ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield>::without_yield()
-        .try_map_stmt(stmt.clone())
+        .try_map_expr(stmt.clone())
         .unwrap_or_else(|_| {
             panic!(
                 "generator lowering expected yield-like sites to be split before stmt conversion: {stmt:?}"

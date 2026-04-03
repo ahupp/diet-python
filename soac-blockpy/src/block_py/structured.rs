@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::{
     BlockPyCfgFragment, BlockPyFunction, BlockPyLabel, BlockPyModule, BlockPyPass, BlockPyTerm,
-    CfgBlock, MapExpr,
+    CfgBlock, MapExprChildren,
 };
 use super::{Instr, StructuredInstr};
 use std::fmt;
@@ -35,7 +35,7 @@ where
 pub(crate) trait BlockPyModuleVisitor<P>
 where
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     fn visit_module(&mut self, module: &BlockPyModule<P, StructuredInstr<P::Expr>>) {
         walk_module(self, module);
@@ -80,7 +80,7 @@ pub(crate) fn walk_module<V, P>(
 ) where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     for function in &module.callable_defs {
         visitor.visit_fn(function);
@@ -92,7 +92,7 @@ pub(crate) fn walk_fn<V, P>(visitor: &mut V, func: &BlockPyFunction<P, Structure
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     for block in &func.blocks {
         visitor.visit_block(block);
@@ -106,7 +106,7 @@ pub(crate) fn walk_block<V, P>(
 ) where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     for stmt in &block.body {
         visitor.visit_stmt(stmt);
@@ -124,7 +124,7 @@ pub(crate) fn walk_fragment<V, P>(
 ) where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     for stmt in &fragment.body {
         visitor.visit_stmt(stmt);
@@ -139,7 +139,7 @@ pub(crate) fn walk_stmt<V, P>(visitor: &mut V, stmt: &StructuredInstr<P::Expr>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     match stmt {
         StructuredInstr::Expr(expr) => visitor.visit_expr(expr),
@@ -156,7 +156,7 @@ pub(crate) fn walk_label<V, P>(visitor: &mut V, label: &BlockPyLabel)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     let _ = visitor;
     let _ = label;
@@ -167,7 +167,7 @@ pub(crate) fn walk_term<V, P>(visitor: &mut V, term: &BlockPyTerm<P::Expr>)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
     match term {
         BlockPyTerm::Jump(edge) => {
@@ -199,9 +199,9 @@ pub(crate) fn walk_expr<V, P>(visitor: &mut V, expr: &P::Expr)
 where
     V: BlockPyModuleVisitor<P> + ?Sized,
     P: BlockPyPass,
-    P::Expr: MapExpr<P::Expr>,
+    P::Expr: MapExprChildren,
 {
-    let _ = expr.clone().map_expr(&mut |child| {
+    let _ = expr.clone().map_children(&mut |child| {
         visitor.visit_expr(&child);
         child
     });
