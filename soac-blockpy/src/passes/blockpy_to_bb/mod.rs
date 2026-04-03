@@ -3,7 +3,9 @@ mod strings;
 
 use super::blockpy_generators::lower_generator_like_function;
 use super::core_eval_order::make_eval_order_explicit_in_core_callable_def_without_await;
-use crate::block_py::{BlockPyModule, ExprTryMap, FunctionKind, ModuleNameGen};
+use crate::block_py::{
+    BlockPyModule, BlockPyModuleTryMap, ErrOnYield, FunctionKind, ModuleNameGen,
+};
 use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithYield};
 
 pub use exception_pass::lower_try_jump_exception_flow;
@@ -27,11 +29,7 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
         match callable.kind {
             FunctionKind::Function => {
                 let qualname = callable.names.qualname.clone();
-                let mut mapper = ExprTryMap::<
-                    CoreBlockPyPassWithYield,
-                    CoreBlockPyPass,
-                    crate::block_py::CoreBlockPyExprWithYield,
-                >::without_yield();
+                let mut mapper = ErrOnYield;
                 callable_defs.push(
                     mapper
                         .try_map_fn(callable)

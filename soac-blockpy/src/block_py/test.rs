@@ -319,11 +319,7 @@ fn stmt_conversion_to_no_await_rejects_await() {
         Await::new(core_load_with_await_and_yield("x")).with_meta(Meta::default()),
     );
 
-    let mut mapper = ExprTryMap::<
-        CoreBlockPyPassWithAwaitAndYield,
-        CoreBlockPyPassWithYield,
-        CoreBlockPyExprWithAwaitAndYield,
-    >::new(try_lower_core_expr_without_await);
+    let mut mapper = ErrOnAwait;
     assert!(mapper.try_map_expr(stmt).is_err());
 }
 
@@ -397,10 +393,6 @@ fn term_conversion_to_no_yield_rejects_nested_yield() {
         Vec::new(),
     ));
 
-    let mut mapper = ExprTryMap::<
-        CoreBlockPyPassWithYield,
-        CoreBlockPyPass,
-        CoreBlockPyExprWithYield,
-    >::without_yield();
+    let mut mapper = ErrOnYield;
     assert!(mapper.try_map_term(term).is_err());
 }

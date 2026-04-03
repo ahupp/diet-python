@@ -5,12 +5,12 @@ use crate::block_py::{
     core_runtime_name_expr_with_meta, core_runtime_positional_call_expr_with_meta,
     try_lower_core_expr_without_await, try_lower_core_expr_without_yield, Block, BlockArg,
     BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole, BlockPyBindingKind,
-    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyFunction, BlockPyNameLike,
-    BlockPySemanticExprNode, BlockTerm, CellRefForName, ClosureInit, ClosureSlot,
+    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyFunction, BlockPyModuleTryMap,
+    BlockPyNameLike, BlockPySemanticExprNode, BlockTerm, CellRefForName, ClosureInit, ClosureSlot,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ExprTryMap, FunctionId, FunctionKind,
+    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ErrOnYield, FunctionId, FunctionKind,
     FunctionName, FunctionNameGen, ImplicitNoneExpr, Instr, Load, MakeFunction, ModuleNameGen,
-    StorageLayout, Store, TermBranchTable, TermIf, TermRaise, UnresolvedName,
+    StorageLayout, Store, TermBranchTable, TermIf, TermRaise, TryMapExpr, UnresolvedName,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -673,11 +673,7 @@ fn term_yield_site(term: &BlockTerm<CoreBlockPyExprWithYield>) -> Option<YieldSi
 }
 
 fn lower_stmt_no_yield(stmt: LinearYieldStmt) -> LinearCoreStmt {
-    let mut mapper = ExprTryMap::<
-        CoreBlockPyPassWithYield,
-        CoreBlockPyPass,
-        CoreBlockPyExprWithYield,
-    >::without_yield();
+    let mut mapper = ErrOnYield;
     mapper.try_map_expr(stmt.clone()).unwrap_or_else(|_| {
             panic!(
                 "generator lowering expected yield-like sites to be split before stmt conversion: {stmt:?}"
@@ -686,11 +682,7 @@ fn lower_stmt_no_yield(stmt: LinearYieldStmt) -> LinearCoreStmt {
 }
 
 fn lower_term_no_yield(term: BlockTerm<CoreBlockPyExprWithYield>) -> BlockTerm<CoreBlockPyExpr> {
-    let mut mapper = ExprTryMap::<
-        CoreBlockPyPassWithYield,
-        CoreBlockPyPass,
-        CoreBlockPyExprWithYield,
-    >::without_yield();
+    let mut mapper = ErrOnYield;
     mapper.try_map_term(term.clone()).unwrap_or_else(|_| {
         panic!(
             "generator lowering expected yield-like sites to be split before term conversion: {term:?}"

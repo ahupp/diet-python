@@ -1,6 +1,5 @@
 use super::*;
-use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithYield};
-use std::marker::PhantomData;
+use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
 
 pub(crate) trait BlockPyModuleMap<PIn, POut>: MapExpr<PIn::Expr, POut::Expr>
 where
@@ -147,81 +146,7 @@ where
     }
 }
 
-pub(crate) struct ExprTryMap<PIn: BlockPyPass, POut: BlockPyPass, Error> {
-    lower_expr: fn(PIn::Expr) -> Result<POut::Expr, Error>,
-    _marker: PhantomData<fn() -> (PIn, POut, Error)>,
-}
-
-impl<PIn: BlockPyPass, POut: BlockPyPass, Error> ExprTryMap<PIn, POut, Error> {
-    pub(crate) const fn new(lower_expr: fn(PIn::Expr) -> Result<POut::Expr, Error>) -> Self {
-        Self {
-            lower_expr,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl ExprTryMap<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield> {
-    pub(crate) const fn without_yield() -> Self {
-        Self::new(try_lower_core_expr_without_yield)
-    }
-}
-
-impl<PIn, POut, Error> ExprTryMap<PIn, POut, Error>
-where
-    PIn: BlockPyPass,
-    POut: BlockPyPass,
-    <POut::Expr as Instr>::Name: From<<PIn::Expr as Instr>::Name>,
-{
-    pub(crate) fn try_map_expr(&mut self, expr: PIn::Expr) -> Result<POut::Expr, Error> {
-        (self.lower_expr)(expr)
-    }
-
-    pub(crate) fn try_map_term(
-        &mut self,
-        term: BlockTerm<PIn::Expr>,
-    ) -> Result<BlockTerm<POut::Expr>, Error> {
-        <Self as BlockPyModuleTryMap<PIn, POut>>::try_map_term(self, term)
-    }
-
-    pub(crate) fn try_map_fn(
-        &mut self,
-        function: BlockPyFunction<PIn>,
-    ) -> Result<BlockPyFunction<POut>, Error> {
-        <Self as BlockPyModuleTryMap<PIn, POut>>::try_map_fn(self, function)
-    }
-}
-
-impl<PIn, POut, Error> TryMapExpr<PIn::Expr, POut::Expr, Error> for ExprTryMap<PIn, POut, Error>
-where
-    PIn: BlockPyPass,
-    POut: BlockPyPass,
-    <POut::Expr as Instr>::Name: From<<PIn::Expr as Instr>::Name>,
-{
-    fn try_map_expr(&mut self, expr: PIn::Expr) -> Result<POut::Expr, Error> {
-        (self.lower_expr)(expr)
-    }
-
-    fn try_map_name(
-        &mut self,
-        name: <PIn::Expr as Instr>::Name,
-    ) -> Result<<POut::Expr as Instr>::Name, Error> {
-        Ok(<<POut::Expr as Instr>::Name as From<
-            <PIn::Expr as Instr>::Name,
-        >>::from(name))
-    }
-}
-
-impl<PIn, POut, Error> BlockPyModuleTryMap<PIn, POut> for ExprTryMap<PIn, POut, Error>
-where
-    PIn: BlockPyPass,
-    POut: BlockPyPass,
-    <POut::Expr as Instr>::Name: From<<PIn::Expr as Instr>::Name>,
-{
-    type Error = Error;
-}
-
-struct ErrOnAwait;
+pub(crate) struct ErrOnAwait;
 
 impl
     TryMapExpr<
@@ -245,6 +170,12 @@ impl
     }
 }
 
+impl BlockPyModuleTryMap<CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield>
+    for ErrOnAwait
+{
+    type Error = CoreBlockPyExprWithAwaitAndYield;
+}
+
 pub(crate) fn try_lower_core_expr_without_await(
     value: CoreBlockPyExprWithAwaitAndYield,
 ) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield> {
@@ -252,7 +183,7 @@ pub(crate) fn try_lower_core_expr_without_await(
     mapper.try_map_expr(value)
 }
 
-struct ErrOnYield;
+pub(crate) struct ErrOnYield;
 
 impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYield>
     for ErrOnYield
@@ -270,6 +201,10 @@ impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYi
     ) -> Result<UnresolvedName, CoreBlockPyExprWithYield> {
         Ok(name)
     }
+}
+
+impl BlockPyModuleTryMap<CoreBlockPyPassWithYield, CoreBlockPyPass> for ErrOnYield {
+    type Error = CoreBlockPyExprWithYield;
 }
 
 pub(crate) fn try_lower_core_expr_without_yield(
