@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::block_py::{
-    Block, BlockLabel, BlockPyCallableSemanticInfo, BlockPyFunction, BlockPyNameLike, BlockTerm,
+    Block, BlockLabel, CallableScopeInfo, BlockPyFunction, BlockPyNameLike, BlockTerm,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionKind, FunctionName,
 };
 use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
@@ -47,7 +47,7 @@ fn lowers_await_to_yield_from_await_iter() {
             }],
             doc: None,
             storage_layout: None,
-            semantic: BlockPyCallableSemanticInfo::default(),
+            scope: CallableScopeInfo::default(),
         }],
         module_constants: Vec::new(),
     };

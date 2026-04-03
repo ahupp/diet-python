@@ -1,11 +1,11 @@
 use crate::block_py::{
-    compute_storage_layout_from_semantics, Block, BlockArg, BlockEdge, BlockLabel, BlockParam,
-    BlockPyFunction, BlockPyModule, BlockPyPass, BlockPySemanticExprNode, BlockTerm,
+    compute_storage_layout_from_scope, Block, BlockArg, BlockEdge, BlockLabel, BlockParam,
+    BlockPyFunction, BlockPyModule, BlockPyPass, ScopeExprNode, BlockTerm,
 };
 
 pub(crate) fn validate_module<P: BlockPyPass>(module: &BlockPyModule<P>) -> Result<(), String>
 where
-    P::Expr: BlockPySemanticExprNode,
+    P::Expr: ScopeExprNode,
 {
     for function in &module.callable_defs {
         validate_function(function)?;
@@ -15,7 +15,7 @@ where
 
 fn validate_function<P: BlockPyPass>(function: &BlockPyFunction<P>) -> Result<(), String>
 where
-    P::Expr: BlockPySemanticExprNode,
+    P::Expr: ScopeExprNode,
 {
     let qualname = function.names.qualname.as_str();
     validate_storage_layout_scoping(function, qualname)?;
@@ -219,16 +219,16 @@ fn validate_storage_layout_scoping<P: BlockPyPass>(
     qualname: &str,
 ) -> Result<(), String>
 where
-    P::Expr: BlockPySemanticExprNode,
+    P::Expr: ScopeExprNode,
 {
-    let expected_layout = compute_storage_layout_from_semantics(function);
+    let expected_layout = compute_storage_layout_from_scope(function);
 
     let Some(layout) = function.storage_layout.as_ref() else {
         if expected_layout.is_none() {
             return Ok(());
         }
         return Err(format!(
-            "closure layout missing for {} despite semantic closure state",
+            "closure layout missing for {} despite scope closure state",
             qualname
         ));
     };
@@ -256,7 +256,7 @@ where
         };
         if actual_slot.storage_name != expected_slot.storage_name {
             return Err(format!(
-                "closure layout for {} has owner cell {} stored as {}, but semantic info expects {}; actual cellvars: {:?}",
+                "closure layout for {} has owner cell {} stored as {}, but scope info expects {}; actual cellvars: {:?}",
                 qualname,
                 expected_slot.logical_name,
                 actual_slot.storage_name,

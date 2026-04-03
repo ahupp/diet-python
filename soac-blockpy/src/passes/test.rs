@@ -1,6 +1,6 @@
-use crate::block_py::{BlockPyBindingKind, ClosureInit, ClosureSlot};
+use crate::block_py::{BindingKind, ClosureInit, ClosureSlot};
 use crate::block_py::{
-    BlockPyCallableScopeKind, BlockPyCellBindingKind, BlockPyFunction, BlockPyModule,
+    CallableScopeKind, CellBindingKind, BlockPyFunction, BlockPyModule,
     BlockPyNameLike, BlockTerm, Call, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
     FunctionKind, LocatedName, NameLocation, ResolvedStorageBlock,
 };
@@ -379,8 +379,8 @@ class Box:
     let blockpy_module = lowered.blockpy_module();
     let class_helper = callable_def_by_name(&blockpy_module, "_dp_class_ns_Box");
     assert_eq!(
-        class_helper.semantic.scope_kind,
-        BlockPyCallableScopeKind::Class
+        class_helper.scope.scope_kind,
+        CallableScopeKind::Class
     );
 }
 
@@ -1171,12 +1171,12 @@ def outer():
     let blockpy_module = lowered.blockpy_module();
     let outer = callable_def_by_name(&blockpy_module, "outer");
     assert_eq!(
-        outer.semantic.binding_kind("recurse"),
-        Some(crate::block_py::BlockPyBindingKind::Cell(
-            crate::block_py::BlockPyCellBindingKind::Owner
+        outer.scope.binding_kind("recurse"),
+        Some(crate::block_py::BindingKind::Cell(
+            crate::block_py::CellBindingKind::Owner
         )),
         "{:?}",
-        outer.semantic.bindings
+        outer.scope.bindings
     );
 }
 
@@ -1487,9 +1487,9 @@ def gen():
     assert_eq!(try_exc_slot.init, ClosureInit::InheritedCapture);
     assert_eq!(
         resume
-            .semantic
+            .scope
             .binding_kind(try_exc_slot.logical_name.as_str()),
-        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+        Some(BindingKind::Cell(CellBindingKind::Capture))
     );
 }
 
@@ -2899,7 +2899,7 @@ def make_counter(delta):
             .freevars
             .iter()
             .any(|slot| slot.logical_name == "_dp_pc" && slot.storage_name == "_dp_pc"),
-        "resume layout should derive runtime state captures from semantic bindings:\n{}",
+        "resume layout should derive runtime state captures from scope bindings:\n{}",
         lowering.name_binding_text(),
     );
     assert!(

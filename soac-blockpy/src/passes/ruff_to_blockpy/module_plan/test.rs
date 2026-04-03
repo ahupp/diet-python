@@ -1,10 +1,10 @@
 use super::{
-    callable_semantic_info, try_lower_function_to_core_blockpy_bundle, BlockPyModuleRewriter,
+    callable_scope_info, try_lower_function_to_core_blockpy_bundle, BlockPyModuleRewriter,
     FunctionScopeFrame,
 };
 use crate::block_py::{
-    compute_make_function_capture_bindings_from_semantics, BindingTarget, BlockPyBindingKind,
-    BlockPyBindingPurpose, BlockPyClassBodyFallback, BlockPyEffectiveBinding, BlockPyModule,
+    compute_make_function_capture_bindings_from_scope, BindingTarget, BindingKind,
+    BindingPurpose, ClassBodyFallback, EffectiveBinding, BlockPyModule,
     ModuleNameGen,
 };
 use crate::lower_python_to_blockpy_for_testing;
@@ -62,23 +62,23 @@ fn callable_semantic_info_uses_logical_storage_for_cell_captures() {
         .expect("missing inner callable");
 
     assert_eq!(
-        inner.semantic.binding_kind("x"),
-        Some(BlockPyBindingKind::Cell(
-            crate::block_py::BlockPyCellBindingKind::Capture
+        inner.scope.binding_kind("x"),
+        Some(BindingKind::Cell(
+            crate::block_py::CellBindingKind::Capture
         ))
     );
-    assert_eq!(inner.semantic.cell_storage_name("x"), "x");
-    assert_eq!(inner.semantic.cell_capture_source_name("x"), "_dp_cell_x");
+    assert_eq!(inner.scope.cell_storage_name("x"), "x");
+    assert_eq!(inner.scope.cell_capture_source_name("x"), "_dp_cell_x");
     assert_eq!(
-        inner.semantic.captured_cell_bindings(),
-        vec![crate::block_py::BlockPyCellCaptureBinding {
+        inner.scope.captured_cell_bindings(),
+        vec![crate::block_py::CellCaptureBinding {
             logical_name: "x".to_string(),
             source_name: "_dp_cell_x".to_string(),
         }]
     );
     assert_eq!(
         inner
-            .semantic
+            .scope
             .logical_name_for_cell_capture_source("_dp_cell_x"),
         Some("x".to_string())
     );
@@ -101,25 +101,25 @@ fn callable_semantic_info_maps_classcell_capture_source_back_to_dunder_class() {
         .expect("missing method callable");
 
     assert_eq!(
-        f.semantic.binding_kind("__class__"),
-        Some(BlockPyBindingKind::Cell(
-            crate::block_py::BlockPyCellBindingKind::Capture
+        f.scope.binding_kind("__class__"),
+        Some(BindingKind::Cell(
+            crate::block_py::CellBindingKind::Capture
         ))
     );
-    assert_eq!(f.semantic.cell_storage_name("__class__"), "__class__");
+    assert_eq!(f.scope.cell_storage_name("__class__"), "__class__");
     assert_eq!(
-        f.semantic.cell_capture_source_name("__class__"),
+        f.scope.cell_capture_source_name("__class__"),
         "__class__"
     );
     assert_eq!(
-        f.semantic.captured_cell_bindings(),
-        vec![crate::block_py::BlockPyCellCaptureBinding {
+        f.scope.captured_cell_bindings(),
+        vec![crate::block_py::CellCaptureBinding {
             logical_name: "__class__".to_string(),
             source_name: "__class__".to_string(),
         }]
     );
     assert_eq!(
-        f.semantic.logical_name_for_cell_capture_source("__class__"),
+        f.scope.logical_name_for_cell_capture_source("__class__"),
         Some("__class__".to_string())
     );
 }
@@ -147,7 +147,7 @@ fn recursive_local_function_bindings_are_cell_owned_in_parent_scope() {
         module_name_gen: ModuleNameGen::new(0),
         function_scope_stack: vec![FunctionScopeFrame {
             scope: Some(outer_scope.clone()),
-            callable_semantic: callable_semantic_info(
+            callable_scope: callable_scope_info(
                 &semantic_state,
                 None,
                 Some(&outer_scope),
@@ -173,10 +173,10 @@ fn recursive_local_function_bindings_are_cell_owned_in_parent_scope() {
             .function_scope_stack
             .last()
             .expect("missing outer function frame")
-            .callable_semantic
+            .callable_scope
             .binding_kind("recurse"),
-        Some(crate::block_py::BlockPyBindingKind::Cell(
-            crate::block_py::BlockPyCellBindingKind::Owner
+        Some(crate::block_py::BindingKind::Cell(
+            crate::block_py::CellBindingKind::Owner
         ))
     );
     let replacement = rewriter.rewrite_visited_function_def(nested_func, nested_state);
@@ -200,9 +200,9 @@ fn callable_semantic_info_tracks_bind_and_qualname_for_class_helper_override() {
         .iter()
         .find(|func| func.names.bind_name == "_dp_class_ns_Box")
         .expect("missing class helper");
-    assert_eq!(class_helper.semantic.names.bind_name, "_dp_class_ns_Box");
-    assert_eq!(class_helper.semantic.names.display_name, "_dp_class_ns_Box");
-    assert_eq!(class_helper.semantic.names.qualname, "_dp_class_ns_Box");
+    assert_eq!(class_helper.scope.names.bind_name, "_dp_class_ns_Box");
+    assert_eq!(class_helper.scope.names.display_name, "_dp_class_ns_Box");
+    assert_eq!(class_helper.scope.names.qualname, "_dp_class_ns_Box");
 }
 
 #[test]
@@ -216,14 +216,14 @@ fn callable_semantic_info_marks_class_helper_as_owning_classcell() {
         .expect("missing class helper");
 
     assert_eq!(
-        class_helper.semantic.binding_kind("__class__"),
-        Some(BlockPyBindingKind::Cell(
-            crate::block_py::BlockPyCellBindingKind::Owner
+        class_helper.scope.binding_kind("__class__"),
+        Some(BindingKind::Cell(
+            crate::block_py::CellBindingKind::Owner
         ))
     );
-    assert!(class_helper.semantic.has_local_def("__class__"));
+    assert!(class_helper.scope.has_local_def("__class__"));
     assert_eq!(
-        class_helper.semantic.cell_storage_name("__class__"),
+        class_helper.scope.cell_storage_name("__class__"),
         "_dp_classcell"
     );
 }
@@ -246,8 +246,8 @@ fn callable_semantic_info_does_not_leak_dunder_class_capture_to_outer_function()
         .find(|func| func.names.bind_name == "exercise")
         .expect("missing outer function");
 
-    assert_eq!(exercise.semantic.binding_kind("__class__"), None);
-    assert_eq!(exercise.semantic.captured_cell_bindings(), Vec::new());
+    assert_eq!(exercise.scope.binding_kind("__class__"), None);
+    assert_eq!(exercise.scope.captured_cell_bindings(), Vec::new());
 }
 
 #[test]
@@ -268,9 +268,9 @@ fn class_helper_semantic_info_stays_lexical_when_nested_methods_capture_outer_cl
         .find(|func| func.names.bind_name == "_dp_class_ns_C")
         .expect("missing class helper");
 
-    assert_eq!(class_helper.semantic.captured_cell_bindings(), Vec::new());
+    assert_eq!(class_helper.scope.captured_cell_bindings(), Vec::new());
     assert_eq!(
-        compute_make_function_capture_bindings_from_semantics(class_helper),
+        compute_make_function_capture_bindings_from_scope(class_helper),
         Vec::new()
     );
 }
@@ -285,39 +285,39 @@ fn callable_semantic_info_distinguishes_class_type_params_from_class_body_locals
         .find(|func| func.names.bind_name == "_dp_class_ns_Box")
         .expect("missing class helper");
 
-    assert!(class_helper.semantic.type_param_names.contains("T"));
+    assert!(class_helper.scope.type_param_names.contains("T"));
     assert_eq!(
         class_helper
-            .semantic
-            .effective_binding("T", BlockPyBindingPurpose::Store),
-        Some(BlockPyEffectiveBinding::Local),
+            .scope
+            .effective_binding("T", BindingPurpose::Store),
+        Some(EffectiveBinding::Local),
     );
     assert_eq!(
         class_helper
-            .semantic
-            .binding_target_for_name("T", BlockPyBindingPurpose::Store),
+            .scope
+            .binding_target_for_name("T", BindingPurpose::Store),
         BindingTarget::Local,
     );
     assert_eq!(
         class_helper
-            .semantic
-            .effective_binding("T", BlockPyBindingPurpose::Load),
-        Some(BlockPyEffectiveBinding::ClassBody(
-            BlockPyClassBodyFallback::Global
+            .scope
+            .effective_binding("T", BindingPurpose::Load),
+        Some(EffectiveBinding::ClassBody(
+            ClassBodyFallback::Global
         )),
     );
     assert_eq!(
         class_helper
-            .semantic
-            .binding_target_for_name("value", BlockPyBindingPurpose::Store),
+            .scope
+            .binding_target_for_name("value", BindingPurpose::Store),
         BindingTarget::ClassNamespace,
     );
     assert_eq!(
         class_helper
-            .semantic
-            .effective_binding("value", BlockPyBindingPurpose::Store),
-        Some(BlockPyEffectiveBinding::ClassBody(
-            BlockPyClassBodyFallback::Global
+            .scope
+            .effective_binding("value", BindingPurpose::Store),
+        Some(EffectiveBinding::ClassBody(
+            ClassBodyFallback::Global
         ))
     );
 }
@@ -341,13 +341,13 @@ fn callable_semantic_info_keeps_class_attrs_out_of_cell_bindings() {
         .expect("missing class helper");
 
     assert_eq!(
-        class_helper.semantic.binding_kind("x"),
-        Some(BlockPyBindingKind::Local),
+        class_helper.scope.binding_kind("x"),
+        Some(BindingKind::Local),
     );
     assert_eq!(
         class_helper
-            .semantic
-            .binding_target_for_name("x", BlockPyBindingPurpose::Store),
+            .scope
+            .binding_target_for_name("x", BindingPurpose::Store),
         BindingTarget::ClassNamespace,
     );
 }
@@ -370,10 +370,10 @@ fn callable_semantic_info_records_class_cell_fallback_for_outer_reads() {
 
     assert_eq!(
         class_helper
-            .semantic
-            .effective_binding("x", BlockPyBindingPurpose::Load),
-        Some(BlockPyEffectiveBinding::ClassBody(
-            BlockPyClassBodyFallback::Cell
+            .scope
+            .effective_binding("x", BindingPurpose::Load),
+        Some(EffectiveBinding::ClassBody(
+            ClassBodyFallback::Cell
         ))
     );
 }
@@ -409,7 +409,7 @@ fn callable_semantic_info_resolves_implicit_global_loads_in_body() {
     let outer_scope = semantic_state
         .function_scope(outer)
         .expect("missing outer scope");
-    let semantic = callable_semantic_info(
+    let scope = callable_scope_info(
         &semantic_state,
         Some(&outer_scope),
         Some(&inner_scope),
@@ -418,26 +418,26 @@ fn callable_semantic_info_resolves_implicit_global_loads_in_body() {
     );
 
     assert_eq!(
-        semantic.binding_kind("factor"),
-        Some(crate::block_py::BlockPyBindingKind::Cell(
-            crate::block_py::BlockPyCellBindingKind::Capture
+        scope.binding_kind("factor"),
+        Some(crate::block_py::BindingKind::Cell(
+            crate::block_py::CellBindingKind::Capture
         ))
     );
     assert_eq!(
-        semantic.binding_kind("x"),
-        Some(crate::block_py::BlockPyBindingKind::Local)
+        scope.binding_kind("x"),
+        Some(crate::block_py::BindingKind::Local)
     );
     assert_eq!(
-        semantic.binding_kind("Exception"),
-        Some(crate::block_py::BlockPyBindingKind::Global)
+        scope.binding_kind("Exception"),
+        Some(crate::block_py::BindingKind::Global)
     );
     assert_eq!(
-        semantic.binding_kind("len"),
-        Some(crate::block_py::BlockPyBindingKind::Global)
+        scope.binding_kind("len"),
+        Some(crate::block_py::BindingKind::Global)
     );
     assert_eq!(
-        semantic.binding_kind("str"),
-        Some(crate::block_py::BlockPyBindingKind::Global)
+        scope.binding_kind("str"),
+        Some(crate::block_py::BindingKind::Global)
     );
 }
 
@@ -509,12 +509,12 @@ fn lowering_recursive_local_function_treats_recurse_cell_as_local_state() {
         .find(|callable| callable.names.bind_name == "exercise")
         .expect("missing lowered exercise callable");
     assert!(
-        exercise.semantic.binding_kind("recurse")
-            == Some(crate::block_py::BlockPyBindingKind::Cell(
-                crate::block_py::BlockPyCellBindingKind::Owner
+        exercise.scope.binding_kind("recurse")
+            == Some(crate::block_py::BindingKind::Cell(
+                crate::block_py::CellBindingKind::Owner
             )),
         "semantic_bindings={:?}",
-        exercise.semantic.bindings,
+        exercise.scope.bindings,
     );
 }
 

@@ -502,7 +502,7 @@ pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
         blocks,
         doc,
         storage_layout,
-        semantic,
+        scope,
     } = callable_def;
     let structured_blocks = blocks
         .into_iter()
@@ -525,7 +525,7 @@ pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
         blocks,
         doc,
         storage_layout,
-        semantic,
+        scope,
     }
 }
 

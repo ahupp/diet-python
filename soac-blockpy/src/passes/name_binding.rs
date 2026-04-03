@@ -1,10 +1,10 @@
 use crate::block_py::{
-    build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_semantics,
-    compute_storage_layout_from_semantics, core_runtime_positional_call_expr_with_meta,
-    literal_expr, runtime_symbol, BindingTarget, BlockArg, BlockPyBindingKind,
-    BlockPyBindingPurpose, BlockPyCallableScopeKind, BlockPyCallableSemanticInfo,
-    BlockPyCellBindingKind, BlockPyCellCaptureBinding, BlockPyClassBodyFallback,
-    BlockPyEffectiveBinding, BlockPyFunction, BlockPyModule, BlockPyModuleMap, BlockPyNameLike,
+    build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_scope,
+    compute_storage_layout_from_scope, core_runtime_positional_call_expr_with_meta,
+    literal_expr, runtime_symbol, BindingTarget, BlockArg, BindingKind,
+    BindingPurpose, CallableScopeKind, CallableScopeInfo,
+    CellBindingKind, CellCaptureBinding, ClassBodyFallback,
+    EffectiveBinding, BlockPyFunction, BlockPyModule, BlockPyModuleMap, BlockPyNameLike,
     BlockTerm, Call, CellLocation, CellRef, CellRefForName, ClosureInit, ClosureSlot,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreNumberLiteral, CoreNumberLiteralValue,
     CoreStringLiteral, Del, DelItem, FunctionId, FunctionKind, HasMeta, InstrExprNode, Load,
@@ -22,8 +22,8 @@ fn is_internal_symbol(name: &str) -> bool {
     name.starts_with("_dp_") || name == "__soac__"
 }
 
-fn should_late_bind_name(name: &str, semantic: &BlockPyCallableSemanticInfo) -> bool {
-    !is_internal_symbol(name) || semantic.honors_internal_binding(name)
+fn should_late_bind_name(name: &str, scope: &CallableScopeInfo) -> bool {
+    !is_internal_symbol(name) || scope.honors_internal_binding(name)
 }
 
 fn core_string_expr(
@@ -94,11 +94,11 @@ fn rewrite_local_name_load(
 
 fn cell_expr_for_name(
     name: &str,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
-    let _ = semantic;
+    let _ = scope;
     CellRefForName::new(name.to_string())
         .with_meta(crate::block_py::Meta::new(node_index, range))
         .into()
@@ -107,21 +107,21 @@ fn cell_expr_for_name(
 fn rewrite_cell_name_load(
     name: ast::name::Name,
     meta: crate::block_py::Meta,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     resolver: &NameBindingMapper<'_>,
 ) -> CoreBlockPyExpr {
-    let _ = (semantic, resolver);
+    let _ = (scope, resolver);
     rewrite_global_name_load(name, meta)
 }
 
 fn rewrite_raw_cell_storage_name_load(
     name: ast::name::Name,
     meta: crate::block_py::Meta,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     resolver: &NameBindingMapper<'_>,
 ) -> Option<CoreBlockPyExpr> {
-    let _ = (semantic, resolver);
-    resolve_cell_storage_name(semantic, name.as_str())?;
+    let _ = (scope, resolver);
+    resolve_cell_storage_name(scope, name.as_str())?;
     Some(rewrite_global_name_load(name, meta))
 }
 
@@ -138,54 +138,54 @@ where
 fn rewrite_name_load(
     name: ast::name::Name,
     meta: crate::block_py::Meta,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     resolver: &NameBindingMapper<'_>,
 ) -> CoreBlockPyExpr {
-    if is_internal_symbol(name.as_str()) && !semantic.honors_internal_binding(name.as_str()) {
+    if is_internal_symbol(name.as_str()) && !scope.honors_internal_binding(name.as_str()) {
         return Load::new(name).with_meta(meta).into();
     }
 
-    if semantic.scope_kind == BlockPyCallableScopeKind::Class {
-        return match semantic.effective_binding(name.as_str(), BlockPyBindingPurpose::Load) {
-            Some(BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Cell)) => {
-                rewrite_class_name_load_cell(name, meta, semantic)
+    if scope.scope_kind == CallableScopeKind::Class {
+        return match scope.effective_binding(name.as_str(), BindingPurpose::Load) {
+            Some(EffectiveBinding::ClassBody(ClassBodyFallback::Cell)) => {
+                rewrite_class_name_load_cell(name, meta, scope)
             }
-            Some(BlockPyEffectiveBinding::Cell(_)) => {
-                rewrite_cell_name_load(name, meta, semantic, resolver)
+            Some(EffectiveBinding::Cell(_)) => {
+                rewrite_cell_name_load(name, meta, scope, resolver)
             }
-            Some(BlockPyEffectiveBinding::Global) => rewrite_global_name_load(name, meta),
-            Some(BlockPyEffectiveBinding::Local) => rewrite_local_name_load(name, meta, resolver),
-            Some(BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global)) | None => {
+            Some(EffectiveBinding::Global) => rewrite_global_name_load(name, meta),
+            Some(EffectiveBinding::Local) => rewrite_local_name_load(name, meta, resolver),
+            Some(EffectiveBinding::ClassBody(ClassBodyFallback::Global)) | None => {
                 rewrite_class_name_load_global(name, meta)
             }
         };
     }
 
-    match semantic.resolved_load_binding_kind(name.as_str()) {
-        BlockPyBindingKind::Cell(_) => rewrite_cell_name_load(name, meta, semantic, resolver),
-        BlockPyBindingKind::Global => rewrite_global_name_load(name, meta),
-        BlockPyBindingKind::Local => rewrite_local_name_load(name, meta, resolver),
+    match scope.resolved_load_binding_kind(name.as_str()) {
+        BindingKind::Cell(_) => rewrite_cell_name_load(name, meta, scope, resolver),
+        BindingKind::Global => rewrite_global_name_load(name, meta),
+        BindingKind::Local => rewrite_local_name_load(name, meta, resolver),
     }
 }
 
-fn should_rewrite_raw_name_load(name: &str, semantic: &BlockPyCallableSemanticInfo) -> bool {
-    if should_late_bind_name(name, semantic) {
+fn should_rewrite_raw_name_load(name: &str, scope: &CallableScopeInfo) -> bool {
+    if should_late_bind_name(name, scope) {
         return true;
     }
 
     matches!(
-        semantic.effective_binding(name, BlockPyBindingPurpose::Load),
+        scope.effective_binding(name, BindingPurpose::Load),
         Some(
-            BlockPyEffectiveBinding::Global
-                | BlockPyEffectiveBinding::Cell(_)
-                | BlockPyEffectiveBinding::ClassBody(_)
+            EffectiveBinding::Global
+                | EffectiveBinding::Cell(_)
+                | EffectiveBinding::ClassBody(_)
         )
     )
 }
 
 fn rewrite_cell_ref_expr(
     logical_name: &str,
-    _semantic: &BlockPyCallableSemanticInfo,
+    _semantic: &CallableScopeInfo,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreBlockPyExpr {
@@ -227,10 +227,10 @@ fn rewrite_cell_binding_assign(
     target: UnresolvedName,
     value: CoreBlockPyExpr,
     meta: crate::block_py::Meta,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     resolver: &NameBindingMapper<'_>,
 ) -> CoreStmt {
-    let _ = (semantic, resolver);
+    let _ = (scope, resolver);
     rewrite_global_binding_assign(target, value, meta)
 }
 
@@ -244,15 +244,15 @@ fn rewrite_global_binding_delete_by_name(
 fn rewrite_binding_delete(
     target: ast::name::Name,
     meta: crate::block_py::Meta,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     resolver: &NameBindingMapper<'_>,
 ) -> CoreStmt {
     let bind_name = target.to_string();
-    if semantic.is_cell_binding(bind_name.as_str()) {
+    if scope.is_cell_binding(bind_name.as_str()) {
         let _ = resolver;
         return op_stmt(Del::new(target, false).with_meta(meta));
     }
-    match semantic.binding_target_for_name(bind_name.as_str(), BlockPyBindingPurpose::Store) {
+    match scope.binding_target_for_name(bind_name.as_str(), BindingPurpose::Store) {
         BindingTarget::Local => op_stmt(
             Store::new(
                 target,
@@ -280,7 +280,7 @@ fn rewrite_binding_delete(
 fn rewrite_deleted_name_load_expr(
     name: ast::name::Name,
     meta: crate::block_py::Meta,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     resolver: &NameBindingMapper<'_>,
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
@@ -288,7 +288,7 @@ fn rewrite_deleted_name_load_expr(
     let always_unbound = always_unbound_names.contains(name.as_str());
     let deleted = deleted_names.contains(name.as_str());
     if !always_unbound && !deleted {
-        return rewrite_name_load(name, meta, semantic, resolver);
+        return rewrite_name_load(name, meta, scope, resolver);
     }
     core_runtime_positional_call_expr_with_meta(
         "load_deleted_name",
@@ -299,7 +299,7 @@ fn rewrite_deleted_name_load_expr(
             if always_unbound {
                 deleted_sentinel_expr(meta.node_index, meta.range)
             } else {
-                rewrite_name_load(name, meta, semantic, resolver)
+                rewrite_name_load(name, meta, scope, resolver)
             },
         ],
     )
@@ -389,13 +389,13 @@ where
 
 fn rewrite_deleted_name_loads_in_expr(
     expr: &mut CoreBlockPyExpr,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     storage_layout: &StorageLayout,
     resolver: &NameBindingMapper<'_>,
     deleted_names: &HashSet<String>,
     always_unbound_names: &HashSet<String>,
 ) {
-    if let Some(logical_name) = cell_load_logical_name(expr, semantic, storage_layout) {
+    if let Some(logical_name) = cell_load_logical_name(expr, scope, storage_layout) {
         if deleted_names.contains(logical_name.as_str())
             || always_unbound_names.contains(logical_name.as_str())
         {
@@ -470,7 +470,7 @@ fn rewrite_deleted_name_loads_in_expr(
         | CoreBlockPyExpr::MakeFunction(_) => expr.walk_mut(&mut |arg| {
             rewrite_deleted_name_loads_in_expr(
                 arg,
-                semantic,
+                scope,
                 storage_layout,
                 resolver,
                 deleted_names,
@@ -481,7 +481,7 @@ fn rewrite_deleted_name_loads_in_expr(
             with_helper_arg_mut(expr, 1, &mut |value_expr| {
                 rewrite_deleted_name_loads_in_expr(
                     value_expr,
-                    semantic,
+                    scope,
                     storage_layout,
                     resolver,
                     deleted_names,
@@ -573,7 +573,7 @@ fn rewrite_class_name_load_global(
 fn rewrite_class_name_load_cell(
     name: ast::name::Name,
     meta: crate::block_py::Meta,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
 ) -> CoreBlockPyExpr {
     let bind_name = name.to_string();
     core_runtime_positional_call_expr_with_meta(
@@ -583,7 +583,7 @@ fn rewrite_class_name_load_cell(
         vec![
             class_namespace_expr(meta.node_index.clone(), meta.range),
             core_string_expr(bind_name, meta.node_index.clone(), meta.range),
-            cell_expr_for_name(name.as_str(), semantic, meta.node_index, meta.range),
+            cell_expr_for_name(name.as_str(), scope, meta.node_index, meta.range),
         ],
     )
 }
@@ -591,15 +591,15 @@ fn rewrite_class_name_load_cell(
 fn rewrite_quiet_delete_marker(
     name: ast::name::Name,
     meta: crate::block_py::Meta,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     resolver: &NameBindingMapper<'_>,
 ) -> CoreStmt {
-    match semantic.binding_kind(name.as_str()) {
-        Some(BlockPyBindingKind::Cell(_)) => {
+    match scope.binding_kind(name.as_str()) {
+        Some(BindingKind::Cell(_)) => {
             let _ = resolver;
             op_stmt(Del::new(name, true).with_meta(meta))
         }
-        _ => match semantic.binding_target_for_name(name.as_str(), BlockPyBindingPurpose::Store) {
+        _ => match scope.binding_target_for_name(name.as_str(), BindingPurpose::Store) {
             BindingTarget::Local => op_stmt(
                 Store::new(
                     name,
@@ -685,13 +685,13 @@ fn make_function_kind_name(kind: FunctionKind) -> &'static str {
 
 fn cell_load_logical_name(
     expr: &CoreBlockPyExpr,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     _storage_layout: &StorageLayout,
 ) -> Option<String> {
     let CoreBlockPyExpr::Load(op) = expr else {
         return None;
     };
-    logical_name_for_cell_bound_name(semantic, &op.name)
+    logical_name_for_cell_bound_name(scope, &op.name)
 }
 
 fn build_local_cell_init_assign(
@@ -776,7 +776,7 @@ fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPa
     let init_stmts = match callable.kind {
         FunctionKind::Function => {
             let mut storage_names = callable
-                .semantic
+                .scope
                 .owned_cell_storage_names()
                 .into_iter()
                 .collect::<Vec<_>>();
@@ -789,7 +789,7 @@ fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPa
                 .into_iter()
                 .map(|storage_name| {
                     let logical_name = callable
-                        .semantic
+                        .scope
                         .logical_name_for_cell_storage(storage_name.as_str())
                         .unwrap_or_else(|| storage_name.clone());
                     build_local_cell_init_assign(
@@ -833,12 +833,12 @@ fn storage_name_for_cell_location(layout: &StorageLayout, location: CellLocation
 }
 
 fn logical_name_for_cell_location(
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     layout: &StorageLayout,
     location: CellLocation,
 ) -> Option<String> {
     let storage_name = storage_name_for_cell_location(layout, location)?;
-    semantic.logical_name_for_cell_storage(storage_name)
+    scope.logical_name_for_cell_storage(storage_name)
 }
 
 fn logical_name_for_local_location(
@@ -849,20 +849,20 @@ fn logical_name_for_local_location(
 }
 
 fn logical_name_for_cell_bound_name(
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     name: &UnresolvedName,
 ) -> Option<String> {
     let name = name.id_str();
-    if semantic.is_cell_binding(name) {
+    if scope.is_cell_binding(name) {
         return Some(name.to_string());
     }
-    let storage_name = resolve_cell_storage_name(semantic, name)?;
-    semantic.logical_name_for_cell_storage(storage_name.as_str())
+    let storage_name = resolve_cell_storage_name(scope, name)?;
+    scope.logical_name_for_cell_storage(storage_name.as_str())
 }
 
 fn store_cell_deleted_logical_name(
     expr: &CoreBlockPyExpr,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     _storage_layout: &StorageLayout,
 ) -> Option<String> {
     let CoreBlockPyExpr::Store(op) = expr else {
@@ -871,12 +871,12 @@ fn store_cell_deleted_logical_name(
     if !is_deleted_sentinel_expr(&op.value) {
         return None;
     }
-    logical_name_for_cell_bound_name(semantic, &op.name)
+    logical_name_for_cell_bound_name(scope, &op.name)
 }
 
 fn del_deref_logical_name(
     expr: &CoreBlockPyExpr,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     _storage_layout: &StorageLayout,
 ) -> Option<String> {
     let CoreBlockPyExpr::Del(op) = expr else {
@@ -885,12 +885,12 @@ fn del_deref_logical_name(
     if op.quietly {
         return None;
     }
-    logical_name_for_cell_bound_name(semantic, &op.name)
+    logical_name_for_cell_bound_name(scope, &op.name)
 }
 
 fn store_cell_runtime_logical_name(
     expr: &CoreBlockPyExpr,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     _storage_layout: &StorageLayout,
 ) -> Option<String> {
     let CoreBlockPyExpr::Store(op) = expr else {
@@ -899,17 +899,17 @@ fn store_cell_runtime_logical_name(
     if is_deleted_sentinel_expr(&op.value) {
         return None;
     }
-    logical_name_for_cell_bound_name(semantic, &op.name)
+    logical_name_for_cell_bound_name(scope, &op.name)
 }
 
 struct NameBindingMapper<'a> {
-    semantic: &'a BlockPyCallableSemanticInfo,
+    scope: &'a CallableScopeInfo,
     callee_make_function_captures:
-        &'a HashMap<crate::block_py::FunctionId, Vec<BlockPyCellCaptureBinding>>,
+        &'a HashMap<crate::block_py::FunctionId, Vec<CellCaptureBinding>>,
     local_slots: HashMap<String, u32>,
     captured_cell_slots: HashMap<String, u32>,
     owned_cell_slots: HashMap<String, u32>,
-    cell_bindings: HashMap<String, (String, BlockPyCellBindingKind)>,
+    cell_bindings: HashMap<String, (String, CellBindingKind)>,
 }
 
 impl NameBindingMapper<'_> {
@@ -922,7 +922,7 @@ impl NameBindingMapper<'_> {
 
     fn resolve_raw_cell_location(&self, name_text: &str) -> CellLocation {
         if let Some(storage_name) =
-            resolve_captured_cell_source_storage_name(self.semantic, name_text)
+            resolve_captured_cell_source_storage_name(self.scope, name_text)
         {
             let slot = self
                 .captured_cell_slots
@@ -938,7 +938,7 @@ impl NameBindingMapper<'_> {
 
         if let Some((storage_name, binding_kind)) = self.cell_bindings.get(name_text) {
             return match binding_kind {
-                BlockPyCellBindingKind::Owner => {
+                CellBindingKind::Owner => {
                     let slot = self
                         .owned_cell_slots
                         .get(storage_name.as_str())
@@ -950,7 +950,7 @@ impl NameBindingMapper<'_> {
                         });
                     CellLocation::Owned(slot)
                 }
-                BlockPyCellBindingKind::Capture => {
+                CellBindingKind::Capture => {
                     let slot = self
                         .captured_cell_slots
                         .get(storage_name.as_str())
@@ -967,10 +967,10 @@ impl NameBindingMapper<'_> {
 
         panic!(
             "raw cell target {name_text} did not resolve to a cell-backed location; scope={:?} binding={:?} capture_source={:?} storage_name={:?} cell_binding={:?} captured_cell_slots={:?} owned_cell_slots={:?} local_slots={:?}",
-            self.semantic.scope_kind,
-            self.semantic.binding_kind(name_text),
-            self.semantic.cell_capture_source_names.get(name_text),
-            self.semantic.cell_storage_names.get(name_text),
+            self.scope.scope_kind,
+            self.scope.binding_kind(name_text),
+            self.scope.cell_capture_source_names.get(name_text),
+            self.scope.cell_storage_names.get(name_text),
             self.cell_bindings.get(name_text),
             self.captured_cell_slots,
             self.owned_cell_slots,
@@ -1001,7 +1001,7 @@ impl NameBindingMapper<'_> {
                         ),
                         rewrite_cell_ref_expr(
                             capture.source_name.as_str(),
-                            self.semantic,
+                            self.scope,
                             meta.node_index.clone(),
                             meta.range,
                         ),
@@ -1037,21 +1037,21 @@ impl NameBindingMapper<'_> {
 fn rewrite_binding_assign_by_name(
     name: String,
     value: CoreBlockPyExpr,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     resolver: &NameBindingMapper<'_>,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
 ) -> CoreStmt {
     let meta = crate::block_py::Meta::new(node_index.clone(), range);
     let target: UnresolvedName = ast::name::Name::new(name.clone()).into();
-    if semantic.is_cell_binding(name.as_str()) {
+    if scope.is_cell_binding(name.as_str()) {
         if is_deleted_sentinel_expr(&value) {
             let _ = resolver;
             return op_stmt(Del::new(target.clone(), false).with_meta(meta));
         }
-        return rewrite_cell_binding_assign(target, value, meta, semantic, resolver);
+        return rewrite_cell_binding_assign(target, value, meta, scope, resolver);
     }
-    match semantic.binding_target_for_name(name.as_str(), BlockPyBindingPurpose::Store) {
+    match scope.binding_target_for_name(name.as_str(), BindingPurpose::Store) {
         BindingTarget::ModuleGlobal => {
             if is_deleted_sentinel_expr(&value) {
                 return rewrite_global_binding_delete_by_name(ast::name::Name::new(name), meta);
@@ -1077,20 +1077,20 @@ fn rewrite_binding_assign_by_name(
 impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
     fn map_expr(&mut self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
         if let Some(name) = quiet_delete_marker_target(&expr) {
-            return rewrite_quiet_delete_marker(name, expr.meta(), self.semantic, self);
+            return rewrite_quiet_delete_marker(name, expr.meta(), self.scope, self);
         }
         if let Some((name, value, node_index, range)) = unresolved_semantic_store_parts(&expr) {
             return rewrite_binding_assign_by_name(
                 name,
                 self.map_expr(value),
-                self.semantic,
+                self.scope,
                 self,
                 node_index,
                 range,
             );
         }
         if let Some((target, meta)) = unresolved_semantic_delete_target(&expr) {
-            return rewrite_binding_delete(target, meta, self.semantic, self);
+            return rewrite_binding_delete(target, meta, self.scope, self);
         }
         match expr {
             CoreBlockPyExpr::Load(op) => {
@@ -1098,21 +1098,21 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
                 if op.name.is_runtime_name() {
                     Load::new(op.name).with_meta(meta).into()
                 } else if let UnresolvedName::SourceName(name) = op.name {
-                    if resolve_cell_storage_name(self.semantic, name.as_str()).is_some() {
+                    if resolve_cell_storage_name(self.scope, name.as_str()).is_some() {
                         rewrite_raw_cell_storage_name_load(
                             name.clone(),
                             meta.clone(),
-                            self.semantic,
+                            self.scope,
                             self,
                         )
                         .expect("raw cell-storage load guard should ensure rewrite target")
-                    } else if should_rewrite_raw_name_load(name.as_str(), self.semantic) {
-                        rewrite_name_load(name, meta, self.semantic, self)
+                    } else if should_rewrite_raw_name_load(name.as_str(), self.scope) {
+                        rewrite_name_load(name, meta, self.scope, self)
                     } else {
                         Load::new(name).with_meta(meta).into()
                     }
                 } else {
-                    rewrite_name_load(op.name.name(), meta, self.semantic, self)
+                    rewrite_name_load(op.name.name(), meta, self.scope, self)
                 }
             }
             CoreBlockPyExpr::Literal(literal) => CoreBlockPyExpr::Literal(literal),
@@ -1122,7 +1122,7 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
                 let meta = expr.meta();
                 rewrite_cell_ref_expr(
                     target_name.as_str(),
-                    self.semantic,
+                    self.scope,
                     meta.node_index,
                     meta.range,
                 )
@@ -1135,8 +1135,8 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
                         .as_ref()
                         .is_some_and(|name| {
                             name == "globals"
-                                && self.semantic.resolved_load_binding_kind("globals")
-                                    == BlockPyBindingKind::Global
+                                && self.scope.resolved_load_binding_kind("globals")
+                                    == BindingKind::Global
                         }) =>
             {
                 let meta = call.meta();
@@ -1214,31 +1214,31 @@ fn unresolved_semantic_delete_target(
 
 fn collect_deleted_names_in_stmt(
     stmt: &CoreStmt,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     storage_layout: &StorageLayout,
     names: &mut HashSet<String>,
 ) {
     if let Some((name, value, _, _)) = unresolved_semantic_store_parts(stmt) {
-        if semantic.has_local_def(name.as_str()) && is_deleted_sentinel_expr(&value) {
+        if scope.has_local_def(name.as_str()) && is_deleted_sentinel_expr(&value) {
             names.insert(name);
         }
     }
     if let Some((target, _meta)) = unresolved_semantic_delete_target(stmt) {
-        if semantic.has_local_def(target.as_str()) {
+        if scope.has_local_def(target.as_str()) {
             names.insert(target.to_string());
         }
     }
-    if let Some(name) = store_cell_deleted_logical_name(stmt, semantic, storage_layout) {
+    if let Some(name) = store_cell_deleted_logical_name(stmt, scope, storage_layout) {
         names.insert(name);
     }
-    if let Some(name) = del_deref_logical_name(stmt, semantic, storage_layout) {
+    if let Some(name) = del_deref_logical_name(stmt, scope, storage_layout) {
         names.insert(name);
     }
 }
 
 fn rewrite_deleted_name_loads_in_stmt(
     stmt: &mut CoreStmt,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     storage_layout: &StorageLayout,
     resolver: &NameBindingMapper<'_>,
     deleted_names: &HashSet<String>,
@@ -1246,7 +1246,7 @@ fn rewrite_deleted_name_loads_in_stmt(
 ) {
     rewrite_deleted_name_loads_in_expr(
         stmt,
-        semantic,
+        scope,
         storage_layout,
         resolver,
         deleted_names,
@@ -1256,7 +1256,7 @@ fn rewrite_deleted_name_loads_in_stmt(
 
 fn rewrite_deleted_name_loads_in_term(
     term: &mut BlockTerm<CoreBlockPyExpr>,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     storage_layout: &StorageLayout,
     resolver: &NameBindingMapper<'_>,
     deleted_names: &HashSet<String>,
@@ -1267,7 +1267,7 @@ fn rewrite_deleted_name_loads_in_term(
         BlockTerm::IfTerm(if_term) => {
             rewrite_deleted_name_loads_in_expr(
                 &mut if_term.test,
-                semantic,
+                scope,
                 storage_layout,
                 resolver,
                 deleted_names,
@@ -1277,7 +1277,7 @@ fn rewrite_deleted_name_loads_in_term(
         BlockTerm::BranchTable(branch) => {
             rewrite_deleted_name_loads_in_expr(
                 &mut branch.index,
-                semantic,
+                scope,
                 storage_layout,
                 resolver,
                 deleted_names,
@@ -1288,7 +1288,7 @@ fn rewrite_deleted_name_loads_in_term(
             if let Some(exc) = exc {
                 rewrite_deleted_name_loads_in_expr(
                     exc,
-                    semantic,
+                    scope,
                     storage_layout,
                     resolver,
                     deleted_names,
@@ -1298,7 +1298,7 @@ fn rewrite_deleted_name_loads_in_term(
         }
         BlockTerm::Return(value) => rewrite_deleted_name_loads_in_expr(
             value,
-            semantic,
+            scope,
             storage_layout,
             resolver,
             deleted_names,
@@ -1309,7 +1309,7 @@ fn rewrite_deleted_name_loads_in_term(
 
 fn rewrite_raw_cell_loads_in_expr(
     expr: &mut CoreBlockPyExpr,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     resolver: &NameBindingMapper<'_>,
 ) {
     match expr {
@@ -1320,16 +1320,16 @@ fn rewrite_raw_cell_loads_in_expr(
                     .as_ref()
                     .is_some_and(|name| name == "class_lookup_cell")
             {
-                rewrite_raw_cell_loads_in_expr(call.func.as_mut(), semantic, resolver);
+                rewrite_raw_cell_loads_in_expr(call.func.as_mut(), scope, resolver);
                 if let Some(arg) = call.args.get_mut(0) {
-                    rewrite_raw_cell_loads_in_expr(arg.expr_mut(), semantic, resolver);
+                    rewrite_raw_cell_loads_in_expr(arg.expr_mut(), scope, resolver);
                 }
                 if let Some(arg) = call.args.get_mut(1) {
-                    rewrite_raw_cell_loads_in_expr(arg.expr_mut(), semantic, resolver);
+                    rewrite_raw_cell_loads_in_expr(arg.expr_mut(), scope, resolver);
                 }
                 return;
             }
-            call.walk_mut(&mut |arg| rewrite_raw_cell_loads_in_expr(arg, semantic, resolver));
+            call.walk_mut(&mut |arg| rewrite_raw_cell_loads_in_expr(arg, scope, resolver));
         }
         CoreBlockPyExpr::BinOp(_)
         | CoreBlockPyExpr::UnaryOp(_)
@@ -1348,15 +1348,15 @@ fn rewrite_raw_cell_loads_in_expr(
             if let CoreBlockPyExpr::Load(op) = expr {
                 if let UnresolvedName::SourceName(name) = &op.name {
                     if matches!(
-                        semantic.binding_kind(name.as_str()),
-                        Some(BlockPyBindingKind::Cell(_))
+                        scope.binding_kind(name.as_str()),
+                        Some(BindingKind::Cell(_))
                     ) {
-                        *expr = rewrite_cell_name_load(name.clone(), op.meta(), semantic, resolver);
+                        *expr = rewrite_cell_name_load(name.clone(), op.meta(), scope, resolver);
                         return;
                     }
                 }
             }
-            expr.walk_mut(&mut |arg| rewrite_raw_cell_loads_in_expr(arg, semantic, resolver));
+            expr.walk_mut(&mut |arg| rewrite_raw_cell_loads_in_expr(arg, scope, resolver));
         }
         CoreBlockPyExpr::Literal(_) => {}
     }
@@ -1371,34 +1371,34 @@ fn is_local_cell_init_store(expr: &CoreBlockPyExpr) -> bool {
 
 fn rewrite_raw_cell_loads_in_stmt(
     stmt: &mut CoreStmt,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     resolver: &NameBindingMapper<'_>,
 ) {
     if is_local_cell_init_store(stmt) {
         return;
     }
-    rewrite_raw_cell_loads_in_expr(stmt, semantic, resolver)
+    rewrite_raw_cell_loads_in_expr(stmt, scope, resolver)
 }
 
 fn rewrite_raw_cell_loads_in_term(
     term: &mut BlockTerm<CoreBlockPyExpr>,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     resolver: &NameBindingMapper<'_>,
 ) {
     match term {
         BlockTerm::Jump(_) => {}
         BlockTerm::IfTerm(if_term) => {
-            rewrite_raw_cell_loads_in_expr(&mut if_term.test, semantic, resolver);
+            rewrite_raw_cell_loads_in_expr(&mut if_term.test, scope, resolver);
         }
         BlockTerm::BranchTable(branch) => {
-            rewrite_raw_cell_loads_in_expr(&mut branch.index, semantic, resolver);
+            rewrite_raw_cell_loads_in_expr(&mut branch.index, scope, resolver);
         }
         BlockTerm::Raise(TermRaise { exc }) => {
             if let Some(exc) = exc {
-                rewrite_raw_cell_loads_in_expr(exc, semantic, resolver);
+                rewrite_raw_cell_loads_in_expr(exc, scope, resolver);
             }
         }
-        BlockTerm::Return(value) => rewrite_raw_cell_loads_in_expr(value, semantic, resolver),
+        BlockTerm::Return(value) => rewrite_raw_cell_loads_in_expr(value, scope, resolver),
     }
 }
 
@@ -1434,15 +1434,15 @@ fn normal_predecessor_exc_param_names(
 fn sync_exception_param_cell_in_block(
     block: &mut crate::block_py::Block<CoreBlockPyExpr, CoreBlockPyExpr>,
     normal_predecessor_exc_names: &[Option<String>],
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     resolver: &NameBindingMapper<'_>,
 ) {
     let Some(exc_name) = block.exception_param() else {
         return;
     };
     if !matches!(
-        semantic.binding_kind(exc_name),
-        Some(BlockPyBindingKind::Cell(_))
+        scope.binding_kind(exc_name),
+        Some(BindingKind::Cell(_))
     ) {
         return;
     }
@@ -1470,13 +1470,13 @@ fn sync_exception_param_cell_in_block(
 
 fn collect_deleted_names_in_blocks(
     blocks: &[crate::block_py::Block<CoreBlockPyExpr, CoreBlockPyExpr>],
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     storage_layout: &StorageLayout,
 ) -> HashSet<String> {
     let mut names = HashSet::new();
     for block in blocks {
         for stmt in &block.body {
-            collect_deleted_names_in_stmt(stmt, semantic, storage_layout, &mut names);
+            collect_deleted_names_in_stmt(stmt, scope, storage_layout, &mut names);
         }
     }
     names
@@ -1484,29 +1484,29 @@ fn collect_deleted_names_in_blocks(
 
 fn collect_runtime_bound_local_names_in_stmt(
     stmt: &CoreStmt,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     storage_layout: &StorageLayout,
     names: &mut HashSet<String>,
 ) {
     if let Some((name, value, _, _)) = unresolved_semantic_store_parts(stmt) {
-        if semantic.has_local_def(name.as_str()) && !is_deleted_sentinel_expr(&value) {
+        if scope.has_local_def(name.as_str()) && !is_deleted_sentinel_expr(&value) {
             names.insert(name);
         }
     }
-    if let Some(name) = store_cell_runtime_logical_name(stmt, semantic, storage_layout) {
+    if let Some(name) = store_cell_runtime_logical_name(stmt, scope, storage_layout) {
         names.insert(name);
     }
 }
 
 fn collect_runtime_bound_local_names(
     blocks: &[crate::block_py::Block<CoreBlockPyExpr, CoreBlockPyExpr>],
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     storage_layout: &StorageLayout,
 ) -> HashSet<String> {
     let mut names = HashSet::new();
     for block in blocks {
         for stmt in &block.body {
-            collect_runtime_bound_local_names_in_stmt(stmt, semantic, storage_layout, &mut names);
+            collect_runtime_bound_local_names_in_stmt(stmt, scope, storage_layout, &mut names);
         }
     }
     names
@@ -1515,15 +1515,15 @@ fn collect_runtime_bound_local_names(
 fn collect_always_unbound_local_names(
     callable: &BlockPyFunction<CoreBlockPyPass>,
 ) -> HashSet<String> {
-    let semantic = &callable.semantic;
+    let scope = &callable.scope;
     let storage_layout = callable
         .storage_layout
         .as_ref()
         .expect("name binding should have storage layout before local-name analysis");
     let param_names = callable.params.names().into_iter().collect::<HashSet<_>>();
     let runtime_bound_names =
-        collect_runtime_bound_local_names(&callable.blocks, semantic, storage_layout);
-    semantic
+        collect_runtime_bound_local_names(&callable.blocks, scope, storage_layout);
+    scope
         .local_defs
         .iter()
         .filter(|name| !param_names.contains(*name))
@@ -1531,8 +1531,8 @@ fn collect_always_unbound_local_names(
         .filter(|name| !runtime_bound_names.contains(*name))
         .filter(|name| {
             matches!(
-                semantic.effective_binding(name.as_str(), BlockPyBindingPurpose::Load),
-                Some(BlockPyEffectiveBinding::Local | BlockPyEffectiveBinding::Cell(_))
+                scope.effective_binding(name.as_str(), BindingPurpose::Load),
+                Some(EffectiveBinding::Local | EffectiveBinding::Cell(_))
             )
         })
         .cloned()
@@ -1592,24 +1592,24 @@ fn collect_remaining_names_in_term(term: &BlockTerm<CoreBlockPyExpr>, names: &mu
     }
 }
 
-fn resolve_cell_storage_name(semantic: &BlockPyCallableSemanticInfo, name: &str) -> Option<String> {
-    semantic
+fn resolve_cell_storage_name(scope: &CallableScopeInfo, name: &str) -> Option<String> {
+    scope
         .logical_name_for_cell_capture_source(name)
-        .map(|logical_name| semantic.cell_storage_name(logical_name.as_str()))
+        .map(|logical_name| scope.cell_storage_name(logical_name.as_str()))
 }
 
 fn resolve_captured_cell_source_storage_name(
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     name: &str,
 ) -> Option<String> {
-    let logical_name = semantic.logical_name_for_cell_capture_source(name)?;
-    if semantic.binding_kind(logical_name.as_str())
-        != Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+    let logical_name = scope.logical_name_for_cell_capture_source(name)?;
+    if scope.binding_kind(logical_name.as_str())
+        != Some(BindingKind::Cell(CellBindingKind::Capture))
     {
         return None;
     }
-    let capture_source_name = semantic.cell_capture_source_name(logical_name.as_str());
-    let storage_name = semantic.cell_storage_name(logical_name.as_str());
+    let capture_source_name = scope.cell_capture_source_name(logical_name.as_str());
+    let storage_name = scope.cell_storage_name(logical_name.as_str());
     (capture_source_name == name && capture_source_name != storage_name).then_some(storage_name)
 }
 
@@ -1643,7 +1643,7 @@ fn collect_owned_cell_storage_bindings(
     }
 
     let mut storage_names = callable
-        .semantic
+        .scope
         .owned_cell_storage_names()
         .into_iter()
         .collect::<Vec<_>>();
@@ -1652,7 +1652,7 @@ fn collect_owned_cell_storage_bindings(
         .into_iter()
         .map(|storage_name| {
             let logical_name = callable
-                .semantic
+                .scope
                 .logical_name_for_cell_storage(storage_name.as_str())
                 .unwrap_or_else(|| storage_name.clone());
             (logical_name, storage_name)
@@ -1676,13 +1676,13 @@ fn collect_owned_cell_slot_locations(
 
 fn collect_cell_bindings(
     callable: &BlockPyFunction<CoreBlockPyPass>,
-) -> HashMap<String, (String, BlockPyCellBindingKind)> {
+) -> HashMap<String, (String, CellBindingKind)> {
     let mut bindings = HashMap::new();
     let Some(layout) = callable.storage_layout.as_ref() else {
         return bindings;
     };
 
-    let mut add_binding = |name: &str, storage_name: &str, binding_kind: BlockPyCellBindingKind| {
+    let mut add_binding = |name: &str, storage_name: &str, binding_kind: CellBindingKind| {
         bindings.insert(name.to_string(), (storage_name.to_string(), binding_kind));
     };
 
@@ -1690,20 +1690,20 @@ fn collect_cell_bindings(
         add_binding(
             slot.logical_name.as_str(),
             slot.storage_name.as_str(),
-            BlockPyCellBindingKind::Capture,
+            CellBindingKind::Capture,
         );
         add_binding(
             slot.storage_name.as_str(),
             slot.storage_name.as_str(),
-            BlockPyCellBindingKind::Capture,
+            CellBindingKind::Capture,
         );
         let capture_source_name = callable
-            .semantic
+            .scope
             .cell_capture_source_name(slot.logical_name.as_str());
         add_binding(
             capture_source_name.as_str(),
             slot.storage_name.as_str(),
-            BlockPyCellBindingKind::Capture,
+            CellBindingKind::Capture,
         );
     }
 
@@ -1711,12 +1711,12 @@ fn collect_cell_bindings(
         add_binding(
             logical_name.as_str(),
             storage_name.as_str(),
-            BlockPyCellBindingKind::Owner,
+            CellBindingKind::Owner,
         );
         add_binding(
             storage_name.as_str(),
             storage_name.as_str(),
-            BlockPyCellBindingKind::Owner,
+            CellBindingKind::Owner,
         );
     }
 
@@ -1725,25 +1725,25 @@ fn collect_cell_bindings(
 
 fn is_remaining_local_name(
     name: &str,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     has_explicit_store: bool,
 ) -> bool {
-    if resolve_cell_storage_name(semantic, name).is_some() {
+    if resolve_cell_storage_name(scope, name).is_some() {
         return false;
     }
     if has_explicit_store {
         return !matches!(
-            semantic.binding_kind(name),
-            Some(BlockPyBindingKind::Cell(_)) | Some(BlockPyBindingKind::Global)
+            scope.binding_kind(name),
+            Some(BindingKind::Cell(_)) | Some(BindingKind::Global)
         ) && matches!(
-            semantic.binding_target_for_name(name, BlockPyBindingPurpose::Store),
+            scope.binding_target_for_name(name, BindingPurpose::Store),
             BindingTarget::Local
         );
     }
-    match semantic.binding_kind(name) {
-        Some(BlockPyBindingKind::Local) => semantic.honors_internal_binding(name),
-        Some(BlockPyBindingKind::Cell(_)) | Some(BlockPyBindingKind::Global) => false,
-        None => semantic.has_local_def(name),
+    match scope.binding_kind(name) {
+        Some(BindingKind::Local) => scope.honors_internal_binding(name),
+        Some(BindingKind::Cell(_)) | Some(BindingKind::Global) => false,
+        None => scope.has_local_def(name),
     }
 }
 
@@ -1756,7 +1756,7 @@ fn compute_local_slot_locations_from_analysis(
     }
     let mut next_slot = slots.len() as u32;
     let mut owned_cell_storage_names = callable
-        .semantic
+        .scope
         .owned_cell_storage_names()
         .into_iter()
         .collect::<Vec<_>>();
@@ -1802,7 +1802,7 @@ fn compute_local_slot_locations_from_analysis(
         .filter(|name| {
             is_remaining_local_name(
                 name,
-                &callable.semantic,
+                &callable.scope,
                 explicitly_stored.contains(name.as_str()),
             )
         })
@@ -1866,18 +1866,18 @@ fn ensure_storage_layout_covers_block_params<P: crate::block_py::BlockPyPass>(
 }
 
 struct NameLocator<'a> {
-    semantic: &'a BlockPyCallableSemanticInfo,
+    scope: &'a CallableScopeInfo,
     exception_param_names: HashSet<String>,
     local_slots: HashMap<String, u32>,
     captured_cell_slots: HashMap<String, u32>,
     owned_cell_slots: HashMap<String, u32>,
-    cell_bindings: HashMap<String, (String, BlockPyCellBindingKind)>,
+    cell_bindings: HashMap<String, (String, CellBindingKind)>,
 }
 
 impl NameLocator<'_> {
     fn resolve_raw_cell_location(&self, name_text: &str) -> CellLocation {
         if let Some(storage_name) =
-            resolve_captured_cell_source_storage_name(self.semantic, name_text)
+            resolve_captured_cell_source_storage_name(self.scope, name_text)
         {
             let slot = self
                 .captured_cell_slots
@@ -1893,7 +1893,7 @@ impl NameLocator<'_> {
 
         if let Some((storage_name, binding_kind)) = self.cell_bindings.get(name_text) {
             return match binding_kind {
-                BlockPyCellBindingKind::Owner => {
+                CellBindingKind::Owner => {
                     let slot = self
                         .owned_cell_slots
                         .get(storage_name.as_str())
@@ -1905,7 +1905,7 @@ impl NameLocator<'_> {
                         });
                     CellLocation::Owned(slot)
                 }
-                BlockPyCellBindingKind::Capture => {
+                CellBindingKind::Capture => {
                     let slot = self
                         .captured_cell_slots
                         .get(storage_name.as_str())
@@ -1925,11 +1925,11 @@ impl NameLocator<'_> {
 
     fn resolve_cell_ref_location(&self, logical_name: &str) -> CellLocation {
         if self.cell_bindings.contains_key(logical_name)
-            || resolve_captured_cell_source_storage_name(self.semantic, logical_name).is_some()
+            || resolve_captured_cell_source_storage_name(self.scope, logical_name).is_some()
         {
             return self.resolve_raw_cell_location(logical_name);
         }
-        let source_name = self.semantic.cell_ref_source_name(logical_name);
+        let source_name = self.scope.cell_ref_source_name(logical_name);
         self.resolve_raw_cell_location(source_name.as_str())
     }
 
@@ -1945,7 +1945,7 @@ impl NameLocator<'_> {
                 });
             NameLocation::local(slot)
         } else if let Some(storage_name) =
-            resolve_captured_cell_source_storage_name(self.semantic, name_text.as_str())
+            resolve_captured_cell_source_storage_name(self.scope, name_text.as_str())
         {
             let slot = self
                 .captured_cell_slots
@@ -1961,7 +1961,7 @@ impl NameLocator<'_> {
             self.cell_bindings.get(name_text.as_str()).cloned()
         {
             match binding_kind {
-                BlockPyCellBindingKind::Owner => {
+                CellBindingKind::Owner => {
                     if name_text != storage_name {
                         if let Some(slot) = self.local_slots.get(name_text.as_str()).copied() {
                             NameLocation::local(slot)
@@ -1990,7 +1990,7 @@ impl NameLocator<'_> {
                         NameLocation::owned_cell(slot)
                     }
                 }
-                BlockPyCellBindingKind::Capture => {
+                CellBindingKind::Capture => {
                     let slot = self
                         .captured_cell_slots
                         .get(storage_name.as_str())
@@ -2023,7 +2023,7 @@ impl NameLocator<'_> {
 
     fn mark_raw_cell_store_name(&self, name: LocatedName) -> LocatedName {
         let name_text = name.id.to_string();
-        if resolve_cell_storage_name(self.semantic, name_text.as_str()).is_some() {
+        if resolve_cell_storage_name(self.scope, name_text.as_str()).is_some() {
             if let Some(slot) = self.local_slots.get(name_text.as_str()).copied() {
                 return name.with_location(NameLocation::local(slot));
             }
@@ -2034,7 +2034,7 @@ impl NameLocator<'_> {
     fn mark_raw_cell_name(&self, name: LocatedName) -> LocatedName {
         let name_text = name.id.to_string();
         if name.location.is_global() {
-            if resolve_captured_cell_source_storage_name(self.semantic, name_text.as_str())
+            if resolve_captured_cell_source_storage_name(self.scope, name_text.as_str())
                 .is_some()
                 || self.cell_bindings.contains_key(name_text.as_str())
             {
@@ -2154,7 +2154,7 @@ impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocat
 fn locate_names_in_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
-    let semantic = callable.semantic.clone();
+    let scope = callable.scope.clone();
     let exception_param_names = callable
         .blocks
         .iter()
@@ -2165,7 +2165,7 @@ fn locate_names_in_callable(
     let owned_cell_slots = collect_owned_cell_slot_locations(&callable);
     let cell_bindings = collect_cell_bindings(&callable);
     let mut mapper = NameLocator {
-        semantic: &semantic,
+        scope: &scope,
         exception_param_names,
         local_slots,
         captured_cell_slots,
@@ -2243,10 +2243,10 @@ fn compute_callable_storage_layout_for_name_binding(
         return Some(layout);
     }
     if !visiting.insert(function_id) {
-        return compute_storage_layout_from_semantics(callable);
+        return compute_storage_layout_from_scope(callable);
     }
 
-    let base_layout = compute_storage_layout_from_semantics(callable);
+    let base_layout = compute_storage_layout_from_scope(callable);
     let mut capture_names = base_layout
         .as_ref()
         .map(|layout| {
@@ -2290,7 +2290,7 @@ fn compute_callable_storage_layout_for_name_binding(
             };
             for slot in &callee_layout.freevars {
                 let capture_source_name = callable
-                    .semantic
+                    .scope
                     .cell_capture_source_name(slot.logical_name.as_str());
                 if base_cellvar_names.contains(slot.logical_name.as_str())
                     || base_cellvar_storage_names.contains(capture_source_name.as_str())
@@ -2305,7 +2305,7 @@ fn compute_callable_storage_layout_for_name_binding(
 
     let param_name_set = callable.params.names().into_iter().collect::<HashSet<_>>();
     let mut local_cell_slots = callable
-        .semantic
+        .scope
         .owned_cell_storage_names()
         .into_iter()
         .collect::<Vec<_>>();
@@ -2367,14 +2367,14 @@ fn ensure_module_storage_layouts(
 
 fn compute_module_make_function_capture_names(
     callable_defs: &[BlockPyFunction<CoreBlockPyPass>],
-) -> HashMap<FunctionId, Vec<BlockPyCellCaptureBinding>> {
+) -> HashMap<FunctionId, Vec<CellCaptureBinding>> {
     fn compute_callable_make_function_capture_bindings_for_name_binding(
         function_id: FunctionId,
         callable_by_id: &HashMap<FunctionId, &BlockPyFunction<CoreBlockPyPass>>,
         make_function_callees: &HashMap<FunctionId, Vec<FunctionId>>,
-        memo: &mut HashMap<FunctionId, Vec<BlockPyCellCaptureBinding>>,
+        memo: &mut HashMap<FunctionId, Vec<CellCaptureBinding>>,
         visiting: &mut HashSet<FunctionId>,
-    ) -> Vec<BlockPyCellCaptureBinding> {
+    ) -> Vec<CellCaptureBinding> {
         if let Some(captures) = memo.get(&function_id) {
             return captures.clone();
         }
@@ -2390,15 +2390,15 @@ fn compute_module_make_function_capture_names(
                     layout
                         .freevars
                         .iter()
-                        .map(|slot| BlockPyCellCaptureBinding {
+                        .map(|slot| CellCaptureBinding {
                             logical_name: slot.logical_name.clone(),
                             source_name: callable
-                                .semantic
+                                .scope
                                 .cell_capture_source_name(slot.logical_name.as_str()),
                         })
                         .collect::<Vec<_>>()
                 })
-                .unwrap_or_else(|| compute_make_function_capture_bindings_from_semantics(callable))
+                .unwrap_or_else(|| compute_make_function_capture_bindings_from_scope(callable))
         };
         if matches!(
             callable.kind,
@@ -2409,25 +2409,25 @@ fn compute_module_make_function_capture_names(
             return captures;
         }
         if !visiting.insert(function_id) {
-            let captures = compute_make_function_capture_bindings_from_semantics(callable);
+            let captures = compute_make_function_capture_bindings_from_scope(callable);
             memo.insert(function_id, captures.clone());
             return captures;
         }
 
-        let mut captures = compute_make_function_capture_bindings_from_semantics(callable);
+        let mut captures = compute_make_function_capture_bindings_from_scope(callable);
         let base_owned_logical_names = callable
-            .semantic
+            .scope
             .bindings
             .iter()
             .filter_map(|(name, binding)| {
                 matches!(
                     binding,
-                    BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner)
+                    BindingKind::Cell(CellBindingKind::Owner)
                 )
                 .then(|| name.clone())
             })
             .collect::<HashSet<_>>();
-        let base_owned_storage_names = callable.semantic.owned_cell_storage_names();
+        let base_owned_storage_names = callable.scope.owned_cell_storage_names();
 
         if let Some(callee_ids) = make_function_callees.get(&function_id) {
             for callee_id in callee_ids {
@@ -2443,11 +2443,11 @@ fn compute_module_make_function_capture_names(
                     let mut logical_name = capture.logical_name;
                     loop {
                         let next = callable
-                            .semantic
+                            .scope
                             .logical_name_for_cell_capture_source(logical_name.as_str())
                             .or_else(|| {
                                 callable
-                                    .semantic
+                                    .scope
                                     .logical_name_for_cell_storage(logical_name.as_str())
                             })
                             .unwrap_or_else(|| logical_name.clone());
@@ -2457,14 +2457,14 @@ fn compute_module_make_function_capture_names(
                         logical_name = next;
                     }
                     let source_name = callable
-                        .semantic
+                        .scope
                         .cell_capture_source_name(logical_name.as_str());
                     if base_owned_logical_names.contains(logical_name.as_str())
                         || base_owned_storage_names.contains(source_name.as_str())
                     {
                         continue;
                     }
-                    captures.push(BlockPyCellCaptureBinding {
+                    captures.push(CellCaptureBinding {
                         logical_name,
                         source_name,
                     });
@@ -2502,7 +2502,7 @@ fn compute_module_make_function_capture_names(
     callable_defs
         .iter()
         .map(|callable| {
-            let captures = if callable.semantic.scope_kind == BlockPyCallableScopeKind::Class {
+            let captures = if callable.scope.scope_kind == CallableScopeKind::Class {
                 compute_callable_make_function_capture_bindings_for_name_binding(
                     callable.function_id,
                     &callable_by_id,
@@ -2518,16 +2518,16 @@ fn compute_module_make_function_capture_names(
                         layout
                             .freevars
                             .iter()
-                            .map(|slot| BlockPyCellCaptureBinding {
+                            .map(|slot| CellCaptureBinding {
                                 logical_name: slot.logical_name.clone(),
                                 source_name: callable
-                                    .semantic
+                                    .scope
                                     .cell_capture_source_name(slot.logical_name.as_str()),
                             })
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_else(|| {
-                        compute_make_function_capture_bindings_from_semantics(callable)
+                        compute_make_function_capture_bindings_from_scope(callable)
                     })
             };
             (callable.function_id, captures)
@@ -2547,7 +2547,7 @@ fn refresh_bb_callable_block_params(
         blocks,
         doc,
         storage_layout,
-        semantic,
+        scope,
     } = callable;
     let mut blocks = blocks
         .into_iter()
@@ -2573,7 +2573,7 @@ fn refresh_bb_callable_block_params(
         blocks,
         doc,
         storage_layout,
-        semantic,
+        scope,
     }
 }
 
@@ -2629,16 +2629,16 @@ fn lower_name_binding_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
     callee_make_function_captures: &HashMap<
         crate::block_py::FunctionId,
-        Vec<BlockPyCellCaptureBinding>,
+        Vec<CellCaptureBinding>,
     >,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
-    let semantic = callable.semantic.clone();
+    let scope = callable.scope.clone();
     let local_slots = collect_local_slot_locations(&callable);
     let captured_cell_slots = collect_captured_cell_slot_locations(&callable);
     let owned_cell_slots = collect_owned_cell_slot_locations(&callable);
     let cell_bindings = collect_cell_bindings(&callable);
     let mut mapper = NameBindingMapper {
-        semantic: &semantic,
+        scope: &scope,
         callee_make_function_captures,
         local_slots: local_slots.clone(),
         captured_cell_slots,
@@ -2652,14 +2652,14 @@ fn lower_name_binding_callable(
         .storage_layout
         .as_ref()
         .expect("name binding should have storage layout before cell-location analysis");
-    let deleted_names = collect_deleted_names_in_blocks(&lowered.blocks, &semantic, storage_layout);
+    let deleted_names = collect_deleted_names_in_blocks(&lowered.blocks, &scope, storage_layout);
     let always_unbound_names = collect_always_unbound_local_names(&lowered);
     if !deleted_names.is_empty() || !always_unbound_names.is_empty() {
         for block in &mut lowered.blocks {
             for stmt in &mut block.body {
                 rewrite_deleted_name_loads_in_stmt(
                     stmt,
-                    &semantic,
+                    &scope,
                     storage_layout,
                     &mapper,
                     &deleted_names,
@@ -2668,7 +2668,7 @@ fn lower_name_binding_callable(
             }
             rewrite_deleted_name_loads_in_term(
                 &mut block.term,
-                &semantic,
+                &scope,
                 storage_layout,
                 &mapper,
                 &deleted_names,
@@ -2683,11 +2683,11 @@ fn lower_name_binding_callable(
             .get(&block.label)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        sync_exception_param_cell_in_block(block, predecessor_exc_names, &semantic, &mapper);
+        sync_exception_param_cell_in_block(block, predecessor_exc_names, &scope, &mapper);
         for stmt in &mut block.body {
-            rewrite_raw_cell_loads_in_stmt(stmt, &semantic, &mapper);
+            rewrite_raw_cell_loads_in_stmt(stmt, &scope, &mapper);
         }
-        rewrite_raw_cell_loads_in_term(&mut block.term, &semantic, &mapper);
+        rewrite_raw_cell_loads_in_term(&mut block.term, &scope, &mapper);
     }
     let mut lowered = normalize_stmt_ops_in_resolved_callable(refresh_bb_callable_block_params(
         locate_names_in_callable(lowered),

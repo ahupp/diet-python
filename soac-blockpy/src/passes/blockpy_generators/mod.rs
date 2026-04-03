@@ -1,11 +1,11 @@
 use crate::block_py::cfg::RelabelBlockTargets;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::{
-    compute_storage_layout_from_semantics, core_call_expr_with_meta,
+    compute_storage_layout_from_scope, core_call_expr_with_meta,
     core_runtime_name_expr_with_meta, core_runtime_positional_call_expr_with_meta, Block, BlockArg,
-    BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole, BlockPyBindingKind,
-    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyFunction, BlockPyModuleTryMap,
-    BlockPyNameLike, BlockPySemanticExprNode, BlockTerm, CellRefForName, ClosureInit, ClosureSlot,
+    BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole, BindingKind,
+    CallableScopeInfo, CellBindingKind, BlockPyFunction, BlockPyModuleTryMap,
+    BlockPyNameLike, ScopeExprNode, BlockTerm, CellRefForName, ClosureInit, ClosureSlot,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ErrOnAwait, ErrOnYield, FunctionId,
     FunctionKind, FunctionName, FunctionNameGen, ImplicitNoneExpr, Instr, Load, MakeFunction,
@@ -66,15 +66,15 @@ fn resume_abi_params(kind: FunctionKind) -> &'static [ResumeAbiParam] {
     }
 }
 
-fn generator_state_logical_name(semantic: &BlockPyCallableSemanticInfo, name: &str) -> String {
-    semantic
+fn generator_state_logical_name(scope: &CallableScopeInfo, name: &str) -> String {
+    scope
         .logical_name_for_cell_storage(name)
         .unwrap_or_else(|| name.to_string())
 }
 
-fn generator_state_storage_name(semantic: &BlockPyCallableSemanticInfo, name: &str) -> String {
-    let logical_name = generator_state_logical_name(semantic, name);
-    semantic.cell_storage_name(logical_name.as_str())
+fn generator_state_storage_name(scope: &CallableScopeInfo, name: &str) -> String {
+    let logical_name = generator_state_logical_name(scope, name);
+    scope.cell_storage_name(logical_name.as_str())
 }
 
 fn runtime_init(name: &str) -> Option<ClosureInit> {
@@ -90,7 +90,7 @@ fn runtime_init(name: &str) -> Option<ClosureInit> {
 }
 
 pub(crate) fn build_blockpy_storage_layout(
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     param_names: &[String],
     state_vars: &[String],
     capture_names: &[String],
@@ -104,8 +104,8 @@ pub(crate) fn build_blockpy_storage_layout(
     let mut runtime_cells = Vec::new();
 
     for name in state_vars {
-        let logical_name = generator_state_logical_name(semantic, name.as_str());
-        let storage_name = generator_state_storage_name(semantic, name.as_str());
+        let logical_name = generator_state_logical_name(scope, name.as_str());
+        let storage_name = generator_state_storage_name(scope, name.as_str());
         if !seen_storage_names.insert(storage_name.clone()) {
             continue;
         }
@@ -194,7 +194,7 @@ where
 
 fn collect_state_vars<E>(param_names: &[String], blocks: &[Block<E, E>]) -> Vec<String>
 where
-    E: BlockPySemanticExprNode + Instr,
+    E: ScopeExprNode + Instr,
 {
     let mut state = param_names.to_vec();
     for block in blocks {
@@ -225,7 +225,7 @@ where
 
 fn assigned_names_in_linear_stmt<E>(stmt: &E) -> HashSet<String>
 where
-    E: BlockPySemanticExprNode + Instr,
+    E: ScopeExprNode + Instr,
 {
     let mut names = HashSet::new();
     collect_named_expr_target_names(stmt, &mut names);
@@ -234,7 +234,7 @@ where
 
 fn assigned_names_in_term<E>(term: &BlockTerm<E>) -> HashSet<String>
 where
-    E: BlockPySemanticExprNode + Instr,
+    E: ScopeExprNode + Instr,
 {
     match term {
         BlockTerm::Jump(_) => HashSet::new(),
@@ -265,7 +265,7 @@ where
 
 fn collect_named_expr_target_names<E>(expr: &E, names: &mut HashSet<String>)
 where
-    E: BlockPySemanticExprNode,
+    E: ScopeExprNode,
 {
     expr.walk_root_defined_names(&mut |name| {
         names.insert(name.to_string());
@@ -377,7 +377,7 @@ fn build_generator_storage_layout(
 ) -> StorageLayout {
     let param_names = callable.params.names();
     let semantic_layout =
-        compute_storage_layout_from_semantics(callable).unwrap_or(StorageLayout {
+        compute_storage_layout_from_scope(callable).unwrap_or(StorageLayout {
             freevars: Vec::new(),
             cellvars: Vec::new(),
             runtime_cells: Vec::new(),
@@ -409,7 +409,7 @@ fn build_generator_storage_layout(
     }
     for slot in local_cell_slots {
         let logical_name = callable
-            .semantic
+            .scope
             .logical_name_for_cell_storage(slot.as_str())
             .unwrap_or_else(|| slot.clone());
         if !state_vars.iter().any(|existing| existing == &logical_name) {
@@ -423,7 +423,7 @@ fn build_generator_storage_layout(
     }
 
     build_blockpy_storage_layout(
-        &callable.semantic,
+        &callable.scope,
         &param_names,
         &state_vars,
         &capture_names,
@@ -456,14 +456,14 @@ fn resume_state_uses_standard_name_binding(name: &str) -> bool {
 }
 
 fn augment_resume_semantic_for_standard_name_binding(
-    semantic: &mut BlockPyCallableSemanticInfo,
+    scope: &mut CallableScopeInfo,
     closure_bindings: &ResumeClosureBindings,
 ) {
     for (name, source_name) in &closure_bindings.runtime_state_bindings {
         if resume_state_uses_standard_name_binding(name.as_str()) {
-            semantic.insert_binding_with_cell_names(
+            scope.insert_binding_with_cell_names(
                 name.clone(),
-                BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
+                BindingKind::Cell(CellBindingKind::Capture),
                 is_internal_symbol(name.as_str()),
                 Some(name.clone()),
                 Some(source_name.clone()),
@@ -473,7 +473,7 @@ fn augment_resume_semantic_for_standard_name_binding(
 }
 
 fn resume_closure_bindings(
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
     persistent_logical_names: &[String],
 ) -> ResumeClosureBindings {
     let runtime_state_bindings = persistent_logical_names
@@ -481,7 +481,7 @@ fn resume_closure_bindings(
         .map(|logical_name| {
             (
                 logical_name.clone(),
-                semantic.cell_capture_source_name(logical_name.as_str()),
+                scope.cell_capture_source_name(logical_name.as_str()),
             )
         })
         .collect::<Vec<_>>();
@@ -1595,7 +1595,7 @@ pub(crate) fn lower_generator_like_function(
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
         lower_resume_blocks(&callable, resume_name_gen.share());
     let closure_bindings =
-        resume_closure_bindings(&callable.semantic, &resume_binding_logical_names);
+        resume_closure_bindings(&callable.scope, &resume_binding_logical_names);
 
     let BlockPyFunction {
         function_id,
@@ -1604,13 +1604,13 @@ pub(crate) fn lower_generator_like_function(
         kind,
         params,
         doc,
-        semantic,
+        scope,
         ..
     } = callable;
 
     let factory_block = build_factory_block(&names, resume_function_id, kind);
 
-    let mut resume_semantic = semantic.clone();
+    let mut resume_semantic = scope.clone();
     augment_resume_semantic_for_standard_name_binding(&mut resume_semantic, &closure_bindings);
 
     let resume_params = resume_param_spec(kind);
@@ -1629,9 +1629,9 @@ pub(crate) fn lower_generator_like_function(
         blocks: resume_blocks.clone(),
         doc: None,
         storage_layout: None,
-        semantic: resume_semantic,
+        scope: resume_semantic,
     };
-    let resume_storage_layout = compute_storage_layout_from_semantics(&resume_function)
+    let resume_storage_layout = compute_storage_layout_from_scope(&resume_function)
         .unwrap_or_else(|| panic!("generator resume should compute a storage layout"));
     let resume_function = BlockPyFunction {
         storage_layout: Some(resume_storage_layout),
@@ -1650,7 +1650,7 @@ pub(crate) fn lower_generator_like_function(
         ),
         doc,
         storage_layout: Some(storage_layout.clone()),
-        semantic: semantic.clone(),
+        scope: scope.clone(),
     };
 
     vec![visible_function, resume_function]

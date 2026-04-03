@@ -31,7 +31,7 @@ where
                 .collect(),
             doc: func.doc,
             storage_layout: func.storage_layout,
-            semantic: func.semantic,
+            scope: func.scope,
         }
     }
 
@@ -98,7 +98,7 @@ where
                 .collect::<Result<_, _>>()?,
             doc: func.doc,
             storage_layout: func.storage_layout,
-            semantic: func.semantic,
+            scope: func.scope,
         })
     }
 

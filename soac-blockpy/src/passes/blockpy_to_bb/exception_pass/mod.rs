@@ -31,7 +31,7 @@ fn lower_function_try_jump_exception_flow(
         blocks: function.blocks,
         doc: function.doc,
         storage_layout: function.storage_layout,
-        semantic: function.semantic,
+        scope: function.scope,
     };
     // Canonicalize exception-edge blocks so each potentially-raising expression
     // step sits in its own block. This keeps per-expression exception checks

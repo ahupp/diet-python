@@ -261,7 +261,7 @@ fn renders_public_closure_metadata_in_function_header() {
                 }],
                 stack_slots: Vec::new(),
             }),
-            semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
+            scope: crate::block_py::CallableScopeInfo::default(),
         }],
         module_constants: Vec::new(),
     });
@@ -316,7 +316,7 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
         ],
         doc: None,
         storage_layout: None,
-        semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
+        scope: crate::block_py::CallableScopeInfo::default(),
     };
     let rendered = blockpy_module_to_string(&BlockPyModule {
         callable_defs: vec![function],
@@ -397,7 +397,7 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
         ],
         doc: None,
         storage_layout: None,
-        semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
+        scope: crate::block_py::CallableScopeInfo::default(),
     };
     let rendered = blockpy_module_to_string(&BlockPyModule {
         callable_defs: vec![function],
@@ -486,7 +486,7 @@ fn renders_bb_block_metadata_with_shared_layout() {
             ],
             doc: None,
             storage_layout: None,
-            semantic: crate::block_py::BlockPyCallableSemanticInfo::default(),
+            scope: crate::block_py::CallableScopeInfo::default(),
         }],
         module_constants: Vec::new(),
     });

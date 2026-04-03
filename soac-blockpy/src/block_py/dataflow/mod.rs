@@ -1,12 +1,12 @@
 use super::{
-    BlockBuilder, BlockPySemanticExprNode, BlockTerm, Instr, StructuredIf, StructuredInstr,
+    BlockBuilder, ScopeExprNode, BlockTerm, Instr, StructuredIf, StructuredInstr,
     TermBranchTable, TermIf, TermRaise,
 };
 use std::collections::HashSet;
 
 pub(super) fn assigned_names_in_linear_blockpy_stmt<E>(stmt: &E) -> HashSet<String>
 where
-    E: BlockPySemanticExprNode + Instr,
+    E: ScopeExprNode + Instr,
 {
     let mut names = HashSet::new();
     collect_named_expr_target_names_in_blockpy_expr(stmt, &mut names);
@@ -15,7 +15,7 @@ where
 
 pub(super) fn assigned_names_in_blockpy_stmt<E>(stmt: &StructuredInstr<E>) -> HashSet<String>
 where
-    E: BlockPySemanticExprNode + Instr,
+    E: ScopeExprNode + Instr,
 {
     match stmt {
         StructuredInstr::Expr(expr) => {
@@ -35,7 +35,7 @@ where
 
 pub(super) fn assigned_names_in_blockpy_stmts<E>(stmts: &[StructuredInstr<E>]) -> HashSet<String>
 where
-    E: BlockPySemanticExprNode + Instr,
+    E: ScopeExprNode + Instr,
 {
     let mut out = HashSet::new();
     for stmt in stmts {
@@ -46,7 +46,7 @@ where
 
 pub(super) fn assigned_names_in_blockpy_term<E>(term: &BlockTerm<E>) -> HashSet<String>
 where
-    E: BlockPySemanticExprNode + Instr,
+    E: ScopeExprNode + Instr,
 {
     match term {
         BlockTerm::Jump(_) => HashSet::new(),
@@ -79,7 +79,7 @@ pub(super) fn assigned_names_in_blockpy_fragment<E>(
     fragment: &BlockBuilder<StructuredInstr<E>, BlockTerm<E>>,
 ) -> HashSet<String>
 where
-    E: BlockPySemanticExprNode + Instr,
+    E: ScopeExprNode + Instr,
 {
     let mut out = assigned_names_in_blockpy_stmts(&fragment.body);
     if let Some(term) = &fragment.term {
@@ -90,7 +90,7 @@ where
 
 fn collect_named_expr_target_names_in_blockpy_expr<E>(expr: &E, names: &mut HashSet<String>)
 where
-    E: BlockPySemanticExprNode,
+    E: ScopeExprNode,
 {
     expr.walk_root_defined_names(&mut |name| {
         names.insert(name.to_string());

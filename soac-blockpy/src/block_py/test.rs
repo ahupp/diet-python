@@ -234,7 +234,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             ],
             doc: None,
             storage_layout: None,
-            semantic: BlockPyCallableSemanticInfo::default(),
+            scope: CallableScopeInfo::default(),
         }],
         module_constants: Vec::new(),
     };
@@ -297,10 +297,10 @@ fn storage_layout_semantics_collects_structured_cell_ref_logical_names() {
         }],
         doc: None,
         storage_layout: None,
-        semantic: BlockPyCallableSemanticInfo::default(),
+        scope: CallableScopeInfo::default(),
     };
 
-    let layout = compute_storage_layout_from_semantics(&function)
+    let layout = compute_storage_layout_from_scope(&function)
         .expect("structured cell ref should capture");
 
     assert_eq!(
@@ -373,7 +373,7 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
         }],
         doc: None,
         storage_layout: None,
-        semantic: BlockPyCallableSemanticInfo::default(),
+        scope: CallableScopeInfo::default(),
     };
 
     let mut mapper = RejectAwaitMapper;

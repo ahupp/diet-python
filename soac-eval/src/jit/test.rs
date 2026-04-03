@@ -168,7 +168,7 @@ mod tests {
             blocks: vec![],
             doc: None,
             storage_layout: None,
-            semantic: Default::default(),
+            scope: Default::default(),
         }
     }
 
@@ -621,7 +621,7 @@ mod tests {
         );
         assert!(
             rendered.contains("; block bb0()"),
-            "rendered CLIF should still surface the semantic name for optimized blocks:\n{rendered}"
+            "rendered CLIF should still surface the scope name for optimized blocks:\n{rendered}"
         );
         assert!(
             rendered.contains("block0(v0: i64, v1: i64):"),

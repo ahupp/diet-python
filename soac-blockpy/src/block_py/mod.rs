@@ -1,15 +1,15 @@
 pub use self::meta::{HasMeta, Meta, WithMeta};
 use self::operation_macro::define_operation;
 pub use self::param_specs::{Param, ParamDefaultSource, ParamKind, ParamSpec};
-pub(crate) use self::semantics::{
-    build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_semantics,
-    compute_storage_layout_from_semantics, derive_effective_binding_for_name,
-    BlockPySemanticExprNode,
+pub(crate) use self::scope::{
+    build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_scope,
+    compute_storage_layout_from_scope, derive_effective_binding_for_name,
+    ScopeExprNode,
 };
-pub use self::semantics::{
-    BindingTarget, BlockPyBindingKind, BlockPyBindingPurpose, BlockPyCallableScopeKind,
-    BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyCellCaptureBinding,
-    BlockPyClassBodyFallback, BlockPyEffectiveBinding, ClosureInit, ClosureSlot, StorageLayout,
+pub use self::scope::{
+    BindingTarget, BindingKind, BindingPurpose, CallableScopeKind,
+    CallableScopeInfo, CellBindingKind, CellCaptureBinding,
+    ClassBodyFallback, EffectiveBinding, ClosureInit, ClosureSlot, StorageLayout,
 };
 use crate::py_expr;
 pub use operation::{
@@ -30,7 +30,7 @@ pub mod operation;
 mod operation_macro;
 pub(crate) mod param_specs;
 pub mod pretty;
-pub(crate) mod semantics;
+pub(crate) mod scope;
 pub(crate) mod validate;
 pub(crate) use convert::ErrOnAwait;
 pub(crate) use convert::{BlockPyModuleMap, BlockPyModuleTryMap, ErrOnYield};
@@ -1004,7 +1004,7 @@ pub struct BlockPyFunction<P: BlockPyPass, S = <P as BlockPyPass>::Expr> {
     pub blocks: Vec<Block<S, P::Expr>>,
     pub doc: Option<String>,
     pub storage_layout: Option<StorageLayout>,
-    pub semantic: BlockPyCallableSemanticInfo,
+    pub scope: CallableScopeInfo,
 }
 
 impl<P: BlockPyPass, S: Clone> Clone for BlockPyFunction<P, S> {
@@ -1020,7 +1020,7 @@ impl<P: BlockPyPass, S: Clone> Clone for BlockPyFunction<P, S> {
             blocks: self.blocks.clone(),
             doc: self.doc.clone(),
             storage_layout: self.storage_layout.clone(),
-            semantic: self.semantic.clone(),
+            scope: self.scope.clone(),
         }
     }
 }
@@ -1053,7 +1053,7 @@ impl<P: BlockPyPass, S> BlockPyFunction<P, S> {
             blocks: self.blocks.into_iter().map(&mut f).collect(),
             doc: self.doc,
             storage_layout: self.storage_layout,
-            semantic: self.semantic,
+            scope: self.scope,
         }
     }
 }

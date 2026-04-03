@@ -3,8 +3,8 @@ use super::{
     persistent_generator_state_order, resume_closure_bindings,
 };
 use crate::block_py::{
-    Block, BlockBuilder, BlockLabel, BlockPyBindingKind, BlockPyBindingPurpose,
-    BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockTerm,
+    Block, BlockBuilder, BlockLabel, BindingKind, BindingPurpose,
+    CallableScopeKind, CallableScopeInfo, CellBindingKind, BlockTerm,
     ClosureInit, ClosureSlot, FunctionId, FunctionName, StorageLayout,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
@@ -12,35 +12,35 @@ use crate::py_expr;
 use ruff_python_ast::Expr;
 use std::collections::HashSet;
 
-fn generator_test_semantic() -> BlockPyCallableSemanticInfo {
-    BlockPyCallableSemanticInfo {
+fn generator_test_semantic() -> CallableScopeInfo {
+    CallableScopeInfo {
         names: FunctionName::new("gen", "gen", "gen", "gen"),
-        scope_kind: BlockPyCallableScopeKind::Function,
+        scope_kind: CallableScopeKind::Function,
         ..Default::default()
     }
 }
 
-fn generator_resume_source_semantic(layout: &StorageLayout) -> BlockPyCallableSemanticInfo {
-    let mut semantic = generator_test_semantic();
+fn generator_resume_source_semantic(layout: &StorageLayout) -> CallableScopeInfo {
+    let mut scope = generator_test_semantic();
     for slot in &layout.freevars {
-        semantic.insert_binding_with_cell_names(
+        scope.insert_binding_with_cell_names(
             slot.logical_name.clone(),
-            BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
+            BindingKind::Cell(CellBindingKind::Capture),
             is_internal_symbol(slot.logical_name.as_str()),
             Some(slot.logical_name.clone()),
             Some(slot.storage_name.clone()),
         );
     }
     for slot in &layout.cellvars {
-        semantic.insert_binding_with_cell_names(
+        scope.insert_binding_with_cell_names(
             slot.logical_name.clone(),
-            BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner),
+            BindingKind::Cell(CellBindingKind::Owner),
             is_internal_symbol(slot.logical_name.as_str()),
             Some(slot.storage_name.clone()),
             Some(slot.storage_name.clone()),
         );
     }
-    semantic
+    scope
 }
 
 fn blockpy_make_dp_tuple(items: Vec<Expr>) -> Expr {
@@ -141,9 +141,9 @@ fn resume_closure_bindings_keep_internal_eval_state_on_runtime_binding_path() {
         stack_slots: Vec::new(),
     };
 
-    let semantic = generator_resume_source_semantic(&layout);
+    let scope = generator_resume_source_semantic(&layout);
     let closure_bindings = resume_closure_bindings(
-        &semantic,
+        &scope,
         &[
             "captured".to_string(),
             "total".to_string(),
@@ -208,9 +208,9 @@ fn persistent_generator_state_order_omits_resume_abi_params() {
 
 #[test]
 fn build_blockpy_storage_layout_classifies_capture_local_and_runtime_cells() {
-    let semantic = generator_test_semantic();
+    let scope = generator_test_semantic();
     let layout = build_blockpy_storage_layout(
-        &semantic,
+        &scope,
         &["arg".to_string()],
         &[
             "arg".to_string(),
@@ -283,16 +283,16 @@ fn build_blockpy_storage_layout_classifies_capture_local_and_runtime_cells() {
 
 #[test]
 fn build_blockpy_storage_layout_uses_semantic_classcell_storage_mapping() {
-    let mut semantic = generator_test_semantic();
-    semantic.insert_binding(
+    let mut scope = generator_test_semantic();
+    scope.insert_binding(
         "__class__",
-        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner),
+        BindingKind::Cell(CellBindingKind::Owner),
         false,
         Some("_dp_classcell".to_string()),
     );
 
     let layout = build_blockpy_storage_layout(
-        &semantic,
+        &scope,
         &[],
         &["__class__".to_string()],
         &[],
@@ -384,9 +384,9 @@ fn resume_closure_bindings_use_semantic_capture_sources_for_cell_backed_state() 
         stack_slots: Vec::new(),
     };
 
-    let semantic = generator_resume_source_semantic(&layout);
+    let scope = generator_resume_source_semantic(&layout);
     let closure_bindings = resume_closure_bindings(
-        &semantic,
+        &scope,
         &[
             "captured".to_string(),
             "total".to_string(),
@@ -433,9 +433,9 @@ fn resume_closure_bindings_use_logical_names_for_shared_storage() {
         stack_slots: Vec::new(),
     };
 
-    let semantic = generator_resume_source_semantic(&layout);
+    let scope = generator_resume_source_semantic(&layout);
     let closure_bindings = resume_closure_bindings(
-        &semantic,
+        &scope,
         &[
             "j".to_string(),
             "_dp_pc".to_string(),
@@ -483,9 +483,9 @@ fn resume_semantic_marks_generator_state_as_cell_captures() {
         ],
         stack_slots: Vec::new(),
     };
-    let mut semantic = BlockPyCallableSemanticInfo {
+    let mut scope = CallableScopeInfo {
         names: FunctionName::new("gen_resume", "_dp_resume", "gen", "gen"),
-        scope_kind: BlockPyCallableScopeKind::Function,
+        scope_kind: CallableScopeKind::Function,
         ..Default::default()
     };
     for slot in layout
@@ -494,44 +494,44 @@ fn resume_semantic_marks_generator_state_as_cell_captures() {
         .chain(layout.cellvars.iter())
         .chain(layout.runtime_cells.iter())
     {
-        semantic.insert_binding(
+        scope.insert_binding(
             slot.logical_name.clone(),
-            BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
+            BindingKind::Cell(CellBindingKind::Capture),
             is_internal_symbol(slot.logical_name.as_str()),
             None,
         );
     }
 
-    assert_eq!(semantic.names.bind_name, "gen_resume");
+    assert_eq!(scope.names.bind_name, "gen_resume");
     assert_eq!(
-        semantic.binding_kind("captured"),
-        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+        scope.binding_kind("captured"),
+        Some(BindingKind::Cell(CellBindingKind::Capture))
     );
     assert_eq!(
-        semantic.binding_kind("total"),
-        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+        scope.binding_kind("total"),
+        Some(BindingKind::Cell(CellBindingKind::Capture))
     );
     assert_eq!(
-        semantic.binding_kind("_dp_pc"),
-        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+        scope.binding_kind("_dp_pc"),
+        Some(BindingKind::Cell(CellBindingKind::Capture))
     );
     assert_eq!(
-        semantic.binding_kind("_dp_throw_context"),
-        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+        scope.binding_kind("_dp_throw_context"),
+        Some(BindingKind::Cell(CellBindingKind::Capture))
     );
     assert_eq!(
-        semantic.resolved_load_binding_kind("_dp_pc"),
-        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+        scope.resolved_load_binding_kind("_dp_pc"),
+        BindingKind::Cell(CellBindingKind::Capture)
     );
     assert_eq!(
-        semantic.effective_binding("_dp_pc", BlockPyBindingPurpose::Load),
-        Some(crate::block_py::BlockPyEffectiveBinding::Cell(
-            BlockPyCellBindingKind::Capture
+        scope.effective_binding("_dp_pc", BindingPurpose::Load),
+        Some(crate::block_py::EffectiveBinding::Cell(
+            CellBindingKind::Capture
         ))
     );
     assert_eq!(
-        semantic.resolved_load_binding_kind("_dp_self"),
-        BlockPyBindingKind::Local
+        scope.resolved_load_binding_kind("_dp_self"),
+        BindingKind::Local
     );
 }
 
@@ -598,103 +598,103 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
             "_dp_try_exc_0".to_string(),
         ],
     );
-    let mut semantic = BlockPyCallableSemanticInfo {
+    let mut scope = CallableScopeInfo {
         names: FunctionName::new("gen_resume", "_dp_resume", "gen", "gen"),
-        scope_kind: BlockPyCallableScopeKind::Function,
+        scope_kind: CallableScopeKind::Function,
         ..Default::default()
     };
 
-    augment_resume_semantic_for_standard_name_binding(&mut semantic, &closure_bindings);
+    augment_resume_semantic_for_standard_name_binding(&mut scope, &closure_bindings);
 
     assert_eq!(
-        semantic.binding_kind("total"),
-        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+        scope.binding_kind("total"),
+        Some(BindingKind::Cell(CellBindingKind::Capture))
     );
     assert_eq!(
-        semantic.binding_kind("_dp_pc"),
-        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+        scope.binding_kind("_dp_pc"),
+        Some(BindingKind::Cell(CellBindingKind::Capture))
     );
     assert_eq!(
-        semantic.resolved_load_binding_kind("total"),
-        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+        scope.resolved_load_binding_kind("total"),
+        BindingKind::Cell(CellBindingKind::Capture)
     );
-    assert_eq!(semantic.cell_storage_name("total"), "total");
-    assert_eq!(semantic.cell_capture_source_name("total"), "_dp_cell_total");
+    assert_eq!(scope.cell_storage_name("total"), "total");
+    assert_eq!(scope.cell_capture_source_name("total"), "_dp_cell_total");
     assert_eq!(
-        semantic.binding_kind("_dp_eval_1"),
-        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+        scope.binding_kind("_dp_eval_1"),
+        Some(BindingKind::Cell(CellBindingKind::Capture))
     );
     assert_eq!(
-        semantic.resolved_load_binding_kind("_dp_eval_1"),
-        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+        scope.resolved_load_binding_kind("_dp_eval_1"),
+        BindingKind::Cell(CellBindingKind::Capture)
     );
-    assert_eq!(semantic.cell_storage_name("_dp_eval_1"), "_dp_eval_1");
+    assert_eq!(scope.cell_storage_name("_dp_eval_1"), "_dp_eval_1");
     assert_eq!(
-        semantic.cell_capture_source_name("_dp_eval_1"),
+        scope.cell_capture_source_name("_dp_eval_1"),
         "_dp_cell__dp_eval_1"
     );
     assert_eq!(
-        semantic.binding_kind("_dp_eval_2"),
-        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+        scope.binding_kind("_dp_eval_2"),
+        Some(BindingKind::Cell(CellBindingKind::Capture))
     );
     assert_eq!(
-        semantic.resolved_load_binding_kind("_dp_eval_2"),
-        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+        scope.resolved_load_binding_kind("_dp_eval_2"),
+        BindingKind::Cell(CellBindingKind::Capture)
     );
-    assert_eq!(semantic.cell_storage_name("_dp_eval_2"), "_dp_eval_2");
+    assert_eq!(scope.cell_storage_name("_dp_eval_2"), "_dp_eval_2");
     assert_eq!(
-        semantic.cell_capture_source_name("_dp_eval_2"),
+        scope.cell_capture_source_name("_dp_eval_2"),
         "_dp_cell__dp_eval_2"
     );
     assert_eq!(
-        semantic.resolved_load_binding_kind("_dp_pc"),
-        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+        scope.resolved_load_binding_kind("_dp_pc"),
+        BindingKind::Cell(CellBindingKind::Capture)
     );
-    assert_eq!(semantic.cell_storage_name("_dp_pc"), "_dp_pc");
+    assert_eq!(scope.cell_storage_name("_dp_pc"), "_dp_pc");
     assert_eq!(
-        semantic.cell_capture_source_name("_dp_pc"),
+        scope.cell_capture_source_name("_dp_pc"),
         "_dp_cell__dp_pc"
     );
     assert_eq!(
-        semantic.binding_kind("_dp_yieldfrom"),
-        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+        scope.binding_kind("_dp_yieldfrom"),
+        Some(BindingKind::Cell(CellBindingKind::Capture))
     );
     assert_eq!(
-        semantic.resolved_load_binding_kind("_dp_yieldfrom"),
-        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+        scope.resolved_load_binding_kind("_dp_yieldfrom"),
+        BindingKind::Cell(CellBindingKind::Capture)
     );
-    assert_eq!(semantic.cell_storage_name("_dp_yieldfrom"), "_dp_yieldfrom");
+    assert_eq!(scope.cell_storage_name("_dp_yieldfrom"), "_dp_yieldfrom");
     assert_eq!(
-        semantic.cell_capture_source_name("_dp_yieldfrom"),
+        scope.cell_capture_source_name("_dp_yieldfrom"),
         "_dp_cell__dp_yieldfrom"
     );
     assert_eq!(
-        semantic.binding_kind("_dp_throw_context"),
-        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+        scope.binding_kind("_dp_throw_context"),
+        Some(BindingKind::Cell(CellBindingKind::Capture))
     );
     assert_eq!(
-        semantic.resolved_load_binding_kind("_dp_throw_context"),
-        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+        scope.resolved_load_binding_kind("_dp_throw_context"),
+        BindingKind::Cell(CellBindingKind::Capture)
     );
     assert_eq!(
-        semantic.cell_storage_name("_dp_throw_context"),
+        scope.cell_storage_name("_dp_throw_context"),
         "_dp_throw_context"
     );
     assert_eq!(
-        semantic.cell_capture_source_name("_dp_throw_context"),
+        scope.cell_capture_source_name("_dp_throw_context"),
         "_dp_cell__dp_throw_context"
     );
     assert_eq!(
-        semantic.binding_kind("_dp_try_exc_0"),
-        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+        scope.binding_kind("_dp_try_exc_0"),
+        Some(BindingKind::Cell(CellBindingKind::Capture))
     );
     assert_eq!(
-        semantic.resolved_load_binding_kind("_dp_try_exc_0"),
-        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+        scope.resolved_load_binding_kind("_dp_try_exc_0"),
+        BindingKind::Cell(CellBindingKind::Capture)
     );
-    assert_eq!(semantic.cell_storage_name("_dp_try_exc_0"), "_dp_try_exc_0");
+    assert_eq!(scope.cell_storage_name("_dp_try_exc_0"), "_dp_try_exc_0");
     assert_eq!(
-        semantic.cell_capture_source_name("_dp_try_exc_0"),
+        scope.cell_capture_source_name("_dp_try_exc_0"),
         "_dp_cell__dp_try_exc_0"
     );
 }

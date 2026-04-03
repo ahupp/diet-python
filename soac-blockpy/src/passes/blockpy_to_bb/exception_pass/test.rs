@@ -1,7 +1,7 @@
 use super::lower_try_jump_exception_flow;
 use crate::block_py::{
     validate_module, AbruptKind, BlockArg, BlockEdge, BlockLabel, BlockParam, BlockParamRole,
-    BlockPyBindingKind, BlockPyCellBindingKind, BlockPyLiteral, BlockTerm, CodegenBlock,
+    BindingKind, CellBindingKind, BlockPyLiteral, BlockTerm, CodegenBlock,
     CodegenBlockPyExpr, CoreBlockPyExpr, CoreNumberLiteral, CoreNumberLiteralValue,
     LocatedCoreBlockPyExpr, NameLocation, ResolvedStorageBlock, StorageLayout,
 };
@@ -264,16 +264,16 @@ def f():
         runtime_cells: vec![],
         stack_slots: Vec::new(),
     });
-    function.semantic.insert_binding(
+    function.scope.insert_binding(
         "captured",
-        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner),
+        BindingKind::Cell(CellBindingKind::Owner),
         false,
         Some("_dp_cell_captured".to_string()),
     );
 
-    let err = validate_module(&module).expect_err("must reject semantic/layout drift");
+    let err = validate_module(&module).expect_err("must reject scope/layout drift");
     assert!(
-        err.contains("semantic info expects _dp_cell_captured")
+        err.contains("scope info expects _dp_cell_captured")
             && err.contains("_dp_wrong_storage")
             && err.contains("captured"),
         "unexpected error: {err}"

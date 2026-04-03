@@ -1,6 +1,6 @@
 use crate::block_py::{
-    derive_effective_binding_for_name, BlockPyBindingKind, BlockPyBindingPurpose,
-    BlockPyCallableScopeKind, BlockPyCallableSemanticInfo, BlockPyCellBindingKind, FunctionName,
+    derive_effective_binding_for_name, BindingKind, BindingPurpose,
+    CallableScopeKind, CallableScopeInfo, CellBindingKind, FunctionName,
 };
 use crate::passes::ast_symbol_analysis::{collect_bound_names, collect_loaded_names};
 use crate::passes::ast_to_ast::semantic::{
@@ -50,25 +50,25 @@ fn blockpy_binding_kind_for_name(
     binding: SemanticBindingKind,
     local_cell_bindings: &HashSet<String>,
     has_local_def: bool,
-    scope_kind: BlockPyCallableScopeKind,
+    scope_kind: CallableScopeKind,
     type_param_names: &HashSet<String>,
-) -> BlockPyBindingKind {
-    if scope_kind == BlockPyCallableScopeKind::Class
+) -> BindingKind {
+    if scope_kind == CallableScopeKind::Class
         && has_local_def
         && !type_param_names.contains(name)
     {
-        return BlockPyBindingKind::Local;
+        return BindingKind::Local;
     }
     match binding {
         SemanticBindingKind::Local if local_cell_bindings.contains(name) => {
-            BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner)
+            BindingKind::Cell(CellBindingKind::Owner)
         }
-        SemanticBindingKind::Local => BlockPyBindingKind::Local,
+        SemanticBindingKind::Local => BindingKind::Local,
         SemanticBindingKind::Nonlocal if has_local_def && local_cell_bindings.contains(name) => {
-            BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner)
+            BindingKind::Cell(CellBindingKind::Owner)
         }
-        SemanticBindingKind::Nonlocal => BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture),
-        SemanticBindingKind::Global => BlockPyBindingKind::Global,
+        SemanticBindingKind::Nonlocal => BindingKind::Cell(CellBindingKind::Capture),
+        SemanticBindingKind::Global => BindingKind::Global,
     }
 }
 
@@ -93,20 +93,20 @@ fn callable_owns_synthetic_classcell(func: Option<&ast::StmtFunctionDef>) -> boo
     func.is_some_and(|func| parameters_contain_name(func.parameters.as_ref(), "_dp_classcell_arg"))
 }
 
-pub(super) fn callable_semantic_info(
+pub(super) fn callable_scope_info(
     semantic_state: &SemanticAstState,
     parent_scope: Option<&SemanticScope>,
     function_scope: Option<&SemanticScope>,
     func: Option<&ast::StmtFunctionDef>,
     body: &[Stmt],
-) -> BlockPyCallableSemanticInfo {
+) -> CallableScopeInfo {
     let Some(function_scope) = function_scope else {
-        return BlockPyCallableSemanticInfo::default();
+        return CallableScopeInfo::default();
     };
     let scope_kind = match function_scope.kind() {
-        SemanticScopeKind::Function => BlockPyCallableScopeKind::Function,
-        SemanticScopeKind::Class => BlockPyCallableScopeKind::Class,
-        SemanticScopeKind::Module => BlockPyCallableScopeKind::Module,
+        SemanticScopeKind::Function => CallableScopeKind::Function,
+        SemanticScopeKind::Class => CallableScopeKind::Class,
+        SemanticScopeKind::Module => CallableScopeKind::Module,
     };
     let local_cell_bindings = function_scope.local_cell_bindings();
     let local_defs = function_scope.local_def_names();
@@ -152,7 +152,7 @@ pub(super) fn callable_semantic_info(
                     *binding,
                     scope_kind,
                     &type_param_names,
-                    BlockPyBindingPurpose::Load,
+                    BindingPurpose::Load,
                     false,
                 ),
             )
@@ -168,7 +168,7 @@ pub(super) fn callable_semantic_info(
                     *binding,
                     scope_kind,
                     &type_param_names,
-                    BlockPyBindingPurpose::Store,
+                    BindingPurpose::Store,
                     false,
                 ),
             )
@@ -206,7 +206,7 @@ pub(super) fn callable_semantic_info(
         None => FunctionName::default(),
     };
     let raw_cell_storage_names = function_scope.cell_storage_names();
-    let mut info = BlockPyCallableSemanticInfo {
+    let mut info = CallableScopeInfo {
         names,
         scope_kind,
         bindings,
@@ -214,7 +214,7 @@ pub(super) fn callable_semantic_info(
         cell_storage_names: raw_cell_storage_names.clone(),
         cell_capture_source_names: raw_cell_storage_names,
         owned_cell_source_names: HashSet::new(),
-        semantic_internal_names: HashSet::new(),
+        scope_internal_names: HashSet::new(),
         type_param_names,
         effective_load_bindings,
         effective_store_bindings,
@@ -225,7 +225,7 @@ pub(super) fn callable_semantic_info(
         .filter_map(|(name, binding)| {
             matches!(
                 binding,
-                BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+                BindingKind::Cell(CellBindingKind::Capture)
             )
             .then(|| name.clone())
         })
@@ -235,7 +235,7 @@ pub(super) fn callable_semantic_info(
     }
     if matches!(
         info.bindings.get("__class__"),
-        Some(BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture))
+        Some(BindingKind::Cell(CellBindingKind::Capture))
     ) {
         info.cell_capture_source_names
             .insert("__class__".to_string(), "__class__".to_string());
@@ -249,7 +249,7 @@ pub(super) fn callable_semantic_info(
             info.local_defs.insert("__class__".to_string());
             info.insert_binding(
                 "__class__",
-                BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner),
+                BindingKind::Cell(CellBindingKind::Owner),
                 false,
                 Some("_dp_classcell".to_string()),
             );

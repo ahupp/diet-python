@@ -16,17 +16,17 @@ pub enum BindingTarget {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BlockPyCellBindingKind {
+pub enum CellBindingKind {
     Owner,
     Capture,
 }
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
-pub enum BlockPyBindingKind {
+pub enum BindingKind {
     #[default]
     Local,
     Global,
-    Cell(BlockPyCellBindingKind),
+    Cell(CellBindingKind),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -114,7 +114,7 @@ pub enum ClosureInit {
 }
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
-pub enum BlockPyCallableScopeKind {
+pub enum CallableScopeKind {
     #[default]
     Function,
     Class,
@@ -122,96 +122,96 @@ pub enum BlockPyCallableScopeKind {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BlockPyClassBodyFallback {
+pub enum ClassBodyFallback {
     Global,
     Cell,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BlockPyEffectiveBinding {
+pub enum EffectiveBinding {
     Local,
     Global,
-    Cell(BlockPyCellBindingKind),
-    ClassBody(BlockPyClassBodyFallback),
+    Cell(CellBindingKind),
+    ClassBody(ClassBodyFallback),
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BlockPyBindingPurpose {
+pub enum BindingPurpose {
     Load,
     Store,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct BlockPyCellCaptureBinding {
+pub struct CellCaptureBinding {
     pub logical_name: String,
     pub source_name: String,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct BlockPyCallableSemanticInfo {
+pub struct CallableScopeInfo {
     pub names: FunctionName,
-    pub scope_kind: BlockPyCallableScopeKind,
-    pub bindings: HashMap<String, BlockPyBindingKind>,
+    pub scope_kind: CallableScopeKind,
+    pub bindings: HashMap<String, BindingKind>,
     pub local_defs: HashSet<String>,
     pub cell_storage_names: HashMap<String, String>,
     pub cell_capture_source_names: HashMap<String, String>,
     pub owned_cell_source_names: HashSet<String>,
-    pub semantic_internal_names: HashSet<String>,
+    pub scope_internal_names: HashSet<String>,
     pub type_param_names: HashSet<String>,
-    pub effective_load_bindings: HashMap<String, BlockPyEffectiveBinding>,
-    pub effective_store_bindings: HashMap<String, BlockPyEffectiveBinding>,
+    pub effective_load_bindings: HashMap<String, EffectiveBinding>,
+    pub effective_store_bindings: HashMap<String, EffectiveBinding>,
 }
 
 pub(crate) fn derive_effective_binding_for_name(
     name: &str,
-    binding: BlockPyBindingKind,
-    scope_kind: BlockPyCallableScopeKind,
+    binding: BindingKind,
+    scope_kind: CallableScopeKind,
     type_param_names: &HashSet<String>,
-    purpose: BlockPyBindingPurpose,
+    purpose: BindingPurpose,
     honor_internal_name: bool,
-) -> BlockPyEffectiveBinding {
+) -> EffectiveBinding {
     if is_internal_symbol(name) && !honor_internal_name {
-        return BlockPyEffectiveBinding::Local;
+        return EffectiveBinding::Local;
     }
     match purpose {
-        BlockPyBindingPurpose::Load => match (scope_kind, binding) {
-            (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Cell(_)) => {
-                BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Cell)
+        BindingPurpose::Load => match (scope_kind, binding) {
+            (CallableScopeKind::Class, BindingKind::Cell(_)) => {
+                EffectiveBinding::ClassBody(ClassBodyFallback::Cell)
             }
-            (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Local)
-            | (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Global) => {
-                BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global)
+            (CallableScopeKind::Class, BindingKind::Local)
+            | (CallableScopeKind::Class, BindingKind::Global) => {
+                EffectiveBinding::ClassBody(ClassBodyFallback::Global)
             }
-            (_, BlockPyBindingKind::Global) => BlockPyEffectiveBinding::Global,
-            (_, BlockPyBindingKind::Cell(kind)) => BlockPyEffectiveBinding::Cell(kind),
-            (_, BlockPyBindingKind::Local) => BlockPyEffectiveBinding::Local,
+            (_, BindingKind::Global) => EffectiveBinding::Global,
+            (_, BindingKind::Cell(kind)) => EffectiveBinding::Cell(kind),
+            (_, BindingKind::Local) => EffectiveBinding::Local,
         },
-        BlockPyBindingPurpose::Store => {
-            if scope_kind == BlockPyCallableScopeKind::Class && type_param_names.contains(name) {
+        BindingPurpose::Store => {
+            if scope_kind == CallableScopeKind::Class && type_param_names.contains(name) {
                 return match binding {
-                    BlockPyBindingKind::Local => BlockPyEffectiveBinding::Local,
-                    BlockPyBindingKind::Global => BlockPyEffectiveBinding::Global,
-                    BlockPyBindingKind::Cell(kind) => BlockPyEffectiveBinding::Cell(kind),
+                    BindingKind::Local => EffectiveBinding::Local,
+                    BindingKind::Global => EffectiveBinding::Global,
+                    BindingKind::Cell(kind) => EffectiveBinding::Cell(kind),
                 };
             }
             match (scope_kind, binding) {
-                (BlockPyCallableScopeKind::Class, BlockPyBindingKind::Local) => {
-                    BlockPyEffectiveBinding::ClassBody(BlockPyClassBodyFallback::Global)
+                (CallableScopeKind::Class, BindingKind::Local) => {
+                    EffectiveBinding::ClassBody(ClassBodyFallback::Global)
                 }
-                (_, BlockPyBindingKind::Global) => BlockPyEffectiveBinding::Global,
-                (_, BlockPyBindingKind::Cell(kind)) => BlockPyEffectiveBinding::Cell(kind),
-                (_, BlockPyBindingKind::Local) => BlockPyEffectiveBinding::Local,
+                (_, BindingKind::Global) => EffectiveBinding::Global,
+                (_, BindingKind::Cell(kind)) => EffectiveBinding::Cell(kind),
+                (_, BindingKind::Local) => EffectiveBinding::Local,
             }
         }
     }
 }
 
-impl BlockPyCallableSemanticInfo {
+impl CallableScopeInfo {
     pub fn honors_internal_binding(&self, name: &str) -> bool {
-        !is_internal_symbol(name) || self.semantic_internal_names.contains(name)
+        !is_internal_symbol(name) || self.scope_internal_names.contains(name)
     }
 
-    pub fn binding_kind(&self, name: &str) -> Option<BlockPyBindingKind> {
+    pub fn binding_kind(&self, name: &str) -> Option<BindingKind> {
         self.bindings.get(name).copied()
     }
 
@@ -222,18 +222,18 @@ impl BlockPyCallableSemanticInfo {
     pub fn effective_binding(
         &self,
         name: &str,
-        purpose: BlockPyBindingPurpose,
-    ) -> Option<BlockPyEffectiveBinding> {
+        purpose: BindingPurpose,
+    ) -> Option<EffectiveBinding> {
         match purpose {
-            BlockPyBindingPurpose::Load => self.effective_load_bindings.get(name).copied(),
-            BlockPyBindingPurpose::Store => self.effective_store_bindings.get(name).copied(),
+            BindingPurpose::Load => self.effective_load_bindings.get(name).copied(),
+            BindingPurpose::Store => self.effective_store_bindings.get(name).copied(),
         }
     }
 
     pub fn insert_binding(
         &mut self,
         name: impl Into<String>,
-        binding: BlockPyBindingKind,
+        binding: BindingKind,
         honor_internal_name: bool,
         cell_storage_name: Option<String>,
     ) {
@@ -249,7 +249,7 @@ impl BlockPyCallableSemanticInfo {
     pub fn insert_binding_with_cell_names(
         &mut self,
         name: impl Into<String>,
-        binding: BlockPyBindingKind,
+        binding: BindingKind,
         honor_internal_name: bool,
         cell_storage_name: Option<String>,
         cell_capture_source_name: Option<String>,
@@ -265,7 +265,7 @@ impl BlockPyCallableSemanticInfo {
                 .insert(name.clone(), cell_capture_source_name);
         }
         if honor_internal_name {
-            self.semantic_internal_names.insert(name.clone());
+            self.scope_internal_names.insert(name.clone());
         }
         self.effective_load_bindings.insert(
             name.clone(),
@@ -274,7 +274,7 @@ impl BlockPyCallableSemanticInfo {
                 binding,
                 self.scope_kind,
                 &self.type_param_names,
-                BlockPyBindingPurpose::Load,
+                BindingPurpose::Load,
                 honor_internal_name,
             ),
         );
@@ -285,26 +285,26 @@ impl BlockPyCallableSemanticInfo {
                 binding,
                 self.scope_kind,
                 &self.type_param_names,
-                BlockPyBindingPurpose::Store,
+                BindingPurpose::Store,
                 honor_internal_name,
             ),
         );
     }
 
-    pub fn resolved_load_binding_kind(&self, name: &str) -> BlockPyBindingKind {
+    pub fn resolved_load_binding_kind(&self, name: &str) -> BindingKind {
         if let Some(binding) = self.binding_kind(name) {
             if self.honors_internal_binding(name) {
                 return binding;
             }
         }
         if is_internal_symbol(name) {
-            return BlockPyBindingKind::Local;
+            return BindingKind::Local;
         }
-        BlockPyBindingKind::Global
+        BindingKind::Global
     }
 
     pub fn is_cell_binding(&self, name: &str) -> bool {
-        matches!(self.binding_kind(name), Some(BlockPyBindingKind::Cell(_)))
+        matches!(self.binding_kind(name), Some(BindingKind::Cell(_)))
     }
 
     pub fn cell_storage_name(&self, name: &str) -> String {
@@ -341,14 +341,14 @@ impl BlockPyCallableSemanticInfo {
     pub fn binding_target_for_name(
         &self,
         name: &str,
-        purpose: BlockPyBindingPurpose,
+        purpose: BindingPurpose,
     ) -> BindingTarget {
         if let Some(binding) = self.effective_binding(name, purpose) {
             if self.honors_internal_binding(name) {
                 return match binding {
-                    BlockPyEffectiveBinding::Global => BindingTarget::ModuleGlobal,
-                    BlockPyEffectiveBinding::ClassBody(_) => BindingTarget::ClassNamespace,
-                    BlockPyEffectiveBinding::Local | BlockPyEffectiveBinding::Cell(_) => {
+                    EffectiveBinding::Global => BindingTarget::ModuleGlobal,
+                    EffectiveBinding::ClassBody(_) => BindingTarget::ClassNamespace,
+                    EffectiveBinding::Local | EffectiveBinding::Cell(_) => {
                         BindingTarget::Local
                     }
                 };
@@ -358,8 +358,8 @@ impl BlockPyCallableSemanticInfo {
             return BindingTarget::Local;
         }
         match self.effective_binding(name, purpose) {
-            Some(BlockPyEffectiveBinding::Global) => BindingTarget::ModuleGlobal,
-            Some(BlockPyEffectiveBinding::ClassBody(_)) => BindingTarget::ClassNamespace,
+            Some(EffectiveBinding::Global) => BindingTarget::ModuleGlobal,
+            Some(EffectiveBinding::ClassBody(_)) => BindingTarget::ClassNamespace,
             _ => BindingTarget::Local,
         }
     }
@@ -371,7 +371,7 @@ impl BlockPyCallableSemanticInfo {
             .filter_map(|(name, binding)| {
                 matches!(
                     binding,
-                    BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner)
+                    BindingKind::Cell(CellBindingKind::Owner)
                 )
                 .then(|| self.cell_storage_name(name.as_str()))
             })
@@ -387,7 +387,7 @@ impl BlockPyCallableSemanticInfo {
             .filter_map(|(name, binding)| {
                 matches!(
                     binding,
-                    BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
+                    BindingKind::Cell(CellBindingKind::Capture)
                 )
                 .then(|| name.clone())
             })
@@ -396,10 +396,10 @@ impl BlockPyCallableSemanticInfo {
         names
     }
 
-    pub fn captured_cell_bindings(&self) -> Vec<BlockPyCellCaptureBinding> {
+    pub fn captured_cell_bindings(&self) -> Vec<CellCaptureBinding> {
         self.captured_cell_logical_names()
             .into_iter()
-            .map(|logical_name| BlockPyCellCaptureBinding {
+            .map(|logical_name| CellCaptureBinding {
                 source_name: self.cell_capture_source_name(logical_name.as_str()),
                 logical_name,
             })
@@ -407,7 +407,7 @@ impl BlockPyCallableSemanticInfo {
     }
 
     pub fn local_cell_storage_names(&self) -> HashSet<String> {
-        if !matches!(self.scope_kind, BlockPyCallableScopeKind::Function) {
+        if !matches!(self.scope_kind, CallableScopeKind::Function) {
             return HashSet::new();
         }
         self.owned_cell_storage_names()
@@ -425,7 +425,7 @@ impl BlockPyCallableSemanticInfo {
     }
 }
 
-pub(crate) trait BlockPySemanticExprNode: Walkable<Self> {
+pub(crate) trait ScopeExprNode: Walkable<Self> {
     fn root_name_id(&self) -> Option<&str> {
         None
     }
@@ -463,7 +463,7 @@ fn walk_assigned_name_targets_in_expr(target: &Expr, f: &mut impl FnMut(&str)) {
 
 fn call_root_cell_ref_logical_name<E>(call: &Call<E>) -> Option<String>
 where
-    E: BlockPySemanticExprNode,
+    E: ScopeExprNode,
 {
     let helper_name = call.func.as_ref().root_name_id()?;
     if helper_name != "cell_ref" {
@@ -475,7 +475,7 @@ where
     arg.root_string_literal_value()
 }
 
-impl BlockPySemanticExprNode for Expr {
+impl ScopeExprNode for Expr {
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Expr::Name(name) => Some(name.id.as_str()),
@@ -528,7 +528,7 @@ impl BlockPySemanticExprNode for Expr {
     }
 }
 
-impl BlockPySemanticExprNode for RuffExpr {
+impl ScopeExprNode for RuffExpr {
     fn root_name_id(&self) -> Option<&str> {
         self.0.root_name_id()
     }
@@ -550,7 +550,7 @@ impl BlockPySemanticExprNode for RuffExpr {
     }
 }
 
-impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
+impl ScopeExprNode for CoreBlockPyExprWithAwaitAndYield {
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Call(call) => call.func.as_ref().root_name_id(),
@@ -606,7 +606,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithAwaitAndYield {
     }
 }
 
-impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
+impl ScopeExprNode for CoreBlockPyExprWithYield {
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Call(call) => call.func.as_ref().root_name_id(),
@@ -662,7 +662,7 @@ impl BlockPySemanticExprNode for CoreBlockPyExprWithYield {
     }
 }
 
-impl<N> BlockPySemanticExprNode for CoreBlockPyExpr<N>
+impl<N> ScopeExprNode for CoreBlockPyExpr<N>
 where
     N: BlockPyNameLike,
 {
@@ -721,7 +721,7 @@ where
     }
 }
 
-impl BlockPySemanticExprNode for super::CodegenBlockPyExpr {
+impl ScopeExprNode for super::CodegenBlockPyExpr {
     fn root_name_id(&self) -> Option<&str> {
         match self {
             Self::Call(call) => call.func.as_ref().root_name_id(),
@@ -768,17 +768,17 @@ impl BlockPySemanticExprNode for super::CodegenBlockPyExpr {
 }
 
 #[derive(Default)]
-struct StorageLayoutSemanticCollector {
+struct StorageLayoutScopeCollector {
     used_names: HashSet<String>,
     defined_names: HashSet<String>,
     deleted_names: HashSet<String>,
     cell_ref_logical_names: HashSet<String>,
 }
 
-impl<P> BlockPyLinearModuleVisitor<P> for StorageLayoutSemanticCollector
+impl<P> BlockPyLinearModuleVisitor<P> for StorageLayoutScopeCollector
 where
     P: BlockPyPass,
-    P::Expr: BlockPySemanticExprNode,
+    P::Expr: ScopeExprNode,
 {
     fn visit_block(&mut self, block: &Block<P::Expr, P::Expr>) {
         if let Some(exc_param) = block.exception_param() {
@@ -815,37 +815,37 @@ fn is_runtime_closure_name(name: &str) -> bool {
         || name.starts_with("_dp_try_abrupt_kind_")
 }
 
-pub(crate) fn compute_make_function_capture_bindings_from_semantics<P>(
+pub(crate) fn compute_make_function_capture_bindings_from_scope<P>(
     callable_def: &BlockPyFunction<P>,
-) -> Vec<BlockPyCellCaptureBinding>
+) -> Vec<CellCaptureBinding>
 where
     P: BlockPyPass,
-    P::Expr: BlockPySemanticExprNode,
+    P::Expr: ScopeExprNode,
 {
     let normalize_capture_name = |name: &str| {
         callable_def
-            .semantic
+            .scope
             .logical_name_for_cell_capture_source(name)
-            .or_else(|| callable_def.semantic.logical_name_for_cell_storage(name))
+            .or_else(|| callable_def.scope.logical_name_for_cell_storage(name))
             .unwrap_or_else(|| name.to_string())
     };
 
     let param_names = callable_def.params.names();
-    let owned_cell_slot_names = callable_def.semantic.owned_cell_storage_names();
+    let owned_cell_slot_names = callable_def.scope.owned_cell_storage_names();
     let param_name_set = param_names.iter().cloned().collect::<HashSet<_>>();
 
-    let mut collector = StorageLayoutSemanticCollector::default();
+    let mut collector = StorageLayoutScopeCollector::default();
     collector.visit_fn(callable_def);
 
     let mut capture_bindings = callable_def
-        .semantic
+        .scope
         .captured_cell_bindings()
         .into_iter()
         .map(|binding| {
             let logical_name = normalize_capture_name(binding.logical_name.as_str());
-            BlockPyCellCaptureBinding {
+            CellCaptureBinding {
                 source_name: callable_def
-                    .semantic
+                    .scope
                     .cell_capture_source_name(logical_name.as_str()),
                 logical_name,
             }
@@ -861,14 +861,14 @@ where
             .filter(|logical_name| {
                 !owned_cell_slot_names.contains(
                     callable_def
-                        .semantic
+                        .scope
                         .cell_capture_source_name(logical_name.as_str())
                         .as_str(),
                 )
             })
-            .map(|logical_name| BlockPyCellCaptureBinding {
+            .map(|logical_name| CellCaptureBinding {
                 source_name: callable_def
-                    .semantic
+                    .scope
                     .cell_capture_source_name(logical_name.as_str()),
                 logical_name,
             }),
@@ -883,14 +883,14 @@ where
     capture_bindings
 }
 
-pub(crate) fn compute_storage_layout_from_semantics<P>(
+pub(crate) fn compute_storage_layout_from_scope<P>(
     callable_def: &BlockPyFunction<P>,
 ) -> Option<StorageLayout>
 where
     P: BlockPyPass,
-    P::Expr: BlockPySemanticExprNode,
+    P::Expr: ScopeExprNode,
 {
-    let owned_cell_slot_names = callable_def.semantic.owned_cell_storage_names();
+    let owned_cell_slot_names = callable_def.scope.owned_cell_storage_names();
     let mut local_cell_slots = owned_cell_slot_names.iter().cloned().collect::<Vec<_>>();
     local_cell_slots.sort();
     let param_name_set = callable_def
@@ -899,7 +899,7 @@ where
         .into_iter()
         .collect::<HashSet<_>>();
 
-    let capture_names = compute_make_function_capture_bindings_from_semantics(callable_def)
+    let capture_names = compute_make_function_capture_bindings_from_scope(callable_def)
         .into_iter()
         .map(|binding| binding.logical_name)
         .collect::<Vec<_>>();
@@ -927,7 +927,7 @@ where
         .iter()
         .filter(|storage_name| {
             let logical_name = callable_def
-                .semantic
+                .scope
                 .logical_name_for_cell_storage(storage_name.as_str())
                 .unwrap_or_else(|| (*storage_name).clone());
             !is_runtime_closure_name(logical_name.as_str())
@@ -944,7 +944,7 @@ where
         .map(|logical_name| ClosureSlot {
             logical_name: logical_name.clone(),
             storage_name: callable_def
-                .semantic
+                .scope
                 .cell_storage_name(logical_name.as_str()),
             init: ClosureInit::InheritedCapture,
         })
@@ -953,7 +953,7 @@ where
         .into_iter()
         .map(|storage_name| {
             let logical_name = callable_def
-                .semantic
+                .scope
                 .logical_name_for_cell_storage(storage_name.as_str())
                 .unwrap_or_else(|| storage_name.clone());
             let init = if param_name_set.contains(logical_name.as_str()) {

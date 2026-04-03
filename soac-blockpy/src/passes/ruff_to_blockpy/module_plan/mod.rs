@@ -1,6 +1,6 @@
 use crate::block_py::param_specs::{collect_param_spec_and_defaults, param_defaults_to_expr};
 use crate::block_py::{
-    BlockPyBindingKind, BlockPyCallableSemanticInfo, BlockPyCellBindingKind, BlockPyFunction,
+    BindingKind, CallableScopeInfo, CellBindingKind, BlockPyFunction,
     BlockPyModule, BlockPyPass, FunctionKind, FunctionNameGen, ModuleNameGen,
 };
 use crate::passes::ast_to_ast::body::{split_docstring, Suite};
@@ -13,12 +13,12 @@ use crate::{py_expr, py_stmt, py_stmt_typed};
 use ruff_python_ast::{self as ast, Expr, Stmt};
 
 use super::build_core_blockpy_callable_def_from_runtime_input;
-mod callable_semantic;
-use callable_semantic::callable_semantic_info;
+mod callable_scope;
+use callable_scope::callable_scope_info;
 
 struct FunctionScopeFrame {
     scope: Option<SemanticScope>,
-    callable_semantic: BlockPyCallableSemanticInfo,
+    callable_scope: CallableScopeInfo,
     hoisted_to_parent: Vec<Stmt>,
 }
 
@@ -31,7 +31,7 @@ struct BlockPyModuleRewriter<'a, P: BlockPyPass> {
     lower_function_to_blockpy: fn(
         &Context,
         &ast::StmtFunctionDef,
-        &BlockPyCallableSemanticInfo,
+        &CallableScopeInfo,
         FunctionNameGen,
     ) -> BlockPyFunction<P>,
 }
@@ -105,7 +105,7 @@ fn function_kind(func: &ast::StmtFunctionDef) -> FunctionKind {
 fn try_lower_function_to_core_blockpy_bundle(
     context: &Context,
     func: &ast::StmtFunctionDef,
-    callable_semantic: &BlockPyCallableSemanticInfo,
+    callable_scope: &CallableScopeInfo,
     name_gen: FunctionNameGen,
 ) -> BlockPyFunction<CoreBlockPyPassWithAwaitAndYield> {
     let (docstring, lowered_input_body) = split_docstring(&func.body);
@@ -117,13 +117,13 @@ fn try_lower_function_to_core_blockpy_bundle(
     build_core_blockpy_callable_def_from_runtime_input(
         context,
         name_gen,
-        callable_semantic.names.clone(),
+        callable_scope.names.clone(),
         param_spec,
         &lowered_input_body,
         docstring,
         end_label,
         function_kind(func),
-        callable_semantic,
+        callable_scope,
     )
 }
 
@@ -157,19 +157,19 @@ fn rewrite_function_def_stmt_via_blockpy_with_pass<P: BlockPyPass>(
     context: &Context,
     parent_hoisted: &mut Vec<Stmt>,
     func: &mut ast::StmtFunctionDef,
-    callable_semantic: &BlockPyCallableSemanticInfo,
+    callable_scope: &CallableScopeInfo,
     function_hoisted: Vec<Stmt>,
     module_name_gen: &mut ModuleNameGen,
     callable_defs: &mut Vec<BlockPyFunction<P>>,
     lower_function_to_blockpy: fn(
         &Context,
         &ast::StmtFunctionDef,
-        &BlockPyCallableSemanticInfo,
+        &CallableScopeInfo,
         FunctionNameGen,
     ) -> BlockPyFunction<P>,
 ) -> Vec<Stmt> {
     let name_gen = module_name_gen.next_function_name_gen();
-    let lowered_plan = lower_function_to_blockpy(context, func, callable_semantic, name_gen);
+    let lowered_plan = lower_function_to_blockpy(context, func, callable_scope, name_gen);
     let bind_name = lowered_plan.names.bind_name.clone();
     let (_, param_defaults) = collect_param_spec_and_defaults(&func.parameters);
     let decorated = build_lowered_function_instantiation_expr(
@@ -217,15 +217,15 @@ def {func:id}():
 
         let state = self.walk_function_def_with_explicit_scope(&mut func_def, Some(lambda_scope));
         if let Some(parent_frame) = self.function_scope_stack.last_mut() {
-            for (name, binding) in &state.callable_semantic.bindings {
+            for (name, binding) in &state.callable_scope.bindings {
                 if matches!(
                     binding,
-                    BlockPyBindingKind::Cell(BlockPyCellBindingKind::Capture)
-                ) && parent_frame.callable_semantic.local_defs.contains(name)
+                    BindingKind::Cell(CellBindingKind::Capture)
+                ) && parent_frame.callable_scope.local_defs.contains(name)
                 {
-                    parent_frame.callable_semantic.insert_binding(
+                    parent_frame.callable_scope.insert_binding(
                         name.clone(),
-                        BlockPyBindingKind::Cell(BlockPyCellBindingKind::Owner),
+                        BindingKind::Cell(CellBindingKind::Owner),
                         false,
                         None,
                     );
@@ -236,7 +236,7 @@ def {func:id}():
         let lowered_plan = (self.lower_function_to_blockpy)(
             self.context,
             &func_def,
-            &state.callable_semantic,
+            &state.callable_scope,
             self.module_name_gen.next_function_name_gen(),
         );
         let (_, param_defaults) = collect_param_spec_and_defaults(&func_def.parameters);
@@ -289,7 +289,7 @@ def {func:id}():
             .last()
             .and_then(|frame| frame.scope.as_ref())
             .cloned();
-        let callable_semantic = callable_semantic_info(
+        let callable_scope = callable_scope_info(
             &self.semantic_state,
             parent_scope.as_ref(),
             function_scope.as_ref(),
@@ -298,7 +298,7 @@ def {func:id}():
         );
         self.function_scope_stack.push(FunctionScopeFrame {
             scope: function_scope.clone(),
-            callable_semantic,
+            callable_scope,
             hoisted_to_parent: Vec::new(),
         });
         self.visit_body(&mut func.body);
@@ -316,7 +316,7 @@ def {func:id}():
         let lowered_plan = (self.lower_function_to_blockpy)(
             self.context,
             func,
-            &state.callable_semantic,
+            &state.callable_scope,
             self.module_name_gen.next_function_name_gen(),
         );
         self.callable_defs.push(lowered_plan);
@@ -336,7 +336,7 @@ def {func:id}():
             self.context,
             parent_hoisted,
             func,
-            &state.callable_semantic,
+            &state.callable_scope,
             state.hoisted_to_parent,
             &mut self.module_name_gen,
             &mut self.callable_defs,

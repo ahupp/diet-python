@@ -3,7 +3,7 @@ use crate::block_py::cfg::{
 };
 use crate::block_py::param_specs::ParamSpec;
 use crate::block_py::{
-    assert_blockpy_block_normalized, Block, BlockEdge, BlockLabel, BlockPyCallableSemanticInfo,
+    assert_blockpy_block_normalized, Block, BlockEdge, BlockLabel, CallableScopeInfo,
     BlockPyFallthroughTerm, BlockPyFunction, BlockPyModule, BlockTerm, FunctionKind, FunctionName,
     FunctionNameGen, Instr, StructuredInstr,
 };
@@ -136,7 +136,7 @@ pub(crate) fn build_core_blockpy_callable_def_from_runtime_input(
     doc: Option<String>,
     end_label: BlockLabel,
     blockpy_kind: FunctionKind,
-    semantic: &BlockPyCallableSemanticInfo,
+    scope: &CallableScopeInfo,
 ) -> BlockPyFunction<CoreBlockPyPassWithAwaitAndYield> {
     let function_id = name_gen.function_id();
     let mut blocks = Vec::new();
@@ -188,7 +188,7 @@ pub(crate) fn build_core_blockpy_callable_def_from_runtime_input(
         blocks,
         doc,
         storage_layout: None,
-        semantic: semantic.clone(),
+        scope: scope.clone(),
     }
 }
 
