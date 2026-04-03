@@ -761,37 +761,6 @@ impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
     }
 }
 
-impl<I: Instr> Walkable<I> for BlockPyLiteral {
-    fn walk_map(self, _f: &mut impl FnMut(I) -> I) -> Self {
-        self
-    }
-
-    fn walk_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
-}
-
-impl<I: Instr> InstrExprNode<I> for BlockPyLiteral {
-    type Mapped<T: Instr> = BlockPyLiteral;
-
-    fn map_typed_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
-    where
-        T: Instr,
-        InstrName<T>: From<InstrName<I>>,
-    {
-        self
-    }
-
-    fn try_map_typed_children<T, Error>(
-        self,
-        _f: &mut impl FnMut(I) -> Result<T, Error>,
-    ) -> Result<Self::Mapped<T>, Error>
-    where
-        T: Instr,
-        InstrName<T>: From<InstrName<I>>,
-    {
-        Ok(self)
-    }
-}
-
 #[derive(Clone)]
 pub struct CoreStringLiteral {
     pub value: String,
