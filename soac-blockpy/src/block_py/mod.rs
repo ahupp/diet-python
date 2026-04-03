@@ -922,7 +922,7 @@ pub(crate) fn runtime_symbol(name: &str) -> UnresolvedName {
 }
 
 #[derive(Debug, Clone)]
-pub enum CoreBlockPyCallArg<E = CoreBlockPyExprWithAwaitAndYield> {
+pub enum CoreBlockPyCallArg<E> {
     Positional(E),
     Starred(E),
 }
@@ -959,7 +959,7 @@ impl<E> CoreBlockPyCallArg<E> {
 }
 
 #[derive(Debug, Clone)]
-pub enum CoreBlockPyKeywordArg<E = CoreBlockPyExprWithAwaitAndYield> {
+pub enum CoreBlockPyKeywordArg<E> {
     Named { arg: ast::Identifier, value: E },
     Starred(E),
 }
