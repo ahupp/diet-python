@@ -1,6 +1,6 @@
 use super::{
-    lower_structured_blocks_to_bb_blocks, rewrite_current_exception_in_blockpy_expr,
-    rewrite_current_exception_in_blockpy_term,
+    lower_structured_blocks_to_bb_blocks, rewrite_current_exception_in_expr,
+    rewrite_current_exception_in_term,
 };
 use crate::block_py::{
     Block, BlockLabel, BlockParam, BlockParamRole, BlockPyNameLike, BlockPyStmtBuilder, BlockTerm,
@@ -64,7 +64,7 @@ fn rewrite_current_exception_in_core_blocks_structured(
         for stmt in &mut block.body {
             rewrite_current_exception_in_blockpy_stmt(stmt, exc_name.as_str());
         }
-        rewrite_current_exception_in_blockpy_term(&mut block.term, exc_name.as_str());
+        rewrite_current_exception_in_term(&mut block.term, exc_name.as_str());
     }
 }
 
@@ -74,21 +74,21 @@ fn rewrite_current_exception_in_blockpy_stmt(
 ) {
     match stmt {
         StructuredInstr::Expr(expr) => {
-            rewrite_current_exception_in_blockpy_expr(expr, exc_name);
+            rewrite_current_exception_in_expr(expr, exc_name);
         }
         StructuredInstr::If(if_stmt) => {
-            rewrite_current_exception_in_blockpy_expr(&mut if_stmt.test, exc_name);
+            rewrite_current_exception_in_expr(&mut if_stmt.test, exc_name);
             for stmt in &mut if_stmt.body.body {
                 rewrite_current_exception_in_blockpy_stmt(stmt, exc_name);
             }
             if let Some(term) = if_stmt.body.term.as_mut() {
-                rewrite_current_exception_in_blockpy_term(term, exc_name);
+                rewrite_current_exception_in_term(term, exc_name);
             }
             for stmt in &mut if_stmt.orelse.body {
                 rewrite_current_exception_in_blockpy_stmt(stmt, exc_name);
             }
             if let Some(term) = if_stmt.orelse.term.as_mut() {
-                rewrite_current_exception_in_blockpy_term(term, exc_name);
+                rewrite_current_exception_in_term(term, exc_name);
             }
         }
     }
