@@ -680,9 +680,9 @@ fn term_yield_site(term: &BlockTerm<CoreBlockPyExprWithYield>) -> Option<YieldSi
 }
 
 fn lower_stmt_no_yield(stmt: LinearYieldStmt) -> LinearCoreStmt {
-    ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield>::without_yield()
-        .try_map_expr(stmt.clone())
-        .unwrap_or_else(|_| {
+    let mut mapper =
+        ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield>::without_yield();
+    mapper.try_map_expr(stmt.clone()).unwrap_or_else(|_| {
             panic!(
                 "generator lowering expected yield-like sites to be split before stmt conversion: {stmt:?}"
             )
@@ -690,9 +690,9 @@ fn lower_stmt_no_yield(stmt: LinearYieldStmt) -> LinearCoreStmt {
 }
 
 fn lower_term_no_yield(term: BlockTerm<CoreBlockPyExprWithYield>) -> BlockTerm<CoreBlockPyExpr> {
-    ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield>::without_yield()
-        .try_map_term(term.clone())
-        .unwrap_or_else(|_| {
+    let mut mapper =
+        ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield>::without_yield();
+    mapper.try_map_term(term.clone()).unwrap_or_else(|_| {
         panic!(
             "generator lowering expected yield-like sites to be split before term conversion: {term:?}"
         )

@@ -66,7 +66,7 @@ macro_rules! define_operation {
             fn map_walk(self, f: &mut impl FnMut($expr_ty) -> $expr_ty) -> Self {
                 #[allow(unused_variables)]
                 let _ = &f;
-                define_operation!(@build_mapped [$name::<$expr_ty>] [] self, f, $($raw_fields)*)
+                define_operation!(@build_walked [$name::<$expr_ty>] [] self, f, $($raw_fields)*)
             }
 
             fn walk_mut(&mut self, f: &mut impl FnMut(&mut $expr_ty)) {
@@ -85,27 +85,27 @@ macro_rules! define_operation {
         impl<$expr_ty: Instr> InstrExprNode<$expr_ty> for $name<$expr_ty> {
             type Mapped<T: Instr> = $name<T>;
 
-            fn map_typed_children<T>(self, f: &mut impl FnMut($expr_ty) -> T) -> Self::Mapped<T>
+            fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
             where
                 T: Instr,
-                InstrName<T>: From<InstrName<$expr_ty>>,
+                M: MapExpr<$expr_ty, T>,
             {
                 #[allow(unused_variables)]
-                let _ = &f;
-                define_operation!(@build_mapped [$name::<T>] [] self, f, $($raw_fields)*)
+                let _ = &map;
+                define_operation!(@build_mapped [$name::<T>] [] self, map, $($raw_fields)*)
             }
 
-            fn try_map_typed_children<T, Error>(
+            fn try_map_typed_children<T, Error, M>(
                 self,
-                f: &mut impl FnMut($expr_ty) -> Result<T, Error>,
+                map: &mut M,
             ) -> Result<Self::Mapped<T>, Error>
             where
                 T: Instr,
-                InstrName<T>: From<InstrName<$expr_ty>>,
+                M: TryMapExpr<$expr_ty, T, Error>,
             {
                 #[allow(unused_variables)]
-                let _ = &f;
-                define_operation!(@build_try_mapped [$name::<T>] [] self, f, $($raw_fields)*)
+                let _ = &map;
+                define_operation!(@build_try_mapped [$name::<T>] [] self, map, $($raw_fields)*)
             }
         }
     };
@@ -188,24 +188,24 @@ macro_rules! define_operation {
         impl<E: Instr> InstrExprNode<E> for $name {
             type Mapped<T: Instr> = $name;
 
-            fn map_typed_children<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
+            fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
             where
                 T: Instr,
-                InstrName<T>: From<InstrName<E>>,
+                M: MapExpr<E, T>,
             {
-                let _ = &f;
+                let _ = &map;
                 self
             }
 
-            fn try_map_typed_children<T, Error>(
+            fn try_map_typed_children<T, Error, M>(
                 self,
-                f: &mut impl FnMut(E) -> Result<T, Error>,
+                map: &mut M,
             ) -> Result<Self::Mapped<T>, Error>
             where
                 T: Instr,
-                InstrName<T>: From<InstrName<E>>,
+                M: TryMapExpr<E, T, Error>,
             {
-                let _ = &f;
+                let _ = &map;
                 Ok(self)
             }
         }
@@ -386,9 +386,12 @@ macro_rules! define_operation {
     (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident,) => {
         $($mapped_ctor)+ { _meta: $self._meta, $($out)* }
     };
-    (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
+    (@build_walked [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident,) => {
+        $($mapped_ctor)+ { _meta: $self._meta, $($out)* }
+    };
+    (@build_walked [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
         define_operation!(
-            @build_mapped
+            @build_walked
             [$($mapped_ctor)+]
             [$($out)* $field: Box::new($f(*$self.$field)),]
             $self,
@@ -396,8 +399,34 @@ macro_rules! define_operation {
             $($rest)*
         )
     };
-    (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>) => {
+    (@build_walked [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>) => {
         $($mapped_ctor)+ { _meta: $self._meta, $($out)* $field: Box::new($f(*$self.$field)), }
+    };
+    (@build_walked [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
+        define_operation!(
+            @build_walked
+            [$($mapped_ctor)+]
+            [$($out)* $field: $self.$field,]
+            $self,
+            $f,
+            $($rest)*
+        )
+    };
+    (@build_walked [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : $ty:ty) => {
+        $($mapped_ctor)+ { _meta: $self._meta, $($out)* $field: $self.$field, }
+    };
+    (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $map:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
+        define_operation!(
+            @build_mapped
+            [$($mapped_ctor)+]
+            [$($out)* $field: Box::new($map.map_expr(*$self.$field)),]
+            $self,
+            $map,
+            $($rest)*
+        )
+    };
+    (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $map:ident, $field:ident : Box<$expr_ty:ident>) => {
+        $($mapped_ctor)+ { _meta: $self._meta, $($out)* $field: Box::new($map.map_expr(*$self.$field)), }
     };
     (@build_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
         define_operation!(
@@ -415,18 +444,18 @@ macro_rules! define_operation {
     (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident,) => {
         Ok($($mapped_ctor)+ { _meta: $self._meta, $($out)* })
     };
-    (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
+    (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $map:ident, $field:ident : Box<$expr_ty:ident>, $($rest:tt)*) => {
         define_operation!(
             @build_try_mapped
             [$($mapped_ctor)+]
-            [$($out)* $field: Box::new($f(*$self.$field)?),]
+            [$($out)* $field: Box::new($map.try_map_expr(*$self.$field)?),]
             $self,
-            $f,
+            $map,
             $($rest)*
         )
     };
-    (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : Box<$expr_ty:ident>) => {
-        Ok($($mapped_ctor)+ { _meta: $self._meta, $($out)* $field: Box::new($f(*$self.$field)?), })
+    (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $map:ident, $field:ident : Box<$expr_ty:ident>) => {
+        Ok($($mapped_ctor)+ { _meta: $self._meta, $($out)* $field: Box::new($map.try_map_expr(*$self.$field)?), })
     };
     (@build_try_mapped [$($mapped_ctor:tt)+] [$($out:tt)*] $self:ident, $f:ident, $field:ident : $ty:ty, $($rest:tt)*) => {
         define_operation!(

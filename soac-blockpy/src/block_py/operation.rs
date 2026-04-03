@@ -1,7 +1,8 @@
 use super::operation_macro::define_operation;
 use super::{
     BlockPyFunctionKind, BlockPyNameLike, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg,
-    FunctionId, HasMeta, Instr, InstrExprNode, InstrName, Meta, Walkable, WithMeta,
+    FunctionId, HasMeta, Instr, InstrExprNode, InstrName, MapExpr, Meta, TryMapExpr, Walkable,
+    WithMeta,
 };
 use std::fmt;
 
@@ -173,47 +174,47 @@ impl<E: Instr> Walkable<E> for Call<E> {
 impl<E: Instr> InstrExprNode<E> for Call<E> {
     type Mapped<T: Instr> = Call<T>;
 
-    fn map_typed_children<T>(self, f: &mut impl FnMut(E) -> T) -> Self::Mapped<T>
+    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
-        InstrName<T>: From<InstrName<E>>,
+        M: MapExpr<E, T>,
     {
         Call {
             _meta: self._meta,
-            func: Box::new(f(*self.func)),
+            func: Box::new(map.map_expr(*self.func)),
             args: self
                 .args
                 .into_iter()
-                .map(|arg| arg.map_expr(&mut *f))
+                .map(|arg| arg.map_expr(|expr| map.map_expr(expr)))
                 .collect(),
             keywords: self
                 .keywords
                 .into_iter()
-                .map(|keyword| keyword.map_expr(&mut *f))
+                .map(|keyword| keyword.map_expr(|expr| map.map_expr(expr)))
                 .collect(),
         }
     }
 
-    fn try_map_typed_children<T, Error>(
+    fn try_map_typed_children<T, Error, M>(
         self,
-        f: &mut impl FnMut(E) -> Result<T, Error>,
+        map: &mut M,
     ) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
-        InstrName<T>: From<InstrName<E>>,
+        M: TryMapExpr<E, T, Error>,
     {
         Ok(Call {
             _meta: self._meta,
-            func: Box::new(f(*self.func)?),
+            func: Box::new(map.try_map_expr(*self.func)?),
             args: self
                 .args
                 .into_iter()
-                .map(|arg| arg.try_map_expr(&mut *f))
+                .map(|arg| arg.try_map_expr(|expr| map.try_map_expr(expr)))
                 .collect::<Result<Vec<_>, _>>()?,
             keywords: self
                 .keywords
                 .into_iter()
-                .map(|keyword| keyword.try_map_expr(&mut *f))
+                .map(|keyword| keyword.try_map_expr(|expr| map.try_map_expr(expr)))
                 .collect::<Result<Vec<_>, _>>()?,
         })
     }
@@ -303,28 +304,28 @@ impl<I: Instr> Walkable<I> for Load<I> {
 impl<I: Instr> InstrExprNode<I> for Load<I> {
     type Mapped<T: Instr> = Load<T>;
 
-    fn map_typed_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
-        InstrName<T>: From<InstrName<I>>,
+        M: MapExpr<I, T>,
     {
         Load {
             _meta: self._meta,
-            name: <T as Instr>::Name::from(self.name),
+            name: map.map_name(self.name),
         }
     }
 
-    fn try_map_typed_children<T, Error>(
+    fn try_map_typed_children<T, Error, M>(
         self,
-        _f: &mut impl FnMut(I) -> Result<T, Error>,
+        map: &mut M,
     ) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
-        InstrName<T>: From<InstrName<I>>,
+        M: TryMapExpr<I, T, Error>,
     {
         Ok(Load {
             _meta: self._meta,
-            name: <T as Instr>::Name::from(self.name),
+            name: map.try_map_name(self.name)?,
         })
     }
 }
@@ -395,30 +396,30 @@ impl<I: Instr> Walkable<I> for Store<I> {
 impl<I: Instr> InstrExprNode<I> for Store<I> {
     type Mapped<T: Instr> = Store<T>;
 
-    fn map_typed_children<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
-        InstrName<T>: From<InstrName<I>>,
+        M: MapExpr<I, T>,
     {
         Store {
             _meta: self._meta,
-            name: <T as Instr>::Name::from(self.name),
-            value: Box::new(f(*self.value)),
+            name: map.map_name(self.name),
+            value: Box::new(map.map_expr(*self.value)),
         }
     }
 
-    fn try_map_typed_children<T, Error>(
+    fn try_map_typed_children<T, Error, M>(
         self,
-        f: &mut impl FnMut(I) -> Result<T, Error>,
+        map: &mut M,
     ) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
-        InstrName<T>: From<InstrName<I>>,
+        M: TryMapExpr<I, T, Error>,
     {
         Ok(Store {
             _meta: self._meta,
-            name: <T as Instr>::Name::from(self.name),
-            value: Box::new(f(*self.value)?),
+            name: map.try_map_name(self.name)?,
+            value: Box::new(map.try_map_expr(*self.value)?),
         })
     }
 }
@@ -475,29 +476,29 @@ impl<I: Instr> Walkable<I> for Del<I> {
 impl<I: Instr> InstrExprNode<I> for Del<I> {
     type Mapped<T: Instr> = Del<T>;
 
-    fn map_typed_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
-        InstrName<T>: From<InstrName<I>>,
+        M: MapExpr<I, T>,
     {
         Del {
             _meta: self._meta,
-            name: <T as Instr>::Name::from(self.name),
+            name: map.map_name(self.name),
             quietly: self.quietly,
         }
     }
 
-    fn try_map_typed_children<T, Error>(
+    fn try_map_typed_children<T, Error, M>(
         self,
-        _f: &mut impl FnMut(I) -> Result<T, Error>,
+        map: &mut M,
     ) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
-        InstrName<T>: From<InstrName<I>>,
+        M: TryMapExpr<I, T, Error>,
     {
         Ok(Del {
             _meta: self._meta,
-            name: <T as Instr>::Name::from(self.name),
+            name: map.try_map_name(self.name)?,
             quietly: self.quietly,
         })
     }

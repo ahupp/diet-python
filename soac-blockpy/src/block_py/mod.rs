@@ -196,12 +196,14 @@ impl From<RuffExpr> for ast::Expr {
     }
 }
 
-pub trait MapExpr<In, Out> {
-    fn map_expr(&self, expr: In) -> Out;
+pub trait MapExpr<In: Instr, Out: Instr> {
+    fn map_expr(&mut self, expr: In) -> Out;
+    fn map_name(&mut self, name: In::Name) -> Out::Name;
 }
 
-pub trait TryMapExpr<In, Out, Error> {
-    fn try_map_expr(&self, expr: In) -> Result<Out, Error>;
+pub trait TryMapExpr<In: Instr, Out: Instr, Error> {
+    fn try_map_expr(&mut self, expr: In) -> Result<Out, Error>;
+    fn try_map_name(&mut self, name: In::Name) -> Result<Out::Name, Error>;
 }
 
 pub trait Walkable<E>: Clone + fmt::Debug + Sized {
@@ -245,17 +247,17 @@ where
 {
     type Mapped<T: Instr>;
 
-    fn map_typed_children<T>(self, f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
-        InstrName<T>: From<InstrName<I>>;
-    fn try_map_typed_children<T, Error>(
+        M: MapExpr<I, T>;
+    fn try_map_typed_children<T, Error, M>(
         self,
-        f: &mut impl FnMut(I) -> Result<T, Error>,
+        map: &mut M,
     ) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
-        InstrName<T>: From<InstrName<I>>;
+        M: TryMapExpr<I, T, Error>;
 }
 
 impl BlockPyNameLike for ast::ExprName {
@@ -736,23 +738,23 @@ impl<I: Instr> Walkable<I> for UnresolvedName {
 impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
     type Mapped<T: Instr> = InstrName<T>;
 
-    fn map_typed_children<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
+    fn map_typed_children<T, M>(self, map: &mut M) -> Self::Mapped<T>
     where
         T: Instr,
-        InstrName<T>: From<InstrName<I>>,
+        M: MapExpr<I, T>,
     {
-        <T as Instr>::Name::from(self)
+        map.map_name(self)
     }
 
-    fn try_map_typed_children<T, Error>(
+    fn try_map_typed_children<T, Error, M>(
         self,
-        _f: &mut impl FnMut(I) -> Result<T, Error>,
+        map: &mut M,
     ) -> Result<Self::Mapped<T>, Error>
     where
         T: Instr,
-        InstrName<T>: From<InstrName<I>>,
+        M: TryMapExpr<I, T, Error>,
     {
-        Ok(<T as Instr>::Name::from(self))
+        map.try_map_name(self)
     }
 }
 

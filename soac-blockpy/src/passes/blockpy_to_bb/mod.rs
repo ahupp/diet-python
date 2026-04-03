@@ -27,12 +27,13 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
         match callable.kind {
             BlockPyFunctionKind::Function => {
                 let qualname = callable.names.qualname.clone();
+                let mut mapper = ExprTryMap::<
+                    CoreBlockPyPassWithYield,
+                    CoreBlockPyPass,
+                    crate::block_py::CoreBlockPyExprWithYield,
+                >::without_yield();
                 callable_defs.push(
-                    ExprTryMap::<
-                        CoreBlockPyPassWithYield,
-                        CoreBlockPyPass,
-                        crate::block_py::CoreBlockPyExprWithYield,
-                    >::without_yield()
+                    mapper
                         .try_map_fn(callable)
                         .unwrap_or_else(|_| {
                             panic!(

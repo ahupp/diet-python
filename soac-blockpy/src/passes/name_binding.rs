@@ -981,7 +981,7 @@ impl NameBindingMapper<'_> {
     }
 
     fn materialize_make_function_expr(
-        &self,
+        &mut self,
         meta: crate::block_py::Meta,
         op: MakeFunction<CoreBlockPyExpr>,
     ) -> CoreBlockPyExpr {
@@ -1077,7 +1077,7 @@ fn rewrite_binding_assign_by_name(
 }
 
 impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
-    fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
+    fn map_expr(&mut self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr {
         if let Some(name) = quiet_delete_marker_target(&expr) {
             return rewrite_quiet_delete_marker(name, expr.meta(), self.semantic, self);
         }
@@ -1170,6 +1170,10 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
             }
             other => other.map_walk(&mut |child| self.map_expr(child)).into(),
         }
+    }
+
+    fn map_name(&mut self, name: UnresolvedName) -> UnresolvedName {
+        name
     }
 }
 
@@ -2069,7 +2073,7 @@ impl NameLocator<'_> {
 }
 
 impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_> {
-    fn map_expr(&self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr<LocatedName> {
+    fn map_expr(&mut self, expr: CoreBlockPyExpr) -> CoreBlockPyExpr<LocatedName> {
         match expr {
             CoreBlockPyExpr::Literal(literal) => CoreBlockPyExpr::Literal(literal),
             CoreBlockPyExpr::Load(op) => {
@@ -2110,7 +2114,7 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_> 
             }
             CoreBlockPyExpr::Call(call) => {
                 let meta = call.meta();
-                let call = call.map_typed_children(&mut |expr| self.map_expr(expr));
+                let call = call.map_typed_children(self);
                 if raw_load_name(call.func.as_ref())
                     .as_ref()
                     .is_some_and(|name| name == "class_lookup_cell")
@@ -2128,43 +2132,25 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_> 
                 }
                 call.with_meta(meta).into()
             }
-            CoreBlockPyExpr::BinOp(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            CoreBlockPyExpr::UnaryOp(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            CoreBlockPyExpr::GetAttr(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            CoreBlockPyExpr::SetAttr(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            CoreBlockPyExpr::GetItem(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            CoreBlockPyExpr::SetItem(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            CoreBlockPyExpr::DelItem(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            CoreBlockPyExpr::MakeCell(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
+            CoreBlockPyExpr::BinOp(node) => node.map_typed_children(self).into(),
+            CoreBlockPyExpr::UnaryOp(node) => node.map_typed_children(self).into(),
+            CoreBlockPyExpr::GetAttr(node) => node.map_typed_children(self).into(),
+            CoreBlockPyExpr::SetAttr(node) => node.map_typed_children(self).into(),
+            CoreBlockPyExpr::GetItem(node) => node.map_typed_children(self).into(),
+            CoreBlockPyExpr::SetItem(node) => node.map_typed_children(self).into(),
+            CoreBlockPyExpr::DelItem(node) => node.map_typed_children(self).into(),
+            CoreBlockPyExpr::MakeCell(node) => node.map_typed_children(self).into(),
             CoreBlockPyExpr::CellRef(node) => node.into(),
-            CoreBlockPyExpr::MakeFunction(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
+            CoreBlockPyExpr::MakeFunction(node) => node.map_typed_children(self).into(),
         }
     }
-}
 
-impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocator<'_> {
-    fn map_name(&self, name: UnresolvedName) -> LocatedName {
+    fn map_name(&mut self, name: UnresolvedName) -> LocatedName {
         self.locate_unresolved_name(name)
     }
 }
+
+impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocator<'_> {}
 
 fn locate_names_in_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
@@ -2179,15 +2165,15 @@ fn locate_names_in_callable(
     let captured_cell_slots = collect_captured_cell_slot_locations(&callable);
     let owned_cell_slots = collect_owned_cell_slot_locations(&callable);
     let cell_bindings = collect_cell_bindings(&callable);
-    NameLocator {
+    let mut mapper = NameLocator {
         semantic: &semantic,
         exception_param_names,
         local_slots,
         captured_cell_slots,
         owned_cell_slots,
         cell_bindings,
-    }
-    .map_fn(callable)
+    };
+    mapper.map_fn(callable)
 }
 
 fn collect_make_function_callee_ids_in_expr(expr: &CoreBlockPyExpr, out: &mut Vec<FunctionId>) {
@@ -2654,7 +2640,7 @@ fn lower_name_binding_callable(
     let captured_cell_slots = collect_captured_cell_slot_locations(&callable);
     let owned_cell_slots = collect_owned_cell_slot_locations(&callable);
     let cell_bindings = collect_cell_bindings(&callable);
-    let mapper = NameBindingMapper {
+    let mut mapper = NameBindingMapper {
         semantic: &semantic,
         callee_make_function_captures,
         local_slots: local_slots.clone(),

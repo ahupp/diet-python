@@ -319,13 +319,12 @@ fn stmt_conversion_to_no_await_rejects_await() {
         CoreBlockPyAwait::new(core_load_with_await_and_yield("x")).with_meta(Meta::default()),
     );
 
-    assert!(ExprTryMap::<
+    let mut mapper = ExprTryMap::<
         CoreBlockPyPassWithAwaitAndYield,
         CoreBlockPyPassWithYield,
         CoreBlockPyExprWithAwaitAndYield,
-    >::new(try_lower_core_expr_without_await)
-    .try_map_expr(stmt)
-    .is_err());
+    >::new(try_lower_core_expr_without_await);
+    assert!(mapper.try_map_expr(stmt).is_err());
 }
 
 #[test]
@@ -340,10 +339,17 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
         > for RejectAwaitMapper
     {
         fn try_map_expr(
-            &self,
+            &mut self,
             expr: CoreBlockPyExprWithAwaitAndYield,
         ) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield> {
             try_lower_core_expr_without_await(expr)
+        }
+
+        fn try_map_name(
+            &mut self,
+            name: UnresolvedName,
+        ) -> Result<UnresolvedName, CoreBlockPyExprWithAwaitAndYield> {
+            Ok(name)
         }
     }
 
@@ -374,7 +380,8 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
         semantic: BlockPyCallableSemanticInfo::default(),
     };
 
-    assert!(RejectAwaitMapper.try_map_fn(function).is_err());
+    let mut mapper = RejectAwaitMapper;
+    assert!(mapper.try_map_fn(function).is_err());
 }
 
 #[test]
@@ -391,9 +398,7 @@ fn term_conversion_to_no_yield_rejects_nested_yield() {
         Vec::new(),
     ));
 
-    assert!(
-        ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield>::without_yield()
-            .try_map_term(term)
-            .is_err()
-    );
+    let mut mapper =
+        ExprTryMap::<CoreBlockPyPassWithYield, CoreBlockPyPass, CoreBlockPyExprWithYield>::without_yield();
+    assert!(mapper.try_map_term(term).is_err());
 }

@@ -3,42 +3,41 @@ use crate::block_py::{
     LiteralValue, Load, LocatedCoreBlockPyExpr, LocatedName, MapExpr, NameLocation, WithMeta,
 };
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
-use std::cell::RefCell;
 
 pub fn normalize_bb_module_strings(
     module: &BlockPyModule<ResolvedStorageBlockPyPass>,
 ) -> BlockPyModule<CodegenBlockPyPass> {
-    let normalizer = CodegenExprNormalizer::default();
+    let mut normalizer = CodegenExprNormalizer::default();
     let module = module.clone();
     let mut module_constants = module.module_constants;
-    module_constants.extend(normalizer.module_constants.borrow().iter().cloned());
+    let callable_defs = module
+        .callable_defs
+        .into_iter()
+        .map(|function| normalizer.map_fn(function))
+        .collect::<Vec<BlockPyFunction<CodegenBlockPyPass>>>();
+    module_constants.extend(normalizer.module_constants);
     BlockPyModule {
-        callable_defs: module
-            .callable_defs
-            .into_iter()
-            .map(|function| normalizer.map_fn(function))
-            .collect::<Vec<BlockPyFunction<CodegenBlockPyPass>>>(),
+        callable_defs,
         module_constants,
     }
 }
 
 #[derive(Default)]
 struct CodegenExprNormalizer {
-    module_constants: RefCell<Vec<LocatedCoreBlockPyExpr>>,
+    module_constants: Vec<LocatedCoreBlockPyExpr>,
 }
 
 impl CodegenExprNormalizer {
-    fn push_module_constant(&self, literal: LiteralValue) -> u32 {
-        let mut module_constants = self.module_constants.borrow_mut();
-        let index =
-            u32::try_from(module_constants.len()).expect("module constant count should fit in u32");
-        module_constants.push(LocatedCoreBlockPyExpr::Literal(literal));
+    fn push_module_constant(&mut self, literal: LiteralValue) -> u32 {
+        let index = u32::try_from(self.module_constants.len())
+            .expect("module constant count should fit in u32");
+        self.module_constants.push(LocatedCoreBlockPyExpr::Literal(literal));
         index
     }
 }
 
 impl MapExpr<LocatedCoreBlockPyExpr, CodegenBlockPyExpr> for CodegenExprNormalizer {
-    fn map_expr(&self, expr: LocatedCoreBlockPyExpr) -> CodegenBlockPyExpr {
+    fn map_expr(&mut self, expr: LocatedCoreBlockPyExpr) -> CodegenBlockPyExpr {
         match expr {
             LocatedCoreBlockPyExpr::Literal(literal) => {
                 let meta = literal.meta();
@@ -50,48 +49,26 @@ impl MapExpr<LocatedCoreBlockPyExpr, CodegenBlockPyExpr> for CodegenExprNormaliz
                 .with_meta(meta)
                 .into()
             }
-            LocatedCoreBlockPyExpr::BinOp(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            LocatedCoreBlockPyExpr::UnaryOp(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            LocatedCoreBlockPyExpr::Call(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            LocatedCoreBlockPyExpr::GetAttr(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            LocatedCoreBlockPyExpr::SetAttr(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            LocatedCoreBlockPyExpr::GetItem(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            LocatedCoreBlockPyExpr::SetItem(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            LocatedCoreBlockPyExpr::DelItem(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            LocatedCoreBlockPyExpr::Load(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            LocatedCoreBlockPyExpr::Store(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            LocatedCoreBlockPyExpr::Del(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
-            LocatedCoreBlockPyExpr::MakeCell(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
+            LocatedCoreBlockPyExpr::BinOp(node) => node.map_typed_children(self).into(),
+            LocatedCoreBlockPyExpr::UnaryOp(node) => node.map_typed_children(self).into(),
+            LocatedCoreBlockPyExpr::Call(node) => node.map_typed_children(self).into(),
+            LocatedCoreBlockPyExpr::GetAttr(node) => node.map_typed_children(self).into(),
+            LocatedCoreBlockPyExpr::SetAttr(node) => node.map_typed_children(self).into(),
+            LocatedCoreBlockPyExpr::GetItem(node) => node.map_typed_children(self).into(),
+            LocatedCoreBlockPyExpr::SetItem(node) => node.map_typed_children(self).into(),
+            LocatedCoreBlockPyExpr::DelItem(node) => node.map_typed_children(self).into(),
+            LocatedCoreBlockPyExpr::Load(node) => node.map_typed_children(self).into(),
+            LocatedCoreBlockPyExpr::Store(node) => node.map_typed_children(self).into(),
+            LocatedCoreBlockPyExpr::Del(node) => node.map_typed_children(self).into(),
+            LocatedCoreBlockPyExpr::MakeCell(node) => node.map_typed_children(self).into(),
             LocatedCoreBlockPyExpr::CellRefForName(node) => node.into(),
             LocatedCoreBlockPyExpr::CellRef(node) => node.into(),
-            LocatedCoreBlockPyExpr::MakeFunction(node) => node
-                .map_typed_children(&mut |child| self.map_expr(child))
-                .into(),
+            LocatedCoreBlockPyExpr::MakeFunction(node) => node.map_typed_children(self).into(),
         }
+    }
+
+    fn map_name(&mut self, name: LocatedName) -> LocatedName {
+        name
     }
 }
 
