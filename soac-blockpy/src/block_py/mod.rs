@@ -1369,8 +1369,7 @@ pub type InstrName<I> = <I as Instr>::Name;
 pub type ResolvedStorageBlock = CfgBlock<LocatedCoreBlockPyExpr>;
 pub type CodegenBlock = CfgBlock<CodegenBlockPyExpr>;
 
-pub type BlockPyCfgBlock<S, T = BlockPyTerm<S>> = CfgBlock<S, T>;
-pub(crate) type BlockPyBlock<E = Expr> = BlockPyCfgBlock<StructuredInstr<E>, BlockPyTerm<E>>;
+pub(crate) type BlockPyBlock<E = Expr> = CfgBlock<StructuredInstr<E>, BlockPyTerm<E>>;
 
 pub trait BlockPyJumpTerm<L> {
     fn jump_term(target: L) -> Self;
@@ -1579,9 +1578,9 @@ impl<S: BlockPyNormalizedStmt, T: BlockPyFallthroughTerm<BlockPyLabel>>
         self.fragment.set_term(term);
     }
 
-    pub fn finish(self, fallthrough_target: Option<BlockPyLabel>) -> BlockPyCfgBlock<S, T> {
+    pub fn finish(self, fallthrough_target: Option<BlockPyLabel>) -> CfgBlock<S, T> {
         let fragment = self.fragment.finish();
-        let block = BlockPyCfgBlock {
+        let block = CfgBlock {
             label: self.label,
             body: fragment.body,
             term: fragment.term.unwrap_or_else(|| match fallthrough_target {
