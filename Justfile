@@ -562,8 +562,6 @@ test-all:
   export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   cd "$REPO_ROOT"
   just uninstall-extension
-  TIMEFORMAT='[diet-python timing] fmt_check_s=%3R'
-  time cargo fmt
   TIMEFORMAT='[diet-python timing] build_all_s=%3R'
   if time just build-all; then
     :
