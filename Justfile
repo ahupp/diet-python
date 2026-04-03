@@ -480,32 +480,12 @@ regen-snapshots:
   cd "$REPO_ROOT"
   cargo run --quiet --bin regen_snapshots
 
-test-all:
+[private]
+_test-all-test-phase:
   #!/usr/bin/env bash
   set -euo pipefail
   export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   cd "$REPO_ROOT"
-  just uninstall-extension
-  TIMEFORMAT='[diet-python timing] fmt_check_s=%3R'
-  time cargo fmt
-  TIMEFORMAT='[diet-python timing] build_all_s=%3R'
-  if time just build-all; then
-    :
-  else
-    status=$?
-    echo "[diet-python test-all] step failed: build-all (exit $status)" >&2
-    just uninstall-extension
-    exit "$status"
-  fi
-  TIMEFORMAT='[diet-python timing] regen_snapshots_s=%3R'
-  if time just regen-snapshots; then
-    :
-  else
-    status=$?
-    echo "[diet-python test-all] step failed: regen-snapshots (exit $status)" >&2
-    just uninstall-extension
-    exit "$status"
-  fi
 
   run_parallel_step() {
     local pid_var="$1"
@@ -574,8 +554,49 @@ test-all:
     fi
   fi
 
-  just uninstall-extension
   exit "$overall_status"
+
+test-all:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  export LD_LIBRARY_PATH="$CPYTHON_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  cd "$REPO_ROOT"
+  just uninstall-extension
+  TIMEFORMAT='[diet-python timing] fmt_check_s=%3R'
+  time cargo fmt
+  TIMEFORMAT='[diet-python timing] build_all_s=%3R'
+  if time just build-all; then
+    :
+  else
+    status=$?
+    echo "[diet-python test-all] step failed: build-all (exit $status)" >&2
+    just uninstall-extension
+    exit "$status"
+  fi
+  TIMEFORMAT='[diet-python timing] regen_snapshots_s=%3R'
+  if time just regen-snapshots; then
+    :
+  else
+    status=$?
+    echo "[diet-python test-all] step failed: regen-snapshots (exit $status)" >&2
+    just uninstall-extension
+    exit "$status"
+  fi
+  TIMEFORMAT='[diet-python timing] test_phase_s=%3R'
+  if time DIET_PYTHON_LIMITS_ALREADY_APPLIED=1 \
+    DIET_PYTHON_TIMEOUT_SECS="${DIET_PYTHON_TEST_ALL_TIMEOUT_SECS:-0}" \
+    "$LIMIT_WRAPPER" \
+    just _test-all-test-phase; then
+    :
+  else
+    status=$?
+    echo "[diet-python test-all] step failed: test-phase (exit $status)" >&2
+    just uninstall-extension
+    exit "$status"
+  fi
+
+  just uninstall-extension
+  exit 0
 
 benchmark loops="1000000": (update-venv) (build-extension "release")
   #!/usr/bin/env bash
