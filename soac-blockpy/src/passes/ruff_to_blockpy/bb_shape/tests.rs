@@ -49,7 +49,9 @@ pub(crate) fn lower_structured_unresolved_core_blocks_to_bb_blocks(
 pub(crate) fn lower_structured_located_blocks_to_bb_blocks(
     blocks: &[Block<StructuredInstr<CoreBlockPyExpr<LocatedName>>, LocatedCoreBlockPyExpr>],
 ) -> Vec<ResolvedStorageBlock> {
-    lower_structured_core_blocks_to_bb_blocks(blocks)
+    let mut lowered = lower_structured_core_blocks_to_bb_blocks(blocks);
+    super::rewrite_current_exception_in_core_blocks(&mut lowered);
+    lowered
 }
 
 fn rewrite_current_exception_in_core_blocks_structured(

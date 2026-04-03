@@ -51,9 +51,11 @@ where
     bb_blocks
 }
 
-pub(crate) fn rewrite_current_exception_in_core_blocks(
-    blocks: &mut [crate::block_py::Block<CoreBlockPyExpr, CoreBlockPyExpr>],
-) {
+pub(crate) fn rewrite_current_exception_in_core_blocks<N>(
+    blocks: &mut [crate::block_py::Block<CoreBlockPyExpr<N>, CoreBlockPyExpr<N>>],
+) where
+    N: BlockPyNameLike + From<ast::ExprName>,
+{
     for block in blocks {
         let Some(exc_name) = block.exception_param().map(ToString::to_string) else {
             continue;
@@ -82,7 +84,10 @@ pub(crate) fn rewrite_current_exception_in_core_blocks_with_await_and_yield(
     }
 }
 
-fn rewrite_current_exception_in_bb_stmt(stmt: &mut CoreBlockPyExpr, exc_name: &str) {
+fn rewrite_current_exception_in_bb_stmt<N>(stmt: &mut CoreBlockPyExpr<N>, exc_name: &str)
+where
+    N: BlockPyNameLike + From<ast::ExprName>,
+{
     rewrite_current_exception_in_blockpy_expr(stmt, exc_name);
 }
 
@@ -285,10 +290,12 @@ pub(crate) fn lowered_exception_edges<S, T: crate::block_py::Instr>(
         .collect()
 }
 
-fn rewrite_current_exception_in_blockpy_term(
-    term: &mut BlockTerm<CoreBlockPyExpr>,
+fn rewrite_current_exception_in_blockpy_term<N>(
+    term: &mut BlockTerm<CoreBlockPyExpr<N>>,
     exc_name: &str,
-) {
+) where
+    N: BlockPyNameLike + From<ast::ExprName>,
+{
     match term {
         BlockTerm::IfTerm(TermIf { test, .. }) => {
             rewrite_current_exception_in_blockpy_expr(test, exc_name);
@@ -308,74 +315,67 @@ fn rewrite_current_exception_in_blockpy_term(
     }
 }
 
-fn rewrite_current_exception_in_blockpy_expr(expr: &mut CoreBlockPyExpr, exc_name: &str) {
+fn rewrite_current_exception_in_blockpy_expr<N>(expr: &mut CoreBlockPyExpr<N>, exc_name: &str)
+where
+    N: BlockPyNameLike + From<ast::ExprName>,
+{
     match expr {
         CoreBlockPyExpr::BinOp(operation) => {
-            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
-                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
-            })
+            operation.walk_mut(&mut |arg| rewrite_current_exception_in_blockpy_expr(arg, exc_name))
         }
         CoreBlockPyExpr::UnaryOp(operation) => {
-            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
-                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
-            })
+            operation.walk_mut(&mut |arg| rewrite_current_exception_in_blockpy_expr(arg, exc_name))
         }
-        CoreBlockPyExpr::Call(operation) => operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
-            rewrite_current_exception_in_blockpy_expr(arg, exc_name)
-        }),
+        CoreBlockPyExpr::Call(operation) => {
+            operation.walk_mut(&mut |arg| rewrite_current_exception_in_blockpy_expr(arg, exc_name))
+        }
         CoreBlockPyExpr::GetAttr(operation) => {
-            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
-                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
-            })
+            operation.walk_mut(&mut |arg| rewrite_current_exception_in_blockpy_expr(arg, exc_name))
         }
         CoreBlockPyExpr::SetAttr(operation) => {
-            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
-                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
-            })
+            operation.walk_mut(&mut |arg| rewrite_current_exception_in_blockpy_expr(arg, exc_name))
         }
         CoreBlockPyExpr::GetItem(operation) => {
-            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
-                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
-            })
+            operation.walk_mut(&mut |arg| rewrite_current_exception_in_blockpy_expr(arg, exc_name))
         }
         CoreBlockPyExpr::SetItem(operation) => {
-            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
-                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
-            })
+            operation.walk_mut(&mut |arg| rewrite_current_exception_in_blockpy_expr(arg, exc_name))
         }
         CoreBlockPyExpr::DelItem(operation) => {
-            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
+            operation.walk_mut(&mut |arg| rewrite_current_exception_in_blockpy_expr(arg, exc_name))
+        }
+        CoreBlockPyExpr::Load(operation) => {
+            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
                 rewrite_current_exception_in_blockpy_expr(arg, exc_name)
             })
         }
-        CoreBlockPyExpr::Load(operation) => operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
-            rewrite_current_exception_in_blockpy_expr(arg, exc_name)
-        }),
         CoreBlockPyExpr::Store(operation) => {
-            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
+            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
                 rewrite_current_exception_in_blockpy_expr(arg, exc_name)
             })
         }
-        CoreBlockPyExpr::Del(operation) => operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
-            rewrite_current_exception_in_blockpy_expr(arg, exc_name)
-        }),
+        CoreBlockPyExpr::Del(operation) => {
+            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
+                rewrite_current_exception_in_blockpy_expr(arg, exc_name)
+            })
+        }
         CoreBlockPyExpr::MakeCell(operation) => {
-            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
+            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
                 rewrite_current_exception_in_blockpy_expr(arg, exc_name)
             })
         }
         CoreBlockPyExpr::CellRefForName(operation) => {
-            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
+            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
                 rewrite_current_exception_in_blockpy_expr(arg, exc_name)
             })
         }
         CoreBlockPyExpr::CellRef(operation) => {
-            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
+            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
                 rewrite_current_exception_in_blockpy_expr(arg, exc_name)
             })
         }
         CoreBlockPyExpr::MakeFunction(operation) => {
-            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr| {
+            operation.walk_mut(&mut |arg: &mut CoreBlockPyExpr<N>| {
                 rewrite_current_exception_in_blockpy_expr(arg, exc_name)
             })
         }
@@ -387,7 +387,10 @@ fn rewrite_current_exception_in_blockpy_expr(expr: &mut CoreBlockPyExpr, exc_nam
     }
 }
 
-fn is_current_exception_call(expr: &CoreBlockPyExpr) -> bool {
+fn is_current_exception_call<N>(expr: &CoreBlockPyExpr<N>) -> bool
+where
+    N: BlockPyNameLike,
+{
     let CoreBlockPyExpr::Call(call) = expr else {
         return false;
     };
@@ -396,11 +399,17 @@ fn is_current_exception_call(expr: &CoreBlockPyExpr) -> bool {
         && is_dp_lookup_call_expr(call.func.as_ref(), "current_exception")
 }
 
-fn is_dp_lookup_call_expr(func: &CoreBlockPyExpr, attr_name: &str) -> bool {
+fn is_dp_lookup_call_expr<N>(func: &CoreBlockPyExpr<N>, attr_name: &str) -> bool
+where
+    N: BlockPyNameLike,
+{
     expr_root_name_id(func) == Some(attr_name)
 }
 
-fn expr_root_name_id(expr: &CoreBlockPyExpr) -> Option<&str> {
+fn expr_root_name_id<N>(expr: &CoreBlockPyExpr<N>) -> Option<&str>
+where
+    N: BlockPyNameLike,
+{
     match expr {
         CoreBlockPyExpr::Load(op) => Some(op.name.id_str()),
         _ => None,
@@ -414,12 +423,21 @@ fn expr_root_name_id_with_await_and_yield(expr: &CoreBlockPyExprWithAwaitAndYiel
     }
 }
 
-fn current_exception_name_expr(exc_name: &str) -> CoreBlockPyExpr {
+fn current_exception_name_expr<N>(exc_name: &str) -> CoreBlockPyExpr<N>
+where
+    N: BlockPyNameLike + From<ast::ExprName>,
+{
     let range = compat_range();
     let node_index = compat_node_index();
+    let name: N = ast::ExprName {
+        id: ast::name::Name::new(exc_name),
+        ctx: ast::ExprContext::Load,
+        range,
+        node_index: node_index.clone(),
+    }
+    .into();
     CoreBlockPyExpr::Load(
-        Load::<CoreBlockPyExpr>::new(ast::name::Name::new(exc_name))
-            .with_meta(Meta::new(node_index, range)),
+        Load::<CoreBlockPyExpr<N>>::new(name).with_meta(Meta::new(node_index, range)),
     )
 }
 
