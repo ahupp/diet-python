@@ -6,7 +6,6 @@ use crate::block_py::{
 };
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, ResolvedStorageBlockPyPass};
-use ruff_python_ast as ast;
 use ruff_python_parser::parse_expression;
 
 fn wrapped_blockpy(source: &str) -> BlockPyModule<CoreBlockPyPassWithAwaitAndYield> {
@@ -42,9 +41,6 @@ fn label(index: u32) -> BlockPyLabel {
 fn located_name(id: &str, location: NameLocation) -> LocatedName {
     LocatedName {
         id: id.into(),
-        ctx: ast::ExprContext::Load,
-        range: Default::default(),
-        node_index: Default::default(),
         location,
     }
 }
@@ -108,10 +104,7 @@ fn bb_text_renders_located_names_with_resolved_locations() {
     let closure_name = located_name("captured", NameLocation::closure_cell(2));
     let closure_expr: crate::block_py::LocatedCoreBlockPyExpr =
         crate::block_py::Load::new(closure_name.clone())
-            .with_meta(Meta::new(
-                closure_name.node_index.clone(),
-                closure_name.range,
-            ))
+            .with_meta(Meta::synthetic())
             .into();
     let assign_stmt = BlockPyStmt::Expr(
         crate::block_py::Store::new(
@@ -123,7 +116,7 @@ fn bb_text_renders_located_names_with_resolved_locations() {
     let global_name = located_name("answer", NameLocation::Global);
     let global_expr: crate::block_py::LocatedCoreBlockPyExpr =
         crate::block_py::Load::new(global_name.clone())
-            .with_meta(Meta::new(global_name.node_index.clone(), global_name.range))
+            .with_meta(Meta::synthetic())
             .into();
 
     assert_eq!(bb_expr_text(&closure_expr), "Closure(2)");

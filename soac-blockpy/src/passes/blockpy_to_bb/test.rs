@@ -80,10 +80,7 @@ fn core_name_expr(name: &str) -> LocatedCoreBlockPyExpr {
         node_index: ast::AtomicNodeIndex::default(),
     });
     crate::block_py::Load::new(name.clone())
-        .with_meta(crate::block_py::Meta::new(
-            name.node_index.clone(),
-            name.range,
-        ))
+        .with_meta(crate::block_py::Meta::synthetic())
         .into()
 }
 

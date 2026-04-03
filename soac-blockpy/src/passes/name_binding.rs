@@ -2254,7 +2254,7 @@ impl NameLocator<'_> {
                 let name = op.name;
                 let marked = self.mark_raw_cell_name(name);
                 if let Some(location) = marked.cell_location() {
-                    return CellRef::new(location).with_meta(marked.meta()).into();
+                    return CellRef::new(location).with_meta(meta).into();
                 }
                 Load::new(marked).with_meta(meta).into()
             }

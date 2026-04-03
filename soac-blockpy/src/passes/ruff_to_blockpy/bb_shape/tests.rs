@@ -96,10 +96,7 @@ fn expr_name(name: &str, ctx: ast::ExprContext) -> ast::ExprName {
 fn core_name_expr(name: &str) -> CoreBlockPyExpr {
     let name = expr_name(name, ast::ExprContext::Load);
     crate::block_py::Load::new(name.clone())
-        .with_meta(crate::block_py::Meta::new(
-            name.node_index.clone(),
-            name.range,
-        ))
+        .with_meta(crate::block_py::Meta::synthetic())
         .into()
 }
 

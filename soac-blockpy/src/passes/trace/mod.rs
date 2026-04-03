@@ -5,7 +5,6 @@ use crate::block_py::{
     StructuredInstr, WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
-use ruff_python_ast::{self as ast};
 use std::collections::HashMap;
 use std::env;
 
@@ -160,12 +159,8 @@ impl PreparedTraceNameLocator {
         } else {
             NameLocation::Global
         };
-        let meta = Meta::synthetic();
         LocatedName {
             id: id.into(),
-            ctx: ast::ExprContext::Load,
-            range: meta.range,
-            node_index: meta.node_index,
             location,
         }
     }
@@ -196,9 +191,6 @@ fn string_literal_expr(
     core_operation_expr(
         crate::block_py::Load::new(crate::block_py::LocatedName {
             id: format!("__dp_constant_{index}").into(),
-            ctx: ast::ExprContext::Load,
-            range: meta.range,
-            node_index: meta.node_index.clone(),
             location: NameLocation::Constant(index),
         })
         .with_meta(meta),
@@ -219,7 +211,7 @@ fn param_pairs_expr(
             .iter()
             .map(|param| {
                 let name = locator.load_name(param);
-                let meta = Meta::new(name.node_index.clone(), name.range);
+                let meta = Meta::synthetic();
                 tuple_expr(vec![
                     string_literal_expr(module_constants, param),
                     Load::new(name).with_meta(meta).into(),

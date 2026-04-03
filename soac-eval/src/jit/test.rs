@@ -15,9 +15,6 @@ mod tests {
     fn test_name(name: &str) -> LocatedName {
         LocatedName {
             id: name.into(),
-            ctx: ast::ExprContext::Load,
-            range: Default::default(),
-            node_index: Default::default(),
             location: NameLocation::local(0),
         }
     }
@@ -25,9 +22,6 @@ mod tests {
     fn test_global_name(name: &str) -> LocatedName {
         LocatedName {
             id: name.into(),
-            ctx: ast::ExprContext::Load,
-            range: Default::default(),
-            node_index: Default::default(),
             location: NameLocation::Global,
         }
     }
@@ -35,9 +29,6 @@ mod tests {
     fn test_runtime_name(name: &str) -> LocatedName {
         LocatedName {
             id: name.into(),
-            ctx: ast::ExprContext::Load,
-            range: Default::default(),
-            node_index: Default::default(),
             location: NameLocation::RuntimeName,
         }
     }
@@ -45,9 +36,6 @@ mod tests {
     fn test_closure_cell_name(name: &str, slot: u32) -> LocatedName {
         LocatedName {
             id: name.into(),
-            ctx: ast::ExprContext::Load,
-            range: Default::default(),
-            node_index: Default::default(),
             location: NameLocation::closure_cell(slot),
         }
     }
@@ -55,9 +43,6 @@ mod tests {
     fn test_constant_name(index: u32) -> LocatedName {
         LocatedName {
             id: "__dp_constant".into(),
-            ctx: ast::ExprContext::Load,
-            range: Default::default(),
-            node_index: Default::default(),
             location: NameLocation::Constant(index),
         }
     }
@@ -65,9 +50,6 @@ mod tests {
     fn test_captured_cell_source_name(name: &str, slot: u32) -> LocatedName {
         LocatedName {
             id: name.into(),
-            ctx: ast::ExprContext::Load,
-            range: Default::default(),
-            node_index: Default::default(),
             location: NameLocation::captured_source_cell(slot),
         }
     }

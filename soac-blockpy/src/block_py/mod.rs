@@ -323,9 +323,6 @@ impl<T> BlockPyExprLike for T where T: Clone + fmt::Debug + MapExpr<Self> {}
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LocatedName {
     pub id: ruff_python_ast::name::Name,
-    pub ctx: ast::ExprContext,
-    pub range: ruff_text_size::TextRange,
-    pub node_index: ast::AtomicNodeIndex,
     pub location: NameLocation,
 }
 
@@ -370,9 +367,6 @@ impl From<ast::ExprName> for LocatedName {
     fn from(value: ast::ExprName) -> Self {
         Self {
             id: value.id,
-            ctx: value.ctx,
-            range: value.range,
-            node_index: value.node_index,
             location: NameLocation::Global,
         }
     }
@@ -384,9 +378,6 @@ impl From<UnresolvedName> for LocatedName {
             UnresolvedName::ExprName(name) => Self::from(name),
             UnresolvedName::RuntimeName(name) => Self {
                 id: name.value.into(),
-                ctx: ast::ExprContext::Load,
-                range: name.range,
-                node_index: name.node_index,
                 location: NameLocation::RuntimeName,
             },
         }
@@ -598,33 +589,6 @@ pub type CoreBlockPyLiteral = BlockPyLiteral;
 pub type CodegenBlockPyLiteral = BlockPyLiteral;
 
 impl<I: Instr<Name = UnresolvedName>> InstrExprNode<I> for UnresolvedName {
-    type Mapped<T: Instr> = InstrName<T>;
-
-    fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}
-
-    fn visit_exprs_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
-
-    fn map_expr_node<T>(self, _f: &mut impl FnMut(I) -> T) -> Self::Mapped<T>
-    where
-        T: Instr,
-        InstrName<T>: From<InstrName<I>>,
-    {
-        <T as Instr>::Name::from(self)
-    }
-
-    fn try_map_expr_node<T, Error>(
-        self,
-        _f: &mut impl FnMut(I) -> Result<T, Error>,
-    ) -> Result<Self::Mapped<T>, Error>
-    where
-        T: Instr,
-        InstrName<T>: From<InstrName<I>>,
-    {
-        Ok(<T as Instr>::Name::from(self))
-    }
-}
-
-impl<I: Instr<Name = LocatedName>> InstrExprNode<I> for LocatedName {
     type Mapped<T: Instr> = InstrName<T>;
 
     fn visit_exprs(&self, _f: &mut impl FnMut(&I)) {}

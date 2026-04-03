@@ -4,7 +4,6 @@ use crate::block_py::{
     LocatedName, MapExpr, NameLocation, WithMeta,
 };
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
-use ruff_python_ast as ast;
 use std::cell::RefCell;
 
 pub fn normalize_bb_module_strings(
@@ -48,9 +47,6 @@ impl BlockPyModuleMap<ResolvedStorageBlockPyPass, CodegenBlockPyPass> for Codege
                 core_operation_expr(
                     Load::new(LocatedName {
                         id: format!("__dp_constant_{constant_index}").into(),
-                        ctx: ast::ExprContext::Load,
-                        range: meta.range,
-                        node_index: meta.node_index.clone(),
                         location: NameLocation::Constant(constant_index),
                     })
                     .with_meta(meta),
