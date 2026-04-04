@@ -278,7 +278,7 @@ pub trait Instr: Clone + fmt::Debug + Sized {
     type Name: BlockPyNameLike;
 }
 
-pub trait InstrExprNode<I>: Mappable<I> + Sized
+pub trait InstrExprNode<I>: Sized
 where
     I: Instr,
 {
@@ -292,6 +292,38 @@ where
     where
         T: Instr,
         M: TryMapExpr<I, T, Error>;
+}
+
+struct IdentityExprMap<'a, I, F> {
+    f: &'a mut F,
+    _marker: std::marker::PhantomData<fn(I) -> I>,
+}
+
+impl<I, F> MapExpr<I, I> for IdentityExprMap<'_, I, F>
+where
+    I: Instr,
+    F: FnMut(I) -> I,
+{
+    fn map_expr(&mut self, expr: I) -> I {
+        (self.f)(expr)
+    }
+
+    fn map_name(&mut self, name: I::Name) -> I::Name {
+        name
+    }
+}
+
+impl<I, N> Mappable<I> for N
+where
+    I: Instr,
+    N: Walkable<I> + InstrExprNode<I, Mapped<I> = N>,
+{
+    fn map_walk(self, f: &mut impl FnMut(I) -> I) -> Self {
+        self.map_typed_children(&mut IdentityExprMap {
+            f,
+            _marker: std::marker::PhantomData,
+        })
+    }
 }
 
 impl BlockPyNameLike for ast::ExprName {

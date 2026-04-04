@@ -1,8 +1,7 @@
 use super::operation_macro::define_operation;
 use super::{
     BlockPyNameLike, CallArgKeyword, CallArgPositional, CellLocation, FunctionId, FunctionKind,
-    HasMeta, Instr, InstrExprNode, InstrName, Mappable, MapExpr, Meta, TryMapExpr, Walkable,
-    WithMeta,
+    HasMeta, Instr, InstrExprNode, InstrName, MapExpr, Meta, TryMapExpr, Walkable, WithMeta,
 };
 use std::fmt;
 
@@ -154,25 +153,6 @@ impl<E: Instr> Walkable<E> for Call<E> {
     }
 }
 
-impl<E: Instr> Mappable<E> for Call<E> {
-    fn map_walk(self, f: &mut impl FnMut(E) -> E) -> Self {
-        Call {
-            _meta: self._meta,
-            func: Box::new(f(*self.func)),
-            args: self
-                .args
-                .into_iter()
-                .map(|arg| arg.map_expr(&mut *f))
-                .collect(),
-            keywords: self
-                .keywords
-                .into_iter()
-                .map(|keyword| keyword.map_expr(&mut *f))
-                .collect(),
-        }
-    }
-}
-
 impl<E: Instr> InstrExprNode<E> for Call<E> {
     type Mapped<T: Instr> = Call<T>;
 
@@ -296,12 +276,6 @@ impl<I: Instr> Walkable<I> for Load<I> {
     fn walk(&self, _f: &mut impl FnMut(&I)) {}
 }
 
-impl<I: Instr> Mappable<I> for Load<I> {
-    fn map_walk(self, _f: &mut impl FnMut(I) -> I) -> Self {
-        self
-    }
-}
-
 impl<I: Instr> InstrExprNode<I> for Load<I> {
     type Mapped<T: Instr> = Load<T>;
 
@@ -383,16 +357,6 @@ impl<I: Instr> Walkable<I> for Store<I> {
     }
 }
 
-impl<I: Instr> Mappable<I> for Store<I> {
-    fn map_walk(self, f: &mut impl FnMut(I) -> I) -> Self {
-        Store {
-            _meta: self._meta,
-            name: self.name,
-            value: Box::new(f(*self.value)),
-        }
-    }
-}
-
 impl<I: Instr> InstrExprNode<I> for Store<I> {
     type Mapped<T: Instr> = Store<T>;
 
@@ -464,12 +428,6 @@ impl<I: Instr> Walkable<I> for Del<I> {
     fn walk_mut(&mut self, _f: &mut impl FnMut(&mut I)) {}
 
     fn walk(&self, _f: &mut impl FnMut(&I)) {}
-}
-
-impl<I: Instr> Mappable<I> for Del<I> {
-    fn map_walk(self, _f: &mut impl FnMut(I) -> I) -> Self {
-        self
-    }
 }
 
 impl<I: Instr> InstrExprNode<I> for Del<I> {

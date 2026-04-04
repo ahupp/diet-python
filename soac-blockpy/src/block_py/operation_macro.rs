@@ -76,14 +76,6 @@ macro_rules! define_operation {
             }
         }
 
-        impl<$expr_ty: Instr> Mappable<$expr_ty> for $name<$expr_ty> {
-            fn map_walk(self, f: &mut impl FnMut($expr_ty) -> $expr_ty) -> Self {
-                #[allow(unused_variables)]
-                let _ = &f;
-                define_operation!(@build_walked [$name::<$expr_ty>] [] self, f, $($raw_fields)*)
-            }
-        }
-
         impl<$expr_ty: Instr> InstrExprNode<$expr_ty> for $name<$expr_ty> {
             type Mapped<T: Instr> = $name<T>;
 
@@ -179,13 +171,6 @@ macro_rules! define_operation {
 
             fn walk(&self, f: &mut impl FnMut(&E)) {
                 let _ = &f;
-            }
-        }
-
-        impl<E: Instr> Mappable<E> for $name {
-            fn map_walk(self, f: &mut impl FnMut(E) -> E) -> Self {
-                let _ = &f;
-                self
             }
         }
 

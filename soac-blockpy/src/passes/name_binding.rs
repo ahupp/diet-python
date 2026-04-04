@@ -337,7 +337,8 @@ fn with_helper_arg_mut_in_operation<N: BlockPyNameLike + Clone, T>(
     f: &mut impl FnMut(&mut CoreBlockPyExpr<N>),
 ) -> bool
 where
-    T: crate::block_py::InstrExprNode<CoreBlockPyExpr<N>, Mapped<CoreBlockPyExpr<N>> = T>,
+    T: crate::block_py::InstrExprNode<CoreBlockPyExpr<N>, Mapped<CoreBlockPyExpr<N>> = T>
+        + crate::block_py::Walkable<CoreBlockPyExpr<N>>,
 {
     let mut current = 0;
     let mut applied = false;
