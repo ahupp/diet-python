@@ -2756,5 +2756,6 @@ pub(crate) fn lower_name_binding_in_core_blockpy_module(
             })
             .collect(),
         module_constants: Vec::new(),
+        counter_defs: Vec::new(),
     })
 }

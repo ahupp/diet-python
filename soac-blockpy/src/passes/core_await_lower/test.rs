@@ -65,6 +65,7 @@ fn lowers_await_to_yield_from_await_iter() {
             storage_layout: None,
             scope: CallableScopeInfo::default(),
         }],
+        counter_defs: Vec::new(),
         module_constants: Vec::new(),
     };
 

@@ -18,7 +18,7 @@ enum IfBranchKind {
 }
 
 pub(crate) trait BlockPyPrettyPrinter: BlockPyPass {
-    fn block_metadata_lines(block: &Block<Self::Expr, Self::Expr>) -> Vec<String>
+    fn block_metadata_lines<S>(block: &Block<S, Self::Expr>) -> Vec<String>
     where
         Self: Sized;
 }
@@ -27,7 +27,7 @@ macro_rules! impl_default_blockpy_pretty_printer {
     ($($pass:ty),* $(,)?) => {
         $(
             impl BlockPyPrettyPrinter for $pass {
-                fn block_metadata_lines(block: &Block<Self::Expr, Self::Expr>) -> Vec<String> {
+                fn block_metadata_lines<S>(block: &Block<S, Self::Expr>) -> Vec<String> {
                     render_blockpy_block_metadata(block)
                 }
             }
@@ -42,7 +42,7 @@ impl_default_blockpy_pretty_printer!(
 );
 
 impl BlockPyPrettyPrinter for ResolvedStorageBlockPyPass {
-    fn block_metadata_lines(block: &Block<Self::Expr, Self::Expr>) -> Vec<String> {
+    fn block_metadata_lines<S>(block: &Block<S, Self::Expr>) -> Vec<String> {
         let mut lines = Vec::new();
         if let Some(exc_edge) = &block.exc_edge {
             lines.push(format!("exc_target: {}", exc_edge.target));
@@ -55,12 +55,12 @@ impl BlockPyPrettyPrinter for ResolvedStorageBlockPyPass {
 }
 
 impl BlockPyPrettyPrinter for CodegenBlockPyPass {
-    fn block_metadata_lines(block: &Block<Self::Expr>) -> Vec<String> {
-        render_resolved_storage_block_metadata::<Self>(block)
+    fn block_metadata_lines<S>(block: &Block<S, Self::Expr>) -> Vec<String> {
+        render_resolved_storage_block_metadata::<Self, S>(block)
     }
 }
 
-fn render_resolved_storage_block_metadata<P>(block: &Block<P::Expr, P::Expr>) -> Vec<String>
+fn render_resolved_storage_block_metadata<P, S>(block: &Block<S, P::Expr>) -> Vec<String>
 where
     P: BlockPyPass,
     P::Expr: Instr<Name = super::LocatedName>,
@@ -93,9 +93,10 @@ pub(crate) trait BlockPyPrettyPrint {
     }
 }
 
-impl<P> BlockPyPrettyPrint for BlockPyModule<P>
+impl<P, S> BlockPyPrettyPrint for BlockPyModule<P, S>
 where
-    P: BlockPyPrettyPrinter,
+    P: BlockPyPrettyPrinter<Expr = S>,
+    S: fmt::Debug + Instr,
     P::Expr: fmt::Debug,
 {
     fn pretty_print(&self) -> String {
@@ -107,9 +108,10 @@ where
     }
 }
 
-pub(crate) fn blockpy_module_to_string<P>(module: &BlockPyModule<P>) -> String
+pub(crate) fn blockpy_module_to_string<P, S>(module: &BlockPyModule<P, S>) -> String
 where
-    P: BlockPyPrettyPrinter,
+    P: BlockPyPrettyPrinter<Expr = S>,
+    S: fmt::Debug + Instr,
     P::Expr: fmt::Debug,
 {
     let mut formatter = BlockPyFormatter::<DebugInlineExprRenderer>::default();
@@ -118,9 +120,10 @@ where
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn blockpy_module_to_debug_string<P>(module: &BlockPyModule<P>) -> String
+pub(crate) fn blockpy_module_to_debug_string<P, S>(module: &BlockPyModule<P, S>) -> String
 where
-    P: BlockPyPrettyPrinter,
+    P: BlockPyPrettyPrinter<Expr = S>,
+    S: fmt::Debug + Instr,
     P::Expr: fmt::Debug,
 {
     blockpy_module_to_string(module)
@@ -165,9 +168,10 @@ impl<R> BlockPyFormatter<R> {
         self.out
     }
 
-    fn write_module<P>(&mut self, module: &BlockPyModule<P>)
+    fn write_module<P, S>(&mut self, module: &BlockPyModule<P, S>)
     where
-        P: BlockPyPrettyPrinter,
+        P: BlockPyPrettyPrinter<Expr = S>,
+        S: fmt::Debug + Instr,
         R: InlineExprRenderer<P::Expr>,
     {
         for function in &module.callable_defs {
@@ -178,9 +182,10 @@ impl<R> BlockPyFormatter<R> {
         }
     }
 
-    fn write_function<P>(&mut self, function: &BlockPyFunction<P>)
+    fn write_function<P, S>(&mut self, function: &BlockPyFunction<P, S>)
     where
-        P: BlockPyPrettyPrinter,
+        P: BlockPyPrettyPrinter<Expr = S>,
+        S: fmt::Debug + Instr,
         R: InlineExprRenderer<P::Expr>,
     {
         let params = format_parameters(&function.params);
@@ -231,14 +236,15 @@ impl<R> BlockPyFormatter<R> {
         });
     }
 
-    fn write_function_block<P>(
+    fn write_function_block<P, S>(
         &mut self,
-        function: &BlockPyFunction<P>,
+        function: &BlockPyFunction<P, S>,
         render_layout: &BlockRenderLayout,
         block_index: usize,
         referenced_labels: &HashSet<BlockLabel>,
     ) where
-        P: BlockPyPrettyPrinter,
+        P: BlockPyPrettyPrinter<Expr = S>,
+        S: fmt::Debug + Instr,
         R: InlineExprRenderer<P::Expr>,
     {
         let block = &function.blocks[block_index];
@@ -263,15 +269,16 @@ impl<R> BlockPyFormatter<R> {
         });
     }
 
-    fn write_block_contents<P>(
+    fn write_block_contents<P, S>(
         &mut self,
-        function: &BlockPyFunction<P>,
+        function: &BlockPyFunction<P, S>,
         render_layout: &BlockRenderLayout,
         current_block_index: Option<usize>,
-        block: &Block<P::Expr, P::Expr>,
+        block: &Block<S, P::Expr>,
         referenced_labels: &HashSet<BlockLabel>,
     ) where
-        P: BlockPyPrettyPrinter,
+        P: BlockPyPrettyPrinter<Expr = S>,
+        S: fmt::Debug + Instr,
         R: InlineExprRenderer<P::Expr>,
     {
         if block.body.is_empty() {
@@ -294,14 +301,12 @@ impl<R> BlockPyFormatter<R> {
         );
     }
 
-    fn write_linear_stmt_list<S, E>(&mut self, stmts: &[S], referenced_labels: &HashSet<BlockLabel>)
+    fn write_linear_stmt_list<S>(&mut self, stmts: &[S], referenced_labels: &HashSet<BlockLabel>)
     where
-        S: Clone + Into<E>,
-        E: Clone + std::fmt::Debug + Instr,
-        R: InlineExprRenderer<E>,
+        S: std::fmt::Debug,
     {
         for stmt in stmts {
-            self.write_linear_stmt(&stmt.clone().into(), referenced_labels);
+            self.write_linear_stmt(stmt, referenced_labels);
         }
     }
 
@@ -336,12 +341,11 @@ impl<R> BlockPyFormatter<R> {
         }
     }
 
-    fn write_linear_stmt<E>(&mut self, stmt: &E, _referenced_labels: &HashSet<BlockLabel>)
+    fn write_linear_stmt<S>(&mut self, stmt: &S, _referenced_labels: &HashSet<BlockLabel>)
     where
-        E: Clone + std::fmt::Debug + Instr,
-        R: InlineExprRenderer<E>,
+        S: std::fmt::Debug,
     {
-        self.line(R::render(stmt));
+        self.line(format!("{stmt:?}"));
     }
 
     fn write_structured_stmt<E>(

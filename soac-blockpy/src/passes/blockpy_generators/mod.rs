@@ -1749,6 +1749,7 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
         module_name_gen,
         callable_defs,
         module_constants: Vec::new(),
+        counter_defs: Vec::new(),
     }
 }
 

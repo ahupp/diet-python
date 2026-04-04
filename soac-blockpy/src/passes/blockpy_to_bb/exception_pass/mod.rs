@@ -17,6 +17,7 @@ pub fn lower_try_jump_exception_flow(
         module_name_gen: module.module_name_gen.clone(),
         callable_defs,
         module_constants: module.module_constants.clone(),
+        counter_defs: module.counter_defs.clone(),
     }
 }
 

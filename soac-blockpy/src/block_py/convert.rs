@@ -17,6 +17,7 @@ where
             .map(|function| map_fn(map, function))
             .collect(),
         module_constants: module.module_constants,
+        counter_defs: module.counter_defs,
     }
 }
 
@@ -107,6 +108,7 @@ where
             .map(|function| try_map_fn(map, function))
             .collect::<Result<_, _>>()?,
         module_constants: module.module_constants,
+        counter_defs: module.counter_defs,
     })
 }
 

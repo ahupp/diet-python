@@ -71,6 +71,9 @@ fn collect_helper_like_names_in_expr(out: &mut Vec<String>, expr: &CodegenBlockP
         CodegenBlockPyExpr::MakeCell(operation) => {
             operation.walk(&mut |arg| collect_helper_like_names_in_expr(out, arg));
         }
+        CodegenBlockPyExpr::IncrementCounter(operation) => {
+            operation.walk(&mut |arg| collect_helper_like_names_in_expr(out, arg));
+        }
         CodegenBlockPyExpr::CellRefForName(operation) => {
             operation.walk(&mut |arg| collect_helper_like_names_in_expr(out, arg));
         }

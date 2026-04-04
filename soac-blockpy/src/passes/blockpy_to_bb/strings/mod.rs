@@ -20,6 +20,7 @@ pub fn normalize_bb_module_strings(
         module_name_gen: module.module_name_gen,
         callable_defs,
         module_constants,
+        counter_defs: module.counter_defs,
     }
 }
 

@@ -416,6 +416,7 @@ impl ModuleConstantCollector {
 
     fn collect_expr(&mut self, expr: &CodegenBlockPyExpr) {
         match expr {
+            CodegenBlockPyExpr::IncrementCounter(_) => {}
             CodegenBlockPyExpr::Call(call) => {
                 if let Some(const_bytes) = self.string_constant_bytes_for_specialized_codegen(expr)
                 {

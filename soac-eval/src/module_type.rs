@@ -22,6 +22,7 @@ pub struct SharedModuleState {
     pub codegen_constants: ModuleCodegenConstants,
     function_index_by_id: HashMap<FunctionId, usize>,
     module_constant_objs: Vec<Py<PyAny>>,
+    counter_values: Box<[u64]>,
 }
 
 impl SharedModuleState {
@@ -41,6 +42,39 @@ impl SharedModuleState {
             .map(|obj| obj.as_ptr())
             .collect()
     }
+
+    pub(crate) fn counter_ptrs(&self) -> Vec<*mut u64> {
+        self.counter_values
+            .iter()
+            .map(|value| value as *const u64 as *mut u64)
+            .collect()
+    }
+
+    pub fn counter_values(&self) -> &[u64] {
+        &self.counter_values
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn build_shared_state_for_testing(
+    py: Python<'_>,
+    lowered_module: BlockPyModule<CodegenBlockPyPass>,
+    module_name: &str,
+    package_name: &str,
+) -> PyResult<Arc<SharedModuleState>> {
+    let function_index_by_id = build_function_index_by_id(&lowered_module)?;
+    let counter_count = lowered_module.counter_defs.len();
+    let codegen_constants = ModuleCodegenConstants::collect_from_module(&lowered_module);
+    let module_constant_objs = codegen_constants.build_python_constants(py)?;
+    Ok(Arc::new(SharedModuleState {
+        lowered_module,
+        module_name: module_name.to_string(),
+        package_name: package_name.to_string(),
+        codegen_constants,
+        function_index_by_id,
+        module_constant_objs,
+        counter_values: vec![0; counter_count].into_boxed_slice(),
+    }))
 }
 
 fn build_function_index_by_id(
@@ -81,6 +115,7 @@ impl SoacExtModuleState {
             ));
         }
         let function_index_by_id = build_function_index_by_id(&lowered_module)?;
+        let counter_count = lowered_module.counter_defs.len();
         let codegen_constants = ModuleCodegenConstants::collect_from_module(&lowered_module);
         let module_constant_objs = codegen_constants.build_python_constants(py)?;
         self.shared_state.write(Arc::new(SharedModuleState {
@@ -90,6 +125,7 @@ impl SoacExtModuleState {
             codegen_constants,
             function_index_by_id,
             module_constant_objs,
+            counter_values: vec![0; counter_count].into_boxed_slice(),
         }));
         self.initialized = true;
         Ok(())

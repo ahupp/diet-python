@@ -35,6 +35,22 @@ pub(crate) use convert::{map_fn, map_module, map_term, try_map_fn, try_map_term}
 pub use name_gen::{BlockLabel, FunctionId, FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CounterId(pub usize);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CounterPoint {
+    BlockEntry {
+        function_id: FunctionId,
+        block_label: BlockLabel,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CounterDef {
+    pub id: CounterId,
+    pub point: CounterPoint,
+}
 fn is_internal_symbol(name: &str) -> bool {
     name.starts_with("_dp_") || name == "__soac__"
 }
@@ -532,6 +548,7 @@ pub struct BlockPyModule<P: BlockPyPass, S = <P as BlockPyPass>::Expr> {
     pub module_name_gen: ModuleNameGen,
     pub callable_defs: Vec<BlockPyFunction<P, S>>,
     pub module_constants: Vec<CoreBlockPyExpr<LocatedName>>,
+    pub counter_defs: Vec<CounterDef>,
 }
 
 impl<P: BlockPyPass, S> BlockPyModule<P, S> {
@@ -543,10 +560,15 @@ impl<P: BlockPyPass, S> BlockPyModule<P, S> {
             self.module_constants.is_empty(),
             "map_callable_defs does not preserve module constants"
         );
+        debug_assert!(
+            self.counter_defs.is_empty(),
+            "map_callable_defs does not preserve counter defs"
+        );
         BlockPyModule {
             module_name_gen: self.module_name_gen,
             callable_defs: self.callable_defs.into_iter().map(&mut f).collect(),
             module_constants: Vec::new(),
+            counter_defs: Vec::new(),
         }
     }
 }
@@ -636,9 +658,16 @@ pub enum CodegenBlockPyExpr {
     Store(Store<Self>),
     Del(Del<Self>),
     MakeCell(MakeCell<Self>),
+    IncrementCounter(IncrementCounter),
     CellRefForName(CellRefForName),
     CellRef(CellRef),
     MakeFunction(MakeFunction<Self>),
+}
+
+define_operation! {
+    pub struct IncrementCounter {
+        counter_id: CounterId,
+    }
 }
 
 #[derive(Clone, derive_more::From)]
@@ -1043,6 +1072,8 @@ pub trait BlockPyPass: Clone + fmt::Debug {
 pub type InstrName<I> = <I as Instr>::Name;
 pub type ResolvedStorageBlock = Block<LocatedCoreBlockPyExpr>;
 pub type CodegenBlock = Block<CodegenBlockPyExpr>;
+pub type CodegenBlockPyFunction = BlockPyFunction<crate::passes::CodegenBlockPyPass>;
+pub type CodegenBlockPyModule = BlockPyModule<crate::passes::CodegenBlockPyPass>;
 
 pub(crate) type BlockPyBlock<I> = Block<StructuredInstr<I>, I>;
 

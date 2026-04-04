@@ -323,6 +323,7 @@ unsafe fn ensure_clif_vectorcall_compiled(
             .module_runtime
             .shared_module_state_owner
             .module_constant_ptrs();
+        let counter_ptrs = data.module_runtime.shared_module_state_owner.counter_ptrs();
         data.compiled_handle = match jit::compile_cranelift_run_bb_specialized_cached(
             block_ptrs.as_slice(),
             &data.function,
@@ -331,6 +332,7 @@ unsafe fn ensure_clif_vectorcall_compiled(
                 .shared_module_state_owner
                 .codegen_constants,
             &module_constant_ptrs,
+            &counter_ptrs,
         ) {
             Ok(handle) => handle,
             Err(err) => {

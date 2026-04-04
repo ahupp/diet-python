@@ -15,8 +15,8 @@ use cranelift_reader::parse_functions;
 use pyo3::ffi;
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockTerm, CellLocation, CodegenBlock,
-    CodegenBlockPyExpr, CoreBlockPyCallArg, CoreBlockPyKeywordArg, LocalLocation, LocatedName,
-    NameLocation, ParamDefaultSource, StorageLayout, operation as blockpy_intrinsics,
+    CodegenBlockPyExpr, CoreBlockPyCallArg, CoreBlockPyKeywordArg, CounterId, LocalLocation,
+    LocatedName, NameLocation, ParamDefaultSource, StorageLayout, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::borrow::Cow;
@@ -646,6 +646,7 @@ struct JitEmitConsts {
 struct JitEmitCtx<'mc> {
     module_constants: &'mc ModuleCodegenConstants,
     module_constant_ptrs: &'mc [*mut ffi::PyObject],
+    counter_ptrs: &'mc [*mut u64],
     storage_layout: Option<StorageLayout>,
     incref_ref: ir::FuncRef,
     decref_ref: ir::FuncRef,
@@ -983,6 +984,35 @@ fn placeholder_module_constant_ptrs(count: usize) -> Vec<*mut ffi::PyObject> {
         .collect()
 }
 
+fn placeholder_counter_ptrs(count: usize) -> Vec<*mut u64> {
+    (0..count)
+        .map(|index| (0x2000usize + index * 0x10) as *mut u64)
+        .collect()
+}
+
+fn emit_increment_counter(
+    fb: &mut FunctionBuilder<'_>,
+    counter_id: CounterId,
+    ctx: &JitEmitCtx<'_>,
+) -> ir::Value {
+    let counter_ptr = ctx
+        .counter_ptrs
+        .get(counter_id.0)
+        .copied()
+        .unwrap_or_else(|| panic!("missing counter pointer for counter id {}", counter_id.0));
+    let counter_addr = fb.ins().iconst(ctx.consts.ptr_ty, counter_ptr as i64);
+    let old_value = fb
+        .ins()
+        .load(ir::types::I64, ir::MemFlags::trusted(), counter_addr, 0);
+    let new_value = fb.ins().iadd_imm(old_value, 1);
+    fb.ins()
+        .store(ir::MemFlags::trusted(), new_value, counter_addr, 0);
+    // TODO: Split codegen instructions into value-producing vs non-value-producing ops
+    // and elide retain/release work when a statement result is not consumed.
+    fb.ins().call(ctx.incref_ref, &[ctx.consts.none_const]);
+    ctx.consts.none_const
+}
+
 fn emit_raw_cell_object_for_name(
     fb: &mut FunctionBuilder<'_>,
     name: &LocatedName,
@@ -1272,6 +1302,13 @@ fn emit_codegen_expr(
                 ctx,
                 borrowed,
             );
+        }
+        CodegenBlockPyExpr::IncrementCounter(op) => {
+            assert!(
+                !borrowed,
+                "increment_counter must not request a borrowed result"
+            );
+            return emit_increment_counter(fb, op.counter_id, ctx);
         }
         expr @ (CodegenBlockPyExpr::BinOp(_)
         | CodegenBlockPyExpr::UnaryOp(_)
@@ -3592,6 +3629,7 @@ fn build_cranelift_run_bb_specialized_function(
     function: &BlockPyFunction<CodegenBlockPyPass>,
     module_constants: &ModuleCodegenConstants,
     module_constant_ptrs: &[*mut ffi::PyObject],
+    counter_ptrs: &[*mut u64],
 ) -> Result<BuiltSpecializedFunction, String> {
     let block_count = function.blocks.len();
     if block_count == 0 {
@@ -3610,6 +3648,18 @@ fn build_cranelift_run_bb_specialized_function(
             module_constant_ptrs.len(),
             module_constants.len()
         ));
+    }
+    for block in &function.blocks {
+        for expr in &block.body {
+            if let CodegenBlockPyExpr::IncrementCounter(op) = expr {
+                if op.counter_id.0 >= counter_ptrs.len() {
+                    return Err(format!(
+                        "specialized JIT counter pointer length mismatch: missing counter id {} for function {}",
+                        op.counter_id.0, function.names.qualname
+                    ));
+                }
+            }
+        }
     }
 
     let ptr_ty = jit_module.target_config().pointer_type();
@@ -4009,6 +4059,7 @@ fn build_cranelift_run_bb_specialized_function(
             let emit_ctx = JitEmitCtx {
                 module_constants,
                 module_constant_ptrs,
+                counter_ptrs,
                 storage_layout: function.storage_layout().clone(),
                 incref_ref,
                 decref_ref,
@@ -4198,12 +4249,25 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
     let builder = new_jit_builder()?;
     let mut jit_module = JITModule::new(builder);
     let module_constant_ptrs = placeholder_module_constant_ptrs(module_constants.len());
+    let counter_ptrs = placeholder_counter_ptrs(
+        function
+            .blocks
+            .iter()
+            .flat_map(|block| block.body.iter())
+            .filter_map(|expr| match expr {
+                CodegenBlockPyExpr::IncrementCounter(op) => Some(op.counter_id.0),
+                _ => None,
+            })
+            .max()
+            .map_or(0, |max_counter_id| max_counter_id + 1),
+    );
     let built = build_cranelift_run_bb_specialized_function(
         &mut jit_module,
         blocks,
         function,
         module_constants,
         &module_constant_ptrs,
+        &counter_ptrs,
     )?;
     let mut out = String::new();
     out.push_str("; import fn aliases (Cranelift display id -> symbol)\n");
@@ -4271,6 +4335,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
     module_constants: &ModuleCodegenConstants,
     module_constant_ptrs: &[*mut ffi::PyObject],
+    counter_ptrs: &[*mut u64],
 ) -> Result<ObjPtr, String> {
     let mut compiled = Box::new(CompiledSpecializedRunner {
         _jit_module: new_jit_module()?,
@@ -4282,6 +4347,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
         function,
         module_constants,
         module_constant_ptrs,
+        counter_ptrs,
     )?;
     let mut ctx = built.ctx;
     let main_id = built.main_id;

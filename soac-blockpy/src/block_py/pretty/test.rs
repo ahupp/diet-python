@@ -95,6 +95,7 @@ fn renders_empty_module_marker() {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
         callable_defs: Vec::new(),
         module_constants: Vec::new(),
+        counter_defs: Vec::new(),
     };
     let rendered = blockpy_module_to_string(&empty_module);
     assert_eq!(rendered, "; empty BlockPy module\n");
@@ -206,6 +207,7 @@ async def no_lying():
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
         callable_defs: vec![function.clone()],
         module_constants: Vec::new(),
+        counter_defs: Vec::new(),
     });
     let layout = BlockRenderLayout::new(function);
     let inlined_labels = layout
@@ -267,6 +269,7 @@ fn renders_public_closure_metadata_in_function_header() {
             scope: crate::block_py::CallableScopeInfo::default(),
         }],
         module_constants: Vec::new(),
+        counter_defs: Vec::new(),
     });
 
     assert!(rendered.contains(
@@ -325,6 +328,7 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
         callable_defs: vec![function],
         module_constants: Vec::new(),
+        counter_defs: Vec::new(),
     });
 
     assert!(rendered.contains("    block bb0:\n"));
@@ -407,6 +411,7 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
         callable_defs: vec![function],
         module_constants: Vec::new(),
+        counter_defs: Vec::new(),
     });
 
     let alpha_pos = rendered.find("block bb1:").expect("bb1 block");
@@ -495,6 +500,7 @@ fn renders_bb_block_metadata_with_shared_layout() {
             scope: crate::block_py::CallableScopeInfo::default(),
         }],
         module_constants: Vec::new(),
+        counter_defs: Vec::new(),
     });
 
     assert!(rendered.contains("function f():"), "{rendered}");

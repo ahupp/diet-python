@@ -65,6 +65,7 @@ pub(crate) fn rewrite_ast_to_core_blockpy_module_plan_with_module(
         module_name_gen: rewriter.module_name_gen,
         callable_defs: rewriter.callable_defs,
         module_constants: Vec::new(),
+        counter_defs: Vec::new(),
     }
 }
 

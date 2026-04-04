@@ -3,6 +3,7 @@ pub(crate) mod ast_to_ast;
 pub(crate) mod blockpy_expr_simplify;
 mod blockpy_generators;
 pub mod blockpy_to_bb;
+mod counters;
 pub(crate) mod core_await_lower;
 pub(crate) mod core_eval_order;
 mod name_binding;
@@ -52,6 +53,7 @@ impl BlockPyPass for CodegenBlockPyPass {
 
 pub(crate) use blockpy_generators::lower_yield_in_lowered_core_blockpy_module_bundle;
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_strings};
+pub use counters::instrument_bb_module_with_block_entry_counters;
 
 pub(crate) use name_binding::lower_name_binding_in_core_blockpy_module;
 pub(crate) use trace::{instrument_bb_module_for_trace, parse_trace_env};

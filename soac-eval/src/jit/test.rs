@@ -1,18 +1,20 @@
 use super::*;
 use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockTerm,
-    Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr,
+    Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr, CounterPoint,
     CoreBlockPyCallArg, CoreBlockPyExpr, CoreBytesLiteral, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, LiteralValue, Load,
     LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen, NameLocation, Param, ParamKind, ParamSpec,
     StorageLayout, Store,
 };
-use soac_blockpy::passes::CodegenBlockPyPass;
+use soac_blockpy::passes::{instrument_bb_module_with_block_entry_counters, CodegenBlockPyPass};
 mod tests {
     use super::*;
     use pyo3::{Python, ffi};
+    use pyo3::types::PyAnyMethods;
     use ruff_python_ast as ast;
     use std::ffi::c_void;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, Ordering};
 
     static CAPSULE_DESTROYED: AtomicBool = AtomicBool::new(false);
@@ -126,6 +128,25 @@ mod tests {
         expr
     }
 
+    fn repo_root() -> &'static Path {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace crate should have a repo-root parent")
+    }
+
+    fn ensure_test_extension_staging_dir() -> PathBuf {
+        let staging_dir = repo_root().join("target").join("debug").join("test-ext");
+        let source_ext = repo_root().join("target").join("debug").join("lib_soac_ext.so");
+        let staged_ext = staging_dir.join("_soac_ext.so");
+        std::fs::create_dir_all(&staging_dir).expect("test extension staging dir should exist");
+        if staged_ext.exists() {
+            std::fs::remove_file(&staged_ext).expect("stale staged _soac_ext should be removable");
+        }
+        std::os::unix::fs::symlink(&source_ext, &staged_ext)
+            .expect("staged _soac_ext symlink should be creatable");
+        staging_dir
+    }
+
     fn assign_stmt(target: LocatedName, value: CodegenBlockPyExpr) -> CodegenBlockPyExpr {
         expr_stmt(op_expr(Store::new(target, value)))
     }
@@ -212,6 +233,7 @@ mod tests {
             module_name_gen: ModuleNameGen::new(0),
             callable_defs: vec![function.clone()],
             module_constants,
+            counter_defs: Vec::new(),
         };
         let module_constants =
             crate::module_constants::ModuleCodegenConstants::collect_from_module(&module);
@@ -226,12 +248,25 @@ mod tests {
         unsafe {
             let mut jit_module = new_jit_module().expect("test jit module should construct");
             let module_constant_ptrs = placeholder_module_constant_ptrs(module_constants.len());
+            let counter_ptrs = placeholder_counter_ptrs(
+                function
+                    .blocks
+                    .iter()
+                    .flat_map(|block| block.body.iter())
+                    .filter_map(|expr| match expr {
+                        CodegenBlockPyExpr::IncrementCounter(op) => Some(op.counter_id.0),
+                        _ => None,
+                    })
+                    .max()
+                    .map_or(0, |max_counter_id| max_counter_id + 1),
+            );
             let built = build_cranelift_run_bb_specialized_function(
                 &mut jit_module,
                 blocks,
                 function,
                 module_constants,
                 &module_constant_ptrs,
+                &counter_ptrs,
             )
             .expect("specialized JIT build should succeed");
             let (clif, _cfg_dot, _vcode_disasm) = render_compiled_clif_and_vcode_disasm(
@@ -246,11 +281,45 @@ mod tests {
     }
 
     fn vendored_python_home() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .expect("workspace crate should have a repo-root parent")
-            .join("vendor")
-            .join("cpython")
+        repo_root().join("vendor").join("cpython")
+    }
+
+    fn vendored_python_build_lib_dir() -> PathBuf {
+        let python_home = vendored_python_home();
+        let rel_build_dir = std::fs::read_to_string(python_home.join("pybuilddir.txt"))
+            .expect("vendored CPython pybuilddir.txt should exist");
+        python_home.join(rel_build_dir.trim())
+    }
+
+    unsafe fn build_test_module_runtime(
+        py: Python<'_>,
+        shared_state: std::sync::Arc<crate::module_type::SharedModuleState>,
+    ) -> crate::jit::ModuleRuntimeContext {
+        let globals_obj = ffi::PyDict_New().cast::<c_void>();
+        assert!(
+            !globals_obj.is_null(),
+            "PyDict_New should produce globals for test runtime"
+        );
+        let true_obj = ffi::PyBool_FromLong(1).cast::<c_void>();
+        let false_obj = ffi::PyBool_FromLong(0).cast::<c_void>();
+        let none_obj = py.None().as_ptr().cast::<c_void>();
+        ffi::Py_INCREF(none_obj.cast());
+        let deleted_obj = py.None().as_ptr().cast::<c_void>();
+        ffi::Py_INCREF(deleted_obj.cast());
+        let empty_tuple_obj = pyo3::types::PyTuple::empty(py).as_ptr().cast::<c_void>();
+        ffi::Py_INCREF(empty_tuple_obj.cast());
+        crate::jit::ModuleRuntimeContext {
+            vmctx: crate::jit::JitModuleVmCtx {
+                shared_module_state: std::sync::Arc::as_ptr(&shared_state),
+                globals_obj,
+                true_obj,
+                false_obj,
+                none_obj,
+                deleted_obj,
+                empty_tuple_obj,
+            },
+            shared_module_state_owner: shared_state,
+        }
     }
 
     unsafe extern "C" fn test_bind_direct_args_stub(
@@ -489,7 +558,17 @@ mod tests {
             let wrapper = build_runtime_refcount_smoke_wrapper();
             let python_home = vendored_python_home();
             std::env::set_var("PYTHONHOME", &python_home);
-            std::env::set_var("PYTHONPATH", python_home.join("Lib"));
+            let python_path = std::env::join_paths([
+                python_home.join("Lib"),
+                vendored_python_build_lib_dir(),
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .parent()
+                    .expect("workspace crate should have a repo-root parent")
+                    .join("soac_py")
+                    .join("src"),
+            ])
+            .expect("test PYTHONPATH should join");
+            std::env::set_var("PYTHONPATH", python_path);
             Python::initialize();
             Python::attach(|_| {
                 let obj = ffi::PyLong_FromLongLong(123);
@@ -516,7 +595,10 @@ mod tests {
             let wrapper = build_runtime_decref_wrapper();
             let python_home = vendored_python_home();
             std::env::set_var("PYTHONHOME", &python_home);
-            std::env::set_var("PYTHONPATH", python_home.join("Lib"));
+            let python_path =
+                std::env::join_paths([python_home.join("Lib"), vendored_python_build_lib_dir()])
+                    .expect("test PYTHONPATH should join");
+            std::env::set_var("PYTHONPATH", python_path);
             Python::initialize();
             Python::attach(|_| {
                 CAPSULE_DESTROYED.store(false, Ordering::SeqCst);
@@ -578,6 +660,111 @@ mod tests {
             }
 
             free_cranelift_run_bb_specialized_cached(compiled_handle);
+        }
+    }
+
+    #[test]
+    fn jit_block_entry_counter_updates_shared_state() {
+        unsafe {
+            let python_home = vendored_python_home();
+            let repo_root = repo_root();
+            let soac_py_src = repo_root.join("soac_py").join("src");
+            let ext_staging_dir = ensure_test_extension_staging_dir();
+            let pythonpath = std::env::join_paths([
+                python_home.join("Lib"),
+                vendored_python_build_lib_dir(),
+                soac_py_src.clone(),
+                ext_staging_dir.clone(),
+            ])
+            .expect("test PYTHONPATH should join cleanly");
+            std::env::set_var("PYTHONHOME", &python_home);
+            std::env::set_var("PYTHONPATH", pythonpath);
+            Python::initialize();
+            Python::attach(|py| {
+                let sys = py.import("sys").expect("sys should import");
+                sys.getattr("path")
+                    .expect("sys.path should exist")
+                    .call_method1("insert", (0, ext_staging_dir.to_string_lossy().as_ref()))
+                    .expect("sys.path should accept staged _soac_ext");
+                sys.getattr("path")
+                    .expect("sys.path should exist")
+                    .call_method1("insert", (0, soac_py_src.to_string_lossy().as_ref()))
+                    .expect("sys.path should accept soac_py/src");
+                let mut lowered = soac_blockpy::lower_python_to_blockpy_for_testing(
+                    r#"
+def f():
+    return None
+"#,
+                )
+                .expect("lowering should succeed")
+                .codegen_module;
+                instrument_bb_module_with_block_entry_counters(&mut lowered);
+
+                let function = lowered
+                    .callable_defs
+                    .iter()
+                    .find(|function| function.names.bind_name == "f")
+                    .expect("missing lowered function f")
+                    .clone();
+                let entry_label = function.entry_block().label;
+                let entry_counter_id = lowered
+                    .counter_defs
+                    .iter()
+                    .find_map(|counter| match counter.point {
+                        CounterPoint::BlockEntry {
+                            function_id,
+                            block_label,
+                        } if function_id == function.function_id && block_label == entry_label => {
+                            Some(counter.id)
+                        }
+                        _ => None,
+                    })
+                    .expect("missing entry counter for lowered function f");
+
+                let shared_state = crate::module_type::build_shared_state_for_testing(
+                    py,
+                    lowered,
+                    "counter_test",
+                    "",
+                )
+                .expect("shared state should build");
+                let runtime = build_test_module_runtime(py, shared_state.clone());
+                let module_constant_ptrs = shared_state.module_constant_ptrs();
+                let counter_ptrs = shared_state.counter_ptrs();
+                let blocks = vec![std::ptr::null_mut::<c_void>(); function.blocks.len()];
+                let compiled_handle = compile_cranelift_run_bb_specialized_cached(
+                    &blocks,
+                    &function,
+                    &shared_state.codegen_constants,
+                    &module_constant_ptrs,
+                    &counter_ptrs,
+                )
+                .expect("direct counter test function should compile");
+                let (code_ptr, param_count) = compiled_direct_runner_info(compiled_handle)
+                    .expect("compiled direct runner should expose entrypoint");
+                assert_eq!(param_count, 0, "test function should not take direct args");
+                let entry: unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void =
+                    std::mem::transmute(code_ptr);
+
+                let result1 = entry(
+                    std::ptr::addr_of!(runtime.vmctx).cast_mut().cast(),
+                    std::ptr::null_mut(),
+                );
+                let result2 = entry(
+                    std::ptr::addr_of!(runtime.vmctx).cast_mut().cast(),
+                    std::ptr::null_mut(),
+                );
+
+                assert_eq!(
+                    shared_state.counter_values()[entry_counter_id.0],
+                    2,
+                    "entry counter should reflect the number of completed direct JIT calls"
+                );
+
+                ffi::Py_DECREF(result1.cast());
+                ffi::Py_DECREF(result2.cast());
+                free_cranelift_run_bb_specialized_cached(compiled_handle);
+            });
         }
     }
 
@@ -722,6 +909,7 @@ mod tests {
             module_name_gen: ModuleNameGen::new(0),
             callable_defs: vec![function.clone()],
             module_constants: vec![int_literal(7)],
+            counter_defs: Vec::new(),
         };
         let module_constants =
             crate::module_constants::ModuleCodegenConstants::collect_from_module(&module);

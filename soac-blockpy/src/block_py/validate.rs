@@ -3,9 +3,10 @@ use crate::block_py::{
     BlockPyFunction, BlockPyModule, BlockPyPass, BlockTerm, ScopeExprNode,
 };
 
-pub(crate) fn validate_module<P: BlockPyPass>(module: &BlockPyModule<P>) -> Result<(), String>
+pub(crate) fn validate_module<P: BlockPyPass, S>(module: &BlockPyModule<P, S>) -> Result<(), String>
 where
-    P::Expr: ScopeExprNode,
+    P: BlockPyPass<Expr = S>,
+    S: ScopeExprNode + crate::block_py::Instr,
 {
     for function in &module.callable_defs {
         validate_function(function)?;
@@ -13,9 +14,10 @@ where
     Ok(())
 }
 
-fn validate_function<P: BlockPyPass>(function: &BlockPyFunction<P>) -> Result<(), String>
+fn validate_function<P: BlockPyPass, S>(function: &BlockPyFunction<P, S>) -> Result<(), String>
 where
-    P::Expr: ScopeExprNode,
+    P: BlockPyPass<Expr = S>,
+    S: ScopeExprNode + crate::block_py::Instr,
 {
     let qualname = function.names.qualname.as_str();
     validate_storage_layout_scoping(function, qualname)?;
@@ -104,13 +106,17 @@ where
     Ok(())
 }
 
-fn validate_non_exception_edge<P: BlockPyPass>(
-    function: &BlockPyFunction<P>,
-    source_block: &Block<P::Expr, P::Expr>,
+fn validate_non_exception_edge<P: BlockPyPass, S>(
+    function: &BlockPyFunction<P, S>,
+    source_block: &Block<S, P::Expr>,
     edge: &BlockEdge,
     qualname: &str,
     label_kind: &str,
-) -> Result<(), String> {
+) -> Result<(), String>
+where
+    P: BlockPyPass<Expr = S>,
+    S: crate::block_py::Instr,
+{
     let target_block = lookup_known_block(
         function,
         edge.target,
@@ -118,7 +124,7 @@ fn validate_non_exception_edge<P: BlockPyPass>(
         source_block.label,
         label_kind,
     )?;
-    validate_edge_param_forwarding::<P>(
+    validate_edge_param_forwarding::<P, S>(
         source_block,
         target_block,
         edge.args.as_slice(),
@@ -127,13 +133,17 @@ fn validate_non_exception_edge<P: BlockPyPass>(
     )
 }
 
-fn validate_edge_param_forwarding<P: BlockPyPass>(
-    source_block: &Block<P::Expr, P::Expr>,
-    target_block: &Block<P::Expr, P::Expr>,
+fn validate_edge_param_forwarding<P: BlockPyPass, S>(
+    source_block: &Block<S, P::Expr>,
+    target_block: &Block<S, P::Expr>,
     explicit_args: &[BlockArg],
     qualname: &str,
     label_kind: &str,
-) -> Result<(), String> {
+) -> Result<(), String>
+where
+    P: BlockPyPass<Expr = S>,
+    S: crate::block_py::Instr,
+{
     if explicit_args.len() > target_block.params.len() {
         return Err(format!(
             "{} from {}:{} has {} explicit edge args for target {} with {} full params",
@@ -178,7 +188,7 @@ fn validate_edge_param_forwarding<P: BlockPyPass>(
         .skip(explicit_start)
         .zip(explicit_args.iter())
     {
-        validate_explicit_edge_arg::<P>(
+        validate_explicit_edge_arg::<P, S>(
             source_block,
             target_block,
             target_param,
@@ -191,14 +201,18 @@ fn validate_edge_param_forwarding<P: BlockPyPass>(
     Ok(())
 }
 
-fn validate_explicit_edge_arg<P: BlockPyPass>(
-    source_block: &Block<P::Expr, P::Expr>,
-    target_block: &Block<P::Expr, P::Expr>,
+fn validate_explicit_edge_arg<P: BlockPyPass, S>(
+    source_block: &Block<S, P::Expr>,
+    target_block: &Block<S, P::Expr>,
     target_param: &BlockParam,
     source_arg: &BlockArg,
     qualname: &str,
     label_kind: &str,
-) -> Result<(), String> {
+) -> Result<(), String>
+where
+    P: BlockPyPass<Expr = S>,
+    S: crate::block_py::Instr,
+{
     match (target_param.role, source_arg) {
         (_, BlockArg::Name(_) | BlockArg::None) => Ok(()),
         (crate::block_py::BlockParamRole::Exception, BlockArg::CurrentException) => Ok(()),
@@ -214,12 +228,13 @@ fn validate_explicit_edge_arg<P: BlockPyPass>(
     }
 }
 
-fn validate_storage_layout_scoping<P: BlockPyPass>(
-    function: &BlockPyFunction<P>,
+fn validate_storage_layout_scoping<P: BlockPyPass, S>(
+    function: &BlockPyFunction<P, S>,
     qualname: &str,
 ) -> Result<(), String>
 where
-    P::Expr: ScopeExprNode,
+    P: BlockPyPass<Expr = S>,
+    S: ScopeExprNode + crate::block_py::Instr,
 {
     let expected_layout = compute_storage_layout_from_scope(function);
 

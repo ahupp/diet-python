@@ -218,6 +218,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
             storage_layout: None,
             scope: CallableScopeInfo::default(),
         }],
+        counter_defs: Vec::new(),
         module_constants: Vec::new(),
     };
 
