@@ -548,8 +548,6 @@ fn emit_load<'fb>(
         NameLocation::Global(slot) => {
             let globals_obj = state.ctx().consts.block_const;
             let global_slots = state.ctx().consts.global_slots_const;
-            let global_builtin_cacheable_slots =
-                state.ctx().consts.global_builtin_cacheable_slots_const;
             let ptr_ty = state.ctx().consts.ptr_ty;
             let slot_offset = i64::from(slot.slot()) * i64::from(ptr_ty.bytes());
             let slot_addr = state.fb().ins().iadd_imm(global_slots, slot_offset);
@@ -591,16 +589,10 @@ fn emit_load<'fb>(
                 .fb()
                 .ins()
                 .iconst(ir::types::I64, i64::from(slot.slot()));
-            let call_inst = state.fb().ins().call(
-                func_ref,
-                &[
-                    globals_obj,
-                    global_slots,
-                    global_builtin_cacheable_slots,
-                    name_obj,
-                    slot_index,
-                ],
-            );
+            let call_inst = state
+                .fb()
+                .ins()
+                .call(func_ref, &[globals_obj, global_slots, name_obj, slot_index]);
             state.fb().ins().call(decref_ref, &[name_obj]);
             let slow_value = state.fb().inst_results(call_inst)[0];
             state

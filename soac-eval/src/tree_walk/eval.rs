@@ -180,7 +180,6 @@ pub unsafe fn clone_module_runtime_context(
             shared_module_state: std::sync::Arc::as_ptr(&shared_module_state_owner),
             globals_obj: runtime.vmctx.globals_obj,
             global_slots: runtime.vmctx.global_slots,
-            global_builtin_cacheable_slots: runtime.vmctx.global_builtin_cacheable_slots,
             true_obj: runtime.vmctx.true_obj,
             false_obj: runtime.vmctx.false_obj,
             none_obj: runtime.vmctx.none_obj,
@@ -256,8 +255,6 @@ pub unsafe fn build_module_runtime_context_for_module(
             shared_module_state: std::sync::Arc::as_ptr(&shared_module_state),
             globals_obj: globals_obj as *mut c_void,
             global_slots: global_cache.slots_ptr() as *mut c_void,
-            global_builtin_cacheable_slots: global_cache.builtin_cacheable_slots_ptr().cast_mut()
-                as *mut c_void,
             true_obj: true_obj as *mut c_void,
             false_obj: false_obj as *mut c_void,
             none_obj: none_obj as *mut c_void,

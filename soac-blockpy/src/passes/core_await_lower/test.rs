@@ -25,7 +25,6 @@ fn lowers_await_to_yield_from_await_iter() {
     let module = BlockPyModule {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
         global_names: Vec::new(),
-        builtin_cacheable_globals: Vec::new(),
         callable_defs: vec![BlockPyFunction {
             function_id: crate::block_py::FunctionId(0),
             name_gen: test_name_gen(),

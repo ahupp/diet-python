@@ -312,27 +312,14 @@ impl SoacExtModuleState {
                 .global_names
                 .clone()
         };
-        let builtin_cacheable_globals = unsafe {
-            self.shared_state
-                .assume_init_ref()
-                .lowered_module
-                .builtin_cacheable_globals
-                .clone()
-        };
-        let cache = unsafe {
-            ModuleGlobalCache::new(
-                globals_obj,
-                global_names.as_slice(),
-                builtin_cacheable_globals,
-            )
-        }
-        .map_err(|_| {
-            if unsafe { ffi::PyErr_Occurred() }.is_null() {
-                PyRuntimeError::new_err("failed to create module global cache")
-            } else {
-                PyErr::fetch(Python::assume_attached())
-            }
-        })?;
+        let cache = unsafe { ModuleGlobalCache::new(globals_obj, global_names.as_slice()) }
+            .map_err(|_| {
+                if unsafe { ffi::PyErr_Occurred() }.is_null() {
+                    PyRuntimeError::new_err("failed to create module global cache")
+                } else {
+                    PyErr::fetch(Python::assume_attached())
+                }
+            })?;
         self.global_cache.write(cache.clone());
         self.global_cache_initialized = true;
         Ok(cache)

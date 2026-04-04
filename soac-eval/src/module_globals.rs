@@ -30,9 +30,58 @@ fn watcher_id() -> Option<c_int> {
     })
 }
 
-fn cache_registry() -> &'static Mutex<HashMap<usize, Weak<ModuleGlobalCache>>> {
-    static REGISTRY: OnceLock<Mutex<HashMap<usize, Weak<ModuleGlobalCache>>>> = OnceLock::new();
+fn cache_registry() -> &'static Mutex<HashMap<usize, Vec<Weak<ModuleGlobalCache>>>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<usize, Vec<Weak<ModuleGlobalCache>>>>> =
+        OnceLock::new();
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn register_cache(dict_obj: ObjPtr, cache: &Arc<ModuleGlobalCache>) {
+    cache_registry()
+        .lock()
+        .expect("module global cache registry mutex poisoned")
+        .entry(dict_obj as usize)
+        .or_default()
+        .push(Arc::downgrade(cache));
+}
+
+fn unregister_cache(dict_obj: ObjPtr, cache_ptr: *const ModuleGlobalCache) {
+    let key = dict_obj as usize;
+    let mut registry = cache_registry()
+        .lock()
+        .expect("module global cache registry mutex poisoned");
+    let mut remove_entry = false;
+    if let Some(caches) = registry.get_mut(&key) {
+        caches.retain(|cache| !std::ptr::eq(cache.as_ptr(), cache_ptr) && cache.strong_count() > 0);
+        remove_entry = caches.is_empty();
+    }
+    if remove_entry {
+        registry.remove(&key);
+    }
+}
+
+fn registered_caches(dict_obj: ObjPtr) -> Vec<Arc<ModuleGlobalCache>> {
+    let key = dict_obj as usize;
+    let mut registry = cache_registry()
+        .lock()
+        .expect("module global cache registry mutex poisoned");
+    let mut upgraded = Vec::new();
+    let mut remove_entry = false;
+    if let Some(caches) = registry.get_mut(&key) {
+        caches.retain(|cache| {
+            if let Some(cache) = cache.upgrade() {
+                upgraded.push(cache);
+                true
+            } else {
+                false
+            }
+        });
+        remove_entry = caches.is_empty();
+    }
+    if remove_entry {
+        registry.remove(&key);
+    }
+    upgraded
 }
 
 const PYDICT_EVENT_ADDED: c_int = 0;
@@ -51,15 +100,9 @@ unsafe extern "C" fn dict_watcher_callback(
     if dict.is_null() {
         return 0;
     }
-    let maybe_cache = {
-        let registry = cache_registry()
-            .lock()
-            .expect("module global cache registry mutex poisoned");
-        registry.get(&(dict as usize)).and_then(Weak::upgrade)
-    };
-    if let Some(cache) = maybe_cache {
+    for cache in registered_caches(dict) {
         unsafe {
-            cache.handle_dict_watcher_event(event, key, new_value);
+            cache.handle_dict_watcher_event(dict, event, key, new_value);
         }
     }
     0
@@ -67,10 +110,10 @@ unsafe extern "C" fn dict_watcher_callback(
 
 pub struct ModuleGlobalCache {
     dict_obj: ObjPtr,
+    builtins_dict_obj: ObjPtr,
     slots: Box<[AtomicPtr<ffi::PyObject>]>,
     slot_by_name: HashMap<String, u32>,
     pending_self_updates: Mutex<Vec<Vec<ObjPtr>>>,
-    builtin_cacheable_slots: Box<[u8]>,
 }
 
 unsafe impl Send for ModuleGlobalCache {}
@@ -81,18 +124,10 @@ impl ModuleGlobalCache {
         if dict_obj.is_null() {
             return None;
         }
-        cache_registry()
-            .lock()
-            .expect("module global cache registry mutex poisoned")
-            .get(&(dict_obj as usize))
-            .and_then(Weak::upgrade)
+        registered_caches(dict_obj).into_iter().next()
     }
 
-    pub unsafe fn new(
-        dict_obj: ObjPtr,
-        global_names: &[String],
-        builtin_cacheable_slots: Vec<bool>,
-    ) -> Result<Arc<Self>, ()> {
+    pub unsafe fn new(dict_obj: ObjPtr, global_names: &[String]) -> Result<Arc<Self>, ()> {
         if dict_obj.is_null() {
             ffi::PyErr_SetString(
                 ffi::PyExc_RuntimeError,
@@ -100,11 +135,16 @@ impl ModuleGlobalCache {
             );
             return Err(());
         }
-        assert_eq!(
-            global_names.len(),
-            builtin_cacheable_slots.len(),
-            "global cache metadata must match global slot count",
-        );
+        let builtins_dict_obj = ffi::PyEval_GetBuiltins();
+        if builtins_dict_obj.is_null() {
+            ffi::PyErr_SetString(
+                ffi::PyExc_RuntimeError,
+                b"PyEval_GetBuiltins returned null while initializing module global cache\0"
+                    .as_ptr() as *const i8,
+            );
+            return Err(());
+        }
+        ffi::Py_INCREF(builtins_dict_obj);
         let slots = (0..global_names.len())
             .map(|_| AtomicPtr::new(ptr::null_mut()))
             .collect::<Vec<_>>()
@@ -119,45 +159,42 @@ impl ModuleGlobalCache {
         let pending_self_updates = (0..global_names.len())
             .map(|_| Vec::new())
             .collect::<Vec<_>>();
-        let builtin_cacheable_slots = builtin_cacheable_slots
-            .into_iter()
-            .map(u8::from)
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
         let cache = Arc::new(Self {
             dict_obj,
+            builtins_dict_obj,
             slots,
             slot_by_name,
             pending_self_updates: Mutex::new(pending_self_updates),
-            builtin_cacheable_slots,
         });
         let Some(watcher_id) = watcher_id() else {
+            ffi::Py_DECREF(builtins_dict_obj);
             ffi::PyErr_SetString(
                 ffi::PyExc_RuntimeError,
                 b"failed to allocate dict watcher for module globals\0".as_ptr() as *const i8,
             );
             return Err(());
         };
-        cache_registry()
-            .lock()
-            .expect("module global cache registry mutex poisoned")
-            .insert(dict_obj as usize, Arc::downgrade(&cache));
+        register_cache(dict_obj, &cache);
         if PyDict_Watch(watcher_id, dict_obj) != 0 {
-            cache_registry()
-                .lock()
-                .expect("module global cache registry mutex poisoned")
-                .remove(&(dict_obj as usize));
+            unregister_cache(dict_obj, Arc::as_ptr(&cache));
+            ffi::Py_DECREF(builtins_dict_obj);
             return Err(());
+        }
+        if builtins_dict_obj != dict_obj {
+            register_cache(builtins_dict_obj, &cache);
+            if PyDict_Watch(watcher_id, builtins_dict_obj) != 0 {
+                unregister_cache(dict_obj, Arc::as_ptr(&cache));
+                unregister_cache(builtins_dict_obj, Arc::as_ptr(&cache));
+                let _ = PyDict_Unwatch(watcher_id, dict_obj);
+                ffi::Py_DECREF(builtins_dict_obj);
+                return Err(());
+            }
         }
         Ok(cache)
     }
 
     pub fn slots_ptr(&self) -> *mut ffi::PyObject {
         self.slots.as_ptr().cast_mut().cast::<ffi::PyObject>()
-    }
-
-    pub fn builtin_cacheable_slots_ptr(&self) -> *const u8 {
-        self.builtin_cacheable_slots.as_ptr()
     }
 
     pub unsafe fn store_loaded_value_steal(&self, slot: u32, value: ObjPtr) {
@@ -237,7 +274,26 @@ impl ModuleGlobalCache {
         }
     }
 
-    unsafe fn handle_dict_watcher_event(&self, event: c_int, key: ObjPtr, new_value: ObjPtr) {
+    unsafe fn handle_dict_watcher_event(
+        &self,
+        dict: ObjPtr,
+        event: c_int,
+        key: ObjPtr,
+        new_value: ObjPtr,
+    ) {
+        if dict == self.dict_obj {
+            unsafe { self.handle_globals_dict_watcher_event(event, key, new_value) };
+        } else if dict == self.builtins_dict_obj {
+            unsafe { self.handle_builtins_dict_watcher_event(event, key) };
+        }
+    }
+
+    unsafe fn handle_globals_dict_watcher_event(
+        &self,
+        event: c_int,
+        key: ObjPtr,
+        new_value: ObjPtr,
+    ) {
         match event {
             PYDICT_EVENT_ADDED | PYDICT_EVENT_MODIFIED => {
                 let Some(slot) = self.slot_for_key_obj(key) else {
@@ -259,6 +315,24 @@ impl ModuleGlobalCache {
             }
             PYDICT_EVENT_CLONED | PYDICT_EVENT_CLEARED | PYDICT_EVENT_DEALLOCATED => {
                 self.clear_all();
+            }
+            _ => {}
+        }
+    }
+
+    unsafe fn handle_builtins_dict_watcher_event(&self, event: c_int, key: ObjPtr) {
+        match event {
+            PYDICT_EVENT_ADDED | PYDICT_EVENT_MODIFIED | PYDICT_EVENT_DELETED => {
+                let Some(slot) = self.slot_for_key_obj(key) else {
+                    return;
+                };
+                if unsafe { self.module_dict_contains_key_obj(key) } {
+                    return;
+                }
+                unsafe { self.clear_slot(slot) };
+            }
+            PYDICT_EVENT_CLONED | PYDICT_EVENT_CLEARED | PYDICT_EVENT_DEALLOCATED => {
+                unsafe { self.clear_unshadowed_slots() };
             }
             _ => {}
         }
@@ -288,6 +362,37 @@ impl ModuleGlobalCache {
         }
         let key_str = CStr::from_ptr(key_utf8).to_str().ok()?;
         self.slot_by_name.get(key_str).copied()
+    }
+
+    unsafe fn module_dict_contains_key_obj(&self, key: ObjPtr) -> bool {
+        let contains = ffi::PyDict_Contains(self.dict_obj as *mut ffi::PyObject, key);
+        match contains {
+            1 => true,
+            0 => false,
+            _ => {
+                ffi::PyErr_Clear();
+                false
+            }
+        }
+    }
+
+    unsafe fn clear_unshadowed_slots(&self) {
+        for (name, slot) in &self.slot_by_name {
+            let key = match std::ffi::CString::new(name.as_str()) {
+                Ok(key) => key,
+                Err(_) => continue,
+            };
+            let key_obj = ffi::PyUnicode_FromString(key.as_ptr());
+            if key_obj.is_null() {
+                ffi::PyErr_Clear();
+                continue;
+            }
+            let is_shadowed = unsafe { self.module_dict_contains_key_obj(key_obj) };
+            ffi::Py_DECREF(key_obj);
+            if !is_shadowed {
+                unsafe { self.clear_slot(*slot) };
+            }
+        }
     }
 
     fn push_pending_self_update(&self, slot: u32, expected_new_value: ObjPtr) {
@@ -356,14 +461,17 @@ impl Drop for ModuleGlobalCache {
         if let Some(watcher_id) = watcher_id() {
             unsafe {
                 PyDict_Unwatch(watcher_id, self.dict_obj);
+                if self.builtins_dict_obj != self.dict_obj {
+                    PyDict_Unwatch(watcher_id, self.builtins_dict_obj);
+                }
             }
         }
-        cache_registry()
-            .lock()
-            .expect("module global cache registry mutex poisoned")
-            .remove(&(self.dict_obj as usize));
+        let cache_ptr = self as *const Self;
+        unregister_cache(self.dict_obj, cache_ptr);
+        unregister_cache(self.builtins_dict_obj, cache_ptr);
         unsafe {
             self.clear_all();
+            ffi::Py_DECREF(self.builtins_dict_obj);
         }
     }
 }
@@ -380,6 +488,38 @@ mod tests {
     use super::*;
     use pyo3::{Python, ffi};
     use std::os::raw::c_longlong;
+    use std::path::{Path, PathBuf};
+
+    fn repo_root() -> &'static Path {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace crate should have a repo-root parent")
+    }
+
+    fn vendored_python_home() -> PathBuf {
+        repo_root().join("vendor").join("cpython")
+    }
+
+    fn vendored_python_build_lib_dir() -> PathBuf {
+        let python_home = vendored_python_home();
+        let rel_build_dir = std::fs::read_to_string(python_home.join("pybuilddir.txt"))
+            .expect("vendored CPython pybuilddir.txt should exist");
+        python_home.join(rel_build_dir.trim())
+    }
+
+    fn initialize_test_python() {
+        let python_home = vendored_python_home();
+        unsafe {
+            std::env::set_var("PYTHONHOME", &python_home);
+        }
+        let python_path =
+            std::env::join_paths([python_home.join("Lib"), vendored_python_build_lib_dir()])
+                .expect("test PYTHONPATH should join");
+        unsafe {
+            std::env::set_var("PYTHONPATH", python_path);
+        }
+        Python::initialize();
+    }
 
     unsafe fn cached_long_value(cache: &ModuleGlobalCache, slot: u32) -> Option<i64> {
         let value = cache.slots.get(slot as usize)?.load(Ordering::Acquire);
@@ -396,13 +536,13 @@ mod tests {
 
     #[test]
     fn external_dict_mutation_updates_only_matching_slot() {
+        initialize_test_python();
         Python::attach(|py| unsafe {
             let globals = ffi::PyDict_New();
             assert!(!globals.is_null());
             {
-                let cache =
-                    ModuleGlobalCache::new(globals, &["x".into(), "y".into()], vec![false, false])
-                        .expect("global cache should initialize");
+                let cache = ModuleGlobalCache::new(globals, &["x".into(), "y".into()])
+                    .expect("global cache should initialize");
                 let x_name = ffi::PyUnicode_FromString(b"x\0".as_ptr() as *const i8);
                 let y_name = ffi::PyUnicode_FromString(b"y\0".as_ptr() as *const i8);
                 let x_value = ffi::PyLong_FromLongLong(1 as c_longlong);
@@ -426,11 +566,12 @@ mod tests {
 
     #[test]
     fn write_through_store_and_delete_consume_self_watcher_events() {
+        initialize_test_python();
         Python::attach(|py| unsafe {
             let globals = ffi::PyDict_New();
             assert!(!globals.is_null());
             {
-                let cache = ModuleGlobalCache::new(globals, &["x".into()], vec![false])
+                let cache = ModuleGlobalCache::new(globals, &["x".into()])
                     .expect("global cache should initialize");
                 let x_name = ffi::PyUnicode_FromString(b"x\0".as_ptr() as *const i8);
                 let first_value = ffi::PyLong_FromLongLong(7 as c_longlong);

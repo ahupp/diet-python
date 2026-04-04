@@ -224,7 +224,6 @@ mod tests {
         let module = BlockPyModule {
             module_name_gen: ModuleNameGen::new(0),
             global_names: Vec::new(),
-            builtin_cacheable_globals: Vec::new(),
             callable_defs: vec![function.clone()],
             module_constants,
             counter_defs: Vec::new(),
@@ -306,10 +305,6 @@ mod tests {
         let global_cache = crate::module_globals::ModuleGlobalCache::new(
             globals_obj.cast(),
             shared_state.lowered_module.global_names.as_slice(),
-            shared_state
-                .lowered_module
-                .builtin_cacheable_globals
-                .clone(),
         )
         .expect("test runtime should create module global cache");
         crate::jit::ModuleRuntimeContext {
@@ -317,10 +312,6 @@ mod tests {
                 shared_module_state: std::sync::Arc::as_ptr(&shared_state),
                 globals_obj,
                 global_slots: global_cache.slots_ptr().cast::<c_void>(),
-                global_builtin_cacheable_slots: global_cache
-                    .builtin_cacheable_slots_ptr()
-                    .cast_mut()
-                    .cast::<c_void>(),
                 true_obj,
                 false_obj,
                 none_obj,
@@ -1057,7 +1048,6 @@ def f(x):
         let module = BlockPyModule {
             module_name_gen: ModuleNameGen::new(0),
             global_names: Vec::new(),
-            builtin_cacheable_globals: Vec::new(),
             callable_defs: vec![function.clone()],
             module_constants: vec![int_literal(7)],
             counter_defs: Vec::new(),

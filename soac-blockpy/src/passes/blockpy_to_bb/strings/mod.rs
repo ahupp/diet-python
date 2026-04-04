@@ -19,7 +19,6 @@ pub fn normalize_bb_module_strings(
     BlockPyModule {
         module_name_gen: module.module_name_gen,
         global_names: module.global_names,
-        builtin_cacheable_globals: module.builtin_cacheable_globals,
         callable_defs,
         module_constants,
         counter_defs: module.counter_defs,

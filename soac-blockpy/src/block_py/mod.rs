@@ -617,7 +617,6 @@ impl<S, T: Instr> Block<S, T> {
 pub struct BlockPyModule<P: BlockPyPass, S = <P as BlockPyPass>::Expr> {
     pub module_name_gen: ModuleNameGen,
     pub global_names: Vec<String>,
-    pub builtin_cacheable_globals: Vec<bool>,
     pub callable_defs: Vec<BlockPyFunction<P, S>>,
     pub module_constants: Vec<CoreBlockPyExpr<LocatedName>>,
     pub counter_defs: Vec<CounterDef>,
@@ -639,7 +638,6 @@ impl<P: BlockPyPass, S> BlockPyModule<P, S> {
         BlockPyModule {
             module_name_gen: self.module_name_gen,
             global_names: self.global_names,
-            builtin_cacheable_globals: self.builtin_cacheable_globals,
             callable_defs: self.callable_defs.into_iter().map(&mut f).collect(),
             module_constants: Vec::new(),
             counter_defs: Vec::new(),

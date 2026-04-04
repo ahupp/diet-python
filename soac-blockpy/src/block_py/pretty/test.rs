@@ -94,7 +94,6 @@ fn renders_empty_module_marker() {
     let empty_module: BlockPyModule<CoreBlockPyPassWithAwaitAndYield> = BlockPyModule {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
         global_names: Vec::new(),
-        builtin_cacheable_globals: Vec::new(),
         callable_defs: Vec::new(),
         module_constants: Vec::new(),
         counter_defs: Vec::new(),
@@ -208,7 +207,6 @@ async def no_lying():
     let rendered = blockpy_module_to_string(&BlockPyModule {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
         global_names: Vec::new(),
-        builtin_cacheable_globals: Vec::new(),
         callable_defs: vec![function.clone()],
         module_constants: Vec::new(),
         counter_defs: Vec::new(),
@@ -239,7 +237,6 @@ fn renders_public_closure_metadata_in_function_header() {
     let rendered = blockpy_module_to_string(&BlockPyModule {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
         global_names: Vec::new(),
-        builtin_cacheable_globals: Vec::new(),
         callable_defs: vec![BlockPyFunction::<CoreBlockPyPassWithAwaitAndYield> {
             function_id: crate::block_py::FunctionId(0),
             name_gen: test_name_gen(),
@@ -333,7 +330,6 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
     let rendered = blockpy_module_to_string(&BlockPyModule {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
         global_names: Vec::new(),
-        builtin_cacheable_globals: Vec::new(),
         callable_defs: vec![function],
         module_constants: Vec::new(),
         counter_defs: Vec::new(),
@@ -418,7 +414,6 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
     let rendered = blockpy_module_to_string(&BlockPyModule {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
         global_names: Vec::new(),
-        builtin_cacheable_globals: Vec::new(),
         callable_defs: vec![function],
         module_constants: Vec::new(),
         counter_defs: Vec::new(),
@@ -469,7 +464,6 @@ fn renders_bb_block_metadata_with_shared_layout() {
     let rendered = blockpy_module_to_string(&BlockPyModule {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
         global_names: Vec::new(),
-        builtin_cacheable_globals: Vec::new(),
         callable_defs: vec![BlockPyFunction::<ResolvedStorageBlockPyPass> {
             function_id: crate::block_py::FunctionId(0),
             name_gen: test_name_gen(),

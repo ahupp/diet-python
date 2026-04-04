@@ -124,15 +124,10 @@ unsafe extern "C" fn get_arg_item_hook(args: ObjPtr, index: i64) -> ObjPtr {
 unsafe fn load_global_obj_impl(
     globals_obj: ObjPtr,
     global_slots_obj: ObjPtr,
-    global_builtin_cacheable_slots_obj: ObjPtr,
     name_obj: *mut ffi::PyObject,
     slot_index: i64,
 ) -> ObjPtr {
-    if globals_obj.is_null()
-        || global_slots_obj.is_null()
-        || global_builtin_cacheable_slots_obj.is_null()
-        || name_obj.is_null()
-    {
+    if globals_obj.is_null() || global_slots_obj.is_null() || name_obj.is_null() {
         ffi::PyErr_SetString(
             ffi::PyExc_RuntimeError,
             b"invalid arguments to dp_jit_load_global_obj\0".as_ptr() as *const i8,
@@ -166,9 +161,7 @@ unsafe fn load_global_obj_impl(
     }
     let builtin_value = ffi::PyObject_GetItem(builtins_dict as *mut ffi::PyObject, name_obj);
     if !builtin_value.is_null() {
-        if slot_index >= 0
-            && *((global_builtin_cacheable_slots_obj as *const u8).add(slot_index as usize)) != 0
-        {
+        if slot_index >= 0 {
             let entry =
                 (global_slots_obj as *mut AtomicPtr<ffi::PyObject>).add(slot_index as usize);
             let old = (*entry).swap(builtin_value, Ordering::AcqRel);
@@ -754,14 +747,12 @@ unsafe extern "C" fn del_deref_quietly_hook(cell: ObjPtr) -> ObjPtr {
 unsafe extern "C" fn load_global_obj_hook(
     globals_obj: ObjPtr,
     global_slots_obj: ObjPtr,
-    global_builtin_cacheable_slots_obj: ObjPtr,
     name: ObjPtr,
     slot_index: i64,
 ) -> ObjPtr {
     load_global_obj_impl(
         globals_obj,
         global_slots_obj,
-        global_builtin_cacheable_slots_obj,
         name as *mut ffi::PyObject,
         slot_index,
     )
@@ -892,7 +883,6 @@ mod test_only_export_stubs {
     panic_obj_export!(dp_jit_load_global_obj(
         globals_obj: ObjPtr,
         global_slots_obj: ObjPtr,
-        global_builtin_cacheable_slots_obj: ObjPtr,
         name: ObjPtr,
         slot_index: i64
     ));
@@ -1039,17 +1029,10 @@ pub unsafe extern "C" fn dp_jit_pyobject_delitem(obj: ObjPtr, key: ObjPtr) -> Ob
 pub unsafe extern "C" fn dp_jit_load_global_obj(
     globals_obj: ObjPtr,
     global_slots_obj: ObjPtr,
-    global_builtin_cacheable_slots_obj: ObjPtr,
     name: ObjPtr,
     slot_index: i64,
 ) -> ObjPtr {
-    load_global_obj_hook(
-        globals_obj,
-        global_slots_obj,
-        global_builtin_cacheable_slots_obj,
-        name,
-        slot_index,
-    )
+    load_global_obj_hook(globals_obj, global_slots_obj, name, slot_index)
 }
 
 #[cfg(not(test))]
@@ -1536,17 +1519,16 @@ mod tests {
     }
 
     #[test]
-    fn whitelisted_builtin_global_miss_fills_slot() {
+    fn builtin_global_miss_fills_slot() {
         initialize_test_python();
         Python::attach(|py| unsafe {
             let globals = PyDict::new(py);
-            let cache = ModuleGlobalCache::new(globals.as_ptr(), &["list".into()], vec![true])
+            let cache = ModuleGlobalCache::new(globals.as_ptr(), &["list".into()])
                 .expect("module global cache should initialize for builtin caching test");
             let name = PyString::new(py, "list");
             let result = load_global_obj_impl(
                 globals.as_ptr() as ObjPtr,
                 cache.slots_ptr() as ObjPtr,
-                cache.builtin_cacheable_slots_ptr().cast_mut() as ObjPtr,
                 name.as_ptr(),
                 0,
             );
@@ -1554,32 +1536,109 @@ mod tests {
             ffi::Py_DECREF(result.cast());
             assert!(
                 !cached_slot_value(&cache, 0).is_null(),
-                "whitelisted builtin fallback should populate the global slot cache"
+                "builtin fallback should populate the global slot cache"
             );
         });
     }
 
     #[test]
-    fn non_whitelisted_builtin_global_miss_does_not_fill_slot() {
+    fn builtin_watcher_invalidates_unshadowed_cached_slot() {
         initialize_test_python();
         Python::attach(|py| unsafe {
             let globals = PyDict::new(py);
-            let cache = ModuleGlobalCache::new(globals.as_ptr(), &["list".into()], vec![false])
+            let cache = ModuleGlobalCache::new(globals.as_ptr(), &["list".into()])
                 .expect("module global cache should initialize for builtin caching test");
             let name = PyString::new(py, "list");
             let result = load_global_obj_impl(
                 globals.as_ptr() as ObjPtr,
                 cache.slots_ptr() as ObjPtr,
-                cache.builtin_cacheable_slots_ptr().cast_mut() as ObjPtr,
                 name.as_ptr(),
                 0,
             );
-            assert!(!result.is_null(), "builtin lookup should still succeed");
+            assert!(!result.is_null(), "builtin lookup should succeed");
             ffi::Py_DECREF(result.cast());
             assert!(
-                cached_slot_value(&cache, 0).is_null(),
-                "non-whitelisted builtin fallback should leave the cache slot empty"
+                !cached_slot_value(&cache, 0).is_null(),
+                "builtin fallback should populate the cache slot"
             );
+
+            let builtins = ffi::PyEval_GetBuiltins();
+            assert!(!builtins.is_null(), "builtins dict should exist");
+            let original = ffi::PyObject_GetItem(builtins, name.as_ptr());
+            assert!(!original.is_null(), "builtins.list should exist");
+            let replacement = ffi::PyUnicode_FromString(b"shadowed list\0".as_ptr() as *const i8);
+            assert!(
+                !replacement.is_null(),
+                "replacement builtin should allocate"
+            );
+            assert_eq!(
+                ffi::PyObject_SetItem(builtins, name.as_ptr(), replacement),
+                0
+            );
+            assert!(
+                cached_slot_value(&cache, 0).is_null(),
+                "builtins mutation should invalidate unshadowed cached slots"
+            );
+            assert_eq!(ffi::PyObject_SetItem(builtins, name.as_ptr(), original), 0);
+            ffi::Py_DECREF(original);
+            ffi::Py_DECREF(replacement);
+        });
+    }
+
+    #[test]
+    fn builtin_watcher_preserves_shadowed_cached_slot() {
+        initialize_test_python();
+        Python::attach(|py| unsafe {
+            let globals = PyDict::new(py);
+            let cache = ModuleGlobalCache::new(globals.as_ptr(), &["list".into()])
+                .expect("module global cache should initialize for builtin caching test");
+            let name = PyString::new(py, "list");
+            let module_value = ffi::PyLong_FromLongLong(123);
+            assert!(
+                !module_value.is_null(),
+                "module shadow value should allocate"
+            );
+            assert_eq!(
+                ffi::PyObject_SetItem(globals.as_ptr(), name.as_ptr(), module_value),
+                0
+            );
+            let result = load_global_obj_impl(
+                globals.as_ptr() as ObjPtr,
+                cache.slots_ptr() as ObjPtr,
+                name.as_ptr(),
+                0,
+            );
+            assert!(!result.is_null(), "module global lookup should succeed");
+            ffi::Py_DECREF(result.cast());
+            assert_eq!(
+                cached_slot_value(&cache, 0),
+                module_value as ObjPtr,
+                "module shadow value should be cached"
+            );
+
+            let builtins = ffi::PyEval_GetBuiltins();
+            assert!(!builtins.is_null(), "builtins dict should exist");
+            let original = ffi::PyObject_GetItem(builtins, name.as_ptr());
+            assert!(!original.is_null(), "builtins.list should exist");
+            let replacement = ffi::PyUnicode_FromString(b"shadowed list\0".as_ptr() as *const i8);
+            assert!(
+                !replacement.is_null(),
+                "replacement builtin should allocate"
+            );
+            assert_eq!(
+                ffi::PyObject_SetItem(builtins, name.as_ptr(), replacement),
+                0
+            );
+            assert_eq!(
+                cached_slot_value(&cache, 0),
+                module_value as ObjPtr,
+                "builtins mutation should not invalidate a module-shadowed cached slot"
+            );
+            assert_eq!(ffi::PyObject_SetItem(builtins, name.as_ptr(), original), 0);
+
+            ffi::Py_DECREF(original);
+            ffi::Py_DECREF(replacement);
+            ffi::Py_DECREF(module_value);
         });
     }
 }

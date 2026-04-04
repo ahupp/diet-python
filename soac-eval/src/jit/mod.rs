@@ -37,9 +37,8 @@ pub use planning::{
 pub use specialized_helpers::ObjPtr;
 use specialized_helpers::register_specialized_jit_symbols;
 use vmctx::{
-    DELETED_OBJ_OFFSET, EMPTY_TUPLE_OBJ_OFFSET, FALSE_OBJ_OFFSET,
-    GLOBAL_BUILTIN_CACHEABLE_SLOTS_OFFSET, GLOBAL_SLOTS_OFFSET, GLOBALS_OBJ_OFFSET,
-    NONE_OBJ_OFFSET, TRUE_OBJ_OFFSET,
+    DELETED_OBJ_OFFSET, EMPTY_TUPLE_OBJ_OFFSET, FALSE_OBJ_OFFSET, GLOBAL_SLOTS_OFFSET,
+    GLOBALS_OBJ_OFFSET, NONE_OBJ_OFFSET, TRUE_OBJ_OFFSET,
 };
 pub use vmctx::{JitModuleVmCtx, ModuleRuntimeContext};
 
@@ -176,7 +175,6 @@ static DP_JIT_GET_RAISED_EXCEPTION_IMPORT: ImportSpec =
 static DP_JIT_LOAD_GLOBAL_OBJ_IMPORT: ImportSpec = ImportSpec::new(
     "dp_jit_load_global_obj",
     &[
-        SigType::Pointer,
         SigType::Pointer,
         SigType::Pointer,
         SigType::Pointer,
@@ -531,7 +529,6 @@ fn emit_codegen_located_name_load(
         NameLocation::Global(slot) => {
             let globals_obj = ctx.consts.block_const;
             let global_slots = ctx.consts.global_slots_const;
-            let global_builtin_cacheable_slots = ctx.consts.global_builtin_cacheable_slots_const;
             let slot_offset = i64::from(slot.slot()) * i64::from(ptr_ty.bytes());
             let slot_addr = fb.ins().iadd_imm(global_slots, slot_offset);
             let cached = fb.ins().load(ptr_ty, ir::MemFlags::trusted(), slot_addr, 0);
@@ -564,13 +561,7 @@ fn emit_codegen_located_name_load(
             let slot_index = fb.ins().iconst(ir::types::I64, i64::from(slot.slot()));
             let value_inst = fb.ins().call(
                 ctx.load_global_obj_ref,
-                &[
-                    globals_obj,
-                    global_slots,
-                    global_builtin_cacheable_slots,
-                    name_obj,
-                    slot_index,
-                ],
+                &[globals_obj, global_slots, name_obj, slot_index],
             );
             fb.ins().call(ctx.decref_ref, &[name_obj]);
             let value = fb.inst_results(value_inst)[0];
@@ -678,7 +669,6 @@ struct JitEmitConsts {
     global_slots_const: ir::Value,
     global_load_hit_counter_ptr: Option<*mut u64>,
     global_load_miss_counter_ptr: Option<*mut u64>,
-    global_builtin_cacheable_slots_const: ir::Value,
 }
 
 struct JitEmitCtx<'mc> {
@@ -1884,7 +1874,6 @@ fn emit_codegen_expr(
                     &[
                         block_const,
                         ctx.consts.global_slots_const,
-                        ctx.consts.global_builtin_cacheable_slots_const,
                         list_name_obj,
                         uncached_slot,
                     ],
@@ -1938,7 +1927,6 @@ fn emit_codegen_expr(
                         &[
                             block_const,
                             ctx.consts.global_slots_const,
-                            ctx.consts.global_builtin_cacheable_slots_const,
                             dict_name_obj,
                             uncached_slot,
                         ],
@@ -2200,7 +2188,6 @@ fn emit_codegen_expr(
                     &[
                         block_const,
                         ctx.consts.global_slots_const,
-                        ctx.consts.global_builtin_cacheable_slots_const,
                         tuple_name_obj,
                         uncached_slot,
                     ],
@@ -2526,7 +2513,6 @@ fn emit_codegen_expr(
                     &[
                         block_const,
                         ctx.consts.global_slots_const,
-                        ctx.consts.global_builtin_cacheable_slots_const,
                         dict_name_obj,
                         uncached_slot,
                     ],
@@ -4328,12 +4314,6 @@ fn build_cranelift_run_bb_specialized_function(
             let block_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, GLOBALS_OBJ_OFFSET);
             let global_slots_const =
                 load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, GLOBAL_SLOTS_OFFSET);
-            let global_builtin_cacheable_slots_const = load_vmctx_obj(
-                &mut fb,
-                ptr_ty,
-                vmctx_value,
-                GLOBAL_BUILTIN_CACHEABLE_SLOTS_OFFSET,
-            );
             let none_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, NONE_OBJ_OFFSET);
             let true_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, TRUE_OBJ_OFFSET);
             let false_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, FALSE_OBJ_OFFSET);
@@ -4371,7 +4351,6 @@ fn build_cranelift_run_bb_specialized_function(
                     global_slots_const,
                     global_load_hit_counter_ptr,
                     global_load_miss_counter_ptr,
-                    global_builtin_cacheable_slots_const,
                 },
                 load_global_obj_ref,
                 load_runtime_obj_ref,
