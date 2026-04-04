@@ -721,3 +721,177 @@
 - Compute `ClosureLayout` in `name_binding`, and keep all closure data semantic before that.
 - Add a pass for specific storage decisions, closure slot offsets, and stack offsets.
 - Use Ruff for scope analysis and see if it can be computed once and preserved through transform layers.
+
+## Add explicit CFG increment counters
+
+Goal:
+- Add a late BlockPy pass that can insert increment-only counters at arbitrary CFG points.
+- Allocate backing storage for those counters in the module runtime state.
+- Bake the counter addresses into generated code as immediates, the same way module constants are now baked.
+- Allow reading the counters back either while the module is still live or right before dropping it.
+
+Recommended shape:
+
+```rust
+pub struct CounterDef {
+    pub id: CounterId,
+    pub name: String,
+    pub function_id: FunctionId,
+    pub block_label: BlockLabel,
+    pub point: CounterPoint,
+}
+
+pub enum CounterPoint {
+    BlockEntry,
+    BeforeStmt(usize),
+    BeforeTerm,
+}
+
+pub enum CodegenInstr {
+    Expr(CodegenBlockPyExpr),
+    IncrementCounter(CounterId),
+}
+```
+
+- Keep `CodegenBlockPyExpr` as Python-value IR only.
+- Do not encode counter increments as fake helper calls or fake Python expressions.
+- Use a late BB-only body item type so instrumentation stays explicit and codegen can lower it directly.
+
+Planned steps:
+
+1. Introduce a late BB body-instruction type.
+   - Define `CodegenInstr::{Expr, IncrementCounter}` in the BlockPy layer.
+   - Change the final BB/codegen phase to use blocks shaped like `Block<CodegenInstr, CodegenBlockPyExpr>`.
+   - Keep block terms unchanged.
+   - This is the core representation change that makes instrumentation explicit without polluting expression IR.
+
+2. Add module-level counter metadata.
+   - Extend the final lowered module shape with `counter_defs: Vec<CounterDef>`.
+   - `CounterDef` should carry enough information to explain where the counter came from:
+     - counter id
+     - human-readable name
+     - owning function id / qualname
+     - block label
+     - insertion point
+   - Treat this like `module_constants`: a late codegen-facing module table.
+
+3. Add a counter instrumentation pass after `bb_codegen`.
+   - Follow the pattern of `instrument_bb_module_for_trace` in `soac-blockpy/src/passes/trace/mod.rs`.
+   - Add a new pass such as:
+
+   ```rust
+   instrument_bb_module_with_counters(
+       module: &mut BlockPyModule<CodegenBlockPyPass>,
+       plan: &CounterInstrumentationPlan,
+   )
+   ```
+
+   - Start with a direct plan object, not an env var:
+
+   ```rust
+   pub struct CounterInstrumentationPlan {
+       pub sites: Vec<CounterSite>,
+   }
+
+   pub struct CounterSite {
+       pub qualname: String,
+       pub block_label: BlockLabel,
+       pub point: CounterPoint,
+       pub name: String,
+   }
+   ```
+
+   - The pass should:
+     - allocate a new `CounterId` for each requested site
+     - append a matching `CounterDef`
+     - splice `CodegenInstr::IncrementCounter(counter_id)` into the requested body position
+   - Initial support should be:
+     - `BlockEntry`
+     - `BeforeStmt(i)`
+     - `BeforeTerm`
+   - That is enough to cover most “arbitrary CFG point” needs without introducing term splitting yet.
+
+4. Allocate counter backing storage in `SharedModuleState`.
+   - Extend `SharedModuleState` in `soac-eval/src/module_type.rs` with something like:
+
+   ```rust
+   pub counter_defs: Vec<CounterDef>,
+   counter_values: Box<[u64]>,
+   ```
+
+   - Allocate `counter_values.len() == counter_defs.len()` when the module runtime state is created.
+   - Add helpers:
+     - `counter_ptrs(&self) -> Vec<*mut u64>`
+     - `counter_snapshot(&self) -> Vec<(&CounterDef, u64)>`
+   - For the first slice, plain `u64` storage is fine if reads are defined to happen only while holding the GIL and not concurrently with active execution in the same module.
+   - If live concurrent reads become important later, switch the storage and codegen lowering together to atomics rather than mixing atomic and non-atomic access.
+
+5. Thread counter pointers into JIT compilation the same way module constants are threaded today.
+   - Reuse the existing pattern around:
+     - `SharedModuleState::module_constant_ptrs()`
+     - `build_cranelift_run_bb_specialized_function(...)`
+   - Add sibling plumbing:
+
+   ```rust
+   counter_ptrs: &[*mut u64]
+   ```
+
+   - This should happen at compile time, not per-call through `vmctx`.
+   - The addresses are module-lifetime-stable because they live in `SharedModuleState`.
+
+6. Lower `IncrementCounter` directly in JIT codegen.
+   - In the statement/body lowering path in `soac-eval/src/jit/mod.rs`, add:
+
+   ```rust
+   CodegenInstr::IncrementCounter(id) => {
+       let ptr = fb.ins().iconst(ptr_ty, counter_ptrs[id.0] as i64);
+       let cur = fb.ins().load(types::I64, MemFlags::trusted(), ptr, 0);
+       let next = fb.ins().iadd_imm(cur, 1);
+       fb.ins().store(MemFlags::trusted(), next, ptr, 0);
+   }
+   ```
+
+   - Keep the first slice as a plain increment only.
+   - No Python object traffic, no helper call, no refcounting.
+
+7. Expose readback.
+   - Add a Rust-facing API first:
+     - `SharedModuleState::counter_snapshot()`
+   - Then add a small module-facing debug helper if needed, for example a `_soac_ext` helper that returns `{name: value}`.
+   - This is enough for:
+     - runtime inspection from tests/debugging
+     - optional shutdown logging later
+
+8. Add focused tests.
+   - BlockPy-side pass tests:
+     - counter inserted at block entry
+     - counter inserted before stmt `i`
+     - counter inserted before term
+     - defs and body instructions stay aligned
+   - JIT-side codegen tests:
+     - rendered CLIF contains the expected immediate counter address and load/add/store sequence
+   - Integration test:
+     - instrument one function
+     - call it twice
+     - read counters back and assert `2`
+
+Challenging parts:
+- The biggest structural choice is whether to force counters into `CodegenBlockPyExpr` or add an explicit body-instruction type.
+  - The cleaner design is an explicit `CodegenInstr`.
+  - That means touching pretty-printing, validation, module-constant collection, and JIT body emission in one coordinated slice.
+- Reading counters “during runtime” is only trivial if we define the first slice around GIL-held, non-concurrent inspection.
+  - If we want truly concurrent reads later, the storage and CLIF lowering should move to atomic increments together.
+- Counter ids must remain stable from instrumentation through module-state allocation through JIT lowering.
+  - Treat them like `ModuleConstantId`: dense, append-only, module-local ids.
+
+Suggested first implementation slice:
+- Only support `CounterPoint::BlockEntry`.
+- Add `CodegenInstr::IncrementCounter`.
+- Allocate `Vec<u64>` in `SharedModuleState`.
+- Bake counter addresses into JIT codegen as immediates.
+- Add one end-to-end test that instruments a single function entry and verifies the count after repeated calls.
+
+After that is stable:
+- add `BeforeStmt(i)` and `BeforeTerm`
+- add named policy helpers that can target whole function families
+- consider whether trace instrumentation and counter instrumentation should share a generic “late BB instrumentation” framework
