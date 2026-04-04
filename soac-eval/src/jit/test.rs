@@ -304,7 +304,7 @@ mod tests {
         ffi::Py_INCREF(empty_tuple_obj.cast());
         let global_cache = crate::module_globals::ModuleGlobalCache::new(
             globals_obj.cast(),
-            shared_state.lowered_module.global_names.len(),
+            shared_state.lowered_module.global_names.as_slice(),
         )
         .expect("test runtime should create module global cache");
         crate::jit::ModuleRuntimeContext {
@@ -1305,6 +1305,7 @@ def f(x):
                     constants.int_expr(2),
                 ))),
                 expr_stmt(op_expr(Del::new(test_global_name("x"), true))),
+                expr_stmt(op_expr(Del::new(test_global_name("y"), false))),
                 expr_stmt(op_expr(Del::new(test_closure_cell_name("cell", 2), false))),
                 expr_stmt(op_expr(Del::new(test_closure_cell_name("cell", 2), true))),
             ],
@@ -1321,8 +1322,12 @@ def f(x):
             "delitem intrinsic should use the direct JIT helper:\n{rendered}"
         );
         assert!(
-            rendered.contains("call dp_jit_del_quietly"),
-            "del_quietly intrinsic should use the direct JIT helper:\n{rendered}"
+            rendered.contains("call dp_jit_del_global_quietly"),
+            "quiet global delete intrinsic should use the direct JIT helper:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("call dp_jit_del_global"),
+            "global delete intrinsic should use the direct JIT helper:\n{rendered}"
         );
         assert!(
             rendered.contains("call dp_jit_del_deref"),

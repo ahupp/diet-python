@@ -305,14 +305,14 @@ impl SoacExtModuleState {
         if self.global_cache_initialized {
             return Ok(unsafe { self.global_cache.assume_init_ref().clone() });
         }
-        let slot_count = unsafe {
+        let global_names = unsafe {
             self.shared_state
                 .assume_init_ref()
                 .lowered_module
                 .global_names
-                .len()
+                .clone()
         };
-        let cache = unsafe { ModuleGlobalCache::new(globals_obj, slot_count) }
+        let cache = unsafe { ModuleGlobalCache::new(globals_obj, global_names.as_slice()) }
             .map_err(|_| {
                 if unsafe { ffi::PyErr_Occurred() }.is_null() {
                     PyRuntimeError::new_err("failed to create module global cache")

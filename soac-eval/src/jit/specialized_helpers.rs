@@ -6,6 +6,9 @@ use std::ptr;
 use std::sync::OnceLock;
 
 #[cfg(not(test))]
+use crate::module_globals::ModuleGlobalCache;
+
+#[cfg(not(test))]
 use std::sync::atomic::{AtomicPtr, Ordering};
 
 #[cfg(not(test))]
@@ -496,13 +499,25 @@ unsafe extern "C" fn pyobject_delitem_hook(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
 }
 
 #[cfg(not(test))]
-unsafe extern "C" fn store_global_hook(globals_obj: ObjPtr, name: ObjPtr, value: ObjPtr) -> ObjPtr {
-    if globals_obj.is_null() || name.is_null() || value.is_null() {
+unsafe extern "C" fn store_global_hook(
+    globals_obj: ObjPtr,
+    name: ObjPtr,
+    slot_index: i64,
+    value: ObjPtr,
+) -> ObjPtr {
+    if globals_obj.is_null() || name.is_null() || value.is_null() || slot_index < 0 {
         ffi::PyErr_SetString(
             ffi::PyExc_RuntimeError,
             b"invalid arguments to dp_jit_store_global\0".as_ptr() as *const i8,
         );
         return ptr::null_mut();
+    }
+    if let Some(cache) = ModuleGlobalCache::lookup(globals_obj as *mut ffi::PyObject) {
+        return cache.store_global_write_through(
+            name as *mut ffi::PyObject,
+            slot_index as u32,
+            value as *mut ffi::PyObject,
+        ) as ObjPtr;
     }
     let rc = ffi::PyObject_SetItem(
         globals_obj as *mut ffi::PyObject,
@@ -538,6 +553,34 @@ unsafe extern "C" fn del_quietly_hook(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
     let none = ffi::Py_None();
     ffi::Py_INCREF(none);
     none as ObjPtr
+}
+
+#[cfg(not(test))]
+unsafe extern "C" fn del_global_hook(
+    globals_obj: ObjPtr,
+    key: ObjPtr,
+    slot_index: i64,
+    quietly: bool,
+) -> ObjPtr {
+    if globals_obj.is_null() || key.is_null() || slot_index < 0 {
+        ffi::PyErr_SetString(
+            ffi::PyExc_RuntimeError,
+            if quietly {
+                b"invalid arguments to dp_jit_del_global_quietly\0".as_ptr() as *const i8
+            } else {
+                b"invalid arguments to dp_jit_del_global\0".as_ptr() as *const i8
+            },
+        );
+        return ptr::null_mut();
+    }
+    if let Some(cache) = ModuleGlobalCache::lookup(globals_obj as *mut ffi::PyObject) {
+        return cache.del_global_write_through(key as *mut ffi::PyObject, slot_index as u32, quietly)
+            as ObjPtr;
+    }
+    if quietly {
+        return del_quietly_hook(globals_obj, key);
+    }
+    pyobject_delitem_hook(globals_obj, key)
 }
 
 #[cfg(not(test))]
@@ -808,7 +851,18 @@ panic_obj_export!(dp_jit_load_global_obj(
     name: ObjPtr,
     slot_index: i64
 ));
-    panic_obj_export!(dp_jit_store_global(globals_obj: ObjPtr, name: ObjPtr, value: ObjPtr));
+    panic_obj_export!(dp_jit_store_global(
+        globals_obj: ObjPtr,
+        name: ObjPtr,
+        slot_index: i64,
+        value: ObjPtr
+    ));
+    panic_obj_export!(dp_jit_del_global(globals_obj: ObjPtr, key: ObjPtr, slot_index: i64));
+    panic_obj_export!(dp_jit_del_global_quietly(
+        globals_obj: ObjPtr,
+        key: ObjPtr,
+        slot_index: i64
+    ));
     panic_obj_export!(dp_jit_del_quietly(obj: ObjPtr, key: ObjPtr));
     panic_i64_export!(dp_jit_pyobject_to_i64(value: ObjPtr));
     panic_obj_export!(dp_jit_make_cell(value: ObjPtr));
@@ -940,9 +994,28 @@ pub unsafe extern "C" fn dp_jit_load_global_obj(
 pub unsafe extern "C" fn dp_jit_store_global(
     globals_obj: ObjPtr,
     name: ObjPtr,
+    slot_index: i64,
     value: ObjPtr,
 ) -> ObjPtr {
-    store_global_hook(globals_obj, name, value)
+    store_global_hook(globals_obj, name, slot_index, value)
+}
+
+#[cfg(not(test))]
+pub unsafe extern "C" fn dp_jit_del_global(
+    globals_obj: ObjPtr,
+    key: ObjPtr,
+    slot_index: i64,
+) -> ObjPtr {
+    del_global_hook(globals_obj, key, slot_index, false)
+}
+
+#[cfg(not(test))]
+pub unsafe extern "C" fn dp_jit_del_global_quietly(
+    globals_obj: ObjPtr,
+    key: ObjPtr,
+    slot_index: i64,
+) -> ObjPtr {
+    del_global_hook(globals_obj, key, slot_index, true)
 }
 
 #[cfg(not(test))]
@@ -1236,6 +1309,11 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
         dp_jit_load_global_obj as *const u8,
     );
     builder.symbol("dp_jit_store_global", dp_jit_store_global as *const u8);
+    builder.symbol("dp_jit_del_global", dp_jit_del_global as *const u8);
+    builder.symbol(
+        "dp_jit_del_global_quietly",
+        dp_jit_del_global_quietly as *const u8,
+    );
     builder.symbol("dp_jit_del_quietly", dp_jit_del_quietly as *const u8);
     builder.symbol(
         "dp_jit_pyobject_to_i64",

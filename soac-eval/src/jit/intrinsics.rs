@@ -246,12 +246,17 @@ define_owned_import_spec!(
 define_owned_import_spec!(
     DP_JIT_STORE_GLOBAL_IMPORT,
     "dp_jit_store_global",
-    &[SigType::Pointer, SigType::Pointer, SigType::Pointer]
+    &[SigType::Pointer, SigType::Pointer, SigType::I64, SigType::Pointer]
 );
 define_owned_import_spec!(
-    DP_JIT_DEL_QUIETLY_IMPORT,
-    "dp_jit_del_quietly",
-    &[SigType::Pointer, SigType::Pointer]
+    DP_JIT_DEL_GLOBAL_IMPORT,
+    "dp_jit_del_global",
+    &[SigType::Pointer, SigType::Pointer, SigType::I64]
+);
+define_owned_import_spec!(
+    DP_JIT_DEL_GLOBAL_QUIETLY_IMPORT,
+    "dp_jit_del_global_quietly",
+    &[SigType::Pointer, SigType::Pointer, SigType::I64]
 );
 define_owned_import_spec!(
     DP_JIT_DEL_DEREF_QUIETLY_IMPORT,
@@ -606,10 +611,17 @@ fn emit_store<'fb>(
     let func_ref = state.import_func(&DP_JIT_STORE_GLOBAL_IMPORT);
     let decref_ref = state.ctx().decref_ref;
     let globals_obj = state.ctx().consts.block_const;
+    let slot_index = match op.name.location {
+        NameLocation::Global(slot) => state
+            .fb()
+            .ins()
+            .iconst(ir::types::I64, i64::from(slot.slot())),
+        _ => unreachable!("emit_store only applies to global names"),
+    };
     let call_inst = state
         .fb()
         .ins()
-        .call(func_ref, &[globals_obj, name_obj, arg_values[0].0]);
+        .call(func_ref, &[globals_obj, name_obj, slot_index, arg_values[0].0]);
     state.release_arg_values(&arg_values);
     state.fb().ins().call(decref_ref, &[name_obj]);
     let result = state.fb().inst_results(call_inst)[0];
@@ -622,13 +634,23 @@ fn emit_del<'fb>(
 ) -> ir::Value {
     let name_obj = state.emit_owned_string_constant(op.name.id_str());
     let func_ref = if op.quietly {
-        state.import_func(&DP_JIT_DEL_QUIETLY_IMPORT)
+        state.import_func(&DP_JIT_DEL_GLOBAL_QUIETLY_IMPORT)
     } else {
-        state.import_func(&DP_JIT_PYOBJECT_DELITEM_IMPORT)
+        state.import_func(&DP_JIT_DEL_GLOBAL_IMPORT)
     };
     let decref_ref = state.ctx().decref_ref;
     let globals_obj = state.ctx().consts.block_const;
-    let call_inst = state.fb().ins().call(func_ref, &[globals_obj, name_obj]);
+    let slot_index = match op.name.location {
+        NameLocation::Global(slot) => state
+            .fb()
+            .ins()
+            .iconst(ir::types::I64, i64::from(slot.slot())),
+        _ => unreachable!("emit_del only applies to global names"),
+    };
+    let call_inst = state
+        .fb()
+        .ins()
+        .call(func_ref, &[globals_obj, name_obj, slot_index]);
     state.fb().ins().call(decref_ref, &[name_obj]);
     let result = state.fb().inst_results(call_inst)[0];
     state.finish_owned_result(result)
