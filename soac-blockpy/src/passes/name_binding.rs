@@ -2,9 +2,9 @@ use crate::block_py::{
     build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_scope,
     compute_storage_layout_from_scope, core_runtime_positional_call_expr_with_meta, literal_expr,
     map_fn, runtime_symbol, BindingKind, BindingPurpose, BindingTarget, BlockArg, BlockPyFunction,
-    BlockPyModule, BlockPyNameLike, BlockTerm, Call, CallableScopeInfo, CallableScopeKind,
-    CellBindingKind, CellCaptureBinding, CellLocation, CellRef, CellRefForName, ClassBodyFallback,
-    ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreNumberLiteral,
+    BlockPyModule, BlockPyNameLike, BlockTerm, Call, CallArgPositional, CallableScopeInfo,
+    CallableScopeKind, CellBindingKind, CellCaptureBinding, CellLocation, CellRef, CellRefForName,
+    ClassBodyFallback, ClosureInit, ClosureSlot, CoreBlockPyExpr, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, EffectiveBinding, FunctionId,
     FunctionKind, HasMeta, InstrExprNode, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
     MakeCell, MakeFunction, MapExpr, NameLocation, SetItem, StorageLayout, Store, TermRaise,
@@ -633,7 +633,7 @@ fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ast::name::Name>
         return None;
     }
     match &args[0] {
-        CoreBlockPyCallArg::Positional(expr) => {
+        CallArgPositional::Positional(expr) => {
             let CoreBlockPyExpr::Call(nested_call) = expr else {
                 return raw_load_name(expr).map(ast::name::Name::new);
             };
@@ -646,7 +646,7 @@ fn quiet_delete_marker_target(expr: &CoreBlockPyExpr) -> Option<ast::name::Name>
                 return raw_load_name(expr).map(ast::name::Name::new);
             }
             match &nested_call.args[1] {
-                CoreBlockPyCallArg::Positional(expr) => {
+                CallArgPositional::Positional(expr) => {
                     raw_load_name(expr).map(ast::name::Name::new)
                 }
                 _ => None,
@@ -1146,11 +1146,11 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
                 for (index, arg) in call.args.into_iter().enumerate() {
                     match (index, arg) {
                         (2, arg) => mapped_args.push(arg),
-                        (_, CoreBlockPyCallArg::Positional(expr)) => {
-                            mapped_args.push(CoreBlockPyCallArg::Positional(self.map_expr(expr)))
+                        (_, CallArgPositional::Positional(expr)) => {
+                            mapped_args.push(CallArgPositional::Positional(self.map_expr(expr)))
                         }
-                        (_, CoreBlockPyCallArg::Starred(expr)) => {
-                            mapped_args.push(CoreBlockPyCallArg::Starred(self.map_expr(expr)))
+                        (_, CallArgPositional::Starred(expr)) => {
+                            mapped_args.push(CallArgPositional::Starred(self.map_expr(expr)))
                         }
                     }
                 }
@@ -2104,11 +2104,11 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_> 
                     .is_some_and(|name| name == "class_lookup_cell")
                     && call.args.len() == 3
                 {
-                    if let Some(CoreBlockPyCallArg::Positional(expr)) = call.args.get(2) {
+                    if let Some(CallArgPositional::Positional(expr)) = call.args.get(2) {
                         let mut marked = expr.clone();
                         marked = self.mark_raw_cell_expr(marked);
                         let mut call = call;
-                        if let Some(CoreBlockPyCallArg::Positional(target)) = call.args.get_mut(2) {
+                        if let Some(CallArgPositional::Positional(target)) = call.args.get_mut(2) {
                             *target = marked;
                         }
                         return call.with_meta(meta).into();

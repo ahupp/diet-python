@@ -2,16 +2,15 @@ use super::core_eval_order::make_eval_order_explicit_in_core_callable_def_withou
 use crate::block_py::cfg::RelabelBlockTargets;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::{
+    compute_storage_layout_from_scope, core_call_expr_with_meta, core_runtime_name_expr_with_meta,
+    core_runtime_positional_call_expr_with_meta, literal_expr, try_map_fn, try_map_term,
     BindingKind, Block, BlockArg, BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole,
-    BlockPyFunction, BlockPyModule, BlockPyNameLike, BlockTerm, CallableScopeInfo, CellBindingKind,
-    CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, CoreNumberLiteral, CoreNumberLiteralValue,
-    CoreStringLiteral, FunctionId, FunctionKind, FunctionName, FunctionNameGen, GetAttr,
-    ImplicitNoneExpr, Instr, InstrExprNode, Load, MakeFunction, ModuleNameGen, ScopeExprNode,
-    StorageLayout, Store, TermBranchTable, TermIf, TermRaise, TryMapExpr, UnaryOp, UnaryOpKind,
-    UnresolvedName, compute_storage_layout_from_scope, core_call_expr_with_meta,
-    core_runtime_name_expr_with_meta, core_runtime_positional_call_expr_with_meta, literal_expr,
-    try_map_fn, try_map_term,
+    BlockPyFunction, BlockPyModule, BlockPyNameLike, BlockTerm, CallArgKeyword, CallArgPositional,
+    CallableScopeInfo, CellBindingKind, CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyExpr,
+    CoreBlockPyExprWithYield, CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral,
+    FunctionId, FunctionKind, FunctionName, FunctionNameGen, GetAttr, ImplicitNoneExpr, Instr,
+    InstrExprNode, Load, MakeFunction, ModuleNameGen, ScopeExprNode, StorageLayout, Store,
+    TermBranchTable, TermIf, TermRaise, TryMapExpr, UnaryOp, UnaryOpKind, UnresolvedName,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -342,11 +341,11 @@ fn core_call_expr(
         ast::AtomicNodeIndex::default(),
         Default::default(),
         args.into_iter()
-            .map(CoreBlockPyCallArg::Positional)
+            .map(CallArgPositional::Positional)
             .collect(),
         keywords
             .into_iter()
-            .map(|(arg, value)| CoreBlockPyKeywordArg::Named {
+            .map(|(arg, value)| CallArgKeyword::Named {
                 arg: ast::Identifier::new(arg, Default::default()),
                 value,
             })

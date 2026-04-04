@@ -1,15 +1,14 @@
 pub use self::meta::{HasMeta, Meta, WithMeta};
 use self::operation_macro::define_operation;
 pub use self::param_specs::{Param, ParamDefaultSource, ParamKind, ParamSpec};
+pub(crate) use self::scope::{
+    build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_scope,
+    compute_storage_layout_from_scope, derive_effective_binding_for_name, ScopeExprNode,
+};
 pub use self::scope::{
     BindingKind, BindingPurpose, BindingTarget, CallableScopeInfo, CallableScopeKind,
     CellBindingKind, CellCaptureBinding, ClassBodyFallback, ClosureInit, ClosureSlot,
     EffectiveBinding, StorageLayout,
-};
-pub(crate) use self::scope::{
-    ScopeExprNode, build_storage_layout_from_capture_names,
-    compute_make_function_capture_bindings_from_scope, compute_storage_layout_from_scope,
-    derive_effective_binding_for_name,
 };
 use crate::py_expr;
 pub use operation::{
@@ -18,7 +17,7 @@ pub use operation::{
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast};
-use soac_macros::{DelegateMatchDefault, enum_broadcast};
+use soac_macros::{enum_broadcast, DelegateMatchDefault};
 use std::fmt;
 
 pub(crate) mod cfg;
@@ -782,8 +781,8 @@ pub(crate) fn core_call_expr_with_meta<E>(
     func: E,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
-    args: Vec<CoreBlockPyCallArg<E>>,
-    keywords: Vec<CoreBlockPyKeywordArg<E>>,
+    args: Vec<CallArgPositional<E>>,
+    keywords: Vec<CallArgKeyword<E>>,
 ) -> E
 where
     E: Instr + From<Call<E>>,
@@ -797,8 +796,8 @@ pub(crate) fn core_named_call_expr_with_meta<E>(
     func_name: &str,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
-    args: Vec<CoreBlockPyCallArg<E>>,
-    keywords: Vec<CoreBlockPyKeywordArg<E>>,
+    args: Vec<CallArgPositional<E>>,
+    keywords: Vec<CallArgKeyword<E>>,
 ) -> E
 where
     E: Instr<Name = UnresolvedName> + From<Call<E>> + From<Load<E>>,
@@ -836,7 +835,7 @@ where
         node_index,
         range,
         args.into_iter()
-            .map(CoreBlockPyCallArg::Positional)
+            .map(CallArgPositional::Positional)
             .collect(),
         Vec::new(),
     )
@@ -846,8 +845,8 @@ pub(crate) fn core_runtime_named_call_expr_with_meta<E>(
     func_name: &str,
     node_index: ast::AtomicNodeIndex,
     range: ruff_text_size::TextRange,
-    args: Vec<CoreBlockPyCallArg<E>>,
-    keywords: Vec<CoreBlockPyKeywordArg<E>>,
+    args: Vec<CallArgPositional<E>>,
+    keywords: Vec<CallArgKeyword<E>>,
 ) -> E
 where
     E: Instr<Name = UnresolvedName> + From<Call<E>> + From<Load<E>>,
@@ -870,7 +869,7 @@ where
         node_index,
         range,
         args.into_iter()
-            .map(CoreBlockPyCallArg::Positional)
+            .map(CallArgPositional::Positional)
             .collect(),
         Vec::new(),
     )
@@ -881,12 +880,12 @@ pub(crate) fn runtime_symbol(name: &str) -> UnresolvedName {
 }
 
 #[derive(Debug, Clone)]
-pub enum CoreBlockPyCallArg<E> {
+pub enum CallArgPositional<E> {
     Positional(E),
     Starred(E),
 }
 
-impl<E> CoreBlockPyCallArg<E> {
+impl<E> CallArgPositional<E> {
     pub fn expr(&self) -> &E {
         match self {
             Self::Positional(expr) | Self::Starred(expr) => expr,
@@ -899,31 +898,31 @@ impl<E> CoreBlockPyCallArg<E> {
         }
     }
 
-    pub fn map_expr<T>(self, f: impl FnOnce(E) -> T) -> CoreBlockPyCallArg<T> {
+    pub fn map_expr<T>(self, f: impl FnOnce(E) -> T) -> CallArgPositional<T> {
         match self {
-            Self::Positional(expr) => CoreBlockPyCallArg::Positional(f(expr)),
-            Self::Starred(expr) => CoreBlockPyCallArg::Starred(f(expr)),
+            Self::Positional(expr) => CallArgPositional::Positional(f(expr)),
+            Self::Starred(expr) => CallArgPositional::Starred(f(expr)),
         }
     }
 
     pub fn try_map_expr<T, Error>(
         self,
         f: impl FnOnce(E) -> Result<T, Error>,
-    ) -> Result<CoreBlockPyCallArg<T>, Error> {
+    ) -> Result<CallArgPositional<T>, Error> {
         match self {
-            Self::Positional(expr) => f(expr).map(CoreBlockPyCallArg::Positional),
-            Self::Starred(expr) => f(expr).map(CoreBlockPyCallArg::Starred),
+            Self::Positional(expr) => f(expr).map(CallArgPositional::Positional),
+            Self::Starred(expr) => f(expr).map(CallArgPositional::Starred),
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum CoreBlockPyKeywordArg<E> {
+pub enum CallArgKeyword<E> {
     Named { arg: ast::Identifier, value: E },
     Starred(E),
 }
 
-impl<E> CoreBlockPyKeywordArg<E> {
+impl<E> CallArgKeyword<E> {
     pub fn expr(&self) -> &E {
         match self {
             Self::Named { value, .. } | Self::Starred(value) => value,
@@ -936,25 +935,25 @@ impl<E> CoreBlockPyKeywordArg<E> {
         }
     }
 
-    pub fn map_expr<T>(self, f: impl FnOnce(E) -> T) -> CoreBlockPyKeywordArg<T> {
+    pub fn map_expr<T>(self, f: impl FnOnce(E) -> T) -> CallArgKeyword<T> {
         match self {
-            Self::Named { arg, value } => CoreBlockPyKeywordArg::Named {
+            Self::Named { arg, value } => CallArgKeyword::Named {
                 arg,
                 value: f(value),
             },
-            Self::Starred(value) => CoreBlockPyKeywordArg::Starred(f(value)),
+            Self::Starred(value) => CallArgKeyword::Starred(f(value)),
         }
     }
 
     pub fn try_map_expr<T, Error>(
         self,
         f: impl FnOnce(E) -> Result<T, Error>,
-    ) -> Result<CoreBlockPyKeywordArg<T>, Error> {
+    ) -> Result<CallArgKeyword<T>, Error> {
         match self {
             Self::Named { arg, value } => {
-                f(value).map(|value| CoreBlockPyKeywordArg::Named { arg, value })
+                f(value).map(|value| CallArgKeyword::Named { arg, value })
             }
-            Self::Starred(value) => f(value).map(CoreBlockPyKeywordArg::Starred),
+            Self::Starred(value) => f(value).map(CallArgKeyword::Starred),
         }
     }
 }

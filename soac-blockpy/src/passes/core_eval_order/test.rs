@@ -1,6 +1,6 @@
 use super::*;
 use crate::block_py::{
-    BinOp, BinOpKind, BlockLabel, BlockPyBlock, BlockTerm, CoreBlockPyCallArg,
+    BinOp, BinOpKind, BlockLabel, BlockPyBlock, BlockTerm, CallArgPositional,
     CoreBlockPyExprWithAwaitAndYield, Meta, Store, StructuredInstr, UnresolvedName, WithMeta,
     YieldFrom,
 };
@@ -46,11 +46,11 @@ fn eval_order_hoists_call_arguments_in_return_value_to_temps() {
     assert!(is_name_like(call.func.as_ref()));
     assert!(matches!(
         &call.args[0],
-        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
+        CallArgPositional::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
     ));
     assert!(matches!(
         &call.args[1],
-        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
+        CallArgPositional::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
     ));
 }
 
@@ -106,7 +106,7 @@ fn eval_order_hoists_nested_call_in_assignment_rhs() {
     assert!(is_name_like(call.func.as_ref()));
     assert!(matches!(
         &call.args[0],
-        CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
+        CallArgPositional::Positional(CoreBlockPyExprWithAwaitAndYield::Call(_))
     ));
 }
 

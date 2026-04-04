@@ -1,7 +1,7 @@
 use crate::block_py::{BindingKind, ClosureInit, ClosureSlot};
 use crate::block_py::{
-    BlockPyFunction, BlockPyModule, BlockPyNameLike, BlockTerm, Call, CallableScopeKind,
-    CellBindingKind, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, FunctionKind,
+    BlockPyFunction, BlockPyModule, BlockPyNameLike, BlockTerm, Call, CallArgKeyword,
+    CallArgPositional, CallableScopeKind, CellBindingKind, CoreBlockPyExpr, FunctionKind,
     LocatedName, NameLocation, ResolvedStorageBlock,
 };
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, ResolvedStorageBlockPyPass};
@@ -2883,14 +2883,14 @@ def make_counter(delta):
         .keywords
         .iter()
         .find_map(|keyword| match keyword {
-            CoreBlockPyKeywordArg::Named { arg, value } if arg.as_str() == "resume" => Some(value),
+            CallArgKeyword::Named { arg, value } if arg.as_str() == "resume" => Some(value),
             _ => None,
         })
         .expect("ClosureGenerator should carry a resume= keyword");
     let make_function = runtime_call_by_name(bb_module, resume_expr, "make_function")
         .expect("resume should use make_function");
     let captures_expr = match make_function.args.get(2) {
-        Some(CoreBlockPyCallArg::Positional(expr)) => expr,
+        Some(CallArgPositional::Positional(expr)) => expr,
         other => panic!("expected captures positional arg, got {other:?}"),
     };
     let captures_tuple = runtime_call_by_name(bb_module, captures_expr, "tuple_values")

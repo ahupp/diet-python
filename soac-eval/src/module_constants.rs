@@ -2,7 +2,7 @@ use pyo3::ffi;
 use pyo3::prelude::*;
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockPyNameLike,
-    BlockTerm, CodegenBlockPyExpr, CoreBlockPyExpr, CoreBlockPyKeywordArg, CoreNumberLiteralValue,
+    BlockTerm, CallArgKeyword, CodegenBlockPyExpr, CoreBlockPyExpr, CoreNumberLiteralValue,
     LocatedCoreBlockPyExpr, ParamDefaultSource, Walkable, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
@@ -431,7 +431,7 @@ impl ModuleConstantCollector {
                     self.collect_expr(arg.expr());
                 }
                 for keyword in &call.keywords {
-                    if let CoreBlockPyKeywordArg::Named { arg, .. } = keyword {
+                    if let CallArgKeyword::Named { arg, .. } = keyword {
                         self.constants.intern_unicode_bytes(arg.as_str().as_bytes());
                     }
                     self.collect_expr(keyword.expr());

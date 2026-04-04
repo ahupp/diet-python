@@ -1,10 +1,10 @@
 use super::ast_to_ast::string_templates::lower_string_templates_in_expr;
 use crate::block_py::{
     core_call_expr_with_meta, core_runtime_name_expr_with_meta,
-    core_runtime_positional_call_expr_with_meta, literal_expr, operation, Await,
-    CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg, CoreBytesLiteral,
-    CoreNumberLiteral, CoreNumberLiteralValue, CoreStringLiteral, HasMeta, ImplicitNoneExpr, Meta,
-    WithMeta, Yield, YieldFrom,
+    core_runtime_positional_call_expr_with_meta, literal_expr, operation, Await, CallArgKeyword,
+    CallArgPositional, CoreBlockPyExprWithAwaitAndYield, CoreBytesLiteral, CoreNumberLiteral,
+    CoreNumberLiteralValue, CoreStringLiteral, HasMeta, ImplicitNoneExpr, Meta, WithMeta, Yield,
+    YieldFrom,
 };
 use crate::passes::ast_to_ast::expr_utils::make_tuple;
 use crate::py_expr;
@@ -287,30 +287,28 @@ fn add_op_expr(
 
 fn lower_core_call_args(
     args: Vec<Expr>,
-) -> Vec<CoreBlockPyCallArg<CoreBlockPyExprWithAwaitAndYield>> {
+) -> Vec<CallArgPositional<CoreBlockPyExprWithAwaitAndYield>> {
     args.into_iter()
         .map(|arg| match arg {
             Expr::Starred(starred) => {
-                CoreBlockPyCallArg::Starred(CoreBlockPyExprWithAwaitAndYield::from(*starred.value))
+                CallArgPositional::Starred(CoreBlockPyExprWithAwaitAndYield::from(*starred.value))
             }
-            other => CoreBlockPyCallArg::Positional(CoreBlockPyExprWithAwaitAndYield::from(other)),
+            other => CallArgPositional::Positional(CoreBlockPyExprWithAwaitAndYield::from(other)),
         })
         .collect()
 }
 
 fn lower_core_call_keywords(
     keywords: Vec<ast::Keyword>,
-) -> Vec<CoreBlockPyKeywordArg<CoreBlockPyExprWithAwaitAndYield>> {
+) -> Vec<CallArgKeyword<CoreBlockPyExprWithAwaitAndYield>> {
     keywords
         .into_iter()
         .map(|keyword| match keyword.arg {
-            Some(arg) => CoreBlockPyKeywordArg::Named {
+            Some(arg) => CallArgKeyword::Named {
                 arg,
                 value: CoreBlockPyExprWithAwaitAndYield::from(keyword.value),
             },
-            None => CoreBlockPyKeywordArg::Starred(CoreBlockPyExprWithAwaitAndYield::from(
-                keyword.value,
-            )),
+            None => CallArgKeyword::Starred(CoreBlockPyExprWithAwaitAndYield::from(keyword.value)),
         })
         .collect()
 }

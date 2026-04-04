@@ -1,7 +1,7 @@
 use super::{
     is_internal_symbol, walk_linear_block, walk_linear_expr, walk_linear_stmt, Block,
     BlockPyFunction, BlockPyLinearModuleVisitor, BlockPyLiteral, BlockPyNameLike, BlockPyPass,
-    Call, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    Call, CallArgPositional, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, FunctionName, RuffExpr, Walkable,
 };
 use crate::passes::ast_to_ast::scope_helpers::cell_name;
@@ -456,7 +456,7 @@ where
     if helper_name != "cell_ref" {
         return None;
     }
-    let CoreBlockPyCallArg::Positional(arg) = call.args.first()? else {
+    let CallArgPositional::Positional(arg) = call.args.first()? else {
         return None;
     };
     arg.root_string_literal_value()

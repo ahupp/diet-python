@@ -4,11 +4,11 @@ use super::{
     resume_closure_bindings, yield_from_method_lookup_expr, yield_from_send_expr, ErrOnYield,
 };
 use crate::block_py::{
-    core_call_expr_with_meta, BindingKind, BindingPurpose, BinOpKind, Block, BlockBuilder,
-    BlockLabel, BlockPyLiteral, BlockTerm, CallableScopeInfo, CallableScopeKind, CellBindingKind,
-    BlockPyNameLike, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyExprWithYield,
-    FunctionId, FunctionName, HasMeta, Meta, StorageLayout, UnaryOpKind, WithMeta, Yield,
+    core_call_expr_with_meta, BinOpKind, BindingKind, BindingPurpose, Block, BlockBuilder,
+    BlockLabel, BlockPyLiteral, BlockPyNameLike, BlockTerm, CallArgPositional, CallableScopeInfo,
+    CallableScopeKind, CellBindingKind, ClosureInit, ClosureSlot, CoreBlockPyExpr,
+    CoreBlockPyExprWithYield, FunctionId, FunctionName, HasMeta, Meta, StorageLayout, UnaryOpKind,
+    WithMeta, Yield,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::py_expr;
@@ -156,7 +156,7 @@ fn yield_from_send_helper_builds_send_call_shape() {
     };
     assert_eq!(lit.value, "send");
     assert_eq!(call.args.len(), 1);
-    let CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Load(name)) = &call.args[0] else {
+    let CallArgPositional::Positional(CoreBlockPyExpr::Load(name)) = &call.args[0] else {
         panic!("expected positional _dp_send_value argument");
     };
     assert_eq!(name.name.id_str(), "_dp_send_value");
@@ -174,18 +174,18 @@ fn yield_from_lookup_helper_builds_getattr_call_shape() {
     assert_eq!(name.name.id_str(), "getattr");
     assert!(name.name.is_runtime_name());
     assert_eq!(call.args.len(), 3);
-    let CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Load(name)) = &call.args[0] else {
+    let CallArgPositional::Positional(CoreBlockPyExpr::Load(name)) = &call.args[0] else {
         panic!("expected first positional _dp_yieldfrom argument");
     };
     assert_eq!(name.name.id_str(), "_dp_yieldfrom");
-    let CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Literal(lit)) = &call.args[1] else {
+    let CallArgPositional::Positional(CoreBlockPyExpr::Literal(lit)) = &call.args[1] else {
         panic!("expected second positional string attr argument");
     };
     let BlockPyLiteral::StringLiteral(lit) = lit.clone().into_literal() else {
         panic!("expected string attr literal");
     };
     assert_eq!(lit.value, "close");
-    let CoreBlockPyCallArg::Positional(CoreBlockPyExpr::Load(name)) = &call.args[2] else {
+    let CallArgPositional::Positional(CoreBlockPyExpr::Load(name)) = &call.args[2] else {
         panic!("expected third positional NONE default argument");
     };
     assert_eq!(name.name.id_str(), "NONE");
@@ -402,9 +402,11 @@ fn term_conversion_to_no_yield_rejects_nested_yield() {
         core_load_with_yield("f"),
         ast::AtomicNodeIndex::default(),
         TextRange::default(),
-        vec![CoreBlockPyCallArg::Positional(CoreBlockPyExprWithYield::Yield(
-            Yield::new(core_load_with_yield("x")).with_meta(Meta::default()),
-        ))],
+        vec![CallArgPositional::Positional(
+            CoreBlockPyExprWithYield::Yield(
+                Yield::new(core_load_with_yield("x")).with_meta(Meta::default()),
+            ),
+        )],
         Vec::new(),
     ));
 

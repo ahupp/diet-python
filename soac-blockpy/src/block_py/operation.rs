@@ -1,8 +1,7 @@
 use super::operation_macro::define_operation;
 use super::{
-    BlockPyNameLike, CellLocation, CoreBlockPyCallArg, CoreBlockPyKeywordArg, FunctionId,
-    FunctionKind, HasMeta, Instr, InstrExprNode, InstrName, MapExpr, Meta, TryMapExpr, Walkable,
-    WithMeta,
+    BlockPyNameLike, CallArgKeyword, CallArgPositional, CellLocation, FunctionId, FunctionKind,
+    HasMeta, Instr, InstrExprNode, InstrName, MapExpr, Meta, TryMapExpr, Walkable, WithMeta,
 };
 use std::fmt;
 
@@ -72,8 +71,8 @@ define_operation! {
 pub struct Call<E> {
     _meta: Meta,
     pub func: Box<E>,
-    pub args: Vec<CoreBlockPyCallArg<E>>,
-    pub keywords: Vec<CoreBlockPyKeywordArg<E>>,
+    pub args: Vec<CallArgPositional<E>>,
+    pub keywords: Vec<CallArgKeyword<E>>,
 }
 
 impl<E: fmt::Debug> fmt::Debug for Call<E> {
@@ -86,8 +85,8 @@ impl<E: fmt::Debug> fmt::Debug for Call<E> {
             }
             first = false;
             match arg {
-                CoreBlockPyCallArg::Positional(expr) => write!(f, "{expr:?}")?,
-                CoreBlockPyCallArg::Starred(expr) => write!(f, "*{expr:?}")?,
+                CallArgPositional::Positional(expr) => write!(f, "{expr:?}")?,
+                CallArgPositional::Starred(expr) => write!(f, "*{expr:?}")?,
             }
         }
         for keyword in &self.keywords {
@@ -96,8 +95,8 @@ impl<E: fmt::Debug> fmt::Debug for Call<E> {
             }
             first = false;
             match keyword {
-                CoreBlockPyKeywordArg::Named { arg, value } => write!(f, "{arg}={value:?}")?,
-                CoreBlockPyKeywordArg::Starred(value) => write!(f, "**{value:?}")?,
+                CallArgKeyword::Named { arg, value } => write!(f, "{arg}={value:?}")?,
+                CallArgKeyword::Starred(value) => write!(f, "**{value:?}")?,
             }
         }
         write!(f, ")")
@@ -107,8 +106,8 @@ impl<E: fmt::Debug> fmt::Debug for Call<E> {
 impl<E> Call<E> {
     pub fn new(
         func: impl Into<Box<E>>,
-        args: impl Into<Vec<CoreBlockPyCallArg<E>>>,
-        keywords: impl Into<Vec<CoreBlockPyKeywordArg<E>>>,
+        args: impl Into<Vec<CallArgPositional<E>>>,
+        keywords: impl Into<Vec<CallArgKeyword<E>>>,
     ) -> Self {
         Self {
             _meta: Meta::default(),

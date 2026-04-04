@@ -1,6 +1,6 @@
 use crate::block_py::{
-    core_call_expr_with_meta, literal_expr, BlockPyFunction, BlockPyModule, CodegenBlockPyExpr,
-    CoreBlockPyCallArg, CoreStringLiteral, Load, LocatedCoreBlockPyExpr, LocatedName, Meta,
+    core_call_expr_with_meta, literal_expr, BlockPyFunction, BlockPyModule, CallArgPositional,
+    CodegenBlockPyExpr, CoreStringLiteral, Load, LocatedCoreBlockPyExpr, LocatedName, Meta,
     NameLocation, WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
@@ -171,7 +171,7 @@ fn helper_call_expr(helper_name: &str, args: Vec<CodegenBlockPyExpr>) -> Codegen
         meta.node_index,
         meta.range,
         args.into_iter()
-            .map(CoreBlockPyCallArg::Positional)
+            .map(CallArgPositional::Positional)
             .collect(),
         Vec::new(),
     )

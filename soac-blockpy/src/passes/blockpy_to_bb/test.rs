@@ -1,6 +1,6 @@
 use crate::block_py::{
     literal_expr, BlockLabel, BlockPyBlock, BlockPyLiteral, BlockPyStmtBuilder, BlockTerm,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreStringLiteral, GetAttr, LocatedCoreBlockPyExpr,
+    CallArgPositional, CoreBlockPyExpr, CoreStringLiteral, GetAttr, LocatedCoreBlockPyExpr,
     LocatedName, NameLocation, Store, StructuredIf, StructuredInstr, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
@@ -82,7 +82,7 @@ fn core_call_expr(name: &str, args: Vec<LocatedCoreBlockPyExpr>) -> LocatedCoreB
         ast::AtomicNodeIndex::default(),
         TextRange::default(),
         args.into_iter()
-            .map(CoreBlockPyCallArg::Positional)
+            .map(CallArgPositional::Positional)
             .collect(),
         Vec::new(),
     )

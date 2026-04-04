@@ -6,9 +6,7 @@ fn lower_semantic_expr_without_setup(expr: &Expr) -> CoreBlockPyExprWithAwaitAnd
     CoreBlockPyExprWithAwaitAndYield::from(expr.clone())
 }
 
-use crate::block_py::{
-    CoreBlockPyCallArg, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyKeywordArg,
-};
+use crate::block_py::{CallArgKeyword, CallArgPositional, CoreBlockPyExprWithAwaitAndYield};
 use crate::lower_python_to_blockpy_for_testing;
 use crate::py_expr;
 use ruff_python_parser::parse_expression;
@@ -93,17 +91,14 @@ fn core_blockpy_call_supports_star_args_and_kwargs() {
     };
     assert!(is_raw_load_name_expr(call.func.as_ref(), "f"));
     assert_eq!(call.args.len(), 2);
-    assert!(matches!(call.args[0], CoreBlockPyCallArg::Positional(_)));
-    assert!(matches!(call.args[1], CoreBlockPyCallArg::Starred(_)));
+    assert!(matches!(call.args[0], CallArgPositional::Positional(_)));
+    assert!(matches!(call.args[1], CallArgPositional::Starred(_)));
     assert_eq!(call.keywords.len(), 2);
     assert!(matches!(
         &call.keywords[0],
-        CoreBlockPyKeywordArg::Named { arg, .. } if arg.as_str() == "y"
+        CallArgKeyword::Named { arg, .. } if arg.as_str() == "y"
     ));
-    assert!(matches!(
-        call.keywords[1],
-        CoreBlockPyKeywordArg::Starred(_)
-    ));
+    assert!(matches!(call.keywords[1], CallArgKeyword::Starred(_)));
 }
 
 #[test]
@@ -198,7 +193,7 @@ fn core_blockpy_expr_reuses_shared_tuple_splat_for_list_and_set() {
             CoreBlockPyExprWithAwaitAndYield::Load(op)
                 if op.name.is_runtime_symbol(intrinsic)
         ));
-        let [CoreBlockPyCallArg::Positional(tupleish)] = &call.args[..] else {
+        let [CallArgPositional::Positional(tupleish)] = &call.args[..] else {
             panic!("expected one positional arg for {expr}");
         };
         let rendered = format!("{tupleish:?}");

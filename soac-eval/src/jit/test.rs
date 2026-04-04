@@ -1,17 +1,17 @@
 use super::*;
 use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockTerm,
-    Call, CellLocation, ClosureInit, ClosureSlot, CodegenBlock, CodegenBlockPyExpr, CounterPoint,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBytesLiteral, CoreNumberLiteral,
-    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, FunctionName, LiteralValue, Load,
-    LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen, NameLocation, Param, ParamKind, ParamSpec,
-    StorageLayout, Store,
+    Call, CallArgPositional, CellLocation, ClosureInit, ClosureSlot, CodegenBlock,
+    CodegenBlockPyExpr, CoreBlockPyExpr, CoreBytesLiteral, CoreNumberLiteral,
+    CoreNumberLiteralValue, CoreStringLiteral, CounterPoint, Del, DelItem, FunctionName,
+    LiteralValue, Load, LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen, NameLocation, Param,
+    ParamKind, ParamSpec, StorageLayout, Store,
 };
-use soac_blockpy::passes::{instrument_bb_module_with_block_entry_counters, CodegenBlockPyPass};
+use soac_blockpy::passes::{CodegenBlockPyPass, instrument_bb_module_with_block_entry_counters};
 mod tests {
     use super::*;
-    use pyo3::{Python, ffi};
     use pyo3::types::PyAnyMethods;
+    use pyo3::{Python, ffi};
     use ruff_python_ast as ast;
     use std::ffi::c_void;
     use std::path::{Path, PathBuf};
@@ -136,7 +136,10 @@ mod tests {
 
     fn ensure_test_extension_staging_dir() -> PathBuf {
         let staging_dir = repo_root().join("target").join("debug").join("test-ext");
-        let source_ext = repo_root().join("target").join("debug").join("lib_soac_ext.so");
+        let source_ext = repo_root()
+            .join("target")
+            .join("debug")
+            .join("lib_soac_ext.so");
         let staged_ext = staging_dir.join("_soac_ext.so");
         std::fs::create_dir_all(&staging_dir).expect("test extension staging dir should exist");
         if staged_ext.exists() {
@@ -1249,8 +1252,8 @@ def f():
             ret_term(op_expr(Call::new(
                 name_expr(test_runtime_name("load_deleted_name")),
                 vec![
-                    CoreBlockPyCallArg::Positional(constants.string_expr("x")),
-                    CoreBlockPyCallArg::Positional(name_expr(test_name("x"))),
+                    CallArgPositional::Positional(constants.string_expr("x")),
+                    CallArgPositional::Positional(name_expr(test_name("x"))),
                 ],
                 vec![],
             ))),

@@ -4,7 +4,7 @@ use super::{
 };
 use crate::block_py::{
     Block, BlockLabel, BlockParam, BlockParamRole, BlockPyNameLike, BlockPyStmtBuilder, BlockTerm,
-    CoreBlockPyCallArg, CoreBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, Meta, ModuleNameGen,
+    CallArgPositional, CoreBlockPyExpr, LocatedCoreBlockPyExpr, LocatedName, Meta, ModuleNameGen,
     NameLocation, ResolvedStorageBlock, StructuredIf, StructuredInstr, TermIf, Walkable, WithMeta,
 };
 use ruff_python_ast::{self as ast};
@@ -172,7 +172,7 @@ fn lower_structured_core_blocks_to_bb_blocks_handles_unlocated_names() {
                 core_name_expr("current_exception"),
                 ast::AtomicNodeIndex::default(),
                 TextRange::default(),
-                Vec::<CoreBlockPyCallArg<CoreBlockPyExpr>>::new(),
+                Vec::<CallArgPositional<CoreBlockPyExpr>>::new(),
                 Vec::new(),
             ),
             body: BlockPyStmtBuilder::from_stmts(vec![StructuredInstr::Expr(

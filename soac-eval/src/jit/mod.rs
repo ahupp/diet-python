@@ -14,8 +14,8 @@ use cranelift_module::{FuncId, Linkage, Module, ModuleReloc};
 use cranelift_reader::parse_functions;
 use pyo3::ffi;
 use soac_blockpy::block_py::{
-    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockTerm, CellLocation, CodegenBlock,
-    CodegenBlockPyExpr, CoreBlockPyCallArg, CoreBlockPyKeywordArg, CounterId, LocalLocation,
+    AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockTerm, CallArgKeyword,
+    CallArgPositional, CellLocation, CodegenBlock, CodegenBlockPyExpr, CounterId, LocalLocation,
     LocatedName, NameLocation, ParamDefaultSource, StorageLayout, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
@@ -592,7 +592,7 @@ fn codegen_expr_const_string(
             {
                 return None;
             }
-            let CoreBlockPyCallArg::Positional(arg) = &call.args[0] else {
+            let CallArgPositional::Positional(arg) = &call.args[0] else {
                 return None;
             };
             codegen_expr_const_string(arg, module_constants)
@@ -1528,16 +1528,16 @@ fn emit_codegen_expr(
             let mut has_unpack = false;
             for arg in &call.args {
                 match arg {
-                    CoreBlockPyCallArg::Positional(value) => simple_args.push(value),
-                    CoreBlockPyCallArg::Starred(_) => has_unpack = true,
+                    CallArgPositional::Positional(value) => simple_args.push(value),
+                    CallArgPositional::Starred(_) => has_unpack = true,
                 }
             }
             for keyword in &call.keywords {
                 match keyword {
-                    CoreBlockPyKeywordArg::Named { arg, value } => {
+                    CallArgKeyword::Named { arg, value } => {
                         simple_keywords.push((arg.as_str(), value))
                     }
-                    CoreBlockPyKeywordArg::Starred(_) => has_unpack = true,
+                    CallArgKeyword::Starred(_) => has_unpack = true,
                 }
             }
             let args = simple_args.clone();
@@ -1683,10 +1683,10 @@ fn emit_codegen_expr(
 
                 for arg in &call.args {
                     let (value_expr, method_name) = match arg {
-                        CoreBlockPyCallArg::Positional(value_expr) => {
+                        CallArgPositional::Positional(value_expr) => {
                             (value_expr, b"append".as_slice())
                         }
-                        CoreBlockPyCallArg::Starred(value_expr) => {
+                        CallArgPositional::Starred(value_expr) => {
                             (value_expr, b"extend".as_slice())
                         }
                     };
@@ -1759,7 +1759,7 @@ fn emit_codegen_expr(
 
                 for keyword in &call.keywords {
                     match keyword {
-                        CoreBlockPyKeywordArg::Named { arg, value } => {
+                        CallArgKeyword::Named { arg, value } => {
                             let kwargs_obj =
                                 kwargs_obj.expect("kwargs object must exist for named kw part");
                             let key_obj = emit_owned_module_constant(
@@ -1816,7 +1816,7 @@ fn emit_codegen_expr(
                             fb.switch_to_block(set_ok);
                             fb.ins().call(decref_ref, &[set_value]);
                         }
-                        CoreBlockPyKeywordArg::Starred(value_expr) => {
+                        CallArgKeyword::Starred(value_expr) => {
                             let kwargs_obj =
                                 kwargs_obj.expect("kwargs object must exist for kwstar part");
                             let update_name_obj = emit_owned_module_constant(
