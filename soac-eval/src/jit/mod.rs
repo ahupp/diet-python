@@ -1320,7 +1320,6 @@ fn emit_codegen_expr(
         | CodegenBlockPyExpr::Store(_)
         | CodegenBlockPyExpr::Del(_)
         | CodegenBlockPyExpr::MakeCell(_)
-        | CodegenBlockPyExpr::CellRefForName(_)
         | CodegenBlockPyExpr::CellRef(_)
         | CodegenBlockPyExpr::MakeFunction(_)) => {
             assert!(
@@ -1342,12 +1341,6 @@ fn emit_codegen_expr(
                 return value;
             }
             match expr {
-                CodegenBlockPyExpr::CellRefForName(op) => {
-                    panic!(
-                        "cell_ref should lower to a resolved cell ref before codegen, got {:?}",
-                        op.logical_name
-                    );
-                }
                 CodegenBlockPyExpr::CellRef(op) => emit_raw_cell_object_for_location(
                     intrinsic_state.fb,
                     op.location,

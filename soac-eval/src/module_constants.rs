@@ -491,9 +491,7 @@ impl ModuleConstantCollector {
             CodegenBlockPyExpr::MakeFunction(op) => {
                 op.walk(&mut |child| self.collect_expr(child));
             }
-            CodegenBlockPyExpr::Del(_)
-            | CodegenBlockPyExpr::CellRefForName(_)
-            | CodegenBlockPyExpr::CellRef(_) => {}
+            CodegenBlockPyExpr::Del(_) | CodegenBlockPyExpr::CellRef(_) => {}
         }
     }
 

@@ -743,7 +743,6 @@ impl ScopeExprNode for super::CodegenBlockPyExpr {
 
     fn walk_root_cell_ref_logical_names(&self, f: &mut impl FnMut(&str)) {
         match self {
-            Self::CellRefForName(op) => f(op.logical_name.as_str()),
             Self::Call(call) => {
                 if let Some(name) = call_root_cell_ref_logical_name(call) {
                     f(name.as_str());

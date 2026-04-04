@@ -659,7 +659,6 @@ pub enum CodegenBlockPyExpr {
     Del(Del<Self>),
     MakeCell(MakeCell<Self>),
     IncrementCounter(IncrementCounter),
-    CellRefForName(CellRefForName),
     CellRef(CellRef),
     MakeFunction(MakeFunction<Self>),
 }
@@ -1743,7 +1742,7 @@ impl ImplicitNoneExpr for LocatedCoreBlockPyExpr {
     fn is_implicit_none_expr(expr: &Self) -> bool {
         matches!(
             expr,
-            CoreBlockPyExpr::Load(op) if op.name.is_runtime_symbol("NONE")
+            LocatedCoreBlockPyExpr::Load(op) if op.name.is_runtime_symbol("NONE")
         )
     }
 }

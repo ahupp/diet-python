@@ -64,7 +64,12 @@ impl MapExpr<LocatedCoreBlockPyExpr, CodegenBlockPyExpr> for CodegenExprNormaliz
             LocatedCoreBlockPyExpr::Store(node) => node.map_typed_children(self).into(),
             LocatedCoreBlockPyExpr::Del(node) => node.map_typed_children(self).into(),
             LocatedCoreBlockPyExpr::MakeCell(node) => node.map_typed_children(self).into(),
-            LocatedCoreBlockPyExpr::CellRefForName(node) => node.into(),
+            LocatedCoreBlockPyExpr::CellRefForName(node) => {
+                panic!(
+                    "cell_ref should lower to a resolved cell ref before codegen, got {:?}",
+                    node.logical_name
+                );
+            }
             LocatedCoreBlockPyExpr::CellRef(node) => node.into(),
             LocatedCoreBlockPyExpr::MakeFunction(node) => node.map_typed_children(self).into(),
         }

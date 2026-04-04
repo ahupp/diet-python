@@ -631,7 +631,6 @@ pub(super) fn emit_operation<'fb>(
             Some(emit_make_cell(state, &[op.initial_value.as_ref()]))
         }
         CodegenBlockPyExpr::IncrementCounter(_) => None,
-        CodegenBlockPyExpr::CellRefForName(_) => None,
         CodegenBlockPyExpr::CellRef(_) => None,
         CodegenBlockPyExpr::MakeFunction(_) => None,
         CodegenBlockPyExpr::Store(op) => {
