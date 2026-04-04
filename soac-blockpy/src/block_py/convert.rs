@@ -2,12 +2,12 @@ use super::*;
 
 pub(crate) fn instr_any<I, F>(instr: &I, mut predicate: F) -> bool
 where
-    I: Instr,
+    I: Instr + Walkable<I>,
     F: FnMut(&I) -> bool,
 {
     fn instr_any_impl<I, F>(instr: &I, predicate: &mut F) -> bool
     where
-        I: Instr,
+        I: Instr + Walkable<I>,
         F: FnMut(&I) -> bool,
     {
         if predicate(instr) {

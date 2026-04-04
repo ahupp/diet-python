@@ -274,7 +274,7 @@ pub trait Mappable<E>: Walkable<E> + Sized {
     }
 }
 
-pub trait Instr: Mappable<Self> + Clone + fmt::Debug + Sized {
+pub trait Instr: Clone + fmt::Debug + Sized {
     type Name: BlockPyNameLike;
 }
 
