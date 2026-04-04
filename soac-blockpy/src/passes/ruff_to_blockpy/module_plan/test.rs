@@ -3,9 +3,8 @@ use super::{
     FunctionScopeFrame,
 };
 use crate::block_py::{
-    compute_make_function_capture_bindings_from_scope, BindingTarget, BindingKind,
-    BindingPurpose, ClassBodyFallback, EffectiveBinding, BlockPyModule,
-    ModuleNameGen,
+    compute_make_function_capture_bindings_from_scope, BindingKind, BindingPurpose, BindingTarget,
+    BlockPyModule, ClassBodyFallback, EffectiveBinding, ModuleNameGen,
 };
 use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::ast_to_ast::context::Context;
@@ -63,9 +62,7 @@ fn callable_semantic_info_uses_logical_storage_for_cell_captures() {
 
     assert_eq!(
         inner.scope.binding_kind("x"),
-        Some(BindingKind::Cell(
-            crate::block_py::CellBindingKind::Capture
-        ))
+        Some(BindingKind::Cell(crate::block_py::CellBindingKind::Capture))
     );
     assert_eq!(inner.scope.cell_storage_name("x"), "x");
     assert_eq!(inner.scope.cell_capture_source_name("x"), "_dp_cell_x");
@@ -102,15 +99,10 @@ fn callable_semantic_info_maps_classcell_capture_source_back_to_dunder_class() {
 
     assert_eq!(
         f.scope.binding_kind("__class__"),
-        Some(BindingKind::Cell(
-            crate::block_py::CellBindingKind::Capture
-        ))
+        Some(BindingKind::Cell(crate::block_py::CellBindingKind::Capture))
     );
     assert_eq!(f.scope.cell_storage_name("__class__"), "__class__");
-    assert_eq!(
-        f.scope.cell_capture_source_name("__class__"),
-        "__class__"
-    );
+    assert_eq!(f.scope.cell_capture_source_name("__class__"), "__class__");
     assert_eq!(
         f.scope.captured_cell_bindings(),
         vec![crate::block_py::CellCaptureBinding {
@@ -217,9 +209,7 @@ fn callable_semantic_info_marks_class_helper_as_owning_classcell() {
 
     assert_eq!(
         class_helper.scope.binding_kind("__class__"),
-        Some(BindingKind::Cell(
-            crate::block_py::CellBindingKind::Owner
-        ))
+        Some(BindingKind::Cell(crate::block_py::CellBindingKind::Owner))
     );
     assert!(class_helper.scope.has_local_def("__class__"));
     assert_eq!(
@@ -302,9 +292,7 @@ fn callable_semantic_info_distinguishes_class_type_params_from_class_body_locals
         class_helper
             .scope
             .effective_binding("T", BindingPurpose::Load),
-        Some(EffectiveBinding::ClassBody(
-            ClassBodyFallback::Global
-        )),
+        Some(EffectiveBinding::ClassBody(ClassBodyFallback::Global)),
     );
     assert_eq!(
         class_helper
@@ -316,9 +304,7 @@ fn callable_semantic_info_distinguishes_class_type_params_from_class_body_locals
         class_helper
             .scope
             .effective_binding("value", BindingPurpose::Store),
-        Some(EffectiveBinding::ClassBody(
-            ClassBodyFallback::Global
-        ))
+        Some(EffectiveBinding::ClassBody(ClassBodyFallback::Global))
     );
 }
 
@@ -372,9 +358,7 @@ fn callable_semantic_info_records_class_cell_fallback_for_outer_reads() {
         class_helper
             .scope
             .effective_binding("x", BindingPurpose::Load),
-        Some(EffectiveBinding::ClassBody(
-            ClassBodyFallback::Cell
-        ))
+        Some(EffectiveBinding::ClassBody(ClassBodyFallback::Cell))
     );
 }
 

@@ -1,16 +1,15 @@
 use crate::block_py::cfg::RelabelBlockTargets;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::{
-    compute_storage_layout_from_scope, core_call_expr_with_meta,
-    core_runtime_name_expr_with_meta, core_runtime_positional_call_expr_with_meta, Block, BlockArg,
-    BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole, BindingKind,
-    CallableScopeInfo, CellBindingKind, BlockPyFunction, BlockPyModuleTryMap,
-    BlockPyNameLike, ScopeExprNode, BlockTerm, CellRefForName, ClosureInit, ClosureSlot,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
+    compute_storage_layout_from_scope, core_call_expr_with_meta, core_runtime_name_expr_with_meta,
+    core_runtime_positional_call_expr_with_meta, try_map_term, BindingKind, Block, BlockArg,
+    BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole, BlockPyFunction,
+    BlockPyNameLike, BlockTerm, CallableScopeInfo, CellBindingKind, CellRefForName, ClosureInit,
+    ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ErrOnAwait, ErrOnYield, FunctionId,
     FunctionKind, FunctionName, FunctionNameGen, ImplicitNoneExpr, Instr, Load, MakeFunction,
-    ModuleNameGen, StorageLayout, Store, TermBranchTable, TermIf, TermRaise, TryMapExpr,
-    UnresolvedName,
+    ModuleNameGen, ScopeExprNode, StorageLayout, Store, TermBranchTable, TermIf, TermRaise,
+    TryMapExpr, UnresolvedName,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
@@ -376,13 +375,12 @@ fn build_generator_storage_layout(
     callable: &BlockPyFunction<CoreBlockPyPassWithYield>,
 ) -> StorageLayout {
     let param_names = callable.params.names();
-    let semantic_layout =
-        compute_storage_layout_from_scope(callable).unwrap_or(StorageLayout {
-            freevars: Vec::new(),
-            cellvars: Vec::new(),
-            runtime_cells: Vec::new(),
-            stack_slots: Vec::new(),
-        });
+    let semantic_layout = compute_storage_layout_from_scope(callable).unwrap_or(StorageLayout {
+        freevars: Vec::new(),
+        cellvars: Vec::new(),
+        runtime_cells: Vec::new(),
+        stack_slots: Vec::new(),
+    });
     let capture_names = semantic_layout
         .freevars
         .iter()
@@ -685,7 +683,7 @@ fn lower_stmt_no_yield(stmt: LinearYieldStmt) -> LinearCoreStmt {
 
 fn lower_term_no_yield(term: BlockTerm<CoreBlockPyExprWithYield>) -> BlockTerm<CoreBlockPyExpr> {
     let mut mapper = ErrOnYield;
-    mapper.try_map_term(term.clone()).unwrap_or_else(|_| {
+    try_map_term(&mut mapper, term.clone()).unwrap_or_else(|_| {
         panic!(
             "generator lowering expected yield-like sites to be split before term conversion: {term:?}"
         )
@@ -1594,8 +1592,7 @@ pub(crate) fn lower_generator_like_function(
         ordered_resume_binding_logical_names(&callable, &persistent_state_order);
     let (resume_blocks, _resume_exception_edges, _resume_entry_label) =
         lower_resume_blocks(&callable, resume_name_gen.share());
-    let closure_bindings =
-        resume_closure_bindings(&callable.scope, &resume_binding_logical_names);
+    let closure_bindings = resume_closure_bindings(&callable.scope, &resume_binding_logical_names);
 
     let BlockPyFunction {
         function_id,

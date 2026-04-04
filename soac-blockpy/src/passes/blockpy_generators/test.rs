@@ -3,9 +3,9 @@ use super::{
     persistent_generator_state_order, resume_closure_bindings,
 };
 use crate::block_py::{
-    Block, BlockBuilder, BlockLabel, BindingKind, BindingPurpose,
-    CallableScopeKind, CallableScopeInfo, CellBindingKind, BlockTerm,
-    ClosureInit, ClosureSlot, FunctionId, FunctionName, StorageLayout,
+    BindingKind, BindingPurpose, Block, BlockBuilder, BlockLabel, BlockTerm, CallableScopeInfo,
+    CallableScopeKind, CellBindingKind, ClosureInit, ClosureSlot, FunctionId, FunctionName,
+    StorageLayout,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::py_expr;
@@ -651,10 +651,7 @@ fn resume_semantic_overlay_marks_runtime_and_logical_state_for_standard_name_bin
         BindingKind::Cell(CellBindingKind::Capture)
     );
     assert_eq!(scope.cell_storage_name("_dp_pc"), "_dp_pc");
-    assert_eq!(
-        scope.cell_capture_source_name("_dp_pc"),
-        "_dp_cell__dp_pc"
-    );
+    assert_eq!(scope.cell_capture_source_name("_dp_pc"), "_dp_cell__dp_pc");
     assert_eq!(
         scope.binding_kind("_dp_yieldfrom"),
         Some(BindingKind::Cell(CellBindingKind::Capture))

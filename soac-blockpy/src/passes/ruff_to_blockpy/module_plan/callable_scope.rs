@@ -1,6 +1,6 @@
 use crate::block_py::{
-    derive_effective_binding_for_name, BindingKind, BindingPurpose,
-    CallableScopeKind, CallableScopeInfo, CellBindingKind, FunctionName,
+    derive_effective_binding_for_name, BindingKind, BindingPurpose, CallableScopeInfo,
+    CallableScopeKind, CellBindingKind, FunctionName,
 };
 use crate::passes::ast_symbol_analysis::{collect_bound_names, collect_loaded_names};
 use crate::passes::ast_to_ast::semantic::{
@@ -53,10 +53,7 @@ fn blockpy_binding_kind_for_name(
     scope_kind: CallableScopeKind,
     type_param_names: &HashSet<String>,
 ) -> BindingKind {
-    if scope_kind == CallableScopeKind::Class
-        && has_local_def
-        && !type_param_names.contains(name)
-    {
+    if scope_kind == CallableScopeKind::Class && has_local_def && !type_param_names.contains(name) {
         return BindingKind::Local;
     }
     match binding {
@@ -223,11 +220,7 @@ pub(super) fn callable_scope_info(
         .bindings
         .iter()
         .filter_map(|(name, binding)| {
-            matches!(
-                binding,
-                BindingKind::Cell(CellBindingKind::Capture)
-            )
-            .then(|| name.clone())
+            matches!(binding, BindingKind::Cell(CellBindingKind::Capture)).then(|| name.clone())
         })
         .collect::<Vec<_>>();
     for name in capture_names {

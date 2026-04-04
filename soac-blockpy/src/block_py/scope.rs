@@ -338,19 +338,13 @@ impl CallableScopeInfo {
             .or_else(|| self.logical_name_for_cell_storage(storage_name))
     }
 
-    pub fn binding_target_for_name(
-        &self,
-        name: &str,
-        purpose: BindingPurpose,
-    ) -> BindingTarget {
+    pub fn binding_target_for_name(&self, name: &str, purpose: BindingPurpose) -> BindingTarget {
         if let Some(binding) = self.effective_binding(name, purpose) {
             if self.honors_internal_binding(name) {
                 return match binding {
                     EffectiveBinding::Global => BindingTarget::ModuleGlobal,
                     EffectiveBinding::ClassBody(_) => BindingTarget::ClassNamespace,
-                    EffectiveBinding::Local | EffectiveBinding::Cell(_) => {
-                        BindingTarget::Local
-                    }
+                    EffectiveBinding::Local | EffectiveBinding::Cell(_) => BindingTarget::Local,
                 };
             }
         }
@@ -369,11 +363,8 @@ impl CallableScopeInfo {
             .bindings
             .iter()
             .filter_map(|(name, binding)| {
-                matches!(
-                    binding,
-                    BindingKind::Cell(CellBindingKind::Owner)
-                )
-                .then(|| self.cell_storage_name(name.as_str()))
+                matches!(binding, BindingKind::Cell(CellBindingKind::Owner))
+                    .then(|| self.cell_storage_name(name.as_str()))
             })
             .collect::<HashSet<_>>();
         names.extend(self.owned_cell_source_names.iter().cloned());
@@ -385,11 +376,7 @@ impl CallableScopeInfo {
             .bindings
             .iter()
             .filter_map(|(name, binding)| {
-                matches!(
-                    binding,
-                    BindingKind::Cell(CellBindingKind::Capture)
-                )
-                .then(|| name.clone())
+                matches!(binding, BindingKind::Cell(CellBindingKind::Capture)).then(|| name.clone())
             })
             .collect::<Vec<_>>();
         names.sort();
@@ -943,9 +930,7 @@ where
         .iter()
         .map(|logical_name| ClosureSlot {
             logical_name: logical_name.clone(),
-            storage_name: callable_def
-                .scope
-                .cell_storage_name(logical_name.as_str()),
+            storage_name: callable_def.scope.cell_storage_name(logical_name.as_str()),
             init: ClosureInit::InheritedCapture,
         })
         .collect::<Vec<_>>();

@@ -1,6 +1,6 @@
 use super::{
-    BlockBuilder, ScopeExprNode, BlockTerm, Instr, StructuredIf, StructuredInstr,
-    TermBranchTable, TermIf, TermRaise,
+    BlockBuilder, BlockTerm, Instr, ScopeExprNode, StructuredIf, StructuredInstr, TermBranchTable,
+    TermIf, TermRaise,
 };
 use std::collections::HashSet;
 

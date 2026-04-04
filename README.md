@@ -189,6 +189,12 @@ changes:
       - transformed is 0.161x stock, so stock is about 6.20x faster
       - timing: real 9.54, user 14.81, sys 0.76
       - log: logs/benchmark_opt_native_inlining_20260403.log
+  - lift runtime functions to constants, immortal constants
+      - transformed/JIT: 175,380 loops/s
+      - stock CPython: 759,045 loops/s
+      - transformed is about 0.231x stock
+      - stock is about 4.33x faster
+
 
 # Design
 

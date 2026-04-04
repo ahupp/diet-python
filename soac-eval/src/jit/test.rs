@@ -1096,7 +1096,9 @@ mod tests {
         let rendered = render_test_jit_function_with_module_constants(
             &function,
             &blocks,
-            vec![CoreBlockPyExpr::Load(Load::new(test_runtime_name("globals")))],
+            vec![CoreBlockPyExpr::Load(Load::new(test_runtime_name(
+                "globals",
+            )))],
         );
         assert!(
             !rendered.contains("call dp_jit_load_runtime_obj")

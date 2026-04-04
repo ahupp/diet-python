@@ -300,8 +300,8 @@ fn storage_layout_semantics_collects_structured_cell_ref_logical_names() {
         scope: CallableScopeInfo::default(),
     };
 
-    let layout = compute_storage_layout_from_scope(&function)
-        .expect("structured cell ref should capture");
+    let layout =
+        compute_storage_layout_from_scope(&function).expect("structured cell ref should capture");
 
     assert_eq!(
         layout.freevars,
@@ -350,13 +350,7 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
         }
     }
 
-    impl BlockPyModuleTryMap<CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield>
-        for RejectAwaitMapper
-    {
-        type Error = CoreBlockPyExprWithAwaitAndYield;
-    }
-
-    let function = BlockPyFunction {
+    let function: BlockPyFunction<CoreBlockPyPassWithAwaitAndYield> = BlockPyFunction {
         function_id: FunctionId(0),
         name_gen: test_name_gen(),
         names: FunctionName::new("f", "f", "f", "f"),
@@ -377,7 +371,13 @@ fn try_module_map_propagates_nested_expr_conversion_errors() {
     };
 
     let mut mapper = RejectAwaitMapper;
-    assert!(mapper.try_map_fn(function).is_err());
+    assert!(
+        try_map_fn::<CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield, _, _>(
+            &mut mapper,
+            function,
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -395,5 +395,5 @@ fn term_conversion_to_no_yield_rejects_nested_yield() {
     ));
 
     let mut mapper = ErrOnYield;
-    assert!(mapper.try_map_term(term).is_err());
+    assert!(try_map_term(&mut mapper, term).is_err());
 }

@@ -31,14 +31,10 @@ pub(super) trait OperationEmitState<'fb, E> {
         let module_constant_ptrs_ptr = self.ctx().module_constant_ptrs.as_ptr();
         let module_constant_ptrs_len = self.ctx().module_constant_ptrs.len();
         let ptr_ty = self.ctx().consts.ptr_ty;
-        let module_constant_ptrs =
-            unsafe { std::slice::from_raw_parts(module_constant_ptrs_ptr, module_constant_ptrs_len) };
-        emit_owned_module_constant_from_parts(
-            self.fb(),
-            constant_id,
-            module_constant_ptrs,
-            ptr_ty,
-        )
+        let module_constant_ptrs = unsafe {
+            std::slice::from_raw_parts(module_constant_ptrs_ptr, module_constant_ptrs_len)
+        };
+        emit_owned_module_constant_from_parts(self.fb(), constant_id, module_constant_ptrs, ptr_ty)
     }
 
     fn emit_owned_func_call(&mut self, func_ref: ir::FuncRef, args: &[&E]) -> ir::Value {

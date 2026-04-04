@@ -1,7 +1,7 @@
 use crate::block_py::param_specs::{collect_param_spec_and_defaults, param_defaults_to_expr};
 use crate::block_py::{
-    BindingKind, CallableScopeInfo, CellBindingKind, BlockPyFunction,
-    BlockPyModule, BlockPyPass, FunctionKind, FunctionNameGen, ModuleNameGen,
+    BindingKind, BlockPyFunction, BlockPyModule, BlockPyPass, CallableScopeInfo, CellBindingKind,
+    FunctionKind, FunctionNameGen, ModuleNameGen,
 };
 use crate::passes::ast_to_ast::body::{split_docstring, Suite};
 use crate::passes::ast_to_ast::context::Context;
@@ -218,10 +218,8 @@ def {func:id}():
         let state = self.walk_function_def_with_explicit_scope(&mut func_def, Some(lambda_scope));
         if let Some(parent_frame) = self.function_scope_stack.last_mut() {
             for (name, binding) in &state.callable_scope.bindings {
-                if matches!(
-                    binding,
-                    BindingKind::Cell(CellBindingKind::Capture)
-                ) && parent_frame.callable_scope.local_defs.contains(name)
+                if matches!(binding, BindingKind::Cell(CellBindingKind::Capture))
+                    && parent_frame.callable_scope.local_defs.contains(name)
                 {
                     parent_frame.callable_scope.insert_binding(
                         name.clone(),

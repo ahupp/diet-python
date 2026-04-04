@@ -1,5 +1,5 @@
 use crate::block_py::{
-    core_runtime_positional_call_expr_with_meta, BlockPyModule, BlockPyModuleMap,
+    core_runtime_positional_call_expr_with_meta, map_module, BlockPyModule,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, HasMeta, InstrExprNode, MapExpr,
     UnresolvedName, WithMeta, YieldFrom,
 };
@@ -54,16 +54,11 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for Cor
     }
 }
 
-impl BlockPyModuleMap<CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield>
-    for CoreAwaitLoweringMap
-{
-}
-
 pub(crate) fn lower_awaits_in_core_blockpy_module(
     module: BlockPyModule<CoreBlockPyPassWithAwaitAndYield>,
 ) -> BlockPyModule<CoreBlockPyPassWithYield> {
     let mut mapper = CoreAwaitLoweringMap;
-    mapper.map_module(module)
+    map_module(&mut mapper, module)
 }
 
 #[cfg(test)]

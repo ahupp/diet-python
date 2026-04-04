@@ -611,11 +611,9 @@ fn codegen_expr_helper_name<'a>(
         {
             Some(op.name.id.as_str())
         }
-        CodegenBlockPyExpr::Load(op) => op
-            .name
-            .location
-            .as_constant()
-            .and_then(|index| module_constants.constant_runtime_name_value(ModuleConstantId(index as usize))),
+        CodegenBlockPyExpr::Load(op) => op.name.location.as_constant().and_then(|index| {
+            module_constants.constant_runtime_name_value(ModuleConstantId(index as usize))
+        }),
         _ => None,
     }
 }
@@ -957,7 +955,12 @@ fn emit_owned_module_constant_from_parts(
     let constant_ptr = module_constant_ptrs
         .get(constant_id.0)
         .copied()
-        .unwrap_or_else(|| panic!("missing module constant pointer for constant id {}", constant_id.0));
+        .unwrap_or_else(|| {
+            panic!(
+                "missing module constant pointer for constant id {}",
+                constant_id.0
+            )
+        });
     fb.ins().iconst(ptr_ty, constant_ptr as i64)
 }
 

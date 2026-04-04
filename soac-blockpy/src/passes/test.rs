@@ -1,8 +1,8 @@
 use crate::block_py::{BindingKind, ClosureInit, ClosureSlot};
 use crate::block_py::{
-    CallableScopeKind, CellBindingKind, BlockPyFunction, BlockPyModule,
-    BlockPyNameLike, BlockTerm, Call, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg,
-    FunctionKind, LocatedName, NameLocation, ResolvedStorageBlock,
+    BlockPyFunction, BlockPyModule, BlockPyNameLike, BlockTerm, Call, CallableScopeKind,
+    CellBindingKind, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyKeywordArg, FunctionKind,
+    LocatedName, NameLocation, ResolvedStorageBlock,
 };
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, ResolvedStorageBlockPyPass};
 use crate::{lower_python_to_blockpy_for_testing, LoweringResult};
@@ -137,8 +137,14 @@ fn count_occurrences(text: &str, needle: &str) -> usize {
     text.matches(needle).count()
 }
 
-fn function_uses_text(function: &BlockPyFunction<ResolvedStorageBlockPyPass>, needle: &str) -> bool {
-    function.blocks.iter().any(|block| block_uses_text(block, needle))
+fn function_uses_text(
+    function: &BlockPyFunction<ResolvedStorageBlockPyPass>,
+    needle: &str,
+) -> bool {
+    function
+        .blocks
+        .iter()
+        .any(|block| block_uses_text(block, needle))
 }
 
 fn module_constant_text(module: &BlockPyModule<ResolvedStorageBlockPyPass>) -> String {
@@ -175,7 +181,8 @@ fn runtime_call_by_name<'a>(
     let Some(constant_index) = load.name.location.as_constant() else {
         return None;
     };
-    let Some(CoreBlockPyExpr::Load(helper_load)) = module.module_constants.get(constant_index as usize)
+    let Some(CoreBlockPyExpr::Load(helper_load)) =
+        module.module_constants.get(constant_index as usize)
     else {
         return None;
     };
@@ -378,10 +385,7 @@ class Box:
     let lowered = TrackedLowering::new(source);
     let blockpy_module = lowered.blockpy_module();
     let class_helper = callable_def_by_name(&blockpy_module, "_dp_class_ns_Box");
-    assert_eq!(
-        class_helper.scope.scope_kind,
-        CallableScopeKind::Class
-    );
+    assert_eq!(class_helper.scope.scope_kind, CallableScopeKind::Class);
 }
 
 #[test]
@@ -1461,8 +1465,11 @@ def gen():
         "{name_binding_rendered}"
     );
     assert!(
-        function_or_constants_use_text(lowered.bb_module(), lowered.bb_function("gen"), "exception_matches")
-            && name_binding_rendered.contains("CapturedSource(")
+        function_or_constants_use_text(
+            lowered.bb_module(),
+            lowered.bb_function("gen"),
+            "exception_matches"
+        ) && name_binding_rendered.contains("CapturedSource(")
             && !name_binding_rendered.contains("StoreName(\"_dp_eval_"),
         "{}\n{}",
         name_binding_rendered,
@@ -2870,8 +2877,8 @@ def make_counter(delta):
     let BlockTerm::Return(return_expr) = &visible_gen.blocks[0].term else {
         panic!("visible generator factory should return a generator wrapper");
     };
-    let closure_generator =
-        runtime_call_by_name(bb_module, return_expr, "ClosureGenerator").expect("expected ClosureGenerator");
+    let closure_generator = runtime_call_by_name(bb_module, return_expr, "ClosureGenerator")
+        .expect("expected ClosureGenerator");
     let resume_expr = closure_generator
         .keywords
         .iter()

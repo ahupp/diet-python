@@ -319,7 +319,10 @@ unsafe fn ensure_clif_vectorcall_compiled(
     if data.compiled_handle.is_null() {
         let compile_start = Instant::now();
         let block_ptrs = vec![ptr::null_mut::<c_void>(); data.function.blocks.len()];
-        let module_constant_ptrs = data.module_runtime.shared_module_state_owner.module_constant_ptrs();
+        let module_constant_ptrs = data
+            .module_runtime
+            .shared_module_state_owner
+            .module_constant_ptrs();
         data.compiled_handle = match jit::compile_cranelift_run_bb_specialized_cached(
             block_ptrs.as_slice(),
             &data.function,

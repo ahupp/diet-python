@@ -1,5 +1,5 @@
 use crate::block_py::{
-    BlockPyFunction, BlockPyModule, BlockPyModuleMap, CodegenBlockPyExpr, HasMeta, InstrExprNode,
+    map_fn, BlockPyFunction, BlockPyModule, CodegenBlockPyExpr, HasMeta, InstrExprNode,
     LiteralValue, Load, LocatedCoreBlockPyExpr, LocatedName, MapExpr, NameLocation, WithMeta,
 };
 use crate::passes::{CodegenBlockPyPass, ResolvedStorageBlockPyPass};
@@ -13,7 +13,7 @@ pub fn normalize_bb_module_strings(
     let callable_defs = module
         .callable_defs
         .into_iter()
-        .map(|function| normalizer.map_fn(function))
+        .map(|function| map_fn(&mut normalizer, function))
         .collect::<Vec<BlockPyFunction<CodegenBlockPyPass>>>();
     module_constants.extend(normalizer.module_constants);
     BlockPyModule {
@@ -72,8 +72,6 @@ impl MapExpr<LocatedCoreBlockPyExpr, CodegenBlockPyExpr> for CodegenExprNormaliz
         name
     }
 }
-
-impl BlockPyModuleMap<ResolvedStorageBlockPyPass, CodegenBlockPyPass> for CodegenExprNormalizer {}
 
 #[cfg(test)]
 mod test;

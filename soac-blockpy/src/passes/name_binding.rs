@@ -1,15 +1,14 @@
 use crate::block_py::{
     build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_scope,
-    compute_storage_layout_from_scope, core_runtime_positional_call_expr_with_meta,
-    literal_expr, runtime_symbol, BindingTarget, BlockArg, BindingKind,
-    BindingPurpose, CallableScopeKind, CallableScopeInfo,
-    CellBindingKind, CellCaptureBinding, ClassBodyFallback,
-    EffectiveBinding, BlockPyFunction, BlockPyModule, BlockPyModuleMap, BlockPyNameLike,
-    BlockTerm, Call, CellLocation, CellRef, CellRefForName, ClosureInit, ClosureSlot,
-    CoreBlockPyCallArg, CoreBlockPyExpr, CoreNumberLiteral, CoreNumberLiteralValue,
-    CoreStringLiteral, Del, DelItem, FunctionId, FunctionKind, HasMeta, InstrExprNode, Load,
-    LocalLocation, LocatedCoreBlockPyExpr, LocatedName, MakeCell, MakeFunction, MapExpr,
-    NameLocation, SetItem, StorageLayout, Store, TermRaise, UnresolvedName, Walkable, WithMeta,
+    compute_storage_layout_from_scope, core_runtime_positional_call_expr_with_meta, literal_expr,
+    map_fn, runtime_symbol, BindingKind, BindingPurpose, BindingTarget, BlockArg, BlockPyFunction,
+    BlockPyModule, BlockPyNameLike, BlockTerm, Call, CallableScopeInfo, CallableScopeKind,
+    CellBindingKind, CellCaptureBinding, CellLocation, CellRef, CellRefForName, ClassBodyFallback,
+    ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreNumberLiteral,
+    CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, EffectiveBinding, FunctionId,
+    FunctionKind, HasMeta, InstrExprNode, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
+    MakeCell, MakeFunction, MapExpr, NameLocation, SetItem, StorageLayout, Store, TermRaise,
+    UnresolvedName, Walkable, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -150,9 +149,7 @@ fn rewrite_name_load(
             Some(EffectiveBinding::ClassBody(ClassBodyFallback::Cell)) => {
                 rewrite_class_name_load_cell(name, meta, scope)
             }
-            Some(EffectiveBinding::Cell(_)) => {
-                rewrite_cell_name_load(name, meta, scope, resolver)
-            }
+            Some(EffectiveBinding::Cell(_)) => rewrite_cell_name_load(name, meta, scope, resolver),
             Some(EffectiveBinding::Global) => rewrite_global_name_load(name, meta),
             Some(EffectiveBinding::Local) => rewrite_local_name_load(name, meta, resolver),
             Some(EffectiveBinding::ClassBody(ClassBodyFallback::Global)) | None => {
@@ -175,11 +172,7 @@ fn should_rewrite_raw_name_load(name: &str, scope: &CallableScopeInfo) -> bool {
 
     matches!(
         scope.effective_binding(name, BindingPurpose::Load),
-        Some(
-            EffectiveBinding::Global
-                | EffectiveBinding::Cell(_)
-                | EffectiveBinding::ClassBody(_)
-        )
+        Some(EffectiveBinding::Global | EffectiveBinding::Cell(_) | EffectiveBinding::ClassBody(_))
     )
 }
 
@@ -921,8 +914,7 @@ impl NameBindingMapper<'_> {
     }
 
     fn resolve_raw_cell_location(&self, name_text: &str) -> CellLocation {
-        if let Some(storage_name) =
-            resolve_captured_cell_source_storage_name(self.scope, name_text)
+        if let Some(storage_name) = resolve_captured_cell_source_storage_name(self.scope, name_text)
         {
             let slot = self
                 .captured_cell_slots
@@ -1174,8 +1166,6 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr> for NameBindingMapper<'_> {
         name
     }
 }
-
-impl BlockPyModuleMap<CoreBlockPyPass, CoreBlockPyPass> for NameBindingMapper<'_> {}
 
 fn unresolved_semantic_store_parts(
     expr: &CoreBlockPyExpr,
@@ -1440,10 +1430,7 @@ fn sync_exception_param_cell_in_block(
     let Some(exc_name) = block.exception_param() else {
         return;
     };
-    if !matches!(
-        scope.binding_kind(exc_name),
-        Some(BindingKind::Cell(_))
-    ) {
+    if !matches!(scope.binding_kind(exc_name), Some(BindingKind::Cell(_))) {
         return;
     }
     if normal_predecessor_exc_names.iter().any(|pred_exc_name| {
@@ -1876,8 +1863,7 @@ struct NameLocator<'a> {
 
 impl NameLocator<'_> {
     fn resolve_raw_cell_location(&self, name_text: &str) -> CellLocation {
-        if let Some(storage_name) =
-            resolve_captured_cell_source_storage_name(self.scope, name_text)
+        if let Some(storage_name) = resolve_captured_cell_source_storage_name(self.scope, name_text)
         {
             let slot = self
                 .captured_cell_slots
@@ -2034,8 +2020,7 @@ impl NameLocator<'_> {
     fn mark_raw_cell_name(&self, name: LocatedName) -> LocatedName {
         let name_text = name.id.to_string();
         if name.location.is_global() {
-            if resolve_captured_cell_source_storage_name(self.scope, name_text.as_str())
-                .is_some()
+            if resolve_captured_cell_source_storage_name(self.scope, name_text.as_str()).is_some()
                 || self.cell_bindings.contains_key(name_text.as_str())
             {
                 let location = self.resolve_raw_cell_location(name_text.as_str());
@@ -2149,8 +2134,6 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_> 
     }
 }
 
-impl BlockPyModuleMap<CoreBlockPyPass, ResolvedStorageBlockPyPass> for NameLocator<'_> {}
-
 fn locate_names_in_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
@@ -2172,7 +2155,7 @@ fn locate_names_in_callable(
         owned_cell_slots,
         cell_bindings,
     };
-    mapper.map_fn(callable)
+    map_fn(&mut mapper, callable)
 }
 
 fn collect_make_function_callee_ids_in_expr(expr: &CoreBlockPyExpr, out: &mut Vec<FunctionId>) {
@@ -2420,11 +2403,7 @@ fn compute_module_make_function_capture_names(
             .bindings
             .iter()
             .filter_map(|(name, binding)| {
-                matches!(
-                    binding,
-                    BindingKind::Cell(CellBindingKind::Owner)
-                )
-                .then(|| name.clone())
+                matches!(binding, BindingKind::Cell(CellBindingKind::Owner)).then(|| name.clone())
             })
             .collect::<HashSet<_>>();
         let base_owned_storage_names = callable.scope.owned_cell_storage_names();
@@ -2526,9 +2505,7 @@ fn compute_module_make_function_capture_names(
                             })
                             .collect::<Vec<_>>()
                     })
-                    .unwrap_or_else(|| {
-                        compute_make_function_capture_bindings_from_scope(callable)
-                    })
+                    .unwrap_or_else(|| compute_make_function_capture_bindings_from_scope(callable))
             };
             (callable.function_id, captures)
         })
@@ -2627,10 +2604,7 @@ fn populate_jump_edge_args(blocks: &mut [crate::block_py::ResolvedStorageBlock])
 
 fn lower_name_binding_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
-    callee_make_function_captures: &HashMap<
-        crate::block_py::FunctionId,
-        Vec<CellCaptureBinding>,
-    >,
+    callee_make_function_captures: &HashMap<crate::block_py::FunctionId, Vec<CellCaptureBinding>>,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
     let scope = callable.scope.clone();
     let local_slots = collect_local_slot_locations(&callable);
@@ -2645,7 +2619,7 @@ fn lower_name_binding_callable(
         owned_cell_slots,
         cell_bindings,
     };
-    let mut lowered = mapper.map_fn(callable);
+    let mut lowered = map_fn(&mut mapper, callable);
     prepend_owned_cell_init_preamble(&mut lowered);
     populate_stack_slots_in_storage_layout(&mut lowered, local_slots);
     let storage_layout = lowered

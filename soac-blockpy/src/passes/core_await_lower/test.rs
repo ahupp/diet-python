@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::block_py::{
-    Block, BlockLabel, CallableScopeInfo, BlockPyFunction, BlockPyNameLike, BlockTerm,
+    Block, BlockLabel, BlockPyFunction, BlockPyNameLike, BlockTerm, CallableScopeInfo,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionKind, FunctionName,
 };
 use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;

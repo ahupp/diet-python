@@ -36,7 +36,10 @@ impl SharedModuleState {
     }
 
     pub(crate) fn module_constant_ptrs(&self) -> Vec<*mut ffi::PyObject> {
-        self.module_constant_objs.iter().map(|obj| obj.as_ptr()).collect()
+        self.module_constant_objs
+            .iter()
+            .map(|obj| obj.as_ptr())
+            .collect()
     }
 }
 

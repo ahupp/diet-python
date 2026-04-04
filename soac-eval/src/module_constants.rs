@@ -6,8 +6,8 @@ use soac_blockpy::block_py::{
     LocatedCoreBlockPyExpr, ParamDefaultSource, Walkable, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
-use std::ffi::{CStr, CString, c_int};
 use std::collections::HashMap;
+use std::ffi::{CStr, CString, c_int};
 use std::ptr;
 
 unsafe extern "C" {
@@ -231,7 +231,9 @@ impl ModuleCodegenConstants {
                 ModuleConstantValue::RuntimeName(op.name.id_str().as_bytes().to_vec())
             }
             _ => {
-                panic!("unsupported explicit module constant expr after codegen lowering: {expr:?}");
+                panic!(
+                    "unsupported explicit module constant expr after codegen lowering: {expr:?}"
+                );
             }
         };
         let id = ModuleConstantId(self.values.len());
@@ -298,10 +300,7 @@ pub(crate) unsafe fn raise_name_error_for_missing_name(name_obj: *mut ffi::PyObj
     } else {
         ffi::PyErr_Clear();
     }
-    ffi::PyErr_SetString(
-        ffi::PyExc_NameError,
-        c"name is not defined".as_ptr(),
-    );
+    ffi::PyErr_SetString(ffi::PyExc_NameError, c"name is not defined".as_ptr());
 }
 
 pub(crate) unsafe fn load_runtime_name_owned(name_obj: *mut ffi::PyObject) -> *mut ffi::PyObject {
@@ -544,11 +543,9 @@ fn helper_name_for_codegen_expr<'a>(
         {
             Some(op.name.id.as_str())
         }
-        CodegenBlockPyExpr::Load(op) => op
-            .name
-            .location
-            .as_constant()
-            .and_then(|index| module_constants.constant_runtime_name_value(ModuleConstantId(index as usize))),
+        CodegenBlockPyExpr::Load(op) => op.name.location.as_constant().and_then(|index| {
+            module_constants.constant_runtime_name_value(ModuleConstantId(index as usize))
+        }),
         _ => None,
     }
 }

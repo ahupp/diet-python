@@ -3,13 +3,12 @@ use self::operation_macro::define_operation;
 pub use self::param_specs::{Param, ParamDefaultSource, ParamKind, ParamSpec};
 pub(crate) use self::scope::{
     build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_scope,
-    compute_storage_layout_from_scope, derive_effective_binding_for_name,
-    ScopeExprNode,
+    compute_storage_layout_from_scope, derive_effective_binding_for_name, ScopeExprNode,
 };
 pub use self::scope::{
-    BindingTarget, BindingKind, BindingPurpose, CallableScopeKind,
-    CallableScopeInfo, CellBindingKind, CellCaptureBinding,
-    ClassBodyFallback, EffectiveBinding, ClosureInit, ClosureSlot, StorageLayout,
+    BindingKind, BindingPurpose, BindingTarget, CallableScopeInfo, CallableScopeKind,
+    CellBindingKind, CellCaptureBinding, ClassBodyFallback, ClosureInit, ClosureSlot,
+    EffectiveBinding, StorageLayout,
 };
 use crate::py_expr;
 pub use operation::{
@@ -33,7 +32,7 @@ pub mod pretty;
 pub(crate) mod scope;
 pub(crate) mod validate;
 pub(crate) use convert::ErrOnAwait;
-pub(crate) use convert::{BlockPyModuleMap, BlockPyModuleTryMap, ErrOnYield};
+pub(crate) use convert::{map_fn, map_module, try_map_fn, try_map_term, ErrOnYield};
 pub use name_gen::{BlockLabel, FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
 

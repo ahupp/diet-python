@@ -3,8 +3,8 @@ use crate::block_py::cfg::{
 };
 use crate::block_py::param_specs::ParamSpec;
 use crate::block_py::{
-    assert_blockpy_block_normalized, Block, BlockEdge, BlockLabel, CallableScopeInfo,
-    BlockPyFallthroughTerm, BlockPyFunction, BlockPyModule, BlockTerm, FunctionKind, FunctionName,
+    assert_blockpy_block_normalized, Block, BlockEdge, BlockLabel, BlockPyFallthroughTerm,
+    BlockPyFunction, BlockPyModule, BlockTerm, CallableScopeInfo, FunctionKind, FunctionName,
     FunctionNameGen, Instr, StructuredInstr,
 };
 use crate::namegen::fresh_name;
