@@ -1,5 +1,31 @@
 use super::*;
 
+pub(crate) fn instr_any<I, F>(instr: &I, mut predicate: F) -> bool
+where
+    I: Instr,
+    F: FnMut(&I) -> bool,
+{
+    fn instr_any_impl<I, F>(instr: &I, predicate: &mut F) -> bool
+    where
+        I: Instr,
+        F: FnMut(&I) -> bool,
+    {
+        if predicate(instr) {
+            return true;
+        }
+
+        let mut found = false;
+        instr.walk(&mut |child| {
+            if !found && instr_any_impl(child, predicate) {
+                found = true;
+            }
+        });
+        found
+    }
+
+    instr_any_impl(instr, &mut predicate)
+}
+
 pub(crate) fn map_module<PIn, POut, M>(
     map: &mut M,
     module: BlockPyModule<PIn>,

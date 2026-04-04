@@ -1,11 +1,12 @@
 use crate::block_py::{
-    expr_any, map_term, Await, Block, BlockBuilder, BlockPyFunction, BlockPyNameLike, BlockTerm,
-    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, Del, HasMeta, Instr, Load, Store,
-    MapExpr, StructuredIf, StructuredInstr, UnresolvedName, Walkable, WithMeta, Yield, YieldFrom,
+    Await, Block, BlockBuilder, BlockPyFunction, BlockPyNameLike, BlockTerm,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, Del, HasMeta, Instr, Load, MapExpr,
+    Store, StructuredIf, StructuredInstr, UnresolvedName, Walkable, WithMeta, Yield, YieldFrom,
+    instr_any, map_term,
 };
 use crate::namegen::fresh_name;
-use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
 use crate::passes::CoreBlockPyPassWithYield;
+use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
 use crate::py_expr;
 use ruff_python_ast as ast;
 
@@ -37,7 +38,7 @@ where
 }
 
 fn expr_contains_suspend(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
-    expr_any(expr, |expr| {
+    instr_any(expr, |expr| {
         matches!(
             expr,
             CoreBlockPyExprWithAwaitAndYield::Await(_)
@@ -275,7 +276,7 @@ fn is_core_atom_without_await(expr: &CoreBlockPyExprWithYield) -> bool {
 }
 
 fn expr_contains_yield(expr: &CoreBlockPyExprWithYield) -> bool {
-    expr_any(expr, |expr| {
+    instr_any(expr, |expr| {
         matches!(
             expr,
             CoreBlockPyExprWithYield::Yield(_) | CoreBlockPyExprWithYield::YieldFrom(_)

@@ -1,14 +1,15 @@
 pub use self::meta::{HasMeta, Meta, WithMeta};
 use self::operation_macro::define_operation;
 pub use self::param_specs::{Param, ParamDefaultSource, ParamKind, ParamSpec};
-pub(crate) use self::scope::{
-    build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_scope,
-    compute_storage_layout_from_scope, derive_effective_binding_for_name, ScopeExprNode,
-};
 pub use self::scope::{
     BindingKind, BindingPurpose, BindingTarget, CallableScopeInfo, CallableScopeKind,
     CellBindingKind, CellCaptureBinding, ClassBodyFallback, ClosureInit, ClosureSlot,
     EffectiveBinding, StorageLayout,
+};
+pub(crate) use self::scope::{
+    ScopeExprNode, build_storage_layout_from_capture_names,
+    compute_make_function_capture_bindings_from_scope, compute_storage_layout_from_scope,
+    derive_effective_binding_for_name,
 };
 use crate::py_expr;
 pub use operation::{
@@ -17,7 +18,7 @@ pub use operation::{
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast};
-use soac_macros::{enum_broadcast, DelegateMatchDefault};
+use soac_macros::{DelegateMatchDefault, enum_broadcast};
 use std::fmt;
 
 pub(crate) mod cfg;
@@ -31,7 +32,7 @@ pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod scope;
 pub(crate) mod validate;
-pub(crate) use convert::{map_fn, map_module, map_term, try_map_fn, try_map_term};
+pub(crate) use convert::{instr_any, map_fn, map_module, map_term, try_map_fn, try_map_term};
 pub use name_gen::{BlockLabel, FunctionId, FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
 
@@ -1073,32 +1074,6 @@ pub trait BlockPyFallthroughTerm<L>: BlockPyJumpTerm<L> {
 pub(crate) trait ImplicitNoneExpr {
     fn implicit_none_expr() -> Self;
     fn is_implicit_none_expr(expr: &Self) -> bool;
-}
-
-pub fn expr_any<E, F>(expr: &E, mut predicate: F) -> bool
-where
-    E: Instr,
-    F: FnMut(&E) -> bool,
-{
-    fn expr_any_impl<E, F>(expr: &E, predicate: &mut F) -> bool
-    where
-        E: Instr,
-        F: FnMut(&E) -> bool,
-    {
-        if predicate(expr) {
-            return true;
-        }
-
-        let mut found = false;
-        expr.walk(&mut |child| {
-            if !found && expr_any_impl(child, predicate) {
-                found = true;
-            }
-        });
-        found
-    }
-
-    expr_any_impl(expr, &mut predicate)
 }
 
 pub fn assert_blockpy_block_normalized<S: NormalizedInstr, T: Instr>(block: &Block<S, T>) {
