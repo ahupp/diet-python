@@ -758,23 +758,6 @@ impl Instr for CodegenBlockPyExpr {
     type Name = LocatedName;
 }
 
-pub(crate) fn try_lower_core_expr_without_await_with_mapper<M>(
-    expr: CoreBlockPyExprWithAwaitAndYield,
-    map: &mut M,
-) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield>
-where
-    M: TryMapExpr<
-        CoreBlockPyExprWithAwaitAndYield,
-        CoreBlockPyExprWithYield,
-        CoreBlockPyExprWithAwaitAndYield,
-    >,
-{
-    match_default!(expr: crate::block_py::CoreBlockPyExprWithAwaitAndYield {
-        CoreBlockPyExprWithAwaitAndYield::Await(node) => Err(node.into()),
-        rest => Ok(rest.try_map_typed_children(map)?.into()),
-    })
-}
-
 pub(crate) fn try_lower_core_expr_without_yield_with_mapper<M>(
     expr: CoreBlockPyExprWithYield,
     map: &mut M,

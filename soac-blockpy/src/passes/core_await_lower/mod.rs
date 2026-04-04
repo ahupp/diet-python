@@ -1,35 +1,10 @@
 use crate::block_py::{
     core_runtime_positional_call_expr_with_meta, map_module, BlockPyModule,
-    try_lower_core_expr_without_await_with_mapper, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, HasMeta, InstrExprNode, MapExpr, TryMapExpr, UnresolvedName,
-    WithMeta, YieldFrom,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, HasMeta, InstrExprNode, MapExpr,
+    UnresolvedName, WithMeta, YieldFrom,
 };
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
 use soac_macros::match_default;
-
-pub(crate) struct ErrOnAwait;
-
-impl
-    TryMapExpr<
-        CoreBlockPyExprWithAwaitAndYield,
-        CoreBlockPyExprWithYield,
-        CoreBlockPyExprWithAwaitAndYield,
-    > for ErrOnAwait
-{
-    fn try_map_expr(
-        &mut self,
-        expr: CoreBlockPyExprWithAwaitAndYield,
-    ) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield> {
-        try_lower_core_expr_without_await_with_mapper(expr, self)
-    }
-
-    fn try_map_name(
-        &mut self,
-        name: UnresolvedName,
-    ) -> Result<UnresolvedName, CoreBlockPyExprWithAwaitAndYield> {
-        Ok(name)
-    }
-}
 
 struct CoreAwaitLoweringMap;
 

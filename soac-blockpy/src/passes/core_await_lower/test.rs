@@ -1,11 +1,9 @@
 use super::*;
 
 use crate::block_py::{
-    try_map_fn, Await, Block, BlockLabel, BlockPyFunction, BlockPyNameLike, BlockTerm,
-    CallableScopeInfo, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionId,
-    FunctionKind, FunctionName, Meta, TryMapExpr, UnresolvedName,
+    Block, BlockLabel, BlockPyFunction, BlockPyNameLike, BlockTerm, CallableScopeInfo,
+    CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionKind, FunctionName,
 };
-use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
 use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
@@ -90,71 +88,4 @@ fn lowers_await_to_yield_from_await_iter() {
         panic!("expected await helper load");
     };
     assert!(operation.name.is_runtime_symbol("await_iter"));
-}
-
-#[test]
-fn stmt_conversion_to_no_await_rejects_await() {
-    let stmt = CoreBlockPyExprWithAwaitAndYield::Await(
-        Await::new(core_load_with_await_and_yield("x")).with_meta(Meta::default()),
-    );
-
-    let mut mapper = ErrOnAwait;
-    assert!(mapper.try_map_expr(stmt).is_err());
-}
-
-#[test]
-fn try_map_fn_propagates_nested_await_conversion_errors() {
-    struct RejectAwaitMapper;
-
-    impl
-        TryMapExpr<
-            CoreBlockPyExprWithAwaitAndYield,
-            CoreBlockPyExprWithYield,
-            CoreBlockPyExprWithAwaitAndYield,
-        > for RejectAwaitMapper
-    {
-        fn try_map_expr(
-            &mut self,
-            expr: CoreBlockPyExprWithAwaitAndYield,
-        ) -> Result<CoreBlockPyExprWithYield, CoreBlockPyExprWithAwaitAndYield> {
-            let mut mapper = ErrOnAwait;
-            mapper.try_map_expr(expr)
-        }
-
-        fn try_map_name(
-            &mut self,
-            name: UnresolvedName,
-        ) -> Result<UnresolvedName, CoreBlockPyExprWithAwaitAndYield> {
-            Ok(name)
-        }
-    }
-
-    let function: BlockPyFunction<CoreBlockPyPassWithAwaitAndYield> = BlockPyFunction {
-        function_id: FunctionId(0),
-        name_gen: test_name_gen(),
-        names: FunctionName::new("f", "f", "f", "f"),
-        kind: FunctionKind::Function,
-        params: Default::default(),
-        blocks: vec![Block {
-            label: BlockLabel::from_index(0),
-            body: vec![CoreBlockPyExprWithAwaitAndYield::Await(
-                Await::new(core_load_with_await_and_yield("x")).with_meta(Meta::default()),
-            )],
-            term: BlockTerm::Return(core_load_with_await_and_yield("__dp_NONE")),
-            params: Vec::new(),
-            exc_edge: None,
-        }],
-        doc: None,
-        storage_layout: None,
-        scope: CallableScopeInfo::default(),
-    };
-
-    let mut mapper = RejectAwaitMapper;
-    assert!(
-        try_map_fn::<CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield, _, _>(
-            &mut mapper,
-            function,
-        )
-        .is_err()
-    );
 }
