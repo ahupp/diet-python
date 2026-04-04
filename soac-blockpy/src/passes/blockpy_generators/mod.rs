@@ -6,19 +6,18 @@ use crate::block_py::{
     BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole, BlockPyFunction,
     BlockPyModule, BlockPyNameLike, BlockTerm, CallableScopeInfo, CellBindingKind,
     CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
-    CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, FunctionId, FunctionKind, FunctionName,
-    FunctionNameGen, ImplicitNoneExpr, Instr, Load, MakeFunction, ModuleNameGen, ScopeExprNode,
-    StorageLayout, Store, TermBranchTable, TermIf, TermRaise,
+    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, CoreNumberLiteral, CoreNumberLiteralValue,
+    CoreStringLiteral, FunctionId, FunctionKind, FunctionName, FunctionNameGen, GetAttr,
+    ImplicitNoneExpr, Instr, Load, MakeFunction, ModuleNameGen, ScopeExprNode, StorageLayout,
+    Store, TermBranchTable, TermIf, TermRaise, UnaryOp, UnaryOpKind,
     TryMapExpr, UnresolvedName, try_lower_core_expr_without_yield_with_mapper, try_map_fn,
+    literal_expr,
 };
-use super::core_await_lower::ErrOnAwait;
 use super::core_eval_order::make_eval_order_explicit_in_core_callable_def_without_await;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
 use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithYield};
-use crate::py_expr;
-use ruff_python_ast::{self as ast, Expr};
+use ruff_python_ast::{self as ast};
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 
@@ -172,32 +171,19 @@ pub(crate) fn build_blockpy_storage_layout(
     }
 }
 
-fn expr_name(id: &str) -> UnresolvedName {
-    let Expr::Name(expr) = py_expr!("{id:id}", id = id) else {
-        unreachable!();
-    };
-    expr.into()
-}
-
-fn core_expr_without_yield(expr: Expr) -> CoreBlockPyExpr {
-    let core = CoreBlockPyExprWithAwaitAndYield::from(expr);
-    let core_without_await = ErrOnAwait
-        .try_map_expr(core)
-        .unwrap_or_else(|_| panic!("generator helper expression unexpectedly contained await"));
-    ErrOnYield
-        .try_map_expr(core_without_await)
-        .unwrap_or_else(|_| panic!("generator helper expression unexpectedly contained yield"))
+fn unresolved_name(id: &str) -> UnresolvedName {
+    ast::name::Name::new(id).into()
 }
 
 fn core_name(name: &str) -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!("{name:id}", name = name))
+    unresolved_load_expr(unresolved_name(name))
 }
 
 fn internal_store_stmt<E>(target: &str, value: E) -> E
 where
     E: Instr<Name = UnresolvedName> + From<Store<E>>,
 {
-    unresolved_store_stmt(expr_name(target), value)
+    unresolved_store_stmt(unresolved_name(target), value)
 }
 
 fn unresolved_store_stmt<E>(target: UnresolvedName, value: E) -> E
@@ -298,15 +284,29 @@ where
 }
 
 fn core_literal_int(value: usize) -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!("{value:literal}", value = value))
+    let text = value.to_string();
+    literal_expr(
+        CoreNumberLiteral {
+            value: CoreNumberLiteralValue::Int(
+                ast::Int::from_str_radix(text.as_str(), 10, text.as_str())
+                    .expect("usize decimal literal should always parse"),
+            ),
+        },
+        Default::default(),
+    )
 }
 
 fn core_none() -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!("None"))
+    CoreBlockPyExpr::implicit_none_expr()
 }
 
 fn core_string_literal(value: &str) -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!("{value:literal}", value = value))
+    literal_expr(
+        CoreStringLiteral {
+            value: value.to_string(),
+        },
+        Default::default(),
+    )
 }
 
 fn core_call(func_name: &str, args: Vec<CoreBlockPyExpr>) -> CoreBlockPyExpr {
@@ -344,6 +344,10 @@ fn core_runtime_attr(attr: &str) -> CoreBlockPyExpr {
     core_runtime_name_expr_with_meta(attr, ast::AtomicNodeIndex::default(), Default::default())
 }
 
+fn core_get_attr(value: CoreBlockPyExpr, attr: &str) -> CoreBlockPyExpr {
+    GetAttr::new(Box::new(value), Box::new(core_string_literal(attr))).into()
+}
+
 fn core_cell_ref(logical_name: &str) -> CoreBlockPyExpr {
     CellRefForName::new(logical_name.to_string()).into()
 }
@@ -354,12 +358,18 @@ fn core_generator_code(async_gen: bool, name: &str, qualname: &str) -> CoreBlock
     } else {
         "code_template_gen"
     };
-    core_expr_without_yield(py_expr!(
-        "__soac__.{template_attr:id}.__code__.replace(co_name={name:literal}, co_qualname={qualname:literal})",
-        template_attr = template_attr,
-        name = name,
-        qualname = qualname,
-    ))
+    let replace = core_get_attr(
+        core_get_attr(core_runtime_attr(template_attr), "__code__"),
+        "replace",
+    );
+    core_call_expr(
+        replace,
+        Vec::new(),
+        vec![
+            ("co_name", core_string_literal(name)),
+            ("co_qualname", core_string_literal(qualname)),
+        ],
+    )
 }
 
 fn core_make_function(
@@ -819,11 +829,14 @@ fn is_name_none_test(name: &str) -> CoreBlockPyExpr {
 }
 
 fn is_name_not_none_test(name: &str) -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!("{name:id} is not None", name = name))
+    UnaryOp::new(UnaryOpKind::Not, Box::new(is_name_none_test(name))).into()
 }
 
 fn is_resume_generator_exit_test() -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!("isinstance(_dp_resume_exc, GeneratorExit)"))
+    core_call(
+        "isinstance",
+        vec![core_name("_dp_resume_exc"), core_runtime_attr("GeneratorExit")],
+    )
 }
 
 fn resume_exc_raise_term() -> BlockTerm<CoreBlockPyExpr> {
@@ -833,14 +846,46 @@ fn resume_exc_raise_term() -> BlockTerm<CoreBlockPyExpr> {
 }
 
 fn stop_iteration_match_test(exc_name: &str) -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!(
-        "__soac__.exception_matches({exc_name:id}, StopIteration)",
-        exc_name = exc_name,
-    ))
+    core_call_expr(
+        core_runtime_attr("exception_matches"),
+        vec![core_name(exc_name), core_runtime_attr("StopIteration")],
+        Vec::new(),
+    )
 }
 
 fn current_exception_value_expr(exc_name: &str) -> CoreBlockPyExpr {
-    core_expr_without_yield(py_expr!("{exc_name:id}.value", exc_name = exc_name))
+    core_get_attr(core_name(exc_name), "value")
+}
+
+fn yield_from_next_expr() -> CoreBlockPyExpr {
+    core_call("next", vec![core_name("_dp_yieldfrom")])
+}
+
+fn yield_from_send_expr() -> CoreBlockPyExpr {
+    core_call_expr(
+        core_get_attr(core_name("_dp_yieldfrom"), "send"),
+        vec![core_name("_dp_send_value")],
+        Vec::new(),
+    )
+}
+
+fn yield_from_method_lookup_expr(method: &str) -> CoreBlockPyExpr {
+    core_call(
+        "getattr",
+        vec![
+            core_name("_dp_yieldfrom"),
+            core_string_literal(method),
+            core_none(),
+        ],
+    )
+}
+
+fn no_arg_name_call_expr(name: &str) -> CoreBlockPyExpr {
+    core_call_expr(core_name(name), Vec::new(), Vec::new())
+}
+
+fn single_arg_name_call_expr(name: &str, arg: CoreBlockPyExpr) -> CoreBlockPyExpr {
+    core_call_expr(core_name(name), vec![arg], Vec::new())
 }
 
 struct ResumeLoweringState {
@@ -1080,7 +1125,7 @@ fn emit_yield_site(
                 resume_label,
                 None,
                 Vec::new(),
-                BlockTerm::Return(unresolved_load_expr(expr_name("_dp_send_value"))),
+                BlockTerm::Return(unresolved_load_expr(unresolved_name("_dp_send_value"))),
                 params,
                 exc_target,
             );
@@ -1106,7 +1151,7 @@ fn emit_yield_site(
             value,
             None,
             Vec::new(),
-            BlockTerm::Return(unresolved_load_expr(expr_name("_dp_yield_from_value"))),
+            BlockTerm::Return(unresolved_load_expr(unresolved_name("_dp_yield_from_value"))),
             params,
             exc_target,
         ),
@@ -1151,7 +1196,10 @@ fn emit_resume_after_yield(
     if let Some(target) = assign_target {
         tail_body.insert(
             0,
-            unresolved_store_stmt(target, unresolved_load_expr(expr_name("_dp_send_value"))),
+            unresolved_store_stmt(
+                target,
+                unresolved_load_expr(unresolved_name("_dp_send_value")),
+            ),
         );
     }
     lower_resume_fragment(
@@ -1247,7 +1295,7 @@ fn emit_yield_from_site(
             label: next_call_label,
             body: vec![internal_store_stmt(
                 yielded_value_name.as_str(),
-                core_expr_without_yield(py_expr!("next(_dp_yieldfrom)")),
+                yield_from_next_expr(),
             )],
             term: BlockTerm::Jump(BlockEdge::new(yielded_label.clone())),
             params: params.clone(),
@@ -1260,7 +1308,7 @@ fn emit_yield_from_site(
             label: send_call_label,
             body: vec![internal_store_stmt(
                 yielded_value_name.as_str(),
-                core_expr_without_yield(py_expr!("_dp_yieldfrom.send(_dp_send_value)")),
+                yield_from_send_expr(),
             )],
             term: BlockTerm::Jump(BlockEdge::new(yielded_label.clone())),
             params: params.clone(),
@@ -1287,7 +1335,7 @@ fn emit_yield_from_site(
             label: close_lookup_label,
             body: vec![internal_store_stmt(
                 close_name.as_str(),
-                core_expr_without_yield(py_expr!("getattr(_dp_yieldfrom, \"close\", None)")),
+                yield_from_method_lookup_expr("close"),
             )],
             term: BlockTerm::IfTerm(TermIf {
                 test: is_name_not_none_test(close_name.as_str()),
@@ -1302,10 +1350,7 @@ fn emit_yield_from_site(
     state.push_block(
         BlockPyBlock {
             label: close_call_label,
-            body: vec![core_expr_without_yield(py_expr!(
-                "{close:id}()",
-                close = close_name.as_str(),
-            ))],
+            body: vec![no_arg_name_call_expr(close_name.as_str())],
             term: BlockTerm::Jump(BlockEdge::new(raise_resume_exc_label.clone())),
             params: params.clone(),
             exc_edge: None,
@@ -1317,7 +1362,7 @@ fn emit_yield_from_site(
             label: throw_lookup_label,
             body: vec![internal_store_stmt(
                 throw_name.as_str(),
-                core_expr_without_yield(py_expr!("getattr(_dp_yieldfrom, \"throw\", None)")),
+                yield_from_method_lookup_expr("throw"),
             )],
             term: BlockTerm::IfTerm(TermIf {
                 test: is_name_none_test(throw_name.as_str()),
@@ -1334,10 +1379,7 @@ fn emit_yield_from_site(
             label: throw_call_label,
             body: vec![internal_store_stmt(
                 yielded_value_name.as_str(),
-                core_expr_without_yield(py_expr!(
-                    "{throw_fn:id}(_dp_resume_exc)",
-                    throw_fn = throw_name.as_str(),
-                )),
+                single_arg_name_call_expr(throw_name.as_str(), core_name("_dp_resume_exc")),
             )],
             term: BlockTerm::Jump(BlockEdge::new(yielded_label.clone())),
             params: params.clone(),
@@ -1434,7 +1476,7 @@ fn emit_yield_from_site(
             1,
             unresolved_store_stmt(
                 target,
-                unresolved_load_expr(expr_name(yielded_value_name.as_str())),
+                unresolved_load_expr(unresolved_name(yielded_value_name.as_str())),
             ),
         );
     } else if matches!(tail_term, BlockTerm::Return(CoreBlockPyExprWithYield::Load(ref op)) if op.name.id_str() == "_dp_yield_from_value")
@@ -1443,7 +1485,7 @@ fn emit_yield_from_site(
             1,
             internal_store_stmt(
                 "_dp_yield_from_value",
-                unresolved_load_expr(expr_name(yielded_value_name.as_str())),
+                unresolved_load_expr(unresolved_name(yielded_value_name.as_str())),
             ),
         );
     }

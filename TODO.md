@@ -217,6 +217,108 @@
              EdgeTaken,
              ExceptionEdgeTaken,
          }
+
+## Remove Ruff Expr dependency from blockpy_generators
+
+- Planning note:
+  - The remaining Ruff AST dependency in `soac-blockpy/src/passes/blockpy_generators/mod.rs` is localized to the helper cluster:
+    - function `expr_name`, at `soac-blockpy/src/passes/blockpy_generators/mod.rs:175`
+    - function `core_expr_without_yield`, at `soac-blockpy/src/passes/blockpy_generators/mod.rs:182`
+    - function `core_name`, at `soac-blockpy/src/passes/blockpy_generators/mod.rs:192`
+  - Everything else in the file uses those helpers plus `py_expr!` snippets such as:
+    - function `core_literal_int`, at `soac-blockpy/src/passes/blockpy_generators/mod.rs:300`
+    - function `is_name_not_none_test`, at `soac-blockpy/src/passes/blockpy_generators/mod.rs:821`
+    - the yield-from helper call sites around `soac-blockpy/src/passes/blockpy_generators/mod.rs:1248`
+  - This is not a real lowering dependency. It is convenience scaffolding that round-trips:
+    - Ruff `Expr`
+    - to `CoreBlockPyExprWithAwaitAndYield`
+    - through `ErrOnAwait`
+    - through `ErrOnYield`
+    - into `CoreBlockPyExpr`
+  - The right end state is:
+    - `blockpy_generators` constructs `CoreBlockPyExpr` and `UnresolvedName` directly;
+    - it does not import Ruff `Expr`;
+    - it does not use `py_expr!`;
+    - it does not need `ErrOnAwait` for helper construction.
+
+- Step 1. Replace name construction helpers with direct BlockPy constructors.
+  - Delete the Ruff-backed `expr_name(...)` and `core_name(...)` helpers.
+  - Replace them with direct constructors around `ast::name::Name::new(...)`, `Load::new(...)`, and `Store::new(...)`.
+  - Target shape:
+    ```rust
+    fn unresolved_name(id: &str) -> UnresolvedName {
+        ast::name::Name::new(id).into()
+    }
+
+    fn core_name(id: &str) -> CoreBlockPyExpr {
+        Load::new(unresolved_name(id)).into()
+    }
+    ```
+  - This removes the simplest Ruff `Expr` use first and gives the rest of the file a direct BlockPy vocabulary.
+
+- Step 2. Add direct BlockPy helpers for literals and simple runtime calls.
+  - Replace `core_expr_without_yield(py_expr!(...literal...))` at:
+    - function `core_literal_int`, at `soac-blockpy/src/passes/blockpy_generators/mod.rs:300`
+    - function `core_none`, at `soac-blockpy/src/passes/blockpy_generators/mod.rs:304`
+    - function `core_string_literal`, at `soac-blockpy/src/passes/blockpy_generators/mod.rs:308`
+  - Use the existing direct constructors in `block_py`, such as `literal_expr(...)`, `core_runtime_positional_call_expr_with_meta(...)`, and `core_runtime_name_expr_with_meta(...)`.
+  - The goal is to make the common helper layer fully Ruff-free before touching the more complex snippets.
+
+- Step 3. Replace simple expression templates with explicit BlockPy ops.
+  - Convert the low-complexity `py_expr!` snippets into direct ops:
+    - function `is_name_not_none_test`, at `soac-blockpy/src/passes/blockpy_generators/mod.rs:821`
+    - function `is_resume_generator_exit_test`, at `soac-blockpy/src/passes/blockpy_generators/mod.rs:825`
+    - function `stop_iteration_match_test`, at `soac-blockpy/src/passes/blockpy_generators/mod.rs:835`
+    - function `current_exception_value_expr`, at `soac-blockpy/src/passes/blockpy_generators/mod.rs:842`
+  - These should be built from:
+    - `core_name(...)`
+    - `core_none()`
+    - `BinOp::new(...)`
+    - `GetAttr::new(...)`
+    - `core_call(...)` / `core_call_expr(...)`
+  - Example:
+    ```rust
+    fn current_exception_value_expr(exc_name: &str) -> CoreBlockPyExpr {
+        GetAttr::new(Box::new(core_name(exc_name)), "value").into()
+    }
+    ```
+
+- Step 4. Replace the yield-from protocol snippets with explicit helper builders.
+  - The remaining `py_expr!` sites around `soac-blockpy/src/passes/blockpy_generators/mod.rs:1248` should become named helpers like:
+    - `yield_from_next_expr()`
+    - `yield_from_send_expr()`
+    - `yield_from_close_lookup_expr()`
+    - `yield_from_throw_lookup_expr()`
+    - `yield_from_throw_call_expr(throw_name: &str)`
+  - These should be expressed via `GetAttr`, `core_call_expr`, and `core_call`, rather than embedded Python source strings.
+  - This is the most repetitive part, but also the highest payoff because it removes the densest concentration of Ruff AST templates.
+
+- Step 5. Delete `core_expr_without_yield(...)` and `ErrOnAwait` from this pass.
+  - Once the helper layer is direct BlockPy, function `core_expr_without_yield`, at `soac-blockpy/src/passes/blockpy_generators/mod.rs:182`, should disappear.
+  - At that point `blockpy_generators` no longer needs:
+    - `ruff_python_ast::Expr`
+    - `py_expr!`
+    - `ErrOnAwait`
+  - `ErrOnYield` can remain if it is still being used as the no-yield boundary for genuinely `CoreBlockPyExprWithYield` inputs, but it should no longer be part of helper construction.
+
+- Step 6. Add focused regression coverage for the helper rewrites.
+  - The likely place is `soac-blockpy/src/passes/blockpy_generators/test.rs`.
+  - Add tests for the helper-generated expressions that are easiest to regress semantically:
+    - `x is not None`
+    - `isinstance(_dp_resume_exc, GeneratorExit)`
+    - `_dp_yieldfrom.send(_dp_send_value)`
+    - `getattr(_dp_yieldfrom, "close", None)`
+  - This keeps the replacement honest without relying on string equality of the old `py_expr!` lowering path.
+
+- Challenging parts:
+  - The yield-from helper cluster needs careful attention because it mixes:
+    - attribute lookup semantics;
+    - default-argument behavior in `getattr(..., None)`;
+    - and ordinary call lowering.
+  - It is important not to accidentally replace a Python semantic with a runtime helper that changes user-visible behavior.
+  - The safe rule is:
+    - only replace `py_expr!` snippets with direct BlockPy structures that are semantically identical to the original expression text;
+    - do not “optimize” them into custom runtime intrinsics during this cleanup.
          ```
        - Then optionally separate:
          - counter definition policy;
