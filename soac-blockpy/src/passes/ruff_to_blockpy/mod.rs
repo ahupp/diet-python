@@ -3,14 +3,14 @@ use crate::block_py::cfg::{
 };
 use crate::block_py::param_specs::ParamSpec;
 use crate::block_py::{
-    assert_blockpy_block_normalized, Block, BlockEdge, BlockLabel, BlockPyFallthroughTerm,
-    BlockPyFunction, BlockPyModule, BlockTerm, CallableScopeInfo, FunctionKind, FunctionName,
-    FunctionNameGen, Instr, StructuredInstr,
+    Block, BlockEdge, BlockLabel, BlockPyFallthroughTerm, BlockPyFunction, BlockPyModule,
+    BlockTerm, CallableScopeInfo, FunctionKind, FunctionName, FunctionNameGen, Instr,
+    StructuredInstr, assert_blockpy_block_normalized,
 };
 use crate::namegen::fresh_name;
+use crate::passes::CoreBlockPyPassWithAwaitAndYield;
 use crate::passes::ast_to_ast::context::Context;
 use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
-use crate::passes::CoreBlockPyPassWithAwaitAndYield;
 use crate::ruff_ast_to_string;
 use crate::template::is_simple;
 use crate::{py_expr, py_stmt};
@@ -49,8 +49,8 @@ pub(crate) use stmt_sequences::{
     lower_expanded_stmt_sequence, lower_stmt_sequence_with_state, lower_stmts_to_blockpy_stmts,
 };
 pub(crate) use try_regions::{
-    block_references_label, build_try_plan, finalize_try_regions, lower_try_regions,
-    prepare_except_body, prepare_finally_body, TryPlan,
+    TryPlan, block_references_label, build_try_plan, finalize_try_regions, lower_try_regions,
+    prepare_except_body, prepare_finally_body,
 };
 
 pub(crate) type LoweredBlockPyBlock<E = Expr> = Block<StructuredInstr<E>, E>;
@@ -171,11 +171,11 @@ pub(crate) fn build_core_blockpy_callable_def_from_runtime_input(
         .filter_map(|block| block.exc_edge.as_ref().map(|edge| edge.target.clone()))
         .collect::<Vec<_>>();
     prune_unreachable_blockpy_blocks(entry_label, &extra_roots, &mut blocks);
-    let blocks = blocks
+    let mut blocks = lower_structured_blocks_to_bb_blocks(&name_gen, &blocks);
+    blocks = blocks
         .into_iter()
         .map(make_eval_order_explicit_in_core_block)
-        .collect::<Vec<_>>();
-    let mut blocks = lower_structured_blocks_to_bb_blocks(&name_gen, &blocks);
+        .collect();
     if matches!(blockpy_kind, FunctionKind::Function) {
         rewrite_current_exception_in_core_blocks_with_await_and_yield(&mut blocks[..]);
     }

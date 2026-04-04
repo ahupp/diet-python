@@ -1,12 +1,10 @@
 use crate::block_py::{
-    Await, Block, BlockBuilder, BlockPyFunction, BlockPyNameLike, BlockTerm,
+    instr_any, map_term, Await, Block, BlockPyFunction, BlockPyNameLike, BlockTerm,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, Del, HasMeta, Instr, Load, MapExpr,
-    Store, StructuredIf, StructuredInstr, UnresolvedName, Walkable, WithMeta, Yield, YieldFrom,
-    instr_any, map_term,
+    Store, UnresolvedName, Walkable, WithMeta, Yield, YieldFrom,
 };
 use crate::namegen::fresh_name;
 use crate::passes::CoreBlockPyPassWithYield;
-use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
 use crate::py_expr;
 use ruff_python_ast as ast;
 
@@ -18,23 +16,23 @@ fn fresh_eval_name() -> ast::ExprName {
     expr
 }
 
-fn typed_store_stmt<E, N>(target: N, value: E) -> StructuredInstr<E>
+fn typed_store_expr<E, N>(target: N, value: E) -> E
 where
     E: Instr + From<Store<E>>,
     N: BlockPyNameLike + HasMeta + Into<<E as Instr>::Name>,
 {
     let meta = target.meta();
-    StructuredInstr::Expr(Store::<E>::new(target, value).with_meta(meta).into())
+    Store::<E>::new(target, value).with_meta(meta).into()
 }
 
-fn typed_del_stmt<E, N>(target: N) -> StructuredInstr<E>
+fn typed_del_expr<E, N>(target: N) -> E
 where
     E: Instr<Name = UnresolvedName> + From<Del<E>>,
     N: HasMeta + Into<<E as Instr>::Name>,
 {
     let meta = target.meta();
     let target = target.into();
-    StructuredInstr::Expr(Del::<E>::new(target, false).with_meta(meta).into())
+    Del::<E>::new(target, false).with_meta(meta).into()
 }
 
 fn expr_contains_suspend(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
@@ -50,13 +48,13 @@ fn expr_contains_suspend(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
 
 fn hoist_core_expr_if_contains_suspend(
     expr: CoreBlockPyExprWithAwaitAndYield,
-    out: &mut Vec<StructuredInstr<CoreBlockPyExprWithAwaitAndYield>>,
+    out: &mut Vec<CoreBlockPyExprWithAwaitAndYield>,
     cleanup: &mut Vec<ast::ExprName>,
 ) -> CoreBlockPyExprWithAwaitAndYield {
     let expr = make_eval_order_explicit_in_core_expr(expr, out, cleanup);
     if expr_contains_suspend(&expr) {
         let target = fresh_eval_name();
-        out.push(typed_store_stmt(target.clone(), expr));
+        out.push(typed_store_expr(target.clone(), expr));
         cleanup.push(target.clone());
         let meta = target.meta();
         Load::new(target).with_meta(meta).into()
@@ -67,7 +65,7 @@ fn hoist_core_expr_if_contains_suspend(
 
 fn make_eval_order_explicit_in_core_expr(
     expr: CoreBlockPyExprWithAwaitAndYield,
-    out: &mut Vec<StructuredInstr<CoreBlockPyExprWithAwaitAndYield>>,
+    out: &mut Vec<CoreBlockPyExprWithAwaitAndYield>,
     cleanup: &mut Vec<ast::ExprName>,
 ) -> CoreBlockPyExprWithAwaitAndYield {
     match expr {
@@ -153,17 +151,17 @@ fn make_eval_order_explicit_in_core_expr(
     }
 }
 
-fn append_stmt_cleanup<E>(out: &mut Vec<StructuredInstr<E>>, cleanup: Vec<ast::ExprName>)
+fn append_stmt_cleanup<E>(out: &mut Vec<E>, cleanup: Vec<ast::ExprName>)
 where
     E: Instr<Name = UnresolvedName> + From<Del<E>>,
 {
     for temp in cleanup.into_iter().rev() {
-        out.push(typed_del_stmt(temp));
+        out.push(typed_del_expr(temp));
     }
 }
 
 struct HoistSuspendsInCoreTerm<'a, 'b> {
-    out: &'a mut Vec<StructuredInstr<CoreBlockPyExprWithAwaitAndYield>>,
+    out: &'a mut Vec<CoreBlockPyExprWithAwaitAndYield>,
     cleanup: &'b mut Vec<ast::ExprName>,
 }
 
@@ -182,56 +180,9 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithAwaitAndYield>
     }
 }
 
-fn make_eval_order_explicit_in_core_fragment(
-    fragment: BlockBuilder<
-        StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-        BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
-    >,
-) -> BlockBuilder<
-    StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-    BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
-> {
-    let mut body = Vec::new();
-    for stmt in fragment.body {
-        make_eval_order_explicit_in_core_stmt(stmt, &mut body);
-    }
-    let term = fragment
-        .term
-        .map(|term| make_eval_order_explicit_in_core_term(term, &mut body));
-    BlockBuilder { body, term }
-}
-
-fn make_eval_order_explicit_in_core_stmt(
-    stmt: StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-    out: &mut Vec<StructuredInstr<CoreBlockPyExprWithAwaitAndYield>>,
-) {
-    match stmt {
-        StructuredInstr::Expr(expr) => {
-            let mut setup = Vec::new();
-            let mut cleanup = Vec::new();
-            let expr = make_eval_order_explicit_in_core_expr(expr, &mut setup, &mut cleanup);
-            out.extend(setup);
-            out.push(StructuredInstr::Expr(expr));
-            append_stmt_cleanup(out, cleanup);
-        }
-        StructuredInstr::If(if_stmt) => {
-            let mut setup = Vec::new();
-            let mut cleanup = Vec::new();
-            let test = hoist_core_expr_if_contains_suspend(if_stmt.test, &mut setup, &mut cleanup);
-            out.extend(setup);
-            out.push(StructuredInstr::If(StructuredIf {
-                test,
-                body: make_eval_order_explicit_in_core_fragment(if_stmt.body),
-                orelse: make_eval_order_explicit_in_core_fragment(if_stmt.orelse),
-            }));
-            append_stmt_cleanup(out, cleanup);
-        }
-    }
-}
-
 fn make_eval_order_explicit_in_core_term(
     term: BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
-    out: &mut Vec<StructuredInstr<CoreBlockPyExprWithAwaitAndYield>>,
+    out: &mut Vec<CoreBlockPyExprWithAwaitAndYield>,
 ) -> BlockTerm<CoreBlockPyExprWithAwaitAndYield> {
     let mut cleanup = Vec::new();
     let mut map = HoistSuspendsInCoreTerm {
@@ -242,11 +193,8 @@ fn make_eval_order_explicit_in_core_term(
 }
 
 pub(crate) fn make_eval_order_explicit_in_core_block(
-    block: Block<
-        StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
-        CoreBlockPyExprWithAwaitAndYield,
-    >,
-) -> Block<StructuredInstr<CoreBlockPyExprWithAwaitAndYield>, CoreBlockPyExprWithAwaitAndYield> {
+    block: Block<CoreBlockPyExprWithAwaitAndYield>,
+) -> Block<CoreBlockPyExprWithAwaitAndYield> {
     let Block {
         label,
         body: input_body,
@@ -255,8 +203,13 @@ pub(crate) fn make_eval_order_explicit_in_core_block(
         exc_edge,
     } = block;
     let mut body = Vec::new();
-    for stmt in input_body {
-        make_eval_order_explicit_in_core_stmt(stmt, &mut body);
+    for expr in input_body {
+        let mut setup = Vec::new();
+        let mut cleanup = Vec::new();
+        let expr = make_eval_order_explicit_in_core_expr(expr, &mut setup, &mut cleanup);
+        body.extend(setup);
+        body.push(expr);
+        append_stmt_cleanup(&mut body, cleanup);
     }
     let term = make_eval_order_explicit_in_core_term(input_term, &mut body);
     Block {
@@ -286,7 +239,7 @@ fn expr_contains_yield(expr: &CoreBlockPyExprWithYield) -> bool {
 
 fn hoist_core_expr_without_await_to_atom(
     expr: CoreBlockPyExprWithYield,
-    out: &mut Vec<StructuredInstr<CoreBlockPyExprWithYield>>,
+    out: &mut Vec<CoreBlockPyExprWithYield>,
     cleanup: &mut Vec<ast::ExprName>,
 ) -> CoreBlockPyExprWithYield {
     let expr = make_eval_order_explicit_in_core_expr_without_await(expr, out, cleanup);
@@ -294,7 +247,7 @@ fn hoist_core_expr_without_await_to_atom(
         expr
     } else {
         let target = fresh_eval_name();
-        out.push(typed_store_stmt(target.clone(), expr));
+        out.push(typed_store_expr(target.clone(), expr));
         cleanup.push(target.clone());
         let meta = target.meta();
         Load::new(target).with_meta(meta).into()
@@ -303,7 +256,7 @@ fn hoist_core_expr_without_await_to_atom(
 
 fn make_eval_order_explicit_in_core_expr_without_await(
     expr: CoreBlockPyExprWithYield,
-    out: &mut Vec<StructuredInstr<CoreBlockPyExprWithYield>>,
+    out: &mut Vec<CoreBlockPyExprWithYield>,
     cleanup: &mut Vec<ast::ExprName>,
 ) -> CoreBlockPyExprWithYield {
     match expr {
@@ -378,57 +331,8 @@ fn make_eval_order_explicit_in_core_expr_without_await(
     }
 }
 
-fn make_eval_order_explicit_in_core_stmt_without_await(
-    stmt: StructuredInstr<CoreBlockPyExprWithYield>,
-    out: &mut Vec<StructuredInstr<CoreBlockPyExprWithYield>>,
-) {
-    match stmt {
-        StructuredInstr::Expr(expr) => {
-            let mut setup = Vec::new();
-            let mut cleanup = Vec::new();
-            let expr = if expr_contains_yield(&expr) {
-                make_eval_order_explicit_in_core_expr_without_await(expr, &mut setup, &mut cleanup)
-            } else {
-                expr
-            };
-            out.extend(setup);
-            out.push(StructuredInstr::Expr(expr));
-            append_stmt_cleanup(out, cleanup);
-        }
-        StructuredInstr::If(if_stmt) => {
-            let mut setup = Vec::new();
-            let mut cleanup = Vec::new();
-            let test =
-                hoist_core_expr_without_await_to_atom(if_stmt.test, &mut setup, &mut cleanup);
-            out.extend(setup);
-            out.push(StructuredInstr::If(StructuredIf {
-                test,
-                body: make_eval_order_explicit_in_core_fragment_without_await(if_stmt.body),
-                orelse: make_eval_order_explicit_in_core_fragment_without_await(if_stmt.orelse),
-            }));
-            append_stmt_cleanup(out, cleanup);
-        }
-    }
-}
-
-fn make_eval_order_explicit_in_core_fragment_without_await(
-    fragment: BlockBuilder<
-        StructuredInstr<CoreBlockPyExprWithYield>,
-        BlockTerm<CoreBlockPyExprWithYield>,
-    >,
-) -> BlockBuilder<StructuredInstr<CoreBlockPyExprWithYield>, BlockTerm<CoreBlockPyExprWithYield>> {
-    let mut body = Vec::new();
-    for stmt in fragment.body {
-        make_eval_order_explicit_in_core_stmt_without_await(stmt, &mut body);
-    }
-    let term = fragment
-        .term
-        .map(|term| make_eval_order_explicit_in_core_term_without_await(term, &mut body));
-    BlockBuilder { body, term }
-}
-
 struct HoistYieldFreeAtomsInCoreTerm<'a, 'b> {
-    out: &'a mut Vec<StructuredInstr<CoreBlockPyExprWithYield>>,
+    out: &'a mut Vec<CoreBlockPyExprWithYield>,
     cleanup: &'b mut Vec<ast::ExprName>,
 }
 
@@ -446,7 +350,7 @@ impl MapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithYield>
 
 fn make_eval_order_explicit_in_core_term_without_await(
     term: BlockTerm<CoreBlockPyExprWithYield>,
-    out: &mut Vec<StructuredInstr<CoreBlockPyExprWithYield>>,
+    out: &mut Vec<CoreBlockPyExprWithYield>,
 ) -> BlockTerm<CoreBlockPyExprWithYield> {
     let mut cleanup = Vec::new();
     let mut map = HoistYieldFreeAtomsInCoreTerm {
@@ -457,8 +361,8 @@ fn make_eval_order_explicit_in_core_term_without_await(
 }
 
 pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
-    block: Block<StructuredInstr<CoreBlockPyExprWithYield>, CoreBlockPyExprWithYield>,
-) -> Block<StructuredInstr<CoreBlockPyExprWithYield>, CoreBlockPyExprWithYield> {
+    block: Block<CoreBlockPyExprWithYield>,
+) -> Block<CoreBlockPyExprWithYield> {
     let Block {
         label,
         body: input_body,
@@ -467,8 +371,17 @@ pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
         exc_edge,
     } = block;
     let mut body = Vec::new();
-    for stmt in input_body {
-        make_eval_order_explicit_in_core_stmt_without_await(stmt, &mut body);
+    for expr in input_body {
+        let mut setup = Vec::new();
+        let mut cleanup = Vec::new();
+        let expr = if expr_contains_yield(&expr) {
+            make_eval_order_explicit_in_core_expr_without_await(expr, &mut setup, &mut cleanup)
+        } else {
+            expr
+        };
+        body.extend(setup);
+        body.push(expr);
+        append_stmt_cleanup(&mut body, cleanup);
     }
     let term = make_eval_order_explicit_in_core_term_without_await(input_term, &mut body);
     Block {
@@ -494,18 +407,10 @@ pub(crate) fn make_eval_order_explicit_in_core_callable_def_without_await(
         storage_layout,
         scope,
     } = callable_def;
-    let structured_blocks = blocks
+    let blocks = blocks
         .into_iter()
-        .map(|block| Block {
-            label: block.label,
-            body: block.body.into_iter().map(Into::into).collect(),
-            term: block.term,
-            params: block.params,
-            exc_edge: block.exc_edge,
-        })
         .map(make_eval_order_explicit_in_core_block_without_await)
-        .collect::<Vec<_>>();
-    let blocks = lower_structured_blocks_to_bb_blocks(&name_gen, &structured_blocks);
+        .collect();
     BlockPyFunction {
         function_id,
         name_gen,

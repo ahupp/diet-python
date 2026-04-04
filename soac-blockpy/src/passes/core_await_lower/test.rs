@@ -47,16 +47,7 @@ fn lowers_await_to_yield_from_await_iter() {
             params: Default::default(),
             blocks: vec![Block {
                 label: structured_block.label,
-                body: structured_block
-                    .body
-                    .into_iter()
-                    .map(|stmt| match stmt {
-                        crate::block_py::StructuredInstr::Expr(expr) => expr,
-                        crate::block_py::StructuredInstr::If(_) => {
-                            unreachable!("core eval order should not leave structured ifs here")
-                        }
-                    })
-                    .collect(),
+                body: structured_block.body,
                 term: structured_block.term,
                 params: structured_block.params,
                 exc_edge: structured_block.exc_edge,
