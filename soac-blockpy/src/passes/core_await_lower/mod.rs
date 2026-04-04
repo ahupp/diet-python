@@ -4,8 +4,8 @@ use crate::block_py::{
     CoreBlockPyExprWithYield, HasMeta, InstrExprNode, MapExpr, TryMapExpr, UnresolvedName,
     WithMeta, YieldFrom,
 };
-use crate::block_py::__soac_match_default_CoreBlockPyExprWithAwaitAndYield;
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
+use soac_macros::match_default;
 
 pub(crate) struct ErrOnAwait;
 
@@ -35,25 +35,21 @@ struct CoreAwaitLoweringMap;
 
 impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for CoreAwaitLoweringMap {
     fn map_expr(&mut self, expr: CoreBlockPyExprWithAwaitAndYield) -> CoreBlockPyExprWithYield {
-        __soac_match_default_CoreBlockPyExprWithAwaitAndYield!(
-            expr,
-            [Await],
-            {
-                CoreBlockPyExprWithAwaitAndYield::Await(node) => {
-                    let meta = node.meta();
-                    CoreBlockPyExprWithYield::YieldFrom(
-                        YieldFrom::new(core_runtime_positional_call_expr_with_meta(
-                            "await_iter",
-                            meta.node_index.clone(),
-                            meta.range,
-                            vec![self.map_expr(*node.value)],
-                        ))
-                        .with_meta(meta),
-                    )
-                },
-                match_rest(node) => node.map_typed_children(self).into(),
-            }
-        )
+        match_default!(expr: crate::block_py::CoreBlockPyExprWithAwaitAndYield {
+            CoreBlockPyExprWithAwaitAndYield::Await(node) => {
+                let meta = node.meta();
+                CoreBlockPyExprWithYield::YieldFrom(
+                    YieldFrom::new(core_runtime_positional_call_expr_with_meta(
+                        "await_iter",
+                        meta.node_index.clone(),
+                        meta.range,
+                        vec![self.map_expr(*node.value)],
+                    ))
+                    .with_meta(meta),
+                )
+            },
+            rest => rest.map_typed_children(self).into(),
+        })
     }
 
     fn map_name(&mut self, name: UnresolvedName) -> UnresolvedName {

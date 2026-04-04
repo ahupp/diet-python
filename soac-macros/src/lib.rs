@@ -382,9 +382,16 @@ fn enum_ident_from_type(self_ty: &Type) -> syn::Result<syn::Ident> {
     let Type::Path(type_path) = self_ty else {
         return Err(syn::Error::new_spanned(
             self_ty,
-            "match_default! requires a named enum type",
+            "match_default! requires a path-qualified enum type",
         ));
     };
+
+    if type_path.path.segments.len() < 2 {
+        return Err(syn::Error::new_spanned(
+            self_ty,
+            "match_default! requires a path-qualified enum type like crate::module::Enum",
+        ));
+    }
 
     let Some(segment) = type_path.path.segments.last() else {
         return Err(syn::Error::new_spanned(
@@ -524,6 +531,21 @@ fn expand_match_default(input: MatchDefaultInput) -> syn::Result<Expr> {
     let macro_name = format_ident!("__soac_match_default_{}", enum_name);
     let scrutinee = &input.scrutinee;
     let enum_ty = &input.enum_ty;
+    let Type::Path(enum_ty_path) = enum_ty else {
+        return Err(syn::Error::new_spanned(
+            enum_ty,
+            "match_default! requires a path-qualified enum type",
+        ));
+    };
+    let mut macro_path = enum_ty_path.path.clone();
+    let Some(last_segment) = macro_path.segments.last_mut() else {
+        return Err(syn::Error::new_spanned(
+            enum_ty,
+            "match_default! could not resolve the enum helper path",
+        ));
+    };
+    last_segment.ident = macro_name.clone();
+    last_segment.arguments = syn::PathArguments::None;
     let special_arms = special_arms.iter().map(|arm| {
         let attrs = &arm.0;
         let pat = &arm.1;
@@ -537,6 +559,8 @@ fn expand_match_default(input: MatchDefaultInput) -> syn::Result<Expr> {
 
     Ok(parse_quote!({
         let _ = <#enum_ty>::__SOAC_DERIVED_DELEGATE_MATCH_DEFAULT;
+        #[allow(unused_imports)]
+        use #macro_path;
         #macro_name!(#scrutinee, [ #( #excluded_variants ),* ], {
             #( #special_arms )*
             match_rest(#rest_ident) => #default_expr,
