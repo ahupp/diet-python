@@ -1263,23 +1263,23 @@ where
     IIn: Instr,
     IOut: Instr + From<IIn>,
 {
-    match value {
-        BlockTerm::Jump(edge) => BlockTerm::Jump(edge),
-        BlockTerm::IfTerm(if_term) => BlockTerm::IfTerm(TermIf {
-            test: if_term.test.into(),
-            then_label: if_term.then_label,
-            else_label: if_term.else_label,
-        }),
-        BlockTerm::BranchTable(branch) => BlockTerm::BranchTable(TermBranchTable {
-            index: branch.index.into(),
-            targets: branch.targets,
-            default_label: branch.default_label,
-        }),
-        BlockTerm::Raise(raise_stmt) => BlockTerm::Raise(TermRaise {
-            exc: raise_stmt.exc.map(Into::into),
-        }),
-        BlockTerm::Return(value) => BlockTerm::Return(value.into()),
+    struct IntoInstrMap<IIn, IOut>(std::marker::PhantomData<fn(IIn) -> IOut>);
+
+    impl<IIn, IOut> MapExpr<IIn, IOut> for IntoInstrMap<IIn, IOut>
+    where
+        IIn: Instr,
+        IOut: Instr + From<IIn>,
+    {
+        fn map_expr(&mut self, expr: IIn) -> IOut {
+            expr.into()
+        }
+
+        fn map_name(&mut self, _name: IIn::Name) -> IOut::Name {
+            unreachable!("BlockTerm carries no names")
+        }
     }
+
+    map_term(&mut IntoInstrMap(std::marker::PhantomData), value)
 }
 
 #[derive(Debug, Clone)]
