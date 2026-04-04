@@ -214,6 +214,8 @@ pub fn derive_delegate_match_default(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let enum_name = &input.ident;
     let macro_name = format_ident!("__soac_match_default_{}", enum_name);
+    let variants_macro_name = format_ident!("__soac_enum_variants_{}", enum_name);
+    let emit_match_macro_name = format_ident!("__soac_emit_match_default_{}", enum_name);
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let variants = match enum_variants(&input) {
         Ok(variants) => variants,
@@ -297,19 +299,53 @@ pub fn derive_delegate_match_default(input: TokenStream) -> TokenStream {
 
         #[doc(hidden)]
         #[allow(unused_macros)]
+        macro_rules! #variants_macro_name {
+            ($callback:ident $(, $args:tt)*) => {
+                $callback!($($args)* [ #( #variant_names ),* ])
+            };
+        }
+
+        #[doc(hidden)]
+        #[allow(unused_imports)]
+        pub(crate) use #variants_macro_name;
+
+        #[doc(hidden)]
+        #[allow(unused_macros)]
+        macro_rules! #emit_match_macro_name {
+            (
+                [$value:expr]
+                [$($arms:tt)*]
+                [$rest:ident]
+                [$default_expr:expr]
+                [$($excluded:ident),*]
+                [$($variants:ident),*]
+            ) => {
+                #macro_name!(
+                    @emit_match
+                    [$value]
+                    [$($arms)*]
+                    [$rest]
+                    [$default_expr]
+                    [$($excluded),*]
+                    [$($variants),*]
+                )
+            };
+        }
+
+        #[doc(hidden)]
+        #[allow(unused_macros)]
         macro_rules! #macro_name {
             ($value:expr, [$($excluded:ident),*], { $($body:tt)* }) => {
                 #macro_name!(@collect [$value] [$($excluded),*] [] $($body)*)
             };
             (@collect [$value:expr] [$($excluded:ident),*] [$($special_arms:tt)*] match_rest($rest:ident) => $default_expr:expr $(,)?) => {{
-                #macro_name!(
-                    @emit_match
-                    [$value]
-                    [$($special_arms)*]
-                    [$rest]
-                    [$default_expr]
+                #variants_macro_name!(
+                    #emit_match_macro_name,
+                    [$value],
+                    [$($special_arms)*],
+                    [$rest],
+                    [$default_expr],
                     [$($excluded),*]
-                    [ #( #variant_names ),* ]
                 )
             }};
             (@collect [$value:expr] [$($excluded:ident),*] [$($special_arms:tt)*] $special_pattern:pat $(if $guard:expr)? => $special_expr:expr, $($rest_body:tt)*) => {

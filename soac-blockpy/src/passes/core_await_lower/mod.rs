@@ -32,46 +32,92 @@ impl
 
 struct CoreAwaitLoweringMap;
 
+macro_rules! lower_core_await_expr_arms {
+    ([$map:ident] [$expr:ident] [$($variant:ident),*]) => {
+        lower_core_await_expr_arms!(@collect [$map] [$expr] [] [$($variant),*])
+    };
+    (@collect [$map:ident] [$expr:ident] [$($arms:tt)*] []) => {
+        match $expr {
+            $($arms)*
+        }
+    };
+    (@collect [$map:ident] [$expr:ident] [$($arms:tt)*] [Await $(, $rest:ident)*]) => {
+        lower_core_await_expr_arms!(
+            @collect
+            [$map]
+            [$expr]
+            [$($arms)*
+                CoreBlockPyExprWithAwaitAndYield::Await(node) => {
+                    let meta = node.meta();
+                    CoreBlockPyExprWithYield::YieldFrom(
+                        YieldFrom::new(core_runtime_positional_call_expr_with_meta(
+                            "await_iter",
+                            meta.node_index.clone(),
+                            meta.range,
+                            vec![$map.map_expr(*node.value)],
+                        ))
+                        .with_meta(meta),
+                    )
+                },
+            ]
+            [$($rest),*]
+        )
+    };
+    (@collect [$map:ident] [$expr:ident] [$($arms:tt)*] [Literal $(, $rest:ident)*]) => {
+        lower_core_await_expr_arms!(
+            @collect
+            [$map]
+            [$expr]
+            [$($arms)*
+                CoreBlockPyExprWithAwaitAndYield::Literal(node) => node.into(),
+            ]
+            [$($rest),*]
+        )
+    };
+    (@collect [$map:ident] [$expr:ident] [$($arms:tt)*] [CellRefForName $(, $rest:ident)*]) => {
+        lower_core_await_expr_arms!(
+            @collect
+            [$map]
+            [$expr]
+            [$($arms)*
+                CoreBlockPyExprWithAwaitAndYield::CellRefForName(node) => node.into(),
+            ]
+            [$($rest),*]
+        )
+    };
+    (@collect [$map:ident] [$expr:ident] [$($arms:tt)*] [CellRef $(, $rest:ident)*]) => {
+        lower_core_await_expr_arms!(
+            @collect
+            [$map]
+            [$expr]
+            [$($arms)*
+                CoreBlockPyExprWithAwaitAndYield::CellRef(node) => node.into(),
+            ]
+            [$($rest),*]
+        )
+    };
+    (@collect [$map:ident] [$expr:ident] [$($arms:tt)*] [$variant:ident $(, $rest:ident)*]) => {
+        lower_core_await_expr_arms!(
+            @collect
+            [$map]
+            [$expr]
+            [$($arms)*
+                CoreBlockPyExprWithAwaitAndYield::$variant(node) => {
+                    node.map_typed_children($map).into()
+                },
+            ]
+            [$($rest),*]
+        )
+    };
+}
+
 impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for CoreAwaitLoweringMap {
     fn map_expr(&mut self, expr: CoreBlockPyExprWithAwaitAndYield) -> CoreBlockPyExprWithYield {
-        match expr {
-            CoreBlockPyExprWithAwaitAndYield::Await(await_expr) => {
-                let meta = await_expr.meta();
-                CoreBlockPyExprWithYield::YieldFrom(
-                    YieldFrom::new(core_runtime_positional_call_expr_with_meta(
-                        "await_iter",
-                        meta.node_index.clone(),
-                        meta.range,
-                        vec![self.map_expr(*await_expr.value)],
-                    ))
-                    .with_meta(meta),
-                )
-            }
-            CoreBlockPyExprWithAwaitAndYield::Literal(node) => node.into(),
-            CoreBlockPyExprWithAwaitAndYield::BinOp(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExprWithAwaitAndYield::UnaryOp(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExprWithAwaitAndYield::Call(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExprWithAwaitAndYield::GetAttr(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExprWithAwaitAndYield::SetAttr(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExprWithAwaitAndYield::GetItem(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExprWithAwaitAndYield::SetItem(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExprWithAwaitAndYield::DelItem(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExprWithAwaitAndYield::Load(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExprWithAwaitAndYield::Store(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExprWithAwaitAndYield::Del(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExprWithAwaitAndYield::MakeCell(node) => {
-                node.map_typed_children(self).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::CellRefForName(node) => node.into(),
-            CoreBlockPyExprWithAwaitAndYield::CellRef(node) => node.into(),
-            CoreBlockPyExprWithAwaitAndYield::MakeFunction(node) => {
-                node.map_typed_children(self).into()
-            }
-            CoreBlockPyExprWithAwaitAndYield::Yield(node) => node.map_typed_children(self).into(),
-            CoreBlockPyExprWithAwaitAndYield::YieldFrom(node) => {
-                node.map_typed_children(self).into()
-            }
-        }
+        crate::block_py::__soac_enum_variants_CoreBlockPyExprWithAwaitAndYield!(
+            lower_core_await_expr_arms,
+            [self],
+            [expr]
+        )
     }
 
     fn map_name(&mut self, name: UnresolvedName) -> UnresolvedName {
