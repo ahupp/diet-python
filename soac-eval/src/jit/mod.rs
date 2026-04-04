@@ -3138,9 +3138,8 @@ impl Inline for RuntimeSupportInliner {
         };
         InlineCommand::Inline {
             callee: Cow::Borrowed(callee_func),
-            // These helpers are tiny and closed over a small runtime-support set,
-            // so let Cranelift keep looking through any inlined callees as well.
-            visit_callee: true,
+            // We only want to splice these tiny refcount helpers into the caller.
+            visit_callee: false,
         }
     }
 }
