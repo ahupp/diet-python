@@ -16,7 +16,7 @@ use pyo3::ffi;
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockTerm, CallArgKeyword,
     CallArgPositional, CellLocation, CodegenBlock, CodegenBlockPyExpr, CounterDef, CounterId,
-    CounterPoint, CounterScope, FunctionId, LocalLocation, LocatedName, NameLocation,
+    CounterScope, CounterSite, FunctionId, LocalLocation, LocatedName, NameLocation,
     ParamDefaultSource, StorageLayout, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
@@ -538,11 +538,17 @@ fn emit_codegen_located_name_load(
             );
 
             fb.switch_to_block(cached_hit_block);
+            if let Some(counter_ptr) = ctx.consts.global_load_hit_counter_ptr {
+                emit_increment_counter_ptr(fb, ptr_ty, counter_ptr);
+            }
             fb.ins().call(ctx.incref_ref, &[cached]);
             fb.ins()
                 .jump(value_ok_block, &[ir::BlockArg::Value(cached)]);
 
             fb.switch_to_block(slowpath_block);
+            if let Some(counter_ptr) = ctx.consts.global_load_miss_counter_ptr {
+                emit_increment_counter_ptr(fb, ptr_ty, counter_ptr);
+            }
             let name_obj = emit_owned_module_constant(
                 fb,
                 ctx.module_constants
@@ -658,6 +664,8 @@ struct JitEmitConsts {
     empty_tuple_const: ir::Value,
     block_const: ir::Value,
     global_slots_const: ir::Value,
+    global_load_hit_counter_ptr: Option<*mut u64>,
+    global_load_miss_counter_ptr: Option<*mut u64>,
 }
 
 struct JitEmitCtx<'mc> {
@@ -1030,10 +1038,18 @@ fn emit_increment_counter(
     ctx.consts.none_const
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RefcountCounterKind {
-    Incref,
-    Decref,
+pub(super) fn emit_increment_counter_ptr(
+    fb: &mut FunctionBuilder<'_>,
+    ptr_ty: ir::Type,
+    counter_ptr: *mut u64,
+) {
+    let counter_addr = fb.ins().iconst(ptr_ty, counter_ptr as i64);
+    let old_value = fb
+        .ins()
+        .load(ir::types::I64, ir::MemFlags::trusted(), counter_addr, 0);
+    let new_value = fb.ins().iadd_imm(old_value, 1);
+    fb.ins()
+        .store(ir::MemFlags::trusted(), new_value, counter_addr, 0);
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1042,51 +1058,39 @@ struct CountedRefcountHelpers {
     decref_func_id: Option<FuncId>,
 }
 
-fn lookup_refcount_counter_id(
+fn lookup_counter_id(
+    counter_defs: &[CounterDef],
+    scope: CounterScope,
+    kind: &str,
+    site: &CounterSite,
+) -> Option<CounterId> {
+    counter_defs.iter().find_map(|counter| {
+        (counter.scope == scope && counter.kind == kind && &counter.site == site)
+            .then_some(counter.id)
+    })
+}
+
+fn lookup_runtime_counter_id(
     counter_defs: &[CounterDef],
     function_id: FunctionId,
-    kind: RefcountCounterKind,
+    kind: &str,
 ) -> Option<CounterId> {
-    for scope in [CounterScope::Function, CounterScope::Global] {
-        let counter_id =
-            counter_defs
-                .iter()
-                .find_map(|counter| match (kind, counter.scope, &counter.point) {
-                    (
-                        RefcountCounterKind::Incref,
-                        CounterScope::Function,
-                        CounterPoint::RuntimeIncref {
-                            function_id: Some(counter_function_id),
-                        },
-                    ) if scope == CounterScope::Function && *counter_function_id == function_id => {
-                        Some(counter.id)
-                    }
-                    (
-                        RefcountCounterKind::Decref,
-                        CounterScope::Function,
-                        CounterPoint::RuntimeDecref {
-                            function_id: Some(counter_function_id),
-                        },
-                    ) if scope == CounterScope::Function && *counter_function_id == function_id => {
-                        Some(counter.id)
-                    }
-                    (
-                        RefcountCounterKind::Incref,
-                        CounterScope::Global,
-                        CounterPoint::RuntimeIncref { function_id: None },
-                    ) if scope == CounterScope::Global => Some(counter.id),
-                    (
-                        RefcountCounterKind::Decref,
-                        CounterScope::Global,
-                        CounterPoint::RuntimeDecref { function_id: None },
-                    ) if scope == CounterScope::Global => Some(counter.id),
-                    _ => None,
-                });
-        if counter_id.is_some() {
-            return counter_id;
-        }
-    }
-    None
+    lookup_counter_id(
+        counter_defs,
+        CounterScope::Function,
+        kind,
+        &CounterSite::Runtime {
+            function_id: Some(function_id),
+        },
+    )
+    .or_else(|| {
+        lookup_counter_id(
+            counter_defs,
+            CounterScope::Global,
+            kind,
+            &CounterSite::Runtime { function_id: None },
+        )
+    })
 }
 
 fn counter_ptr_for_id(
@@ -1097,6 +1101,21 @@ fn counter_ptr_for_id(
         .get(counter_id.0)
         .copied()
         .ok_or_else(|| format!("missing counter pointer for counter id {}", counter_id.0))
+}
+
+fn lookup_global_runtime_counter_ptr(
+    counter_defs: &[CounterDef],
+    counter_ptrs: &[*mut u64],
+    kind: &str,
+) -> Result<Option<*mut u64>, String> {
+    lookup_counter_id(
+        counter_defs,
+        CounterScope::Global,
+        kind,
+        &CounterSite::Runtime { function_id: None },
+    )
+    .map(|counter_id| counter_ptr_for_id(counter_ptrs, counter_id))
+    .transpose()
 }
 
 fn build_counted_runtime_refcount_helper(
@@ -1152,10 +1171,10 @@ fn build_counted_runtime_refcount_helpers(
     counter_defs: &[CounterDef],
     counter_ptrs: &[*mut u64],
 ) -> Result<CountedRefcountHelpers, String> {
-    let incref_func_id = lookup_refcount_counter_id(
+    let incref_func_id = lookup_runtime_counter_id(
         counter_defs,
         function.function_id,
-        RefcountCounterKind::Incref,
+        "runtime_incref",
     )
     .map(|counter_id| {
         let counter_ptr = counter_ptr_for_id(counter_ptrs, counter_id)?;
@@ -1168,10 +1187,10 @@ fn build_counted_runtime_refcount_helpers(
     })
     .transpose()?;
 
-    let decref_func_id = lookup_refcount_counter_id(
+    let decref_func_id = lookup_runtime_counter_id(
         counter_defs,
         function.function_id,
-        RefcountCounterKind::Decref,
+        "runtime_decref",
     )
     .map(|counter_id| {
         let counter_ptr = counter_ptr_for_id(counter_ptrs, counter_id)?;
@@ -4271,6 +4290,10 @@ fn build_cranelift_run_bb_specialized_function(
             let deleted_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, DELETED_OBJ_OFFSET);
             let empty_tuple_const =
                 load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, EMPTY_TUPLE_OBJ_OFFSET);
+            let global_load_hit_counter_ptr =
+                lookup_global_runtime_counter_ptr(counter_defs, counter_ptrs, "global_load_hit")?;
+            let global_load_miss_counter_ptr =
+                lookup_global_runtime_counter_ptr(counter_defs, counter_ptrs, "global_load_miss")?;
             let fast_step_null_block =
                 exception_dispatch_blocks[index].unwrap_or(cleanup_null_blocks[index]);
             let fast_step_null_args = Vec::new();
@@ -4295,6 +4318,8 @@ fn build_cranelift_run_bb_specialized_function(
                     empty_tuple_const,
                     block_const,
                     global_slots_const,
+                    global_load_hit_counter_ptr,
+                    global_load_miss_counter_ptr,
                 },
                 load_global_obj_ref,
                 load_runtime_obj_ref,

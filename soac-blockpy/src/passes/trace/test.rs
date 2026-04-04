@@ -1,5 +1,9 @@
-use super::{instrument_bb_module_for_trace, parse_trace_config, TraceConfig};
+use super::{
+    instrument_bb_module_for_trace, instrument_bb_module_with_global_load_counters,
+    parse_trace_config, TraceConfig,
+};
 use crate::lower_python_to_blockpy_for_testing;
+use crate::block_py::{CounterScope, CounterSite};
 use crate::passes::{lower_try_jump_exception_flow, normalize_bb_module_strings};
 
 fn tracked_name_binding_module(
@@ -84,4 +88,30 @@ fn instruments_matching_function_blocks() {
         .map(crate::block_py::pretty::bb_stmt_text)
         .any(|stmt| stmt.contains("bb_trace_enter"));
     assert!(!g_has_trace);
+}
+
+#[test]
+fn adds_named_global_load_counters_once() {
+    let source = "VALUE = 1\n\ndef f():\n    return VALUE\n";
+    let bb_module = tracked_name_binding_module(source)
+        .expect("transform should succeed")
+        .expect("bb module should be available");
+    let prepared = lower_try_jump_exception_flow(&bb_module);
+    let mut normalized = normalize_bb_module_strings(&prepared);
+    instrument_bb_module_with_global_load_counters(&mut normalized);
+    instrument_bb_module_with_global_load_counters(&mut normalized);
+    let counters = normalized
+        .counter_defs
+        .iter()
+        .filter(|counter| counter.scope == CounterScope::Global)
+        .collect::<Vec<_>>();
+    assert_eq!(counters.len(), 2);
+    assert!(counters.iter().any(|counter| {
+        counter.kind == "global_load_hit"
+            && counter.site == CounterSite::Runtime { function_id: None }
+    }));
+    assert!(counters.iter().any(|counter| {
+        counter.kind == "global_load_miss"
+            && counter.site == CounterSite::Runtime { function_id: None }
+    }));
 }

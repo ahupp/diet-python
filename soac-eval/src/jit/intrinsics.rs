@@ -1,4 +1,7 @@
-use super::{ImportSpec, JitEmitCtx, SigType, emit_owned_module_constant_from_parts};
+use super::{
+    ImportSpec, JitEmitCtx, SigType, emit_increment_counter_ptr,
+    emit_owned_module_constant_from_parts,
+};
 use crate::jit::blockpy_intrinsics;
 use cranelift_codegen::ir;
 use cranelift_codegen::ir::InstBuilder;
@@ -554,6 +557,9 @@ fn emit_load<'fb>(
             );
 
             state.fb().switch_to_block(cached_hit_block);
+            if let Some(counter_ptr) = state.ctx().consts.global_load_hit_counter_ptr {
+                emit_increment_counter_ptr(state.fb(), ptr_ty, counter_ptr);
+            }
             state.fb().ins().call(incref_ref, &[cached]);
             state
                 .fb()
@@ -561,6 +567,9 @@ fn emit_load<'fb>(
                 .jump(value_ok_block, &[ir::BlockArg::Value(cached)]);
 
             state.fb().switch_to_block(slowpath_block);
+            if let Some(counter_ptr) = state.ctx().consts.global_load_miss_counter_ptr {
+                emit_increment_counter_ptr(state.fb(), ptr_ty, counter_ptr);
+            }
             let name_obj = state.emit_owned_string_constant(op.name.id_str());
             let slot_index = state.fb().ins().iconst(ir::types::I64, i64::from(slot.slot()));
             let call_inst = state

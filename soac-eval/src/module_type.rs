@@ -5,7 +5,7 @@ use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::PyAnyMethods;
 use soac_blockpy::block_py::{
-    BlockPyFunction, BlockPyModule, CounterDef, CounterId, CounterPoint, CounterScope, FunctionId,
+    BlockPyFunction, BlockPyModule, CounterDef, CounterId, CounterScope, CounterSite, FunctionId,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::collections::HashMap;
@@ -30,22 +30,13 @@ pub struct SharedModuleState {
     counter_values: Box<[u64]>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum CounterStorageKind {
-    BlockEntry,
-    RuntimeIncref,
-    RuntimeDecref,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum CounterStorageKey {
     This(CounterId),
-    Function {
-        kind: CounterStorageKind,
-        function_id: FunctionId,
-    },
-    Global {
-        kind: CounterStorageKind,
+    Shared {
+        scope: CounterScope,
+        site: CounterSite,
+        kind: String,
     },
 }
 
@@ -89,54 +80,39 @@ impl SharedModuleState {
         let mut out = String::new();
         for counter in &self.lowered_module.counter_defs {
             let value = self.counter_value(counter.id);
-            match counter.point {
-                CounterPoint::BlockEntry {
+            match &counter.site {
+                CounterSite::BlockEntry {
                     function_id,
                     block_label,
                 } => {
                     let qualname = self
-                        .lookup_function(function_id)
+                        .lookup_function(*function_id)
                         .map(|function| function.names.qualname.as_str())
                         .unwrap_or("<missing-function>");
                     let _ = writeln!(
                         &mut out,
-                        "[soac counters] module={} counter={} scope={} point=block_entry function={} block={} value={}",
+                        "[soac counters] module={} counter={} scope={} kind={} site=block_entry function={} block={} value={}",
                         self.module_name,
                         counter.id.0,
                         counter_scope_name(counter.scope),
+                        counter.kind,
                         qualname,
                         block_label,
                         value,
                     );
                 }
-                CounterPoint::RuntimeIncref { function_id } => {
+                CounterSite::Runtime { function_id } => {
                     let function = function_id.and_then(|id| {
                         self.lookup_function(id)
                             .map(|function| function.names.qualname.as_str())
                     });
                     let _ = writeln!(
                         &mut out,
-                        "[soac counters] module={} counter={} scope={} point=runtime_incref{} value={}",
+                        "[soac counters] module={} counter={} scope={} kind={} site=runtime{} value={}",
                         self.module_name,
                         counter.id.0,
                         counter_scope_name(counter.scope),
-                        function
-                            .map(|qualname| format!(" function={qualname}"))
-                            .unwrap_or_default(),
-                        value,
-                    );
-                }
-                CounterPoint::RuntimeDecref { function_id } => {
-                    let function = function_id.and_then(|id| {
-                        self.lookup_function(id)
-                            .map(|function| function.names.qualname.as_str())
-                    });
-                    let _ = writeln!(
-                        &mut out,
-                        "[soac counters] module={} counter={} scope={} point=runtime_decref{} value={}",
-                        self.module_name,
-                        counter.id.0,
-                        counter_scope_name(counter.scope),
+                        counter.kind,
                         function
                             .map(|qualname| format!(" function={qualname}"))
                             .unwrap_or_default(),
@@ -157,37 +133,14 @@ fn counter_scope_name(scope: CounterScope) -> &'static str {
     }
 }
 
-fn counter_storage_kind(point: CounterPoint) -> CounterStorageKind {
-    match point {
-        CounterPoint::BlockEntry { .. } => CounterStorageKind::BlockEntry,
-        CounterPoint::RuntimeIncref { .. } => CounterStorageKind::RuntimeIncref,
-        CounterPoint::RuntimeDecref { .. } => CounterStorageKind::RuntimeDecref,
-    }
-}
-
-fn counter_storage_function_id(point: CounterPoint) -> Option<FunctionId> {
-    match point {
-        CounterPoint::BlockEntry { function_id, .. } => Some(function_id),
-        CounterPoint::RuntimeIncref { function_id }
-        | CounterPoint::RuntimeDecref { function_id } => function_id,
-    }
-}
-
 fn counter_storage_key(counter: &CounterDef) -> PyResult<CounterStorageKey> {
-    let kind = counter_storage_kind(counter.point.clone());
     match counter.scope {
         CounterScope::This => Ok(CounterStorageKey::This(counter.id)),
-        CounterScope::Function => {
-            let function_id =
-                counter_storage_function_id(counter.point.clone()).ok_or_else(|| {
-                    PyRuntimeError::new_err(format!(
-                        "function-scoped counter {} is missing a function id: {:?}",
-                        counter.id.0, counter.point
-                    ))
-                })?;
-            Ok(CounterStorageKey::Function { kind, function_id })
-        }
-        CounterScope::Global => Ok(CounterStorageKey::Global { kind }),
+        CounterScope::Function | CounterScope::Global => Ok(CounterStorageKey::Shared {
+            scope: counter.scope,
+            site: counter.site.clone(),
+            kind: counter.kind.clone(),
+        }),
     }
 }
 
@@ -540,7 +493,8 @@ def f():
         let report = shared_state.counter_report_text();
         assert!(report.contains("module=counter_test"));
         assert!(report.contains("scope=this"));
-        assert!(report.contains("point=block_entry"));
+        assert!(report.contains("kind=block_entry"));
+        assert!(report.contains("site=block_entry"));
         assert!(report.contains("function=f"));
         assert!(report.contains(format!("block={entry_label}").as_str()));
         assert!(report.contains("value=3"));
@@ -552,33 +506,36 @@ def f():
             CounterDef {
                 id: CounterId(0),
                 scope: CounterScope::Function,
-                point: CounterPoint::RuntimeIncref {
+                kind: "runtime_incref".to_string(),
+                site: CounterSite::Runtime {
                     function_id: Some(FunctionId(7)),
                 },
             },
             CounterDef {
                 id: CounterId(1),
                 scope: CounterScope::Function,
-                point: CounterPoint::RuntimeIncref {
+                kind: "runtime_incref".to_string(),
+                site: CounterSite::Runtime {
                     function_id: Some(FunctionId(7)),
                 },
             },
             CounterDef {
                 id: CounterId(2),
                 scope: CounterScope::Global,
-                point: CounterPoint::RuntimeDecref { function_id: None },
+                kind: "runtime_decref".to_string(),
+                site: CounterSite::Runtime { function_id: None },
             },
             CounterDef {
                 id: CounterId(3),
                 scope: CounterScope::Global,
-                point: CounterPoint::RuntimeDecref {
-                    function_id: Some(FunctionId(99)),
-                },
+                kind: "runtime_decref".to_string(),
+                site: CounterSite::Runtime { function_id: None },
             },
             CounterDef {
                 id: CounterId(4),
                 scope: CounterScope::This,
-                point: CounterPoint::BlockEntry {
+                kind: "block_entry".to_string(),
+                site: CounterSite::BlockEntry {
                     function_id: FunctionId(7),
                     block_label: soac_blockpy::block_py::BlockLabel::from_index(0),
                 },

@@ -1,6 +1,6 @@
 use crate::block_py::{
     core_call_expr_with_meta, literal_expr, BlockPyFunction, BlockPyModule, CallArgPositional,
-    CodegenBlockPyExpr, CoreStringLiteral, CounterDef, CounterId, CounterPoint, CounterScope,
+    CodegenBlockPyExpr, CoreStringLiteral, CounterDef, CounterId, CounterScope, CounterSite,
     IncrementCounter, Load, LocatedCoreBlockPyExpr, LocatedName, Meta, NameLocation, WithMeta,
 };
 use crate::passes::CodegenBlockPyPass;
@@ -16,6 +16,15 @@ pub(crate) struct TraceConfig {
 pub(crate) fn parse_trace_env() -> Option<TraceConfig> {
     let raw = env::var("DIET_PYTHON_BB_TRACE").ok()?;
     parse_trace_config(raw.as_str())
+}
+
+pub(crate) fn global_load_counter_instrumentation_enabled() -> bool {
+    env::var("DIET_PYTHON_GLOBAL_LOAD_COUNTERS")
+        .map(|raw| {
+            let trimmed = raw.trim();
+            !(trimmed.is_empty() || trimmed == "0")
+        })
+        .unwrap_or(false)
 }
 
 pub(crate) fn parse_trace_config(raw: &str) -> Option<TraceConfig> {
@@ -88,7 +97,8 @@ pub fn instrument_bb_module_with_block_entry_counters(
             module.counter_defs.push(CounterDef {
                 id: counter_id,
                 scope: CounterScope::This,
-                point: CounterPoint::BlockEntry {
+                kind: "block_entry".to_string(),
+                site: CounterSite::BlockEntry {
                     function_id: function.function_id,
                     block_label: block.label,
                 },
@@ -122,18 +132,16 @@ pub fn instrument_bb_module_with_refcount_counters(
                 .map(|function| function.function_id)
                 .collect::<Vec<_>>();
             for function_id in function_ids {
-                for point in [
-                    CounterPoint::RuntimeIncref {
+                for kind in ["runtime_incref", "runtime_decref"] {
+                    let site = CounterSite::Runtime {
                         function_id: Some(function_id),
-                    },
-                    CounterPoint::RuntimeDecref {
-                        function_id: Some(function_id),
-                    },
-                ] {
+                    };
                     if module
                         .counter_defs
                         .iter()
-                        .any(|counter| counter.scope == scope && counter.point == point)
+                        .any(|counter| {
+                            counter.scope == scope && counter.kind == kind && counter.site == site
+                        })
                     {
                         continue;
                     }
@@ -142,21 +150,22 @@ pub fn instrument_bb_module_with_refcount_counters(
                     module.counter_defs.push(CounterDef {
                         id: counter_id,
                         scope,
-                        point,
+                        kind: kind.to_string(),
+                        site,
                     });
                 }
             }
         }
         CounterScope::Global => {
             let mut next_counter_id = module.counter_defs.len();
-            for point in [
-                CounterPoint::RuntimeIncref { function_id: None },
-                CounterPoint::RuntimeDecref { function_id: None },
-            ] {
+            for kind in ["runtime_incref", "runtime_decref"] {
+                let site = CounterSite::Runtime { function_id: None };
                 if module
                     .counter_defs
                     .iter()
-                    .any(|counter| counter.scope == scope && counter.point == point)
+                    .any(|counter| {
+                        counter.scope == scope && counter.kind == kind && counter.site == site
+                    })
                 {
                     continue;
                 }
@@ -165,12 +174,35 @@ pub fn instrument_bb_module_with_refcount_counters(
                 module.counter_defs.push(CounterDef {
                     id: counter_id,
                     scope,
-                    point,
+                    kind: kind.to_string(),
+                    site,
                 });
             }
         }
     }
     Ok(())
+}
+
+pub fn instrument_bb_module_with_global_load_counters(
+    module: &mut BlockPyModule<CodegenBlockPyPass>,
+) {
+    let mut next_counter_id = module.counter_defs.len();
+    for kind in ["global_load_hit", "global_load_miss"] {
+        let site = CounterSite::Runtime { function_id: None };
+        if module.counter_defs.iter().any(|counter| {
+            counter.scope == CounterScope::Global && counter.kind == kind && counter.site == site
+        }) {
+            continue;
+        }
+        let counter_id = CounterId(next_counter_id);
+        next_counter_id += 1;
+        module.counter_defs.push(CounterDef {
+            id: counter_id,
+            scope: CounterScope::Global,
+            kind: kind.to_string(),
+            site,
+        });
+    }
 }
 
 struct PreparedTraceNameLocator {

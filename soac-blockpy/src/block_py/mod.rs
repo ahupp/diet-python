@@ -49,15 +49,12 @@ pub enum CounterScope {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum CounterPoint {
+pub enum CounterSite {
     BlockEntry {
         function_id: FunctionId,
         block_label: BlockLabel,
     },
-    RuntimeIncref {
-        function_id: Option<FunctionId>,
-    },
-    RuntimeDecref {
+    Runtime {
         function_id: Option<FunctionId>,
     },
 }
@@ -66,7 +63,8 @@ pub enum CounterPoint {
 pub struct CounterDef {
     pub id: CounterId,
     pub scope: CounterScope,
-    pub point: CounterPoint,
+    pub kind: String,
+    pub site: CounterSite,
 }
 fn is_internal_symbol(name: &str) -> bool {
     name.starts_with("_dp_") || name == "__soac__"

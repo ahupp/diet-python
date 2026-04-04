@@ -3,7 +3,7 @@ use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockTerm,
     Call, CallArgPositional, CellLocation, ClosureInit, ClosureSlot, CodegenBlock,
     CodegenBlockPyExpr, CoreBlockPyExpr, CoreNumberLiteral, CoreNumberLiteralValue,
-    CoreStringLiteral, CounterPoint, Del, DelItem, FunctionName, LiteralValue, Load,
+    CoreStringLiteral, CounterSite, Del, DelItem, FunctionName, LiteralValue, Load,
     LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen, NameLocation, Param, ParamKind, ParamSpec,
     StorageLayout, Store,
 };
@@ -711,11 +711,14 @@ def f():
                 let entry_counter_id = lowered
                     .counter_defs
                     .iter()
-                    .find_map(|counter| match counter.point {
-                        CounterPoint::BlockEntry {
+                    .find_map(|counter| match &counter.site {
+                        CounterSite::BlockEntry {
                             function_id,
                             block_label,
-                        } if function_id == function.function_id && block_label == entry_label => {
+                        } if counter.kind == "block_entry"
+                            && *function_id == function.function_id
+                            && *block_label == entry_label =>
+                        {
                             Some(counter.id)
                         }
                         _ => None,
@@ -819,11 +822,12 @@ def f(x):
                 let incref_counter_id = lowered
                     .counter_defs
                     .iter()
-                    .find_map(|counter| match counter.point {
-                        CounterPoint::RuntimeIncref {
+                    .find_map(|counter| match &counter.site {
+                        CounterSite::Runtime {
                             function_id: Some(counter_function_id),
                         } if counter.scope == CounterScope::Function
-                            && counter_function_id == function.function_id =>
+                            && counter.kind == "runtime_incref"
+                            && *counter_function_id == function.function_id =>
                         {
                             Some(counter.id)
                         }
@@ -833,11 +837,12 @@ def f(x):
                 let decref_counter_id = lowered
                     .counter_defs
                     .iter()
-                    .find_map(|counter| match counter.point {
-                        CounterPoint::RuntimeDecref {
+                    .find_map(|counter| match &counter.site {
+                        CounterSite::Runtime {
                             function_id: Some(counter_function_id),
                         } if counter.scope == CounterScope::Function
-                            && counter_function_id == function.function_id =>
+                            && counter.kind == "runtime_decref"
+                            && *counter_function_id == function.function_id =>
                         {
                             Some(counter.id)
                         }

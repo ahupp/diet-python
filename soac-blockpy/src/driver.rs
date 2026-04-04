@@ -189,11 +189,22 @@ pub(crate) fn rewrite_module_with_tracker(
             bb_codegen
         };
 
+    let bb_counted: BlockPyModule<CodegenBlockPyPass> =
+        if passes::global_load_counter_instrumentation_enabled() {
+            pass_tracker.run_pass("bb_global_load_counters", || {
+                let mut counted = bb_traced;
+                passes::instrument_bb_module_with_global_load_counters(&mut counted);
+                counted
+            })
+        } else {
+            bb_traced
+        };
+
     pass_tracker.record_timing("validate", || {
-        crate::block_py::validate_module(&bb_traced).map_err(anyhow::Error::msg)
+        crate::block_py::validate_module(&bb_counted).map_err(anyhow::Error::msg)
     })?;
 
-    Ok(bb_traced)
+    Ok(bb_counted)
 }
 
 pub(crate) fn wrap_module_init(semantic_state: &mut SemanticAstState, module: &mut Suite) {
