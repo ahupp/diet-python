@@ -331,6 +331,11 @@ unsafe fn ensure_clif_vectorcall_compiled(
                 .module_runtime
                 .shared_module_state_owner
                 .codegen_constants,
+            &data
+                .module_runtime
+                .shared_module_state_owner
+                .lowered_module
+                .counter_defs,
             &module_constant_ptrs,
             &counter_ptrs,
         ) {

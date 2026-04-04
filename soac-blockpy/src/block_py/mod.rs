@@ -39,17 +39,31 @@ pub(crate) use validate::validate_module;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CounterId(pub usize);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CounterScope {
+    This,
+    Function,
+    Global,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CounterPoint {
     BlockEntry {
         function_id: FunctionId,
         block_label: BlockLabel,
     },
+    RuntimeIncref {
+        function_id: Option<FunctionId>,
+    },
+    RuntimeDecref {
+        function_id: Option<FunctionId>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CounterDef {
     pub id: CounterId,
+    pub scope: CounterScope,
     pub point: CounterPoint,
 }
 fn is_internal_symbol(name: &str) -> bool {

@@ -15,8 +15,9 @@ use cranelift_reader::parse_functions;
 use pyo3::ffi;
 use soac_blockpy::block_py::{
     AbruptKind, BlockArg, BlockPyFunction, BlockPyModule, BlockTerm, CallArgKeyword,
-    CallArgPositional, CellLocation, CodegenBlock, CodegenBlockPyExpr, CounterId, LocalLocation,
-    LocatedName, NameLocation, ParamDefaultSource, StorageLayout, operation as blockpy_intrinsics,
+    CallArgPositional, CellLocation, CodegenBlock, CodegenBlockPyExpr, CounterDef, CounterId,
+    CounterPoint, CounterScope, FunctionId, LocalLocation, LocatedName, NameLocation,
+    ParamDefaultSource, StorageLayout, operation as blockpy_intrinsics,
 };
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::borrow::Cow;
@@ -1011,6 +1012,166 @@ fn emit_increment_counter(
     // and elide retain/release work when a statement result is not consumed.
     fb.ins().call(ctx.incref_ref, &[ctx.consts.none_const]);
     ctx.consts.none_const
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RefcountCounterKind {
+    Incref,
+    Decref,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CountedRefcountHelpers {
+    incref_func_id: Option<FuncId>,
+    decref_func_id: Option<FuncId>,
+}
+
+fn lookup_refcount_counter_id(
+    counter_defs: &[CounterDef],
+    function_id: FunctionId,
+    kind: RefcountCounterKind,
+) -> Option<CounterId> {
+    for scope in [CounterScope::Function, CounterScope::Global] {
+        let counter_id =
+            counter_defs
+                .iter()
+                .find_map(|counter| match (kind, counter.scope, &counter.point) {
+                    (
+                        RefcountCounterKind::Incref,
+                        CounterScope::Function,
+                        CounterPoint::RuntimeIncref {
+                            function_id: Some(counter_function_id),
+                        },
+                    ) if scope == CounterScope::Function && *counter_function_id == function_id => {
+                        Some(counter.id)
+                    }
+                    (
+                        RefcountCounterKind::Decref,
+                        CounterScope::Function,
+                        CounterPoint::RuntimeDecref {
+                            function_id: Some(counter_function_id),
+                        },
+                    ) if scope == CounterScope::Function && *counter_function_id == function_id => {
+                        Some(counter.id)
+                    }
+                    (
+                        RefcountCounterKind::Incref,
+                        CounterScope::Global,
+                        CounterPoint::RuntimeIncref { function_id: None },
+                    ) if scope == CounterScope::Global => Some(counter.id),
+                    (
+                        RefcountCounterKind::Decref,
+                        CounterScope::Global,
+                        CounterPoint::RuntimeDecref { function_id: None },
+                    ) if scope == CounterScope::Global => Some(counter.id),
+                    _ => None,
+                });
+        if counter_id.is_some() {
+            return counter_id;
+        }
+    }
+    None
+}
+
+fn counter_ptr_for_id(
+    counter_ptrs: &[*mut u64],
+    counter_id: CounterId,
+) -> Result<*mut u64, String> {
+    counter_ptrs
+        .get(counter_id.0)
+        .copied()
+        .ok_or_else(|| format!("missing counter pointer for counter id {}", counter_id.0))
+}
+
+fn build_counted_runtime_refcount_helper(
+    jit_module: &mut JITModule,
+    symbol_name: &str,
+    runtime_import: &'static ImportSpec,
+    counter_ptr: *mut u64,
+) -> Result<FuncId, String> {
+    let ptr_ty = jit_module.target_config().pointer_type();
+    let mut sig = jit_module.make_signature();
+    sig.params.push(ir::AbiParam::new(ptr_ty));
+    let helper_id = declare_local_fn(jit_module, symbol_name, &sig)?;
+
+    let mut ctx = jit_module.make_context();
+    ctx.func.signature = sig;
+    let mut builder_ctx = FunctionBuilderContext::new();
+    {
+        let mut fb = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
+        let entry_block = fb.create_block();
+        fb.append_block_params_for_function_params(entry_block);
+        fb.switch_to_block(entry_block);
+        let obj = fb.block_params(entry_block)[0];
+        let counter_addr = fb.ins().iconst(ptr_ty, counter_ptr as i64);
+        let old_value = fb
+            .ins()
+            .load(ir::types::I64, ir::MemFlags::trusted(), counter_addr, 0);
+        let new_value = fb.ins().iadd_imm(old_value, 1);
+        fb.ins()
+            .store(ir::MemFlags::trusted(), new_value, counter_addr, 0);
+
+        let mut module_imports = ModuleFuncImports::new();
+        let mut func_imports = FuncBuildImports::new(&mut module_imports);
+        let runtime_ref = func_imports.get_or_panic(jit_module, &mut fb.func, runtime_import);
+        fb.ins().call(runtime_ref, &[obj]);
+        fb.ins().return_(&[]);
+        fb.seal_all_blocks();
+        fb.finalize();
+    }
+
+    define_function_with_incremental_cache(
+        jit_module,
+        helper_id,
+        &mut ctx,
+        "failed to define counted runtime refcount helper",
+    )?;
+    jit_module.clear_context(&mut ctx);
+    Ok(helper_id)
+}
+
+fn build_counted_runtime_refcount_helpers(
+    jit_module: &mut JITModule,
+    function: &BlockPyFunction<CodegenBlockPyPass>,
+    counter_defs: &[CounterDef],
+    counter_ptrs: &[*mut u64],
+) -> Result<CountedRefcountHelpers, String> {
+    let incref_func_id = lookup_refcount_counter_id(
+        counter_defs,
+        function.function_id,
+        RefcountCounterKind::Incref,
+    )
+    .map(|counter_id| {
+        let counter_ptr = counter_ptr_for_id(counter_ptrs, counter_id)?;
+        build_counted_runtime_refcount_helper(
+            jit_module,
+            &format!("py:rc:incref:{}", function.names.qualname),
+            &DP_JIT_INCREF_IMPORT,
+            counter_ptr,
+        )
+    })
+    .transpose()?;
+
+    let decref_func_id = lookup_refcount_counter_id(
+        counter_defs,
+        function.function_id,
+        RefcountCounterKind::Decref,
+    )
+    .map(|counter_id| {
+        let counter_ptr = counter_ptr_for_id(counter_ptrs, counter_id)?;
+        build_counted_runtime_refcount_helper(
+            jit_module,
+            &format!("py:rc:decref:{}", function.names.qualname),
+            &DP_JIT_DECREF_IMPORT,
+            counter_ptr,
+        )
+    })
+    .transpose()?;
+
+    Ok(CountedRefcountHelpers {
+        incref_func_id,
+        decref_func_id,
+    })
 }
 
 fn emit_raw_cell_object_for_name(
@@ -3621,6 +3782,7 @@ fn build_cranelift_run_bb_specialized_function(
     blocks: &[ObjPtr],
     function: &BlockPyFunction<CodegenBlockPyPass>,
     module_constants: &ModuleCodegenConstants,
+    counter_defs: &[CounterDef],
     module_constant_ptrs: &[*mut ffi::PyObject],
     counter_ptrs: &[*mut u64],
 ) -> Result<BuiltSpecializedFunction, String> {
@@ -3673,6 +3835,8 @@ fn build_cranelift_run_bb_specialized_function(
     let main_symbol =
         jit_python_perf_symbol_name(JIT_PYTHON_PERF_SYMBOL_KIND_DIRECT, &function.names.qualname);
     let main_id = declare_local_fn(jit_module, &main_symbol, &main_sig)?;
+    let counted_refcount_helpers =
+        build_counted_runtime_refcount_helpers(jit_module, function, counter_defs, counter_ptrs)?;
 
     let mut ctx = jit_module.make_context();
     ctx.func.signature = main_sig;
@@ -3774,8 +3938,16 @@ fn build_cranelift_run_bb_specialized_function(
         let callable = entry_block_params[1];
         let direct_entry_args = entry_block_params[2..].to_vec();
         let mut func_imports = FuncBuildImports::new(&mut module_imports);
-        let incref_ref = func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_INCREF_IMPORT);
-        let decref_ref = func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_DECREF_IMPORT);
+        let incref_ref = if let Some(incref_func_id) = counted_refcount_helpers.incref_func_id {
+            jit_module.declare_func_in_func(incref_func_id, &mut fb.func)
+        } else {
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_INCREF_IMPORT)
+        };
+        let decref_ref = if let Some(decref_func_id) = counted_refcount_helpers.decref_func_id {
+            jit_module.declare_func_in_func(decref_func_id, &mut fb.func)
+        } else {
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_DECREF_IMPORT)
+        };
         let py_call_positional_three_ref = func_imports.get_or_panic(
             jit_module,
             &mut fb.func,
@@ -4259,6 +4431,7 @@ pub unsafe fn render_cranelift_run_bb_specialized_with_cfg(
         blocks,
         function,
         module_constants,
+        &[],
         &module_constant_ptrs,
         &counter_ptrs,
     )?;
@@ -4327,6 +4500,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
     blocks: &[ObjPtr],
     function: &soac_blockpy::block_py::BlockPyFunction<CodegenBlockPyPass>,
     module_constants: &ModuleCodegenConstants,
+    counter_defs: &[CounterDef],
     module_constant_ptrs: &[*mut ffi::PyObject],
     counter_ptrs: &[*mut u64],
 ) -> Result<ObjPtr, String> {
@@ -4339,6 +4513,7 @@ pub unsafe fn compile_cranelift_run_bb_specialized_cached(
         blocks,
         function,
         module_constants,
+        counter_defs,
         module_constant_ptrs,
         counter_ptrs,
     )?;

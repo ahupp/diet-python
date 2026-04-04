@@ -3,7 +3,9 @@ use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::PyAnyMethods;
-use soac_blockpy::block_py::{BlockPyFunction, BlockPyModule, CounterPoint, FunctionId};
+use soac_blockpy::block_py::{
+    BlockPyFunction, BlockPyModule, CounterDef, CounterId, CounterPoint, CounterScope, FunctionId,
+};
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::collections::HashMap;
 use std::ffi::{c_int, c_void};
@@ -23,7 +25,27 @@ pub struct SharedModuleState {
     pub codegen_constants: ModuleCodegenConstants,
     function_index_by_id: HashMap<FunctionId, usize>,
     module_constant_objs: Vec<Py<PyAny>>,
+    counter_slots_by_id: Box<[usize]>,
     counter_values: Box<[u64]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum CounterStorageKind {
+    BlockEntry,
+    RuntimeIncref,
+    RuntimeDecref,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum CounterStorageKey {
+    This(CounterId),
+    Function {
+        kind: CounterStorageKind,
+        function_id: FunctionId,
+    },
+    Global {
+        kind: CounterStorageKind,
+    },
 }
 
 impl SharedModuleState {
@@ -45,9 +67,9 @@ impl SharedModuleState {
     }
 
     pub(crate) fn counter_ptrs(&self) -> Vec<*mut u64> {
-        self.counter_values
+        self.counter_slots_by_id
             .iter()
-            .map(|value| value as *const u64 as *mut u64)
+            .map(|slot| &self.counter_values[*slot] as *const u64 as *mut u64)
             .collect()
     }
 
@@ -55,10 +77,17 @@ impl SharedModuleState {
         &self.counter_values
     }
 
+    pub fn counter_value(&self, counter_id: CounterId) -> u64 {
+        let Some(slot) = self.counter_slots_by_id.get(counter_id.0).copied() else {
+            return 0;
+        };
+        self.counter_values.get(slot).copied().unwrap_or_default()
+    }
+
     pub fn counter_report_text(&self) -> String {
         let mut out = String::new();
         for counter in &self.lowered_module.counter_defs {
-            let value = self.counter_values.get(counter.id.0).copied().unwrap_or_default();
+            let value = self.counter_value(counter.id);
             match counter.point {
                 CounterPoint::BlockEntry {
                     function_id,
@@ -70,11 +99,46 @@ impl SharedModuleState {
                         .unwrap_or("<missing-function>");
                     let _ = writeln!(
                         &mut out,
-                        "[soac counters] module={} counter={} point=block_entry function={} block={} value={}",
+                        "[soac counters] module={} counter={} scope={} point=block_entry function={} block={} value={}",
                         self.module_name,
                         counter.id.0,
+                        counter_scope_name(counter.scope),
                         qualname,
                         block_label,
+                        value,
+                    );
+                }
+                CounterPoint::RuntimeIncref { function_id } => {
+                    let function = function_id.and_then(|id| {
+                        self.lookup_function(id)
+                            .map(|function| function.names.qualname.as_str())
+                    });
+                    let _ = writeln!(
+                        &mut out,
+                        "[soac counters] module={} counter={} scope={} point=runtime_incref{} value={}",
+                        self.module_name,
+                        counter.id.0,
+                        counter_scope_name(counter.scope),
+                        function
+                            .map(|qualname| format!(" function={qualname}"))
+                            .unwrap_or_default(),
+                        value,
+                    );
+                }
+                CounterPoint::RuntimeDecref { function_id } => {
+                    let function = function_id.and_then(|id| {
+                        self.lookup_function(id)
+                            .map(|function| function.names.qualname.as_str())
+                    });
+                    let _ = writeln!(
+                        &mut out,
+                        "[soac counters] module={} counter={} scope={} point=runtime_decref{} value={}",
+                        self.module_name,
+                        counter.id.0,
+                        counter_scope_name(counter.scope),
+                        function
+                            .map(|qualname| format!(" function={qualname}"))
+                            .unwrap_or_default(),
                         value,
                     );
                 }
@@ -82,6 +146,77 @@ impl SharedModuleState {
         }
         out
     }
+}
+
+fn counter_scope_name(scope: CounterScope) -> &'static str {
+    match scope {
+        CounterScope::This => "this",
+        CounterScope::Function => "function",
+        CounterScope::Global => "global",
+    }
+}
+
+fn counter_storage_kind(point: CounterPoint) -> CounterStorageKind {
+    match point {
+        CounterPoint::BlockEntry { .. } => CounterStorageKind::BlockEntry,
+        CounterPoint::RuntimeIncref { .. } => CounterStorageKind::RuntimeIncref,
+        CounterPoint::RuntimeDecref { .. } => CounterStorageKind::RuntimeDecref,
+    }
+}
+
+fn counter_storage_function_id(point: CounterPoint) -> Option<FunctionId> {
+    match point {
+        CounterPoint::BlockEntry { function_id, .. } => Some(function_id),
+        CounterPoint::RuntimeIncref { function_id }
+        | CounterPoint::RuntimeDecref { function_id } => function_id,
+    }
+}
+
+fn counter_storage_key(counter: &CounterDef) -> PyResult<CounterStorageKey> {
+    let kind = counter_storage_kind(counter.point.clone());
+    match counter.scope {
+        CounterScope::This => Ok(CounterStorageKey::This(counter.id)),
+        CounterScope::Function => {
+            let function_id =
+                counter_storage_function_id(counter.point.clone()).ok_or_else(|| {
+                    PyRuntimeError::new_err(format!(
+                        "function-scoped counter {} is missing a function id: {:?}",
+                        counter.id.0, counter.point
+                    ))
+                })?;
+            Ok(CounterStorageKey::Function { kind, function_id })
+        }
+        CounterScope::Global => Ok(CounterStorageKey::Global { kind }),
+    }
+}
+
+fn build_counter_storage(counter_defs: &[CounterDef]) -> PyResult<(Box<[usize]>, Box<[u64]>)> {
+    let mut slots_by_id = vec![usize::MAX; counter_defs.len()];
+    let mut slot_by_key = HashMap::new();
+    let mut counter_values = Vec::new();
+    for counter in counter_defs {
+        if counter.id.0 >= slots_by_id.len() {
+            return Err(PyRuntimeError::new_err(format!(
+                "counter id {} is out of range for {} counter defs",
+                counter.id.0,
+                counter_defs.len()
+            )));
+        }
+        let key = counter_storage_key(counter)?;
+        let slot = if let Some(slot) = slot_by_key.get(&key).copied() {
+            slot
+        } else {
+            let slot = counter_values.len();
+            counter_values.push(0);
+            slot_by_key.insert(key, slot);
+            slot
+        };
+        slots_by_id[counter.id.0] = slot;
+    }
+    Ok((
+        slots_by_id.into_boxed_slice(),
+        counter_values.into_boxed_slice(),
+    ))
 }
 
 #[cfg(test)]
@@ -92,7 +227,8 @@ pub(crate) fn build_shared_state_for_testing(
     package_name: &str,
 ) -> PyResult<Arc<SharedModuleState>> {
     let function_index_by_id = build_function_index_by_id(&lowered_module)?;
-    let counter_count = lowered_module.counter_defs.len();
+    let (counter_slots_by_id, counter_values) =
+        build_counter_storage(&lowered_module.counter_defs)?;
     let codegen_constants = ModuleCodegenConstants::collect_from_module(&lowered_module);
     let module_constant_objs = codegen_constants.build_python_constants(py)?;
     Ok(Arc::new(SharedModuleState {
@@ -102,7 +238,8 @@ pub(crate) fn build_shared_state_for_testing(
         codegen_constants,
         function_index_by_id,
         module_constant_objs,
-        counter_values: vec![0; counter_count].into_boxed_slice(),
+        counter_slots_by_id,
+        counter_values,
     }))
 }
 
@@ -144,7 +281,8 @@ impl SoacExtModuleState {
             ));
         }
         let function_index_by_id = build_function_index_by_id(&lowered_module)?;
-        let counter_count = lowered_module.counter_defs.len();
+        let (counter_slots_by_id, counter_values) =
+            build_counter_storage(&lowered_module.counter_defs)?;
         let codegen_constants = ModuleCodegenConstants::collect_from_module(&lowered_module);
         let module_constant_objs = codegen_constants.build_python_constants(py)?;
         self.shared_state.write(Arc::new(SharedModuleState {
@@ -154,7 +292,8 @@ impl SoacExtModuleState {
             codegen_constants,
             function_index_by_id,
             module_constant_objs,
-            counter_values: vec![0; counter_count].into_boxed_slice(),
+            counter_slots_by_id,
+            counter_values,
         }));
         self.initialized = true;
         Ok(())
@@ -343,6 +482,7 @@ def f():
                 .expect("function index should build"),
             codegen_constants: ModuleCodegenConstants::collect_from_module(&lowered),
             module_constant_objs: Vec::new(),
+            counter_slots_by_id: vec![0].into_boxed_slice(),
             counter_values: vec![3].into_boxed_slice(),
             lowered_module: lowered,
             module_name: "counter_test".to_string(),
@@ -351,9 +491,59 @@ def f():
 
         let report = shared_state.counter_report_text();
         assert!(report.contains("module=counter_test"));
+        assert!(report.contains("scope=this"));
         assert!(report.contains("point=block_entry"));
         assert!(report.contains("function=f"));
         assert!(report.contains(format!("block={entry_label}").as_str()));
         assert!(report.contains("value=3"));
+    }
+
+    #[test]
+    fn counter_scope_controls_storage_sharing() {
+        let counter_defs = vec![
+            CounterDef {
+                id: CounterId(0),
+                scope: CounterScope::Function,
+                point: CounterPoint::RuntimeIncref {
+                    function_id: Some(FunctionId(7)),
+                },
+            },
+            CounterDef {
+                id: CounterId(1),
+                scope: CounterScope::Function,
+                point: CounterPoint::RuntimeIncref {
+                    function_id: Some(FunctionId(7)),
+                },
+            },
+            CounterDef {
+                id: CounterId(2),
+                scope: CounterScope::Global,
+                point: CounterPoint::RuntimeDecref { function_id: None },
+            },
+            CounterDef {
+                id: CounterId(3),
+                scope: CounterScope::Global,
+                point: CounterPoint::RuntimeDecref {
+                    function_id: Some(FunctionId(99)),
+                },
+            },
+            CounterDef {
+                id: CounterId(4),
+                scope: CounterScope::This,
+                point: CounterPoint::BlockEntry {
+                    function_id: FunctionId(7),
+                    block_label: soac_blockpy::block_py::BlockLabel::from_index(0),
+                },
+            },
+        ];
+
+        let (slots_by_id, counter_values) =
+            build_counter_storage(&counter_defs).expect("counter storage should build");
+        assert_eq!(counter_values.len(), 3);
+        assert_eq!(slots_by_id[0], slots_by_id[1]);
+        assert_eq!(slots_by_id[2], slots_by_id[3]);
+        assert_ne!(slots_by_id[0], slots_by_id[2]);
+        assert_ne!(slots_by_id[0], slots_by_id[4]);
+        assert_ne!(slots_by_id[2], slots_by_id[4]);
     }
 }

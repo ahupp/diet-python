@@ -7,7 +7,10 @@ use soac_blockpy::block_py::{
     LiteralValue, Load, LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen, NameLocation, Param,
     ParamKind, ParamSpec, StorageLayout, Store,
 };
-use soac_blockpy::passes::{CodegenBlockPyPass, instrument_bb_module_with_block_entry_counters};
+use soac_blockpy::passes::{
+    CodegenBlockPyPass, instrument_bb_module_with_block_entry_counters,
+    instrument_bb_module_with_refcount_counters,
+};
 mod tests {
     use super::*;
     use pyo3::types::PyAnyMethods;
@@ -15,9 +18,10 @@ mod tests {
     use ruff_python_ast as ast;
     use std::ffi::c_void;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     static CAPSULE_DESTROYED: AtomicBool = AtomicBool::new(false);
+    static NEXT_TEST_EXT_STAGING_ID: AtomicUsize = AtomicUsize::new(0);
 
     unsafe extern "C" fn test_capsule_destructor(_capsule: *mut ffi::PyObject) {
         CAPSULE_DESTROYED.store(true, Ordering::SeqCst);
@@ -135,7 +139,10 @@ mod tests {
     }
 
     fn ensure_test_extension_staging_dir() -> PathBuf {
-        let staging_dir = repo_root().join("target").join("debug").join("test-ext");
+        let staging_dir = repo_root().join("target").join("debug").join(format!(
+            "test-ext-{}",
+            NEXT_TEST_EXT_STAGING_ID.fetch_add(1, Ordering::Relaxed)
+        ));
         let source_ext = repo_root()
             .join("target")
             .join("debug")
@@ -268,6 +275,7 @@ mod tests {
                 blocks,
                 function,
                 module_constants,
+                &[],
                 &module_constant_ptrs,
                 &counter_ptrs,
             )
@@ -739,6 +747,7 @@ def f():
                     &blocks,
                     &function,
                     &shared_state.codegen_constants,
+                    &shared_state.lowered_module.counter_defs,
                     &module_constant_ptrs,
                     &counter_ptrs,
                 )
@@ -759,9 +768,142 @@ def f():
                 );
 
                 assert_eq!(
-                    shared_state.counter_values()[entry_counter_id.0],
+                    shared_state.counter_value(entry_counter_id),
                     2,
                     "entry counter should reflect the number of completed direct JIT calls"
+                );
+
+                ffi::Py_DECREF(result1.cast());
+                ffi::Py_DECREF(result2.cast());
+                free_cranelift_run_bb_specialized_cached(compiled_handle);
+            });
+        }
+    }
+
+    #[test]
+    fn jit_function_scope_refcount_counters_track_runtime_helpers() {
+        unsafe {
+            let python_home = vendored_python_home();
+            let repo_root = repo_root();
+            let soac_py_src = repo_root.join("soac_py").join("src");
+            let ext_staging_dir = ensure_test_extension_staging_dir();
+            let pythonpath = std::env::join_paths([
+                python_home.join("Lib"),
+                vendored_python_build_lib_dir(),
+                soac_py_src.clone(),
+                ext_staging_dir.clone(),
+            ])
+            .expect("test PYTHONPATH should join cleanly");
+            std::env::set_var("PYTHONHOME", &python_home);
+            std::env::set_var("PYTHONPATH", pythonpath);
+            Python::initialize();
+            Python::attach(|py| {
+                let sys = py.import("sys").expect("sys should import");
+                sys.getattr("path")
+                    .expect("sys.path should exist")
+                    .call_method1("insert", (0, ext_staging_dir.to_string_lossy().as_ref()))
+                    .expect("sys.path should accept staged _soac_ext");
+                sys.getattr("path")
+                    .expect("sys.path should exist")
+                    .call_method1("insert", (0, soac_py_src.to_string_lossy().as_ref()))
+                    .expect("sys.path should accept soac_py/src");
+                let mut lowered = soac_blockpy::lower_python_to_blockpy_for_testing(
+                    r#"
+def f(x):
+    y = x
+    del y
+    return None
+"#,
+                )
+                .expect("lowering should succeed")
+                .codegen_module;
+                instrument_bb_module_with_refcount_counters(&mut lowered, CounterScope::Function)
+                    .expect("function-scoped refcount counters should instrument");
+
+                let function = lowered
+                    .callable_defs
+                    .iter()
+                    .find(|function| function.names.bind_name == "f")
+                    .expect("missing lowered function f")
+                    .clone();
+                let incref_counter_id = lowered
+                    .counter_defs
+                    .iter()
+                    .find_map(|counter| match counter.point {
+                        CounterPoint::RuntimeIncref {
+                            function_id: Some(counter_function_id),
+                        } if counter.scope == CounterScope::Function
+                            && counter_function_id == function.function_id =>
+                        {
+                            Some(counter.id)
+                        }
+                        _ => None,
+                    })
+                    .expect("missing function-scoped incref counter for lowered function f");
+                let decref_counter_id = lowered
+                    .counter_defs
+                    .iter()
+                    .find_map(|counter| match counter.point {
+                        CounterPoint::RuntimeDecref {
+                            function_id: Some(counter_function_id),
+                        } if counter.scope == CounterScope::Function
+                            && counter_function_id == function.function_id =>
+                        {
+                            Some(counter.id)
+                        }
+                        _ => None,
+                    })
+                    .expect("missing function-scoped decref counter for lowered function f");
+
+                let shared_state = crate::module_type::build_shared_state_for_testing(
+                    py,
+                    lowered,
+                    "counter_test",
+                    "",
+                )
+                .expect("shared state should build");
+                let runtime = build_test_module_runtime(py, shared_state.clone());
+                let module_constant_ptrs = shared_state.module_constant_ptrs();
+                let counter_ptrs = shared_state.counter_ptrs();
+                let blocks = vec![std::ptr::null_mut::<c_void>(); function.blocks.len()];
+                let compiled_handle = compile_cranelift_run_bb_specialized_cached(
+                    &blocks,
+                    &function,
+                    &shared_state.codegen_constants,
+                    &shared_state.lowered_module.counter_defs,
+                    &module_constant_ptrs,
+                    &counter_ptrs,
+                )
+                .expect("direct refcount counter test function should compile");
+                let (code_ptr, param_count) = compiled_direct_runner_info(compiled_handle)
+                    .expect("compiled direct runner should expose entrypoint");
+                assert_eq!(param_count, 1, "test function should take one direct arg");
+                let entry: unsafe extern "C" fn(
+                    *mut c_void,
+                    *mut c_void,
+                    *mut c_void,
+                ) -> *mut c_void = std::mem::transmute(code_ptr);
+
+                let result1 = entry(
+                    std::ptr::addr_of!(runtime.vmctx).cast_mut().cast(),
+                    std::ptr::null_mut(),
+                    ffi::PyLong_FromLong(7).cast(),
+                );
+                let incref_after_first = shared_state.counter_value(incref_counter_id);
+                let decref_after_first = shared_state.counter_value(decref_counter_id);
+                let result2 = entry(
+                    std::ptr::addr_of!(runtime.vmctx).cast_mut().cast(),
+                    std::ptr::null_mut(),
+                    ffi::PyLong_FromLong(11).cast(),
+                );
+
+                assert!(
+                    shared_state.counter_value(incref_counter_id) > incref_after_first,
+                    "function-scoped incref counter should increase after another direct JIT call"
+                );
+                assert!(
+                    shared_state.counter_value(decref_counter_id) > decref_after_first,
+                    "function-scoped decref counter should increase after another direct JIT call"
                 );
 
                 ffi::Py_DECREF(result1.cast());
