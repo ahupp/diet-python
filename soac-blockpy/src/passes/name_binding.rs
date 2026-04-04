@@ -8,7 +8,7 @@ use crate::block_py::{
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, EffectiveBinding, FunctionId,
     FunctionKind, HasMeta, InstrExprNode, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
     MakeCell, MakeFunction, MapExpr, NameLocation, SetItem, StorageLayout, Store, TermRaise,
-    UnresolvedName, Walkable, WithMeta,
+    Mappable, UnresolvedName, Walkable, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,

@@ -46,6 +46,7 @@ enum EnumBroadcastTarget {
     HasMeta,
     WithMeta,
     Walkable,
+    Mappable,
     Debug,
 }
 
@@ -59,10 +60,11 @@ impl EnumBroadcastTarget {
             "HasMeta" => Ok(Self::HasMeta),
             "WithMeta" => Ok(Self::WithMeta),
             "Walkable" => Ok(Self::Walkable),
+            "Mappable" => Ok(Self::Mappable),
             "Debug" => Ok(Self::Debug),
             _ => Err(syn::Error::new_spanned(
                 segment,
-                "unsupported enum_broadcast target; supported targets are HasMeta, WithMeta, Walkable, and Debug",
+                "unsupported enum_broadcast target; supported targets are HasMeta, WithMeta, Walkable, Mappable, and Debug",
             )),
         }
     }
@@ -146,12 +148,6 @@ impl EnumBroadcastTarget {
             },
             Self::Walkable => quote! {
                 impl #impl_generics Walkable<Self> for #enum_name #ty_generics #where_clause {
-                    fn map_walk(self, f: &mut impl FnMut(Self) -> Self) -> Self {
-                        match self {
-                            #( #map_walk_arms )*
-                        }
-                    }
-
                     fn walk(&self, f: &mut impl FnMut(&Self)) {
                         match self {
                             #( #walk_arms )*
@@ -161,6 +157,15 @@ impl EnumBroadcastTarget {
                     fn walk_mut(&mut self, f: &mut impl FnMut(&mut Self)) {
                         match self {
                             #( #walk_mut_arms )*
+                        }
+                    }
+                }
+            },
+            Self::Mappable => quote! {
+                impl #impl_generics Mappable<Self> for #enum_name #ty_generics #where_clause {
+                    fn map_walk(self, f: &mut impl FnMut(Self) -> Self) -> Self {
+                        match self {
+                            #( #map_walk_arms )*
                         }
                     }
                 }

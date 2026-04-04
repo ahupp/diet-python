@@ -1,7 +1,7 @@
 use crate::block_py::{
     instr_any, map_term, Await, Block, BlockPyFunction, BlockPyNameLike, BlockTerm,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, Del, HasMeta, Instr, Load, MapExpr,
-    Store, UnresolvedName, Walkable, WithMeta, Yield, YieldFrom,
+    Mappable, Store, UnresolvedName, WithMeta, Yield, YieldFrom,
 };
 use crate::namegen::fresh_name;
 use crate::passes::CoreBlockPyPassWithYield;

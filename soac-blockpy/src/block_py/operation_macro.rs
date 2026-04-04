@@ -63,12 +63,6 @@ macro_rules! define_operation {
         }
 
         impl<$expr_ty: Instr> Walkable<$expr_ty> for $name<$expr_ty> {
-            fn map_walk(self, f: &mut impl FnMut($expr_ty) -> $expr_ty) -> Self {
-                #[allow(unused_variables)]
-                let _ = &f;
-                define_operation!(@build_walked [$name::<$expr_ty>] [] self, f, $($raw_fields)*)
-            }
-
             fn walk_mut(&mut self, f: &mut impl FnMut(&mut $expr_ty)) {
                 #[allow(unused_variables)]
                 let _ = &f;
@@ -79,6 +73,14 @@ macro_rules! define_operation {
                 #[allow(unused_variables)]
                 let _ = &f;
                 define_operation!(@visit_expr_fields self, f, $($raw_fields)*);
+            }
+        }
+
+        impl<$expr_ty: Instr> Mappable<$expr_ty> for $name<$expr_ty> {
+            fn map_walk(self, f: &mut impl FnMut($expr_ty) -> $expr_ty) -> Self {
+                #[allow(unused_variables)]
+                let _ = &f;
+                define_operation!(@build_walked [$name::<$expr_ty>] [] self, f, $($raw_fields)*)
             }
         }
 
@@ -171,17 +173,19 @@ macro_rules! define_operation {
         }
 
         impl<E: Instr> Walkable<E> for $name {
-            fn map_walk(self, f: &mut impl FnMut(E) -> E) -> Self {
-                let _ = &f;
-                self
-            }
-
             fn walk_mut(&mut self, f: &mut impl FnMut(&mut E)) {
                 let _ = &f;
             }
 
             fn walk(&self, f: &mut impl FnMut(&E)) {
                 let _ = &f;
+            }
+        }
+
+        impl<E: Instr> Mappable<E> for $name {
+            fn map_walk(self, f: &mut impl FnMut(E) -> E) -> Self {
+                let _ = &f;
+                self
             }
         }
 
