@@ -1,23 +1,23 @@
+use super::core_eval_order::make_eval_order_explicit_in_core_callable_def_without_await;
 use crate::block_py::cfg::RelabelBlockTargets;
 use crate::block_py::param_specs::{Param, ParamKind, ParamSpec};
 use crate::block_py::{
-    compute_storage_layout_from_scope, core_call_expr_with_meta, core_runtime_name_expr_with_meta,
-    core_runtime_positional_call_expr_with_meta, try_map_term, BindingKind, Block, BlockArg,
-    BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole, BlockPyFunction,
-    BlockPyModule, BlockPyNameLike, BlockTerm, CallableScopeInfo, CellBindingKind,
+    BindingKind, Block, BlockArg, BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole,
+    BlockPyFunction, BlockPyModule, BlockPyNameLike, BlockTerm, CallableScopeInfo, CellBindingKind,
     CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
     CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, CoreNumberLiteral, CoreNumberLiteralValue,
     CoreStringLiteral, FunctionId, FunctionKind, FunctionName, FunctionNameGen, GetAttr,
-    ImplicitNoneExpr, Instr, Load, MakeFunction, ModuleNameGen, ScopeExprNode, StorageLayout,
-    Store, TermBranchTable, TermIf, TermRaise, UnaryOp, UnaryOpKind,
-    TryMapExpr, UnresolvedName, try_lower_core_expr_without_yield_with_mapper, try_map_fn,
-    literal_expr,
+    ImplicitNoneExpr, Instr, InstrExprNode, Load, MakeFunction, ModuleNameGen, ScopeExprNode,
+    StorageLayout, Store, TermBranchTable, TermIf, TermRaise, TryMapExpr, UnaryOp, UnaryOpKind,
+    UnresolvedName, compute_storage_layout_from_scope, core_call_expr_with_meta,
+    core_runtime_name_expr_with_meta, core_runtime_positional_call_expr_with_meta, literal_expr,
+    try_map_fn, try_map_term,
 };
-use super::core_eval_order::make_eval_order_explicit_in_core_callable_def_without_await;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
 use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithYield};
 use ruff_python_ast::{self as ast};
+use soac_macros::match_default;
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 
@@ -60,6 +60,20 @@ type LinearCoreBlock = Block<LinearCoreStmt, CoreBlockPyExpr>;
 type BlockPyBlock = LinearCoreBlock;
 
 struct ErrOnYield;
+
+fn try_lower_core_expr_without_yield_with_mapper<M>(
+    expr: CoreBlockPyExprWithYield,
+    map: &mut M,
+) -> Result<CoreBlockPyExpr, CoreBlockPyExprWithYield>
+where
+    M: TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYield>,
+{
+    match_default!(expr: crate::block_py::CoreBlockPyExprWithYield {
+        CoreBlockPyExprWithYield::Yield(node) => Err(node.into()),
+        CoreBlockPyExprWithYield::YieldFrom(node) => Err(node.into()),
+        rest => Ok(rest.try_map_typed_children(map)?.into()),
+    })
+}
 
 impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYield>
     for ErrOnYield
@@ -835,7 +849,10 @@ fn is_name_not_none_test(name: &str) -> CoreBlockPyExpr {
 fn is_resume_generator_exit_test() -> CoreBlockPyExpr {
     core_call(
         "isinstance",
-        vec![core_name("_dp_resume_exc"), core_runtime_attr("GeneratorExit")],
+        vec![
+            core_name("_dp_resume_exc"),
+            core_runtime_attr("GeneratorExit"),
+        ],
     )
 }
 
@@ -1151,7 +1168,9 @@ fn emit_yield_site(
             value,
             None,
             Vec::new(),
-            BlockTerm::Return(unresolved_load_expr(unresolved_name("_dp_yield_from_value"))),
+            BlockTerm::Return(unresolved_load_expr(unresolved_name(
+                "_dp_yield_from_value",
+            ))),
             params,
             exc_target,
         ),
@@ -1738,10 +1757,7 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
                 }));
             }
             FunctionKind::Generator | FunctionKind::Coroutine | FunctionKind::AsyncGenerator => {
-                callable_defs.extend(lower_generator_like_function(
-                    callable,
-                    &module_name_gen,
-                ));
+                callable_defs.extend(lower_generator_like_function(callable, &module_name_gen));
             }
         }
     }

@@ -1,14 +1,15 @@
 pub use self::meta::{HasMeta, Meta, WithMeta};
 use self::operation_macro::define_operation;
 pub use self::param_specs::{Param, ParamDefaultSource, ParamKind, ParamSpec};
-pub(crate) use self::scope::{
-    build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_scope,
-    compute_storage_layout_from_scope, derive_effective_binding_for_name, ScopeExprNode,
-};
 pub use self::scope::{
     BindingKind, BindingPurpose, BindingTarget, CallableScopeInfo, CallableScopeKind,
     CellBindingKind, CellCaptureBinding, ClassBodyFallback, ClosureInit, ClosureSlot,
     EffectiveBinding, StorageLayout,
+};
+pub(crate) use self::scope::{
+    ScopeExprNode, build_storage_layout_from_capture_names,
+    compute_make_function_capture_bindings_from_scope, compute_storage_layout_from_scope,
+    derive_effective_binding_for_name,
 };
 use crate::py_expr;
 pub use operation::{
@@ -17,7 +18,7 @@ pub use operation::{
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast};
-use soac_macros::{enum_broadcast, match_default, DelegateMatchDefault};
+use soac_macros::{DelegateMatchDefault, enum_broadcast};
 use std::fmt;
 
 pub(crate) mod cfg;
@@ -775,20 +776,6 @@ impl<N: BlockPyNameLike> Instr for CoreBlockPyExpr<N> {
 
 impl Instr for CodegenBlockPyExpr {
     type Name = LocatedName;
-}
-
-pub(crate) fn try_lower_core_expr_without_yield_with_mapper<M>(
-    expr: CoreBlockPyExprWithYield,
-    map: &mut M,
-) -> Result<CoreBlockPyExpr, CoreBlockPyExprWithYield>
-where
-    M: TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYield>,
-{
-    match_default!(expr: crate::block_py::CoreBlockPyExprWithYield {
-        CoreBlockPyExprWithYield::Yield(node) => Err(node.into()),
-        CoreBlockPyExprWithYield::YieldFrom(node) => Err(node.into()),
-        rest => Ok(rest.try_map_typed_children(map)?.into()),
-    })
 }
 
 pub(crate) fn core_call_expr_with_meta<E>(
