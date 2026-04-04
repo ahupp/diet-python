@@ -67,7 +67,7 @@ fn try_lower_core_expr_without_yield_with_mapper<M>(
 where
     M: TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYield>,
 {
-    match_default!(expr: crate::block_py::CoreBlockPyExprWithYield {
+    match_default!(expr: crate::passes::CoreBlockPyExprWithYield {
         CoreBlockPyExprWithYield::Yield(node) => Err(node.into()),
         CoreBlockPyExprWithYield::YieldFrom(node) => Err(node.into()),
         rest => Ok(rest.try_map_typed_children(map)?.into()),

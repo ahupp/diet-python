@@ -17,8 +17,8 @@ pub use operation::{
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast};
-use soac_macros::{enum_broadcast, DelegateMatchDefault};
 use std::fmt;
+use soac_macros::enum_broadcast;
 
 pub(crate) mod cfg;
 mod convert;
@@ -33,6 +33,10 @@ pub(crate) mod scope;
 pub(crate) mod validate;
 pub(crate) use convert::{instr_any, map_fn, map_module, map_term, try_map_fn, try_map_term};
 pub use name_gen::{BlockLabel, FunctionId, FunctionNameGen, ModuleNameGen};
+pub use crate::passes::{
+    CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
+    LocatedCoreBlockPyExpr,
+};
 pub(crate) use validate::validate_module;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -586,76 +590,6 @@ impl<P: BlockPyPass, S> BlockPyModule<P, S> {
         }
     }
 }
-
-#[derive(Clone, derive_more::From, DelegateMatchDefault)]
-#[enum_broadcast(HasMeta, WithMeta, Walkable, Debug)]
-pub enum CoreBlockPyExprWithAwaitAndYield {
-    Literal(LiteralValue),
-    BinOp(BinOp<Self>),
-    UnaryOp(UnaryOp<Self>),
-    Call(Call<Self>),
-    GetAttr(GetAttr<Self>),
-    SetAttr(SetAttr<Self>),
-    GetItem(GetItem<Self>),
-    SetItem(SetItem<Self>),
-    DelItem(DelItem<Self>),
-    Load(Load<Self>),
-    Store(Store<Self>),
-    Del(Del<Self>),
-    MakeCell(MakeCell<Self>),
-    CellRefForName(CellRefForName),
-    CellRef(CellRef),
-    MakeFunction(MakeFunction<Self>),
-    Await(Await<Self>),
-    Yield(Yield<Self>),
-    YieldFrom(YieldFrom<Self>),
-}
-
-#[derive(Clone, derive_more::From, DelegateMatchDefault)]
-#[enum_broadcast(HasMeta, WithMeta, Walkable, Debug)]
-pub enum CoreBlockPyExprWithYield {
-    Literal(LiteralValue),
-    BinOp(BinOp<Self>),
-    UnaryOp(UnaryOp<Self>),
-    Call(Call<Self>),
-    GetAttr(GetAttr<Self>),
-    SetAttr(SetAttr<Self>),
-    GetItem(GetItem<Self>),
-    SetItem(SetItem<Self>),
-    DelItem(DelItem<Self>),
-    Load(Load<Self>),
-    Store(Store<Self>),
-    Del(Del<Self>),
-    MakeCell(MakeCell<Self>),
-    CellRefForName(CellRefForName),
-    CellRef(CellRef),
-    MakeFunction(MakeFunction<Self>),
-    Yield(Yield<Self>),
-    YieldFrom(YieldFrom<Self>),
-}
-
-#[derive(Clone, derive_more::From)]
-#[enum_broadcast(HasMeta, WithMeta, Walkable, Debug)]
-pub enum CoreBlockPyExpr<N: BlockPyNameLike = UnresolvedName> {
-    Literal(LiteralValue),
-    BinOp(BinOp<Self>),
-    UnaryOp(UnaryOp<Self>),
-    Call(Call<Self>),
-    GetAttr(GetAttr<Self>),
-    SetAttr(SetAttr<Self>),
-    GetItem(GetItem<Self>),
-    SetItem(SetItem<Self>),
-    DelItem(DelItem<Self>),
-    Load(Load<Self>),
-    Store(Store<Self>),
-    Del(Del<Self>),
-    MakeCell(MakeCell<Self>),
-    CellRefForName(CellRefForName),
-    CellRef(CellRef),
-    MakeFunction(MakeFunction<Self>),
-}
-
-pub type LocatedCoreBlockPyExpr = CoreBlockPyExpr<LocatedName>;
 
 #[derive(Clone, derive_more::From)]
 #[enum_broadcast(HasMeta, WithMeta, Walkable, Debug)]

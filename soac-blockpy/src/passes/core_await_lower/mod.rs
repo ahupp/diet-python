@@ -10,7 +10,7 @@ struct CoreAwaitLoweringMap;
 
 impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for CoreAwaitLoweringMap {
     fn map_expr(&mut self, expr: CoreBlockPyExprWithAwaitAndYield) -> CoreBlockPyExprWithYield {
-        match_default!(expr: crate::block_py::CoreBlockPyExprWithAwaitAndYield {
+        match_default!(expr: crate::passes::CoreBlockPyExprWithAwaitAndYield {
             CoreBlockPyExprWithAwaitAndYield::Await(node) => {
                 let meta = node.meta();
                 CoreBlockPyExprWithYield::YieldFrom(
