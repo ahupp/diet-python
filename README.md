@@ -198,7 +198,7 @@ changes:
       - transformed/JIT: 177,856 loops/s
       - stock CPython: 745,030 loops/s
       Relative performance:  transformed is about 0.239x stock stock is about 4.
-   - really use vectorcall
+  - really use vectorcall
       - transformed/JIT: 221,433 loops/s
       - stock CPython: 892,476 loops/s
       - transformed is about 0.248x stock, so stock is about 4.03x faster
