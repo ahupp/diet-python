@@ -4,13 +4,16 @@ use crate::block_py::{
     compute_storage_layout_from_scope, core_call_expr_with_meta, core_runtime_name_expr_with_meta,
     core_runtime_positional_call_expr_with_meta, try_map_term, BindingKind, Block, BlockArg,
     BlockBuilder, BlockEdge, BlockLabel, BlockParam, BlockParamRole, BlockPyFunction,
-    BlockPyNameLike, BlockTerm, CallableScopeInfo, CellBindingKind, CellRefForName, ClosureInit,
-    ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield,
-    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, ErrOnAwait, ErrOnYield, FunctionId,
-    FunctionKind, FunctionName, FunctionNameGen, ImplicitNoneExpr, Instr, Load, MakeFunction,
-    ModuleNameGen, ScopeExprNode, StorageLayout, Store, TermBranchTable, TermIf, TermRaise,
-    TryMapExpr, UnresolvedName,
+    BlockPyModule, BlockPyNameLike, BlockTerm, CallableScopeInfo, CellBindingKind,
+    CellRefForName, ClosureInit, ClosureSlot, CoreBlockPyCallArg, CoreBlockPyExpr,
+    CoreBlockPyExprWithAwaitAndYield,
+    CoreBlockPyExprWithYield, CoreBlockPyKeywordArg, FunctionId, FunctionKind, FunctionName,
+    FunctionNameGen, ImplicitNoneExpr, Instr, Load, MakeFunction, ModuleNameGen, ScopeExprNode,
+    StorageLayout, Store, TermBranchTable, TermIf, TermRaise,
+    TryMapExpr, UnresolvedName, try_lower_core_expr_without_yield_with_mapper, try_map_fn,
 };
+use super::core_await_lower::ErrOnAwait;
+use super::core_eval_order::make_eval_order_explicit_in_core_callable_def_without_await;
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::passes::ruff_to_blockpy::{attach_exception_edges_to_blocks, lowered_exception_edges};
 use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithYield};
@@ -56,6 +59,26 @@ type LinearCoreStmt = CoreBlockPyExpr;
 type LinearYieldBlock = Block<LinearYieldStmt, CoreBlockPyExprWithYield>;
 type LinearCoreBlock = Block<LinearCoreStmt, CoreBlockPyExpr>;
 type BlockPyBlock = LinearCoreBlock;
+
+struct ErrOnYield;
+
+impl TryMapExpr<CoreBlockPyExprWithYield, CoreBlockPyExpr, CoreBlockPyExprWithYield>
+    for ErrOnYield
+{
+    fn try_map_expr(
+        &mut self,
+        expr: CoreBlockPyExprWithYield,
+    ) -> Result<CoreBlockPyExpr, CoreBlockPyExprWithYield> {
+        try_lower_core_expr_without_yield_with_mapper(expr, self)
+    }
+
+    fn try_map_name(
+        &mut self,
+        name: UnresolvedName,
+    ) -> Result<UnresolvedName, CoreBlockPyExprWithYield> {
+        Ok(name)
+    }
+}
 
 fn resume_abi_params(kind: FunctionKind) -> &'static [ResumeAbiParam] {
     match kind {
@@ -1651,6 +1674,46 @@ pub(crate) fn lower_generator_like_function(
     };
 
     vec![visible_function, resume_function]
+}
+
+pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
+    module: BlockPyModule<CoreBlockPyPassWithYield>,
+) -> BlockPyModule<CoreBlockPyPass> {
+    let module =
+        module.map_callable_defs(make_eval_order_explicit_in_core_callable_def_without_await);
+    let next_hidden_function_id = module
+        .callable_defs
+        .iter()
+        .map(|callable| callable.function_id.0)
+        .max()
+        .map(|value| value + 1)
+        .unwrap_or(0);
+    let mut module_name_gen = ModuleNameGen::new(next_hidden_function_id);
+    let mut callable_defs = Vec::new();
+    for callable in module.callable_defs {
+        match callable.kind {
+            FunctionKind::Function => {
+                let qualname = callable.names.qualname.clone();
+                let mut mapper = ErrOnYield;
+                callable_defs.push(try_map_fn(&mut mapper, callable).unwrap_or_else(|_| {
+                    panic!(
+                        "core BlockPy yield lowering is not explicit yet: yield-family expr reached the core no-yield boundary for {}",
+                        qualname
+                    )
+                }));
+            }
+            FunctionKind::Generator | FunctionKind::Coroutine | FunctionKind::AsyncGenerator => {
+                callable_defs.extend(lower_generator_like_function(
+                    callable,
+                    &mut module_name_gen,
+                ));
+            }
+        }
+    }
+    BlockPyModule {
+        callable_defs,
+        module_constants: Vec::new(),
+    }
 }
 
 #[cfg(test)]

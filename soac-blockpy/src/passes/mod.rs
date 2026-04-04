@@ -50,7 +50,7 @@ impl BlockPyPass for CodegenBlockPyPass {
     type Expr = CodegenBlockPyExpr;
 }
 
-pub(crate) use blockpy_to_bb::lower_yield_in_lowered_core_blockpy_module_bundle;
+pub(crate) use blockpy_generators::lower_yield_in_lowered_core_blockpy_module_bundle;
 pub use blockpy_to_bb::{lower_try_jump_exception_flow, normalize_bb_module_strings};
 
 pub(crate) use name_binding::lower_name_binding_in_core_blockpy_module;

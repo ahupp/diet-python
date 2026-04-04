@@ -31,8 +31,7 @@ pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod scope;
 pub(crate) mod validate;
-pub(crate) use convert::ErrOnAwait;
-pub(crate) use convert::{map_fn, map_module, try_map_fn, try_map_term, ErrOnYield};
+pub(crate) use convert::{map_fn, map_module, try_map_fn, try_map_term};
 pub use name_gen::{BlockLabel, FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
 

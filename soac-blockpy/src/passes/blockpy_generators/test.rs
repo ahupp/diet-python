@@ -1,15 +1,17 @@
 use super::{
     augment_resume_semantic_for_standard_name_binding, build_blockpy_storage_layout,
-    persistent_generator_state_order, resume_closure_bindings,
+    persistent_generator_state_order, resume_closure_bindings, ErrOnYield,
 };
 use crate::block_py::{
-    BindingKind, BindingPurpose, Block, BlockBuilder, BlockLabel, BlockTerm, CallableScopeInfo,
-    CallableScopeKind, CellBindingKind, ClosureInit, ClosureSlot, FunctionId, FunctionName,
-    StorageLayout,
+    core_call_expr_with_meta, BindingKind, BindingPurpose, Block, BlockBuilder, BlockLabel,
+    BlockTerm, CallableScopeInfo, CallableScopeKind, CellBindingKind, ClosureInit, ClosureSlot,
+    CoreBlockPyCallArg, CoreBlockPyExprWithYield, FunctionId, FunctionName, HasMeta, Meta,
+    StorageLayout, WithMeta, Yield,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::py_expr;
-use ruff_python_ast::Expr;
+use ruff_python_ast::{self as ast, Expr};
+use ruff_text_size::TextRange;
 use std::collections::HashSet;
 
 fn generator_test_semantic() -> CallableScopeInfo {
@@ -94,6 +96,19 @@ fn build_closure_backed_generator_factory_block(
         None,
         None,
     )
+}
+
+fn name_expr(name: &str) -> ast::ExprName {
+    let Expr::Name(name) = py_expr!("{name:id}", name = name) else {
+        unreachable!();
+    };
+    name
+}
+
+fn core_load_with_yield(name: &str) -> CoreBlockPyExprWithYield {
+    let name = name_expr(name);
+    let meta = name.meta();
+    crate::block_py::Load::new(name).with_meta(meta).into()
 }
 
 #[test]
@@ -279,6 +294,22 @@ fn build_blockpy_storage_layout_classifies_capture_local_and_runtime_cells() {
             ),
         ]
     );
+}
+
+#[test]
+fn term_conversion_to_no_yield_rejects_nested_yield() {
+    let term = BlockTerm::Return(core_call_expr_with_meta(
+        core_load_with_yield("f"),
+        ast::AtomicNodeIndex::default(),
+        TextRange::default(),
+        vec![CoreBlockPyCallArg::Positional(CoreBlockPyExprWithYield::Yield(
+            Yield::new(core_load_with_yield("x")).with_meta(Meta::default()),
+        ))],
+        Vec::new(),
+    ));
+
+    let mut mapper = ErrOnYield;
+    assert!(crate::block_py::try_map_term(&mut mapper, term).is_err());
 }
 
 #[test]
