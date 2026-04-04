@@ -82,6 +82,15 @@ impl LocalLocation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GlobalSlot(pub u32);
+
+impl GlobalSlot {
+    pub fn slot(self) -> u32 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CellLocation {
     Owned(u32),
     Closure(u32),
@@ -111,7 +120,7 @@ impl CellLocation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NameLocation {
     Local(LocalLocation),
-    Global,
+    Global(GlobalSlot),
     RuntimeName,
     Cell(CellLocation),
     Constant(u32),
@@ -122,8 +131,8 @@ impl NameLocation {
         Self::Local(LocalLocation(slot))
     }
 
-    pub fn global() -> Self {
-        Self::Global
+    pub fn global(slot: u32) -> Self {
+        Self::Global(GlobalSlot(slot))
     }
 
     pub fn runtime_name() -> Self {
@@ -149,26 +158,33 @@ impl NameLocation {
     pub fn as_local(self) -> Option<LocalLocation> {
         match self {
             Self::Local(location) => Some(location),
-            Self::Global | Self::RuntimeName | Self::Cell(_) | Self::Constant(_) => None,
+            Self::Global(_) | Self::RuntimeName | Self::Cell(_) | Self::Constant(_) => None,
         }
     }
 
     pub fn as_cell(self) -> Option<CellLocation> {
         match self {
             Self::Cell(location) => Some(location),
-            Self::Local(_) | Self::Global | Self::RuntimeName | Self::Constant(_) => None,
+            Self::Local(_) | Self::Global(_) | Self::RuntimeName | Self::Constant(_) => None,
         }
     }
 
     pub fn as_constant(self) -> Option<u32> {
         match self {
             Self::Constant(index) => Some(index),
-            Self::Local(_) | Self::Global | Self::RuntimeName | Self::Cell(_) => None,
+            Self::Local(_) | Self::Global(_) | Self::RuntimeName | Self::Cell(_) => None,
+        }
+    }
+
+    pub fn as_global(self) -> Option<GlobalSlot> {
+        match self {
+            Self::Global(slot) => Some(slot),
+            Self::Local(_) | Self::RuntimeName | Self::Cell(_) | Self::Constant(_) => None,
         }
     }
 
     pub fn is_global(self) -> bool {
-        matches!(self, Self::Global)
+        matches!(self, Self::Global(_))
     }
 
     pub fn is_runtime_name(self) -> bool {
@@ -178,7 +194,7 @@ impl NameLocation {
     pub fn pretty_id(self, unresolved_name: &str) -> String {
         match self {
             Self::Local(location) => format!("{location:?}"),
-            Self::Global => unresolved_name.to_string(),
+            Self::Global(slot) => format!("{unresolved_name}@g{}", slot.slot()),
             Self::RuntimeName => unresolved_name.to_string(),
             Self::Cell(location) => format!("{location:?}"),
             Self::Constant(index) => format!("constant slot {index}"),
@@ -570,6 +586,7 @@ impl<S, T: Instr> Block<S, T> {
 #[derive(Debug, Clone, Default)]
 pub struct BlockPyModule<P: BlockPyPass, S = <P as BlockPyPass>::Expr> {
     pub module_name_gen: ModuleNameGen,
+    pub global_names: Vec<String>,
     pub callable_defs: Vec<BlockPyFunction<P, S>>,
     pub module_constants: Vec<CoreBlockPyExpr<LocatedName>>,
     pub counter_defs: Vec<CounterDef>,
@@ -590,6 +607,7 @@ impl<P: BlockPyPass, S> BlockPyModule<P, S> {
         );
         BlockPyModule {
             module_name_gen: self.module_name_gen,
+            global_names: self.global_names,
             callable_defs: self.callable_defs.into_iter().map(&mut f).collect(),
             module_constants: Vec::new(),
             counter_defs: Vec::new(),

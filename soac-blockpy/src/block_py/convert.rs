@@ -37,6 +37,7 @@ where
 {
     BlockPyModule {
         module_name_gen: module.module_name_gen,
+        global_names: module.global_names,
         callable_defs: module
             .callable_defs
             .into_iter()

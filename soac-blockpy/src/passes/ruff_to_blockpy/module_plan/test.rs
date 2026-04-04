@@ -454,6 +454,7 @@ fn lowering_recursive_local_function_with_finally_keeps_plain_binding_before_nam
     let rendered =
         crate::block_py::pretty::blockpy_module_to_string(&crate::block_py::BlockPyModule {
             module_name_gen: crate::block_py::ModuleNameGen::new(0),
+            global_names: Vec::new(),
             callable_defs: vec![exercise.clone()],
             module_constants: Vec::new(),
             counter_defs: Vec::new(),
@@ -533,6 +534,7 @@ fn lowering_recursive_local_function_finally_return_preserves_liveins() {
     let rendered =
         crate::block_py::pretty::blockpy_module_to_string(&crate::block_py::BlockPyModule {
             module_name_gen: crate::block_py::ModuleNameGen::new(0),
+            global_names: Vec::new(),
             callable_defs: vec![exercise.clone()],
             module_constants: Vec::new(),
             counter_defs: Vec::new(),
@@ -580,6 +582,7 @@ fn lowering_nonlocal_inner_captures_outer_cell() {
     let rendered =
         crate::block_py::pretty::blockpy_module_to_string(&crate::block_py::BlockPyModule {
             module_name_gen: crate::block_py::ModuleNameGen::new(0),
+            global_names: Vec::new(),
             callable_defs: vec![outer.clone()],
             module_constants: Vec::new(),
             counter_defs: Vec::new(),

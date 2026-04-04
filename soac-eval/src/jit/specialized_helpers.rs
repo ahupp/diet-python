@@ -6,6 +6,9 @@ use std::ptr;
 use std::sync::OnceLock;
 
 #[cfg(not(test))]
+use std::sync::atomic::{AtomicPtr, Ordering};
+
+#[cfg(not(test))]
 use crate::module_constants::{load_runtime_name_owned, raise_name_error_for_missing_name};
 
 #[cfg(not(test))]
@@ -100,8 +103,13 @@ unsafe extern "C" fn get_arg_item_hook(args: ObjPtr, index: i64) -> ObjPtr {
 }
 
 #[cfg(not(test))]
-unsafe fn load_global_obj_impl(globals_obj: ObjPtr, name_obj: *mut ffi::PyObject) -> ObjPtr {
-    if globals_obj.is_null() || name_obj.is_null() {
+unsafe fn load_global_obj_impl(
+    globals_obj: ObjPtr,
+    global_slots_obj: ObjPtr,
+    name_obj: *mut ffi::PyObject,
+    slot_index: i64,
+) -> ObjPtr {
+    if globals_obj.is_null() || global_slots_obj.is_null() || name_obj.is_null() {
         ffi::PyErr_SetString(
             ffi::PyExc_RuntimeError,
             b"invalid arguments to dp_jit_load_global_obj\0".as_ptr() as *const i8,
@@ -110,6 +118,15 @@ unsafe fn load_global_obj_impl(globals_obj: ObjPtr, name_obj: *mut ffi::PyObject
     }
     let value = ffi::PyObject_GetItem(globals_obj as *mut ffi::PyObject, name_obj);
     if !value.is_null() {
+        if slot_index >= 0 {
+            let entry = (global_slots_obj as *mut AtomicPtr<ffi::PyObject>)
+                .add(slot_index as usize);
+            let old = (*entry).swap(value, Ordering::AcqRel);
+            if !old.is_null() {
+                ffi::Py_DECREF(old);
+            }
+            ffi::Py_INCREF(value);
+        }
         return value as ObjPtr;
     }
     if ffi::PyErr_ExceptionMatches(ffi::PyExc_KeyError) == 0 {
@@ -660,8 +677,13 @@ unsafe extern "C" fn del_deref_quietly_hook(cell: ObjPtr) -> ObjPtr {
 }
 
 #[cfg(not(test))]
-unsafe extern "C" fn load_global_obj_hook(globals_obj: ObjPtr, name: ObjPtr) -> ObjPtr {
-    load_global_obj_impl(globals_obj, name as *mut ffi::PyObject)
+unsafe extern "C" fn load_global_obj_hook(
+    globals_obj: ObjPtr,
+    global_slots_obj: ObjPtr,
+    name: ObjPtr,
+    slot_index: i64,
+) -> ObjPtr {
+    load_global_obj_impl(globals_obj, global_slots_obj, name as *mut ffi::PyObject, slot_index)
 }
 
 #[cfg(not(test))]
@@ -780,7 +802,12 @@ mod test_only_export_stubs {
     panic_obj_export!(dp_jit_pyobject_getitem(obj: ObjPtr, key: ObjPtr));
     panic_obj_export!(dp_jit_pyobject_setitem(obj: ObjPtr, key: ObjPtr, value: ObjPtr));
     panic_obj_export!(dp_jit_pyobject_delitem(obj: ObjPtr, key: ObjPtr));
-    panic_obj_export!(dp_jit_load_global_obj(globals_obj: ObjPtr, name: ObjPtr));
+panic_obj_export!(dp_jit_load_global_obj(
+    globals_obj: ObjPtr,
+    global_slots_obj: ObjPtr,
+    name: ObjPtr,
+    slot_index: i64
+));
     panic_obj_export!(dp_jit_store_global(globals_obj: ObjPtr, name: ObjPtr, value: ObjPtr));
     panic_obj_export!(dp_jit_del_quietly(obj: ObjPtr, key: ObjPtr));
     panic_i64_export!(dp_jit_pyobject_to_i64(value: ObjPtr));
@@ -900,8 +927,13 @@ pub unsafe extern "C" fn dp_jit_pyobject_delitem(obj: ObjPtr, key: ObjPtr) -> Ob
 }
 
 #[cfg(not(test))]
-pub unsafe extern "C" fn dp_jit_load_global_obj(globals_obj: ObjPtr, name: ObjPtr) -> ObjPtr {
-    load_global_obj_hook(globals_obj, name)
+pub unsafe extern "C" fn dp_jit_load_global_obj(
+    globals_obj: ObjPtr,
+    global_slots_obj: ObjPtr,
+    name: ObjPtr,
+    slot_index: i64,
+) -> ObjPtr {
+    load_global_obj_hook(globals_obj, global_slots_obj, name, slot_index)
 }
 
 #[cfg(not(test))]

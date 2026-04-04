@@ -156,6 +156,7 @@ pub unsafe fn clone_module_runtime_context(
 ) -> Result<jit::ModuleRuntimeContext, ()> {
     if runtime.vmctx.shared_module_state.is_null()
         || runtime.vmctx.globals_obj.is_null()
+        || runtime.vmctx.global_slots.is_null()
         || runtime.vmctx.true_obj.is_null()
         || runtime.vmctx.false_obj.is_null()
         || runtime.vmctx.none_obj.is_null()
@@ -173,10 +174,12 @@ pub unsafe fn clone_module_runtime_context(
         ffi::Py_INCREF(runtime.vmctx.empty_tuple_obj as *mut ffi::PyObject);
     }
     let shared_module_state_owner = runtime.shared_module_state_owner.clone();
+    let global_cache_owner = runtime.global_cache_owner.clone();
     Ok(jit::ModuleRuntimeContext {
         vmctx: jit::JitModuleVmCtx {
             shared_module_state: std::sync::Arc::as_ptr(&shared_module_state_owner),
             globals_obj: runtime.vmctx.globals_obj,
+            global_slots: runtime.vmctx.global_slots,
             true_obj: runtime.vmctx.true_obj,
             false_obj: runtime.vmctx.false_obj,
             none_obj: runtime.vmctx.none_obj,
@@ -184,6 +187,7 @@ pub unsafe fn clone_module_runtime_context(
             empty_tuple_obj: runtime.vmctx.empty_tuple_obj,
         },
         shared_module_state_owner,
+        global_cache_owner,
     })
 }
 
@@ -209,41 +213,59 @@ pub unsafe fn build_module_runtime_context_for_module(
         return Err(());
     };
     unsafe { ffi::Py_INCREF(globals_obj) };
-    let mut module_runtime = jit::ModuleRuntimeContext {
-        vmctx: jit::JitModuleVmCtx {
-            shared_module_state: std::sync::Arc::as_ptr(&shared_module_state),
-            globals_obj: globals_obj as *mut c_void,
-            true_obj: ptr::null_mut(),
-            false_obj: ptr::null_mut(),
-            none_obj: ptr::null_mut(),
-            deleted_obj: ptr::null_mut(),
-            empty_tuple_obj: ptr::null_mut(),
-        },
-        shared_module_state_owner: shared_module_state,
-    };
     let true_obj = unsafe { ffi::PyBool_FromLong(1) };
     if true_obj.is_null() {
         return Err(());
     }
-    module_runtime.vmctx.true_obj = true_obj as *mut c_void;
     let false_obj = unsafe { ffi::PyBool_FromLong(0) };
     if false_obj.is_null() {
+        unsafe { ffi::Py_DECREF(true_obj) };
         return Err(());
     }
-    module_runtime.vmctx.false_obj = false_obj as *mut c_void;
     let none_obj = py.None().as_ptr();
     unsafe { ffi::Py_INCREF(none_obj) };
-    module_runtime.vmctx.none_obj = none_obj as *mut c_void;
     let deleted_obj = match unsafe { lookup_deleted_sentinel() } {
         Ok(value) => value,
-        Err(()) => return Err(()),
+        Err(()) => {
+            unsafe {
+                ffi::Py_DECREF(true_obj);
+                ffi::Py_DECREF(false_obj);
+                ffi::Py_DECREF(none_obj);
+                ffi::Py_DECREF(globals_obj);
+            }
+            return Err(());
+        }
     };
-    unsafe { ffi::Py_INCREF(deleted_obj) };
-    module_runtime.vmctx.deleted_obj = deleted_obj as *mut c_void;
+    let global_cache = crate::module_type::SoacExtModule::clone_or_init_global_cache(
+        module.as_any(),
+        globals_obj,
+    )
+    .map_err(|err| {
+        err.restore(py);
+        unsafe {
+            ffi::Py_DECREF(true_obj);
+            ffi::Py_DECREF(false_obj);
+            ffi::Py_DECREF(none_obj);
+            ffi::Py_DECREF(deleted_obj);
+            ffi::Py_DECREF(globals_obj);
+        }
+    })?;
     let empty_tuple_obj = PyTuple::empty(py).as_ptr();
     unsafe { ffi::Py_INCREF(empty_tuple_obj) };
-    module_runtime.vmctx.empty_tuple_obj = empty_tuple_obj as *mut c_void;
-    Ok(module_runtime)
+    Ok(jit::ModuleRuntimeContext {
+        vmctx: jit::JitModuleVmCtx {
+            shared_module_state: std::sync::Arc::as_ptr(&shared_module_state),
+            globals_obj: globals_obj as *mut c_void,
+            global_slots: global_cache.slots_ptr() as *mut c_void,
+            true_obj: true_obj as *mut c_void,
+            false_obj: false_obj as *mut c_void,
+            none_obj: none_obj as *mut c_void,
+            deleted_obj: deleted_obj as *mut c_void,
+            empty_tuple_obj: empty_tuple_obj as *mut c_void,
+        },
+        shared_module_state_owner: shared_module_state,
+        global_cache_owner: global_cache,
+    })
 }
 
 unsafe fn make_clif_function_data(

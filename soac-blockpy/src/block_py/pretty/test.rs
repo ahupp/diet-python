@@ -93,6 +93,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
 fn renders_empty_module_marker() {
     let empty_module: BlockPyModule<CoreBlockPyPassWithAwaitAndYield> = BlockPyModule {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
+        global_names: Vec::new(),
         callable_defs: Vec::new(),
         module_constants: Vec::new(),
         counter_defs: Vec::new(),
@@ -111,7 +112,7 @@ fn bb_text_renders_located_names_with_resolved_locations() {
         Box::new(closure_expr.clone()),
     )
     .into();
-    let global_name = located_name("answer", NameLocation::Global);
+    let global_name = located_name("answer", NameLocation::global(0));
     let global_expr: crate::block_py::LocatedCoreBlockPyExpr =
         crate::block_py::Load::new(global_name.clone()).into();
 
@@ -127,7 +128,7 @@ fn bb_text_renders_located_names_with_resolved_locations() {
     );
     assert!(assign_rendered.contains("Closure(2)"), "{assign_rendered}");
     let global_rendered = bb_expr_text(&global_expr);
-    assert_eq!(global_rendered, "answer");
+    assert_eq!(global_rendered, "answer@g0");
 }
 
 #[test]
@@ -205,6 +206,7 @@ async def no_lying():
     let function = function_by_bind_name(&blockpy, "no_lying");
     let rendered = blockpy_module_to_string(&BlockPyModule {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
+        global_names: Vec::new(),
         callable_defs: vec![function.clone()],
         module_constants: Vec::new(),
         counter_defs: Vec::new(),
@@ -234,6 +236,7 @@ async def no_lying():
 fn renders_public_closure_metadata_in_function_header() {
     let rendered = blockpy_module_to_string(&BlockPyModule {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
+        global_names: Vec::new(),
         callable_defs: vec![BlockPyFunction::<CoreBlockPyPassWithAwaitAndYield> {
             function_id: crate::block_py::FunctionId(0),
             name_gen: test_name_gen(),
@@ -326,6 +329,7 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
     };
     let rendered = blockpy_module_to_string(&BlockPyModule {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
+        global_names: Vec::new(),
         callable_defs: vec![function],
         module_constants: Vec::new(),
         counter_defs: Vec::new(),
@@ -409,6 +413,7 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
     };
     let rendered = blockpy_module_to_string(&BlockPyModule {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
+        global_names: Vec::new(),
         callable_defs: vec![function],
         module_constants: Vec::new(),
         counter_defs: Vec::new(),
@@ -458,6 +463,7 @@ fn collects_referenced_labels_from_nested_if_fragments_via_visitor() {
 fn renders_bb_block_metadata_with_shared_layout() {
     let rendered = blockpy_module_to_string(&BlockPyModule {
         module_name_gen: crate::block_py::ModuleNameGen::new(0),
+        global_names: Vec::new(),
         callable_defs: vec![BlockPyFunction::<ResolvedStorageBlockPyPass> {
             function_id: crate::block_py::FunctionId(0),
             name_gen: test_name_gen(),

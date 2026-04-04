@@ -101,7 +101,7 @@ fn rewrite_current_exception_in_located_expr(expr: &mut LocatedCoreBlockPyExpr, 
 fn current_exception_name_expr_located(exc_name: &str) -> LocatedCoreBlockPyExpr {
     crate::block_py::Load::new(LocatedName {
         id: exc_name.into(),
-        location: NameLocation::Global,
+        location: NameLocation::global(0),
     })
     .with_meta(Meta::synthetic())
     .into()

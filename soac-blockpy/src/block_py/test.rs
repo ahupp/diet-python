@@ -164,6 +164,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
 
     let module = BlockPyModule::<StructuredExprPass, StructuredInstr<Expr>> {
         module_name_gen: ModuleNameGen::new(0),
+        global_names: Vec::new(),
         callable_defs: vec![BlockPyFunction {
             function_id: FunctionId(0),
             name_gen: test_name_gen(),

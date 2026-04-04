@@ -1,4 +1,5 @@
 use crate::module_constants::ModuleCodegenConstants;
+use crate::module_globals::ModuleGlobalCache;
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::ffi;
 use pyo3::prelude::*;
@@ -265,6 +266,8 @@ fn build_function_index_by_id(
 struct SoacExtModuleState {
     initialized: bool,
     shared_state: MaybeUninit<Arc<SharedModuleState>>,
+    global_cache: MaybeUninit<Arc<ModuleGlobalCache>>,
+    global_cache_initialized: bool,
 }
 
 impl SoacExtModuleState {
@@ -296,6 +299,7 @@ impl SoacExtModuleState {
             counter_values,
         }));
         self.initialized = true;
+        self.global_cache_initialized = false;
         Ok(())
     }
 
@@ -307,6 +311,10 @@ impl SoacExtModuleState {
         let counter_report = shared_state.counter_report_text();
         if !counter_report.is_empty() {
             eprint!("{counter_report}");
+        }
+        if self.global_cache_initialized {
+            unsafe { ptr::drop_in_place(self.global_cache.as_mut_ptr()) };
+            self.global_cache_initialized = false;
         }
         unsafe { ptr::drop_in_place(self.shared_state.as_mut_ptr()) };
         self.initialized = false;
@@ -330,6 +338,38 @@ impl SoacExtModuleState {
             ));
         }
         Ok(unsafe { self.shared_state.assume_init_ref().clone() })
+    }
+
+    unsafe fn clone_or_init_global_cache(
+        &mut self,
+        globals_obj: *mut ffi::PyObject,
+    ) -> PyResult<Arc<ModuleGlobalCache>> {
+        if !self.initialized {
+            return Err(PyRuntimeError::new_err(
+                "missing transformed-module lowering data in module state",
+            ));
+        }
+        if self.global_cache_initialized {
+            return Ok(unsafe { self.global_cache.assume_init_ref().clone() });
+        }
+        let slot_count = unsafe {
+            self.shared_state
+                .assume_init_ref()
+                .lowered_module
+                .global_names
+                .len()
+        };
+        let cache = unsafe { ModuleGlobalCache::new(globals_obj, slot_count) }
+            .map_err(|_| {
+                if unsafe { ffi::PyErr_Occurred() }.is_null() {
+                    PyRuntimeError::new_err("failed to create module global cache")
+                } else {
+                    PyErr::fetch(Python::assume_attached())
+                }
+            })?;
+        self.global_cache.write(cache.clone());
+        self.global_cache_initialized = true;
+        Ok(cache)
     }
 }
 
@@ -449,6 +489,14 @@ impl SoacExtModule {
     pub fn clone_shared_state(module: &Bound<'_, PyAny>) -> PyResult<Arc<SharedModuleState>> {
         let state = soac_ext_module_state(module)?;
         unsafe { (*state).clone_shared_state() }
+    }
+
+    pub fn clone_or_init_global_cache(
+        module: &Bound<'_, PyAny>,
+        globals_obj: *mut ffi::PyObject,
+    ) -> PyResult<Arc<ModuleGlobalCache>> {
+        let state = soac_ext_module_state(module)?;
+        unsafe { (*state).clone_or_init_global_cache(globals_obj) }
     }
 }
 

@@ -18,7 +18,7 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
                 Store::new(
                     LocatedName {
                         id: "x".into(),
-                        location: NameLocation::Global,
+                        location: NameLocation::global(0),
                     },
                     Box::new(core_name_expr("a")),
                 )
@@ -30,7 +30,7 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
                     Store::new(
                         LocatedName {
                             id: "x".into(),
-                            location: NameLocation::Global,
+                            location: NameLocation::global(0),
                         },
                         Box::new(core_name_expr("b")),
                     )
@@ -40,7 +40,7 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
                     Store::new(
                         LocatedName {
                             id: "x".into(),
-                            location: NameLocation::Global,
+                            location: NameLocation::global(0),
                         },
                         Box::new(core_name_expr("c")),
                     )
@@ -69,7 +69,7 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
 fn core_name_expr(name: &str) -> LocatedCoreBlockPyExpr {
     let name = LocatedName {
         id: name.into(),
-        location: NameLocation::Global,
+        location: NameLocation::global(0),
     };
     crate::block_py::Load::new(name.clone())
         .with_meta(crate::block_py::Meta::synthetic())

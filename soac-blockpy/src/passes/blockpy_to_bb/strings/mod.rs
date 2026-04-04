@@ -18,6 +18,7 @@ pub fn normalize_bb_module_strings(
     module_constants.extend(normalizer.module_constants);
     BlockPyModule {
         module_name_gen: module.module_name_gen,
+        global_names: module.global_names,
         callable_defs,
         module_constants,
         counter_defs: module.counter_defs,

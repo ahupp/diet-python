@@ -37,7 +37,7 @@ mod tests {
     fn test_global_name(name: &str) -> LocatedName {
         LocatedName {
             id: name.into(),
-            location: NameLocation::Global,
+            location: NameLocation::global(0),
         }
     }
 
@@ -223,6 +223,7 @@ mod tests {
     ) -> String {
         let module = BlockPyModule {
             module_name_gen: ModuleNameGen::new(0),
+            global_names: Vec::new(),
             callable_defs: vec![function.clone()],
             module_constants,
             counter_defs: Vec::new(),
@@ -301,10 +302,16 @@ mod tests {
         ffi::Py_INCREF(deleted_obj.cast());
         let empty_tuple_obj = pyo3::types::PyTuple::empty(py).as_ptr().cast::<c_void>();
         ffi::Py_INCREF(empty_tuple_obj.cast());
+        let global_cache = crate::module_globals::ModuleGlobalCache::new(
+            globals_obj.cast(),
+            shared_state.lowered_module.global_names.len(),
+        )
+        .expect("test runtime should create module global cache");
         crate::jit::ModuleRuntimeContext {
             vmctx: crate::jit::JitModuleVmCtx {
                 shared_module_state: std::sync::Arc::as_ptr(&shared_state),
                 globals_obj,
+                global_slots: global_cache.slots_ptr().cast::<c_void>(),
                 true_obj,
                 false_obj,
                 none_obj,
@@ -312,6 +319,7 @@ mod tests {
                 empty_tuple_obj,
             },
             shared_module_state_owner: shared_state,
+            global_cache_owner: global_cache,
         }
     }
 
@@ -1034,6 +1042,7 @@ def f(x):
         );
         let module = BlockPyModule {
             module_name_gen: ModuleNameGen::new(0),
+            global_names: Vec::new(),
             callable_defs: vec![function.clone()],
             module_constants: vec![int_literal(7)],
             counter_defs: Vec::new(),

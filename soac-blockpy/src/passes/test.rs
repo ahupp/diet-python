@@ -860,7 +860,7 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("StoreName(\"caught\", LocalLocation("),
+        name_binding_rendered.contains("caught@g") && name_binding_rendered.contains("LocalLocation("),
         "{name_binding_rendered}"
     );
     assert!(
@@ -971,7 +971,7 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("StoreName(\"y\", constant slot"),
+        name_binding_rendered.contains("y@g") && name_binding_rendered.contains("constant slot"),
         "{name_binding_rendered}"
     );
 }
@@ -1028,7 +1028,7 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("StoreName(\"y\", LocalLocation("),
+        name_binding_rendered.contains("y@g") && name_binding_rendered.contains("LocalLocation("),
         "{name_binding_rendered}"
     );
 }
@@ -1538,7 +1538,7 @@ def f():
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("StoreName(\"f\",")
+        name_binding_rendered.contains("f@g")
             && module_constant_text(lowered.bb_module()).contains("make_function"),
         "{}\n{}",
         name_binding_rendered,
@@ -1574,11 +1574,11 @@ y = x
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("StoreName(\"x\", constant slot"),
+        name_binding_rendered.contains("x@g") && name_binding_rendered.contains("constant slot"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("StoreName(\"y\", x)"),
+        name_binding_rendered.contains("y@g") && name_binding_rendered.contains("x@g"),
         "{name_binding_rendered}"
     );
 }
@@ -1613,11 +1613,11 @@ x = (y := f())
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("StoreName(\"y\", f())"),
+        name_binding_rendered.contains("y@g"),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("StoreName(\"x\", y)"),
+        name_binding_rendered.contains("x@g") && name_binding_rendered.contains("y@g"),
         "{name_binding_rendered}"
     );
 }
@@ -1648,11 +1648,11 @@ x = [y := i for i in [1, 2]]
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("StoreName(\"y\", LocalLocation("),
+        name_binding_rendered.contains("y@g") && name_binding_rendered.contains("LocalLocation("),
         "{name_binding_rendered}"
     );
     assert!(
-        name_binding_rendered.contains("StoreName(\"x\", LocalLocation(0)("),
+        name_binding_rendered.contains("x@g"),
         "{name_binding_rendered}"
     );
 }
@@ -1677,7 +1677,7 @@ for x in [1, 2]:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("StoreName(\"x\", LocalLocation("),
+        name_binding_rendered.contains("x@g") && name_binding_rendered.contains("LocalLocation("),
         "{name_binding_rendered}"
     );
 }
@@ -1712,7 +1712,7 @@ except Exception as exc:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("StoreName(\"exc\", LocalLocation("),
+        name_binding_rendered.contains("exc@g") && name_binding_rendered.contains("LocalLocation("),
         "{name_binding_rendered}"
     );
     assert!(
@@ -3055,14 +3055,14 @@ def outer_read():
         init_fn
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "StoreName")),
+            .any(|block| block_uses_text(block, "StoreLocation(")),
         "{init_fn:?}"
     );
     assert!(
         init_fn
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "\"outer_read\"")),
+            .any(|block| block_uses_text(block, "outer_read@g")),
         "{init_fn:?}"
     );
 }
@@ -3106,21 +3106,21 @@ class Box:
         init_fn
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "StoreName")),
+            .any(|block| block_uses_text(block, "StoreLocation(")),
         "{init_fn:?}"
     );
     assert!(
         init_fn
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "\"VALUE\"")),
+            .any(|block| block_uses_text(block, "VALUE@g")),
         "{init_fn:?}"
     );
     assert!(
         init_fn
             .blocks
             .iter()
-            .any(|block| block_uses_text(block, "\"Box\"")),
+            .any(|block| block_uses_text(block, "Box@g")),
         "{init_fn:?}"
     );
 }

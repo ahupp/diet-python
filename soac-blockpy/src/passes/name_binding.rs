@@ -1743,6 +1743,30 @@ struct NameLocator<'a> {
     captured_cell_slots: HashMap<String, u32>,
     owned_cell_slots: HashMap<String, u32>,
     cell_bindings: HashMap<String, (String, CellBindingKind)>,
+    global_slots: &'a mut ModuleGlobalSlots,
+}
+
+#[derive(Default)]
+struct ModuleGlobalSlots {
+    slot_by_name: HashMap<String, u32>,
+    names: Vec<String>,
+}
+
+impl ModuleGlobalSlots {
+    fn slot_for(&mut self, name: &str) -> u32 {
+        if let Some(slot) = self.slot_by_name.get(name).copied() {
+            return slot;
+        }
+        let slot = u32::try_from(self.names.len())
+            .expect("module global slot count should fit in u32");
+        self.slot_by_name.insert(name.to_string(), slot);
+        self.names.push(name.to_string());
+        slot
+    }
+
+    fn into_names(self) -> Vec<String> {
+        self.names
+    }
 }
 
 impl NameLocator<'_> {
@@ -1803,7 +1827,7 @@ impl NameLocator<'_> {
         self.resolve_raw_cell_location(source_name.as_str())
     }
 
-    fn locate_name(&self, name: ast::name::Name) -> LocatedName {
+    fn locate_name(&mut self, name: ast::name::Name) -> LocatedName {
         let name_text = name.to_string();
         let location = if self.exception_param_names.contains(name_text.as_str()) {
             let slot = self
@@ -1876,12 +1900,12 @@ impl NameLocator<'_> {
         } else if let Some(slot) = self.local_slots.get(name_text.as_str()).copied() {
             NameLocation::local(slot)
         } else {
-            NameLocation::Global
+            NameLocation::global(self.global_slots.slot_for(name_text.as_str()))
         };
         LocatedName { id: name, location }
     }
 
-    fn locate_unresolved_name(&self, name: UnresolvedName) -> LocatedName {
+    fn locate_unresolved_name(&mut self, name: UnresolvedName) -> LocatedName {
         match name {
             UnresolvedName::SourceName(name) => self.locate_name(name),
             UnresolvedName::RuntimeName(name) => LocatedName {
@@ -2020,6 +2044,7 @@ impl MapExpr<CoreBlockPyExpr, CoreBlockPyExpr<LocatedName>> for NameLocator<'_> 
 
 fn locate_names_in_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
+    global_slots: &mut ModuleGlobalSlots,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
     let scope = callable.scope.clone();
     let exception_param_names = callable
@@ -2038,6 +2063,7 @@ fn locate_names_in_callable(
         captured_cell_slots,
         owned_cell_slots,
         cell_bindings,
+        global_slots,
     };
     map_fn(&mut mapper, callable)
 }
@@ -2489,6 +2515,7 @@ fn populate_jump_edge_args(blocks: &mut [crate::block_py::ResolvedStorageBlock])
 fn lower_name_binding_callable(
     callable: BlockPyFunction<CoreBlockPyPass>,
     callee_make_function_captures: &HashMap<crate::block_py::FunctionId, Vec<CellCaptureBinding>>,
+    global_slots: &mut ModuleGlobalSlots,
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
     let scope = callable.scope.clone();
     let local_slots = collect_local_slot_locations(&callable);
@@ -2542,7 +2569,7 @@ fn lower_name_binding_callable(
         rewrite_raw_cell_loads_in_term(&mut block.term, &scope, &mapper);
     }
     let mut lowered = normalize_stmt_ops_in_resolved_callable(refresh_bb_callable_block_params(
-        locate_names_in_callable(lowered),
+        locate_names_in_callable(lowered, global_slots),
     ));
     ensure_storage_layout_covers_block_params(&mut lowered);
     lowered
@@ -2625,15 +2652,23 @@ pub(crate) fn lower_name_binding_in_core_blockpy_module(
     let callable_defs = ensure_module_storage_layouts(module.callable_defs);
     let callee_make_function_capture_names =
         compute_module_make_function_capture_names(&callable_defs);
-    ModuleConstantExtractor::default().extract_module(BlockPyModule {
+    let mut global_slots = ModuleGlobalSlots::default();
+    let mut lowered = ModuleConstantExtractor::default().extract_module(BlockPyModule {
         module_name_gen: module.module_name_gen,
+        global_names: Vec::new(),
         callable_defs: callable_defs
             .into_iter()
             .map(|callable| {
-                lower_name_binding_callable(callable, &callee_make_function_capture_names)
+                lower_name_binding_callable(
+                    callable,
+                    &callee_make_function_capture_names,
+                    &mut global_slots,
+                )
             })
             .collect(),
         module_constants: Vec::new(),
         counter_defs: Vec::new(),
-    })
+    });
+    lowered.global_names = global_slots.into_names();
+    lowered
 }

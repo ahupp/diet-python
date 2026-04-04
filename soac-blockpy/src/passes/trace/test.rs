@@ -76,7 +76,7 @@ fn instruments_matching_function_blocks() {
         .any(|stmt| stmt.contains("bb_trace_enter")));
     assert!(f_trace_stmts
         .iter()
-        .any(|stmt| stmt.contains("_dp_try_exc")));
+        .any(|stmt| stmt.contains("LocalLocation(")));
     let g_has_trace = g
         .blocks
         .iter()

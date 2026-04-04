@@ -5,6 +5,7 @@ include!(concat!(env!("OUT_DIR"), "/soac_runtime_clif.rs"));
 
 pub mod jit;
 pub mod module_constants;
+pub mod module_globals;
 pub mod module_type;
 pub mod session;
 pub mod tree_walk;

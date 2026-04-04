@@ -42,6 +42,7 @@ pub(crate) fn instrument_bb_module_for_trace(
     module: &mut BlockPyModule<CodegenBlockPyPass>,
     config: &TraceConfig,
 ) {
+    let global_names = module.global_names.clone();
     let module_constants = &mut module.module_constants;
     for function in &mut module.callable_defs {
         if let Some(filter) = config.qualname_filter.as_ref() {
@@ -50,7 +51,7 @@ pub(crate) fn instrument_bb_module_for_trace(
             }
         }
         let qualname = function.names.qualname.clone();
-        let locator = PreparedTraceNameLocator::new(function);
+        let locator = PreparedTraceNameLocator::new(function, global_names.as_slice());
         for block in &mut function.blocks {
             let block_params = block.param_name_vec();
             let trace_expr = if config.include_params && !block_params.is_empty() {
@@ -173,21 +174,30 @@ pub fn instrument_bb_module_with_refcount_counters(
 }
 
 struct PreparedTraceNameLocator {
-    param_slots: HashMap<String, u32>,
+    local_slots: HashMap<String, u32>,
     existing_locations: HashMap<String, NameLocation>,
     captured_cell_slots: HashMap<String, u32>,
     owned_cell_slots: HashMap<String, u32>,
+    global_slots: HashMap<String, u32>,
 }
 
 impl PreparedTraceNameLocator {
-    fn new(function: &BlockPyFunction<CodegenBlockPyPass>) -> Self {
-        let param_slots = function
-            .params
-            .names()
-            .into_iter()
-            .enumerate()
-            .map(|(slot, name)| (name, slot as u32))
-            .collect::<HashMap<_, _>>();
+    fn new(function: &BlockPyFunction<CodegenBlockPyPass>, global_names: &[String]) -> Self {
+        let mut local_slots = function
+            .storage_layout
+            .as_ref()
+            .map(|layout| {
+                layout
+                    .stack_slots()
+                    .iter()
+                    .enumerate()
+                    .map(|(slot, name)| (name.clone(), slot as u32))
+                    .collect::<HashMap<_, _>>()
+            })
+            .unwrap_or_default();
+        for (slot, name) in function.params.names().into_iter().enumerate() {
+            local_slots.entry(name).or_insert(slot as u32);
+        }
         let mut existing_locations = HashMap::new();
         for block in &function.blocks {
             for stmt in &block.body {
@@ -227,16 +237,22 @@ impl PreparedTraceNameLocator {
                 slots
             })
             .unwrap_or_default();
+        let global_slots = global_names
+            .iter()
+            .enumerate()
+            .map(|(slot, name)| (name.clone(), slot as u32))
+            .collect::<HashMap<_, _>>();
         Self {
-            param_slots,
+            local_slots,
             existing_locations,
             captured_cell_slots,
             owned_cell_slots,
+            global_slots,
         }
     }
 
     fn load_name(&self, id: &str) -> LocatedName {
-        let location = if let Some(slot) = self.param_slots.get(id).copied() {
+        let location = if let Some(slot) = self.local_slots.get(id).copied() {
             NameLocation::local(slot)
         } else if let Some(location) = self.existing_locations.get(id).copied() {
             location
@@ -245,7 +261,12 @@ impl PreparedTraceNameLocator {
         } else if let Some(slot) = self.owned_cell_slots.get(id).copied() {
             NameLocation::owned_cell(slot)
         } else {
-            NameLocation::Global
+            let slot = self
+                .global_slots
+                .get(id)
+                .copied()
+                .unwrap_or_else(|| panic!("trace locator missing global slot for {id}"));
+            NameLocation::global(slot)
         };
         LocatedName {
             id: id.into(),
