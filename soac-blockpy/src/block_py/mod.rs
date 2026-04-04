@@ -22,7 +22,6 @@ use soac_macros::enum_broadcast;
 
 pub(crate) mod cfg;
 mod convert;
-pub(crate) mod dataflow;
 mod meta;
 mod name_gen;
 pub mod operation;
