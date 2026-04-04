@@ -7,8 +7,8 @@ use crate::block_py::{
     core_call_expr_with_meta, BinOpKind, BindingKind, BindingPurpose, Block, BlockBuilder,
     BlockLabel, BlockPyLiteral, BlockPyNameLike, BlockTerm, CallArgPositional, CallableScopeInfo,
     CallableScopeKind, CellBindingKind, ClosureInit, ClosureSlot, CoreBlockPyExpr,
-    CoreBlockPyExprWithYield, FunctionId, FunctionName, HasMeta, Meta, StorageLayout, UnaryOpKind,
-    WithMeta, Yield,
+    CoreBlockPyExprWithYield, FunctionId, FunctionName, HasMeta, Meta, StorageLayout,
+    StructuredInstr, UnaryOpKind, WithMeta, Yield,
 };
 use crate::passes::ast_to_ast::scope_helpers::is_internal_symbol;
 use crate::py_expr;
@@ -47,14 +47,6 @@ fn generator_resume_source_semantic(layout: &StorageLayout) -> CallableScopeInfo
     scope
 }
 
-fn blockpy_make_dp_tuple(items: Vec<Expr>) -> Expr {
-    let Expr::Call(mut call) = py_expr!("__dp_tuple()") else {
-        panic!("expected call expression for __dp_tuple");
-    };
-    call.arguments.args = items.into();
-    Expr::Call(call)
-}
-
 fn build_closure_backed_generator_factory_block(
     _factory_label: &str,
     visible_names: &FunctionName,
@@ -63,7 +55,7 @@ fn build_closure_backed_generator_factory_block(
     _layout: &StorageLayout,
     is_coroutine: bool,
     is_async_generator: bool,
-) -> crate::block_py::BlockPyBlock<Expr> {
+) -> Block<StructuredInstr<Expr>, Expr> {
     let resume_entry = py_expr!(
         "__dp_make_function({function_id:literal}, \"function\", __dp_tuple(), __dp_tuple(), None)",
         function_id = resume_function_id.0,

@@ -79,7 +79,6 @@ enum SigType {
     Pointer,
     I64,
     I32,
-    F64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -407,20 +406,6 @@ fn codegen_expr_is_borrowable(
     stack_slots: &StackSlots,
     storage_layout: Option<&StorageLayout>,
 ) -> bool {
-    fn located_local_name_is_borrowable(
-        name: &LocatedName,
-        local_names: &[String],
-        stack_slots: &StackSlots,
-    ) -> bool {
-        if name.local_location().is_none() {
-            return false;
-        }
-        local_names
-            .iter()
-            .any(|candidate| candidate == name.id.as_str())
-            || stack_slots.has_name(name.id.as_str())
-    }
-
     match expr {
         CodegenBlockPyExpr::Load(op) => op
             .name
@@ -634,7 +619,6 @@ struct JitEmitConsts {
     step_null_args: Vec<ir::Value>,
     ptr_ty: ir::Type,
     i64_ty: ir::Type,
-    vmctx_value: ir::Value,
     callable_value: ir::Value,
     none_const: ir::Value,
     true_const: ir::Value,
@@ -3354,7 +3338,6 @@ fn lower_static_signature(jit_module: &mut JITModule, signature: StaticSignature
         SigType::Pointer => jit_module.target_config().pointer_type(),
         SigType::I64 => ir::types::I64,
         SigType::I32 => ir::types::I32,
-        SigType::F64 => ir::types::F64,
     };
     for param in signature.params {
         lowered
@@ -4234,7 +4217,6 @@ fn build_cranelift_run_bb_specialized_function(
                     step_null_args: fast_step_null_args,
                     ptr_ty,
                     i64_ty,
-                    vmctx_value,
                     callable_value: callable,
                     none_const,
                     true_const,

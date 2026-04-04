@@ -2,10 +2,10 @@ use super::*;
 use soac_blockpy::block_py::{
     BinOp, BinOpKind, BlockParamRole, BlockPyFunction, BlockPyLiteral, BlockPyModule, BlockTerm,
     Call, CallArgPositional, CellLocation, ClosureInit, ClosureSlot, CodegenBlock,
-    CodegenBlockPyExpr, CoreBlockPyExpr, CoreBytesLiteral, CoreNumberLiteral,
-    CoreNumberLiteralValue, CoreStringLiteral, CounterPoint, Del, DelItem, FunctionName,
-    LiteralValue, Load, LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen, NameLocation, Param,
-    ParamKind, ParamSpec, StorageLayout, Store,
+    CodegenBlockPyExpr, CoreBlockPyExpr, CoreNumberLiteral, CoreNumberLiteralValue,
+    CoreStringLiteral, CounterPoint, Del, DelItem, FunctionName, LiteralValue, Load,
+    LocatedCoreBlockPyExpr, LocatedName, ModuleNameGen, NameLocation, Param, ParamKind, ParamSpec,
+    StorageLayout, Store,
 };
 use soac_blockpy::passes::{
     CodegenBlockPyPass, instrument_bb_module_with_block_entry_counters,
@@ -62,13 +62,6 @@ mod tests {
         }
     }
 
-    fn test_captured_cell_source_name(name: &str, slot: u32) -> LocatedName {
-        LocatedName {
-            id: name.into(),
-            location: NameLocation::captured_source_cell(slot),
-        }
-    }
-
     fn int_literal(value: i64) -> LocatedCoreBlockPyExpr {
         let value_str = value.to_string();
         let literal = BlockPyLiteral::NumberLiteral(CoreNumberLiteral {
@@ -76,13 +69,6 @@ mod tests {
                 ast::Int::from_str_radix(value_str.as_str(), 10, value_str.as_str())
                     .expect("test integer literal should parse"),
             ),
-        });
-        CoreBlockPyExpr::Literal(LiteralValue::new(literal))
-    }
-
-    fn bytes_literal(value: &[u8]) -> LocatedCoreBlockPyExpr {
-        let literal = BlockPyLiteral::BytesLiteral(CoreBytesLiteral {
-            value: value.to_vec(),
         });
         CoreBlockPyExpr::Literal(LiteralValue::new(literal))
     }
@@ -109,10 +95,6 @@ mod tests {
 
         fn int_expr(&mut self, value: i64) -> CodegenBlockPyExpr {
             self.push_literal(int_literal(value))
-        }
-
-        fn bytes_expr(&mut self, value: &[u8]) -> CodegenBlockPyExpr {
-            self.push_literal(bytes_literal(value))
         }
 
         fn string_expr(&mut self, value: &str) -> CodegenBlockPyExpr {
@@ -1070,6 +1052,7 @@ def f(x):
         );
     }
 
+    #[test]
     fn render_specialized_jit_pow_calls_use_pynumber_power() {
         let blocks = [1usize as ObjPtr];
         let mut constants = TestConstantPool::default();

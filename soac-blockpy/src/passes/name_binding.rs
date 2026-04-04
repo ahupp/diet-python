@@ -65,7 +65,6 @@ fn op_expr(operation: impl Into<CoreBlockPyExpr>) -> CoreBlockPyExpr {
 }
 
 type CoreStmt = CoreBlockPyExpr;
-type ResolvedStmt = LocatedCoreBlockPyExpr;
 
 fn op_stmt(operation: impl Into<CoreBlockPyExpr>) -> CoreStmt {
     op_expr(operation)
@@ -268,34 +267,6 @@ fn rewrite_binding_delete(
             .with_meta(meta),
         ),
     }
-}
-
-fn rewrite_deleted_name_load_expr(
-    name: ast::name::Name,
-    meta: crate::block_py::Meta,
-    scope: &CallableScopeInfo,
-    resolver: &NameBindingMapper<'_>,
-    deleted_names: &HashSet<String>,
-    always_unbound_names: &HashSet<String>,
-) -> CoreBlockPyExpr {
-    let always_unbound = always_unbound_names.contains(name.as_str());
-    let deleted = deleted_names.contains(name.as_str());
-    if !always_unbound && !deleted {
-        return rewrite_name_load(name, meta, scope, resolver);
-    }
-    core_runtime_positional_call_expr_with_meta(
-        "load_deleted_name",
-        meta.node_index.clone(),
-        meta.range,
-        vec![
-            core_string_expr(name.to_string(), meta.node_index.clone(), meta.range),
-            if always_unbound {
-                deleted_sentinel_expr(meta.node_index, meta.range)
-            } else {
-                rewrite_name_load(name, meta, scope, resolver)
-            },
-        ],
-    )
 }
 
 fn wrap_deleted_name_load_expr(
@@ -814,26 +785,6 @@ fn prepend_owned_cell_init_preamble(callable: &mut BlockPyFunction<CoreBlockPyPa
         .splice(0..0, init_stmts.into_iter().map(Into::into));
 }
 
-fn storage_name_for_cell_location(layout: &StorageLayout, location: CellLocation) -> Option<&str> {
-    match location {
-        CellLocation::Owned(slot) => layout
-            .local_cell_slot(slot)
-            .map(|slot| slot.storage_name.as_str()),
-        CellLocation::Closure(slot) | CellLocation::CapturedSource(slot) => layout
-            .freevar_slot(slot)
-            .map(|slot| slot.storage_name.as_str()),
-    }
-}
-
-fn logical_name_for_cell_location(
-    scope: &CallableScopeInfo,
-    layout: &StorageLayout,
-    location: CellLocation,
-) -> Option<String> {
-    let storage_name = storage_name_for_cell_location(layout, location)?;
-    scope.logical_name_for_cell_storage(storage_name)
-}
-
 fn logical_name_for_local_location(
     layout: &StorageLayout,
     location: LocalLocation,
@@ -900,76 +851,9 @@ struct NameBindingMapper<'a> {
     callee_make_function_captures:
         &'a HashMap<crate::block_py::FunctionId, Vec<CellCaptureBinding>>,
     local_slots: HashMap<String, u32>,
-    captured_cell_slots: HashMap<String, u32>,
-    owned_cell_slots: HashMap<String, u32>,
-    cell_bindings: HashMap<String, (String, CellBindingKind)>,
 }
 
 impl NameBindingMapper<'_> {
-    fn resolve_raw_local_location(&self, name_text: &str) -> LocalLocation {
-        let slot = self.local_slots.get(name_text).copied().unwrap_or_else(|| {
-            panic!("missing local slot for raw local target {name_text}");
-        });
-        LocalLocation(slot)
-    }
-
-    fn resolve_raw_cell_location(&self, name_text: &str) -> CellLocation {
-        if let Some(storage_name) = resolve_captured_cell_source_storage_name(self.scope, name_text)
-        {
-            let slot = self
-                .captured_cell_slots
-                .get(storage_name.as_str())
-                .copied()
-                .unwrap_or_else(|| {
-                    panic!(
-                        "missing closure slot for captured raw cell source {name_text} via storage name {storage_name}"
-                    )
-                });
-            return CellLocation::CapturedSource(slot);
-        }
-
-        if let Some((storage_name, binding_kind)) = self.cell_bindings.get(name_text) {
-            return match binding_kind {
-                CellBindingKind::Owner => {
-                    let slot = self
-                        .owned_cell_slots
-                        .get(storage_name.as_str())
-                        .copied()
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "missing owned cell slot for raw cell target {name_text} via storage name {storage_name}"
-                            )
-                        });
-                    CellLocation::Owned(slot)
-                }
-                CellBindingKind::Capture => {
-                    let slot = self
-                        .captured_cell_slots
-                        .get(storage_name.as_str())
-                        .copied()
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "missing closure slot for raw captured cell target {name_text} via storage name {storage_name}"
-                            )
-                        });
-                    CellLocation::CapturedSource(slot)
-                }
-            };
-        }
-
-        panic!(
-            "raw cell target {name_text} did not resolve to a cell-backed location; scope={:?} binding={:?} capture_source={:?} storage_name={:?} cell_binding={:?} captured_cell_slots={:?} owned_cell_slots={:?} local_slots={:?}",
-            self.scope.scope_kind,
-            self.scope.binding_kind(name_text),
-            self.scope.cell_capture_source_names.get(name_text),
-            self.scope.cell_storage_names.get(name_text),
-            self.cell_bindings.get(name_text),
-            self.captured_cell_slots,
-            self.owned_cell_slots,
-            self.local_slots,
-        );
-    }
-
     fn materialize_make_function_expr(
         &mut self,
         meta: crate::block_py::Meta,
@@ -2608,16 +2492,10 @@ fn lower_name_binding_callable(
 ) -> BlockPyFunction<ResolvedStorageBlockPyPass> {
     let scope = callable.scope.clone();
     let local_slots = collect_local_slot_locations(&callable);
-    let captured_cell_slots = collect_captured_cell_slot_locations(&callable);
-    let owned_cell_slots = collect_owned_cell_slot_locations(&callable);
-    let cell_bindings = collect_cell_bindings(&callable);
     let mut mapper = NameBindingMapper {
         scope: &scope,
         callee_make_function_captures,
         local_slots: local_slots.clone(),
-        captured_cell_slots,
-        owned_cell_slots,
-        cell_bindings,
     };
     let mut lowered = map_fn(&mut mapper, callable);
     prepend_owned_cell_init_preamble(&mut lowered);

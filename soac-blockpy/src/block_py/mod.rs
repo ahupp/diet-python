@@ -1,15 +1,14 @@
 pub use self::meta::{HasMeta, Meta, WithMeta};
 use self::operation_macro::define_operation;
 pub use self::param_specs::{Param, ParamDefaultSource, ParamKind, ParamSpec};
+pub(crate) use self::scope::{
+    build_storage_layout_from_capture_names, compute_make_function_capture_bindings_from_scope,
+    compute_storage_layout_from_scope, derive_effective_binding_for_name, ScopeExprNode,
+};
 pub use self::scope::{
     BindingKind, BindingPurpose, BindingTarget, CallableScopeInfo, CallableScopeKind,
     CellBindingKind, CellCaptureBinding, ClassBodyFallback, ClosureInit, ClosureSlot,
     EffectiveBinding, StorageLayout,
-};
-pub(crate) use self::scope::{
-    ScopeExprNode, build_storage_layout_from_capture_names,
-    compute_make_function_capture_bindings_from_scope, compute_storage_layout_from_scope,
-    derive_effective_binding_for_name,
 };
 use crate::py_expr;
 pub use operation::{
@@ -18,7 +17,7 @@ pub use operation::{
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast};
-use soac_macros::{DelegateMatchDefault, enum_broadcast};
+use soac_macros::{enum_broadcast, DelegateMatchDefault};
 use std::fmt;
 
 pub(crate) mod cfg;
@@ -807,22 +806,6 @@ where
         .into()
 }
 
-pub(crate) fn core_named_call_expr_with_meta<E>(
-    func_name: &str,
-    node_index: ast::AtomicNodeIndex,
-    range: ruff_text_size::TextRange,
-    args: Vec<CallArgPositional<E>>,
-    keywords: Vec<CallArgKeyword<E>>,
-) -> E
-where
-    E: Instr<Name = UnresolvedName> + From<Call<E>> + From<Load<E>>,
-{
-    let func = Load::new(ast::name::Name::new(func_name))
-        .with_meta(Meta::new(node_index.clone(), range))
-        .into();
-    core_call_expr_with_meta(func, node_index, range, args, keywords)
-}
-
 pub(crate) fn core_runtime_name_expr_with_meta<E>(
     name: &str,
     node_index: ast::AtomicNodeIndex,
@@ -834,26 +817,6 @@ where
     Load::new(runtime_symbol(name))
         .with_meta(Meta::new(node_index, range))
         .into()
-}
-
-pub(crate) fn core_positional_call_expr_with_meta<E>(
-    func_name: &str,
-    node_index: ast::AtomicNodeIndex,
-    range: ruff_text_size::TextRange,
-    args: Vec<E>,
-) -> E
-where
-    E: Instr<Name = UnresolvedName> + From<Call<E>> + From<Load<E>>,
-{
-    core_named_call_expr_with_meta(
-        func_name,
-        node_index,
-        range,
-        args.into_iter()
-            .map(CallArgPositional::Positional)
-            .collect(),
-        Vec::new(),
-    )
 }
 
 pub(crate) fn core_runtime_named_call_expr_with_meta<E>(
@@ -1075,8 +1038,6 @@ pub type CodegenBlock = Block<CodegenBlockPyExpr>;
 pub type CodegenBlockPyFunction = BlockPyFunction<crate::passes::CodegenBlockPyPass>;
 pub type CodegenBlockPyModule = BlockPyModule<crate::passes::CodegenBlockPyPass>;
 
-pub(crate) type BlockPyBlock<I> = Block<StructuredInstr<I>, I>;
-
 pub trait BlockPyJumpTerm<L> {
     fn jump_term(target: L) -> Self;
 }
@@ -1203,23 +1164,6 @@ where
     fn assert_blockpy_normalized(&self) {}
 }
 
-pub(crate) fn convert_structured_instr_expr<IIn, IOut>(
-    value: StructuredInstr<IIn>,
-) -> StructuredInstr<IOut>
-where
-    IIn: Instr,
-    IOut: Instr + From<IIn>,
-{
-    match value {
-        StructuredInstr::Expr(expr) => StructuredInstr::Expr(expr.into()),
-        StructuredInstr::If(if_stmt) => StructuredInstr::If(StructuredIf {
-            test: if_stmt.test.into(),
-            body: convert_block_builder_expr(if_stmt.body),
-            orelse: convert_block_builder_expr(if_stmt.orelse),
-        }),
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum BlockTerm<I: Instr> {
     Jump(BlockEdge),
@@ -1253,23 +1197,6 @@ pub struct TermBranchTable<I: Instr> {
 #[derive(Debug, Clone)]
 pub struct TermRaise<I: Instr> {
     pub exc: Option<I>,
-}
-
-pub(crate) fn convert_block_builder_expr<IIn, IOut>(
-    value: BlockBuilder<StructuredInstr<IIn>, BlockTerm<IIn>>,
-) -> BlockBuilder<StructuredInstr<IOut>, BlockTerm<IOut>>
-where
-    IIn: Instr,
-    IOut: Instr + From<IIn>,
-{
-    BlockBuilder {
-        body: value
-            .body
-            .into_iter()
-            .map(convert_structured_instr_expr)
-            .collect(),
-        term: value.term.map(convert_blockpy_term_expr),
-    }
 }
 
 pub fn convert_blockpy_term_expr<IIn, IOut>(value: BlockTerm<IIn>) -> BlockTerm<IOut>
@@ -1391,10 +1318,6 @@ where
     P: BlockPyPass,
     P::Expr: Walkable<P::Expr>,
 {
-    fn visit_module(&mut self, module: &BlockPyModule<P>) {
-        walk_linear_module(self, module);
-    }
-
     fn visit_fn(&mut self, func: &BlockPyFunction<P>) {
         walk_linear_fn(self, func);
     }
@@ -1417,17 +1340,6 @@ where
 
     fn visit_expr(&mut self, expr: &P::Expr) {
         walk_linear_expr(self, expr);
-    }
-}
-
-pub(crate) fn walk_linear_module<V, P>(visitor: &mut V, module: &BlockPyModule<P>)
-where
-    V: BlockPyLinearModuleVisitor<P> + ?Sized,
-    P: BlockPyPass,
-    P::Expr: Walkable<P::Expr>,
-{
-    for function in &module.callable_defs {
-        visitor.visit_fn(function);
     }
 }
 
@@ -1503,10 +1415,6 @@ where
     P: BlockPyPass,
     P::Expr: Walkable<P::Expr>,
 {
-    fn visit_module(&mut self, module: &BlockPyModule<P, StructuredInstr<P::Expr>>) {
-        walk_module(self, module);
-    }
-
     fn visit_fn(&mut self, func: &BlockPyFunction<P, StructuredInstr<P::Expr>>) {
         walk_fn(self, func);
     }
@@ -1536,20 +1444,6 @@ where
 
     fn visit_expr(&mut self, expr: &P::Expr) {
         walk_expr(self, expr);
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn walk_module<V, P>(
-    visitor: &mut V,
-    module: &BlockPyModule<P, StructuredInstr<P::Expr>>,
-) where
-    V: BlockPyModuleVisitor<P> + ?Sized,
-    P: BlockPyPass,
-    P::Expr: Walkable<P::Expr>,
-{
-    for function in &module.callable_defs {
-        visitor.visit_fn(function);
     }
 }
 

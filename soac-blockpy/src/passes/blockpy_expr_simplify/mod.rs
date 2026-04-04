@@ -10,24 +10,8 @@ use crate::passes::ast_to_ast::expr_utils::make_tuple;
 use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
-type SemanticExpr = Expr;
-
 fn core_builtin_name(id: &str) -> CoreBlockPyExprWithAwaitAndYield {
     core_runtime_name_expr_with_meta(id, Default::default(), Default::default())
-}
-
-pub(crate) trait PureCoreExprReducer {
-    fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExprWithAwaitAndYield;
-}
-
-struct DefaultCoreExprReducer;
-
-impl PureCoreExprReducer for DefaultCoreExprReducer {
-    fn reduce_expr(&self, expr: &SemanticExpr) -> CoreBlockPyExprWithAwaitAndYield {
-        let mut expr = expr.clone();
-        lower_string_templates_in_expr(&mut expr);
-        expr.into()
-    }
 }
 
 fn reduce_core_blockpy_dict(items: Box<[ast::DictItem]>) -> CoreBlockPyExprWithAwaitAndYield {

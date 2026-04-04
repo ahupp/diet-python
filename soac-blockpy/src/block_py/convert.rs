@@ -117,27 +117,6 @@ where
     }
 }
 
-pub(crate) fn try_map_module<PIn, POut, Error, M>(
-    map: &mut M,
-    module: BlockPyModule<PIn>,
-) -> Result<BlockPyModule<POut>, Error>
-where
-    PIn: BlockPyPass,
-    POut: BlockPyPass,
-    M: TryMapExpr<PIn::Expr, POut::Expr, Error>,
-{
-    Ok(BlockPyModule {
-        module_name_gen: module.module_name_gen,
-        callable_defs: module
-            .callable_defs
-            .into_iter()
-            .map(|function| try_map_fn(map, function))
-            .collect::<Result<_, _>>()?,
-        module_constants: module.module_constants,
-        counter_defs: module.counter_defs,
-    })
-}
-
 pub(crate) fn try_map_fn<PIn, POut, Error, M>(
     map: &mut M,
     func: BlockPyFunction<PIn>,

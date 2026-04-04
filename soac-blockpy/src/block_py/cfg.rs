@@ -2,7 +2,6 @@ use super::{
     Block, BlockBuilder, BlockLabel, BlockParam, BlockTerm, FunctionNameGen, ImplicitNoneExpr,
     Instr, StructuredInstr, TermIf,
 };
-use ruff_python_ast::Expr;
 use std::collections::{HashMap, HashSet};
 
 fn blockpy_successors<E: Instr>(block: &Block<StructuredInstr<E>, E>) -> Vec<BlockLabel> {
@@ -238,31 +237,6 @@ pub(crate) fn fold_jumps_to_trivial_none_return_blockpy<E>(
             if let Some(term) = trivial_ret_none_terms.get(&target) {
                 block.term = term.clone();
             }
-        }
-    }
-}
-
-pub(crate) fn fold_constant_brif_blockpy(blocks: &mut [Block<StructuredInstr<Expr>, Expr>]) {
-    for block in blocks.iter_mut() {
-        let jump_target = match &block.term {
-            BlockTerm::IfTerm(TermIf {
-                test,
-                then_label,
-                else_label,
-            }) => match test {
-                Expr::BooleanLiteral(boolean) => {
-                    if boolean.value {
-                        Some(then_label.clone())
-                    } else {
-                        Some(else_label.clone())
-                    }
-                }
-                _ => None,
-            },
-            _ => None,
-        };
-        if let Some(target) = jump_target {
-            block.term = BlockTerm::Jump(super::BlockEdge::new(target));
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::block_py::{
-    literal_expr, BlockLabel, BlockPyBlock, BlockPyLiteral, BlockPyStmtBuilder, BlockTerm,
+    literal_expr, Block, BlockLabel, BlockPyLiteral, BlockPyStmtBuilder, BlockTerm,
     CallArgPositional, CoreBlockPyExpr, CoreStringLiteral, GetAttr, LocatedCoreBlockPyExpr,
     LocatedName, NameLocation, Store, StructuredIf, StructuredInstr, WithMeta,
 };
@@ -11,7 +11,7 @@ use ruff_text_size::TextRange;
 
 #[test]
 fn linearizes_structured_if_stmt_into_explicit_blocks() {
-    let block: BlockPyBlock<LocatedCoreBlockPyExpr> = BlockPyBlock {
+    let block: Block<StructuredInstr<LocatedCoreBlockPyExpr>, LocatedCoreBlockPyExpr> = Block {
         label: BlockLabel::from_index(0),
         body: vec![
             StructuredInstr::Expr(
@@ -54,7 +54,7 @@ fn linearizes_structured_if_stmt_into_explicit_blocks() {
         exc_edge: None,
     };
 
-    let blocks = lower_structured_located_blocks_to_bb_blocks(&[crate::block_py::Block {
+    let blocks = lower_structured_located_blocks_to_bb_blocks(&[Block {
         label: block.label,
         body: block.body,
         term: block.term,
@@ -88,18 +88,9 @@ fn core_call_expr(name: &str, args: Vec<LocatedCoreBlockPyExpr>) -> LocatedCoreB
     )
 }
 
-fn core_string_expr(value: &str) -> LocatedCoreBlockPyExpr {
-    literal_expr(
-        CoreStringLiteral {
-            value: value.to_string(),
-        },
-        crate::block_py::Meta::synthetic(),
-    )
-}
-
 #[test]
 fn rewrites_current_exception_placeholders_in_final_core_blocks() {
-    let block: BlockPyBlock<LocatedCoreBlockPyExpr> = BlockPyBlock {
+    let block: Block<StructuredInstr<LocatedCoreBlockPyExpr>, LocatedCoreBlockPyExpr> = Block {
         label: BlockLabel::from_index(0),
         body: vec![StructuredInstr::Expr(core_call_expr(
             "current_exception",
@@ -113,7 +104,7 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
         exc_edge: None,
     };
 
-    let lowered = lower_structured_located_blocks_to_bb_blocks(&[crate::block_py::Block {
+    let lowered = lower_structured_located_blocks_to_bb_blocks(&[Block {
         label: block.label,
         body: block.body,
         term: block.term,
@@ -136,7 +127,7 @@ fn rewrites_current_exception_placeholders_in_final_core_blocks() {
 
 #[test]
 fn rewrites_current_exception_inside_intrinsic_helper_args() {
-    let block: BlockPyBlock<LocatedCoreBlockPyExpr> = BlockPyBlock {
+    let block: Block<StructuredInstr<LocatedCoreBlockPyExpr>, LocatedCoreBlockPyExpr> = Block {
         label: BlockLabel::from_index(0),
         body: Vec::new(),
         term: BlockTerm::Return(
@@ -162,7 +153,7 @@ fn rewrites_current_exception_inside_intrinsic_helper_args() {
         exc_edge: None,
     };
 
-    let lowered = lower_structured_located_blocks_to_bb_blocks(&[crate::block_py::Block {
+    let lowered = lower_structured_located_blocks_to_bb_blocks(&[Block {
         label: block.label,
         body: block.body,
         term: block.term,

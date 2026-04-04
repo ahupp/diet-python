@@ -1,6 +1,8 @@
+#[cfg(test)]
+use super::StructuredInstr;
 use super::{
-    Block, BlockArg, BlockBuilder, BlockEdge, BlockLabel, BlockParamRole, BlockPyFunction,
-    BlockPyModule, BlockPyPass, BlockTerm, FunctionKind, Instr, StructuredInstr, TermIf, TermRaise,
+    Block, BlockArg, BlockEdge, BlockLabel, BlockParamRole, BlockPyFunction, BlockPyModule,
+    BlockPyPass, BlockTerm, FunctionKind, Instr, TermIf, TermRaise,
 };
 use crate::block_py::param_specs::{ParamKind, ParamSpec};
 use crate::passes::{
@@ -310,65 +312,11 @@ impl<R> BlockPyFormatter<R> {
         }
     }
 
-    fn write_stmt_fragment<E>(
-        &mut self,
-        fragment: &BlockBuilder<StructuredInstr<E>, BlockTerm<E>>,
-        referenced_labels: &HashSet<BlockLabel>,
-    ) where
-        E: Clone + std::fmt::Debug + Instr,
-        R: InlineExprRenderer<E>,
-    {
-        if fragment.body.is_empty() && fragment.term.is_none() {
-            self.line("pass");
-            return;
-        }
-        self.write_structured_stmt_list(&fragment.body, referenced_labels);
-        if let Some(term) = &fragment.term {
-            self.write_term_inline(term);
-        }
-    }
-
-    fn write_structured_stmt_list<E>(
-        &mut self,
-        stmts: &[StructuredInstr<E>],
-        referenced_labels: &HashSet<BlockLabel>,
-    ) where
-        E: Clone + std::fmt::Debug + Instr,
-        R: InlineExprRenderer<E>,
-    {
-        for stmt in stmts {
-            self.write_structured_stmt(stmt, referenced_labels);
-        }
-    }
-
     fn write_linear_stmt<S>(&mut self, stmt: &S, _referenced_labels: &HashSet<BlockLabel>)
     where
         S: std::fmt::Debug,
     {
         self.line(format!("{stmt:?}"));
-    }
-
-    fn write_structured_stmt<E>(
-        &mut self,
-        stmt: &StructuredInstr<E>,
-        referenced_labels: &HashSet<BlockLabel>,
-    ) where
-        E: Clone + std::fmt::Debug + Instr,
-        R: InlineExprRenderer<E>,
-    {
-        match stmt {
-            StructuredInstr::Expr(expr) => self.line(R::render(expr)),
-            StructuredInstr::If(if_stmt) => {
-                self.line(format!("if {}:", R::render(&if_stmt.test)));
-                self.with_indent(|this| this.write_stmt_fragment(&if_stmt.body, referenced_labels));
-                if !if_stmt.orelse.body.is_empty() || if_stmt.orelse.term.is_some() {
-                    self.line("else:");
-                    self.with_indent(|this| {
-                        this.write_stmt_fragment(&if_stmt.orelse, referenced_labels)
-                    });
-                }
-            }
-        }
     }
 
     fn write_term<P>(
@@ -450,28 +398,6 @@ impl<R> BlockPyFormatter<R> {
             None => self.line("raise"),
         }
     }
-
-    fn write_term_inline<E>(&mut self, term: &BlockTerm<E>)
-    where
-        E: Instr,
-        R: InlineExprRenderer<E>,
-    {
-        match term {
-            BlockTerm::Jump(edge) => self.line(format!("jump {}", render_edge(edge))),
-            BlockTerm::BranchTable(branch) => self.line(format!(
-                "branch_table {} -> [{}] default {}",
-                R::render(&branch.index),
-                join_labels(&branch.targets),
-                branch.default_label,
-            )),
-            BlockTerm::Raise(raise_stmt) => self.write_raise(raise_stmt),
-            BlockTerm::Return(value) => self.line(format!("return {}", R::render(value))),
-            BlockTerm::IfTerm(_) => {
-                panic!("IfTerm is only valid as a top-level block terminator");
-            }
-        }
-    }
-
     fn with_indent(&mut self, f: impl FnOnce(&mut Self)) {
         self.indent += 1;
         f(self);
@@ -541,19 +467,6 @@ where
     E: fmt::Debug + Instr,
 {
     format!("{stmt:?}")
-}
-
-#[cfg(test)]
-pub(crate) fn bb_stmts_text<E>(stmts: &[E]) -> String
-where
-    E: fmt::Debug + Instr,
-{
-    let mut out = String::new();
-    for stmt in stmts {
-        out.push_str(&bb_stmt_text(stmt));
-        out.push('\n');
-    }
-    out
 }
 
 fn format_parameters(parameters: &ParamSpec) -> String {

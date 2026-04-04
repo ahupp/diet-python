@@ -557,7 +557,7 @@ fn instantiate_bb_function(
         function.names.display_name.as_str(),
         function.names.qualname.as_str(),
     )?;
-    let (positional_defaults, mut kwdefaults) = split_param_defaults(py, function, param_defaults)?;
+    let (positional_defaults, kwdefaults) = split_param_defaults(py, function, param_defaults)?;
     apply_function_defaults(
         py,
         &entry,

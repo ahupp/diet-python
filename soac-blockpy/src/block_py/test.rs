@@ -111,14 +111,6 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
     }
 
     impl BlockPyModuleVisitor<StructuredExprPass> for TraceVisitor {
-        fn visit_module(
-            &mut self,
-            module: &BlockPyModule<StructuredExprPass, StructuredInstr<Expr>>,
-        ) {
-            self.trace.push("module".to_string());
-            walk_module(self, module);
-        }
-
         fn visit_fn(&mut self, func: &BlockPyFunction<StructuredExprPass, StructuredInstr<Expr>>) {
             self.trace.push(format!("fn:{}", func.names.bind_name));
             walk_fn(self, func);
@@ -223,7 +215,10 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
     };
 
     let mut visitor = TraceVisitor::default();
-    visitor.visit_module(&module);
+    visitor.trace.push("module".to_string());
+    for function in &module.callable_defs {
+        visitor.visit_fn(function);
+    }
 
     assert_eq!(
         visitor.trace,

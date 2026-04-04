@@ -23,30 +23,6 @@ pub struct LoweredExpr {
     pub modified: bool,
 }
 
-#[derive(Default)]
-pub struct BodyBuilder {
-    pub modified: bool,
-    pub body: Vec<Stmt>,
-}
-
-impl BodyBuilder {
-    pub fn into_stmts(self) -> Vec<Stmt> {
-        self.body
-    }
-
-    pub fn push(&mut self, expr: LoweredExpr) -> Expr {
-        self.body.extend(expr.stmts);
-        self.modified |= expr.modified;
-        expr.expr
-    }
-}
-
-pub fn push_stmts(stmts: &mut Vec<Stmt>, new_stmts: Vec<Stmt>) -> bool {
-    let modified = !new_stmts.is_empty();
-    stmts.extend(new_stmts);
-    modified
-}
-
 impl LoweredExpr {
     pub fn modified(expr: Expr, stmts: Vec<Stmt>) -> Self {
         trace!("LoweredExpr::modified {}", Backtrace::capture());

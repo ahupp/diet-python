@@ -72,7 +72,8 @@ fn label(index: u32) -> BlockLabel {
     BlockLabel::from_index(index as usize)
 }
 
-type TestBlock = BlockPyBlock<CoreBlockPyExprWithAwaitAndYield>;
+type TestBlock =
+    Block<StructuredInstr<CoreBlockPyExprWithAwaitAndYield>, CoreBlockPyExprWithAwaitAndYield>;
 
 #[test]
 fn lowers_post_simplification_control_flow() {

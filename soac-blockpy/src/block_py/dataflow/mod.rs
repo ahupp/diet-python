@@ -1,18 +1,12 @@
+#[cfg(test)]
 use super::{
     BlockBuilder, BlockTerm, Instr, ScopeExprNode, StructuredIf, StructuredInstr, TermBranchTable,
     TermIf, TermRaise,
 };
+#[cfg(test)]
 use std::collections::HashSet;
 
-pub(super) fn assigned_names_in_linear_blockpy_stmt<E>(stmt: &E) -> HashSet<String>
-where
-    E: ScopeExprNode + Instr,
-{
-    let mut names = HashSet::new();
-    collect_named_expr_target_names_in_blockpy_expr(stmt, &mut names);
-    names
-}
-
+#[cfg(test)]
 pub(super) fn assigned_names_in_blockpy_stmt<E>(stmt: &StructuredInstr<E>) -> HashSet<String>
 where
     E: ScopeExprNode + Instr,
@@ -33,6 +27,7 @@ where
     }
 }
 
+#[cfg(test)]
 pub(super) fn assigned_names_in_blockpy_stmts<E>(stmts: &[StructuredInstr<E>]) -> HashSet<String>
 where
     E: ScopeExprNode + Instr,
@@ -44,6 +39,7 @@ where
     out
 }
 
+#[cfg(test)]
 pub(super) fn assigned_names_in_blockpy_term<E>(term: &BlockTerm<E>) -> HashSet<String>
 where
     E: ScopeExprNode + Instr,
@@ -75,6 +71,7 @@ where
     }
 }
 
+#[cfg(test)]
 pub(super) fn assigned_names_in_blockpy_fragment<E>(
     fragment: &BlockBuilder<StructuredInstr<E>, BlockTerm<E>>,
 ) -> HashSet<String>
@@ -88,6 +85,7 @@ where
     out
 }
 
+#[cfg(test)]
 fn collect_named_expr_target_names_in_blockpy_expr<E>(expr: &E, names: &mut HashSet<String>)
 where
     E: ScopeExprNode,

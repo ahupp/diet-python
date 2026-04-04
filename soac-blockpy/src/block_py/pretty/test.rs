@@ -1,5 +1,5 @@
 use super::*;
-use crate::block_py::{BlockParam, BlockParamRole};
+use crate::block_py::{BlockBuilder, BlockParam, BlockParamRole, StructuredInstr};
 use crate::block_py::{
     ClosureInit, ClosureSlot, CoreBlockPyExprWithAwaitAndYield, Expr, LocatedName, NameLocation,
     StorageLayout,

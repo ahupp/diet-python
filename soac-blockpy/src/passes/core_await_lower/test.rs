@@ -5,25 +5,10 @@ use crate::block_py::{
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, FunctionKind, FunctionName,
 };
 use crate::passes::core_eval_order::make_eval_order_explicit_in_core_block;
-use crate::py_expr;
-use ruff_python_ast::{self as ast, Expr};
 
 fn test_name_gen() -> crate::block_py::FunctionNameGen {
     let module_name_gen = crate::block_py::ModuleNameGen::new(0);
     module_name_gen.next_function_name_gen()
-}
-
-fn name_expr(name: &str) -> ast::ExprName {
-    let Expr::Name(name) = py_expr!("{name:id}", name = name) else {
-        unreachable!();
-    };
-    name
-}
-
-fn core_load_with_await_and_yield(name: &str) -> CoreBlockPyExprWithAwaitAndYield {
-    let name = name_expr(name);
-    let meta = name.meta();
-    crate::block_py::Load::new(name).with_meta(meta).into()
 }
 
 #[test]

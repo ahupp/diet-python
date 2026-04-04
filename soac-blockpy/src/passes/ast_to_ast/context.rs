@@ -1,13 +1,9 @@
-use ruff_python_ast::Expr;
 use std::cell::RefCell;
 use std::collections::HashSet;
 
 use crate::passes::ast_to_ast::scope_helpers::ScopeKind;
 
 use crate::namegen::fresh_name;
-use crate::passes::ast_to_ast::ast_rewrite::LoweredExpr;
-use crate::template::is_simple;
-use crate::{py_expr, py_stmt};
 
 #[derive(Clone, Debug)]
 pub struct ScopeFrame {
@@ -48,26 +44,6 @@ impl Context {
             source: source.to_string(),
             scope_stack: RefCell::new(vec![ScopeFrame::module()]),
         }
-    }
-
-    pub(crate) fn tmpify(&self, name: &str, expr: Expr) -> LoweredExpr {
-        let tmp = fresh_name(name);
-        let assign = py_stmt!("{tmp:id} = {expr:expr}", tmp = tmp.as_str(), expr = expr);
-        LoweredExpr::modified(py_expr!("{tmp:id}", tmp = tmp.as_str()), vec![assign])
-    }
-
-    pub(crate) fn maybe_placeholder_lowered(&self, expr: Expr) -> LoweredExpr {
-        if is_simple(&expr) && !matches!(&expr, Expr::StringLiteral(_) | Expr::BytesLiteral(_)) {
-            return LoweredExpr::unmodified(expr);
-        }
-
-        self.tmpify("tmp", expr)
-    }
-
-    pub fn source_slice(&self, range: ruff_text_size::TextRange) -> Option<&str> {
-        let start = range.start().to_usize();
-        let end = range.end().to_usize();
-        self.source.get(start..end)
     }
 
     pub fn line_number_at(&self, offset: usize) -> usize {

@@ -8,6 +8,7 @@ use std::sync::OnceLock;
 #[cfg(not(test))]
 use crate::module_constants::{load_runtime_name_owned, raise_name_error_for_missing_name};
 
+#[cfg(not(test))]
 unsafe extern "C" {
     static mut PyCell_Type: ffi::PyTypeObject;
     fn PyCell_New(obj: *mut ffi::PyObject) -> *mut ffi::PyObject;
@@ -18,10 +19,12 @@ unsafe extern "C" {
 
 pub type ObjPtr = *mut c_void;
 
+#[cfg(not(test))]
 unsafe fn is_cell_object(obj: *mut ffi::PyObject) -> bool {
     !obj.is_null() && ffi::Py_TYPE(obj) == std::ptr::addr_of_mut!(PyCell_Type)
 }
 
+#[cfg(not(test))]
 unsafe fn object_type_name(obj: *mut ffi::PyObject) -> String {
     if obj.is_null() {
         return "<null>".to_string();
@@ -35,6 +38,7 @@ unsafe fn object_type_name(obj: *mut ffi::PyObject) -> String {
         .into_owned()
 }
 
+#[cfg(not(test))]
 unsafe fn raise_expected_cell(where_name: &str, obj: *mut ffi::PyObject) {
     let type_name = object_type_name(obj);
     let message = format!("{where_name} expected cell object, got {type_name}");
@@ -48,6 +52,7 @@ unsafe fn raise_expected_cell(where_name: &str, obj: *mut ffi::PyObject) {
     }
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn py_call_positional_three_hook(
     callable: ObjPtr,
     arg1: ObjPtr,
@@ -63,10 +68,12 @@ unsafe extern "C" fn py_call_positional_three_hook(
     ) as ObjPtr
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn py_call_object_hook(callable: ObjPtr, args: ObjPtr) -> ObjPtr {
     ffi::PyObject_CallObject(callable as *mut ffi::PyObject, args as *mut ffi::PyObject) as ObjPtr
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn py_call_with_kw_hook(
     callable: ObjPtr,
     args: ObjPtr,
@@ -79,10 +86,12 @@ unsafe extern "C" fn py_call_with_kw_hook(
     ) as ObjPtr
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn py_get_raised_exception_hook() -> ObjPtr {
     ffi::PyErr_GetRaisedException() as ObjPtr
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn get_arg_item_hook(args: ObjPtr, index: i64) -> ObjPtr {
     if args.is_null() {
         return ptr::null_mut();
@@ -127,6 +136,7 @@ unsafe fn load_global_obj_impl(globals_obj: ObjPtr, name_obj: *mut ffi::PyObject
     ptr::null_mut()
 }
 
+#[cfg(not(test))]
 unsafe fn resolve_function_object(callable: ObjPtr) -> ObjPtr {
     if callable.is_null() {
         ffi::PyErr_SetString(
@@ -150,6 +160,7 @@ unsafe fn resolve_function_object(callable: ObjPtr) -> ObjPtr {
     callable
 }
 
+#[cfg(not(test))]
 unsafe fn resolve_function_defaults_owner(callable: ObjPtr) -> ObjPtr {
     if callable.is_null() {
         ffi::PyErr_SetString(
@@ -161,6 +172,7 @@ unsafe fn resolve_function_defaults_owner(callable: ObjPtr) -> ObjPtr {
     resolve_function_object(callable)
 }
 
+#[cfg(not(test))]
 unsafe fn raise_missing_function_default_obj(name_obj: *mut ffi::PyObject) {
     if name_obj.is_null() {
         ffi::PyErr_SetString(
@@ -191,6 +203,7 @@ unsafe fn raise_missing_function_default_obj(name_obj: *mut ffi::PyObject) {
     );
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn function_positional_default_obj_hook(
     callable: ObjPtr,
     name_obj: ObjPtr,
@@ -244,6 +257,7 @@ unsafe extern "C" fn function_positional_default_obj_hook(
     value as ObjPtr
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn function_kwonly_default_obj_hook(
     callable: ObjPtr,
     name_obj: ObjPtr,
@@ -295,6 +309,7 @@ unsafe extern "C" fn function_kwonly_default_obj_hook(
     value as ObjPtr
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn function_closure_cell_hook(callable: ObjPtr, slot: i64) -> ObjPtr {
     unsafe fn closure_tuple_for_owner(owner: ObjPtr) -> Result<Option<*mut ffi::PyObject>, ()> {
         let closure = ffi::PyObject_GetAttrString(
@@ -374,6 +389,7 @@ unsafe extern "C" fn function_closure_cell_hook(callable: ObjPtr, slot: i64) -> 
     cell as ObjPtr
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn pyobject_getattr_hook(obj: ObjPtr, attr: ObjPtr) -> ObjPtr {
     if obj.is_null() || attr.is_null() {
         ffi::PyErr_SetString(
@@ -385,6 +401,7 @@ unsafe extern "C" fn pyobject_getattr_hook(obj: ObjPtr, attr: ObjPtr) -> ObjPtr 
     ffi::PyObject_GetAttr(obj as *mut ffi::PyObject, attr as *mut ffi::PyObject) as ObjPtr
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn pyobject_setattr_hook(obj: ObjPtr, attr: ObjPtr, value: ObjPtr) -> ObjPtr {
     if obj.is_null() || attr.is_null() || value.is_null() {
         ffi::PyErr_SetString(
@@ -407,6 +424,7 @@ unsafe extern "C" fn pyobject_setattr_hook(obj: ObjPtr, attr: ObjPtr, value: Obj
     }
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn pyobject_getitem_hook(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
     if obj.is_null() || key.is_null() {
         ffi::PyErr_SetString(
@@ -418,6 +436,7 @@ unsafe extern "C" fn pyobject_getitem_hook(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
     ffi::PyObject_GetItem(obj as *mut ffi::PyObject, key as *mut ffi::PyObject) as ObjPtr
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn pyobject_setitem_hook(obj: ObjPtr, key: ObjPtr, value: ObjPtr) -> ObjPtr {
     if obj.is_null() || key.is_null() || value.is_null() {
         ffi::PyErr_SetString(
@@ -504,6 +523,7 @@ unsafe extern "C" fn del_quietly_hook(obj: ObjPtr, key: ObjPtr) -> ObjPtr {
     none as ObjPtr
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn pyobject_to_i64_hook(value: ObjPtr) -> i64 {
     if value.is_null() {
         ffi::PyErr_SetString(
@@ -525,6 +545,7 @@ unsafe extern "C" fn pyobject_to_i64_hook(value: ObjPtr) -> i64 {
     }
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn raise_deleted_name_error_hook(name_obj: ObjPtr) {
     if name_obj.is_null() {
         ffi::PyErr_SetString(
@@ -557,10 +578,12 @@ unsafe extern "C" fn raise_deleted_name_error_hook(name_obj: ObjPtr) {
     );
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn make_cell_hook(value: ObjPtr) -> ObjPtr {
     PyCell_New(value as *mut ffi::PyObject) as ObjPtr
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn load_cell_hook(cell: ObjPtr) -> ObjPtr {
     if !is_cell_object(cell as *mut ffi::PyObject) {
         raise_expected_cell("dp_jit_load_cell", cell as *mut ffi::PyObject);
@@ -577,6 +600,7 @@ unsafe extern "C" fn load_cell_hook(cell: ObjPtr) -> ObjPtr {
     value as ObjPtr
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn store_cell_hook(cell: ObjPtr, value: ObjPtr) -> ObjPtr {
     if !is_cell_object(cell as *mut ffi::PyObject) {
         raise_expected_cell("dp_jit_store_cell", cell as *mut ffi::PyObject);
@@ -640,6 +664,7 @@ unsafe extern "C" fn load_global_obj_hook(globals_obj: ObjPtr, name: ObjPtr) -> 
     load_global_obj_impl(globals_obj, name as *mut ffi::PyObject)
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn tuple_new_hook(size: i64) -> ObjPtr {
     if size < 0 {
         ffi::PyErr_SetString(
@@ -651,6 +676,7 @@ unsafe extern "C" fn tuple_new_hook(size: i64) -> ObjPtr {
     ffi::PyTuple_New(size as ffi::Py_ssize_t) as ObjPtr
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn tuple_set_item_hook(tuple_obj: ObjPtr, index: i64, value: ObjPtr) -> i32 {
     if tuple_obj.is_null() || value.is_null() || index < 0 {
         ffi::PyErr_SetString(
@@ -666,6 +692,7 @@ unsafe extern "C" fn tuple_set_item_hook(tuple_obj: ObjPtr, index: i64, value: O
     )
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn is_true_hook(value: ObjPtr) -> i32 {
     if value.is_null() {
         return -1;
@@ -673,6 +700,7 @@ unsafe extern "C" fn is_true_hook(value: ObjPtr) -> i32 {
     ffi::PyObject_IsTrue(value as *mut ffi::PyObject)
 }
 
+#[cfg(not(test))]
 unsafe extern "C" fn raise_from_exc_hook(exc: ObjPtr) -> i32 {
     if exc.is_null() {
         ffi::PyErr_SetString(

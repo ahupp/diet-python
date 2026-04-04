@@ -15,11 +15,6 @@ fn is_name_like(expr: &CoreBlockPyExprWithAwaitAndYield) -> bool {
     matches!(expr, CoreBlockPyExprWithAwaitAndYield::Load(_))
 }
 
-fn test_load_with_await_and_yield(id: &str) -> CoreBlockPyExprWithAwaitAndYield {
-    let name = test_name(id);
-    Load::new(name).into()
-}
-
 fn test_load_with_yield(id: &str) -> CoreBlockPyExprWithYield {
     let name = test_name(id);
     Load::new(name).into()
