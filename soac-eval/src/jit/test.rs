@@ -1449,9 +1449,43 @@ def f(x):
         );
         assert!(
             !rendered.contains("call dp_jit_load_runtime_obj")
+                && !rendered.contains("call dp_jit_py_vectorcall")
                 && !rendered.contains("call dp_jit_py_call_object")
                 && !rendered.contains("call dp_jit_py_call_with_kw"),
             "constant-backed runtime helpers should still specialize instead of reloading or generic-calling:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn render_specialized_jit_generic_positional_calls_use_vectorcall() {
+        let blocks = [1usize as ObjPtr];
+        let mut constants = TestConstantPool::default();
+        let function = with_single_test_block(
+            test_function(),
+            vec![],
+            ret_term(op_expr(Call::new(
+                name_expr(test_global_name("f")),
+                vec![
+                    CallArgPositional::Positional(constants.int_expr(1)),
+                    CallArgPositional::Positional(constants.int_expr(2)),
+                ],
+                vec![],
+            ))),
+        );
+        let rendered = render_test_jit_function_with_module_constants(
+            &function,
+            &blocks,
+            constants.module_constants,
+        );
+        assert!(
+            rendered.contains("call dp_jit_py_vectorcall"),
+            "generic positional calls should lower through the vectorcall helper:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("call dp_jit_py_call_positional_three")
+                && !rendered.contains("call dp_jit_py_call_object")
+                && !rendered.contains("call dp_jit_py_call_with_kw"),
+            "generic positional calls should avoid the tuple/kwargs helper path:\n{rendered}"
         );
     }
 

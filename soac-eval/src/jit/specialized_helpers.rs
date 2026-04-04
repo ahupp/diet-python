@@ -81,6 +81,21 @@ unsafe extern "C" fn py_call_object_hook(callable: ObjPtr, args: ObjPtr) -> ObjP
 }
 
 #[cfg(not(test))]
+unsafe extern "C" fn py_vectorcall_hook(
+    callable: ObjPtr,
+    args: ObjPtr,
+    nargsf: ObjPtr,
+    kwnames: ObjPtr,
+) -> ObjPtr {
+    ffi::PyObject_Vectorcall(
+        callable as *mut ffi::PyObject,
+        args as *const *mut ffi::PyObject,
+        nargsf as usize,
+        kwnames as *mut ffi::PyObject,
+    ) as ObjPtr
+}
+
+#[cfg(not(test))]
 unsafe extern "C" fn py_call_with_kw_hook(
     callable: ObjPtr,
     args: ObjPtr,
@@ -852,6 +867,12 @@ mod test_only_export_stubs {
         sentinel: ObjPtr,
     ));
     panic_obj_export!(dp_jit_py_call_object(callable: ObjPtr, args: ObjPtr));
+    panic_obj_export!(dp_jit_py_vectorcall(
+        callable: ObjPtr,
+        args: ObjPtr,
+        nargsf: ObjPtr,
+        kwnames: ObjPtr
+    ));
     panic_obj_export!(dp_jit_py_call_with_kw(callable: ObjPtr, args: ObjPtr, kw: ObjPtr));
     panic_obj_export!(dp_jit_get_raised_exception());
     panic_obj_export!(dp_jit_get_arg_item(args: ObjPtr, index: i64));
@@ -922,6 +943,16 @@ pub unsafe extern "C" fn dp_jit_py_call_positional_three(
 #[cfg(not(test))]
 pub unsafe extern "C" fn dp_jit_py_call_object(callable: ObjPtr, args: ObjPtr) -> ObjPtr {
     py_call_object_hook(callable, args)
+}
+
+#[cfg(not(test))]
+pub unsafe extern "C" fn dp_jit_py_vectorcall(
+    callable: ObjPtr,
+    args: ObjPtr,
+    nargsf: ObjPtr,
+    kwnames: ObjPtr,
+) -> ObjPtr {
+    py_vectorcall_hook(callable, args, nargsf, kwnames)
 }
 
 #[cfg(not(test))]
@@ -1290,6 +1321,7 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
         dp_jit_py_call_positional_three as *const u8,
     );
     builder.symbol("dp_jit_py_call_object", dp_jit_py_call_object as *const u8);
+    builder.symbol("dp_jit_py_vectorcall", dp_jit_py_vectorcall as *const u8);
     builder.symbol(
         "dp_jit_py_call_with_kw",
         dp_jit_py_call_with_kw as *const u8,

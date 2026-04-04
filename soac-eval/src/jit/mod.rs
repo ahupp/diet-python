@@ -156,6 +156,16 @@ static DP_JIT_PY_CALL_OBJECT_IMPORT: ImportSpec = ImportSpec::new(
     &[SigType::Pointer, SigType::Pointer],
     &[SigType::Pointer],
 );
+static DP_JIT_PY_VECTORCALL_IMPORT: ImportSpec = ImportSpec::new(
+    "dp_jit_py_vectorcall",
+    &[
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+    ],
+    &[SigType::Pointer],
+);
 static DP_JIT_PY_CALL_WITH_KW_IMPORT: ImportSpec = ImportSpec::new(
     "dp_jit_py_call_with_kw",
     &[SigType::Pointer, SigType::Pointer, SigType::Pointer],
@@ -679,6 +689,7 @@ struct JitEmitCtx<'mc> {
     incref_ref: ir::FuncRef,
     decref_ref: ir::FuncRef,
     py_call_positional_three_ref: ir::FuncRef,
+    py_vectorcall_ref: ir::FuncRef,
     consts: JitEmitConsts,
     load_global_obj_ref: ir::FuncRef,
     load_runtime_obj_ref: ir::FuncRef,
@@ -1425,6 +1436,87 @@ fn emit_pack_current_values_tuple(
 
     fb.switch_to_block(done_block);
     fb.block_params(done_block)[0]
+}
+
+fn emit_positional_vectorcall(
+    fb: &mut FunctionBuilder<'_>,
+    callable: ir::Value,
+    callable_is_borrowed: bool,
+    args: &[&CodegenBlockPyExpr],
+    local_names: &mut Vec<String>,
+    local_values: &mut Vec<ir::Value>,
+    ctx: &JitEmitCtx<'_>,
+    jit_module: &mut JITModule,
+    func_imports: &mut FuncBuildImports<'_>,
+) -> ir::Value {
+    let ptr_ty = ctx.consts.ptr_ty;
+    let null_ptr = fb.ins().iconst(ptr_ty, 0);
+    let mut arg_values: Vec<ir::Value> = Vec::with_capacity(args.len());
+    let mut arg_borrowed: Vec<bool> = Vec::with_capacity(args.len());
+    for arg in args {
+        let borrowed_arg = codegen_expr_is_borrowable(
+            arg,
+            local_names,
+            &ctx.stack_slots,
+            ctx.storage_layout.as_ref(),
+        );
+        arg_borrowed.push(borrowed_arg);
+        arg_values.push(emit_codegen_expr(
+            fb,
+            arg,
+            local_names,
+            local_values,
+            ctx,
+            borrowed_arg,
+            jit_module,
+            func_imports,
+        ));
+    }
+    let args_ptr = if arg_values.is_empty() {
+        null_ptr
+    } else {
+        let args_slot = fb.create_sized_stack_slot(ir::StackSlotData::new(
+            ir::StackSlotKind::ExplicitSlot,
+            (arg_values.len() * std::mem::size_of::<u64>()) as u32,
+            0,
+        ));
+        for (index, value) in arg_values.iter().copied().enumerate() {
+            fb.ins().stack_store(
+                value,
+                args_slot,
+                (index * std::mem::size_of::<u64>()) as i32,
+            );
+        }
+        fb.ins().stack_addr(ptr_ty, args_slot, 0)
+    };
+    let nargsf = fb.ins().iconst(ptr_ty, arg_values.len() as i64);
+    let call_inst = fb.ins().call(
+        ctx.py_vectorcall_ref,
+        &[callable, args_ptr, nargsf, null_ptr],
+    );
+    for (value, borrowed_arg) in arg_values.into_iter().zip(arg_borrowed.into_iter()) {
+        if !borrowed_arg {
+            fb.ins().call(ctx.decref_ref, &[value]);
+        }
+    }
+    if !callable_is_borrowed {
+        fb.ins().call(ctx.decref_ref, &[callable]);
+    }
+    let call_value = fb.inst_results(call_inst)[0];
+    let call_is_null = fb
+        .ins()
+        .icmp(ir::condcodes::IntCC::Equal, call_value, null_ptr);
+    let call_ok_block = fb.create_block();
+    fb.append_block_param(call_ok_block, ptr_ty);
+    fb.ins().brif(
+        call_is_null,
+        ctx.consts.step_null_block,
+        &step_null_block_args(ctx),
+        call_ok_block,
+        &[ir::BlockArg::Value(call_value)],
+    );
+    fb.switch_to_block(call_ok_block);
+    fb.block_params(call_ok_block)[0]
 }
 
 fn emit_owned_bool_from_cond(
@@ -2340,61 +2432,18 @@ fn emit_codegen_expr(
                 &ctx.stack_slots,
                 ctx.storage_layout.as_ref(),
             );
-            if keywords.is_empty() && args.len() <= 3 {
-                let mut arg_values = [null_ptr, null_ptr, null_ptr];
-                let mut arg_borrowed = [true, true, true];
-                for (idx, arg) in args.iter().enumerate() {
-                    let borrowed_arg = codegen_expr_is_borrowable(
-                        arg,
-                        local_names,
-                        &ctx.stack_slots,
-                        ctx.storage_layout.as_ref(),
-                    );
-                    arg_borrowed[idx] = borrowed_arg;
-                    arg_values[idx] = emit_codegen_expr(
-                        fb,
-                        arg,
-                        local_names,
-                        local_values,
-                        ctx,
-                        borrowed_arg,
-                        jit_module,
-                        func_imports,
-                    );
-                }
-                let call_inst = fb.ins().call(
-                    py_call_ref,
-                    &[
-                        callable,
-                        arg_values[0],
-                        arg_values[1],
-                        arg_values[2],
-                        null_ptr,
-                    ],
+            if keywords.is_empty() {
+                return emit_positional_vectorcall(
+                    fb,
+                    callable,
+                    callable_is_borrowed,
+                    args.as_slice(),
+                    local_names,
+                    local_values,
+                    ctx,
+                    jit_module,
+                    func_imports,
                 );
-                for idx in 0..3 {
-                    if idx < args.len() && !arg_borrowed[idx] {
-                        fb.ins().call(decref_ref, &[arg_values[idx]]);
-                    }
-                }
-                if !callable_is_borrowed {
-                    fb.ins().call(decref_ref, &[callable]);
-                }
-                let call_value = fb.inst_results(call_inst)[0];
-                let call_is_null = fb
-                    .ins()
-                    .icmp(ir::condcodes::IntCC::Equal, call_value, null_ptr);
-                let call_ok_block = fb.create_block();
-                fb.append_block_param(call_ok_block, ptr_ty);
-                fb.ins().brif(
-                    call_is_null,
-                    step_null_block,
-                    &step_null_block_args(ctx),
-                    call_ok_block,
-                    &[ir::BlockArg::Value(call_value)],
-                );
-                fb.switch_to_block(call_ok_block);
-                return fb.block_params(call_ok_block)[0];
             }
 
             let tuple_len = fb.ins().iconst(i64_ty, args.len() as i64);
@@ -4018,6 +4067,8 @@ fn build_cranelift_run_bb_specialized_function(
         );
         let py_call_object_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PY_CALL_OBJECT_IMPORT);
+        let py_vectorcall_ref =
+            func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PY_VECTORCALL_IMPORT);
         let py_call_with_kw_ref =
             func_imports.get_or_panic(jit_module, &mut fb.func, &DP_JIT_PY_CALL_WITH_KW_IMPORT);
         let get_raised_exception_ref = func_imports.get_or_panic(
@@ -4304,6 +4355,7 @@ fn build_cranelift_run_bb_specialized_function(
                 incref_ref,
                 decref_ref,
                 py_call_positional_three_ref,
+                py_vectorcall_ref,
                 consts: JitEmitConsts {
                     step_null_block: fast_step_null_block,
                     step_null_args: fast_step_null_args,
