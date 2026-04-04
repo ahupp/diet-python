@@ -3,10 +3,11 @@ use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::PyAnyMethods;
-use soac_blockpy::block_py::{BlockPyFunction, BlockPyModule, FunctionId};
+use soac_blockpy::block_py::{BlockPyFunction, BlockPyModule, CounterPoint, FunctionId};
 use soac_blockpy::passes::CodegenBlockPyPass;
 use std::collections::HashMap;
 use std::ffi::{c_int, c_void};
+use std::fmt::Write as _;
 use std::mem::MaybeUninit;
 use std::ptr;
 use std::sync::Arc;
@@ -52,6 +53,34 @@ impl SharedModuleState {
 
     pub fn counter_values(&self) -> &[u64] {
         &self.counter_values
+    }
+
+    pub fn counter_report_text(&self) -> String {
+        let mut out = String::new();
+        for counter in &self.lowered_module.counter_defs {
+            let value = self.counter_values.get(counter.id.0).copied().unwrap_or_default();
+            match counter.point {
+                CounterPoint::BlockEntry {
+                    function_id,
+                    block_label,
+                } => {
+                    let qualname = self
+                        .lookup_function(function_id)
+                        .map(|function| function.names.qualname.as_str())
+                        .unwrap_or("<missing-function>");
+                    let _ = writeln!(
+                        &mut out,
+                        "[soac counters] module={} counter={} point=block_entry function={} block={} value={}",
+                        self.module_name,
+                        counter.id.0,
+                        qualname,
+                        block_label,
+                        value,
+                    );
+                }
+            }
+        }
+        out
     }
 }
 
@@ -134,6 +163,11 @@ impl SoacExtModuleState {
     unsafe fn clear(&mut self) {
         if !self.initialized {
             return;
+        }
+        let shared_state = unsafe { self.shared_state.assume_init_ref().as_ref() };
+        let counter_report = shared_state.counter_report_text();
+        if !counter_report.is_empty() {
+            eprint!("{counter_report}");
         }
         unsafe { ptr::drop_in_place(self.shared_state.as_mut_ptr()) };
         self.initialized = false;
@@ -276,5 +310,50 @@ impl SoacExtModule {
     pub fn clone_shared_state(module: &Bound<'_, PyAny>) -> PyResult<Arc<SharedModuleState>> {
         let state = soac_ext_module_state(module)?;
         unsafe { (*state).clone_shared_state() }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use soac_blockpy::lower_python_to_blockpy_for_testing;
+    use soac_blockpy::passes::instrument_bb_module_with_block_entry_counters;
+
+    #[test]
+    fn counter_report_text_includes_block_entry_metadata_and_value() {
+        let mut lowered = lower_python_to_blockpy_for_testing(
+            r#"
+def f():
+    return None
+"#,
+        )
+        .expect("transform should succeed")
+        .codegen_module;
+        instrument_bb_module_with_block_entry_counters(&mut lowered);
+
+        let function = lowered
+            .callable_defs
+            .iter()
+            .find(|function| function.names.bind_name == "f")
+            .expect("missing lowered function f");
+        let entry_label = function.entry_block().label;
+
+        let shared_state = SharedModuleState {
+            function_index_by_id: build_function_index_by_id(&lowered)
+                .expect("function index should build"),
+            codegen_constants: ModuleCodegenConstants::collect_from_module(&lowered),
+            module_constant_objs: Vec::new(),
+            counter_values: vec![3].into_boxed_slice(),
+            lowered_module: lowered,
+            module_name: "counter_test".to_string(),
+            package_name: String::new(),
+        };
+
+        let report = shared_state.counter_report_text();
+        assert!(report.contains("module=counter_test"));
+        assert!(report.contains("point=block_entry"));
+        assert!(report.contains("function=f"));
+        assert!(report.contains(format!("block={entry_label}").as_str()));
+        assert!(report.contains("value=3"));
     }
 }
