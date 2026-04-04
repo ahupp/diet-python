@@ -216,7 +216,7 @@ build-web-inspector-server: ensure-cpython ensure-shared-python
   TIMEFORMAT='[diet-python timing] build_web_inspector_server_s=%3R'
   time {
     cd "$REPO_ROOT"
-    cargo build -q -p soac-inspector --bin soac-inspector
+    cargo build -p soac-inspector --bin soac-inspector
   }
 
 build-web-inspector: build-web-inspector-server
