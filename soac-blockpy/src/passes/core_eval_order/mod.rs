@@ -1,8 +1,7 @@
 use crate::block_py::{
-    expr_any, Await, Block, BlockBuilder, BlockPyFunction, BlockPyNameLike, BlockTerm,
+    expr_any, map_term, Await, Block, BlockBuilder, BlockPyFunction, BlockPyNameLike, BlockTerm,
     CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield, Del, HasMeta, Instr, Load, Store,
-    StructuredIf, StructuredInstr, TermBranchTable, TermIf, TermRaise, UnresolvedName, Walkable,
-    WithMeta, Yield, YieldFrom,
+    MapExpr, StructuredIf, StructuredInstr, UnresolvedName, Walkable, WithMeta, Yield, YieldFrom,
 };
 use crate::namegen::fresh_name;
 use crate::passes::ruff_to_blockpy::lower_structured_blocks_to_bb_blocks;
@@ -162,6 +161,26 @@ where
     }
 }
 
+struct HoistSuspendsInCoreTerm<'a, 'b> {
+    out: &'a mut Vec<StructuredInstr<CoreBlockPyExprWithAwaitAndYield>>,
+    cleanup: &'b mut Vec<ast::ExprName>,
+}
+
+impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithAwaitAndYield>
+    for HoistSuspendsInCoreTerm<'_, '_>
+{
+    fn map_expr(
+        &mut self,
+        expr: CoreBlockPyExprWithAwaitAndYield,
+    ) -> CoreBlockPyExprWithAwaitAndYield {
+        hoist_core_expr_if_contains_suspend(expr, self.out, self.cleanup)
+    }
+
+    fn map_name(&mut self, name: UnresolvedName) -> UnresolvedName {
+        name
+    }
+}
+
 fn make_eval_order_explicit_in_core_fragment(
     fragment: BlockBuilder<
         StructuredInstr<CoreBlockPyExprWithAwaitAndYield>,
@@ -213,35 +232,12 @@ fn make_eval_order_explicit_in_core_term(
     term: BlockTerm<CoreBlockPyExprWithAwaitAndYield>,
     out: &mut Vec<StructuredInstr<CoreBlockPyExprWithAwaitAndYield>>,
 ) -> BlockTerm<CoreBlockPyExprWithAwaitAndYield> {
-    match term {
-        BlockTerm::Jump(edge) => BlockTerm::Jump(edge),
-        BlockTerm::IfTerm(TermIf {
-            test,
-            then_label,
-            else_label,
-        }) => BlockTerm::IfTerm(TermIf {
-            test: hoist_core_expr_if_contains_suspend(test, out, &mut Vec::new()),
-            then_label,
-            else_label,
-        }),
-        BlockTerm::BranchTable(TermBranchTable {
-            index,
-            targets,
-            default_label,
-        }) => BlockTerm::BranchTable(TermBranchTable {
-            index: hoist_core_expr_if_contains_suspend(index, out, &mut Vec::new()),
-            targets,
-            default_label,
-        }),
-        BlockTerm::Raise(TermRaise { exc }) => BlockTerm::Raise(TermRaise {
-            exc: exc.map(|value| hoist_core_expr_if_contains_suspend(value, out, &mut Vec::new())),
-        }),
-        BlockTerm::Return(value) => BlockTerm::Return(hoist_core_expr_if_contains_suspend(
-            value,
-            out,
-            &mut Vec::new(),
-        )),
-    }
+    let mut cleanup = Vec::new();
+    let mut map = HoistSuspendsInCoreTerm {
+        out,
+        cleanup: &mut cleanup,
+    };
+    map_term(&mut map, term)
 }
 
 pub(crate) fn make_eval_order_explicit_in_core_block(
@@ -430,40 +426,33 @@ fn make_eval_order_explicit_in_core_fragment_without_await(
     BlockBuilder { body, term }
 }
 
+struct HoistYieldFreeAtomsInCoreTerm<'a, 'b> {
+    out: &'a mut Vec<StructuredInstr<CoreBlockPyExprWithYield>>,
+    cleanup: &'b mut Vec<ast::ExprName>,
+}
+
+impl MapExpr<CoreBlockPyExprWithYield, CoreBlockPyExprWithYield>
+    for HoistYieldFreeAtomsInCoreTerm<'_, '_>
+{
+    fn map_expr(&mut self, expr: CoreBlockPyExprWithYield) -> CoreBlockPyExprWithYield {
+        hoist_core_expr_without_await_to_atom(expr, self.out, self.cleanup)
+    }
+
+    fn map_name(&mut self, name: UnresolvedName) -> UnresolvedName {
+        name
+    }
+}
+
 fn make_eval_order_explicit_in_core_term_without_await(
     term: BlockTerm<CoreBlockPyExprWithYield>,
     out: &mut Vec<StructuredInstr<CoreBlockPyExprWithYield>>,
 ) -> BlockTerm<CoreBlockPyExprWithYield> {
-    match term {
-        BlockTerm::Jump(_) => term,
-        BlockTerm::IfTerm(TermIf {
-            test,
-            then_label,
-            else_label,
-        }) => BlockTerm::IfTerm(TermIf {
-            test: hoist_core_expr_without_await_to_atom(test, out, &mut Vec::new()),
-            then_label,
-            else_label,
-        }),
-        BlockTerm::BranchTable(TermBranchTable {
-            index,
-            targets,
-            default_label,
-        }) => BlockTerm::BranchTable(TermBranchTable {
-            index: hoist_core_expr_without_await_to_atom(index, out, &mut Vec::new()),
-            targets,
-            default_label,
-        }),
-        BlockTerm::Raise(TermRaise { exc }) => BlockTerm::Raise(TermRaise {
-            exc: exc
-                .map(|value| hoist_core_expr_without_await_to_atom(value, out, &mut Vec::new())),
-        }),
-        BlockTerm::Return(value) => BlockTerm::Return(hoist_core_expr_without_await_to_atom(
-            value,
-            out,
-            &mut Vec::new(),
-        )),
-    }
+    let mut cleanup = Vec::new();
+    let mut map = HoistYieldFreeAtomsInCoreTerm {
+        out,
+        cleanup: &mut cleanup,
+    };
+    map_term(&mut map, term)
 }
 
 pub(crate) fn make_eval_order_explicit_in_core_block_without_await(
