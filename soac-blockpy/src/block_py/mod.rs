@@ -482,7 +482,7 @@ impl<S: NormalizedInstr, T: Instr> Block<S, T> {
 
 impl<S: NormalizedInstr, T: Instr> Block<S, T>
 where
-    BlockTerm<T>: BlockPyFallthroughTerm<BlockLabel>,
+    BlockTerm<T>: BlockPyFallthroughTerm,
 {
     pub fn from_builder(
         label: BlockLabel,
@@ -1038,11 +1038,11 @@ pub type CodegenBlock = Block<CodegenBlockPyExpr>;
 pub type CodegenBlockPyFunction = BlockPyFunction<crate::passes::CodegenBlockPyPass>;
 pub type CodegenBlockPyModule = BlockPyModule<crate::passes::CodegenBlockPyPass>;
 
-pub trait BlockPyJumpTerm<L> {
-    fn jump_term(target: L) -> Self;
+pub trait BlockPyJumpTerm {
+    fn jump_term(target: BlockLabel) -> Self;
 }
 
-pub trait BlockPyFallthroughTerm<L>: BlockPyJumpTerm<L> {
+pub trait BlockPyFallthroughTerm: BlockPyJumpTerm {
     fn implicit_function_return() -> Self;
 }
 
@@ -1124,7 +1124,7 @@ impl<S: NormalizedInstr, T> BlockBuilder<S, T> {
     }
 }
 
-impl<S: NormalizedInstr, T: BlockPyJumpTerm<BlockLabel>> BlockBuilder<S, T> {
+impl<S: NormalizedInstr, T: BlockPyJumpTerm> BlockBuilder<S, T> {
     pub fn jump(target: BlockLabel) -> Self {
         Self::with_term(Vec::new(), Some(T::jump_term(target)))
     }
@@ -1543,7 +1543,7 @@ where
     walk_expr_children(expr, &mut |child| visitor.visit_expr(child));
 }
 
-impl<I: Instr> BlockPyJumpTerm<BlockLabel> for BlockTerm<I> {
+impl<I: Instr> BlockPyJumpTerm for BlockTerm<I> {
     fn jump_term(target: BlockLabel) -> Self {
         Self::Jump(BlockEdge::new(target))
     }
@@ -1633,7 +1633,7 @@ impl ImplicitNoneExpr for CodegenBlockPyExpr {
     }
 }
 
-impl<I: Instr + ImplicitNoneExpr> BlockPyFallthroughTerm<BlockLabel> for BlockTerm<I> {
+impl<I: Instr + ImplicitNoneExpr> BlockPyFallthroughTerm for BlockTerm<I> {
     fn implicit_function_return() -> Self {
         Self::Return(I::implicit_none_expr())
     }
