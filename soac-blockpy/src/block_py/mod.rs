@@ -32,17 +32,8 @@ pub mod pretty;
 pub(crate) mod scope;
 pub(crate) mod validate;
 pub(crate) use convert::{map_fn, map_module, map_term, try_map_fn, try_map_term};
-pub use name_gen::{BlockLabel, FunctionNameGen, ModuleNameGen};
+pub use name_gen::{BlockLabel, FunctionId, FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FunctionId(pub usize);
-
-impl fmt::Debug for FunctionId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
 
 fn is_internal_symbol(name: &str) -> bool {
     name.starts_with("_dp_") || name == "__soac__"
