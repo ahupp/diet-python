@@ -37,7 +37,7 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for Cor
     fn map_expr(&mut self, expr: CoreBlockPyExprWithAwaitAndYield) -> CoreBlockPyExprWithYield {
         __soac_match_default_CoreBlockPyExprWithAwaitAndYield!(
             expr,
-            [Await, Literal, CellRefForName, CellRef],
+            [Await],
             {
                 CoreBlockPyExprWithAwaitAndYield::Await(node) => {
                     let meta = node.meta();
@@ -51,9 +51,6 @@ impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for Cor
                         .with_meta(meta),
                     )
                 },
-                CoreBlockPyExprWithAwaitAndYield::Literal(node) => node.into(),
-                CoreBlockPyExprWithAwaitAndYield::CellRefForName(node) => node.into(),
-                CoreBlockPyExprWithAwaitAndYield::CellRef(node) => node.into(),
                 match_rest(node) => node.map_typed_children(self).into(),
             }
         )
