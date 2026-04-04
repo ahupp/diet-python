@@ -860,7 +860,8 @@ class Box:
 
     let name_binding_rendered = lowered.name_binding_text();
     assert!(
-        name_binding_rendered.contains("caught@g") && name_binding_rendered.contains("LocalLocation("),
+        name_binding_rendered.contains("caught@g")
+            && name_binding_rendered.contains("LocalLocation("),
         "{name_binding_rendered}"
     );
     assert!(

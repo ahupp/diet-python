@@ -38,6 +38,7 @@ where
     BlockPyModule {
         module_name_gen: module.module_name_gen,
         global_names: module.global_names,
+        builtin_cacheable_globals: module.builtin_cacheable_globals,
         callable_defs: module
             .callable_defs
             .into_iter()

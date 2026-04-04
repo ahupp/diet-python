@@ -37,8 +37,9 @@ pub use planning::{
 pub use specialized_helpers::ObjPtr;
 use specialized_helpers::register_specialized_jit_symbols;
 use vmctx::{
-    DELETED_OBJ_OFFSET, EMPTY_TUPLE_OBJ_OFFSET, FALSE_OBJ_OFFSET, GLOBALS_OBJ_OFFSET,
-    GLOBAL_SLOTS_OFFSET, NONE_OBJ_OFFSET, TRUE_OBJ_OFFSET,
+    DELETED_OBJ_OFFSET, EMPTY_TUPLE_OBJ_OFFSET, FALSE_OBJ_OFFSET,
+    GLOBAL_BUILTIN_CACHEABLE_SLOTS_OFFSET, GLOBAL_SLOTS_OFFSET, GLOBALS_OBJ_OFFSET,
+    NONE_OBJ_OFFSET, TRUE_OBJ_OFFSET,
 };
 pub use vmctx::{JitModuleVmCtx, ModuleRuntimeContext};
 
@@ -165,6 +166,7 @@ static DP_JIT_GET_RAISED_EXCEPTION_IMPORT: ImportSpec =
 static DP_JIT_LOAD_GLOBAL_OBJ_IMPORT: ImportSpec = ImportSpec::new(
     "dp_jit_load_global_obj",
     &[
+        SigType::Pointer,
         SigType::Pointer,
         SigType::Pointer,
         SigType::Pointer,
@@ -519,23 +521,17 @@ fn emit_codegen_located_name_load(
         NameLocation::Global(slot) => {
             let globals_obj = ctx.consts.block_const;
             let global_slots = ctx.consts.global_slots_const;
+            let global_builtin_cacheable_slots = ctx.consts.global_builtin_cacheable_slots_const;
             let slot_offset = i64::from(slot.slot()) * i64::from(ptr_ty.bytes());
             let slot_addr = fb.ins().iadd_imm(global_slots, slot_offset);
-            let cached = fb
-                .ins()
-                .load(ptr_ty, ir::MemFlags::trusted(), slot_addr, 0);
+            let cached = fb.ins().load(ptr_ty, ir::MemFlags::trusted(), slot_addr, 0);
             let cached_is_null = fb.ins().icmp(ir::condcodes::IntCC::Equal, cached, null_ptr);
             let cached_hit_block = fb.create_block();
             let slowpath_block = fb.create_block();
             let value_ok_block = fb.create_block();
             fb.append_block_param(value_ok_block, ptr_ty);
-            fb.ins().brif(
-                cached_is_null,
-                slowpath_block,
-                &[],
-                cached_hit_block,
-                &[],
-            );
+            fb.ins()
+                .brif(cached_is_null, slowpath_block, &[], cached_hit_block, &[]);
 
             fb.switch_to_block(cached_hit_block);
             if let Some(counter_ptr) = ctx.consts.global_load_hit_counter_ptr {
@@ -558,7 +554,13 @@ fn emit_codegen_located_name_load(
             let slot_index = fb.ins().iconst(ir::types::I64, i64::from(slot.slot()));
             let value_inst = fb.ins().call(
                 ctx.load_global_obj_ref,
-                &[globals_obj, global_slots, name_obj, slot_index],
+                &[
+                    globals_obj,
+                    global_slots,
+                    global_builtin_cacheable_slots,
+                    name_obj,
+                    slot_index,
+                ],
             );
             fb.ins().call(ctx.decref_ref, &[name_obj]);
             let value = fb.inst_results(value_inst)[0];
@@ -666,6 +668,7 @@ struct JitEmitConsts {
     global_slots_const: ir::Value,
     global_load_hit_counter_ptr: Option<*mut u64>,
     global_load_miss_counter_ptr: Option<*mut u64>,
+    global_builtin_cacheable_slots_const: ir::Value,
 }
 
 struct JitEmitCtx<'mc> {
@@ -1171,37 +1174,31 @@ fn build_counted_runtime_refcount_helpers(
     counter_defs: &[CounterDef],
     counter_ptrs: &[*mut u64],
 ) -> Result<CountedRefcountHelpers, String> {
-    let incref_func_id = lookup_runtime_counter_id(
-        counter_defs,
-        function.function_id,
-        "runtime_incref",
-    )
-    .map(|counter_id| {
-        let counter_ptr = counter_ptr_for_id(counter_ptrs, counter_id)?;
-        build_counted_runtime_refcount_helper(
-            jit_module,
-            &format!("py:rc:incref:{}", function.names.qualname),
-            &DP_JIT_INCREF_IMPORT,
-            counter_ptr,
-        )
-    })
-    .transpose()?;
+    let incref_func_id =
+        lookup_runtime_counter_id(counter_defs, function.function_id, "runtime_incref")
+            .map(|counter_id| {
+                let counter_ptr = counter_ptr_for_id(counter_ptrs, counter_id)?;
+                build_counted_runtime_refcount_helper(
+                    jit_module,
+                    &format!("py:rc:incref:{}", function.names.qualname),
+                    &DP_JIT_INCREF_IMPORT,
+                    counter_ptr,
+                )
+            })
+            .transpose()?;
 
-    let decref_func_id = lookup_runtime_counter_id(
-        counter_defs,
-        function.function_id,
-        "runtime_decref",
-    )
-    .map(|counter_id| {
-        let counter_ptr = counter_ptr_for_id(counter_ptrs, counter_id)?;
-        build_counted_runtime_refcount_helper(
-            jit_module,
-            &format!("py:rc:decref:{}", function.names.qualname),
-            &DP_JIT_DECREF_IMPORT,
-            counter_ptr,
-        )
-    })
-    .transpose()?;
+    let decref_func_id =
+        lookup_runtime_counter_id(counter_defs, function.function_id, "runtime_decref")
+            .map(|counter_id| {
+                let counter_ptr = counter_ptr_for_id(counter_ptrs, counter_id)?;
+                build_counted_runtime_refcount_helper(
+                    jit_module,
+                    &format!("py:rc:decref:{}", function.names.qualname),
+                    &DP_JIT_DECREF_IMPORT,
+                    counter_ptr,
+                )
+            })
+            .transpose()?;
 
     Ok(CountedRefcountHelpers {
         incref_func_id,
@@ -1790,17 +1787,16 @@ fn emit_codegen_expr(
                     ctx,
                 );
                 let uncached_slot = fb.ins().iconst(ir::types::I64, -1);
-                let list_callable_inst = fb
-                    .ins()
-                    .call(
-                        ctx.load_global_obj_ref,
-                        &[
-                            block_const,
-                            ctx.consts.global_slots_const,
-                            list_name_obj,
-                            uncached_slot,
-                        ],
-                    );
+                let list_callable_inst = fb.ins().call(
+                    ctx.load_global_obj_ref,
+                    &[
+                        block_const,
+                        ctx.consts.global_slots_const,
+                        ctx.consts.global_builtin_cacheable_slots_const,
+                        list_name_obj,
+                        uncached_slot,
+                    ],
+                );
                 fb.ins().call(decref_ref, &[list_name_obj]);
                 let list_callable = fb.inst_results(list_callable_inst)[0];
                 let list_callable_is_null =
@@ -1845,17 +1841,16 @@ fn emit_codegen_expr(
                         ctx,
                     );
                     let uncached_slot = fb.ins().iconst(ir::types::I64, -1);
-                    let dict_callable_inst = fb
-                        .ins()
-                        .call(
-                            ctx.load_global_obj_ref,
-                            &[
-                                block_const,
-                                ctx.consts.global_slots_const,
-                                dict_name_obj,
-                                uncached_slot,
-                            ],
-                        );
+                    let dict_callable_inst = fb.ins().call(
+                        ctx.load_global_obj_ref,
+                        &[
+                            block_const,
+                            ctx.consts.global_slots_const,
+                            ctx.consts.global_builtin_cacheable_slots_const,
+                            dict_name_obj,
+                            uncached_slot,
+                        ],
+                    );
                     fb.ins().call(decref_ref, &[dict_name_obj]);
                     let dict_callable = fb.inst_results(dict_callable_inst)[0];
                     let dict_callable_is_null =
@@ -2108,17 +2103,16 @@ fn emit_codegen_expr(
                     ctx,
                 );
                 let uncached_slot = fb.ins().iconst(ir::types::I64, -1);
-                let tuple_callable_inst = fb
-                    .ins()
-                    .call(
-                        ctx.load_global_obj_ref,
-                        &[
-                            block_const,
-                            ctx.consts.global_slots_const,
-                            tuple_name_obj,
-                            uncached_slot,
-                        ],
-                    );
+                let tuple_callable_inst = fb.ins().call(
+                    ctx.load_global_obj_ref,
+                    &[
+                        block_const,
+                        ctx.consts.global_slots_const,
+                        ctx.consts.global_builtin_cacheable_slots_const,
+                        tuple_name_obj,
+                        uncached_slot,
+                    ],
+                );
                 fb.ins().call(decref_ref, &[tuple_name_obj]);
                 let tuple_callable = fb.inst_results(tuple_callable_inst)[0];
                 let tuple_callable_is_null =
@@ -2478,17 +2472,16 @@ fn emit_codegen_expr(
                     ctx,
                 );
                 let uncached_slot = fb.ins().iconst(ir::types::I64, -1);
-                let dict_callable_inst = fb
-                    .ins()
-                    .call(
-                        ctx.load_global_obj_ref,
-                        &[
-                            block_const,
-                            ctx.consts.global_slots_const,
-                            dict_name_obj,
-                            uncached_slot,
-                        ],
-                    );
+                let dict_callable_inst = fb.ins().call(
+                    ctx.load_global_obj_ref,
+                    &[
+                        block_const,
+                        ctx.consts.global_slots_const,
+                        ctx.consts.global_builtin_cacheable_slots_const,
+                        dict_name_obj,
+                        uncached_slot,
+                    ],
+                );
                 fb.ins().call(decref_ref, &[dict_name_obj]);
                 let dict_callable = fb.inst_results(dict_callable_inst)[0];
                 let dict_callable_is_null =
@@ -4284,6 +4277,12 @@ fn build_cranelift_run_bb_specialized_function(
             let block_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, GLOBALS_OBJ_OFFSET);
             let global_slots_const =
                 load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, GLOBAL_SLOTS_OFFSET);
+            let global_builtin_cacheable_slots_const = load_vmctx_obj(
+                &mut fb,
+                ptr_ty,
+                vmctx_value,
+                GLOBAL_BUILTIN_CACHEABLE_SLOTS_OFFSET,
+            );
             let none_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, NONE_OBJ_OFFSET);
             let true_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, TRUE_OBJ_OFFSET);
             let false_const = load_vmctx_obj(&mut fb, ptr_ty, vmctx_value, FALSE_OBJ_OFFSET);
@@ -4320,6 +4319,7 @@ fn build_cranelift_run_bb_specialized_function(
                     global_slots_const,
                     global_load_hit_counter_ptr,
                     global_load_miss_counter_ptr,
+                    global_builtin_cacheable_slots_const,
                 },
                 load_global_obj_ref,
                 load_runtime_obj_ref,

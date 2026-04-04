@@ -136,13 +136,9 @@ pub fn instrument_bb_module_with_refcount_counters(
                     let site = CounterSite::Runtime {
                         function_id: Some(function_id),
                     };
-                    if module
-                        .counter_defs
-                        .iter()
-                        .any(|counter| {
-                            counter.scope == scope && counter.kind == kind && counter.site == site
-                        })
-                    {
+                    if module.counter_defs.iter().any(|counter| {
+                        counter.scope == scope && counter.kind == kind && counter.site == site
+                    }) {
                         continue;
                     }
                     let counter_id = CounterId(next_counter_id);
@@ -160,13 +156,9 @@ pub fn instrument_bb_module_with_refcount_counters(
             let mut next_counter_id = module.counter_defs.len();
             for kind in ["runtime_incref", "runtime_decref"] {
                 let site = CounterSite::Runtime { function_id: None };
-                if module
-                    .counter_defs
-                    .iter()
-                    .any(|counter| {
-                        counter.scope == scope && counter.kind == kind && counter.site == site
-                    })
-                {
+                if module.counter_defs.iter().any(|counter| {
+                    counter.scope == scope && counter.kind == kind && counter.site == site
+                }) {
                     continue;
                 }
                 let counter_id = CounterId(next_counter_id);

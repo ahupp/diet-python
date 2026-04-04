@@ -12,6 +12,7 @@ pub struct JitModuleVmCtx {
     pub shared_module_state: *const SharedModuleState,
     pub globals_obj: ObjPtr,
     pub global_slots: ObjPtr,
+    pub global_builtin_cacheable_slots: ObjPtr,
     pub true_obj: ObjPtr,
     pub false_obj: ObjPtr,
     pub none_obj: ObjPtr,
@@ -44,6 +45,7 @@ impl Drop for ModuleRuntimeContext {
         self.vmctx.shared_module_state = ptr::null();
         self.vmctx.globals_obj = ptr::null_mut::<c_void>();
         self.vmctx.global_slots = ptr::null_mut::<c_void>();
+        self.vmctx.global_builtin_cacheable_slots = ptr::null_mut::<c_void>();
         self.vmctx.true_obj = ptr::null_mut::<c_void>();
         self.vmctx.false_obj = ptr::null_mut::<c_void>();
         self.vmctx.none_obj = ptr::null_mut::<c_void>();
@@ -54,6 +56,8 @@ impl Drop for ModuleRuntimeContext {
 
 pub const GLOBALS_OBJ_OFFSET: i32 = offset_of!(JitModuleVmCtx, globals_obj) as i32;
 pub const GLOBAL_SLOTS_OFFSET: i32 = offset_of!(JitModuleVmCtx, global_slots) as i32;
+pub const GLOBAL_BUILTIN_CACHEABLE_SLOTS_OFFSET: i32 =
+    offset_of!(JitModuleVmCtx, global_builtin_cacheable_slots) as i32;
 pub const TRUE_OBJ_OFFSET: i32 = offset_of!(JitModuleVmCtx, true_obj) as i32;
 pub const FALSE_OBJ_OFFSET: i32 = offset_of!(JitModuleVmCtx, false_obj) as i32;
 pub const NONE_OBJ_OFFSET: i32 = offset_of!(JitModuleVmCtx, none_obj) as i32;

@@ -8,11 +8,12 @@ use std::sync::OnceLock;
 #[cfg(not(test))]
 use crate::module_globals::ModuleGlobalCache;
 
-#[cfg(not(test))]
 use std::sync::atomic::{AtomicPtr, Ordering};
 
+use crate::module_constants::raise_name_error_for_missing_name;
+
 #[cfg(not(test))]
-use crate::module_constants::{load_runtime_name_owned, raise_name_error_for_missing_name};
+use crate::module_constants::load_runtime_name_owned;
 
 #[cfg(not(test))]
 unsafe extern "C" {
@@ -105,14 +106,18 @@ unsafe extern "C" fn get_arg_item_hook(args: ObjPtr, index: i64) -> ObjPtr {
     ffi::PySequence_GetItem(args as *mut ffi::PyObject, index as ffi::Py_ssize_t) as ObjPtr
 }
 
-#[cfg(not(test))]
 unsafe fn load_global_obj_impl(
     globals_obj: ObjPtr,
     global_slots_obj: ObjPtr,
+    global_builtin_cacheable_slots_obj: ObjPtr,
     name_obj: *mut ffi::PyObject,
     slot_index: i64,
 ) -> ObjPtr {
-    if globals_obj.is_null() || global_slots_obj.is_null() || name_obj.is_null() {
+    if globals_obj.is_null()
+        || global_slots_obj.is_null()
+        || global_builtin_cacheable_slots_obj.is_null()
+        || name_obj.is_null()
+    {
         ffi::PyErr_SetString(
             ffi::PyExc_RuntimeError,
             b"invalid arguments to dp_jit_load_global_obj\0".as_ptr() as *const i8,
@@ -122,8 +127,8 @@ unsafe fn load_global_obj_impl(
     let value = ffi::PyObject_GetItem(globals_obj as *mut ffi::PyObject, name_obj);
     if !value.is_null() {
         if slot_index >= 0 {
-            let entry = (global_slots_obj as *mut AtomicPtr<ffi::PyObject>)
-                .add(slot_index as usize);
+            let entry =
+                (global_slots_obj as *mut AtomicPtr<ffi::PyObject>).add(slot_index as usize);
             let old = (*entry).swap(value, Ordering::AcqRel);
             if !old.is_null() {
                 ffi::Py_DECREF(old);
@@ -146,6 +151,17 @@ unsafe fn load_global_obj_impl(
     }
     let builtin_value = ffi::PyObject_GetItem(builtins_dict as *mut ffi::PyObject, name_obj);
     if !builtin_value.is_null() {
+        if slot_index >= 0
+            && *((global_builtin_cacheable_slots_obj as *const u8).add(slot_index as usize)) != 0
+        {
+            let entry =
+                (global_slots_obj as *mut AtomicPtr<ffi::PyObject>).add(slot_index as usize);
+            let old = (*entry).swap(builtin_value, Ordering::AcqRel);
+            if !old.is_null() {
+                ffi::Py_DECREF(old);
+            }
+            ffi::Py_INCREF(builtin_value);
+        }
         return builtin_value as ObjPtr;
     }
     if ffi::PyErr_ExceptionMatches(ffi::PyExc_KeyError) == 0 {
@@ -723,10 +739,17 @@ unsafe extern "C" fn del_deref_quietly_hook(cell: ObjPtr) -> ObjPtr {
 unsafe extern "C" fn load_global_obj_hook(
     globals_obj: ObjPtr,
     global_slots_obj: ObjPtr,
+    global_builtin_cacheable_slots_obj: ObjPtr,
     name: ObjPtr,
     slot_index: i64,
 ) -> ObjPtr {
-    load_global_obj_impl(globals_obj, global_slots_obj, name as *mut ffi::PyObject, slot_index)
+    load_global_obj_impl(
+        globals_obj,
+        global_slots_obj,
+        global_builtin_cacheable_slots_obj,
+        name as *mut ffi::PyObject,
+        slot_index,
+    )
 }
 
 #[cfg(not(test))]
@@ -845,12 +868,13 @@ mod test_only_export_stubs {
     panic_obj_export!(dp_jit_pyobject_getitem(obj: ObjPtr, key: ObjPtr));
     panic_obj_export!(dp_jit_pyobject_setitem(obj: ObjPtr, key: ObjPtr, value: ObjPtr));
     panic_obj_export!(dp_jit_pyobject_delitem(obj: ObjPtr, key: ObjPtr));
-panic_obj_export!(dp_jit_load_global_obj(
-    globals_obj: ObjPtr,
-    global_slots_obj: ObjPtr,
-    name: ObjPtr,
-    slot_index: i64
-));
+    panic_obj_export!(dp_jit_load_global_obj(
+        globals_obj: ObjPtr,
+        global_slots_obj: ObjPtr,
+        global_builtin_cacheable_slots_obj: ObjPtr,
+        name: ObjPtr,
+        slot_index: i64
+    ));
     panic_obj_export!(dp_jit_store_global(
         globals_obj: ObjPtr,
         name: ObjPtr,
@@ -984,10 +1008,17 @@ pub unsafe extern "C" fn dp_jit_pyobject_delitem(obj: ObjPtr, key: ObjPtr) -> Ob
 pub unsafe extern "C" fn dp_jit_load_global_obj(
     globals_obj: ObjPtr,
     global_slots_obj: ObjPtr,
+    global_builtin_cacheable_slots_obj: ObjPtr,
     name: ObjPtr,
     slot_index: i64,
 ) -> ObjPtr {
-    load_global_obj_hook(globals_obj, global_slots_obj, name, slot_index)
+    load_global_obj_hook(
+        globals_obj,
+        global_slots_obj,
+        global_builtin_cacheable_slots_obj,
+        name,
+        slot_index,
+    )
 }
 
 #[cfg(not(test))]
@@ -1425,4 +1456,98 @@ pub fn register_specialized_jit_symbols(builder: &mut JITBuilder) {
     builder.symbol("PyNumber_Positive", pynumber_positive_wrapper as *const u8);
     builder.symbol("PyNumber_Negative", pynumber_negative_wrapper as *const u8);
     builder.symbol("PyNumber_Invert", pynumber_invert_wrapper as *const u8);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::module_globals::ModuleGlobalCache;
+    use pyo3::Python;
+    use pyo3::types::{PyDict, PyString};
+    use std::path::Path;
+    use std::sync::atomic::{AtomicPtr, Ordering};
+
+    fn repo_root() -> &'static Path {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("workspace crate should have a repo-root parent")
+    }
+
+    fn vendored_python_home() -> std::path::PathBuf {
+        repo_root().join("vendor").join("cpython")
+    }
+
+    fn vendored_python_build_lib_dir() -> std::path::PathBuf {
+        let python_home = vendored_python_home();
+        let rel_build_dir = std::fs::read_to_string(python_home.join("pybuilddir.txt"))
+            .expect("vendored CPython pybuilddir.txt should exist");
+        python_home.join(rel_build_dir.trim())
+    }
+
+    fn initialize_test_python() {
+        let python_home = vendored_python_home();
+        unsafe {
+            std::env::set_var("PYTHONHOME", &python_home);
+        }
+        let python_path =
+            std::env::join_paths([python_home.join("Lib"), vendored_python_build_lib_dir()])
+                .expect("test PYTHONPATH should join");
+        unsafe {
+            std::env::set_var("PYTHONPATH", python_path);
+        }
+        Python::initialize();
+    }
+
+    unsafe fn cached_slot_value(cache: &ModuleGlobalCache, slot: u32) -> ObjPtr {
+        let entry = (cache.slots_ptr() as *mut AtomicPtr<ffi::PyObject>).add(slot as usize);
+        (*entry).load(Ordering::Acquire) as ObjPtr
+    }
+
+    #[test]
+    fn whitelisted_builtin_global_miss_fills_slot() {
+        initialize_test_python();
+        Python::attach(|py| unsafe {
+            let globals = PyDict::new(py);
+            let cache = ModuleGlobalCache::new(globals.as_ptr(), &["list".into()], vec![true])
+                .expect("module global cache should initialize for builtin caching test");
+            let name = PyString::new(py, "list");
+            let result = load_global_obj_impl(
+                globals.as_ptr() as ObjPtr,
+                cache.slots_ptr() as ObjPtr,
+                cache.builtin_cacheable_slots_ptr().cast_mut() as ObjPtr,
+                name.as_ptr(),
+                0,
+            );
+            assert!(!result.is_null(), "builtin lookup should succeed");
+            ffi::Py_DECREF(result.cast());
+            assert!(
+                !cached_slot_value(&cache, 0).is_null(),
+                "whitelisted builtin fallback should populate the global slot cache"
+            );
+        });
+    }
+
+    #[test]
+    fn non_whitelisted_builtin_global_miss_does_not_fill_slot() {
+        initialize_test_python();
+        Python::attach(|py| unsafe {
+            let globals = PyDict::new(py);
+            let cache = ModuleGlobalCache::new(globals.as_ptr(), &["list".into()], vec![false])
+                .expect("module global cache should initialize for builtin caching test");
+            let name = PyString::new(py, "list");
+            let result = load_global_obj_impl(
+                globals.as_ptr() as ObjPtr,
+                cache.slots_ptr() as ObjPtr,
+                cache.builtin_cacheable_slots_ptr().cast_mut() as ObjPtr,
+                name.as_ptr(),
+                0,
+            );
+            assert!(!result.is_null(), "builtin lookup should still succeed");
+            ffi::Py_DECREF(result.cast());
+            assert!(
+                cached_slot_value(&cache, 0).is_null(),
+                "non-whitelisted builtin fallback should leave the cache slot empty"
+            );
+        });
+    }
 }

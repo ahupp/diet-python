@@ -236,7 +236,13 @@ define_owned_import_spec!(
 define_owned_import_spec!(
     DP_JIT_LOAD_GLOBAL_OBJ_IMPORT,
     "dp_jit_load_global_obj",
-    &[SigType::Pointer, SigType::Pointer]
+    &[
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::I64,
+    ]
 );
 define_owned_import_spec!(
     DP_JIT_LOAD_RUNTIME_OBJ_IMPORT,
@@ -246,7 +252,12 @@ define_owned_import_spec!(
 define_owned_import_spec!(
     DP_JIT_STORE_GLOBAL_IMPORT,
     "dp_jit_store_global",
-    &[SigType::Pointer, SigType::Pointer, SigType::I64, SigType::Pointer]
+    &[
+        SigType::Pointer,
+        SigType::Pointer,
+        SigType::I64,
+        SigType::Pointer
+    ]
 );
 define_owned_import_spec!(
     DP_JIT_DEL_GLOBAL_IMPORT,
@@ -537,6 +548,8 @@ fn emit_load<'fb>(
         NameLocation::Global(slot) => {
             let globals_obj = state.ctx().consts.block_const;
             let global_slots = state.ctx().consts.global_slots_const;
+            let global_builtin_cacheable_slots =
+                state.ctx().consts.global_builtin_cacheable_slots_const;
             let ptr_ty = state.ctx().consts.ptr_ty;
             let slot_offset = i64::from(slot.slot()) * i64::from(ptr_ty.bytes());
             let slot_addr = state.fb().ins().iadd_imm(global_slots, slot_offset);
@@ -545,21 +558,19 @@ fn emit_load<'fb>(
                 .ins()
                 .load(ptr_ty, ir::MemFlags::trusted(), slot_addr, 0);
             let null_ptr = state.fb().ins().iconst(ptr_ty, 0);
-            let cached_is_null = state
-                .fb()
-                .ins()
-                .icmp(ir::condcodes::IntCC::Equal, cached, null_ptr);
+            let cached_is_null =
+                state
+                    .fb()
+                    .ins()
+                    .icmp(ir::condcodes::IntCC::Equal, cached, null_ptr);
             let cached_hit_block = state.fb().create_block();
             let slowpath_block = state.fb().create_block();
             let value_ok_block = state.fb().create_block();
             state.fb().append_block_param(value_ok_block, ptr_ty);
-            state.fb().ins().brif(
-                cached_is_null,
-                slowpath_block,
-                &[],
-                cached_hit_block,
-                &[],
-            );
+            state
+                .fb()
+                .ins()
+                .brif(cached_is_null, slowpath_block, &[], cached_hit_block, &[]);
 
             state.fb().switch_to_block(cached_hit_block);
             if let Some(counter_ptr) = state.ctx().consts.global_load_hit_counter_ptr {
@@ -576,11 +587,20 @@ fn emit_load<'fb>(
                 emit_increment_counter_ptr(state.fb(), ptr_ty, counter_ptr);
             }
             let name_obj = state.emit_owned_string_constant(op.name.id_str());
-            let slot_index = state.fb().ins().iconst(ir::types::I64, i64::from(slot.slot()));
-            let call_inst = state
+            let slot_index = state
                 .fb()
                 .ins()
-                .call(func_ref, &[globals_obj, global_slots, name_obj, slot_index]);
+                .iconst(ir::types::I64, i64::from(slot.slot()));
+            let call_inst = state.fb().ins().call(
+                func_ref,
+                &[
+                    globals_obj,
+                    global_slots,
+                    global_builtin_cacheable_slots,
+                    name_obj,
+                    slot_index,
+                ],
+            );
             state.fb().ins().call(decref_ref, &[name_obj]);
             let slow_value = state.fb().inst_results(call_inst)[0];
             state
@@ -618,10 +638,10 @@ fn emit_store<'fb>(
             .iconst(ir::types::I64, i64::from(slot.slot())),
         _ => unreachable!("emit_store only applies to global names"),
     };
-    let call_inst = state
-        .fb()
-        .ins()
-        .call(func_ref, &[globals_obj, name_obj, slot_index, arg_values[0].0]);
+    let call_inst = state.fb().ins().call(
+        func_ref,
+        &[globals_obj, name_obj, slot_index, arg_values[0].0],
+    );
     state.release_arg_values(&arg_values);
     state.fb().ins().call(decref_ref, &[name_obj]);
     let result = state.fb().inst_results(call_inst)[0];

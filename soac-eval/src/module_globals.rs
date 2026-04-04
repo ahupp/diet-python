@@ -1,6 +1,6 @@
 use pyo3::ffi;
-use std::ffi::CStr;
 use std::collections::HashMap;
+use std::ffi::CStr;
 use std::ffi::c_int;
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -10,7 +10,12 @@ type ObjPtr = *mut ffi::PyObject;
 
 unsafe extern "C" {
     fn PyDict_AddWatcher(
-        callback: unsafe extern "C" fn(c_int, *mut ffi::PyObject, *mut ffi::PyObject, *mut ffi::PyObject) -> c_int,
+        callback: unsafe extern "C" fn(
+            c_int,
+            *mut ffi::PyObject,
+            *mut ffi::PyObject,
+            *mut ffi::PyObject,
+        ) -> c_int,
     ) -> c_int;
     fn PyDict_ClearWatcher(watcher_id: c_int) -> c_int;
     fn PyDict_Watch(watcher_id: c_int, dict: *mut ffi::PyObject) -> c_int;
@@ -65,6 +70,7 @@ pub struct ModuleGlobalCache {
     slots: Box<[AtomicPtr<ffi::PyObject>]>,
     slot_by_name: HashMap<String, u32>,
     pending_self_updates: Mutex<Vec<Vec<ObjPtr>>>,
+    builtin_cacheable_slots: Box<[u8]>,
 }
 
 unsafe impl Send for ModuleGlobalCache {}
@@ -82,7 +88,11 @@ impl ModuleGlobalCache {
             .and_then(Weak::upgrade)
     }
 
-    pub unsafe fn new(dict_obj: ObjPtr, global_names: &[String]) -> Result<Arc<Self>, ()> {
+    pub unsafe fn new(
+        dict_obj: ObjPtr,
+        global_names: &[String],
+        builtin_cacheable_slots: Vec<bool>,
+    ) -> Result<Arc<Self>, ()> {
         if dict_obj.is_null() {
             ffi::PyErr_SetString(
                 ffi::PyExc_RuntimeError,
@@ -90,6 +100,11 @@ impl ModuleGlobalCache {
             );
             return Err(());
         }
+        assert_eq!(
+            global_names.len(),
+            builtin_cacheable_slots.len(),
+            "global cache metadata must match global slot count",
+        );
         let slots = (0..global_names.len())
             .map(|_| AtomicPtr::new(ptr::null_mut()))
             .collect::<Vec<_>>()
@@ -104,11 +119,17 @@ impl ModuleGlobalCache {
         let pending_self_updates = (0..global_names.len())
             .map(|_| Vec::new())
             .collect::<Vec<_>>();
+        let builtin_cacheable_slots = builtin_cacheable_slots
+            .into_iter()
+            .map(u8::from)
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
         let cache = Arc::new(Self {
             dict_obj,
             slots,
             slot_by_name,
             pending_self_updates: Mutex::new(pending_self_updates),
+            builtin_cacheable_slots,
         });
         let Some(watcher_id) = watcher_id() else {
             ffi::PyErr_SetString(
@@ -135,11 +156,20 @@ impl ModuleGlobalCache {
         self.slots.as_ptr().cast_mut().cast::<ffi::PyObject>()
     }
 
+    pub fn builtin_cacheable_slots_ptr(&self) -> *const u8 {
+        self.builtin_cacheable_slots.as_ptr()
+    }
+
     pub unsafe fn store_loaded_value_steal(&self, slot: u32, value: ObjPtr) {
         self.swap_slot(slot, value);
     }
 
-    pub unsafe fn store_global_write_through(&self, name: ObjPtr, slot: u32, value: ObjPtr) -> ObjPtr {
+    pub unsafe fn store_global_write_through(
+        &self,
+        name: ObjPtr,
+        slot: u32,
+        value: ObjPtr,
+    ) -> ObjPtr {
         if name.is_null() || value.is_null() {
             ffi::PyErr_SetString(
                 ffi::PyExc_RuntimeError,
@@ -163,7 +193,12 @@ impl ModuleGlobalCache {
         value
     }
 
-    pub unsafe fn del_global_write_through(&self, name: ObjPtr, slot: u32, quietly: bool) -> ObjPtr {
+    pub unsafe fn del_global_write_through(
+        &self,
+        name: ObjPtr,
+        slot: u32,
+        quietly: bool,
+    ) -> ObjPtr {
         if name.is_null() {
             ffi::PyErr_SetString(
                 ffi::PyExc_RuntimeError,
@@ -352,7 +387,10 @@ mod tests {
             return None;
         }
         let out = ffi::PyLong_AsLongLong(value);
-        assert!(ffi::PyErr_Occurred().is_null(), "cached slot should hold a PyLong");
+        assert!(
+            ffi::PyErr_Occurred().is_null(),
+            "cached slot should hold a PyLong"
+        );
         Some(out as i64)
     }
 
@@ -362,8 +400,9 @@ mod tests {
             let globals = ffi::PyDict_New();
             assert!(!globals.is_null());
             {
-                let cache = ModuleGlobalCache::new(globals, &["x".into(), "y".into()])
-                    .expect("global cache should initialize");
+                let cache =
+                    ModuleGlobalCache::new(globals, &["x".into(), "y".into()], vec![false, false])
+                        .expect("global cache should initialize");
                 let x_name = ffi::PyUnicode_FromString(b"x\0".as_ptr() as *const i8);
                 let y_name = ffi::PyUnicode_FromString(b"y\0".as_ptr() as *const i8);
                 let x_value = ffi::PyLong_FromLongLong(1 as c_longlong);
@@ -391,7 +430,7 @@ mod tests {
             let globals = ffi::PyDict_New();
             assert!(!globals.is_null());
             {
-                let cache = ModuleGlobalCache::new(globals, &["x".into()])
+                let cache = ModuleGlobalCache::new(globals, &["x".into()], vec![false])
                     .expect("global cache should initialize");
                 let x_name = ffi::PyUnicode_FromString(b"x\0".as_ptr() as *const i8);
                 let first_value = ffi::PyLong_FromLongLong(7 as c_longlong);

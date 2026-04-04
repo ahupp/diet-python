@@ -2,8 +2,8 @@ use super::{
     instrument_bb_module_for_trace, instrument_bb_module_with_global_load_counters,
     parse_trace_config, TraceConfig,
 };
-use crate::lower_python_to_blockpy_for_testing;
 use crate::block_py::{CounterScope, CounterSite};
+use crate::lower_python_to_blockpy_for_testing;
 use crate::passes::{lower_try_jump_exception_flow, normalize_bb_module_strings};
 
 fn tracked_name_binding_module(

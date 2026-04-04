@@ -17,8 +17,8 @@ pub use operation::{
 };
 pub use ruff_python_ast::Expr;
 use ruff_python_ast::{self as ast};
-use std::fmt;
 use soac_macros::enum_broadcast;
+use std::fmt;
 
 pub(crate) mod cfg;
 mod convert;
@@ -30,12 +30,12 @@ pub(crate) mod param_specs;
 pub mod pretty;
 pub(crate) mod scope;
 pub(crate) mod validate;
-pub(crate) use convert::{instr_any, map_fn, map_module, map_term, try_map_fn, try_map_term};
-pub use name_gen::{BlockLabel, FunctionId, FunctionNameGen, ModuleNameGen};
 pub use crate::passes::{
     CoreBlockPyExpr, CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield,
     LocatedCoreBlockPyExpr,
 };
+pub(crate) use convert::{instr_any, map_fn, map_module, map_term, try_map_fn, try_map_term};
+pub use name_gen::{BlockLabel, FunctionId, FunctionNameGen, ModuleNameGen};
 pub(crate) use validate::validate_module;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -617,6 +617,7 @@ impl<S, T: Instr> Block<S, T> {
 pub struct BlockPyModule<P: BlockPyPass, S = <P as BlockPyPass>::Expr> {
     pub module_name_gen: ModuleNameGen,
     pub global_names: Vec<String>,
+    pub builtin_cacheable_globals: Vec<bool>,
     pub callable_defs: Vec<BlockPyFunction<P, S>>,
     pub module_constants: Vec<CoreBlockPyExpr<LocatedName>>,
     pub counter_defs: Vec<CounterDef>,
@@ -638,6 +639,7 @@ impl<P: BlockPyPass, S> BlockPyModule<P, S> {
         BlockPyModule {
             module_name_gen: self.module_name_gen,
             global_names: self.global_names,
+            builtin_cacheable_globals: self.builtin_cacheable_globals,
             callable_defs: self.callable_defs.into_iter().map(&mut f).collect(),
             module_constants: Vec::new(),
             counter_defs: Vec::new(),

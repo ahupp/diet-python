@@ -7,8 +7,8 @@ use crate::block_py::{
     ClassBodyFallback, ClosureInit, ClosureSlot, CoreBlockPyExpr, CoreNumberLiteral,
     CoreNumberLiteralValue, CoreStringLiteral, Del, DelItem, EffectiveBinding, FunctionId,
     FunctionKind, HasMeta, InstrExprNode, Load, LocalLocation, LocatedCoreBlockPyExpr, LocatedName,
-    MakeCell, MakeFunction, MapExpr, NameLocation, SetItem, StorageLayout, Store, TermRaise,
-    Mappable, UnresolvedName, Walkable, WithMeta,
+    MakeCell, MakeFunction, MapExpr, Mappable, NameLocation, SetItem, StorageLayout, Store,
+    TermRaise, UnresolvedName, Walkable, WithMeta,
 };
 use crate::passes::ruff_to_blockpy::{
     populate_exception_edge_args, rewrite_current_exception_in_core_blocks,
@@ -1751,6 +1751,7 @@ struct NameLocator<'a> {
 struct ModuleGlobalSlots {
     slot_by_name: HashMap<String, u32>,
     names: Vec<String>,
+    builtin_cacheable: Vec<bool>,
 }
 
 impl ModuleGlobalSlots {
@@ -1758,16 +1759,63 @@ impl ModuleGlobalSlots {
         if let Some(slot) = self.slot_by_name.get(name).copied() {
             return slot;
         }
-        let slot = u32::try_from(self.names.len())
-            .expect("module global slot count should fit in u32");
+        let slot =
+            u32::try_from(self.names.len()).expect("module global slot count should fit in u32");
         self.slot_by_name.insert(name.to_string(), slot);
         self.names.push(name.to_string());
+        self.builtin_cacheable
+            .push(is_builtin_cacheable_global_name(name));
         slot
     }
 
-    fn into_names(self) -> Vec<String> {
-        self.names
+    fn into_names_and_builtin_cacheable(self) -> (Vec<String>, Vec<bool>) {
+        (self.names, self.builtin_cacheable)
     }
+}
+
+fn is_builtin_cacheable_global_name(name: &str) -> bool {
+    matches!(
+        name,
+        "abs"
+            | "all"
+            | "any"
+            | "bool"
+            | "bytearray"
+            | "bytes"
+            | "dict"
+            | "enumerate"
+            | "filter"
+            | "float"
+            | "frozenset"
+            | "getattr"
+            | "hasattr"
+            | "int"
+            | "isinstance"
+            | "issubclass"
+            | "iter"
+            | "len"
+            | "list"
+            | "map"
+            | "max"
+            | "min"
+            | "next"
+            | "object"
+            | "open"
+            | "print"
+            | "range"
+            | "repr"
+            | "reversed"
+            | "round"
+            | "set"
+            | "slice"
+            | "sorted"
+            | "str"
+            | "sum"
+            | "super"
+            | "tuple"
+            | "type"
+            | "zip"
+    )
 }
 
 impl NameLocator<'_> {
@@ -2657,6 +2705,7 @@ pub(crate) fn lower_name_binding_in_core_blockpy_module(
     let mut lowered = ModuleConstantExtractor::default().extract_module(BlockPyModule {
         module_name_gen: module.module_name_gen,
         global_names: Vec::new(),
+        builtin_cacheable_globals: Vec::new(),
         callable_defs: callable_defs
             .into_iter()
             .map(|callable| {
@@ -2670,6 +2719,8 @@ pub(crate) fn lower_name_binding_in_core_blockpy_module(
         module_constants: Vec::new(),
         counter_defs: Vec::new(),
     });
-    lowered.global_names = global_slots.into_names();
+    let (global_names, builtin_cacheable_globals) = global_slots.into_names_and_builtin_cacheable();
+    lowered.global_names = global_names;
+    lowered.builtin_cacheable_globals = builtin_cacheable_globals;
     lowered
 }
