@@ -99,7 +99,7 @@ fn call_and_keyword_arg_expr_helpers_preserve_shape() {
 }
 
 fn test_name_gen() -> FunctionNameGen {
-    let mut module_name_gen = ModuleNameGen::new(0);
+    let module_name_gen = ModuleNameGen::new(0);
     module_name_gen.next_function_name_gen()
 }
 
@@ -171,6 +171,7 @@ fn module_visitor_walks_blockpy_in_evaluation_order() {
     }
 
     let module = BlockPyModule::<StructuredExprPass, StructuredInstr<Expr>> {
+        module_name_gen: ModuleNameGen::new(0),
         callable_defs: vec![BlockPyFunction {
             function_id: FunctionId(0),
             name_gen: test_name_gen(),

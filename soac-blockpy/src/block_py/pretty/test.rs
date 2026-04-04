@@ -30,7 +30,7 @@ fn empty_param_spec() -> ParamSpec {
 }
 
 fn test_name_gen() -> crate::block_py::FunctionNameGen {
-    let mut module_name_gen = crate::block_py::ModuleNameGen::new(0);
+    let module_name_gen = crate::block_py::ModuleNameGen::new(0);
     module_name_gen.next_function_name_gen()
 }
 
@@ -92,6 +92,7 @@ def classify(a, /, b: int = 1, *args, c=2, **kwargs):
 #[test]
 fn renders_empty_module_marker() {
     let empty_module: BlockPyModule<CoreBlockPyPassWithAwaitAndYield> = BlockPyModule {
+        module_name_gen: crate::block_py::ModuleNameGen::new(0),
         callable_defs: Vec::new(),
         module_constants: Vec::new(),
     };
@@ -202,6 +203,7 @@ async def no_lying():
     );
     let function = function_by_bind_name(&blockpy, "no_lying");
     let rendered = blockpy_module_to_string(&BlockPyModule {
+        module_name_gen: crate::block_py::ModuleNameGen::new(0),
         callable_defs: vec![function.clone()],
         module_constants: Vec::new(),
     });
@@ -229,6 +231,7 @@ async def no_lying():
 #[test]
 fn renders_public_closure_metadata_in_function_header() {
     let rendered = blockpy_module_to_string(&BlockPyModule {
+        module_name_gen: crate::block_py::ModuleNameGen::new(0),
         callable_defs: vec![BlockPyFunction::<CoreBlockPyPassWithAwaitAndYield> {
             function_id: crate::block_py::FunctionId(0),
             name_gen: test_name_gen(),
@@ -319,6 +322,7 @@ fn renders_followup_blocks_under_their_owning_entry_block() {
         scope: crate::block_py::CallableScopeInfo::default(),
     };
     let rendered = blockpy_module_to_string(&BlockPyModule {
+        module_name_gen: crate::block_py::ModuleNameGen::new(0),
         callable_defs: vec![function],
         module_constants: Vec::new(),
     });
@@ -400,6 +404,7 @@ fn sorts_rendered_root_and_child_blocks_by_label() {
         scope: crate::block_py::CallableScopeInfo::default(),
     };
     let rendered = blockpy_module_to_string(&BlockPyModule {
+        module_name_gen: crate::block_py::ModuleNameGen::new(0),
         callable_defs: vec![function],
         module_constants: Vec::new(),
     });
@@ -447,6 +452,7 @@ fn collects_referenced_labels_from_nested_if_fragments_via_visitor() {
 #[test]
 fn renders_bb_block_metadata_with_shared_layout() {
     let rendered = blockpy_module_to_string(&BlockPyModule {
+        module_name_gen: crate::block_py::ModuleNameGen::new(0),
         callable_defs: vec![BlockPyFunction::<ResolvedStorageBlockPyPass> {
             function_id: crate::block_py::FunctionId(0),
             name_gen: test_name_gen(),

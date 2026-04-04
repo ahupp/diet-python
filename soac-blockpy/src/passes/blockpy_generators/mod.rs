@@ -1601,7 +1601,7 @@ fn ordered_resume_binding_logical_names(
 
 pub(crate) fn lower_generator_like_function(
     callable: BlockPyFunction<CoreBlockPyPassWithYield>,
-    module_name_gen: &mut ModuleNameGen,
+    module_name_gen: &ModuleNameGen,
 ) -> Vec<BlockPyFunction<CoreBlockPyPass>> {
     assert!(
         is_generator_like(callable.kind),
@@ -1681,14 +1681,7 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
 ) -> BlockPyModule<CoreBlockPyPass> {
     let module =
         module.map_callable_defs(make_eval_order_explicit_in_core_callable_def_without_await);
-    let next_hidden_function_id = module
-        .callable_defs
-        .iter()
-        .map(|callable| callable.function_id.0)
-        .max()
-        .map(|value| value + 1)
-        .unwrap_or(0);
-    let mut module_name_gen = ModuleNameGen::new(next_hidden_function_id);
+    let module_name_gen = module.module_name_gen.clone();
     let mut callable_defs = Vec::new();
     for callable in module.callable_defs {
         match callable.kind {
@@ -1705,12 +1698,13 @@ pub(crate) fn lower_yield_in_lowered_core_blockpy_module_bundle(
             FunctionKind::Generator | FunctionKind::Coroutine | FunctionKind::AsyncGenerator => {
                 callable_defs.extend(lower_generator_like_function(
                     callable,
-                    &mut module_name_gen,
+                    &module_name_gen,
                 ));
             }
         }
     }
     BlockPyModule {
+        module_name_gen,
         callable_defs,
         module_constants: Vec::new(),
     }

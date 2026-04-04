@@ -157,7 +157,7 @@ mod tests {
     }
 
     fn test_function() -> BlockPyFunction<CodegenBlockPyPass> {
-        let mut module_name_gen = ModuleNameGen::new(0);
+        let module_name_gen = ModuleNameGen::new(0);
         let name_gen = module_name_gen.next_function_name_gen();
         BlockPyFunction {
             function_id: name_gen.function_id(),
@@ -209,6 +209,7 @@ mod tests {
         module_constants: Vec<LocatedCoreBlockPyExpr>,
     ) -> String {
         let module = BlockPyModule {
+            module_name_gen: ModuleNameGen::new(0),
             callable_defs: vec![function.clone()],
             module_constants,
         };
@@ -718,6 +719,7 @@ mod tests {
             ret_term(op_expr(Load::new(test_constant_name(0)))),
         );
         let module = BlockPyModule {
+            module_name_gen: ModuleNameGen::new(0),
             callable_defs: vec![function.clone()],
             module_constants: vec![int_literal(7)],
         };

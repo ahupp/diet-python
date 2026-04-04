@@ -14,6 +14,7 @@ pub fn lower_try_jump_exception_flow(
         .map(lower_function_try_jump_exception_flow)
         .collect();
     BlockPyModule {
+        module_name_gen: module.module_name_gen.clone(),
         callable_defs,
         module_constants: module.module_constants.clone(),
     }

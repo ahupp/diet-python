@@ -538,6 +538,7 @@ impl<S, T: Instr> Block<S, T> {
 
 #[derive(Debug, Clone, Default)]
 pub struct BlockPyModule<P: BlockPyPass, S = <P as BlockPyPass>::Expr> {
+    pub module_name_gen: ModuleNameGen,
     pub callable_defs: Vec<BlockPyFunction<P, S>>,
     pub module_constants: Vec<CoreBlockPyExpr<LocatedName>>,
 }
@@ -552,6 +553,7 @@ impl<P: BlockPyPass, S> BlockPyModule<P, S> {
             "map_callable_defs does not preserve module constants"
         );
         BlockPyModule {
+            module_name_gen: self.module_name_gen,
             callable_defs: self.callable_defs.into_iter().map(&mut f).collect(),
             module_constants: Vec::new(),
         }

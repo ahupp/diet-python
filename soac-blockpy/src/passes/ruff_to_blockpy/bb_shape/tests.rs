@@ -16,7 +16,7 @@ pub(crate) fn lower_structured_core_blocks_to_bb_blocks<N>(
 where
     N: BlockPyNameLike,
 {
-    let mut module_name_gen = ModuleNameGen::new(0);
+    let module_name_gen = ModuleNameGen::new(0);
     let name_gen = module_name_gen.next_function_name_gen();
     let normalized_blocks = blocks.to_vec();
     if let Some(max_label) = normalized_blocks
@@ -32,7 +32,7 @@ where
 pub(crate) fn lower_structured_unresolved_core_blocks_to_bb_blocks(
     blocks: &[Block<StructuredInstr<CoreBlockPyExpr>, CoreBlockPyExpr>],
 ) -> Vec<Block<CoreBlockPyExpr, CoreBlockPyExpr>> {
-    let mut module_name_gen = ModuleNameGen::new(0);
+    let module_name_gen = ModuleNameGen::new(0);
     let name_gen = module_name_gen.next_function_name_gen();
     let mut normalized_blocks = blocks.to_vec();
     if let Some(max_label) = normalized_blocks

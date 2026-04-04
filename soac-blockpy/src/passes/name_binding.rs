@@ -2748,6 +2748,7 @@ pub(crate) fn lower_name_binding_in_core_blockpy_module(
     let callee_make_function_capture_names =
         compute_module_make_function_capture_names(&callable_defs);
     ModuleConstantExtractor::default().extract_module(BlockPyModule {
+        module_name_gen: module.module_name_gen,
         callable_defs: callable_defs
             .into_iter()
             .map(|callable| {

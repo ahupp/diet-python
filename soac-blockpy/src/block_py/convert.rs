@@ -10,6 +10,7 @@ where
     M: MapExpr<PIn::Expr, POut::Expr>,
 {
     BlockPyModule {
+        module_name_gen: module.module_name_gen,
         callable_defs: module
             .callable_defs
             .into_iter()
@@ -99,6 +100,7 @@ where
     M: TryMapExpr<PIn::Expr, POut::Expr, Error>,
 {
     Ok(BlockPyModule {
+        module_name_gen: module.module_name_gen,
         callable_defs: module
             .callable_defs
             .into_iter()

@@ -11,7 +11,7 @@ use crate::py_expr;
 use ruff_python_ast::{self as ast, Expr};
 
 fn test_name_gen() -> crate::block_py::FunctionNameGen {
-    let mut module_name_gen = crate::block_py::ModuleNameGen::new(0);
+    let module_name_gen = crate::block_py::ModuleNameGen::new(0);
     module_name_gen.next_function_name_gen()
 }
 
@@ -40,6 +40,7 @@ fn lowers_await_to_yield_from_await_iter() {
         exc_edge: None,
     });
     let module = BlockPyModule {
+        module_name_gen: crate::block_py::ModuleNameGen::new(0),
         callable_defs: vec![BlockPyFunction {
             function_id: crate::block_py::FunctionId(0),
             name_gen: test_name_gen(),

@@ -17,6 +17,7 @@ pub fn normalize_bb_module_strings(
         .collect::<Vec<BlockPyFunction<CodegenBlockPyPass>>>();
     module_constants.extend(normalizer.module_constants);
     BlockPyModule {
+        module_name_gen: module.module_name_gen,
         callable_defs,
         module_constants,
     }

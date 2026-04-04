@@ -15,7 +15,7 @@ use crate::passes::{CoreBlockPyPass, CoreBlockPyPassWithAwaitAndYield};
 use stmt_lowering::lower_stmt_into;
 
 fn test_name_gen() -> FunctionNameGen {
-    let mut module_name_gen = crate::block_py::ModuleNameGen::new(0);
+    let module_name_gen = crate::block_py::ModuleNameGen::new(0);
     module_name_gen.next_function_name_gen()
 }
 

@@ -76,17 +76,32 @@ impl FunctionNameGen {
 
 #[derive(Debug)]
 pub struct ModuleNameGen {
-    next_function_id: usize,
+    state: Arc<AtomicUsize>,
 }
 
 impl ModuleNameGen {
     pub fn new(next_function_id: usize) -> Self {
-        Self { next_function_id }
+        Self {
+            state: Arc::new(AtomicUsize::new(next_function_id)),
+        }
     }
 
-    pub fn next_function_name_gen(&mut self) -> FunctionNameGen {
-        let function_id = FunctionId(self.next_function_id);
-        self.next_function_id += 1;
+    pub fn next_function_name_gen(&self) -> FunctionNameGen {
+        let function_id = FunctionId(self.state.fetch_add(1, Ordering::Relaxed));
         FunctionNameGen::new(function_id)
+    }
+}
+
+impl Clone for ModuleNameGen {
+    fn clone(&self) -> Self {
+        Self {
+            state: Arc::clone(&self.state),
+        }
+    }
+}
+
+impl Default for ModuleNameGen {
+    fn default() -> Self {
+        Self::new(0)
     }
 }
