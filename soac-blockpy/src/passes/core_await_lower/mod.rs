@@ -4,6 +4,7 @@ use crate::block_py::{
     CoreBlockPyExprWithYield, HasMeta, InstrExprNode, MapExpr, TryMapExpr, UnresolvedName,
     WithMeta, YieldFrom,
 };
+use crate::block_py::__soac_match_default_CoreBlockPyExprWithAwaitAndYield;
 use crate::passes::{CoreBlockPyPassWithAwaitAndYield, CoreBlockPyPassWithYield};
 
 pub(crate) struct ErrOnAwait;
@@ -32,21 +33,12 @@ impl
 
 struct CoreAwaitLoweringMap;
 
-macro_rules! lower_core_await_expr_arms {
-    ([$map:ident] [$expr:ident] [$($variant:ident),*]) => {
-        lower_core_await_expr_arms!(@collect [$map] [$expr] [] [$($variant),*])
-    };
-    (@collect [$map:ident] [$expr:ident] [$($arms:tt)*] []) => {
-        match $expr {
-            $($arms)*
-        }
-    };
-    (@collect [$map:ident] [$expr:ident] [$($arms:tt)*] [Await $(, $rest:ident)*]) => {
-        lower_core_await_expr_arms!(
-            @collect
-            [$map]
-            [$expr]
-            [$($arms)*
+impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for CoreAwaitLoweringMap {
+    fn map_expr(&mut self, expr: CoreBlockPyExprWithAwaitAndYield) -> CoreBlockPyExprWithYield {
+        __soac_match_default_CoreBlockPyExprWithAwaitAndYield!(
+            expr,
+            [Await, Literal, CellRefForName, CellRef],
+            {
                 CoreBlockPyExprWithAwaitAndYield::Await(node) => {
                     let meta = node.meta();
                     CoreBlockPyExprWithYield::YieldFrom(
@@ -54,69 +46,16 @@ macro_rules! lower_core_await_expr_arms {
                             "await_iter",
                             meta.node_index.clone(),
                             meta.range,
-                            vec![$map.map_expr(*node.value)],
+                            vec![self.map_expr(*node.value)],
                         ))
                         .with_meta(meta),
                     )
                 },
-            ]
-            [$($rest),*]
-        )
-    };
-    (@collect [$map:ident] [$expr:ident] [$($arms:tt)*] [Literal $(, $rest:ident)*]) => {
-        lower_core_await_expr_arms!(
-            @collect
-            [$map]
-            [$expr]
-            [$($arms)*
                 CoreBlockPyExprWithAwaitAndYield::Literal(node) => node.into(),
-            ]
-            [$($rest),*]
-        )
-    };
-    (@collect [$map:ident] [$expr:ident] [$($arms:tt)*] [CellRefForName $(, $rest:ident)*]) => {
-        lower_core_await_expr_arms!(
-            @collect
-            [$map]
-            [$expr]
-            [$($arms)*
                 CoreBlockPyExprWithAwaitAndYield::CellRefForName(node) => node.into(),
-            ]
-            [$($rest),*]
-        )
-    };
-    (@collect [$map:ident] [$expr:ident] [$($arms:tt)*] [CellRef $(, $rest:ident)*]) => {
-        lower_core_await_expr_arms!(
-            @collect
-            [$map]
-            [$expr]
-            [$($arms)*
                 CoreBlockPyExprWithAwaitAndYield::CellRef(node) => node.into(),
-            ]
-            [$($rest),*]
-        )
-    };
-    (@collect [$map:ident] [$expr:ident] [$($arms:tt)*] [$variant:ident $(, $rest:ident)*]) => {
-        lower_core_await_expr_arms!(
-            @collect
-            [$map]
-            [$expr]
-            [$($arms)*
-                CoreBlockPyExprWithAwaitAndYield::$variant(node) => {
-                    node.map_typed_children($map).into()
-                },
-            ]
-            [$($rest),*]
-        )
-    };
-}
-
-impl MapExpr<CoreBlockPyExprWithAwaitAndYield, CoreBlockPyExprWithYield> for CoreAwaitLoweringMap {
-    fn map_expr(&mut self, expr: CoreBlockPyExprWithAwaitAndYield) -> CoreBlockPyExprWithYield {
-        crate::block_py::__soac_enum_variants_CoreBlockPyExprWithAwaitAndYield!(
-            lower_core_await_expr_arms,
-            [self],
-            [expr]
+                match_rest(node) => node.map_typed_children(self).into(),
+            }
         )
     }
 
